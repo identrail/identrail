@@ -1063,6 +1063,142 @@ describe('Domain-first app routes', () => {
     expect(screen.queryByText('Production AWS')).not.toBeInTheDocument();
   });
 
+  it('renders AWS account and region inventory with current connector coverage', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+
+    const { ProductAWSAccountsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/accounts?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/accounts" element={<ProductAWSAccountsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS accounts and regions' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'AWS account and region coverage' })).toBeInTheDocument();
+    expect(screen.getAllByText(/AWS account 123456789012/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Region us-east-1/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: /Open Connect AWS/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/connect?environment=production'
+    );
+  });
+
+  it('renders AWS machine identity inventory with the current IAM role and future workload rows', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+
+    const { ProductAWSIdentitiesPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/identities?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/identities" element={<ProductAWSIdentitiesPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS machine identities' })).toBeInTheDocument();
+    expect(screen.getByRole('search', { name: /AWS machine identities filters/i })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'AWS machine identity inventory' })).toBeInTheDocument();
+    expect(screen.getAllByText('arn:aws:iam::123456789012:role/IdentrailReadOnly').length).toBeGreaterThan(0);
+    expect(screen.getByText(/EC2 instance profiles/i)).toBeInTheDocument();
+    expect(screen.getByText(/Risk score/i)).toBeInTheDocument();
+    expect(screen.getByText(/Unscored until AWS findings land/i)).toBeInTheDocument();
+  });
+
+  it('renders AWS agent identity inventory as an honest reserved surface', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+
+    const { ProductAWSAgentsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/agents?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/agents" element={<ProductAWSAgentsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS agent identities' })).toBeInTheDocument();
+    expect(screen.getAllByText(/Connect AWS to populate current inventory anchors/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Bedrock agents/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/AgentCore runtime and gateway identity/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Secret metadata only, no value reads/i)).toBeInTheDocument();
+  });
+
+  it('keeps AWS resources inventory metadata-only when no environment exists', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
+    const getAWSProjectConnection = vi.spyOn(api.apiClient, 'getAWSProjectConnection');
+
+    const { ProductAWSResourcesPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/resources']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/resources" element={<ProductAWSResourcesPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS resources and credentials' })).toBeInTheDocument();
+    expect(screen.getByText(/Create an environment before inventory can resolve/i)).toBeInTheDocument();
+    expect(screen.getByText(/No secret value reads/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Secrets Manager metadata/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: /Open environments/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/projects?source=aws'
+    );
+    expect(getAWSProjectConnection).not.toHaveBeenCalled();
+  });
+
   it('keeps AWS connect on the domain page when no environment exists', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');

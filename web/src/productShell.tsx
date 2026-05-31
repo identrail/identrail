@@ -69,8 +69,11 @@ import { PermissionPreviewModal } from './components/connector/PermissionPreview
 import { ConfirmDestructiveModal, DangerZone, DangerZoneRow } from './components/settings/DangerZone';
 import {
   DomainDetailPanel,
+  DomainCoverageCard,
+  DomainDataTable,
   DomainEmptyState,
   DomainErrorState,
+  DomainFilterBar,
   DomainKpiStrip,
   DomainLoadingState,
   DomainLogoMark,
@@ -2651,6 +2654,816 @@ function AWSConnectionDiagnostics({
       ))}
     </>
   );
+}
+
+type AWSInventoryRouteID = Extract<ProductDomainRouteID, 'accounts' | 'identities' | 'agents' | 'resources'>;
+
+type AWSInventoryPageCopy = {
+  routeID: AWSInventoryRouteID;
+  title: string;
+  eyebrow: string;
+  description: string;
+  statusLabel: string;
+  primaryKpi: string;
+  currentCapability: string;
+  plannedCapability: string;
+};
+
+const AWS_INVENTORY_PAGE_COPY: Record<AWSInventoryRouteID, AWSInventoryPageCopy> = {
+  accounts: {
+    routeID: 'accounts',
+    title: 'AWS accounts and regions',
+    eyebrow: 'Coverage inventory',
+    description:
+      'Track the selected AWS account, active region, connector coverage, scan readiness, and the account/region planner that will support future scale.',
+    statusLabel: 'Coverage shell',
+    primaryKpi: 'Account scope',
+    currentCapability: 'Current connector account and region from AWS role validation.',
+    plannedCapability: 'Organization account discovery, multi-region cursor state, and partial-failure reporting.'
+  },
+  identities: {
+    routeID: 'identities',
+    title: 'AWS machine identities',
+    eyebrow: 'Identity inventory',
+    description:
+      'Inspect the IAM role Identrail can see today while reserving first-class inventory space for workload, CI/CD, and federation identities.',
+    statusLabel: 'Inventory shell',
+    primaryKpi: 'Identity anchor',
+    currentCapability: 'Current IAM role ARN, principal ARN, account, region, and permission diagnostics.',
+    plannedCapability: 'Instance profiles, ECS task roles, Lambda roles, EKS IRSA/Pod Identity, and deploy roles.'
+  },
+  agents: {
+    routeID: 'agents',
+    title: 'AWS agent identities',
+    eyebrow: 'Agent inventory',
+    description:
+      'Reserve a first-class AWS agent identity workspace for Bedrock, AgentCore, tool, MCP, and agent-to-role relationship coverage.',
+    statusLabel: 'Reserved surface',
+    primaryKpi: 'Agent graph',
+    currentCapability: 'Current AWS role context is visible as the future agent-to-role anchor.',
+    plannedCapability: 'Bedrock agents, AgentCore runtime/gateway identity, MCP tools, and external AI key metadata.'
+  },
+  resources: {
+    routeID: 'resources',
+    title: 'AWS resources and credentials',
+    eyebrow: 'Reachability inventory',
+    description:
+      'Map the resource and credential metadata Identrail will reason about without requesting or displaying secret values.',
+    statusLabel: 'Reachability shell',
+    primaryKpi: 'Resource scope',
+    currentCapability: 'Current account, region, role, permission checks, and diagnostics frame the reachability boundary.',
+    plannedCapability: 'Secrets Manager metadata, SSM Parameter metadata, KMS policies/grants, S3 sensitivity, and credential references.'
+  }
+};
+
+type AWSInventoryDataState = {
+  scope: ProductSession | null;
+  environmentScope: EnvironmentScopeState;
+  selectedEnvironmentID: string;
+  connection: AWSConnectionStatus | null;
+  connectionLoading: boolean;
+  connectionError: string;
+  onChangeEnvironment: (environmentID: string) => void;
+  refreshConnection: () => void;
+};
+
+type AWSInventoryTableRow = {
+  id: string;
+  name: string;
+  category: string;
+  scope: string;
+  status: string;
+  stage: AWSCapabilityStage;
+  detail: string;
+};
+
+type AWSInventoryCoverageRow = {
+  id: string;
+  category: string;
+  coverage: string;
+  source: string;
+  status: string;
+  detail: string;
+};
+
+function useAWSInventoryData(): AWSInventoryDataState {
+  const params = useParams<ScopeRouteParams>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const scope = resolveScopeFromParams(params);
+  const requestedEnvironmentID = useMemo(() => environmentIDFromSearch(location.search), [location.search]);
+  const environmentScope = useEnvironmentScope(scope, requestedEnvironmentID);
+  const selectedEnvironmentID = environmentScope.selectedID;
+  const [connection, setConnection] = useState<AWSConnectionStatus | null>(null);
+  const [connectionLoading, setConnectionLoading] = useState(false);
+  const [connectionError, setConnectionError] = useState('');
+  const connectionRequestRef = useRef(0);
+  const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
+  const scopeKey = scope ? `${scope.tenantID}::${scope.workspaceID}` : '';
+  const scopeKeyRef = useRef(scopeKey);
+  selectedEnvironmentIDRef.current = selectedEnvironmentID;
+  scopeKeyRef.current = scopeKey;
+
+  const refreshConnection = useCallback(async () => {
+    const requestID = ++connectionRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKeyRef.current;
+    if (!scope || !requestEnvironmentID) {
+      setConnection(null);
+      setConnectionError('');
+      setConnectionLoading(false);
+      return;
+    }
+    const isStale = () =>
+      requestID !== connectionRequestRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
+    setConnectionLoading(true);
+    setConnectionError('');
+    try {
+      const response = await apiClient.getAWSProjectConnection(
+        scope.workspaceID,
+        requestEnvironmentID,
+        buildProductAuthContext(scope)
+      );
+      if (isStale()) {
+        return;
+      }
+      setConnection(response.connection);
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      setConnection(null);
+      setConnectionError(formatAPIError(error, 'Unable to load AWS inventory status.'));
+    } finally {
+      if (!isStale()) {
+        setConnectionLoading(false);
+      }
+    }
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
+  useEffect(() => {
+    void refreshConnection();
+    return () => {
+      connectionRequestRef.current += 1;
+    };
+  }, [refreshConnection]);
+
+  const onChangeEnvironment = useCallback(
+    (environmentID: string) => {
+      connectionRequestRef.current += 1;
+      setConnection(null);
+      setConnectionError('');
+      navigate(
+        {
+          pathname: location.pathname,
+          search: environmentSearch(location.search, environmentID)
+        },
+        { replace: false }
+      );
+    },
+    [location.pathname, location.search, navigate]
+  );
+
+  return {
+    scope,
+    environmentScope,
+    selectedEnvironmentID,
+    connection,
+    connectionLoading,
+    connectionError,
+    onChangeEnvironment,
+    refreshConnection: () => void refreshConnection()
+  };
+}
+
+function awsCoverageState(connection: AWSConnectionStatus | null): string {
+  if (!connection) {
+    return 'missing';
+  }
+  if (!connection.connected) {
+    return 'degraded';
+  }
+  if (connection.permission_checks.some((check) => !check.passed)) {
+    return 'degraded';
+  }
+  return 'covered';
+}
+
+function awsInventoryPillTone(stage: AWSCapabilityStage): 'success' | 'warning' | 'neutral' {
+  return awsStageTone(stage);
+}
+
+function AWSInventoryPill({
+  stage,
+  label
+}: {
+  stage: AWSCapabilityStage;
+  label?: string;
+}) {
+  return <span className={`idt-aws-inventory-pill is-${awsInventoryPillTone(stage)}`}>{label ?? awsStageLabel(stage)}</span>;
+}
+
+function AWSInventoryFilterSet({ routeID }: { routeID: AWSInventoryRouteID }) {
+  const routeFilters: Record<AWSInventoryRouteID, Array<{ label: string; value: string; options: string[] }>> = {
+    accounts: [
+      { label: 'Account', value: 'all', options: ['All accounts', 'Connected account', 'Planned accounts'] },
+      { label: 'Region', value: 'all', options: ['All regions', 'Current region', 'Uncovered regions'] },
+      { label: 'Coverage', value: 'all', options: ['All coverage', 'Covered', 'Missing', 'Degraded', 'Not yet available'] }
+    ],
+    identities: [
+      { label: 'Identity type', value: 'all', options: ['All types', 'IAM role', 'Instance profile', 'ECS task role', 'Lambda role', 'EKS identity', 'CI/CD role'] },
+      { label: 'Service', value: 'all', options: ['All services', 'IAM', 'EC2', 'ECS', 'Lambda', 'EKS', 'OIDC'] },
+      { label: 'Risk', value: 'all', options: ['All risk', 'Unscored', 'High', 'Medium', 'Low'] },
+      { label: 'Status', value: 'all', options: ['All status', 'Wired now', 'Coming', 'Not yet available'] }
+    ],
+    agents: [
+      { label: 'Agent surface', value: 'all', options: ['All surfaces', 'Bedrock agents', 'AgentCore runtime', 'MCP gateway', 'External provider keys'] },
+      { label: 'Relationship', value: 'all', options: ['All relationships', 'Agent to role', 'Agent to tool', 'Agent to secret', 'Agent to user'] },
+      { label: 'Status', value: 'all', options: ['All status', 'Role anchor', 'Coming', 'Not yet available'] }
+    ],
+    resources: [
+      { label: 'Category', value: 'all', options: ['All categories', 'Secrets Manager', 'SSM Parameter', 'KMS', 'S3', 'Control plane'] },
+      { label: 'Sensitivity', value: 'all', options: ['All sensitivity', 'Production', 'Customer data', 'Secret-bearing', 'KMS-admin', 'Control-plane'] },
+      { label: 'Read posture', value: 'metadata', options: ['Metadata only', 'No secret values'] }
+    ]
+  };
+  const searchPlaceholder: Record<AWSInventoryRouteID, string> = {
+    accounts: 'Search account or region',
+    identities: 'Search identity ARN',
+    agents: 'Search agent surface',
+    resources: 'Search resource metadata'
+  };
+
+  return (
+    <DomainFilterBar label={`${AWS_INVENTORY_PAGE_COPY[routeID].title} filters`}>
+      {routeFilters[routeID].map((filter) => (
+        <label key={filter.label}>
+          {filter.label}
+          <select defaultValue={filter.value}>
+            {filter.options.map((option, index) => (
+              <option key={option} value={index === 0 ? filter.value : option.toLowerCase().replace(/[^a-z0-9]+/g, '-')}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+      ))}
+      <label>
+        Search
+        <input placeholder={searchPlaceholder[routeID]} />
+      </label>
+    </DomainFilterBar>
+  );
+}
+
+function buildAWSInventoryKpis(routeID: AWSInventoryRouteID, connection: AWSConnectionStatus | null) {
+  const permissionTotal = connection?.permission_checks.length ?? 0;
+  const permissionPassed = connection?.permission_checks.filter((check) => check.passed).length ?? 0;
+  const primaryValue =
+    routeID === 'accounts'
+      ? connection?.account_id
+        ? '1 account'
+        : 'Pending'
+      : routeID === 'identities'
+        ? connection?.role_arn
+          ? '1 role'
+          : 'Pending'
+        : routeID === 'agents'
+          ? 'Reserved'
+          : 'Metadata only';
+
+  return [
+    {
+      label: AWS_INVENTORY_PAGE_COPY[routeID].primaryKpi,
+      value: primaryValue,
+      detail:
+        routeID === 'resources'
+          ? 'Secret values are not requested or displayed.'
+          : connection?.display_name ?? 'Connect AWS to populate current inventory anchors.',
+      tone: connection?.connected || routeID === 'resources' ? 'success' : 'warning'
+    },
+    {
+      label: 'Account / region',
+      value: connection?.account_id ? 'Scoped' : 'Missing',
+      detail: awsAccountRegionLabel(connection),
+      tone: connection?.account_id ? 'success' : 'warning'
+    },
+    {
+      label: 'Permission checks',
+      value: permissionTotal > 0 ? `${permissionPassed}/${permissionTotal}` : 'Not run',
+      detail: permissionTotal > 0 ? 'Connector validation evidence available.' : 'Validation evidence is not available for this environment.',
+      tone: permissionTotal > 0 && permissionPassed === permissionTotal ? 'success' : permissionTotal > 0 ? 'warning' : 'neutral'
+    },
+    {
+      label: 'Backend wave',
+      value: 'Future-ready',
+      detail: AWS_INVENTORY_PAGE_COPY[routeID].plannedCapability,
+      tone: 'info'
+    }
+  ] satisfies ProductDomainRoute['metrics'];
+}
+
+function AWSInventoryRouteAside({
+  copy,
+  connection,
+  selectedEnvironmentID
+}: {
+  copy: AWSInventoryPageCopy;
+  connection: AWSConnectionStatus | null;
+  selectedEnvironmentID: string;
+}) {
+  return (
+    <DomainDetailPanel title="Inventory contract" eyebrow={copy.eyebrow}>
+      <dl className="idt-domain-route-facts">
+        <div>
+          <dt>Environment</dt>
+          <dd>{selectedEnvironmentID ? environmentFallbackLabel(selectedEnvironmentID) : 'Not selected'}</dd>
+        </div>
+        <div>
+          <dt>Current data</dt>
+          <dd>{copy.currentCapability}</dd>
+        </div>
+        <div>
+          <dt>Connector</dt>
+          <dd>{connection?.connector_id ?? 'Not assigned'}</dd>
+        </div>
+        <div>
+          <dt>Secret posture</dt>
+          <dd>No secret values requested</dd>
+        </div>
+      </dl>
+    </DomainDetailPanel>
+  );
+}
+
+function AWSInventoryPrerequisites({
+  scope,
+  selectedEnvironmentID,
+  connection,
+  connectPath
+}: {
+  scope: ProductSession;
+  selectedEnvironmentID: string;
+  connection: AWSConnectionStatus | null;
+  connectPath: string;
+}) {
+  if (!selectedEnvironmentID) {
+    return (
+      <DomainEmptyState
+        eyebrow="Environment required"
+        title="Create an environment before inventory can resolve"
+        body="AWS inventory is scoped through the existing workspace and environment contract. Create or pick an environment, then return to this AWS page."
+        nextAction={{ label: 'Open environments', to: appendSourceQuery(buildProjectsPath(scope), 'aws') }}
+      />
+    );
+  }
+
+  if (!connection?.connected) {
+    return (
+      <DomainEmptyState
+        eyebrow="Connector prerequisite"
+        title="Connect AWS to populate current inventory anchors"
+        body="These pages stay honest until the read-only AWS role is validated. The planned tables remain visible, but current account, region, role, permission, and diagnostic data come from Connect AWS."
+        nextAction={{ label: 'Connect AWS', to: connectPath }}
+      />
+    );
+  }
+
+  return null;
+}
+
+function AWSAccountsInventoryContent({
+  connection,
+  connectPath
+}: {
+  connection: AWSConnectionStatus | null;
+  connectPath: string;
+}) {
+  const rows: AWSInventoryCoverageRow[] = [
+    {
+      id: 'current-account',
+      category: connection?.account_id ? `AWS account ${connection.account_id}` : 'Selected AWS account',
+      coverage: awsCoverageState(connection),
+      source: connection?.display_name ?? 'Connect AWS',
+      status: connection?.connected ? 'covered' : 'missing',
+      detail: connection?.region ? `Validated in ${connection.region}` : 'Region coverage starts after validation.'
+    },
+    {
+      id: 'current-region',
+      category: connection?.region ? `Region ${connection.region}` : 'Current region',
+      coverage: connection?.region ? 'covered' : 'missing',
+      source: 'AWS connector payload',
+      status: connection?.region ? 'covered' : 'missing',
+      detail: connection?.last_validated_at ? `Last validation ${formatConnectionTime(connection.last_validated_at)}` : 'No validation time yet.'
+    },
+    {
+      id: 'org-planner',
+      category: 'Organization account planner',
+      coverage: 'not yet available',
+      source: 'Future AWS inventory API',
+      status: 'not yet available',
+      detail: 'Will track account enrollment, incremental cursors, and partial account failure.'
+    },
+    {
+      id: 'region-planner',
+      category: 'Multi-region scan planner',
+      coverage: 'not yet available',
+      source: 'Future AWS inventory API',
+      status: 'not yet available',
+      detail: 'Will track service-by-region coverage and degraded or unreachable regions.'
+    }
+  ];
+  const passedChecks = connection?.permission_checks.filter((check) => check.passed).length ?? 0;
+  const totalChecks = connection?.permission_checks.length ?? 0;
+
+  return (
+    <>
+      <AWSInventoryFilterSet routeID="accounts" />
+      <section className="idt-aws-inventory-coverage" aria-label="AWS account and region coverage map">
+        <DomainCoverageCard label="Account coverage" scanned={connection?.account_id ? 1 : 0} total={1} detail="Selected environment" />
+        <DomainCoverageCard label="Region coverage" scanned={connection?.region ? 1 : 0} total={1} detail={connection?.region ?? 'Pending'} />
+        <DomainCoverageCard label="Permission evidence" scanned={passedChecks} total={Math.max(totalChecks, 1)} detail="Read-only validation" />
+      </section>
+      <DomainDataTable
+        label="AWS account and region coverage"
+        rows={rows}
+        getRowKey={(row) => row.id}
+        columns={[
+          { key: 'category', header: 'Coverage scope', render: (row) => <strong>{row.category}</strong> },
+          { key: 'coverage', header: 'Coverage', render: (row) => <AWSInventoryPill stage={row.coverage === 'covered' ? 'wired' : row.coverage === 'not yet available' ? 'not-available' : 'coming'} label={formatTokenLabel(row.coverage)} /> },
+          { key: 'source', header: 'Source', render: (row) => row.source },
+          { key: 'detail', header: 'Detail', render: (row) => row.detail }
+        ]}
+      />
+      <DomainStatusPanel
+        eyebrow="Connector dependency"
+        title="Coverage is scoped by the read-only AWS role"
+        status={connection?.connected ? 'Current account visible' : 'Setup required'}
+        tone={connection?.connected ? 'success' : 'warning'}
+        actions={[{ label: 'Open Connect AWS', to: connectPath, variant: 'secondary' }]}
+      >
+        <p>
+          Account and region coverage uses the current AWS connector when it exists. Organization-wide scale, cursor health,
+          and partial-region failure reporting stay labeled as future AWS inventory work.
+        </p>
+      </DomainStatusPanel>
+    </>
+  );
+}
+
+function AWSMachineIdentitiesContent({ connection }: { connection: AWSConnectionStatus | null }) {
+  const rows: AWSInventoryTableRow[] = [
+    ...(connection?.role_arn
+      ? [
+          {
+            id: 'current-role',
+            name: connection.role_arn,
+            category: 'IAM role',
+            scope: awsAccountRegionLabel(connection),
+            status: connection.connected ? 'wired now' : 'pending validation',
+            stage: 'wired' as AWSCapabilityStage,
+            detail: connection.principal_arn ?? 'Role principal will appear after validation.'
+          }
+        ]
+      : []),
+    {
+      id: 'instance-profiles',
+      name: 'EC2 instance profiles',
+      category: 'Workload identity',
+      scope: 'Account and region expansion',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Instance profile inventory will map roles back to EC2 workloads.'
+    },
+    {
+      id: 'ecs-lambda',
+      name: 'ECS task roles and Lambda execution roles',
+      category: 'Service identity',
+      scope: 'ECS / Lambda',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Future collectors will identify workload ownership and attached policies.'
+    },
+    {
+      id: 'eks-irsa',
+      name: 'EKS IRSA and Pod Identity associations',
+      category: 'Federated identity',
+      scope: 'EKS',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'EKS identity mapping belongs here once Kubernetes and AWS graphs join.'
+    },
+    {
+      id: 'cicd-oidc',
+      name: 'CI/CD deploy and OIDC roles',
+      category: 'Deployment identity',
+      scope: 'GitHub and external CI',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Deployment trust paths will connect repository evidence to AWS role assumption.'
+    }
+  ];
+
+  return (
+    <>
+      <AWSInventoryFilterSet routeID="identities" />
+      <section className="idt-aws-inventory-split">
+        <DomainDataTable
+          label="AWS machine identity inventory"
+          rows={rows}
+          getRowKey={(row) => row.id}
+          columns={[
+            {
+              key: 'name',
+              header: 'Identity',
+              render: (row) => (
+                <div className="idt-aws-inventory-table-cell">
+                  <strong>{row.name}</strong>
+                  <p>{row.detail}</p>
+                </div>
+              )
+            },
+            { key: 'category', header: 'Type', render: (row) => row.category },
+            { key: 'scope', header: 'Account / region / service', render: (row) => row.scope },
+            { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+          ]}
+        />
+        <DomainDetailPanel title="Selected identity detail" eyebrow="Current data">
+          <dl className="idt-domain-route-facts">
+            <div>
+              <dt>Role ARN</dt>
+              <dd>{connection?.role_arn ?? 'Not available yet'}</dd>
+            </div>
+            <div>
+              <dt>Principal</dt>
+              <dd>{connection?.principal_arn ?? 'Pending validation'}</dd>
+            </div>
+            <div>
+              <dt>Trust policy</dt>
+              <dd>{connection?.external_id_configured ? 'External ID configured' : 'External ID not configured'}</dd>
+            </div>
+            <div>
+              <dt>Risk score</dt>
+              <dd>Unscored until AWS findings land</dd>
+            </div>
+          </dl>
+        </DomainDetailPanel>
+      </section>
+    </>
+  );
+}
+
+function AWSAgentIdentitiesContent({ connection }: { connection: AWSConnectionStatus | null }) {
+  const rows: AWSInventoryTableRow[] = [
+    {
+      id: 'role-anchor',
+      name: connection?.role_arn ?? 'AWS role anchor',
+      category: 'Agent-to-role anchor',
+      scope: awsAccountRegionLabel(connection),
+      status: connection?.role_arn ? 'role anchor' : 'not yet available',
+      stage: connection?.role_arn ? 'wired' : 'not-available',
+      detail: 'Future agent inventory can attach Bedrock or external agent execution back to this AWS role context.'
+    },
+    {
+      id: 'bedrock-agents',
+      name: 'Bedrock agents',
+      category: 'AWS-native agent',
+      scope: 'Bedrock',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Agent identity, action groups, tool use, and role relationship slots are reserved here.'
+    },
+    {
+      id: 'agentcore',
+      name: 'AgentCore runtime and gateway identity',
+      category: 'AgentCore',
+      scope: 'Runtime / gateway',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Will map AgentCore runtime, gateway, identity metadata, MCP gateway, and tool relationships.'
+    },
+    {
+      id: 'external-provider-keys',
+      name: 'External AI provider key metadata',
+      category: 'Safe metadata',
+      scope: 'Secrets metadata only',
+      status: 'not yet available',
+      stage: 'not-available',
+      detail: 'OpenAI, Anthropic, and Claude Platform usage mapping will use safe metadata, never secret values.'
+    }
+  ];
+
+  return (
+    <>
+      <AWSInventoryFilterSet routeID="agents" />
+      <section className="idt-aws-agent-relationship-grid" aria-label="AWS agent relationship slots">
+        {[
+          ['Agent to role', connection?.role_arn ? 'Role anchor available' : 'Waiting for role validation'],
+          ['Agent to tool', 'Tool and MCP gateway coverage reserved'],
+          ['Agent to secret', 'Secret metadata only, no value reads'],
+          ['Agent to user', 'Human owner mapping reserved for governance waves']
+        ].map(([label, detail]) => (
+          <article key={label}>
+            <strong>{label}</strong>
+            <p>{detail}</p>
+          </article>
+        ))}
+      </section>
+      <DomainDataTable
+        label="AWS agent identity inventory"
+        rows={rows}
+        getRowKey={(row) => row.id}
+        columns={[
+          { key: 'name', header: 'Agent surface', render: (row) => <strong>{row.name}</strong> },
+          { key: 'category', header: 'Category', render: (row) => row.category },
+          { key: 'scope', header: 'Scope', render: (row) => row.scope },
+          { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> },
+          { key: 'detail', header: 'Relationship slot', render: (row) => row.detail }
+        ]}
+      />
+    </>
+  );
+}
+
+function AWSResourcesInventoryContent({ connection }: { connection: AWSConnectionStatus | null }) {
+  const rows: AWSInventoryTableRow[] = [
+    {
+      id: 'secrets-manager',
+      name: 'Secrets Manager metadata',
+      category: 'Secret-bearing',
+      scope: connection?.account_id ? `Account ${connection.account_id}` : 'Account pending',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Name, tags, rotation, policy, and reference metadata only. Secret values are out of scope.'
+    },
+    {
+      id: 'ssm-parameters',
+      name: 'SSM Parameter metadata',
+      category: 'Credential reference',
+      scope: connection?.region ?? 'Region pending',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Parameter paths, tags, encryption metadata, and reachability hints without value reads.'
+    },
+    {
+      id: 'kms',
+      name: 'KMS key reachability',
+      category: 'KMS-admin',
+      scope: 'Policies and grants',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Key policy and grant reachability will highlight decrypt/admin blast radius.'
+    },
+    {
+      id: 's3',
+      name: 'S3 bucket sensitivity',
+      category: 'Customer data',
+      scope: 'Bucket metadata',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Bucket policy, public access, tags, and sensitivity labels land with resource coverage.'
+    },
+    {
+      id: 'secret-values',
+      name: 'Secret values',
+      category: 'Protected value',
+      scope: 'Never read',
+      status: 'not requested',
+      stage: 'not-available',
+      detail: 'Identrail inventory pages do not request, store, or display secret values.'
+    }
+  ];
+
+  return (
+    <>
+      <AWSInventoryFilterSet routeID="resources" />
+      <section className="idt-aws-resource-coverage-grid" aria-label="AWS resource category coverage">
+        <DomainCoverageCard label="Secrets metadata" scanned={0} total={1} detail="Coming wave" />
+        <DomainCoverageCard label="KMS reachability" scanned={0} total={1} detail="Coming wave" />
+        <DomainCoverageCard label="S3 sensitivity" scanned={0} total={1} detail="Coming wave" />
+      </section>
+      <DomainStatusPanel eyebrow="Safety posture" title="No secret value reads" status="Metadata only" tone="success">
+        <p>
+          Resource inventory is designed around reachability and metadata. Secrets Manager, SSM Parameter, and external AI
+          provider key mapping must use safe metadata and credential references, not credential values.
+        </p>
+      </DomainStatusPanel>
+      <DomainDataTable
+        label="AWS resource and credential reachability"
+        rows={rows}
+        getRowKey={(row) => row.id}
+        columns={[
+          { key: 'name', header: 'Resource category', render: (row) => <strong>{row.name}</strong> },
+          { key: 'category', header: 'Sensitivity', render: (row) => row.category },
+          { key: 'scope', header: 'Scope', render: (row) => row.scope },
+          { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> },
+          { key: 'detail', header: 'Coverage note', render: (row) => row.detail }
+        ]}
+      />
+    </>
+  );
+}
+
+function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) {
+  const data = useAWSInventoryData();
+  const { scope, environmentScope, selectedEnvironmentID, connection, connectionLoading, connectionError } = data;
+  const copy = AWS_INVENTORY_PAGE_COPY[routeID];
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">{copy.title}</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading AWS inventory.</p>
+      </section>
+    );
+  }
+
+  const statusTone = awsDomainTone(connection, environmentScope.loading || connectionLoading);
+  const connectPath = awsRouteLink(scope, 'connect', selectedEnvironmentID);
+  const homePath = appendEnvironmentQuery(buildScopedPath(scope, 'aws'), selectedEnvironmentID);
+  const findingsPath = awsRouteLink(scope, 'findings', selectedEnvironmentID);
+  const status =
+    environmentScope.loading || connectionLoading
+      ? 'Loading inventory'
+      : connectionError
+        ? 'Needs retry'
+        : connection?.connected
+          ? copy.statusLabel
+          : 'Setup required';
+
+  return (
+    <DomainPageShell
+      domain="aws"
+      eyebrow={copy.eyebrow}
+      title={copy.title}
+      description={copy.description}
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={data.onChangeEnvironment} />}
+      status={status}
+      statusTone={connectionError ? 'danger' : statusTone}
+      primaryAction={{ label: 'Connect AWS', to: connectPath, variant: connection?.connected ? 'secondary' : 'primary' }}
+      secondaryActions={[
+        { label: 'AWS home', to: homePath },
+        { label: 'AWS findings', to: findingsPath }
+      ]}
+      aside={<AWSInventoryRouteAside copy={copy} connection={connection} selectedEnvironmentID={selectedEnvironmentID} />}
+    >
+      <DomainKpiStrip label={`${copy.title} status`} items={buildAWSInventoryKpis(routeID, connection)} />
+
+      {environmentScope.loading || connectionLoading ? <DomainLoadingState label={`Loading ${copy.title.toLowerCase()}`} /> : null}
+
+      {connectionError ? (
+        <DomainErrorState
+          title="AWS inventory status could not load"
+          body={connectionError}
+          retryAction={{ label: 'Retry AWS status', onClick: data.refreshConnection }}
+        />
+      ) : null}
+
+      <AWSInventoryPrerequisites
+        scope={scope}
+        selectedEnvironmentID={selectedEnvironmentID}
+        connection={connection}
+        connectPath={connectPath}
+      />
+
+      <DomainStatusPanel eyebrow="Current vs planned" title="Inventory capability boundary" status={copy.statusLabel} tone="info">
+        <div className="idt-aws-inventory-boundary">
+          <article>
+            <strong>Wired now</strong>
+            <p>{copy.currentCapability}</p>
+          </article>
+          <article>
+            <strong>Planned coverage</strong>
+            <p>{copy.plannedCapability}</p>
+          </article>
+        </div>
+      </DomainStatusPanel>
+
+      {routeID === 'accounts' ? <AWSAccountsInventoryContent connection={connection} connectPath={connectPath} /> : null}
+      {routeID === 'identities' ? <AWSMachineIdentitiesContent connection={connection} /> : null}
+      {routeID === 'agents' ? <AWSAgentIdentitiesContent connection={connection} /> : null}
+      {routeID === 'resources' ? <AWSResourcesInventoryContent connection={connection} /> : null}
+    </DomainPageShell>
+  );
+}
+
+export function ProductAWSAccountsPage() {
+  return <ProductAWSInventoryPage routeID="accounts" />;
+}
+
+export function ProductAWSIdentitiesPage() {
+  return <ProductAWSInventoryPage routeID="identities" />;
+}
+
+export function ProductAWSAgentsPage() {
+  return <ProductAWSInventoryPage routeID="agents" />;
+}
+
+export function ProductAWSResourcesPage() {
+  return <ProductAWSInventoryPage routeID="resources" />;
 }
 
 export function ProductAWSControlCenterPage() {
