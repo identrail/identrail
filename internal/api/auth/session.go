@@ -17,7 +17,7 @@ import (
 
 const (
 	CookieName              = "identrail_session"
-	IdleTimeout             = 15 * time.Minute
+	IdleTimeout             = db.SessionIdleTimeout
 	AbsoluteTimeout         = 14 * 24 * time.Hour
 	DefaultSessionListLimit = 100
 )

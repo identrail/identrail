@@ -487,8 +487,9 @@ func (m *MemoryStore) touchSessionInternal(sessionIDHash []byte, now time.Time, 
 			return Session{}, ErrNotFound
 		}
 	}
-	session.LastSeenAt = now.UTC()
-	nextIdle := now.Add(15 * time.Minute).UTC()
+	seenAt := now.UTC()
+	session.LastSeenAt = seenAt
+	nextIdle := seenAt.Add(SessionIdleTimeout)
 	if nextIdle.After(session.AbsoluteExpiresAt) {
 		nextIdle = session.AbsoluteExpiresAt
 	}

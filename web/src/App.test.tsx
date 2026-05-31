@@ -2996,8 +2996,8 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /Set up authenticator app/i }));
 
     expect(await screen.findByAltText(/Authenticator QR code/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Continue$/i })).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/Authentication code/i), { target: { value: '123456' } });
-    fireEvent.click(screen.getByRole('button', { name: /^Continue$/i }));
 
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
@@ -3029,9 +3029,9 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { level: 1, name: /Enter verification code/i })).toBeInTheDocument();
     expect(await screen.findByLabelText(/Authentication code/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Use authenticator app/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Continue$/i })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/Authentication code/i), { target: { value: '123456' } });
-    fireEvent.click(screen.getByRole('button', { name: /^Continue$/i }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(

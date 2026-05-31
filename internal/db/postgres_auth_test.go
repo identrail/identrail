@@ -165,8 +165,8 @@ func TestPostgresAuthUserIdentityAndSessionLifecycle(t *testing.T) {
 	}
 
 	mock.ExpectQuery("WITH touched AS").
-		WithArgs(sessionHash[:], now.Add(time.Minute)).
-		WillReturnRows(postgresAuthSessionRows().AddRow(sessionHash[:], userID, "tenant-a", "workspace-a", nil, "manual", "203.0.113.10", "browser", now.Add(16*time.Minute), now.Add(24*time.Hour), now.Add(time.Minute), nil, now, userID, "alice@example.com", "Alice", "", "active", now, now, nil))
+		WithArgs(sessionHash[:], now.Add(time.Minute).Add(SessionIdleTimeout), now.Add(time.Minute)).
+		WillReturnRows(postgresAuthSessionRows().AddRow(sessionHash[:], userID, "tenant-a", "workspace-a", nil, "manual", "203.0.113.10", "browser", now.Add(24*time.Hour), now.Add(24*time.Hour), now.Add(time.Minute), nil, now, userID, "alice@example.com", "Alice", "", "active", now, now, nil))
 	touched, err := store.TouchSession(ctx, sessionHash[:], now.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("touch session: %v", err)

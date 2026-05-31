@@ -46,6 +46,9 @@ var ErrPendingRepoScanExists = errors.New("pending repo scan exists")
 var authzOwnerTeamPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 var tenancySlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
+// SessionIdleTimeout is the sliding browser-session renewal window.
+const SessionIdleTimeout = 24 * time.Hour
+
 const (
 	ScanEventLevelDebug = "debug"
 	ScanEventLevelInfo  = "info"

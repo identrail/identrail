@@ -723,16 +723,18 @@ func (p *PostgresStore) CreateSession(ctx context.Context, session Session) (Ses
 
 // TouchSession renews idle expiry and returns the joined session/user row.
 func (p *PostgresStore) TouchSession(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error) {
+	seenAt := now.UTC()
+	nextIdleExpiresAt := seenAt.Add(SessionIdleTimeout)
 	row := p.queryRowContextAnyScope(
 		ctx,
 		`WITH touched AS (
 		     UPDATE sessions
-		     SET idle_expires_at = LEAST($2::timestamptz + INTERVAL '15 minutes', absolute_expires_at),
-		         last_seen_at = $2::timestamptz
+		     SET idle_expires_at = LEAST($2::timestamptz, absolute_expires_at),
+		         last_seen_at = $3::timestamptz
 		     WHERE id = $1
 		       AND revoked_at IS NULL
-		       AND idle_expires_at > $2::timestamptz
-		       AND absolute_expires_at > $2::timestamptz
+		       AND idle_expires_at > $3::timestamptz
+		       AND absolute_expires_at > $3::timestamptz
 		     RETURNING *
 		   )
 		   SELECT `+sessionUserSelect+`
@@ -741,7 +743,8 @@ func (p *PostgresStore) TouchSession(ctx context.Context, sessionIDHash []byte, 
 		   WHERE u.deleted_at IS NULL
 		     AND u.status = 'active'`,
 		sessionIDHash,
-		now.UTC(),
+		nextIdleExpiresAt,
+		seenAt,
 	)
 	return scanSessionWithUser(row)
 }
@@ -753,16 +756,18 @@ func (p *PostgresStore) TouchSession(ctx context.Context, sessionIDHash []byte, 
 // remains reachable to produce a well-formed `grace_period_expired` response.
 // Mounted only on `/v1/me/cancel-deletion`; every other route uses TouchSession.
 func (p *PostgresStore) TouchSessionAllowingPendingDeletion(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error) {
+	seenAt := now.UTC()
+	nextIdleExpiresAt := seenAt.Add(SessionIdleTimeout)
 	row := p.queryRowContextAnyScope(
 		ctx,
 		`WITH touched AS (
 		     UPDATE sessions
-		     SET idle_expires_at = LEAST($2::timestamptz + INTERVAL '15 minutes', absolute_expires_at),
-		         last_seen_at = $2::timestamptz
+		     SET idle_expires_at = LEAST($2::timestamptz, absolute_expires_at),
+		         last_seen_at = $3::timestamptz
 		     WHERE id = $1
 		       AND revoked_at IS NULL
-		       AND idle_expires_at > $2::timestamptz
-		       AND absolute_expires_at > $2::timestamptz
+		       AND idle_expires_at > $3::timestamptz
+		       AND absolute_expires_at > $3::timestamptz
 		     RETURNING *
 		   )
 		   SELECT `+sessionUserSelect+`
@@ -771,7 +776,8 @@ func (p *PostgresStore) TouchSessionAllowingPendingDeletion(ctx context.Context,
 		   WHERE (u.deleted_at IS NULL AND u.status = 'active')
 		      OR (u.status = 'deleted' AND u.deleted_at IS NOT NULL)`,
 		sessionIDHash,
-		now.UTC(),
+		nextIdleExpiresAt,
+		seenAt,
 	)
 	return scanSessionWithUser(row)
 }
