@@ -126,6 +126,18 @@ type SourceProfile = {
   requiredAccess: string;
 };
 
+type RepoFindingRequestFilters = {
+  repo_scan_id?: string;
+  severity?: string;
+  type?: string;
+  source?: string;
+  assignee?: string;
+  min_confidence?: number;
+  sort_by?: string;
+  sort_order?: 'asc' | 'desc';
+  lifecycle_status?: FindingLifecycleStatus;
+};
+
 type SourceAvailability = {
   visible: boolean;
   available: boolean;
@@ -543,7 +555,10 @@ async function listOverviewProjects(
   return items;
 }
 
-async function listAIRisksRepoFindings(auth: RequestAuthContext): Promise<ApiFinding[]> {
+async function listAIRisksRepoFindings(
+  auth: RequestAuthContext,
+  filters: RepoFindingRequestFilters = {}
+): Promise<ApiFinding[]> {
   const items: ApiFinding[] = [];
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
@@ -552,9 +567,10 @@ async function listAIRisksRepoFindings(auth: RequestAuthContext): Promise<ApiFin
     const response = await apiClient.listRepoFindings(
       {
         limit: AI_RISKS_REPO_FINDINGS_PAGE_LIMIT,
+        ...filters,
         cursor,
-        sort_by: 'severity',
-        sort_order: 'desc'
+        sort_by: filters.sort_by ?? 'severity',
+        sort_order: filters.sort_order ?? 'desc'
       },
       auth
     );
@@ -11291,30 +11307,47 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       const auth = buildProductAuthContext(targetScope);
       const sourceFilterValue = normalizeValue(sourceFilter).toLowerCase();
       const normalizedMinConfidence = Number.parseFloat(normalizeValue(minConfidenceFilter));
+      const repoFindingRequest = {
+        repo_scan_id: normalizeValue(repoScanFilter) || undefined,
+        severity: severityFilter !== 'all' ? severityFilter : undefined,
+        type: typeFilter !== 'all' ? typeFilter : undefined,
+        source: sourceFilterValue || undefined,
+        assignee: normalizeValue(assigneeFilter) || undefined,
+        min_confidence: Number.isFinite(normalizedMinConfidence) ? normalizedMinConfidence : undefined,
+        sort_by: sortBy,
+        sort_order: sortOrder
+      };
+
       const [repoScanResponse, repoFindingResponse] = await Promise.all([
         apiClient.listRepoScans({ limit: 50 }, auth),
-        apiClient.listRepoFindings(
-          {
-            limit: 100,
-            repo_scan_id: normalizeValue(repoScanFilter) || undefined,
-            severity: severityFilter !== 'all' ? severityFilter : undefined,
-            type: typeFilter !== 'all' ? typeFilter : undefined,
-            source: sourceFilterValue || undefined,
-            lifecycle_status: statusFilter !== 'all' ? statusFilter : undefined,
-            assignee: normalizeValue(assigneeFilter) || undefined,
-            min_confidence: Number.isFinite(normalizedMinConfidence) ? normalizedMinConfidence : undefined,
-            sort_by: sortBy,
-            sort_order: sortOrder
-          },
-          auth
-        )
+        agenticOnly
+          ? listAIRisksRepoFindings(auth, repoFindingRequest)
+          : apiClient.listRepoFindings(
+              {
+                ...repoFindingRequest,
+                limit: 100,
+                lifecycle_status: statusFilter !== 'all' ? statusFilter : undefined
+              },
+              auth
+            )
       ]);
       if (requestID !== requestRef.current) {
         return;
       }
       setRepoScans(repoScanResponse.items);
-      setRepoFindings(repoFindingResponse.items);
-      setRepoFindingSummary(repoFindingResponse.summary ?? null);
+      if (agenticOnly) {
+        if (!Array.isArray(repoFindingResponse)) {
+          return;
+        }
+        setRepoFindings(repoFindingResponse);
+        setRepoFindingSummary(null);
+      } else {
+        if (Array.isArray(repoFindingResponse)) {
+          return;
+        }
+        setRepoFindings(repoFindingResponse.items);
+        setRepoFindingSummary(repoFindingResponse.summary ?? null);
+      }
     } catch (requestError) {
       if (requestID !== requestRef.current) {
         return;
@@ -12728,21 +12761,23 @@ async function requestDataExport({ signal, setExportPending, setExportError, set
   try {
     const job = await apiClient.enqueueDataExport({ signal });
     let current = job;
-    // Cap the poll loop so a stuck worker cannot keep the spinner spinning
-    // forever. The user can re-trigger if the bundle truly never lands.
-    const maxAttempts = 30;
+    // Keep polling until backend reaches a terminal state so jobs that are simply
+    // slower than expected stay reachable and can still be downloaded when ready.
+    const longPollingThreshold = 30;
     let attempt = 0;
     while (
       current.status !== 'ready' &&
       current.status !== 'failed' &&
-      current.status !== 'expired' &&
-      attempt < maxAttempts
+      current.status !== 'expired'
     ) {
       if (attempt > 0) {
         await waitForExportPoll(signal, 1000);
       }
       attempt += 1;
       current = await apiClient.getDataExport(current.id, { signal });
+      if (attempt === longPollingThreshold + 1) {
+        setExportStatus({ kind: 'preparing', message: 'The export is taking longer than expected; continuing to check until complete.' });
+      }
     }
     if (signal.aborted) {
       return;
