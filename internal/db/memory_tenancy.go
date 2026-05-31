@@ -236,6 +236,10 @@ func (m *MemoryStore) SuspendWorkspace(ctx context.Context, workspaceID string, 
 		m.mu.Unlock()
 		return TenancyWorkspace{}, ErrNotFound
 	}
+	if workspace.Status == WorkspaceStatusDeleted || workspace.DeletedAt != nil {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, ErrConflict
+	}
 	whenUTC := now.UTC()
 	workspace.Status = WorkspaceStatusSuspended
 	if workspace.SuspendedAt == nil {
@@ -258,7 +262,8 @@ func (m *MemoryStore) SuspendWorkspace(ctx context.Context, workspaceID string, 
 }
 
 // ReactivateWorkspace flips a suspended workspace back to active and clears
-// suspended_at. A no-op (idempotent) on an already-active workspace.
+// suspended_at. Callers that want active-workspace idempotency should check
+// before issuing the store transition.
 func (m *MemoryStore) ReactivateWorkspace(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error) {
 	m.mu.Lock()
 
@@ -277,6 +282,10 @@ func (m *MemoryStore) ReactivateWorkspace(ctx context.Context, workspaceID strin
 	if !exists {
 		m.mu.Unlock()
 		return TenancyWorkspace{}, ErrNotFound
+	}
+	if workspace.Status != WorkspaceStatusSuspended || workspace.DeletedAt != nil {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, ErrConflict
 	}
 	whenUTC := now.UTC()
 	workspace.Status = WorkspaceStatusActive
@@ -710,6 +719,9 @@ func (m *MemoryStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID stri
 			continue
 		}
 		if workspace, exists := m.workspaces[key]; exists {
+			if workspace.Status == WorkspaceStatusDeleted || workspace.DeletedAt != nil {
+				continue
+			}
 			workspaces = append(workspaces, workspace)
 		}
 	}
@@ -1093,6 +1105,10 @@ func (m *MemoryStore) ListScheduledTenancyScanPolicies(ctx context.Context, limi
 		if policy.TriggerMode != domain.ScanTriggerModeScheduled && policy.TriggerMode != domain.ScanTriggerModeHybrid {
 			continue
 		}
+		workspace, exists := m.workspaces[tenancyWorkspaceKey(policy.TenantID, policy.WorkspaceID)]
+		if !exists || workspace.Status != WorkspaceStatusActive || workspace.DeletedAt != nil {
+			continue
+		}
 		policies = append(policies, policy)
 	}
 	sort.SliceStable(policies, func(i, j int) bool {
@@ -1141,6 +1157,10 @@ func (m *MemoryStore) ClaimTenancyScanPolicySchedule(ctx context.Context, worksp
 		return false, ErrNotFound
 	}
 	if !policy.Enabled || (policy.TriggerMode != domain.ScanTriggerModeScheduled && policy.TriggerMode != domain.ScanTriggerModeHybrid) {
+		return false, nil
+	}
+	workspace, exists := m.workspaces[tenancyWorkspaceKey(scope.TenantID, resolvedWorkspaceID)]
+	if !exists || workspace.Status != WorkspaceStatusActive || workspace.DeletedAt != nil {
 		return false, nil
 	}
 	scheduledAt = scheduledAt.UTC().Truncate(time.Minute)

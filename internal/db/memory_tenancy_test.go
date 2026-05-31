@@ -1175,6 +1175,24 @@ func TestMemoryStoreScheduledScanPolicyPaginationAndClaim(t *testing.T) {
 	if claimed {
 		t.Fatal("expected duplicate claim to be rejected")
 	}
+
+	if _, err := store.SuspendWorkspace(ctx, "workspace-a", createdAt.Add(time.Hour)); err != nil {
+		t.Fatalf("suspend workspace: %v", err)
+	}
+	suspendedPage, err := store.ListScheduledTenancyScanPolicies(ctx, 10, 0)
+	if err != nil {
+		t.Fatalf("ListScheduledTenancyScanPolicies suspended: %v", err)
+	}
+	if len(suspendedPage) != 0 {
+		t.Fatalf("expected suspended workspace policies to be hidden, got %+v", suspendedPage)
+	}
+	claimed, err = store.ClaimTenancyScanPolicySchedule(ctx, "workspace-a", "project-1", page[1].PolicyID, claimTick.Add(time.Minute), now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("ClaimTenancyScanPolicySchedule suspended returned error: %v", err)
+	}
+	if claimed {
+		t.Fatal("expected suspended workspace claim to be rejected")
+	}
 }
 
 func TestMemoryStoreListWorkspaceMembershipsByUserUUIDAndTenantID(t *testing.T) {
@@ -1388,6 +1406,17 @@ func TestMemoryStoreSuspendWorkspaceIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreSuspendWorkspaceRefusesDeleted(t *testing.T) {
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", now); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	if _, err := store.SuspendWorkspace(ctx, "ws-1", now.Add(time.Hour)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected ErrConflict when suspending deleted workspace, got %v", err)
+	}
+}
+
 func TestMemoryStoreReactivateWorkspaceClearsTimestamp(t *testing.T) {
 	store, ctx, _ := setupWorkspaceLifecycleStore(t)
 	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
@@ -1400,6 +1429,17 @@ func TestMemoryStoreReactivateWorkspaceClearsTimestamp(t *testing.T) {
 	}
 	if saved.Status != WorkspaceStatusActive || saved.SuspendedAt != nil {
 		t.Fatalf("expected reactivate to clear suspended_at, got %+v", saved)
+	}
+}
+
+func TestMemoryStoreReactivateWorkspaceRefusesDeleted(t *testing.T) {
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", now); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	if _, err := store.ReactivateWorkspace(ctx, "ws-1", now.Add(time.Hour)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected ErrConflict when reactivating deleted workspace, got %v", err)
 	}
 }
 
@@ -1434,6 +1474,21 @@ func TestMemoryStoreCancelWorkspaceDeletionRestoresActive(t *testing.T) {
 	}
 	if saved.Status != WorkspaceStatusActive || saved.DeletedAt != nil {
 		t.Fatalf("expected cancel to clear deleted_at, got %+v", saved)
+	}
+}
+
+func TestMemoryStoreListSoleOwnerWorkspacesIgnoresDeleted(t *testing.T) {
+	store, ctx, ownerUUID := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", now); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	workspaces, err := store.ListSoleOwnerWorkspaces(context.Background(), ownerUUID)
+	if err != nil {
+		t.Fatalf("list sole-owner workspaces: %v", err)
+	}
+	if len(workspaces) != 0 {
+		t.Fatalf("expected deleted sole-owned workspace to be ignored, got %+v", workspaces)
 	}
 }
 

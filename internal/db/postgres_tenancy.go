@@ -239,18 +239,30 @@ func (p *PostgresStore) SuspendWorkspace(ctx context.Context, workspaceID string
 	row := p.queryRowContext(
 		ctx,
 		`UPDATE tenancy_workspaces
-		 SET status = 'suspended',
-		     suspended_at = COALESCE(suspended_at, $3::timestamptz),
-		     updated_at = $3::timestamptz
-		 WHERE tenant_id = $1
-		   AND workspace_id = $2
-		 RETURNING tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at`,
+			 SET status = 'suspended',
+			     suspended_at = COALESCE(suspended_at, $3::timestamptz),
+			     updated_at = $3::timestamptz
+			 WHERE tenant_id = $1
+			   AND workspace_id = $2
+			   AND status <> 'deleted'
+			   AND deleted_at IS NULL
+			 RETURNING tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at`,
 		scope.TenantID,
 		resolvedWorkspaceID,
 		now.UTC(),
 	)
 	workspace, err := scanTenancyWorkspaceLifecycle(row)
 	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			existing, lookupErr := p.GetWorkspace(ctx, resolvedWorkspaceID)
+			if lookupErr != nil {
+				return TenancyWorkspace{}, lookupErr
+			}
+			if existing.Status == WorkspaceStatusDeleted || existing.DeletedAt != nil {
+				return TenancyWorkspace{}, ErrConflict
+			}
+			return TenancyWorkspace{}, ErrNotFound
+		}
 		return TenancyWorkspace{}, err
 	}
 	audit.WriteAction(ctx, audit.AuditEvent{
@@ -265,7 +277,8 @@ func (p *PostgresStore) SuspendWorkspace(ctx context.Context, workspaceID string
 }
 
 // ReactivateWorkspace flips a suspended workspace back to active and clears
-// suspended_at. A no-op (idempotent) on an already-active workspace.
+// suspended_at. Callers that want active-workspace idempotency should check
+// before issuing the store transition.
 func (p *PostgresStore) ReactivateWorkspace(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
@@ -280,16 +293,28 @@ func (p *PostgresStore) ReactivateWorkspace(ctx context.Context, workspaceID str
 		`UPDATE tenancy_workspaces
 		 SET status = 'active',
 		     suspended_at = NULL,
-		     updated_at = $3::timestamptz
-		 WHERE tenant_id = $1
-		   AND workspace_id = $2
-		 RETURNING tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at`,
+			     updated_at = $3::timestamptz
+			 WHERE tenant_id = $1
+			   AND workspace_id = $2
+			   AND status = 'suspended'
+			   AND deleted_at IS NULL
+			 RETURNING tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at`,
 		scope.TenantID,
 		resolvedWorkspaceID,
 		now.UTC(),
 	)
 	workspace, err := scanTenancyWorkspaceLifecycle(row)
 	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			existing, lookupErr := p.GetWorkspace(ctx, resolvedWorkspaceID)
+			if lookupErr != nil {
+				return TenancyWorkspace{}, lookupErr
+			}
+			if existing.Status != WorkspaceStatusSuspended || existing.DeletedAt != nil {
+				return TenancyWorkspace{}, ErrConflict
+			}
+			return TenancyWorkspace{}, ErrNotFound
+		}
 		return TenancyWorkspace{}, err
 	}
 	audit.WriteAction(ctx, audit.AuditEvent{
@@ -870,16 +895,18 @@ func (p *PostgresStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID st
 	rows, err := p.queryContextAnyScope(
 		ctx,
 		`SELECT w.tenant_id, w.workspace_id, w.display_name, w.slug, w.status, w.suspended_at, w.deleted_at, w.created_at, w.updated_at
-		 FROM tenancy_workspaces w
-		 JOIN tenancy_workspace_members caller
-		   ON caller.tenant_id = w.tenant_id
-		  AND caller.workspace_id = w.workspace_id
-		  AND caller.user_uuid = NULLIF($1, '')::uuid
-		  AND caller.status = 'active'
-		  AND caller.role = 'owner'
-		 WHERE NOT EXISTS (
-		     SELECT 1
-		     FROM tenancy_workspace_members other
+			 FROM tenancy_workspaces w
+			 JOIN tenancy_workspace_members caller
+			   ON caller.tenant_id = w.tenant_id
+			  AND caller.workspace_id = w.workspace_id
+			  AND caller.user_uuid = NULLIF($1, '')::uuid
+			  AND caller.status = 'active'
+			  AND caller.role = 'owner'
+			 WHERE w.status <> 'deleted'
+			   AND w.deleted_at IS NULL
+			   AND NOT EXISTS (
+			     SELECT 1
+			     FROM tenancy_workspace_members other
 		     LEFT JOIN users other_u ON other_u.id = other.user_uuid
 		     WHERE other.tenant_id = w.tenant_id
 		       AND other.workspace_id = w.workspace_id
@@ -1428,13 +1455,18 @@ func (p *PostgresStore) ListScheduledTenancyScanPolicies(ctx context.Context, li
 	// Intentionally bypass scoped wrappers to allow worker enumeration across tenants.
 	rows, err := p.db.QueryContext(
 		ctx,
-		`SELECT tenant_id, workspace_id, project_id, policy_id, name, enabled, trigger_mode, COALESCE(cron, ''),
-		        max_concurrent_scans, history_limit, max_findings, last_scheduled_at, created_at, updated_at
-		 FROM tenancy_scan_policies
-		 WHERE enabled = TRUE
-		   AND trigger_mode IN ($1, $2)
-		 ORDER BY created_at ASC, tenant_id ASC, workspace_id ASC, project_id ASC, policy_id ASC
-		 LIMIT $3 OFFSET $4`,
+		`SELECT p.tenant_id, p.workspace_id, p.project_id, p.policy_id, p.name, p.enabled, p.trigger_mode, COALESCE(p.cron, ''),
+			        p.max_concurrent_scans, p.history_limit, p.max_findings, p.last_scheduled_at, p.created_at, p.updated_at
+			 FROM tenancy_scan_policies p
+			 JOIN tenancy_workspaces w
+			   ON w.tenant_id = p.tenant_id
+			  AND w.workspace_id = p.workspace_id
+			  AND w.status = 'active'
+			  AND w.deleted_at IS NULL
+			 WHERE p.enabled = TRUE
+			   AND p.trigger_mode IN ($1, $2)
+			 ORDER BY p.created_at ASC, p.tenant_id ASC, p.workspace_id ASC, p.project_id ASC, p.policy_id ASC
+			 LIMIT $3 OFFSET $4`,
 		string(domain.ScanTriggerModeScheduled),
 		string(domain.ScanTriggerModeHybrid),
 		limit,
@@ -1489,10 +1521,18 @@ func (p *PostgresStore) ClaimTenancyScanPolicySchedule(ctx context.Context, work
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
 		   AND project_id = $3
-		   AND policy_id = $4
-		   AND enabled = TRUE
-		   AND trigger_mode IN ($7, $8)
-		   AND (last_scheduled_at IS NULL OR last_scheduled_at < $5)`,
+			   AND policy_id = $4
+			   AND enabled = TRUE
+			   AND trigger_mode IN ($7, $8)
+			   AND (last_scheduled_at IS NULL OR last_scheduled_at < $5)
+			   AND EXISTS (
+			       SELECT 1
+			       FROM tenancy_workspaces w
+			       WHERE w.tenant_id = tenancy_scan_policies.tenant_id
+			         AND w.workspace_id = tenancy_scan_policies.workspace_id
+			         AND w.status = 'active'
+			         AND w.deleted_at IS NULL
+			   )`,
 		scope.TenantID,
 		resolvedWorkspaceID,
 		strings.TrimSpace(projectID),

@@ -529,13 +529,10 @@ var ErrWorkspaceSoleOwnerRequiresTransfer = errors.New("workspace sole owner req
 // authoritative past the deadline.
 var ErrWorkspaceDeletionGraceExpired = errors.New("workspace deletion grace period has expired")
 
-// ErrWorkspaceOwnerRequired indicates a session-authenticated caller tried
-// to flip a workspace's lifecycle without holding an active owner
-// membership. The authz route table grants the action to "owner"-role
-// memberships but the role string "admin" collides with the platform-scope
-// scopeAdmin string (see internal/api/router.go); this service-level check
-// is the authoritative gate so workspace-admins cannot bypass the
-// owner-only rule by virtue of the route-table grant.
+// ErrWorkspaceOwnerRequired indicates a caller tried to flip a workspace's
+// lifecycle without holding an active owner membership. The authz route table
+// grants the action to "owner"-role memberships, but this service-level check
+// is the authoritative gate so role claims alone cannot bypass membership.
 var ErrWorkspaceOwnerRequired = errors.New("workspace owner role required")
 
 // ErrWorkspaceNotReactivatable indicates a reactivate request hit a
@@ -552,6 +549,10 @@ var ErrWorkspaceNotReactivatable = errors.New("workspace is not suspended")
 // is preserved across non-cancel transitions), creating a hidden tombstone
 // that survives in an "active" workspace.
 var ErrWorkspaceNotSuspendable = errors.New("workspace is not suspendable")
+
+// ErrWorkspaceDeletionNotPending indicates cancel-deletion was called for a
+// workspace that is not pending deletion.
+var ErrWorkspaceDeletionNotPending = errors.New("workspace deletion is not pending")
 
 // NewService creates an API service with defaults.
 func NewService(store db.Store, scanner ScannerRunner, provider string) *Service {
@@ -2637,11 +2638,9 @@ type WorkspaceSoleOwnerStranding struct {
 // sneak past the cancel-deletion grace check and leave the row "active"
 // with a non-NULL deleted_at scheduled for hard purge.
 //
-// callerUserUUID gates both the owner-role check and the sole-owner
-// guard. Empty means API-key path; the route grant blocks that at the
-// route table now (tenancy.owner is owner-only) so callers reaching
-// this method with empty UUID can only be tests or platform-internal
-// callers — preserve the bypass for them.
+// callerUserUUID gates both the owner-role check and the sole-owner guard.
+// Empty callers are refused: route-level owner claims are not enough for
+// lifecycle writes without a verifiable workspace membership row.
 func (s *Service) SuspendWorkspace(ctx context.Context, workspaceID string, callerUserUUID string) (WorkspaceSoleOwnerStranding, db.TenancyWorkspace, error) {
 	ctx = s.scopeContext(ctx)
 	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
@@ -2667,6 +2666,9 @@ func (s *Service) SuspendWorkspace(ctx context.Context, workspaceID string, call
 	}
 	saved, err := s.Store.SuspendWorkspace(ctx, normalizedWorkspaceID, s.now())
 	if err != nil {
+		if errors.Is(err, db.ErrConflict) {
+			return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, ErrWorkspaceNotSuspendable
+		}
 		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
 	}
 	return WorkspaceSoleOwnerStranding{}, saved, nil
@@ -2699,7 +2701,14 @@ func (s *Service) ReactivateWorkspace(ctx context.Context, workspaceID string, c
 		// the cancel-deletion route is the only legal revival path.
 		return db.TenancyWorkspace{}, ErrWorkspaceNotReactivatable
 	}
-	return s.Store.ReactivateWorkspace(ctx, normalizedWorkspaceID, s.now())
+	saved, err := s.Store.ReactivateWorkspace(ctx, normalizedWorkspaceID, s.now())
+	if err != nil {
+		if errors.Is(err, db.ErrConflict) {
+			return db.TenancyWorkspace{}, ErrWorkspaceNotReactivatable
+		}
+		return db.TenancyWorkspace{}, err
+	}
+	return saved, nil
 }
 
 // SoftDeleteWorkspace flips the workspace into the deleted state with a
@@ -2750,6 +2759,9 @@ func (s *Service) CancelWorkspaceDeletion(ctx context.Context, workspaceID strin
 	if workspace.Status == db.WorkspaceStatusActive && workspace.DeletedAt == nil {
 		return workspace, nil
 	}
+	if workspace.Status != db.WorkspaceStatusDeleted && workspace.DeletedAt == nil {
+		return db.TenancyWorkspace{}, ErrWorkspaceDeletionNotPending
+	}
 	return s.Store.CancelWorkspaceDeletion(ctx, normalizedWorkspaceID, s.now())
 }
 
@@ -2764,27 +2776,25 @@ func WorkspaceDeletionGraceDeadline(workspace db.TenancyWorkspace) time.Time {
 }
 
 // requireWorkspaceOwner is the authoritative owner-only gate for workspace
-// lifecycle endpoints. The authz route table now restricts tenancy.owner
-// to the workspace-membership "owner" role only, but this service-level
-// check is the defense-in-depth: it reads the caller's membership row
-// directly and refuses anything other than an active owner. Order is
-// important — we look up the workspace itself first so a missing id
-// returns a clean ErrNotFound (404) rather than masquerading as an
-// authorization failure, which would let an authenticated caller leak
-// "you don't own this" for a workspace that does not exist.
+// lifecycle endpoints. The authz route table restricts tenancy.owner to the
+// role string "owner", but that string alone is forgeable by non-session
+// principals carrying an owner claim. This service-level check is the
+// authoritative gate: every caller must present a verifiable user UUID that
+// resolves to an active owner membership row for the target workspace.
 //
-// Returns nil when callerUserUUID is empty. With the tightened route
-// grant in #1420 round 2, the only callers that reach this with empty
-// UUID are internal/test paths — preserve the bypass for them rather
-// than coupling the service layer to the auth surface shape.
+// Order is important — GetWorkspace runs first so a missing id returns
+// ErrNotFound (404) rather than masquerading as an authorization failure,
+// which would otherwise leak "you don't own this" for a workspace that
+// does not exist.
 func (s *Service) requireWorkspaceOwner(ctx context.Context, workspaceID string, callerUserUUID string) error {
 	if _, err := s.Store.GetWorkspace(ctx, workspaceID); err != nil {
 		return err
 	}
-	if strings.TrimSpace(callerUserUUID) == "" {
-		return nil
+	normalizedUUID := strings.TrimSpace(callerUserUUID)
+	if normalizedUUID == "" {
+		return ErrWorkspaceOwnerRequired
 	}
-	member, err := s.Store.GetWorkspaceMemberByUserUUID(ctx, workspaceID, callerUserUUID)
+	member, err := s.Store.GetWorkspaceMemberByUserUUID(ctx, workspaceID, normalizedUUID)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			return ErrWorkspaceOwnerRequired

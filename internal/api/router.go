@@ -1650,6 +1650,13 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 				})
 				return
 			}
+			if errors.Is(err, ErrWorkspaceDeletionNotPending) {
+				c.JSON(http.StatusConflict, gin.H{
+					"error": "workspace deletion is not pending",
+					"code":  "deletion_not_pending",
+				})
+				return
+			}
 			if errors.Is(err, ErrWorkspaceOwnerRequired) {
 				c.JSON(http.StatusForbidden, gin.H{"error": "workspace owner role required", "code": "owner_required"})
 				return
@@ -2540,10 +2547,8 @@ func tenancyServiceUnavailable(c *gin.Context) {
 }
 
 // callerSessionUserUUID returns the user UUID of the session-authenticated
-// caller, or empty string when the request authenticated with an API key
-// (or no caller could be resolved). Workspace lifecycle handlers use the
-// empty value as a signal to bypass the sole-owner guard for platform-admin
-// API-key callers, who legitimately have no workspace membership.
+// caller, or empty string when no browser session could be resolved. Workspace
+// lifecycle handlers reject the empty value at the service owner gate.
 func callerSessionUserUUID(c *gin.Context) string {
 	current, ok := sessionauth.CurrentFromGin(c)
 	if !ok {

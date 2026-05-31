@@ -359,8 +359,73 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 			return
 		}
 
+		blocked, workspace, err := inactiveWorkspaceBlock(c, policy, store)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "authorization failed"})
+			return
+		}
+		if blocked {
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+				"error":        "workspace is not active",
+				"code":         "workspace_inactive",
+				"status":       workspace.Status,
+				"suspended_at": workspace.SuspendedAt,
+				"deleted_at":   workspace.DeletedAt,
+			})
+			return
+		}
+
 		c.Next()
 	}
+}
+
+func inactiveWorkspaceBlock(c *gin.Context, policy routePolicy, store db.Store) (bool, db.TenancyWorkspace, error) {
+	if c == nil || c.Request == nil || store == nil || !requiresActiveWorkspace(policy) {
+		return false, db.TenancyWorkspace{}, nil
+	}
+	scope := db.ScopeFromContext(c.Request.Context())
+	workspaceID := strings.TrimSpace(c.Param("workspace_id"))
+	if workspaceID == "" {
+		workspaceID = strings.TrimSpace(scope.WorkspaceID)
+	}
+	if workspaceID == "" || strings.TrimSpace(scope.TenantID) == "" {
+		return false, db.TenancyWorkspace{}, nil
+	}
+	resolvedWorkspaceID, err := db.ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return false, db.TenancyWorkspace{}, nil
+	}
+	scopedCtx := db.WithScope(c.Request.Context(), db.Scope{
+		TenantID:    scope.TenantID,
+		WorkspaceID: resolvedWorkspaceID,
+	})
+	workspace, err := store.GetWorkspace(scopedCtx, resolvedWorkspaceID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return false, db.TenancyWorkspace{}, nil
+		}
+		return false, db.TenancyWorkspace{}, err
+	}
+	if workspace.Status == db.WorkspaceStatusActive && workspace.DeletedAt == nil {
+		return false, db.TenancyWorkspace{}, nil
+	}
+	return true, workspace, nil
+}
+
+func requiresActiveWorkspace(policy routePolicy) bool {
+	switch strings.TrimSpace(policy.Action) {
+	case policyActionFindingsTriage,
+		policyActionScansRun,
+		policyActionScansReplay,
+		policyActionRepoScansRun:
+		return true
+	case policyActionTenancyWrite:
+		switch strings.TrimSpace(policy.ResourceType) {
+		case "connector", "project", "scan_policy", "workspace_member":
+			return true
+		}
+	}
+	return false
 }
 
 func policyInputForMissingRoutePolicy(c *gin.Context, fullPath string, writeKeys []string, scopedKeys map[string][]string) PolicyInput {

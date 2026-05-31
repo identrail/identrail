@@ -11,6 +11,8 @@ import (
 
 	sessionauth "github.com/identrail/identrail/internal/api/auth"
 	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/telemetry"
+	"go.uber.org/zap"
 )
 
 // promoteMemberToOwner upgrades the harness's seeded "admin" member to "owner"
@@ -308,6 +310,62 @@ func TestWorkspaceCancelDeletionPastGraceReturns410(t *testing.T) {
 	}
 }
 
+func TestWorkspaceCancelDeletionOnSuspendedWorkspaceReturnsConflict(t *testing.T) {
+	harness, cookieValue, _ := setupSessionRouter(t)
+	store := harness.manager.Store.(*db.MemoryStore)
+	promoteMemberToOwner(t, store, "user@example.com")
+
+	suspendResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(suspendResp, sessionRequest(http.MethodPost, "/v1/workspaces/workspace-a/suspend", cookieValue))
+	if suspendResp.Code != http.StatusOK {
+		t.Fatalf("expected suspend 200, got %d body=%s", suspendResp.Code, suspendResp.Body.String())
+	}
+
+	cancelResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(cancelResp, sessionRequest(http.MethodPost, "/v1/workspaces/workspace-a/cancel-deletion", cookieValue))
+	if cancelResp.Code != http.StatusConflict {
+		t.Fatalf("expected cancel-deletion 409 on suspended workspace, got %d body=%s", cancelResp.Code, cancelResp.Body.String())
+	}
+	if !strings.Contains(cancelResp.Body.String(), `"code":"deletion_not_pending"`) {
+		t.Fatalf("expected deletion_not_pending code, got %s", cancelResp.Body.String())
+	}
+}
+
+func TestWorkspaceLifecycleOIDCOwnerClaimStillRequiresMembership(t *testing.T) {
+	store := db.NewMemoryStore()
+	scopedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(scopedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	svc := NewService(store, fakeScanner{}, "aws")
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		OIDCTokenVerifier: fakeTokenVerifier{
+			tokens: map[string]VerifiedToken{
+				"owner-claim": {
+					Subject:     "oidc-subject-with-owner-claim",
+					TenantID:    "tenant-a",
+					WorkspaceID: "workspace-a",
+					Roles:       []string{"owner"},
+				},
+			},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/workspaces/workspace-a", nil)
+	req.Header.Set("Authorization", "Bearer owner-claim")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected lifecycle write to require membership despite owner claim, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"code":"owner_required"`) {
+		t.Fatalf("expected owner_required code, got %s", resp.Body.String())
+	}
+}
+
 func TestWorkspaceSuspendSoleOwnerWithOtherMembers409(t *testing.T) {
 	// Sole-owner guard: a single owner cannot suspend if other active
 	// non-owner members would be stranded — the 409 surfaces the affected
@@ -356,6 +414,33 @@ func TestWorkspaceSuspendSoleOwnerWithOtherMembers409(t *testing.T) {
 	}
 	if refreshed.Status != db.WorkspaceStatusActive {
 		t.Fatalf("expected workspace still active, got %q", refreshed.Status)
+	}
+}
+
+func TestWorkspaceInactiveBlocksScopedWrites(t *testing.T) {
+	harness, cookieValue, _ := setupSessionRouter(t)
+	store := harness.manager.Store.(*db.MemoryStore)
+	promoteMemberToOwner(t, store, "user@example.com")
+
+	suspendResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(suspendResp, sessionRequest(http.MethodPost, "/v1/workspaces/workspace-a/suspend", cookieValue))
+	if suspendResp.Code != http.StatusOK {
+		t.Fatalf("expected suspend 200, got %d body=%s", suspendResp.Code, suspendResp.Body.String())
+	}
+
+	readResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(readResp, sessionRequest(http.MethodGet, "/v1/scans", cookieValue))
+	if readResp.Code != http.StatusOK {
+		t.Fatalf("expected read to remain allowed for inactive workspace, got %d body=%s", readResp.Code, readResp.Body.String())
+	}
+
+	writeResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(writeResp, sessionRequest(http.MethodPost, "/v1/scans", cookieValue))
+	if writeResp.Code != http.StatusConflict {
+		t.Fatalf("expected scan write to be blocked for inactive workspace, got %d body=%s", writeResp.Code, writeResp.Body.String())
+	}
+	if !strings.Contains(writeResp.Body.String(), `"code":"workspace_inactive"`) {
+		t.Fatalf("expected workspace_inactive code, got %s", writeResp.Body.String())
 	}
 }
 

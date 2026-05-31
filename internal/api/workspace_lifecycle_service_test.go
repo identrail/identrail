@@ -69,19 +69,15 @@ func TestServiceWorkspaceLifecycleEmptyIDReturnsInvalid(t *testing.T) {
 	}
 }
 
-func TestServiceRequireWorkspaceOwnerBypassesForEmptyUUID(t *testing.T) {
-	// Internal/test callers without a UserUUID are intentionally
-	// bypassed by requireWorkspaceOwner. With the production route
-	// grant now restricted to the "owner" role string, only the
-	// in-process path can hit this branch, but it still has to work so
-	// integration tests can drive the service without standing up a
-	// full session-auth layer.
+func TestServiceRequireWorkspaceOwnerRefusesEmptyUUID(t *testing.T) {
+	// Role claims alone are not enough for workspace lifecycle writes. A caller
+	// must carry a verifiable user UUID that maps to an active owner membership.
 	svc, ctx, _ := setupWorkspaceLifecycleServiceHarness(t)
-	if err := svc.requireWorkspaceOwner(ctx, "workspace-a", ""); err != nil {
-		t.Fatalf("expected empty UUID to bypass, got %v", err)
+	if err := svc.requireWorkspaceOwner(ctx, "workspace-a", ""); !errors.Is(err, ErrWorkspaceOwnerRequired) {
+		t.Fatalf("expected empty UUID to be refused, got %v", err)
 	}
-	if err := svc.requireWorkspaceOwner(ctx, "workspace-a", "   "); err != nil {
-		t.Fatalf("expected whitespace UUID to bypass, got %v", err)
+	if err := svc.requireWorkspaceOwner(ctx, "workspace-a", "   "); !errors.Is(err, ErrWorkspaceOwnerRequired) {
+		t.Fatalf("expected whitespace UUID to be refused, got %v", err)
 	}
 }
 
@@ -174,6 +170,16 @@ func TestServiceCancelWorkspaceDeletionIsNoOpForActive(t *testing.T) {
 	}
 	if saved.Status != db.WorkspaceStatusActive || saved.DeletedAt != nil {
 		t.Fatalf("expected unchanged active workspace, got %+v", saved)
+	}
+}
+
+func TestServiceCancelWorkspaceDeletionRequiresPendingDeletionForSuspended(t *testing.T) {
+	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	if _, err := svc.Store.SuspendWorkspace(ctx, "workspace-a", svc.Now()); err != nil {
+		t.Fatalf("seed suspend: %v", err)
+	}
+	if _, err := svc.CancelWorkspaceDeletion(ctx, "workspace-a", ownerUUID); !errors.Is(err, ErrWorkspaceDeletionNotPending) {
+		t.Fatalf("expected ErrWorkspaceDeletionNotPending for suspended workspace, got %v", err)
 	}
 }
 
