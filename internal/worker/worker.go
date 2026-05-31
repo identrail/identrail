@@ -13,6 +13,7 @@ import (
 	"github.com/identrail/identrail/internal/runtime"
 	"github.com/identrail/identrail/internal/scheduler"
 	"github.com/identrail/identrail/internal/telemetry"
+	"github.com/identrail/identrail/internal/userexport"
 	"github.com/identrail/identrail/internal/userpurge"
 )
 
@@ -199,6 +200,66 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		)
 		return nil
 	}
+	// User-data-export workers (#1421). Both runners are wrapped behind
+	// service-storage availability so a deployment that has not opted into
+	// the feature (UserExportStorage nil) silently skips registration
+	// without producing nil-deref panics inside the scheduled trigger.
+	var userExportQueueTrigger scheduler.TriggerFunc
+	var userExportGCTrigger scheduler.TriggerFunc
+	if svc != nil && svc.UserExportStorage != nil {
+		queueRunner := &userexport.QueueRunner{
+			Store: svc.Store,
+			Runner: &userexport.Runner{
+				Source:  svc.Store,
+				Store:   svc.Store,
+				Storage: svc.UserExportStorage,
+				Now:     svc.Now,
+			},
+			Now:       svc.Now,
+			BatchSize: cfg.WorkerAPIJobQueueBatchSize,
+		}
+		gcRunner := &userexport.GCRunner{
+			Store:   svc.Store,
+			Storage: svc.UserExportStorage,
+			Now:     svc.Now,
+		}
+		userExportQueueTrigger = func(runCtx context.Context) error {
+			writeHeartbeat()
+			result, runErr := queueRunner.RunOnce(runCtx)
+			if runErr != nil {
+				logger.Error("user export queue pass failed", telemetry.StandardLogFields("worker", "user_export_queue", telemetry.String("outcome", "failed"), telemetry.ZapError(runErr))...)
+				return runErr
+			}
+			logger.Info(
+				"user export queue pass completed",
+				telemetry.StandardLogFields("worker", "user_export_queue",
+					telemetry.String("examined", fmt.Sprint(result.Examined)),
+					telemetry.String("succeeded", fmt.Sprint(result.Succeeded)),
+					telemetry.String("failed", fmt.Sprint(result.Failed)),
+					telemetry.String("outcome", "completed"),
+				)...,
+			)
+			return nil
+		}
+		userExportGCTrigger = func(runCtx context.Context) error {
+			writeHeartbeat()
+			result, runErr := gcRunner.RunOnce(runCtx)
+			if runErr != nil {
+				logger.Error("user export gc pass failed", telemetry.StandardLogFields("worker", "user_export_gc", telemetry.String("outcome", "failed"), telemetry.ZapError(runErr))...)
+				return runErr
+			}
+			logger.Info(
+				"user export gc pass completed",
+				telemetry.StandardLogFields("worker", "user_export_gc",
+					telemetry.String("examined", fmt.Sprint(result.Examined)),
+					telemetry.String("purged", fmt.Sprint(result.Purged)),
+					telemetry.String("errors", fmt.Sprint(result.Errors)),
+					telemetry.String("outcome", "completed"),
+				)...,
+			)
+			return nil
+		}
+	}
 	scanPolicyTrigger := func(runCtx context.Context) error {
 		writeHeartbeat()
 		result, runErr := svc.EnqueueDueScanPolicies(runCtx)
@@ -320,6 +381,58 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 				OnError: func(_ context.Context, err error) {
 					metrics.WorkerRetriesTotal.WithLabelValues("user_purge").Inc()
 					logger.Error("user purge iteration failed", telemetry.ZapError(err))
+				},
+			},
+		})
+	}
+	if userExportQueueTrigger != nil && cfg.WorkerAPIJobQueueEnabled {
+		userExportQueueKey := "user-export-queue"
+		if namespace := strings.TrimSpace(svc.LockNamespace); namespace != "" {
+			userExportQueueKey = namespace + ":" + userExportQueueKey
+		}
+		runners = append(runners, scheduledRunner{
+			name:   "user-export-queue",
+			runNow: false,
+			runner: scheduler.Runner{
+				Interval:     cfg.WorkerAPIJobQueueInterval,
+				Key:          userExportQueueKey,
+				Locker:       svc.Locker,
+				Trigger:      userExportQueueTrigger,
+				MaxAttempts:  defaultWorkerQueueMaxAttempts,
+				RetryBackoff: defaultWorkerRetryBackoff,
+				OnDeadLetter: func(_ context.Context, err error) {
+					metrics.WorkerDeadLettersTotal.WithLabelValues("user_export_queue").Inc()
+					logger.Error("user export queue exhausted retries; dead-letter event emitted", telemetry.ZapError(err))
+				},
+				OnError: func(_ context.Context, err error) {
+					metrics.WorkerRetriesTotal.WithLabelValues("user_export_queue").Inc()
+					logger.Error("user export queue iteration failed", telemetry.ZapError(err))
+				},
+			},
+		})
+	}
+	if userExportGCTrigger != nil && cfg.WorkerUserExportGCEnabled {
+		userExportGCKey := "user-export-gc"
+		if namespace := strings.TrimSpace(svc.LockNamespace); namespace != "" {
+			userExportGCKey = namespace + ":" + userExportGCKey
+		}
+		runners = append(runners, scheduledRunner{
+			name:   "user-export-gc",
+			runNow: false,
+			runner: scheduler.Runner{
+				Interval:     cfg.WorkerUserExportGCInterval,
+				Key:          userExportGCKey,
+				Locker:       svc.Locker,
+				Trigger:      userExportGCTrigger,
+				MaxAttempts:  defaultWorkerQueueMaxAttempts,
+				RetryBackoff: defaultWorkerRetryBackoff,
+				OnDeadLetter: func(_ context.Context, err error) {
+					metrics.WorkerDeadLettersTotal.WithLabelValues("user_export_gc").Inc()
+					logger.Error("user export gc exhausted retries; dead-letter event emitted", telemetry.ZapError(err))
+				},
+				OnError: func(_ context.Context, err error) {
+					metrics.WorkerRetriesTotal.WithLabelValues("user_export_gc").Inc()
+					logger.Error("user export gc iteration failed", telemetry.ZapError(err))
 				},
 			},
 		})

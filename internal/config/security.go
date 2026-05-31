@@ -725,10 +725,10 @@ func isLoopbackListenAddr(addr string) bool {
 	return false
 }
 
-func validateSessionKey(envName string, raw string) error {
+func ValidateSessionKeyMaterial(envName string, raw string) error {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return fmt.Errorf("%s is required when IDENTRAIL_FEATURE_NEW_AUTH=true", envName)
+		return fmt.Errorf("%s is required", envName)
 	}
 	if decoded, err := hex.DecodeString(trimmed); err == nil {
 		if len(decoded) < 32 {
@@ -738,6 +738,16 @@ func validateSessionKey(envName string, raw string) error {
 	}
 	if len([]byte(trimmed)) < 32 {
 		return fmt.Errorf("%s must contain at least 32 bytes of key material", envName)
+	}
+	return nil
+}
+
+func validateSessionKey(envName string, raw string) error {
+	if err := ValidateSessionKeyMaterial(envName, raw); err != nil {
+		if strings.TrimSpace(raw) == "" {
+			return fmt.Errorf("%s is required when IDENTRAIL_FEATURE_NEW_AUTH=true", envName)
+		}
+		return err
 	}
 	return nil
 }

@@ -862,6 +862,35 @@ func (p *PostgresStore) ListUserSessions(ctx context.Context, userID string, now
 	return sessions, rows.Err()
 }
 
+// ListUserSessionHistory returns every session row for one user, including
+// revoked and expired sessions. A non-positive limit means no limit.
+func (p *PostgresStore) ListUserSessionHistory(ctx context.Context, userID string, limit int) ([]Session, error) {
+	query := `SELECT ` + sessionUserSelect + `
+		 FROM sessions s
+		 JOIN users u ON u.id = s.user_id
+		 WHERE s.user_id = NULLIF($1, '')::uuid
+		 ORDER BY s.last_seen_at DESC, s.created_at DESC`
+	args := []any{strings.TrimSpace(userID)}
+	if limit > 0 {
+		query += ` LIMIT $2`
+		args = append(args, limit)
+	}
+	rows, err := p.queryContextAnyScope(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	sessions := make([]Session, 0)
+	for rows.Next() {
+		session, scanErr := scanSessionWithUser(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		sessions = append(sessions, session)
+	}
+	return sessions, rows.Err()
+}
+
 // RevokeUserSession revokes one active session if it belongs to the user.
 func (p *PostgresStore) RevokeUserSession(ctx context.Context, userID string, sessionIDHash []byte, revokedAt time.Time) (Session, error) {
 	row := p.queryRowContextAnyScope(

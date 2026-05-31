@@ -17,6 +17,7 @@ import (
 	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
 	"github.com/identrail/identrail/internal/scheduler"
 	"github.com/identrail/identrail/internal/secretstore"
+	"github.com/identrail/identrail/internal/userexport"
 )
 
 // BuildScanService constructs store + scanner + API service from runtime config.
@@ -161,6 +162,27 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		WorkspaceID: cfg.DefaultWorkspaceID,
 	}.Normalize()
 	svc.LockNamespace = strings.TrimSpace(cfg.LockNamespace)
+	// Self-serve "Download my data" (#1421). Bundle storage is opt-in via
+	// IDENTRAIL_USER_DATA_EXPORT_PATH; leaving it empty keeps the feature
+	// disabled instead of silently choosing a path the operator did not
+	// consent to. The API signs download URLs with the session key when it is
+	// configured, while workers can still build bundles without token-signing
+	// material.
+	if exportPath := strings.TrimSpace(cfg.UserDataExportPath); exportPath != "" {
+		storage, storageErr := userexport.NewLocalDiskStorage(exportPath)
+		if storageErr != nil {
+			_ = store.Close()
+			return nil, nil, fmt.Errorf("initialize user export storage: %w", storageErr)
+		}
+		svc.UserExportStorage = storage
+		if sessionKey := strings.TrimSpace(cfg.SessionKey); sessionKey != "" {
+			if keyErr := config.ValidateSessionKeyMaterial("IDENTRAIL_SESSION_KEY", sessionKey); keyErr != nil {
+				_ = store.Close()
+				return nil, nil, fmt.Errorf("validate user export signing key: %w", keyErr)
+			}
+			svc.UserExportTokenSecret = []byte(sessionKey)
+		}
+	}
 	lockBackend := strings.ToLower(strings.TrimSpace(cfg.LockBackend))
 	switch lockBackend {
 	case "", "auto":

@@ -41,6 +41,8 @@ const (
 	defaultWorkerUserPurgeEnabled      = true
 	defaultWorkerUserPurgeInterval     = 24 * time.Hour
 	defaultWorkerUserPurgeBatchSize    = 100
+	defaultWorkerUserExportGCEnabled   = true
+	defaultWorkerUserExportGCInterval  = time.Hour
 	defaultLockBackend                 = "auto"
 	defaultLockNamespace               = "identrail"
 	defaultPostgresRLSEnforced         = false
@@ -202,6 +204,18 @@ type Config struct {
 	AppModeTenantAllowlist       []string
 	AppModeWorkspaceAllowlist    []string
 	WorkerHeartbeatPath          string
+	// UserDataExportPath is the on-disk base directory for self-serve
+	// "Download my data" bundles (#1421). Empty disables the feature so
+	// dev deployments without a configured path are obvious rather than
+	// silently writing to /tmp.
+	UserDataExportPath string
+	// WorkerUserExportGCEnabled controls whether the worker runs the
+	// retention-window GC pass for completed export bundles.
+	WorkerUserExportGCEnabled bool
+	// WorkerUserExportGCInterval is the cadence for the export bundle GC
+	// pass. Defaults to one hour so the 7-day retention window is enforced
+	// within a small window of slop.
+	WorkerUserExportGCInterval time.Duration
 }
 
 // Load reads environment variables and applies safe defaults for local and CI use.
@@ -312,6 +326,9 @@ func Load() Config {
 		WorkerUserPurgeEnabled:       boolEnv("IDENTRAIL_WORKER_USER_PURGE_ENABLED", defaultWorkerUserPurgeEnabled),
 		WorkerUserPurgeInterval:      durationEnv("IDENTRAIL_WORKER_USER_PURGE_INTERVAL", defaultWorkerUserPurgeInterval),
 		WorkerUserPurgeBatchSize:     parseInt(getEnv("IDENTRAIL_WORKER_USER_PURGE_BATCH_SIZE", "100"), defaultWorkerUserPurgeBatchSize),
+		UserDataExportPath:           strings.TrimSpace(getEnv("IDENTRAIL_USER_DATA_EXPORT_PATH", "")),
+		WorkerUserExportGCEnabled:    boolEnv("IDENTRAIL_WORKER_USER_EXPORT_GC_ENABLED", defaultWorkerUserExportGCEnabled),
+		WorkerUserExportGCInterval:   durationEnv("IDENTRAIL_WORKER_USER_EXPORT_GC_INTERVAL", defaultWorkerUserExportGCInterval),
 		WorkerHeartbeatPath:          strings.TrimSpace(getEnv("IDENTRAIL_WORKER_HEARTBEAT_PATH", "")),
 		LockBackend:                  strings.ToLower(getEnv("IDENTRAIL_LOCK_BACKEND", defaultLockBackend)),
 		LockNamespace:                getEnv("IDENTRAIL_LOCK_NAMESPACE", defaultLockNamespace),

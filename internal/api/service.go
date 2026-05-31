@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/url"
 	"path"
@@ -189,6 +190,24 @@ type Service struct {
 	githubWebhookLastQueued            map[string]time.Time
 	kubernetesConnectMu                sync.RWMutex
 	kubernetesConnections              map[string]kubernetesProjectConnection
+	// UserExportStorage is the bundle backend used by the self-serve
+	// "Download my data" endpoints (#1421). nil disables the feature so dev
+	// deployments without a configured bundle path return 503 rather than
+	// silently failing.
+	UserExportStorage UserExportStorage
+	// UserExportTokenSecret is the HMAC key used to sign download URLs.
+	// Reusing the session signing key keeps deployment configuration
+	// minimal — operators do not need to manage a second secret.
+	UserExportTokenSecret []byte
+}
+
+// UserExportStorage is a minimal interface, matching internal/userexport.Storage,
+// that the data-export handlers depend on. Local here so Service tests don't
+// have to import the userexport package.
+type UserExportStorage interface {
+	Put(key string, r io.Reader) (string, error)
+	Open(key string) (io.ReadCloser, error)
+	Delete(key string) error
 }
 
 // RepoScanQueueEvent reports visible lifecycle transitions for repository scans

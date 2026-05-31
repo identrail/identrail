@@ -412,6 +412,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	v1.POST("/authz/policies/rollback", authzPolicyRollbackHandler(logger, authzStore, metrics, opts.AuditFingerprinter))
 	if opts.FeatureNewAuth {
 		registerMeRoutes(v1, logger, svc, sessionManager)
+		registerMeExportRoutes(v1, publicV1, logger, svc)
 		registerOnboardingRoutes(v1, logger, svc, opts.FeatureOnboardingWizard)
 	}
 	registerEnterpriseAuthPrepRoutes(v1)
@@ -3123,6 +3124,9 @@ func isScopelessSessionRoute(path string) bool {
 		"/v1/me/deactivate",
 		"/v1/me/reactivate",
 		"/v1/me/cancel-deletion",
+		"/v1/me/export",
+		"/v1/me/export/:job_id",
+		"/v1/me/export/:job_id/download",
 		"/v1/onboarding/start",
 		"/v1/onboarding/state",
 		"/v1/onboarding/complete":

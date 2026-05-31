@@ -477,6 +477,21 @@ export type OnboardingStateResponse = {
   redirect_path?: string;
 };
 
+export type DataExportJobStatus = 'queued' | 'running' | 'ready' | 'failed' | 'expired';
+
+export type DataExportJob = {
+  id: string;
+  status: DataExportJobStatus;
+  requested_at: string;
+  started_at?: string;
+  completed_at?: string;
+  download_url?: string;
+  download_expires_at?: string;
+  bundle_size_bytes?: number;
+  bundle_sha256?: string;
+  error_message?: string;
+};
+
 export type SessionListItem = {
   id: string;
   ip?: string;
@@ -1204,6 +1219,15 @@ export const apiClient = {
     return request<{ status: 'active' }>('/v1/me/reactivate', undefined, {
       method: 'POST'
     });
+  },
+  enqueueDataExport(init: RequestInit = {}) {
+    return request<DataExportJob>('/v1/me/export', undefined, {
+      ...init,
+      method: 'POST'
+    });
+  },
+  getDataExport(jobID: string, init: RequestInit = {}) {
+    return request<DataExportJob>(`/v1/me/export/${encodeURIComponent(jobID)}`, undefined, init);
   },
   logout() {
     return request<{ ok: boolean }>('/auth/logout', undefined, {

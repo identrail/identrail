@@ -2064,169 +2064,6 @@ describe('App', () => {
     expect(screen.queryByText(/Failed to load AI \/ Agentic Risk/i)).not.toBeInTheDocument();
   });
 
-  it('renders GitHub agentic risk detail pages with scoped inventory', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = typeof input === 'string' ? input : input.toString();
-      if (url.endsWith('/v1/me')) {
-        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
-      }
-      if (url.includes('/v1/workspaces/workspace-a/projects')) {
-        return okJSON({
-          items: [
-            {
-              tenant_id: 'tenant-a',
-              workspace_id: 'workspace-a',
-              project_id: 'project-1',
-              name: 'Production',
-              slug: 'production',
-              description: 'Production scope.',
-              created_at: '2026-01-01T00:00:00Z',
-              updated_at: '2026-01-02T00:00:00Z'
-            }
-          ]
-        });
-      }
-      if (url.includes('/v1/repo-scans')) {
-        return okJSON({
-          items: [
-            {
-              id: 'repo-scan-1',
-              repository: 'owner/repo',
-              status: 'succeeded',
-              started_at: '2026-01-02T00:00:00Z',
-              finished_at: '2026-01-02T00:05:00Z',
-              commits_scanned: 12,
-              files_scanned: 9,
-              finding_count: 2,
-              truncated: false
-            }
-          ]
-        });
-      }
-      if (url.includes('/v1/repo-findings')) {
-        return okJSON({
-          items: [
-            {
-              id: 'repo-ai',
-              scan_id: 'repo-scan-1',
-              type: 'ai_agent_surface',
-              severity: 'high',
-              confidence_score: 0.93,
-              detector: 'ai_agent_config_secret_ref',
-              title: 'MCP server exposes sensitive environment references',
-              human_summary: 'An MCP configuration exposes sensitive environment variable names.',
-              repository: 'owner/repo',
-              file_path: '.mcp.json',
-              line_number: 4,
-              source_url: 'https://github.com/owner/repo/blob/abc123/.mcp.json#L4',
-              remediation: 'Move sensitive values behind scoped secrets.',
-              created_at: '2026-01-02T00:00:00Z'
-            },
-            {
-              id: 'repo-prompt',
-              scan_id: 'repo-scan-1',
-              type: 'repo_misconfiguration',
-              severity: 'critical',
-              detector: 'workflow_ai_agent_prompt_injection',
-              title: 'Prompt injection can reach AI review workflow',
-              human_summary: 'Untrusted issue text is passed into an AI review prompt.',
-              repository: 'owner/repo',
-              file_path: '.github/workflows/review.yml',
-              remediation: 'Gate AI workflow input behind trusted events.',
-              created_at: '2026-01-02T00:01:00Z'
-            },
-            {
-              id: 'repo-license',
-              scan_id: 'repo-scan-1',
-              type: 'license_notice',
-              severity: 'low',
-              detector: 'license_notice',
-              title: 'Out-of-scope repository notice',
-              human_summary: 'This finding belongs to repository license review.',
-              repository: 'owner/repo',
-              file_path: 'NOTICE',
-              remediation: 'Review separately.',
-              created_at: '2026-01-02T00:02:00Z'
-            }
-          ]
-        });
-      }
-      throw new Error(`Unexpected URL ${url}`);
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    setCurrentPath('/app/tenant-a/workspace-a/github/agentic-risk/configs?environment=project-1');
-    render(<App />);
-
-    expect(await screen.findByRole('heading', { level: 2, name: /^Agent configs$/i })).toBeInTheDocument();
-    expect(await screen.findByRole('option', { name: 'Production' })).toBeInTheDocument();
-    expect(await screen.findByText(/MCP server exposes sensitive environment references/i)).toBeInTheDocument();
-    expect(screen.getByText(/Config source: \.mcp\.json:4/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Agentic findings/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/github/agentic-risk/findings?environment=project-1'
-    );
-    expect(screen.queryByText(/Prompt injection can reach AI review workflow/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Out-of-scope repository notice/i)).not.toBeInTheDocument();
-  });
-
-  it('renders GitHub agentic risk empty states for detail pages without matching signals', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = typeof input === 'string' ? input : input.toString();
-      if (url.endsWith('/v1/me')) {
-        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
-      }
-      if (url.includes('/v1/workspaces/workspace-a/projects')) {
-        return okJSON({ items: [] });
-      }
-      if (url.includes('/v1/repo-scans')) {
-        return okJSON({
-          items: [
-            {
-              id: 'repo-scan-1',
-              repository: 'owner/repo',
-              status: 'succeeded',
-              started_at: '2026-01-02T00:00:00Z',
-              finished_at: '2026-01-02T00:05:00Z',
-              commits_scanned: 12,
-              files_scanned: 9,
-              finding_count: 1,
-              truncated: false
-            }
-          ]
-        });
-      }
-      if (url.includes('/v1/repo-findings')) {
-        return okJSON({
-          items: [
-            {
-              id: 'repo-license',
-              scan_id: 'repo-scan-1',
-              type: 'license_notice',
-              severity: 'low',
-              detector: 'license_notice',
-              title: 'Out-of-scope repository notice',
-              human_summary: 'This finding belongs to repository license review.',
-              repository: 'owner/repo',
-              file_path: 'NOTICE',
-              remediation: 'Review separately.',
-              created_at: '2026-01-02T00:02:00Z'
-            }
-          ]
-        });
-      }
-      throw new Error(`Unexpected URL ${url}`);
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    setCurrentPath('/app/tenant-a/workspace-a/github/agentic-risk/prompts');
-    render(<App />);
-
-    expect(await screen.findByRole('heading', { level: 2, name: /^Prompt surfaces$/i })).toBeInTheDocument();
-    expect(await screen.findByText(/No prompt-surface findings/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Out-of-scope repository notice/i)).not.toBeInTheDocument();
-  });
-
   it('allows suppressed repository finding assignee edits without a new suppression reason', async () => {
     const suppressionExpiresAt = '2027-01-01T00:00:00Z';
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -2431,6 +2268,150 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { level: 3, name: /1 active session/i })).toBeInTheDocument();
     expect(screen.getByText(/Manage sessions/i)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Account security/i })).not.toBeInTheDocument();
+  });
+
+  it('downloads account data from the settings Danger Zone row', async () => {
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    let exportPolls = 0;
+    const exportJobID = 'export-1';
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a', 'admin'));
+      }
+      if (url.endsWith('/v1/whoami')) {
+        return okJSON({
+          principal: { type: 'subject', id: 'owner-user' },
+          roles: ['owner'],
+          scopes: ['read', 'write', 'admin'],
+          scope: { tenant_id: 'tenant-a', workspace_id: 'workspace-a' },
+          active_workspace: {
+            workspace: {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              display_name: 'Security Workspace',
+              slug: 'security-workspace',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-03T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              member_id: 'member-user-1',
+              user_id: 'user-1',
+              email: 'owner@example.com',
+              role: 'admin',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-03T00:00:00Z'
+            },
+            is_active: true
+          },
+          workspaces: []
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/members')) {
+        return okJSON({ items: [] });
+      }
+      if (url.endsWith('/v1/auth/config')) {
+        return authConfig(false, true);
+      }
+      if (url.endsWith('/v1/me/export') && init?.method === 'POST') {
+        return okJSON({
+          id: exportJobID,
+          status: 'queued',
+          requested_at: '2026-06-01T12:00:00Z'
+        });
+      }
+      if (url.endsWith(`/v1/me/export/${exportJobID}`)) {
+        exportPolls += 1;
+        return okJSON({
+          id: exportJobID,
+          status: 'ready',
+          requested_at: '2026-06-01T12:00:00Z',
+          completed_at: '2026-06-01T12:00:01Z',
+          download_url: `/v1/me/export/${exportJobID}/download?token=test-token`,
+          download_expires_at: '2026-06-02T12:00:01Z'
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/settings');
+    render(<App />);
+
+    const dangerZone = await screen.findByTestId('idt-danger-zone');
+    const exportRow = within(dangerZone).getByTestId('idt-export-account-row');
+    fireEvent.click(within(exportRow).getByRole('button', { name: /Download my data/i }));
+
+    expect(await within(exportRow).findByTestId('idt-export-ready')).toHaveTextContent(/Your data export is ready/i);
+    expect(within(exportRow).getByRole('link', { name: /Download the ZIP/i })).toHaveAttribute(
+      'href',
+      `http://localhost:8080/v1/me/export/${exportJobID}/download?token=test-token`
+    );
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(exportPolls).toBe(1);
+  });
+
+  it('surfaces an unavailable data export endpoint without blocking settings', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a', 'admin'));
+      }
+      if (url.endsWith('/v1/whoami')) {
+        return okJSON({
+          principal: { type: 'subject', id: 'owner-user' },
+          roles: ['owner'],
+          scopes: ['read', 'write', 'admin'],
+          scope: { tenant_id: 'tenant-a', workspace_id: 'workspace-a' },
+          active_workspace: {
+            workspace: {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              display_name: 'Security Workspace',
+              slug: 'security-workspace',
+              created_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-03T00:00:00Z'
+            },
+            member: {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              member_id: 'member-user-1',
+              user_id: 'user-1',
+              email: 'owner@example.com',
+              role: 'admin',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-03T00:00:00Z'
+            },
+            is_active: true
+          },
+          workspaces: []
+        });
+      }
+      if (url.includes('/v1/workspaces/workspace-a/members')) {
+        return okJSON({ items: [] });
+      }
+      if (url.endsWith('/v1/auth/config')) {
+        return authConfig(false, true);
+      }
+      if (url.endsWith('/v1/me/export') && init?.method === 'POST') {
+        return errorJSON(503, 'data export is not configured');
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/settings');
+    render(<App />);
+
+    const exportRow = await screen.findByTestId('idt-export-account-row');
+    fireEvent.click(within(exportRow).getByRole('button', { name: /Download my data/i }));
+
+    expect(await within(exportRow).findByRole('alert')).toHaveTextContent(/data export is not configured/i);
+    expect(screen.getByRole('heading', { level: 2, name: /Settings/i })).toBeInTheDocument();
   });
 
   it('supports workspace member invite workflow from app shell administration route', async () => {

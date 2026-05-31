@@ -50,6 +50,7 @@ type MemoryStore struct {
 	userIdentityByID              map[string]UserIdentity
 	userIdentityByProviderSubject map[string]string
 	sessions                      map[string]Session
+	userDataExports               map[string]UserDataExport
 	onboardingStates              map[string]OnboardingState
 	invitations                   map[string]Invitation
 	verifiedDomains               map[string]VerifiedDomain
@@ -101,6 +102,7 @@ func NewMemoryStore() *MemoryStore {
 		userIdentityByID:              map[string]UserIdentity{},
 		userIdentityByProviderSubject: map[string]string{},
 		sessions:                      map[string]Session{},
+		userDataExports:               map[string]UserDataExport{},
 		onboardingStates:              map[string]OnboardingState{},
 		invitations:                   map[string]Invitation{},
 		verifiedDomains:               map[string]VerifiedDomain{},

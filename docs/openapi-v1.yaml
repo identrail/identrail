@@ -188,6 +188,19 @@ x-identrail-route-authorizations:
     action: me.write
     resource_type: user
   - method: POST
+    path: /v1/me/export
+    action: me.write
+    resource_type: user_data_export
+  - method: GET
+    path: /v1/me/export
+    action: me.read
+    resource_type: user_data_export
+  - method: GET
+    path: /v1/me/export/{job_id}
+    action: me.read
+    resource_type: user_data_export
+    resource_id_param: job_id
+  - method: POST
     path: /v1/onboarding/start
     action: onboarding.write
     resource_type: onboarding_state
@@ -1700,6 +1713,146 @@ paths:
                   code:
                     type: string
                     enum: [grace_period_expired]
+  /v1/me/export:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [Authorization]
+      summary: Enqueue a "Download my data" export job
+      description: |
+        Starts an export of the caller's account record, workspace
+        memberships, audit-relevant events, and session history. Returns
+        the queued job; the user then polls `GET /v1/me/export/{job_id}`
+        until `status` becomes `ready`, at which point a 24-hour signed
+        download URL is included on the response.
+      operationId: enqueueCurrentUserDataExport
+      security:
+        - CookieAuth: []
+      responses:
+        "202":
+          description: Export job accepted and queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserDataExportJob"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          description: Rate limit exceeded because too many export requests were created recently
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  code: { type: string, enum: [rate_limited] }
+        "503":
+          description: Data export is not configured for this deployment
+    get:
+      tags: [Authorization]
+      summary: List recent "Download my data" export jobs
+      operationId: listCurrentUserDataExports
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Recent export jobs, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UserDataExportJob"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: Data export persistence is unavailable
+  /v1/me/export/{job_id}:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: job_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Authorization]
+      summary: Poll the status of a "Download my data" export
+      description: |
+        Returns the current state of one export owned by the caller. When
+        `status` is `ready`, the response includes a signed `download_url`
+        valid until `download_expires_at`.
+      operationId: getCurrentUserDataExport
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: Current job state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserDataExportJob"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: Data export is not configured for this deployment
+  /v1/me/export/{job_id}/download:
+    parameters:
+      - in: path
+        name: job_id
+        required: true
+        schema: { type: string }
+      - in: query
+        name: token
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Authorization]
+      summary: Download a ready "Download my data" ZIP bundle
+      description: |
+        Streams the completed account data export ZIP for a ready job. This
+        route is authorized by the 24-hour signed `token` query parameter
+        returned from `GET /v1/me/export/{job_id}`, so it does not require a
+        session cookie.
+      operationId: downloadCurrentUserDataExport
+      security: []
+      responses:
+        "200":
+          description: ZIP archive containing the user's account export
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+            X-Bundle-SHA256:
+              schema: { type: string }
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Export not found, token invalid, or download link expired
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+        "410":
+          description: Export bundle has been purged
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+        "503":
+          description: Data export is not configured for this deployment
   /v1/me/sessions:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -4930,6 +5083,35 @@ components:
           format: date-time
         current:
           type: boolean
+    UserDataExportJob:
+      type: object
+      required: [id, status, requested_at]
+      properties:
+        id: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [queued, running, ready, failed, expired]
+        requested_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        download_url:
+          type: string
+        download_expires_at:
+          type: string
+          format: date-time
+        bundle_size_bytes:
+          type: integer
+          format: int64
+        bundle_sha256:
+          type: string
+        error_message:
+          type: string
     Organization:
       type: object
       properties:

@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Added self-serve "Download my data" exports. `POST /v1/me/export`
+  enqueues an authenticated user export, `GET /v1/me/export/:job_id`
+  polls job state and returns a 24-hour signed download URL once ready, and
+  the worker writes ZIP bundles containing `user.json`, `workspaces.json`,
+  `audit.json`, and `sessions.json` to local/object storage with 7-day
+  retention and garbage collection. The Settings Danger Zone now includes a
+  non-destructive "Download my data" row that polls until the export is ready,
+  triggers the browser download, and surfaces unavailable endpoints gracefully.
 - Added self-serve account profile editing in Settings. Authenticated users can
   now `PATCH /v1/me` with `display_name` and/or `avatar_url`; the endpoint
   rejects unknown fields, trims and validates display names, blocks control and

@@ -417,6 +417,31 @@ func (m *MemoryStore) ListWorkspaceMembershipsByUserUUIDAndTenantID(ctx context.
 	return memberships, nil
 }
 
+// ListWorkspaceMembershipsByUserUUID returns every active workspace membership
+// the user holds across all tenants.
+func (m *MemoryStore) ListWorkspaceMembershipsByUserUUID(ctx context.Context, userUUID string) ([]TenancyWorkspaceMember, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	normalizedUserUUID := strings.TrimSpace(userUUID)
+	if normalizedUserUUID == "" {
+		return []TenancyWorkspaceMember{}, nil
+	}
+	memberships := make([]TenancyWorkspaceMember, 0)
+	for _, member := range m.members {
+		if member.UserUUID != normalizedUserUUID || member.Status != "active" {
+			continue
+		}
+		memberships = append(memberships, member)
+	}
+	sort.Slice(memberships, func(i, j int) bool {
+		if memberships[i].TenantID != memberships[j].TenantID {
+			return memberships[i].TenantID < memberships[j].TenantID
+		}
+		return memberships[i].WorkspaceID < memberships[j].WorkspaceID
+	})
+	return memberships, nil
+}
+
 // ListSoleOwnerWorkspaces returns every workspace, across all tenants, in which
 // the user is the only active owner.
 func (m *MemoryStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID string) ([]TenancyWorkspace, error) {

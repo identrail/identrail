@@ -559,6 +559,28 @@ func (m *MemoryStore) ListUserSessions(ctx context.Context, userID string, now t
 	return items, nil
 }
 
+// ListUserSessionHistory returns every session row for one user, including
+// revoked and expired sessions. A non-positive limit means no limit.
+func (m *MemoryStore) ListUserSessionHistory(ctx context.Context, userID string, limit int) ([]Session, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	normalizedUserID := strings.TrimSpace(userID)
+	items := make([]Session, 0)
+	for _, session := range m.sessions {
+		if session.UserID != normalizedUserID {
+			continue
+		}
+		items = append(items, session)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].LastSeenAt.After(items[j].LastSeenAt)
+	})
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
+}
+
 // RevokeUserSession revokes one active session if it belongs to the user.
 func (m *MemoryStore) RevokeUserSession(ctx context.Context, userID string, sessionIDHash []byte, revokedAt time.Time) (Session, error) {
 	m.mu.Lock()

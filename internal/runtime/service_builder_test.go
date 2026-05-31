@@ -99,6 +99,39 @@ func TestBuildScanServiceRepoScanSettings(t *testing.T) {
 	}
 }
 
+func TestBuildScanServiceInitializesUserExportStorageWithoutSigningKey(t *testing.T) {
+	cfg := config.Config{
+		Provider:           "aws",
+		AllowMemoryStore:   true,
+		AWSFixturePath:     []string{"testdata/aws/role_with_policies.json"},
+		UserDataExportPath: filepath.Join(t.TempDir(), "exports"),
+	}
+	svc, closeFn, err := BuildScanService(cfg)
+	if err != nil {
+		t.Fatalf("build service failed: %v", err)
+	}
+	defer func() { _ = closeFn() }()
+	if svc.UserExportStorage == nil {
+		t.Fatal("expected export storage for worker processing")
+	}
+	if len(svc.UserExportTokenSecret) != 0 {
+		t.Fatal("expected download signing to remain disabled without a session key")
+	}
+}
+
+func TestBuildScanServiceRejectsWeakUserExportSigningKey(t *testing.T) {
+	cfg := config.Config{
+		Provider:           "aws",
+		AllowMemoryStore:   true,
+		AWSFixturePath:     []string{"testdata/aws/role_with_policies.json"},
+		UserDataExportPath: filepath.Join(t.TempDir(), "exports"),
+		SessionKey:         "short",
+	}
+	if _, _, err := BuildScanService(cfg); err == nil {
+		t.Fatal("expected weak export signing key error")
+	}
+}
+
 func TestBuildScanServiceLockDefaults(t *testing.T) {
 	cfg := config.Config{
 		Provider:         "aws",
@@ -303,6 +336,55 @@ func TestBuildScanServiceInvalidAlertWebhookConfig(t *testing.T) {
 	}
 	if _, _, err := BuildScanService(cfg); err == nil {
 		t.Fatal("expected alert webhook validation error")
+	}
+}
+
+func TestBuildScanServiceConfiguresConnectorSecretManagerAndDataExport(t *testing.T) {
+	exportPath := t.TempDir()
+
+	cfg := config.Config{
+		Provider:            "aws",
+		AllowMemoryStore:    true,
+		AWSFixturePath:      []string{"testdata/aws/role_with_policies.json"},
+		ConnectorSecretKeys: "v1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+		UserDataExportPath:  exportPath,
+		SessionKey:          "abcdefghijklmnopqrstuvwxyz0123456789",
+		LockBackend:         "invalid",
+	}
+
+	svc, closeFn, err := BuildScanService(cfg)
+	if err != nil {
+		t.Fatalf("build service failed: %v", err)
+	}
+	defer func() { _ = closeFn() }()
+	if svc.ConnectorSecretManager == nil {
+		t.Fatal("expected connector secret manager to be configured")
+	}
+	if svc.UserExportStorage == nil {
+		t.Fatal("expected user export storage to be configured")
+	}
+	if svc.UserExportTokenSecret == nil {
+		t.Fatal("expected user export token secret to be derived from session key")
+	}
+	if svc.Locker == nil {
+		t.Fatal("expected fallback locker to be configured")
+	}
+	if _, ok := svc.Locker.(*scheduler.InMemoryLocker); !ok {
+		t.Fatalf("expected in-memory locker for invalid backend, got %T", svc.Locker)
+	}
+}
+
+func TestBuildScanServiceRejectsInvalidConnectorSecretKeys(t *testing.T) {
+	cfg := config.Config{
+		Provider:         "aws",
+		AllowMemoryStore: true,
+		AWSFixturePath:   []string{"testdata/aws/role_with_policies.json"},
+		ConnectorSecretKeys: "v1:" +
+			"YWJj", // not 32-byte key material
+	}
+	_, _, err := BuildScanService(cfg)
+	if err == nil {
+		t.Fatal("expected connector secret manager initialization error")
 	}
 }
 

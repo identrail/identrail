@@ -166,6 +166,35 @@ var validUserStatuses = map[string]struct{}{
 // honor.
 const UserDeletionGracePeriod = 30 * 24 * time.Hour
 
+// Self-serve data-export lifecycle constants (#1421). Held here so the API,
+// worker, and store agree on the same TTLs without drifting if any one of them
+// is changed in isolation.
+const (
+	// UserDataExportDownloadTTL is how long a completed bundle's signed
+	// download URL stays valid after the job finishes.
+	UserDataExportDownloadTTL = 24 * time.Hour
+	// UserDataExportRetention is how long a completed bundle is kept on
+	// disk before the GC pass deletes the file and marks the row purged.
+	UserDataExportRetention = 7 * 24 * time.Hour
+)
+
+// User-data-export job lifecycle status values.
+const (
+	UserDataExportStatusQueued  = "queued"
+	UserDataExportStatusRunning = "running"
+	UserDataExportStatusReady   = "ready"
+	UserDataExportStatusFailed  = "failed"
+	UserDataExportStatusExpired = "expired"
+)
+
+var validUserDataExportStatuses = map[string]struct{}{
+	UserDataExportStatusQueued:  {},
+	UserDataExportStatusRunning: {},
+	UserDataExportStatusReady:   {},
+	UserDataExportStatusFailed:  {},
+	UserDataExportStatusExpired: {},
+}
+
 // hardDeletedEmailPrefix and hardDeletedEmailSuffix bracket the synthetic
 // primary_email a user row carries after PII purge. They keep the NOT NULL /
 // UNIQUE / length constraints on the column satisfied while guaranteeing the
@@ -625,6 +654,27 @@ type UserIdentity struct {
 	RawClaims           json.RawMessage `json:"raw_claims,omitempty"`
 	LastAuthenticatedAt time.Time       `json:"last_authenticated_at"`
 	CreatedAt           time.Time       `json:"created_at"`
+}
+
+// UserDataExport tracks one self-serve "Download my data" job for #1421.
+// Bundles live on disk / object storage at BundlePath; the row holds the
+// metadata and lifecycle timestamps. The signed-download URL the API issues
+// is HMAC-signed by the server's session key, so no token material is
+// persisted on the row.
+type UserDataExport struct {
+	ID                string     `json:"id"`
+	UserID            string     `json:"user_id"`
+	Status            string     `json:"status"`
+	BundlePath        string     `json:"bundle_path,omitempty"`
+	BundleSizeBytes   int64      `json:"bundle_size_bytes,omitempty"`
+	BundleSHA256      string     `json:"bundle_sha256,omitempty"`
+	ErrorMessage      string     `json:"error_message,omitempty"`
+	RequestedAt       time.Time  `json:"requested_at"`
+	StartedAt         *time.Time `json:"started_at,omitempty"`
+	CompletedAt       *time.Time `json:"completed_at,omitempty"`
+	DownloadExpiresAt *time.Time `json:"download_expires_at,omitempty"`
+	PurgeAfter        *time.Time `json:"purge_after,omitempty"`
+	PurgedAt          *time.Time `json:"purged_at,omitempty"`
 }
 
 // Session stores one opaque server-side browser session.
@@ -2657,13 +2707,51 @@ type Store interface {
 	TouchSessionAllowingPendingDeletion(ctx context.Context, sessionIDHash []byte, now time.Time) (Session, error)
 	UpdateSessionContext(ctx context.Context, userID string, sessionIDHash []byte, orgID string, workspaceID string, projectID string, now time.Time) (Session, error)
 	ListUserSessions(ctx context.Context, userID string, now time.Time, limit int) ([]Session, error)
+	ListUserSessionHistory(ctx context.Context, userID string, limit int) ([]Session, error)
 	RevokeUserSession(ctx context.Context, userID string, sessionIDHash []byte, revokedAt time.Time) (Session, error)
 	RevokeOtherUserSessions(ctx context.Context, userID string, currentSessionIDHash []byte, revokedAt time.Time) (int, error)
 	RevokeAllUserSessions(ctx context.Context, userID string, revokedAt time.Time) (int, error)
+	// CreateUserDataExport enqueues a new "Download my data" export job for
+	// the caller. The store generates an ID if one is not supplied.
+	CreateUserDataExport(ctx context.Context, export UserDataExport) (UserDataExport, error)
+	// GetUserDataExport returns one export job, scoped to its owner. Returns
+	// ErrNotFound if the row does not exist OR belongs to a different user so
+	// scoping cannot be bypassed by guessing job ids.
+	GetUserDataExport(ctx context.Context, userID string, jobID string) (UserDataExport, error)
+	// GetUserDataExportByID returns one export job by id without scoping to a
+	// caller. Used by the signed-download route, which authorizes via the
+	// HMAC token rather than a session cookie.
+	GetUserDataExportByID(ctx context.Context, jobID string) (UserDataExport, error)
+	// ListUserDataExports returns the user's export jobs, newest first.
+	ListUserDataExports(ctx context.Context, userID string, limit int) ([]UserDataExport, error)
+	// ClaimNextQueuedUserDataExport atomically transitions one queued job to
+	// running and returns it. Returns ErrNotFound when nothing is queued.
+	ClaimNextQueuedUserDataExport(ctx context.Context, now time.Time) (UserDataExport, error)
+	// ClaimQueuedUserDataExport atomically transitions the named queued job to
+	// running and returns it. Returns ErrNotFound if the job is already claimed
+	// or terminal.
+	ClaimQueuedUserDataExport(ctx context.Context, jobID string, now time.Time) (UserDataExport, error)
+	// CompleteUserDataExport marks a running job ready and records the
+	// finished bundle's metadata and TTLs.
+	CompleteUserDataExport(ctx context.Context, jobID string, bundlePath string, sizeBytes int64, sha256Hex string, completedAt time.Time, downloadExpiresAt time.Time, purgeAfter time.Time) (UserDataExport, error)
+	// FailUserDataExport marks a job failed and records the error message.
+	FailUserDataExport(ctx context.Context, jobID string, errMsg string, failedAt time.Time) (UserDataExport, error)
+	// FailStaleRunningUserDataExports marks running jobs as failed when they
+	// have been running since before startedBefore and returns the jobs that were
+	// transitioned. Workers use this after restarts so interrupted jobs do not
+	// remain running forever.
+	FailStaleRunningUserDataExports(ctx context.Context, startedBefore time.Time, failedAt time.Time, limit int, errMsg string) ([]UserDataExport, error)
+	// ListUserDataExportsPendingPurge returns ready jobs whose retention
+	// window has elapsed and whose bundle file has not yet been removed.
+	ListUserDataExportsPendingPurge(ctx context.Context, now time.Time, limit int) ([]UserDataExport, error)
+	// MarkUserDataExportPurged transitions a job to expired and stamps
+	// purged_at after the worker has removed the bundle from storage.
+	MarkUserDataExportPurged(ctx context.Context, jobID string, now time.Time) (UserDataExport, error)
 	UpsertOnboardingState(ctx context.Context, state OnboardingState) (OnboardingState, error)
 	GetOnboardingState(ctx context.Context, userID string) (OnboardingState, error)
 	FindFirstWorkspaceMemberByUserUUID(ctx context.Context, userUUID string) (TenancyWorkspaceMember, error)
 	FindFirstWorkspaceMemberByUserUUIDAndTenantID(ctx context.Context, userUUID string, tenantID string) (TenancyWorkspaceMember, error)
+	ListWorkspaceMembershipsByUserUUID(ctx context.Context, userUUID string) ([]TenancyWorkspaceMember, error)
 	ListWorkspaceMembershipsByUserUUIDAndTenantID(ctx context.Context, userUUID string, tenantID string) ([]TenancyWorkspaceMember, error)
 	// ListSoleOwnerWorkspaces returns every workspace, across all tenants, in
 	// which the user is the only active owner. Account deletion uses this to

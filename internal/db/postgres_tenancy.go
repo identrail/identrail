@@ -540,6 +540,53 @@ func (p *PostgresStore) ListWorkspaceMembershipsByUserUUIDAndTenantID(ctx contex
 	return memberships, nil
 }
 
+// ListWorkspaceMembershipsByUserUUID returns every active workspace membership
+// the user holds across all tenants. AnyScope is used because the export is a
+// global account export rather than a single scoped workspace read.
+func (p *PostgresStore) ListWorkspaceMembershipsByUserUUID(ctx context.Context, userUUID string) ([]TenancyWorkspaceMember, error) {
+	normalizedUserUUID := strings.TrimSpace(userUUID)
+	if normalizedUserUUID == "" {
+		return []TenancyWorkspaceMember{}, nil
+	}
+	rows, err := p.queryContextAnyScope(
+		ctx,
+		`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
+		 FROM tenancy_workspace_members
+		 WHERE user_uuid = NULLIF($1, '')::uuid
+		   AND status = 'active'
+		 ORDER BY tenant_id ASC, workspace_id ASC`,
+		normalizedUserUUID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	memberships := make([]TenancyWorkspaceMember, 0)
+	for rows.Next() {
+		var member TenancyWorkspaceMember
+		if err := rows.Scan(
+			&member.TenantID,
+			&member.WorkspaceID,
+			&member.MemberID,
+			&member.UserID,
+			&member.UserUUID,
+			&member.Email,
+			&member.Role,
+			&member.Status,
+			&member.JoinedAt,
+			&member.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		memberships = append(memberships, member)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return memberships, nil
+}
+
 // ListSoleOwnerWorkspaces returns every workspace, across all tenants, in which
 // the user is the only active owner. Account deletion uses this to refuse with
 // a structured 409 until ownership is transferred, so a workspace never ends up
