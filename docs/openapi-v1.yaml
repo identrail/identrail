@@ -590,8 +590,6 @@ x-identrail-action-role-grants:
     - admin
     - owner
   tenancy.owner:
-    - write
-    - admin
     - owner
 paths:
   /healthz:
@@ -2347,7 +2345,9 @@ paths:
       description: |
         Owner-only. Flips the workspace into `suspended`; scheduled scans
         and connector lifecycle transitions pause. Same sole-owner guard
-        semantics as delete.
+        semantics as delete. Refuses with `409 not_suspendable` when the
+        workspace is already pending deletion — cancel-deletion must run
+        first so the grace-expiry check stays authoritative.
       operationId: suspendWorkspace
       parameters:
         - in: path
@@ -2368,11 +2368,18 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: Sole-owner guard refused the destructive action
+          description: |
+            Either the sole-owner guard refused the destructive action,
+            or the workspace is pending deletion (`code: not_suspendable`).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WorkspaceSoleOwnerConflict"
+                oneOf:
+                  - $ref: "#/components/schemas/WorkspaceSoleOwnerConflict"
+                  - type: object
+                    properties:
+                      error: { type: string }
+                      code: { type: string, enum: [not_suspendable] }
   /v1/workspaces/{workspace_id}/reactivate:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"

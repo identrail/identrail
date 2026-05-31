@@ -354,11 +354,15 @@ func (p *PostgresStore) CancelWorkspaceDeletion(ctx context.Context, workspaceID
 	if err != nil {
 		return TenancyWorkspace{}, err
 	}
+	// Cancel-deletion restores to fully active — clear any stale
+	// suspended_at too so the row does not surface as "active with
+	// suspension metadata" in the UI after restoration.
 	row := p.queryRowContext(
 		ctx,
 		`UPDATE tenancy_workspaces
 		 SET status = 'active',
 		     deleted_at = NULL,
+		     suspended_at = NULL,
 		     updated_at = $3::timestamptz
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2

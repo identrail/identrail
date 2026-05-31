@@ -545,6 +545,14 @@ var ErrWorkspaceOwnerRequired = errors.New("workspace owner role required")
 // silently dodged.
 var ErrWorkspaceNotReactivatable = errors.New("workspace is not suspended")
 
+// ErrWorkspaceNotSuspendable indicates a suspend request hit a workspace
+// that is already soft-deleted. Without this guard a delete→suspend→
+// reactivate sequence could transition the row back to active while the
+// hard-delete worker still considers it pending purge (because deleted_at
+// is preserved across non-cancel transitions), creating a hidden tombstone
+// that survives in an "active" workspace.
+var ErrWorkspaceNotSuspendable = errors.New("workspace is not suspendable")
+
 // NewService creates an API service with defaults.
 func NewService(store db.Store, scanner ScannerRunner, provider string) *Service {
 	svc := &Service{
@@ -2623,11 +2631,17 @@ type WorkspaceSoleOwnerStranding struct {
 	StrandedMembers []db.TenancyWorkspaceMember
 }
 
-// SuspendWorkspace flips the workspace into the suspended state. The caller's
-// user UUID is required so the sole-owner guard can compare ownership; pass
-// the empty string to bypass both the owner-role gate and the sole-owner
-// guard (only used for platform-admin callers exercising the route via API
-// key without a workspace membership).
+// SuspendWorkspace flips an active workspace into the suspended state.
+// Refuses with ErrWorkspaceNotSuspendable when the workspace is already
+// soft-deleted: otherwise a deleted→suspended→reactivated sequence could
+// sneak past the cancel-deletion grace check and leave the row "active"
+// with a non-NULL deleted_at scheduled for hard purge.
+//
+// callerUserUUID gates both the owner-role check and the sole-owner
+// guard. Empty means API-key path; the route grant blocks that at the
+// route table now (tenancy.owner is owner-only) so callers reaching
+// this method with empty UUID can only be tests or platform-internal
+// callers — preserve the bypass for them.
 func (s *Service) SuspendWorkspace(ctx context.Context, workspaceID string, callerUserUUID string) (WorkspaceSoleOwnerStranding, db.TenancyWorkspace, error) {
 	ctx = s.scopeContext(ctx)
 	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
@@ -2636,6 +2650,13 @@ func (s *Service) SuspendWorkspace(ctx context.Context, workspaceID string, call
 	}
 	if err := s.requireWorkspaceOwner(ctx, normalizedWorkspaceID, callerUserUUID); err != nil {
 		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
+	}
+	workspace, err := s.Store.GetWorkspace(ctx, normalizedWorkspaceID)
+	if err != nil {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
+	}
+	if workspace.Status == db.WorkspaceStatusDeleted || workspace.DeletedAt != nil {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, ErrWorkspaceNotSuspendable
 	}
 	stranding, err := s.checkWorkspaceSoleOwnerStranding(ctx, normalizedWorkspaceID, callerUserUUID)
 	if err != nil {
@@ -2743,18 +2764,23 @@ func WorkspaceDeletionGraceDeadline(workspace db.TenancyWorkspace) time.Time {
 }
 
 // requireWorkspaceOwner is the authoritative owner-only gate for workspace
-// lifecycle endpoints. The authz route table grants the action to the role
-// strings {scopeWrite, scopeAdmin, "owner"} but `scopeAdmin` is literally
-// "admin" — identical to the workspace member role "admin" — so the route
-// table alone cannot distinguish a platform-admin API key from a workspace
-// admin session. This service-level check closes that gap by reading the
-// caller's membership row directly and refusing anything other than an
-// active owner.
+// lifecycle endpoints. The authz route table now restricts tenancy.owner
+// to the workspace-membership "owner" role only, but this service-level
+// check is the defense-in-depth: it reads the caller's membership row
+// directly and refuses anything other than an active owner. Order is
+// important — we look up the workspace itself first so a missing id
+// returns a clean ErrNotFound (404) rather than masquerading as an
+// authorization failure, which would let an authenticated caller leak
+// "you don't own this" for a workspace that does not exist.
 //
-// Returns nil when callerUserUUID is empty (API key / platform-admin
-// bypass: their authorization is established upstream at key issuance,
-// and they have no workspace membership row to consult here).
+// Returns nil when callerUserUUID is empty. With the tightened route
+// grant in #1420 round 2, the only callers that reach this with empty
+// UUID are internal/test paths — preserve the bypass for them rather
+// than coupling the service layer to the auth surface shape.
 func (s *Service) requireWorkspaceOwner(ctx context.Context, workspaceID string, callerUserUUID string) error {
+	if _, err := s.Store.GetWorkspace(ctx, workspaceID); err != nil {
+		return err
+	}
 	if strings.TrimSpace(callerUserUUID) == "" {
 		return nil
 	}

@@ -363,6 +363,10 @@ func (m *MemoryStore) CancelWorkspaceDeletion(ctx context.Context, workspaceID s
 	whenUTC := now.UTC()
 	workspace.Status = WorkspaceStatusActive
 	workspace.DeletedAt = nil
+	// Cancel-deletion restores to fully active — clear any stale
+	// suspended_at too so the row does not surface as "active with
+	// suspension metadata" in the UI after restoration.
+	workspace.SuspendedAt = nil
 	workspace.UpdatedAt = whenUTC
 	m.workspaces[key] = workspace
 	m.mu.Unlock()

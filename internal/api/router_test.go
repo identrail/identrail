@@ -3832,31 +3832,23 @@ func TestRouterTenancyEndpointsCRUDFlow(t *testing.T) {
 		t.Fatalf("expected member delete 204, got %d body=%s", deleteMemberResp.Code, deleteMemberResp.Body.String())
 	}
 
-	// DELETE /v1/workspaces/:id is now a soft delete with a 30-day grace
-	// window (see migration 000035 and #1420). It returns the saved
-	// workspace + `hard_delete_after`, and a subsequent GET still resolves
-	// the row (status="deleted") so the cancel-deletion flow can revive it.
+	// DELETE /v1/workspaces/:id is now an owner-only soft delete (see
+	// migration 000035 and #1420). The route's authz grant
+	// `tenancy.owner` is restricted to the workspace-membership "owner"
+	// role only — API key callers, regardless of platform scope, are
+	// refused at the route table so the soft-delete + 30-day grace flow
+	// cannot be triggered out-of-band by a platform-write key. Full
+	// lifecycle coverage (including the session-auth happy path,
+	// idempotency, sole-owner 409, and past-grace 410) lives in
+	// internal/api/workspace_lifecycle_test.go.
 	deleteWorkspaceResp := doRequest(http.MethodDelete, "/v1/workspaces/workspace-a", "")
-	if deleteWorkspaceResp.Code != http.StatusOK {
-		t.Fatalf("expected workspace delete 200, got %d body=%s", deleteWorkspaceResp.Code, deleteWorkspaceResp.Body.String())
-	}
-	var deletedBody struct {
-		Status          string `json:"status"`
-		HardDeleteAfter string `json:"hard_delete_after"`
-	}
-	if err := json.Unmarshal(deleteWorkspaceResp.Body.Bytes(), &deletedBody); err != nil {
-		t.Fatalf("unmarshal delete response: %v", err)
-	}
-	if deletedBody.Status != "deleted" {
-		t.Fatalf("expected workspace status=deleted after soft delete, got %q", deletedBody.Status)
-	}
-	if deletedBody.HardDeleteAfter == "" {
-		t.Fatalf("expected hard_delete_after in delete response body=%s", deleteWorkspaceResp.Body.String())
+	if deleteWorkspaceResp.Code != http.StatusForbidden {
+		t.Fatalf("expected workspace delete 403 for API-key writer (owner-only), got %d body=%s", deleteWorkspaceResp.Code, deleteWorkspaceResp.Body.String())
 	}
 
 	postDeleteGet := doRequest(http.MethodGet, "/v1/workspaces/workspace-a", "")
 	if postDeleteGet.Code != http.StatusOK {
-		t.Fatalf("expected workspace still readable after soft delete, got %d body=%s", postDeleteGet.Code, postDeleteGet.Body.String())
+		t.Fatalf("expected workspace still readable after refused delete, got %d body=%s", postDeleteGet.Code, postDeleteGet.Body.String())
 	}
 }
 
@@ -4424,9 +4416,14 @@ func TestRouterTenancyErrorPaths(t *testing.T) {
 		t.Fatalf("expected workspace not found 404, got %d", wsNotFound.Code)
 	}
 
+	// DELETE /v1/workspaces is now owner-only (#1420). API-key callers
+	// fail the route-grant check before the workspace existence check
+	// can run, so the response is 403 rather than 404 for a missing id.
+	// The owner-authenticated 404 path is exercised in
+	// internal/api/workspace_lifecycle_test.go.
 	wsDeleteNotFound := doRequest(http.MethodDelete, "/v1/workspaces/nonexistent", "")
-	if wsDeleteNotFound.Code != http.StatusNotFound {
-		t.Fatalf("expected workspace delete not found 404, got %d", wsDeleteNotFound.Code)
+	if wsDeleteNotFound.Code != http.StatusForbidden {
+		t.Fatalf("expected workspace delete 403 for API-key writer (owner-only), got %d", wsDeleteNotFound.Code)
 	}
 
 	memberNotFound := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/members/nonexistent", "")

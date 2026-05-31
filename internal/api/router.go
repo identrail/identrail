@@ -1564,6 +1564,13 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 				c.JSON(http.StatusConflict, workspaceSoleOwnerConflict(stranding))
 				return
 			}
+			if errors.Is(err, ErrWorkspaceNotSuspendable) {
+				c.JSON(http.StatusConflict, gin.H{
+					"error": "workspace is pending deletion; cancel deletion before suspending",
+					"code":  "not_suspendable",
+				})
+				return
+			}
 			if errors.Is(err, ErrWorkspaceOwnerRequired) {
 				c.JSON(http.StatusForbidden, gin.H{"error": "workspace owner role required", "code": "owner_required"})
 				return

@@ -109,6 +109,111 @@ func TestWorkspaceReactivateAfterSuspend(t *testing.T) {
 	}
 }
 
+func TestWorkspaceLifecycleNotFoundForOwner(t *testing.T) {
+	// Owner-authenticated callers hitting a non-existent workspace path
+	// must reach the handler (route grant passes because their session
+	// carries the "owner" role) and receive 404 from the service-level
+	// existence check, not the route-table 403 returned to API keys.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	store := harness.manager.Store.(*db.MemoryStore)
+	promoteMemberToOwner(t, store, "user@example.com")
+
+	for _, p := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodDelete, "/v1/workspaces/nonexistent"},
+		{http.MethodPost, "/v1/workspaces/nonexistent/suspend"},
+		{http.MethodPost, "/v1/workspaces/nonexistent/reactivate"},
+		{http.MethodPost, "/v1/workspaces/nonexistent/cancel-deletion"},
+	} {
+		w := httptest.NewRecorder()
+		harness.router.ServeHTTP(w, sessionRequest(p.method, p.path, cookieValue))
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected %s %s 404, got %d body=%s", p.method, p.path, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestWorkspaceSuspendRefusesDeletedWorkspace(t *testing.T) {
+	// Without this guard a delete→suspend→reactivate sequence transitions
+	// the row back to active while deleted_at is preserved across the
+	// non-cancel transitions, leaving a hidden tombstone on a workspace
+	// the worker will still purge. Codex flagged this on the first
+	// fix round (#1445) — suspend must refuse soft-deleted workspaces.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	store := harness.manager.Store.(*db.MemoryStore)
+	promoteMemberToOwner(t, store, "user@example.com")
+
+	delResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(delResp, sessionRequest(http.MethodDelete, "/v1/workspaces/workspace-a", cookieValue))
+	if delResp.Code != http.StatusOK {
+		t.Fatalf("expected delete 200, got %d body=%s", delResp.Code, delResp.Body.String())
+	}
+
+	suspendResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(suspendResp, sessionRequest(http.MethodPost, "/v1/workspaces/workspace-a/suspend", cookieValue))
+	if suspendResp.Code != http.StatusConflict {
+		t.Fatalf("expected suspend 409 on deleted workspace, got %d body=%s", suspendResp.Code, suspendResp.Body.String())
+	}
+	if !strings.Contains(suspendResp.Body.String(), `"code":"not_suspendable"`) {
+		t.Fatalf("expected not_suspendable code in body, got %s", suspendResp.Body.String())
+	}
+
+	// Workspace must remain deleted with deleted_at intact so the worker
+	// will still purge it on schedule.
+	scopedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	refreshed, err := store.GetWorkspace(scopedCtx, "workspace-a")
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if refreshed.Status != db.WorkspaceStatusDeleted || refreshed.DeletedAt == nil {
+		t.Fatalf("expected workspace still deleted after refused suspend, got %+v", refreshed)
+	}
+}
+
+func TestWorkspaceCancelDeletionClearsSuspendedAt(t *testing.T) {
+	// CancelWorkspaceDeletion restores a workspace to fully active. If a
+	// workspace was suspended before being deleted, the prior suspended_at
+	// must be cleared on cancel so the UI does not surface "active with
+	// suspension metadata" after restoration.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	store := harness.manager.Store.(*db.MemoryStore)
+	promoteMemberToOwner(t, store, "user@example.com")
+
+	// Seed a suspended_at directly so we can verify cancel clears it
+	// regardless of the path that set it (a workspace currently can't
+	// be both suspended and deleted via the public API, but the store
+	// must defensively clear stale state on cancel either way).
+	scopedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if _, err := store.SuspendWorkspace(scopedCtx, "workspace-a", harness.svc.Now()); err != nil {
+		t.Fatalf("seed suspend: %v", err)
+	}
+	if _, err := store.SoftDeleteWorkspace(scopedCtx, "workspace-a", harness.svc.Now()); err != nil {
+		t.Fatalf("seed soft delete: %v", err)
+	}
+
+	cancelResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(cancelResp, sessionRequest(http.MethodPost, "/v1/workspaces/workspace-a/cancel-deletion", cookieValue))
+	if cancelResp.Code != http.StatusOK {
+		t.Fatalf("expected cancel 200, got %d body=%s", cancelResp.Code, cancelResp.Body.String())
+	}
+
+	refreshed, err := store.GetWorkspace(scopedCtx, "workspace-a")
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if refreshed.Status != db.WorkspaceStatusActive {
+		t.Fatalf("expected active status, got %q", refreshed.Status)
+	}
+	if refreshed.SuspendedAt != nil {
+		t.Fatalf("expected suspended_at cleared after cancel-deletion, got %v", refreshed.SuspendedAt)
+	}
+	if refreshed.DeletedAt != nil {
+		t.Fatalf("expected deleted_at cleared after cancel-deletion, got %v", refreshed.DeletedAt)
+	}
+}
+
 func TestWorkspaceReactivateRefusesDeletedWorkspace(t *testing.T) {
 	// Reactivate only flips suspended → active. A soft-deleted workspace
 	// must go through cancel-deletion so the 30-day grace window stays
@@ -186,8 +291,11 @@ func TestWorkspaceCancelDeletionPastGraceReturns410(t *testing.T) {
 		t.Fatalf("expected delete 200, got %d body=%s", delResp.Code, delResp.Body.String())
 	}
 
-	// Advance the harness clock past the grace window.
-	pastGrace := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC).Add(db.WorkspaceDeletionGracePeriod + 24*time.Hour)
+	// Advance the harness clock past the grace window. Read the current
+	// "now" from the service rather than hardcoding the harness seed, so
+	// the assertion survives any future change to setupSessionRouter's
+	// base time.
+	pastGrace := harness.svc.Now().Add(db.WorkspaceDeletionGracePeriod + 24*time.Hour)
 	harness.svc.Now = func() time.Time { return pastGrace }
 
 	cancelResp := httptest.NewRecorder()

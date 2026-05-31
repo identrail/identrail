@@ -73,13 +73,14 @@ func defaultRouteActionRoleGrants() map[string][]string {
 	tenancyReadRoles := []string{scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
 	tenancyWriteRoles := []string{scopeWrite, scopeAdmin, "owner", "admin"}
 	// tenancy.owner gates destructive workspace lifecycle actions (suspend,
-	// delete, cancel-deletion). At the workspace-membership level the admin
-	// role is intentionally excluded — only the owner role can flip a
-	// workspace's lifecycle from the product UI. API key callers retain
-	// access via the platform-issued scopes (write/admin) because their
-	// authorization is enforced upstream at key issuance rather than by
-	// workspace membership.
-	tenancyOwnerRoles := []string{scopeWrite, scopeAdmin, "owner"}
+	// delete, cancel-deletion). The route grant is intentionally narrow:
+	// ONLY the workspace-membership "owner" role. scopeWrite and scopeAdmin
+	// are deliberately excluded — scopeAdmin is the literal string "admin"
+	// and would collide with the workspace-membership admin role, silently
+	// admitting workspace admins to owner-only routes. Platform operators
+	// performing emergency lifecycle changes must do so via a session
+	// authenticated as a workspace owner, not via an API key scope.
+	tenancyOwnerRoles := []string{"owner"}
 	enterpriseReadRoles := []string{scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
 	enterpriseWriteRoles := []string{scopeWrite, scopeAdmin, "owner", "admin"}
 	authenticatedRoles := []string{"authenticated", scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
