@@ -2768,9 +2768,9 @@ function useAWSInventoryData(): AWSInventoryDataState {
     const requestID = ++connectionRequestRef.current;
     const requestEnvironmentID = selectedEnvironmentID;
     const requestScopeKey = scopeKeyRef.current;
+    setConnection(null);
+    setConnectionError('');
     if (!scope || !requestEnvironmentID) {
-      setConnection(null);
-      setConnectionError('');
       setConnectionLoading(false);
       return;
     }
@@ -3123,7 +3123,7 @@ function AWSMachineIdentitiesContent({ connection }: { connection: AWSConnection
             category: 'IAM role',
             scope: awsAccountRegionLabel(connection),
             status: connection.connected ? 'wired now' : 'pending validation',
-            stage: 'wired' as AWSCapabilityStage,
+            stage: connection.connected ? ('wired' as AWSCapabilityStage) : ('coming' as AWSCapabilityStage),
             detail: connection.principal_arn ?? 'Role principal will appear after validation.'
           }
         ]
