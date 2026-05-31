@@ -5317,6 +5317,267 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   background: rgba(244, 248, 255, 0.88);
 }
 
+.idt-agentic-risk-boundary-grid,
+.idt-agentic-risk-section-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.idt-agentic-risk-section-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.idt-agentic-risk-boundary-grid article,
+.idt-agentic-risk-section-grid a,
+.idt-agentic-risk-repository,
+.idt-agentic-risk-finding-row {
+  min-width: 0;
+  border: 1px solid rgba(126, 157, 211, 0.18);
+  border-radius: 8px;
+  background: rgba(6, 11, 20, 0.46);
+}
+
+.idt-agentic-risk-boundary-grid article,
+.idt-agentic-risk-section-grid a {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.85rem;
+}
+
+.idt-agentic-risk-section-grid a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.idt-agentic-risk-section-grid a:hover,
+.idt-agentic-risk-section-grid a:focus-visible {
+  border-color: rgba(244, 248, 255, 0.28);
+  background: rgba(244, 248, 255, 0.08);
+  outline: none;
+  text-decoration: none;
+}
+
+.idt-agentic-risk-boundary-grid span,
+.idt-agentic-risk-section-grid span,
+.idt-agentic-risk-repository-head span,
+.idt-agentic-risk-tags span {
+  color: #9fb5d8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.idt-agentic-risk-boundary-grid strong,
+.idt-agentic-risk-section-grid strong,
+.idt-agentic-risk-repository-head strong {
+  color: #f4f8ff;
+}
+
+.idt-agentic-risk-boundary-grid p,
+.idt-agentic-risk-section-grid p {
+  margin: 0;
+  color: #9fb5d8;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.idt-agentic-risk-coverage {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.idt-agentic-risk-coverage span,
+.idt-agentic-risk-tags span {
+  border: 1px solid rgba(126, 157, 211, 0.22);
+  border-radius: 999px;
+  padding: 0.28rem 0.55rem;
+  background: rgba(244, 248, 255, 0.06);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.idt-agentic-risk-inventory {
+  gap: 0.9rem;
+}
+
+.idt-agentic-risk-repository-list,
+.idt-agentic-risk-finding-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.idt-agentic-risk-repository {
+  padding: 0.75rem;
+}
+
+.idt-agentic-risk-repository-head,
+.idt-agentic-risk-finding-row,
+.idt-agentic-risk-finding-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+.idt-agentic-risk-repository-head {
+  margin-bottom: 0.7rem;
+}
+
+.idt-agentic-risk-finding-row {
+  padding: 0.75rem;
+}
+
+.idt-agentic-risk-finding-main {
+  min-width: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.idt-agentic-risk-tags {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.idt-agentic-risk-finding-actions {
+  flex: 0 0 auto;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.idt-agentic-risk-finding-actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #f4f8ff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.idt-agentic-risk-finding-actions a:hover,
+.idt-agentic-risk-finding-actions a:focus-visible {
+  text-decoration: underline;
+}
+
+.idt-agentic-risk-snippet {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0.1rem 0 0;
+  border: 1px solid rgba(126, 157, 211, 0.18);
+  border-radius: 8px;
+  padding: 0.62rem 0.7rem;
+  background: rgba(2, 6, 12, 0.58);
+  color: #dce9ff;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+html[data-theme='light'] .idt-agentic-risk-boundary-grid article,
+html[data-theme='light'] .idt-agentic-risk-section-grid a,
+html[data-theme='light'] .idt-agentic-risk-repository,
+html[data-theme='light'] .idt-agentic-risk-finding-row {
+  border-color: rgba(20, 37, 66, 0.14);
+  background: rgba(255, 255, 255, 0.9);
+  color: #20395f;
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-agentic-risk-repository,
+html[data-theme='light'] .idt-app-console-layout .idt-agentic-risk-finding-row {
+  color: #20395f;
+}
+
+html[data-theme='light'] .idt-agentic-risk-boundary-grid span,
+html[data-theme='light'] .idt-agentic-risk-section-grid span,
+html[data-theme='light'] .idt-agentic-risk-repository-head span,
+html[data-theme='light'] .idt-agentic-risk-tags span,
+html[data-theme='light'] .idt-agentic-risk-boundary-grid p,
+html[data-theme='light'] .idt-agentic-risk-section-grid p {
+  color: #536989;
+}
+
+html[data-theme='light'] .idt-app-console-layout .idt-agentic-risk-boundary-grid span,
+html[data-theme='light'] .idt-app-console-layout .idt-agentic-risk-section-grid span,
+html[data-theme='light'] .idt-app-console-layout .idt-agentic-risk-repository-head span,
+html[data-theme='light'] .idt-app-console-layout .idt-agentic-risk-tags span,
+html[data-theme='light'] .idt-app-console-layout .idt-agentic-risk-boundary-grid p,
+html[data-theme='light'] .idt-app-console-layout .idt-agentic-risk-section-grid p {
+  color: #536989;
+}
+
+html[data-theme='light'] .idt-agentic-risk-coverage span,
+html[data-theme='light'] .idt-agentic-risk-finding-row p,
+html[data-theme='light'] .idt-agentic-risk-finding-row .idt-repo-finding-row-meta,
+html[data-theme='light'] .idt-agentic-risk-finding-row .idt-repo-finding-row-meta span,
+html[data-theme='light'] .idt-app-console-layout .idt-agentic-risk-finding-row p,
+html[data-theme='light'] .idt-app-console-layout .idt-agentic-risk-finding-row .idt-repo-finding-row-meta,
+html[data-theme='light'] .idt-app-console-layout .idt-agentic-risk-finding-row .idt-repo-finding-row-meta span {
+  color: #536989;
+}
+
+html[data-theme='light'] .idt-agentic-risk-boundary-grid strong,
+html[data-theme='light'] .idt-agentic-risk-section-grid strong,
+html[data-theme='light'] .idt-agentic-risk-repository-head strong,
+html[data-theme='light'] .idt-agentic-risk-finding-row .idt-repo-finding-row-top strong,
+html[data-theme='light'] .idt-app-console-layout .idt-agentic-risk-boundary-grid strong,
+html[data-theme='light'] .idt-app-console-layout .idt-agentic-risk-section-grid strong,
+html[data-theme='light'] .idt-app-console-layout .idt-agentic-risk-repository-head strong,
+html[data-theme='light'] .idt-app-console-layout .idt-agentic-risk-finding-row .idt-repo-finding-row-top strong {
+  color: #132747;
+}
+
+html[data-theme='light'] .idt-agentic-risk-section-grid a:hover,
+html[data-theme='light'] .idt-agentic-risk-section-grid a:focus-visible {
+  border-color: rgba(20, 37, 66, 0.26);
+  background: rgba(241, 247, 255, 0.96);
+}
+
+html[data-theme='light'] .idt-agentic-risk-coverage span,
+html[data-theme='light'] .idt-agentic-risk-tags span {
+  border-color: rgba(20, 37, 66, 0.16);
+  background: rgba(241, 247, 255, 0.92);
+}
+
+html[data-theme='light'] .idt-agentic-risk-finding-actions a {
+  color: #1d3762;
+}
+
+html[data-theme='light'] .idt-agentic-risk-snippet {
+  border-color: rgba(20, 37, 66, 0.16);
+  background: rgba(246, 249, 255, 0.96);
+  color: #20395f;
+}
+
+@media (max-width: 980px) {
+  .idt-agentic-risk-section-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .idt-agentic-risk-boundary-grid,
+  .idt-agentic-risk-section-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-agentic-risk-repository-head,
+  .idt-agentic-risk-finding-row {
+    flex-direction: column;
+  }
+
+  .idt-agentic-risk-finding-actions {
+    width: 100%;
+    align-items: flex-start;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
 .idt-repo-finding-stat-note {
   margin-top: 0.1rem;
   color: var(--app-dim, #6f86ad);

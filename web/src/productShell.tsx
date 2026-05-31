@@ -390,7 +390,7 @@ const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
         'Make GitHub-hosted agent identities, MCP tools, prompts, secrets, and workflow trust paths visible without making AI risk a separate top-level product.',
         {
           children: [
-            productDomainRoute('agentic-risk-configs', 'Agent identities', 'agentic-risk/configs', 'Agent identities', 'AI configuration inventory', 'Track repository agent definitions, assistant configuration files, and automation identities.'),
+            productDomainRoute('agentic-risk-configs', 'Agent configs', 'agentic-risk/configs', 'Agent configs', 'AI configuration inventory', 'Track repository agent definitions, assistant configuration files, and automation identities.'),
             productDomainRoute('agentic-risk-mcp-tools', 'MCP / tools', 'agentic-risk/mcp-tools', 'MCP tools', 'Tool reachability', 'Map MCP servers, tool grants, command surfaces, and repository-controlled execution paths.'),
             productDomainRoute('agentic-risk-prompts', 'Prompt surfaces', 'agentic-risk/prompts', 'Prompt surfaces', 'Prompt exposure', 'Inventory prompts, instruction files, workflow prompt assembly, and untrusted input paths.'),
             productDomainRoute('agentic-risk-secrets', 'Secrets', 'agentic-risk/secrets', 'Agentic secrets', 'Secret references', 'Track token, environment, and secret references used by AI workflows without exposing secret values.'),
@@ -9428,6 +9428,287 @@ const GITHUB_INTELLIGENCE_SCOPE_CATEGORIES = GITHUB_INTELLIGENCE_CATEGORIES.filt
   (category) => category.id !== 'remediation-ready'
 );
 
+type AgenticRiskSurfaceID = 'configs' | 'mcp-tools' | 'prompts' | 'secrets' | 'workflow-trust-paths';
+
+type AgenticRiskSurfaceConfig = {
+  id: AgenticRiskSurfaceID;
+  routeID: ProductDomainRouteID;
+  path: string;
+  label: string;
+  title: string;
+  eyebrow: string;
+  description: string;
+  inventoryLabel: string;
+  emptyTitle: string;
+  emptyBody: string;
+  sourceLabel: string;
+  riskLabel: string;
+  coverage: string[];
+  match: (finding: ApiFinding) => boolean;
+};
+
+const AGENTIC_RISK_SURFACES: AgenticRiskSurfaceConfig[] = [
+  {
+    id: 'configs',
+    routeID: 'agentic-risk-configs',
+    path: 'agentic-risk/configs',
+    label: 'Agent configs',
+    title: 'Agent configs',
+    eyebrow: 'AI configuration inventory',
+    description: 'Repository-owned agent definitions, assistant settings, instruction files, and automation identities that influence AI behavior.',
+    inventoryLabel: 'Agent configuration inventory',
+    emptyTitle: 'No agent configuration findings',
+    emptyBody: 'Repository agent definitions and assistant configuration files will appear here when scans identify supported AI configuration surfaces.',
+    sourceLabel: 'Config source',
+    riskLabel: 'Config risk',
+    coverage: [
+      '.mcp.json and editor MCP configuration',
+      '.continue, .claude, and assistant instruction directories',
+      'Repository Copilot or agent instruction files',
+      'Detected automation identities tied to repository config'
+    ],
+    match: (finding) =>
+      repoFindingMatchesAny(finding, [
+        'ai_agent_surface',
+        'ai_agent_config',
+        'agent config',
+        'assistant configuration',
+        '.mcp.json',
+        '.cursor',
+        '.continue',
+        '.claude',
+        '.codex',
+        'copilot-instructions',
+        'agent instruction'
+      ])
+  },
+  {
+    id: 'mcp-tools',
+    routeID: 'agentic-risk-mcp-tools',
+    path: 'agentic-risk/mcp-tools',
+    label: 'MCP / tools',
+    title: 'MCP tools',
+    eyebrow: 'Tool reachability',
+    description: 'MCP servers, tool grants, shell or network capability hints, and repository-controlled tool wiring that can expand agent reach.',
+    inventoryLabel: 'MCP and tool inventory',
+    emptyTitle: 'No MCP or tool findings',
+    emptyBody: 'MCP server and tool capability signals will appear after scans detect supported tool configuration or risky capability wiring.',
+    sourceLabel: 'Tool source',
+    riskLabel: 'Tool risk',
+    coverage: [
+      'MCP server configuration and package sources',
+      'Tool capability category and execution surface',
+      'Credential references without secret value reads',
+      'Related repository findings and remediation handoff'
+    ],
+    match: (finding) =>
+      repoFindingMatchesAny(finding, [
+        'mcp',
+        'model context protocol',
+        'tool capability',
+        'dangerous tool',
+        'external capability',
+        'command surface',
+        'stdio',
+        'shell tool',
+        'server inventory'
+      ])
+  },
+  {
+    id: 'prompts',
+    routeID: 'agentic-risk-prompts',
+    path: 'agentic-risk/prompts',
+    label: 'Prompt surfaces',
+    title: 'Prompt surfaces',
+    eyebrow: 'Prompt exposure',
+    description: 'Prompt and instruction files, workflow prompt assembly, and untrusted input paths that can influence AI or agent behavior.',
+    inventoryLabel: 'Prompt and instruction inventory',
+    emptyTitle: 'No prompt-surface findings',
+    emptyBody: 'Prompt files, instruction files, and untrusted prompt input paths will appear here when repository scans identify them.',
+    sourceLabel: 'Prompt source',
+    riskLabel: 'Prompt risk',
+    coverage: [
+      'Prompt and instruction file inventory',
+      'Workflow or automation linkages',
+      'Untrusted input path indicators',
+      'Prompt injection findings and remediation links'
+    ],
+    match: (finding) =>
+      repoFindingMatchesAny(finding, [
+        'prompt',
+        'instruction',
+        'copilot-instructions',
+        'prompt injection',
+        'workflow prompt',
+        'untrusted input',
+        'pull request text',
+        'issue body',
+        'ai step'
+      ])
+  },
+  {
+    id: 'secrets',
+    routeID: 'agentic-risk-secrets',
+    path: 'agentic-risk/secrets',
+    label: 'Secrets',
+    title: 'Agentic secrets',
+    eyebrow: 'Secret references',
+    description: 'Secret, token, and credential-reference patterns used by AI tools or workflows with redacted evidence and rotation handoff.',
+    inventoryLabel: 'Agentic secret exposure',
+    emptyTitle: 'No agentic secret findings',
+    emptyBody: 'Secret and token exposure signals tied to AI or workflow-agent surfaces will appear here with redacted context only.',
+    sourceLabel: 'Exposure source',
+    riskLabel: 'Exposure risk',
+    coverage: [
+      'Secret and token finding summary',
+      'File, path, and detector context',
+      'Redacted snippet behavior where available',
+      'Rotation and remediation handoff to GitHub remediation'
+    ],
+    match: (finding) =>
+      repoFindingMatchesAny(finding, [
+        'secret',
+        'token',
+        'credential',
+        'api key',
+        'env var',
+        'environment variable',
+        'github_secret_scanning',
+        'secret scanning',
+        'agentic secret'
+      ])
+  },
+  {
+    id: 'workflow-trust-paths',
+    routeID: 'agentic-risk-workflow-trust-paths',
+    path: 'agentic-risk/workflow-trust-paths',
+    label: 'Workflow trust paths',
+    title: 'Workflow trust paths',
+    eyebrow: 'Trust path analysis',
+    description: 'GitHub Actions triggers, permissions, OIDC hints, bots, runners, and AI steps that combine into agentic risk paths.',
+    inventoryLabel: 'Workflow-agent trust paths',
+    emptyTitle: 'No workflow trust-path findings',
+    emptyBody: 'Workflow, OIDC, runner, and AI-step trust paths will appear when repository scans identify supported path evidence.',
+    sourceLabel: 'Workflow source',
+    riskLabel: 'Trust risk',
+    coverage: [
+      'Workflow trigger and event type',
+      'Permission scope and OIDC hints',
+      'AI or agent step indicators',
+      'Untrusted input influence and related findings'
+    ],
+    match: (finding) =>
+      repoFindingMatchesAny(finding, [
+        'workflow',
+        'github actions',
+        'workflow_ai_agent_prompt_injection',
+        'pull_request_target',
+        'oidc',
+        'id-token',
+        'permissions',
+        'runner',
+        'self-hosted',
+        'bot',
+        'trust path',
+        'untrusted input'
+      ])
+  }
+];
+
+const AGENTIC_RISK_SURFACE_BY_ID = AGENTIC_RISK_SURFACES.reduce<Record<AgenticRiskSurfaceID, AgenticRiskSurfaceConfig>>(
+  (acc, surface) => {
+    acc[surface.id] = surface;
+    return acc;
+  },
+  {} as Record<AgenticRiskSurfaceID, AgenticRiskSurfaceConfig>
+);
+
+function isAgenticRiskFinding(finding: ApiFinding): boolean {
+  return AGENTIC_RISK_SURFACES.some((surface) => surface.match(finding));
+}
+
+function buildAgenticRiskSectionPath(
+  scope: ProductSession,
+  suffix: string,
+  environmentID: string | undefined
+): string {
+  return appendEnvironmentQuery(buildScopedPath(scope, `github/${suffix}`), environmentID);
+}
+
+function buildAgenticRiskSubnav(
+  scope: ProductSession,
+  environmentID: string | undefined,
+  activeID: AgenticRiskSurfaceID | 'overview' | 'findings'
+) {
+  return [
+    {
+      id: 'agentic-risk-overview',
+      label: 'Overview',
+      to: buildAgenticRiskSectionPath(scope, 'agentic-risk', environmentID),
+      active: activeID === 'overview'
+    },
+    {
+      id: 'agentic-risk-surfaces',
+      label: 'Surfaces',
+      defaultOpen: true,
+      children: AGENTIC_RISK_SURFACES.map((surface) => ({
+        id: surface.id,
+        label: surface.label,
+        to: buildAgenticRiskSectionPath(scope, surface.path, environmentID),
+        active: activeID === surface.id
+      }))
+    },
+    {
+      id: 'agentic-risk-findings',
+      label: 'Findings',
+      to: buildAgenticRiskSectionPath(scope, 'agentic-risk/findings', environmentID),
+      active: activeID === 'findings'
+    }
+  ];
+}
+
+function agenticRiskVerificationLabel(finding: ApiFinding): string {
+  const explicitStatus = normalizeValue(finding.verification_status || finding.confidence_state);
+  return explicitStatus ? formatTokenLabel(explicitStatus) : `Confidence ${formatConfidenceScore(finding.confidence_score)}`;
+}
+
+function redactedAgenticSnippet(finding: ApiFinding): string {
+  const snippet = normalizeValue(finding.line_snippet);
+  if (!snippet) {
+    return '';
+  }
+  if (finding.line_snippet_redacted) {
+    return snippet;
+  }
+  return snippet
+    .replace(/((?:secret|token|password|api[_-]?key|credential)[^:=]{0,24}[:=]\s*)['"]?[^'"\s]{8,}['"]?/gi, '$1[redacted]')
+    .replace(/([:=]\s*)['"]?[A-Za-z0-9_./+=-]{16,}['"]?/g, '$1[redacted]');
+}
+
+function agenticRiskSignalTags(finding: ApiFinding): string[] {
+  const haystack = repoFindingSearchText(finding);
+  const tags: string[] = [];
+  const pushIf = (label: string, tokens: string[]) => {
+    if (tags.includes(label)) {
+      return;
+    }
+    if (tokens.some((token) => haystack.includes(token))) {
+      tags.push(label);
+    }
+  };
+
+  pushIf('MCP', ['mcp', 'model context protocol']);
+  pushIf('Prompt input', ['prompt', 'instruction', 'untrusted input', 'pull request text', 'issue body']);
+  pushIf('Secret reference', ['secret', 'token', 'credential', 'api key', 'environment variable']);
+  pushIf('Workflow', ['workflow', 'github actions', 'pull_request_target']);
+  pushIf('OIDC', ['oidc', 'id-token']);
+  pushIf('Runner', ['runner', 'self-hosted']);
+  pushIf('Tool capability', ['tool capability', 'dangerous tool', 'command surface', 'shell tool']);
+  pushIf('GitHub alert', ['github_secret_scanning', 'dependabot', 'secret scanning alert']);
+
+  return tags.slice(0, 4);
+}
+
 function githubIntelligenceCategoryForFinding(finding: ApiFinding): GitHubIntelligenceCategory {
   return GITHUB_INTELLIGENCE_CATEGORIES.find((category) => category.match(finding)) ?? GITHUB_INTELLIGENCE_CATEGORIES[5];
 }
@@ -9624,7 +9905,12 @@ export function ProductAIRisksPage() {
   }
 
   const findingsPath = buildScopedPath(scope, 'github/findings');
+  const agenticFindingsPath = buildAgenticRiskSectionPath(scope, 'agentic-risk/findings', undefined);
   const connectPath = buildScopedPath(scope, 'github/connect');
+  const agenticSurfaceLinks = AGENTIC_RISK_SURFACES.map((surface) => ({
+    ...surface,
+    to: buildAgenticRiskSectionPath(scope, surface.path, undefined)
+  }));
   const scansByRecency = [...repoScans].sort(
     (left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime()
   );
@@ -9740,6 +10026,34 @@ export function ProductAIRisksPage() {
           action={{ label: 'Connect GitHub', to: connectPath }}
         />
       ) : null}
+
+      <div className="idt-agentic-risk-boundary-grid" aria-label="GitHub and AWS agentic risk boundary">
+        <article>
+          <span>GitHub-defined risk</span>
+          <strong>Configuration, prompts, tools, secrets, and workflow influence</strong>
+          <p>Use this subsection to inspect how repositories configure, trigger, and shape AI-agent behavior.</p>
+        </article>
+        <article>
+          <span>Future AWS runtime risk</span>
+          <strong>Execution identity, production reachability, and resource access</strong>
+          <p>AWS runtime pages will later connect agent identity to cloud execution and production blast radius.</p>
+        </article>
+      </div>
+
+      <section className="idt-agentic-risk-section-grid" aria-label="AI / Agentic Risk subpages">
+        {agenticSurfaceLinks.map((surface) => (
+          <Link to={surface.to} key={surface.id}>
+            <span>{surface.eyebrow}</span>
+            <strong>{surface.label}</strong>
+            <p>{surface.description}</p>
+          </Link>
+        ))}
+        <Link to={agenticFindingsPath}>
+          <span>AI finding queue</span>
+          <strong>Findings</strong>
+          <p>Review agentic findings with the GitHub findings and remediation workflow.</p>
+        </Link>
+      </section>
 
       <div className="idt-github-intelligence-grid">
         {categoryCards.map((category) => (
@@ -9942,7 +10256,278 @@ export function ProductAIRisksPage() {
   );
 }
 
-export function ProductFindingsPage() {
+export function ProductAgenticRiskSurfacePage({ surfaceID }: { surfaceID: AgenticRiskSurfaceID }) {
+  const surface = AGENTIC_RISK_SURFACE_BY_ID[surfaceID];
+  const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useGitHubDomainScope();
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [repoScans, setRepoScans] = useState<RepoScanRecord[]>([]);
+  const [repoFindings, setRepoFindings] = useState<ApiFinding[]>([]);
+  const requestRef = useRef(0);
+
+  const repoScansByID = useMemo(
+    () =>
+      repoScans.reduce<Record<string, RepoScanRecord>>((acc, scan) => {
+        acc[scan.id] = scan;
+        return acc;
+      }, {}),
+    [repoScans]
+  );
+
+  const scopedFindings = useMemo(
+    () => sortGitHubIntelligenceFindings(repoFindings.filter((finding) => surface.match(finding))),
+    [repoFindings, surface]
+  );
+
+  const repositoryGroups = useMemo(() => {
+    const groups = new Map<string, { repository: string; findings: ApiFinding[] }>();
+    for (const finding of scopedFindings) {
+      const repository = canonicalGitHubRepositoryDisplay(repoFindingRepositoryValue(finding, repoScansByID)) || 'Repository unavailable';
+      const current = groups.get(repository) ?? { repository, findings: [] };
+      current.findings.push(finding);
+      groups.set(repository, current);
+    }
+    return [...groups.values()].sort((left, right) => right.findings.length - left.findings.length || left.repository.localeCompare(right.repository));
+  }, [repoScansByID, scopedFindings]);
+
+  const openFindings = useMemo(() => scopedFindings.filter(isOpenRepoFinding), [scopedFindings]);
+  const highPriorityCount = openFindings.filter((finding) => {
+    const severity = normalizeValue(finding.severity).toLowerCase();
+    return severity === 'critical' || severity === 'high';
+  }).length;
+  const linkedFindingCount = scopedFindings.filter((finding) => normalizeValue(finding.source_url)).length;
+  const verifiedFindingCount = scopedFindings.filter((finding) => {
+    const verification = normalizeValue(finding.verification_status || finding.confidence_state).toLowerCase();
+    return verification.includes('verified') || verification.includes('confirmed') || (finding.confidence_score ?? 0) >= 0.7;
+  }).length;
+  const sourcePathCount = new Set(scopedFindings.map((finding) => normalizeValue(finding.file_path)).filter(Boolean)).size;
+
+  const loadSurface = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
+    const requestID = ++requestRef.current;
+    if (mode === 'initial') {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
+    setError('');
+    try {
+      const auth = buildProductAuthContext(targetScope);
+      const [scanResult, findingResult] = await Promise.all([
+        apiClient.listRepoScans({ limit: 50 }, auth),
+        listAIRisksRepoFindings(auth)
+      ]);
+      if (requestID !== requestRef.current) {
+        return;
+      }
+      setRepoScans(scanResult.items ?? []);
+      setRepoFindings(findingResult);
+    } catch (requestError) {
+      if (requestID !== requestRef.current) {
+        return;
+      }
+      setError(formatAPIError(requestError, `Failed to load ${surface.label}.`));
+      setRepoScans([]);
+      setRepoFindings([]);
+    } finally {
+      if (requestID === requestRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!scope) {
+      setLoading(false);
+      setError('Workspace route context is missing.');
+      return;
+    }
+    void loadSurface(scope, 'initial');
+    return () => {
+      requestRef.current += 1;
+    };
+  }, [scope?.tenantID, scope?.workspaceID, surfaceID]);
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">{surface.eyebrow}</p>
+        <h2>{surface.title}</h2>
+        <p>Workspace route context is missing.</p>
+      </section>
+    );
+  }
+
+  const overviewPath = buildAgenticRiskSectionPath(scope, 'agentic-risk', selectedEnvironmentID);
+  const findingsPath = buildAgenticRiskSectionPath(scope, 'agentic-risk/findings', selectedEnvironmentID);
+  const remediationPath = buildAgenticRiskSectionPath(scope, 'remediation', selectedEnvironmentID);
+
+  return (
+    <DomainPageShell
+      domain="github"
+      eyebrow={surface.eyebrow}
+      title={surface.title}
+      description={surface.description}
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
+      status={refreshing ? 'Refreshing' : 'Route live'}
+      statusTone={error ? 'danger' : refreshing ? 'info' : 'success'}
+      primaryAction={{ label: 'Agentic findings', to: findingsPath, variant: 'primary' }}
+      secondaryActions={[
+        { label: 'Overview', to: overviewPath },
+        { label: 'GitHub remediation', to: remediationPath }
+      ]}
+      subnav={buildAgenticRiskSubnav(scope, selectedEnvironmentID, surfaceID)}
+      subnavLabel="GitHub AI / Agentic Risk sections"
+      aside={
+        <DomainDetailPanel title="GitHub to AWS boundary" eyebrow="Control surface">
+          <p>
+            GitHub shows how agents are configured, triggered, and influenced in repositories and workflows. AWS runtime
+            pages will later show where those agents execute and what production resources they can touch.
+          </p>
+        </DomainDetailPanel>
+      }
+    >
+      {loading ? (
+        <DomainLoadingState label={`Loading ${surface.label}`} />
+      ) : (
+        <>
+          {error ? (
+            <DomainErrorState
+              title={`Unable to load ${surface.label}`}
+              body={error}
+              retryAction={{
+                label: 'Retry',
+                onClick: () => void loadSurface(scope, 'refresh')
+              }}
+            />
+          ) : null}
+
+          <DomainKpiStrip
+            label={`${surface.title} summary`}
+            items={[
+              { label: 'Open', value: openFindings.length, detail: `${scopedFindings.length} total signals`, tone: openFindings.length ? 'warning' : 'success' },
+              { label: 'High priority', value: highPriorityCount, detail: 'Critical or high open findings', tone: highPriorityCount ? 'danger' : 'success' },
+              { label: 'Repositories', value: repositoryGroups.length, detail: `${sourcePathCount} source paths`, tone: repositoryGroups.length ? 'info' : 'neutral' },
+              { label: 'Verified', value: verifiedFindingCount, detail: `${linkedFindingCount} GitHub-linked`, tone: verifiedFindingCount ? 'success' : 'neutral' }
+            ]}
+          />
+
+          <DomainStatusPanel
+            eyebrow="Coverage"
+            title={surface.inventoryLabel}
+            status={scopedFindings.length ? `${scopedFindings.length} signals` : 'No live signals'}
+            tone={highPriorityCount ? 'warning' : 'success'}
+            actions={[
+              {
+                label: refreshing ? 'Refreshing...' : 'Refresh',
+                onClick: () => void loadSurface(scope, 'refresh'),
+                disabled: refreshing
+              }
+            ]}
+          >
+            <div className="idt-agentic-risk-coverage">
+              {surface.coverage.map((item) => (
+                <span key={item}>{item}</span>
+              ))}
+            </div>
+          </DomainStatusPanel>
+
+          <section className="idt-domain-status-panel idt-agentic-risk-inventory" aria-label={surface.inventoryLabel}>
+            <header>
+              <div>
+                <p className="idt-app-kicker">Inventory</p>
+                <h3>{surface.inventoryLabel}</h3>
+              </div>
+              <span>{repositoryGroups.length ? formatCountLabel(repositoryGroups.length, 'repository') : 'Empty'}</span>
+            </header>
+
+            {repositoryGroups.length === 0 ? (
+              <DomainEmptyState
+                title={surface.emptyTitle}
+                body={surface.emptyBody}
+                nextAction={{ label: 'Open overview', to: overviewPath }}
+              />
+            ) : (
+              <div className="idt-agentic-risk-repository-list">
+                {repositoryGroups.map((group) => {
+                  const groupHigh = group.findings.filter((finding) => {
+                    const severity = normalizeValue(finding.severity).toLowerCase();
+                    return severity === 'critical' || severity === 'high';
+                  }).length;
+                  return (
+                    <article className="idt-agentic-risk-repository" key={group.repository}>
+                      <div className="idt-agentic-risk-repository-head">
+                        <div className="idt-source-config-title">
+                          <SourceLogoMark provider="github" className="is-row" />
+                          <div>
+                            <span>Repository</span>
+                            <strong>{group.repository}</strong>
+                          </div>
+                        </div>
+                        <span>{groupHigh ? `${groupHigh} high priority` : `${group.findings.length} signals`}</span>
+                      </div>
+
+                      <div className="idt-agentic-risk-finding-list" role="list">
+                        {group.findings.map((finding) => {
+                          const snippet = surface.id === 'secrets' ? redactedAgenticSnippet(finding) : normalizeValue(finding.line_snippet);
+                          const tags = agenticRiskSignalTags(finding);
+                          return (
+                            <article
+                              className="idt-agentic-risk-finding-row"
+                              key={buildRepoFindingSelectionKey(finding)}
+                              role="listitem"
+                            >
+                              <div className="idt-agentic-risk-finding-main">
+                                <div className="idt-repo-finding-row-top">
+                                  <strong>{finding.title}</strong>
+                                  <span className={repoFindingSeverityClass(finding.severity)}>{formatTokenLabel(finding.severity)}</span>
+                                </div>
+                                <p>{finding.human_summary}</p>
+                                <div className="idt-repo-finding-row-meta">
+                                  <span>{surface.sourceLabel}: {repoFindingLocationLabel(finding)}</span>
+                                  <span>Detector: {finding.detector ? formatTokenLabel(finding.detector) : formatTokenLabel(finding.type)}</span>
+                                  <span>{agenticRiskVerificationLabel(finding)}</span>
+                                </div>
+                                {tags.length ? (
+                                  <div className="idt-agentic-risk-tags" aria-label="Agentic risk indicators">
+                                    {tags.map((tag) => (
+                                      <span key={tag}>{tag}</span>
+                                    ))}
+                                  </div>
+                                ) : null}
+                                {snippet ? (
+                                  <pre className="idt-agentic-risk-snippet">
+                                    <code>{snippet}</code>
+                                  </pre>
+                                ) : null}
+                              </div>
+                              <div className="idt-agentic-risk-finding-actions">
+                                <Link to={findingsPath}>Related findings</Link>
+                                {finding.source_url ? (
+                                  <a href={finding.source_url} target="_blank" rel="noreferrer">
+                                    <ExternalLink size={13} strokeWidth={2} aria-hidden="true" />
+                                    Source
+                                  </a>
+                                ) : null}
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </>
+      )}
+    </DomainPageShell>
+  );
+}
+
+export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boolean } = {}) {
   const location = useLocation();
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
@@ -10092,17 +10677,46 @@ export function ProductFindingsPage() {
     [repoScans]
   );
 
+  const scopedRepoFindings = useMemo(
+    () => (agenticOnly ? repoFindings.filter(isAgenticRiskFinding) : repoFindings),
+    [agenticOnly, repoFindings]
+  );
+
   const filteredFindings = useMemo(() => {
     const normalizedAssigneeFilter = normalizeValue(assigneeFilter).toLowerCase();
-    return repoFindings.filter((finding) => {
+    const normalizedRepoScanFilter = normalizeValue(repoScanFilter);
+    const normalizedSourceFilter = normalizeValue(sourceFilter).toLowerCase();
+    const normalizedMinConfidence = Number.parseFloat(normalizeValue(minConfidenceFilter));
+    return scopedRepoFindings.filter((finding) => {
       const status = normalizeFindingStatus(finding.triage?.status);
       const assignee = normalizeValue(finding.triage?.assignee ?? '').toLowerCase();
+      const findingSource = [
+        finding.adapter_source,
+        finding.detector,
+        finding.type,
+        finding.source_url
+      ].map((value) => normalizeValue(value).toLowerCase()).join(' ');
       const matchesStatus = statusFilter === 'all' || status === statusFilter;
       const matchesAssignee = !normalizedAssigneeFilter || assignee.includes(normalizedAssigneeFilter);
+      const matchesRepoScan = !normalizedRepoScanFilter || finding.scan_id === normalizedRepoScanFilter;
+      const matchesSeverity = severityFilter === 'all' || normalizeValue(finding.severity).toLowerCase() === severityFilter;
+      const matchesType = typeFilter === 'all' || normalizeValue(finding.type).toLowerCase() === typeFilter;
+      const matchesSource = !normalizedSourceFilter || findingSource.includes(normalizedSourceFilter);
+      const matchesConfidence =
+        !Number.isFinite(normalizedMinConfidence) || (finding.confidence_score ?? 0) >= normalizedMinConfidence;
 
-      return matchesStatus && matchesAssignee;
+      return matchesStatus && matchesAssignee && matchesRepoScan && matchesSeverity && matchesType && matchesSource && matchesConfidence;
     });
-  }, [repoFindings, statusFilter, assigneeFilter]);
+  }, [
+    scopedRepoFindings,
+    statusFilter,
+    assigneeFilter,
+    repoScanFilter,
+    severityFilter,
+    typeFilter,
+    sourceFilter,
+    minConfidenceFilter
+  ]);
 
   const findingHierarchy = useMemo(
     () =>
@@ -10173,19 +10787,24 @@ export function ProductFindingsPage() {
 
   const openFindingCount = useMemo(
     () =>
-      repoFindingSummary?.total_open ??
-      filteredFindings.filter((finding) => {
+      !agenticOnly && repoFindingSummary?.total_open !== undefined
+        ? repoFindingSummary.total_open
+        : filteredFindings.filter((finding) => {
         const lifecycle = normalizeRepoFindingLifecycleStatus(finding.lifecycle_status);
         return lifecycle === 'open' || lifecycle === 'reopened';
       }).length,
-    [filteredFindings, repoFindingSummary?.total_open]
+    [agenticOnly, filteredFindings, repoFindingSummary?.total_open]
   );
 
-  const fixedFindingCount = repoFindingSummary?.fixed_count ?? filteredFindings.filter((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'fixed').length;
+  const fixedFindingCount = !agenticOnly && repoFindingSummary?.fixed_count !== undefined
+    ? repoFindingSummary.fixed_count
+    : filteredFindings.filter((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'fixed').length;
   const reopenedFindingCount =
-    repoFindingSummary?.reopened_count ?? filteredFindings.filter((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'reopened').length;
-  const slaAgedFindingCount = repoFindingSummary?.sla_aged_count ?? 0;
-  const mttrSeconds = repoFindingSummary?.mean_time_to_resolve_seconds;
+    !agenticOnly && repoFindingSummary?.reopened_count !== undefined
+      ? repoFindingSummary.reopened_count
+      : filteredFindings.filter((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'reopened').length;
+  const slaAgedFindingCount = agenticOnly ? 0 : repoFindingSummary?.sla_aged_count ?? 0;
+  const mttrSeconds = agenticOnly ? undefined : repoFindingSummary?.mean_time_to_resolve_seconds;
   const mttrLabel = typeof mttrSeconds === 'number' && Number.isFinite(mttrSeconds) ? formatExecutiveDuration(mttrSeconds) : 'N/A';
 
   const averageConfidence = useMemo(() => {
@@ -10211,28 +10830,30 @@ export function ProductFindingsPage() {
       const normalizedMinConfidence = Number.parseFloat(normalizeValue(minConfidenceFilter));
       const [repoScanResponse, repoFindingResponse] = await Promise.all([
         apiClient.listRepoScans({ limit: 50 }, auth),
-        apiClient.listRepoFindings(
-          {
-            limit: 100,
-            repo_scan_id: normalizeValue(repoScanFilter) || undefined,
-            severity: severityFilter !== 'all' ? severityFilter : undefined,
-            type: typeFilter !== 'all' ? typeFilter : undefined,
-            source: sourceFilterValue || undefined,
-            lifecycle_status: statusFilter !== 'all' ? statusFilter : undefined,
-            assignee: normalizeValue(assigneeFilter) || undefined,
-            min_confidence: Number.isFinite(normalizedMinConfidence) ? normalizedMinConfidence : undefined,
-            sort_by: sortBy,
-            sort_order: sortOrder
-          },
-          auth
-        )
+        agenticOnly
+          ? listAIRisksRepoFindings(auth).then((items) => ({ items, summary: undefined }))
+          : apiClient.listRepoFindings(
+              {
+                limit: 100,
+                repo_scan_id: normalizeValue(repoScanFilter) || undefined,
+                severity: severityFilter !== 'all' ? severityFilter : undefined,
+                type: typeFilter !== 'all' ? typeFilter : undefined,
+                source: sourceFilterValue || undefined,
+                lifecycle_status: statusFilter !== 'all' ? statusFilter : undefined,
+                assignee: normalizeValue(assigneeFilter) || undefined,
+                min_confidence: Number.isFinite(normalizedMinConfidence) ? normalizedMinConfidence : undefined,
+                sort_by: sortBy,
+                sort_order: sortOrder
+              },
+              auth
+            )
       ]);
       if (requestID !== requestRef.current) {
         return;
       }
       setRepoScans(repoScanResponse.items);
       setRepoFindings(repoFindingResponse.items);
-      setRepoFindingSummary(repoFindingResponse.summary ?? null);
+      setRepoFindingSummary(agenticOnly ? null : repoFindingResponse.summary ?? null);
     } catch (requestError) {
       if (requestID !== requestRef.current) {
         return;
@@ -10552,7 +11173,8 @@ export function ProductFindingsPage() {
     sourceFilter,
     minConfidenceFilter,
     sortBy,
-    sortOrder
+    sortOrder,
+    agenticOnly
   ]);
 
   useEffect(() => {
@@ -10638,11 +11260,20 @@ export function ProductFindingsPage() {
     }
   };
 
+  const pageKicker = agenticOnly ? 'GitHub agentic risk' : 'GitHub findings';
+  const pageTitle = agenticOnly ? 'Agentic risk findings' : 'GitHub findings';
+  const pageDescription = agenticOnly
+    ? 'Review AI, MCP, prompt, secret, and workflow-agent findings while keeping remediation inside the GitHub section.'
+    : 'Review repository findings and jump directly to the exact GitHub line when link metadata is available.';
+  const sourceStripCopy = agenticOnly
+    ? 'Agentic findings stay scoped to GitHub-defined configuration, workflow, and repository influence paths.'
+    : 'GitHub evidence stays tied to triage, remediation, and ownership state.';
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error">
-        <p className="idt-app-kicker">GitHub findings</p>
-        <h2>GitHub findings</h2>
+        <p className="idt-app-kicker">{pageKicker}</p>
+        <h2>{pageTitle}</h2>
         <p>Workspace route context is missing.</p>
       </section>
     );
@@ -10651,7 +11282,7 @@ export function ProductFindingsPage() {
   if (loading) {
     return (
       <AppRouteLoadingState
-        title="Preparing GitHub findings"
+        title={agenticOnly ? 'Preparing agentic risk findings' : 'Preparing GitHub findings'}
         body="Refreshing finding and trend data for this workspace."
       />
     );
@@ -10689,9 +11320,10 @@ export function ProductFindingsPage() {
       repoFindingSummary.reopened_count +
       repoFindingSummary.suppressed_count
     : 0;
+  const scopedFindingTotal = agenticOnly ? scopedRepoFindings.length : summaryFindingTotal;
   const hasRepoFindings =
-    summaryFindingTotal > 0 ||
-    repoFindings.length > 0 ||
+    scopedFindingTotal > 0 ||
+    scopedRepoFindings.length > 0 ||
     repoScans.some((scan) => (scan.finding_count ?? 0) > 0);
   const allScansFailed = !neverScanned && !hasQueuedOrRunningScan && !hasRepoFindings && succeededScanCount === 0 && latestScanFailed;
   const filtersActive =
@@ -10736,9 +11368,9 @@ export function ProductFindingsPage() {
       <section className="idt-app-panel idt-repo-findings-page">
         <div className="idt-repo-findings-header">
           <div>
-            <p className="idt-app-kicker">GitHub findings</p>
-            <h2>GitHub findings</h2>
-            <p>Review repository findings and jump directly to the exact GitHub line when link metadata is available.</p>
+            <p className="idt-app-kicker">{pageKicker}</p>
+            <h2>{pageTitle}</h2>
+            <p>{pageDescription}</p>
           </div>
           <div className="idt-inline-actions">
             <Link className="idt-btn idt-btn-primary" to={remediationPath}>
@@ -10760,7 +11392,11 @@ export function ProductFindingsPage() {
         {neverScanned ? (
           <AppShellEmptyState
             title="Run your first repository scan"
-            body="Scan a connected repository to surface risky trust paths, exposed secrets, and authorization gaps — then jump straight to the exact GitHub line."
+            body={
+              agenticOnly
+                ? 'Scan a connected repository to surface AI, MCP, prompt, secret, and workflow-agent findings inside GitHub.'
+                : 'Scan a connected repository to surface risky trust paths, exposed secrets, and authorization gaps — then jump straight to the exact GitHub line.'
+            }
             action={{ label: 'Connect GitHub', to: connectPath }}
           />
         ) : (
@@ -10817,12 +11453,12 @@ export function ProductFindingsPage() {
     <section className="idt-app-panel idt-repo-findings-page">
       <div className="idt-repo-findings-header">
         <div>
-          <p className="idt-app-kicker">GitHub findings</p>
-          <h2>GitHub findings</h2>
-          <p>Review repository findings and jump directly to the exact GitHub line when link metadata is available.</p>
+          <p className="idt-app-kicker">{pageKicker}</p>
+          <h2>{pageTitle}</h2>
+          <p>{pageDescription}</p>
           <div className="idt-overview-source-strip">
             <SourceLogoMark provider="github" />
-            <span>GitHub evidence stays tied to triage, remediation, and ownership state.</span>
+            <span>{sourceStripCopy}</span>
           </div>
         </div>
         <div className="idt-inline-actions">
@@ -10989,7 +11625,7 @@ export function ProductFindingsPage() {
       <div className="idt-repo-finding-layout">
         <div className="idt-repo-finding-list">
           <div className="idt-repo-finding-list-header">
-            <h3>Repository findings</h3>
+            <h3>{agenticOnly ? 'Agentic findings' : 'Repository findings'}</h3>
             <p>
               {filteredFindings.length
                 ? `${findingHierarchy.length} repositories grouped by scan date and severity`
@@ -11000,17 +11636,29 @@ export function ProductFindingsPage() {
             filtersActive ? (
               <AppShellEmptyState
                 title="No findings match these filters"
-                body="Loosen the current filters to inspect GitHub-linked findings from your scans."
+                body={
+                  agenticOnly
+                    ? 'Loosen the current filters to inspect AI, MCP, prompt, secret, and workflow-agent findings from your scans.'
+                    : 'Loosen the current filters to inspect GitHub-linked findings from your scans.'
+                }
               />
             ) : latestScanSucceeded ? (
               <AppShellEmptyState
-                title="No exposure found"
-                body="Your latest repository scan completed and surfaced no findings. New findings will appear here after the next scan."
+                title={agenticOnly ? 'No agentic risk found' : 'No exposure found'}
+                body={
+                  agenticOnly
+                    ? 'The latest repository scan completed without supported AI, MCP, prompt, secret, or workflow-agent findings.'
+                    : 'Your latest repository scan completed and surfaced no findings. New findings will appear here after the next scan.'
+                }
               />
             ) : (
               <AppShellEmptyState
                 title="No completed scan results"
-                body="No completed scan has surfaced findings yet. New findings will appear here after the next successful scan."
+                body={
+                  agenticOnly
+                    ? 'No completed scan has surfaced agentic findings yet. New AI and workflow-agent findings will appear after a successful scan.'
+                    : 'No completed scan has surfaced findings yet. New findings will appear here after the next successful scan.'
+                }
               />
             )
           ) : (

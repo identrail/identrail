@@ -29,6 +29,7 @@ import {
   ProductAppIndexRedirect,
   ProductAuthCallbackRedirectPage,
   ProductAIRisksPage,
+  ProductAgenticRiskSurfacePage,
   ProductDomainRoutePage,
   ProductAWSConnectPage,
   ProductExecutiveReportPage,
@@ -4794,15 +4795,15 @@ export function RoutedSite() {
             <Route path="github/findings" element={<ProductFindingsPage />} />
             <Route path="github/remediation" element={<ProductGitHubRemediationPage />} />
             <Route path="github/agentic-risk" element={<ProductAIRisksPage />} />
-            <Route path="github/agentic-risk/configs" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-configs" />} />
-            <Route path="github/agentic-risk/mcp-tools" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-mcp-tools" />} />
-            <Route path="github/agentic-risk/prompts" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-prompts" />} />
-            <Route path="github/agentic-risk/secrets" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-secrets" />} />
+            <Route path="github/agentic-risk/configs" element={<ProductAgenticRiskSurfacePage surfaceID="configs" />} />
+            <Route path="github/agentic-risk/mcp-tools" element={<ProductAgenticRiskSurfacePage surfaceID="mcp-tools" />} />
+            <Route path="github/agentic-risk/prompts" element={<ProductAgenticRiskSurfacePage surfaceID="prompts" />} />
+            <Route path="github/agentic-risk/secrets" element={<ProductAgenticRiskSurfacePage surfaceID="secrets" />} />
             <Route
               path="github/agentic-risk/workflow-trust-paths"
-              element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-workflow-trust-paths" />}
+              element={<ProductAgenticRiskSurfacePage surfaceID="workflow-trust-paths" />}
             />
-            <Route path="github/agentic-risk/findings" element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-findings" />} />
+            <Route path="github/agentic-risk/findings" element={<ProductFindingsPage agenticOnly />} />
             <Route path="kubernetes" element={<ProductDomainRoutePage domain="kubernetes" />} />
             <Route path="kubernetes/connect" element={<ProductKubernetesConnectPage />} />
             <Route path="kubernetes/clusters" element={<ProductDomainRoutePage domain="kubernetes" routeID="clusters" />} />
