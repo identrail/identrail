@@ -2593,6 +2593,7 @@ export function ProductKubernetesConnectPage() {
 
 const GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT = 5;
 const GITHUB_REPOSITORIES_SCANS_LIMIT = 50;
+const GITHUB_MAX_SCAN_PAGE_FETCHES = 50;
 
 type GitHubAvailability = {
   loading: boolean;
