@@ -1295,3 +1295,230 @@ func TestPostgresStoreListSoleOwnerWorkspaces(t *testing.T) {
 		t.Fatalf("unmet expectations: %v", err)
 	}
 }
+
+// workspaceLifecycleScope mirrors the tenant + workspace scope every
+// postgres lifecycle test below uses.
+func workspaceLifecycleScope() context.Context {
+	return WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+}
+
+func TestPostgresStoreSuspendWorkspace(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	ctx := workspaceLifecycleScope()
+	now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "status", "suspended_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "Workspace A", "workspace-a", "suspended", now, nil, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE tenancy_workspaces
+		 SET status = 'suspended',
+		     suspended_at = COALESCE(suspended_at, $3::timestamptz),
+		     updated_at = $3::timestamptz
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		 RETURNING tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at`)).
+		WithArgs("tenant-a", "workspace-a", now.UTC()).
+		WillReturnRows(rows)
+
+	saved, err := store.SuspendWorkspace(ctx, "workspace-a", now)
+	if err != nil {
+		t.Fatalf("suspend: %v", err)
+	}
+	if saved.Status != WorkspaceStatusSuspended || saved.SuspendedAt == nil {
+		t.Fatalf("expected suspended status with timestamp, got %+v", saved)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreSuspendWorkspaceNotFound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	ctx := workspaceLifecycleScope()
+	now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE tenancy_workspaces
+		 SET status = 'suspended',`)).
+		WithArgs("tenant-a", "workspace-a", now.UTC()).
+		WillReturnError(sql.ErrNoRows)
+
+	if _, err := store.SuspendWorkspace(ctx, "workspace-a", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreReactivateWorkspace(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	ctx := workspaceLifecycleScope()
+	now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "status", "suspended_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "Workspace A", "workspace-a", "active", nil, nil, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE tenancy_workspaces
+		 SET status = 'active',
+		     suspended_at = NULL,
+		     updated_at = $3::timestamptz
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2`)).
+		WithArgs("tenant-a", "workspace-a", now.UTC()).
+		WillReturnRows(rows)
+
+	saved, err := store.ReactivateWorkspace(ctx, "workspace-a", now)
+	if err != nil {
+		t.Fatalf("reactivate: %v", err)
+	}
+	if saved.Status != WorkspaceStatusActive || saved.SuspendedAt != nil {
+		t.Fatalf("expected reactivated workspace, got %+v", saved)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreSoftDeleteWorkspace(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	ctx := workspaceLifecycleScope()
+	now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "status", "suspended_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "Workspace A", "workspace-a", "deleted", nil, now, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE tenancy_workspaces
+		 SET status = 'deleted',
+		     deleted_at = COALESCE(deleted_at, $3::timestamptz),
+		     updated_at = $3::timestamptz
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2`)).
+		WithArgs("tenant-a", "workspace-a", now.UTC()).
+		WillReturnRows(rows)
+
+	saved, err := store.SoftDeleteWorkspace(ctx, "workspace-a", now)
+	if err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	if saved.Status != WorkspaceStatusDeleted || saved.DeletedAt == nil {
+		t.Fatalf("expected soft-deleted workspace, got %+v", saved)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreCancelWorkspaceDeletionClearsBothTimestamps(t *testing.T) {
+	// Verify the UPDATE clears both suspended_at AND deleted_at — the
+	// fix for the round-2 cubic P2 review on PR #1445. Without this
+	// assertion a regression that drops `suspended_at = NULL` from the
+	// SQL would survive code review since the value is also unset on
+	// most happy-path inputs.
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	ctx := workspaceLifecycleScope()
+	now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "status", "suspended_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "Workspace A", "workspace-a", "active", nil, nil, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE tenancy_workspaces
+		 SET status = 'active',
+		     deleted_at = NULL,
+		     suspended_at = NULL,
+		     updated_at = $3::timestamptz
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2`)).
+		WithArgs("tenant-a", "workspace-a", now.UTC()).
+		WillReturnRows(rows)
+
+	saved, err := store.CancelWorkspaceDeletion(ctx, "workspace-a", now)
+	if err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if saved.Status != WorkspaceStatusActive || saved.DeletedAt != nil || saved.SuspendedAt != nil {
+		t.Fatalf("expected fully active workspace with cleared timestamps, got %+v", saved)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreListWorkspaceStrandedActiveMembersReturnsStranded(t *testing.T) {
+	// Exercise the happy-path SQL: a sole owner with one other active
+	// member, where the postgres query returns the stranded row. The
+	// regex match also pins the IS DISTINCT FROM operator added in
+	// round 1 of the codex review so a future edit that reverts to the
+	// null-unsafe `<>` would fail this test instead of silently
+	// dropping NULL user_uuid members.
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	ctx := workspaceLifecycleScope()
+	now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+
+	// GetWorkspace pre-check.
+	wsRows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "status", "suspended_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "Workspace A", "workspace-a", "active", nil, nil, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at
+		 FROM tenancy_workspaces
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2`)).
+		WithArgs("tenant-a", "workspace-a").
+		WillReturnRows(wsRows)
+
+	memberRows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "member_id", "user_id", "user_uuid", "email", "role", "status", "joined_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "m-other", "subj-other", "22222222-2222-2222-2222-222222222222", "other@example.com", "analyst", "active", now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`IS DISTINCT FROM NULLIF($3, '')::uuid`)).
+		WithArgs("tenant-a", "workspace-a", "11111111-1111-1111-1111-111111111111").
+		WillReturnRows(memberRows)
+
+	stranded, err := store.ListWorkspaceStrandedActiveMembers(ctx, "workspace-a", "11111111-1111-1111-1111-111111111111")
+	if err != nil {
+		t.Fatalf("strand: %v", err)
+	}
+	if len(stranded) != 1 || stranded[0].MemberID != "m-other" {
+		t.Fatalf("expected one stranded member, got %+v", stranded)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreListWorkspaceStrandedActiveMembersEmptyUUID(t *testing.T) {
+	// Empty caller UUID short-circuits before any SQL is run. Pins the
+	// memory + postgres parity: both stores treat an empty UUID as
+	// "no caller identity, skip the guard".
+	store := NewPostgresStoreWithDB(nil)
+	members, err := store.ListWorkspaceStrandedActiveMembers(workspaceLifecycleScope(), "workspace-a", "")
+	if err != nil {
+		t.Fatalf("empty UUID: %v", err)
+	}
+	if len(members) != 0 {
+		t.Fatalf("expected no members for empty UUID, got %d", len(members))
+	}
+}

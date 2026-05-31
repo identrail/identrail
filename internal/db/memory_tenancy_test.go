@@ -1465,6 +1465,34 @@ func TestMemoryStoreUpsertWorkspacePreservesLifecycleFields(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreLifecycleMissingWorkspaceReturnsNotFound(t *testing.T) {
+	// All four memory-store lifecycle methods must surface ErrNotFound
+	// when the workspace key is absent. Pin the contract so the service
+	// layer can rely on the sentinel rather than each method inventing
+	// its own shape.
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "ws-1"})
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.SuspendWorkspace(ctx, "ws-missing", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("suspend missing: expected ErrNotFound, got %v", err)
+	}
+	if _, err := store.ReactivateWorkspace(ctx, "ws-missing", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("reactivate missing: expected ErrNotFound, got %v", err)
+	}
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-missing", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("soft delete missing: expected ErrNotFound, got %v", err)
+	}
+	if _, err := store.CancelWorkspaceDeletion(ctx, "ws-missing", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cancel missing: expected ErrNotFound, got %v", err)
+	}
+	if _, err := store.ListWorkspaceStrandedActiveMembers(ctx, "ws-missing", "11111111-1111-1111-1111-111111111111"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("strand missing: expected ErrNotFound, got %v", err)
+	}
+}
+
 func TestMemoryStoreStrandedMembersIncludesNullUserUUID(t *testing.T) {
 	// Legacy invited-only memberships can have an empty user_uuid. The
 	// Postgres query uses IS DISTINCT FROM so NULL user_uuid is counted
