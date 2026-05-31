@@ -123,6 +123,8 @@ function authReasonDetails(reason: string, returnTo: string): AuthReasonDetails 
         message:
           'That email or GitHub identity is already tied to a different Identrail account. Sign in with the original method or contact support.'
       };
+    case 'mfa_required':
+      return { message: 'Additional verification is required before Identrail can create a session. Start sign-in again to continue.' };
     case 'provider_unavailable':
       return { message: 'The sign-in provider is temporarily unavailable. Please retry in a moment.' };
     default:

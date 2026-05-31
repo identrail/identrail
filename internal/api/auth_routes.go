@@ -321,6 +321,7 @@ const (
 	authFailureReasonAccountNotFound     = "account_not_found"
 	authFailureReasonCallbackError       = "callback_error"
 	authFailureReasonIdentityConflict    = "identity_conflict"
+	authFailureReasonMFARequired         = "mfa_required"
 	authFailureReasonProviderUnavailable = "provider_unavailable"
 	authFailureReasonReactivationNeeded  = "account_reactivation_required"
 	authFailureReasonStateMismatch       = "state_mismatch"
@@ -450,6 +451,14 @@ func completeWorkOSLogin(c *gin.Context, logger *zap.Logger, svc *Service, manag
 	if strings.TrimSpace(profile.OrganizationID) == "" {
 		profile.OrganizationID = authenticated.OrganizationID
 	}
+	if workOSSocialLoginRequiresMFA(authenticated) {
+		auditAuthAction(c.Request.Context(), "auth.login.failure", profile.ID, "denied")
+		if logger != nil {
+			logger.Warn("workos social login completed without mfa", zap.String("auth_method", authenticated.AuthenticationMethod))
+		}
+		writeWorkOSLoginFailure(c, opts, failureMode, state.ReturnTo, authFailureReasonMFARequired, http.StatusForbidden, "mfa required")
+		return "", false
+	}
 	result, err := svc.UpsertWorkOSUserForIntent(c.Request.Context(), profile, state.Intent)
 	if err != nil {
 		if errors.Is(err, ErrAuthIdentityConflict) {
@@ -504,6 +513,18 @@ func completeWorkOSLogin(c *gin.Context, logger *zap.Logger, svc *Service, manag
 		redirectTo = result.RedirectPath
 	}
 	return redirectTo, true
+}
+
+func workOSSocialLoginRequiresMFA(authenticated sessionauth.WorkOSAuthentication) bool {
+	if authenticated.MFACompleted {
+		return false
+	}
+	switch strings.TrimSpace(authenticated.AuthenticationMethod) {
+	case "GoogleOAuth", "GitHubOAuth":
+		return true
+	default:
+		return false
+	}
 }
 
 func workOSMFAPendingHandler(opts authSessionRouteOptions) gin.HandlerFunc {

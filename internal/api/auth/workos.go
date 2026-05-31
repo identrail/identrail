@@ -44,6 +44,7 @@ type WorkOSAuthentication struct {
 	User                 WorkOSProfile
 	OrganizationID       string
 	AuthenticationMethod string
+	MFACompleted         bool
 }
 
 type WorkOSClient interface {
@@ -164,7 +165,9 @@ func (c *WorkOSSDKClient) AuthenticateWithTOTP(ctx context.Context, input WorkOS
 	if err != nil {
 		return WorkOSAuthentication{}, normalizeWorkOSAuthenticationError(err)
 	}
-	return workOSAuthenticationFromResponse(response), nil
+	authenticated := workOSAuthenticationFromResponse(response)
+	authenticated.MFACompleted = true
+	return authenticated, nil
 }
 
 func normalizeWorkOSAuthenticationError(err error) error {

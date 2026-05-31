@@ -91,7 +91,9 @@ func (f *fakeWorkOSClient) AuthenticateWithTOTP(ctx context.Context, input sessi
 	if f.verifyErr != nil {
 		return sessionauth.WorkOSAuthentication{}, f.verifyErr
 	}
-	return f.authentication, nil
+	authenticated := f.authentication
+	authenticated.MFACompleted = true
+	return authenticated, nil
 }
 
 func TestWorkOSHostedLoginCreatesSessionAndIdentity(t *testing.T) {
@@ -110,6 +112,7 @@ func TestWorkOSHostedLoginCreatesSessionAndIdentity(t *testing.T) {
 				ProfilePictureURL: "https://cdn.example/avatar.png",
 			},
 			AuthenticationMethod: "GitHubOAuth",
+			MFACompleted:         true,
 		},
 	}
 	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
@@ -164,6 +167,53 @@ func TestWorkOSHostedLoginCreatesSessionAndIdentity(t *testing.T) {
 	}
 	if user.PrimaryEmail != "new@example.com" || user.DisplayName != "New User" {
 		t.Fatalf("unexpected user: %+v", user)
+	}
+}
+
+func TestWorkOSSocialLoginWithoutMFADoesNotCreateSession(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	workOS := &fakeWorkOSClient{
+		authentication: sessionauth.WorkOSAuthentication{
+			User: sessionauth.WorkOSProfile{
+				ID:            "user_social_no_mfa",
+				Email:         "social-no-mfa@example.com",
+				EmailVerified: true,
+			},
+			AuthenticationMethod: "GitHubOAuth",
+		},
+	}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://app.identrail.test",
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: "whsec_123",
+		WorkOSAuthClient:    workOS,
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
+	})
+
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/login?provider=github_oauth&return_to=/app/welcome", nil))
+	if startResp.Code != http.StatusFound {
+		t.Fatalf("expected login redirect, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+
+	callbackResp := httptest.NewRecorder()
+	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
+	if callbackResp.Code != http.StatusFound {
+		t.Fatalf("expected callback redirect, got %d body=%s", callbackResp.Code, callbackResp.Body.String())
+	}
+	if got := callbackResp.Header().Get("Location"); !strings.Contains(got, "/signin?") || !strings.Contains(got, "reason=mfa_required") {
+		t.Fatalf("expected mfa-required redirect, got %q", got)
+	}
+	if findTestCookie(callbackResp.Result().Cookies(), sessionauth.CookieName) != nil {
+		t.Fatalf("social login without mfa must not create a session cookie, got %+v", callbackResp.Result().Cookies())
+	}
+	if _, err := store.GetUserIdentity(context.Background(), sessionauth.WorkOSProvider, "user_social_no_mfa"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("social login without mfa must not create identity, got %v", err)
 	}
 }
 
@@ -284,6 +334,7 @@ func TestWorkOSHostedLoginAllowsConfiguredWebReturnOrigin(t *testing.T) {
 				EmailVerified: true,
 			},
 			AuthenticationMethod: "GoogleOAuth",
+			MFACompleted:         true,
 		},
 	}
 	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
@@ -385,6 +436,7 @@ func TestWorkOSCallbackPreservesSelectedOrganization(t *testing.T) {
 			},
 			OrganizationID:       "tenant-a",
 			AuthenticationMethod: "GitHubOAuth",
+			MFACompleted:         true,
 		},
 	}
 	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
