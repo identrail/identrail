@@ -10347,7 +10347,7 @@ export function ProductAgenticRiskSurfacePage({ surfaceID }: { surfaceID: Agenti
     return () => {
       requestRef.current += 1;
     };
-  }, [scope?.tenantID, scope?.workspaceID, surfaceID]);
+  }, [scope?.tenantID, scope?.workspaceID, surfaceID, selectedEnvironmentID]);
 
   if (!scope) {
     return (
