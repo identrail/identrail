@@ -22,15 +22,41 @@ function formatDate(value: string): string {
   }).format(date);
 }
 
-function compactUserAgent(value?: string): string {
+export function formatSessionDevice(value?: string): string {
   if (!value) {
     return 'Unknown device';
   }
   const normalized = value.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= 96) {
+  const browser = normalized.includes('Edg/')
+    ? 'Edge'
+    : normalized.includes('Chrome/')
+      ? 'Chrome'
+      : normalized.includes('Firefox/')
+        ? 'Firefox'
+        : normalized.includes('Safari/')
+          ? 'Safari'
+          : '';
+  const platform = /Macintosh|Mac OS X/i.test(normalized)
+    ? 'macOS'
+    : /Windows/i.test(normalized)
+      ? 'Windows'
+      : /iPhone|iPad/i.test(normalized)
+        ? 'iOS'
+        : /Android/i.test(normalized)
+          ? 'Android'
+          : /Linux/i.test(normalized)
+            ? 'Linux'
+            : '';
+  if (browser && platform) {
+    return `${browser} on ${platform}`;
+  }
+  if (browser) {
+    return browser;
+  }
+  if (normalized.length <= 56) {
     return normalized;
   }
-  return `${normalized.slice(0, 93)}...`;
+  return `${normalized.slice(0, 53)}...`;
 }
 
 export function SessionsList({
@@ -54,27 +80,25 @@ export function SessionsList({
 
   return (
     <section className="idt-sessions-list" aria-label="Active account sessions">
-      <div className="idt-security-section-header">
-        <div>
-          <p className="idt-app-kicker">Sessions</p>
-          <h2>Active browser sessions</h2>
+      {hasOtherSessions ? (
+        <div className="idt-session-toolbar">
+          <button
+            className="idt-btn idt-btn-ghost"
+            type="button"
+            disabled={revokingOthers}
+            onClick={onRevokeOthers}
+          >
+            {revokingOthers ? 'Revoking...' : 'Revoke others'}
+          </button>
         </div>
-        <button
-          className="idt-btn idt-btn-ghost"
-          type="button"
-          disabled={!hasOtherSessions || revokingOthers}
-          onClick={onRevokeOthers}
-        >
-          {revokingOthers ? 'Revoking...' : 'Revoke others'}
-        </button>
-      </div>
+      ) : null}
 
       <div className="idt-session-stack">
         {sessions.map((session) => (
           <article className="idt-session-row" key={session.id}>
             <div>
               <div className="idt-session-title">
-                <strong>{compactUserAgent(session.user_agent)}</strong>
+                <strong>{formatSessionDevice(session.user_agent)}</strong>
                 {session.current ? <span>Current</span> : null}
               </div>
               <p>
@@ -89,7 +113,7 @@ export function SessionsList({
               disabled={busySessionID === session.id}
               onClick={() => onRevoke(session.id, session.current)}
             >
-              {busySessionID === session.id ? 'Revoking...' : session.current ? 'Sign out here' : 'Revoke'}
+              {busySessionID === session.id ? 'Revoking...' : session.current ? 'Sign out' : 'Revoke'}
             </button>
           </article>
         ))}

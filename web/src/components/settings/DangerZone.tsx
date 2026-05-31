@@ -13,8 +13,7 @@ export function DangerZone({ description, children }: DangerZoneProps) {
       data-testid="idt-danger-zone"
     >
       <div>
-        <p className="idt-app-kicker">Danger zone</p>
-        <h3 id="idt-danger-zone-title">Account lifecycle</h3>
+        <h3 id="idt-danger-zone-title">Danger zone</h3>
         {description ? <p className="idt-danger-zone-description">{description}</p> : null}
       </div>
       <div className="idt-danger-zone-rows">{children}</div>

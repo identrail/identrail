@@ -1037,6 +1037,41 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { level: 2, name: 'AWS Control Center' })).toBeInTheDocument();
   });
 
+  it('keeps account security available without a selected workspace', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('', ''));
+      }
+      if (url.endsWith('/v1/me/sessions')) {
+        return okJSON({
+          items: [
+            {
+              id: 'current-session',
+              ip: '127.0.0.1',
+              user_agent: 'current browser',
+              auth_method: 'workos',
+              created_at: '2026-01-01T00:00:00Z',
+              last_seen_at: '2026-01-01T00:00:00Z',
+              idle_expires_at: '2026-01-01T00:15:00Z',
+              current: true
+            }
+          ]
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/account/security');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Owner User/i })).toBeInTheDocument();
+    expect(await screen.findByText(/No workspace selected yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/current browser/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Back to app/i })).toHaveAttribute('href', '/app');
+  });
+
   it('revalidates session after same-workspace navigation from an auth error', async () => {
     let meCalls = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -2365,6 +2400,22 @@ describe('App', () => {
       if (url.endsWith('/v1/auth/config')) {
         return authConfig(false, true);
       }
+      if (url.endsWith('/v1/me/sessions')) {
+        return okJSON({
+          items: [
+            {
+              id: 'current-session',
+              ip: '127.0.0.1',
+              user_agent: 'current browser',
+              auth_method: 'workos',
+              created_at: '2026-01-01T00:00:00Z',
+              last_seen_at: '2026-01-01T00:00:00Z',
+              idle_expires_at: '2026-01-01T00:15:00Z',
+              current: true
+            }
+          ]
+        });
+      }
       throw new Error(`Unexpected URL ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -2375,10 +2426,11 @@ describe('App', () => {
     expect(await screen.findByText(/Security Workspace/i)).toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 2, name: /Settings/i })).toBeInTheDocument();
     expect(await screen.findByText(/Hosted WorkOS login/i)).toBeInTheDocument();
-    expect(await screen.findByText(/None granted/i)).toBeInTheDocument();
+    expect(await screen.findByText(/^None$/i)).toBeInTheDocument();
     expect(await screen.findByText(/Total members/i)).toBeInTheDocument();
-    const accountSecurityLinks = await screen.findAllByRole('link', { name: /Account security/i });
-    expect(accountSecurityLinks.some((link) => link.getAttribute('href') === '/app/account/security')).toBe(true);
+    expect(await screen.findByRole('heading', { level: 3, name: /1 active session/i })).toBeInTheDocument();
+    expect(screen.getByText(/Manage sessions/i)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Account security/i })).not.toBeInTheDocument();
   });
 
   it('supports workspace member invite workflow from app shell administration route', async () => {
@@ -2508,11 +2560,11 @@ describe('App', () => {
     setCurrentPath('/app/default/default/workspaces');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /^Members$/i })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('User ID'), { target: { value: 'analyst@example.com' } });
     fireEvent.change(screen.getByLabelText('Email (optional)'), { target: { value: 'analyst@example.com' } });
-    fireEvent.click(screen.getByRole('button', { name: /Invite member/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Send invite/i }));
 
     await screen.findByText(/Member invitation saved/i);
     expect(screen.getAllByText('analyst@example.com').length).toBeGreaterThan(0);
@@ -2649,7 +2701,7 @@ describe('App', () => {
     setCurrentPath('/app/default/default/workspaces');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /^Members$/i })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Workspace'), { target: { value: 'payments' } });
     fireEvent.click(screen.getByRole('button', { name: /Switch workspace/i }));
 
@@ -2735,7 +2787,7 @@ describe('App', () => {
     setCurrentPath('/app/default/payments/workspaces');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /^Members$/i })).toBeInTheDocument();
     const activeWorkspaceCallIndex = fetchMock.mock.calls.findIndex(([url, options]) => {
       return typeof url === 'string' && url.includes('/v1/workspaces/active') && options?.method === 'POST';
     });
@@ -2926,7 +2978,7 @@ describe('App', () => {
       window.dispatchEvent(new PopStateEvent('popstate'));
     });
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /^Members$/i })).toBeInTheDocument();
 
     resolveInitialMembers?.({
       ok: true,
@@ -3048,12 +3100,12 @@ describe('App', () => {
     setCurrentPath('/app/default/default/workspaces');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Members and roles/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /^Members$/i })).toBeInTheDocument();
     expect(screen.getByText('owner-user')).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('User ID'), { target: { value: 'analyst@example.com' } });
     fireEvent.change(screen.getByLabelText('Email (optional)'), { target: { value: 'analyst@example.com' } });
-    fireEvent.click(screen.getByRole('button', { name: /Invite member/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Send invite/i }));
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/invite rejected/i);
@@ -3375,60 +3427,102 @@ describe('App', () => {
     expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
   });
 
-  it('lists account security sessions and revokes other browsers', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(okJSON(currentMePayload('default', 'default')))
-      .mockResolvedValueOnce(okJSON(currentMePayload('default', 'default')))
-      .mockResolvedValueOnce(
-        okJSON({
-          items: [
-            {
-              id: 'current-session',
-              ip: '127.0.0.1',
-              user_agent: 'current browser',
-              auth_method: 'workos',
+  it('lists settings sessions and revokes other browsers', async () => {
+    let sessionsRevoked = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('default', 'default'));
+      }
+      if (url.endsWith('/v1/whoami')) {
+        return okJSON({
+          principal: { type: 'subject', id: 'owner-user' },
+          roles: ['owner'],
+          scopes: ['read', 'write', 'admin'],
+          scope: { tenant_id: 'default', workspace_id: 'default' },
+          active_workspace: {
+            workspace: {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              display_name: 'Default',
+              slug: 'default',
               created_at: '2026-01-01T00:00:00Z',
-              last_seen_at: '2026-01-01T00:00:00Z',
-              idle_expires_at: '2026-01-01T00:15:00Z',
-              current: true
+              updated_at: '2026-01-01T00:00:00Z'
             },
-            {
-              id: 'other-session',
-              ip: '127.0.0.2',
-              user_agent: 'other browser',
-              auth_method: 'workos',
-              created_at: '2026-01-01T00:00:00Z',
-              last_seen_at: '2026-01-01T00:00:00Z',
-              idle_expires_at: '2026-01-01T00:15:00Z',
-              current: false
-            }
-          ]
-        })
-      )
-      .mockResolvedValueOnce(okJSON({ ok: true, revoked: 1 }))
-      .mockResolvedValueOnce(
-        okJSON({
-          items: [
-            {
-              id: 'current-session',
-              ip: '127.0.0.1',
-              user_agent: 'current browser',
-              auth_method: 'workos',
-              created_at: '2026-01-01T00:00:00Z',
-              last_seen_at: '2026-01-01T00:00:00Z',
-              idle_expires_at: '2026-01-01T00:15:00Z',
-              current: true
-            }
-          ]
-        })
-      );
+            member: {
+              tenant_id: 'default',
+              workspace_id: 'default',
+              member_id: 'member-owner-user',
+              user_id: 'owner-user',
+              email: 'owner@example.com',
+              role: 'owner',
+              status: 'active',
+              joined_at: '2026-01-01T00:00:00Z',
+              updated_at: '2026-01-01T00:00:00Z'
+            },
+            is_active: true
+          },
+          workspaces: []
+        });
+      }
+      if (url.includes('/v1/workspaces/default/members')) {
+        return okJSON({ items: [] });
+      }
+      if (url.endsWith('/v1/auth/config')) {
+        return authConfig(false, true);
+      }
+      if (url.endsWith('/v1/me/sessions/revoke-others')) {
+        sessionsRevoked = true;
+        return okJSON({ ok: true, revoked: 1 });
+      }
+      if (url.endsWith('/v1/me/sessions')) {
+        return okJSON({
+          items: sessionsRevoked
+            ? [
+                {
+                  id: 'current-session',
+                  ip: '127.0.0.1',
+                  user_agent: 'current browser',
+                  auth_method: 'workos',
+                  created_at: '2026-01-01T00:00:00Z',
+                  last_seen_at: '2026-01-01T00:00:00Z',
+                  idle_expires_at: '2026-01-01T00:15:00Z',
+                  current: true
+                }
+              ]
+            : [
+                {
+                  id: 'current-session',
+                  ip: '127.0.0.1',
+                  user_agent: 'current browser',
+                  auth_method: 'workos',
+                  created_at: '2026-01-01T00:00:00Z',
+                  last_seen_at: '2026-01-01T00:00:00Z',
+                  idle_expires_at: '2026-01-01T00:15:00Z',
+                  current: true
+                },
+                {
+                  id: 'other-session',
+                  ip: '127.0.0.2',
+                  user_agent: 'other browser',
+                  auth_method: 'workos',
+                  created_at: '2026-01-01T00:00:00Z',
+                  last_seen_at: '2026-01-01T00:00:00Z',
+                  idle_expires_at: '2026-01-01T00:15:00Z',
+                  current: false
+                }
+              ]
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
     vi.stubGlobal('fetch', fetchMock);
 
-    setCurrentPath('/app/account/security');
+    setCurrentPath('/app/default/default/settings');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Owner User/i })).toBeInTheDocument();
+    await screen.findByRole('heading', { level: 2, name: /Settings/i });
+    fireEvent.click(await screen.findByText(/Manage sessions/i));
     expect(await screen.findByText(/other browser/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Revoke others/i }));
 

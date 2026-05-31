@@ -6677,12 +6677,10 @@ html[data-theme='light'] .idt-auth-mfa-form input {
   gap: 1rem;
 }
 
-.idt-security-section-header {
+.idt-session-toolbar {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1rem;
+  justify-content: flex-end;
+  margin-bottom: 0.75rem;
 }
 
 .idt-session-stack {
@@ -7639,8 +7637,7 @@ html[data-theme='light'] .idt-auth-mfa-form input {
     grid-template-columns: 1fr;
   }
 
-  .idt-session-row,
-  .idt-security-section-header {
+  .idt-session-row {
     display: grid;
   }
 
@@ -29252,24 +29249,29 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 }
 
 .idt-danger-zone {
-  border-color: rgba(213, 125, 125, 0.5);
-  background: linear-gradient(165deg, rgba(40, 12, 16, 0.78), rgba(24, 10, 16, 0.66));
+  border-color: rgba(248, 113, 113, 0.34);
+  background:
+    linear-gradient(180deg, rgba(127, 29, 29, 0.18), rgba(127, 29, 29, 0.04) 48%),
+    var(--idt-console-surface, #090b0e);
 }
 
 .idt-danger-zone h3 {
-  color: #ffd0d0;
+  margin: 0;
+  color: #ffffff;
+  font-size: 1.05rem;
 }
 
 .idt-danger-zone-description {
-  margin: 0.35rem 0 0;
-  color: #f3c8c8;
-  font-size: 0.92rem;
+  max-width: 68ch;
+  margin: 0.28rem 0 0;
+  color: #d8b4b4;
+  font-size: 0.9rem;
 }
 
 .idt-danger-zone-rows {
-  margin-top: 0.85rem;
+  margin-top: 0.7rem;
   display: grid;
-  gap: 0.6rem;
+  gap: 0.55rem;
 }
 
 .idt-danger-zone-row {
@@ -29277,27 +29279,45 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.8rem 0.95rem;
-  border: 1px solid rgba(213, 125, 125, 0.32);
-  border-radius: 0.65rem;
-  background: rgba(18, 8, 12, 0.55);
+  min-height: 4.25rem;
+  padding: 0.78rem 0.9rem;
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  border-radius: 8px;
+  background: rgba(12, 6, 8, 0.48);
 }
 
 .idt-danger-zone-row > div {
   display: grid;
-  gap: 0.2rem;
+  gap: 0.18rem;
+  min-width: 0;
 }
 
 .idt-danger-zone-row strong {
-  color: #ffe2e2;
-  font-size: 0.98rem;
+  color: #fff1f2;
+  font-size: 0.96rem;
 }
 
 .idt-danger-zone-row p {
   margin: 0;
-  color: #f0c5c5;
+  color: #d8b4b4;
   font-size: 0.88rem;
+  line-height: 1.42;
+}
+
+.idt-danger-zone-status,
+.idt-danger-zone-success,
+.idt-danger-zone-error {
+  margin-top: 0.45rem;
+  font-size: 0.85rem;
   line-height: 1.45;
+}
+
+.idt-danger-zone-success {
+  color: #a3e6b6;
+}
+
+.idt-danger-zone-error {
+  color: #ffb3b3;
 }
 
 .idt-btn-danger {
@@ -29432,23 +29452,296 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 }
 
 html[data-theme='light'] .idt-danger-zone {
-  background: linear-gradient(165deg, #fff1f1, #fde7e7);
-  border-color: rgba(165, 50, 50, 0.45);
+  background:
+    linear-gradient(180deg, rgba(127, 29, 29, 0.18), rgba(127, 29, 29, 0.04) 48%),
+    var(--idt-console-surface, #090b0e);
+  border-color: rgba(248, 113, 113, 0.34);
 }
 
 html[data-theme='light'] .idt-danger-zone h3,
 html[data-theme='light'] .idt-danger-zone-row strong {
-  color: #6a1d1d;
+  color: #fff1f2;
 }
 
 html[data-theme='light'] .idt-danger-zone-description,
 html[data-theme='light'] .idt-danger-zone-row p {
-  color: #7c2a2a;
+  color: #d8b4b4;
 }
 
 html[data-theme='light'] .idt-danger-zone-row {
-  background: #fff7f7;
-  border-color: rgba(165, 50, 50, 0.28);
+  background: rgba(12, 6, 8, 0.48);
+  border-color: rgba(248, 113, 113, 0.28);
+}
+
+.idt-app-console-layout .idt-settings-page {
+  margin-top: -0.3rem;
+  gap: 0.95rem;
+}
+
+.idt-app-console-layout .idt-settings-header {
+  align-items: center;
+  padding-top: 0;
+}
+
+.idt-app-console-layout .idt-settings-header h2,
+html[data-theme='light'] .idt-app-console-layout .idt-settings-header h2 {
+  margin-top: 0;
+  margin-bottom: 0.32rem;
+}
+
+.idt-app-console-layout .idt-settings-header p {
+  max-width: 58ch;
+}
+
+.idt-app-console-layout .idt-settings-disclosure {
+  padding: 0;
+  overflow: hidden;
+}
+
+.idt-settings-disclosure-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 4.75rem;
+  padding: 1rem 1.15rem;
+  list-style: none;
+  cursor: pointer;
+}
+
+.idt-settings-disclosure-summary::-webkit-details-marker {
+  display: none;
+}
+
+.idt-settings-disclosure-summary > div {
+  min-width: 0;
+}
+
+.idt-settings-disclosure-summary h3 {
+  margin: 0.08rem 0 0.14rem;
+}
+
+.idt-settings-disclosure-summary p:last-child {
+  margin: 0;
+  max-width: 48ch;
+  color: var(--app-muted);
+  font-size: 0.9rem;
+}
+
+.idt-settings-disclosure-summary > span {
+  flex: 0 0 auto;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 999px;
+  padding: 0.36rem 0.64rem;
+  background: rgba(255, 255, 255, 0.035);
+  color: #d7dce2;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.idt-settings-disclosure-summary:hover > span,
+.idt-settings-disclosure-summary:focus-visible > span,
+.idt-settings-disclosure[open] .idt-settings-disclosure-summary > span {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.07);
+  color: #f5f7f8;
+}
+
+.idt-settings-disclosure-summary:focus-visible {
+  outline: 2px solid rgba(124, 92, 255, 0.78);
+  outline-offset: -2px;
+}
+
+.idt-settings-disclosure-body {
+  margin: 0 1.15rem 1.15rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--app-border-soft);
+}
+
+.idt-settings-sessions-card .idt-session-stack {
+  gap: 0.55rem;
+}
+
+.idt-settings-sessions-card .idt-session-row,
+html[data-theme='light'] .idt-settings-sessions-card .idt-session-row {
+  border-color: var(--app-border-soft);
+  background: var(--idt-console-surface-deep);
+  box-shadow: none;
+}
+
+.idt-settings-sessions-card .idt-session-row p {
+  margin: 0.12rem 0 0;
+  color: var(--app-muted);
+  font-size: 0.86rem;
+}
+
+.idt-settings-sessions-card .idt-session-row .idt-btn {
+  min-width: 7.5rem;
+  white-space: nowrap;
+}
+
+.idt-app-console-layout .idt-workspace-admin {
+  gap: 1rem;
+}
+
+.idt-app-console-layout .idt-workspace-admin-header {
+  align-items: center;
+  padding-top: 0;
+}
+
+.idt-app-console-layout .idt-workspace-admin-header h2 {
+  margin-top: 0;
+  margin-bottom: 0.32rem;
+}
+
+.idt-app-console-layout .idt-workspace-admin-grid > article {
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: #050506;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.035), var(--idt-console-shadow);
+}
+
+.idt-app-console-layout .idt-workspace-admin-grid > article h3 {
+  margin-bottom: 0.2rem;
+  font-size: 1.02rem;
+}
+
+.idt-app-console-layout .idt-workspace-admin-header p {
+  max-width: 44rem;
+}
+
+.idt-app-console-layout .idt-workspace-stats article {
+  min-height: 5.2rem;
+  display: grid;
+  align-content: center;
+  gap: 0.1rem;
+  background: #070708;
+}
+
+.idt-app-console-layout .idt-workspace-stats h3 {
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.idt-app-console-layout .idt-workspace-stats p {
+  margin: 0;
+  color: var(--app-muted);
+  font-size: 0.94rem;
+}
+
+.idt-app-console-layout .idt-workspace-card {
+  display: grid;
+  align-self: start;
+  align-content: start;
+  gap: 1rem;
+  min-height: 0;
+  padding: 1rem;
+}
+
+.idt-workspace-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.idt-workspace-card-header h3,
+.idt-workspace-card-header p {
+  margin: 0;
+}
+
+.idt-workspace-card-header p {
+  color: var(--app-muted);
+  font-size: 0.9rem;
+}
+
+.idt-app-console-layout .idt-workspace-switcher {
+  align-items: end;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.idt-app-console-layout .idt-workspace-switcher label {
+  min-width: 0;
+}
+
+.idt-app-console-layout .idt-workspace-switcher .idt-btn {
+  min-height: 2.75rem;
+  white-space: nowrap;
+}
+
+.idt-workspace-invite-form {
+  display: grid;
+  align-items: end;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.idt-workspace-invite-form .idt-workspace-inline-fields {
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.idt-workspace-invite-form .idt-btn {
+  justify-self: end;
+  min-height: 2.75rem;
+  min-width: 13rem;
+}
+
+.idt-app-console-layout .idt-workspace-member-toolbar {
+  align-items: end;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  padding: 0.85rem;
+  background: #050506;
+}
+
+.idt-app-console-layout .idt-workspace-table-wrap {
+  border-radius: 8px;
+  background: #050506;
+}
+
+.idt-app-console-layout .idt-workspace-table th,
+.idt-app-console-layout .idt-workspace-table td {
+  padding: 0.75rem 0.85rem;
+}
+
+.idt-app-console-layout .idt-workspace-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+@media (max-width: 720px) {
+  .idt-danger-zone-row,
+  .idt-settings-sessions-card .idt-session-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .idt-settings-disclosure-summary {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .idt-settings-disclosure-summary > span {
+    text-align: center;
+  }
+
+  .idt-settings-disclosure-body {
+    margin-right: 0.9rem;
+    margin-left: 0.9rem;
+  }
+
+  .idt-app-console-layout .idt-workspace-switcher,
+  .idt-workspace-invite-form,
+  .idt-workspace-invite-form .idt-workspace-inline-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-workspace-invite-form .idt-btn {
+    justify-self: stretch;
+    min-width: 0;
+  }
 }
 
 html[data-theme='light'] .idt-danger-modal {

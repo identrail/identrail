@@ -299,6 +299,7 @@ async function renderProductSettingsPage(options: {
     items: whoAmI.active_workspace?.member ? [whoAmI.active_workspace.member] : []
   });
   vi.spyOn(api.apiClient, 'getAuthConfig').mockResolvedValue(settingsAuthConfig);
+  vi.spyOn(api.apiClient, 'listCurrentUserSessions').mockResolvedValue({ items: [] });
   const updateMe = vi.spyOn(api.apiClient, 'updateMe');
   if (options.updateMe instanceof Error) {
     updateMe.mockRejectedValue(options.updateMe);

@@ -56,11 +56,13 @@ import {
   type RequestAuthContext,
   type ScanPolicyRecord,
   type ScanTriggerMode,
+  type SessionListItem,
   type WhoAmIResponse,
   type WorkspaceMemberRecord,
   type WorkspaceMemberRole,
   type WorkspaceMemberStatus
 } from './api/client';
+import { formatSessionDevice, SessionsList } from './components/auth/SessionsList';
 import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
 import { ConfirmDestructiveModal, DangerZone, DangerZoneRow } from './components/settings/DangerZone';
 import {
@@ -6041,16 +6043,9 @@ export function ProductShellLayout() {
       {
         id: 'settings',
         label: 'Settings',
-        description: 'Workspace identity, access model, and routes',
-        keywords: ['identity', 'access', 'authentication'],
+        description: 'Workspace identity, members, sessions, and lifecycle',
+        keywords: ['identity', 'access', 'authentication', 'members', 'sessions'],
         path: `${basePath}/settings`
-      },
-      {
-        id: 'security',
-        label: 'Account security',
-        description: 'Current session, access scope, and sign-out controls',
-        keywords: ['account', 'session', 'security'],
-        path: '/app/account/security'
       },
       {
         id: 'marketing-site',
@@ -6434,7 +6429,7 @@ export function ProductShellLayout() {
                   to={`${basePath}/settings`}
                   onClick={() => setWorkspaceMenuOpen(false)}
                 >
-                  Workspace settings
+                  Settings
                 </Link>
                 <Link
                   role="menuitem"
@@ -6580,14 +6575,6 @@ export function ProductShellLayout() {
                     <strong>{userDisplayName}</strong>
                     {userEmail ? <span>{userEmail}</span> : null}
                   </div>
-                  <Link
-                    role="menuitem"
-                    to={`${basePath}/settings`}
-                    onClick={() => setAccountMenuOpen(false)}
-                  >
-                    <SettingsIcon size={14} strokeWidth={1.75} aria-hidden="true" />
-                    Workspace settings
-                  </Link>
                   <a
                     role="menuitem"
                     href="https://github.com/identrail/identrail/issues"
@@ -6599,6 +6586,7 @@ export function ProductShellLayout() {
                     Help &amp; feedback
                   </a>
                   <Link role="menuitem" to="/" onClick={() => setAccountMenuOpen(false)}>
+                    <ExternalLink size={14} strokeWidth={1.75} aria-hidden="true" />
                     Marketing site
                   </Link>
                   <button
@@ -7811,9 +7799,8 @@ export function ProductWorkspacesPage() {
     <section className="idt-app-panel idt-workspace-admin">
       <header className="idt-workspace-admin-header">
         <div>
-          <p className="idt-app-kicker">Workspace administration</p>
-          <h2>Members and roles</h2>
-          <p>Invite members, update roles instantly, and switch active workspace scope without leaving the app shell.</p>
+          <h2>Members</h2>
+          <p>Invite teammates, set roles, and keep workspace access current.</p>
         </div>
       </header>
 
@@ -7848,14 +7835,18 @@ export function ProductWorkspacesPage() {
         </article>
         <article>
           <h3>{roleCounts.owner + roleCounts.admin}</h3>
-          <p>Privileged roles</p>
+          <p>Admins</p>
         </article>
       </div>
 
       <div className="idt-workspace-admin-grid">
-        <article className="idt-app-empty-state">
-          <h3>Switch active workspace</h3>
-          <p>Change context to another workspace you can access.</p>
+        <article className="idt-workspace-card">
+          <header className="idt-workspace-card-header">
+            <div>
+              <h3>Workspace</h3>
+              <p>Change the workspace context for this session.</p>
+            </div>
+          </header>
           <div className="idt-workspace-switcher">
             <label htmlFor="workspace-switch-select">Workspace</label>
             <select
@@ -7884,9 +7875,14 @@ export function ProductWorkspacesPage() {
           </div>
         </article>
 
-        <article className="idt-app-empty-state">
-          <h3>Invite member</h3>
-          <form className="idt-app-form" onSubmit={handleInviteMember}>
+        <article className="idt-workspace-card">
+          <header className="idt-workspace-card-header">
+            <div>
+              <h3>Invite member</h3>
+              <p>Set the initial role and status before access is granted.</p>
+            </div>
+          </header>
+          <form className="idt-app-form idt-workspace-invite-form" onSubmit={handleInviteMember}>
             <label>
               User ID
               <input
@@ -7942,7 +7938,7 @@ export function ProductWorkspacesPage() {
               </label>
             </div>
             <button className="idt-btn idt-btn-primary" type="submit" disabled={!canAdmin || inviting}>
-              {inviting ? 'Saving...' : 'Invite member'}
+              {inviting ? 'Saving...' : 'Send invite'}
             </button>
           </form>
         </article>
@@ -13271,6 +13267,11 @@ export function ProductSettingsPage() {
   const [whoAmI, setWhoAmI] = useState<WhoAmIResponse | null>(null);
   const [members, setMembers] = useState<WorkspaceMemberRecord[]>([]);
   const [authConfig, setAuthConfig] = useState<AuthConfigResponse | null>(null);
+  const [sessions, setSessions] = useState<SessionListItem[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsError, setSessionsError] = useState('');
+  const [busySessionID, setBusySessionID] = useState('');
+  const [revokingOthers, setRevokingOthers] = useState(false);
   const [suspendModalOpen, setSuspendModalOpen] = useState(false);
   const [suspendPending, setSuspendPending] = useState(false);
   const [suspendError, setSuspendError] = useState('');
@@ -13278,6 +13279,36 @@ export function ProductSettingsPage() {
   const [profileDraft, setProfileDraft] = useState<ProfileDraft>(() => profileDraftFromMe(me));
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState('');
+  const settingsMountedRef = useRef(true);
+
+  useEffect(() => {
+    settingsMountedRef.current = true;
+    return () => {
+      settingsMountedRef.current = false;
+    };
+  }, []);
+
+  const loadSessions = async () => {
+    setSessionsLoading(true);
+    setSessionsError('');
+    try {
+      const response = await apiClient.listCurrentUserSessions();
+      if (!settingsMountedRef.current) {
+        return;
+      }
+      setSessions(response.items);
+    } catch (sessionError) {
+      if (!settingsMountedRef.current) {
+        return;
+      }
+      const message = sessionError instanceof Error ? sessionError.message : 'Unable to load active sessions.';
+      setSessionsError(message);
+    } finally {
+      if (settingsMountedRef.current) {
+        setSessionsLoading(false);
+      }
+    }
+  };
 
   useEffect(() => {
     if (!scope) {
@@ -13316,6 +13347,7 @@ export function ProductSettingsPage() {
     };
 
     void loadSettings();
+    void loadSessions();
 
     return () => {
       mounted = false;
@@ -13418,12 +13450,53 @@ export function ProductSettingsPage() {
     }
   };
 
+  const primarySession = sessions.find((session) => session.current) ?? sessions[0];
+  const sessionsSummary = sessionsLoading
+    ? 'Checking active browsers.'
+    : sessionsError
+      ? 'Session details need a refresh.'
+      : primarySession
+        ? formatSessionDevice(primarySession.user_agent)
+        : 'No active browser session.';
+
+  const handleRevokeSession = async (sessionID: string, isCurrent: boolean) => {
+    setBusySessionID(sessionID);
+    setSessionsError('');
+    try {
+      await apiClient.revokeCurrentUserSession(sessionID);
+      if (isCurrent) {
+        resetProductAuthSessionCache({ unauthenticated: true });
+        navigate('/signin?signed_out=1', { replace: true });
+        return;
+      }
+      await loadSessions();
+    } catch (sessionError) {
+      const message = sessionError instanceof Error ? sessionError.message : 'Unable to revoke session.';
+      setSessionsError(message);
+    } finally {
+      setBusySessionID('');
+    }
+  };
+
+  const handleRevokeOtherSessions = async () => {
+    setRevokingOthers(true);
+    setSessionsError('');
+    try {
+      await apiClient.revokeOtherCurrentUserSessions();
+      await loadSessions();
+    } catch (sessionError) {
+      const message = sessionError instanceof Error ? sessionError.message : 'Unable to revoke other sessions.';
+      setSessionsError(message);
+    } finally {
+      setRevokingOthers(false);
+    }
+  };
+
   if (loading) {
     return (
       <section className="idt-app-panel" aria-busy="true" aria-live="polite">
-        <p className="idt-app-kicker">Workspace settings</p>
         <h2>Settings</h2>
-        <p>Loading workspace identity, access, and authentication state.</p>
+        <p>Loading workspace identity, members, authentication, and sessions.</p>
       </section>
     );
   }
@@ -13431,7 +13504,6 @@ export function ProductSettingsPage() {
   if (error) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
-        <p className="idt-app-kicker">Workspace settings</p>
         <h2>Settings</h2>
         <p>{error}</p>
       </section>
@@ -13442,18 +13514,12 @@ export function ProductSettingsPage() {
     <section className="idt-app-panel idt-settings-page">
       <header className="idt-settings-header">
         <div>
-          <p className="idt-app-kicker">Workspace settings</p>
           <h2>Settings</h2>
-          <p>
-            Review the live workspace, access model, authentication mode, and the real routes that manage this tenant.
-          </p>
+          <p>Workspace access, sign-in, sessions, and account controls.</p>
         </div>
         <div className="idt-inline-actions">
           <Link className="idt-btn idt-btn-primary" to={workspacesPath}>
             Manage members
-          </Link>
-          <Link className="idt-btn idt-btn-ghost" to="/app/account/security">
-            Account security
           </Link>
         </div>
       </header>
@@ -13559,20 +13625,20 @@ export function ProductSettingsPage() {
       <div className="idt-settings-grid">
         <section className="idt-settings-card">
           <div>
-            <p className="idt-app-kicker">Workspace identity</p>
+            <p className="idt-app-kicker">Workspace</p>
             <h3>{workspaceDisplayName}</h3>
           </div>
           <dl className="idt-settings-facts">
             <div>
-              <dt>Tenant</dt>
+              <dt>Tenant ID</dt>
               <dd>{scope?.tenantID ?? 'Unavailable'}</dd>
             </div>
             <div>
-              <dt>Workspace</dt>
+              <dt>Workspace ID</dt>
               <dd>{scope?.workspaceID ?? 'Unavailable'}</dd>
             </div>
             <div>
-              <dt>Scope context</dt>
+              <dt>Scope</dt>
               <dd>{scope?.projectID ?? me?.project_id ?? 'All scopes'}</dd>
             </div>
             <div>
@@ -13584,7 +13650,7 @@ export function ProductSettingsPage() {
 
         <section className="idt-settings-card">
           <div>
-            <p className="idt-app-kicker">Your access</p>
+            <p className="idt-app-kicker">Access</p>
             <h3>{formatTokenLabel(activeRole)}</h3>
           </div>
           <dl className="idt-settings-facts">
@@ -13602,7 +13668,7 @@ export function ProductSettingsPage() {
             </div>
             <div>
               <dt>Scopes</dt>
-              <dd>{scopes.length ? scopes.map(formatTokenLabel).join(', ') : 'None granted'}</dd>
+              <dd>{scopes.length ? scopes.map(formatTokenLabel).join(', ') : 'None'}</dd>
             </div>
           </dl>
         </section>
@@ -13613,9 +13679,9 @@ export function ProductSettingsPage() {
           <div className="idt-settings-card-header">
             <div>
               <p className="idt-app-kicker">Members</p>
-              <h3>Access model</h3>
+              <h3>{formatCountLabel(members.length, 'member')}</h3>
             </div>
-            <Link to={workspacesPath}>Open workspaces</Link>
+            <Link to={workspacesPath}>Manage</Link>
           </div>
           <div className="idt-settings-counts">
             <article>
@@ -13643,7 +13709,6 @@ export function ProductSettingsPage() {
               <p className="idt-app-kicker">Authentication</p>
               <h3>{authModeLabel}</h3>
             </div>
-            <Link to="/app/account/security">Security</Link>
           </div>
           <dl className="idt-settings-facts">
             <div>
@@ -13666,61 +13731,89 @@ export function ProductSettingsPage() {
         </section>
       </div>
 
-      <section className="idt-settings-card">
-        <div>
-          <p className="idt-app-kicker">Operating routes</p>
-          <h3>Where changes happen</h3>
-        </div>
-        <div className="idt-settings-route-grid">
+      <details className="idt-settings-card idt-settings-disclosure">
+        <summary className="idt-settings-disclosure-summary">
+          <div>
+            <p className="idt-app-kicker">Areas</p>
+            <h3>Related areas</h3>
+            <p>Domain controls and member access.</p>
+          </div>
+          <span>Show areas</span>
+        </summary>
+        <div className="idt-settings-route-grid idt-settings-disclosure-body">
           <Link to={awsPath}>
-            <strong>AWS control center</strong>
-            <span>Connect accounts, expand identity inventory, and prepare AWS findings and remediation.</span>
+            <strong>AWS</strong>
+            <span>Accounts, identities, findings, fixes.</span>
           </Link>
           <Link to={githubFindingsPath}>
             <strong>GitHub findings</strong>
-            <span>Inspect repository risk, open line evidence, and keep triage inside the GitHub section.</span>
+            <span>Repository risk and evidence.</span>
           </Link>
           <Link to={kubernetesPath}>
-            <strong>Kubernetes control center</strong>
-            <span>Prepare cluster, workload, service-account, RBAC, and remediation routes.</span>
+            <strong>Kubernetes</strong>
+            <span>Clusters, workloads, service accounts, RBAC.</span>
           </Link>
           <Link to={workspacesPath}>
-            <strong>Workspace members</strong>
-            <span>Invite users, adjust roles, suspend stale access, and switch active workspaces.</span>
-          </Link>
-          <Link to="/app/account/security">
-            <strong>Account sessions</strong>
-            <span>Review active sessions, revoke access, and sign out cleanly.</span>
+            <strong>Members</strong>
+            <span>Invites, roles, workspace access.</span>
           </Link>
         </div>
-      </section>
+      </details>
 
-      <DangerZone description="Suspending your account signs you out everywhere. Reactivate it any time by signing in through the signup flow.">
+      <details className="idt-settings-card idt-settings-disclosure idt-settings-sessions-card">
+        <summary className="idt-settings-disclosure-summary">
+          <div>
+            <p className="idt-app-kicker">Sessions</p>
+            <h3>{sessionsLoading ? 'Loading sessions' : formatCountLabel(sessions.length, 'active session')}</h3>
+            <p>{sessionsSummary}</p>
+          </div>
+          <span>Manage sessions</span>
+        </summary>
+        <div className="idt-settings-disclosure-body">
+          {sessionsLoading ? <p className="idt-app-alert">Loading active sessions...</p> : null}
+          {sessionsError ? (
+            <p className="idt-app-alert idt-app-alert-error" role="alert">
+              {sessionsError}
+            </p>
+          ) : null}
+          {!sessionsLoading ? (
+            <SessionsList
+              busySessionID={busySessionID}
+              revokingOthers={revokingOthers}
+              sessions={sessions}
+              onRevoke={handleRevokeSession}
+              onRevokeOthers={handleRevokeOtherSessions}
+            />
+          ) : null}
+        </div>
+      </details>
+
+      <DangerZone description="For immediate account suspension. Workspace data stays intact.">
         <DangerZoneRow
-          actionLabel="Suspend my account"
-          description="You'll be signed out of every device and session. Sign in through signup to reactivate."
+          actionLabel="Suspend account"
+          description="Ends all sessions until you sign in again."
           onAction={() => {
             setSuspendError('');
             setSuspendModalOpen(true);
           }}
           pending={suspendPending}
           testId="idt-suspend-account-row"
-          title="Suspend my account"
+          title="Account access"
         />
       </DangerZone>
 
       <ConfirmDestructiveModal
         body={
           <>
-            <p>Suspending your account immediately revokes every active session and clears the session cookie on this device.</p>
-            <p>Your workspace memberships, projects, and connector data stay intact. To reactivate, sign in again through the signup flow and Identrail will restore your account.</p>
+            <p>This revokes every active session and clears this device.</p>
+            <p>Your memberships, projects, and connector data stay intact.</p>
           </>
         }
         confirmation={{
           kind: 'checkbox',
-          label: "I understand I'll be signed out of every device until I reactivate."
+          label: 'I understand this signs me out everywhere.'
         }}
-        continueLabel="Suspend my account"
+        continueLabel="Suspend account"
         errorMessage={suspendError || undefined}
         onCancel={() => {
           if (suspendPending) return;
@@ -13751,7 +13844,7 @@ export function ProductSettingsPage() {
         }}
         open={suspendModalOpen}
         pending={suspendPending}
-        title="Suspend your account"
+        title="Suspend account"
       />
     </section>
   );

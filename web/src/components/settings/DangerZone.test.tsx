@@ -10,14 +10,14 @@ describe('DangerZone', () => {
           actionLabel="Suspend"
           description="Sign out everywhere."
           onAction={() => undefined}
-          title="Suspend my account"
+          title="Account access"
         />
       </DangerZone>
     );
 
-    expect(screen.getByRole('heading', { name: 'Account lifecycle' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Danger zone' })).toBeInTheDocument();
     expect(screen.getByText('Heads up, destructive stuff lives here.')).toBeInTheDocument();
-    expect(screen.getByText('Suspend my account')).toBeInTheDocument();
+    expect(screen.getByText('Account access')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Suspend' })).toBeEnabled();
   });
 
