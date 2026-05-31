@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
@@ -530,15 +531,16 @@ func TestPostgresUpdateCurrentUserProfileGuardsActiveStatus(t *testing.T) {
 	now := time.Date(2026, 5, 12, 16, 0, 0, 0, time.UTC)
 	userID := "11111111-1111-1111-1111-111111111111"
 
-	mock.ExpectQuery("(?s)UPDATE users.*AND status = 'active'").
-		WithArgs(userID, "Active Profile", "https://avatars.githubusercontent.com/u/1", now.Add(time.Minute)).
+	displayName := "Active Profile"
+	mock.ExpectQuery("(?s)UPDATE users.*display_name = COALESCE\\(\\$2, display_name\\).*avatar_url = COALESCE\\(\\$3, avatar_url\\).*AND status = 'active'").
+		WithArgs(userID, sql.NullString{String: "Active Profile", Valid: true}, sql.NullString{}, now.Add(time.Minute)).
 		WillReturnRows(postgresAuthUserRows(now).AddRow(userID, "active@example.com", "Active Profile", "https://avatars.githubusercontent.com/u/1", "active", now, now.Add(time.Minute), nil))
-	updated, err := store.UpdateCurrentUserProfile(ctx, userID, "Active Profile", "https://avatars.githubusercontent.com/u/1", now.Add(time.Minute))
+	updated, err := store.UpdateCurrentUserProfile(ctx, userID, &displayName, nil, now.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("update current user profile: %v", err)
 	}
-	if updated.PrimaryEmail != "active@example.com" || updated.Status != "active" || updated.DeletedAt != nil {
-		t.Fatalf("expected lifecycle fields returned from existing row, got %+v", updated)
+	if updated.PrimaryEmail != "active@example.com" || updated.Status != "active" || updated.DeletedAt != nil || updated.AvatarURL != "https://avatars.githubusercontent.com/u/1" {
+		t.Fatalf("expected lifecycle and omitted fields returned from existing row, got %+v", updated)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

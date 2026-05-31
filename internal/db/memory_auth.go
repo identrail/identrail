@@ -80,7 +80,7 @@ func (m *MemoryStore) UpdateUserProfile(ctx context.Context, user User) (User, e
 
 // UpdateCurrentUserProfile updates only self-service mutable profile fields.
 // It leaves email and lifecycle fields untouched and requires an active row.
-func (m *MemoryStore) UpdateCurrentUserProfile(ctx context.Context, userID string, displayName string, avatarURL string, updatedAt time.Time) (User, error) {
+func (m *MemoryStore) UpdateCurrentUserProfile(ctx context.Context, userID string, displayName *string, avatarURL *string, updatedAt time.Time) (User, error) {
 	id := strings.TrimSpace(userID)
 	m.mu.Lock()
 	existing, exists := m.users[id]
@@ -88,8 +88,12 @@ func (m *MemoryStore) UpdateCurrentUserProfile(ctx context.Context, userID strin
 		m.mu.Unlock()
 		return User{}, ErrNotFound
 	}
-	existing.DisplayName = strings.TrimSpace(displayName)
-	existing.AvatarURL = strings.TrimSpace(avatarURL)
+	if displayName != nil {
+		existing.DisplayName = strings.TrimSpace(*displayName)
+	}
+	if avatarURL != nil {
+		existing.AvatarURL = strings.TrimSpace(*avatarURL)
+	}
 	existing.UpdatedAt = updatedAt.UTC()
 	m.users[id] = existing
 	m.mu.Unlock()

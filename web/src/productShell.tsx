@@ -1272,6 +1272,7 @@ function isUnsafeProfileNameCharacter(char: string): boolean {
   return (
     code < 32 ||
     code === 127 ||
+    code === 0x061c ||
     code === 0x200e ||
     code === 0x200f ||
     (code >= 0x202a && code <= 0x202e) ||

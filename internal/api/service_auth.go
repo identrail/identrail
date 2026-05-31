@@ -942,29 +942,27 @@ func (s *Service) UpdateCurrentUserProfile(ctx context.Context, current sessiona
 	if update.DisplayName == nil && update.AvatarURL == nil {
 		return CurrentUserContext{}, invalidCurrentUserProfileUpdate("profile update must include display_name or avatar_url")
 	}
-	user, err := s.Store.GetUser(ctx, current.Session.UserID)
-	if err != nil {
-		return CurrentUserContext{}, err
-	}
+	var displayName *string
 	if update.DisplayName != nil {
-		displayName, err := normalizeCurrentUserDisplayName(*update.DisplayName)
+		normalized, err := normalizeCurrentUserDisplayName(*update.DisplayName)
 		if err != nil {
 			return CurrentUserContext{}, err
 		}
-		user.DisplayName = displayName
+		displayName = &normalized
 	}
+	var avatarURL *string
 	if update.AvatarURL != nil {
-		avatarURL, err := normalizeCurrentUserAvatarURL(*update.AvatarURL)
+		normalized, err := normalizeCurrentUserAvatarURL(*update.AvatarURL)
 		if err != nil {
 			return CurrentUserContext{}, err
 		}
-		user.AvatarURL = avatarURL
+		avatarURL = &normalized
 	}
 	now := time.Now().UTC()
 	if s.Now != nil {
 		now = s.Now().UTC()
 	}
-	updated, err := s.Store.UpdateCurrentUserProfile(ctx, user.ID, user.DisplayName, user.AvatarURL, now)
+	updated, err := s.Store.UpdateCurrentUserProfile(ctx, current.Session.UserID, displayName, avatarURL, now)
 	if err != nil {
 		return CurrentUserContext{}, err
 	}
@@ -989,7 +987,8 @@ func normalizeCurrentUserDisplayName(raw string) (string, error) {
 }
 
 func isBidirectionalFormattingRune(r rune) bool {
-	return r == '\u200e' ||
+	return r == '\u061c' ||
+		r == '\u200e' ||
 		r == '\u200f' ||
 		(r >= '\u202a' && r <= '\u202e') ||
 		(r >= '\u2066' && r <= '\u2069')
