@@ -2380,7 +2380,11 @@ paths:
     post:
       tags: [Tenancy]
       summary: Reactivate workspace
-      description: Owner-only. Reverses a suspend; clears `suspended_at`.
+      description: |
+        Owner-only. Reverses a suspend; clears `suspended_at`. Refuses
+        with `409 not_reactivatable` when the workspace is in the
+        `deleted` state — restoration must go through `cancel-deletion`
+        so the 30-day grace window stays authoritative.
       operationId: reactivateWorkspace
       parameters:
         - in: path
@@ -2400,6 +2404,15 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: Workspace is not suspended (e.g. it is deleted)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  code: { type: string, enum: [not_reactivatable] }
   /v1/workspaces/{workspace_id}/cancel-deletion:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"

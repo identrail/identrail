@@ -402,6 +402,12 @@ func (p *PostgresStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, 
 	if _, err := p.GetWorkspace(ctx, resolvedWorkspaceID); err != nil {
 		return nil, err
 	}
+	// `<> NULLIF($3, '')::uuid` returns NULL (not true) for rows whose own
+	// user_uuid is NULL — legacy invited/email-only memberships — so a
+	// naive predicate silently drops them from the stranded result and
+	// lets a sole owner sneak past the guard. IS DISTINCT FROM treats
+	// NULL as a comparable value, so NULL user_uuid is correctly counted
+	// as "not the caller" and therefore stranded if otherwise active.
 	rows, err := p.queryContext(
 		ctx,
 		`SELECT m.tenant_id, m.workspace_id, m.member_id, m.user_id, COALESCE(m.user_uuid::text, ''),
@@ -410,7 +416,7 @@ func (p *PostgresStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, 
 		 WHERE m.tenant_id = $1
 		   AND m.workspace_id = $2
 		   AND m.status = 'active'
-		   AND m.user_uuid <> NULLIF($3, '')::uuid
+		   AND m.user_uuid IS DISTINCT FROM NULLIF($3, '')::uuid
 		   AND EXISTS (
 		       SELECT 1 FROM tenancy_workspace_members caller
 		       WHERE caller.tenant_id = m.tenant_id
@@ -425,7 +431,7 @@ func (p *PostgresStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, 
 		       LEFT JOIN users other_u ON other_u.id = other.user_uuid
 		       WHERE other.tenant_id = m.tenant_id
 		         AND other.workspace_id = m.workspace_id
-		         AND other.user_uuid <> NULLIF($3, '')::uuid
+		         AND other.user_uuid IS DISTINCT FROM NULLIF($3, '')::uuid
 		         AND other.status = 'active'
 		         AND other.role = 'owner'
 		         AND (other_u.id IS NULL OR other_u.status <> 'deleted')

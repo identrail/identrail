@@ -1465,6 +1465,29 @@ func TestMemoryStoreUpsertWorkspacePreservesLifecycleFields(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreStrandedMembersIncludesNullUserUUID(t *testing.T) {
+	// Legacy invited-only memberships can have an empty user_uuid. The
+	// Postgres query uses IS DISTINCT FROM so NULL user_uuid is counted
+	// as "not the caller"; this test pins the memory store to the same
+	// invariant so a sole owner cannot silently bypass the stranding
+	// guard when an unclaimed invitation is the only other member.
+	store, ctx, ownerUUID := setupWorkspaceLifecycleStore(t)
+	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
+		WorkspaceID: "ws-1", MemberID: "m-invited", UserID: "subj-invited",
+		// UserUUID intentionally empty — invited but unclaimed.
+		Role: "analyst", Status: "active",
+	}); err != nil {
+		t.Fatalf("add invited member: %v", err)
+	}
+	stranded, err := store.ListWorkspaceStrandedActiveMembers(ctx, "ws-1", ownerUUID)
+	if err != nil {
+		t.Fatalf("strand check: %v", err)
+	}
+	if len(stranded) != 1 || stranded[0].MemberID != "m-invited" {
+		t.Fatalf("expected invited member in stranded list, got %+v", stranded)
+	}
+}
+
 func TestMemoryStoreListWorkspaceStrandedActiveMembers(t *testing.T) {
 	store, ctx, ownerUUID := setupWorkspaceLifecycleStore(t)
 	// No other members yet — stranding should be empty so suspend/delete can proceed.

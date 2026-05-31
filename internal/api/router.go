@@ -1525,6 +1525,10 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 				c.JSON(http.StatusConflict, workspaceSoleOwnerConflict(stranding))
 				return
 			}
+			if errors.Is(err, ErrWorkspaceOwnerRequired) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "workspace owner role required", "code": "owner_required"})
+				return
+			}
 			if errors.Is(err, db.ErrNotFound) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
 				return
@@ -1560,6 +1564,10 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 				c.JSON(http.StatusConflict, workspaceSoleOwnerConflict(stranding))
 				return
 			}
+			if errors.Is(err, ErrWorkspaceOwnerRequired) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "workspace owner role required", "code": "owner_required"})
+				return
+			}
 			if errors.Is(err, db.ErrNotFound) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
 				return
@@ -1586,8 +1594,20 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			tenancyServiceUnavailable(c)
 			return
 		}
-		saved, err := svc.ReactivateWorkspace(c.Request.Context(), c.Param("workspace_id"))
+		callerUUID := callerSessionUserUUID(c)
+		saved, err := svc.ReactivateWorkspace(c.Request.Context(), c.Param("workspace_id"), callerUUID)
 		if err != nil {
+			if errors.Is(err, ErrWorkspaceNotReactivatable) {
+				c.JSON(http.StatusConflict, gin.H{
+					"error": "workspace is not suspended; use cancel-deletion to restore a deleted workspace",
+					"code":  "not_reactivatable",
+				})
+				return
+			}
+			if errors.Is(err, ErrWorkspaceOwnerRequired) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "workspace owner role required", "code": "owner_required"})
+				return
+			}
 			if errors.Is(err, db.ErrNotFound) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
 				return
@@ -1613,13 +1633,18 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			tenancyServiceUnavailable(c)
 			return
 		}
-		saved, err := svc.CancelWorkspaceDeletion(c.Request.Context(), c.Param("workspace_id"))
+		callerUUID := callerSessionUserUUID(c)
+		saved, err := svc.CancelWorkspaceDeletion(c.Request.Context(), c.Param("workspace_id"), callerUUID)
 		if err != nil {
 			if errors.Is(err, ErrWorkspaceDeletionGraceExpired) {
 				c.JSON(http.StatusGone, gin.H{
 					"error": "workspace deletion grace period has expired",
 					"code":  "grace_period_expired",
 				})
+				return
+			}
+			if errors.Is(err, ErrWorkspaceOwnerRequired) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "workspace owner role required", "code": "owner_required"})
 				return
 			}
 			if errors.Is(err, db.ErrNotFound) {

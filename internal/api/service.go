@@ -529,6 +529,22 @@ var ErrWorkspaceSoleOwnerRequiresTransfer = errors.New("workspace sole owner req
 // authoritative past the deadline.
 var ErrWorkspaceDeletionGraceExpired = errors.New("workspace deletion grace period has expired")
 
+// ErrWorkspaceOwnerRequired indicates a session-authenticated caller tried
+// to flip a workspace's lifecycle without holding an active owner
+// membership. The authz route table grants the action to "owner"-role
+// memberships but the role string "admin" collides with the platform-scope
+// scopeAdmin string (see internal/api/router.go); this service-level check
+// is the authoritative gate so workspace-admins cannot bypass the
+// owner-only rule by virtue of the route-table grant.
+var ErrWorkspaceOwnerRequired = errors.New("workspace owner role required")
+
+// ErrWorkspaceNotReactivatable indicates a reactivate request hit a
+// workspace that is not in the suspended state. Soft-deleted workspaces
+// must go through cancel-deletion (which enforces the grace window)
+// rather than reactivate, otherwise the worker's purge deadline could be
+// silently dodged.
+var ErrWorkspaceNotReactivatable = errors.New("workspace is not suspended")
+
 // NewService creates an API service with defaults.
 func NewService(store db.Store, scanner ScannerRunner, provider string) *Service {
 	svc := &Service{
@@ -2609,13 +2625,17 @@ type WorkspaceSoleOwnerStranding struct {
 
 // SuspendWorkspace flips the workspace into the suspended state. The caller's
 // user UUID is required so the sole-owner guard can compare ownership; pass
-// the empty string to bypass the guard (only useful for platform-admin
-// callers exercising the route via API key without a workspace membership).
+// the empty string to bypass both the owner-role gate and the sole-owner
+// guard (only used for platform-admin callers exercising the route via API
+// key without a workspace membership).
 func (s *Service) SuspendWorkspace(ctx context.Context, workspaceID string, callerUserUUID string) (WorkspaceSoleOwnerStranding, db.TenancyWorkspace, error) {
 	ctx = s.scopeContext(ctx)
 	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
 	if normalizedWorkspaceID == "" {
 		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, ErrInvalidTenancyRequest
+	}
+	if err := s.requireWorkspaceOwner(ctx, normalizedWorkspaceID, callerUserUUID); err != nil {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
 	}
 	stranding, err := s.checkWorkspaceSoleOwnerStranding(ctx, normalizedWorkspaceID, callerUserUUID)
 	if err != nil {
@@ -2631,13 +2651,32 @@ func (s *Service) SuspendWorkspace(ctx context.Context, workspaceID string, call
 	return WorkspaceSoleOwnerStranding{}, saved, nil
 }
 
-// ReactivateWorkspace reverses a suspend. No sole-owner guard — reactivation
-// can only widen access, not strand anyone.
-func (s *Service) ReactivateWorkspace(ctx context.Context, workspaceID string) (db.TenancyWorkspace, error) {
+// ReactivateWorkspace reverses a suspend. Refuses if the workspace is in
+// the `deleted` state — that path must go through cancel-deletion so the
+// 30-day grace window stays authoritative. An already-active workspace is
+// a no-op (idempotent) success.
+func (s *Service) ReactivateWorkspace(ctx context.Context, workspaceID string, callerUserUUID string) (db.TenancyWorkspace, error) {
 	ctx = s.scopeContext(ctx)
 	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
 	if normalizedWorkspaceID == "" {
 		return db.TenancyWorkspace{}, ErrInvalidTenancyRequest
+	}
+	if err := s.requireWorkspaceOwner(ctx, normalizedWorkspaceID, callerUserUUID); err != nil {
+		return db.TenancyWorkspace{}, err
+	}
+	workspace, err := s.Store.GetWorkspace(ctx, normalizedWorkspaceID)
+	if err != nil {
+		return db.TenancyWorkspace{}, err
+	}
+	switch workspace.Status {
+	case db.WorkspaceStatusActive:
+		return workspace, nil
+	case db.WorkspaceStatusSuspended:
+		// Fall through to the store transition below.
+	default:
+		// Deleted (or any unknown future status) cannot be reactivated;
+		// the cancel-deletion route is the only legal revival path.
+		return db.TenancyWorkspace{}, ErrWorkspaceNotReactivatable
 	}
 	return s.Store.ReactivateWorkspace(ctx, normalizedWorkspaceID, s.now())
 }
@@ -2649,6 +2688,9 @@ func (s *Service) SoftDeleteWorkspace(ctx context.Context, workspaceID string, c
 	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
 	if normalizedWorkspaceID == "" {
 		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, ErrInvalidTenancyRequest
+	}
+	if err := s.requireWorkspaceOwner(ctx, normalizedWorkspaceID, callerUserUUID); err != nil {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
 	}
 	stranding, err := s.checkWorkspaceSoleOwnerStranding(ctx, normalizedWorkspaceID, callerUserUUID)
 	if err != nil {
@@ -2668,11 +2710,14 @@ func (s *Service) SoftDeleteWorkspace(ctx context.Context, workspaceID string, c
 // Refuses with ErrWorkspaceDeletionGraceExpired once the worker is
 // authoritative for the purge so a stale UI cannot resurrect a workspace
 // the caller has already lost the option to keep.
-func (s *Service) CancelWorkspaceDeletion(ctx context.Context, workspaceID string) (db.TenancyWorkspace, error) {
+func (s *Service) CancelWorkspaceDeletion(ctx context.Context, workspaceID string, callerUserUUID string) (db.TenancyWorkspace, error) {
 	ctx = s.scopeContext(ctx)
 	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
 	if normalizedWorkspaceID == "" {
 		return db.TenancyWorkspace{}, ErrInvalidTenancyRequest
+	}
+	if err := s.requireWorkspaceOwner(ctx, normalizedWorkspaceID, callerUserUUID); err != nil {
+		return db.TenancyWorkspace{}, err
 	}
 	workspace, err := s.Store.GetWorkspace(ctx, normalizedWorkspaceID)
 	if err != nil {
@@ -2695,6 +2740,35 @@ func WorkspaceDeletionGraceDeadline(workspace db.TenancyWorkspace) time.Time {
 		return time.Time{}
 	}
 	return workspace.DeletedAt.UTC().Add(db.WorkspaceDeletionGracePeriod)
+}
+
+// requireWorkspaceOwner is the authoritative owner-only gate for workspace
+// lifecycle endpoints. The authz route table grants the action to the role
+// strings {scopeWrite, scopeAdmin, "owner"} but `scopeAdmin` is literally
+// "admin" — identical to the workspace member role "admin" — so the route
+// table alone cannot distinguish a platform-admin API key from a workspace
+// admin session. This service-level check closes that gap by reading the
+// caller's membership row directly and refusing anything other than an
+// active owner.
+//
+// Returns nil when callerUserUUID is empty (API key / platform-admin
+// bypass: their authorization is established upstream at key issuance,
+// and they have no workspace membership row to consult here).
+func (s *Service) requireWorkspaceOwner(ctx context.Context, workspaceID string, callerUserUUID string) error {
+	if strings.TrimSpace(callerUserUUID) == "" {
+		return nil
+	}
+	member, err := s.Store.GetWorkspaceMemberByUserUUID(ctx, workspaceID, callerUserUUID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return ErrWorkspaceOwnerRequired
+		}
+		return err
+	}
+	if member.Status != "active" || member.Role != "owner" {
+		return ErrWorkspaceOwnerRequired
+	}
+	return nil
 }
 
 func (s *Service) checkWorkspaceSoleOwnerStranding(ctx context.Context, workspaceID string, callerUserUUID string) (WorkspaceSoleOwnerStranding, error) {

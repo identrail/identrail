@@ -109,6 +109,42 @@ func TestWorkspaceReactivateAfterSuspend(t *testing.T) {
 	}
 }
 
+func TestWorkspaceReactivateRefusesDeletedWorkspace(t *testing.T) {
+	// Reactivate only flips suspended → active. A soft-deleted workspace
+	// must go through cancel-deletion so the 30-day grace window stays
+	// authoritative; otherwise reactivate could be used to sneak past the
+	// purge deadline.
+	harness, cookieValue, _ := setupSessionRouter(t)
+	store := harness.manager.Store.(*db.MemoryStore)
+	promoteMemberToOwner(t, store, "user@example.com")
+
+	delResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(delResp, sessionRequest(http.MethodDelete, "/v1/workspaces/workspace-a", cookieValue))
+	if delResp.Code != http.StatusOK {
+		t.Fatalf("expected delete 200, got %d body=%s", delResp.Code, delResp.Body.String())
+	}
+
+	reactResp := httptest.NewRecorder()
+	harness.router.ServeHTTP(reactResp, sessionRequest(http.MethodPost, "/v1/workspaces/workspace-a/reactivate", cookieValue))
+	if reactResp.Code != http.StatusConflict {
+		t.Fatalf("expected reactivate 409 on deleted workspace, got %d body=%s", reactResp.Code, reactResp.Body.String())
+	}
+	if !strings.Contains(reactResp.Body.String(), `"code":"not_reactivatable"`) {
+		t.Fatalf("expected not_reactivatable code in body, got %s", reactResp.Body.String())
+	}
+
+	// Workspace must remain in the deleted state so the cancel-deletion
+	// path remains the only revival route.
+	scopedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	refreshed, err := store.GetWorkspace(scopedCtx, "workspace-a")
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if refreshed.Status != db.WorkspaceStatusDeleted || refreshed.DeletedAt == nil {
+		t.Fatalf("expected workspace still deleted after refused reactivate, got %+v", refreshed)
+	}
+}
+
 func TestWorkspaceSoftDeleteAndCancel(t *testing.T) {
 	harness, cookieValue, _ := setupSessionRouter(t)
 	store := harness.manager.Store.(*db.MemoryStore)
@@ -275,19 +311,14 @@ func TestWorkspaceSuspendSoleOwnerNoOtherMembersAllowed(t *testing.T) {
 	}
 }
 
-func TestWorkspaceLifecycleAnalystAndViewerForbidden(t *testing.T) {
-	// Workspace analyst and viewer roles must be refused at the authz layer
-	// for every lifecycle endpoint. The harness seeds an admin member by
-	// default, so we downgrade to analyst then viewer and re-test.
-	//
-	// NOTE: workspace member role "admin" collides with the platform scope
-	// "admin" string (see internal/api/router.go:50) — there is no way to
-	// distinguish workspace-membership-admin from platform-scope-admin in
-	// the role array at the route level. The frontend Danger Zone hides
-	// the rows entirely unless the active member role == "owner" per
-	// #1420, so workspace admins never reach this endpoint via the UI;
-	// the route-table check is best-effort "owner-or-platform-admin".
-	for _, role := range []string{"analyst", "viewer"} {
+func TestWorkspaceLifecycleNonOwnerRolesForbidden(t *testing.T) {
+	// Every non-owner workspace membership role must be refused. Analyst
+	// and viewer are blocked at the authz route table; admin gets past the
+	// route table (the "admin" string collides with the platform-scope
+	// "admin" — see internal/api/authz_middleware.go) but the service-layer
+	// `requireWorkspaceOwner` check is the authoritative gate and still
+	// returns 403 with code=owner_required.
+	for _, role := range []string{"admin", "analyst", "viewer"} {
 		t.Run(role, func(t *testing.T) {
 			harness, cookieValue, _ := setupSessionRouter(t)
 			store := harness.manager.Store.(*db.MemoryStore)
