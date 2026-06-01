@@ -16,8 +16,6 @@ import {
   HelpCircle,
   LayoutDashboard,
   LogOut,
-  PanelLeftClose,
-  PanelLeftOpen,
   Pencil,
   Search,
   Settings as SettingsIcon
@@ -797,7 +795,7 @@ function buildExecutiveReportHtml(report: ExecutiveReport, highPriorityFindings:
         border: 1px solid #e6e9ee;
         border-radius: 4px;
       }
-      h1 { font-family: 'Georgia','Times New Roman',serif; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 0.55rem; font-size: 1.95rem; color: #10141a; }
+      h1 { font-family: 'Georgia','Times New Roman',serif; font-weight: 600; letter-spacing: 0; margin: 0 0 0.55rem; font-size: 1.95rem; color: #10141a; }
       h2 { font-family: 'Georgia','Times New Roman',serif; font-weight: 600; font-size: 1.05rem; margin: 0 0 0.65rem; color: #10141a; }
       p { margin: 0; }
       .eyebrow { color: #5e6776; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; margin-bottom: 0.55rem; }
@@ -7039,6 +7037,14 @@ const SIDEBAR_MIN_EXPANDED_WIDTH = 196;
 const SIDEBAR_MAX_WIDTH = 360;
 const SIDEBAR_COLLAPSE_THRESHOLD = 140; // dragging below this snaps to collapsed
 const SIDEBAR_COLLAPSED_WIDTH = 60;
+const SCROLL_NAVIGATOR_MIN_THUMB_HEIGHT = 88;
+const SCROLL_NAVIGATOR_MAX_THUMB_HEIGHT = 168;
+
+type ScrollNavigatorMetrics = {
+  visible: boolean;
+  thumbHeight: number;
+  thumbTop: number;
+};
 
 function readSidebarCollapsed(): boolean {
   if (typeof window === 'undefined') {
@@ -7095,6 +7101,12 @@ export function ProductShellLayout() {
   const [sidebarCollapsedPref, setSidebarCollapsedPref] = useState<boolean>(() => readSidebarCollapsed());
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => readSidebarWidth());
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
+  const [isSidebarEdgeFocused, setIsSidebarEdgeFocused] = useState(false);
+  const [scrollNavigator, setScrollNavigator] = useState<ScrollNavigatorMetrics>({
+    visible: false,
+    thumbHeight: 0,
+    thumbTop: 0
+  });
   const [isNarrowViewport, setIsNarrowViewport] = useState<boolean>(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
       return false;
@@ -7120,6 +7132,7 @@ export function ProductShellLayout() {
     kubernetes: null
   });
   const sidebarRef = useRef<HTMLElement | null>(null);
+  const sidebarResizeMovedRef = useRef(false);
   const basePath = scope ? buildScopedPath(scope) : '/app';
   const activeDomain = scope ? findActiveDomain(scope, location.pathname) : null;
   const activeDomainRouteID =
@@ -7381,13 +7394,25 @@ export function ProductShellLayout() {
     }
   }, [sidebarWidth]);
 
+  const toggleSidebarCollapsed = useCallback(() => {
+    if (isNarrowViewport) {
+      return;
+    }
+    setSidebarCollapsedPref((current) => !current);
+  }, [isNarrowViewport]);
+
   const handleSidebarResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (isNarrowViewport) {
+      return;
+    }
+    if (event.button !== 0) {
       return;
     }
     event.preventDefault();
     const handleEl = event.currentTarget;
     const pointerId = event.pointerId;
+    const startClientX = event.clientX;
+    sidebarResizeMovedRef.current = false;
     // Capture the pointer so every subsequent move / up / cancel for this
     // gesture is delivered to the handle even if the user releases outside the
     // viewport, the OS steals focus, or the browser fires `pointercancel`.
@@ -7407,6 +7432,9 @@ export function ProductShellLayout() {
       if (moveEvent.pointerId !== pointerId) {
         return;
       }
+      if (Math.abs(moveEvent.clientX - startClientX) > 4) {
+        sidebarResizeMovedRef.current = true;
+      }
       const proposed = moveEvent.clientX - startLeft;
       if (proposed < SIDEBAR_COLLAPSE_THRESHOLD) {
         setSidebarCollapsedPref(true);
@@ -7420,11 +7448,15 @@ export function ProductShellLayout() {
       if (cleanupEvent && cleanupEvent.pointerId !== pointerId) {
         return;
       }
+      const shouldToggle = cleanupEvent?.type === 'pointerup' && !sidebarResizeMovedRef.current;
       setIsDraggingSidebar(false);
       handleEl.removeEventListener('pointermove', handlePointerMove);
       handleEl.removeEventListener('pointerup', cleanup);
       handleEl.removeEventListener('pointercancel', cleanup);
       handleEl.removeEventListener('lostpointercapture', cleanup);
+      if (shouldToggle) {
+        toggleSidebarCollapsed();
+      }
     };
     handleEl.addEventListener('pointermove', handlePointerMove);
     handleEl.addEventListener('pointerup', cleanup);
@@ -7433,6 +7465,14 @@ export function ProductShellLayout() {
     // including the OS canceling the gesture or the element being unmounted
     // by React. It is the most reliable final cleanup signal.
     handleEl.addEventListener('lostpointercapture', cleanup);
+  };
+
+  const handleSidebarResizeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    event.preventDefault();
+    toggleSidebarCollapsed();
   };
 
   // Safety net: any time we leave the dragging state, ensure the body style
@@ -7455,6 +7495,81 @@ export function ProductShellLayout() {
     document.body.style.removeProperty('user-select');
     return undefined;
   }, [isDraggingSidebar]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return;
+    }
+
+    let frameID: number | undefined;
+    const requestFrame =
+      window.requestAnimationFrame ?? ((callback: FrameRequestCallback) => window.setTimeout(callback, 16));
+    const cancelFrame = window.cancelAnimationFrame ?? window.clearTimeout;
+    const updateMetrics = () => {
+      frameID = undefined;
+      const scrollingElement = document.scrollingElement ?? document.documentElement;
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+      const scrollHeight = Math.max(
+        scrollingElement.scrollHeight,
+        document.documentElement.scrollHeight,
+        document.body.scrollHeight
+      );
+      const scrollRange = scrollHeight - viewportHeight;
+
+      if (scrollRange <= 24 || viewportHeight <= 0) {
+        setScrollNavigator((current) =>
+          current.visible ? { visible: false, thumbHeight: 0, thumbTop: 0 } : current
+        );
+        return;
+      }
+
+      const trackTop = Math.min(112, Math.max(80, viewportHeight * 0.13));
+      const trackBottom = Math.min(56, Math.max(36, viewportHeight * 0.05));
+      const trackHeight = Math.max(120, viewportHeight - trackTop - trackBottom);
+      const thumbHeight = Math.round(
+        Math.min(
+          SCROLL_NAVIGATOR_MAX_THUMB_HEIGHT,
+          Math.max(SCROLL_NAVIGATOR_MIN_THUMB_HEIGHT, trackHeight * 0.22)
+        )
+      );
+      const scrollProgress = Math.min(1, Math.max(0, scrollingElement.scrollTop / scrollRange));
+      const thumbTop = Math.round(trackTop + (trackHeight - thumbHeight) * scrollProgress);
+
+      setScrollNavigator((current) => {
+        if (
+          current.visible &&
+          current.thumbHeight === thumbHeight &&
+          Math.abs(current.thumbTop - thumbTop) <= 1
+        ) {
+          return current;
+        }
+        return { visible: true, thumbHeight, thumbTop };
+      });
+    };
+    const scheduleUpdate = () => {
+      if (frameID !== undefined) {
+        cancelFrame(frameID);
+      }
+      frameID = requestFrame(updateMetrics);
+    };
+
+    updateMetrics();
+    window.addEventListener('scroll', scheduleUpdate, { passive: true });
+    window.addEventListener('resize', scheduleUpdate);
+
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleUpdate);
+    observer?.observe(document.documentElement);
+    observer?.observe(document.body);
+
+    return () => {
+      if (frameID !== undefined) {
+        cancelFrame(frameID);
+      }
+      window.removeEventListener('scroll', scheduleUpdate);
+      window.removeEventListener('resize', scheduleUpdate);
+      observer?.disconnect();
+    };
+  }, [location.pathname]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -7531,7 +7646,6 @@ export function ProductShellLayout() {
   const userEmail = '';
   const userInitial = (workspaceDisplayName.charAt(0) || 'A').toUpperCase();
   const collapseShortcut = isMacPlatform() ? '⌘B' : 'Ctrl+B';
-  const collapseHint = `${sidebarCollapsed ? 'Expand' : 'Collapse'} sidebar (${collapseShortcut})`;
   const runCommand = (item: CommandPaletteItem) => {
     setCommandOpen(false);
     setOpenDomainFlyout(null);
@@ -7568,15 +7682,17 @@ export function ProductShellLayout() {
           data-collapsed={sidebarCollapsed ? 'true' : 'false'}
         >
           <div
-            className={`idt-app-sidebar-resize-handle${isDraggingSidebar ? ' is-dragging' : ''}`}
+            className={`idt-app-sidebar-resize-handle${isDraggingSidebar ? ' is-dragging' : ''}${isSidebarEdgeFocused ? ' is-focused' : ''}`}
             role="separator"
+            tabIndex={0}
             aria-orientation="vertical"
-            aria-label="Resize sidebar (drag, or use ⌘B to collapse)"
+            aria-label={`${sidebarCollapsed ? 'Expand' : 'Collapse'} sidebar. Drag to resize.`}
+            data-sidebar-action={sidebarCollapsed ? 'Click to expand' : 'Click to collapse'}
+            data-sidebar-shortcut={collapseShortcut}
             onPointerDown={handleSidebarResizeStart}
-            onDoubleClick={() => {
-              setSidebarCollapsedPref(false);
-              setSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
-            }}
+            onKeyDown={handleSidebarResizeKeyDown}
+            onFocus={() => setIsSidebarEdgeFocused(true)}
+            onBlur={() => setIsSidebarEdgeFocused(false)}
           />
           <div className="idt-app-sidebar-workspace" ref={workspaceMenuRef}>
             <button
@@ -7793,20 +7909,6 @@ export function ProductShellLayout() {
                 </div>
               ) : null}
             </div>
-            <button
-              type="button"
-              className="idt-app-sidebar-collapse"
-              aria-label={collapseHint}
-              aria-pressed={sidebarCollapsed}
-              title={collapseHint}
-              onClick={() => setSidebarCollapsedPref((current) => !current)}
-            >
-              {sidebarCollapsed ? (
-                <PanelLeftOpen size={16} strokeWidth={1.75} aria-hidden="true" />
-              ) : (
-                <PanelLeftClose size={16} strokeWidth={1.75} aria-hidden="true" />
-              )}
-            </button>
           </div>
         </aside>
 
@@ -7824,6 +7926,20 @@ export function ProductShellLayout() {
             <Outlet />
           </main>
         </div>
+        {scrollNavigator.visible ? (
+          <div
+            className="idt-app-scroll-navigator"
+            aria-hidden="true"
+            style={
+              {
+                '--idt-scroll-navigator-thumb-height': `${scrollNavigator.thumbHeight}px`,
+                '--idt-scroll-navigator-thumb-top': `${scrollNavigator.thumbTop}px`
+              } as CSSProperties
+            }
+          >
+            <span className="idt-app-scroll-navigator-thumb" />
+          </div>
+        ) : null}
       </div>
       <CommandPalette
         open={commandOpen}

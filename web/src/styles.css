@@ -4822,7 +4822,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__header h1 {
   font-family: var(--idt-display);
   font-size: clamp(1.85rem, 3.4vw, 2.4rem);
   font-weight: 600;
-  letter-spacing: -0.014em;
+  letter-spacing: 0;
   line-height: 1.1;
   color: rgba(245, 247, 248, 0.97);
   text-transform: none;
@@ -4904,7 +4904,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-kpi dd {
   font-family: var(--idt-display);
   font-size: clamp(1.65rem, 2.6vw, 2rem);
   font-weight: 600;
-  letter-spacing: -0.018em;
+  letter-spacing: 0;
   line-height: 1.05;
   color: rgba(245, 247, 248, 0.98);
   font-variant-numeric: tabular-nums;
@@ -4927,7 +4927,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-section h2 {
   font-family: var(--idt-display);
   font-size: 1.1rem;
   font-weight: 600;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   color: rgba(245, 247, 248, 0.94);
   text-transform: none;
 }
@@ -11618,7 +11618,7 @@ html[data-theme='light'] .idt-trust-strip,
   color: rgba(21, 25, 34, 0.38);
   font-size: clamp(1.6rem, 2.35vw, 2.55rem);
   font-weight: 800;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   line-height: 1;
   white-space: nowrap;
   filter: grayscale(1);
@@ -15752,38 +15752,17 @@ html[data-theme='light'] body::-webkit-scrollbar-thumb:hover {
   background: #98a3b3;
 }
 
-/* Dark app shell: the global page scrollbar otherwise inherits the light-theme
-   colours (a near-white track), which reads as a heavy white bar on the dark
-   dashboard. Scope a slim, subtle scrollbar to pages that render the app shell. */
+/* Dark app shell: the native page scrollbar grows almost full-height on short
+   app pages, so the console renders its own fixed-size navigator instead. */
 html:has(.idt-app-console-layout),
 html:has(.idt-app-console-layout) body {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  scrollbar-width: none;
 }
 
 html:has(.idt-app-console-layout)::-webkit-scrollbar,
 html:has(.idt-app-console-layout) body::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-html:has(.idt-app-console-layout)::-webkit-scrollbar-track,
-html:has(.idt-app-console-layout) body::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-html:has(.idt-app-console-layout)::-webkit-scrollbar-thumb,
-html:has(.idt-app-console-layout) body::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background-color: rgba(255, 255, 255, 0.18);
-  background-clip: padding-box;
-}
-
-html:has(.idt-app-console-layout)::-webkit-scrollbar-thumb:hover,
-html:has(.idt-app-console-layout) body::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.32);
-  background-clip: padding-box;
+  width: 0;
+  height: 0;
 }
 
 .idt-btn,
@@ -26309,7 +26288,7 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 
 .idt-app-console-layout .idt-app-sidebar-brand-copy strong {
   font-size: 0.95rem;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .idt-app-console-layout .idt-app-sidebar-brand-copy span {
@@ -26400,7 +26379,7 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   color: #a3a3ac;
   font-size: 0.9rem;
   font-weight: 500;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   transition: background-color 0.12s ease, color 0.12s ease;
 }
 
@@ -26765,14 +26744,14 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 }
 
 .idt-app-console-layout .idt-app-sidebar-footer {
-  align-self: end;
+  align-self: stretch;
   display: grid;
   gap: 0.4rem;
-  padding: 0;
+  margin-top: auto;
+  padding: 0.65rem 0 0;
   border: none;
-  background: transparent;
   border-top: 1px solid var(--app-border-soft);
-  padding-top: 0.6rem;
+  background: transparent;
 }
 
 .idt-app-sidebar-account {
@@ -26782,11 +26761,12 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 .idt-app-console-layout .idt-app-sidebar-account-trigger {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.62rem;
   width: 100%;
-  padding: 0.4rem 0.45rem;
+  min-height: 2.65rem;
+  padding: 0.48rem 0.5rem;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
   font: inherit;
@@ -26807,12 +26787,12 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.7rem;
-  height: 1.7rem;
+  width: 1.9rem;
+  height: 1.9rem;
   border-radius: 999px;
   background: #1f1f26;
   color: #ffffff;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   font-weight: 700;
   flex: 0 0 auto;
 }
@@ -26918,35 +26898,6 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   outline: none;
 }
 
-.idt-app-console-layout .idt-app-sidebar-collapse {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.85rem;
-  height: 1.85rem;
-  margin-left: auto;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: #85858f;
-  cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-
-.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-collapse {
-  margin-left: 0;
-  align-self: center;
-  justify-self: center;
-}
-
-.idt-app-console-layout .idt-app-sidebar-collapse:hover,
-.idt-app-console-layout .idt-app-sidebar-collapse:focus-visible {
-  background: #131318;
-  color: #ffffff;
-  border-color: var(--app-border-soft);
-  outline: none;
-}
-
 /* Console main area */
 
 .idt-app-console-layout .idt-app-console {
@@ -27021,7 +26972,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   font-size: 1.05rem;
   font-weight: 600;
   color: #ffffff;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
 }
 
 .idt-app-console-layout .idt-overview-checklist header p {
@@ -27149,7 +27100,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   font-size: 1.85rem;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   color: #ffffff;
   margin: 0;
   line-height: 1;
@@ -27221,7 +27172,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   font-family: var(--idt-display);
   font-size: 1.05rem;
   font-weight: 600;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   color: #ffffff;
 }
 
@@ -27334,7 +27285,11 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
 }
 
 .idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-footer {
-  justify-items: center;
+  justify-items: stretch;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-account {
+  width: 100%;
 }
 
 @media (max-width: 960px) {
@@ -27348,10 +27303,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   .idt-app-console-layout.is-sidebar-collapsed {
     grid-template-columns: 1fr;
   }
-  /* Collapsed mode is forced off on narrow viewports by JS (the rail becomes a
-   * top bar, where "collapsed" has no useful meaning). The toggle button is
-   * still rendered so a user who resizes back to desktop has an obvious path
-   * out of any previously-persisted collapsed preference. */
+  /* Collapsed mode is forced off on narrow viewports by JS because the rail
+   * becomes a top bar where the desktop edge affordance is not useful. */
 
   .idt-domain-flyout {
     position: fixed;
@@ -27410,7 +27363,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
 .idt-app-console-layout .idt-overview-header h2 {
   font-size: clamp(1.85rem, 2.4vw, 2.25rem);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 /* Collapsed quick-find: visually match nav icons */
@@ -27691,8 +27644,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
 .idt-app-sidebar-resize-handle {
   position: absolute;
   top: 0;
-  right: -3px;
-  width: 6px;
+  right: -5px;
+  width: 10px;
   height: 100%;
   cursor: col-resize;
   z-index: 30;
@@ -27701,22 +27654,86 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   touch-action: none;
 }
 
+.idt-app-sidebar-resize-handle:focus,
+.idt-app-sidebar-resize-handle:focus-visible {
+  outline: none;
+}
+
+.idt-app-sidebar-resize-handle::before {
+  content: attr(data-sidebar-action) " " attr(data-sidebar-shortcut) "\A Drag to resize";
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 0.8rem);
+  z-index: 2;
+  min-width: 10.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 0.5rem 0.64rem;
+  background: rgba(0, 0, 0, 0.94);
+  color: #ffffff;
+  font-size: 0.84rem;
+  font-weight: 500;
+  line-height: 1.28;
+  white-space: pre;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%) translateX(-0.2rem);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.45);
+}
+
 .idt-app-sidebar-resize-handle::after {
   content: '';
   position: absolute;
-  top: 0;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
-  width: 2px;
-  height: 100%;
-  background: transparent;
-  transition: background-color 0.12s ease;
+  width: 4px;
+  height: min(8.4rem, 26vh);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0);
+  transform: translate(-50%, -50%);
+  transition: background-color 0.12s ease, height 0.12s ease;
+}
+
+.idt-app-sidebar-resize-handle:hover::before,
+.idt-app-sidebar-resize-handle:focus::before,
+.idt-app-sidebar-resize-handle:focus-visible::before,
+.idt-app-sidebar-resize-handle.is-focused::before,
+.idt-app-sidebar-resize-handle.is-dragging::before {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
 }
 
 .idt-app-sidebar-resize-handle:hover::after,
+.idt-app-sidebar-resize-handle:focus::after,
+.idt-app-sidebar-resize-handle:focus-visible::after,
+.idt-app-sidebar-resize-handle.is-focused::after,
 .idt-app-sidebar-resize-handle.is-dragging::after,
 .idt-app-console-layout.is-sidebar-dragging .idt-app-sidebar-resize-handle::after {
-  background: #3a3a45;
+  background: rgba(235, 239, 245, 0.72);
+}
+
+.idt-app-scroll-navigator {
+  position: fixed;
+  top: 0;
+  right: 0.34rem;
+  bottom: 0;
+  z-index: 70;
+  width: 0.82rem;
+  pointer-events: none;
+}
+
+.idt-app-scroll-navigator-thumb {
+  position: absolute;
+  top: var(--idt-scroll-navigator-thumb-top);
+  right: 0.18rem;
+  width: 0.38rem;
+  height: var(--idt-scroll-navigator-thumb-height);
+  border-radius: 999px;
+  background: rgba(236, 241, 247, 0.54);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 10px 24px rgba(0, 0, 0, 0.42);
 }
 
 /* Hide the drag handle on narrow viewports — the rail becomes a top bar. */
@@ -27819,6 +27836,10 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   --idt-console-surface-deep: #030405;
   --idt-console-focus: #7c6dff;
   --idt-console-shadow: 0 18px 48px rgba(0, 0, 0, 0.26);
+  --idt-product-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
+  --idt-body: var(--idt-product-font);
+  --idt-display: var(--idt-product-font);
+  --idt-nav-font: var(--idt-product-font);
 }
 
 .idt-app-console-layout,
@@ -27831,6 +27852,10 @@ html[data-theme='light'] .idt-app-shell-screen,
 html[data-theme='light'] .idt-executive-report-shell {
   background: linear-gradient(180deg, #15191d 0%, #121518 42%, #111417 100%);
   color: var(--app-text);
+  font-family: var(--idt-product-font);
+  font-size: 16px;
+  line-height: 1.45;
+  letter-spacing: 0;
 }
 
 .idt-app-shell-screen .idt-app-panel h1,
@@ -28813,7 +28838,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-command-surface {
 
 .idt-product-card-metric {
   font-size: 19px;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 .idt-inline-button-link {
@@ -29249,7 +29274,6 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   }
 
   .idt-app-console-layout .idt-app-sidebar-footer,
-  .idt-app-console-layout .idt-app-sidebar-collapse,
   .idt-app-console-layout .idt-app-sidebar-resize-handle {
     display: none;
   }
