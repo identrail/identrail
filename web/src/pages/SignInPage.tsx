@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { apiClient, buildAPIURL, type AuthConfigResponse } from '../api/client';
+import { ApiError, apiClient, buildAPIURL, type AuthConfigResponse } from '../api/client';
 import { getCachedAuthConfig, loadAuthConfig } from '../authConfigCache';
 import { clearMeCache } from '../hooks/useMe';
 
@@ -83,6 +83,8 @@ type AuthReasonDetails = {
   actionLabel?: string;
   actionHref?: string;
   actionKind?: 'cancel-deletion';
+  recoveryHref?: string;
+  recoveryLabel?: string;
 };
 
 function authPathWithReturnTo(path: string, returnTo: string): string {
@@ -100,6 +102,13 @@ function formatAuthDateLabel(value: string | null): string {
     return '';
   }
   return parsed.toLocaleString();
+}
+
+function accountDeletionRecoveryHref(returnTo: string): string {
+  const query = new URLSearchParams();
+  const webReturnTo = typeof window === 'undefined' ? returnTo : new URL(returnTo, window.location.origin).toString();
+  query.set('return_to', webReturnTo);
+  return buildAPIURL(`/auth/signup?${query.toString()}`);
 }
 
 function authReasonDetails(reason: string, returnTo: string, hardDeleteAfter: string | null): AuthReasonDetails | null {
@@ -135,7 +144,9 @@ function authReasonDetails(reason: string, returnTo: string, hardDeleteAfter: st
           ? `Your Identrail account is scheduled for permanent deletion on ${deletionDate}.`
           : 'Your Identrail account is scheduled for permanent deletion.',
         actionLabel: 'Cancel account deletion',
-        actionKind: 'cancel-deletion'
+        actionKind: 'cancel-deletion',
+        recoveryHref: accountDeletionRecoveryHref(returnTo),
+        recoveryLabel: 'Continue with hosted recovery'
       };
     }
     case 'identity_conflict':
@@ -225,6 +236,7 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
   const [manualError, setManualError] = useState('');
   const [cancelDeletionPending, setCancelDeletionPending] = useState(false);
   const [cancelDeletionError, setCancelDeletionError] = useState('');
+  const [cancelDeletionNeedsRecovery, setCancelDeletionNeedsRecovery] = useState(false);
   const [authTheme, setAuthTheme] = useState<AuthTheme>('dark');
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [prefersDark, setPrefersDark] = useState(true);
@@ -308,12 +320,24 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
     if (cancelDeletionPending) return;
     setCancelDeletionPending(true);
     setCancelDeletionError('');
+    setCancelDeletionNeedsRecovery(false);
     try {
       await apiClient.cancelCurrentUserDeletion();
       clearMeCache();
       navigate(returnTo, { replace: true });
     } catch (error) {
-      setCancelDeletionError(error instanceof Error ? error.message : 'Unable to cancel account deletion.');
+      if (error instanceof ApiError && error.status === 401) {
+        const recoveryHref = reason?.recoveryHref;
+        setCancelDeletionNeedsRecovery(true);
+        setCancelDeletionError(
+          'This browser no longer has the recovery session. Continue with hosted recovery to cancel deletion.'
+        );
+        if (recoveryHref) {
+          window.location.assign(recoveryHref);
+        }
+      } else {
+        setCancelDeletionError(error instanceof Error ? error.message : 'Unable to cancel account deletion.');
+      }
     } finally {
       setCancelDeletionPending(false);
     }
@@ -369,9 +393,22 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
                   <Link to={reason.actionHref}>{reason.actionLabel}</Link>.
                 </>
               ) : null}
+              {reason.recoveryHref && reason.recoveryLabel ? (
+                <>
+                  {' '}
+                  <span className="idt-auth-recovery-fallback">
+                    No recovery cookie? <a href={reason.recoveryHref}>{reason.recoveryLabel}</a>.
+                  </span>
+                </>
+              ) : null}
             </div>
           ) : null}
           {cancelDeletionError ? <p className="idt-app-alert idt-app-alert-error">{cancelDeletionError}</p> : null}
+          {cancelDeletionNeedsRecovery && reason?.recoveryHref && reason.recoveryLabel ? (
+            <p className="idt-app-alert">
+              <a href={reason.recoveryHref}>{reason.recoveryLabel}</a>
+            </p>
+          ) : null}
 
           {configError ? <p className="idt-app-alert idt-app-alert-error">{configError}</p> : null}
 

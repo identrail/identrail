@@ -12831,7 +12831,12 @@ function accountDeletionWorkspacesFromError(error: ApiError): AccountDeletionWor
       return false;
     }
     const record = workspace as Partial<AccountDeletionWorkspace>;
-    return typeof record.workspace_id === 'string' && record.workspace_id.trim() !== '';
+    return (
+      typeof record.tenant_id === 'string' &&
+      record.tenant_id.trim() !== '' &&
+      typeof record.workspace_id === 'string' &&
+      record.workspace_id.trim() !== ''
+    );
   });
 }
 

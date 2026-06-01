@@ -196,7 +196,7 @@ function settingsSessionsPayload() {
 
 function settingsFetchMock(options: {
   onDelete?: () => ReturnType<typeof okJSON> | { ok: false; status: number; json: () => Promise<unknown> };
-  onCancelDeletion?: () => ReturnType<typeof okJSON>;
+  onCancelDeletion?: () => ReturnType<typeof okJSON> | { ok: false; status: number; json: () => Promise<unknown> };
 } = {}) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
@@ -2593,6 +2593,38 @@ describe('App', () => {
 
     await waitFor(() => expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/settings'));
     expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith('/v1/me/cancel-deletion') && init?.method === 'POST')).toBe(true);
+  });
+
+  it('offers hosted recovery when the pending-deletion recovery cookie is unavailable', async () => {
+    const fetchMock = settingsFetchMock({
+      onCancelDeletion: () => ({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: 'session required' })
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/signin?reason=account_pending_deletion&return_to=%2Fapp%2Fteam%2Fworkspace');
+    render(<App />);
+
+    const expectedRecoveryURL = `http://localhost:8080/auth/signup?return_to=${encodeURIComponent(
+      `${window.location.origin}/app/team/workspace`
+    )}`;
+    expect(await screen.findByText(/scheduled for permanent deletion/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Continue with hosted recovery/i })).toHaveAttribute(
+      'href',
+      expectedRecoveryURL
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Cancel account deletion/i }));
+
+    expect(await screen.findByText(/no longer has the recovery session/i)).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /Continue with hosted recovery/i })[0]).toHaveAttribute(
+      'href',
+      expectedRecoveryURL
+    );
+    expect(window.location.pathname).toBe('/signin');
   });
 
   it('supports workspace member invite workflow from app shell administration route', async () => {
