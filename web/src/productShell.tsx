@@ -2834,8 +2834,7 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'All relationships', value: 'all' },
         { label: 'Agent to role', value: 'agent-to-role' },
         { label: 'Agent to tool', value: 'agent-to-tool' },
-        { label: 'Agent to secret', value: 'agent-to-secret' },
-        { label: 'Agent to user', value: 'agent-to-user' }
+        { label: 'Agent to secret', value: 'agent-to-secret' }
       ]
     },
     {
@@ -2863,7 +2862,6 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
       options: [
         { label: 'All sensitivity', value: 'all' },
         { label: 'Credential reference', value: 'credential-reference' },
-        { label: 'Production', value: 'production' },
         { label: 'Customer data', value: 'customer-data' },
         { label: 'Secret-bearing', value: 'secret-bearing' },
         { label: 'KMS-admin', value: 'kms-admin' },
