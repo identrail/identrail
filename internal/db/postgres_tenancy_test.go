@@ -1598,6 +1598,55 @@ func TestPostgresStoreListWorkspaceStrandedActiveMembersReturnsStranded(t *testi
 	}
 }
 
+func TestPostgresStoreListWorkspaceStrandedActiveMembersPinsDeletedOwnerExclusion(t *testing.T) {
+	// Codex round-10 cross-store parity pin: the SQL must carry the
+	// `NOT (m.role = 'owner' AND mu.id IS NOT NULL AND mu.status = 'deleted')`
+	// predicate so a soft-deleted co-owner is excluded from the
+	// stranded list, matching the memory store. Without this the
+	// postgres path would return a phantom transfer target for the
+	// 409 sole_owner_requires_transfer response. A regression that
+	// drops the predicate fails this test instead of slipping into
+	// production.
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	ctx := workspaceLifecycleScope()
+	now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+
+	wsRows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "status", "suspended_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "Workspace A", "workspace-a", "active", nil, nil, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at
+		 FROM tenancy_workspaces
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2`)).
+		WithArgs("tenant-a", "workspace-a").
+		WillReturnRows(wsRows)
+
+	// The stranded query is expected to contain the deleted-owner
+	// exclusion predicate verbatim. sqlmock matches against this
+	// substring; if the predicate goes missing, the regex does not
+	// match and the call errors here.
+	emptyMembers := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "member_id", "user_id", "user_uuid", "email", "role", "status", "joined_at", "updated_at"})
+	mock.ExpectQuery(regexp.QuoteMeta(`NOT (m.role = 'owner' AND mu.id IS NOT NULL AND mu.status = 'deleted')`)).
+		WithArgs("tenant-a", "workspace-a", "11111111-1111-1111-1111-111111111111").
+		WillReturnRows(emptyMembers)
+
+	stranded, err := store.ListWorkspaceStrandedActiveMembers(ctx, "workspace-a", "11111111-1111-1111-1111-111111111111")
+	if err != nil {
+		t.Fatalf("strand: %v", err)
+	}
+	if len(stranded) != 0 {
+		t.Fatalf("expected empty stranded list, got %+v", stranded)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreListWorkspaceStrandedActiveMembersEmptyUUID(t *testing.T) {
 	// Empty caller UUID short-circuits before any SQL is run. Pins the
 	// memory + postgres parity: both stores treat an empty UUID as

@@ -437,15 +437,26 @@ func (p *PostgresStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, 
 	// lets a sole owner sneak past the guard. IS DISTINCT FROM treats
 	// NULL as a comparable value, so NULL user_uuid is correctly counted
 	// as "not the caller" and therefore stranded if otherwise active.
+	// Outer LEFT JOIN on users so the result-row exclusion below can
+	// see the linked account's lifecycle state. The memory store skips
+	// deleted-user co-owners from the stranded list (they cannot
+	// receive an ownership transfer) — codex round-10 on PR #1445
+	// flagged that the postgres path was inconsistently returning
+	// them, so a workspace whose only other owner was a soft-deleted
+	// account would surface a 409 sole_owner_requires_transfer that
+	// pointed at a phantom transfer target. Aligning the SQL with the
+	// memory-store predicate closes the parity gap.
 	rows, err := p.queryContext(
 		ctx,
 		`SELECT m.tenant_id, m.workspace_id, m.member_id, m.user_id, COALESCE(m.user_uuid::text, ''),
 		        m.email, m.role, m.status, m.joined_at, m.updated_at
 		 FROM tenancy_workspace_members m
+		 LEFT JOIN users mu ON mu.id = m.user_uuid
 		 WHERE m.tenant_id = $1
 		   AND m.workspace_id = $2
 		   AND m.status = 'active'
 		   AND m.user_uuid IS DISTINCT FROM NULLIF($3, '')::uuid
+		   AND NOT (m.role = 'owner' AND mu.id IS NOT NULL AND mu.status = 'deleted')
 		   AND EXISTS (
 		       SELECT 1 FROM tenancy_workspace_members caller
 		       WHERE caller.tenant_id = m.tenant_id

@@ -1571,6 +1571,40 @@ func TestMemoryStoreStrandedMembersIncludesNullUserUUID(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreStrandedMembersExcludesDeletedCoOwner(t *testing.T) {
+	// Codex round-10 cross-store parity pin: a co-owner whose user
+	// account is soft-deleted is not a valid ownership-transfer target
+	// (their access is gone), so they must not surface in the stranded
+	// list. Postgres aligned on this behavior in round-10 of #1445;
+	// this test pins the same invariant on the memory store so the two
+	// backends keep stepping in lock-step on cross-store parity tests.
+	store, ctx, ownerUUID := setupWorkspaceLifecycleStore(t)
+	deletedAt := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	deletedUser, err := store.UpsertUser(context.Background(), User{
+		PrimaryEmail: "ghost@example.com",
+		DisplayName:  "Ghost",
+		Status:       "deleted",
+		DeletedAt:    &deletedAt,
+	})
+	if err != nil {
+		t.Fatalf("upsert deleted user: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
+		WorkspaceID: "ws-1", MemberID: "m-ghost-owner", UserID: "subj-ghost",
+		UserUUID: deletedUser.ID,
+		Role:     "owner", Status: "active",
+	}); err != nil {
+		t.Fatalf("add deleted-user co-owner: %v", err)
+	}
+	stranded, err := store.ListWorkspaceStrandedActiveMembers(ctx, "ws-1", ownerUUID)
+	if err != nil {
+		t.Fatalf("strand check: %v", err)
+	}
+	if len(stranded) != 0 {
+		t.Fatalf("expected deleted-user co-owner not to be stranded, got %+v", stranded)
+	}
+}
+
 func TestMemoryStoreListWorkspaceStrandedActiveMembers(t *testing.T) {
 	store, ctx, ownerUUID := setupWorkspaceLifecycleStore(t)
 	// No other members yet — stranding should be empty so suspend/delete can proceed.
