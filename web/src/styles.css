@@ -23155,66 +23155,113 @@ html[data-theme='light'] .idt-app-shell-screen select {
   color: var(--app-muted);
 }
 
-.idt-aws-risk-boundary,
-.idt-aws-risk-card-grid,
-.idt-aws-findings-summary {
+.idt-aws-risk-page {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr));
-  gap: 0.75rem;
+  gap: 0.8rem;
 }
 
-.idt-aws-runtime-layout,
-.idt-aws-risk-graph-shell,
-.idt-aws-findings-layout,
-.idt-aws-remediation-layout,
-.idt-aws-governance-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(16rem, 0.55fr);
-  gap: 1rem;
-  align-items: start;
-}
-
-.idt-aws-risk-boundary article,
-.idt-aws-risk-card-grid article {
-  display: grid;
-  gap: 0.35rem;
+.idt-aws-risk-scope {
+  overflow: hidden;
   border: 1px solid var(--app-border-soft);
   border-radius: 8px;
-  padding: 0.78rem;
+  background: #080809;
+}
+
+.idt-aws-risk-scope dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
+.idt-aws-risk-scope div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  border-right: 1px solid var(--app-border-soft);
+  padding: 0.72rem 0.82rem;
+}
+
+.idt-aws-risk-scope div:last-child {
+  border-right: 0;
+}
+
+.idt-aws-risk-scope dt {
+  color: var(--app-dim);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.idt-aws-risk-scope dd {
+  min-width: 0;
+  margin: 0;
+  color: #ffffff;
+  font-size: 0.86rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.idt-aws-risk-page .idt-domain-filter-bar,
+.idt-aws-risk-page .idt-domain-table-wrap {
+  border-color: var(--app-border-soft);
+  background: #080809;
+}
+
+.idt-aws-risk-page .idt-domain-filter-bar {
+  padding: 0.68rem;
+}
+
+.idt-aws-risk-page .idt-domain-filter-fields {
+  gap: 0.5rem;
+}
+
+.idt-aws-risk-page .idt-domain-filter-fields label {
+  min-width: min(100%, 10.5rem);
+  font-size: 0.74rem;
+}
+
+.idt-aws-risk-page .idt-domain-filter-fields input,
+.idt-aws-risk-page .idt-domain-filter-fields select {
+  min-height: 2.2rem;
+  border-color: var(--app-border-soft);
   background: #050505;
 }
 
-.idt-aws-risk-boundary strong,
-.idt-aws-risk-card-grid strong {
-  color: #ffffff;
+.idt-aws-risk-page .idt-domain-data-table th,
+.idt-aws-risk-page .idt-domain-data-table td {
+  padding: 0.68rem 0.76rem;
 }
 
-.idt-aws-risk-card-grid span {
-  justify-self: start;
-  border: 1px solid rgba(255, 153, 0, 0.42);
-  border-radius: 999px;
-  padding: 0.15rem 0.48rem;
-  color: #ffdca8;
-  font-size: 0.72rem;
-  font-weight: 900;
-}
-
-.idt-aws-risk-boundary p,
-.idt-aws-risk-card-grid p {
-  margin: 0;
-  color: var(--app-muted);
+.idt-aws-risk-page .idt-domain-data-table td {
   font-size: 0.84rem;
+}
+
+.idt-aws-risk-page .idt-domain-table-empty {
+  padding: 0;
+}
+
+.idt-aws-risk-page .idt-domain-table-empty .idt-domain-empty-state {
+  border: 0;
+  background: transparent;
+  padding: 1rem;
+}
+
+.idt-aws-risk-graph-shell {
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: #080809;
 }
 
 .idt-aws-risk-graph-canvas {
   position: relative;
-  min-height: 18rem;
+  min-height: 14rem;
   overflow: hidden;
-  border: 1px solid var(--app-border);
+  border: 1px solid var(--app-border-soft);
   border-radius: 8px;
   background:
-    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px) 0 0 / 2.5rem 2.5rem,
-    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px) 0 0 / 2.5rem 2.5rem,
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px) 0 0 / 2.5rem 2.5rem,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px) 0 0 / 2.5rem 2.5rem,
     #050505;
 }
 
@@ -23277,12 +23324,6 @@ html[data-theme='light'] .idt-app-shell-screen select {
   border-color: rgba(255, 255, 255, 0.28);
 }
 
-.idt-aws-findings-layout .idt-domain-table-wrap,
-.idt-aws-remediation-layout .idt-domain-evidence-panel,
-.idt-aws-governance-layout .idt-domain-status-panel {
-  min-width: 0;
-}
-
 html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-modal,
 html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-list article,
 html[data-theme='light'] .idt-app-console-layout .idt-permission-tier {
@@ -23314,11 +23355,6 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
 	  .idt-aws-status-grid,
 	  .idt-aws-connect-layout,
 	  .idt-aws-inventory-split,
-	  .idt-aws-runtime-layout,
-	  .idt-aws-risk-graph-shell,
-	  .idt-aws-findings-layout,
-	  .idt-aws-remediation-layout,
-	  .idt-aws-governance-layout,
 	  .idt-app-console-layout .idt-aws-connect-panel .idt-source-meta,
 	  .idt-aws-next-actions {
 	    grid-template-columns: 1fr;
@@ -23355,13 +23391,29 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
     min-width: 34rem;
   }
 
-  .idt-domain-page-shell.is-aws .idt-domain-data-table {
-    min-width: 52rem;
+	  .idt-domain-page-shell.is-aws .idt-domain-data-table {
+	    min-width: 52rem;
+	  }
+
+  .idt-aws-risk-page .idt-domain-data-table {
+    min-width: 42rem;
   }
 
-  .idt-aws-risk-graph-canvas {
-    min-height: 15rem;
+  .idt-aws-risk-scope dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .idt-aws-risk-scope div:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .idt-aws-risk-scope div:nth-child(n + 3) {
+    border-top: 1px solid var(--app-border-soft);
+  }
+
+	  .idt-aws-risk-graph-canvas {
+	    min-height: 15rem;
+	  }
 
   .idt-aws-risk-graph-canvas span {
     min-width: 4.8rem;

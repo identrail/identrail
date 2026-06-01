@@ -1492,11 +1492,11 @@ describe('App', () => {
   });
 
   it.each([
-    ['runtime', /AWS runtime evidence/i, /Runtime event ingestion is not wired yet/i],
-    ['graph', /AWS graph explorer/i, /AWS graph explorer is reserved for collected identity and resource edges/i],
-    ['findings', /AWS findings/i, /AWS findings API is not wired yet/i],
-    ['remediation', /AWS remediation/i, /No AWS remediation cases are queued/i],
-    ['governance', /AWS governance/i, /AWS governance is advisory only/i]
+    ['runtime', /AWS runtime evidence/i, /Not ingesting/i],
+    ['graph', /AWS graph explorer/i, /Graph preview/i],
+    ['findings', /AWS findings/i, /No findings/i],
+    ['remediation', /AWS remediation/i, /No cases/i],
+    ['governance', /AWS governance/i, /Advisory only/i]
   ])('renders the AWS %s operations route with a route-specific shell', async (route, heading, marker) => {
     vi.stubGlobal('fetch', awsOperationalRouteFetchMock(true));
 
@@ -1517,9 +1517,9 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 2, name: /AWS graph explorer/i })).toBeInTheDocument();
-    expect((await screen.findAllByText('arn:aws:iam::123456789012:role/IdentrailReadOnly')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/Role IdentrailReadOnly/i)).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Account 123456789012/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Known connector evidence/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Connector/i).length).toBeGreaterThan(0);
     expect(
       fetchMock.mock.calls.some(([url]) =>
         String(url).includes('/v1/workspaces/workspace-a/projects/project-1/aws/connection')
@@ -1534,7 +1534,7 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 2, name: /AWS runtime evidence/i })).toBeInTheDocument();
-    expect(await screen.findByText(/Connect AWS before using current operational context/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Connect AWS to load operational context/i)).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: /Connect AWS/i })[0]).toHaveAttribute(
       'href',
       '/app/tenant-a/workspace-a/aws/connect?environment=project-1'
