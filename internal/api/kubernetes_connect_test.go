@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -394,6 +395,75 @@ func TestRouterKubernetesAgentEnrollmentSingleUseAndHeartbeat(t *testing.T) {
 	}
 	if statusBody.Connection.ConnectorID != "kubernetes-prod" || statusBody.Connection.AgentID != "agent-a" {
 		t.Fatalf("expected persisted agent status, got %+v", statusBody.Connection)
+	}
+}
+
+func TestRouterKubernetesAgentRoutesRefuseInactiveWorkspace(t *testing.T) {
+	// Public agent routes do not run through the authz middleware gate,
+	// so they must refuse writes themselves when workspace lifecycle is not
+	// active.
+	for _, state := range []string{"suspended", "deleted"} {
+		t.Run(state, func(t *testing.T) {
+			r, store := newKubernetesConnectorV2TestRouter(t)
+			startResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s", `{
+				"workspace_id":"workspace-a",
+				"project_id":"project-1",
+				"connector_id":"kubernetes-prod",
+				"display_name":"Production Cluster",
+				"api_url":"https://api.identrail.test"
+			}`)
+			if startResp.Code != http.StatusOK {
+				t.Fatalf("expected start connector 200, got %d body=%s", startResp.Code, startResp.Body.String())
+			}
+			var startBody KubernetesConnectorStartResponse
+			if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+				t.Fatalf("decode start response: %v", err)
+			}
+
+			enrollResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s/enroll", `{
+				"enrollment_token":`+quoteJSON(startBody.EnrollmentToken)+`,
+				"agent_id":"agent-a"
+			}`)
+			if enrollResp.Code != http.StatusOK {
+				t.Fatalf("baseline enroll 200, got %d body=%s", enrollResp.Code, enrollResp.Body.String())
+			}
+			var enrollBody KubernetesAgentEnrollResponse
+			if err := json.Unmarshal(enrollResp.Body.Bytes(), &enrollBody); err != nil {
+				t.Fatalf("decode enroll response: %v", err)
+			}
+
+			scopedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+			now := time.Now().UTC()
+			switch state {
+			case "suspended":
+				if _, err := store.SuspendWorkspace(scopedCtx, "workspace-a", now); err != nil {
+					t.Fatalf("suspend workspace: %v", err)
+				}
+			case "deleted":
+				if _, err := store.SoftDeleteWorkspace(scopedCtx, "workspace-a", now); err != nil {
+					t.Fatalf("soft delete workspace: %v", err)
+				}
+			}
+
+			reenrollResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s/enroll", `{
+				"enrollment_token":`+quoteJSON(startBody.EnrollmentToken)+`,
+				"agent_id":"agent-a"
+			}`)
+			if reenrollResp.Code != http.StatusConflict {
+				t.Fatalf("expected enroll 409 for %s workspace, got %d body=%s", state, reenrollResp.Code, reenrollResp.Body.String())
+			}
+			if !strings.Contains(reenrollResp.Body.String(), `"code":"workspace_inactive"`) {
+				t.Fatalf("expected workspace_inactive code, got %s", reenrollResp.Body.String())
+			}
+
+			heartbeatResp := doKubernetesAgentAPI(t, r, http.MethodPost, "/v1/connectors/k8s/heartbeat", `{"connector_id":"kubernetes-prod"}`, enrollBody.AgentToken)
+			if heartbeatResp.Code != http.StatusConflict {
+				t.Fatalf("expected heartbeat 409 for %s workspace, got %d body=%s", state, heartbeatResp.Code, heartbeatResp.Body.String())
+			}
+			if !strings.Contains(heartbeatResp.Body.String(), `"code":"workspace_inactive"`) {
+				t.Fatalf("expected workspace_inactive code, got %s", heartbeatResp.Body.String())
+			}
+		})
 	}
 }
 

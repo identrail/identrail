@@ -3041,6 +3041,18 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            Target workspace is suspended or soft-deleted; the lifecycle
+            pause contract refuses agent enrollment until the workspace
+            is reactivated or its deletion cancelled (see #1420).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  code: { type: string, enum: [workspace_inactive] }
   /v1/connectors/k8s/heartbeat:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -3067,6 +3079,18 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            Target workspace is suspended or soft-deleted; the lifecycle
+            pause contract refuses agent heartbeats until the workspace
+            is reactivated or its deletion cancelled (see #1420).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  code: { type: string, enum: [workspace_inactive] }
   /v1/connectors/aws:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"

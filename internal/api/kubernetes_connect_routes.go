@@ -203,6 +203,17 @@ func writeKubernetesAgentError(c *gin.Context, logger *zap.Logger, operation str
 	switch {
 	case errors.Is(err, db.ErrNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "kubernetes connector not found"})
+	case errors.Is(err, ErrKubernetesConnectorWorkspaceInactive):
+		// 409 matches the inactive-workspace response shape returned by
+		// requireCentralPolicyMiddleware so agent clients can treat both
+		// surfaces uniformly. The body deliberately omits the lifecycle
+		// timestamps available to authenticated callers — the agent is
+		// not a workspace member and must not learn its purge schedule
+		// from a public endpoint.
+		c.JSON(http.StatusConflict, gin.H{
+			"error": "kubernetes connector workspace is not active",
+			"code":  "workspace_inactive",
+		})
 	case errors.Is(err, ErrKubernetesConnectorTokenInvalid), errors.Is(err, ErrKubernetesConnectorCredentialDenied):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid kubernetes connector credential"})
 	case errors.Is(err, ErrKubernetesConnectorTokenExpired), errors.Is(err, ErrKubernetesConnectorTokenUsed):

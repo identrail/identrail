@@ -207,7 +207,6 @@ const (
 	WorkspaceStatusDeleted   = "deleted"
 )
 
-
 // hardDeletedEmailPrefix and hardDeletedEmailSuffix bracket the synthetic
 // primary_email a user row carries after PII purge. They keep the NOT NULL /
 // UNIQUE / length constraints on the column satisfied while guaranteeing the
