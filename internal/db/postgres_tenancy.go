@@ -649,18 +649,20 @@ func (p *PostgresStore) HardDeleteWorkspace(ctx context.Context, tenantID, works
 	}
 	// Purge every workspace-scoped non-FK table. These rows would
 	// otherwise survive the cascading workspace DELETE below and
-	// outlive the 30-day grace contract.
+	// outlive the 30-day grace contract. Each entry is wrapped in a
+	// SAVEPOINT so a `relation does not exist` for an optional table
+	// (older deployment, integration test fixture) rolls back ONLY
+	// that DELETE — Postgres otherwise poisons the whole transaction
+	// on the error and every subsequent statement (including the
+	// final workspace DELETE) fails with "current transaction is
+	// aborted" (codex round-2 P2 on #1450).
 	nonCascading := []struct {
-		table string
-		// tolerateMissing covers test/migration fixtures that may
-		// not have installed a particular table yet (older deploys,
-		// integration test seed paths). The check matches `relation
-		// does not exist` so genuine permission/SQL errors still
-		// surface.
+		table           string
 		tolerateMissing bool
 	}{
 		{table: "scans"},
 		{table: "repo_scans"},
+		{table: "repo_scan_cursors", tolerateMissing: true},
 		{table: "aws_account_region_coverages", tolerateMissing: true},
 		{table: "authz_entity_attributes", tolerateMissing: true},
 		{table: "authz_relationships", tolerateMissing: true},
@@ -671,14 +673,28 @@ func (p *PostgresStore) HardDeleteWorkspace(ctx context.Context, tenantID, works
 		{table: "finding_triage_states", tolerateMissing: true},
 		{table: "finding_triage_events", tolerateMissing: true},
 	}
-	for _, target := range nonCascading {
+	for i, target := range nonCascading {
+		savepoint := fmt.Sprintf("workspace_purge_%d", i)
+		if target.tolerateMissing {
+			if _, err := tx.ExecContext(ctx, "SAVEPOINT "+savepoint); err != nil {
+				return TenancyWorkspace{}, fmt.Errorf("create savepoint for %s: %w", target.table, err)
+			}
+		}
 		// #nosec G201 -- table name is hardcoded from this slice, not user-supplied.
 		stmt := fmt.Sprintf(`DELETE FROM %s WHERE tenant_id = $1 AND workspace_id = $2`, target.table)
 		if _, err := tx.ExecContext(ctx, stmt, tenant, id); err != nil {
 			if target.tolerateMissing && strings.Contains(strings.ToLower(err.Error()), "does not exist") {
+				if _, rollbackErr := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+savepoint); rollbackErr != nil {
+					return TenancyWorkspace{}, fmt.Errorf("rollback savepoint for missing %s: %w", target.table, rollbackErr)
+				}
 				continue
 			}
 			return TenancyWorkspace{}, fmt.Errorf("hard delete %s: %w", target.table, err)
+		}
+		if target.tolerateMissing {
+			if _, err := tx.ExecContext(ctx, "RELEASE SAVEPOINT "+savepoint); err != nil {
+				return TenancyWorkspace{}, fmt.Errorf("release savepoint for %s: %w", target.table, err)
+			}
 		}
 	}
 	if _, err := tx.ExecContext(

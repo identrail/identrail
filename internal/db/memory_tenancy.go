@@ -614,6 +614,15 @@ func (m *MemoryStore) HardDeleteWorkspace(ctx context.Context, tenantID, workspa
 			delete(m.repoScans, scanID)
 		}
 	}
+	// repo_scan_cursors hold tenant/workspace-scoped incremental scan
+	// state with no FK back to tenancy_workspaces; codex round-2 P2 on
+	// #1450 flagged that leaving these rows behind violates the
+	// "every workspace-scoped row is purged" contract.
+	for cursorKey, cursor := range m.repoCursors {
+		if cursor.TenantID == tenant && cursor.WorkspaceID == id {
+			delete(m.repoCursors, cursorKey)
+		}
+	}
 	workspace.UpdatedAt = when
 	m.mu.Unlock()
 
