@@ -2513,16 +2513,20 @@ describe('App', () => {
     fireEvent.click(within(dangerZone).getByRole('button', { name: /Delete account/i }));
 
     const modal = await screen.findByRole('dialog', { name: /Delete account/i });
-    const continueButton = within(modal).getByRole('button', { name: 'Continue' });
+    expect(modal).toHaveTextContent('This starts a 30-day recovery window and blocks normal sign-in.');
+    expect(modal).toHaveTextContent('Need an archive? Download my data before deleting.');
+    expect(modal).toHaveTextContent('Enter owner@example.com exactly.');
+    expect(modal).not.toHaveTextContent('recovery cookie');
+    const continueButton = within(modal).getByRole('button', { name: 'Delete account' });
     expect(continueButton).toBeDisabled();
 
-    fireEvent.change(within(modal).getByLabelText(/Type your primary email/i), {
+    fireEvent.change(within(modal).getByLabelText(/Confirm primary email/i), {
       target: { value: 'owner@example.co' }
     });
     expect(continueButton).toBeDisabled();
     expect(fetchMock.mock.calls.filter(([url, init]) => String(url).endsWith('/v1/me') && init?.method === 'DELETE')).toHaveLength(0);
 
-    fireEvent.change(within(modal).getByLabelText(/Type your primary email/i), {
+    fireEvent.change(within(modal).getByLabelText(/Confirm primary email/i), {
       target: { value: 'owner@example.com' }
     });
     expect(continueButton).toBeEnabled();
@@ -2564,13 +2568,13 @@ describe('App', () => {
     fireEvent.click(within(dangerZone).getByRole('button', { name: /Delete account/i }));
 
     const modal = await screen.findByRole('dialog', { name: /Delete account/i });
-    fireEvent.change(within(modal).getByLabelText(/Type your primary email/i), {
+    fireEvent.change(within(modal).getByLabelText(/Confirm primary email/i), {
       target: { value: 'owner@example.com' }
     });
-    fireEvent.click(within(modal).getByRole('button', { name: 'Continue' }));
+    fireEvent.click(within(modal).getByRole('button', { name: 'Delete account' }));
 
     const blocker = await within(modal).findByTestId('idt-delete-sole-owner-workspaces');
-    expect(blocker).toHaveTextContent(/Promote another owner from member management/i);
+    expect(blocker).toHaveTextContent(/Transfer ownership for these workspaces/i);
     expect(blocker).toHaveTextContent(/Security Workspace/i);
     expect(within(blocker).getByRole('link', { name: /Manage members/i })).toHaveAttribute(
       'href',

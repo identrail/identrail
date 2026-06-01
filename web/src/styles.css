@@ -29382,16 +29382,19 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 .idt-btn-danger:hover:not(:disabled),
 .idt-btn-danger:focus-visible:not(:disabled) {
   filter: brightness(1.08);
-  box-shadow: 0 8px 22px rgba(180, 35, 42, 0.3);
+  box-shadow: none;
 }
 
 .idt-btn-danger:disabled {
-  opacity: 0.42;
+  opacity: 1;
+  border-color: rgba(248, 81, 73, 0.22);
+  background: #1d1012;
+  color: #8c929c;
   cursor: not-allowed;
 }
 
 .idt-danger-modal-backdrop {
-  background: #020204;
+  background: #000000;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -29423,7 +29426,7 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 .idt-danger-modal-body {
   font-size: 0.94rem;
   line-height: 1.55;
-  color: #c7cdd7;
+  color: #d8dde6;
 }
 
 .idt-danger-modal-body p {
@@ -29475,7 +29478,7 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 .idt-danger-modal-expected {
   margin: 0;
   font-size: 0.84rem;
-  color: #aeb5c1;
+  color: #e0e4ec;
 }
 
 .idt-danger-modal-expected code {
@@ -29836,6 +29839,10 @@ html[data-theme='light'] .idt-danger-modal h3,
 html[data-theme='light'] .idt-danger-modal-checkbox,
 html[data-theme='light'] .idt-danger-modal-body {
   color: #f6f7f8;
+}
+
+html[data-theme='light'] .idt-danger-modal .idt-danger-modal-help {
+  color: #e0e4ec;
 }
 
 html[data-theme='light'] .idt-danger-modal-typed input {

@@ -14962,14 +14962,9 @@ export function ProductSettingsPage() {
       <ConfirmDestructiveModal
         body={
           <>
+            <p>This starts a 30-day recovery window and blocks normal sign-in.</p>
             <p>
-              Deleting your account immediately marks it for deletion and blocks normal sign-in. Identrail
-              keeps a recovery cookie in this browser so you can cancel deletion during the 30-day grace
-              window.
-            </p>
-            <p>
-              Permanent hard deletion happens after the grace period. Download your account archive first if
-              you need profile, workspace, session, or audit data.{' '}
+              After the window, the account is permanently deleted. Need an archive?{' '}
               <button
                 className="idt-inline-button-link"
                 disabled={exportPending}
@@ -14977,8 +14972,8 @@ export function ProductSettingsPage() {
                 type="button"
               >
                 {exportPending ? 'Preparing export' : 'Download my data'}
-              </button>
-              .
+              </button>{' '}
+              before deleting.
             </p>
             {deleteSoleOwnerWorkspaces.length > 0 ? (
               <div
@@ -14987,8 +14982,7 @@ export function ProductSettingsPage() {
                 role="alert"
               >
                 <p>
-                  You are the sole owner of these workspaces. Promote another owner from member management
-                  before deleting your account.
+                  Transfer ownership for these workspaces before deleting this account.
                 </p>
                 <ul>
                   {deleteSoleOwnerWorkspaces.map((workspace) => (
@@ -15005,10 +14999,10 @@ export function ProductSettingsPage() {
         confirmation={{
           kind: 'type-to-confirm',
           expectedValue: primaryEmail,
-          inputLabel: 'Type your primary email',
-          helpText: 'Use the primary email shown in your account profile.'
+          inputLabel: 'Confirm primary email',
+          helpText: primaryEmail ? `Enter ${primaryEmail} exactly.` : undefined
         }}
-        continueLabel="Continue"
+        continueLabel="Delete account"
         errorMessage={deleteError || undefined}
         onCancel={handleCancelDeleteModal}
         onConfirm={handleDeleteAccount}
