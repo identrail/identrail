@@ -1,4 +1,4 @@
-import { Component, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, Component, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
@@ -2727,7 +2727,27 @@ type AWSInventoryDataState = {
   refreshConnection: () => void;
 };
 
-type AWSInventoryTableRow = {
+type AWSInventoryFilterState = Record<string, string>;
+
+type AWSInventoryFilterConfigOption = {
+  label: string;
+  value: string;
+};
+
+type AWSInventoryFilterConfig = {
+  id: string;
+  label: string;
+  options: AWSInventoryFilterConfigOption[];
+};
+
+type AWSInventoryFilterConfigMap = Record<AWSInventoryRouteID, AWSInventoryFilterConfig[]>;
+
+type AWSInventoryFilterable = {
+  filters: Record<string, string>;
+  searchText: string;
+};
+
+type AWSInventoryTableRow = AWSInventoryFilterable & {
   id: string;
   name: string;
   category: string;
@@ -2737,7 +2757,7 @@ type AWSInventoryTableRow = {
   detail: string;
 };
 
-type AWSInventoryCoverageRow = {
+type AWSInventoryCoverageRow = AWSInventoryFilterable & {
   id: string;
   category: string;
   coverage: string;
@@ -2745,6 +2765,149 @@ type AWSInventoryCoverageRow = {
   status: string;
   detail: string;
 };
+
+const AWS_INVENTORY_FILTER_DEFAULTS: Record<AWSInventoryRouteID, AWSInventoryFilterState> = {
+  accounts: { account: 'all', region: 'all', coverage: 'all', search: '' },
+  identities: { identityType: 'all', service: 'all', risk: 'all', status: 'all', search: '' },
+  agents: { surface: 'all', relationship: 'all', status: 'all', search: '' },
+  resources: { category: 'all', sensitivity: 'all', readPosture: 'all', search: '' }
+};
+
+const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
+  accounts: [
+    { id: 'account', label: 'Account', options: [{ label: 'All accounts', value: 'all' }, { label: 'Connected account', value: 'connected' }, { label: 'Planned accounts', value: 'planned' }] },
+    { id: 'region', label: 'Region', options: [{ label: 'All regions', value: 'all' }, { label: 'Current region', value: 'current' }, { label: 'Uncovered regions', value: 'uncovered' }] },
+    {
+      id: 'coverage',
+      label: 'Coverage',
+      options: [
+        { label: 'All coverage', value: 'all' },
+        { label: 'Covered', value: 'covered' },
+        { label: 'Missing', value: 'missing' },
+        { label: 'Degraded', value: 'degraded' },
+        { label: 'Not yet available', value: 'not-yet-available' }
+      ]
+    }
+  ],
+  identities: [
+    {
+      id: 'identityType',
+      label: 'Identity type',
+      options: [
+        { label: 'All types', value: 'all' },
+        { label: 'IAM role', value: 'iam-role' },
+        { label: 'Instance profile', value: 'instance-profile' },
+        { label: 'ECS task role', value: 'ecs-task-role' },
+        { label: 'Lambda role', value: 'lambda-role' },
+        { label: 'EKS identity', value: 'eks-identity' },
+        { label: 'CI/CD role', value: 'cicd-role' }
+      ]
+    },
+    { id: 'service', label: 'Service', options: [{ label: 'All services', value: 'all' }, { label: 'IAM', value: 'iam' }, { label: 'EC2', value: 'ec2' }, { label: 'ECS', value: 'ecs' }, { label: 'Lambda', value: 'lambda' }, { label: 'EKS', value: 'eks' }, { label: 'OIDC', value: 'oidc' }] },
+    {
+      id: 'risk',
+      label: 'Risk',
+      options: [{ label: 'All risk', value: 'all' }, { label: 'Unscored', value: 'unscored' }, { label: 'High', value: 'high' }, { label: 'Medium', value: 'medium' }, { label: 'Low', value: 'low' }]
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      options: [{ label: 'All status', value: 'all' }, { label: 'Wired now', value: 'wired-now' }, { label: 'Coming', value: 'coming' }, { label: 'Not yet available', value: 'not-yet-available' }]
+    }
+  ],
+  agents: [
+    {
+      id: 'surface',
+      label: 'Agent surface',
+      options: [
+        { label: 'All surfaces', value: 'all' },
+        { label: 'Bedrock agents', value: 'bedrock-agents' },
+        { label: 'AgentCore runtime', value: 'agentcore-runtime' },
+        { label: 'MCP gateway', value: 'mcp-gateway' },
+        { label: 'External provider keys', value: 'external-provider-keys' }
+      ]
+    },
+    {
+      id: 'relationship',
+      label: 'Relationship',
+      options: [
+        { label: 'All relationships', value: 'all' },
+        { label: 'Agent to role', value: 'agent-to-role' },
+        { label: 'Agent to tool', value: 'agent-to-tool' },
+        { label: 'Agent to secret', value: 'agent-to-secret' },
+        { label: 'Agent to user', value: 'agent-to-user' }
+      ]
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      options: [{ label: 'All status', value: 'all' }, { label: 'Role anchor', value: 'role-anchor' }, { label: 'Coming', value: 'coming' }, { label: 'Not yet available', value: 'not-yet-available' }]
+    }
+  ],
+  resources: [
+    {
+      id: 'category',
+      label: 'Category',
+      options: [
+        { label: 'All categories', value: 'all' },
+        { label: 'Secrets Manager', value: 'secrets-manager' },
+        { label: 'SSM Parameter', value: 'ssm-parameter' },
+        { label: 'KMS', value: 'kms' },
+        { label: 'S3', value: 's3' },
+        { label: 'Control plane', value: 'control-plane' }
+      ]
+    },
+    {
+      id: 'sensitivity',
+      label: 'Sensitivity',
+      options: [
+        { label: 'All sensitivity', value: 'all' },
+        { label: 'Production', value: 'production' },
+        { label: 'Customer data', value: 'customer-data' },
+        { label: 'Secret-bearing', value: 'secret-bearing' },
+        { label: 'KMS-admin', value: 'kms-admin' },
+        { label: 'Control-plane', value: 'control-plane' }
+      ]
+    },
+    {
+      id: 'readPosture',
+      label: 'Read posture',
+      options: [{ label: 'All postures', value: 'all' }, { label: 'Metadata only', value: 'metadata-only' }, { label: 'No secret values', value: 'no-secret-values' }]
+    }
+  ]
+};
+
+function normalizeFilterValue(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function inventorySearchText(parts: Array<string | undefined>): string {
+  return parts
+    .filter((value): value is string => Boolean(value && value.length > 0))
+    .join(' ')
+    .toLowerCase();
+}
+
+function filterAWSInventoryRows<RowType extends AWSInventoryFilterable>(rows: RowType[], filters: AWSInventoryFilterState): RowType[] {
+  const query = normalizeFilterValue(filters.search ?? '');
+  return rows.filter((row) => {
+    for (const [filterID, selectedValue] of Object.entries(filters)) {
+      if (filterID === 'search') {
+        continue;
+      }
+      if (!selectedValue || selectedValue === 'all') {
+        continue;
+      }
+      if ((row.filters[filterID] ?? 'all') !== selectedValue) {
+        return false;
+      }
+    }
+    if (!query) {
+      return true;
+    }
+    return row.searchText.includes(query);
+  });
+}
 
 function useAWSInventoryData(): AWSInventoryDataState {
   const params = useParams<ScopeRouteParams>();
@@ -2865,46 +3028,43 @@ function AWSInventoryPill({
   return <span className={`idt-aws-inventory-pill is-${awsInventoryPillTone(stage)}`}>{label ?? awsStageLabel(stage)}</span>;
 }
 
-function AWSInventoryFilterSet({ routeID }: { routeID: AWSInventoryRouteID }) {
-  const routeFilters: Record<AWSInventoryRouteID, Array<{ label: string; value: string; options: string[] }>> = {
-    accounts: [
-      { label: 'Account', value: 'all', options: ['All accounts', 'Connected account', 'Planned accounts'] },
-      { label: 'Region', value: 'all', options: ['All regions', 'Current region', 'Uncovered regions'] },
-      { label: 'Coverage', value: 'all', options: ['All coverage', 'Covered', 'Missing', 'Degraded', 'Not yet available'] }
-    ],
-    identities: [
-      { label: 'Identity type', value: 'all', options: ['All types', 'IAM role', 'Instance profile', 'ECS task role', 'Lambda role', 'EKS identity', 'CI/CD role'] },
-      { label: 'Service', value: 'all', options: ['All services', 'IAM', 'EC2', 'ECS', 'Lambda', 'EKS', 'OIDC'] },
-      { label: 'Risk', value: 'all', options: ['All risk', 'Unscored', 'High', 'Medium', 'Low'] },
-      { label: 'Status', value: 'all', options: ['All status', 'Wired now', 'Coming', 'Not yet available'] }
-    ],
-    agents: [
-      { label: 'Agent surface', value: 'all', options: ['All surfaces', 'Bedrock agents', 'AgentCore runtime', 'MCP gateway', 'External provider keys'] },
-      { label: 'Relationship', value: 'all', options: ['All relationships', 'Agent to role', 'Agent to tool', 'Agent to secret', 'Agent to user'] },
-      { label: 'Status', value: 'all', options: ['All status', 'Role anchor', 'Coming', 'Not yet available'] }
-    ],
-    resources: [
-      { label: 'Category', value: 'all', options: ['All categories', 'Secrets Manager', 'SSM Parameter', 'KMS', 'S3', 'Control plane'] },
-      { label: 'Sensitivity', value: 'all', options: ['All sensitivity', 'Production', 'Customer data', 'Secret-bearing', 'KMS-admin', 'Control-plane'] },
-      { label: 'Read posture', value: 'metadata', options: ['Metadata only', 'No secret values'] }
-    ]
-  };
+function AWSInventoryFilterSet({
+  routeID,
+  filters,
+  onChange
+}: {
+  routeID: AWSInventoryRouteID;
+  filters: AWSInventoryFilterState;
+  onChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
   const searchPlaceholder: Record<AWSInventoryRouteID, string> = {
     accounts: 'Search account or region',
     identities: 'Search identity ARN',
     agents: 'Search agent surface',
     resources: 'Search resource metadata'
   };
+  const onFilterChange = (id: string, value: string): void => {
+    onChange({
+      ...filters,
+      [id]: value
+    });
+  };
+  const onSearchChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    onChange({
+      ...filters,
+      search: event.target.value
+    });
+  };
 
   return (
     <DomainFilterBar label={`${AWS_INVENTORY_PAGE_COPY[routeID].title} filters`}>
-      {routeFilters[routeID].map((filter) => (
+      {AWS_INVENTORY_FILTERS[routeID].map((filter) => (
         <label key={filter.label}>
           {filter.label}
-          <select defaultValue={filter.value}>
-            {filter.options.map((option, index) => (
-              <option key={option} value={index === 0 ? filter.value : option.toLowerCase().replace(/[^a-z0-9]+/g, '-')}>
-                {option}
+          <select value={filters[filter.id] ?? 'all'} onChange={(event) => onFilterChange(filter.id, event.target.value)}>
+            {filter.options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -2912,7 +3072,12 @@ function AWSInventoryFilterSet({ routeID }: { routeID: AWSInventoryRouteID }) {
       ))}
       <label>
         Search
-        <input placeholder={searchPlaceholder[routeID]} />
+        <input
+          placeholder={searchPlaceholder[routeID]}
+          value={filters.search ?? ''}
+          onChange={onSearchChange}
+          aria-label={`${AWS_INVENTORY_PAGE_COPY[routeID].title} search`}
+        />
       </label>
     </DomainFilterBar>
   );
@@ -3036,19 +3201,32 @@ function AWSInventoryPrerequisites({
 
 function AWSAccountsInventoryContent({
   connection,
-  connectPath
+  connectPath,
+  filters,
+  onFiltersChange
 }: {
   connection: AWSConnectionStatus | null;
   connectPath: string;
+  filters: AWSInventoryFilterState;
+  onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
+  const accountCoverage = awsCoverageState(connection);
+  const currentCoverageFilter = accountCoverage === 'covered' ? 'covered' : accountCoverage === 'degraded' ? 'degraded' : 'missing';
   const rows: AWSInventoryCoverageRow[] = [
     {
       id: 'current-account',
       category: connection?.account_id ? `AWS account ${connection.account_id}` : 'Selected AWS account',
-      coverage: awsCoverageState(connection),
+      coverage: accountCoverage,
       source: connection?.display_name ?? 'Connect AWS',
       status: connection?.connected ? 'covered' : 'missing',
-      detail: connection?.region ? `Validated in ${connection.region}` : 'Region coverage starts after validation.'
+      detail: connection?.region ? `Validated in ${connection.region}` : 'Region coverage starts after validation.',
+      filters: {
+        account: connection?.account_id ? 'connected' : 'planned',
+        region: connection?.region ? 'current' : 'uncovered',
+        coverage: currentCoverageFilter,
+        search: ''
+      },
+      searchText: inventorySearchText([connection?.account_id, connection?.region, connection?.display_name, 'current account', 'covered', 'missing'])
     },
     {
       id: 'current-region',
@@ -3056,7 +3234,14 @@ function AWSAccountsInventoryContent({
       coverage: connection?.region ? 'covered' : 'missing',
       source: 'AWS connector payload',
       status: connection?.region ? 'covered' : 'missing',
-      detail: connection?.last_validated_at ? `Last validation ${formatConnectionTime(connection.last_validated_at)}` : 'No validation time yet.'
+      detail: connection?.last_validated_at ? `Last validation ${formatConnectionTime(connection.last_validated_at)}` : 'No validation time yet.',
+      filters: {
+        account: connection?.account_id ? 'connected' : 'planned',
+        region: connection?.region ? 'current' : 'uncovered',
+        coverage: connection?.region ? 'covered' : 'missing',
+        search: ''
+      },
+      searchText: inventorySearchText([connection?.region, 'region', 'coverage', 'region coverage'])
     },
     {
       id: 'org-planner',
@@ -3064,7 +3249,19 @@ function AWSAccountsInventoryContent({
       coverage: 'not yet available',
       source: 'Future AWS inventory API',
       status: 'not yet available',
-      detail: 'Will track account enrollment, incremental cursors, and partial account failure.'
+      detail: 'Will track account enrollment, incremental cursors, and partial account failure.',
+      filters: {
+        account: 'planned',
+        region: 'uncovered',
+        coverage: 'not-yet-available',
+        search: ''
+      },
+      searchText: inventorySearchText([
+        'organization',
+        'planner',
+        'account',
+        'not yet available'
+      ])
     },
     {
       id: 'region-planner',
@@ -3072,15 +3269,30 @@ function AWSAccountsInventoryContent({
       coverage: 'not yet available',
       source: 'Future AWS inventory API',
       status: 'not yet available',
-      detail: 'Will track service-by-region coverage and degraded or unreachable regions.'
+      detail: 'Will track service-by-region coverage and degraded or unreachable regions.',
+      filters: {
+        account: 'planned',
+        region: 'uncovered',
+        coverage: 'not-yet-available',
+        search: ''
+      },
+      searchText: inventorySearchText([
+        'multi-region',
+        'planner',
+        'coverage',
+        'not yet available',
+        'degraded',
+        'region'
+      ])
     }
   ];
   const passedChecks = connection?.permission_checks.filter((check) => check.passed).length ?? 0;
   const totalChecks = connection?.permission_checks.length ?? 0;
+  const displayedRows = filterAWSInventoryRows(rows, filters);
 
   return (
     <>
-      <AWSInventoryFilterSet routeID="accounts" />
+      <AWSInventoryFilterSet routeID="accounts" filters={filters} onChange={onFiltersChange} />
       <section className="idt-aws-inventory-coverage" aria-label="AWS account and region coverage map">
         <DomainCoverageCard label="Account coverage" scanned={connection?.account_id ? 1 : 0} total={1} detail="Selected environment" />
         <DomainCoverageCard label="Region coverage" scanned={connection?.region ? 1 : 0} total={1} detail={connection?.region ?? 'Pending'} />
@@ -3088,7 +3300,7 @@ function AWSAccountsInventoryContent({
       </section>
       <DomainDataTable
         label="AWS account and region coverage"
-        rows={rows}
+        rows={displayedRows}
         getRowKey={(row) => row.id}
         columns={[
           { key: 'category', header: 'Coverage scope', render: (row) => <strong>{row.category}</strong> },
@@ -3113,7 +3325,15 @@ function AWSAccountsInventoryContent({
   );
 }
 
-function AWSMachineIdentitiesContent({ connection }: { connection: AWSConnectionStatus | null }) {
+function AWSMachineIdentitiesContent({
+  connection,
+  filters,
+  onFiltersChange
+}: {
+  connection: AWSConnectionStatus | null;
+  filters: AWSInventoryFilterState;
+  onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
   const rows: AWSInventoryTableRow[] = [
     ...(connection?.role_arn
       ? [
@@ -3124,7 +3344,15 @@ function AWSMachineIdentitiesContent({ connection }: { connection: AWSConnection
             scope: awsAccountRegionLabel(connection),
             status: connection.connected ? 'wired now' : 'pending validation',
             stage: connection.connected ? ('wired' as AWSCapabilityStage) : ('coming' as AWSCapabilityStage),
-            detail: connection.principal_arn ?? 'Role principal will appear after validation.'
+            detail: connection.principal_arn ?? 'Role principal will appear after validation.',
+            filters: {
+              identityType: 'iam-role',
+              service: 'iam',
+              risk: 'unscored',
+              status: connection.connected ? 'wired-now' : 'coming',
+              search: ''
+            },
+            searchText: inventorySearchText([connection.role_arn, awsAccountRegionLabel(connection), 'iam', 'identity'])
           }
         ]
       : []),
@@ -3135,7 +3363,9 @@ function AWSMachineIdentitiesContent({ connection }: { connection: AWSConnection
       scope: 'Account and region expansion',
       status: 'coming',
       stage: 'coming',
-      detail: 'Instance profile inventory will map roles back to EC2 workloads.'
+      detail: 'Instance profile inventory will map roles back to EC2 workloads.',
+      filters: { identityType: 'instance-profile', service: 'ec2', risk: 'unscored', status: 'coming', search: '' },
+      searchText: inventorySearchText(['ec2', 'instance profile', 'workload identity', 'inventory'])
     },
     {
       id: 'ecs-lambda',
@@ -3144,7 +3374,9 @@ function AWSMachineIdentitiesContent({ connection }: { connection: AWSConnection
       scope: 'ECS / Lambda',
       status: 'coming',
       stage: 'coming',
-      detail: 'Future collectors will identify workload ownership and attached policies.'
+      detail: 'Future collectors will identify workload ownership and attached policies.',
+      filters: { identityType: 'ecs-task-role', service: 'ecs', risk: 'unscored', status: 'coming', search: '' },
+      searchText: inventorySearchText(['ecs', 'lambda', 'task roles', 'execution roles', 'service identity'])
     },
     {
       id: 'eks-irsa',
@@ -3153,7 +3385,9 @@ function AWSMachineIdentitiesContent({ connection }: { connection: AWSConnection
       scope: 'EKS',
       status: 'coming',
       stage: 'coming',
-      detail: 'EKS identity mapping belongs here once Kubernetes and AWS graphs join.'
+      detail: 'EKS identity mapping belongs here once Kubernetes and AWS graphs join.',
+      filters: { identityType: 'eks-identity', service: 'eks', risk: 'unscored', status: 'coming', search: '' },
+      searchText: inventorySearchText(['eks', 'irsa', 'pod identity', 'federated identity'])
     },
     {
       id: 'cicd-oidc',
@@ -3162,17 +3396,20 @@ function AWSMachineIdentitiesContent({ connection }: { connection: AWSConnection
       scope: 'GitHub and external CI',
       status: 'coming',
       stage: 'coming',
-      detail: 'Deployment trust paths will connect repository evidence to AWS role assumption.'
+      detail: 'Deployment trust paths will connect repository evidence to AWS role assumption.',
+      filters: { identityType: 'cicd-role', service: 'oidc', risk: 'unscored', status: 'coming', search: '' },
+      searchText: inventorySearchText(['ci', 'cd', 'cicd', 'oidc'])
     }
   ];
+  const displayedRows = filterAWSInventoryRows(rows, filters);
 
   return (
     <>
-      <AWSInventoryFilterSet routeID="identities" />
+      <AWSInventoryFilterSet routeID="identities" filters={filters} onChange={onFiltersChange} />
       <section className="idt-aws-inventory-split">
         <DomainDataTable
           label="AWS machine identity inventory"
-          rows={rows}
+          rows={displayedRows}
           getRowKey={(row) => row.id}
           columns={[
             {
@@ -3215,7 +3452,15 @@ function AWSMachineIdentitiesContent({ connection }: { connection: AWSConnection
   );
 }
 
-function AWSAgentIdentitiesContent({ connection }: { connection: AWSConnectionStatus | null }) {
+function AWSAgentIdentitiesContent({
+  connection,
+  filters,
+  onFiltersChange
+}: {
+  connection: AWSConnectionStatus | null;
+  filters: AWSInventoryFilterState;
+  onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
   const rows: AWSInventoryTableRow[] = [
     {
       id: 'role-anchor',
@@ -3224,7 +3469,14 @@ function AWSAgentIdentitiesContent({ connection }: { connection: AWSConnectionSt
       scope: awsAccountRegionLabel(connection),
       status: connection?.role_arn ? 'role anchor' : 'not yet available',
       stage: connection?.role_arn ? 'wired' : 'not-available',
-      detail: 'Future agent inventory can attach Bedrock or external agent execution back to this AWS role context.'
+      detail: 'Future agent inventory can attach Bedrock or external agent execution back to this AWS role context.',
+      filters: {
+        surface: 'agentcore-runtime',
+        relationship: 'agent-to-role',
+        status: connection?.role_arn ? 'role-anchor' : 'not-yet-available',
+        search: ''
+      },
+      searchText: inventorySearchText(['agent to role', 'agent', 'role anchor', 'role relationship'])
     },
     {
       id: 'bedrock-agents',
@@ -3233,7 +3485,9 @@ function AWSAgentIdentitiesContent({ connection }: { connection: AWSConnectionSt
       scope: 'Bedrock',
       status: 'coming',
       stage: 'coming',
-      detail: 'Agent identity, action groups, tool use, and role relationship slots are reserved here.'
+      detail: 'Agent identity, action groups, tool use, and role relationship slots are reserved here.',
+      filters: { surface: 'bedrock-agents', relationship: 'agent-to-tool', status: 'coming', search: '' },
+      searchText: inventorySearchText(['bedrock', 'agent surface', 'tools'])
     },
     {
       id: 'agentcore',
@@ -3242,7 +3496,9 @@ function AWSAgentIdentitiesContent({ connection }: { connection: AWSConnectionSt
       scope: 'Runtime / gateway',
       status: 'coming',
       stage: 'coming',
-      detail: 'Will map AgentCore runtime, gateway, identity metadata, MCP gateway, and tool relationships.'
+      detail: 'Will map AgentCore runtime, gateway, identity metadata, MCP gateway, and tool relationships.',
+      filters: { surface: 'agentcore-runtime', relationship: 'agent-to-tool', status: 'coming', search: '' },
+      searchText: inventorySearchText(['agentcore', 'runtime', 'gateway', 'identity'])
     },
     {
       id: 'external-provider-keys',
@@ -3251,13 +3507,21 @@ function AWSAgentIdentitiesContent({ connection }: { connection: AWSConnectionSt
       scope: 'Secrets metadata only',
       status: 'not yet available',
       stage: 'not-available',
-      detail: 'OpenAI, Anthropic, and Claude Platform usage mapping will use safe metadata, never secret values.'
+      detail: 'OpenAI, Anthropic, and Claude Platform usage mapping will use safe metadata, never secret values.',
+      filters: {
+        surface: 'external-provider-keys',
+        relationship: 'agent-to-secret',
+        status: 'not-yet-available',
+        search: ''
+      },
+      searchText: inventorySearchText(['external', 'provider', 'keys', 'agent'])
     }
   ];
+  const displayedRows = filterAWSInventoryRows(rows, filters);
 
   return (
     <>
-      <AWSInventoryFilterSet routeID="agents" />
+      <AWSInventoryFilterSet routeID="agents" filters={filters} onChange={onFiltersChange} />
       <section className="idt-aws-agent-relationship-grid" aria-label="AWS agent relationship slots">
         {[
           ['Agent to role', connection?.role_arn ? 'Role anchor available' : 'Waiting for role validation'],
@@ -3273,7 +3537,7 @@ function AWSAgentIdentitiesContent({ connection }: { connection: AWSConnectionSt
       </section>
       <DomainDataTable
         label="AWS agent identity inventory"
-        rows={rows}
+        rows={displayedRows}
         getRowKey={(row) => row.id}
         columns={[
           { key: 'name', header: 'Agent surface', render: (row) => <strong>{row.name}</strong> },
@@ -3287,7 +3551,15 @@ function AWSAgentIdentitiesContent({ connection }: { connection: AWSConnectionSt
   );
 }
 
-function AWSResourcesInventoryContent({ connection }: { connection: AWSConnectionStatus | null }) {
+function AWSResourcesInventoryContent({
+  connection,
+  filters,
+  onFiltersChange
+}: {
+  connection: AWSConnectionStatus | null;
+  filters: AWSInventoryFilterState;
+  onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
   const rows: AWSInventoryTableRow[] = [
     {
       id: 'secrets-manager',
@@ -3296,7 +3568,9 @@ function AWSResourcesInventoryContent({ connection }: { connection: AWSConnectio
       scope: connection?.account_id ? `Account ${connection.account_id}` : 'Account pending',
       status: 'coming',
       stage: 'coming',
-      detail: 'Name, tags, rotation, policy, and reference metadata only. Secret values are out of scope.'
+      detail: 'Name, tags, rotation, policy, and reference metadata only. Secret values are out of scope.',
+      filters: { category: 'secrets-manager', sensitivity: 'secret-bearing', readPosture: 'metadata-only', search: '' },
+      searchText: inventorySearchText(['secrets manager', 'secret', 'metadata', 'category'])
     },
     {
       id: 'ssm-parameters',
@@ -3305,7 +3579,9 @@ function AWSResourcesInventoryContent({ connection }: { connection: AWSConnectio
       scope: connection?.region ?? 'Region pending',
       status: 'coming',
       stage: 'coming',
-      detail: 'Parameter paths, tags, encryption metadata, and reachability hints without value reads.'
+      detail: 'Parameter paths, tags, encryption metadata, and reachability hints without value reads.',
+      filters: { category: 'ssm-parameter', sensitivity: 'credential reference', readPosture: 'metadata-only', search: '' },
+      searchText: inventorySearchText(['ssm parameter', 'reference', 'tags', 'encryption'])
     },
     {
       id: 'kms',
@@ -3314,7 +3590,9 @@ function AWSResourcesInventoryContent({ connection }: { connection: AWSConnectio
       scope: 'Policies and grants',
       status: 'coming',
       stage: 'coming',
-      detail: 'Key policy and grant reachability will highlight decrypt/admin blast radius.'
+      detail: 'Key policy and grant reachability will highlight decrypt/admin blast radius.',
+      filters: { category: 'kms', sensitivity: 'kms-admin', readPosture: 'metadata-only', search: '' },
+      searchText: inventorySearchText(['kms', 'key', 'reachability', 'policy', 'grants'])
     },
     {
       id: 's3',
@@ -3323,7 +3601,9 @@ function AWSResourcesInventoryContent({ connection }: { connection: AWSConnectio
       scope: 'Bucket metadata',
       status: 'coming',
       stage: 'coming',
-      detail: 'Bucket policy, public access, tags, and sensitivity labels land with resource coverage.'
+      detail: 'Bucket policy, public access, tags, and sensitivity labels land with resource coverage.',
+      filters: { category: 's3', sensitivity: 'customer-data', readPosture: 'metadata-only', search: '' },
+      searchText: inventorySearchText(['s3', 'bucket', 'customer data', 'sensitivity', 'metadata'])
     },
     {
       id: 'secret-values',
@@ -3332,13 +3612,16 @@ function AWSResourcesInventoryContent({ connection }: { connection: AWSConnectio
       scope: 'Never read',
       status: 'not requested',
       stage: 'not-available',
-      detail: 'Identrail inventory pages do not request, store, or display secret values.'
+      detail: 'Identrail inventory pages do not request, store, or display secret values.',
+      filters: { category: 'control-plane', sensitivity: 'control-plane', readPosture: 'no-secret-values', search: '' },
+      searchText: inventorySearchText(['secret values', 'not requested', 'metadata only', 'not read'])
     }
   ];
+  const displayedRows = filterAWSInventoryRows(rows, filters);
 
   return (
     <>
-      <AWSInventoryFilterSet routeID="resources" />
+      <AWSInventoryFilterSet routeID="resources" filters={filters} onChange={onFiltersChange} />
       <section className="idt-aws-resource-coverage-grid" aria-label="AWS resource category coverage">
         <DomainCoverageCard label="Secrets metadata" scanned={0} total={1} detail="Coming wave" />
         <DomainCoverageCard label="KMS reachability" scanned={0} total={1} detail="Coming wave" />
@@ -3352,7 +3635,7 @@ function AWSResourcesInventoryContent({ connection }: { connection: AWSConnectio
       </DomainStatusPanel>
       <DomainDataTable
         label="AWS resource and credential reachability"
-        rows={rows}
+        rows={displayedRows}
         getRowKey={(row) => row.id}
         columns={[
           { key: 'name', header: 'Resource category', render: (row) => <strong>{row.name}</strong> },
@@ -3370,6 +3653,17 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const data = useAWSInventoryData();
   const { scope, environmentScope, selectedEnvironmentID, connection, connectionLoading, connectionError } = data;
   const copy = AWS_INVENTORY_PAGE_COPY[routeID];
+  const [activeFilters, setActiveFilters] = useState<AWSInventoryFilterState>(() => ({
+    ...AWS_INVENTORY_FILTER_DEFAULTS[routeID]
+  }));
+
+  const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
+    setActiveFilters(nextFilters);
+  };
+
+  useEffect(() => {
+    setActiveFilters({ ...AWS_INVENTORY_FILTER_DEFAULTS[routeID] });
+  }, [routeID]);
 
   if (!scope) {
     return (
@@ -3442,10 +3736,18 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
         </div>
       </DomainStatusPanel>
 
-      {routeID === 'accounts' ? <AWSAccountsInventoryContent connection={connection} connectPath={connectPath} /> : null}
-      {routeID === 'identities' ? <AWSMachineIdentitiesContent connection={connection} /> : null}
-      {routeID === 'agents' ? <AWSAgentIdentitiesContent connection={connection} /> : null}
-      {routeID === 'resources' ? <AWSResourcesInventoryContent connection={connection} /> : null}
+      {routeID === 'accounts' ? (
+        <AWSAccountsInventoryContent connection={connection} connectPath={connectPath} filters={activeFilters} onFiltersChange={onFiltersChange} />
+      ) : null}
+      {routeID === 'identities' ? (
+        <AWSMachineIdentitiesContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
+      ) : null}
+      {routeID === 'agents' ? (
+        <AWSAgentIdentitiesContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
+      ) : null}
+      {routeID === 'resources' ? (
+        <AWSResourcesInventoryContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
+      ) : null}
     </DomainPageShell>
   );
 }
