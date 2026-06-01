@@ -3481,13 +3481,13 @@ function AWSAgentIdentitiesContent({
       name: connection?.role_arn ?? 'AWS role anchor',
       category: 'Agent-to-role anchor',
       scope: awsAccountRegionLabel(connection),
-      status: connection?.role_arn ? 'role anchor' : 'not yet available',
-      stage: connection?.role_arn ? 'wired' : 'not-available',
+      status: connection?.connected ? 'role anchor' : 'not yet available',
+      stage: connection?.connected ? 'wired' : 'not-available',
       detail: 'Future agent inventory can attach Bedrock or external agent execution back to this AWS role context.',
       filters: {
         surface: 'agentcore-runtime',
         relationship: 'agent-to-role',
-        status: connection?.role_arn ? 'role-anchor' : 'not-yet-available',
+        status: connection?.connected ? 'role-anchor' : 'not-yet-available',
         search: ''
       },
       searchText: inventorySearchText(['agent to role', 'agent', 'role anchor', 'role relationship'])
