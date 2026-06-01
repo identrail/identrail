@@ -23155,6 +23155,134 @@ html[data-theme='light'] .idt-app-shell-screen select {
   color: var(--app-muted);
 }
 
+.idt-aws-risk-boundary,
+.idt-aws-risk-card-grid,
+.idt-aws-findings-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr));
+  gap: 0.75rem;
+}
+
+.idt-aws-runtime-layout,
+.idt-aws-risk-graph-shell,
+.idt-aws-findings-layout,
+.idt-aws-remediation-layout,
+.idt-aws-governance-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(16rem, 0.55fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.idt-aws-risk-boundary article,
+.idt-aws-risk-card-grid article {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.78rem;
+  background: #050505;
+}
+
+.idt-aws-risk-boundary strong,
+.idt-aws-risk-card-grid strong {
+  color: #ffffff;
+}
+
+.idt-aws-risk-card-grid span {
+  justify-self: start;
+  border: 1px solid rgba(255, 153, 0, 0.42);
+  border-radius: 999px;
+  padding: 0.15rem 0.48rem;
+  color: #ffdca8;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.idt-aws-risk-boundary p,
+.idt-aws-risk-card-grid p {
+  margin: 0;
+  color: var(--app-muted);
+  font-size: 0.84rem;
+}
+
+.idt-aws-risk-graph-canvas {
+  position: relative;
+  min-height: 18rem;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px) 0 0 / 2.5rem 2.5rem,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px) 0 0 / 2.5rem 2.5rem,
+    #050505;
+}
+
+.idt-aws-risk-graph-canvas::before,
+.idt-aws-risk-graph-canvas::after {
+  content: '';
+  position: absolute;
+  inset: 19% 18% 25% 20%;
+  border-top: 1px solid rgba(255, 153, 0, 0.35);
+  border-right: 1px solid rgba(88, 166, 255, 0.28);
+  transform: skewY(-9deg);
+}
+
+.idt-aws-risk-graph-canvas::after {
+  inset: 35% 22% 18% 16%;
+  border-color: rgba(255, 255, 255, 0.18);
+  transform: skewY(13deg);
+}
+
+.idt-aws-risk-graph-canvas span {
+  position: absolute;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 5.6rem;
+  min-height: 2.1rem;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  background: #080809;
+  color: #ffffff;
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.idt-aws-risk-graph-canvas .is-identity {
+  top: 16%;
+  left: 12%;
+  border-color: rgba(88, 214, 141, 0.46);
+}
+
+.idt-aws-risk-graph-canvas .is-resource {
+  top: 23%;
+  right: 10%;
+  border-color: rgba(88, 166, 255, 0.44);
+}
+
+.idt-aws-risk-graph-canvas .is-finding {
+  bottom: 18%;
+  left: 22%;
+  border-color: rgba(245, 196, 81, 0.46);
+}
+
+.idt-aws-risk-graph-canvas .is-owner {
+  right: 16%;
+  bottom: 12%;
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.idt-aws-findings-layout .idt-domain-table-wrap,
+.idt-aws-remediation-layout .idt-domain-evidence-panel,
+.idt-aws-governance-layout .idt-domain-status-panel {
+  min-width: 0;
+}
+
 html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-modal,
 html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-list article,
 html[data-theme='light'] .idt-app-console-layout .idt-permission-tier {
@@ -23186,6 +23314,11 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
 	  .idt-aws-status-grid,
 	  .idt-aws-connect-layout,
 	  .idt-aws-inventory-split,
+	  .idt-aws-runtime-layout,
+	  .idt-aws-risk-graph-shell,
+	  .idt-aws-findings-layout,
+	  .idt-aws-remediation-layout,
+	  .idt-aws-governance-layout,
 	  .idt-app-console-layout .idt-aws-connect-panel .idt-source-meta,
 	  .idt-aws-next-actions {
 	    grid-template-columns: 1fr;
@@ -23220,6 +23353,19 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
 
   .idt-domain-data-table {
     min-width: 34rem;
+  }
+
+  .idt-domain-page-shell.is-aws .idt-domain-data-table {
+    min-width: 52rem;
+  }
+
+  .idt-aws-risk-graph-canvas {
+    min-height: 15rem;
+  }
+
+  .idt-aws-risk-graph-canvas span {
+    min-width: 4.8rem;
+    font-size: 0.72rem;
   }
 }
 
