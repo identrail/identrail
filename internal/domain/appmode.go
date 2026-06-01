@@ -230,6 +230,31 @@ func (w Workspace) Validate() error {
 	if w.Status != "" && !validWorkspaceStatus(w.Status) {
 		return fmt.Errorf("workspace.status is invalid")
 	}
+	// Lifecycle field consistency: status and the suspended_at /
+	// deleted_at timestamps must agree, so a caller cannot construct a
+	// Workspace claiming status=active while carrying a deleted_at
+	// timestamp (which would silently survive a status-only refresh and
+	// confuse the worker's purge query).
+	switch w.Status {
+	case "", WorkspaceStatusActive:
+		if w.SuspendedAt != nil {
+			return fmt.Errorf("workspace.suspended_at must be nil when status is active")
+		}
+		if w.DeletedAt != nil {
+			return fmt.Errorf("workspace.deleted_at must be nil when status is active")
+		}
+	case WorkspaceStatusSuspended:
+		if w.SuspendedAt == nil {
+			return fmt.Errorf("workspace.suspended_at is required when status is suspended")
+		}
+		if w.DeletedAt != nil {
+			return fmt.Errorf("workspace.deleted_at must be nil when status is suspended")
+		}
+	case WorkspaceStatusDeleted:
+		if w.DeletedAt == nil {
+			return fmt.Errorf("workspace.deleted_at is required when status is deleted")
+		}
+	}
 	return nil
 }
 

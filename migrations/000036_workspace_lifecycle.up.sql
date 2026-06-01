@@ -9,17 +9,19 @@ ALTER TABLE tenancy_workspaces
     ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
--- Scope the existence check to tenancy_workspaces. A bare conname-only check
--- would skip creating the constraint here if any other table in any schema
--- already had a constraint by the same name, leaving status validation off.
+-- Scope the existence check to the exact target table by OID. Matching on
+-- conname plus relname could still false-positive if another schema in the
+-- same database carries a `tenancy_workspaces` table with a same-named
+-- constraint; the `::regclass` cast resolves against the current
+-- search_path so we compare to the exact OID of the table this migration
+-- targets, leaving the constraint missing on the wrong row impossible.
 DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1
         FROM pg_constraint c
-        JOIN pg_class t ON t.oid = c.conrelid
         WHERE c.conname = 'tenancy_workspaces_status_check'
-          AND t.relname = 'tenancy_workspaces'
+          AND c.conrelid = 'tenancy_workspaces'::regclass
     ) THEN
         ALTER TABLE tenancy_workspaces
             ADD CONSTRAINT tenancy_workspaces_status_check

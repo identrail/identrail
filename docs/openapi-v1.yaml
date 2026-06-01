@@ -2429,8 +2429,10 @@ paths:
       summary: Cancel workspace deletion
       description: |
         Owner-only. Reverses a soft delete within the 30-day grace window.
-        Returns `410 grace_period_expired` once the worker is authoritative
-        for the purge.
+        Returns `409 deletion_not_pending` when the workspace is not in
+        the soft-deleted state (no deletion to cancel). Returns
+        `410 grace_period_expired` once the worker is authoritative for
+        the purge.
       operationId: cancelWorkspaceDeletion
       parameters:
         - in: path
@@ -2450,6 +2452,18 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            Workspace is not pending deletion (e.g. it is active or
+            already suspended). The cancel-deletion path is reserved
+            for soft-deleted workspaces inside the grace window.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  code: { type: string, enum: [deletion_not_pending] }
         "410":
           description: Grace period has expired; worker is authoritative
           content:

@@ -145,6 +145,87 @@ func TestAppModeEntityValidationFailsOnMissingRequiredFields(t *testing.T) {
 	}
 }
 
+func TestWorkspaceValidateEnforcesLifecycleConsistency(t *testing.T) {
+	// Pin the status ↔ timestamp invariants enforced by Workspace.Validate
+	// after the round-6 cubic review on PR #1445. A caller constructing a
+	// Workspace with contradictory lifecycle fields (e.g. status=active
+	// while deleted_at is non-nil) must be refused so a status-only
+	// refresh cannot leave the row in a state the worker would still
+	// purge.
+	base := func() Workspace {
+		return Workspace{
+			ID:             "ws-1",
+			OrganizationID: "tenant-a",
+			Name:           "Workspace 1",
+			Slug:           "ws-1",
+		}
+	}
+	now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+
+	t.Run("active_with_suspended_at", func(t *testing.T) {
+		ws := base()
+		ws.Status = WorkspaceStatusActive
+		ws.SuspendedAt = &now
+		if err := ws.Validate(); err == nil {
+			t.Fatal("expected active+suspended_at to fail")
+		}
+	})
+	t.Run("active_with_deleted_at", func(t *testing.T) {
+		ws := base()
+		ws.Status = WorkspaceStatusActive
+		ws.DeletedAt = &now
+		if err := ws.Validate(); err == nil {
+			t.Fatal("expected active+deleted_at to fail")
+		}
+	})
+	t.Run("suspended_without_timestamp", func(t *testing.T) {
+		ws := base()
+		ws.Status = WorkspaceStatusSuspended
+		if err := ws.Validate(); err == nil {
+			t.Fatal("expected suspended without suspended_at to fail")
+		}
+	})
+	t.Run("suspended_with_deleted_at", func(t *testing.T) {
+		ws := base()
+		ws.Status = WorkspaceStatusSuspended
+		ws.SuspendedAt = &now
+		ws.DeletedAt = &now
+		if err := ws.Validate(); err == nil {
+			t.Fatal("expected suspended+deleted_at to fail")
+		}
+	})
+	t.Run("deleted_without_timestamp", func(t *testing.T) {
+		ws := base()
+		ws.Status = WorkspaceStatusDeleted
+		if err := ws.Validate(); err == nil {
+			t.Fatal("expected deleted without deleted_at to fail")
+		}
+	})
+	t.Run("valid_active", func(t *testing.T) {
+		ws := base()
+		ws.Status = WorkspaceStatusActive
+		if err := ws.Validate(); err != nil {
+			t.Fatalf("expected valid active workspace, got %v", err)
+		}
+	})
+	t.Run("valid_suspended", func(t *testing.T) {
+		ws := base()
+		ws.Status = WorkspaceStatusSuspended
+		ws.SuspendedAt = &now
+		if err := ws.Validate(); err != nil {
+			t.Fatalf("expected valid suspended workspace, got %v", err)
+		}
+	})
+	t.Run("valid_deleted", func(t *testing.T) {
+		ws := base()
+		ws.Status = WorkspaceStatusDeleted
+		ws.DeletedAt = &now
+		if err := ws.Validate(); err != nil {
+			t.Fatalf("expected valid deleted workspace, got %v", err)
+		}
+	})
+}
+
 func TestAppModeIdentifierRejectsSurroundingWhitespace(t *testing.T) {
 	org := Organization{
 		ID:   "  org-1  ",

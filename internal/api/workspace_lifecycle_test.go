@@ -546,6 +546,18 @@ func TestWorkspaceLifecycleNonOwnerRolesForbidden(t *testing.T) {
 				if w.Code != http.StatusForbidden {
 					t.Fatalf("expected %s %s 403 for %s role, got %d body=%s", p.method, p.path, role, w.Code, w.Body.String())
 				}
+				// All non-owner roles are now refused upstream at the
+				// route table (`tenancyOwnerRoles = ["owner"]`), so the
+				// body shape is the generic authz `forbidden` payload
+				// for every case. The service-level `requireWorkspaceOwner`
+				// path that returns the structured `owner_required` code
+				// is exercised directly in workspace_lifecycle_service_test.go;
+				// asserting it via session auth here is impossible
+				// because the route table refuses before the handler
+				// runs.
+				if !strings.Contains(w.Body.String(), `"error":"forbidden"`) {
+					t.Fatalf("expected route-table forbidden body for %s on %s %s, got %s", role, p.method, p.path, w.Body.String())
+				}
 			}
 		})
 	}
