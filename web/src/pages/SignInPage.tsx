@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { apiClient, buildAPIURL, type AuthConfigResponse } from '../api/client';
 import { getCachedAuthConfig, loadAuthConfig } from '../authConfigCache';
+import { clearMeCache } from '../hooks/useMe';
 
 type AuthIntent = 'login' | 'signup';
 
@@ -81,6 +82,7 @@ type AuthReasonDetails = {
   message: string;
   actionLabel?: string;
   actionHref?: string;
+  actionKind?: 'cancel-deletion';
 };
 
 function authPathWithReturnTo(path: string, returnTo: string): string {
@@ -92,7 +94,15 @@ function authPathWithReturnTo(path: string, returnTo: string): string {
   return encoded ? `${path}?${encoded}` : path;
 }
 
-function authReasonDetails(reason: string, returnTo: string): AuthReasonDetails | null {
+function formatAuthDateLabel(value: string | null): string {
+  const parsed = new Date(value ?? '');
+  if (Number.isNaN(parsed.getTime())) {
+    return '';
+  }
+  return parsed.toLocaleString();
+}
+
+function authReasonDetails(reason: string, returnTo: string, hardDeleteAfter: string | null): AuthReasonDetails | null {
   switch (reason) {
     case 'session_expired':
       return { message: 'Your session expired. Sign in again to continue.' };
@@ -118,6 +128,16 @@ function authReasonDetails(reason: string, returnTo: string): AuthReasonDetails 
         actionLabel: 'Reactivate account',
         actionHref: authPathWithReturnTo('/signup', returnTo)
       };
+    case 'account_pending_deletion': {
+      const deletionDate = formatAuthDateLabel(hardDeleteAfter);
+      return {
+        message: deletionDate
+          ? `Your Identrail account is scheduled for permanent deletion on ${deletionDate}.`
+          : 'Your Identrail account is scheduled for permanent deletion.',
+        actionLabel: 'Cancel account deletion',
+        actionKind: 'cancel-deletion'
+      };
+    }
     case 'identity_conflict':
       return {
         message:
@@ -192,13 +212,19 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
   const query = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const returnTo = normalizeReturnTo(query.get('return_to') ?? query.get('next'));
   const signedOut = query.get('signed_out') === '1';
-  const reason = authReasonDetails(query.get('reason') ?? '', returnTo);
+  const reason = authReasonDetails(
+    query.get('reason') ?? '',
+    returnTo,
+    query.get('hard_delete_after') ?? query.get('delete_at')
+  );
   const initialConfig = getCachedAuthConfig();
   const [config, setConfig] = useState<AuthConfigResponse | null>(initialConfig);
   const [loadingConfig, setLoadingConfig] = useState(!initialConfig);
   const [configError, setConfigError] = useState('');
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [manualError, setManualError] = useState('');
+  const [cancelDeletionPending, setCancelDeletionPending] = useState(false);
+  const [cancelDeletionError, setCancelDeletionError] = useState('');
   const [authTheme, setAuthTheme] = useState<AuthTheme>('dark');
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [prefersDark, setPrefersDark] = useState(true);
@@ -278,6 +304,21 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
     }
   };
 
+  const handleCancelDeletion = async () => {
+    if (cancelDeletionPending) return;
+    setCancelDeletionPending(true);
+    setCancelDeletionError('');
+    try {
+      await apiClient.cancelCurrentUserDeletion();
+      clearMeCache();
+      navigate(returnTo, { replace: true });
+    } catch (error) {
+      setCancelDeletionError(error instanceof Error ? error.message : 'Unable to cancel account deletion.');
+    } finally {
+      setCancelDeletionPending(false);
+    }
+  };
+
   const providerIDs = config?.auth.providers ?? [];
   const hostedProviders =
     config?.auth.workos_login_enabled === true
@@ -307,16 +348,30 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
 
           {signedOut ? <p className="idt-app-alert idt-app-alert-success">Signed out successfully.</p> : null}
           {reason ? (
-            <p className="idt-app-alert">
+            <div className="idt-app-alert">
               {reason.message}
-              {reason.actionHref && reason.actionLabel ? (
+              {reason.actionKind === 'cancel-deletion' && reason.actionLabel ? (
+                <>
+                  {' '}
+                  <button
+                    className="idt-inline-button-link"
+                    disabled={cancelDeletionPending}
+                    onClick={handleCancelDeletion}
+                    type="button"
+                  >
+                    {cancelDeletionPending ? 'Canceling deletion...' : reason.actionLabel}
+                  </button>
+                  .
+                </>
+              ) : reason.actionHref && reason.actionLabel ? (
                 <>
                   {' '}
                   <Link to={reason.actionHref}>{reason.actionLabel}</Link>.
                 </>
               ) : null}
-            </p>
+            </div>
           ) : null}
+          {cancelDeletionError ? <p className="idt-app-alert idt-app-alert-error">{cancelDeletionError}</p> : null}
 
           {configError ? <p className="idt-app-alert idt-app-alert-error">{configError}</p> : null}
 

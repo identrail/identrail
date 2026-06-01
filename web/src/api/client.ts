@@ -439,6 +439,24 @@ export type CurrentUserProfileUpdate = {
   avatar_url?: string;
 };
 
+export type AccountDeletionWorkspace = {
+  tenant_id: string;
+  workspace_id: string;
+  display_name?: string;
+  slug?: string;
+};
+
+export type DeleteCurrentUserResponse = {
+  status: 'deleted';
+  deleted_at?: string | null;
+  hard_delete_after?: string;
+  grace_period_hours?: number;
+};
+
+export type CancelCurrentUserDeletionResponse = {
+  status: 'active';
+};
+
 export type OnboardingStep = 'org' | 'workspace' | 'connect' | 'scan' | 'invite' | 'complete';
 
 export type OnboardingState = {
@@ -1069,13 +1087,15 @@ export class ApiError extends Error {
   status: number;
   code?: string;
   detail?: string;
+  payload?: unknown;
 
-  constructor(message: string, status: number, options: { code?: string; detail?: string } = {}) {
+  constructor(message: string, status: number, options: { code?: string; detail?: string; payload?: unknown } = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = options.code;
     this.detail = options.detail;
+    this.payload = options.payload;
   }
 }
 
@@ -1151,20 +1171,27 @@ async function request<T>(path: string, auth?: RequestAuthContext, init: Identra
     let message = `Request failed (${res.status})`;
     let code: string | undefined;
     let detail: string | undefined;
+    let payload: unknown;
     try {
-      const payload = (await res.json()) as { error?: string; error_code?: string; error_detail?: string };
-      if (payload?.error) {
-        message = payload.error;
+      payload = await res.json();
+      const errorPayload = payload as {
+        error?: string;
+        error_code?: string;
+        error_detail?: string;
+        code?: string;
+      };
+      if (errorPayload?.error) {
+        message = errorPayload.error;
       }
-      code = payload?.error_code;
-      detail = payload?.error_detail;
+      code = errorPayload?.error_code ?? errorPayload?.code;
+      detail = errorPayload?.error_detail;
     } catch {
       // Keep status-based message when server does not return a JSON error body.
     }
     if (res.status === 401 && redirectOnUnauthorized) {
       redirectToSignInForUnauthorized();
     }
-    throw new ApiError(message, res.status, { code, detail });
+    throw new ApiError(message, res.status, { code, detail, payload });
   }
   if (res.status === 204) {
     return undefined as T;
@@ -1218,6 +1245,17 @@ export const apiClient = {
   reactivateCurrentUser() {
     return request<{ status: 'active' }>('/v1/me/reactivate', undefined, {
       method: 'POST'
+    });
+  },
+  deleteMe() {
+    return request<DeleteCurrentUserResponse>('/v1/me', undefined, {
+      method: 'DELETE'
+    });
+  },
+  cancelCurrentUserDeletion() {
+    return request<CancelCurrentUserDeletionResponse>('/v1/me/cancel-deletion', undefined, {
+      method: 'POST',
+      redirectOnUnauthorized: false
     });
   },
   enqueueDataExport(init: RequestInit = {}) {
