@@ -3019,6 +3019,9 @@ function awsCoverageState(connection: AWSConnectionStatus | null): string {
   if (!connection.connected) {
     return 'degraded';
   }
+  if (connection.health_status === 'warning' || connection.status === 'degraded') {
+    return 'degraded';
+  }
   if (connection.permission_checks.some((check) => !check.passed)) {
     return 'degraded';
   }
