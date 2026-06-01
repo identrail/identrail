@@ -7557,7 +7557,12 @@ export function ProductShellLayout() {
     window.addEventListener('scroll', scheduleUpdate, { passive: true });
     window.addEventListener('resize', scheduleUpdate);
 
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleUpdate);
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver((_entries, _observer) => {
+            scheduleUpdate();
+          });
     observer?.observe(document.documentElement);
     observer?.observe(document.body);
 
