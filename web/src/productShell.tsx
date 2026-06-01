@@ -2862,6 +2862,7 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
       label: 'Sensitivity',
       options: [
         { label: 'All sensitivity', value: 'all' },
+        { label: 'Credential reference', value: 'credential-reference' },
         { label: 'Production', value: 'production' },
         { label: 'Customer data', value: 'customer-data' },
         { label: 'Secret-bearing', value: 'secret-bearing' },
@@ -3509,7 +3510,7 @@ function AWSAgentIdentitiesContent({
       status: 'coming',
       stage: 'coming',
       detail: 'Will map AgentCore runtime, gateway, identity metadata, MCP gateway, and tool relationships.',
-      filters: { surface: 'agentcore-runtime', relationship: 'agent-to-tool', status: 'coming', search: '' },
+      filters: { surface: 'agentcore-runtime,mcp-gateway', relationship: 'agent-to-tool', status: 'coming', search: '' },
       searchText: inventorySearchText(['agentcore', 'runtime', 'gateway', 'identity'])
     },
     {
@@ -3592,7 +3593,7 @@ function AWSResourcesInventoryContent({
       status: 'coming',
       stage: 'coming',
       detail: 'Parameter paths, tags, encryption metadata, and reachability hints without value reads.',
-      filters: { category: 'ssm-parameter', sensitivity: 'credential reference', readPosture: 'metadata-only', search: '' },
+      filters: { category: 'ssm-parameter', sensitivity: 'credential-reference', readPosture: 'metadata-only', search: '' },
       searchText: inventorySearchText(['ssm parameter', 'reference', 'tags', 'encryption'])
     },
     {
@@ -3728,12 +3729,14 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
         />
       ) : null}
 
-      <AWSInventoryPrerequisites
-        scope={scope}
-        selectedEnvironmentID={selectedEnvironmentID}
-        connection={connection}
-        connectPath={connectPath}
-      />
+      {!environmentScope.loading && !connectionLoading && !connectionError ? (
+        <AWSInventoryPrerequisites
+          scope={scope}
+          selectedEnvironmentID={selectedEnvironmentID}
+          connection={connection}
+          connectPath={connectPath}
+        />
+      ) : null}
 
       <DomainStatusPanel eyebrow="Current vs planned" title="Inventory capability boundary" status={copy.statusLabel} tone="info">
         <div className="idt-aws-inventory-boundary">
