@@ -29,9 +29,13 @@ import {
   ProductAppIndexRedirect,
   ProductAuthCallbackRedirectPage,
   ProductAIRisksPage,
+  ProductAWSAccountsPage,
+  ProductAWSAgentsPage,
   ProductAWSControlCenterPage,
   ProductDomainRoutePage,
   ProductAWSConnectPage,
+  ProductAWSIdentitiesPage,
+  ProductAWSResourcesPage,
   ProductExecutiveReportPage,
   ProductFindingsPage,
   ProductGitHubActionsPage,
@@ -4779,10 +4783,10 @@ export function RoutedSite() {
             <Route path="ai-risks" element={<LegacyScopedAppRedirect target="github/agentic-risk" />} />
             <Route path="aws" element={<ProductAWSControlCenterPage />} />
             <Route path="aws/connect" element={<ProductAWSConnectPage />} />
-            <Route path="aws/accounts" element={<ProductDomainRoutePage domain="aws" routeID="accounts" />} />
-            <Route path="aws/identities" element={<ProductDomainRoutePage domain="aws" routeID="identities" />} />
-            <Route path="aws/agents" element={<ProductDomainRoutePage domain="aws" routeID="agents" />} />
-            <Route path="aws/resources" element={<ProductDomainRoutePage domain="aws" routeID="resources" />} />
+            <Route path="aws/accounts" element={<ProductAWSAccountsPage />} />
+            <Route path="aws/identities" element={<ProductAWSIdentitiesPage />} />
+            <Route path="aws/agents" element={<ProductAWSAgentsPage />} />
+            <Route path="aws/resources" element={<ProductAWSResourcesPage />} />
             <Route path="aws/runtime" element={<ProductDomainRoutePage domain="aws" routeID="runtime" />} />
             <Route path="aws/graph" element={<ProductDomainRoutePage domain="aws" routeID="graph" />} />
             <Route path="aws/findings" element={<ProductDomainRoutePage domain="aws" routeID="findings" />} />

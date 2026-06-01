@@ -23075,6 +23075,86 @@ html[data-theme='light'] .idt-app-shell-screen select {
   font-weight: 850;
 }
 
+.idt-aws-inventory-boundary,
+.idt-aws-inventory-coverage,
+.idt-aws-resource-coverage-grid,
+.idt-aws-agent-relationship-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr));
+  gap: 0.75rem;
+}
+
+.idt-aws-inventory-boundary article,
+.idt-aws-agent-relationship-grid article {
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.78rem;
+  background: #050505;
+}
+
+.idt-aws-inventory-boundary strong,
+.idt-aws-agent-relationship-grid strong,
+.idt-domain-data-table strong {
+  color: #ffffff;
+}
+
+.idt-aws-inventory-boundary p,
+.idt-aws-agent-relationship-grid p {
+  margin-top: 0.22rem;
+}
+
+.idt-aws-inventory-table-cell {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.idt-aws-inventory-table-cell strong,
+.idt-aws-inventory-table-cell p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.idt-aws-inventory-table-cell p {
+  margin: 0;
+  color: var(--app-muted);
+}
+
+.idt-aws-inventory-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(16rem, 0.55fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.idt-aws-inventory-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.55rem;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  padding: 0.18rem 0.52rem;
+  background: #050505;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.idt-aws-inventory-pill.is-success {
+  border-color: rgba(88, 214, 141, 0.5);
+  color: #acf2c4;
+}
+
+.idt-aws-inventory-pill.is-warning {
+  border-color: rgba(255, 153, 0, 0.48);
+  color: #ffdca8;
+}
+
+.idt-aws-inventory-pill.is-neutral {
+  color: var(--app-muted);
+}
+
 html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-modal,
 html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-list article,
 html[data-theme='light'] .idt-app-console-layout .idt-permission-tier {
@@ -23102,13 +23182,14 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
 @media (max-width: 1100px) {
   .idt-domain-header,
   .idt-domain-page-body.has-subnav,
-  .idt-domain-page-body.has-subnav.has-aside,
-  .idt-aws-status-grid,
-  .idt-aws-connect-layout,
-  .idt-app-console-layout .idt-aws-connect-panel .idt-source-meta,
-  .idt-aws-next-actions {
-    grid-template-columns: 1fr;
-  }
+	  .idt-domain-page-body.has-subnav.has-aside,
+	  .idt-aws-status-grid,
+	  .idt-aws-connect-layout,
+	  .idt-aws-inventory-split,
+	  .idt-app-console-layout .idt-aws-connect-panel .idt-source-meta,
+	  .idt-aws-next-actions {
+	    grid-template-columns: 1fr;
+	  }
 
   .idt-domain-header-aside {
     justify-items: start;
