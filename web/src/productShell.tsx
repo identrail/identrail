@@ -7560,7 +7560,7 @@ export function ProductShellLayout() {
     const observer =
       typeof ResizeObserver === 'undefined'
         ? null
-        : new ResizeObserver((_entries, _observer) => {
+        : new ResizeObserver(() => {
             scheduleUpdate();
           });
     observer?.observe(document.documentElement);
