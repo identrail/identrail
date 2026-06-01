@@ -1237,13 +1237,11 @@ function countMembersByRole(members: WorkspaceMemberRecord[], role: WorkspaceMem
 
 type ProfileDraft = {
   displayName: string;
-  avatarUrl: string;
 };
 
 function profileDraftFromMe(me: CurrentUserContext | null | undefined): ProfileDraft {
   return {
-    displayName: me?.user.display_name ?? '',
-    avatarUrl: me?.user.avatar_url ?? ''
+    displayName: me?.user.display_name ?? ''
   };
 }
 
@@ -1300,7 +1298,10 @@ function formatSettingsAuthProviders(config: AuthConfigResponse | null): string 
   return 'Session-only';
 }
 
-function validateProfileDraft(draft: ProfileDraft, options: { validateAvatarUrl?: boolean } = {}): string {
+const PROFILE_AVATAR_MAX_BYTES = 512 * 1024;
+const PROFILE_AVATAR_ALLOWED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
+function validateProfileDraft(draft: ProfileDraft): string {
   const displayName = draft.displayName.trim();
   if (!displayName || Array.from(displayName).length > 80) {
     return 'Display name must be 1-80 characters.';
@@ -1308,25 +1309,32 @@ function validateProfileDraft(draft: ProfileDraft, options: { validateAvatarUrl?
   if (Array.from(displayName).some(isUnsafeProfileNameCharacter)) {
     return 'Display name cannot contain control or bidirectional formatting characters.';
   }
-  const avatarUrl = draft.avatarUrl.trim();
-  if (options.validateAvatarUrl === false) {
-    return '';
+  return '';
+}
+
+function validateProfileAvatarFile(file: File): string {
+  if (!PROFILE_AVATAR_ALLOWED_TYPES.has(file.type)) {
+    return 'Profile photo must be PNG, JPG, WebP, or GIF.';
   }
-  if (!avatarUrl) {
-    return '';
-  }
-  try {
-    const parsed = new URL(avatarUrl);
-    if (parsed.protocol !== 'https:') {
-      return 'Photo URL must use https.';
-    }
-    if (parsed.username || parsed.password) {
-      return 'Photo URL cannot include credentials.';
-    }
-  } catch {
-    return 'Photo URL must be a valid https URL.';
+  if (file.size > PROFILE_AVATAR_MAX_BYTES) {
+    return 'Profile photo must be smaller than 512 KB.';
   }
   return '';
+}
+
+function readProfileAvatarFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error('Unable to read profile photo.'));
+    };
+    reader.onerror = () => reject(new Error('Unable to read profile photo.'));
+    reader.readAsDataURL(file);
+  });
 }
 
 function isUnsafeProfileNameCharacter(char: string): boolean {
@@ -7588,7 +7596,6 @@ export function ProductShellLayout() {
               </span>
               <span className="idt-app-sidebar-workspace-copy">
                 <strong>{workspaceDisplayName}</strong>
-                <span>Identrail</span>
               </span>
               <span className="idt-app-sidebar-workspace-caret" aria-hidden="true">
                 <ChevronDown size={12} strokeWidth={2} />
@@ -14051,7 +14058,7 @@ export function ProductSettingsPage() {
   >({ kind: 'idle' });
   const exportAbortRef = useRef<AbortController | null>(null);
   const avatarControlRef = useRef<HTMLDivElement | null>(null);
-  const profilePhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
   const [profileEditing, setProfileEditing] = useState(false);
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
   const [profileDraft, setProfileDraft] = useState<ProfileDraft>(() => profileDraftFromMe(me));
@@ -14159,7 +14166,7 @@ export function ProductSettingsPage() {
       setProfileDraft(profileDraftFromMe(me));
       setProfileError('');
     }
-  }, [me?.user.display_name, me?.user.avatar_url, profileEditing, profileSaving]);
+  }, [me?.user.display_name, profileEditing, profileSaving]);
 
   useEffect(() => {
     if (!avatarMenuOpen) {
@@ -14208,22 +14215,16 @@ export function ProductSettingsPage() {
   const developerScopeLabel = scopes.length ? scopes.map(formatTokenLabel).join(', ') : 'No custom restrictions';
   const developerProviderLabel = authProviders.length ? authProviders.join(', ') : 'None advertised';
 
-  const focusProfilePhotoInput = () => {
-    window.requestAnimationFrame(() => profilePhotoInputRef.current?.focus());
-  };
-
   const handleProfileEdit = () => {
     if (profileEditing) {
       setProfileError('');
       setAvatarMenuOpen(false);
-      focusProfilePhotoInput();
       return;
     }
     setProfileDraft(profileDraftFromMe(me));
     setProfileError('');
     setProfileEditing(true);
     setAvatarMenuOpen(false);
-    focusProfilePhotoInput();
   };
 
   const handleProfileCancel = () => {
@@ -14253,14 +14254,11 @@ export function ProductSettingsPage() {
     setProfileSaving(true);
     setProfileError('');
     primeMeCache(optimisticMe);
-    if (wasProfileEditing) {
-      setProfileDraft({ ...previousDraft, avatarUrl: '' });
-    }
     try {
       const response = await apiClient.updateMe({ avatar_url: '' });
       primeMeCache(response.me);
       if (wasProfileEditing) {
-        setProfileDraft((draft) => ({ ...draft, avatarUrl: '' }));
+        setProfileDraft(previousDraft);
       } else {
         setProfileDraft(profileDraftFromMe(response.me));
         setProfileEditing(false);
@@ -14274,6 +14272,64 @@ export function ProductSettingsPage() {
     }
   };
 
+  const handleAvatarUploadClick = () => {
+    if (!me || profileSaving) {
+      return;
+    }
+    setAvatarMenuOpen(false);
+    setProfileError('');
+    avatarFileInputRef.current?.click();
+  };
+
+  const handleAvatarFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (!file || !me || profileSaving) {
+      return;
+    }
+    const validationError = validateProfileAvatarFile(file);
+    if (validationError) {
+      setProfileError(validationError);
+      return;
+    }
+    const previousMe = me;
+    const previousDraft = profileDraft;
+    const wasProfileEditing = profileEditing;
+    let nextAvatarURL = '';
+    try {
+      nextAvatarURL = await readProfileAvatarFile(file);
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : 'Unable to read profile photo.');
+      return;
+    }
+    const optimisticMe: CurrentUserContext = {
+      ...previousMe,
+      user: {
+        ...previousMe.user,
+        avatar_url: nextAvatarURL,
+        updated_at: new Date().toISOString()
+      }
+    };
+    setProfileSaving(true);
+    setProfileError('');
+    primeMeCache(optimisticMe);
+    try {
+      const response = await apiClient.updateMe({ avatar_url: nextAvatarURL });
+      primeMeCache(response.me);
+      if (wasProfileEditing) {
+        setProfileDraft(previousDraft);
+      } else {
+        setProfileDraft(profileDraftFromMe(response.me));
+      }
+    } catch (err) {
+      primeMeCache(previousMe);
+      setProfileDraft(wasProfileEditing ? previousDraft : profileDraftFromMe(previousMe));
+      setProfileError(err instanceof Error ? err.message : 'Unable to update profile photo.');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
   const handleProfileSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!me) {
@@ -14282,17 +14338,14 @@ export function ProductSettingsPage() {
     }
     const previousMe = me;
     const previousDisplayName = previousMe.user.display_name?.trim() ?? '';
-    const previousAvatarURL = previousMe.user.avatar_url?.trim() ?? '';
     const nextDisplayName = profileDraft.displayName.trim();
-    const nextAvatarURL = profileDraft.avatarUrl.trim();
     const displayNameChanged = nextDisplayName !== previousDisplayName;
-    const avatarURLChanged = nextAvatarURL !== previousAvatarURL;
-    const validationError = validateProfileDraft(profileDraft, { validateAvatarUrl: avatarURLChanged });
+    const validationError = validateProfileDraft(profileDraft);
     if (validationError) {
       setProfileError(validationError);
       return;
     }
-    if (!displayNameChanged && !avatarURLChanged) {
+    if (!displayNameChanged) {
       setProfileError('');
       setProfileEditing(false);
       return;
@@ -14302,7 +14355,6 @@ export function ProductSettingsPage() {
       user: {
         ...previousMe.user,
         display_name: nextDisplayName,
-        avatar_url: nextAvatarURL,
         updated_at: new Date().toISOString()
       }
     };
@@ -14311,8 +14363,7 @@ export function ProductSettingsPage() {
     primeMeCache(optimisticMe);
     try {
       const payload = {
-        ...(displayNameChanged ? { display_name: nextDisplayName } : {}),
-        ...(avatarURLChanged ? { avatar_url: nextAvatarURL } : {})
+        display_name: nextDisplayName
       };
       const response = await apiClient.updateMe(payload);
       primeMeCache(response.me);
@@ -14453,6 +14504,15 @@ export function ProductSettingsPage() {
             data-menu-open={avatarMenuOpen ? 'true' : 'false'}
             ref={avatarControlRef}
           >
+            <input
+              ref={avatarFileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              hidden
+              onChange={(event) => {
+                void handleAvatarFileChange(event);
+              }}
+            />
             <button
               type="button"
               className="idt-profile-avatar"
@@ -14469,7 +14529,7 @@ export function ProductSettingsPage() {
             </button>
             {avatarMenuOpen ? (
               <div className="idt-profile-avatar-menu" role="menu">
-                <button type="button" role="menuitem" onClick={handleProfileEdit}>
+                <button type="button" role="menuitem" onClick={handleAvatarUploadClick} disabled={profileSaving}>
                   {profileAvatarURL ? 'Update photo' : 'Upload photo'}
                 </button>
                 {profileAvatarURL ? (
@@ -14495,14 +14555,12 @@ export function ProductSettingsPage() {
                 />
               </label>
               <label>
-                Photo URL
+                Email
                 <input
-                  ref={profilePhotoInputRef}
-                  type="url"
-                  value={profileDraft.avatarUrl}
-                  onChange={(event) => setProfileDraft((draft) => ({ ...draft, avatarUrl: event.target.value }))}
-                  disabled={profileSaving}
-                  placeholder="https://..."
+                  type="email"
+                  value={primaryEmail || 'Unavailable'}
+                  disabled
+                  readOnly
                 />
               </label>
               {profileError ? (

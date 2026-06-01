@@ -514,7 +514,6 @@ describe('ProductSettingsPage profile', () => {
       user: {
         ...loggedInWithWorkspace.user,
         display_name: 'Updated Owner',
-        avatar_url: 'https://avatars.githubusercontent.com/u/42?v=4',
         updated_at: '2026-05-17T10:00:00Z'
       }
     };
@@ -523,27 +522,48 @@ describe('ProductSettingsPage profile', () => {
     expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }));
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: '  Updated Owner  ' } });
-    fireEvent.change(screen.getByLabelText('Photo URL'), {
-      target: { value: 'https://avatars.githubusercontent.com/u/42?v=4' }
-    });
+    expect(screen.queryByLabelText('Photo URL')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
 
-    await waitFor(() =>
-      expect(updateMe).toHaveBeenCalledWith({
-        display_name: 'Updated Owner',
-        avatar_url: 'https://avatars.githubusercontent.com/u/42?v=4'
-      })
-    );
+    await waitFor(() => expect(updateMe).toHaveBeenCalledWith({ display_name: 'Updated Owner' }));
     expect(primeMeCache).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         user: expect.objectContaining({
-          display_name: 'Updated Owner',
-          avatar_url: 'https://avatars.githubusercontent.com/u/42?v=4'
+          display_name: 'Updated Owner'
         })
       })
     );
     await waitFor(() => expect(primeMeCache).toHaveBeenLastCalledWith(updatedMe));
+  });
+
+  it('uploads profile photos from the avatar menu without exposing a URL field', async () => {
+    const updatedMe: CurrentUserContext = {
+      ...loggedInWithWorkspace,
+      user: {
+        ...loggedInWithWorkspace.user,
+        avatar_url: 'data:image/png;base64,YXZhdGFy',
+        updated_at: '2026-05-17T10:00:00Z'
+      }
+    };
+    const { updateMe } = await renderProductSettingsPage({ updateMe: updatedMe });
+
+    expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Photo URL')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Update or delete profile photo/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Update photo' }));
+
+    const avatarInput = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(avatarInput).toBeTruthy();
+    fireEvent.change(avatarInput!, {
+      target: { files: [new File(['avatar'], 'avatar.png', { type: 'image/png' })] }
+    });
+
+    await waitFor(() =>
+      expect(updateMe).toHaveBeenCalledWith({
+        avatar_url: expect.stringMatching(/^data:image\/png;base64,/)
+      })
+    );
   });
 
   it('keeps unsaved profile edits when deleting the profile photo', async () => {
@@ -560,50 +580,56 @@ describe('ProductSettingsPage profile', () => {
     expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }));
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Unsaved Owner' } });
-    fireEvent.change(screen.getByLabelText('Photo URL'), {
-      target: { value: 'https://avatars.githubusercontent.com/u/99?v=4' }
-    });
 
     fireEvent.click(screen.getByRole('button', { name: /Update or delete profile photo/i }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Delete photo' }));
 
     await waitFor(() => expect(updateMe).toHaveBeenCalledWith({ avatar_url: '' }));
     expect(screen.getByLabelText('Display name')).toHaveValue('Unsaved Owner');
-    expect(screen.getByLabelText('Photo URL')).toHaveValue('');
+    expect(screen.queryByLabelText('Photo URL')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save profile' })).toBeInTheDocument();
   });
 
-  it('keeps unsaved profile edits when reopening the photo editor', async () => {
-    await renderProductSettingsPage();
+  it('keeps unsaved profile edits when updating the profile photo', async () => {
+    const updatedMe: CurrentUserContext = {
+      ...loggedInWithWorkspace,
+      user: {
+        ...loggedInWithWorkspace.user,
+        avatar_url: 'data:image/png;base64,YXZhdGFy',
+        updated_at: '2026-05-17T10:00:00Z'
+      }
+    };
+    const { updateMe } = await renderProductSettingsPage({ updateMe: updatedMe });
 
     expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }));
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Draft Owner' } });
-    fireEvent.change(screen.getByLabelText('Photo URL'), {
-      target: { value: 'https://avatars.githubusercontent.com/u/99?v=4' }
-    });
 
     fireEvent.click(screen.getByRole('button', { name: /Update or delete profile photo/i }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Update photo' }));
+    const avatarInput = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(avatarInput).toBeTruthy();
+    fireEvent.change(avatarInput!, {
+      target: { files: [new File(['avatar'], 'avatar.png', { type: 'image/png' })] }
+    });
 
+    await waitFor(() => expect(updateMe).toHaveBeenCalledWith({ avatar_url: expect.any(String) }));
     expect(screen.getByLabelText('Display name')).toHaveValue('Draft Owner');
-    expect(screen.getByLabelText('Photo URL')).toHaveValue('https://avatars.githubusercontent.com/u/99?v=4');
-    await waitFor(() => expect(screen.getByLabelText('Photo URL')).toHaveFocus());
+    expect(screen.queryByLabelText('Photo URL')).not.toBeInTheDocument();
   });
 
   it('rolls back the optimistic profile update when saving fails', async () => {
     const { primeMeCache, updateMe } = await renderProductSettingsPage({
-      updateMe: new Error('avatar_url host is not allowed')
+      updateMe: new Error('profile update failed')
     });
 
     expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }));
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Blocked Owner' } });
-    fireEvent.change(screen.getByLabelText('Photo URL'), { target: { value: 'https://example.com/avatar.png' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
 
     await waitFor(() => expect(updateMe).toHaveBeenCalled());
-    expect(await screen.findByRole('alert')).toHaveTextContent('avatar_url host is not allowed');
+    expect(await screen.findByRole('alert')).toHaveTextContent('profile update failed');
     expect(primeMeCache).toHaveBeenLastCalledWith(loggedInWithWorkspace);
   });
 
