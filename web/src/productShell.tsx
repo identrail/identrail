@@ -3225,6 +3225,7 @@ function AWSAccountsInventoryContent({
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
   const accountCoverage = awsCoverageState(connection);
+  const hasHealthyCoverage = accountCoverage === 'covered';
   const currentCoverageFilter = accountCoverage === 'covered' ? 'covered' : accountCoverage === 'degraded' ? 'degraded' : 'missing';
   const rows: AWSInventoryCoverageRow[] = [
     {
@@ -3308,8 +3309,8 @@ function AWSAccountsInventoryContent({
     <>
       <AWSInventoryFilterSet routeID="accounts" filters={filters} onChange={onFiltersChange} />
       <section className="idt-aws-inventory-coverage" aria-label="AWS account and region coverage map">
-        <DomainCoverageCard label="Account coverage" scanned={connection?.account_id ? 1 : 0} total={1} detail="Selected environment" />
-        <DomainCoverageCard label="Region coverage" scanned={connection?.region ? 1 : 0} total={1} detail={connection?.region ?? 'Pending'} />
+        <DomainCoverageCard label="Account coverage" scanned={hasHealthyCoverage ? 1 : 0} total={1} detail="Selected environment" />
+        <DomainCoverageCard label="Region coverage" scanned={hasHealthyCoverage ? 1 : 0} total={1} detail={hasHealthyCoverage ? connection?.region ?? 'Pending' : 'Pending'} />
         <DomainCoverageCard label="Permission evidence" scanned={passedChecks} total={Math.max(totalChecks, 1)} detail="Read-only validation" />
       </section>
       <DomainDataTable
