@@ -2881,6 +2881,18 @@ function normalizeFilterValue(value: string): string {
   return value.trim().toLowerCase();
 }
 
+function matchesFilterCell(rowValue: string | undefined, selectedValue: string): boolean {
+  const normalizedSelectedValue = normalizeFilterValue(selectedValue);
+  if (!rowValue) {
+    return false;
+  }
+  const values = rowValue
+    .split(',')
+    .map((value) => normalizeFilterValue(value))
+    .filter((value) => value.length > 0);
+  return values.includes(normalizedSelectedValue);
+}
+
 function inventorySearchText(parts: Array<string | undefined>): string {
   return parts
     .filter((value): value is string => Boolean(value && value.length > 0))
@@ -2898,7 +2910,7 @@ function filterAWSInventoryRows<RowType extends AWSInventoryFilterable>(rows: Ro
       if (!selectedValue || selectedValue === 'all') {
         continue;
       }
-      if ((row.filters[filterID] ?? 'all') !== selectedValue) {
+      if (!matchesFilterCell(row.filters[filterID], selectedValue)) {
         return false;
       }
     }
@@ -3375,7 +3387,7 @@ function AWSMachineIdentitiesContent({
       status: 'coming',
       stage: 'coming',
       detail: 'Future collectors will identify workload ownership and attached policies.',
-      filters: { identityType: 'ecs-task-role', service: 'ecs', risk: 'unscored', status: 'coming', search: '' },
+      filters: { identityType: 'ecs-task-role,lambda-role', service: 'ecs,lambda', risk: 'unscored', status: 'coming', search: '' },
       searchText: inventorySearchText(['ecs', 'lambda', 'task roles', 'execution roles', 'service identity'])
     },
     {
