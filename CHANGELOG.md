@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+<<<<<<< feat/workspace-danger-zone-backend
 - Added workspace lifecycle backend for owner-driven suspend, soft-delete with
   30-day grace, and cancel-deletion. New endpoints
   `POST /v1/workspaces/:workspace_id/suspend`,
@@ -22,6 +23,13 @@
   including agents already deployed in remote clusters. The matching
   hard-delete worker and frontend Danger Zone card ship in follow-up PRs
   for #1420.
+=======
+- Added the Settings Danger Zone UI for self-serve permanent account deletion:
+  a "Delete my account permanently" row, primary-email type-to-confirm modal,
+  data-export prompt, structured `sole_owner` workspace blocker, success
+  redirect to a pending-deletion recovery banner, and sign-in cancellation via
+  `POST /v1/me/cancel-deletion`.
+>>>>>>> dev
 - Added self-serve "Download my data" exports. `POST /v1/me/export`
   enqueues an authenticated user export, `GET /v1/me/export/:job_id`
   polls job state and returns a 24-hour signed download URL once ready, and

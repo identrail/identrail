@@ -28,6 +28,7 @@ import {
   ApiError,
   apiClient,
   buildAPIURL,
+  type AccountDeletionWorkspace,
   type AuthConfigResponse,
   type AWSCapabilityPermissionTier,
   type AWSConnectorStartResponse,
@@ -12820,6 +12821,39 @@ async function requestDataExport({ signal, setExportPending, setExportError, set
   }
 }
 
+function accountDeletionWorkspacesFromError(error: ApiError): AccountDeletionWorkspace[] {
+  const payload = error.payload as { workspaces?: unknown } | undefined;
+  if (!Array.isArray(payload?.workspaces)) {
+    return [];
+  }
+  return payload.workspaces.filter((workspace): workspace is AccountDeletionWorkspace => {
+    if (!workspace || typeof workspace !== 'object') {
+      return false;
+    }
+    const record = workspace as Partial<AccountDeletionWorkspace>;
+    return (
+      typeof record.tenant_id === 'string' &&
+      record.tenant_id.trim() !== '' &&
+      typeof record.workspace_id === 'string' &&
+      record.workspace_id.trim() !== ''
+    );
+  });
+}
+
+function accountDeletionWorkspaceLabel(workspace: AccountDeletionWorkspace): string {
+  const displayName = workspace.display_name?.trim();
+  const slug = workspace.slug?.trim();
+  return displayName || slug || workspace.workspace_id;
+}
+
+function accountDeletionSignInPath(hardDeleteAfter?: string): string {
+  const query = new URLSearchParams({ reason: 'account_pending_deletion' });
+  if (hardDeleteAfter?.trim()) {
+    query.set('hard_delete_after', hardDeleteAfter);
+  }
+  return `/signin?${query.toString()}`;
+}
+
 export function ProductSettingsPage() {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
@@ -12839,6 +12873,10 @@ export function ProductSettingsPage() {
   const [suspendModalOpen, setSuspendModalOpen] = useState(false);
   const [suspendPending, setSuspendPending] = useState(false);
   const [suspendError, setSuspendError] = useState('');
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deletePending, setDeletePending] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteSoleOwnerWorkspaces, setDeleteSoleOwnerWorkspaces] = useState<AccountDeletionWorkspace[]>([]);
   const [exportPending, setExportPending] = useState(false);
   const [exportError, setExportError] = useState('');
   const [exportStatus, setExportStatus] = useState<
@@ -12974,6 +13012,7 @@ export function ProductSettingsPage() {
   const githubFindingsPath = scope ? buildScopedPath(scope, 'github/findings') : '/app';
   const kubernetesPath = scope ? buildScopedPath(scope, 'kubernetes') : '/app';
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
+  const primaryEmail = me?.user.primary_email?.trim() ?? '';
   const profileDisplayName = formatProfileDisplayName(me);
   const profileAvatarURL = me?.user.avatar_url?.trim() ?? '';
   const profileInitials = formatProfileInitials(me);
@@ -13083,6 +13122,41 @@ export function ProductSettingsPage() {
       setSessionsError(message);
     } finally {
       setRevokingOthers(false);
+    }
+  };
+
+  const handleOpenDeleteModal = () => {
+    setDeleteError('');
+    setDeleteSoleOwnerWorkspaces([]);
+    setDeleteModalOpen(true);
+  };
+
+  const handleCancelDeleteModal = () => {
+    if (deletePending) return;
+    setDeleteModalOpen(false);
+    setDeleteError('');
+    setDeleteSoleOwnerWorkspaces([]);
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deletePending) return;
+    setDeletePending(true);
+    setDeleteError('');
+    setDeleteSoleOwnerWorkspaces([]);
+    try {
+      const response = await apiClient.deleteMe();
+      resetProductAuthSessionCache({ unauthenticated: true });
+      clearMeCache({ unauthenticated: true });
+      navigate(accountDeletionSignInPath(response.hard_delete_after), { replace: true });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409 && err.code === 'sole_owner') {
+        setDeleteSoleOwnerWorkspaces(accountDeletionWorkspacesFromError(err));
+        setDeleteError('');
+      } else {
+        setDeleteError(err instanceof Error ? err.message : 'Unable to delete your account. Please retry.');
+      }
+    } finally {
+      setDeletePending(false);
     }
   };
 
@@ -13354,74 +13428,74 @@ export function ProductSettingsPage() {
         </div>
       </details>
 
-<details className="idt-settings-card idt-settings-disclosure idt-settings-sessions-card">
-  <summary className="idt-settings-disclosure-summary">
-    <div>
-      <p className="idt-app-kicker">Sessions</p>
-      <h3>{sessionsLoading ? 'Loading sessions' : formatCountLabel(sessions.length, 'active session')}</h3>
-      <p>{sessionsSummary}</p>
-    </div>
-    <span>Manage sessions</span>
-  </summary>
-  <div className="idt-settings-disclosure-body">
-    {sessionsLoading ? <p className="idt-app-alert">Loading active sessions...</p> : null}
-    {sessionsError ? (
-      <p className="idt-app-alert idt-app-alert-error" role="alert">
-        {sessionsError}
-      </p>
-    ) : null}
-    {!sessionsLoading ? (
-      <SessionsList
-        busySessionID={busySessionID}
-        revokingOthers={revokingOthers}
-        sessions={sessions}
-        onRevoke={handleRevokeSession}
-        onRevokeOthers={handleRevokeOtherSessions}
-      />
-    ) : null}
-  </div>
-</details>
+      <details className="idt-settings-card idt-settings-disclosure idt-settings-sessions-card">
+        <summary className="idt-settings-disclosure-summary">
+          <div>
+            <p className="idt-app-kicker">Sessions</p>
+            <h3>{sessionsLoading ? 'Loading sessions' : formatCountLabel(sessions.length, 'active session')}</h3>
+            <p>{sessionsSummary}</p>
+          </div>
+          <span>Manage sessions</span>
+        </summary>
+        <div className="idt-settings-disclosure-body">
+          {sessionsLoading ? <p className="idt-app-alert">Loading active sessions...</p> : null}
+          {sessionsError ? (
+            <p className="idt-app-alert idt-app-alert-error" role="alert">
+              {sessionsError}
+            </p>
+          ) : null}
+          {!sessionsLoading ? (
+            <SessionsList
+              busySessionID={busySessionID}
+              revokingOthers={revokingOthers}
+              sessions={sessions}
+              onRevoke={handleRevokeSession}
+              onRevokeOthers={handleRevokeOtherSessions}
+            />
+          ) : null}
+        </div>
+      </details>
 
-<DangerZone description="Suspending your account signs you out everywhere. Reactivate it any time by signing in through the signup flow.">
-  <article
-    className="idt-danger-zone-row idt-danger-zone-row--neutral"
-    data-testid="idt-export-account-row"
-  >
-    <div>
-      <strong>Download my data</strong>
-      <p>
-        Export a ZIP of your profile, workspaces, sessions, and audit activity.
-        The download link is valid for 24 hours.
-      </p>
-      {exportStatus.kind === 'ready' ? (
-        <p className="idt-danger-zone-success" data-testid="idt-export-ready">
-          Your data export is ready.{' '}
-          <a href={exportStatus.downloadURL} rel="noopener noreferrer">
-            Download the ZIP
-          </a>
-          {exportStatus.expiresAt ? ` (link expires ${new Date(exportStatus.expiresAt).toLocaleString()})` : ''}.
-        </p>
-      ) : exportStatus.kind === 'preparing' ? (
-        <p className="idt-danger-zone-status" data-testid="idt-export-preparing">
-          {exportStatus.message}
-        </p>
-      ) : null}
-      {exportError ? (
-        <p className="idt-danger-zone-error" role="alert">
-          {exportError}
-        </p>
-      ) : null}
-    </div>
-    <button
-      className="idt-btn idt-btn-secondary"
-      data-testid="idt-export-account-button"
-      disabled={exportPending}
-      onClick={startDataExport}
-      type="button"
-    >
-      {exportPending ? 'Preparing…' : 'Download my data'}
-    </button>
-  </article>
+      <DangerZone description="Export your data first, suspend access temporarily, or schedule permanent account deletion after the 30-day grace window.">
+        <article
+          className="idt-danger-zone-row idt-danger-zone-row--neutral"
+          data-testid="idt-export-account-row"
+        >
+          <div>
+            <strong>Download my data</strong>
+            <p>
+              Export a ZIP of your profile, workspaces, sessions, and audit activity. The download link is
+              valid for 24 hours.
+            </p>
+            {exportStatus.kind === 'ready' ? (
+              <p className="idt-danger-zone-success" data-testid="idt-export-ready">
+                Your data export is ready.{' '}
+                <a href={exportStatus.downloadURL} rel="noopener noreferrer">
+                  Download the ZIP
+                </a>
+                {exportStatus.expiresAt ? ` (link expires ${new Date(exportStatus.expiresAt).toLocaleString()})` : ''}.
+              </p>
+            ) : exportStatus.kind === 'preparing' ? (
+              <p className="idt-danger-zone-status" data-testid="idt-export-preparing">
+                {exportStatus.message}
+              </p>
+            ) : null}
+            {exportError ? (
+              <p className="idt-danger-zone-error" role="alert">
+                {exportError}
+              </p>
+            ) : null}
+          </div>
+          <button
+            className="idt-btn idt-btn-secondary"
+            data-testid="idt-export-account-button"
+            disabled={exportPending}
+            onClick={startDataExport}
+            type="button"
+          >
+            {exportPending ? 'Preparing…' : 'Download my data'}
+          </button>
+        </article>
 
         <DangerZoneRow
           actionLabel="Suspend account"
@@ -13433,6 +13507,15 @@ export function ProductSettingsPage() {
           pending={suspendPending}
           testId="idt-suspend-account-row"
           title="Account access"
+        />
+        <DangerZoneRow
+          actionLabel="Delete account"
+          description="Schedules permanent account deletion, revokes every other session, and removes your access to all workspaces after the recovery window."
+          disabled={!primaryEmail}
+          onAction={handleOpenDeleteModal}
+          pending={deletePending}
+          testId="idt-delete-account-row"
+          title="Delete my account permanently"
         />
       </DangerZone>
 
@@ -13479,6 +13562,63 @@ export function ProductSettingsPage() {
         open={suspendModalOpen}
         pending={suspendPending}
         title="Suspend account"
+      />
+      <ConfirmDestructiveModal
+        body={
+          <>
+            <p>
+              Deleting your account immediately marks it for deletion and blocks normal sign-in. Identrail
+              keeps a recovery cookie in this browser so you can cancel deletion during the 30-day grace
+              window.
+            </p>
+            <p>
+              Permanent hard deletion happens after the grace period. Download your account archive first if
+              you need profile, workspace, session, or audit data.{' '}
+              <button
+                className="idt-inline-button-link"
+                disabled={exportPending}
+                onClick={startDataExport}
+                type="button"
+              >
+                {exportPending ? 'Preparing export' : 'Download my data'}
+              </button>
+              .
+            </p>
+            {deleteSoleOwnerWorkspaces.length > 0 ? (
+              <div
+                className="idt-danger-modal-blocker"
+                data-testid="idt-delete-sole-owner-workspaces"
+                role="alert"
+              >
+                <p>
+                  You are the sole owner of these workspaces. Promote another owner from member management
+                  before deleting your account.
+                </p>
+                <ul>
+                  {deleteSoleOwnerWorkspaces.map((workspace) => (
+                    <li key={`${workspace.tenant_id}:${workspace.workspace_id}`}>
+                      {accountDeletionWorkspaceLabel(workspace)}
+                    </li>
+                  ))}
+                </ul>
+                <Link to={workspacesPath}>Manage members</Link>
+              </div>
+            ) : null}
+          </>
+        }
+        confirmation={{
+          kind: 'type-to-confirm',
+          expectedValue: primaryEmail,
+          inputLabel: 'Type your primary email',
+          helpText: 'Use the primary email shown in your account profile.'
+        }}
+        continueLabel="Continue"
+        errorMessage={deleteError || undefined}
+        onCancel={handleCancelDeleteModal}
+        onConfirm={handleDeleteAccount}
+        open={deleteModalOpen}
+        pending={deletePending}
+        title="Delete my account permanently"
       />
     </section>
   );

@@ -145,6 +145,94 @@ function currentMePayload(tenantID = 'default', workspaceID = 'default', role = 
   };
 }
 
+function settingsWhoAmIPayload(tenantID = 'tenant-a', workspaceID = 'workspace-a', role = 'admin') {
+  return {
+    principal: { type: 'subject', id: 'owner-user' },
+    roles: ['owner'],
+    scopes: ['read', 'write', 'admin'],
+    scope: { tenant_id: tenantID, workspace_id: workspaceID },
+    active_workspace: {
+      workspace: {
+        tenant_id: tenantID,
+        workspace_id: workspaceID,
+        display_name: 'Security Workspace',
+        slug: 'security-workspace',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-03T00:00:00Z'
+      },
+      member: {
+        tenant_id: tenantID,
+        workspace_id: workspaceID,
+        member_id: 'member-user-1',
+        user_id: 'user-1',
+        email: 'owner@example.com',
+        role,
+        status: 'active',
+        joined_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-03T00:00:00Z'
+      },
+      is_active: true
+    },
+    workspaces: []
+  };
+}
+
+function settingsSessionsPayload() {
+  return {
+    items: [
+      {
+        id: 'current-session',
+        ip: '127.0.0.1',
+        user_agent: 'current browser',
+        auth_method: 'workos',
+        created_at: '2026-01-01T00:00:00Z',
+        last_seen_at: '2026-01-01T00:00:00Z',
+        idle_expires_at: '2026-01-01T00:15:00Z',
+        current: true
+      }
+    ]
+  };
+}
+
+function settingsFetchMock(options: {
+  onDelete?: () => ReturnType<typeof okJSON> | { ok: false; status: number; json: () => Promise<unknown> };
+  onCancelDeletion?: () => ReturnType<typeof okJSON> | { ok: false; status: number; json: () => Promise<unknown> };
+} = {}) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    const method = init?.method ?? 'GET';
+    if (url.endsWith('/v1/me') && method === 'DELETE') {
+      return options.onDelete
+        ? options.onDelete()
+        : okJSON({
+            status: 'deleted',
+            deleted_at: '2026-06-01T12:00:00.000Z',
+            hard_delete_after: '2026-07-01T12:00:00.000Z',
+            grace_period_hours: 720
+          });
+    }
+    if (url.endsWith('/v1/me/cancel-deletion') && method === 'POST') {
+      return options.onCancelDeletion ? options.onCancelDeletion() : okJSON({ status: 'active' });
+    }
+    if (url.endsWith('/v1/me') && method === 'GET') {
+      return okJSON(currentMePayload('tenant-a', 'workspace-a', 'admin'));
+    }
+    if (url.endsWith('/v1/whoami')) {
+      return okJSON(settingsWhoAmIPayload());
+    }
+    if (url.includes('/v1/workspaces/workspace-a/members')) {
+      return okJSON({ items: [] });
+    }
+    if (url.endsWith('/v1/auth/config')) {
+      return authConfig(false, true);
+    }
+    if (url.endsWith('/v1/me/sessions')) {
+      return okJSON(settingsSessionsPayload());
+    }
+    throw new Error(`Unexpected URL ${url}`);
+  });
+}
+
 function setCurrentPath(pathname: string) {
   act(() => {
     window.history.pushState({}, '', pathname);
@@ -2412,6 +2500,131 @@ describe('App', () => {
 
     expect(await within(exportRow).findByRole('alert')).toHaveTextContent(/data export is not configured/i);
     expect(screen.getByRole('heading', { level: 2, name: /Settings/i })).toBeInTheDocument();
+  });
+
+  it('gates permanent account deletion on exact primary email and redirects to recovery banner', async () => {
+    const fetchMock = settingsFetchMock();
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/settings');
+    render(<App />);
+
+    const dangerZone = await screen.findByTestId('idt-danger-zone');
+    fireEvent.click(within(dangerZone).getByRole('button', { name: /Delete account/i }));
+
+    const modal = await screen.findByRole('dialog', { name: /Delete my account permanently/i });
+    const continueButton = within(modal).getByRole('button', { name: 'Continue' });
+    expect(continueButton).toBeDisabled();
+
+    fireEvent.change(within(modal).getByLabelText(/Type your primary email/i), {
+      target: { value: 'owner@example.co' }
+    });
+    expect(continueButton).toBeDisabled();
+    expect(fetchMock.mock.calls.filter(([url, init]) => String(url).endsWith('/v1/me') && init?.method === 'DELETE')).toHaveLength(0);
+
+    fireEvent.change(within(modal).getByLabelText(/Type your primary email/i), {
+      target: { value: 'owner@example.com' }
+    });
+    expect(continueButton).toBeEnabled();
+    fireEvent.click(continueButton);
+
+    await waitFor(() => expect(window.location.pathname).toBe('/signin'));
+    const redirectQuery = new URLSearchParams(window.location.search);
+    expect(redirectQuery.get('reason')).toBe('account_pending_deletion');
+    expect(redirectQuery.get('hard_delete_after')).toBe('2026-07-01T12:00:00.000Z');
+    expect(await screen.findByText(/scheduled for permanent deletion on/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Cancel account deletion/i })).toBeInTheDocument();
+  });
+
+  it('renders sole-owner workspace blockers without deleting the account', async () => {
+    const fetchMock = settingsFetchMock({
+      onDelete: () => ({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          error: 'user is the sole owner of one or more workspaces',
+          code: 'sole_owner',
+          workspaces: [
+            {
+              tenant_id: 'tenant-a',
+              workspace_id: 'workspace-a',
+              display_name: 'Security Workspace',
+              slug: 'security-workspace'
+            }
+          ]
+        })
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/settings');
+    render(<App />);
+
+    const dangerZone = await screen.findByTestId('idt-danger-zone');
+    fireEvent.click(within(dangerZone).getByRole('button', { name: /Delete account/i }));
+
+    const modal = await screen.findByRole('dialog', { name: /Delete my account permanently/i });
+    fireEvent.change(within(modal).getByLabelText(/Type your primary email/i), {
+      target: { value: 'owner@example.com' }
+    });
+    fireEvent.click(within(modal).getByRole('button', { name: 'Continue' }));
+
+    const blocker = await within(modal).findByTestId('idt-delete-sole-owner-workspaces');
+    expect(blocker).toHaveTextContent(/Promote another owner from member management/i);
+    expect(blocker).toHaveTextContent(/Security Workspace/i);
+    expect(within(blocker).getByRole('link', { name: /Manage members/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/workspaces'
+    );
+    expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/settings');
+  });
+
+  it('cancels pending account deletion from the sign-in recovery banner', async () => {
+    const fetchMock = settingsFetchMock();
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath(
+      '/signin?reason=account_pending_deletion&hard_delete_after=2026-07-01T12%3A00%3A00.000Z&return_to=%2Fapp%2Ftenant-a%2Fworkspace-a%2Fsettings'
+    );
+    render(<App />);
+
+    expect(await screen.findByText(/scheduled for permanent deletion on/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Cancel account deletion/i }));
+
+    await waitFor(() => expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/settings'));
+    expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith('/v1/me/cancel-deletion') && init?.method === 'POST')).toBe(true);
+  });
+
+  it('offers hosted recovery when the pending-deletion recovery cookie is unavailable', async () => {
+    const fetchMock = settingsFetchMock({
+      onCancelDeletion: () => ({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: 'session required' })
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/signin?reason=account_pending_deletion&return_to=%2Fapp%2Fteam%2Fworkspace');
+    render(<App />);
+
+    const expectedRecoveryURL = `http://localhost:8080/auth/signup?return_to=${encodeURIComponent(
+      `${window.location.origin}/app/team/workspace`
+    )}`;
+    expect(await screen.findByText(/scheduled for permanent deletion/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Continue with hosted recovery/i })).toHaveAttribute(
+      'href',
+      expectedRecoveryURL
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Cancel account deletion/i }));
+
+    expect(await screen.findByText(/no longer has the recovery session/i)).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /Continue with hosted recovery/i })[0]).toHaveAttribute(
+      'href',
+      expectedRecoveryURL
+    );
+    expect(window.location.pathname).toBe('/signin');
   });
 
   it('supports workspace member invite workflow from app shell administration route', async () => {
