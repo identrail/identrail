@@ -3821,7 +3821,7 @@ const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOpera
     title: 'AWS graph explorer',
     eyebrow: 'Graph',
     description: 'AWS identities, resources, findings, owners, and blast-radius paths.',
-    statusLabel: 'Graph preview',
+    statusLabel: 'Connector only',
     currentCapability: 'Connector role anchor.',
     plannedCapability: 'Collected graph edges.',
     nextAction: 'Collect graph edges.',
@@ -4387,14 +4387,6 @@ function AWSGraphExplorerContent({
   return (
     <>
       <AWSRiskOperationFilterSet routeID="graph" filters={filters} onChange={onFiltersChange} />
-      <section className="idt-aws-risk-graph-shell" aria-label="AWS graph explorer">
-        <div className="idt-aws-risk-graph-canvas" aria-hidden="true">
-          <span className="is-identity">Identity</span>
-          <span className="is-resource">Resource</span>
-          <span className="is-finding">Finding</span>
-          <span className="is-owner">Owner</span>
-        </div>
-      </section>
       <DomainDataTable
         label="AWS graph nodes and edges"
         rows={displayedRows}

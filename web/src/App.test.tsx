@@ -1493,7 +1493,7 @@ describe('App', () => {
 
   it.each([
     ['runtime', /AWS runtime evidence/i, /Not ingesting/i],
-    ['graph', /AWS graph explorer/i, /Graph preview/i],
+    ['graph', /AWS graph explorer/i, /Connector only/i],
     ['findings', /AWS findings/i, /No findings/i],
     ['remediation', /AWS remediation/i, /No cases/i],
     ['governance', /AWS governance/i, /Advisory only/i]
