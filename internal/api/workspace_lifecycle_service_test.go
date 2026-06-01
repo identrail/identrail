@@ -488,6 +488,60 @@ func TestServiceProcessNextQueuedScanSkipsInactiveWorkspace(t *testing.T) {
 	}
 }
 
+func TestServiceProcessNextQueuedRepoScanSkipsInactiveWorkspace(t *testing.T) {
+	// Round-8 codex P1 mirror of the regular-scan gate: a repo scan
+	// queued BEFORE the workspace was suspended/soft-deleted must be
+	// refused by the worker, not executed against the paused workspace.
+	// ClaimNextQueuedRepoScanAnyScope filters only on
+	// repo_scans.status='queued', so the lifecycle gate inside
+	// ProcessNextQueuedRepoScan is the authoritative check.
+	for _, state := range []string{"suspended", "deleted"} {
+		t.Run(state, func(t *testing.T) {
+			svc, ctx, _ := setupWorkspaceLifecycleServiceHarness(t)
+			svc.RepoScanEnabled = true
+			svc.RepoScanAllowedTargets = []string{"https://github.com/*"}
+			record, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{
+				Repository:  "https://github.com/owner/repo",
+				MaxFindings: 1,
+			})
+			if err != nil {
+				t.Fatalf("enqueue repo scan: %v", err)
+			}
+
+			now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+			switch state {
+			case "suspended":
+				if _, err := svc.Store.SuspendWorkspace(ctx, "workspace-a", now); err != nil {
+					t.Fatalf("suspend: %v", err)
+				}
+			case "deleted":
+				if _, err := svc.Store.SoftDeleteWorkspace(ctx, "workspace-a", now); err != nil {
+					t.Fatalf("soft delete: %v", err)
+				}
+			}
+
+			processed, err := svc.ProcessNextQueuedRepoScan(ctx)
+			if err != nil {
+				t.Fatalf("process queued repo scan: %v", err)
+			}
+			if !processed {
+				t.Fatal("expected processed=true when skipping an inactive workspace repo scan")
+			}
+
+			persisted, err := svc.Store.GetRepoScan(ctx, record.ID)
+			if err != nil {
+				t.Fatalf("get repo scan: %v", err)
+			}
+			if persisted.Status != "failed" {
+				t.Fatalf("expected repo scan status=failed, got %q", persisted.Status)
+			}
+			if !strings.Contains(persisted.ErrorMessage, "workspace lifecycle") {
+				t.Fatalf("expected workspace lifecycle reason in error, got %q", persisted.ErrorMessage)
+			}
+		})
+	}
+}
+
 func TestServiceRequireActiveWorkspaceForConnectorBranches(t *testing.T) {
 	// Direct unit test of the helper used by the public Kubernetes
 	// agent routes (#1445 round 4 + 5). The integration tests cover
