@@ -1125,6 +1125,25 @@ func (s *Service) processGitHubWebhookConnections(ctx context.Context, span trac
 	now := s.Now().UTC()
 	normalizedDeliveryID := strings.TrimSpace(deliveryID)
 	for _, connection := range connections {
+		// Workspace lifecycle gate — refuse webhook-driven mutations
+		// for suspended or soft-deleted workspaces before any state
+		// change runs. The public GitHub webhook endpoints are
+		// registered on the root router (not /v1), so they bypass the
+		// requireCentralPolicyMiddleware inactive-workspace check;
+		// codex round-9 on PR #1445 flagged that without this gate a
+		// paused workspace would still accumulate webhook delivery
+		// metadata and queued repo scans from external pushes, only
+		// to have those scans fail in the worker after the fact.
+		if inactive, lifecycleErr := s.isConnectionWorkspaceInactive(ctx, connection); lifecycleErr != nil {
+			span.RecordError(lifecycleErr)
+			span.SetStatus(codes.Error, "github webhook workspace lifecycle lookup failed")
+			return GitHubWebhookResult{}, lifecycleErr
+		} else if inactive {
+			result.SkippedScans++
+			s.recordAutomationRun("event", "github", "skipped")
+			s.recordRepoScanSkipped(scanContext.ScanMode, "workspace_inactive")
+			continue
+		}
 		replayed := s.isGitHubWebhookReplay(connection, normalizedDeliveryID, now)
 		if replayed && scanTriggerEvent {
 			result.SkippedScans++
@@ -1355,6 +1374,35 @@ func (s *Service) reconcileGitHubInstallationRepositories(ctx context.Context, e
 		s.hydrateGitHubConnections(ctx)
 	}
 	return matched
+}
+
+// isConnectionWorkspaceInactive returns true when the connection's
+// workspace is suspended or soft-deleted, so the webhook handler must
+// refuse to mutate connector state or enqueue repo scans for it. The
+// check runs once per connection iteration with the tenant scope
+// derived from the connection itself (the webhook handler does not
+// carry a session-driven scope) — see codex round-9 on PR #1445.
+func (s *Service) isConnectionWorkspaceInactive(ctx context.Context, connection githubProjectConnection) (bool, error) {
+	workspaceID := strings.TrimSpace(connection.WorkspaceID)
+	tenantID := strings.TrimSpace(connection.TenantID)
+	if workspaceID == "" || tenantID == "" {
+		return false, nil
+	}
+	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: tenantID, WorkspaceID: workspaceID})
+	workspace, err := s.Store.GetWorkspace(scopedCtx, workspaceID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			// A connection pointing at a missing workspace is a
+			// configuration error the regular flow surfaces — let it
+			// continue rather than masking it as a lifecycle skip.
+			return false, nil
+		}
+		return false, fmt.Errorf("github webhook workspace lifecycle lookup: %w", err)
+	}
+	if workspace.Status != db.WorkspaceStatusActive || workspace.DeletedAt != nil {
+		return true, nil
+	}
+	return false, nil
 }
 
 func (s *Service) isGitHubWebhookReplay(connection githubProjectConnection, deliveryID string, now time.Time) bool {

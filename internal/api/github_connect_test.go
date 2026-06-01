@@ -473,6 +473,81 @@ func TestGitHubConnectionPersistsAcrossServiceInstances(t *testing.T) {
 	}
 }
 
+func TestHandleGitHubWebhookRefusesInactiveWorkspace(t *testing.T) {
+	// Codex round-9 P2 on PR #1445: the public webhook endpoints
+	// (/webhooks/github and /auth/webhooks/github) are registered on
+	// the root router, so they bypass requireCentralPolicyMiddleware's
+	// inactive-workspace gate. Without this check a suspended or
+	// soft-deleted workspace would still record webhook delivery
+	// metadata and enqueue repo scans from external GitHub pushes —
+	// only to have those scans fail later in the worker. Refuse the
+	// connection at the top of the loop so no state mutation runs.
+	for _, state := range []string{"suspended", "deleted"} {
+		t.Run(state, func(t *testing.T) {
+			store := db.NewMemoryStore()
+			svc := NewService(store, routerScanner{}, "aws")
+			svc.RepoScanEnabled = true
+			svc.RepoScanAllowedTargets = []string{"owner/*"}
+
+			ctx := db.WithScope(context.Background(), db.Scope{
+				TenantID:    "tenant-a",
+				WorkspaceID: "workspace-a",
+			})
+			seedDefaultProject(t, store, ctx, "project-1")
+			start, err := svc.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+			if err != nil {
+				t.Fatalf("start github connection: %v", err)
+			}
+			if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
+				State:                  start.State,
+				InstallationID:         77,
+				AccountLogin:           "identrail",
+				TokenReference:         "vault://token",
+				WebhookSecret:          "persisted-secret",
+				WebhookSecretReference: "vault://secret/v1",
+				SelectedRepositories:   []string{"owner/repo"},
+			}); err != nil {
+				t.Fatalf("complete github connection: %v", err)
+			}
+
+			// Flip the workspace lifecycle out of active before the
+			// webhook arrives. A genuine inbound webhook in this
+			// state must not record delivery metadata or queue a scan.
+			now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+			switch state {
+			case "suspended":
+				if _, err := store.SuspendWorkspace(ctx, "workspace-a", now); err != nil {
+					t.Fatalf("suspend workspace: %v", err)
+				}
+			case "deleted":
+				if _, err := store.SoftDeleteWorkspace(ctx, "workspace-a", now); err != nil {
+					t.Fatalf("soft delete workspace: %v", err)
+				}
+			}
+
+			webhookPayload := githubPushWebhookPayload("owner/repo", 77)
+			signature := githubWebhookSignature("persisted-secret", webhookPayload)
+			result, err := svc.HandleGitHubWebhook(ctx, "push", "delivery-inactive", signature, webhookPayload)
+			if err != nil {
+				t.Fatalf("handle webhook for %s workspace: %v", state, err)
+			}
+			if result.QueuedScans != 0 {
+				t.Fatalf("expected no queued scans for %s workspace, got %+v", state, result)
+			}
+			if result.SkippedScans != 1 {
+				t.Fatalf("expected 1 skipped scan for %s workspace, got %+v", state, result)
+			}
+			scans, err := svc.ListRepoScans(ctx, 10)
+			if err != nil {
+				t.Fatalf("list repo scans: %v", err)
+			}
+			if len(scans) != 0 {
+				t.Fatalf("expected no repo scans persisted for %s workspace, got %+v", state, scans)
+			}
+		})
+	}
+}
+
 func TestHandleGitHubWebhookRequiresEventScanPolicyForAutomaticEvents(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, routerScanner{}, "aws")
