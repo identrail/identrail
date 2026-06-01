@@ -132,7 +132,7 @@ func (s *errStore) ListWorkspacesPendingHardDelete(ctx context.Context, deletedB
 	return s.pending, nil
 }
 
-func (s *errStore) HardDeleteWorkspace(ctx context.Context, workspaceID string, now time.Time) (db.TenancyWorkspace, error) {
+func (s *errStore) HardDeleteWorkspace(ctx context.Context, tenantID, workspaceID string, expectedDeletedAt time.Time, now time.Time) (db.TenancyWorkspace, error) {
 	s.hardDelHits++
 	if s.onHardDel != nil {
 		s.onHardDel()
@@ -196,13 +196,14 @@ func TestRunOnceCanceledContextPropagates(t *testing.T) {
 	}
 }
 
-func TestRunOncePurgesChildRowsAndConnectorSecrets(t *testing.T) {
-	// End-to-end with the memory store: a soft-deleted workspace with a
-	// project + connector + secret envelope + scan + repo_scan + member
-	// must have every child row removed after the purge. The encrypted
-	// secret envelope bytes are gone because the row itself is gone —
-	// keeping any of these rows would let workspace data outlive the
-	// 30-day grace window the soft-delete contract advertises.
+func TestRunOncePurgesProjectAndMemberRows(t *testing.T) {
+	// End-to-end with the memory store: a soft-deleted workspace with
+	// a project and an owner member must have those rows removed after
+	// the purge. Broader child-row coverage (connectors, secret
+	// envelopes, scan history, AWS coverage) is exercised at the store
+	// layer in TestMemoryStoreHardDeleteWorkspacePurgesEveryChildTable;
+	// the worker-level test sticks to the fixtures the worker itself
+	// can seed without pulling in the full secret-store harness.
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	past := now.Add(-(db.WorkspaceDeletionGracePeriod + time.Hour))

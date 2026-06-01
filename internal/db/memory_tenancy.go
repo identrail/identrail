@@ -544,78 +544,73 @@ func (m *MemoryStore) ListWorkspacesPendingHardDelete(ctx context.Context, delet
 
 // HardDeleteWorkspace permanently removes a soft-deleted workspace and all
 // of its child rows. Refuses the purge unless the workspace is genuinely
-// past grace (status='deleted', deleted_at IS NOT NULL) so a programming
-// error against an active workspace cannot silently destroy live data.
-// Bypasses scope so the worker can purge any tenant.
-//
-// The audit event emits the synthetic identifier HardDeletedWorkspaceMarker
-// instead of the original workspace_id so downstream audit consumers can
-// distinguish references to a purged workspace from a live one.
-func (m *MemoryStore) HardDeleteWorkspace(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error) {
+// past grace (status='deleted', deleted_at matches the value the worker
+// observed when it listed the row) so:
+//   - workspace_id alone is not globally unique; requiring tenant_id
+//     locks the purge to the correct row.
+//   - a cancel-deletion + re-delete race between the worker's list and
+//     its purge call advances deleted_at to a fresh value; matching
+//     against the listed deleted_at refuses that case and lets the new
+//     30-day window run.
+func (m *MemoryStore) HardDeleteWorkspace(ctx context.Context, tenantID, workspaceID string, expectedDeletedAt time.Time, now time.Time) (TenancyWorkspace, error) {
+	tenant := strings.TrimSpace(tenantID)
 	id := strings.TrimSpace(workspaceID)
+	expected := expectedDeletedAt.UTC()
 	when := now.UTC()
 	m.mu.Lock()
-	// We scan every workspace looking for the id because the worker
-	// passes an unscoped identifier — the only call site is the purge
-	// runner enumerating across tenants. A scoped lookup would require
-	// the worker to pre-resolve tenant_id, which it does not have.
-	var workspace TenancyWorkspace
-	var foundKey string
-	for key, candidate := range m.workspaces {
-		if candidate.WorkspaceID == id {
-			workspace = candidate
-			foundKey = key
-			break
-		}
-	}
-	if foundKey == "" {
+	key := tenancyWorkspaceKey(tenant, id)
+	workspace, exists := m.workspaces[key]
+	if !exists {
 		m.mu.Unlock()
 		return TenancyWorkspace{}, ErrNotFound
 	}
 	if workspace.Status != WorkspaceStatusDeleted || workspace.DeletedAt == nil {
 		m.mu.Unlock()
-		return TenancyWorkspace{}, fmt.Errorf("hard delete: workspace %s is not pending deletion (status=%q)", id, workspace.Status)
+		return TenancyWorkspace{}, fmt.Errorf("hard delete: workspace %s/%s is not pending deletion (status=%q)", tenant, id, workspace.Status)
 	}
-	tenantID := workspace.TenantID
-	delete(m.workspaces, foundKey)
+	if !workspace.DeletedAt.UTC().Equal(expected) {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, fmt.Errorf("hard delete: workspace %s/%s deleted_at drifted (worker saw %s, row now %s); the row was likely re-deleted within grace", tenant, id, expected, workspace.DeletedAt.UTC())
+	}
+	delete(m.workspaces, key)
 	for memberKey, member := range m.members {
-		if member.TenantID == tenantID && member.WorkspaceID == id {
+		if member.TenantID == tenant && member.WorkspaceID == id {
 			delete(m.members, memberKey)
 		}
 	}
 	for projectKey, project := range m.projects {
-		if project.TenantID == tenantID && project.WorkspaceID == id {
+		if project.TenantID == tenant && project.WorkspaceID == id {
 			delete(m.projects, projectKey)
 		}
 	}
 	for policyKey, policy := range m.scanPolicies {
-		if policy.TenantID == tenantID && policy.WorkspaceID == id {
+		if policy.TenantID == tenant && policy.WorkspaceID == id {
 			delete(m.scanPolicies, policyKey)
 		}
 	}
 	for connectorKey, connector := range m.connectors {
-		if connector.TenantID == tenantID && connector.WorkspaceID == id {
+		if connector.TenantID == tenant && connector.WorkspaceID == id {
 			delete(m.connectors, connectorKey)
 			delete(m.connStates, connectorKey)
 		}
 	}
 	for secretKey, secret := range m.connSecrets {
-		if secret.TenantID == tenantID && secret.WorkspaceID == id {
+		if secret.TenantID == tenant && secret.WorkspaceID == id {
 			delete(m.connSecrets, secretKey)
 		}
 	}
 	for coverageKey, coverage := range m.awsCoverages {
-		if coverage.TenantID == tenantID && coverage.WorkspaceID == id {
+		if coverage.TenantID == tenant && coverage.WorkspaceID == id {
 			delete(m.awsCoverages, coverageKey)
 		}
 	}
 	for scanID, record := range m.scans {
-		if record.TenantID == tenantID && record.WorkspaceID == id {
+		if record.TenantID == tenant && record.WorkspaceID == id {
 			delete(m.scans, scanID)
 		}
 	}
 	for scanID, record := range m.repoScans {
-		if record.TenantID == tenantID && record.WorkspaceID == id {
+		if record.TenantID == tenant && record.WorkspaceID == id {
 			delete(m.repoScans, scanID)
 		}
 	}
@@ -624,7 +619,7 @@ func (m *MemoryStore) HardDeleteWorkspace(ctx context.Context, workspaceID strin
 
 	audit.WriteAction(ctx, audit.AuditEvent{
 		Action:       "tenancy.workspace.hard_delete",
-		TenantID:     tenantID,
+		TenantID:     tenant,
 		WorkspaceID:  HardDeletedWorkspaceMarker(id),
 		ResourceType: "tenancy_workspace",
 		ResourceID:   HardDeletedWorkspaceMarker(id),

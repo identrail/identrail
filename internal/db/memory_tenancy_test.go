@@ -1563,17 +1563,53 @@ func TestMemoryStoreHardDeleteWorkspaceRefusesActive(t *testing.T) {
 	// HardDeleteWorkspace refuses any row that is not in the
 	// soft-deleted state. Defends against a programming error that
 	// would otherwise silently destroy live data.
-	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	store, _, _ := setupWorkspaceLifecycleStore(t)
 	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
-	if _, err := store.HardDeleteWorkspace(ctx, "ws-1", now); err == nil {
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", now, now); err == nil {
 		t.Fatal("expected hard delete to refuse active workspace")
 	}
 }
 
-func TestMemoryStoreHardDeleteWorkspaceMissingReturnsNotFound(t *testing.T) {
+func TestMemoryStoreHardDeleteWorkspaceRefusesDeletedAtDrift(t *testing.T) {
+	// Race protection (#1450 round 2): the worker lists a workspace
+	// past grace, then between the list and the purge call an owner
+	// cancels deletion and re-deletes the workspace with a fresh
+	// deleted_at. Calling HardDeleteWorkspace with the worker's
+	// originally-observed deleted_at must refuse, so the new 30-day
+	// grace window can run instead of being silently bypassed.
 	store, ctx, _ := setupWorkspaceLifecycleStore(t)
 	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
-	if _, err := store.HardDeleteWorkspace(ctx, "ws-missing", now); !errors.Is(err, ErrNotFound) {
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+	original, err := store.SoftDeleteWorkspace(ctx, "ws-1", past)
+	if err != nil {
+		t.Fatalf("soft delete (original): %v", err)
+	}
+	// Cancel and re-soft-delete to simulate the race.
+	if _, err := store.CancelWorkspaceDeletion(ctx, "ws-1", now); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", now); err != nil {
+		t.Fatalf("soft delete (re-delete): %v", err)
+	}
+	// The worker still thinks the deletedAt is `original.DeletedAt`,
+	// but the row now carries `now`. Purge must refuse.
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", *original.DeletedAt, now); err == nil {
+		t.Fatal("expected hard delete to refuse stale deletedAt")
+	}
+	// Workspace must remain — refusal protected it.
+	saved, err := store.GetWorkspace(ctx, "ws-1")
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if saved.Status != WorkspaceStatusDeleted || saved.DeletedAt == nil {
+		t.Fatalf("expected workspace to remain in soft-deleted state, got %+v", saved)
+	}
+}
+
+func TestMemoryStoreHardDeleteWorkspaceMissingReturnsNotFound(t *testing.T) {
+	store, _, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-missing", now, now); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound for missing workspace, got %v", err)
 	}
 }
@@ -1592,11 +1628,12 @@ func TestMemoryStoreHardDeleteWorkspacePurgesChildRows(t *testing.T) {
 	if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "ws-1", ProjectID: "project-a", Name: "Project A", Slug: "project-a"}); err != nil {
 		t.Fatalf("upsert project: %v", err)
 	}
-	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", past); err != nil {
+	saved, err := store.SoftDeleteWorkspace(ctx, "ws-1", past)
+	if err != nil {
 		t.Fatalf("soft delete: %v", err)
 	}
 
-	if _, err := store.HardDeleteWorkspace(ctx, "ws-1", now); err != nil {
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", *saved.DeletedAt, now); err != nil {
 		t.Fatalf("hard delete: %v", err)
 	}
 	if _, err := store.GetWorkspace(ctx, "ws-1"); !errors.Is(err, ErrNotFound) {
@@ -1687,11 +1724,12 @@ func TestMemoryStoreHardDeleteWorkspacePurgesEveryChildTable(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("upsert AWS coverage: %v", err)
 	}
-	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", past); err != nil {
+	saved, err := store.SoftDeleteWorkspace(ctx, "ws-1", past)
+	if err != nil {
 		t.Fatalf("soft delete: %v", err)
 	}
 
-	if _, err := store.HardDeleteWorkspace(ctx, "ws-1", now); err != nil {
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", *saved.DeletedAt, now); err != nil {
 		t.Fatalf("hard delete: %v", err)
 	}
 
@@ -1730,12 +1768,13 @@ func TestMemoryStoreHardDeleteWorkspaceEmitsAuditAction(t *testing.T) {
 	store, scopedCtx, _ := setupWorkspaceLifecycleStore(t)
 	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
 	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
-	if _, err := store.SoftDeleteWorkspace(scopedCtx, "ws-1", past); err != nil {
+	saved, err := store.SoftDeleteWorkspace(scopedCtx, "ws-1", past)
+	if err != nil {
 		t.Fatalf("soft delete: %v", err)
 	}
 	sink := &captureAuditSink{}
 	purgeCtx := audit.WithSink(scopedCtx, sink)
-	if _, err := store.HardDeleteWorkspace(purgeCtx, "ws-1", now); err != nil {
+	if _, err := store.HardDeleteWorkspace(purgeCtx, "tenant-a", "ws-1", *saved.DeletedAt, now); err != nil {
 		t.Fatalf("hard delete: %v", err)
 	}
 	found := false

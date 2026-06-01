@@ -2726,14 +2726,25 @@ type Store interface {
 	// the worker enumerates across tenants.
 	ListWorkspacesPendingHardDelete(ctx context.Context, deletedBefore time.Time, limit int) ([]TenancyWorkspace, error)
 	// HardDeleteWorkspace permanently removes a workspace whose
-	// soft-delete grace window has elapsed. Implementations refuse the
-	// purge unless the row is genuinely past grace (status='deleted',
-	// deleted_at IS NOT NULL) so a programming error against an
-	// active workspace cannot silently destroy live data. Cascades to
-	// every child table (members, projects, connectors, secret
-	// envelopes, scan policies) and explicitly purges scan + repo_scan
-	// history. Returns the deleted workspace row for audit metadata.
-	HardDeleteWorkspace(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error)
+	// soft-delete grace window has elapsed. The (tenantID, workspaceID)
+	// pair is the composite identity — workspace_id alone is not
+	// globally unique (defaults like "default" repeat across tenants),
+	// so a tenant-less lookup risks destroying a different tenant's
+	// data. expectedDeletedAt is the deleted_at the worker observed
+	// when it listed this row; the destructive SQL requires the
+	// current row's deleted_at to still match, so a cancel-deletion +
+	// re-delete race between the worker's list and its purge refreshes
+	// the row to a new fresh-grace deleted_at and is correctly refused.
+	//
+	// Implementations refuse the purge unless the row is genuinely past
+	// grace (status='deleted', deleted_at = expectedDeletedAt). Cascades
+	// to every child table with an FK on tenancy_workspaces (members,
+	// projects, connectors, secret envelopes, scan policies) and
+	// explicitly purges every workspace-scoped non-FK table the
+	// migrations have introduced (scans, repo_scans, AWS coverage,
+	// authz tables, finding triage). Returns the deleted workspace row
+	// for audit metadata.
+	HardDeleteWorkspace(ctx context.Context, tenantID, workspaceID string, expectedDeletedAt time.Time, now time.Time) (TenancyWorkspace, error)
 	UpsertWorkspaceMember(ctx context.Context, member TenancyWorkspaceMember) error
 	GetWorkspaceMember(ctx context.Context, workspaceID string, memberID string) (TenancyWorkspaceMember, error)
 	GetWorkspaceMemberByUserUUID(ctx context.Context, workspaceID string, userUUID string) (TenancyWorkspaceMember, error)

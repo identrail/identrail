@@ -20,7 +20,7 @@ import (
 // contract between this package and the database backend explicit.
 type Store interface {
 	ListWorkspacesPendingHardDelete(ctx context.Context, deletedBefore time.Time, limit int) ([]db.TenancyWorkspace, error)
-	HardDeleteWorkspace(ctx context.Context, workspaceID string, now time.Time) (db.TenancyWorkspace, error)
+	HardDeleteWorkspace(ctx context.Context, tenantID, workspaceID string, expectedDeletedAt time.Time, now time.Time) (db.TenancyWorkspace, error)
 }
 
 // Runner executes one hard-delete pass against a Store. Fields are public
@@ -76,7 +76,15 @@ func (r *Runner) RunOnce(ctx context.Context) (Result, error) {
 		if ctx.Err() != nil {
 			return result, ctx.Err()
 		}
-		if _, hardErr := r.Store.HardDeleteWorkspace(ctx, workspace.WorkspaceID, now); hardErr != nil {
+		// Defensive: the list query already filters by status='deleted'
+		// AND deleted_at IS NOT NULL, but a future store implementation
+		// that violates that contract would crash here on the nil
+		// dereference. Skip the row instead and count it as an error.
+		if workspace.DeletedAt == nil {
+			result.Errors++
+			continue
+		}
+		if _, hardErr := r.Store.HardDeleteWorkspace(ctx, workspace.TenantID, workspace.WorkspaceID, *workspace.DeletedAt, now); hardErr != nil {
 			// A canceled / timed-out context surfaces through
 			// HardDeleteWorkspace as an error on the dropped DB write.
 			// Propagate it so the runner reports "interrupted" rather
