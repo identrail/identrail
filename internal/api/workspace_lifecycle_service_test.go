@@ -232,6 +232,36 @@ func TestServiceCheckWorkspaceSoleOwnerStrandingEmptyUUID(t *testing.T) {
 	}
 }
 
+func TestServiceRequireActiveWorkspaceForConnectorBranches(t *testing.T) {
+	// Direct unit test of the helper used by the public Kubernetes
+	// agent routes (#1445 round 4 + 5). The integration tests cover
+	// the suspended/deleted happy paths via the agent routes; this
+	// test pins the remaining branches the integration coverage
+	// cannot exercise without a full enrollment fixture:
+	//
+	//   1. Active workspace → nil (allow).
+	//   2. Missing workspace → ErrNotFound, which the agent-route
+	//      handler then maps to 404 — exactly the contract for an
+	//      unauthenticated probe that forged a locator pointing at a
+	//      workspace that never existed.
+	//   3. Suspended workspace → ErrKubernetesConnectorWorkspaceInactive,
+	//      the inactive-lifecycle gate.
+	svc, ctx, _ := setupWorkspaceLifecycleServiceHarness(t)
+
+	if err := svc.requireActiveWorkspaceForConnector(ctx, "tenant-a", "workspace-a"); err != nil {
+		t.Fatalf("expected nil for active workspace, got %v", err)
+	}
+	if err := svc.requireActiveWorkspaceForConnector(ctx, "tenant-a", "nonexistent"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing workspace, got %v", err)
+	}
+	if _, err := svc.Store.SuspendWorkspace(ctx, "workspace-a", time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("suspend workspace: %v", err)
+	}
+	if err := svc.requireActiveWorkspaceForConnector(ctx, "tenant-a", "workspace-a"); !errors.Is(err, ErrKubernetesConnectorWorkspaceInactive) {
+		t.Fatalf("expected ErrKubernetesConnectorWorkspaceInactive for suspended workspace, got %v", err)
+	}
+}
+
 func TestWorkspaceDeletionGraceDeadlineZeroWhenNotDeleted(t *testing.T) {
 	// The grace deadline helper returns time.Time{} for workspaces
 	// that are not pending deletion. The handler relies on this to

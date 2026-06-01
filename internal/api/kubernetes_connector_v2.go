@@ -168,15 +168,6 @@ func (s *Service) EnrollKubernetesAgent(ctx context.Context, request k8sconnecto
 	if strings.TrimSpace(request.ConnectorID) != "" && strings.TrimSpace(request.ConnectorID) != locator.ConnectorID {
 		return KubernetesAgentEnrollResponse{}, ErrKubernetesConnectorTokenInvalid
 	}
-	// Workspace lifecycle gate — block enrollment for suspended or
-	// soft-deleted workspaces before any state change runs against the
-	// connector. The check is intentionally pre-credential-validation:
-	// it never reveals connector existence, only workspace state, and a
-	// genuine attacker without a valid enrollment token still hits
-	// ErrKubernetesConnectorTokenInvalid below.
-	if err := s.requireActiveWorkspaceForConnector(ctx, locator.TenantID, locator.WorkspaceID); err != nil {
-		return KubernetesAgentEnrollResponse{}, err
-	}
 	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: locator.TenantID, WorkspaceID: locator.WorkspaceID})
 	stored, err := s.Store.GetTenancyConnector(scopedCtx, locator.WorkspaceID, locator.ProjectID, locator.ConnectorID)
 	if err != nil {
@@ -195,6 +186,15 @@ func (s *Service) EnrollKubernetesAgent(ctx context.Context, request k8sconnecto
 	}
 	if !k8sconnector.CredentialMatches(token, metadata.EnrollmentTokenHash) {
 		return KubernetesAgentEnrollResponse{}, ErrKubernetesConnectorTokenInvalid
+	}
+	// Workspace lifecycle gate — runs only AFTER the enrollment credential
+	// has been verified above. Codex round-5 review flagged that doing the
+	// check pre-credential leaked workspace existence/lifecycle state to
+	// callers who could forge a locator with a guessed tenant/workspace
+	// pair; gating after CredentialMatches means an attacker without a
+	// valid token still receives the standard invalid-credential error.
+	if err := s.requireActiveWorkspaceForConnector(ctx, locator.TenantID, locator.WorkspaceID); err != nil {
+		return KubernetesAgentEnrollResponse{}, err
 	}
 	agentSecret, err := k8sconnector.GenerateCredential()
 	if err != nil {
@@ -270,14 +270,6 @@ func (s *Service) HeartbeatKubernetesAgent(ctx context.Context, request k8sconne
 	if strings.TrimSpace(request.ConnectorID) != "" && strings.TrimSpace(request.ConnectorID) != locator.ConnectorID {
 		return KubernetesAgentHeartbeatResponse{}, ErrKubernetesConnectorCredentialDenied
 	}
-	// Workspace lifecycle gate — block heartbeats once the workspace is
-	// suspended or soft-deleted so an already-deployed agent cannot
-	// continue updating connector status/metadata after the lifecycle
-	// pause contract takes effect. Order is intentional: refuse before
-	// any state change runs.
-	if err := s.requireActiveWorkspaceForConnector(ctx, locator.TenantID, locator.WorkspaceID); err != nil {
-		return KubernetesAgentHeartbeatResponse{}, err
-	}
 	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: locator.TenantID, WorkspaceID: locator.WorkspaceID})
 	stored, err := s.Store.GetTenancyConnector(scopedCtx, locator.WorkspaceID, locator.ProjectID, locator.ConnectorID)
 	if err != nil {
@@ -289,6 +281,14 @@ func (s *Service) HeartbeatKubernetesAgent(ctx context.Context, request k8sconne
 	}
 	if !k8sconnector.CredentialMatches(agentCredential, metadata.AgentCredentialHash) {
 		return KubernetesAgentHeartbeatResponse{}, ErrKubernetesConnectorCredentialDenied
+	}
+	// Workspace lifecycle gate — runs only AFTER the agent credential has
+	// been verified above so an unauthenticated caller cannot probe
+	// workspace lifecycle state via this public endpoint (codex round-5).
+	// A valid agent that was enrolled before the workspace was paused
+	// still receives 409 workspace_inactive here, exactly as intended.
+	if err := s.requireActiveWorkspaceForConnector(ctx, locator.TenantID, locator.WorkspaceID); err != nil {
+		return KubernetesAgentHeartbeatResponse{}, err
 	}
 	now := s.Now().UTC()
 	metadata.ConnectionMode = k8sconnector.AgentMode

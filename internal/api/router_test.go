@@ -3833,7 +3833,7 @@ func TestRouterTenancyEndpointsCRUDFlow(t *testing.T) {
 	}
 
 	// DELETE /v1/workspaces/:id is now an owner-only soft delete (see
-	// migration 000035 and #1420). The route's authz grant
+	// migration 000036 and #1420). The route's authz grant
 	// `tenancy.owner` is restricted to the workspace-membership "owner"
 	// role only — API key callers, regardless of platform scope, are
 	// refused at the route table so the soft-delete + 30-day grace flow

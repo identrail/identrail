@@ -197,7 +197,7 @@ var validUserDataExportStatuses = map[string]struct{}{
 
 // WorkspaceDeletionGracePeriod mirrors UserDeletionGracePeriod for workspace
 // lifecycle. The window between a workspace soft-delete and the worker hard
-// purge. See migration 000035_workspace_lifecycle.
+// purge. See migration 000036_workspace_lifecycle.
 const WorkspaceDeletionGracePeriod = 30 * 24 * time.Hour
 
 // Workspace lifecycle statuses persisted on tenancy_workspaces.status.

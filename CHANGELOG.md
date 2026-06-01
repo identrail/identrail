@@ -12,7 +12,7 @@
   with the affected-member list when the only active owner would strand other
   active members. **Behavior change:** `DELETE /v1/workspaces/:workspace_id`
   is now a soft delete that returns `200` with the saved workspace +
-  `hard_delete_after` (was a hard delete returning `204`). Migration `000035`
+  `hard_delete_after` (was a hard delete returning `204`). Migration `000036`
   adds `tenancy_workspaces.status`, `suspended_at`, and `deleted_at`. The
   authenticated lifecycle middleware (`requireCentralPolicyMiddleware`) and
   the public Kubernetes agent routes (`POST /v1/connectors/k8s/enroll` and
