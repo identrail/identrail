@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/secretstore"
 )
@@ -1517,6 +1518,166 @@ func TestMemoryStoreUpsertWorkspacePreservesLifecycleFields(t *testing.T) {
 	}
 	if saved.DisplayName != "Workspace 1 Renamed" {
 		t.Fatalf("expected rename to apply, got %q", saved.DisplayName)
+	}
+}
+
+func TestMemoryStoreListWorkspacesPendingHardDeleteFiltersByGrace(t *testing.T) {
+	// #1420 PR 2: only soft-deleted workspaces past the grace cutoff
+	// show up in the pending list. Active workspaces, suspended
+	// workspaces, and within-grace deletions must all be excluded so
+	// the purge worker never touches data it shouldn't.
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+	future := now.Add(-(WorkspaceDeletionGracePeriod / 2))
+
+	// Soft-delete ws-1 past grace.
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", past); err != nil {
+		t.Fatalf("soft delete ws-1: %v", err)
+	}
+	// Add ws-2 still within grace.
+	scoped2 := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "ws-2"})
+	if err := store.UpsertWorkspace(scoped2, TenancyWorkspace{WorkspaceID: "ws-2", DisplayName: "Workspace 2", Slug: "ws-2"}); err != nil {
+		t.Fatalf("upsert ws-2: %v", err)
+	}
+	if _, err := store.SoftDeleteWorkspace(scoped2, "ws-2", future); err != nil {
+		t.Fatalf("soft delete ws-2: %v", err)
+	}
+	// Add ws-3 fully active.
+	scoped3 := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "ws-3"})
+	if err := store.UpsertWorkspace(scoped3, TenancyWorkspace{WorkspaceID: "ws-3", DisplayName: "Workspace 3", Slug: "ws-3"}); err != nil {
+		t.Fatalf("upsert ws-3: %v", err)
+	}
+
+	cutoff := now.Add(-WorkspaceDeletionGracePeriod)
+	pending, err := store.ListWorkspacesPendingHardDelete(context.Background(), cutoff, 100)
+	if err != nil {
+		t.Fatalf("list pending: %v", err)
+	}
+	if len(pending) != 1 || pending[0].WorkspaceID != "ws-1" {
+		t.Fatalf("expected only ws-1 in pending list, got %+v", pending)
+	}
+}
+
+func TestMemoryStoreHardDeleteWorkspaceRefusesActive(t *testing.T) {
+	// HardDeleteWorkspace refuses any row that is not in the
+	// soft-deleted state. Defends against a programming error that
+	// would otherwise silently destroy live data.
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.HardDeleteWorkspace(ctx, "ws-1", now); err == nil {
+		t.Fatal("expected hard delete to refuse active workspace")
+	}
+}
+
+func TestMemoryStoreHardDeleteWorkspaceMissingReturnsNotFound(t *testing.T) {
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.HardDeleteWorkspace(ctx, "ws-missing", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing workspace, got %v", err)
+	}
+}
+
+func TestMemoryStoreHardDeleteWorkspacePurgesChildRows(t *testing.T) {
+	// Past-grace purge removes the workspace row and all child rows:
+	// members, projects, connectors, scan policies, secret envelopes,
+	// AWS coverage. Scan and repo-scan history (carried on tables
+	// without a FK back to tenancy_workspaces) must also be purged so
+	// workspace-scoped data does not outlive the 30-day grace window.
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+
+	// Seed a project so cascade behavior is non-trivial.
+	if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "ws-1", ProjectID: "project-a", Name: "Project A", Slug: "project-a"}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", past); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+
+	if _, err := store.HardDeleteWorkspace(ctx, "ws-1", now); err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+	if _, err := store.GetWorkspace(ctx, "ws-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ws-1 purged, got %v", err)
+	}
+	if _, err := store.GetProject(ctx, "ws-1", "project-a"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected project purged with workspace, got %v", err)
+	}
+}
+
+// captureAuditSink records every audit event written through a
+// db.WithSink context. Used in tests below to assert the hard-delete
+// audit payload carries the anonymized workspace marker.
+type captureAuditSink struct {
+	mu     sync.Mutex
+	events []audit.AuditEvent
+}
+
+func (c *captureAuditSink) Write(_ context.Context, event audit.AuditEvent) error {
+	c.mu.Lock()
+	c.events = append(c.events, event)
+	c.mu.Unlock()
+	return nil
+}
+func (c *captureAuditSink) Close() error { return nil }
+func (c *captureAuditSink) snapshot() []audit.AuditEvent {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]audit.AuditEvent, len(c.events))
+	copy(out, c.events)
+	return out
+}
+
+func TestMemoryStoreHardDeleteWorkspaceEmitsAuditAction(t *testing.T) {
+	// The hard-delete code path must emit a `tenancy.workspace.hard_delete`
+	// audit event with the right scope context. The downstream audit
+	// pipeline fingerprints the resource id (which is why we cannot
+	// assert against a raw marker here), but this test pins that the
+	// audit call actually fires — a regression that drops it would
+	// fail this test rather than silently breaking observability.
+	store, scopedCtx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+	if _, err := store.SoftDeleteWorkspace(scopedCtx, "ws-1", past); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	sink := &captureAuditSink{}
+	purgeCtx := audit.WithSink(scopedCtx, sink)
+	if _, err := store.HardDeleteWorkspace(purgeCtx, "ws-1", now); err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+	found := false
+	for _, event := range sink.snapshot() {
+		if event.Action == "tenancy.workspace.hard_delete" && event.ResourceType == "tenancy_workspace" && event.Outcome == "success" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected tenancy.workspace.hard_delete audit event, got %+v", sink.snapshot())
+	}
+}
+
+func TestHardDeletedWorkspaceMarkerShape(t *testing.T) {
+	// Direct unit test of the marker helper. The audit pipeline
+	// fingerprints resource ids before writing, so the integration test
+	// above only asserts the action emission. This test pins the
+	// marker format itself — `deleted-workspace:<id>` — so a future
+	// change to the prefix surfaces here rather than as a downstream
+	// audit-consumer mismatch.
+	if got := HardDeletedWorkspaceMarker("ws-1"); got != "deleted-workspace:ws-1" {
+		t.Fatalf("unexpected marker: %q", got)
+	}
+	if got := HardDeletedWorkspaceMarker("  ws-2  "); got != "deleted-workspace:ws-2" {
+		t.Fatalf("expected trimmed marker, got %q", got)
+	}
+	if !IsHardDeletedWorkspaceMarker("deleted-workspace:ws-1") {
+		t.Fatal("expected marker to be detected")
+	}
+	if IsHardDeletedWorkspaceMarker("ws-1") {
+		t.Fatal("expected raw id not to be detected as marker")
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -1658,5 +1659,86 @@ func TestPostgresStoreListWorkspaceStrandedActiveMembersEmptyUUID(t *testing.T) 
 	}
 	if len(members) != 0 {
 		t.Fatalf("expected no members for empty UUID, got %d", len(members))
+	}
+}
+
+func TestPostgresStoreListWorkspacesPendingHardDelete(t *testing.T) {
+	// #1420 PR 2: the hard-delete worker queries soft-deleted
+	// workspaces past the grace cutoff via this method. Pin the SQL
+	// filter (status='deleted', deleted_at IS NOT NULL, deleted_at <
+	// cutoff) and the deterministic ORDER BY so the worker drains
+	// the oldest entries first.
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	cutoff := now.Add(-WorkspaceDeletionGracePeriod)
+	pastGrace := cutoff.Add(-time.Hour)
+
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "status", "suspended_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "Workspace A", "workspace-a", "deleted", nil, pastGrace, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at
+		 FROM tenancy_workspaces
+		 WHERE status = 'deleted'
+		   AND deleted_at IS NOT NULL
+		   AND deleted_at < $1::timestamptz
+		 ORDER BY deleted_at ASC, workspace_id ASC
+		 LIMIT $2`)).
+		WithArgs(cutoff.UTC(), 100).
+		WillReturnRows(rows)
+
+	result, err := store.ListWorkspacesPendingHardDelete(context.Background(), cutoff, 100)
+	if err != nil {
+		t.Fatalf("list pending: %v", err)
+	}
+	if len(result) != 1 || result[0].WorkspaceID != "workspace-a" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreHardDeleteWorkspaceRefusesActive(t *testing.T) {
+	// The SELECT FOR UPDATE inside HardDeleteWorkspace carries a
+	// `status='deleted' AND deleted_at IS NOT NULL` guard, so an
+	// active workspace surfaces as ErrNotFound from the first scan.
+	// The fallback SELECT then reports the actual status so the
+	// returned error explains what happened — a regression that drops
+	// the predicate would silently destroy live data.
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at
+		 FROM tenancy_workspaces
+		 WHERE workspace_id = $1
+		   AND status = 'deleted'
+		   AND deleted_at IS NOT NULL
+		 FOR UPDATE`)).
+		WithArgs("workspace-a").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT status, deleted_at FROM tenancy_workspaces WHERE workspace_id = $1`)).
+		WithArgs("workspace-a").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "deleted_at"}).AddRow("active", nil))
+	mock.ExpectRollback()
+
+	if _, err := store.HardDeleteWorkspace(context.Background(), "workspace-a", now); err == nil {
+		t.Fatal("expected hard delete to refuse active workspace")
+	} else if !strings.Contains(err.Error(), "not pending deletion") {
+		t.Fatalf("expected pending-deletion message, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/identrail/identrail/internal/telemetry"
 	"github.com/identrail/identrail/internal/userexport"
 	"github.com/identrail/identrail/internal/userpurge"
+	"github.com/identrail/identrail/internal/workspacepurge"
 )
 
 const (
@@ -192,6 +193,35 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		logger.Info(
 			"user purge pass completed",
 			telemetry.StandardLogFields("worker", "user_purge",
+				telemetry.String("examined", fmt.Sprint(result.Examined)),
+				telemetry.String("purged", fmt.Sprint(result.Purged)),
+				telemetry.String("errors", fmt.Sprint(result.Errors)),
+				telemetry.String("outcome", "completed"),
+			)...,
+		)
+		return nil
+	}
+	workspacePurgeRunner := &workspacepurge.Runner{
+		Store:     svc.Store,
+		Now:       svc.Now,
+		BatchSize: cfg.WorkerWorkspacePurgeBatchSize,
+	}
+	workspacePurgeTrigger := func(runCtx context.Context) error {
+		writeHeartbeat()
+		result, runErr := workspacePurgeRunner.RunOnce(runCtx)
+		if runErr != nil {
+			logger.Error(
+				"workspace purge pass failed",
+				telemetry.StandardLogFields("worker", "workspace_purge",
+					telemetry.String("outcome", "failed"),
+					telemetry.ZapError(runErr),
+				)...,
+			)
+			return runErr
+		}
+		logger.Info(
+			"workspace purge pass completed",
+			telemetry.StandardLogFields("worker", "workspace_purge",
 				telemetry.String("examined", fmt.Sprint(result.Examined)),
 				telemetry.String("purged", fmt.Sprint(result.Purged)),
 				telemetry.String("errors", fmt.Sprint(result.Errors)),
@@ -381,6 +411,32 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 				OnError: func(_ context.Context, err error) {
 					metrics.WorkerRetriesTotal.WithLabelValues("user_purge").Inc()
 					logger.Error("user purge iteration failed", telemetry.ZapError(err))
+				},
+			},
+		})
+	}
+	if cfg.WorkerWorkspacePurgeEnabled {
+		workspacePurgeRunnerKey := "workspace-purge"
+		if namespace := strings.TrimSpace(svc.LockNamespace); namespace != "" {
+			workspacePurgeRunnerKey = namespace + ":" + workspacePurgeRunnerKey
+		}
+		runners = append(runners, scheduledRunner{
+			name:   "workspace-purge",
+			runNow: false,
+			runner: scheduler.Runner{
+				Interval:     cfg.WorkerWorkspacePurgeInterval,
+				Key:          workspacePurgeRunnerKey,
+				Locker:       svc.Locker,
+				Trigger:      workspacePurgeTrigger,
+				MaxAttempts:  defaultWorkerQueueMaxAttempts,
+				RetryBackoff: defaultWorkerRetryBackoff,
+				OnDeadLetter: func(_ context.Context, err error) {
+					metrics.WorkerDeadLettersTotal.WithLabelValues("workspace_purge").Inc()
+					logger.Error("workspace purge exhausted retries; dead-letter event emitted", telemetry.ZapError(err))
+				},
+				OnError: func(_ context.Context, err error) {
+					metrics.WorkerRetriesTotal.WithLabelValues("workspace_purge").Inc()
+					logger.Error("workspace purge iteration failed", telemetry.ZapError(err))
 				},
 			},
 		})

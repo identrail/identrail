@@ -207,6 +207,28 @@ const (
 	WorkspaceStatusDeleted   = "deleted"
 )
 
+// hardDeletedWorkspaceMarkerPrefix brackets the synthetic identifier emitted
+// on audit events for hard-deleted workspaces (#1420 PR 2). The marker keeps
+// the audit log human-readable while ensuring no live workspace ID can
+// collide with it — `:` is not legal in tenancy identifiers (validated by
+// validateAppModeIdentifier), so any field starting with this prefix is
+// unambiguously a tombstone reference rather than an active workspace.
+const hardDeletedWorkspaceMarkerPrefix = "deleted-workspace:"
+
+// HardDeletedWorkspaceMarker returns the synthetic workspace identifier the
+// workspace hard-delete worker emits on its audit event so downstream
+// consumers can recognize references to purged workspaces without needing a
+// live row to dereference.
+func HardDeletedWorkspaceMarker(workspaceID string) string {
+	return hardDeletedWorkspaceMarkerPrefix + strings.TrimSpace(workspaceID)
+}
+
+// IsHardDeletedWorkspaceMarker reports whether the supplied identifier is a
+// hard-delete marker emitted by the workspace purge worker.
+func IsHardDeletedWorkspaceMarker(identifier string) bool {
+	return strings.HasPrefix(strings.TrimSpace(identifier), hardDeletedWorkspaceMarkerPrefix)
+}
+
 // hardDeletedEmailPrefix and hardDeletedEmailSuffix bracket the synthetic
 // primary_email a user row carries after PII purge. They keep the NOT NULL /
 // UNIQUE / length constraints on the column satisfied while guaranteeing the
@@ -2698,6 +2720,20 @@ type Store interface {
 	// or the caller is the only member. Used to gate suspend/delete with
 	// the structured `sole_owner_requires_transfer` 409 from #1420.
 	ListWorkspaceStrandedActiveMembers(ctx context.Context, workspaceID string, userUUID string) ([]TenancyWorkspaceMember, error)
+	// ListWorkspacesPendingHardDelete returns soft-deleted workspaces
+	// whose grace window closed (deleted_at < deletedBefore), so the
+	// workspace hard-delete worker can purge them. Bypasses scope so
+	// the worker enumerates across tenants.
+	ListWorkspacesPendingHardDelete(ctx context.Context, deletedBefore time.Time, limit int) ([]TenancyWorkspace, error)
+	// HardDeleteWorkspace permanently removes a workspace whose
+	// soft-delete grace window has elapsed. Implementations refuse the
+	// purge unless the row is genuinely past grace (status='deleted',
+	// deleted_at IS NOT NULL) so a programming error against an
+	// active workspace cannot silently destroy live data. Cascades to
+	// every child table (members, projects, connectors, secret
+	// envelopes, scan policies) and explicitly purges scan + repo_scan
+	// history. Returns the deleted workspace row for audit metadata.
+	HardDeleteWorkspace(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error)
 	UpsertWorkspaceMember(ctx context.Context, member TenancyWorkspaceMember) error
 	GetWorkspaceMember(ctx context.Context, workspaceID string, memberID string) (TenancyWorkspaceMember, error)
 	GetWorkspaceMemberByUserUUID(ctx context.Context, workspaceID string, userUUID string) (TenancyWorkspaceMember, error)

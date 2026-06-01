@@ -1,7 +1,21 @@
 # Changelog
 
 ## Unreleased
-<<<<<<< feat/workspace-danger-zone-backend
+- Added workspace hard-delete worker (PR 2 of #1420). A daily scheduled
+  pass in `internal/workspacepurge` drains soft-deleted workspaces past
+  the 30-day grace window: it explicitly purges `scans`, `repo_scans`,
+  and `aws_account_region_coverage` rows (those tables carry
+  tenant/workspace columns but no FK back to `tenancy_workspaces`), then
+  deletes the workspace row itself which cascades through members,
+  projects, connectors, secret envelopes (zeroed in the cascade), and
+  scan policies in a single transaction. The destructive
+  `WHERE status='deleted' AND deleted_at IS NOT NULL` predicate lives on
+  the DELETE itself so a concurrent cancel-deletion landing between the
+  worker's pre-check and the destructive write cannot drop live data.
+  Audit emits `tenancy.workspace.hard_delete` with an anonymized
+  `deleted-workspace:<id>` marker so downstream audit consumers can
+  recognize references to purged workspaces. Worker is on by default
+  (`IDENTRAIL_WORKER_WORKSPACE_PURGE_ENABLED=true`, daily, batch=100).
 - Added workspace lifecycle backend for owner-driven suspend, soft-delete with
   30-day grace, and cancel-deletion. New endpoints
   `POST /v1/workspaces/:workspace_id/suspend`,
@@ -21,15 +35,12 @@
   suspended or soft-deleted workspaces with `409 workspace_inactive`, so a
   workspace pause genuinely stops every connector state-change pathway —
   including agents already deployed in remote clusters. The matching
-  hard-delete worker and frontend Danger Zone card ship in follow-up PRs
-  for #1420.
-=======
+  frontend Danger Zone card ships in PR 3 of #1420.
 - Added the Settings Danger Zone UI for self-serve permanent account deletion:
   a "Delete my account permanently" row, primary-email type-to-confirm modal,
   data-export prompt, structured `sole_owner` workspace blocker, success
   redirect to a pending-deletion recovery banner, and sign-in cancellation via
   `POST /v1/me/cancel-deletion`.
->>>>>>> dev
 - Added self-serve "Download my data" exports. `POST /v1/me/export`
   enqueues an authenticated user export, `GET /v1/me/export/:job_id`
   polls job state and returns a 24-hour signed download URL once ready, and
