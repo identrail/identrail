@@ -1630,6 +1630,96 @@ func (c *captureAuditSink) snapshot() []audit.AuditEvent {
 	return out
 }
 
+func TestMemoryStoreHardDeleteWorkspacePurgesEveryChildTable(t *testing.T) {
+	// End-to-end purge against every child surface the store knows
+	// about. Without this test the cascade branches in HardDeleteWorkspace
+	// (connectors, secret envelopes, AWS coverage, scan history) are
+	// unreached by the higher-level lifecycle tests, since those only
+	// seed the workspace + project + member fixtures.
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+
+	if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "ws-1", ProjectID: "project-a", Name: "Project A", Slug: "project-a"}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	if err := store.UpsertTenancyConnector(ctx, TenancyConnector{
+		WorkspaceID: "ws-1", ProjectID: "project-a", ConnectorID: "aws-prod",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "Production AWS",
+		Status:      domain.ConnectorStatusActive,
+	}, TenancyConnectorState{
+		WorkspaceID: "ws-1", ProjectID: "project-a", ConnectorID: "aws-prod",
+		HealthStatus: "healthy",
+	}); err != nil {
+		t.Fatalf("upsert connector: %v", err)
+	}
+	if err := store.UpsertTenancyConnectorSecretEnvelope(ctx, TenancyConnectorSecretEnvelope{
+		WorkspaceID:     "ws-1",
+		ProjectID:       "project-a",
+		ConnectorID:     "aws-prod",
+		SecretName:      "external-id",
+		EnvelopeVersion: 1,
+		Envelope: secretstore.Envelope{
+			Version:    1,
+			Algorithm:  secretstore.AlgorithmAES256GCM,
+			KeyVersion: "v1",
+			Nonce:      []byte("123456789012"),
+			Ciphertext: []byte("ciphertext"),
+		},
+	}); err != nil {
+		t.Fatalf("upsert secret envelope: %v", err)
+	}
+	if err := store.UpsertTenancyScanPolicy(ctx, TenancyScanPolicy{
+		WorkspaceID: "ws-1", ProjectID: "project-a", PolicyID: "default",
+		Name: "Default", Enabled: true, TriggerMode: domain.ScanTriggerModeManual,
+	}); err != nil {
+		t.Fatalf("upsert scan policy: %v", err)
+	}
+	if _, err := store.UpsertAWSAccountRegionCoverage(ctx, AWSAccountRegionCoverage{
+		WorkspaceID:    "ws-1",
+		ProjectID:      "project-a",
+		ConnectorID:    "aws-prod",
+		AccountID:      "123456789012",
+		Partition:      "aws",
+		Region:         "us-east-1",
+		CoverageStatus: "covered",
+	}); err != nil {
+		t.Fatalf("upsert AWS coverage: %v", err)
+	}
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", past); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+
+	if _, err := store.HardDeleteWorkspace(ctx, "ws-1", now); err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+
+	// Workspace gone.
+	if _, err := store.GetWorkspace(ctx, "ws-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected workspace purged, got %v", err)
+	}
+	// Connector + state + secret all gone.
+	if _, err := store.GetTenancyConnector(ctx, "ws-1", "project-a", "aws-prod"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected connector purged with workspace, got %v", err)
+	}
+	if _, err := store.GetTenancyConnectorSecretEnvelope(ctx, "ws-1", "project-a", "aws-prod", "external-id"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected secret envelope purged with workspace, got %v", err)
+	}
+	// Scan policy gone.
+	if _, err := store.GetTenancyScanPolicy(ctx, "ws-1", "project-a", "default"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected scan policy purged with workspace, got %v", err)
+	}
+	// AWS coverage gone.
+	coverages, err := store.ListAWSAccountRegionCoverages(ctx, AWSAccountRegionCoverageFilter{ProjectID: "project-a"})
+	if err != nil {
+		t.Fatalf("list AWS coverage: %v", err)
+	}
+	if len(coverages) != 0 {
+		t.Fatalf("expected AWS coverage purged with workspace, got %+v", coverages)
+	}
+}
+
 func TestMemoryStoreHardDeleteWorkspaceEmitsAuditAction(t *testing.T) {
 	// The hard-delete code path must emit a `tenancy.workspace.hard_delete`
 	// audit event with the right scope context. The downstream audit
