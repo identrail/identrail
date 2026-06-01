@@ -1570,6 +1570,51 @@ func TestMemoryStoreHardDeleteWorkspaceRefusesActive(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreHardDeleteWorkspacePurgesAuthzAndTriageMaps(t *testing.T) {
+	// Codex round-3 P2 on #1450: the memory backend's authz + triage
+	// maps live outside the cascade chain (they don't reference
+	// tenancy_workspaces). Pin that HardDeleteWorkspace explicitly
+	// drains every workspace-scoped entry so the in-memory store
+	// matches the postgres purge behavior (and so scoped reads after
+	// the purge correctly return ErrNotFound).
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+
+	if err := store.UpsertAuthzEntityAttributes(ctx, AuthzEntityAttributes{
+		EntityKind: "subject", EntityType: "user", EntityID: "u-1",
+		OwnerTeam: "core",
+	}); err != nil {
+		t.Fatalf("upsert authz attrs: %v", err)
+	}
+	if err := store.UpsertAuthzPolicySet(ctx, AuthzPolicySet{PolicySetID: "default", DisplayName: "Default"}); err != nil {
+		t.Fatalf("upsert authz policy set: %v", err)
+	}
+	if err := store.UpsertFindingTriageState(ctx, FindingTriageState{
+		FindingID: "finding-1", Status: domain.FindingLifecycleOpen,
+	}); err != nil {
+		t.Fatalf("upsert triage state: %v", err)
+	}
+
+	saved, err := store.SoftDeleteWorkspace(ctx, "ws-1", past)
+	if err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", *saved.DeletedAt, now); err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+
+	if _, err := store.GetAuthzEntityAttributes(ctx, "subject", "user", "u-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected authz attrs purged, got %v", err)
+	}
+	if _, err := store.GetAuthzPolicySet(ctx, "default"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected authz policy set purged, got %v", err)
+	}
+	if _, err := store.GetFindingTriageState(ctx, "finding-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected triage state purged, got %v", err)
+	}
+}
+
 func TestMemoryStoreHardDeleteWorkspaceRefusesDeletedAtDrift(t *testing.T) {
 	// Race protection (#1450 round 2): the worker lists a workspace
 	// past grace, then between the list and the purge call an owner

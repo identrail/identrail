@@ -623,6 +623,62 @@ func (m *MemoryStore) HardDeleteWorkspace(ctx context.Context, tenantID, workspa
 			delete(m.repoCursors, cursorKey)
 		}
 	}
+	// Authz + triage state lives in dedicated maps keyed by
+	// scope-derived strings. Codex round-3 P2 on #1450 flagged that
+	// the postgres path purges those tables but the memory store left
+	// them behind — divergent behaviour between backends, and the
+	// memory store's scoped API would continue returning rows for a
+	// workspace that has just been hard-deleted. Iterate each map and
+	// drop every entry whose TenantID/WorkspaceID matches.
+	for key, attrs := range m.authzAttrs {
+		if attrs.TenantID == tenant && attrs.WorkspaceID == id {
+			delete(m.authzAttrs, key)
+		}
+	}
+	for key, rel := range m.authzRels {
+		if rel.TenantID == tenant && rel.WorkspaceID == id {
+			delete(m.authzRels, key)
+		}
+	}
+	for key, set := range m.authzSets {
+		if set.TenantID == tenant && set.WorkspaceID == id {
+			delete(m.authzSets, key)
+		}
+	}
+	for key, version := range m.authzVersions {
+		if version.TenantID == tenant && version.WorkspaceID == id {
+			delete(m.authzVersions, key)
+		}
+	}
+	for key, rollout := range m.authzRollouts {
+		if rollout.TenantID == tenant && rollout.WorkspaceID == id {
+			delete(m.authzRollouts, key)
+		}
+	}
+	for key, events := range m.authzEvents {
+		// authzEvents is map[string][]AuthzPolicyEvent — every event
+		// in a single slot shares the same scope (the key is derived
+		// from it), so checking the first entry is sufficient.
+		if len(events) > 0 && events[0].TenantID == tenant && events[0].WorkspaceID == id {
+			delete(m.authzEvents, key)
+		}
+	}
+	// FindingTriageState/Event don't carry TenantID/WorkspaceID on
+	// the value itself — the map key embeds the scope as
+	// `tenant|workspace|finding_id` (see findingScopeKey). Prefix
+	// match on the scope segments to purge every triage row tied to
+	// the workspace.
+	triagePrefix := tenant + "|" + id + "|"
+	for key := range m.triageStates {
+		if strings.HasPrefix(key, triagePrefix) {
+			delete(m.triageStates, key)
+		}
+	}
+	for key := range m.triageEvents {
+		if strings.HasPrefix(key, triagePrefix) {
+			delete(m.triageEvents, key)
+		}
+	}
 	workspace.UpdatedAt = when
 	m.mu.Unlock()
 
