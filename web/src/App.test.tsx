@@ -2350,10 +2350,11 @@ describe('App', () => {
 
     expect(await screen.findByText(/Security Workspace/i)).toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 2, name: /Settings/i })).toBeInTheDocument();
-    expect(await screen.findByText(/Hosted WorkOS login/i)).toBeInTheDocument();
-    expect(await screen.findByText(/^None$/i)).toBeInTheDocument();
+    expect(await screen.findByText(/GitHub, Google/i)).toBeInTheDocument();
+    expect(await screen.findAllByText(/Hosted login/i)).toHaveLength(2);
+    expect(await screen.findByText(/Not configured/i)).toBeInTheDocument();
+    expect(screen.getByText(/Developer details/i)).toBeInTheDocument();
     expect(await screen.findByText(/Total members/i)).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { level: 3, name: /1 active session/i })).toBeInTheDocument();
     expect(screen.getByText(/Manage sessions/i)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Account security/i })).not.toBeInTheDocument();
   });
@@ -2429,8 +2430,7 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/settings');
     render(<App />);
 
-    const dangerZone = await screen.findByTestId('idt-danger-zone');
-    const exportRow = within(dangerZone).getByTestId('idt-export-account-row');
+    const exportRow = await screen.findByTestId('idt-export-account-row');
     fireEvent.click(within(exportRow).getByRole('button', { name: /Download my data/i }));
 
     expect(await within(exportRow).findByTestId('idt-export-ready')).toHaveTextContent(/Your data export is ready/i);
@@ -2512,7 +2512,7 @@ describe('App', () => {
     const dangerZone = await screen.findByTestId('idt-danger-zone');
     fireEvent.click(within(dangerZone).getByRole('button', { name: /Delete account/i }));
 
-    const modal = await screen.findByRole('dialog', { name: /Delete my account permanently/i });
+    const modal = await screen.findByRole('dialog', { name: /Delete account/i });
     const continueButton = within(modal).getByRole('button', { name: 'Continue' });
     expect(continueButton).toBeDisabled();
 
@@ -2563,7 +2563,7 @@ describe('App', () => {
     const dangerZone = await screen.findByTestId('idt-danger-zone');
     fireEvent.click(within(dangerZone).getByRole('button', { name: /Delete account/i }));
 
-    const modal = await screen.findByRole('dialog', { name: /Delete my account permanently/i });
+    const modal = await screen.findByRole('dialog', { name: /Delete account/i });
     fireEvent.change(within(modal).getByLabelText(/Type your primary email/i), {
       target: { value: 'owner@example.com' }
     });

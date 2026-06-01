@@ -275,6 +275,7 @@ function settingsWhoAmI(me: CurrentUserContext): WhoAmIResponse {
 
 async function renderProductSettingsPage(options: {
   me?: CurrentUserContext;
+  authConfig?: AuthConfigResponse;
   updateMe?: CurrentUserContext | Error;
 } = {}) {
   vi.resetModules();
@@ -298,7 +299,7 @@ async function renderProductSettingsPage(options: {
   vi.spyOn(api.apiClient, 'listWorkspaceMembers').mockResolvedValue({
     items: whoAmI.active_workspace?.member ? [whoAmI.active_workspace.member] : []
   });
-  vi.spyOn(api.apiClient, 'getAuthConfig').mockResolvedValue(settingsAuthConfig);
+  vi.spyOn(api.apiClient, 'getAuthConfig').mockResolvedValue(options.authConfig ?? settingsAuthConfig);
   vi.spyOn(api.apiClient, 'listCurrentUserSessions').mockResolvedValue({ items: [] });
   const updateMe = vi.spyOn(api.apiClient, 'updateMe');
   if (options.updateMe instanceof Error) {
@@ -519,10 +520,10 @@ describe('ProductSettingsPage profile', () => {
     };
     const { primeMeCache, updateMe } = await renderProductSettingsPage({ updateMe: updatedMe });
 
-    expect(await screen.findByRole('heading', { name: 'Owner User' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }));
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: '  Updated Owner  ' } });
-    fireEvent.change(screen.getByLabelText('Avatar URL'), {
+    fireEvent.change(screen.getByLabelText('Photo URL'), {
       target: { value: 'https://avatars.githubusercontent.com/u/42?v=4' }
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
@@ -545,15 +546,60 @@ describe('ProductSettingsPage profile', () => {
     await waitFor(() => expect(primeMeCache).toHaveBeenLastCalledWith(updatedMe));
   });
 
+  it('keeps unsaved profile edits when deleting the profile photo', async () => {
+    const updatedMe: CurrentUserContext = {
+      ...loggedInWithWorkspace,
+      user: {
+        ...loggedInWithWorkspace.user,
+        avatar_url: '',
+        updated_at: '2026-05-17T10:00:00Z'
+      }
+    };
+    const { updateMe } = await renderProductSettingsPage({ updateMe: updatedMe });
+
+    expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }));
+    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Unsaved Owner' } });
+    fireEvent.change(screen.getByLabelText('Photo URL'), {
+      target: { value: 'https://avatars.githubusercontent.com/u/99?v=4' }
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Update or delete profile photo/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete photo' }));
+
+    await waitFor(() => expect(updateMe).toHaveBeenCalledWith({ avatar_url: '' }));
+    expect(screen.getByLabelText('Display name')).toHaveValue('Unsaved Owner');
+    expect(screen.getByLabelText('Photo URL')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Save profile' })).toBeInTheDocument();
+  });
+
+  it('keeps unsaved profile edits when reopening the photo editor', async () => {
+    await renderProductSettingsPage();
+
+    expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }));
+    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Draft Owner' } });
+    fireEvent.change(screen.getByLabelText('Photo URL'), {
+      target: { value: 'https://avatars.githubusercontent.com/u/99?v=4' }
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Update or delete profile photo/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Update photo' }));
+
+    expect(screen.getByLabelText('Display name')).toHaveValue('Draft Owner');
+    expect(screen.getByLabelText('Photo URL')).toHaveValue('https://avatars.githubusercontent.com/u/99?v=4');
+    await waitFor(() => expect(screen.getByLabelText('Photo URL')).toHaveFocus());
+  });
+
   it('rolls back the optimistic profile update when saving fails', async () => {
     const { primeMeCache, updateMe } = await renderProductSettingsPage({
       updateMe: new Error('avatar_url host is not allowed')
     });
 
-    expect(await screen.findByRole('heading', { name: 'Owner User' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }));
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Blocked Owner' } });
-    fireEvent.change(screen.getByLabelText('Avatar URL'), { target: { value: 'https://example.com/avatar.png' } });
+    fireEvent.change(screen.getByLabelText('Photo URL'), { target: { value: 'https://example.com/avatar.png' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
 
     await waitFor(() => expect(updateMe).toHaveBeenCalled());
@@ -564,7 +610,7 @@ describe('ProductSettingsPage profile', () => {
   it('validates display name before submitting a profile update', async () => {
     const { primeMeCache, updateMe } = await renderProductSettingsPage();
 
-    expect(await screen.findByRole('heading', { name: 'Owner User' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }));
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: '   ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
@@ -572,6 +618,39 @@ describe('ProductSettingsPage profile', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Display name must be 1-80 characters.');
     expect(updateMe).not.toHaveBeenCalled();
     expect(primeMeCache).not.toHaveBeenCalled();
+  });
+
+  it('labels empty manual auth config without advertising hosted login', async () => {
+    await renderProductSettingsPage({
+      authConfig: {
+        ...settingsAuthConfig,
+        auth: {
+          manual_mode: true,
+          workos_login_enabled: false,
+          native_saml_enabled: false,
+          providers: []
+        }
+      }
+    });
+
+    expect(await screen.findByText('Manual development')).toBeInTheDocument();
+    expect(screen.queryByText('GitHub, Google')).not.toBeInTheDocument();
+  });
+
+  it('closes the avatar menu with Escape and outside clicks', async () => {
+    await renderProductSettingsPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Update or delete profile photo/i }));
+    expect(screen.getByRole('menuitem', { name: /Update photo/i })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menuitem', { name: /Update photo/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Update or delete profile photo/i }));
+    expect(screen.getByRole('menuitem', { name: /Update photo/i })).toBeInTheDocument();
+
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('menuitem', { name: /Update photo/i })).not.toBeInTheDocument();
   });
 });
 

@@ -8,7 +8,6 @@ import type {
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   BarChart3,
-  Check,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -21,8 +20,7 @@ import {
   PanelLeftOpen,
   Pencil,
   Search,
-  Settings as SettingsIcon,
-  X
+  Settings as SettingsIcon
 } from 'lucide-react';
 import {
   ApiError,
@@ -64,7 +62,7 @@ import {
   type WorkspaceMemberRole,
   type WorkspaceMemberStatus
 } from './api/client';
-import { formatSessionDevice, SessionsList } from './components/auth/SessionsList';
+import { SessionsList } from './components/auth/SessionsList';
 import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
 import { ConfirmDestructiveModal, DangerZone, DangerZoneRow } from './components/settings/DangerZone';
 import {
@@ -1267,6 +1265,41 @@ function formatProfileInitials(me: CurrentUserContext | null | undefined): strin
   return initials || 'U';
 }
 
+function formatSettingsAuthProvider(provider: string): string {
+  const normalized = provider.toLowerCase();
+  if (normalized.includes('github')) {
+    return 'GitHub';
+  }
+  if (normalized.includes('google')) {
+    return 'Google';
+  }
+  if (normalized.includes('saml')) {
+    return 'SAML SSO';
+  }
+  if (normalized.includes('workos') || normalized.includes('authkit')) {
+    return 'Hosted login';
+  }
+  return formatTokenLabel(provider.replace(/_oauth$/i, ''));
+}
+
+function formatSettingsAuthProviders(config: AuthConfigResponse | null): string {
+  const providers = config?.auth.providers ?? [];
+  const labels = Array.from(new Set(providers.map(formatSettingsAuthProvider))).filter((label) => label !== 'Hosted login');
+  if (labels.length) {
+    return labels.join(', ');
+  }
+  if (config?.auth.workos_login_enabled) {
+    return 'Hosted login';
+  }
+  if (config?.auth.native_saml_enabled) {
+    return 'SAML SSO';
+  }
+  if (config?.auth.manual_mode) {
+    return 'Manual development';
+  }
+  return 'Session-only';
+}
+
 function validateProfileDraft(draft: ProfileDraft, options: { validateAvatarUrl?: boolean } = {}): string {
   const displayName = draft.displayName.trim();
   if (!displayName || Array.from(displayName).length > 80) {
@@ -1285,13 +1318,13 @@ function validateProfileDraft(draft: ProfileDraft, options: { validateAvatarUrl?
   try {
     const parsed = new URL(avatarUrl);
     if (parsed.protocol !== 'https:') {
-      return 'Avatar URL must use https.';
+      return 'Photo URL must use https.';
     }
     if (parsed.username || parsed.password) {
-      return 'Avatar URL cannot include credentials.';
+      return 'Photo URL cannot include credentials.';
     }
   } catch {
-    return 'Avatar URL must be a valid https URL.';
+    return 'Photo URL must be a valid https URL.';
   }
   return '';
 }
@@ -1711,7 +1744,7 @@ function CommandPalette({
             aria-label="Search workspace commands"
           />
           <button type="button" className="idt-command-palette-close" onClick={onClose} aria-label="Close workspace finder">
-            Esc
+            ESC
           </button>
         </div>
         <div className="idt-command-palette-results" role="listbox" aria-label="Workspace commands">
@@ -13440,13 +13473,13 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
               </div>
               <button
                 ref={findingDetailCloseRef}
-                className="idt-icon-btn idt-repo-finding-modal-close"
+                className="idt-esc-close idt-repo-finding-modal-close"
                 type="button"
                 aria-label="Close finding detail"
                 autoFocus
                 onClick={() => closeFindingDetail()}
               >
-                <X size={16} strokeWidth={2} aria-hidden="true" />
+                ESC
               </button>
             </header>
 
@@ -14017,7 +14050,10 @@ export function ProductSettingsPage() {
     | { kind: 'ready'; downloadURL: string; expiresAt?: string }
   >({ kind: 'idle' });
   const exportAbortRef = useRef<AbortController | null>(null);
+  const avatarControlRef = useRef<HTMLDivElement | null>(null);
+  const profilePhotoInputRef = useRef<HTMLInputElement | null>(null);
   const [profileEditing, setProfileEditing] = useState(false);
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
   const [profileDraft, setProfileDraft] = useState<ProfileDraft>(() => profileDraftFromMe(me));
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState('');
@@ -14125,6 +14161,30 @@ export function ProductSettingsPage() {
     }
   }, [me?.user.display_name, me?.user.avatar_url, profileEditing, profileSaving]);
 
+  useEffect(() => {
+    if (!avatarMenuOpen) {
+      return;
+    }
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Node && avatarControlRef.current?.contains(target)) {
+        return;
+      }
+      setAvatarMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setAvatarMenuOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [avatarMenuOpen]);
+
   const activeWorkspace = whoAmI?.active_workspace?.workspace ?? me?.workspace;
   const activeMember =
     whoAmI?.active_workspace?.member ??
@@ -14132,27 +14192,38 @@ export function ProductSettingsPage() {
   const activeRole = activeMember?.role ?? me?.role ?? 'viewer';
   const workspaceDisplayName = activeWorkspace?.display_name ?? scope?.workspaceID ?? 'Workspace';
   const authProviders = authConfig?.auth.providers ?? [];
-  const authModeLabel = authConfig?.auth.workos_login_enabled
-    ? 'Hosted WorkOS login'
-    : authConfig?.auth.native_saml_enabled
-      ? 'Native SAML login'
-    : authConfig?.auth.manual_mode
-      ? 'Manual development login'
-      : 'Session-only';
   const scopes = Array.isArray(whoAmI?.scopes) ? whoAmI.scopes : [];
-  const awsPath = scope ? buildScopedPath(scope, 'aws') : '/app';
-  const githubFindingsPath = scope ? buildScopedPath(scope, 'github/findings') : '/app';
-  const kubernetesPath = scope ? buildScopedPath(scope, 'kubernetes') : '/app';
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
   const primaryEmail = me?.user.primary_email?.trim() ?? '';
   const profileDisplayName = formatProfileDisplayName(me);
   const profileAvatarURL = me?.user.avatar_url?.trim() ?? '';
   const profileInitials = formatProfileInitials(me);
+  const activeMembers = countMembersByStatus(members, 'active');
+  const invitedMembers = countMembersByStatus(members, 'invited');
+  const adminMembers = countMembersByRole(members, 'owner') + countMembersByRole(members, 'admin');
+  const signInMethods = formatSettingsAuthProviders(authConfig);
+  const hostedLoginStatus = authConfig?.auth.workos_login_enabled ? 'Enabled' : 'Disabled';
+  const samlStatus = authConfig?.auth.native_saml_enabled ? 'Configured' : 'Not configured';
+  const mfaStatus = authConfig?.auth.workos_login_enabled ? 'Hosted login' : 'Not configured';
+  const developerScopeLabel = scopes.length ? scopes.map(formatTokenLabel).join(', ') : 'No custom restrictions';
+  const developerProviderLabel = authProviders.length ? authProviders.join(', ') : 'None advertised';
+
+  const focusProfilePhotoInput = () => {
+    window.requestAnimationFrame(() => profilePhotoInputRef.current?.focus());
+  };
 
   const handleProfileEdit = () => {
+    if (profileEditing) {
+      setProfileError('');
+      setAvatarMenuOpen(false);
+      focusProfilePhotoInput();
+      return;
+    }
     setProfileDraft(profileDraftFromMe(me));
     setProfileError('');
     setProfileEditing(true);
+    setAvatarMenuOpen(false);
+    focusProfilePhotoInput();
   };
 
   const handleProfileCancel = () => {
@@ -14160,6 +14231,47 @@ export function ProductSettingsPage() {
     setProfileDraft(profileDraftFromMe(me));
     setProfileError('');
     setProfileEditing(false);
+    setAvatarMenuOpen(false);
+  };
+
+  const handleAvatarDelete = async () => {
+    if (!me || profileSaving || !profileAvatarURL) {
+      return;
+    }
+    const previousMe = me;
+    const previousDraft = profileDraft;
+    const wasProfileEditing = profileEditing;
+    const optimisticMe: CurrentUserContext = {
+      ...previousMe,
+      user: {
+        ...previousMe.user,
+        avatar_url: '',
+        updated_at: new Date().toISOString()
+      }
+    };
+    setAvatarMenuOpen(false);
+    setProfileSaving(true);
+    setProfileError('');
+    primeMeCache(optimisticMe);
+    if (wasProfileEditing) {
+      setProfileDraft({ ...previousDraft, avatarUrl: '' });
+    }
+    try {
+      const response = await apiClient.updateMe({ avatar_url: '' });
+      primeMeCache(response.me);
+      if (wasProfileEditing) {
+        setProfileDraft((draft) => ({ ...draft, avatarUrl: '' }));
+      } else {
+        setProfileDraft(profileDraftFromMe(response.me));
+        setProfileEditing(false);
+      }
+    } catch (err) {
+      primeMeCache(previousMe);
+      setProfileDraft(wasProfileEditing ? previousDraft : profileDraftFromMe(previousMe));
+      setProfileError(err instanceof Error ? err.message : 'Unable to delete profile photo.');
+    } finally {
+      setProfileSaving(false);
+    }
   };
 
   const handleProfileSubmit = async (event: FormEvent) => {
@@ -14214,15 +14326,6 @@ export function ProductSettingsPage() {
       setProfileSaving(false);
     }
   };
-
-  const primarySession = sessions.find((session) => session.current) ?? sessions[0];
-  const sessionsSummary = sessionsLoading
-    ? 'Checking active browsers.'
-    : sessionsError
-      ? 'Session details need a refresh.'
-      : primarySession
-        ? formatSessionDevice(primarySession.user_agent)
-        : 'No active browser session.';
 
   const handleRevokeSession = async (sessionID: string, isCurrent: boolean) => {
     setBusySessionID(sessionID);
@@ -14296,7 +14399,6 @@ export function ProductSettingsPage() {
     return (
       <section className="idt-app-panel" aria-busy="true" aria-live="polite">
         <h2>Settings</h2>
-        <p>Loading workspace identity, members, authentication, and sessions.</p>
       </section>
     );
   }
@@ -14315,42 +14417,72 @@ export function ProductSettingsPage() {
       <header className="idt-settings-header">
         <div>
           <h2>Settings</h2>
-          <p>Workspace access, sign-in, sessions, and account controls.</p>
-        </div>
-        <div className="idt-inline-actions">
-          <Link className="idt-btn idt-btn-primary" to={workspacesPath}>
-            Manage members
-          </Link>
         </div>
       </header>
 
       <section className="idt-settings-card idt-profile-card" aria-labelledby="idt-profile-heading">
         <div className="idt-settings-card-header">
           <div>
-            <p className="idt-app-kicker">Account profile</p>
-            <h3 id="idt-profile-heading">{profileDisplayName}</h3>
+            <h3 id="idt-profile-heading">Profile</h3>
           </div>
-          {profileEditing ? null : (
-            <button
-              type="button"
-              className="idt-icon-btn idt-profile-icon-btn"
-              aria-label="Edit profile"
-              title="Edit profile"
-              onClick={handleProfileEdit}
-              disabled={!me}
-            >
-              <Pencil size={16} aria-hidden="true" />
-            </button>
-          )}
+          {profileEditing ? (
+            <div className="idt-profile-actions">
+              <button
+                type="submit"
+                form="idt-profile-form"
+                className="idt-btn idt-btn-primary"
+                disabled={profileSaving}
+              >
+                {profileSaving ? 'Saving...' : 'Save profile'}
+              </button>
+              <button
+                type="button"
+                className="idt-btn idt-btn-ghost"
+                onClick={handleProfileCancel}
+                disabled={profileSaving}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="idt-profile-body">
-          <div className="idt-profile-avatar" aria-hidden="true">
-            {profileAvatarURL ? <img src={profileAvatarURL} alt="" /> : <span>{profileInitials}</span>}
+          <div
+            className="idt-profile-avatar-control"
+            data-menu-open={avatarMenuOpen ? 'true' : 'false'}
+            ref={avatarControlRef}
+          >
+            <button
+              type="button"
+              className="idt-profile-avatar"
+              aria-expanded={avatarMenuOpen}
+              aria-haspopup="menu"
+              aria-label={profileAvatarURL ? 'Update or delete profile photo' : 'Upload profile photo'}
+              onClick={() => setAvatarMenuOpen((open) => !open)}
+              disabled={!me}
+            >
+              {profileAvatarURL ? <img src={profileAvatarURL} alt="" /> : <span>{profileInitials}</span>}
+              <span className="idt-profile-avatar-edit" aria-hidden="true">
+                <Pencil size={14} />
+              </span>
+            </button>
+            {avatarMenuOpen ? (
+              <div className="idt-profile-avatar-menu" role="menu">
+                <button type="button" role="menuitem" onClick={handleProfileEdit}>
+                  {profileAvatarURL ? 'Update photo' : 'Upload photo'}
+                </button>
+                {profileAvatarURL ? (
+                  <button type="button" role="menuitem" onClick={() => void handleAvatarDelete()} disabled={profileSaving}>
+                    Delete photo
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           {profileEditing ? (
-            <form className="idt-app-form idt-profile-form" onSubmit={handleProfileSubmit}>
+            <form id="idt-profile-form" className="idt-app-form idt-profile-form" onSubmit={handleProfileSubmit}>
               <label>
                 Display name
                 <input
@@ -14363,8 +14495,9 @@ export function ProductSettingsPage() {
                 />
               </label>
               <label>
-                Avatar URL
+                Photo URL
                 <input
+                  ref={profilePhotoInputRef}
                   type="url"
                   value={profileDraft.avatarUrl}
                   onChange={(event) => setProfileDraft((draft) => ({ ...draft, avatarUrl: event.target.value }))}
@@ -14372,27 +14505,6 @@ export function ProductSettingsPage() {
                   placeholder="https://..."
                 />
               </label>
-              <div className="idt-profile-actions">
-                <button
-                  type="submit"
-                  className="idt-icon-btn idt-profile-icon-btn"
-                  aria-label="Save profile"
-                  title="Save profile"
-                  disabled={profileSaving}
-                >
-                  <Check size={16} aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="idt-icon-btn idt-profile-icon-btn"
-                  aria-label="Cancel profile editing"
-                  title="Cancel profile editing"
-                  onClick={handleProfileCancel}
-                  disabled={profileSaving}
-                >
-                  <X size={16} aria-hidden="true" />
-                </button>
-              </div>
               {profileError ? (
                 <p className="idt-app-alert idt-app-alert-error" role="alert">
                   {profileError}
@@ -14402,32 +14514,177 @@ export function ProductSettingsPage() {
           ) : (
             <dl className="idt-settings-facts idt-profile-facts">
               <div>
+                <dt>Name</dt>
+                <dd>{profileDisplayName}</dd>
+              </div>
+              <div>
                 <dt>Email</dt>
                 <dd>{me?.user.primary_email ?? 'Unavailable'}</dd>
               </div>
               <div>
-                <dt>Avatar</dt>
-                <dd>{profileAvatarURL || 'Not set'}</dd>
-              </div>
-              <div>
-                <dt>Status</dt>
+                <dt>Account status</dt>
                 <dd>{me?.user.status ? formatTokenLabel(me.user.status) : 'Unavailable'}</dd>
-              </div>
-              <div>
-                <dt>Updated</dt>
-                <dd>{me?.user.updated_at ? formatDateLabel(me.user.updated_at) : 'Unavailable'}</dd>
               </div>
             </dl>
           )}
         </div>
+
+        {!profileEditing && profileError ? (
+          <p className="idt-app-alert idt-app-alert-error" role="alert">
+            {profileError}
+          </p>
+        ) : null}
+
+        <div className="idt-settings-action-stack">
+          {!profileEditing ? (
+            <button
+              aria-label="Edit profile"
+              className="idt-settings-action-row"
+              onClick={handleProfileEdit}
+              type="button"
+              disabled={!me}
+            >
+              <span>
+                <strong>Edit profile</strong>
+              </span>
+              <ChevronRight size={16} aria-hidden="true" />
+            </button>
+          ) : null}
+          <div className="idt-settings-action-item" data-testid="idt-export-account-row">
+            <button
+              aria-label="Download my data"
+              className="idt-settings-action-row"
+              data-testid="idt-export-account-button"
+              disabled={exportPending}
+              onClick={startDataExport}
+              type="button"
+            >
+              <span>
+                <strong>Download my data</strong>
+              </span>
+              <ChevronRight size={16} aria-hidden="true" />
+            </button>
+            {exportStatus.kind === 'ready' ? (
+              <p className="idt-settings-inline-status idt-danger-zone-success" data-testid="idt-export-ready">
+                Your data export is ready.{' '}
+                <a href={exportStatus.downloadURL} rel="noopener noreferrer">
+                  Download the ZIP
+                </a>
+                {exportStatus.expiresAt ? ` - link expires ${new Date(exportStatus.expiresAt).toLocaleString()}` : ''}.
+              </p>
+            ) : exportStatus.kind === 'preparing' ? (
+              <p className="idt-settings-inline-status idt-danger-zone-status" data-testid="idt-export-preparing">
+                {exportStatus.message}
+              </p>
+            ) : null}
+            {exportError ? (
+              <p className="idt-settings-inline-status idt-danger-zone-error" role="alert">
+                {exportError}
+              </p>
+            ) : null}
+          </div>
+        </div>
       </section>
 
       <div className="idt-settings-grid">
-        <section className="idt-settings-card">
-          <div>
-            <p className="idt-app-kicker">Workspace</p>
-            <h3>{workspaceDisplayName}</h3>
+        <section className="idt-settings-card idt-settings-security-card">
+          <div className="idt-settings-card-header">
+            <div>
+              <h3>Security</h3>
+            </div>
           </div>
+          <dl className="idt-settings-facts">
+            <div>
+              <dt>Sign-in methods</dt>
+              <dd>{signInMethods}</dd>
+            </div>
+            <div>
+              <dt>2FA</dt>
+              <dd>{mfaStatus}</dd>
+            </div>
+            <div>
+              <dt>SAML SSO</dt>
+              <dd>{samlStatus}</dd>
+            </div>
+          </dl>
+          <details className="idt-settings-inline-disclosure idt-settings-sessions-card">
+            <summary className="idt-settings-action-row idt-settings-action-summary">
+              <span>
+                <strong>Manage sessions</strong>
+              </span>
+              <ChevronRight size={16} aria-hidden="true" />
+            </summary>
+            <div className="idt-settings-disclosure-body">
+              {sessionsLoading ? <p className="idt-app-alert">Loading active sessions...</p> : null}
+              {sessionsError ? (
+                <p className="idt-app-alert idt-app-alert-error" role="alert">
+                  {sessionsError}
+                </p>
+              ) : null}
+              {!sessionsLoading ? (
+                <SessionsList
+                  busySessionID={busySessionID}
+                  revokingOthers={revokingOthers}
+                  sessions={sessions}
+                  onRevoke={handleRevokeSession}
+                  onRevokeOthers={handleRevokeOtherSessions}
+                />
+              ) : null}
+            </div>
+          </details>
+        </section>
+
+        <section className="idt-settings-card idt-settings-workspace-card">
+          <div className="idt-settings-card-header">
+            <div>
+              <h3>Workspace</h3>
+            </div>
+          </div>
+          <dl className="idt-settings-facts">
+            <div>
+              <dt>Name</dt>
+              <dd>{workspaceDisplayName}</dd>
+            </div>
+            <div>
+              <dt>Your access</dt>
+              <dd>{formatTokenLabel(activeRole)}</dd>
+            </div>
+            <div>
+              <dt>Admins</dt>
+              <dd>{adminMembers}</dd>
+            </div>
+          </dl>
+          <div className="idt-settings-counts">
+            <article>
+              <strong>{members.length}</strong>
+              <span>Total members</span>
+            </article>
+            <article>
+              <strong>{activeMembers}</strong>
+              <span>Active</span>
+            </article>
+            <article>
+              <strong>{invitedMembers}</strong>
+              <span>Invited</span>
+            </article>
+          </div>
+          <Link className="idt-settings-action-row" to={workspacesPath}>
+            <span>
+              <strong>Manage members</strong>
+            </span>
+            <ChevronRight size={16} aria-hidden="true" />
+          </Link>
+        </section>
+      </div>
+
+      <details className="idt-settings-card idt-settings-disclosure">
+        <summary className="idt-settings-disclosure-summary">
+          <div>
+            <h3>Developer details</h3>
+          </div>
+          <span aria-hidden="true"><ChevronRight size={14} /></span>
+        </summary>
+        <div className="idt-settings-disclosure-body">
           <dl className="idt-settings-facts">
             <div>
               <dt>Tenant ID</dt>
@@ -14438,229 +14695,57 @@ export function ProductSettingsPage() {
               <dd>{scope?.workspaceID ?? 'Unavailable'}</dd>
             </div>
             <div>
-              <dt>Scope</dt>
-              <dd>{scope?.projectID ?? me?.project_id ?? 'All scopes'}</dd>
+              <dt>Principal ID</dt>
+              <dd>{whoAmI ? `${formatTokenLabel(whoAmI.principal.type)} - ${whoAmI.principal.id}` : 'Unavailable'}</dd>
             </div>
             <div>
-              <dt>Updated</dt>
-              <dd>{activeWorkspace?.updated_at ? formatDateLabel(activeWorkspace.updated_at) : 'Unavailable'}</dd>
+              <dt>Custom scopes</dt>
+              <dd>{developerScopeLabel}</dd>
             </div>
-          </dl>
-        </section>
-
-        <section className="idt-settings-card">
-          <div>
-            <p className="idt-app-kicker">Access</p>
-            <h3>{formatTokenLabel(activeRole)}</h3>
-          </div>
-          <dl className="idt-settings-facts">
-            <div>
-              <dt>User</dt>
-              <dd>{me?.user?.primary_email ?? whoAmI?.principal.id ?? 'Unavailable'}</dd>
-            </div>
-            <div>
-              <dt>Status</dt>
-              <dd>{me?.user?.status ? formatTokenLabel(me.user.status) : 'Unavailable'}</dd>
-            </div>
-            <div>
-              <dt>Principal</dt>
-              <dd>{whoAmI ? `${formatTokenLabel(whoAmI.principal.type)} · ${whoAmI.principal.id}` : 'Unavailable'}</dd>
-            </div>
-            <div>
-              <dt>Scopes</dt>
-              <dd>{scopes.length ? scopes.map(formatTokenLabel).join(', ') : 'None'}</dd>
-            </div>
-          </dl>
-        </section>
-      </div>
-
-      <div className="idt-settings-grid">
-        <section className="idt-settings-card">
-          <div className="idt-settings-card-header">
-            <div>
-              <p className="idt-app-kicker">Members</p>
-              <h3>{formatCountLabel(members.length, 'member')}</h3>
-            </div>
-            <Link to={workspacesPath}>Manage</Link>
-          </div>
-          <div className="idt-settings-counts">
-            <article>
-              <strong>{members.length}</strong>
-              <span>Total members</span>
-            </article>
-            <article>
-              <strong>{countMembersByStatus(members, 'active')}</strong>
-              <span>Active</span>
-            </article>
-            <article>
-              <strong>{countMembersByStatus(members, 'invited')}</strong>
-              <span>Invited</span>
-            </article>
-            <article>
-              <strong>{countMembersByRole(members, 'owner') + countMembersByRole(members, 'admin')}</strong>
-              <span>Admins</span>
-            </article>
-          </div>
-        </section>
-
-        <section className="idt-settings-card">
-          <div className="idt-settings-card-header">
-            <div>
-              <p className="idt-app-kicker">Authentication</p>
-              <h3>{authModeLabel}</h3>
-            </div>
-          </div>
-          <dl className="idt-settings-facts">
             <div>
               <dt>Hosted login</dt>
-              <dd>{authConfig?.auth.workos_login_enabled ? 'Enabled' : 'Disabled'}</dd>
+              <dd>{hostedLoginStatus}</dd>
             </div>
             <div>
-              <dt>Native SAML</dt>
-              <dd>{authConfig?.auth.native_saml_enabled ? 'Enabled' : 'Disabled'}</dd>
-            </div>
-            <div>
-              <dt>Manual mode</dt>
-              <dd>{authConfig?.auth.manual_mode ? 'Enabled' : 'Disabled'}</dd>
-            </div>
-            <div>
-              <dt>Providers</dt>
-              <dd>{authProviders.length ? authProviders.map(formatTokenLabel).join(', ') : 'None advertised'}</dd>
+              <dt>Auth providers</dt>
+              <dd>{developerProviderLabel}</dd>
             </div>
           </dl>
-        </section>
-      </div>
-
-      <details className="idt-settings-card idt-settings-disclosure">
-        <summary className="idt-settings-disclosure-summary">
-          <div>
-            <p className="idt-app-kicker">Areas</p>
-            <h3>Related areas</h3>
-            <p>Domain controls and member access.</p>
-          </div>
-          <span>Show areas</span>
-        </summary>
-        <div className="idt-settings-route-grid idt-settings-disclosure-body">
-          <Link to={awsPath}>
-            <strong>AWS</strong>
-            <span>Accounts, identities, findings, fixes.</span>
-          </Link>
-          <Link to={githubFindingsPath}>
-            <strong>GitHub findings</strong>
-            <span>Repository risk and evidence.</span>
-          </Link>
-          <Link to={kubernetesPath}>
-            <strong>Kubernetes</strong>
-            <span>Clusters, workloads, service accounts, RBAC.</span>
-          </Link>
-          <Link to={workspacesPath}>
-            <strong>Members</strong>
-            <span>Invites, roles, workspace access.</span>
-          </Link>
         </div>
       </details>
 
-      <details className="idt-settings-card idt-settings-disclosure idt-settings-sessions-card">
-        <summary className="idt-settings-disclosure-summary">
-          <div>
-            <p className="idt-app-kicker">Sessions</p>
-            <h3>{sessionsLoading ? 'Loading sessions' : formatCountLabel(sessions.length, 'active session')}</h3>
-            <p>{sessionsSummary}</p>
-          </div>
-          <span>Manage sessions</span>
-        </summary>
-        <div className="idt-settings-disclosure-body">
-          {sessionsLoading ? <p className="idt-app-alert">Loading active sessions...</p> : null}
-          {sessionsError ? (
-            <p className="idt-app-alert idt-app-alert-error" role="alert">
-              {sessionsError}
-            </p>
-          ) : null}
-          {!sessionsLoading ? (
-            <SessionsList
-              busySessionID={busySessionID}
-              revokingOthers={revokingOthers}
-              sessions={sessions}
-              onRevoke={handleRevokeSession}
-              onRevokeOthers={handleRevokeOtherSessions}
-            />
-          ) : null}
-        </div>
-      </details>
-
-      <DangerZone description="Export your data first, suspend access temporarily, or schedule permanent account deletion after the 30-day grace window.">
-        <article
-          className="idt-danger-zone-row idt-danger-zone-row--neutral"
-          data-testid="idt-export-account-row"
-        >
-          <div>
-            <strong>Download my data</strong>
-            <p>
-              Export a ZIP of your profile, workspaces, sessions, and audit activity. The download link is
-              valid for 24 hours.
-            </p>
-            {exportStatus.kind === 'ready' ? (
-              <p className="idt-danger-zone-success" data-testid="idt-export-ready">
-                Your data export is ready.{' '}
-                <a href={exportStatus.downloadURL} rel="noopener noreferrer">
-                  Download the ZIP
-                </a>
-                {exportStatus.expiresAt ? ` (link expires ${new Date(exportStatus.expiresAt).toLocaleString()})` : ''}.
-              </p>
-            ) : exportStatus.kind === 'preparing' ? (
-              <p className="idt-danger-zone-status" data-testid="idt-export-preparing">
-                {exportStatus.message}
-              </p>
-            ) : null}
-            {exportError ? (
-              <p className="idt-danger-zone-error" role="alert">
-                {exportError}
-              </p>
-            ) : null}
-          </div>
-          <button
-            className="idt-btn idt-btn-secondary"
-            data-testid="idt-export-account-button"
-            disabled={exportPending}
-            onClick={startDataExport}
-            type="button"
-          >
-            {exportPending ? 'Preparing…' : 'Download my data'}
-          </button>
-        </article>
-
+      <DangerZone>
         <DangerZoneRow
           actionLabel="Suspend account"
-          description="Ends all sessions until you sign in again."
           onAction={() => {
             setSuspendError('');
             setSuspendModalOpen(true);
           }}
           pending={suspendPending}
           testId="idt-suspend-account-row"
-          title="Account access"
+          title="Suspend account"
         />
         <DangerZoneRow
           actionLabel="Delete account"
-          description="Schedules permanent account deletion, revokes every other session, and removes your access to all workspaces after the recovery window."
           disabled={!primaryEmail}
           onAction={handleOpenDeleteModal}
           pending={deletePending}
           testId="idt-delete-account-row"
-          title="Delete my account permanently"
+          title="Delete account"
         />
       </DangerZone>
 
       <ConfirmDestructiveModal
         body={
           <>
-            <p>This revokes every active session and clears this device.</p>
-            <p>Your memberships, projects, and connector data stay intact.</p>
+            <p>You will be signed out on all devices.</p>
+            <p>Your workspace, projects, memberships, and connector data will remain intact.</p>
           </>
         }
         confirmation={{
-          kind: 'checkbox',
-          label: 'I understand this signs me out everywhere.'
+          kind: 'type-to-confirm',
+          expectedValue: 'SUSPEND',
+          inputLabel: 'Type SUSPEND to continue'
         }}
         continueLabel="Suspend account"
         errorMessage={suspendError || undefined}
@@ -14750,7 +14835,7 @@ export function ProductSettingsPage() {
         onConfirm={handleDeleteAccount}
         open={deleteModalOpen}
         pending={deletePending}
-        title="Delete my account permanently"
+        title="Delete account"
       />
     </section>
   );
