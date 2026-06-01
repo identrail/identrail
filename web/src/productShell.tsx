@@ -3241,22 +3241,22 @@ function AWSAccountsInventoryContent({
         search: ''
       },
       searchText: inventorySearchText([connection?.account_id, connection?.region, connection?.display_name, 'current account', 'covered', 'missing'])
-    },
-    {
-      id: 'current-region',
-      category: connection?.region ? `Region ${connection.region}` : 'Current region',
-      coverage: connection?.region ? 'covered' : 'missing',
-      source: 'AWS connector payload',
-      status: connection?.region ? 'covered' : 'missing',
-      detail: connection?.last_validated_at ? `Last validation ${formatConnectionTime(connection.last_validated_at)}` : 'No validation time yet.',
-      filters: {
-        account: connection?.account_id ? 'connected' : 'planned',
-        region: connection?.region ? 'current' : 'uncovered',
-        coverage: connection?.region ? 'covered' : 'missing',
-        search: ''
       },
-      searchText: inventorySearchText([connection?.region, 'region', 'coverage', 'region coverage'])
-    },
+      {
+        id: 'current-region',
+        category: connection?.region ? `Region ${connection.region}` : 'Current region',
+        coverage: accountCoverage,
+        source: 'AWS connector payload',
+        status: accountCoverage,
+        detail: connection?.last_validated_at ? `Last validation ${formatConnectionTime(connection.last_validated_at)}` : 'No validation time yet.',
+        filters: {
+          account: connection?.account_id ? 'connected' : 'planned',
+          region: connection?.region ? 'current' : 'uncovered',
+          coverage: currentCoverageFilter,
+          search: ''
+        },
+        searchText: inventorySearchText([connection?.region, 'region', 'coverage', 'region coverage'])
+      },
     {
       id: 'org-planner',
       category: 'Organization account planner',
