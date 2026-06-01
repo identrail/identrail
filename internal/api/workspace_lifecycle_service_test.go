@@ -438,6 +438,56 @@ func TestServiceSuspendAndReactivateRoundTrip(t *testing.T) {
 	}
 }
 
+func TestServiceProcessNextQueuedScanSkipsInactiveWorkspace(t *testing.T) {
+	// A scan queued BEFORE the workspace was suspended/soft-deleted
+	// still surfaces through ClaimNextQueuedScanAnyScope (the claim
+	// SQL filters only on scan status). Without the lifecycle gate
+	// inside ProcessNextQueuedScan, the worker would execute scans for
+	// an inactive workspace and contradict the lifecycle pause contract
+	// flagged by codex round-6 on #1445.
+	for _, state := range []string{"suspended", "deleted"} {
+		t.Run(state, func(t *testing.T) {
+			svc, ctx, _ := setupWorkspaceLifecycleServiceHarness(t)
+			// Enqueue a scan while the workspace is still active.
+			record, err := svc.EnqueueScan(ctx)
+			if err != nil {
+				t.Fatalf("enqueue scan: %v", err)
+			}
+			// Flip the workspace lifecycle out of active.
+			now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+			switch state {
+			case "suspended":
+				if _, err := svc.Store.SuspendWorkspace(ctx, "workspace-a", now); err != nil {
+					t.Fatalf("suspend: %v", err)
+				}
+			case "deleted":
+				if _, err := svc.Store.SoftDeleteWorkspace(ctx, "workspace-a", now); err != nil {
+					t.Fatalf("soft delete: %v", err)
+				}
+			}
+			processed, err := svc.ProcessNextQueuedScan(ctx)
+			if err != nil {
+				t.Fatalf("process queued scan: %v", err)
+			}
+			if !processed {
+				t.Fatal("expected processed=true when skipping an inactive workspace scan")
+			}
+			// The scan must be in a terminal failed state with the
+			// workspace_inactive marker visible in the error message.
+			persisted, err := svc.Store.GetScan(ctx, record.ID)
+			if err != nil {
+				t.Fatalf("get scan: %v", err)
+			}
+			if persisted.Status != scanLifecycleFailed {
+				t.Fatalf("expected scan status=failed, got %q", persisted.Status)
+			}
+			if !strings.Contains(persisted.ErrorMessage, "workspace lifecycle") {
+				t.Fatalf("expected workspace lifecycle reason in error, got %q", persisted.ErrorMessage)
+			}
+		})
+	}
+}
+
 func TestServiceRequireActiveWorkspaceForConnectorBranches(t *testing.T) {
 	// Direct unit test of the helper used by the public Kubernetes
 	// agent routes (#1445 round 4 + 5). The integration tests cover

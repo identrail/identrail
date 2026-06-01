@@ -774,6 +774,21 @@ func (s *Service) ProcessNextQueuedScan(ctx context.Context) (bool, error) {
 		TenantID:    record.TenantID,
 		WorkspaceID: record.WorkspaceID,
 	})
+	// Workspace lifecycle gate — a scan queued before the workspace was
+	// suspended/soft-deleted will still surface through
+	// ClaimNextQueuedScanAnyScope (the claim SQL filters only on scan
+	// status), so without this check the worker would execute scans
+	// against an inactive workspace and contradict the lifecycle pause
+	// contract. Refuse the claimed record by marking it terminal with a
+	// clear error so it does not retry forever; the workspace owner can
+	// requeue after reactivate/cancel-deletion.
+	if skipped, skipErr := s.skipScanIfWorkspaceInactive(recordScopeCtx, record); skipErr != nil {
+		s.recordWorkerJob("scan", "failure")
+		return true, skipErr
+	} else if skipped {
+		s.recordWorkerJob("scan", "skipped_workspace_inactive")
+		return true, nil
+	}
 	s.recordAutomationLag("api_queue", "scan", s.Now().UTC().Sub(record.StartedAt.UTC()))
 	recordScopeCtx = continueQueueTraceContext(recordScopeCtx, record.TraceParent, record.TraceState)
 	s.appendScanLifecycleEvent(recordScopeCtx, record.ID, scanLifecycleRunning, map[string]any{"provider": record.Provider})
@@ -4277,6 +4292,51 @@ func continueQueueTraceContext(ctx context.Context, traceParent string, traceSta
 
 func (s *Service) terminalWriteContext(ctx context.Context) context.Context {
 	return db.WithScope(context.Background(), db.ScopeFromContext(s.scopeContext(ctx)))
+}
+
+// skipScanIfWorkspaceInactive enforces the workspace lifecycle pause on
+// scans claimed from the queue. The scheduler already filters out
+// inactive workspaces when enqueuing new scheduled scans, and the route
+// table refuses ad-hoc POST /v1/scans for inactive workspaces, but a
+// scan that was queued BEFORE the suspend/soft-delete will still surface
+// here because ClaimNextQueuedScanAnyScope filters only on scan status.
+// Mark it terminal with a clear error so it does not retry forever; the
+// workspace owner can requeue after reactivate/cancel-deletion.
+//
+// Returns (true, nil) when the scan was skipped, (false, nil) when the
+// workspace is active and the scan should proceed.
+func (s *Service) skipScanIfWorkspaceInactive(ctx context.Context, record db.ScanRecord) (bool, error) {
+	workspaceID := strings.TrimSpace(record.WorkspaceID)
+	tenantID := strings.TrimSpace(record.TenantID)
+	if workspaceID == "" || tenantID == "" {
+		return false, nil
+	}
+	workspace, err := s.Store.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		// A missing workspace is a different failure mode — let the
+		// regular scan executor surface it rather than silently
+		// skipping a record whose tenant scope might be misconfigured.
+		if errors.Is(err, db.ErrNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("workspace lifecycle gate: %w", err)
+	}
+	if workspace.Status == db.WorkspaceStatusActive && workspace.DeletedAt == nil {
+		return false, nil
+	}
+	reason := fmt.Sprintf("workspace lifecycle is %s; scan refused (see #1420)", workspace.Status)
+	s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{
+		"provider":         record.Provider,
+		"reason":           "workspace_inactive",
+		"workspace_status": workspace.Status,
+	})
+	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelWarn, reason, map[string]any{
+		"workspace_status": workspace.Status,
+	})
+	if err := s.completeScanTerminal(ctx, record.ID, scanLifecycleFailed, s.Now().UTC(), 0, 0, reason); err != nil {
+		return false, fmt.Errorf("mark scan failed for inactive workspace: %w", err)
+	}
+	return true, nil
 }
 
 func (s *Service) completeScanTerminal(
