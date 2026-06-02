@@ -647,6 +647,38 @@ func (p *PostgresStore) HardDeleteWorkspace(ctx context.Context, tenantID, works
 		}
 		return TenancyWorkspace{}, err
 	}
+	// A workspace-scoped session/onboarding context may still exist with no
+	// selected project (both context columns are NULL). In that case there is
+	// no matching `tenancy_projects` FK child, so ON DELETE SET NULL on project
+	// rows does not fire.
+	if _, err := tx.ExecContext(
+		ctx,
+		`UPDATE sessions
+		 SET current_org_id = NULL,
+		     current_workspace_id = NULL,
+		     current_project_id = NULL
+		 WHERE current_org_id = $1
+		   AND current_workspace_id = $2
+		   AND current_project_id IS NULL`,
+		tenant,
+		id,
+	); err != nil {
+		return TenancyWorkspace{}, fmt.Errorf("clear session context: %w", err)
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`UPDATE onboarding_state
+		 SET org_id = NULL,
+		     workspace_id = NULL,
+		     project_id = NULL
+		 WHERE org_id = $1
+		   AND workspace_id = $2
+		   AND project_id IS NULL`,
+		tenant,
+		id,
+	); err != nil {
+		return TenancyWorkspace{}, fmt.Errorf("clear onboarding context: %w", err)
+	}
 	// Purge every workspace-scoped non-FK table. These rows would
 	// otherwise survive the cascading workspace DELETE below and
 	// outlive the 30-day grace contract. Each entry is wrapped in a
