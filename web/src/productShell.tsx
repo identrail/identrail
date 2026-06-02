@@ -56,9 +56,12 @@ import {
   type ScanTriggerMode,
   type SessionListItem,
   type WhoAmIResponse,
+  type WorkspaceDeleteResponse,
   type WorkspaceMemberRecord,
   type WorkspaceMemberRole,
-  type WorkspaceMemberStatus
+  type WorkspaceMemberStatus,
+  type WorkspaceRecord,
+  type WorkspaceSoleOwnerAffectedMember
 } from './api/client';
 import { SessionsList } from './components/auth/SessionsList';
 import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
@@ -16062,6 +16065,38 @@ function accountDeletionSignInPath(hardDeleteAfter?: string): string {
   return `/signin?${query.toString()}`;
 }
 
+// Extracts the affected-member array from a sole-owner 409 payload so the
+// destructive modal can render an inline block listing who would be stranded
+// and a deep link to the workspace member-management screen.
+function workspaceSoleOwnerMembersFromError(error: ApiError): WorkspaceSoleOwnerAffectedMember[] {
+  const payload = error.payload as { affected_members?: unknown } | undefined;
+  if (!Array.isArray(payload?.affected_members)) {
+    return [];
+  }
+  return payload.affected_members.filter(
+    (member): member is WorkspaceSoleOwnerAffectedMember => {
+      if (!member || typeof member !== 'object') {
+        return false;
+      }
+      const record = member as Partial<WorkspaceSoleOwnerAffectedMember>;
+      return (
+        typeof record.member_id === 'string' &&
+        record.member_id.trim() !== '' &&
+        typeof record.user_id === 'string' &&
+        typeof record.role === 'string'
+      );
+    }
+  );
+}
+
+function workspaceSoleOwnerMemberLabel(member: WorkspaceSoleOwnerAffectedMember): string {
+  const email = member.email?.trim();
+  if (email) {
+    return `${email} (${member.role})`;
+  }
+  return `${member.user_id || member.member_id} (${member.role})`;
+}
+
 export function ProductSettingsPage() {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
@@ -16085,6 +16120,25 @@ export function ProductSettingsPage() {
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [deleteSoleOwnerWorkspaces, setDeleteSoleOwnerWorkspaces] = useState<AccountDeletionWorkspace[]>([]);
+  const [workspaceLifecycle, setWorkspaceLifecycle] = useState<WorkspaceRecord | null>(null);
+  const [workspaceSuspendModalOpen, setWorkspaceSuspendModalOpen] = useState(false);
+  const [workspaceSuspendPending, setWorkspaceSuspendPending] = useState(false);
+  const [workspaceSuspendError, setWorkspaceSuspendError] = useState('');
+  const [workspaceSuspendStranded, setWorkspaceSuspendStranded] = useState<
+    WorkspaceSoleOwnerAffectedMember[]
+  >([]);
+  const [workspaceReactivateModalOpen, setWorkspaceReactivateModalOpen] = useState(false);
+  const [workspaceReactivatePending, setWorkspaceReactivatePending] = useState(false);
+  const [workspaceReactivateError, setWorkspaceReactivateError] = useState('');
+  const [workspaceDeleteModalOpen, setWorkspaceDeleteModalOpen] = useState(false);
+  const [workspaceDeletePending, setWorkspaceDeletePending] = useState(false);
+  const [workspaceDeleteError, setWorkspaceDeleteError] = useState('');
+  const [workspaceDeleteStranded, setWorkspaceDeleteStranded] = useState<
+    WorkspaceSoleOwnerAffectedMember[]
+  >([]);
+  const [workspaceRestoreModalOpen, setWorkspaceRestoreModalOpen] = useState(false);
+  const [workspaceRestorePending, setWorkspaceRestorePending] = useState(false);
+  const [workspaceRestoreError, setWorkspaceRestoreError] = useState('');
   const [exportPending, setExportPending] = useState(false);
   const [exportError, setExportError] = useState('');
   const [exportStatus, setExportStatus] = useState<
@@ -16177,6 +16231,15 @@ export function ProductSettingsPage() {
         setWhoAmI(whoAmIResponse);
         setMembers(memberResponse.items);
         setAuthConfig(authConfigResponse);
+        // Seed the workspace lifecycle banner + row state from whoAmI so the
+        // Danger Zone reflects the current status before any mutation lands.
+        const snapshotWorkspace =
+          whoAmIResponse.active_workspace?.workspace ??
+          whoAmIResponse.workspaces?.find(
+            (item) => item.workspace.workspace_id === scope.workspaceID
+          )?.workspace ??
+          null;
+        setWorkspaceLifecycle(snapshotWorkspace);
       } catch (err) {
         if (!mounted) {
           return;
@@ -16234,6 +16297,14 @@ export function ProductSettingsPage() {
     whoAmI?.workspaces?.find((item) => item.workspace.workspace_id === scope?.workspaceID)?.member;
   const activeRole = activeMember?.role ?? me?.role ?? 'viewer';
   const workspaceDisplayName = activeWorkspace?.display_name ?? scope?.workspaceID ?? 'Workspace';
+  // Prefer the mutated lifecycle copy (refreshed after suspend/delete/etc.)
+  // and fall back to whatever whoAmI seeded. Defaults to 'active' so a
+  // legacy backend that omits the field still renders the same rows it
+  // would have rendered before #1420 shipped.
+  const workspaceLifecycleStatus =
+    workspaceLifecycle?.status ?? activeWorkspace?.status ?? 'active';
+  const workspaceSlugValue = (workspaceLifecycle?.slug ?? activeWorkspace?.slug ?? '').trim();
+  const isWorkspaceOwner = activeRole === 'owner';
   const authProviders = authConfig?.auth.providers ?? [];
   const scopes = Array.isArray(whoAmI?.scopes) ? whoAmI.scopes : [];
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
@@ -16479,6 +16550,158 @@ export function ProductSettingsPage() {
       }
     } finally {
       setDeletePending(false);
+    }
+  };
+
+  // ---------------------------------------------------------------
+  // Workspace lifecycle handlers (PR 3 of #1420).
+  //
+  // Every destructive transition first opens a ConfirmDestructiveModal so the
+  // owner has to consciously confirm (type-to-confirm for Suspend/Delete,
+  // checkbox for the restorative Reactivate/Restore). The button on the row
+  // itself never fires the API — that always happens from inside the modal —
+  // so an accidental click on the row only opens the dialog.
+  //
+  // Sole-owner 409 from the backend is rendered inline in the open modal
+  // (not a toast, not a navigation) so the owner can see who would be
+  // stranded, promote another owner, and retry without losing their place.
+  // The non-destructive `ApiError` branches fall through to errorMessage on
+  // the same modal.
+  const handleOpenWorkspaceSuspendModal = () => {
+    setWorkspaceSuspendError('');
+    setWorkspaceSuspendStranded([]);
+    setWorkspaceSuspendModalOpen(true);
+  };
+  const handleCancelWorkspaceSuspendModal = () => {
+    if (workspaceSuspendPending) return;
+    setWorkspaceSuspendModalOpen(false);
+    setWorkspaceSuspendError('');
+    setWorkspaceSuspendStranded([]);
+  };
+  const handleSuspendWorkspace = async () => {
+    if (workspaceSuspendPending || !scope) return;
+    setWorkspaceSuspendPending(true);
+    setWorkspaceSuspendError('');
+    setWorkspaceSuspendStranded([]);
+    try {
+      const response = await apiClient.suspendWorkspace(
+        scope.workspaceID,
+        buildProductAuthContext(scope)
+      );
+      setWorkspaceLifecycle(response.workspace);
+      setWorkspaceSuspendModalOpen(false);
+    } catch (err) {
+      if (
+        err instanceof ApiError &&
+        err.status === 409 &&
+        err.code === 'sole_owner_requires_transfer'
+      ) {
+        setWorkspaceSuspendStranded(workspaceSoleOwnerMembersFromError(err));
+      } else {
+        setWorkspaceSuspendError(
+          err instanceof Error ? err.message : 'Unable to suspend the workspace. Please retry.'
+        );
+      }
+    } finally {
+      setWorkspaceSuspendPending(false);
+    }
+  };
+
+  const handleOpenWorkspaceReactivateModal = () => {
+    setWorkspaceReactivateError('');
+    setWorkspaceReactivateModalOpen(true);
+  };
+  const handleCancelWorkspaceReactivateModal = () => {
+    if (workspaceReactivatePending) return;
+    setWorkspaceReactivateModalOpen(false);
+    setWorkspaceReactivateError('');
+  };
+  const handleReactivateWorkspace = async () => {
+    if (workspaceReactivatePending || !scope) return;
+    setWorkspaceReactivatePending(true);
+    setWorkspaceReactivateError('');
+    try {
+      const response = await apiClient.reactivateWorkspace(
+        scope.workspaceID,
+        buildProductAuthContext(scope)
+      );
+      setWorkspaceLifecycle(response.workspace);
+      setWorkspaceReactivateModalOpen(false);
+    } catch (err) {
+      setWorkspaceReactivateError(
+        err instanceof Error ? err.message : 'Unable to reactivate the workspace. Please retry.'
+      );
+    } finally {
+      setWorkspaceReactivatePending(false);
+    }
+  };
+
+  const handleOpenWorkspaceDeleteModal = () => {
+    setWorkspaceDeleteError('');
+    setWorkspaceDeleteStranded([]);
+    setWorkspaceDeleteModalOpen(true);
+  };
+  const handleCancelWorkspaceDeleteModal = () => {
+    if (workspaceDeletePending) return;
+    setWorkspaceDeleteModalOpen(false);
+    setWorkspaceDeleteError('');
+    setWorkspaceDeleteStranded([]);
+  };
+  const handleDeleteWorkspace = async () => {
+    if (workspaceDeletePending || !scope) return;
+    setWorkspaceDeletePending(true);
+    setWorkspaceDeleteError('');
+    setWorkspaceDeleteStranded([]);
+    try {
+      const response: WorkspaceDeleteResponse = await apiClient.deleteWorkspace(
+        scope.workspaceID,
+        buildProductAuthContext(scope)
+      );
+      setWorkspaceLifecycle(response.workspace);
+      setWorkspaceDeleteModalOpen(false);
+    } catch (err) {
+      if (
+        err instanceof ApiError &&
+        err.status === 409 &&
+        err.code === 'sole_owner_requires_transfer'
+      ) {
+        setWorkspaceDeleteStranded(workspaceSoleOwnerMembersFromError(err));
+      } else {
+        setWorkspaceDeleteError(
+          err instanceof Error ? err.message : 'Unable to delete the workspace. Please retry.'
+        );
+      }
+    } finally {
+      setWorkspaceDeletePending(false);
+    }
+  };
+
+  const handleOpenWorkspaceRestoreModal = () => {
+    setWorkspaceRestoreError('');
+    setWorkspaceRestoreModalOpen(true);
+  };
+  const handleCancelWorkspaceRestoreModal = () => {
+    if (workspaceRestorePending) return;
+    setWorkspaceRestoreModalOpen(false);
+    setWorkspaceRestoreError('');
+  };
+  const handleRestoreWorkspace = async () => {
+    if (workspaceRestorePending || !scope) return;
+    setWorkspaceRestorePending(true);
+    setWorkspaceRestoreError('');
+    try {
+      const response = await apiClient.cancelWorkspaceDeletion(
+        scope.workspaceID,
+        buildProductAuthContext(scope)
+      );
+      setWorkspaceLifecycle(response.workspace);
+      setWorkspaceRestoreModalOpen(false);
+    } catch (err) {
+      setWorkspaceRestoreError(
+        err instanceof Error ? err.message : 'Unable to restore the workspace. Please retry.'
+      );
+    } finally {
+      setWorkspaceRestorePending(false);
     }
   };
 
@@ -16828,6 +17051,48 @@ export function ProductSettingsPage() {
           testId="idt-delete-account-row"
           title="Delete account"
         />
+        {/* Owner-only workspace rows (PR 3 of #1420). Appended into the same */}
+        {/* DangerZone card on purpose: a second card with an identical title */}
+        {/* would feel like the page lost the plot, and the row titles already */}
+        {/* state the scope (Suspend workspace vs Suspend account). Non-owners */}
+        {/* render exactly the two account rows above, no layout change. */}
+        {isWorkspaceOwner && workspaceLifecycleStatus === 'active' ? (
+          <DangerZoneRow
+            actionLabel="Suspend workspace"
+            onAction={handleOpenWorkspaceSuspendModal}
+            pending={workspaceSuspendPending}
+            testId="idt-suspend-workspace-row"
+            title="Suspend workspace"
+          />
+        ) : null}
+        {isWorkspaceOwner && workspaceLifecycleStatus === 'suspended' ? (
+          <DangerZoneRow
+            actionLabel="Reactivate workspace"
+            onAction={handleOpenWorkspaceReactivateModal}
+            pending={workspaceReactivatePending}
+            testId="idt-reactivate-workspace-row"
+            title="Reactivate workspace"
+          />
+        ) : null}
+        {isWorkspaceOwner && workspaceLifecycleStatus !== 'deleted' ? (
+          <DangerZoneRow
+            actionLabel="Delete workspace"
+            disabled={!workspaceSlugValue}
+            onAction={handleOpenWorkspaceDeleteModal}
+            pending={workspaceDeletePending}
+            testId="idt-delete-workspace-row"
+            title="Delete workspace"
+          />
+        ) : null}
+        {isWorkspaceOwner && workspaceLifecycleStatus === 'deleted' ? (
+          <DangerZoneRow
+            actionLabel="Restore workspace"
+            onAction={handleOpenWorkspaceRestoreModal}
+            pending={workspaceRestorePending}
+            testId="idt-restore-workspace-row"
+            title="Restore workspace"
+          />
+        ) : null}
       </DangerZone>
 
       <ConfirmDestructiveModal
@@ -16933,6 +17198,139 @@ export function ProductSettingsPage() {
         open={deleteModalOpen}
         pending={deletePending}
         title="Delete account"
+      />
+
+      {/* --- Workspace lifecycle confirmation modals (PR 3 of #1420). --- */}
+      {/* Body copy mirrors the account-side patterns above: two short      */}
+      {/* sentences, monospaced token chip for type-to-confirm, ESC + cancel*/}
+      {/* affordances. Sole-owner 409 renders inline so the owner can fix   */}
+      {/* the stranding and retry without losing the modal context.        */}
+      <ConfirmDestructiveModal
+        body={
+          <>
+            <p>Connectors, scans, and webhooks will pause.</p>
+            <p>Member access and stored data remain intact.</p>
+            {workspaceSuspendStranded.length > 0 ? (
+              <div
+                className="idt-danger-modal-blocker"
+                data-testid="idt-suspend-workspace-sole-owner-block"
+                role="alert"
+              >
+                <p>
+                  Promote another owner before suspending so these members are not
+                  stranded.
+                </p>
+                <ul>
+                  {workspaceSuspendStranded.map((member) => (
+                    <li key={member.member_id}>{workspaceSoleOwnerMemberLabel(member)}</li>
+                  ))}
+                </ul>
+                <Link to={workspacesPath}>Manage members</Link>
+              </div>
+            ) : null}
+          </>
+        }
+        confirmation={{
+          kind: 'type-to-confirm',
+          expectedValue: 'SUSPEND',
+          inputLabel: (
+            <>
+              Type <em className="idt-danger-confirm-value">SUSPEND</em> to continue
+            </>
+          )
+        }}
+        continueLabel="Suspend workspace"
+        errorMessage={workspaceSuspendError || undefined}
+        onCancel={handleCancelWorkspaceSuspendModal}
+        onConfirm={handleSuspendWorkspace}
+        open={workspaceSuspendModalOpen}
+        pending={workspaceSuspendPending}
+        title="Suspend workspace"
+      />
+
+      <ConfirmDestructiveModal
+        body={
+          <>
+            <p>Connectors, scans, and webhooks will resume.</p>
+          </>
+        }
+        confirmation={{
+          kind: 'checkbox',
+          label: 'Resume connectors, scans, and webhooks for this workspace.'
+        }}
+        continueLabel="Reactivate workspace"
+        errorMessage={workspaceReactivateError || undefined}
+        onCancel={handleCancelWorkspaceReactivateModal}
+        onConfirm={handleReactivateWorkspace}
+        open={workspaceReactivateModalOpen}
+        pending={workspaceReactivatePending}
+        title="Reactivate workspace"
+      />
+
+      <ConfirmDestructiveModal
+        body={
+          <>
+            <p>This starts a 30-day recovery window and disables the workspace.</p>
+            <p>After the window, the workspace and all its data are permanently purged.</p>
+            {workspaceDeleteStranded.length > 0 ? (
+              <div
+                className="idt-danger-modal-blocker"
+                data-testid="idt-delete-workspace-sole-owner-block"
+                role="alert"
+              >
+                <p>
+                  Promote another owner before deleting so these members are not
+                  stranded.
+                </p>
+                <ul>
+                  {workspaceDeleteStranded.map((member) => (
+                    <li key={member.member_id}>{workspaceSoleOwnerMemberLabel(member)}</li>
+                  ))}
+                </ul>
+                <Link to={workspacesPath}>Manage members</Link>
+              </div>
+            ) : null}
+          </>
+        }
+        confirmation={{
+          kind: 'type-to-confirm',
+          expectedValue: workspaceSlugValue,
+          inputLabel: 'Confirm workspace slug',
+          helpText: workspaceSlugValue ? (
+            <>
+              Enter <em className="idt-danger-confirm-value">{workspaceSlugValue}</em>{' '}
+              exactly.
+            </>
+          ) : (
+            'Workspace slug is unavailable; reload the page before retrying.'
+          )
+        }}
+        continueLabel="Delete workspace"
+        errorMessage={workspaceDeleteError || undefined}
+        onCancel={handleCancelWorkspaceDeleteModal}
+        onConfirm={handleDeleteWorkspace}
+        open={workspaceDeleteModalOpen}
+        pending={workspaceDeletePending}
+        title="Delete workspace"
+      />
+
+      <ConfirmDestructiveModal
+        body={
+          <>
+            <p>Restores the workspace and cancels the scheduled deletion.</p>
+          </>
+        }
+        confirmation={{
+          kind: 'checkbox',
+          label: 'Cancel the scheduled deletion and restore this workspace.'
+        }}
+        continueLabel="Restore workspace"
+        errorMessage={workspaceRestoreError || undefined}
+        onCancel={handleCancelWorkspaceRestoreModal}
+        onConfirm={handleRestoreWorkspace}
+        open={workspaceRestoreModalOpen}
+        pending={workspaceRestorePending}
+        title="Restore workspace"
       />
     </section>
   );

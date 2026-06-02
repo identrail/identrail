@@ -352,6 +352,8 @@ export type IdentrailScopeHeaders = {
 export type WorkspaceMemberRole = 'owner' | 'admin' | 'analyst' | 'viewer';
 export type WorkspaceMemberStatus = 'invited' | 'active' | 'suspended' | 'removed';
 
+export type WorkspaceLifecycleStatus = 'active' | 'suspended' | 'deleted';
+
 export type WorkspaceRecord = {
   tenant_id: string;
   workspace_id: string;
@@ -359,6 +361,40 @@ export type WorkspaceRecord = {
   slug: string;
   created_at: string;
   updated_at: string;
+  status?: WorkspaceLifecycleStatus;
+  suspended_at?: string | null;
+  deleted_at?: string | null;
+};
+
+export type WorkspaceSuspendResponse = {
+  workspace: WorkspaceRecord;
+  status: WorkspaceLifecycleStatus;
+  suspended_at?: string | null;
+};
+
+export type WorkspaceReactivateResponse = {
+  workspace: WorkspaceRecord;
+  status: WorkspaceLifecycleStatus;
+};
+
+export type WorkspaceDeleteResponse = {
+  workspace: WorkspaceRecord;
+  status: WorkspaceLifecycleStatus;
+  deleted_at?: string | null;
+  hard_delete_after?: string;
+  grace_period_hours?: number;
+};
+
+export type WorkspaceCancelDeletionResponse = {
+  workspace: WorkspaceRecord;
+  status: WorkspaceLifecycleStatus;
+};
+
+export type WorkspaceSoleOwnerAffectedMember = {
+  member_id: string;
+  user_id: string;
+  email?: string;
+  role: string;
 };
 
 export type WorkspaceMemberRecord = {
@@ -1456,6 +1492,34 @@ export const apiClient = {
       {
         method: 'DELETE'
       }
+    );
+  },
+  suspendWorkspace(workspaceID: string, auth?: RequestAuthContext) {
+    return request<WorkspaceSuspendResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/suspend`,
+      auth,
+      { method: 'POST' }
+    );
+  },
+  reactivateWorkspace(workspaceID: string, auth?: RequestAuthContext) {
+    return request<WorkspaceReactivateResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/reactivate`,
+      auth,
+      { method: 'POST' }
+    );
+  },
+  deleteWorkspace(workspaceID: string, auth?: RequestAuthContext) {
+    return request<WorkspaceDeleteResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}`,
+      auth,
+      { method: 'DELETE' }
+    );
+  },
+  cancelWorkspaceDeletion(workspaceID: string, auth?: RequestAuthContext) {
+    return request<WorkspaceCancelDeletionResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/cancel-deletion`,
+      auth,
+      { method: 'POST' }
     );
   },
   getFindingsSummary(auth?: RequestAuthContext) {

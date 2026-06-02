@@ -1,6 +1,23 @@
 # Changelog
 
 ## Unreleased
+- Added the owner-only workspace Danger Zone on Settings (PR 3 of #1420).
+  Workspace owners now see Suspend / Reactivate / Delete / Restore rows
+  appended into the existing Danger Zone card alongside the user-account
+  rows, with copy that matches the existing account modals: a
+  type-to-confirm `SUSPEND` token on Suspend, a type-to-confirm workspace
+  slug on Delete, and lightweight checkbox modals on the restorative
+  Reactivate and Restore. The rows swap based on
+  `tenancy_workspaces.status` (`active` → Suspend + Delete, `suspended` →
+  Reactivate + Delete, `deleted` → Restore only) so the visible action
+  always matches the next valid transition. Non-owners see exactly the
+  two account rows that shipped before, with no layout change. A
+  `409 sole_owner_requires_transfer` response renders an inline block
+  inside the open modal listing the affected members + a deep link to the
+  workspace member-management screen, so an owner can promote another
+  owner and retry without losing the destructive flow. The frontend role
+  gate is convenience; the backend `policyActionTenancyOwner` action
+  shipped in PR 1 remains the authoritative 403.
 - Added workspace hard-delete worker (PR 2 of #1420). A daily scheduled
   pass in `internal/workspacepurge` drains soft-deleted workspaces past
   the 30-day grace window: it explicitly purges `scans`, `repo_scans`,

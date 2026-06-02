@@ -313,6 +313,8 @@ async function renderProductSettingsPage(options: {
   authConfig?: AuthConfigResponse;
   updateMe?: CurrentUserContext | Error;
   updateMeApiError?: { message: string; status: number };
+  workspaceStatus?: 'active' | 'suspended' | 'deleted';
+  workspaceSlug?: string;
 } = {}) {
   vi.resetModules();
   const me = options.me ?? loggedInWithWorkspace;
@@ -331,6 +333,16 @@ async function renderProductSettingsPage(options: {
 
   const api = await import('./api/client');
   const whoAmI = settingsWhoAmI(me);
+  // Workspace lifecycle status drives which Danger Zone rows render for owners
+  // (PR 3 of #1420). The fixture seeds the active_workspace snapshot so the
+  // component sees the same shape it would after PR 1 shipped the new fields.
+  if (whoAmI.active_workspace) {
+    whoAmI.active_workspace.workspace = {
+      ...whoAmI.active_workspace.workspace,
+      status: options.workspaceStatus ?? 'active',
+      slug: options.workspaceSlug ?? whoAmI.active_workspace.workspace.slug
+    };
+  }
   vi.spyOn(api.apiClient, 'getWhoAmI').mockResolvedValue(whoAmI);
   vi.spyOn(api.apiClient, 'listWorkspaceMembers').mockResolvedValue({
     items: whoAmI.active_workspace?.member ? [whoAmI.active_workspace.member] : []
@@ -345,17 +357,33 @@ async function renderProductSettingsPage(options: {
   } else {
     updateMe.mockResolvedValue({ me: options.updateMe ?? me });
   }
+  const suspendWorkspace = vi.spyOn(api.apiClient, 'suspendWorkspace');
+  const reactivateWorkspace = vi.spyOn(api.apiClient, 'reactivateWorkspace');
+  const deleteWorkspace = vi.spyOn(api.apiClient, 'deleteWorkspace');
+  const cancelWorkspaceDeletion = vi.spyOn(api.apiClient, 'cancelWorkspaceDeletion');
 
   const { ProductSettingsPage } = await import('./productShell');
   render(
     <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/settings']}>
       <Routes>
         <Route path="/app/:tenantID/:workspaceID/settings" element={<ProductSettingsPage />} />
+        <Route
+          path="/app/:tenantID/:workspaceID/workspaces"
+          element={<h2>Workspace members</h2>}
+        />
       </Routes>
     </MemoryRouter>
   );
 
-  return { primeMeCache, updateMe };
+  return {
+    primeMeCache,
+    updateMe,
+    api,
+    suspendWorkspace,
+    reactivateWorkspace,
+    deleteWorkspace,
+    cancelWorkspaceDeletion
+  };
 }
 
 async function renderProjectDetail(
@@ -4047,5 +4075,235 @@ describe('GitHub domain pages (#1382)', () => {
       resolvePending?.({ items: [] });
       await Promise.resolve();
     });
+  });
+});
+
+// Workspace Danger Zone — PR 3 of #1420.
+//
+// These cover the owner-only workspace lifecycle controls appended to the
+// existing Settings Danger Zone card: which rows show per role + lifecycle
+// state, the type-to-confirm gate on Suspend/Delete, the checkbox confirm
+// on the restorative Reactivate/Restore, and the inline sole-owner block
+// (with deep link to the member-management screen) when the backend
+// returns `409 sole_owner_requires_transfer`.
+describe('Workspace Danger Zone (#1420)', () => {
+  const ownerWorkspaceFixture = {
+    tenant_id: 'tenant-a',
+    workspace_id: 'workspace-a',
+    display_name: 'Workspace A',
+    slug: 'workspace-a',
+    created_at: '2026-05-16T10:00:00Z',
+    updated_at: '2026-05-16T10:00:00Z'
+  };
+  const ownerMe: CurrentUserContext = {
+    ...loggedInWithWorkspace,
+    role: 'owner',
+    workspace: ownerWorkspaceFixture
+  };
+
+  it('hides the workspace rows entirely for non-owner members', async () => {
+    await renderProductSettingsPage();
+    await screen.findByTestId('idt-suspend-account-row');
+    expect(screen.queryByTestId('idt-suspend-workspace-row')).toBeNull();
+    expect(screen.queryByTestId('idt-delete-workspace-row')).toBeNull();
+    expect(screen.queryByTestId('idt-reactivate-workspace-row')).toBeNull();
+    expect(screen.queryByTestId('idt-restore-workspace-row')).toBeNull();
+  });
+
+  it('shows Suspend + Delete workspace rows for owners on an active workspace', async () => {
+    await renderProductSettingsPage({ me: ownerMe });
+    await screen.findByTestId('idt-suspend-workspace-row');
+    expect(screen.getByTestId('idt-delete-workspace-row')).toBeTruthy();
+    expect(screen.queryByTestId('idt-reactivate-workspace-row')).toBeNull();
+    expect(screen.queryByTestId('idt-restore-workspace-row')).toBeNull();
+  });
+
+  it('swaps Suspend → Reactivate when the workspace is already suspended', async () => {
+    await renderProductSettingsPage({ me: ownerMe, workspaceStatus: 'suspended' });
+    await screen.findByTestId('idt-reactivate-workspace-row');
+    expect(screen.getByTestId('idt-delete-workspace-row')).toBeTruthy();
+    expect(screen.queryByTestId('idt-suspend-workspace-row')).toBeNull();
+  });
+
+  it('collapses to a single Restore row when the workspace is soft-deleted', async () => {
+    await renderProductSettingsPage({ me: ownerMe, workspaceStatus: 'deleted' });
+    await screen.findByTestId('idt-restore-workspace-row');
+    expect(screen.queryByTestId('idt-suspend-workspace-row')).toBeNull();
+    expect(screen.queryByTestId('idt-reactivate-workspace-row')).toBeNull();
+    expect(screen.queryByTestId('idt-delete-workspace-row')).toBeNull();
+  });
+
+  it('suspends the workspace after typing SUSPEND in the modal', async () => {
+    const { suspendWorkspace } = await renderProductSettingsPage({ me: ownerMe });
+    suspendWorkspace.mockResolvedValue({
+      workspace: { ...ownerWorkspaceFixture, status: 'suspended' },
+      status: 'suspended'
+    });
+    await screen.findByTestId('idt-suspend-workspace-row');
+
+    await act(async () => {
+      fireEvent.click(
+        within(screen.getByTestId('idt-suspend-workspace-row')).getByRole('button')
+      );
+    });
+    const modal = await screen.findByTestId('idt-danger-modal');
+    const continueBtn = within(modal).getByTestId('idt-danger-modal-continue');
+    // Gate stays armed until the user types the exact token.
+    expect(continueBtn).toBeDisabled();
+    await act(async () => {
+      fireEvent.change(within(modal).getByTestId('idt-danger-modal-typed'), {
+        target: { value: 'SUSPEND' }
+      });
+    });
+    expect(continueBtn).not.toBeDisabled();
+    await act(async () => {
+      fireEvent.click(continueBtn);
+    });
+    await waitFor(() =>
+      expect(suspendWorkspace).toHaveBeenCalledWith('workspace-a', expect.anything())
+    );
+    // Row swaps to Reactivate once the response lands.
+    await screen.findByTestId('idt-reactivate-workspace-row');
+  });
+
+  it('renders the sole-owner inline block with a link to manage members', async () => {
+    const { suspendWorkspace, api } = await renderProductSettingsPage({ me: ownerMe });
+    await screen.findByTestId('idt-suspend-workspace-row');
+    suspendWorkspace.mockRejectedValue(
+      new api.ApiError(
+        'workspace has additional active members but only one owner; transfer ownership before suspending or deleting',
+        409,
+        {
+          code: 'sole_owner_requires_transfer',
+          payload: {
+            code: 'sole_owner_requires_transfer',
+            affected_members: [
+              {
+                member_id: 'member-b',
+                user_id: 'user-b',
+                email: 'user-b@example.com',
+                role: 'admin'
+              }
+            ]
+          }
+        }
+      )
+    );
+
+    await act(async () => {
+      fireEvent.click(
+        within(screen.getByTestId('idt-suspend-workspace-row')).getByRole('button')
+      );
+    });
+    const modal = await screen.findByTestId('idt-danger-modal');
+    await act(async () => {
+      fireEvent.change(within(modal).getByTestId('idt-danger-modal-typed'), {
+        target: { value: 'SUSPEND' }
+      });
+    });
+    await act(async () => {
+      fireEvent.click(within(modal).getByTestId('idt-danger-modal-continue'));
+    });
+    const block = await screen.findByTestId('idt-suspend-workspace-sole-owner-block');
+    expect(block.textContent).toContain('user-b@example.com');
+    const manageLink = within(block).getByRole('link', { name: /manage members/i });
+    expect(manageLink.getAttribute('href')).toBe('/app/tenant-a/workspace-a/workspaces');
+  });
+
+  it('keeps Delete workspace gated until the slug is typed exactly', async () => {
+    const { deleteWorkspace } = await renderProductSettingsPage({ me: ownerMe });
+    deleteWorkspace.mockResolvedValue({
+      workspace: { ...ownerWorkspaceFixture, status: 'deleted', deleted_at: '2026-05-20T10:00:00Z' },
+      status: 'deleted',
+      hard_delete_after: '2026-06-19T10:00:00Z',
+      grace_period_hours: 720
+    });
+    await screen.findByTestId('idt-delete-workspace-row');
+
+    await act(async () => {
+      fireEvent.click(
+        within(screen.getByTestId('idt-delete-workspace-row')).getByRole('button')
+      );
+    });
+    const modal = await screen.findByTestId('idt-danger-modal');
+    const continueBtn = within(modal).getByTestId('idt-danger-modal-continue');
+    expect(continueBtn).toBeDisabled();
+    await act(async () => {
+      fireEvent.change(within(modal).getByTestId('idt-danger-modal-typed'), {
+        target: { value: 'wrong-slug' }
+      });
+    });
+    expect(continueBtn).toBeDisabled();
+    await act(async () => {
+      fireEvent.change(within(modal).getByTestId('idt-danger-modal-typed'), {
+        target: { value: 'workspace-a' }
+      });
+    });
+    expect(continueBtn).not.toBeDisabled();
+    await act(async () => {
+      fireEvent.click(continueBtn);
+    });
+    await waitFor(() =>
+      expect(deleteWorkspace).toHaveBeenCalledWith('workspace-a', expect.anything())
+    );
+    await screen.findByTestId('idt-restore-workspace-row');
+  });
+
+  it('reactivates a suspended workspace through the checkbox modal', async () => {
+    const { reactivateWorkspace } = await renderProductSettingsPage({
+      me: ownerMe,
+      workspaceStatus: 'suspended'
+    });
+    reactivateWorkspace.mockResolvedValue({
+      workspace: { ...ownerWorkspaceFixture, status: 'active' },
+      status: 'active'
+    });
+    await screen.findByTestId('idt-reactivate-workspace-row');
+
+    await act(async () => {
+      fireEvent.click(
+        within(screen.getByTestId('idt-reactivate-workspace-row')).getByRole('button')
+      );
+    });
+    const modal = await screen.findByTestId('idt-danger-modal');
+    await act(async () => {
+      fireEvent.click(within(modal).getByTestId('idt-danger-modal-checkbox'));
+    });
+    await act(async () => {
+      fireEvent.click(within(modal).getByTestId('idt-danger-modal-continue'));
+    });
+    await waitFor(() =>
+      expect(reactivateWorkspace).toHaveBeenCalledWith('workspace-a', expect.anything())
+    );
+    await screen.findByTestId('idt-suspend-workspace-row');
+  });
+
+  it('restores a soft-deleted workspace through the checkbox modal', async () => {
+    const { cancelWorkspaceDeletion } = await renderProductSettingsPage({
+      me: ownerMe,
+      workspaceStatus: 'deleted'
+    });
+    cancelWorkspaceDeletion.mockResolvedValue({
+      workspace: { ...ownerWorkspaceFixture, status: 'active' },
+      status: 'active'
+    });
+    await screen.findByTestId('idt-restore-workspace-row');
+
+    await act(async () => {
+      fireEvent.click(
+        within(screen.getByTestId('idt-restore-workspace-row')).getByRole('button')
+      );
+    });
+    const modal = await screen.findByTestId('idt-danger-modal');
+    await act(async () => {
+      fireEvent.click(within(modal).getByTestId('idt-danger-modal-checkbox'));
+    });
+    await act(async () => {
+      fireEvent.click(within(modal).getByTestId('idt-danger-modal-continue'));
+    });
+    await waitFor(() =>
+      expect(cancelWorkspaceDeletion).toHaveBeenCalledWith('workspace-a', expect.anything())
+    );
+    await screen.findByTestId('idt-suspend-workspace-row');
   });
 });
