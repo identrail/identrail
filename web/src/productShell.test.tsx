@@ -223,7 +223,7 @@ function mockBackendFeatures(connectors: {
   github?: BackendFeatureState;
   aws?: BackendFeatureState;
   kubernetes?: BackendFeatureState;
-} = {}) {
+} = {}, options: { loading?: boolean } = {}) {
   vi.doMock('./hooks/useBackendFeatures', async (importOriginal) => {
     const actual = await importOriginal<typeof import('./hooks/useBackendFeatures')>();
     return {
@@ -238,7 +238,7 @@ function mockBackendFeatures(connectors: {
           },
           configReachable: true
         },
-        loading: false
+        loading: options.loading ?? false
       })
     };
   });
@@ -1417,6 +1417,43 @@ describe('Domain-first app routes', () => {
       'href',
       '/app/tenant-a/workspace-a/kubernetes/service-accounts?environment=production'
     );
+  });
+
+  it('waits for Kubernetes feature metadata before loading connection state', async () => {
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: undefined }, { loading: true });
+    const api = await import('./api/client');
+    const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production Kubernetes boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    const getKubernetesProjectConnection = vi
+      .spyOn(api.apiClient, 'getKubernetesProjectConnection')
+      .mockResolvedValue({ connection: connectedKubernetes });
+
+    const { ProductKubernetesControlCenterPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/kubernetes" element={<ProductKubernetesControlCenterPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Kubernetes Control Center' })).toBeInTheDocument();
+    await waitFor(() => expect(listProjects).toHaveBeenCalled());
+    expect(getKubernetesProjectConnection).not.toHaveBeenCalled();
   });
 
   it('keeps Kubernetes connect on the domain page when no environment exists', async () => {

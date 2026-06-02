@@ -6275,7 +6275,7 @@ function KubernetesSectionRows({
 export function ProductKubernetesControlCenterPage() {
   const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useKubernetesDomainScope();
   const availability = useKubernetesAvailability();
-  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available);
+  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
 
   if (!scope) {
     return (
@@ -6312,7 +6312,7 @@ export function ProductKubernetesControlCenterPage() {
 export function ProductKubernetesConnectPage() {
   const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useKubernetesDomainScope();
   const availability = useKubernetesAvailability();
-  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available);
+  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
   const [form, setForm] = useState({
     mode: 'agent' as 'agent' | 'kubeconfig',
     displayName: '',
@@ -6521,7 +6521,7 @@ function buildKubernetesClusterRows(connection: KubernetesConnectionStatus | nul
 export function ProductKubernetesClustersPage() {
   const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useKubernetesDomainScope();
   const availability = useKubernetesAvailability();
-  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available);
+  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
   const [filters, setFilters] = useState(KUBERNETES_FILTER_DEFAULTS.clusters);
   const rows = filterKubernetesRows(buildKubernetesClusterRows(data.connection), filters);
 
@@ -6587,7 +6587,7 @@ function buildKubernetesWorkloadRows(connection: KubernetesConnectionStatus | nu
 export function ProductKubernetesWorkloadsPage() {
   const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useKubernetesDomainScope();
   const availability = useKubernetesAvailability();
-  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available);
+  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
   const [filters, setFilters] = useState(KUBERNETES_FILTER_DEFAULTS.workloads);
   const rows = filterKubernetesRows(buildKubernetesWorkloadRows(data.connection), filters);
 
@@ -6651,7 +6651,7 @@ function buildKubernetesServiceAccountRows(connection: KubernetesConnectionStatu
 export function ProductKubernetesServiceAccountsPage() {
   const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useKubernetesDomainScope();
   const availability = useKubernetesAvailability();
-  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available);
+  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
   const [filters, setFilters] = useState(KUBERNETES_FILTER_DEFAULTS['service-accounts']);
   const rows = filterKubernetesRows(buildKubernetesServiceAccountRows(data.connection), filters);
 
@@ -6682,7 +6682,7 @@ export function ProductKubernetesServiceAccountsPage() {
 export function ProductKubernetesFindingsPage() {
   const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useKubernetesDomainScope();
   const availability = useKubernetesAvailability();
-  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available);
+  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
   const [filters, setFilters] = useState(KUBERNETES_FILTER_DEFAULTS.findings);
 
   if (!scope) {
@@ -6720,7 +6720,7 @@ function buildKubernetesRemediationRows(): KubernetesTableRow[] {
 export function ProductKubernetesRemediationPage() {
   const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useKubernetesDomainScope();
   const availability = useKubernetesAvailability();
-  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available);
+  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
   const [filters, setFilters] = useState(KUBERNETES_FILTER_DEFAULTS.remediation);
   const rows = filterKubernetesRows(buildKubernetesRemediationRows(), filters);
 
