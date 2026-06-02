@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Bumped the Go toolchain to `1.25.11` and the backend builder image to the
+  matching `golang:1.25.11-alpine` digest to clear stdlib advisories
+  GO-2026-5037 and GO-2026-5039, which the daily OSV scan was failing on.
+  Added a `docker` ecosystem entry to `.github/dependabot.yml` for
+  `deploy/docker/` so future base-image bumps are opened as PRs automatically.
 - Added the owner-only workspace Danger Zone on Settings (PR 3 of #1420).
   Workspace owners now see Suspend / Reactivate / Delete / Restore rows
   appended into the existing Danger Zone card alongside the user-account

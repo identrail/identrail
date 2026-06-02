@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Prerequisites
 
-- Go `1.25.10` (see `go.mod`)
+- Go `1.25.11` (see `go.mod`)
 - Node.js `24` for `web/`
 - Docker + Docker Compose for local stack and integration tests
 - PostgreSQL (or Docker) for integration tests

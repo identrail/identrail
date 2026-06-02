@@ -62,3 +62,24 @@ updates:
         applies-to: version-updates
         patterns:
           - "*"
+
+  - package-ecosystem: docker
+    directory: "/deploy/docker"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:45"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - deps/docker
+    groups:
+      docker-security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      docker-version-updates:
+        applies-to: version-updates
+        patterns:
+          - "*"
