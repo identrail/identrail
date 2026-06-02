@@ -343,9 +343,10 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
     }
   };
 
-  const providerIDs = config?.auth.providers ?? [];
+  const authOptions = config?.auth;
+  const providerIDs = authOptions?.providers ?? [];
   const hostedProviders =
-    config?.auth.workos_login_enabled === true
+    authOptions?.workos_login_enabled === true
       ? HOSTED_PROVIDERS.filter((provider) => providerIDs.includes(provider.id))
       : [];
   const title = intent === 'signup' ? 'Your first trust graph is just a sign-up away.' : 'Log in to Identrail';
@@ -427,7 +428,7 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
             </div>
           ) : null}
 
-          {config?.auth.manual_mode ? (
+          {authOptions?.manual_mode ? (
             <form className="idt-app-form idt-auth-manual-form" onSubmit={handleManualSubmit}>
               <p className="idt-dev-mode-banner">Dev Mode</p>
               <label>
@@ -475,7 +476,7 @@ export function AuthChoicePage({ intent }: AuthChoicePageProps) {
             </form>
           ) : null}
 
-          {!loadingConfig && config && !config.auth.workos_login_enabled && !config.auth.manual_mode ? (
+          {!loadingConfig && config && !authOptions?.workos_login_enabled && !authOptions?.manual_mode ? (
             <p className="idt-app-alert idt-app-alert-error">This deployment has not enabled an account provider yet.</p>
           ) : null}
 

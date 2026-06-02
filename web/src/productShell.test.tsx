@@ -3281,7 +3281,7 @@ describe('ProductFindingsPage states', () => {
     const severityFilter = screen.getByLabelText('Severity');
     fireEvent.change(severityFilter, { target: { value: 'high' } });
 
-    expect(await screen.findByText('No findings match the current filters.')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'No findings match these filters' })).toBeInTheDocument();
     expect(screen.getByLabelText('Repository finding filters and sorting')).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: /IAM role with wildcard trust/i })).not.toBeInTheDocument();
   });

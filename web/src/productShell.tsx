@@ -7097,7 +7097,7 @@ function gitHubRecentScansTimeline(scans: RepoScanRecord[]): DomainTimelineEntry
     const detail = isCompletedScanStatus(scan.status)
       ? scan.error_message
         ? summarizeScanFailure(scan)
-        : `${scan.finding_count} findings · ${scan.files_scanned} files`
+        : summarizeSuccessfulRepoScan(scan)
       : `${scan.scan_mode ?? 'scan'} queued`;
     return {
       id: scan.id,
@@ -9928,6 +9928,14 @@ type ScanGroup = {
   repos: string[];
 };
 
+function summarizeSuccessfulRepoScan(scan: RepoScanRecord): string {
+  const parts = [formatCountLabel(scan.finding_count ?? 0, 'finding')];
+  if (Number.isFinite(scan.files_scanned)) {
+    parts.push(formatCountLabel(scan.files_scanned, 'file'));
+  }
+  return parts.join(' · ');
+}
+
 function groupRecentScans(scans: RepoScanRecord[]): ScanGroup[] {
   const groups: ScanGroup[] = [];
   scans.forEach((scan) => {
@@ -9936,7 +9944,7 @@ function groupRecentScans(scans: RepoScanRecord[]): ScanGroup[] {
     const reason = isFailure
       ? summarizeScanFailure(scan)
       : status === 'succeeded' || status === 'completed'
-        ? `${scan.finding_count} findings · ${scan.files_scanned} files`
+        ? summarizeSuccessfulRepoScan(scan)
         : 'In progress';
     const repo = canonicalGitHubRepositoryDisplay(scan.repository) || scan.repository;
     const last = groups[groups.length - 1];
@@ -10021,7 +10029,6 @@ export function ProductOverviewPage() {
   const [activeProjects, setActiveProjects] = useState<ProjectRecord[]>([]);
   const [repoScans, setRepoScans] = useState<RepoScanRecord[]>([]);
   const [repoFindings, setRepoFindings] = useState<ApiFinding[]>([]);
-  const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
   const [, setInviteSkipTick] = useState(0);
   const [connectorConfiguredFromOnboarding, setConnectorConfiguredFromOnboarding] = useState(false);
 
@@ -10087,7 +10094,7 @@ export function ProductOverviewPage() {
       setError('');
       try {
         const auth = buildProductAuthContext(scope);
-        const [activeProjectItems, scanResponse, findingResponse, trendResponse] = await Promise.all([
+        const [activeProjectItems, scanResponse, findingResponse] = await Promise.all([
           listOverviewProjects(scope.workspaceID, { include_archived: false }, auth),
           apiClient.listRepoScans({ limit: OVERVIEW_SCAN_LIMIT }, auth),
           apiClient.listRepoFindings(
@@ -10098,8 +10105,7 @@ export function ProductOverviewPage() {
               sort_order: 'desc'
             },
             auth
-          ),
-          apiClient.getRepoFindingsTrends({ points: TREND_POINTS }, auth)
+          )
         ]);
         if (!mounted) {
           return;
@@ -10115,7 +10121,6 @@ export function ProductOverviewPage() {
             .slice()
             .sort((left, right) => severityRank(right.severity) - severityRank(left.severity))
         );
-        setTrendPoints(trendResponse.items);
       } catch (err) {
         if (!mounted) {
           return;
@@ -10158,9 +10163,6 @@ export function ProductOverviewPage() {
     const normalized = normalizeValue(scan.status).toLowerCase();
     return normalized === 'failed' || normalized === 'canceled';
   }).length;
-  const latestTrend = trendPoints[trendPoints.length - 1];
-  const previousTrend = trendPoints[trendPoints.length - 2];
-  const trendDelta = latestTrend && previousTrend ? latestTrend.total - previousTrend.total : null;
   const awsPath = scope ? buildScopedPath(scope, 'aws') : '/app';
   const awsConnectPath = scope ? buildScopedPath(scope, 'aws/connect') : '/app';
   const awsGovernancePath = scope ? buildScopedPath(scope, 'aws/governance') : '/app';
@@ -10215,7 +10217,6 @@ export function ProductOverviewPage() {
     provider: SourceProvider;
     state: OverviewDomainState;
     metric: string;
-    detail: string;
     to: string;
   }> = [
     {
@@ -10224,7 +10225,6 @@ export function ProductOverviewPage() {
       provider: 'aws',
       state: awsState,
       metric: activeEnvironmentCount > 0 ? formatCountLabel(activeEnvironmentCount, 'environment') : 'No environment',
-      detail: activeEnvironmentCount > 0 ? 'Runtime evidence pending' : 'Connect account evidence',
       to: awsState === 'not_connected' ? awsConnectPath : awsPath
     },
     {
@@ -10233,12 +10233,6 @@ export function ProductOverviewPage() {
       provider: 'github',
       state: githubState,
       metric: repoScans.length > 0 ? formatCountLabel(repoScans.length, 'scan') : 'No scans',
-      detail:
-        highPriorityCount > 0
-          ? `${formatCountLabel(highPriorityCount, 'priority finding')} open`
-          : hasConnectedSource
-            ? 'Repository evidence ready'
-            : 'Install GitHub App',
       to: highPriorityCount > 0 ? findingsPath : githubPath
     },
     {
@@ -10247,7 +10241,6 @@ export function ProductOverviewPage() {
       provider: 'kubernetes',
       state: kubernetesState,
       metric: kubernetesState === 'shell' ? 'Shell' : activeEnvironmentCount > 0 ? 'No cluster data' : 'Not connected',
-      detail: kubernetesState === 'shell' ? 'Backend wave pending' : 'Cluster/RBAC evidence pending',
       to: kubernetesState === 'not_connected' ? kubernetesConnectPath : kubernetesPath
     },
     {
@@ -10256,38 +10249,20 @@ export function ProductOverviewPage() {
       provider: 'github',
       state: agenticRiskState,
       metric: agenticRiskFindings.length > 0 ? formatCountLabel(agenticRiskFindings.length, 'signal') : 'No signals',
-      detail: repoScans.length > 0 ? 'Nested under GitHub' : 'Awaiting repository evidence',
       to: githubAgenticRiskPath
     }
   ];
   const activeDomainCount = domainPosture.filter((item) =>
     item.state === 'connected' || item.state === 'degraded' || item.state === 'no_data'
   ).length;
-  const blockedDomainCount = domainPosture.length - activeDomainCount;
   const postureLabel = highPriorityCount > 0 || failedScanCount > 0 ? 'Action needed' : 'Stable';
-  const postureDetail =
-    highPriorityCount > 0
-      ? `${formatCountLabel(highPriorityCount, 'priority finding')} open`
-      : failedScanCount > 0
-        ? `${formatCountLabel(failedScanCount, 'scan')} failed`
-        : 'No urgent risk loaded';
   const coverageLabel = `${activeDomainCount}/${domainPosture.length}`;
-  const coverageDetail = blockedDomainCount > 0 ? `${formatCountLabel(blockedDomainCount, 'gap')} visible` : 'All domains visible';
   const evidenceLabel = repoScans.length > 0 ? formatCountLabel(repoScans.length, 'scan') : 'No scans';
-  const evidenceDetail =
-    trendDelta === null
-      ? 'Trend pending'
-      : trendDelta > 0
-        ? `+${trendDelta} since prior scan`
-        : trendDelta === 0
-          ? 'No change'
-          : `${trendDelta} since prior scan`;
-  const nextActions: Array<{ id: string; label: string; detail: string; to: string; tone?: 'danger' | 'warning' | 'neutral' }> = [];
+  const nextActions: Array<{ id: string; label: string; to: string; tone?: 'danger' | 'warning' | 'neutral' }> = [];
   if (highPriorityCount > 0) {
     nextActions.push({
       id: 'priority',
       label: 'Review priority findings',
-      detail: `${formatCountLabel(highPriorityCount, 'priority finding')} ready`,
       to: findingsPath,
       tone: 'danger'
     });
@@ -10296,7 +10271,6 @@ export function ProductOverviewPage() {
     nextActions.push({
       id: 'connect',
       label: connectSourcesLabel,
-      detail: 'First evidence source',
       to: connectSourcesPath,
       tone: 'warning'
     });
@@ -10305,7 +10279,6 @@ export function ProductOverviewPage() {
     nextActions.push({
       id: 'scan',
       label: 'Review scan health',
-      detail: `${formatCountLabel(failedScanCount, 'failure')} visible`,
       to: findingsPath,
       tone: 'warning'
     });
@@ -10314,7 +10287,6 @@ export function ProductOverviewPage() {
     nextActions.push({
       id: 'agentic',
       label: 'Open agentic risk',
-      detail: `${formatCountLabel(agenticRiskFindings.length, 'signal')} loaded`,
       to: githubAgenticRiskPath,
       tone: 'danger'
     });
@@ -10323,14 +10295,12 @@ export function ProductOverviewPage() {
     {
       id: 'remediation',
       label: 'Open remediation',
-      detail: highPriorityCount > 0 ? 'Fix queue ready' : 'No queued fixes',
       to: githubRemediationPath,
       tone: highPriorityCount > 0 ? 'warning' : 'neutral'
     },
     {
       id: 'governance',
       label: 'Check governance',
-      detail: 'Approval queue',
       to: awsGovernancePath,
       tone: 'neutral'
     }
@@ -10339,7 +10309,6 @@ export function ProductOverviewPage() {
   const onboardingChecklist: Array<{
     id: string;
     label: string;
-    description: string;
     complete: boolean;
     actionLabel?: string;
     to?: string;
@@ -10348,7 +10317,6 @@ export function ProductOverviewPage() {
     {
       id: 'domain',
       label: 'Choose your first domain',
-      description: 'Pick the surface to cover first.',
       complete: activeEnvironmentCount > 0,
       actionLabel: activeEnvironmentCount > 0 ? undefined : 'Open',
       to: awsPath
@@ -10356,7 +10324,6 @@ export function ProductOverviewPage() {
     {
       id: 'source',
       label: 'Connect a domain source',
-      description: 'Attach telemetry.',
       complete: hasConnectedSource,
       actionLabel: hasConnectedSource ? undefined : 'Connect',
       to: connectSourcesPath
@@ -10364,7 +10331,6 @@ export function ProductOverviewPage() {
     {
       id: 'scan',
       label: 'Run your first scan',
-      description: 'Create evidence.',
       complete: hasAnySuccessfulScan,
       actionLabel: hasAnySuccessfulScan ? undefined : 'Run scan',
       to: connectSourcesPath
@@ -10372,7 +10338,6 @@ export function ProductOverviewPage() {
     {
       id: 'invite',
       label: 'Invite a teammate',
-      description: 'Share access.',
       complete: readInviteSkipped(scope?.tenantID, scope?.workspaceID),
       actionLabel: readInviteSkipped(scope?.tenantID, scope?.workspaceID) ? undefined : 'Invite',
       to: workspacesPath,
@@ -10409,10 +10374,7 @@ export function ProductOverviewPage() {
     <>
       <section className="idt-app-panel idt-overview-page">
         <header className="idt-overview-header">
-          <div>
-            <h2>Overview</h2>
-            <p className="idt-overview-header-sub">Machine identity command center</p>
-          </div>
+          <h2>Overview</h2>
         </header>
 
         {shouldShowOnboarding ? (
@@ -10433,7 +10395,6 @@ export function ProductOverviewPage() {
                   </span>
                   <div className="idt-overview-checklist-body">
                     <strong>{item.label}</strong>
-                    <span>{item.description}</span>
                   </div>
                   <div className="idt-overview-checklist-actions">
                     {item.skippable && !item.complete ? (
@@ -10465,22 +10426,18 @@ export function ProductOverviewPage() {
           <article className={`idt-overview-metric-card${postureLabel === 'Action needed' ? ' is-attention' : ''}`}>
             <span className="idt-overview-metric-label">Posture</span>
             <strong>{postureLabel}</strong>
-            <p>{postureDetail}</p>
           </article>
           <article className="idt-overview-metric-card">
             <span className="idt-overview-metric-label">High priority</span>
             <strong>{highPriorityCount}</strong>
-            <p>{highPriorityCount > 0 ? 'Review now' : 'Clear'}</p>
           </article>
           <article className="idt-overview-metric-card">
             <span className="idt-overview-metric-label">Coverage</span>
             <strong>{coverageLabel}</strong>
-            <p>{coverageDetail}</p>
           </article>
           <article className="idt-overview-metric-card">
             <span className="idt-overview-metric-label">Evidence</span>
             <strong>{evidenceLabel}</strong>
-            <p>{evidenceDetail}</p>
           </article>
         </div>
 
@@ -10493,7 +10450,6 @@ export function ProductOverviewPage() {
               </div>
               <strong>{item.label}</strong>
               <span>{item.metric}</span>
-              <small>{item.detail}</small>
             </Link>
           ))}
         </section>
@@ -10502,7 +10458,7 @@ export function ProductOverviewPage() {
           <section className="idt-overview-card">
             <div className="idt-overview-card-header">
               <h3>Highest priority</h3>
-              <Link to={findingsPath}>View GitHub findings</Link>
+              <Link className="idt-premium-text-link" to={findingsPath}>View GitHub findings</Link>
             </div>
             {highPriorityFindings.length > 0 ? (
               <div className="idt-overview-list">
@@ -10536,14 +10492,13 @@ export function ProductOverviewPage() {
           <section className="idt-overview-card">
             <div className="idt-overview-card-header">
               <h3>Next actions</h3>
-              <Link to={githubRemediationPath}>Open remediation</Link>
+              <Link className="idt-premium-text-link" to={githubRemediationPath}>Open remediation</Link>
             </div>
             <div className="idt-overview-action-list">
               {visibleActions.map((item) => (
                 <Link key={item.id} to={item.to} className={`idt-overview-action-row is-${item.tone ?? 'neutral'}`}>
                   <span>
                     <strong>{item.label}</strong>
-                    <small>{item.detail}</small>
                   </span>
                   <ChevronRight size={16} aria-hidden="true" />
                 </Link>
@@ -10556,7 +10511,7 @@ export function ProductOverviewPage() {
           <section className="idt-overview-card">
             <div className="idt-overview-card-header">
               <h3>Recent activity</h3>
-              <Link to={findingsPath}>View GitHub findings</Link>
+              <Link className="idt-premium-text-link" to={findingsPath}>View GitHub findings</Link>
             </div>
             {scanGroups.length > 0 ? (
               <div className="idt-overview-list idt-overview-activity-list">
@@ -10567,7 +10522,6 @@ export function ProductOverviewPage() {
                     group.repos.length === 1
                       ? group.repos[0]
                       : `${group.repos[0]} +${group.repos.length - 1} more`;
-                  const countLabel = group.count > 1 ? `${group.count} scans` : '1 scan';
                   return (
                     <article
                       key={`${group.status}-${group.reason}-${group.latest.id}`}
@@ -10577,9 +10531,7 @@ export function ProductOverviewPage() {
                       <div className="idt-overview-row-copy">
                         <div>
                           <strong>{repoLabel}</strong>
-                          <p>
-                            {countLabel} · {group.reason} · {formatRelativeTime(group.latest.started_at)}
-                          </p>
+                          <p>{group.reason} · {formatRelativeTime(group.latest.started_at)}</p>
                         </div>
                         <span className={`idt-overview-scan-badge is-${isFailure ? 'error' : isActive ? 'warning' : 'success'}`}>
                           {isFailure ? 'Failed' : isActive ? 'Running' : 'Succeeded'}
@@ -14603,11 +14555,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     [filteredFindings, repoRiskGraph]
   );
 
-  const linkedFindingCount = useMemo(
-    () => filteredFindings.filter((finding) => normalizeValue(finding.source_url ?? '')).length,
-    [filteredFindings]
-  );
-
   const criticalFindingCount = useMemo(
     () => filteredFindings.filter((finding) => normalizeValue(finding.severity).toLowerCase() === 'critical').length,
     [filteredFindings]
@@ -14628,21 +14575,9 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     [filteredFindings, repoFindingSummary?.total_open]
   );
 
-  const fixedFindingCount = repoFindingSummary?.fixed_count ?? filteredFindings.filter((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'fixed').length;
-  const reopenedFindingCount =
-    repoFindingSummary?.reopened_count ?? filteredFindings.filter((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'reopened').length;
   const slaAgedFindingCount = repoFindingSummary?.sla_aged_count ?? 0;
   const mttrSeconds = repoFindingSummary?.mean_time_to_resolve_seconds;
   const mttrLabel = typeof mttrSeconds === 'number' && Number.isFinite(mttrSeconds) ? formatExecutiveDuration(mttrSeconds) : 'N/A';
-
-  const averageConfidence = useMemo(() => {
-    const findingsWithConfidence = filteredFindings.filter((finding) => Number.isFinite(finding.confidence_score ?? NaN));
-    if (findingsWithConfidence.length === 0) {
-      return 'N/A';
-    }
-    const sum = findingsWithConfidence.reduce((acc, finding) => acc + (finding.confidence_score ?? 0), 0);
-    return formatConfidenceScore(sum / findingsWithConfidence.length);
-  }, [filteredFindings]);
 
   const loadRepoFindings = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
     const requestID = ++requestRef.current;
@@ -15200,9 +15135,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       <section className="idt-app-panel idt-repo-findings-page">
         <div className="idt-repo-findings-header">
           <div>
-            <p className="idt-app-kicker">GitHub findings</p>
             <h2>GitHub findings</h2>
-            <p>Review repository findings and jump directly to the exact GitHub line when link metadata is available.</p>
           </div>
           <div className="idt-inline-actions">
             <Link className="idt-btn idt-btn-primary" to={remediationPath}>
@@ -15281,13 +15214,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     <section className="idt-app-panel idt-repo-findings-page">
       <div className="idt-repo-findings-header">
         <div>
-          <p className="idt-app-kicker">GitHub findings</p>
           <h2>GitHub findings</h2>
-          <p>Review repository findings and jump directly to the exact GitHub line when link metadata is available.</p>
-          <div className="idt-overview-source-strip">
-            <SourceLogoMark provider="github" />
-            <span>GitHub evidence stays tied to triage, remediation, and ownership state.</span>
-          </div>
         </div>
         <div className="idt-inline-actions">
           <Link className="idt-btn idt-btn-primary" to={remediationPath}>
@@ -15320,26 +15247,19 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         <article className="idt-repo-finding-stat">
           <span>Open findings</span>
           <strong>{openFindingCount}</strong>
-          <small className="idt-repo-finding-stat-note">
-            {filteredFindings.length} total · {fixedFindingCount} fixed · {reopenedFindingCount} reopened
-          </small>
         </article>
         <article className="idt-repo-finding-stat">
           <span>Critical findings</span>
           <strong>{criticalFindingCount}</strong>
-          <small className="idt-repo-finding-stat-note">
-            {slaAgedFindingCount} SLA-aged high{slaAgedFindingCount === 1 ? '' : 's'}
-          </small>
+          {slaAgedFindingCount > 0 ? <small className="idt-repo-finding-stat-note">SLA-aged {slaAgedFindingCount}</small> : null}
         </article>
         <article className="idt-repo-finding-stat">
           <span>Mean time to fix</span>
           <strong>{mttrLabel}</strong>
-          <small className="idt-repo-finding-stat-note">avg confidence {averageConfidence}</small>
         </article>
         <article className="idt-repo-finding-stat">
           <span>Completed scans</span>
           <strong>{activeScanCount}</strong>
-          <small className="idt-repo-finding-stat-note">{linkedFindingCount} GitHub-linked</small>
         </article>
       </div>
 
@@ -15352,7 +15272,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         >
           <summary className="idt-repo-filter-panel-header">
             <span>Filters and sorting</span>
-            <small>{filteredFindings.length ? `${filteredFindings.length} findings shown` : 'No findings in scope'}</small>
           </summary>
           <div className="idt-repo-finding-filters">
             <label>
@@ -15454,11 +15373,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         <div className="idt-repo-finding-list">
           <div className="idt-repo-finding-list-header">
             <h3>Repository findings</h3>
-            <p>
-              {filteredFindings.length
-                ? `${findingHierarchy.length} repositories grouped by scan date and severity`
-                : 'No findings match the current filters.'}
-            </p>
           </div>
           {findingHierarchy.length === 0 ? (
             filtersActive ? (
@@ -15505,7 +15419,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                           <FolderKanban size={18} strokeWidth={2} />
                         </span>
                         <span>
-                          <span className="idt-repo-summary-label">Repository</span>
                           <strong>{repositoryGroup.label}</strong>
                         </span>
                       </span>
@@ -15537,12 +15450,10 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                           <summary className="idt-repo-scan-summary">
                             <span className="idt-repo-scan-node" aria-hidden="true" />
                             <span className="idt-repo-scan-copy">
-                              <span>Scan date</span>
                               <strong>{scanGroup.label}</strong>
                             </span>
                             <span className="idt-repo-scan-meta">
                               <span>{scanGroup.findings.length} findings</span>
-                              <span>{scanGroup.severityGroups.length} severity groups</span>
                             </span>
                           </summary>
                           <div className="idt-repo-finding-bucket-body idt-repo-severity-lanes">
@@ -15560,7 +15471,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                     <span className={repoFindingSeverityClass(severityGroup.label)}>
                                       {formatTokenLabel(severityGroup.label)}
                                     </span>
-                                    <strong>{severityGroup.label === 'critical' ? 'Immediate attention' : `${formatTokenLabel(severityGroup.label)} risk`}</strong>
                                   </span>
                                   <span className="idt-repo-severity-count">
                                     <strong>{severityGroup.findings.length}</strong>
@@ -15575,7 +15485,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                     const selectionKey = buildRepoFindingSelectionKey(finding);
                                     const isSelected = selectedFindingKey === selectionKey;
                                     const lifecycle = normalizeRepoFindingLifecycleStatus(finding.lifecycle_status);
-                                    const triageStatus = normalizeFindingStatus(finding.triage?.status);
                                     return (
                                       <button
                                         key={selectionKey}
@@ -15593,18 +15502,12 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                               {formatTokenLabel(finding.severity)}
                                             </span>
                                           </div>
-                                          <p>{finding.human_summary}</p>
                                           <div className="idt-repo-finding-row-meta">
                                             <span>{repositoryLabel}</span>
                                             <span>{repoFindingLocationLabel(finding)}</span>
                                             <span>{formatTokenLabel(finding.type)}</span>
-                                            <span>{`Confidence ${formatConfidenceScore(finding.confidence_score)}`}</span>
-                                          </div>
-                                          <div className="idt-repo-finding-row-meta">
                                             <span className={repoFindingStatusClass(lifecycle)}>{formatTokenLabel(lifecycle)}</span>
-                                            <span>{`Source ${finding.adapter_source || 'native'}`}</span>
-                                            <span>{`Owner ${finding.owner || finding.triage?.assignee || 'Unassigned'}`}</span>
-                                            <span>{`Triage ${formatTokenLabel(triageStatus)}`}</span>
+                                            <span>{finding.owner || finding.triage?.assignee || 'Unassigned'}</span>
                                           </div>
                                         </div>
                                       </button>

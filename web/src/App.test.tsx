@@ -916,12 +916,12 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /Continue in dev mode/i }));
 
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
-    expect(await screen.findByText(/Machine identity command center/i)).toBeInTheDocument();
     expect(await screen.findByText(/Highest priority/i)).toBeInTheDocument();
     expect(await screen.findByText(/High priority/i)).toBeInTheDocument();
     expect(await screen.findByText(/Review priority findings/i)).toBeInTheDocument();
     expect(await screen.findByText(/1 environment/i)).toBeInTheDocument();
-    expect(await screen.findByText(/-6 since prior scan/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Machine identity command center/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/since prior scan/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Production GitHub/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/archived/i)).not.toBeInTheDocument();
     expect(
@@ -989,7 +989,7 @@ describe('App', () => {
 
     await screen.findByRole('region', { name: /Get started/i });
     expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
-    expect(screen.getByText(/Machine identity command center/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Machine identity command center/i)).not.toBeInTheDocument();
     expect(screen.getByText(/1 environment/i)).toBeInTheDocument();
     expect(screen.queryByText(/Production GitHub/i)).not.toBeInTheDocument();
     const meCallsBeforeNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
@@ -1333,10 +1333,10 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a');
     render(<App />);
 
-    expect(await screen.findByText(/Machine identity command center/i)).toBeInTheDocument();
-    expect(screen.getByText('Evidence', { selector: '.idt-overview-metric-label' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    expect(await screen.findByText('Evidence', { selector: '.idt-overview-metric-label' })).toBeInTheDocument();
     expect(screen.getByText('No scans', { selector: '.idt-overview-metrics strong' })).toBeInTheDocument();
-    expect(await screen.findByText(/Trend pending/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Trend pending/i)).not.toBeInTheDocument();
     expect(screen.queryByText('+12')).not.toBeInTheDocument();
     expect(screen.queryByText(/12 findings/i)).not.toBeInTheDocument();
   });
@@ -2006,7 +2006,7 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 2, name: /^GitHub findings$/i })).toBeInTheDocument();
-    expect(await screen.findByText(/Review repository findings and jump directly to the exact GitHub line/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Review repository findings and jump directly to the exact GitHub line/i)).not.toBeInTheDocument();
     expect(await screen.findByText(/Risk graph/i)).toBeInTheDocument();
     expect(await screen.findByText(/High-risk findings/i)).toBeInTheDocument();
     expect(await screen.findByText('91')).toBeInTheDocument();
