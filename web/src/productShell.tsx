@@ -9766,9 +9766,9 @@ export function ProductShellLayout() {
           data-collapsed={sidebarCollapsed ? 'true' : 'false'}
         >
           <div
-            className={`idt-app-sidebar-resize-handle${isDraggingSidebar ? ' is-dragging' : ''}${isSidebarEdgeFocused ? ' is-focused' : ''}`}
+            className={`idt-app-sidebar-resize-handle${isDraggingSidebar ? ' is-dragging' : ''}${isSidebarEdgeFocused ? ' is-focused' : ''}${openDomainFlyout ? ' is-domain-flyout-blocked' : ''}`}
             role="separator"
-            tabIndex={0}
+            tabIndex={openDomainFlyout ? -1 : 0}
             aria-orientation="vertical"
             aria-label={`${sidebarCollapsed ? 'Expand' : 'Collapse'} sidebar. Drag to resize.`}
             data-sidebar-action={sidebarCollapsed ? 'Click to expand' : 'Click to collapse'}

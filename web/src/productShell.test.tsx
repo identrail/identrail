@@ -978,6 +978,8 @@ describe('ProductShellLayout', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: /Reports content/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Reports' })).toHaveClass('active');
+    const resizeHandle = screen.getByRole('separator', { name: /sidebar/i });
+    expect(resizeHandle).toHaveAttribute('tabindex', '0');
 
     fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
 
@@ -987,11 +989,15 @@ describe('ProductShellLayout', () => {
     const sidebarBackdrop = container.querySelector('.idt-domain-flyout-sidebar-backdrop');
     expect(sidebarBackdrop).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'AWS' }).closest('.idt-app-domain-nav-item')).toHaveClass('is-open');
+    expect(resizeHandle).toHaveClass('is-domain-flyout-blocked');
+    expect(resizeHandle).toHaveAttribute('tabindex', '-1');
 
     fireEvent.click(sidebarBackdrop as Element);
 
     expect(screen.queryByRole('dialog', { name: 'AWS' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Reports' })).toHaveClass('active');
+    expect(resizeHandle).not.toHaveClass('is-domain-flyout-blocked');
+    expect(resizeHandle).toHaveAttribute('tabindex', '0');
 
     fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
 

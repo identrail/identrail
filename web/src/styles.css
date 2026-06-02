@@ -27022,6 +27022,12 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   z-index: 46;
 }
 
+.idt-app-console-layout.is-domain-flyout-open .idt-app-sidebar-resize-handle,
+.idt-app-sidebar-resize-handle.is-domain-flyout-blocked {
+  z-index: 30;
+  pointer-events: none;
+}
+
 .idt-domain-flyout {
   position: absolute;
   top: -0.45rem;
