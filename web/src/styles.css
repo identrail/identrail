@@ -24462,6 +24462,11 @@ button.idt-domain-finding-card:focus-visible {
 
 .idt-domain-drawer.is-swiping {
   transition: none !important;
+  /* The entry animation uses animation-fill-mode: both, which keeps
+     pinning transform: translateX(0) after the slide-in finishes and
+     would override the swipe-offset transform. Cancel the animation
+     while swiping so the JS-driven transform takes effect. */
+  animation: none !important;
 }
 
 .idt-domain-drawer header {
