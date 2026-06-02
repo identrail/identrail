@@ -47,7 +47,13 @@ import {
   ProductGitHubCallbackPage,
   ProductGitHubControlCenterPage,
   ProductGitHubRepositoriesPage,
+  ProductKubernetesClustersPage,
   ProductKubernetesConnectPage,
+  ProductKubernetesControlCenterPage,
+  ProductKubernetesFindingsPage,
+  ProductKubernetesRemediationPage,
+  ProductKubernetesServiceAccountsPage,
+  ProductKubernetesWorkloadsPage,
   ProductGitHubConnectPage,
   ProductGitHubRemediationPage,
   ProductLoginPage,
@@ -4813,13 +4819,13 @@ export function RoutedSite() {
               element={<ProductDomainRoutePage domain="github" routeID="agentic-risk-workflow-trust-paths" />}
             />
             <Route path="github/agentic-risk/findings" element={<ProductFindingsPage agenticOnly />} />
-            <Route path="kubernetes" element={<ProductDomainRoutePage domain="kubernetes" />} />
+            <Route path="kubernetes" element={<ProductKubernetesControlCenterPage />} />
             <Route path="kubernetes/connect" element={<ProductKubernetesConnectPage />} />
-            <Route path="kubernetes/clusters" element={<ProductDomainRoutePage domain="kubernetes" routeID="clusters" />} />
-            <Route path="kubernetes/workloads" element={<ProductDomainRoutePage domain="kubernetes" routeID="workloads" />} />
-            <Route path="kubernetes/service-accounts" element={<ProductDomainRoutePage domain="kubernetes" routeID="service-accounts" />} />
-            <Route path="kubernetes/findings" element={<ProductDomainRoutePage domain="kubernetes" routeID="findings" />} />
-            <Route path="kubernetes/remediation" element={<ProductDomainRoutePage domain="kubernetes" routeID="remediation" />} />
+            <Route path="kubernetes/clusters" element={<ProductKubernetesClustersPage />} />
+            <Route path="kubernetes/workloads" element={<ProductKubernetesWorkloadsPage />} />
+            <Route path="kubernetes/service-accounts" element={<ProductKubernetesServiceAccountsPage />} />
+            <Route path="kubernetes/findings" element={<ProductKubernetesFindingsPage />} />
+            <Route path="kubernetes/remediation" element={<ProductKubernetesRemediationPage />} />
             <Route path="reports" element={<ProductReportsPage />} />
             <Route path="settings" element={<ProductSettingsPage />} />
           </Route>

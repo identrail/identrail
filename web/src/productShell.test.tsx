@@ -8,6 +8,7 @@ import type {
   CurrentUserContext,
   Finding,
   GitHubConnectionStatus,
+  KubernetesConnectionStatus,
   RepoFindingRemediationPreview,
   RepoFindingRemediationPublishResponse,
   RepoScanRecord,
@@ -134,6 +135,39 @@ const connectedAWS: AWSConnectionStatus = {
   capabilities: { requested: ['discovery'], validated: ['discovery'], effective: ['discovery'], unavailable: [] },
   updated_at: '2026-05-17T10:00:00Z',
   last_validated_at: '2026-05-17T10:00:00Z'
+};
+
+const disconnectedKubernetes: KubernetesConnectionStatus = {
+  provider: 'kubernetes',
+  connected: false,
+  status: 'disconnected',
+  health_status: 'unknown',
+  permission_checks: [],
+  diagnostics: []
+};
+
+const connectedKubernetes: KubernetesConnectionStatus = {
+  provider: 'kubernetes',
+  connected: true,
+  connector_id: 'k8s-connector-1',
+  display_name: 'Production Kubernetes',
+  status: 'active',
+  health_status: 'healthy',
+  context: 'production',
+  cluster: 'production-cluster',
+  server: 'https://k8s.example.com',
+  git_version: 'v1.31.2',
+  platform: 'eks',
+  connection_mode: 'agent',
+  agent_id: 'agent-production',
+  permission_checks: [
+    { verb: 'get', resource: 'pods', scope: 'cluster', allowed: true },
+    { verb: 'list', resource: 'serviceaccounts', scope: 'cluster', allowed: true }
+  ],
+  diagnostics: [],
+  updated_at: '2026-05-17T10:00:00Z',
+  last_validated_at: '2026-05-17T10:00:00Z',
+  last_heartbeat_at: '2026-05-17T10:00:00Z'
 };
 
 const connectedGitHub: GitHubConnectionStatus = {
@@ -1338,6 +1372,189 @@ describe('Domain-first app routes', () => {
       'href',
       '/app/tenant-a/workspace-a/projects?source=aws'
     );
+  });
+
+  it('renders the Kubernetes Control Center with connected cluster coverage', async () => {
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production Kubernetes boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: connectedKubernetes });
+
+    const { ProductKubernetesControlCenterPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/kubernetes" element={<ProductKubernetesControlCenterPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Kubernetes Control Center' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Kubernetes' })).toBeInTheDocument();
+    expect(screen.getAllByText('production-cluster').length).toBeGreaterThan(0);
+    expect(screen.getByText('2/2 allowed')).toBeInTheDocument();
+    const sectionTable = screen.getByRole('table', { name: 'Kubernetes section links' });
+    expect(within(sectionTable).getByRole('link', { name: 'Clusters' })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/kubernetes/clusters?environment=production'
+    );
+    expect(within(sectionTable).getByRole('link', { name: 'Service accounts / RBAC' })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/kubernetes/service-accounts?environment=production'
+    );
+  });
+
+  it('keeps Kubernetes connect on the domain page when no environment exists', async () => {
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
+    const getKubernetesProjectConnection = vi.spyOn(api.apiClient, 'getKubernetesProjectConnection');
+
+    const { ProductKubernetesConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/connect']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/kubernetes/connect" element={<ProductKubernetesConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Connect Kubernetes' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /Create an environment before Kubernetes can resolve/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open environments/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/projects?source=kubernetes'
+    );
+    expect(getKubernetesProjectConnection).not.toHaveBeenCalled();
+  });
+
+  it('starts Kubernetes agent enrollment with workspace and environment scope', async () => {
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production Kubernetes boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: disconnectedKubernetes });
+    vi.spyOn(api.apiClient, 'startKubernetesConnector').mockResolvedValue({
+      connection: connectedKubernetes,
+      enrollment_token: 'enroll-token-123',
+      enrollment_expires_at: '2026-05-17T11:00:00Z',
+      helm_command: 'helm upgrade --install identrail-agent identrail/agent --set token=enroll-token-123'
+    });
+
+    const { ProductKubernetesConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/kubernetes/connect" element={<ProductKubernetesConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const submitButton = await screen.findByRole('button', { name: /Generate enrollment token/i });
+    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production K8s' } });
+    fireEvent.change(screen.getByLabelText('API URL'), { target: { value: 'https://k8s.example.com' } });
+    fireEvent.click(submitButton);
+
+    await waitFor(() =>
+      expect(api.apiClient.startKubernetesConnector).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          display_name: 'Production K8s',
+          api_url: 'https://k8s.example.com'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(await screen.findByText('enroll-token-123')).toBeInTheDocument();
+    expect(screen.getByText(/helm upgrade --install identrail-agent/i)).toBeInTheDocument();
+  });
+
+  it('saves Kubernetes kubeconfig fallback with workspace and environment scope', async () => {
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production Kubernetes boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({
+      connection: { ...disconnectedKubernetes, connector_id: 'k8s-existing', context: 'old-context' }
+    });
+    vi.spyOn(api.apiClient, 'upsertKubernetesKubeconfigConnector').mockResolvedValue({ connection: connectedKubernetes });
+
+    const { ProductKubernetesConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/kubernetes/connect" element={<ProductKubernetesConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('button', { name: /Generate enrollment token/i });
+    fireEvent.change(screen.getByLabelText('Mode'), { target: { value: 'kubeconfig' } });
+    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production fallback' } });
+    fireEvent.change(screen.getByLabelText('Kubeconfig context'), { target: { value: 'production-admin' } });
+    fireEvent.change(screen.getByLabelText('Kubeconfig'), { target: { value: 'apiVersion: v1\nclusters: []' } });
+    fireEvent.click(screen.getByRole('button', { name: /Validate and save kubeconfig/i }));
+
+    await waitFor(() =>
+      expect(api.apiClient.upsertKubernetesKubeconfigConnector).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          connector_id: 'k8s-existing',
+          display_name: 'Production fallback',
+          context: 'production-admin',
+          kubeconfig: 'apiVersion: v1\nclusters: []'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(await screen.findByText('Kubernetes kubeconfig connector is active.')).toBeInTheDocument();
   });
 
   it('clears stale AWS connect form values when the selected environment changes', async () => {
