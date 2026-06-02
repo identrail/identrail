@@ -163,6 +163,26 @@ func TestCurrentSessionUpdateCurrentUserProfile(t *testing.T) {
 	}
 }
 
+func TestCurrentSessionUpdateCurrentUserProfileAcceptsImageDataAvatar(t *testing.T) {
+	harness, cookieValue, _ := setupSessionRouter(t)
+	avatarDataURL := "data:image/png;base64,YXZhdGFy"
+	req := patchCurrentUserProfileRequest(cookieValue, `{"avatar_url":"`+avatarDataURL+`"}`)
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected PATCH /v1/me 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var response struct {
+		Me CurrentUserContext `json:"me"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("decode profile update response: %v", err)
+	}
+	if response.Me.User.AvatarURL != avatarDataURL {
+		t.Fatalf("unexpected avatar_url: %q", response.Me.User.AvatarURL)
+	}
+}
+
 func TestCurrentSessionUpdateCurrentUserProfileRejectsInvalidPayloads(t *testing.T) {
 	cases := []struct {
 		name string
@@ -174,7 +194,7 @@ func TestCurrentSessionUpdateCurrentUserProfileRejectsInvalidPayloads(t *testing
 		{name: "control character display name", body: `{"display_name":"Bad\nName"}`},
 		{name: "bidirectional formatting display name", body: `{"display_name":"evil\u202eadmin"}`},
 		{name: "arabic letter mark display name", body: `{"display_name":"evil\u061cadmin"}`},
-		{name: "data uri avatar", body: `{"avatar_url":"data:image/png;base64,abc"}`},
+		{name: "invalid data uri avatar", body: `{"avatar_url":"data:text/plain;base64,abc"}`},
 		{name: "http avatar", body: `{"avatar_url":"http://avatars.githubusercontent.com/u/1"}`},
 		{name: "disallowed avatar host", body: `{"avatar_url":"https://example.com/avatar.png"}`},
 		{name: "empty body", body: ``},

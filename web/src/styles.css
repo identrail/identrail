@@ -215,7 +215,7 @@ a {
   background: var(--idt-cta);
   color: #030303;
   border-color: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.42);
+  box-shadow: none;
 }
 
 .idt-btn-dark {
@@ -2245,13 +2245,35 @@ h2 {
   position: absolute;
   top: 0.6rem;
   right: 0.6rem;
-  border: 1px solid var(--idt-line);
-  border-radius: 999px;
-  width: 32px;
-  height: 32px;
+}
+
+.idt-esc-close,
+.idt-modal-close {
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
+  min-width: 2.45rem;
+  height: 1.8rem;
+  padding: 0 0.55rem;
   font-weight: 700;
-  background: transparent;
-  color: #fff;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(245, 247, 248, 0.86);
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.idt-esc-close:hover,
+.idt-esc-close:focus-visible,
+.idt-modal-close:hover,
+.idt-modal-close:focus-visible {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.085);
+  color: #ffffff;
+  outline: none;
 }
 
 .idt-hero-copy {
@@ -3156,7 +3178,7 @@ html[data-theme='light'] .idt-nav a.is-active {
 html[data-theme='light'] .idt-btn-primary {
   color: #eef3ff;
   border-color: rgba(9, 20, 38, 0.18);
-  box-shadow: 0 10px 24px rgba(30, 48, 88, 0.2);
+  box-shadow: none;
 }
 
 html[data-theme='light'] .idt-btn-dark,
@@ -3647,7 +3669,7 @@ html[data-theme='light'] .idt-btn-primary {
   background: linear-gradient(120deg, #152a4f 0%, #213b66 100%);
   border-color: rgba(15, 32, 59, 0.25);
   color: #f5f9ff;
-  box-shadow: 0 12px 30px rgba(32, 52, 92, 0.22);
+  box-shadow: none;
 }
 
 html[data-theme='light'] .idt-btn-dark,
@@ -4437,9 +4459,16 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   align-items: start;
 }
 
+.idt-profile-avatar-control {
+  position: relative;
+  width: 4.5rem;
+}
+
 .idt-profile-avatar {
   width: 4.5rem;
   aspect-ratio: 1;
+  padding: 0;
+  position: relative;
   overflow: hidden;
   display: grid;
   place-items: center;
@@ -4450,6 +4479,16 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   font-family: var(--idt-display);
   font-size: 1.2rem;
   font-weight: 800;
+  cursor: pointer;
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.idt-profile-avatar:hover,
+.idt-profile-avatar:focus-visible {
+  border-color: rgba(255, 255, 255, 0.52);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.045);
+  outline: none;
+  transform: translateY(-1px);
 }
 
 .idt-profile-avatar img {
@@ -4459,9 +4498,55 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   object-fit: cover;
 }
 
+.idt-profile-avatar-edit {
+  position: absolute;
+  right: 0.3rem;
+  bottom: 0.3rem;
+  display: inline-grid;
+  place-items: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(5, 5, 6, 0.82);
+  color: #ffffff;
+}
+
+.idt-profile-avatar-menu {
+  position: absolute;
+  top: calc(100% + 0.55rem);
+  left: 0;
+  z-index: 5;
+  width: 12rem;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.35rem;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: #070708;
+  box-shadow: var(--idt-console-shadow);
+}
+
+.idt-profile-avatar-menu button {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+  background: transparent;
+  color: #f6f7f8;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.idt-profile-avatar-menu button:hover,
+.idt-profile-avatar-menu button:focus-visible {
+  background: rgba(255, 255, 255, 0.07);
+  outline: none;
+}
+
 .idt-profile-form {
   margin-top: 0;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
   align-items: end;
 }
 
@@ -4473,7 +4558,7 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   display: flex;
   gap: 0.45rem;
   align-items: center;
-  padding-bottom: 0.05rem;
+  flex-wrap: wrap;
 }
 
 .idt-profile-icon-btn {
@@ -4490,7 +4575,7 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 
 .idt-profile-facts {
   align-self: stretch;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .idt-profile-form .idt-app-alert {
@@ -4607,6 +4692,101 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.idt-settings-action-stack {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.idt-settings-action-item {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.idt-settings-action-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid var(--app-border-soft, rgba(130, 160, 214, 0.22));
+  border-radius: 8px;
+  padding: 0.8rem 0.9rem;
+  background: rgba(255, 255, 255, 0.025);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+}
+
+.idt-settings-action-row:hover,
+.idt-settings-action-row:focus-visible {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.06);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.idt-settings-action-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+  transform: none;
+}
+
+.idt-settings-action-row span:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.idt-settings-action-row strong {
+  color: #f6f7f8;
+  font-size: 0.94rem;
+}
+
+.idt-settings-action-row small {
+  color: var(--app-muted, #a5adba);
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.idt-settings-action-row svg {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.58);
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.idt-settings-action-row:hover svg,
+.idt-settings-action-row:focus-visible svg,
+.idt-settings-disclosure[open] .idt-settings-disclosure-summary svg,
+.idt-settings-inline-disclosure[open] .idt-settings-action-summary svg {
+  color: #ffffff;
+  transform: translateX(2px);
+}
+
+.idt-settings-inline-status {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.idt-settings-inline-disclosure {
+  border: 0;
+  background: transparent;
+}
+
+.idt-settings-inline-disclosure .idt-settings-disclosure-body {
+  margin: 0.6rem 0 0;
+}
+
+.idt-settings-security-card .idt-settings-facts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.idt-settings-workspace-card .idt-settings-facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .idt-executive-report-shell {
   align-items: start;
   padding: clamp(1.5rem, 4vw, 3.25rem) clamp(1rem, 3vw, 2.5rem);
@@ -4642,7 +4822,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__header h1 {
   font-family: var(--idt-display);
   font-size: clamp(1.85rem, 3.4vw, 2.4rem);
   font-weight: 600;
-  letter-spacing: -0.014em;
+  letter-spacing: 0;
   line-height: 1.1;
   color: rgba(245, 247, 248, 0.97);
   text-transform: none;
@@ -4724,7 +4904,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-kpi dd {
   font-family: var(--idt-display);
   font-size: clamp(1.65rem, 2.6vw, 2rem);
   font-weight: 600;
-  letter-spacing: -0.018em;
+  letter-spacing: 0;
   line-height: 1.05;
   color: rgba(245, 247, 248, 0.98);
   font-variant-numeric: tabular-nums;
@@ -4747,7 +4927,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-section h2 {
   font-family: var(--idt-display);
   font-size: 1.1rem;
   font-weight: 600;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   color: rgba(245, 247, 248, 0.94);
   text-transform: none;
 }
@@ -7388,6 +7568,10 @@ html[data-theme='light'] .idt-auth-mfa-form input {
     width: 4rem;
   }
 
+  .idt-profile-avatar-menu {
+    width: min(12rem, calc(100vw - 3rem));
+  }
+
   .idt-workspace-stats,
   .idt-workspace-admin-grid,
   .idt-workspace-inline-fields,
@@ -8898,7 +9082,7 @@ body {
   background: #edf3e6;
   color: #09100d;
   border-color: #edf3e6;
-  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
+  box-shadow: none;
 }
 
 .idt-hero .idt-btn-dark {
@@ -10109,7 +10293,7 @@ html[data-theme='light'] .idt-hero .idt-btn-primary,
   background: linear-gradient(135deg, #823cf2 0%, #6428cd 100%);
   border-color: transparent;
   color: #ffffff;
-  box-shadow: 0 12px 26px rgba(101, 43, 208, 0.24);
+  box-shadow: none;
 }
 
 html[data-theme='light'] .idt-btn-dark,
@@ -11434,7 +11618,7 @@ html[data-theme='light'] .idt-trust-strip,
   color: rgba(21, 25, 34, 0.38);
   font-size: clamp(1.6rem, 2.35vw, 2.55rem);
   font-weight: 800;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   line-height: 1;
   white-space: nowrap;
   filter: grayscale(1);
@@ -15568,38 +15752,17 @@ html[data-theme='light'] body::-webkit-scrollbar-thumb:hover {
   background: #98a3b3;
 }
 
-/* Dark app shell: the global page scrollbar otherwise inherits the light-theme
-   colours (a near-white track), which reads as a heavy white bar on the dark
-   dashboard. Scope a slim, subtle scrollbar to pages that render the app shell. */
+/* Dark app shell: the native page scrollbar grows almost full-height on short
+   app pages, so the console renders its own fixed-size navigator instead. */
 html:has(.idt-app-console-layout),
 html:has(.idt-app-console-layout) body {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  scrollbar-width: none;
 }
 
 html:has(.idt-app-console-layout)::-webkit-scrollbar,
 html:has(.idt-app-console-layout) body::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-html:has(.idt-app-console-layout)::-webkit-scrollbar-track,
-html:has(.idt-app-console-layout) body::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-html:has(.idt-app-console-layout)::-webkit-scrollbar-thumb,
-html:has(.idt-app-console-layout) body::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background-color: rgba(255, 255, 255, 0.18);
-  background-clip: padding-box;
-}
-
-html:has(.idt-app-console-layout)::-webkit-scrollbar-thumb:hover,
-html:has(.idt-app-console-layout) body::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.32);
-  background-clip: padding-box;
+  width: 0;
+  height: 0;
 }
 
 .idt-btn,
@@ -16424,12 +16587,12 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   border-color: #ffffff;
   background: #ffffff;
   color: #050607;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+  box-shadow: none;
 }
 
 .idt-onboarding-shell .idt-btn-primary:hover,
 .idt-onboarding-shell .idt-btn-primary:focus-visible {
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
+  box-shadow: none;
 }
 
 html[data-theme='light'] .idt-onboarding-shell .idt-btn-primary,
@@ -23777,20 +23940,26 @@ button.idt-domain-finding-card:focus-visible {
 }
 
 .idt-domain-drawer-close {
-  width: 2rem;
-  height: 2rem;
-  border: 1px solid var(--app-border);
-  border-radius: 8px;
-  background: #050505;
-  color: #ffffff;
-  font-size: 1.1rem;
-  font-weight: 900;
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.45rem;
+  height: 1.8rem;
+  padding: 0 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(245, 247, 248, 0.86);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   cursor: pointer;
 }
 
 .idt-domain-drawer-close:hover,
 .idt-domain-drawer-close:focus-visible {
-  border-color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.085);
+  color: #ffffff;
   outline: none;
 }
 
@@ -24360,7 +24529,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-detail-modal 
   border-color: rgba(147, 197, 253, 0.78);
   background: linear-gradient(180deg, #2f6fed 0%, #1d4ed8 100%);
   color: #ffffff;
-  box-shadow: 0 12px 28px rgba(29, 78, 216, 0.28);
+  box-shadow: none;
 }
 
 .idt-app-console-layout .idt-repo-finding-detail-modal .idt-btn-primary:hover,
@@ -26119,7 +26288,7 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 
 .idt-app-console-layout .idt-app-sidebar-brand-copy strong {
   font-size: 0.95rem;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .idt-app-console-layout .idt-app-sidebar-brand-copy span {
@@ -26210,7 +26379,7 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   color: #a3a3ac;
   font-size: 0.9rem;
   font-weight: 500;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   transition: background-color 0.12s ease, color 0.12s ease;
 }
 
@@ -26575,14 +26744,14 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 }
 
 .idt-app-console-layout .idt-app-sidebar-footer {
-  align-self: end;
+  align-self: stretch;
   display: grid;
   gap: 0.4rem;
-  padding: 0;
+  margin-top: auto;
+  padding: 0.65rem 0 0;
   border: none;
-  background: transparent;
   border-top: 1px solid var(--app-border-soft);
-  padding-top: 0.6rem;
+  background: transparent;
 }
 
 .idt-app-sidebar-account {
@@ -26592,11 +26761,12 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 .idt-app-console-layout .idt-app-sidebar-account-trigger {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.62rem;
   width: 100%;
-  padding: 0.4rem 0.45rem;
+  min-height: 2.65rem;
+  padding: 0.48rem 0.5rem;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
   font: inherit;
@@ -26617,12 +26787,12 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.7rem;
-  height: 1.7rem;
+  width: 1.9rem;
+  height: 1.9rem;
   border-radius: 999px;
   background: #1f1f26;
   color: #ffffff;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   font-weight: 700;
   flex: 0 0 auto;
 }
@@ -26728,35 +26898,6 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   outline: none;
 }
 
-.idt-app-console-layout .idt-app-sidebar-collapse {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.85rem;
-  height: 1.85rem;
-  margin-left: auto;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: #85858f;
-  cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-
-.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-collapse {
-  margin-left: 0;
-  align-self: center;
-  justify-self: center;
-}
-
-.idt-app-console-layout .idt-app-sidebar-collapse:hover,
-.idt-app-console-layout .idt-app-sidebar-collapse:focus-visible {
-  background: #131318;
-  color: #ffffff;
-  border-color: var(--app-border-soft);
-  outline: none;
-}
-
 /* Console main area */
 
 .idt-app-console-layout .idt-app-console {
@@ -26831,7 +26972,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   font-size: 1.05rem;
   font-weight: 600;
   color: #ffffff;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
 }
 
 .idt-app-console-layout .idt-overview-checklist header p {
@@ -26959,7 +27100,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   font-size: 1.85rem;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   color: #ffffff;
   margin: 0;
   line-height: 1;
@@ -27031,7 +27172,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   font-family: var(--idt-display);
   font-size: 1.05rem;
   font-weight: 600;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   color: #ffffff;
 }
 
@@ -27144,7 +27285,11 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
 }
 
 .idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-footer {
-  justify-items: center;
+  justify-items: stretch;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-account {
+  width: 100%;
 }
 
 @media (max-width: 960px) {
@@ -27158,10 +27303,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   .idt-app-console-layout.is-sidebar-collapsed {
     grid-template-columns: 1fr;
   }
-  /* Collapsed mode is forced off on narrow viewports by JS (the rail becomes a
-   * top bar, where "collapsed" has no useful meaning). The toggle button is
-   * still rendered so a user who resizes back to desktop has an obvious path
-   * out of any previously-persisted collapsed preference. */
+  /* Collapsed mode is forced off on narrow viewports by JS because the rail
+   * becomes a top bar where the desktop edge affordance is not useful. */
 
   .idt-domain-flyout {
     position: fixed;
@@ -27220,7 +27363,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
 .idt-app-console-layout .idt-overview-header h2 {
   font-size: clamp(1.85rem, 2.4vw, 2.25rem);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 /* Collapsed quick-find: visually match nav icons */
@@ -27243,7 +27386,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   align-items: center;
   gap: 0.6rem;
   width: 100%;
-  padding: 0.4rem 0.45rem;
+  min-height: 2.7rem;
+  padding: 0.48rem 0.45rem;
   border: 1px solid transparent;
   border-radius: 7px;
   background: transparent;
@@ -27281,10 +27425,11 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
 }
 
 .idt-app-sidebar-workspace-copy {
-  display: grid;
-  gap: 0.05rem;
+  display: flex;
+  align-items: center;
   min-width: 0;
   flex: 1 1 auto;
+  min-height: 1.7rem;
 }
 
 .idt-app-sidebar-workspace-copy strong {
@@ -27295,13 +27440,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   color: #ffffff;
   font-size: 0.92rem;
   font-weight: 600;
-  letter-spacing: -0.005em;
-}
-
-.idt-app-sidebar-workspace-copy span {
-  display: block;
-  color: #85858f;
-  font-size: 0.74rem;
+  letter-spacing: 0;
+  line-height: 1.15;
 }
 
 .idt-app-sidebar-workspace-caret {
@@ -27504,8 +27644,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
 .idt-app-sidebar-resize-handle {
   position: absolute;
   top: 0;
-  right: -3px;
-  width: 6px;
+  right: -5px;
+  width: 10px;
   height: 100%;
   cursor: col-resize;
   z-index: 30;
@@ -27514,22 +27654,86 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   touch-action: none;
 }
 
+.idt-app-sidebar-resize-handle:focus,
+.idt-app-sidebar-resize-handle:focus-visible {
+  outline: none;
+}
+
+.idt-app-sidebar-resize-handle::before {
+  content: attr(data-sidebar-action) " " attr(data-sidebar-shortcut) "\A Drag to resize";
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 0.8rem);
+  z-index: 2;
+  min-width: 10.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 0.5rem 0.64rem;
+  background: rgba(0, 0, 0, 0.94);
+  color: #ffffff;
+  font-size: 0.84rem;
+  font-weight: 500;
+  line-height: 1.28;
+  white-space: pre;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%) translateX(-0.2rem);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.45);
+}
+
 .idt-app-sidebar-resize-handle::after {
   content: '';
   position: absolute;
-  top: 0;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
-  width: 2px;
-  height: 100%;
-  background: transparent;
-  transition: background-color 0.12s ease;
+  width: 4px;
+  height: min(8.4rem, 26vh);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0);
+  transform: translate(-50%, -50%);
+  transition: background-color 0.12s ease, height 0.12s ease;
+}
+
+.idt-app-sidebar-resize-handle:hover::before,
+.idt-app-sidebar-resize-handle:focus::before,
+.idt-app-sidebar-resize-handle:focus-visible::before,
+.idt-app-sidebar-resize-handle.is-focused::before,
+.idt-app-sidebar-resize-handle.is-dragging::before {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
 }
 
 .idt-app-sidebar-resize-handle:hover::after,
+.idt-app-sidebar-resize-handle:focus::after,
+.idt-app-sidebar-resize-handle:focus-visible::after,
+.idt-app-sidebar-resize-handle.is-focused::after,
 .idt-app-sidebar-resize-handle.is-dragging::after,
 .idt-app-console-layout.is-sidebar-dragging .idt-app-sidebar-resize-handle::after {
-  background: #3a3a45;
+  background: rgba(235, 239, 245, 0.72);
+}
+
+.idt-app-scroll-navigator {
+  position: fixed;
+  top: 0;
+  right: 0.34rem;
+  bottom: 0;
+  z-index: 70;
+  width: 0.82rem;
+  pointer-events: none;
+}
+
+.idt-app-scroll-navigator-thumb {
+  position: absolute;
+  top: var(--idt-scroll-navigator-thumb-top);
+  right: 0.18rem;
+  width: 0.38rem;
+  height: var(--idt-scroll-navigator-thumb-height);
+  border-radius: 999px;
+  background: rgba(236, 241, 247, 0.54);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 10px 24px rgba(0, 0, 0, 0.42);
 }
 
 /* Hide the drag handle on narrow viewports — the rail becomes a top bar. */
@@ -27632,6 +27836,10 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   --idt-console-surface-deep: #030405;
   --idt-console-focus: #7c6dff;
   --idt-console-shadow: 0 18px 48px rgba(0, 0, 0, 0.26);
+  --idt-product-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
+  --idt-body: var(--idt-product-font);
+  --idt-display: var(--idt-product-font);
+  --idt-nav-font: var(--idt-product-font);
 }
 
 .idt-app-console-layout,
@@ -27644,6 +27852,10 @@ html[data-theme='light'] .idt-app-shell-screen,
 html[data-theme='light'] .idt-executive-report-shell {
   background: linear-gradient(180deg, #15191d 0%, #121518 42%, #111417 100%);
   color: var(--app-text);
+  font-family: var(--idt-product-font);
+  font-size: 16px;
+  line-height: 1.45;
+  letter-spacing: 0;
 }
 
 .idt-app-shell-screen .idt-app-panel h1,
@@ -27925,7 +28137,7 @@ html[data-theme='light'] .idt-executive-report-shell .idt-btn-primary {
   border-color: rgba(139, 124, 255, 0.92);
   background: linear-gradient(180deg, #8173ff 0%, #5d50ef 100%);
   color: #ffffff;
-  box-shadow: 0 12px 30px rgba(93, 80, 239, 0.26);
+  box-shadow: none;
 }
 
 .idt-app-console-layout .idt-btn-primary:hover,
@@ -28626,7 +28838,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-command-surface {
 
 .idt-product-card-metric {
   font-size: 19px;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 .idt-inline-button-link {
@@ -29062,16 +29274,15 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   }
 
   .idt-app-console-layout .idt-app-sidebar-footer,
-  .idt-app-console-layout .idt-app-sidebar-collapse,
   .idt-app-console-layout .idt-app-sidebar-resize-handle {
     display: none;
   }
 }
 
 .idt-danger-zone {
-  border-color: rgba(248, 113, 113, 0.34);
+  border-color: rgba(248, 81, 73, 0.42);
   background:
-    linear-gradient(180deg, rgba(127, 29, 29, 0.18), rgba(127, 29, 29, 0.04) 48%),
+    linear-gradient(180deg, rgba(80, 18, 18, 0.2), rgba(10, 10, 11, 0.02) 52%),
     var(--idt-console-surface, #090b0e);
 }
 
@@ -29084,7 +29295,7 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 .idt-danger-zone-description {
   max-width: 68ch;
   margin: 0.28rem 0 0;
-  color: #d8b4b4;
+  color: #b7bdc8;
   font-size: 0.9rem;
 }
 
@@ -29101,9 +29312,9 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   gap: 1rem;
   min-height: 4.25rem;
   padding: 0.78rem 0.9rem;
-  border: 1px solid rgba(248, 113, 113, 0.28);
+  border: 1px solid rgba(248, 81, 73, 0.32);
   border-radius: 8px;
-  background: rgba(12, 6, 8, 0.48);
+  background: rgba(8, 8, 9, 0.78);
 }
 
 .idt-danger-zone-row > div {
@@ -29113,13 +29324,13 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 }
 
 .idt-danger-zone-row strong {
-  color: #fff1f2;
+  color: #ffffff;
   font-size: 0.96rem;
 }
 
 .idt-danger-zone-row p {
   margin: 0;
-  color: #d8b4b4;
+  color: #b7bdc8;
   font-size: 0.88rem;
   line-height: 1.42;
 }
@@ -29155,8 +29366,8 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 }
 
 .idt-btn-danger {
-  border: 1px solid rgba(220, 100, 100, 0.7);
-  background: linear-gradient(180deg, #c1444a, #8b2a30);
+  border: 1px solid rgba(248, 81, 73, 0.72);
+  background: linear-gradient(180deg, #b4232a, #7f1d1d);
   color: #fff;
   font-weight: 600;
   padding: 0.5rem 0.95rem;
@@ -29171,24 +29382,33 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 .idt-btn-danger:hover:not(:disabled),
 .idt-btn-danger:focus-visible:not(:disabled) {
   filter: brightness(1.08);
-  box-shadow: 0 6px 18px rgba(193, 68, 74, 0.32);
+  box-shadow: none;
 }
 
 .idt-btn-danger:disabled {
-  opacity: 0.5;
+  opacity: 1;
+  border-color: rgba(248, 81, 73, 0.22);
+  background: #1d1012;
+  color: #8c929c;
   cursor: not-allowed;
 }
 
+.idt-danger-modal-backdrop {
+  background: #000000;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 .idt-danger-modal {
-  width: min(100%, 560px);
-  border: 1px solid rgba(213, 125, 125, 0.5);
-  border-radius: 0.9rem;
-  background: #160a10;
-  box-shadow: var(--idt-shadow);
-  padding: 1.1rem;
+  width: min(100%, 520px);
+  border: 1px solid rgba(248, 81, 73, 0.42);
+  border-radius: 8px;
+  background: #09090a;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.72);
+  padding: 1.05rem;
   display: grid;
-  gap: 0.85rem;
-  color: #f5e1e1;
+  gap: 0.9rem;
+  color: #f6f7f8;
 }
 
 .idt-danger-modal header {
@@ -29200,13 +29420,13 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 
 .idt-danger-modal h3 {
   margin: 0.15rem 0 0;
-  color: #ffe6e6;
+  color: #ffffff;
 }
 
 .idt-danger-modal-body {
   font-size: 0.94rem;
   line-height: 1.55;
-  color: #f1d4d4;
+  color: #d8dde6;
 }
 
 .idt-danger-modal-body p {
@@ -29222,17 +29442,17 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   gap: 0.55rem;
   align-items: flex-start;
   padding: 0.65rem 0.75rem;
-  border: 1px solid rgba(213, 125, 125, 0.3);
+  border: 1px solid rgba(248, 81, 73, 0.28);
   border-radius: 0.55rem;
-  background: rgba(28, 10, 14, 0.6);
+  background: rgba(18, 18, 20, 0.84);
   font-size: 0.92rem;
-  color: #ffe2e2;
+  color: #f6f7f8;
   cursor: pointer;
 }
 
 .idt-danger-modal-checkbox input {
   margin-top: 0.18rem;
-  accent-color: #c1444a;
+  accent-color: #b4232a;
 }
 
 .idt-danger-modal-typed {
@@ -29242,14 +29462,14 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 
 .idt-danger-modal-typed label {
   font-size: 0.92rem;
-  color: #ffd6d6;
+  color: #f6f7f8;
 }
 
 .idt-danger-modal-typed input {
-  border: 1px solid rgba(213, 125, 125, 0.35);
+  border: 1px solid rgba(248, 81, 73, 0.42);
   border-radius: 0.5rem;
-  background: rgba(12, 6, 9, 0.85);
-  color: #ffe2e2;
+  background: #030304;
+  color: #ffffff;
   padding: 0.55rem 0.7rem;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
@@ -29258,11 +29478,12 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 .idt-danger-modal-expected {
   margin: 0;
   font-size: 0.84rem;
-  color: #f0c5c5;
+  color: #e0e4ec;
 }
 
 .idt-danger-modal-expected code {
-  background: rgba(40, 14, 18, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
   border-radius: 0.3rem;
   padding: 0 0.3rem;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -29271,10 +29492,10 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 .idt-danger-modal-error {
   margin: 0;
   padding: 0.55rem 0.7rem;
-  border: 1px solid rgba(220, 129, 129, 0.44);
+  border: 1px solid rgba(248, 81, 73, 0.44);
   border-radius: 0.5rem;
-  background: rgba(40, 12, 16, 0.65);
-  color: #ffd0d0;
+  background: rgba(70, 14, 18, 0.55);
+  color: #ffd7d7;
   font-size: 0.9rem;
 }
 
@@ -29306,24 +29527,24 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 
 html[data-theme='light'] .idt-danger-zone {
   background:
-    linear-gradient(180deg, rgba(127, 29, 29, 0.18), rgba(127, 29, 29, 0.04) 48%),
+    linear-gradient(180deg, rgba(80, 18, 18, 0.2), rgba(10, 10, 11, 0.02) 52%),
     var(--idt-console-surface, #090b0e);
-  border-color: rgba(248, 113, 113, 0.34);
+  border-color: rgba(248, 81, 73, 0.42);
 }
 
 html[data-theme='light'] .idt-danger-zone h3,
 html[data-theme='light'] .idt-danger-zone-row strong {
-  color: #fff1f2;
+  color: #ffffff;
 }
 
 html[data-theme='light'] .idt-danger-zone-description,
 html[data-theme='light'] .idt-danger-zone-row p {
-  color: #d8b4b4;
+  color: #b7bdc8;
 }
 
 html[data-theme='light'] .idt-danger-zone-row {
-  background: rgba(12, 6, 8, 0.48);
-  border-color: rgba(248, 113, 113, 0.28);
+  background: rgba(8, 8, 9, 0.78);
+  border-color: rgba(248, 81, 73, 0.32);
 }
 
 .idt-app-console-layout .idt-settings-page {
@@ -29383,6 +29604,9 @@ html[data-theme='light'] .idt-app-console-layout .idt-settings-header h2 {
 
 .idt-settings-disclosure-summary > span {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   border: 1px solid var(--app-border-soft);
   border-radius: 999px;
   padding: 0.36rem 0.64rem;
@@ -29399,6 +29623,14 @@ html[data-theme='light'] .idt-app-console-layout .idt-settings-header h2 {
   border-color: rgba(255, 255, 255, 0.24);
   background: rgba(255, 255, 255, 0.07);
   color: #f5f7f8;
+}
+
+.idt-settings-action-summary {
+  list-style: none;
+}
+
+.idt-settings-action-summary::-webkit-details-marker {
+  display: none;
 }
 
 .idt-settings-disclosure-summary:focus-visible {
@@ -29571,9 +29803,9 @@ html[data-theme='light'] .idt-settings-sessions-card .idt-session-row {
   }
 
   .idt-settings-disclosure-summary {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 0.85rem;
+    align-items: center;
+    flex-direction: row;
+    gap: 1rem;
   }
 
   .idt-settings-disclosure-summary > span {
@@ -29598,18 +29830,22 @@ html[data-theme='light'] .idt-settings-sessions-card .idt-session-row {
 }
 
 html[data-theme='light'] .idt-danger-modal {
-  background: #fff8f8;
-  border-color: rgba(165, 50, 50, 0.45);
-  color: #581717;
+  background: #09090a;
+  border-color: rgba(248, 81, 73, 0.42);
+  color: #f6f7f8;
 }
 
 html[data-theme='light'] .idt-danger-modal h3,
 html[data-theme='light'] .idt-danger-modal-checkbox,
 html[data-theme='light'] .idt-danger-modal-body {
-  color: #6a1d1d;
+  color: #f6f7f8;
+}
+
+html[data-theme='light'] .idt-danger-modal .idt-danger-modal-help {
+  color: #e0e4ec;
 }
 
 html[data-theme='light'] .idt-danger-modal-typed input {
-  background: #fff;
-  color: #4a1212;
+  background: #030304;
+  color: #ffffff;
 }

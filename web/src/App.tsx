@@ -2597,7 +2597,7 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
   return (
     <ModalShell titleId="scan-intake-title" onClose={onClose} className="idt-scan-modal">
       <button type="button" className="idt-modal-close" onClick={onClose} aria-label="Close dialog">
-        x
+        ESC
       </button>
       <div className="idt-scan-modal-shell">
         <aside className="idt-scan-modal-guide" aria-label="Scan request guidance">
@@ -3485,7 +3485,7 @@ function PricingPage() {
             aria-label="Close"
             onClick={() => setSalesModalOpen(false)}
           >
-            x
+            ESC
           </button>
           <h3 id="sales-modal-title">Contact Enterprise Sales</h3>
           <p>Tell us your environment size and compliance goals. We will tailor a deployment and pricing plan.</p>
