@@ -6566,7 +6566,8 @@ export function ProductKubernetesClustersPage() {
   const availability = useKubernetesAvailability();
   const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
   const [filters, setFilters] = useState(KUBERNETES_FILTER_DEFAULTS.clusters);
-  const rows = filterKubernetesRows(buildKubernetesClusterRows(data.connection), filters);
+  const inventoryReady = availability.available && !availability.loading && Boolean(selectedEnvironmentID);
+  const rows = inventoryReady ? filterKubernetesRows(buildKubernetesClusterRows(data.connection), filters) : [];
 
   if (!scope) {
     return <section className="idt-app-panel idt-app-panel-error" role="alert"><p className="idt-app-kicker">Kubernetes clusters</p><h2>Workspace route context is missing</h2></section>;
@@ -6576,19 +6577,24 @@ export function ProductKubernetesClustersPage() {
     <KubernetesPageShell routeID="clusters" scope={scope} connection={data.connection} loading={data.loading || availability.loading} environmentScope={environmentScope} selectedEnvironmentID={selectedEnvironmentID} onChangeEnvironment={onChangeEnvironment}>
       <KubernetesLoadingAndErrors loading={data.loading || availability.loading} error={data.error} refresh={data.refresh} />
       {!selectedEnvironmentID && !environmentScope.loading ? <KubernetesMissingEnvironmentState scope={scope} /> : null}
-      <KubernetesFilterSet routeID="clusters" filters={filters} onChange={setFilters} />
-      <DomainDataTable
-        label="Cluster coverage"
-        rows={rows}
-        getRowKey={(row) => row.id}
-        columns={[
-          { key: 'cluster', header: 'Cluster', render: (row) => <strong>{row.name}</strong> },
-          { key: 'version', header: 'Version / platform', render: (row) => row.kind },
-          { key: 'mode', header: 'Mode', render: (row) => row.identity },
-          { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
-          { key: 'status', header: 'Status', render: (row) => <KubernetesPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
-        ]}
-      />
+      {!availability.available && !availability.loading ? <KubernetesUnavailableState message={availability.unavailableMessage} /> : null}
+      {inventoryReady ? (
+        <>
+          <KubernetesFilterSet routeID="clusters" filters={filters} onChange={setFilters} />
+          <DomainDataTable
+            label="Cluster coverage"
+            rows={rows}
+            getRowKey={(row) => row.id}
+            columns={[
+              { key: 'cluster', header: 'Cluster', render: (row) => <strong>{row.name}</strong> },
+              { key: 'version', header: 'Version / platform', render: (row) => row.kind },
+              { key: 'mode', header: 'Mode', render: (row) => row.identity },
+              { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
+              { key: 'status', header: 'Status', render: (row) => <KubernetesPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+            ]}
+          />
+        </>
+      ) : null}
     </KubernetesPageShell>
   );
 }
@@ -6632,7 +6638,8 @@ export function ProductKubernetesWorkloadsPage() {
   const availability = useKubernetesAvailability();
   const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
   const [filters, setFilters] = useState(KUBERNETES_FILTER_DEFAULTS.workloads);
-  const rows = filterKubernetesRows(buildKubernetesWorkloadRows(data.connection), filters);
+  const inventoryReady = availability.available && !availability.loading && Boolean(selectedEnvironmentID);
+  const rows = inventoryReady ? filterKubernetesRows(buildKubernetesWorkloadRows(data.connection), filters) : [];
 
   if (!scope) {
     return <section className="idt-app-panel idt-app-panel-error" role="alert"><p className="idt-app-kicker">Kubernetes workloads</p><h2>Workspace route context is missing</h2></section>;
@@ -6641,19 +6648,25 @@ export function ProductKubernetesWorkloadsPage() {
   return (
     <KubernetesPageShell routeID="workloads" scope={scope} connection={data.connection} loading={data.loading || availability.loading} environmentScope={environmentScope} selectedEnvironmentID={selectedEnvironmentID} onChangeEnvironment={onChangeEnvironment}>
       <KubernetesLoadingAndErrors loading={data.loading || availability.loading} error={data.error} refresh={data.refresh} />
-      <KubernetesFilterSet routeID="workloads" filters={filters} onChange={setFilters} />
-      <DomainDataTable
-        label="Workload identity"
-        rows={rows}
-        getRowKey={(row) => row.id}
-        columns={[
-          { key: 'workload', header: 'Workload', render: (row) => <strong>{row.name}</strong> },
-          { key: 'kind', header: 'Kind', render: (row) => row.kind },
-          { key: 'namespace', header: 'Namespace', render: (row) => row.namespace },
-          { key: 'identity', header: 'Identity', render: (row) => row.identity },
-          { key: 'status', header: 'Status', render: (row) => <KubernetesPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
-        ]}
-      />
+      {!selectedEnvironmentID && !environmentScope.loading ? <KubernetesMissingEnvironmentState scope={scope} /> : null}
+      {!availability.available && !availability.loading ? <KubernetesUnavailableState message={availability.unavailableMessage} /> : null}
+      {inventoryReady ? (
+        <>
+          <KubernetesFilterSet routeID="workloads" filters={filters} onChange={setFilters} />
+          <DomainDataTable
+            label="Workload identity"
+            rows={rows}
+            getRowKey={(row) => row.id}
+            columns={[
+              { key: 'workload', header: 'Workload', render: (row) => <strong>{row.name}</strong> },
+              { key: 'kind', header: 'Kind', render: (row) => row.kind },
+              { key: 'namespace', header: 'Namespace', render: (row) => row.namespace },
+              { key: 'identity', header: 'Identity', render: (row) => row.identity },
+              { key: 'status', header: 'Status', render: (row) => <KubernetesPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+            ]}
+          />
+        </>
+      ) : null}
     </KubernetesPageShell>
   );
 }
@@ -6696,7 +6709,8 @@ export function ProductKubernetesServiceAccountsPage() {
   const availability = useKubernetesAvailability();
   const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
   const [filters, setFilters] = useState(KUBERNETES_FILTER_DEFAULTS['service-accounts']);
-  const rows = filterKubernetesRows(buildKubernetesServiceAccountRows(data.connection), filters);
+  const inventoryReady = availability.available && !availability.loading && Boolean(selectedEnvironmentID);
+  const rows = inventoryReady ? filterKubernetesRows(buildKubernetesServiceAccountRows(data.connection), filters) : [];
 
   if (!scope) {
     return <section className="idt-app-panel idt-app-panel-error" role="alert"><p className="idt-app-kicker">Kubernetes service accounts</p><h2>Workspace route context is missing</h2></section>;
@@ -6705,19 +6719,25 @@ export function ProductKubernetesServiceAccountsPage() {
   return (
     <KubernetesPageShell routeID="service-accounts" scope={scope} connection={data.connection} loading={data.loading || availability.loading} environmentScope={environmentScope} selectedEnvironmentID={selectedEnvironmentID} onChangeEnvironment={onChangeEnvironment}>
       <KubernetesLoadingAndErrors loading={data.loading || availability.loading} error={data.error} refresh={data.refresh} />
-      <KubernetesFilterSet routeID="service-accounts" filters={filters} onChange={setFilters} />
-      <DomainDataTable
-        label="Service accounts and RBAC"
-        rows={rows}
-        getRowKey={(row) => row.id}
-        columns={[
-          { key: 'account', header: 'Service account / binding', render: (row) => <strong>{row.name}</strong> },
-          { key: 'namespace', header: 'Namespace', render: (row) => row.namespace },
-          { key: 'identity', header: 'RBAC', render: (row) => row.identity },
-          { key: 'next', header: 'Next action', render: (row) => row.nextAction },
-          { key: 'status', header: 'Status', render: (row) => <KubernetesPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
-        ]}
-      />
+      {!selectedEnvironmentID && !environmentScope.loading ? <KubernetesMissingEnvironmentState scope={scope} /> : null}
+      {!availability.available && !availability.loading ? <KubernetesUnavailableState message={availability.unavailableMessage} /> : null}
+      {inventoryReady ? (
+        <>
+          <KubernetesFilterSet routeID="service-accounts" filters={filters} onChange={setFilters} />
+          <DomainDataTable
+            label="Service accounts and RBAC"
+            rows={rows}
+            getRowKey={(row) => row.id}
+            columns={[
+              { key: 'account', header: 'Service account / binding', render: (row) => <strong>{row.name}</strong> },
+              { key: 'namespace', header: 'Namespace', render: (row) => row.namespace },
+              { key: 'identity', header: 'RBAC', render: (row) => row.identity },
+              { key: 'next', header: 'Next action', render: (row) => row.nextAction },
+              { key: 'status', header: 'Status', render: (row) => <KubernetesPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+            ]}
+          />
+        </>
+      ) : null}
     </KubernetesPageShell>
   );
 }
@@ -6727,6 +6747,7 @@ export function ProductKubernetesFindingsPage() {
   const availability = useKubernetesAvailability();
   const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
   const [filters, setFilters] = useState(KUBERNETES_FILTER_DEFAULTS.findings);
+  const inventoryReady = availability.available && !availability.loading && Boolean(selectedEnvironmentID);
 
   if (!scope) {
     return <section className="idt-app-panel idt-app-panel-error" role="alert"><p className="idt-app-kicker">Kubernetes findings</p><h2>Workspace route context is missing</h2></section>;
@@ -6735,19 +6756,25 @@ export function ProductKubernetesFindingsPage() {
   return (
     <KubernetesPageShell routeID="findings" scope={scope} connection={data.connection} loading={data.loading || availability.loading} environmentScope={environmentScope} selectedEnvironmentID={selectedEnvironmentID} onChangeEnvironment={onChangeEnvironment}>
       <KubernetesLoadingAndErrors loading={data.loading || availability.loading} error={data.error} refresh={data.refresh} />
-      <KubernetesFilterSet routeID="findings" filters={filters} onChange={setFilters} />
-      <DomainDataTable
-        label="Kubernetes findings"
-        rows={[] as KubernetesTableRow[]}
-        getRowKey={(row) => row.id}
-        emptyState={<DomainEmptyState eyebrow="Empty" title="No findings" body="No open items." />}
-        columns={[
-          { key: 'finding', header: 'Finding', render: (row) => <strong>{row.name}</strong> },
-          { key: 'scope', header: 'Cluster / namespace', render: (row) => `${row.cluster} / ${row.namespace}` },
-          { key: 'identity', header: 'Identity', render: (row) => row.identity },
-          { key: 'status', header: 'Status', render: (row) => <KubernetesPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
-        ]}
-      />
+      {!selectedEnvironmentID && !environmentScope.loading ? <KubernetesMissingEnvironmentState scope={scope} /> : null}
+      {!availability.available && !availability.loading ? <KubernetesUnavailableState message={availability.unavailableMessage} /> : null}
+      {inventoryReady ? (
+        <>
+          <KubernetesFilterSet routeID="findings" filters={filters} onChange={setFilters} />
+          <DomainDataTable
+            label="Kubernetes findings"
+            rows={[] as KubernetesTableRow[]}
+            getRowKey={(row) => row.id}
+            emptyState={<DomainEmptyState eyebrow="Empty" title="No findings" body="No open items." />}
+            columns={[
+              { key: 'finding', header: 'Finding', render: (row) => <strong>{row.name}</strong> },
+              { key: 'scope', header: 'Cluster / namespace', render: (row) => `${row.cluster} / ${row.namespace}` },
+              { key: 'identity', header: 'Identity', render: (row) => row.identity },
+              { key: 'status', header: 'Status', render: (row) => <KubernetesPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+            ]}
+          />
+        </>
+      ) : null}
     </KubernetesPageShell>
   );
 }
@@ -6765,7 +6792,8 @@ export function ProductKubernetesRemediationPage() {
   const availability = useKubernetesAvailability();
   const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
   const [filters, setFilters] = useState(KUBERNETES_FILTER_DEFAULTS.remediation);
-  const rows = filterKubernetesRows(buildKubernetesRemediationRows(), filters);
+  const inventoryReady = availability.available && !availability.loading && Boolean(selectedEnvironmentID);
+  const rows = inventoryReady ? filterKubernetesRows(buildKubernetesRemediationRows(), filters) : [];
 
   if (!scope) {
     return <section className="idt-app-panel idt-app-panel-error" role="alert"><p className="idt-app-kicker">Kubernetes remediation</p><h2>Workspace route context is missing</h2></section>;
@@ -6774,19 +6802,25 @@ export function ProductKubernetesRemediationPage() {
   return (
     <KubernetesPageShell routeID="remediation" scope={scope} connection={data.connection} loading={data.loading || availability.loading} environmentScope={environmentScope} selectedEnvironmentID={selectedEnvironmentID} onChangeEnvironment={onChangeEnvironment}>
       <KubernetesLoadingAndErrors loading={data.loading || availability.loading} error={data.error} refresh={data.refresh} />
-      <KubernetesFilterSet routeID="remediation" filters={filters} onChange={setFilters} />
-      <DomainDataTable
-        label="Remediation"
-        rows={rows}
-        getRowKey={(row) => row.id}
-        columns={[
-          { key: 'plan', header: 'Plan', render: (row) => <strong>{row.name}</strong> },
-          { key: 'kind', header: 'Type', render: (row) => row.kind },
-          { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
-          { key: 'next', header: 'Next action', render: (row) => row.nextAction },
-          { key: 'status', header: 'Status', render: (row) => <KubernetesPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
-        ]}
-      />
+      {!selectedEnvironmentID && !environmentScope.loading ? <KubernetesMissingEnvironmentState scope={scope} /> : null}
+      {!availability.available && !availability.loading ? <KubernetesUnavailableState message={availability.unavailableMessage} /> : null}
+      {inventoryReady ? (
+        <>
+          <KubernetesFilterSet routeID="remediation" filters={filters} onChange={setFilters} />
+          <DomainDataTable
+            label="Remediation"
+            rows={rows}
+            getRowKey={(row) => row.id}
+            columns={[
+              { key: 'plan', header: 'Plan', render: (row) => <strong>{row.name}</strong> },
+              { key: 'kind', header: 'Type', render: (row) => row.kind },
+              { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
+              { key: 'next', header: 'Next action', render: (row) => row.nextAction },
+              { key: 'status', header: 'Status', render: (row) => <KubernetesPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+            ]}
+          />
+        </>
+      ) : null}
     </KubernetesPageShell>
   );
 }

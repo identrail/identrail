@@ -1457,6 +1457,65 @@ describe('Domain-first app routes', () => {
     expect(getKubernetesProjectConnection).not.toHaveBeenCalled();
   });
 
+  it('hides Kubernetes workload inventory when the connector is unavailable', async () => {
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: false });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production Kubernetes boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    const getKubernetesProjectConnection = vi.spyOn(api.apiClient, 'getKubernetesProjectConnection');
+
+    const { ProductKubernetesWorkloadsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/workloads?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/kubernetes/workloads" element={<ProductKubernetesWorkloadsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Kubernetes unavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: 'Workload identity' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Deployments')).not.toBeInTheDocument();
+    expect(getKubernetesProjectConnection).not.toHaveBeenCalled();
+  });
+
+  it('hides Kubernetes workload inventory when no environment is selected', async () => {
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
+    const getKubernetesProjectConnection = vi.spyOn(api.apiClient, 'getKubernetesProjectConnection');
+
+    const { ProductKubernetesWorkloadsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/workloads']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/kubernetes/workloads" element={<ProductKubernetesWorkloadsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Choose an environment')).toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: 'Workload identity' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Deployments')).not.toBeInTheDocument();
+    expect(getKubernetesProjectConnection).not.toHaveBeenCalled();
+  });
+
   it('keeps Kubernetes connect on the domain page when no environment exists', async () => {
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
     mockBackendFeatures({ github: true, kubernetes: true });
