@@ -2354,7 +2354,8 @@ function ProductDomainFlyout({
       id={`idt-${domain}-domain-flyout`}
       ref={panelRef}
       className={`idt-domain-flyout is-${domain}`}
-      role="region"
+      role="dialog"
+      aria-modal="true"
       aria-labelledby={labelledBy}
     >
       <div className="idt-domain-flyout-section">
@@ -9357,6 +9358,12 @@ export function ProductShellLayout() {
     }
     setAccountMenuOpen(false);
     setWorkspaceMenuOpen(false);
+    const focusFrame = window.requestAnimationFrame(() => {
+      const firstAction = domainFlyoutRef.current?.querySelector<HTMLElement>(
+        '[data-domain-flyout-primary="true"], a[href], button:not([disabled]), summary'
+      );
+      firstAction?.focus();
+    });
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -9365,9 +9372,31 @@ export function ProductShellLayout() {
         window.requestAnimationFrame(() => trigger?.focus());
         return;
       }
+      if (event.key === 'Tab' && domainFlyoutRef.current) {
+        const focusable = Array.from(
+          domainFlyoutRef.current.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter((element) => element.offsetParent !== null || element.tagName === 'SUMMARY');
+        if (!focusable.length) {
+          return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+          return;
+        }
+        if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => {
+      window.cancelAnimationFrame(focusFrame);
       window.removeEventListener('keydown', handleKey);
     };
   }, [openDomainFlyout]);
@@ -9377,6 +9406,23 @@ export function ProductShellLayout() {
       setOpenDomainFlyout(null);
     }
   }, [commandOpen]);
+
+  useEffect(() => {
+    if (!openDomainFlyout || typeof document === 'undefined') {
+      return undefined;
+    }
+
+    const root = document.documentElement;
+    const body = document.body;
+    const previousRootOverflow = root.style.overflow;
+    const previousBodyOverflow = body.style.overflow;
+    root.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    return () => {
+      root.style.overflow = previousRootOverflow;
+      body.style.overflow = previousBodyOverflow;
+    };
+  }, [openDomainFlyout]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -9698,9 +9744,6 @@ export function ProductShellLayout() {
     setAccountMenuOpen(false);
     setWorkspaceMenuOpen(false);
     setCommandOpen(false);
-    if (sidebarCollapsed) {
-      setSidebarCollapsedPref(false);
-    }
     setOpenDomainFlyout((current) => (current === domain ? null : domain));
   };
 
@@ -9833,6 +9876,7 @@ export function ProductShellLayout() {
                     type="button"
                     className={`idt-app-nav-domain-trigger${isActive ? ' is-active' : ''}${isOpen ? ' is-open' : ''}`}
                     data-connector-available={availability.available ? 'true' : 'false'}
+                    aria-haspopup="dialog"
                     aria-expanded={isOpen}
                     aria-controls={isOpen ? `idt-${domain}-domain-flyout` : undefined}
                     aria-label={config.navLabel}
@@ -9951,6 +9995,15 @@ export function ProductShellLayout() {
             </div>
           </div>
         </aside>
+
+        {openDomainFlyout ? (
+          <button
+            type="button"
+            className="idt-domain-flyout-backdrop"
+            aria-label="Close domain section menu"
+            onClick={closeDomainFlyout}
+          />
+        ) : null}
 
         <div className="idt-app-console">
           <main className="idt-app-shell-main">
