@@ -973,6 +973,9 @@ func TestCloneRemoteRepositoryPinsHTTPSHostResolutionWithExplicitPort(t *testing
 	if len(gotCommands) == 0 || !reflect.DeepEqual(gotCommands[0], pinnedGitCommand("example.com", "8443", "93.184.216.34", "ls-remote", "--symref", "https://example.com:8443/owner/repo.git")) {
 		t.Fatalf("expected first git command to pin HTTPS host resolution, got %+v", gotCommands)
 	}
+	if !hasArg(gotCommands[0], "http.proxy=") {
+		t.Fatalf("expected pinned HTTPS git command to disable proxy config, got %+v", gotCommands[0])
+	}
 }
 
 func TestCloneRemoteRepositoryFetchesRequiredDeltaRef(t *testing.T) {
@@ -1354,6 +1357,11 @@ func TestCloneRemoteRepositoryUsesAskPassCredentialWithoutCommandArgLeak(t *test
 	if envValue(gotEnv, "GIT_TERMINAL_PROMPT") != "0" {
 		t.Fatalf("expected terminal prompts to be disabled, got %+v", gotEnv)
 	}
+	for _, expected := range gitProxyEnvOverrides {
+		if !hasEnvEntry(gotEnv, expected) {
+			t.Fatalf("expected authenticated clone environment to include %q, got %+v", expected, gotEnv)
+		}
+	}
 }
 
 func TestCloneRemoteRepositoryRedactsCredentialFromErrors(t *testing.T) {
@@ -1517,6 +1525,15 @@ func envValue(env []string, key string) string {
 	return ""
 }
 
+func hasEnvEntry(env []string, want string) bool {
+	for _, item := range env {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
 func stubRepositoryHostLookup(t *testing.T, responses map[string][]net.IP) {
 	t.Helper()
 	originalLookup := repositoryHostLookupIPs
@@ -1532,7 +1549,7 @@ func stubRepositoryHostLookup(t *testing.T, responses map[string][]net.IP) {
 }
 
 func pinnedGitCommand(host string, port string, ip string, args ...string) []string {
-	command := []string{"git", "-c", "http.curloptResolve=" + host + ":" + port + ":" + ip}
+	command := []string{"git", "-c", "http.curloptResolve=" + host + ":" + port + ":" + ip, "-c", "http.proxy="}
 	return append(command, args...)
 }
 

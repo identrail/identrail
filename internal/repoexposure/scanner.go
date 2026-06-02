@@ -37,6 +37,16 @@ const (
 var hunkHeaderPattern = regexp.MustCompile(`@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
 var fullHexRevisionPattern = regexp.MustCompile(`(?i)^[0-9a-f]{40}$`)
 var repositorySharedAddressRange = mustParseCIDR("100.64.0.0/10")
+var gitProxyEnvOverrides = []string{
+	"HTTPS_PROXY=",
+	"https_proxy=",
+	"HTTP_PROXY=",
+	"http_proxy=",
+	"ALL_PROXY=",
+	"all_proxy=",
+	"NO_PROXY=*",
+	"no_proxy=*",
+}
 var repositoryHostLookupIPs = func(ctx context.Context, host string) ([]net.IP, error) {
 	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
@@ -581,6 +591,7 @@ func (s *Scanner) cloneCommandRunner(ctx context.Context, workdir string, cloneU
 		"IDENTRAIL_GIT_USERNAME=" + credential.Username,
 		"IDENTRAIL_GIT_PASSWORD=" + credential.Password,
 	}
+	env = appendGitProxyEnvOverrides(env)
 	runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		output, runErr := s.runEnv(ctx, env, name, args...)
 		if runErr != nil {
@@ -607,8 +618,8 @@ func pinGitHTTPSCommandArgs(name string, args []string, pin gitHTTPSResolvePin) 
 	if strings.TrimSpace(name) != defaultRepositoryCommand || !pin.valid() || !gitCommandMayResolveRemote(args) {
 		return args
 	}
-	pinned := make([]string, 0, len(args)+2)
-	pinned = append(pinned, "-c", pin.gitConfigValue())
+	pinned := make([]string, 0, len(args)+4)
+	pinned = append(pinned, "-c", pin.gitConfigValue(), "-c", "http.proxy=")
 	pinned = append(pinned, args...)
 	return pinned
 }
@@ -1742,6 +1753,7 @@ func severityRank(severity domain.FindingSeverity) int {
 
 func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := newRepositoryCommand(ctx, name, args...)
+	cmd.Env = appendGitProxyEnvOverrides(os.Environ())
 	output, err := cmd.CombinedOutput()
 	if err != nil && ctx.Err() != nil {
 		return output, ctx.Err()
@@ -1757,6 +1769,13 @@ func defaultEnvCommandRunner(ctx context.Context, env []string, name string, arg
 		return output, ctx.Err()
 	}
 	return output, err
+}
+
+func appendGitProxyEnvOverrides(env []string) []string {
+	merged := make([]string, 0, len(env)+len(gitProxyEnvOverrides))
+	merged = append(merged, env...)
+	merged = append(merged, gitProxyEnvOverrides...)
+	return merged
 }
 
 func sanitizeError(err error, secrets ...string) error {
