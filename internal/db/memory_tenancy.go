@@ -718,7 +718,24 @@ func (m *MemoryStore) HardDeleteWorkspace(ctx context.Context, tenantID, workspa
 		// in a single slot shares the same scope (the key is derived
 		// from it), so checking the first entry is sufficient.
 		if len(events) > 0 && events[0].TenantID == tenant && events[0].WorkspaceID == id {
+			for _, event := range events {
+				delete(m.authzEventIDs, event.ID)
+			}
 			delete(m.authzEvents, key)
+		}
+	}
+	for sessionKey, session := range m.sessions {
+		if session.CurrentWorkspaceID == id {
+			session.CurrentWorkspaceID = ""
+			session.CurrentProjectID = ""
+			m.sessions[sessionKey] = session
+		}
+	}
+	for userID, state := range m.onboardingStates {
+		if state.WorkspaceID == id {
+			state.WorkspaceID = ""
+			state.ProjectID = ""
+			m.onboardingStates[userID] = state
 		}
 	}
 	// FindingTriageState/Event don't carry TenantID/WorkspaceID on
