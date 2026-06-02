@@ -42,18 +42,21 @@ const (
 	rateLimiterMaxEntries  = 10000
 	rateLimiterCleanupTick = 256
 	defaultJSONBodyLimit   = int64(1 << 20)
-	corsAllowMethods       = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-	corsAllowHeaders       = "Authorization,Content-Type,X-API-Key,X-Identrail-Tenant-ID,X-Identrail-Workspace-ID,traceparent,tracestate,baggage"
-	corsMaxAgeSeconds      = "600"
-	scopeRead              = "read"
-	scopeWrite             = "write"
-	scopeAdmin             = "admin"
-	apiKeyScopeTenant      = "tenant:"
-	apiKeyScopeWorkspace   = "workspace:"
-	scopeHeaderTenantID    = "X-Identrail-Tenant-ID"
-	scopeHeaderWorkspaceID = "X-Identrail-Workspace-ID"
-	authAPIKeyTenantID     = "auth.api_key_tenant_id"
-	authAPIKeyWorkspaceID  = "auth.api_key_workspace_id"
+	// A 5 MiB avatar expands to about 6.7 MiB once base64 encoded inside the
+	// JSON PATCH body. Keep the wider cap scoped to profile-photo updates.
+	currentUserProfileJSONBodyLimit = int64(8 << 20)
+	corsAllowMethods                = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+	corsAllowHeaders                = "Authorization,Content-Type,X-API-Key,X-Identrail-Tenant-ID,X-Identrail-Workspace-ID,traceparent,tracestate,baggage"
+	corsMaxAgeSeconds               = "600"
+	scopeRead                       = "read"
+	scopeWrite                      = "write"
+	scopeAdmin                      = "admin"
+	apiKeyScopeTenant               = "tenant:"
+	apiKeyScopeWorkspace            = "workspace:"
+	scopeHeaderTenantID             = "X-Identrail-Tenant-ID"
+	scopeHeaderWorkspaceID          = "X-Identrail-Workspace-ID"
+	authAPIKeyTenantID              = "auth.api_key_tenant_id"
+	authAPIKeyWorkspaceID           = "auth.api_key_workspace_id"
 )
 
 // RouterOptions controls API middleware behavior.
@@ -3329,6 +3332,7 @@ func jsonBodyLimitMiddleware(limit int64) gin.HandlerFunc {
 		limit = defaultJSONBodyLimit
 	}
 	return func(c *gin.Context) {
+		effectiveLimit := jsonBodyLimitForRequest(c, limit)
 		if c.Request == nil || c.Request.Body == nil {
 			c.Next()
 			return
@@ -3340,7 +3344,7 @@ func jsonBodyLimitMiddleware(limit int64) gin.HandlerFunc {
 			return
 		}
 		if c.Request.ContentLength < 0 {
-			limited := http.MaxBytesReader(c.Writer, c.Request.Body, limit)
+			limited := http.MaxBytesReader(c.Writer, c.Request.Body, effectiveLimit)
 			body, err := io.ReadAll(limited)
 			if err != nil {
 				var maxErr *http.MaxBytesError
@@ -3356,13 +3360,23 @@ func jsonBodyLimitMiddleware(limit int64) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if c.Request.ContentLength > limit {
+		if c.Request.ContentLength > effectiveLimit {
 			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
 			return
 		}
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, effectiveLimit)
 		c.Next()
 	}
+}
+
+func jsonBodyLimitForRequest(c *gin.Context, fallback int64) int64 {
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return fallback
+	}
+	if c.Request.Method == http.MethodPatch && c.Request.URL.Path == "/v1/me" && fallback < currentUserProfileJSONBodyLimit {
+		return currentUserProfileJSONBodyLimit
+	}
+	return fallback
 }
 
 func corsMiddleware(allowedOrigins []string) gin.HandlerFunc {
