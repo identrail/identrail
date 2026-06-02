@@ -633,8 +633,8 @@ func pinGitHTTPSCommandArgs(name string, args []string, pin gitHTTPSResolvePin) 
 	if strings.TrimSpace(name) != defaultRepositoryCommand || !pin.valid() || !gitCommandMayResolveRemote(args) {
 		return args
 	}
-	pinned := make([]string, 0, len(args)+4)
-	pinned = append(pinned, "-c", pin.gitConfigValue(), "-c", "http.proxy=")
+	pinned := make([]string, 0, len(args)+6)
+	pinned = append(pinned, "-c", pin.gitConfigValue(), "-c", "http.proxy=", "-c", "remote.origin.proxy=")
 	pinned = append(pinned, args...)
 	return pinned
 }

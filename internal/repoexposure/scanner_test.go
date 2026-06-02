@@ -976,6 +976,9 @@ func TestCloneRemoteRepositoryPinsHTTPSHostResolutionWithExplicitPort(t *testing
 	if !hasArg(gotCommands[0], "http.proxy=") {
 		t.Fatalf("expected pinned HTTPS git command to disable proxy config, got %+v", gotCommands[0])
 	}
+	if !hasArg(gotCommands[0], "remote.origin.proxy=") {
+		t.Fatalf("expected pinned HTTPS git command to disable per-remote proxy config, got %+v", gotCommands[0])
+	}
 }
 
 func TestCloneRemoteRepositoryPinsAllHTTPSHostResolutions(t *testing.T) {
@@ -1584,7 +1587,7 @@ func pinnedGitCommand(host string, port string, ip string, args ...string) []str
 }
 
 func pinnedGitCommandWithIPs(host string, port string, ips []string, args ...string) []string {
-	command := []string{"git", "-c", "http.curloptResolve=" + host + ":" + port + ":" + strings.Join(ips, ","), "-c", "http.proxy="}
+	command := []string{"git", "-c", "http.curloptResolve=" + host + ":" + port + ":" + strings.Join(ips, ","), "-c", "http.proxy=", "-c", "remote.origin.proxy="}
 	return append(command, args...)
 }
 
