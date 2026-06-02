@@ -6,6 +6,9 @@
   GO-2026-5037 and GO-2026-5039, which the daily OSV scan was failing on.
   Added a `docker` ecosystem entry to `.github/dependabot.yml` for
   `deploy/docker/` so future base-image bumps are opened as PRs automatically.
+  Dropped the `*-security-updates` groups from every ecosystem so Dependabot
+  opens security PRs the moment an advisory fires instead of batching them
+  for the weekly Monday run; routine version bumps stay batched as before.
 - Added the owner-only workspace Danger Zone on Settings (PR 3 of #1420).
   Workspace owners now see Suspend / Reactivate / Delete / Restore rows
   appended into the existing Danger Zone card alongside the user-account
