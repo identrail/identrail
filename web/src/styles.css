@@ -23318,6 +23318,97 @@ html[data-theme='light'] .idt-app-shell-screen select {
   color: var(--app-muted);
 }
 
+.idt-aws-risk-page {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.idt-aws-risk-scope {
+  overflow: hidden;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  background: #080809;
+}
+
+.idt-aws-risk-scope dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
+.idt-aws-risk-scope div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  border-right: 1px solid var(--app-border-soft);
+  padding: 0.72rem 0.82rem;
+}
+
+.idt-aws-risk-scope div:last-child {
+  border-right: 0;
+}
+
+.idt-aws-risk-scope dt {
+  color: var(--app-dim);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.idt-aws-risk-scope dd {
+  min-width: 0;
+  margin: 0;
+  color: #ffffff;
+  font-size: 0.86rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.idt-aws-risk-page .idt-domain-filter-bar,
+.idt-aws-risk-page .idt-domain-table-wrap {
+  border-color: var(--app-border-soft);
+  background: #080809;
+}
+
+.idt-aws-risk-page .idt-domain-filter-bar {
+  padding: 0.68rem;
+}
+
+.idt-aws-risk-page .idt-domain-filter-fields {
+  gap: 0.5rem;
+}
+
+.idt-aws-risk-page .idt-domain-filter-fields label {
+  min-width: min(100%, 10.5rem);
+  font-size: 0.74rem;
+}
+
+.idt-aws-risk-page .idt-domain-filter-fields input,
+.idt-aws-risk-page .idt-domain-filter-fields select {
+  min-height: 2.2rem;
+  border-color: var(--app-border-soft);
+  background: #050505;
+}
+
+.idt-aws-risk-page .idt-domain-data-table th,
+.idt-aws-risk-page .idt-domain-data-table td {
+  padding: 0.68rem 0.76rem;
+}
+
+.idt-aws-risk-page .idt-domain-data-table td {
+  font-size: 0.84rem;
+}
+
+.idt-aws-risk-page .idt-domain-table-empty {
+  padding: 0;
+}
+
+.idt-aws-risk-page .idt-domain-table-empty .idt-domain-empty-state {
+  border: 0;
+  background: transparent;
+  padding: 1rem;
+}
+
 html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-modal,
 html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-list article,
 html[data-theme='light'] .idt-app-console-layout .idt-permission-tier {
@@ -23384,6 +23475,27 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
   .idt-domain-data-table {
     min-width: 34rem;
   }
+
+	  .idt-domain-page-shell.is-aws .idt-domain-data-table {
+	    min-width: 52rem;
+	  }
+
+  .idt-aws-risk-page .idt-domain-data-table {
+    min-width: 42rem;
+  }
+
+  .idt-aws-risk-scope dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .idt-aws-risk-scope div:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .idt-aws-risk-scope div:nth-child(n + 3) {
+    border-top: 1px solid var(--app-border-soft);
+  }
+
 }
 
 .idt-visually-hidden {

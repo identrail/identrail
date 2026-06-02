@@ -3824,6 +3824,986 @@ export function ProductAWSResourcesPage() {
   return <ProductAWSInventoryPage routeID="resources" />;
 }
 
+type AWSRiskOperationRouteID = Extract<
+  ProductDomainRouteID,
+  'runtime' | 'graph' | 'findings' | 'remediation' | 'governance'
+>;
+
+type AWSRiskOperationPageCopy = {
+  routeID: AWSRiskOperationRouteID;
+  title: string;
+  eyebrow: string;
+  description: string;
+  statusLabel: string;
+  currentCapability: string;
+  plannedCapability: string;
+  nextAction: string;
+  unavailableTitle: string;
+  unavailableBody: string;
+};
+
+const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOperationPageCopy> = {
+  runtime: {
+    routeID: 'runtime',
+    title: 'AWS runtime evidence',
+    eyebrow: 'Runtime',
+    description: 'Connector-scoped evidence for CloudTrail, STS, KMS, secrets, and agent activity.',
+    statusLabel: 'Not ingesting',
+    currentCapability: 'Connector validation only.',
+    plannedCapability: 'Runtime event ingestion.',
+    nextAction: 'Wire runtime ingestion.',
+    unavailableTitle: 'No event ingestion',
+    unavailableBody: 'Connector validation only.'
+  },
+  graph: {
+    routeID: 'graph',
+    title: 'AWS graph explorer',
+    eyebrow: 'Graph',
+    description: 'AWS identities, resources, findings, owners, and blast-radius paths.',
+    statusLabel: 'Connector only',
+    currentCapability: 'Connector role anchor.',
+    plannedCapability: 'Collected graph edges.',
+    nextAction: 'Collect graph edges.',
+    unavailableTitle: 'No graph edges',
+    unavailableBody: 'Connector role anchor only.'
+  },
+  findings: {
+    routeID: 'findings',
+    title: 'AWS findings',
+    eyebrow: 'Findings',
+    description: 'AWS risk rows scoped by account, region, evidence, owner, and remediation.',
+    statusLabel: 'No findings',
+    currentCapability: 'Connector scope only.',
+    plannedCapability: 'AWS findings API.',
+    nextAction: 'Wire finding generation.',
+    unavailableTitle: 'No findings API',
+    unavailableBody: 'No AWS findings are fetched or synthesized.'
+  },
+  remediation: {
+    routeID: 'remediation',
+    title: 'AWS remediation',
+    eyebrow: 'Remediation',
+    description: 'Approval, diff, dry-run, rollback, and verification surfaces for AWS fixes.',
+    statusLabel: 'No cases',
+    currentCapability: 'No live changes.',
+    plannedCapability: 'Approved remediation APIs.',
+    nextAction: 'Wire remediation cases.',
+    unavailableTitle: 'No remediation cases',
+    unavailableBody: 'No policy changes run from this route.'
+  },
+  governance: {
+    routeID: 'governance',
+    title: 'AWS governance',
+    eyebrow: 'Governance',
+    description: 'Advisory authorization decisions and safety controls for AWS runtime access.',
+    statusLabel: 'Advisory only',
+    currentCapability: 'Advisory only.',
+    plannedCapability: 'Runtime enforcement.',
+    nextAction: 'Keep advisory.',
+    unavailableTitle: 'Not enforcing',
+    unavailableBody: 'No AWS access is blocked or changed.'
+  }
+};
+
+type AWSRiskOperationFilterConfigMap = Record<AWSRiskOperationRouteID, AWSInventoryFilterConfig[]>;
+
+const AWS_RISK_OPERATION_FILTER_DEFAULTS: Record<AWSRiskOperationRouteID, AWSInventoryFilterState> = {
+  runtime: { event: 'all', evidence: 'all', owner: 'all', search: '' },
+  graph: { node: 'all', edge: 'all', evidence: 'all', search: '' },
+  findings: { severity: 'all', account: 'all', region: 'all', evidence: 'all', status: 'all', search: '' },
+  remediation: { change: 'all', approval: 'all', stage: 'all', search: '' },
+  governance: { decision: 'all', mode: 'all', evidence: 'all', search: '' }
+};
+
+const AWS_RISK_OPERATION_FILTERS: AWSRiskOperationFilterConfigMap = {
+  runtime: [
+    {
+      id: 'event',
+      label: 'Event type',
+      options: [
+        { label: 'All events', value: 'all' },
+        { label: 'CloudTrail', value: 'cloudtrail' },
+        { label: 'STS AssumeRole', value: 'sts-assume-role' },
+        { label: 'Secrets Manager', value: 'secrets-manager' },
+        { label: 'KMS decrypt', value: 'kms-decrypt' },
+        { label: 'Agent tool', value: 'agent-tool' }
+      ]
+    },
+    {
+      id: 'evidence',
+      label: 'Evidence',
+      options: [
+        { label: 'All evidence', value: 'all' },
+        { label: 'Current connector', value: 'current-connector' },
+        { label: 'Coming', value: 'coming' },
+        { label: 'Unavailable', value: 'unavailable' }
+      ]
+    },
+    {
+      id: 'owner',
+      label: 'Owner',
+      options: [
+        { label: 'All owners', value: 'all' },
+        { label: 'Security', value: 'security' },
+        { label: 'Platform', value: 'platform' },
+        { label: 'Application', value: 'application' }
+      ]
+    }
+  ],
+  graph: [
+    {
+      id: 'node',
+      label: 'Node type',
+      options: [
+        { label: 'All nodes', value: 'all' },
+        { label: 'Identity', value: 'identity' },
+        { label: 'Agent', value: 'agent' },
+        { label: 'Resource', value: 'resource' },
+        { label: 'Finding', value: 'finding' },
+        { label: 'Owner', value: 'owner' }
+      ]
+    },
+    {
+      id: 'edge',
+      label: 'Edge',
+      options: [
+        { label: 'All edges', value: 'all' },
+        { label: 'Can assume', value: 'can-assume' },
+        { label: 'Can read secret', value: 'can-read-secret' },
+        { label: 'Can decrypt', value: 'can-decrypt' },
+        { label: 'Owns', value: 'owns' }
+      ]
+    },
+    {
+      id: 'evidence',
+      label: 'Evidence',
+      options: [
+        { label: 'All evidence', value: 'all' },
+        { label: 'Known', value: 'known' },
+        { label: 'Unknown', value: 'unknown' },
+        { label: 'Planned', value: 'planned' }
+      ]
+    }
+  ],
+  findings: [
+    {
+      id: 'severity',
+      label: 'Severity',
+      options: [
+        { label: 'All severities', value: 'all' },
+        { label: 'Critical', value: 'critical' },
+        { label: 'High', value: 'high' },
+        { label: 'Medium', value: 'medium' },
+        { label: 'Low', value: 'low' },
+        { label: 'Info', value: 'info' }
+      ]
+    },
+    {
+      id: 'account',
+      label: 'Account',
+      options: [
+        { label: 'All accounts', value: 'all' },
+        { label: 'Connected account', value: 'connected' },
+        { label: 'Unknown account', value: 'unknown' }
+      ]
+    },
+    {
+      id: 'region',
+      label: 'Region',
+      options: [
+        { label: 'All regions', value: 'all' },
+        { label: 'Current region', value: 'current' },
+        { label: 'Unknown region', value: 'unknown' }
+      ]
+    },
+    {
+      id: 'evidence',
+      label: 'Evidence',
+      options: [
+        { label: 'All evidence', value: 'all' },
+        { label: 'Runtime backed', value: 'runtime-backed' },
+        { label: 'Inventory backed', value: 'inventory-backed' },
+        { label: 'Unavailable', value: 'unavailable' }
+      ]
+    },
+    {
+      id: 'status',
+      label: 'Remediation',
+      options: [
+        { label: 'All statuses', value: 'all' },
+        { label: 'Open', value: 'open' },
+        { label: 'Queued', value: 'queued' },
+        { label: 'Blocked', value: 'blocked' },
+        { label: 'Unavailable', value: 'unavailable' }
+      ]
+    }
+  ],
+  remediation: [
+    {
+      id: 'change',
+      label: 'Change type',
+      options: [
+        { label: 'All changes', value: 'all' },
+        { label: 'IAM policy', value: 'iam-policy' },
+        { label: 'Trust policy', value: 'trust-policy' },
+        { label: 'Permission boundary', value: 'permission-boundary' },
+        { label: 'Secret rotation', value: 'secret-rotation' },
+        { label: 'IaC PR', value: 'iac-pr' }
+      ]
+    },
+    {
+      id: 'approval',
+      label: 'Approval',
+      options: [
+        { label: 'All approvals', value: 'all' },
+        { label: 'Owner required', value: 'owner-required' },
+        { label: 'Security required', value: 'security-required' },
+        { label: 'Dry run required', value: 'dry-run-required' }
+      ]
+    },
+    {
+      id: 'stage',
+      label: 'Stage',
+      options: [
+        { label: 'All stages', value: 'all' },
+        { label: 'No case', value: 'no-case' },
+        { label: 'Draft only', value: 'draft-only' },
+        { label: 'Not active', value: 'not-active' }
+      ]
+    }
+  ],
+  governance: [
+    {
+      id: 'decision',
+      label: 'Decision',
+      options: [
+        { label: 'All decisions', value: 'all' },
+        { label: 'Warn', value: 'warn' },
+        { label: 'Approval', value: 'approval' },
+        { label: 'Quarantine', value: 'quarantine' },
+        { label: 'Recommend deny', value: 'recommend-deny' }
+      ]
+    },
+    {
+      id: 'mode',
+      label: 'Mode',
+      options: [
+        { label: 'All modes', value: 'all' },
+        { label: 'Advisory', value: 'advisory' },
+        { label: 'Canary', value: 'canary' },
+        { label: 'Not enforcing', value: 'not-enforcing' }
+      ]
+    },
+    {
+      id: 'evidence',
+      label: 'Evidence',
+      options: [
+        { label: 'All evidence', value: 'all' },
+        { label: 'Runtime required', value: 'runtime-required' },
+        { label: 'Approval required', value: 'approval-required' },
+        { label: 'Audit required', value: 'audit-required' }
+      ]
+    }
+  ]
+};
+
+type AWSRiskOperationTableRow = AWSInventoryFilterable & {
+  id: string;
+  title: string;
+  category: string;
+  evidence: string;
+  owner: string;
+  blastRadius: string;
+  nextAction: string;
+  status: string;
+  stage: AWSCapabilityStage;
+};
+
+function AWSRiskOperationFilterSet({
+  routeID,
+  filters,
+  onChange
+}: {
+  routeID: AWSRiskOperationRouteID;
+  filters: AWSInventoryFilterState;
+  onChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
+  const searchPlaceholder: Record<AWSRiskOperationRouteID, string> = {
+    runtime: 'Search events',
+    graph: 'Search graph',
+    findings: 'Search findings',
+    remediation: 'Search changes',
+    governance: 'Search decisions'
+  };
+  const onFilterChange = (id: string, value: string): void => {
+    onChange({
+      ...filters,
+      [id]: value
+    });
+  };
+  const onSearchChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    onChange({
+      ...filters,
+      search: event.target.value
+    });
+  };
+
+  return (
+    <DomainFilterBar label={`${AWS_RISK_OPERATION_PAGE_COPY[routeID].title} filters`}>
+      {AWS_RISK_OPERATION_FILTERS[routeID].map((filter) => (
+        <label key={filter.label}>
+          {filter.label}
+          <select value={filters[filter.id] ?? 'all'} onChange={(event) => onFilterChange(filter.id, event.target.value)}>
+            {filter.options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ))}
+      <label>
+        Search
+        <input
+          placeholder={searchPlaceholder[routeID]}
+          value={filters.search ?? ''}
+          onChange={onSearchChange}
+          aria-label={`${AWS_RISK_OPERATION_PAGE_COPY[routeID].title} search`}
+        />
+      </label>
+    </DomainFilterBar>
+  );
+}
+
+function awsConnectionRoleLabel(connection: AWSConnectionStatus | null): string {
+  const roleName = connection?.role_arn?.match(/:role\/(.+)$/)?.[1];
+  if (roleName) {
+    return `Role ${roleName}`;
+  }
+  if (connection?.role_arn) {
+    return 'Validated AWS role';
+  }
+  return 'AWS role anchor';
+}
+
+function AWSRiskOperationScope({
+  copy,
+  connection,
+  selectedEnvironmentID
+}: {
+  copy: AWSRiskOperationPageCopy;
+  connection: AWSConnectionStatus | null;
+  selectedEnvironmentID: string;
+}) {
+  const facts = [
+    ['Status', copy.statusLabel],
+    ['Scope', connection?.account_id ? awsAccountRegionLabel(connection) : selectedEnvironmentID ? 'Pending connector' : 'No environment'],
+    ['Role', connection?.role_arn ? awsConnectionRoleLabel(connection) : 'Not connected'],
+    ['Mode', copy.routeID === 'governance' ? 'Advisory' : 'Read-only']
+  ];
+
+  return (
+    <section className="idt-aws-risk-scope" aria-label={`${copy.title} scope`}>
+      <dl>
+        {facts.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function AWSRiskOperationPrerequisites({
+  scope,
+  selectedEnvironmentID,
+  connection,
+  connectPath
+}: {
+  scope: ProductSession;
+  selectedEnvironmentID: string;
+  connection: AWSConnectionStatus | null;
+  connectPath: string;
+}) {
+  if (!selectedEnvironmentID) {
+    return (
+      <DomainEmptyState
+        eyebrow="Environment required"
+        title="Create an environment before AWS operations can resolve"
+        body="Create an environment, then return to AWS."
+        nextAction={{ label: 'Open environments', to: appendSourceQuery(buildProjectsPath(scope), 'aws') }}
+      />
+    );
+  }
+
+  if (!connection?.connected) {
+    return (
+      <DomainEmptyState
+        eyebrow="Connector prerequisite"
+        title="Connect AWS to load operational context"
+        body="Account, region, role, and diagnostics come from the read-only AWS connector."
+        nextAction={{ label: 'Connect AWS', to: connectPath }}
+      />
+    );
+  }
+
+  return null;
+}
+
+function AWSRuntimeEvidenceContent({
+  connection,
+  filters,
+  onFiltersChange
+}: {
+  connection: AWSConnectionStatus | null;
+  filters: AWSInventoryFilterState;
+  onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
+  const rows: AWSRiskOperationTableRow[] = [
+    ...(connection?.role_arn
+      ? [
+          {
+            id: 'runtime-role-anchor',
+            title: awsConnectionRoleLabel(connection),
+            category: 'STS AssumeRole',
+            evidence: 'Connector',
+            owner: 'Security',
+            blastRadius: awsAccountRegionLabel(connection),
+            nextAction: 'Attach CloudTrail',
+            status: 'connector',
+            stage: 'wired' as AWSCapabilityStage,
+            filters: { event: 'sts-assume-role', evidence: 'current-connector', owner: 'security', search: '' },
+            searchText: inventorySearchText([connection.role_arn, connection.principal_arn, 'sts assume role current connector'])
+          }
+        ]
+      : []),
+    {
+      id: 'cloudtrail-management-events',
+      title: 'CloudTrail management events',
+      category: 'CloudTrail',
+      evidence: 'Planned',
+      owner: 'Security',
+      blastRadius: connection?.account_id ? `Account ${connection.account_id}` : 'Account pending',
+      nextAction: 'Wire ingestion',
+      status: 'planned',
+      stage: 'coming',
+      filters: { event: 'cloudtrail', evidence: 'coming', owner: 'security', search: '' },
+      searchText: inventorySearchText(['cloudtrail', 'management events', 'runtime evidence'])
+    },
+    {
+      id: 'secret-read-events',
+      title: 'Secrets Manager GetSecretValue',
+      category: 'Secrets Manager',
+      evidence: 'Planned',
+      owner: 'Application',
+      blastRadius: 'Secret metadata only',
+      nextAction: 'Map metadata',
+      status: 'planned',
+      stage: 'coming',
+      filters: { event: 'secrets-manager', evidence: 'coming', owner: 'application', search: '' },
+      searchText: inventorySearchText(['secrets manager', 'getsecretvalue', 'secret reads'])
+    },
+    {
+      id: 'kms-decrypt-events',
+      title: 'KMS Decrypt activity',
+      category: 'KMS decrypt',
+      evidence: 'Planned',
+      owner: 'Platform',
+      blastRadius: 'Key reachability pending',
+      nextAction: 'Join key policy',
+      status: 'planned',
+      stage: 'coming',
+      filters: { event: 'kms-decrypt', evidence: 'coming', owner: 'platform', search: '' },
+      searchText: inventorySearchText(['kms', 'decrypt', 'runtime evidence'])
+    },
+    {
+      id: 'agent-tool-events',
+      title: 'Agent tool invocation',
+      category: 'Agent tool',
+      evidence: 'Unavailable',
+      owner: 'Security',
+      blastRadius: 'Agent graph pending',
+      nextAction: 'Map agent identity',
+      status: 'unavailable',
+      stage: 'not-available',
+      filters: { event: 'agent-tool', evidence: 'unavailable', owner: 'security', search: '' },
+      searchText: inventorySearchText(['agent', 'tool', 'mcp', 'agentcore'])
+    }
+  ];
+  const displayedRows = filterAWSInventoryRows(rows, filters);
+
+  return (
+    <>
+      <AWSRiskOperationFilterSet routeID="runtime" filters={filters} onChange={onFiltersChange} />
+      <DomainDataTable
+        label="AWS runtime evidence surfaces"
+        rows={displayedRows}
+        getRowKey={(row) => row.id}
+        columns={[
+          {
+            key: 'event',
+            header: 'Event surface',
+            render: (row) => <strong>{row.title}</strong>
+          },
+          { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
+          { key: 'owner', header: 'Owner', render: (row) => row.owner },
+          { key: 'blast', header: 'Blast radius', render: (row) => row.blastRadius },
+          { key: 'next', header: 'Next action', render: (row) => row.nextAction },
+          { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+        ]}
+      />
+    </>
+  );
+}
+
+function AWSGraphExplorerContent({
+  connection,
+  filters,
+  onFiltersChange
+}: {
+  connection: AWSConnectionStatus | null;
+  filters: AWSInventoryFilterState;
+  onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
+  const rows: AWSRiskOperationTableRow[] = [
+    {
+      id: 'identity-anchor',
+      title: awsConnectionRoleLabel(connection),
+      category: 'Identity',
+      evidence: connection?.role_arn ? 'Connector' : 'Unknown',
+      owner: 'Security',
+      blastRadius: awsAccountRegionLabel(connection),
+      nextAction: 'Join policies',
+      status: connection?.role_arn ? 'known' : 'unknown',
+      stage: connection?.role_arn ? 'wired' : 'coming',
+      filters: { node: 'identity', edge: 'can-assume', evidence: connection?.role_arn ? 'known' : 'unknown', search: '' },
+      searchText: inventorySearchText([connection?.role_arn, connection?.principal_arn, 'identity', 'role anchor'])
+    },
+    {
+      id: 'secret-node',
+      title: 'Secrets Manager metadata node',
+      category: 'Resource',
+      evidence: 'Planned',
+      owner: 'Application',
+      blastRadius: 'Secret reachability pending',
+      nextAction: 'Collect metadata',
+      status: 'planned',
+      stage: 'coming',
+      filters: { node: 'resource', edge: 'can-read-secret', evidence: 'planned', search: '' },
+      searchText: inventorySearchText(['secret', 'resource', 'can read secret', 'metadata'])
+    },
+    {
+      id: 'kms-node',
+      title: 'KMS decrypt path',
+      category: 'Resource',
+      evidence: 'Planned',
+      owner: 'Platform',
+      blastRadius: 'Key grants pending',
+      nextAction: 'Attach key policy',
+      status: 'planned',
+      stage: 'coming',
+      filters: { node: 'resource', edge: 'can-decrypt', evidence: 'planned', search: '' },
+      searchText: inventorySearchText(['kms', 'decrypt', 'resource'])
+    },
+    {
+      id: 'finding-node',
+      title: 'AWS finding node',
+      category: 'Finding',
+      evidence: 'Unknown',
+      owner: 'Security',
+      blastRadius: 'No finding selected',
+      nextAction: 'Wire findings',
+      status: 'unavailable',
+      stage: 'not-available',
+      filters: { node: 'finding', edge: 'owns', evidence: 'unknown', search: '' },
+      searchText: inventorySearchText(['finding', 'risk path', 'evidence'])
+    }
+  ];
+  const displayedRows = filterAWSInventoryRows(rows, filters);
+
+  return (
+    <>
+      <AWSRiskOperationFilterSet routeID="graph" filters={filters} onChange={onFiltersChange} />
+      <DomainDataTable
+        label="AWS graph nodes and edges"
+        rows={displayedRows}
+        getRowKey={(row) => row.id}
+        columns={[
+          {
+            key: 'node',
+            header: 'Node / edge',
+            render: (row) => <strong>{row.title}</strong>
+          },
+          { key: 'category', header: 'Type', render: (row) => row.category },
+          { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
+          { key: 'blast', header: 'Blast radius', render: (row) => row.blastRadius },
+          { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+        ]}
+      />
+    </>
+  );
+}
+
+function AWSFindingsContent({
+  filters,
+  onFiltersChange
+}: {
+  filters: AWSInventoryFilterState;
+  onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
+  const rows: AWSRiskOperationTableRow[] = [];
+  const displayedRows = filterAWSInventoryRows(rows, filters);
+
+  return (
+    <>
+      <AWSRiskOperationFilterSet routeID="findings" filters={filters} onChange={onFiltersChange} />
+      <DomainDataTable
+        label="AWS findings"
+        rows={displayedRows}
+        getRowKey={(row) => row.id}
+        emptyState={
+          <DomainEmptyState
+            eyebrow="Empty"
+            title="No AWS findings"
+            body="Finding generation is not connected yet."
+          />
+        }
+        columns={[
+          { key: 'title', header: 'Finding', render: (row) => <strong>{row.title}</strong> },
+          { key: 'category', header: 'Severity', render: (row) => row.category },
+          { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
+          { key: 'blast', header: 'Blast radius', render: (row) => row.blastRadius },
+          { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+        ]}
+      />
+    </>
+  );
+}
+
+function AWSRemediationContent({
+  connection,
+  filters,
+  onFiltersChange
+}: {
+  connection: AWSConnectionStatus | null;
+  filters: AWSInventoryFilterState;
+  onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
+  const rows: AWSRiskOperationTableRow[] = [
+    {
+      id: 'iam-policy-diff',
+      title: 'IAM policy diff preview',
+      category: 'IAM policy',
+      evidence: 'Finding required',
+      owner: 'Security',
+      blastRadius: connection?.account_id ? `Account ${connection.account_id}` : 'Account pending',
+      nextAction: 'Generate diff',
+      status: 'draft',
+      stage: 'coming',
+      filters: { change: 'iam-policy', approval: 'owner-required', stage: 'draft-only', search: '' },
+      searchText: inventorySearchText(['iam policy', 'diff', 'least privilege', 'draft'])
+    },
+    {
+      id: 'trust-policy-hardening',
+      title: 'Trust policy hardening',
+      category: 'Trust policy',
+      evidence: 'Trust analysis',
+      owner: 'Platform',
+      blastRadius: 'Role assumption path pending',
+      nextAction: 'Compare trust path',
+      status: 'draft',
+      stage: 'coming',
+      filters: { change: 'trust-policy', approval: 'security-required', stage: 'draft-only', search: '' },
+      searchText: inventorySearchText(['trust policy', 'hardening', 'external id'])
+    },
+    {
+      id: 'permission-boundary-scp',
+      title: 'Permission boundary review',
+      category: 'Permission boundary',
+      evidence: 'Governance input',
+      owner: 'Security',
+      blastRadius: 'Organization scope pending',
+      nextAction: 'Keep advisory',
+      status: 'not active',
+      stage: 'not-available',
+      filters: { change: 'permission-boundary', approval: 'security-required', stage: 'not-active', search: '' },
+      searchText: inventorySearchText(['permission boundary', 'scp', 'governance'])
+    },
+    {
+      id: 'secret-rotation',
+      title: 'Secret rotation planner',
+      category: 'Secret rotation',
+      evidence: 'Secret metadata',
+      owner: 'Application',
+      blastRadius: 'Secret metadata pending',
+      nextAction: 'Plan rotation',
+      status: 'not active',
+      stage: 'not-available',
+      filters: { change: 'secret-rotation', approval: 'owner-required', stage: 'not-active', search: '' },
+      searchText: inventorySearchText(['secret rotation', 'planner', 'metadata'])
+    },
+    {
+      id: 'iac-pr-plan',
+      title: 'IaC PR plan and verification',
+      category: 'IaC PR',
+      evidence: 'Repo mapping',
+      owner: 'Platform',
+      blastRadius: 'Environment and repo pending',
+      nextAction: 'Map repository',
+      status: 'not active',
+      stage: 'not-available',
+      filters: { change: 'iac-pr', approval: 'dry-run-required', stage: 'not-active', search: '' },
+      searchText: inventorySearchText(['iac', 'pr', 'verification', 'rollback'])
+    }
+  ];
+  const displayedRows = filterAWSInventoryRows(rows, filters);
+
+  return (
+    <>
+      <AWSRiskOperationFilterSet routeID="remediation" filters={filters} onChange={onFiltersChange} />
+      <DomainDataTable
+        label="AWS remediation plan surfaces"
+        rows={displayedRows}
+        getRowKey={(row) => row.id}
+        columns={[
+          {
+            key: 'change',
+            header: 'Change plan',
+            render: (row) => <strong>{row.title}</strong>
+          },
+          { key: 'category', header: 'Type', render: (row) => row.category },
+          { key: 'owner', header: 'Owner', render: (row) => row.owner },
+          { key: 'next', header: 'Next action', render: (row) => row.nextAction },
+          { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+        ]}
+      />
+    </>
+  );
+}
+
+function AWSGovernanceContent({
+  connection,
+  filters,
+  onFiltersChange
+}: {
+  connection: AWSConnectionStatus | null;
+  filters: AWSInventoryFilterState;
+  onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
+  const rows: AWSRiskOperationTableRow[] = [
+    {
+      id: 'warn',
+      title: 'Warn on risky activity',
+      category: 'Warn',
+      evidence: 'Runtime evidence',
+      owner: 'Security',
+      blastRadius: connection?.account_id ? `Account ${connection.account_id}` : 'Account pending',
+      nextAction: 'Define routing',
+      status: 'advisory',
+      stage: 'coming',
+      filters: { decision: 'warn', mode: 'advisory', evidence: 'runtime-required', search: '' },
+      searchText: inventorySearchText(['warn', 'runtime', 'advisory'])
+    },
+    {
+      id: 'approval',
+      title: 'Require approval',
+      category: 'Approval',
+      evidence: 'Approval workflow',
+      owner: 'Security',
+      blastRadius: 'Sensitive action pending',
+      nextAction: 'Map owner',
+      status: 'not enforcing',
+      stage: 'not-available',
+      filters: { decision: 'approval', mode: 'not-enforcing', evidence: 'approval-required', search: '' },
+      searchText: inventorySearchText(['approval', 'sensitive access', 'not enforcing'])
+    },
+    {
+      id: 'quarantine',
+      title: 'Quarantine candidate identity',
+      category: 'Quarantine',
+      evidence: 'High-confidence finding',
+      owner: 'Security',
+      blastRadius: 'Identity scope pending',
+      nextAction: 'Add safety gates',
+      status: 'not enforcing',
+      stage: 'not-available',
+      filters: { decision: 'quarantine', mode: 'not-enforcing', evidence: 'audit-required', search: '' },
+      searchText: inventorySearchText(['quarantine', 'kill switch', 'rollback'])
+    },
+    {
+      id: 'recommend-deny',
+      title: 'Recommend deny policy',
+      category: 'Recommend deny',
+      evidence: 'Runtime + approval',
+      owner: 'Platform',
+      blastRadius: 'Permission boundary pending',
+      nextAction: 'Draft advisory',
+      status: 'advisory',
+      stage: 'coming',
+      filters: { decision: 'recommend-deny', mode: 'advisory', evidence: 'runtime-required,approval-required', search: '' },
+      searchText: inventorySearchText(['recommend deny', 'session policy', 'permission boundary', 'agentcore'])
+    }
+  ];
+  const displayedRows = filterAWSInventoryRows(rows, filters);
+
+  return (
+    <>
+      <AWSRiskOperationFilterSet routeID="governance" filters={filters} onChange={onFiltersChange} />
+      <DomainDataTable
+        label="AWS governance decision modes"
+        rows={displayedRows}
+        getRowKey={(row) => row.id}
+        columns={[
+          {
+            key: 'decision',
+            header: 'Decision mode',
+            render: (row) => <strong>{row.title}</strong>
+          },
+          { key: 'evidence', header: 'Evidence required', render: (row) => row.evidence },
+          { key: 'owner', header: 'Owner', render: (row) => row.owner },
+          { key: 'next', header: 'Next action', render: (row) => row.nextAction },
+          { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+        ]}
+      />
+    </>
+  );
+}
+
+function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRouteID }) {
+  const data = useAWSInventoryData();
+  const { scope, environmentScope, selectedEnvironmentID, connection, connectionLoading, connectionError } = data;
+  const copy = AWS_RISK_OPERATION_PAGE_COPY[routeID];
+  const [activeFilters, setActiveFilters] = useState<AWSInventoryFilterState>(() => ({
+    ...AWS_RISK_OPERATION_FILTER_DEFAULTS[routeID]
+  }));
+
+  const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
+    setActiveFilters(nextFilters);
+  };
+
+  useEffect(() => {
+    setActiveFilters({ ...AWS_RISK_OPERATION_FILTER_DEFAULTS[routeID] });
+  }, [routeID]);
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">{copy.title}</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading AWS operations.</p>
+      </section>
+    );
+  }
+
+  const statusTone = awsDomainTone(connection, environmentScope.loading || connectionLoading);
+  const connectPath = awsRouteLink(scope, 'connect', selectedEnvironmentID);
+  const homePath = appendEnvironmentQuery(buildScopedPath(scope, 'aws'), selectedEnvironmentID);
+  const graphPath = awsRouteLink(scope, 'graph', selectedEnvironmentID);
+  const findingsPath = awsRouteLink(scope, 'findings', selectedEnvironmentID);
+  const remediationPath = awsRouteLink(scope, 'remediation', selectedEnvironmentID);
+  const governancePath = awsRouteLink(scope, 'governance', selectedEnvironmentID);
+  const status =
+    environmentScope.loading || connectionLoading
+      ? 'Loading operations'
+      : connectionError
+        ? 'Needs retry'
+        : connection?.connected
+          ? copy.statusLabel
+          : 'Setup required';
+  const secondaryActions =
+    routeID === 'runtime'
+      ? [{ label: 'Graph', to: graphPath }]
+      : routeID === 'graph'
+        ? [{ label: 'Findings', to: findingsPath }]
+        : routeID === 'findings'
+          ? [{ label: 'Remediation', to: remediationPath }]
+          : routeID === 'remediation'
+            ? [{ label: 'Governance', to: governancePath }]
+            : [{ label: 'AWS home', to: homePath }];
+
+  return (
+    <DomainPageShell
+      domain="aws"
+      eyebrow={copy.eyebrow}
+      title={copy.title}
+      description={copy.description}
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={data.onChangeEnvironment} />}
+      status={status}
+      statusTone={connectionError ? 'danger' : statusTone}
+      primaryAction={connection?.connected ? undefined : { label: 'Connect AWS', to: connectPath, variant: 'primary' }}
+      secondaryActions={secondaryActions}
+    >
+      <div className="idt-aws-risk-page">
+        <AWSRiskOperationScope copy={copy} connection={connection} selectedEnvironmentID={selectedEnvironmentID} />
+
+        {environmentScope.loading || connectionLoading ? <DomainLoadingState label={`Loading ${copy.title.toLowerCase()}`} /> : null}
+
+        {connectionError ? (
+          <DomainErrorState
+            title={`${copy.title} status could not load`}
+            body={connectionError}
+            retryAction={{ label: 'Retry AWS status', onClick: data.refreshConnection }}
+          />
+        ) : null}
+
+        {!environmentScope.loading && !connectionLoading && !connectionError ? (
+          <AWSRiskOperationPrerequisites
+            scope={scope}
+            selectedEnvironmentID={selectedEnvironmentID}
+            connection={connection}
+            connectPath={connectPath}
+          />
+        ) : null}
+
+        {routeID === 'runtime' ? (
+          <AWSRuntimeEvidenceContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
+        ) : null}
+        {routeID === 'graph' ? (
+          <AWSGraphExplorerContent
+            connection={connection}
+            filters={activeFilters}
+            onFiltersChange={onFiltersChange}
+          />
+        ) : null}
+        {routeID === 'findings' ? (
+          <AWSFindingsContent
+            filters={activeFilters}
+            onFiltersChange={onFiltersChange}
+          />
+        ) : null}
+        {routeID === 'remediation' ? (
+          <AWSRemediationContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
+        ) : null}
+        {routeID === 'governance' ? (
+          <AWSGovernanceContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
+        ) : null}
+      </div>
+    </DomainPageShell>
+  );
+}
+
+export function ProductAWSRuntimePage() {
+  return <ProductAWSRiskOperationsPage routeID="runtime" />;
+}
+
+export function ProductAWSGraphPage() {
+  return <ProductAWSRiskOperationsPage routeID="graph" />;
+}
+
+export function ProductAWSFindingsPage() {
+  return <ProductAWSRiskOperationsPage routeID="findings" />;
+}
+
+export function ProductAWSRemediationPage() {
+  return <ProductAWSRiskOperationsPage routeID="remediation" />;
+}
+
+export function ProductAWSGovernancePage() {
+  return <ProductAWSRiskOperationsPage routeID="governance" />;
+}
+
 export function ProductAWSControlCenterPage() {
   const params = useParams<ScopeRouteParams>();
   const location = useLocation();
