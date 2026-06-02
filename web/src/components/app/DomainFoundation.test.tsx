@@ -393,6 +393,22 @@ describe('DomainFoundation', () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it('closes the drawer when swiped off screen on touch devices', () => {
+    const onClose = vi.fn();
+    render(
+      <DomainDetailDrawer open title="Identity detail" onClose={onClose}>
+        <p>payload</p>
+      </DomainDetailDrawer>
+    );
+
+    const drawer = screen.getByText('payload').closest('.idt-domain-drawer')!;
+    fireEvent.pointerDown(drawer, { button: 0, clientX: 20, clientY: 12, pointerId: 1, pointerType: 'touch' });
+    fireEvent.pointerMove(drawer, { clientX: 180, clientY: 16, pointerId: 1, pointerType: 'touch' });
+    fireEvent.pointerUp(drawer, { clientX: 180, clientY: 16, pointerId: 1, pointerType: 'touch' });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('does not render the drawer when closed', () => {
     const { queryByRole } = render(
       <DomainDetailDrawer open={false} title="Hidden" onClose={() => undefined}>

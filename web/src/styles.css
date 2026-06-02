@@ -126,6 +126,51 @@ a {
   }
 }
 
+@keyframes idtRejectShake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  18% {
+    transform: translateX(-0.24rem);
+  }
+
+  38% {
+    transform: translateX(0.22rem);
+  }
+
+  58% {
+    transform: translateX(-0.14rem);
+  }
+
+  78% {
+    transform: translateX(0.1rem);
+  }
+}
+
+@keyframes idtPressRipple {
+  from {
+    opacity: 0.24;
+    transform: translate(-50%, -50%) scale(0.15);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes idtHoldConfirmFill {
+  from {
+    transform: scaleX(0);
+  }
+
+  to {
+    transform: scaleX(1);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .idt-modal-backdrop,
   .idt-modal,
@@ -155,7 +200,9 @@ a {
   .idt-auth-mfa-setup,
   .idt-auth-provider-stack,
   .idt-settings-disclosure[open] .idt-settings-disclosure-body,
-  .idt-settings-inline-disclosure[open] .idt-settings-disclosure-body {
+  .idt-settings-inline-disclosure[open] .idt-settings-disclosure-body,
+  .idt-hold-confirm.is-holding::before,
+  .idt-hold-confirm.is-rejected {
     animation: none !important;
   }
 }
@@ -328,7 +375,50 @@ a {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.idt-btn::before,
+.idt-esc-close::before,
+.idt-modal-close::before,
+.idt-domain-drawer-close::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 0;
+  width: 135%;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0);
+}
+
+.idt-esc-close,
+.idt-modal-close,
+.idt-domain-drawer-close {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.idt-btn:active:not(:disabled)::before,
+.idt-esc-close:active::before,
+.idt-modal-close:active::before,
+.idt-domain-drawer-close:active::before {
+  animation: idtPressRipple 360ms ease-out;
+}
+
+.idt-btn:active:not(:disabled),
+.idt-esc-close:active,
+.idt-modal-close:active,
+.idt-domain-drawer-close:active {
+  transform: translateY(0) scale(0.985);
 }
 
 .idt-btn:hover,
@@ -1553,7 +1643,9 @@ h3 {
   margin: 0;
   color: #ffb4b1;
   font-size: 0.85rem;
-  animation: idtStatusFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both;
+  animation:
+    idtStatusFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both,
+    idtRejectShake 280ms var(--idt-motion-ease) both;
 }
 
 .idt-form-success {
@@ -4478,6 +4570,9 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 .idt-app-alert-error {
   border-color: rgba(220, 129, 129, 0.44);
   color: #ffd0d0;
+  animation:
+    idtStatusFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both,
+    idtRejectShake 280ms var(--idt-motion-ease) both;
 }
 
 .idt-app-alert-success {
@@ -16648,6 +16743,7 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
 .idt-onboarding-input-wrap.has-error input,
 .idt-onboarding-input-wrap.has-error textarea {
   border-color: #ef4444;
+  animation: idtRejectShake 280ms var(--idt-motion-ease) both;
 }
 
 .idt-onboarding-input-error {
@@ -16679,6 +16775,7 @@ html[data-theme='light'] .idt-onboarding-shell .idt-app-kicker {
   font-style: italic;
   font-weight: 650;
   line-height: 1.25;
+  animation: idtRejectShake 280ms var(--idt-motion-ease) both;
 }
 
 .idt-onboarding-panel-main > .idt-onboarding-inline-error {
@@ -24358,6 +24455,13 @@ button.idt-domain-finding-card:focus-visible {
   color: var(--app-text);
   box-shadow: -16px 0 32px rgba(0, 0, 0, 0.32);
   animation: idtDrawerSlideIn var(--idt-motion-slow) var(--idt-motion-pop) both;
+  touch-action: pan-y;
+  transform: translateX(var(--idt-domain-drawer-swipe-x, 0));
+  transition: transform 180ms var(--idt-motion-ease);
+}
+
+.idt-domain-drawer.is-swiping {
+  transition: none !important;
 }
 
 .idt-domain-drawer header {
@@ -29942,7 +30046,9 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   background: rgba(70, 14, 18, 0.55);
   color: #ffd7d7;
   font-size: 0.9rem;
-  animation: idtStatusFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both;
+  animation:
+    idtStatusFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both,
+    idtRejectShake 280ms var(--idt-motion-ease) both;
 }
 
 .idt-danger-modal-blocker {
@@ -29952,7 +30058,65 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   border-radius: 0.5rem;
   background: rgba(40, 12, 16, 0.65);
   color: #ffd0d0;
-  animation: idtStatusFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both;
+  animation:
+    idtStatusFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both,
+    idtRejectShake 280ms var(--idt-motion-ease) both;
+}
+
+.idt-hold-confirm {
+  --idt-hold-confirm-duration: 900ms;
+  min-width: 9.5rem;
+}
+
+.idt-hold-confirm::before {
+  inset: 0;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.18));
+  opacity: 0;
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+.idt-hold-confirm > span {
+  position: relative;
+  z-index: 1;
+}
+
+.idt-hold-confirm.is-holding::before {
+  opacity: 1;
+  animation: idtHoldConfirmFill var(--idt-hold-confirm-duration) linear forwards;
+}
+
+.idt-hold-confirm.is-rejected {
+  animation: idtRejectShake 280ms var(--idt-motion-ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .idt-btn::before,
+  .idt-esc-close::before,
+  .idt-modal-close::before,
+  .idt-domain-drawer-close::before,
+  .idt-hold-confirm::before,
+  .idt-onboarding-input-wrap.has-error input,
+  .idt-onboarding-input-wrap.has-error textarea,
+  .idt-onboarding-inline-error {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .idt-btn:active:not(:disabled),
+  .idt-esc-close:active,
+  .idt-modal-close:active,
+  .idt-domain-drawer-close:active,
+  .idt-domain-drawer {
+    transform: none !important;
+  }
 }
 
 .idt-danger-modal-blocker ul {

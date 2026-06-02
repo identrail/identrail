@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmDestructiveModal, DangerZone, DangerZoneRow } from './DangerZone';
 
 describe('DangerZone', () => {
@@ -49,6 +49,14 @@ describe('DangerZone', () => {
 });
 
 describe('ConfirmDestructiveModal — checkbox confirmation', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   function renderCheckboxModal(overrides?: Partial<Parameters<typeof ConfirmDestructiveModal>[0]>) {
     const onConfirm = vi.fn();
     const onCancel = vi.fn();
@@ -67,7 +75,7 @@ describe('ConfirmDestructiveModal — checkbox confirmation', () => {
     return { onConfirm, onCancel };
   }
 
-  it('keeps Continue disabled until the checkbox is checked', () => {
+  it('keeps Continue disabled until the checkbox is checked, then requires a hold', () => {
     const { onConfirm } = renderCheckboxModal();
     const cont = screen.getByRole('button', { name: 'Suspend' });
     expect(cont).toBeDisabled();
@@ -75,9 +83,36 @@ describe('ConfirmDestructiveModal — checkbox confirmation', () => {
     expect(onConfirm).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('checkbox'));
-    expect(cont).toBeEnabled();
-    fireEvent.click(cont);
+    const armed = screen.getByRole('button', { name: 'Hold Suspend' });
+    expect(armed).toBeEnabled();
+    fireEvent.click(armed);
+    expect(onConfirm).not.toHaveBeenCalled();
+    fireEvent.pointerDown(armed, { button: 0 });
+    act(() => {
+      vi.advanceTimersByTime(899);
+    });
+    expect(onConfirm).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not confirm when the hold is released early', () => {
+    const { onConfirm } = renderCheckboxModal();
+    fireEvent.click(screen.getByRole('checkbox'));
+
+    const cont = screen.getByRole('button', { name: 'Hold Suspend' });
+    fireEvent.pointerDown(cont, { button: 0 });
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    fireEvent.pointerUp(cont);
+    act(() => {
+      vi.advanceTimersByTime(900);
+    });
+
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 
   it('invokes Cancel when the backdrop is clicked', () => {
@@ -105,6 +140,14 @@ describe('ConfirmDestructiveModal — checkbox confirmation', () => {
 });
 
 describe('ConfirmDestructiveModal — type-to-confirm', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('only enables Continue when the typed value matches exactly', () => {
     const onConfirm = vi.fn();
     render(
@@ -131,8 +174,12 @@ describe('ConfirmDestructiveModal — type-to-confirm', () => {
     expect(cont).toBeDisabled();
 
     fireEvent.change(input, { target: { value: 'user@example.com' } });
-    expect(cont).toBeEnabled();
-    fireEvent.click(cont);
+    const armed = screen.getByRole('button', { name: 'Hold Delete' });
+    expect(armed).toBeEnabled();
+    fireEvent.pointerDown(armed, { button: 0 });
+    act(() => {
+      vi.advanceTimersByTime(900);
+    });
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 

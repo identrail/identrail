@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useId, useRef } from 'react';
-import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { DOMAIN_ASSET_ORDER, getDomainAsset, type DomainAssetKey } from '../../design/domainAssets';
 
@@ -848,6 +848,16 @@ export function DomainDetailDrawer({
 }) {
   const drawerRef = useRef<HTMLElement | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const [dragOffset, setDragOffset] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
+  const dragOffsetRef = useRef(0);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startTime: number;
+    active: boolean;
+  } | null>(null);
 
   const onCloseRef = useRef(onClose);
   useEffect(() => {
@@ -864,6 +874,15 @@ export function DomainDetailDrawer({
     return () => {
       restoreFocusRef.current?.focus?.();
     };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      setDragOffset(0);
+      dragOffsetRef.current = 0;
+      setIsSwiping(false);
+      dragRef.current = null;
+    }
   }, [open]);
 
   const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -897,13 +916,88 @@ export function DomainDetailDrawer({
     }
   }, []);
 
+  const finishSwipe = useCallback((event?: ReactPointerEvent<HTMLElement>) => {
+    const drag = dragRef.current;
+    if (!drag) {
+      return;
+    }
+    const finalOffset = dragOffsetRef.current;
+    const elapsed = Math.max(1, Date.now() - drag.startTime);
+    const velocity = finalOffset / elapsed;
+    dragRef.current = null;
+    event?.currentTarget.releasePointerCapture?.(drag.pointerId);
+    setIsSwiping(false);
+    if (finalOffset > 112 || (finalOffset > 52 && velocity > 0.45)) {
+      onCloseRef.current();
+      return;
+    }
+    dragOffsetRef.current = 0;
+    setDragOffset(0);
+  }, []);
+
+  const handleDrawerPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.pointerType === 'mouse' || event.button !== 0) {
+      return;
+    }
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startTime: Date.now(),
+      active: false
+    };
+    dragOffsetRef.current = 0;
+    setDragOffset(0);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const handleDrawerPointerMove = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = dragRef.current;
+    if (!drag) {
+      return;
+    }
+    const deltaX = event.clientX - drag.startX;
+    const deltaY = event.clientY - drag.startY;
+    if (!drag.active) {
+      if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 12) {
+        dragRef.current = null;
+        dragOffsetRef.current = 0;
+        setDragOffset(0);
+        event.currentTarget.releasePointerCapture?.(drag.pointerId);
+        return;
+      }
+      if (deltaX < 12 || deltaX < Math.abs(deltaY)) {
+        return;
+      }
+      drag.active = true;
+      setIsSwiping(true);
+    }
+    event.preventDefault();
+    const nextOffset = Math.min(260, Math.max(0, deltaX));
+    dragOffsetRef.current = nextOffset;
+    setDragOffset(nextOffset);
+  };
+
+  const drawerStyle = {
+    '--idt-domain-drawer-swipe-x': `${dragOffset}px`
+  } as CSSProperties;
+
   if (!open) {
     return null;
   }
   return (
     <div className="idt-domain-drawer-root" role="dialog" aria-modal="true" aria-label={title} onKeyDown={handleKeyDown}>
       <button type="button" className="idt-domain-drawer-scrim" aria-hidden="true" tabIndex={-1} onClick={onClose} />
-      <aside className="idt-domain-drawer" ref={drawerRef} tabIndex={-1}>
+      <aside
+        className={classNames(['idt-domain-drawer', isSwiping ? 'is-swiping' : ''])}
+        onPointerCancel={() => finishSwipe()}
+        onPointerDown={handleDrawerPointerDown}
+        onPointerMove={handleDrawerPointerMove}
+        onPointerUp={finishSwipe}
+        ref={drawerRef}
+        style={drawerStyle}
+        tabIndex={-1}
+      >
         <header>
           <div>
             {eyebrow ? <p className="idt-app-kicker">{eyebrow}</p> : null}
