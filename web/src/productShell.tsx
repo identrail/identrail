@@ -6445,7 +6445,7 @@ export function ProductKubernetesConnectPage() {
           {form.mode === 'agent' ? (
             <label>
               API URL
-              <input value={form.apiURL} onChange={(event) => setForm((current) => ({ ...current, apiURL: event.target.value }))} placeholder="https://kubernetes.default.svc" />
+              <input value={form.apiURL} onChange={(event) => setForm((current) => ({ ...current, apiURL: event.target.value }))} placeholder="https://api.identrail.com" />
             </label>
           ) : (
             <>

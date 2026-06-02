@@ -1533,7 +1533,9 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByDisplayValue('Production Kubernetes')).toBeInTheDocument();
     expect(screen.getByLabelText('API URL')).toHaveValue('');
+    expect(screen.getByPlaceholderText('https://api.identrail.com')).toBeInTheDocument();
     expect(screen.queryByDisplayValue('https://k8s.example.com')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('https://kubernetes.default.svc')).not.toBeInTheDocument();
   });
 
   it('saves Kubernetes kubeconfig fallback with workspace and environment scope', async () => {
