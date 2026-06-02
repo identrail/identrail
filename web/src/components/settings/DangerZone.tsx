@@ -124,15 +124,22 @@ export function ConfirmDestructiveModal({
   // accepted checkbox or typed value does not silently re-arm Continue on the
   // next destructive action.
   useEffect(() => {
-    if (open) {
-      setChecked(false);
-      setTyped('');
-      setHolding(false);
-      setRejectedHold(false);
-      holdInteractionRef.current = false;
+    if (!open) {
+      // The component can stay mounted across an open→close transition (the
+      // parent re-renders with open=false). Any hold timer started before the
+      // close would otherwise still fire onConfirm after the destructive
+      // dialog was dismissed.
       clearHoldTimer();
       clearRejectTimer();
+      return;
     }
+    setChecked(false);
+    setTyped('');
+    setHolding(false);
+    setRejectedHold(false);
+    holdInteractionRef.current = false;
+    clearHoldTimer();
+    clearRejectTimer();
   }, [clearHoldTimer, clearRejectTimer, open]);
 
   useEffect(() => {

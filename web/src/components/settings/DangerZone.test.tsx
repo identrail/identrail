@@ -96,6 +96,45 @@ describe('ConfirmDestructiveModal — checkbox confirmation', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
+  it('cancels a pending hold timer when the modal closes mid-hold', () => {
+    // Regression: if the destructive dialog is dismissed (Escape/Cancel or a
+    // parent state change) while a hold is in progress, the pending 900ms
+    // timeout must not fire onConfirm after the modal has been closed.
+    const onConfirm = vi.fn();
+    const { rerender } = render(
+      <ConfirmDestructiveModal
+        body={<p>This is permanent-ish.</p>}
+        confirmation={{ kind: 'checkbox', label: 'I understand.' }}
+        continueLabel="Suspend"
+        onCancel={() => undefined}
+        onConfirm={onConfirm}
+        open
+        title="Suspend your account"
+      />
+    );
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Hold Suspend' }), { button: 0 });
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+
+    rerender(
+      <ConfirmDestructiveModal
+        body={<p>This is permanent-ish.</p>}
+        confirmation={{ kind: 'checkbox', label: 'I understand.' }}
+        continueLabel="Suspend"
+        onCancel={() => undefined}
+        onConfirm={onConfirm}
+        open={false}
+        title="Suspend your account"
+      />
+    );
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
   it('confirms on a bare click so assistive-tech activations remain operable', () => {
     // Assistive tech (screen readers, voice control) often activates buttons
     // by dispatching a click without any preceding pointerdown/keydown. The
