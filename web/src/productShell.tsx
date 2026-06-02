@@ -9846,6 +9846,16 @@ export function ProductShellLayout() {
             <kbd className="idt-app-quick-find-key">⌘K</kbd>
           </button>
 
+          {openDomainFlyout ? (
+            <button
+              type="button"
+              className="idt-domain-flyout-sidebar-backdrop"
+              aria-hidden="true"
+              tabIndex={-1}
+              onClick={closeDomainFlyout}
+            />
+          ) : null}
+
           <nav className="idt-app-shell-nav" aria-label="App sections">
             <NavLink
               to={basePath}
@@ -9867,7 +9877,7 @@ export function ProductShellLayout() {
               const isActive = activeDomain === domain && (!openDomainFlyout || isOpen);
               const triggerID = `idt-${domain}-domain-trigger`;
               return (
-                <div key={domain} className="idt-app-domain-nav-item">
+                <div key={domain} className={`idt-app-domain-nav-item${isOpen ? ' is-open' : ''}`}>
                   <button
                     id={triggerID}
                     ref={(node) => {

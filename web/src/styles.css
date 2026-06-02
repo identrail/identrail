@@ -26995,12 +26995,31 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   touch-action: none;
 }
 
+.idt-domain-flyout-sidebar-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  border: 0;
+  padding: 0;
+  background: rgba(5, 7, 10, 0.54);
+  cursor: default;
+  touch-action: none;
+}
+
 .idt-app-console-layout.is-domain-flyout-open .idt-app-sidebar {
   z-index: 35;
 }
 
 .idt-app-console-layout.is-domain-flyout-open .idt-app-shell-nav {
   overflow: visible;
+}
+
+.idt-app-console-layout.is-domain-flyout-open .idt-app-domain-nav-item.is-open {
+  z-index: 45;
+}
+
+.idt-app-console-layout.is-domain-flyout-open .idt-app-nav-domain-trigger.is-open {
+  z-index: 46;
 }
 
 .idt-domain-flyout {

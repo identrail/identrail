@@ -966,7 +966,7 @@ describe('ProductShellLayout', () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const { ProductShellLayout } = await import('./productShell');
 
-    render(
+    const { container } = render(
       <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/reports']}>
         <Routes>
           <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
@@ -984,6 +984,14 @@ describe('ProductShellLayout', () => {
     expect(screen.getByRole('link', { name: 'Reports' })).not.toHaveClass('active');
     expect(screen.getByRole('button', { name: 'AWS' })).toHaveClass('is-open');
     expect(screen.getByRole('button', { name: 'AWS' })).toHaveAttribute('aria-expanded', 'true');
+    const sidebarBackdrop = container.querySelector('.idt-domain-flyout-sidebar-backdrop');
+    expect(sidebarBackdrop).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'AWS' }).closest('.idt-app-domain-nav-item')).toHaveClass('is-open');
+
+    fireEvent.click(sidebarBackdrop as Element);
+
+    expect(screen.queryByRole('dialog', { name: 'AWS' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Reports' })).toHaveClass('active');
 
     fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
 
