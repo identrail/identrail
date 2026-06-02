@@ -1,3 +1,5 @@
+data "aws_caller_identity" "current" {}
+
 locals {
   api_service_name     = "${var.name_prefix}-${var.environment}-api"
   api_name_hash        = substr(sha1(local.api_service_name), 0, 8)
@@ -27,11 +29,11 @@ locals {
     IDENTRAIL_RUN_MIGRATIONS_ONLY  = "false"
     IDENTRAIL_TRUSTED_PROXIES      = local.api_trusted_proxies
   }
-  user_data_export_bucket_enabled = var.create_api_hosting_resources && var.user_data_export_bucket_enabled
+  user_data_export_bucket_enabled = var.create_api_hosting_resources && var.user_data_export_bucket_enabled && var.create_worker_hosting_resources
   user_data_export_bucket_name = (
     trimspace(var.user_data_export_bucket_name) != "" ?
     trimspace(var.user_data_export_bucket_name) :
-    "${local.api_name_prefix}-exports"
+    "${data.aws_caller_identity.current.account_id}-${local.api_name_prefix}-exports"
   )
   user_data_export_s3_prefix = trimsuffix(trim(trimspace(var.user_data_export_s3_prefix), "/"), "/") == "" ? "" : "${trimsuffix(trim(trimspace(var.user_data_export_s3_prefix), "/"), "/")}/"
   api_user_data_export_environment_variables = local.user_data_export_bucket_enabled ? {

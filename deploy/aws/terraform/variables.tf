@@ -370,9 +370,11 @@ variable "user_data_export_s3_prefix" {
       length(trimspace(var.user_data_export_s3_prefix)) == length(var.user_data_export_s3_prefix) &&
       !startswith(trimspace(var.user_data_export_s3_prefix), "/") &&
       !strcontains(trimspace(var.user_data_export_s3_prefix), "..") &&
-      !strcontains(trimspace(var.user_data_export_s3_prefix), "\\")
+      !strcontains(trimspace(var.user_data_export_s3_prefix), "\\") &&
+      !strcontains(trimspace(var.user_data_export_s3_prefix), "*") &&
+      !strcontains(trimspace(var.user_data_export_s3_prefix), "?")
     )
-    error_message = "user_data_export_s3_prefix must not have surrounding whitespace, start with '/', contain '..', or contain backslashes."
+    error_message = "user_data_export_s3_prefix must not have surrounding whitespace, start with '/', contain '..', contain backslashes, '*' or '?'."
   }
 }
 

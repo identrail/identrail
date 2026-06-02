@@ -45,7 +45,7 @@ func NewS3Storage(client S3API, bucket string, prefix string) (*S3Storage, error
 }
 
 // Put writes a bundle to S3 and returns its object URI.
-func (s *S3Storage) Put(key string, r io.Reader) (string, error) {
+func (s *S3Storage) Put(ctx context.Context, key string, r io.Reader) (string, error) {
 	objectKey, err := s.objectKey(key)
 	if err != nil {
 		return "", err
@@ -53,7 +53,10 @@ func (s *S3Storage) Put(key string, r io.Reader) (string, error) {
 	if r == nil {
 		r = bytes.NewReader(nil)
 	}
-	_, err = s.Client.PutObject(context.Background(), &s3.PutObjectInput{
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	_, err = s.Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(s.Bucket),
 		Key:         aws.String(objectKey),
 		Body:        r,
@@ -66,12 +69,15 @@ func (s *S3Storage) Put(key string, r io.Reader) (string, error) {
 }
 
 // Open returns a read handle for an existing S3 bundle.
-func (s *S3Storage) Open(key string) (io.ReadCloser, error) {
+func (s *S3Storage) Open(ctx context.Context, key string) (io.ReadCloser, error) {
 	objectKey, err := s.objectKey(key)
 	if err != nil {
 		return nil, err
 	}
-	out, err := s.Client.GetObject(context.Background(), &s3.GetObjectInput{
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	out, err := s.Client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.Bucket),
 		Key:    aws.String(objectKey),
 	})
@@ -82,12 +88,15 @@ func (s *S3Storage) Open(key string) (io.ReadCloser, error) {
 }
 
 // Delete removes a bundle. S3 DeleteObject is idempotent for missing keys.
-func (s *S3Storage) Delete(key string) error {
+func (s *S3Storage) Delete(ctx context.Context, key string) error {
 	objectKey, err := s.objectKey(key)
 	if err != nil {
 		return err
 	}
-	if _, err := s.Client.DeleteObject(context.Background(), &s3.DeleteObjectInput{
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, err := s.Client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(s.Bucket),
 		Key:    aws.String(objectKey),
 	}); err != nil {

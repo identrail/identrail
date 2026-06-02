@@ -50,7 +50,7 @@ func TestRunnerHappyPath(t *testing.T) {
 	if saved.PurgeAfter == nil || !saved.PurgeAfter.After(*saved.DownloadExpiresAt) {
 		t.Fatalf("purge after must be later than download expiry: %+v", saved)
 	}
-	rc, err := storage.Open(userexport.StorageKey(saved))
+	rc, err := storage.Open(context.Background(), userexport.StorageKey(saved))
 	if err != nil {
 		t.Fatalf("open bundle: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestRunnerMarksFailedWhenCompletionWriteFails(t *testing.T) {
 	if saved.Status != db.UserDataExportStatusFailed {
 		t.Fatalf("expected failed after completion write error, got %+v", saved)
 	}
-	if _, err := storage.Open(userexport.StorageKey(job)); err == nil {
+	if _, err := storage.Open(context.Background(), userexport.StorageKey(job)); err == nil {
 		t.Fatal("expected bundle to be deleted after failed completion write")
 	}
 }
@@ -152,7 +152,7 @@ func TestRunnerDeletesBundleEvenWhenFailureMarkFails(t *testing.T) {
 	if _, err := runner.Run(context.Background(), job); err == nil {
 		t.Fatal("expected completion write + mark error")
 	}
-	if _, err := storage.Open(userexport.StorageKey(job)); err == nil {
+	if _, err := storage.Open(context.Background(), userexport.StorageKey(job)); err == nil {
 		t.Fatal("expected bundle to be deleted when failure marking also fails")
 	}
 }

@@ -243,7 +243,7 @@ type testStorage struct {
 	deleteErr error
 }
 
-func (s *testStorage) Put(key string, r io.Reader) (string, error) {
+func (s *testStorage) Put(_ context.Context, key string, r io.Reader) (string, error) {
 	contents, err := io.ReadAll(r)
 	if err != nil {
 		return "", err
@@ -252,7 +252,7 @@ func (s *testStorage) Put(key string, r io.Reader) (string, error) {
 	return key, nil
 }
 
-func (s *testStorage) Open(key string) (io.ReadCloser, error) {
+func (s *testStorage) Open(_ context.Context, key string) (io.ReadCloser, error) {
 	contents, ok := s.stored[key]
 	if !ok {
 		return nil, os.ErrNotExist
@@ -260,7 +260,7 @@ func (s *testStorage) Open(key string) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(contents)), nil
 }
 
-func (s *testStorage) Delete(key string) error {
+func (s *testStorage) Delete(_ context.Context, key string) error {
 	if s.deleteErr != nil {
 		return s.deleteErr
 	}

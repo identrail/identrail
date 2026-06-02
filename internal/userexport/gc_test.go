@@ -154,7 +154,7 @@ func TestGCRunnerHandlesMarkErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
-	if err := storage.Delete(userexport.StorageKey(job)); err != nil {
+	if err := storage.Delete(context.Background(), userexport.StorageKey(job)); err != nil {
 		t.Fatalf("cleanup: %v", err)
 	}
 	result, err := (&userexport.GCRunner{
@@ -223,28 +223,28 @@ type failingStorage struct {
 	err error
 }
 
-func (s *failingStorage) Put(string, io.Reader) (string, error) {
+func (s *failingStorage) Put(_ context.Context, _ string, _ io.Reader) (string, error) {
 	return "", s.err
 }
 
-func (s *failingStorage) Open(string) (io.ReadCloser, error) {
+func (s *failingStorage) Open(_ context.Context, _ string) (io.ReadCloser, error) {
 	return nil, s.err
 }
 
-func (s *failingStorage) Delete(string) error {
+func (s *failingStorage) Delete(_ context.Context, _ string) error {
 	return s.err
 }
 
 type fakeStorage struct{}
 
-func (s *fakeStorage) Put(string, io.Reader) (string, error) {
+func (s *fakeStorage) Put(_ context.Context, _ string, _ io.Reader) (string, error) {
 	return "", nil
 }
 
-func (s *fakeStorage) Open(string) (io.ReadCloser, error) {
+func (s *fakeStorage) Open(_ context.Context, _ string) (io.ReadCloser, error) {
 	return nil, nil
 }
 
-func (s *fakeStorage) Delete(string) error {
+func (s *fakeStorage) Delete(_ context.Context, _ string) error {
 	return nil
 }

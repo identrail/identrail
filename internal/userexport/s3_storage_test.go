@@ -58,13 +58,13 @@ func TestS3StorageRejectsInvalidInputs(t *testing.T) {
 		t.Fatalf("storage: %v", err)
 	}
 	for _, key := range []string{"", " ../escape.zip ", "/absolute.zip", "nested/../escape.zip", "bad\x00key.zip"} {
-		if _, err := storage.Put(key, strings.NewReader("data")); err == nil {
+		if _, err := storage.Put(context.Background(), key, strings.NewReader("data")); err == nil {
 			t.Fatalf("expected Put to reject key %q", key)
 		}
-		if _, err := storage.Open(key); err == nil {
+		if _, err := storage.Open(context.Background(), key); err == nil {
 			t.Fatalf("expected Open to reject key %q", key)
 		}
-		if err := storage.Delete(key); err == nil {
+		if err := storage.Delete(context.Background(), key); err == nil {
 			t.Fatalf("expected Delete to reject key %q", key)
 		}
 	}
@@ -76,7 +76,7 @@ func TestS3StorageRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
-	location, err := storage.Put("user/job.zip", strings.NewReader("bundle"))
+	location, err := storage.Put(context.Background(), "user/job.zip", strings.NewReader("bundle"))
 	if err != nil {
 		t.Fatalf("put: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestS3StorageRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected put bucket=%q key=%q body=%q", client.putBucket, client.putKey, client.putBody)
 	}
 
-	rc, err := storage.Open("user/job.zip")
+	rc, err := storage.Open(context.Background(), "user/job.zip")
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestS3StorageRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected get bucket=%q key=%q", client.getBucket, client.getKey)
 	}
 
-	if err := storage.Delete("user/job.zip"); err != nil {
+	if err := storage.Delete(context.Background(), "user/job.zip"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if client.deleteBucket != "exports" || client.deleteKey != "tenant-data/user/job.zip" {
