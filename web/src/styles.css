@@ -27097,9 +27097,9 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   z-index: 20;
   border: 0;
   padding: 0;
-  background: rgba(5, 7, 10, 0.58);
-  -webkit-backdrop-filter: blur(22px) saturate(0.84) brightness(0.72);
-  backdrop-filter: blur(22px) saturate(0.84) brightness(0.72);
+  background: #000000;
+  -webkit-backdrop-filter: blur(28px) saturate(0.84) brightness(0.48);
+  backdrop-filter: blur(28px) saturate(0.84) brightness(0.48);
   cursor: default;
   touch-action: none;
 }
@@ -27110,7 +27110,7 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   z-index: 40;
   border: 0;
   padding: 0;
-  background: rgba(5, 7, 10, 0.54);
+  background: #000000;
   cursor: default;
   touch-action: none;
 }
