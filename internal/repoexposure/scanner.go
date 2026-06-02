@@ -92,6 +92,7 @@ type Option func(*Scanner)
 type Scanner struct {
 	run             CommandRunner
 	runEnv          EnvCommandRunner
+	runIsDefault    bool
 	now             func() time.Time
 	historyLimit    int
 	maxFindings     int
@@ -124,12 +125,14 @@ type ScanResult struct {
 
 // NewScanner builds a repo exposure scanner with secure defaults.
 func NewScanner(runner CommandRunner, options ...Option) *Scanner {
+	runIsDefault := runner == nil
 	if runner == nil {
 		runner = defaultCommandRunner
 	}
 	s := &Scanner{
 		run:          runner,
 		runEnv:       defaultEnvCommandRunner,
+		runIsDefault: runIsDefault,
 		now:          time.Now,
 		historyLimit: defaultHistoryLimit,
 		maxFindings:  defaultMaxFindings,
@@ -597,7 +600,17 @@ func (s *Scanner) cloneCommandRunner(ctx context.Context, workdir string, cloneU
 		return nil, nil, err
 	}
 	if !useCredential {
-		return withGitHTTPSResolvePin(s.run, resolvePin), func() {}, nil
+		runner := s.run
+		if s.runIsDefault {
+			if s.runEnv == nil {
+				s.runEnv = defaultEnvCommandRunner
+			}
+			env := appendGitScanEnvOverrides(nil)
+			runner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+				return s.runEnv(ctx, env, name, args...)
+			}
+		}
+		return withGitHTTPSResolvePin(runner, resolvePin), func() {}, nil
 	}
 	if s.runEnv == nil {
 		s.runEnv = defaultEnvCommandRunner
@@ -1775,7 +1788,7 @@ func severityRank(severity domain.FindingSeverity) int {
 
 func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := newRepositoryCommand(ctx, name, args...)
-	cmd.Env = appendGitScanEnvOverrides(os.Environ())
+	cmd.Env = appendGitProxyEnvOverrides(os.Environ())
 	output, err := cmd.CombinedOutput()
 	if err != nil && ctx.Err() != nil {
 		return output, ctx.Err()
@@ -1793,10 +1806,15 @@ func defaultEnvCommandRunner(ctx context.Context, env []string, name string, arg
 	return output, err
 }
 
-func appendGitScanEnvOverrides(env []string) []string {
-	merged := make([]string, 0, len(env)+len(gitProxyEnvOverrides)+len(gitConfigIsolationEnvOverrides))
+func appendGitProxyEnvOverrides(env []string) []string {
+	merged := make([]string, 0, len(env)+len(gitProxyEnvOverrides))
 	merged = append(merged, env...)
 	merged = append(merged, gitProxyEnvOverrides...)
+	return merged
+}
+
+func appendGitScanEnvOverrides(env []string) []string {
+	merged := appendGitProxyEnvOverrides(env)
 	merged = append(merged, gitConfigIsolationEnvOverrides...)
 	return merged
 }

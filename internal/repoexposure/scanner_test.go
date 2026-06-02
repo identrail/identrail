@@ -981,6 +981,47 @@ func TestCloneRemoteRepositoryPinsHTTPSHostResolutionWithExplicitPort(t *testing
 	}
 }
 
+func TestCloneRemoteRepositoryIsolatesGitConfigForDefaultRemoteClone(t *testing.T) {
+	stubRepositoryHostLookup(t, map[string][]net.IP{
+		"github.com": {net.ParseIP("140.82.112.3")},
+	})
+	var gotEnv []string
+	var gotCommands [][]string
+	scanner := NewScanner(nil,
+		WithEnvCommandRunner(func(_ context.Context, env []string, name string, args ...string) ([]byte, error) {
+			gotEnv = append([]string(nil), env...)
+			command := append([]string{name}, args...)
+			gotCommands = append(gotCommands, command)
+			if reflect.DeepEqual(command, pinnedGitCommand("github.com", "443", "140.82.112.3", "ls-remote", "--symref", "https://github.com/owner/repo.git")) {
+				return []byte(strings.Join([]string{
+					"ref: refs/heads/main\tHEAD",
+					"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tHEAD",
+					"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/heads/main",
+				}, "\n")), nil
+			}
+			return []byte("ok"), nil
+		}),
+	)
+
+	err := scanner.cloneRemoteRepository(context.Background(), t.TempDir(), "https://github.com/owner/repo.git", filepath.Join(t.TempDir(), "repo.git"))
+	if err != nil {
+		t.Fatalf("clone remote repository: %v", err)
+	}
+	if len(gotCommands) == 0 {
+		t.Fatal("expected clone commands to run")
+	}
+	for _, expected := range gitProxyEnvOverrides {
+		if !hasEnvEntry(gotEnv, expected) {
+			t.Fatalf("expected default remote clone environment to include %q, got %+v", expected, gotEnv)
+		}
+	}
+	for _, expected := range gitConfigIsolationEnvOverrides {
+		if !hasEnvEntry(gotEnv, expected) {
+			t.Fatalf("expected default remote clone environment to include %q, got %+v", expected, gotEnv)
+		}
+	}
+}
+
 func TestCloneRemoteRepositoryPinsAllHTTPSHostResolutions(t *testing.T) {
 	stubRepositoryHostLookup(t, map[string][]net.IP{
 		"multi.example": {
