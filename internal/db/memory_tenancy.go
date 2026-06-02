@@ -604,15 +604,73 @@ func (m *MemoryStore) HardDeleteWorkspace(ctx context.Context, tenantID, workspa
 			delete(m.awsCoverages, coverageKey)
 		}
 	}
+	// Collect scan + repo-scan IDs first so the second pass can drain
+	// their child artifact maps. The postgres backend gets this "for
+	// free" via FK ON DELETE CASCADE on scans/repo_scans; the memory
+	// store has no such cascade so we must replicate it explicitly
+	// (codex round-4 P2 on #1450). Without this the memory backend
+	// retained workspace-scoped findings, raw assets, identities,
+	// policies, relationships, permissions, scan events, and repo
+	// findings after a hard delete — diverging from postgres and
+	// leaking dev/test fixtures across purges.
+	scanIDs := make([]string, 0)
 	for scanID, record := range m.scans {
 		if record.TenantID == tenant && record.WorkspaceID == id {
+			scanIDs = append(scanIDs, scanID)
 			delete(m.scans, scanID)
 		}
 	}
+	repoScanIDs := make([]string, 0)
 	for scanID, record := range m.repoScans {
 		if record.TenantID == tenant && record.WorkspaceID == id {
+			repoScanIDs = append(repoScanIDs, scanID)
 			delete(m.repoScans, scanID)
 		}
+	}
+	// Per-scan child artifacts. Each map uses a composite key whose
+	// first `|`-separated segment is the scan id (see
+	// UpsertScanArtifacts in memory.go), so a HasPrefix match drains
+	// every entry tied to a purged scan id in one pass.
+	for _, scanID := range scanIDs {
+		prefix := scanID + "|"
+		for key := range m.rawAssets {
+			if strings.HasPrefix(key, prefix) {
+				delete(m.rawAssets, key)
+			}
+		}
+		for key := range m.identities {
+			if strings.HasPrefix(key, prefix) {
+				delete(m.identities, key)
+			}
+		}
+		for key := range m.policies {
+			if strings.HasPrefix(key, prefix) {
+				delete(m.policies, key)
+			}
+		}
+		for key := range m.relationships {
+			if strings.HasPrefix(key, prefix) {
+				delete(m.relationships, key)
+			}
+		}
+		for key := range m.permissions {
+			if strings.HasPrefix(key, prefix) {
+				delete(m.permissions, key)
+			}
+		}
+		// scanFindings indexes finding keys; drop those finding rows
+		// first then the index entry.
+		for _, findingKey := range m.scanFindings[scanID] {
+			delete(m.findings, findingKey)
+		}
+		delete(m.scanFindings, scanID)
+		delete(m.events, scanID)
+	}
+	for _, repoScanID := range repoScanIDs {
+		for _, findingKey := range m.repoFindingIDs[repoScanID] {
+			delete(m.repoFindings, findingKey)
+		}
+		delete(m.repoFindingIDs, repoScanID)
 	}
 	// repo_scan_cursors hold tenant/workspace-scoped incremental scan
 	// state with no FK back to tenancy_workspaces; codex round-2 P2 on

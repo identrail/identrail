@@ -3,12 +3,14 @@ package db
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers"
 	"github.com/identrail/identrail/internal/secretstore"
 )
 
@@ -1567,6 +1569,74 @@ func TestMemoryStoreHardDeleteWorkspaceRefusesActive(t *testing.T) {
 	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
 	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", now, now); err == nil {
 		t.Fatal("expected hard delete to refuse active workspace")
+	}
+}
+
+// hasMemoryKeyWithPrefix reports whether any key in m starts with the
+// given prefix. Used by the HardDeleteWorkspace cascade test below.
+func hasMemoryKeyWithPrefix[V any](m map[string]V, prefix string) bool {
+	for key := range m {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestMemoryStoreHardDeleteWorkspaceCascadesScanArtifacts(t *testing.T) {
+	// Codex round-4 P2 on #1450: the postgres backend cascades
+	// scan/repo_scan child rows via FK ON DELETE CASCADE, but the
+	// memory backend has no such cascade. The previous purge dropped
+	// only the parent scan/repo_scan map entries and left every child
+	// artifact map (rawAssets, identities, policies, relationships,
+	// permissions, findings, scanFindings, events) populated for the
+	// purged workspace's scans. Pin the explicit cascade so memory +
+	// postgres reach the same hard-delete end state.
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+
+	scanRecord, err := store.CreateScan(ctx, "aws", now)
+	if err != nil {
+		t.Fatalf("create scan: %v", err)
+	}
+	if err := store.UpsertArtifacts(ctx, scanRecord.ID, ScanArtifacts{
+		RawAssets: []providers.RawAsset{{SourceID: "raw-1", Kind: "iam_role"}},
+		Bundle: providers.NormalizedBundle{
+			Identities: []domain.Identity{{ID: "id-1"}},
+			Policies:   []domain.Policy{{ID: "p-1"}},
+		},
+		Relationships: []domain.Relationship{{ID: "r-1", FromNodeID: "id-1", ToNodeID: "p-1"}},
+	}); err != nil {
+		t.Fatalf("upsert scan artifacts: %v", err)
+	}
+
+	saved, err := store.SoftDeleteWorkspace(ctx, "ws-1", past)
+	if err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", *saved.DeletedAt, now); err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+
+	prefix := scanRecord.ID + "|"
+	if hasMemoryKeyWithPrefix(store.rawAssets, prefix) {
+		t.Fatalf("expected rawAssets entries for purged scan %s removed", scanRecord.ID)
+	}
+	if hasMemoryKeyWithPrefix(store.identities, prefix) {
+		t.Fatalf("expected identities entries for purged scan %s removed", scanRecord.ID)
+	}
+	if hasMemoryKeyWithPrefix(store.policies, prefix) {
+		t.Fatalf("expected policies entries for purged scan %s removed", scanRecord.ID)
+	}
+	if hasMemoryKeyWithPrefix(store.relationships, prefix) {
+		t.Fatalf("expected relationships entries for purged scan %s removed", scanRecord.ID)
+	}
+	if _, ok := store.scanFindings[scanRecord.ID]; ok {
+		t.Fatalf("expected scanFindings entry for %s removed", scanRecord.ID)
+	}
+	if _, ok := store.events[scanRecord.ID]; ok {
+		t.Fatalf("expected events entry for %s removed", scanRecord.ID)
 	}
 }
 
