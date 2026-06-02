@@ -366,20 +366,25 @@ export type WorkspaceRecord = {
   deleted_at?: string | null;
 };
 
+// Each lifecycle endpoint deterministically transitions the workspace to a
+// single terminal state, so the top-level `status` is narrowed to that
+// literal (cubic PR #1456 P3). The broader `WorkspaceLifecycleStatus` still
+// lives on `workspace.status` via `WorkspaceRecord` because that field
+// reflects whatever the backend serialized for the workspace as a whole.
 export type WorkspaceSuspendResponse = {
   workspace: WorkspaceRecord;
-  status: WorkspaceLifecycleStatus;
+  status: 'suspended';
   suspended_at?: string | null;
 };
 
 export type WorkspaceReactivateResponse = {
   workspace: WorkspaceRecord;
-  status: WorkspaceLifecycleStatus;
+  status: 'active';
 };
 
 export type WorkspaceDeleteResponse = {
   workspace: WorkspaceRecord;
-  status: WorkspaceLifecycleStatus;
+  status: 'deleted';
   deleted_at?: string | null;
   hard_delete_after?: string;
   grace_period_hours?: number;
@@ -387,7 +392,7 @@ export type WorkspaceDeleteResponse = {
 
 export type WorkspaceCancelDeletionResponse = {
   workspace: WorkspaceRecord;
-  status: WorkspaceLifecycleStatus;
+  status: 'active';
 };
 
 export type WorkspaceSoleOwnerAffectedMember = {

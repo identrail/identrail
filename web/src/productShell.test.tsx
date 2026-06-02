@@ -4166,6 +4166,42 @@ describe('Workspace Danger Zone (#1420)', () => {
     await screen.findByTestId('idt-reactivate-workspace-row');
   });
 
+  it('still renders a fallback sole-owner blocker when affected_members is empty', async () => {
+    // Regression for cubic PR #1456 P2: previously a 409 with a missing or
+    // malformed affected_members array would set the stranded list to []
+    // and the blocker (which keyed off length > 0) would not render at all,
+    // leaving the actor with a closed pending state and no feedback.
+    const { suspendWorkspace, api } = await renderProductSettingsPage({ me: ownerMe });
+    await screen.findByTestId('idt-suspend-workspace-row');
+    suspendWorkspace.mockRejectedValue(
+      new api.ApiError('sole owner requires transfer', 409, {
+        code: 'sole_owner_requires_transfer',
+        payload: { code: 'sole_owner_requires_transfer' }
+      })
+    );
+
+    await act(async () => {
+      fireEvent.click(
+        within(screen.getByTestId('idt-suspend-workspace-row')).getByRole('button')
+      );
+    });
+    const modal = await screen.findByTestId('idt-danger-modal');
+    await act(async () => {
+      fireEvent.change(within(modal).getByTestId('idt-danger-modal-typed'), {
+        target: { value: 'SUSPEND' }
+      });
+    });
+    await act(async () => {
+      fireEvent.click(within(modal).getByTestId('idt-danger-modal-continue'));
+    });
+    const block = await screen.findByTestId('idt-suspend-workspace-sole-owner-block');
+    // Fallback copy must surface even with no affected-member list.
+    expect(block.textContent).toMatch(/only one owner/i);
+    expect(
+      within(block).getByRole('link', { name: /manage members/i }).getAttribute('href')
+    ).toBe('/app/tenant-a/workspace-a/workspaces');
+  });
+
   it('renders the sole-owner inline block with a link to manage members', async () => {
     const { suspendWorkspace, api } = await renderProductSettingsPage({ me: ownerMe });
     await screen.findByTestId('idt-suspend-workspace-row');

@@ -16127,6 +16127,11 @@ export function ProductSettingsPage() {
   const [workspaceSuspendStranded, setWorkspaceSuspendStranded] = useState<
     WorkspaceSoleOwnerAffectedMember[]
   >([]);
+  // Sticky 409 flag (cubic PR #1456 P2): a malformed or empty `affected_members`
+  // payload would otherwise leave `workspaceSuspendStranded` empty and silently
+  // hide the blocker. Track the sole-owner 409 explicitly so the inline block
+  // still renders with fallback copy + the Manage-members deep link.
+  const [workspaceSuspendSoleOwner, setWorkspaceSuspendSoleOwner] = useState(false);
   const [workspaceReactivateModalOpen, setWorkspaceReactivateModalOpen] = useState(false);
   const [workspaceReactivatePending, setWorkspaceReactivatePending] = useState(false);
   const [workspaceReactivateError, setWorkspaceReactivateError] = useState('');
@@ -16136,6 +16141,8 @@ export function ProductSettingsPage() {
   const [workspaceDeleteStranded, setWorkspaceDeleteStranded] = useState<
     WorkspaceSoleOwnerAffectedMember[]
   >([]);
+  // Mirrors `workspaceSuspendSoleOwner` for the Delete flow (cubic PR #1456 P2).
+  const [workspaceDeleteSoleOwner, setWorkspaceDeleteSoleOwner] = useState(false);
   const [workspaceRestoreModalOpen, setWorkspaceRestoreModalOpen] = useState(false);
   const [workspaceRestorePending, setWorkspaceRestorePending] = useState(false);
   const [workspaceRestoreError, setWorkspaceRestoreError] = useState('');
@@ -16570,6 +16577,7 @@ export function ProductSettingsPage() {
   const handleOpenWorkspaceSuspendModal = () => {
     setWorkspaceSuspendError('');
     setWorkspaceSuspendStranded([]);
+    setWorkspaceSuspendSoleOwner(false);
     setWorkspaceSuspendModalOpen(true);
   };
   const handleCancelWorkspaceSuspendModal = () => {
@@ -16577,12 +16585,14 @@ export function ProductSettingsPage() {
     setWorkspaceSuspendModalOpen(false);
     setWorkspaceSuspendError('');
     setWorkspaceSuspendStranded([]);
+    setWorkspaceSuspendSoleOwner(false);
   };
   const handleSuspendWorkspace = async () => {
     if (workspaceSuspendPending || !scope) return;
     setWorkspaceSuspendPending(true);
     setWorkspaceSuspendError('');
     setWorkspaceSuspendStranded([]);
+    setWorkspaceSuspendSoleOwner(false);
     try {
       const response = await apiClient.suspendWorkspace(
         scope.workspaceID,
@@ -16596,6 +16606,11 @@ export function ProductSettingsPage() {
         err.status === 409 &&
         err.code === 'sole_owner_requires_transfer'
       ) {
+        // Latch the 409 flag even when affected_members fails to parse
+        // (cubic PR #1456 P2) so the inline blocker still renders with a
+        // fallback message — otherwise the modal would close the pending
+        // state with no visible error and the actor would be left guessing.
+        setWorkspaceSuspendSoleOwner(true);
         setWorkspaceSuspendStranded(workspaceSoleOwnerMembersFromError(err));
       } else {
         setWorkspaceSuspendError(
@@ -16639,6 +16654,7 @@ export function ProductSettingsPage() {
   const handleOpenWorkspaceDeleteModal = () => {
     setWorkspaceDeleteError('');
     setWorkspaceDeleteStranded([]);
+    setWorkspaceDeleteSoleOwner(false);
     setWorkspaceDeleteModalOpen(true);
   };
   const handleCancelWorkspaceDeleteModal = () => {
@@ -16646,12 +16662,14 @@ export function ProductSettingsPage() {
     setWorkspaceDeleteModalOpen(false);
     setWorkspaceDeleteError('');
     setWorkspaceDeleteStranded([]);
+    setWorkspaceDeleteSoleOwner(false);
   };
   const handleDeleteWorkspace = async () => {
     if (workspaceDeletePending || !scope) return;
     setWorkspaceDeletePending(true);
     setWorkspaceDeleteError('');
     setWorkspaceDeleteStranded([]);
+    setWorkspaceDeleteSoleOwner(false);
     try {
       const response: WorkspaceDeleteResponse = await apiClient.deleteWorkspace(
         scope.workspaceID,
@@ -16665,6 +16683,9 @@ export function ProductSettingsPage() {
         err.status === 409 &&
         err.code === 'sole_owner_requires_transfer'
       ) {
+        // See suspend handler — keep the blocker visible even with an empty
+        // or malformed affected_members payload (cubic PR #1456 P2).
+        setWorkspaceDeleteSoleOwner(true);
         setWorkspaceDeleteStranded(workspaceSoleOwnerMembersFromError(err));
       } else {
         setWorkspaceDeleteError(
@@ -17210,21 +17231,35 @@ export function ProductSettingsPage() {
           <>
             <p>Connectors, scans, and webhooks will pause.</p>
             <p>Member access and stored data remain intact.</p>
-            {workspaceSuspendStranded.length > 0 ? (
+            {workspaceSuspendSoleOwner ? (
               <div
                 className="idt-danger-modal-blocker"
                 data-testid="idt-suspend-workspace-sole-owner-block"
                 role="alert"
               >
-                <p>
-                  Promote another owner before suspending so these members are not
-                  stranded.
-                </p>
-                <ul>
-                  {workspaceSuspendStranded.map((member) => (
-                    <li key={member.member_id}>{workspaceSoleOwnerMemberLabel(member)}</li>
-                  ))}
-                </ul>
+                {workspaceSuspendStranded.length > 0 ? (
+                  <>
+                    <p>
+                      Promote another owner before suspending so these members are not
+                      stranded.
+                    </p>
+                    <ul>
+                      {workspaceSuspendStranded.map((member) => (
+                        <li key={member.member_id}>
+                          {workspaceSoleOwnerMemberLabel(member)}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  // Backend confirmed sole-owner stranding but the affected-member
+                  // list didn't parse — still surface the blocker so the actor
+                  // knows what to do (cubic PR #1456 P2).
+                  <p>
+                    This workspace has only one owner. Promote another owner before
+                    suspending so other members are not stranded.
+                  </p>
+                )}
                 <Link to={workspacesPath}>Manage members</Link>
               </div>
             ) : null}
@@ -17272,21 +17307,32 @@ export function ProductSettingsPage() {
           <>
             <p>This starts a 30-day recovery window and disables the workspace.</p>
             <p>After the window, the workspace and all its data are permanently purged.</p>
-            {workspaceDeleteStranded.length > 0 ? (
+            {workspaceDeleteSoleOwner ? (
               <div
                 className="idt-danger-modal-blocker"
                 data-testid="idt-delete-workspace-sole-owner-block"
                 role="alert"
               >
-                <p>
-                  Promote another owner before deleting so these members are not
-                  stranded.
-                </p>
-                <ul>
-                  {workspaceDeleteStranded.map((member) => (
-                    <li key={member.member_id}>{workspaceSoleOwnerMemberLabel(member)}</li>
-                  ))}
-                </ul>
+                {workspaceDeleteStranded.length > 0 ? (
+                  <>
+                    <p>
+                      Promote another owner before deleting so these members are not
+                      stranded.
+                    </p>
+                    <ul>
+                      {workspaceDeleteStranded.map((member) => (
+                        <li key={member.member_id}>
+                          {workspaceSoleOwnerMemberLabel(member)}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p>
+                    This workspace has only one owner. Promote another owner before
+                    deleting so other members are not stranded.
+                  </p>
+                )}
                 <Link to={workspacesPath}>Manage members</Link>
               </div>
             ) : null}
