@@ -1,4 +1,6 @@
-data "aws_caller_identity" "current" {}
+data "aws_caller_identity" "current" {
+  count = local.user_data_export_bucket_enabled && trimspace(var.user_data_export_bucket_name) == "" ? 1 : 0
+}
 
 locals {
   api_service_name     = "${var.name_prefix}-${var.environment}-api"
@@ -33,7 +35,10 @@ locals {
   user_data_export_bucket_name = (
     trimspace(var.user_data_export_bucket_name) != "" ?
     trimspace(var.user_data_export_bucket_name) :
-    "${data.aws_caller_identity.current.account_id}-${local.api_name_prefix}-exports"
+    (local.user_data_export_bucket_enabled ?
+      "${data.aws_caller_identity.current[0].account_id}-${local.api_name_prefix}-exports" :
+      ""
+    )
   )
   user_data_export_s3_prefix = trimsuffix(trim(trimspace(var.user_data_export_s3_prefix), "/"), "/") == "" ? "" : "${trimsuffix(trim(trimspace(var.user_data_export_s3_prefix), "/"), "/")}/"
   api_user_data_export_environment_variables = local.user_data_export_bucket_enabled ? {
