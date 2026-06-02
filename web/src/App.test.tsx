@@ -2758,7 +2758,7 @@ describe('App', () => {
     fireEvent.change(within(modal).getByLabelText(/Confirm primary email/i), {
       target: { value: 'owner@example.com' }
     });
-    fireEvent.click(within(modal).getByRole('button', { name: 'Delete account' }));
+    fireEvent.click(within(modal).getByRole('button', { name: 'Hold Delete account' }));
 
     const blocker = await within(modal).findByTestId('idt-delete-sole-owner-workspaces');
     expect(blocker).toHaveTextContent(/Transfer ownership for these workspaces/i);

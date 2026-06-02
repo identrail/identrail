@@ -100,6 +100,11 @@ export function ConfirmDestructiveModal({
   const confirmRef = useRef<HTMLButtonElement | null>(null);
   const holdTimerRef = useRef<number | null>(null);
   const rejectTimerRef = useRef<number | null>(null);
+  // Tracks whether the current activation was initiated through the
+  // pointer/keyboard hold flow. If a click arrives without this flag set
+  // (assistive tech, voice control, programmatic .click()), we fall back to
+  // a direct confirmation so those flows remain operable.
+  const holdInteractionRef = useRef(false);
 
   const clearHoldTimer = useCallback(() => {
     if (holdTimerRef.current !== null) {
@@ -124,6 +129,7 @@ export function ConfirmDestructiveModal({
       setTyped('');
       setHolding(false);
       setRejectedHold(false);
+      holdInteractionRef.current = false;
       clearHoldTimer();
       clearRejectTimer();
     }
@@ -276,10 +282,21 @@ export function ConfirmDestructiveModal({
             className={confirmButtonClassName}
             data-testid="idt-danger-modal-continue"
             disabled={!canContinue || pending}
-            onClick={(event) => event.preventDefault()}
+            onClick={(event) => {
+              event.preventDefault();
+              if (holdInteractionRef.current) {
+                holdInteractionRef.current = false;
+                return;
+              }
+              if (!canContinue || pending) {
+                return;
+              }
+              onConfirm();
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
+                holdInteractionRef.current = true;
                 startConfirmHold();
               }
             }}
@@ -294,6 +311,7 @@ export function ConfirmDestructiveModal({
               if (event.button !== 0) {
                 return;
               }
+              holdInteractionRef.current = true;
               startConfirmHold();
             }}
             onPointerLeave={() => cancelConfirmHold(false)}

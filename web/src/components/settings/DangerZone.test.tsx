@@ -75,7 +75,7 @@ describe('ConfirmDestructiveModal — checkbox confirmation', () => {
     return { onConfirm, onCancel };
   }
 
-  it('keeps Continue disabled until the checkbox is checked, then requires a hold', () => {
+  it('keeps Continue disabled until the checkbox is checked, then completes via a pointer hold', () => {
     const { onConfirm } = renderCheckboxModal();
     const cont = screen.getByRole('button', { name: 'Suspend' });
     expect(cont).toBeDisabled();
@@ -85,8 +85,6 @@ describe('ConfirmDestructiveModal — checkbox confirmation', () => {
     fireEvent.click(screen.getByRole('checkbox'));
     const armed = screen.getByRole('button', { name: 'Hold Suspend' });
     expect(armed).toBeEnabled();
-    fireEvent.click(armed);
-    expect(onConfirm).not.toHaveBeenCalled();
     fireEvent.pointerDown(armed, { button: 0 });
     act(() => {
       vi.advanceTimersByTime(899);
@@ -95,6 +93,17 @@ describe('ConfirmDestructiveModal — checkbox confirmation', () => {
     act(() => {
       vi.advanceTimersByTime(1);
     });
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('confirms on a bare click so assistive-tech activations remain operable', () => {
+    // Assistive tech (screen readers, voice control) often activates buttons
+    // by dispatching a click without any preceding pointerdown/keydown. The
+    // hold gate would lock those users out of the destructive flow, so a
+    // bare click after the checkbox guard must still confirm.
+    const { onConfirm } = renderCheckboxModal();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Hold Suspend' }));
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
