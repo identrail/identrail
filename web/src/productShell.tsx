@@ -6329,6 +6329,9 @@ export function ProductKubernetesConnectPage() {
     setEnrollment(null);
     setMessage('');
     setError('');
+  }, [selectedEnvironmentID]);
+
+  useEffect(() => {
     setForm((current) => ({
       ...current,
       displayName: data.connection?.display_name ?? '',
@@ -6336,7 +6339,7 @@ export function ProductKubernetesConnectPage() {
       apiURL: '',
       kubeconfig: ''
     }));
-  }, [data.connection?.connector_id, selectedEnvironmentID]);
+  }, [data.connection?.connector_id, data.connection?.display_name, data.connection?.context, selectedEnvironmentID]);
 
   if (!scope) {
     return (

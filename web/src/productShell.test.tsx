@@ -1500,7 +1500,10 @@ describe('Domain-first app routes', () => {
         }
       ]
     });
-    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: disconnectedKubernetes });
+    const getKubernetesProjectConnection = vi
+      .spyOn(api.apiClient, 'getKubernetesProjectConnection')
+      .mockResolvedValueOnce({ connection: disconnectedKubernetes })
+      .mockResolvedValueOnce({ connection: connectedKubernetes });
     vi.spyOn(api.apiClient, 'startKubernetesConnector').mockResolvedValue({
       connection: connectedKubernetes,
       enrollment_token: 'enroll-token-123',
@@ -1534,7 +1537,9 @@ describe('Domain-first app routes', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
-    expect(await screen.findByText('enroll-token-123')).toBeInTheDocument();
+    await waitFor(() => expect(getKubernetesProjectConnection).toHaveBeenCalledTimes(2));
+    expect(await screen.findByDisplayValue('Production Kubernetes')).toBeInTheDocument();
+    expect(screen.getByText('enroll-token-123')).toBeInTheDocument();
     expect(screen.getByText(/helm upgrade --install identrail-agent/i)).toBeInTheDocument();
   });
 
