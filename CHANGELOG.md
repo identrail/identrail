@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- Switched the `Enforce Branch Protection` workflow off the long-lived
+  `REPO_ADMIN_TOKEN` PAT and onto a dedicated GitHub App that mints a
+  short-lived installation token per run via `actions/create-github-app-token`.
+  The App is scoped to `Administration: Read & write`, `Contents: Read-only`,
+  and `Metadata: Read-only` on this repo only, with webhooks disabled.
+  Required secrets are now `BRANCH_PROTECTION_APP_ID` and
+  `BRANCH_PROTECTION_APP_PRIVATE_KEY`; see CONTRIBUTING.md → "Repo secrets"
+  for the App's expected install state. Eliminates the silent failure mode
+  where the daily branch-protection cron broke after a PAT expired.
 - Bumped the Go toolchain to `1.25.11` and the backend builder image to the
   matching `golang:1.25.11-alpine` digest to clear stdlib advisories
   GO-2026-5037 and GO-2026-5039, which the daily OSV scan was failing on.

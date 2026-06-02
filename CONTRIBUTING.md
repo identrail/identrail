@@ -166,6 +166,26 @@ Maintainers may request revision or rejection when:
 - contributor cannot explain critical logic
 - Contributor has refused to sign DCO - this is a must.
 
+## Repo Secrets
+
+Some workflows in `.github/workflows/` depend on repository secrets that
+maintainers must configure outside the codebase. The current list:
+
+| Secret | Used by | Purpose |
+|---|---|---|
+| `BRANCH_PROTECTION_APP_ID` | `enforce-branch-protection.yml` | Numeric App ID of the dedicated branch-protection GitHub App installed on this repo. |
+| `BRANCH_PROTECTION_APP_PRIVATE_KEY` | `enforce-branch-protection.yml` | Private key (`.pem` contents) for the same App. The workflow exchanges these two values for a short-lived installation token at runtime. |
+
+The branch-protection App must be installed on `identrail/identrail` with
+Repository permissions `Administration: Read & write`, `Contents: Read-only`,
+and `Metadata: Read-only`. Nothing else. Webhooks should be disabled — the App
+is API-only and never receives events.
+
+GitHub App installation tokens auto-rotate, so there is no calendar rotation
+to maintain. If the App is uninstalled or the private key is regenerated,
+both secrets must be updated in **Repo Settings → Secrets and variables →
+Actions**.
+
 ## Security Issues
 
 Do not open public issues for suspected vulnerabilities.
