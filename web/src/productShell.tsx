@@ -6333,7 +6333,7 @@ export function ProductKubernetesConnectPage() {
       ...current,
       displayName: data.connection?.display_name ?? '',
       context: data.connection?.context ?? '',
-      apiURL: data.connection?.server ?? '',
+      apiURL: '',
       kubeconfig: ''
     }));
   }, [data.connection?.connector_id, selectedEnvironmentID]);
