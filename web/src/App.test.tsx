@@ -145,6 +145,76 @@ function currentMePayload(tenantID = 'default', workspaceID = 'default', role = 
   };
 }
 
+function projectListPayload() {
+  return {
+    items: [
+      {
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'project-1',
+        name: 'Production AWS',
+        slug: 'production-aws',
+        description: 'AWS production account and region coverage.',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }
+    ]
+  };
+}
+
+function awsConnectionPayload(connected = true) {
+  return {
+    provider: 'aws',
+    connected,
+    connector_id: connected ? 'aws-readonly' : '',
+    display_name: connected ? 'Production AWS read-only' : '',
+    status: connected ? 'connected' : 'disconnected',
+    health_status: connected ? 'healthy' : 'unknown',
+    account_id: connected ? '123456789012' : '',
+    region: connected ? 'us-east-1' : '',
+    role_arn: connected ? 'arn:aws:iam::123456789012:role/IdentrailReadOnly' : '',
+    principal_arn: connected ? 'arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/identrail' : '',
+    external_id_configured: connected,
+    last_validated_at: connected ? '2026-01-02T00:00:00Z' : '',
+    permission_checks: connected
+      ? [
+          {
+            name: 'sts:GetCallerIdentity',
+            passed: true,
+            message: 'Caller identity can be resolved.'
+          }
+        ]
+      : [],
+    diagnostics: [],
+    capabilities: {
+      requested: connected ? ['sts:GetCallerIdentity'] : [],
+      validated: connected ? ['sts:GetCallerIdentity'] : [],
+      effective: connected ? ['sts:GetCallerIdentity'] : [],
+      unavailable: []
+    }
+  };
+}
+
+function awsOperationalRouteFetchMock(connected = true) {
+  const connection = awsConnectionPayload(connected);
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url.endsWith('/v1/me')) {
+      return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+    }
+    if (url.endsWith('/v1/auth/config')) {
+      return authConfig(false, true);
+    }
+    if (url.includes('/v1/workspaces/workspace-a/projects?')) {
+      return okJSON(projectListPayload());
+    }
+    if (url.includes('/v1/workspaces/workspace-a/projects/project-1/aws/connection')) {
+      return okJSON({ connection });
+    }
+    throw new Error(`Unexpected URL ${url}`);
+  });
+}
+
 function settingsWhoAmIPayload(tenantID = 'tenant-a', workspaceID = 'workspace-a', role = 'admin') {
   return {
     principal: { type: 'subject', id: 'owner-user' },
@@ -1421,6 +1491,56 @@ describe('App', () => {
     expect(screen.queryByRole('navigation', { name: /AWS sections/i })).not.toBeInTheDocument();
   });
 
+  it.each([
+    ['runtime', /AWS runtime evidence/i, /Not ingesting/i],
+    ['graph', /AWS graph explorer/i, /Connector only/i],
+    ['findings', /AWS findings/i, /No findings/i],
+    ['remediation', /AWS remediation/i, /No cases/i],
+    ['governance', /AWS governance/i, /Advisory only/i]
+  ])('renders the AWS %s operations route with a route-specific shell', async (route, heading, marker) => {
+    vi.stubGlobal('fetch', awsOperationalRouteFetchMock(true));
+
+    setCurrentPath(`/app/tenant-a/workspace-a/aws/${route}`);
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: heading })).toBeInTheDocument();
+    expect(await screen.findByText(marker)).toBeInTheDocument();
+    expect(screen.queryByText(/Domain-owned entry point is ready/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: /AWS sections/i })).not.toBeInTheDocument();
+  });
+
+  it('renders current AWS connector data on the AWS graph operations route', async () => {
+    const fetchMock = awsOperationalRouteFetchMock(true);
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/aws/graph?environment=project-1');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /AWS graph explorer/i })).toBeInTheDocument();
+    expect((await screen.findAllByText(/Role IdentrailReadOnly/i)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Account 123456789012/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Connector/i).length).toBeGreaterThan(0);
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes('/v1/workspaces/workspace-a/projects/project-1/aws/connection')
+      )
+    ).toBe(true);
+  });
+
+  it('shows the AWS operations setup prerequisite when no AWS connector is connected', async () => {
+    vi.stubGlobal('fetch', awsOperationalRouteFetchMock(false));
+
+    setCurrentPath('/app/tenant-a/workspace-a/aws/runtime');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 2, name: /AWS runtime evidence/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Connect AWS to load operational context/i)).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /Connect AWS/i })[0]).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/connect?environment=project-1'
+    );
+  });
+
   it('keeps legacy project callback routes hidden but working', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
@@ -2350,10 +2470,11 @@ describe('App', () => {
 
     expect(await screen.findByText(/Security Workspace/i)).toBeInTheDocument();
     expect(await screen.findByRole('heading', { level: 2, name: /Settings/i })).toBeInTheDocument();
-    expect(await screen.findByText(/Hosted WorkOS login/i)).toBeInTheDocument();
-    expect(await screen.findByText(/^None$/i)).toBeInTheDocument();
+    expect(await screen.findByText(/GitHub, Google/i)).toBeInTheDocument();
+    expect(await screen.findAllByText(/Hosted login/i)).toHaveLength(2);
+    expect(await screen.findByText(/Not configured/i)).toBeInTheDocument();
+    expect(screen.getByText(/Developer details/i)).toBeInTheDocument();
     expect(await screen.findByText(/Total members/i)).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { level: 3, name: /1 active session/i })).toBeInTheDocument();
     expect(screen.getByText(/Manage sessions/i)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Account security/i })).not.toBeInTheDocument();
   });
@@ -2429,8 +2550,7 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/settings');
     render(<App />);
 
-    const dangerZone = await screen.findByTestId('idt-danger-zone');
-    const exportRow = within(dangerZone).getByTestId('idt-export-account-row');
+    const exportRow = await screen.findByTestId('idt-export-account-row');
     fireEvent.click(within(exportRow).getByRole('button', { name: /Download my data/i }));
 
     expect(await within(exportRow).findByTestId('idt-export-ready')).toHaveTextContent(/Your data export is ready/i);
@@ -2512,17 +2632,21 @@ describe('App', () => {
     const dangerZone = await screen.findByTestId('idt-danger-zone');
     fireEvent.click(within(dangerZone).getByRole('button', { name: /Delete account/i }));
 
-    const modal = await screen.findByRole('dialog', { name: /Delete my account permanently/i });
-    const continueButton = within(modal).getByRole('button', { name: 'Continue' });
+    const modal = await screen.findByRole('dialog', { name: /Delete account/i });
+    expect(modal).toHaveTextContent('This starts a 30-day recovery window and blocks normal sign-in.');
+    expect(modal).toHaveTextContent('Need an archive? Download my data before deleting.');
+    expect(modal).toHaveTextContent('Enter owner@example.com exactly.');
+    expect(modal).not.toHaveTextContent('recovery cookie');
+    const continueButton = within(modal).getByRole('button', { name: 'Delete account' });
     expect(continueButton).toBeDisabled();
 
-    fireEvent.change(within(modal).getByLabelText(/Type your primary email/i), {
+    fireEvent.change(within(modal).getByLabelText(/Confirm primary email/i), {
       target: { value: 'owner@example.co' }
     });
     expect(continueButton).toBeDisabled();
     expect(fetchMock.mock.calls.filter(([url, init]) => String(url).endsWith('/v1/me') && init?.method === 'DELETE')).toHaveLength(0);
 
-    fireEvent.change(within(modal).getByLabelText(/Type your primary email/i), {
+    fireEvent.change(within(modal).getByLabelText(/Confirm primary email/i), {
       target: { value: 'owner@example.com' }
     });
     expect(continueButton).toBeEnabled();
@@ -2563,14 +2687,14 @@ describe('App', () => {
     const dangerZone = await screen.findByTestId('idt-danger-zone');
     fireEvent.click(within(dangerZone).getByRole('button', { name: /Delete account/i }));
 
-    const modal = await screen.findByRole('dialog', { name: /Delete my account permanently/i });
-    fireEvent.change(within(modal).getByLabelText(/Type your primary email/i), {
+    const modal = await screen.findByRole('dialog', { name: /Delete account/i });
+    fireEvent.change(within(modal).getByLabelText(/Confirm primary email/i), {
       target: { value: 'owner@example.com' }
     });
-    fireEvent.click(within(modal).getByRole('button', { name: 'Continue' }));
+    fireEvent.click(within(modal).getByRole('button', { name: 'Delete account' }));
 
     const blocker = await within(modal).findByTestId('idt-delete-sole-owner-workspaces');
-    expect(blocker).toHaveTextContent(/Promote another owner from member management/i);
+    expect(blocker).toHaveTextContent(/Transfer ownership for these workspaces/i);
     expect(blocker).toHaveTextContent(/Security Workspace/i);
     expect(within(blocker).getByRole('link', { name: /Manage members/i })).toHaveAttribute(
       'href',

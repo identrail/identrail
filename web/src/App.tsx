@@ -32,6 +32,11 @@ import {
   ProductAWSAccountsPage,
   ProductAWSAgentsPage,
   ProductAWSControlCenterPage,
+  ProductAWSFindingsPage,
+  ProductAWSGovernancePage,
+  ProductAWSGraphPage,
+  ProductAWSRemediationPage,
+  ProductAWSRuntimePage,
   ProductDomainRoutePage,
   ProductAWSConnectPage,
   ProductAWSIdentitiesPage,
@@ -2597,7 +2602,7 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
   return (
     <ModalShell titleId="scan-intake-title" onClose={onClose} className="idt-scan-modal">
       <button type="button" className="idt-modal-close" onClick={onClose} aria-label="Close dialog">
-        x
+        ESC
       </button>
       <div className="idt-scan-modal-shell">
         <aside className="idt-scan-modal-guide" aria-label="Scan request guidance">
@@ -3485,7 +3490,7 @@ function PricingPage() {
             aria-label="Close"
             onClick={() => setSalesModalOpen(false)}
           >
-            x
+            ESC
           </button>
           <h3 id="sales-modal-title">Contact Enterprise Sales</h3>
           <p>Tell us your environment size and compliance goals. We will tailor a deployment and pricing plan.</p>
@@ -4787,11 +4792,11 @@ export function RoutedSite() {
             <Route path="aws/identities" element={<ProductAWSIdentitiesPage />} />
             <Route path="aws/agents" element={<ProductAWSAgentsPage />} />
             <Route path="aws/resources" element={<ProductAWSResourcesPage />} />
-            <Route path="aws/runtime" element={<ProductDomainRoutePage domain="aws" routeID="runtime" />} />
-            <Route path="aws/graph" element={<ProductDomainRoutePage domain="aws" routeID="graph" />} />
-            <Route path="aws/findings" element={<ProductDomainRoutePage domain="aws" routeID="findings" />} />
-            <Route path="aws/remediation" element={<ProductDomainRoutePage domain="aws" routeID="remediation" />} />
-            <Route path="aws/governance" element={<ProductDomainRoutePage domain="aws" routeID="governance" />} />
+            <Route path="aws/runtime" element={<ProductAWSRuntimePage />} />
+            <Route path="aws/graph" element={<ProductAWSGraphPage />} />
+            <Route path="aws/findings" element={<ProductAWSFindingsPage />} />
+            <Route path="aws/remediation" element={<ProductAWSRemediationPage />} />
+            <Route path="aws/governance" element={<ProductAWSGovernancePage />} />
             <Route path="github" element={<ProductGitHubControlCenterPage />} />
             <Route path="github/connect" element={<ProductGitHubConnectPage />} />
             <Route path="github/repositories" element={<ProductGitHubRepositoriesPage />} />

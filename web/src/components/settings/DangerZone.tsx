@@ -23,7 +23,7 @@ export function DangerZone({ description, children }: DangerZoneProps) {
 
 type DangerZoneRowProps = {
   title: string;
-  description: string;
+  description?: string;
   actionLabel: string;
   onAction: () => void;
   disabled?: boolean;
@@ -44,7 +44,7 @@ export function DangerZoneRow({
     <article className="idt-danger-zone-row" data-testid={testId}>
       <div>
         <strong>{title}</strong>
-        <p>{description}</p>
+        {description ? <p>{description}</p> : null}
       </div>
       <button
         className="idt-btn idt-btn-danger"
@@ -130,7 +130,7 @@ export function ConfirmDestructiveModal({
     confirmation.kind === 'checkbox' ? checked : typed === confirmation.expectedValue;
 
   return (
-    <div className="idt-modal-backdrop" role="presentation" onClick={onCancel}>
+    <div className="idt-modal-backdrop idt-danger-modal-backdrop" role="presentation" onClick={onCancel}>
       <section
         aria-labelledby={titleId}
         aria-modal="true"
@@ -141,16 +141,15 @@ export function ConfirmDestructiveModal({
       >
         <header>
           <div>
-            <p className="idt-app-kicker">Confirm destructive action</p>
             <h3 id={titleId}>{title}</h3>
           </div>
           <button
             aria-label="Close confirmation"
-            className="idt-icon-btn"
+            className="idt-esc-close"
             onClick={onCancel}
             type="button"
           >
-            x
+            ESC
           </button>
         </header>
 
@@ -184,9 +183,6 @@ export function ConfirmDestructiveModal({
               type="text"
               value={typed}
             />
-            <p className="idt-danger-modal-expected">
-              Type <code>{confirmation.expectedValue}</code> exactly to enable the action.
-            </p>
           </div>
         )}
 

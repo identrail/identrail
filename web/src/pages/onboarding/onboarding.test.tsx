@@ -128,7 +128,9 @@ describe('onboarding pages', () => {
 
     const input = await screen.findByLabelText('Organization name');
     expect(input).toHaveValue('');
-    fireEvent.click(screen.getByRole('button', { name: 'Create boundary' }));
+    const createButton = await screen.findByRole('button', { name: 'Create boundary' });
+    await waitFor(() => expect(createButton).toBeEnabled());
+    fireEvent.click(createButton);
     expect(await screen.findByRole('alert')).toHaveTextContent('Enter an organization name');
     expect(update).not.toHaveBeenCalled();
 

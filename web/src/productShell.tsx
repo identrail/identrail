@@ -8,7 +8,6 @@ import type {
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   BarChart3,
-  Check,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -17,12 +16,9 @@ import {
   HelpCircle,
   LayoutDashboard,
   LogOut,
-  PanelLeftClose,
-  PanelLeftOpen,
   Pencil,
   Search,
-  Settings as SettingsIcon,
-  X
+  Settings as SettingsIcon
 } from 'lucide-react';
 import {
   ApiError,
@@ -64,7 +60,7 @@ import {
   type WorkspaceMemberRole,
   type WorkspaceMemberStatus
 } from './api/client';
-import { formatSessionDevice, SessionsList } from './components/auth/SessionsList';
+import { SessionsList } from './components/auth/SessionsList';
 import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
 import { ConfirmDestructiveModal, DangerZone, DangerZoneRow } from './components/settings/DangerZone';
 import {
@@ -799,7 +795,7 @@ function buildExecutiveReportHtml(report: ExecutiveReport, highPriorityFindings:
         border: 1px solid #e6e9ee;
         border-radius: 4px;
       }
-      h1 { font-family: 'Georgia','Times New Roman',serif; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 0.55rem; font-size: 1.95rem; color: #10141a; }
+      h1 { font-family: 'Georgia','Times New Roman',serif; font-weight: 600; letter-spacing: 0; margin: 0 0 0.55rem; font-size: 1.95rem; color: #10141a; }
       h2 { font-family: 'Georgia','Times New Roman',serif; font-weight: 600; font-size: 1.05rem; margin: 0 0 0.65rem; color: #10141a; }
       p { margin: 0; }
       .eyebrow { color: #5e6776; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; margin-bottom: 0.55rem; }
@@ -1239,13 +1235,11 @@ function countMembersByRole(members: WorkspaceMemberRecord[], role: WorkspaceMem
 
 type ProfileDraft = {
   displayName: string;
-  avatarUrl: string;
 };
 
 function profileDraftFromMe(me: CurrentUserContext | null | undefined): ProfileDraft {
   return {
-    displayName: me?.user.display_name ?? '',
-    avatarUrl: me?.user.avatar_url ?? ''
+    displayName: me?.user.display_name ?? ''
   };
 }
 
@@ -1267,7 +1261,45 @@ function formatProfileInitials(me: CurrentUserContext | null | undefined): strin
   return initials || 'U';
 }
 
-function validateProfileDraft(draft: ProfileDraft, options: { validateAvatarUrl?: boolean } = {}): string {
+function formatSettingsAuthProvider(provider: string): string {
+  const normalized = provider.toLowerCase();
+  if (normalized.includes('github')) {
+    return 'GitHub';
+  }
+  if (normalized.includes('google')) {
+    return 'Google';
+  }
+  if (normalized.includes('saml')) {
+    return 'SAML SSO';
+  }
+  if (normalized.includes('workos') || normalized.includes('authkit')) {
+    return 'Hosted login';
+  }
+  return formatTokenLabel(provider.replace(/_oauth$/i, ''));
+}
+
+function formatSettingsAuthProviders(config: AuthConfigResponse | null): string {
+  const providers = config?.auth.providers ?? [];
+  const labels = Array.from(new Set(providers.map(formatSettingsAuthProvider))).filter((label) => label !== 'Hosted login');
+  if (labels.length) {
+    return labels.join(', ');
+  }
+  if (config?.auth.workos_login_enabled) {
+    return 'Hosted login';
+  }
+  if (config?.auth.native_saml_enabled) {
+    return 'SAML SSO';
+  }
+  if (config?.auth.manual_mode) {
+    return 'Manual development';
+  }
+  return 'Session-only';
+}
+
+const PROFILE_AVATAR_MAX_BYTES = 512 * 1024;
+const PROFILE_AVATAR_ALLOWED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
+function validateProfileDraft(draft: ProfileDraft): string {
   const displayName = draft.displayName.trim();
   if (!displayName || Array.from(displayName).length > 80) {
     return 'Display name must be 1-80 characters.';
@@ -1275,25 +1307,32 @@ function validateProfileDraft(draft: ProfileDraft, options: { validateAvatarUrl?
   if (Array.from(displayName).some(isUnsafeProfileNameCharacter)) {
     return 'Display name cannot contain control or bidirectional formatting characters.';
   }
-  const avatarUrl = draft.avatarUrl.trim();
-  if (options.validateAvatarUrl === false) {
-    return '';
+  return '';
+}
+
+function validateProfileAvatarFile(file: File): string {
+  if (!PROFILE_AVATAR_ALLOWED_TYPES.has(file.type)) {
+    return 'Profile photo must be PNG, JPG, WebP, or GIF.';
   }
-  if (!avatarUrl) {
-    return '';
-  }
-  try {
-    const parsed = new URL(avatarUrl);
-    if (parsed.protocol !== 'https:') {
-      return 'Avatar URL must use https.';
-    }
-    if (parsed.username || parsed.password) {
-      return 'Avatar URL cannot include credentials.';
-    }
-  } catch {
-    return 'Avatar URL must be a valid https URL.';
+  if (file.size > PROFILE_AVATAR_MAX_BYTES) {
+    return 'Profile photo must be smaller than 512 KB.';
   }
   return '';
+}
+
+function readProfileAvatarFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error('Unable to read profile photo.'));
+    };
+    reader.onerror = () => reject(new Error('Unable to read profile photo.'));
+    reader.readAsDataURL(file);
+  });
 }
 
 function isUnsafeProfileNameCharacter(char: string): boolean {
@@ -1711,7 +1750,7 @@ function CommandPalette({
             aria-label="Search workspace commands"
           />
           <button type="button" className="idt-command-palette-close" onClick={onClose} aria-label="Close workspace finder">
-            Esc
+            ESC
           </button>
         </div>
         <div className="idt-command-palette-results" role="listbox" aria-label="Workspace commands">
@@ -3783,6 +3822,986 @@ export function ProductAWSAgentsPage() {
 
 export function ProductAWSResourcesPage() {
   return <ProductAWSInventoryPage routeID="resources" />;
+}
+
+type AWSRiskOperationRouteID = Extract<
+  ProductDomainRouteID,
+  'runtime' | 'graph' | 'findings' | 'remediation' | 'governance'
+>;
+
+type AWSRiskOperationPageCopy = {
+  routeID: AWSRiskOperationRouteID;
+  title: string;
+  eyebrow: string;
+  description: string;
+  statusLabel: string;
+  currentCapability: string;
+  plannedCapability: string;
+  nextAction: string;
+  unavailableTitle: string;
+  unavailableBody: string;
+};
+
+const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOperationPageCopy> = {
+  runtime: {
+    routeID: 'runtime',
+    title: 'AWS runtime evidence',
+    eyebrow: 'Runtime',
+    description: 'Connector-scoped evidence for CloudTrail, STS, KMS, secrets, and agent activity.',
+    statusLabel: 'Not ingesting',
+    currentCapability: 'Connector validation only.',
+    plannedCapability: 'Runtime event ingestion.',
+    nextAction: 'Wire runtime ingestion.',
+    unavailableTitle: 'No event ingestion',
+    unavailableBody: 'Connector validation only.'
+  },
+  graph: {
+    routeID: 'graph',
+    title: 'AWS graph explorer',
+    eyebrow: 'Graph',
+    description: 'AWS identities, resources, findings, owners, and blast-radius paths.',
+    statusLabel: 'Connector only',
+    currentCapability: 'Connector role anchor.',
+    plannedCapability: 'Collected graph edges.',
+    nextAction: 'Collect graph edges.',
+    unavailableTitle: 'No graph edges',
+    unavailableBody: 'Connector role anchor only.'
+  },
+  findings: {
+    routeID: 'findings',
+    title: 'AWS findings',
+    eyebrow: 'Findings',
+    description: 'AWS risk rows scoped by account, region, evidence, owner, and remediation.',
+    statusLabel: 'No findings',
+    currentCapability: 'Connector scope only.',
+    plannedCapability: 'AWS findings API.',
+    nextAction: 'Wire finding generation.',
+    unavailableTitle: 'No findings API',
+    unavailableBody: 'No AWS findings are fetched or synthesized.'
+  },
+  remediation: {
+    routeID: 'remediation',
+    title: 'AWS remediation',
+    eyebrow: 'Remediation',
+    description: 'Approval, diff, dry-run, rollback, and verification surfaces for AWS fixes.',
+    statusLabel: 'No cases',
+    currentCapability: 'No live changes.',
+    plannedCapability: 'Approved remediation APIs.',
+    nextAction: 'Wire remediation cases.',
+    unavailableTitle: 'No remediation cases',
+    unavailableBody: 'No policy changes run from this route.'
+  },
+  governance: {
+    routeID: 'governance',
+    title: 'AWS governance',
+    eyebrow: 'Governance',
+    description: 'Advisory authorization decisions and safety controls for AWS runtime access.',
+    statusLabel: 'Advisory only',
+    currentCapability: 'Advisory only.',
+    plannedCapability: 'Runtime enforcement.',
+    nextAction: 'Keep advisory.',
+    unavailableTitle: 'Not enforcing',
+    unavailableBody: 'No AWS access is blocked or changed.'
+  }
+};
+
+type AWSRiskOperationFilterConfigMap = Record<AWSRiskOperationRouteID, AWSInventoryFilterConfig[]>;
+
+const AWS_RISK_OPERATION_FILTER_DEFAULTS: Record<AWSRiskOperationRouteID, AWSInventoryFilterState> = {
+  runtime: { event: 'all', evidence: 'all', owner: 'all', search: '' },
+  graph: { node: 'all', edge: 'all', evidence: 'all', search: '' },
+  findings: { severity: 'all', account: 'all', region: 'all', evidence: 'all', status: 'all', search: '' },
+  remediation: { change: 'all', approval: 'all', stage: 'all', search: '' },
+  governance: { decision: 'all', mode: 'all', evidence: 'all', search: '' }
+};
+
+const AWS_RISK_OPERATION_FILTERS: AWSRiskOperationFilterConfigMap = {
+  runtime: [
+    {
+      id: 'event',
+      label: 'Event type',
+      options: [
+        { label: 'All events', value: 'all' },
+        { label: 'CloudTrail', value: 'cloudtrail' },
+        { label: 'STS AssumeRole', value: 'sts-assume-role' },
+        { label: 'Secrets Manager', value: 'secrets-manager' },
+        { label: 'KMS decrypt', value: 'kms-decrypt' },
+        { label: 'Agent tool', value: 'agent-tool' }
+      ]
+    },
+    {
+      id: 'evidence',
+      label: 'Evidence',
+      options: [
+        { label: 'All evidence', value: 'all' },
+        { label: 'Current connector', value: 'current-connector' },
+        { label: 'Coming', value: 'coming' },
+        { label: 'Unavailable', value: 'unavailable' }
+      ]
+    },
+    {
+      id: 'owner',
+      label: 'Owner',
+      options: [
+        { label: 'All owners', value: 'all' },
+        { label: 'Security', value: 'security' },
+        { label: 'Platform', value: 'platform' },
+        { label: 'Application', value: 'application' }
+      ]
+    }
+  ],
+  graph: [
+    {
+      id: 'node',
+      label: 'Node type',
+      options: [
+        { label: 'All nodes', value: 'all' },
+        { label: 'Identity', value: 'identity' },
+        { label: 'Agent', value: 'agent' },
+        { label: 'Resource', value: 'resource' },
+        { label: 'Finding', value: 'finding' },
+        { label: 'Owner', value: 'owner' }
+      ]
+    },
+    {
+      id: 'edge',
+      label: 'Edge',
+      options: [
+        { label: 'All edges', value: 'all' },
+        { label: 'Can assume', value: 'can-assume' },
+        { label: 'Can read secret', value: 'can-read-secret' },
+        { label: 'Can decrypt', value: 'can-decrypt' },
+        { label: 'Owns', value: 'owns' }
+      ]
+    },
+    {
+      id: 'evidence',
+      label: 'Evidence',
+      options: [
+        { label: 'All evidence', value: 'all' },
+        { label: 'Known', value: 'known' },
+        { label: 'Unknown', value: 'unknown' },
+        { label: 'Planned', value: 'planned' }
+      ]
+    }
+  ],
+  findings: [
+    {
+      id: 'severity',
+      label: 'Severity',
+      options: [
+        { label: 'All severities', value: 'all' },
+        { label: 'Critical', value: 'critical' },
+        { label: 'High', value: 'high' },
+        { label: 'Medium', value: 'medium' },
+        { label: 'Low', value: 'low' },
+        { label: 'Info', value: 'info' }
+      ]
+    },
+    {
+      id: 'account',
+      label: 'Account',
+      options: [
+        { label: 'All accounts', value: 'all' },
+        { label: 'Connected account', value: 'connected' },
+        { label: 'Unknown account', value: 'unknown' }
+      ]
+    },
+    {
+      id: 'region',
+      label: 'Region',
+      options: [
+        { label: 'All regions', value: 'all' },
+        { label: 'Current region', value: 'current' },
+        { label: 'Unknown region', value: 'unknown' }
+      ]
+    },
+    {
+      id: 'evidence',
+      label: 'Evidence',
+      options: [
+        { label: 'All evidence', value: 'all' },
+        { label: 'Runtime backed', value: 'runtime-backed' },
+        { label: 'Inventory backed', value: 'inventory-backed' },
+        { label: 'Unavailable', value: 'unavailable' }
+      ]
+    },
+    {
+      id: 'status',
+      label: 'Remediation',
+      options: [
+        { label: 'All statuses', value: 'all' },
+        { label: 'Open', value: 'open' },
+        { label: 'Queued', value: 'queued' },
+        { label: 'Blocked', value: 'blocked' },
+        { label: 'Unavailable', value: 'unavailable' }
+      ]
+    }
+  ],
+  remediation: [
+    {
+      id: 'change',
+      label: 'Change type',
+      options: [
+        { label: 'All changes', value: 'all' },
+        { label: 'IAM policy', value: 'iam-policy' },
+        { label: 'Trust policy', value: 'trust-policy' },
+        { label: 'Permission boundary', value: 'permission-boundary' },
+        { label: 'Secret rotation', value: 'secret-rotation' },
+        { label: 'IaC PR', value: 'iac-pr' }
+      ]
+    },
+    {
+      id: 'approval',
+      label: 'Approval',
+      options: [
+        { label: 'All approvals', value: 'all' },
+        { label: 'Owner required', value: 'owner-required' },
+        { label: 'Security required', value: 'security-required' },
+        { label: 'Dry run required', value: 'dry-run-required' }
+      ]
+    },
+    {
+      id: 'stage',
+      label: 'Stage',
+      options: [
+        { label: 'All stages', value: 'all' },
+        { label: 'No case', value: 'no-case' },
+        { label: 'Draft only', value: 'draft-only' },
+        { label: 'Not active', value: 'not-active' }
+      ]
+    }
+  ],
+  governance: [
+    {
+      id: 'decision',
+      label: 'Decision',
+      options: [
+        { label: 'All decisions', value: 'all' },
+        { label: 'Warn', value: 'warn' },
+        { label: 'Approval', value: 'approval' },
+        { label: 'Quarantine', value: 'quarantine' },
+        { label: 'Recommend deny', value: 'recommend-deny' }
+      ]
+    },
+    {
+      id: 'mode',
+      label: 'Mode',
+      options: [
+        { label: 'All modes', value: 'all' },
+        { label: 'Advisory', value: 'advisory' },
+        { label: 'Canary', value: 'canary' },
+        { label: 'Not enforcing', value: 'not-enforcing' }
+      ]
+    },
+    {
+      id: 'evidence',
+      label: 'Evidence',
+      options: [
+        { label: 'All evidence', value: 'all' },
+        { label: 'Runtime required', value: 'runtime-required' },
+        { label: 'Approval required', value: 'approval-required' },
+        { label: 'Audit required', value: 'audit-required' }
+      ]
+    }
+  ]
+};
+
+type AWSRiskOperationTableRow = AWSInventoryFilterable & {
+  id: string;
+  title: string;
+  category: string;
+  evidence: string;
+  owner: string;
+  blastRadius: string;
+  nextAction: string;
+  status: string;
+  stage: AWSCapabilityStage;
+};
+
+function AWSRiskOperationFilterSet({
+  routeID,
+  filters,
+  onChange
+}: {
+  routeID: AWSRiskOperationRouteID;
+  filters: AWSInventoryFilterState;
+  onChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
+  const searchPlaceholder: Record<AWSRiskOperationRouteID, string> = {
+    runtime: 'Search events',
+    graph: 'Search graph',
+    findings: 'Search findings',
+    remediation: 'Search changes',
+    governance: 'Search decisions'
+  };
+  const onFilterChange = (id: string, value: string): void => {
+    onChange({
+      ...filters,
+      [id]: value
+    });
+  };
+  const onSearchChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    onChange({
+      ...filters,
+      search: event.target.value
+    });
+  };
+
+  return (
+    <DomainFilterBar label={`${AWS_RISK_OPERATION_PAGE_COPY[routeID].title} filters`}>
+      {AWS_RISK_OPERATION_FILTERS[routeID].map((filter) => (
+        <label key={filter.label}>
+          {filter.label}
+          <select value={filters[filter.id] ?? 'all'} onChange={(event) => onFilterChange(filter.id, event.target.value)}>
+            {filter.options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ))}
+      <label>
+        Search
+        <input
+          placeholder={searchPlaceholder[routeID]}
+          value={filters.search ?? ''}
+          onChange={onSearchChange}
+          aria-label={`${AWS_RISK_OPERATION_PAGE_COPY[routeID].title} search`}
+        />
+      </label>
+    </DomainFilterBar>
+  );
+}
+
+function awsConnectionRoleLabel(connection: AWSConnectionStatus | null): string {
+  const roleName = connection?.role_arn?.match(/:role\/(.+)$/)?.[1];
+  if (roleName) {
+    return `Role ${roleName}`;
+  }
+  if (connection?.role_arn) {
+    return 'Validated AWS role';
+  }
+  return 'AWS role anchor';
+}
+
+function AWSRiskOperationScope({
+  copy,
+  connection,
+  selectedEnvironmentID
+}: {
+  copy: AWSRiskOperationPageCopy;
+  connection: AWSConnectionStatus | null;
+  selectedEnvironmentID: string;
+}) {
+  const facts = [
+    ['Status', copy.statusLabel],
+    ['Scope', connection?.account_id ? awsAccountRegionLabel(connection) : selectedEnvironmentID ? 'Pending connector' : 'No environment'],
+    ['Role', connection?.role_arn ? awsConnectionRoleLabel(connection) : 'Not connected'],
+    ['Mode', copy.routeID === 'governance' ? 'Advisory' : 'Read-only']
+  ];
+
+  return (
+    <section className="idt-aws-risk-scope" aria-label={`${copy.title} scope`}>
+      <dl>
+        {facts.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function AWSRiskOperationPrerequisites({
+  scope,
+  selectedEnvironmentID,
+  connection,
+  connectPath
+}: {
+  scope: ProductSession;
+  selectedEnvironmentID: string;
+  connection: AWSConnectionStatus | null;
+  connectPath: string;
+}) {
+  if (!selectedEnvironmentID) {
+    return (
+      <DomainEmptyState
+        eyebrow="Environment required"
+        title="Create an environment before AWS operations can resolve"
+        body="Create an environment, then return to AWS."
+        nextAction={{ label: 'Open environments', to: appendSourceQuery(buildProjectsPath(scope), 'aws') }}
+      />
+    );
+  }
+
+  if (!connection?.connected) {
+    return (
+      <DomainEmptyState
+        eyebrow="Connector prerequisite"
+        title="Connect AWS to load operational context"
+        body="Account, region, role, and diagnostics come from the read-only AWS connector."
+        nextAction={{ label: 'Connect AWS', to: connectPath }}
+      />
+    );
+  }
+
+  return null;
+}
+
+function AWSRuntimeEvidenceContent({
+  connection,
+  filters,
+  onFiltersChange
+}: {
+  connection: AWSConnectionStatus | null;
+  filters: AWSInventoryFilterState;
+  onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
+  const rows: AWSRiskOperationTableRow[] = [
+    ...(connection?.role_arn
+      ? [
+          {
+            id: 'runtime-role-anchor',
+            title: awsConnectionRoleLabel(connection),
+            category: 'STS AssumeRole',
+            evidence: 'Connector',
+            owner: 'Security',
+            blastRadius: awsAccountRegionLabel(connection),
+            nextAction: 'Attach CloudTrail',
+            status: 'connector',
+            stage: 'wired' as AWSCapabilityStage,
+            filters: { event: 'sts-assume-role', evidence: 'current-connector', owner: 'security', search: '' },
+            searchText: inventorySearchText([connection.role_arn, connection.principal_arn, 'sts assume role current connector'])
+          }
+        ]
+      : []),
+    {
+      id: 'cloudtrail-management-events',
+      title: 'CloudTrail management events',
+      category: 'CloudTrail',
+      evidence: 'Planned',
+      owner: 'Security',
+      blastRadius: connection?.account_id ? `Account ${connection.account_id}` : 'Account pending',
+      nextAction: 'Wire ingestion',
+      status: 'planned',
+      stage: 'coming',
+      filters: { event: 'cloudtrail', evidence: 'coming', owner: 'security', search: '' },
+      searchText: inventorySearchText(['cloudtrail', 'management events', 'runtime evidence'])
+    },
+    {
+      id: 'secret-read-events',
+      title: 'Secrets Manager GetSecretValue',
+      category: 'Secrets Manager',
+      evidence: 'Planned',
+      owner: 'Application',
+      blastRadius: 'Secret metadata only',
+      nextAction: 'Map metadata',
+      status: 'planned',
+      stage: 'coming',
+      filters: { event: 'secrets-manager', evidence: 'coming', owner: 'application', search: '' },
+      searchText: inventorySearchText(['secrets manager', 'getsecretvalue', 'secret reads'])
+    },
+    {
+      id: 'kms-decrypt-events',
+      title: 'KMS Decrypt activity',
+      category: 'KMS decrypt',
+      evidence: 'Planned',
+      owner: 'Platform',
+      blastRadius: 'Key reachability pending',
+      nextAction: 'Join key policy',
+      status: 'planned',
+      stage: 'coming',
+      filters: { event: 'kms-decrypt', evidence: 'coming', owner: 'platform', search: '' },
+      searchText: inventorySearchText(['kms', 'decrypt', 'runtime evidence'])
+    },
+    {
+      id: 'agent-tool-events',
+      title: 'Agent tool invocation',
+      category: 'Agent tool',
+      evidence: 'Unavailable',
+      owner: 'Security',
+      blastRadius: 'Agent graph pending',
+      nextAction: 'Map agent identity',
+      status: 'unavailable',
+      stage: 'not-available',
+      filters: { event: 'agent-tool', evidence: 'unavailable', owner: 'security', search: '' },
+      searchText: inventorySearchText(['agent', 'tool', 'mcp', 'agentcore'])
+    }
+  ];
+  const displayedRows = filterAWSInventoryRows(rows, filters);
+
+  return (
+    <>
+      <AWSRiskOperationFilterSet routeID="runtime" filters={filters} onChange={onFiltersChange} />
+      <DomainDataTable
+        label="AWS runtime evidence surfaces"
+        rows={displayedRows}
+        getRowKey={(row) => row.id}
+        columns={[
+          {
+            key: 'event',
+            header: 'Event surface',
+            render: (row) => <strong>{row.title}</strong>
+          },
+          { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
+          { key: 'owner', header: 'Owner', render: (row) => row.owner },
+          { key: 'blast', header: 'Blast radius', render: (row) => row.blastRadius },
+          { key: 'next', header: 'Next action', render: (row) => row.nextAction },
+          { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+        ]}
+      />
+    </>
+  );
+}
+
+function AWSGraphExplorerContent({
+  connection,
+  filters,
+  onFiltersChange
+}: {
+  connection: AWSConnectionStatus | null;
+  filters: AWSInventoryFilterState;
+  onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
+  const rows: AWSRiskOperationTableRow[] = [
+    {
+      id: 'identity-anchor',
+      title: awsConnectionRoleLabel(connection),
+      category: 'Identity',
+      evidence: connection?.role_arn ? 'Connector' : 'Unknown',
+      owner: 'Security',
+      blastRadius: awsAccountRegionLabel(connection),
+      nextAction: 'Join policies',
+      status: connection?.role_arn ? 'known' : 'unknown',
+      stage: connection?.role_arn ? 'wired' : 'coming',
+      filters: { node: 'identity', edge: 'can-assume', evidence: connection?.role_arn ? 'known' : 'unknown', search: '' },
+      searchText: inventorySearchText([connection?.role_arn, connection?.principal_arn, 'identity', 'role anchor'])
+    },
+    {
+      id: 'secret-node',
+      title: 'Secrets Manager metadata node',
+      category: 'Resource',
+      evidence: 'Planned',
+      owner: 'Application',
+      blastRadius: 'Secret reachability pending',
+      nextAction: 'Collect metadata',
+      status: 'planned',
+      stage: 'coming',
+      filters: { node: 'resource', edge: 'can-read-secret', evidence: 'planned', search: '' },
+      searchText: inventorySearchText(['secret', 'resource', 'can read secret', 'metadata'])
+    },
+    {
+      id: 'kms-node',
+      title: 'KMS decrypt path',
+      category: 'Resource',
+      evidence: 'Planned',
+      owner: 'Platform',
+      blastRadius: 'Key grants pending',
+      nextAction: 'Attach key policy',
+      status: 'planned',
+      stage: 'coming',
+      filters: { node: 'resource', edge: 'can-decrypt', evidence: 'planned', search: '' },
+      searchText: inventorySearchText(['kms', 'decrypt', 'resource'])
+    },
+    {
+      id: 'finding-node',
+      title: 'AWS finding node',
+      category: 'Finding',
+      evidence: 'Unknown',
+      owner: 'Security',
+      blastRadius: 'No finding selected',
+      nextAction: 'Wire findings',
+      status: 'unavailable',
+      stage: 'not-available',
+      filters: { node: 'finding', edge: 'owns', evidence: 'unknown', search: '' },
+      searchText: inventorySearchText(['finding', 'risk path', 'evidence'])
+    }
+  ];
+  const displayedRows = filterAWSInventoryRows(rows, filters);
+
+  return (
+    <>
+      <AWSRiskOperationFilterSet routeID="graph" filters={filters} onChange={onFiltersChange} />
+      <DomainDataTable
+        label="AWS graph nodes and edges"
+        rows={displayedRows}
+        getRowKey={(row) => row.id}
+        columns={[
+          {
+            key: 'node',
+            header: 'Node / edge',
+            render: (row) => <strong>{row.title}</strong>
+          },
+          { key: 'category', header: 'Type', render: (row) => row.category },
+          { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
+          { key: 'blast', header: 'Blast radius', render: (row) => row.blastRadius },
+          { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+        ]}
+      />
+    </>
+  );
+}
+
+function AWSFindingsContent({
+  filters,
+  onFiltersChange
+}: {
+  filters: AWSInventoryFilterState;
+  onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
+  const rows: AWSRiskOperationTableRow[] = [];
+  const displayedRows = filterAWSInventoryRows(rows, filters);
+
+  return (
+    <>
+      <AWSRiskOperationFilterSet routeID="findings" filters={filters} onChange={onFiltersChange} />
+      <DomainDataTable
+        label="AWS findings"
+        rows={displayedRows}
+        getRowKey={(row) => row.id}
+        emptyState={
+          <DomainEmptyState
+            eyebrow="Empty"
+            title="No AWS findings"
+            body="Finding generation is not connected yet."
+          />
+        }
+        columns={[
+          { key: 'title', header: 'Finding', render: (row) => <strong>{row.title}</strong> },
+          { key: 'category', header: 'Severity', render: (row) => row.category },
+          { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
+          { key: 'blast', header: 'Blast radius', render: (row) => row.blastRadius },
+          { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+        ]}
+      />
+    </>
+  );
+}
+
+function AWSRemediationContent({
+  connection,
+  filters,
+  onFiltersChange
+}: {
+  connection: AWSConnectionStatus | null;
+  filters: AWSInventoryFilterState;
+  onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
+  const rows: AWSRiskOperationTableRow[] = [
+    {
+      id: 'iam-policy-diff',
+      title: 'IAM policy diff preview',
+      category: 'IAM policy',
+      evidence: 'Finding required',
+      owner: 'Security',
+      blastRadius: connection?.account_id ? `Account ${connection.account_id}` : 'Account pending',
+      nextAction: 'Generate diff',
+      status: 'draft',
+      stage: 'coming',
+      filters: { change: 'iam-policy', approval: 'owner-required', stage: 'draft-only', search: '' },
+      searchText: inventorySearchText(['iam policy', 'diff', 'least privilege', 'draft'])
+    },
+    {
+      id: 'trust-policy-hardening',
+      title: 'Trust policy hardening',
+      category: 'Trust policy',
+      evidence: 'Trust analysis',
+      owner: 'Platform',
+      blastRadius: 'Role assumption path pending',
+      nextAction: 'Compare trust path',
+      status: 'draft',
+      stage: 'coming',
+      filters: { change: 'trust-policy', approval: 'security-required', stage: 'draft-only', search: '' },
+      searchText: inventorySearchText(['trust policy', 'hardening', 'external id'])
+    },
+    {
+      id: 'permission-boundary-scp',
+      title: 'Permission boundary review',
+      category: 'Permission boundary',
+      evidence: 'Governance input',
+      owner: 'Security',
+      blastRadius: 'Organization scope pending',
+      nextAction: 'Keep advisory',
+      status: 'not active',
+      stage: 'not-available',
+      filters: { change: 'permission-boundary', approval: 'security-required', stage: 'not-active', search: '' },
+      searchText: inventorySearchText(['permission boundary', 'scp', 'governance'])
+    },
+    {
+      id: 'secret-rotation',
+      title: 'Secret rotation planner',
+      category: 'Secret rotation',
+      evidence: 'Secret metadata',
+      owner: 'Application',
+      blastRadius: 'Secret metadata pending',
+      nextAction: 'Plan rotation',
+      status: 'not active',
+      stage: 'not-available',
+      filters: { change: 'secret-rotation', approval: 'owner-required', stage: 'not-active', search: '' },
+      searchText: inventorySearchText(['secret rotation', 'planner', 'metadata'])
+    },
+    {
+      id: 'iac-pr-plan',
+      title: 'IaC PR plan and verification',
+      category: 'IaC PR',
+      evidence: 'Repo mapping',
+      owner: 'Platform',
+      blastRadius: 'Environment and repo pending',
+      nextAction: 'Map repository',
+      status: 'not active',
+      stage: 'not-available',
+      filters: { change: 'iac-pr', approval: 'dry-run-required', stage: 'not-active', search: '' },
+      searchText: inventorySearchText(['iac', 'pr', 'verification', 'rollback'])
+    }
+  ];
+  const displayedRows = filterAWSInventoryRows(rows, filters);
+
+  return (
+    <>
+      <AWSRiskOperationFilterSet routeID="remediation" filters={filters} onChange={onFiltersChange} />
+      <DomainDataTable
+        label="AWS remediation plan surfaces"
+        rows={displayedRows}
+        getRowKey={(row) => row.id}
+        columns={[
+          {
+            key: 'change',
+            header: 'Change plan',
+            render: (row) => <strong>{row.title}</strong>
+          },
+          { key: 'category', header: 'Type', render: (row) => row.category },
+          { key: 'owner', header: 'Owner', render: (row) => row.owner },
+          { key: 'next', header: 'Next action', render: (row) => row.nextAction },
+          { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+        ]}
+      />
+    </>
+  );
+}
+
+function AWSGovernanceContent({
+  connection,
+  filters,
+  onFiltersChange
+}: {
+  connection: AWSConnectionStatus | null;
+  filters: AWSInventoryFilterState;
+  onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
+}) {
+  const rows: AWSRiskOperationTableRow[] = [
+    {
+      id: 'warn',
+      title: 'Warn on risky activity',
+      category: 'Warn',
+      evidence: 'Runtime evidence',
+      owner: 'Security',
+      blastRadius: connection?.account_id ? `Account ${connection.account_id}` : 'Account pending',
+      nextAction: 'Define routing',
+      status: 'advisory',
+      stage: 'coming',
+      filters: { decision: 'warn', mode: 'advisory', evidence: 'runtime-required', search: '' },
+      searchText: inventorySearchText(['warn', 'runtime', 'advisory'])
+    },
+    {
+      id: 'approval',
+      title: 'Require approval',
+      category: 'Approval',
+      evidence: 'Approval workflow',
+      owner: 'Security',
+      blastRadius: 'Sensitive action pending',
+      nextAction: 'Map owner',
+      status: 'not enforcing',
+      stage: 'not-available',
+      filters: { decision: 'approval', mode: 'not-enforcing', evidence: 'approval-required', search: '' },
+      searchText: inventorySearchText(['approval', 'sensitive access', 'not enforcing'])
+    },
+    {
+      id: 'quarantine',
+      title: 'Quarantine candidate identity',
+      category: 'Quarantine',
+      evidence: 'High-confidence finding',
+      owner: 'Security',
+      blastRadius: 'Identity scope pending',
+      nextAction: 'Add safety gates',
+      status: 'not enforcing',
+      stage: 'not-available',
+      filters: { decision: 'quarantine', mode: 'not-enforcing', evidence: 'audit-required', search: '' },
+      searchText: inventorySearchText(['quarantine', 'kill switch', 'rollback'])
+    },
+    {
+      id: 'recommend-deny',
+      title: 'Recommend deny policy',
+      category: 'Recommend deny',
+      evidence: 'Runtime + approval',
+      owner: 'Platform',
+      blastRadius: 'Permission boundary pending',
+      nextAction: 'Draft advisory',
+      status: 'advisory',
+      stage: 'coming',
+      filters: { decision: 'recommend-deny', mode: 'advisory', evidence: 'runtime-required,approval-required', search: '' },
+      searchText: inventorySearchText(['recommend deny', 'session policy', 'permission boundary', 'agentcore'])
+    }
+  ];
+  const displayedRows = filterAWSInventoryRows(rows, filters);
+
+  return (
+    <>
+      <AWSRiskOperationFilterSet routeID="governance" filters={filters} onChange={onFiltersChange} />
+      <DomainDataTable
+        label="AWS governance decision modes"
+        rows={displayedRows}
+        getRowKey={(row) => row.id}
+        columns={[
+          {
+            key: 'decision',
+            header: 'Decision mode',
+            render: (row) => <strong>{row.title}</strong>
+          },
+          { key: 'evidence', header: 'Evidence required', render: (row) => row.evidence },
+          { key: 'owner', header: 'Owner', render: (row) => row.owner },
+          { key: 'next', header: 'Next action', render: (row) => row.nextAction },
+          { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+        ]}
+      />
+    </>
+  );
+}
+
+function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRouteID }) {
+  const data = useAWSInventoryData();
+  const { scope, environmentScope, selectedEnvironmentID, connection, connectionLoading, connectionError } = data;
+  const copy = AWS_RISK_OPERATION_PAGE_COPY[routeID];
+  const [activeFilters, setActiveFilters] = useState<AWSInventoryFilterState>(() => ({
+    ...AWS_RISK_OPERATION_FILTER_DEFAULTS[routeID]
+  }));
+
+  const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
+    setActiveFilters(nextFilters);
+  };
+
+  useEffect(() => {
+    setActiveFilters({ ...AWS_RISK_OPERATION_FILTER_DEFAULTS[routeID] });
+  }, [routeID]);
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">{copy.title}</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading AWS operations.</p>
+      </section>
+    );
+  }
+
+  const statusTone = awsDomainTone(connection, environmentScope.loading || connectionLoading);
+  const connectPath = awsRouteLink(scope, 'connect', selectedEnvironmentID);
+  const homePath = appendEnvironmentQuery(buildScopedPath(scope, 'aws'), selectedEnvironmentID);
+  const graphPath = awsRouteLink(scope, 'graph', selectedEnvironmentID);
+  const findingsPath = awsRouteLink(scope, 'findings', selectedEnvironmentID);
+  const remediationPath = awsRouteLink(scope, 'remediation', selectedEnvironmentID);
+  const governancePath = awsRouteLink(scope, 'governance', selectedEnvironmentID);
+  const status =
+    environmentScope.loading || connectionLoading
+      ? 'Loading operations'
+      : connectionError
+        ? 'Needs retry'
+        : connection?.connected
+          ? copy.statusLabel
+          : 'Setup required';
+  const secondaryActions =
+    routeID === 'runtime'
+      ? [{ label: 'Graph', to: graphPath }]
+      : routeID === 'graph'
+        ? [{ label: 'Findings', to: findingsPath }]
+        : routeID === 'findings'
+          ? [{ label: 'Remediation', to: remediationPath }]
+          : routeID === 'remediation'
+            ? [{ label: 'Governance', to: governancePath }]
+            : [{ label: 'AWS home', to: homePath }];
+
+  return (
+    <DomainPageShell
+      domain="aws"
+      eyebrow={copy.eyebrow}
+      title={copy.title}
+      description={copy.description}
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={data.onChangeEnvironment} />}
+      status={status}
+      statusTone={connectionError ? 'danger' : statusTone}
+      primaryAction={connection?.connected ? undefined : { label: 'Connect AWS', to: connectPath, variant: 'primary' }}
+      secondaryActions={secondaryActions}
+    >
+      <div className="idt-aws-risk-page">
+        <AWSRiskOperationScope copy={copy} connection={connection} selectedEnvironmentID={selectedEnvironmentID} />
+
+        {environmentScope.loading || connectionLoading ? <DomainLoadingState label={`Loading ${copy.title.toLowerCase()}`} /> : null}
+
+        {connectionError ? (
+          <DomainErrorState
+            title={`${copy.title} status could not load`}
+            body={connectionError}
+            retryAction={{ label: 'Retry AWS status', onClick: data.refreshConnection }}
+          />
+        ) : null}
+
+        {!environmentScope.loading && !connectionLoading && !connectionError ? (
+          <AWSRiskOperationPrerequisites
+            scope={scope}
+            selectedEnvironmentID={selectedEnvironmentID}
+            connection={connection}
+            connectPath={connectPath}
+          />
+        ) : null}
+
+        {routeID === 'runtime' ? (
+          <AWSRuntimeEvidenceContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
+        ) : null}
+        {routeID === 'graph' ? (
+          <AWSGraphExplorerContent
+            connection={connection}
+            filters={activeFilters}
+            onFiltersChange={onFiltersChange}
+          />
+        ) : null}
+        {routeID === 'findings' ? (
+          <AWSFindingsContent
+            filters={activeFilters}
+            onFiltersChange={onFiltersChange}
+          />
+        ) : null}
+        {routeID === 'remediation' ? (
+          <AWSRemediationContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
+        ) : null}
+        {routeID === 'governance' ? (
+          <AWSGovernanceContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
+        ) : null}
+      </div>
+    </DomainPageShell>
+  );
+}
+
+export function ProductAWSRuntimePage() {
+  return <ProductAWSRiskOperationsPage routeID="runtime" />;
+}
+
+export function ProductAWSGraphPage() {
+  return <ProductAWSRiskOperationsPage routeID="graph" />;
+}
+
+export function ProductAWSFindingsPage() {
+  return <ProductAWSRiskOperationsPage routeID="findings" />;
+}
+
+export function ProductAWSRemediationPage() {
+  return <ProductAWSRiskOperationsPage routeID="remediation" />;
+}
+
+export function ProductAWSGovernancePage() {
+  return <ProductAWSRiskOperationsPage routeID="governance" />;
 }
 
 export function ProductAWSControlCenterPage() {
@@ -6998,6 +8017,14 @@ const SIDEBAR_MIN_EXPANDED_WIDTH = 196;
 const SIDEBAR_MAX_WIDTH = 360;
 const SIDEBAR_COLLAPSE_THRESHOLD = 140; // dragging below this snaps to collapsed
 const SIDEBAR_COLLAPSED_WIDTH = 60;
+const SCROLL_NAVIGATOR_MIN_THUMB_HEIGHT = 88;
+const SCROLL_NAVIGATOR_MAX_THUMB_HEIGHT = 168;
+
+type ScrollNavigatorMetrics = {
+  visible: boolean;
+  thumbHeight: number;
+  thumbTop: number;
+};
 
 function readSidebarCollapsed(): boolean {
   if (typeof window === 'undefined') {
@@ -7054,6 +8081,12 @@ export function ProductShellLayout() {
   const [sidebarCollapsedPref, setSidebarCollapsedPref] = useState<boolean>(() => readSidebarCollapsed());
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => readSidebarWidth());
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
+  const [isSidebarEdgeFocused, setIsSidebarEdgeFocused] = useState(false);
+  const [scrollNavigator, setScrollNavigator] = useState<ScrollNavigatorMetrics>({
+    visible: false,
+    thumbHeight: 0,
+    thumbTop: 0
+  });
   const [isNarrowViewport, setIsNarrowViewport] = useState<boolean>(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
       return false;
@@ -7079,6 +8112,7 @@ export function ProductShellLayout() {
     kubernetes: null
   });
   const sidebarRef = useRef<HTMLElement | null>(null);
+  const sidebarResizeMovedRef = useRef(false);
   const basePath = scope ? buildScopedPath(scope) : '/app';
   const activeDomain = scope ? findActiveDomain(scope, location.pathname) : null;
   const activeDomainRouteID =
@@ -7340,13 +8374,25 @@ export function ProductShellLayout() {
     }
   }, [sidebarWidth]);
 
+  const toggleSidebarCollapsed = useCallback(() => {
+    if (isNarrowViewport) {
+      return;
+    }
+    setSidebarCollapsedPref((current) => !current);
+  }, [isNarrowViewport]);
+
   const handleSidebarResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (isNarrowViewport) {
+      return;
+    }
+    if (event.button !== 0) {
       return;
     }
     event.preventDefault();
     const handleEl = event.currentTarget;
     const pointerId = event.pointerId;
+    const startClientX = event.clientX;
+    sidebarResizeMovedRef.current = false;
     // Capture the pointer so every subsequent move / up / cancel for this
     // gesture is delivered to the handle even if the user releases outside the
     // viewport, the OS steals focus, or the browser fires `pointercancel`.
@@ -7366,6 +8412,9 @@ export function ProductShellLayout() {
       if (moveEvent.pointerId !== pointerId) {
         return;
       }
+      if (Math.abs(moveEvent.clientX - startClientX) > 4) {
+        sidebarResizeMovedRef.current = true;
+      }
       const proposed = moveEvent.clientX - startLeft;
       if (proposed < SIDEBAR_COLLAPSE_THRESHOLD) {
         setSidebarCollapsedPref(true);
@@ -7379,11 +8428,15 @@ export function ProductShellLayout() {
       if (cleanupEvent && cleanupEvent.pointerId !== pointerId) {
         return;
       }
+      const shouldToggle = cleanupEvent?.type === 'pointerup' && !sidebarResizeMovedRef.current;
       setIsDraggingSidebar(false);
       handleEl.removeEventListener('pointermove', handlePointerMove);
       handleEl.removeEventListener('pointerup', cleanup);
       handleEl.removeEventListener('pointercancel', cleanup);
       handleEl.removeEventListener('lostpointercapture', cleanup);
+      if (shouldToggle) {
+        toggleSidebarCollapsed();
+      }
     };
     handleEl.addEventListener('pointermove', handlePointerMove);
     handleEl.addEventListener('pointerup', cleanup);
@@ -7392,6 +8445,14 @@ export function ProductShellLayout() {
     // including the OS canceling the gesture or the element being unmounted
     // by React. It is the most reliable final cleanup signal.
     handleEl.addEventListener('lostpointercapture', cleanup);
+  };
+
+  const handleSidebarResizeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    event.preventDefault();
+    toggleSidebarCollapsed();
   };
 
   // Safety net: any time we leave the dragging state, ensure the body style
@@ -7414,6 +8475,86 @@ export function ProductShellLayout() {
     document.body.style.removeProperty('user-select');
     return undefined;
   }, [isDraggingSidebar]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return;
+    }
+
+    let frameID: number | undefined;
+    const requestFrame =
+      window.requestAnimationFrame ?? ((callback: FrameRequestCallback) => window.setTimeout(callback, 16));
+    const cancelFrame = window.cancelAnimationFrame ?? window.clearTimeout;
+    const updateMetrics = () => {
+      frameID = undefined;
+      const scrollingElement = document.scrollingElement ?? document.documentElement;
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+      const scrollHeight = Math.max(
+        scrollingElement.scrollHeight,
+        document.documentElement.scrollHeight,
+        document.body.scrollHeight
+      );
+      const scrollRange = scrollHeight - viewportHeight;
+
+      if (scrollRange <= 24 || viewportHeight <= 0) {
+        setScrollNavigator((current) =>
+          current.visible ? { visible: false, thumbHeight: 0, thumbTop: 0 } : current
+        );
+        return;
+      }
+
+      const trackTop = Math.min(112, Math.max(80, viewportHeight * 0.13));
+      const trackBottom = Math.min(56, Math.max(36, viewportHeight * 0.05));
+      const trackHeight = Math.max(120, viewportHeight - trackTop - trackBottom);
+      const thumbHeight = Math.round(
+        Math.min(
+          SCROLL_NAVIGATOR_MAX_THUMB_HEIGHT,
+          Math.max(SCROLL_NAVIGATOR_MIN_THUMB_HEIGHT, trackHeight * 0.22)
+        )
+      );
+      const scrollProgress = Math.min(1, Math.max(0, scrollingElement.scrollTop / scrollRange));
+      const thumbTop = Math.round(trackTop + (trackHeight - thumbHeight) * scrollProgress);
+
+      setScrollNavigator((current) => {
+        if (
+          current.visible &&
+          current.thumbHeight === thumbHeight &&
+          Math.abs(current.thumbTop - thumbTop) <= 1
+        ) {
+          return current;
+        }
+        return { visible: true, thumbHeight, thumbTop };
+      });
+    };
+    const scheduleUpdate = () => {
+      if (frameID !== undefined) {
+        cancelFrame(frameID);
+      }
+      frameID = requestFrame(updateMetrics);
+    };
+
+    updateMetrics();
+    window.addEventListener('scroll', scheduleUpdate, { passive: true });
+    window.addEventListener('resize', scheduleUpdate);
+
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => {
+            scheduleUpdate();
+          });
+    observer?.observe(document.documentElement);
+    observer?.observe(document.body);
+
+    return () => {
+      if (frameID !== undefined) {
+        cancelFrame(frameID);
+      }
+      window.removeEventListener('scroll', scheduleUpdate);
+      window.removeEventListener('resize', scheduleUpdate);
+      observer?.disconnect();
+    };
+  }, [location.pathname]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -7490,7 +8631,6 @@ export function ProductShellLayout() {
   const userEmail = '';
   const userInitial = (workspaceDisplayName.charAt(0) || 'A').toUpperCase();
   const collapseShortcut = isMacPlatform() ? '⌘B' : 'Ctrl+B';
-  const collapseHint = `${sidebarCollapsed ? 'Expand' : 'Collapse'} sidebar (${collapseShortcut})`;
   const runCommand = (item: CommandPaletteItem) => {
     setCommandOpen(false);
     setOpenDomainFlyout(null);
@@ -7527,15 +8667,17 @@ export function ProductShellLayout() {
           data-collapsed={sidebarCollapsed ? 'true' : 'false'}
         >
           <div
-            className={`idt-app-sidebar-resize-handle${isDraggingSidebar ? ' is-dragging' : ''}`}
+            className={`idt-app-sidebar-resize-handle${isDraggingSidebar ? ' is-dragging' : ''}${isSidebarEdgeFocused ? ' is-focused' : ''}`}
             role="separator"
+            tabIndex={0}
             aria-orientation="vertical"
-            aria-label="Resize sidebar (drag, or use ⌘B to collapse)"
+            aria-label={`${sidebarCollapsed ? 'Expand' : 'Collapse'} sidebar. Drag to resize.`}
+            data-sidebar-action={sidebarCollapsed ? 'Click to expand' : 'Click to collapse'}
+            data-sidebar-shortcut={collapseShortcut}
             onPointerDown={handleSidebarResizeStart}
-            onDoubleClick={() => {
-              setSidebarCollapsedPref(false);
-              setSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
-            }}
+            onKeyDown={handleSidebarResizeKeyDown}
+            onFocus={() => setIsSidebarEdgeFocused(true)}
+            onBlur={() => setIsSidebarEdgeFocused(false)}
           />
           <div className="idt-app-sidebar-workspace" ref={workspaceMenuRef}>
             <button
@@ -7555,7 +8697,6 @@ export function ProductShellLayout() {
               </span>
               <span className="idt-app-sidebar-workspace-copy">
                 <strong>{workspaceDisplayName}</strong>
-                <span>Identrail</span>
               </span>
               <span className="idt-app-sidebar-workspace-caret" aria-hidden="true">
                 <ChevronDown size={12} strokeWidth={2} />
@@ -7753,20 +8894,6 @@ export function ProductShellLayout() {
                 </div>
               ) : null}
             </div>
-            <button
-              type="button"
-              className="idt-app-sidebar-collapse"
-              aria-label={collapseHint}
-              aria-pressed={sidebarCollapsed}
-              title={collapseHint}
-              onClick={() => setSidebarCollapsedPref((current) => !current)}
-            >
-              {sidebarCollapsed ? (
-                <PanelLeftOpen size={16} strokeWidth={1.75} aria-hidden="true" />
-              ) : (
-                <PanelLeftClose size={16} strokeWidth={1.75} aria-hidden="true" />
-              )}
-            </button>
           </div>
         </aside>
 
@@ -7784,6 +8911,20 @@ export function ProductShellLayout() {
             <Outlet />
           </main>
         </div>
+        {scrollNavigator.visible ? (
+          <div
+            className="idt-app-scroll-navigator"
+            aria-hidden="true"
+            style={
+              {
+                '--idt-scroll-navigator-thumb-height': `${scrollNavigator.thumbHeight}px`,
+                '--idt-scroll-navigator-thumb-top': `${scrollNavigator.thumbTop}px`
+              } as CSSProperties
+            }
+          >
+            <span className="idt-app-scroll-navigator-thumb" />
+          </div>
+        ) : null}
       </div>
       <CommandPalette
         open={commandOpen}
@@ -13440,13 +14581,13 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
               </div>
               <button
                 ref={findingDetailCloseRef}
-                className="idt-icon-btn idt-repo-finding-modal-close"
+                className="idt-esc-close idt-repo-finding-modal-close"
                 type="button"
                 aria-label="Close finding detail"
                 autoFocus
                 onClick={() => closeFindingDetail()}
               >
-                <X size={16} strokeWidth={2} aria-hidden="true" />
+                ESC
               </button>
             </header>
 
@@ -14017,7 +15158,10 @@ export function ProductSettingsPage() {
     | { kind: 'ready'; downloadURL: string; expiresAt?: string }
   >({ kind: 'idle' });
   const exportAbortRef = useRef<AbortController | null>(null);
+  const avatarControlRef = useRef<HTMLDivElement | null>(null);
+  const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
   const [profileEditing, setProfileEditing] = useState(false);
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
   const [profileDraft, setProfileDraft] = useState<ProfileDraft>(() => profileDraftFromMe(me));
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState('');
@@ -14123,7 +15267,31 @@ export function ProductSettingsPage() {
       setProfileDraft(profileDraftFromMe(me));
       setProfileError('');
     }
-  }, [me?.user.display_name, me?.user.avatar_url, profileEditing, profileSaving]);
+  }, [me?.user.display_name, profileEditing, profileSaving]);
+
+  useEffect(() => {
+    if (!avatarMenuOpen) {
+      return;
+    }
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Node && avatarControlRef.current?.contains(target)) {
+        return;
+      }
+      setAvatarMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setAvatarMenuOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [avatarMenuOpen]);
 
   const activeWorkspace = whoAmI?.active_workspace?.workspace ?? me?.workspace;
   const activeMember =
@@ -14132,27 +15300,32 @@ export function ProductSettingsPage() {
   const activeRole = activeMember?.role ?? me?.role ?? 'viewer';
   const workspaceDisplayName = activeWorkspace?.display_name ?? scope?.workspaceID ?? 'Workspace';
   const authProviders = authConfig?.auth.providers ?? [];
-  const authModeLabel = authConfig?.auth.workos_login_enabled
-    ? 'Hosted WorkOS login'
-    : authConfig?.auth.native_saml_enabled
-      ? 'Native SAML login'
-    : authConfig?.auth.manual_mode
-      ? 'Manual development login'
-      : 'Session-only';
   const scopes = Array.isArray(whoAmI?.scopes) ? whoAmI.scopes : [];
-  const awsPath = scope ? buildScopedPath(scope, 'aws') : '/app';
-  const githubFindingsPath = scope ? buildScopedPath(scope, 'github/findings') : '/app';
-  const kubernetesPath = scope ? buildScopedPath(scope, 'kubernetes') : '/app';
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
   const primaryEmail = me?.user.primary_email?.trim() ?? '';
   const profileDisplayName = formatProfileDisplayName(me);
   const profileAvatarURL = me?.user.avatar_url?.trim() ?? '';
   const profileInitials = formatProfileInitials(me);
+  const activeMembers = countMembersByStatus(members, 'active');
+  const invitedMembers = countMembersByStatus(members, 'invited');
+  const adminMembers = countMembersByRole(members, 'owner') + countMembersByRole(members, 'admin');
+  const signInMethods = formatSettingsAuthProviders(authConfig);
+  const hostedLoginStatus = authConfig?.auth.workos_login_enabled ? 'Enabled' : 'Disabled';
+  const samlStatus = authConfig?.auth.native_saml_enabled ? 'Configured' : 'Not configured';
+  const mfaStatus = authConfig?.auth.workos_login_enabled ? 'Hosted login' : 'Not configured';
+  const developerScopeLabel = scopes.length ? scopes.map(formatTokenLabel).join(', ') : 'No custom restrictions';
+  const developerProviderLabel = authProviders.length ? authProviders.join(', ') : 'None advertised';
 
   const handleProfileEdit = () => {
+    if (profileEditing) {
+      setProfileError('');
+      setAvatarMenuOpen(false);
+      return;
+    }
     setProfileDraft(profileDraftFromMe(me));
     setProfileError('');
     setProfileEditing(true);
+    setAvatarMenuOpen(false);
   };
 
   const handleProfileCancel = () => {
@@ -14160,6 +15333,102 @@ export function ProductSettingsPage() {
     setProfileDraft(profileDraftFromMe(me));
     setProfileError('');
     setProfileEditing(false);
+    setAvatarMenuOpen(false);
+  };
+
+  const handleAvatarDelete = async () => {
+    if (!me || profileSaving || !profileAvatarURL) {
+      return;
+    }
+    const previousMe = me;
+    const previousDraft = profileDraft;
+    const wasProfileEditing = profileEditing;
+    const optimisticMe: CurrentUserContext = {
+      ...previousMe,
+      user: {
+        ...previousMe.user,
+        avatar_url: '',
+        updated_at: new Date().toISOString()
+      }
+    };
+    setAvatarMenuOpen(false);
+    setProfileSaving(true);
+    setProfileError('');
+    primeMeCache(optimisticMe);
+    try {
+      const response = await apiClient.updateMe({ avatar_url: '' });
+      primeMeCache(response.me);
+      if (wasProfileEditing) {
+        setProfileDraft(previousDraft);
+      } else {
+        setProfileDraft(profileDraftFromMe(response.me));
+        setProfileEditing(false);
+      }
+    } catch (err) {
+      primeMeCache(previousMe);
+      setProfileDraft(wasProfileEditing ? previousDraft : profileDraftFromMe(previousMe));
+      setProfileError(err instanceof Error ? err.message : 'Unable to delete profile photo.');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleAvatarUploadClick = () => {
+    if (!me || profileSaving) {
+      return;
+    }
+    setAvatarMenuOpen(false);
+    setProfileError('');
+    avatarFileInputRef.current?.click();
+  };
+
+  const handleAvatarFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (!file || !me || profileSaving) {
+      return;
+    }
+    const validationError = validateProfileAvatarFile(file);
+    if (validationError) {
+      setProfileError(validationError);
+      return;
+    }
+    const previousMe = me;
+    const previousDraft = profileDraft;
+    const wasProfileEditing = profileEditing;
+    let nextAvatarURL = '';
+    try {
+      nextAvatarURL = await readProfileAvatarFile(file);
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : 'Unable to read profile photo.');
+      return;
+    }
+    const optimisticMe: CurrentUserContext = {
+      ...previousMe,
+      user: {
+        ...previousMe.user,
+        avatar_url: nextAvatarURL,
+        updated_at: new Date().toISOString()
+      }
+    };
+    setProfileSaving(true);
+    setProfileError('');
+    primeMeCache(optimisticMe);
+    try {
+      const response = await apiClient.updateMe({ avatar_url: nextAvatarURL });
+      primeMeCache(response.me);
+      if (wasProfileEditing) {
+        setProfileDraft(previousDraft);
+      } else {
+        setProfileDraft(profileDraftFromMe(response.me));
+      }
+    } catch (err) {
+      primeMeCache(previousMe);
+      setProfileDraft(wasProfileEditing ? previousDraft : profileDraftFromMe(previousMe));
+      setProfileError(err instanceof Error ? err.message : 'Unable to update profile photo.');
+    } finally {
+      setProfileSaving(false);
+    }
   };
 
   const handleProfileSubmit = async (event: FormEvent) => {
@@ -14170,17 +15439,14 @@ export function ProductSettingsPage() {
     }
     const previousMe = me;
     const previousDisplayName = previousMe.user.display_name?.trim() ?? '';
-    const previousAvatarURL = previousMe.user.avatar_url?.trim() ?? '';
     const nextDisplayName = profileDraft.displayName.trim();
-    const nextAvatarURL = profileDraft.avatarUrl.trim();
     const displayNameChanged = nextDisplayName !== previousDisplayName;
-    const avatarURLChanged = nextAvatarURL !== previousAvatarURL;
-    const validationError = validateProfileDraft(profileDraft, { validateAvatarUrl: avatarURLChanged });
+    const validationError = validateProfileDraft(profileDraft);
     if (validationError) {
       setProfileError(validationError);
       return;
     }
-    if (!displayNameChanged && !avatarURLChanged) {
+    if (!displayNameChanged) {
       setProfileError('');
       setProfileEditing(false);
       return;
@@ -14190,7 +15456,6 @@ export function ProductSettingsPage() {
       user: {
         ...previousMe.user,
         display_name: nextDisplayName,
-        avatar_url: nextAvatarURL,
         updated_at: new Date().toISOString()
       }
     };
@@ -14199,8 +15464,7 @@ export function ProductSettingsPage() {
     primeMeCache(optimisticMe);
     try {
       const payload = {
-        ...(displayNameChanged ? { display_name: nextDisplayName } : {}),
-        ...(avatarURLChanged ? { avatar_url: nextAvatarURL } : {})
+        display_name: nextDisplayName
       };
       const response = await apiClient.updateMe(payload);
       primeMeCache(response.me);
@@ -14214,15 +15478,6 @@ export function ProductSettingsPage() {
       setProfileSaving(false);
     }
   };
-
-  const primarySession = sessions.find((session) => session.current) ?? sessions[0];
-  const sessionsSummary = sessionsLoading
-    ? 'Checking active browsers.'
-    : sessionsError
-      ? 'Session details need a refresh.'
-      : primarySession
-        ? formatSessionDevice(primarySession.user_agent)
-        : 'No active browser session.';
 
   const handleRevokeSession = async (sessionID: string, isCurrent: boolean) => {
     setBusySessionID(sessionID);
@@ -14296,7 +15551,6 @@ export function ProductSettingsPage() {
     return (
       <section className="idt-app-panel" aria-busy="true" aria-live="polite">
         <h2>Settings</h2>
-        <p>Loading workspace identity, members, authentication, and sessions.</p>
       </section>
     );
   }
@@ -14315,42 +15569,81 @@ export function ProductSettingsPage() {
       <header className="idt-settings-header">
         <div>
           <h2>Settings</h2>
-          <p>Workspace access, sign-in, sessions, and account controls.</p>
-        </div>
-        <div className="idt-inline-actions">
-          <Link className="idt-btn idt-btn-primary" to={workspacesPath}>
-            Manage members
-          </Link>
         </div>
       </header>
 
       <section className="idt-settings-card idt-profile-card" aria-labelledby="idt-profile-heading">
         <div className="idt-settings-card-header">
           <div>
-            <p className="idt-app-kicker">Account profile</p>
-            <h3 id="idt-profile-heading">{profileDisplayName}</h3>
+            <h3 id="idt-profile-heading">Profile</h3>
           </div>
-          {profileEditing ? null : (
-            <button
-              type="button"
-              className="idt-icon-btn idt-profile-icon-btn"
-              aria-label="Edit profile"
-              title="Edit profile"
-              onClick={handleProfileEdit}
-              disabled={!me}
-            >
-              <Pencil size={16} aria-hidden="true" />
-            </button>
-          )}
+          {profileEditing ? (
+            <div className="idt-profile-actions">
+              <button
+                type="submit"
+                form="idt-profile-form"
+                className="idt-btn idt-btn-primary"
+                disabled={profileSaving}
+              >
+                {profileSaving ? 'Saving...' : 'Save profile'}
+              </button>
+              <button
+                type="button"
+                className="idt-btn idt-btn-ghost"
+                onClick={handleProfileCancel}
+                disabled={profileSaving}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="idt-profile-body">
-          <div className="idt-profile-avatar" aria-hidden="true">
-            {profileAvatarURL ? <img src={profileAvatarURL} alt="" /> : <span>{profileInitials}</span>}
+          <div
+            className="idt-profile-avatar-control"
+            data-menu-open={avatarMenuOpen ? 'true' : 'false'}
+            ref={avatarControlRef}
+          >
+            <input
+              ref={avatarFileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              hidden
+              onChange={(event) => {
+                void handleAvatarFileChange(event);
+              }}
+            />
+            <button
+              type="button"
+              className="idt-profile-avatar"
+              aria-expanded={avatarMenuOpen}
+              aria-haspopup="menu"
+              aria-label={profileAvatarURL ? 'Update or delete profile photo' : 'Upload profile photo'}
+              onClick={() => setAvatarMenuOpen((open) => !open)}
+              disabled={!me}
+            >
+              {profileAvatarURL ? <img src={profileAvatarURL} alt="" /> : <span>{profileInitials}</span>}
+              <span className="idt-profile-avatar-edit" aria-hidden="true">
+                <Pencil size={14} />
+              </span>
+            </button>
+            {avatarMenuOpen ? (
+              <div className="idt-profile-avatar-menu" role="menu">
+                <button type="button" role="menuitem" onClick={handleAvatarUploadClick} disabled={profileSaving}>
+                  {profileAvatarURL ? 'Update photo' : 'Upload photo'}
+                </button>
+                {profileAvatarURL ? (
+                  <button type="button" role="menuitem" onClick={() => void handleAvatarDelete()} disabled={profileSaving}>
+                    Delete photo
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           {profileEditing ? (
-            <form className="idt-app-form idt-profile-form" onSubmit={handleProfileSubmit}>
+            <form id="idt-profile-form" className="idt-app-form idt-profile-form" onSubmit={handleProfileSubmit}>
               <label>
                 Display name
                 <input
@@ -14363,36 +15656,14 @@ export function ProductSettingsPage() {
                 />
               </label>
               <label>
-                Avatar URL
+                Email
                 <input
-                  type="url"
-                  value={profileDraft.avatarUrl}
-                  onChange={(event) => setProfileDraft((draft) => ({ ...draft, avatarUrl: event.target.value }))}
-                  disabled={profileSaving}
-                  placeholder="https://..."
+                  type="email"
+                  value={primaryEmail || 'Unavailable'}
+                  disabled
+                  readOnly
                 />
               </label>
-              <div className="idt-profile-actions">
-                <button
-                  type="submit"
-                  className="idt-icon-btn idt-profile-icon-btn"
-                  aria-label="Save profile"
-                  title="Save profile"
-                  disabled={profileSaving}
-                >
-                  <Check size={16} aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="idt-icon-btn idt-profile-icon-btn"
-                  aria-label="Cancel profile editing"
-                  title="Cancel profile editing"
-                  onClick={handleProfileCancel}
-                  disabled={profileSaving}
-                >
-                  <X size={16} aria-hidden="true" />
-                </button>
-              </div>
               {profileError ? (
                 <p className="idt-app-alert idt-app-alert-error" role="alert">
                   {profileError}
@@ -14402,32 +15673,177 @@ export function ProductSettingsPage() {
           ) : (
             <dl className="idt-settings-facts idt-profile-facts">
               <div>
+                <dt>Name</dt>
+                <dd>{profileDisplayName}</dd>
+              </div>
+              <div>
                 <dt>Email</dt>
                 <dd>{me?.user.primary_email ?? 'Unavailable'}</dd>
               </div>
               <div>
-                <dt>Avatar</dt>
-                <dd>{profileAvatarURL || 'Not set'}</dd>
-              </div>
-              <div>
-                <dt>Status</dt>
+                <dt>Account status</dt>
                 <dd>{me?.user.status ? formatTokenLabel(me.user.status) : 'Unavailable'}</dd>
-              </div>
-              <div>
-                <dt>Updated</dt>
-                <dd>{me?.user.updated_at ? formatDateLabel(me.user.updated_at) : 'Unavailable'}</dd>
               </div>
             </dl>
           )}
         </div>
+
+        {!profileEditing && profileError ? (
+          <p className="idt-app-alert idt-app-alert-error" role="alert">
+            {profileError}
+          </p>
+        ) : null}
+
+        <div className="idt-settings-action-stack">
+          {!profileEditing ? (
+            <button
+              aria-label="Edit profile"
+              className="idt-settings-action-row"
+              onClick={handleProfileEdit}
+              type="button"
+              disabled={!me}
+            >
+              <span>
+                <strong>Edit profile</strong>
+              </span>
+              <ChevronRight size={16} aria-hidden="true" />
+            </button>
+          ) : null}
+          <div className="idt-settings-action-item" data-testid="idt-export-account-row">
+            <button
+              aria-label="Download my data"
+              className="idt-settings-action-row"
+              data-testid="idt-export-account-button"
+              disabled={exportPending}
+              onClick={startDataExport}
+              type="button"
+            >
+              <span>
+                <strong>Download my data</strong>
+              </span>
+              <ChevronRight size={16} aria-hidden="true" />
+            </button>
+            {exportStatus.kind === 'ready' ? (
+              <p className="idt-settings-inline-status idt-danger-zone-success" data-testid="idt-export-ready">
+                Your data export is ready.{' '}
+                <a href={exportStatus.downloadURL} rel="noopener noreferrer">
+                  Download the ZIP
+                </a>
+                {exportStatus.expiresAt ? ` - link expires ${new Date(exportStatus.expiresAt).toLocaleString()}` : ''}.
+              </p>
+            ) : exportStatus.kind === 'preparing' ? (
+              <p className="idt-settings-inline-status idt-danger-zone-status" data-testid="idt-export-preparing">
+                {exportStatus.message}
+              </p>
+            ) : null}
+            {exportError ? (
+              <p className="idt-settings-inline-status idt-danger-zone-error" role="alert">
+                {exportError}
+              </p>
+            ) : null}
+          </div>
+        </div>
       </section>
 
       <div className="idt-settings-grid">
-        <section className="idt-settings-card">
-          <div>
-            <p className="idt-app-kicker">Workspace</p>
-            <h3>{workspaceDisplayName}</h3>
+        <section className="idt-settings-card idt-settings-security-card">
+          <div className="idt-settings-card-header">
+            <div>
+              <h3>Security</h3>
+            </div>
           </div>
+          <dl className="idt-settings-facts">
+            <div>
+              <dt>Sign-in methods</dt>
+              <dd>{signInMethods}</dd>
+            </div>
+            <div>
+              <dt>2FA</dt>
+              <dd>{mfaStatus}</dd>
+            </div>
+            <div>
+              <dt>SAML SSO</dt>
+              <dd>{samlStatus}</dd>
+            </div>
+          </dl>
+          <details className="idt-settings-inline-disclosure idt-settings-sessions-card">
+            <summary className="idt-settings-action-row idt-settings-action-summary">
+              <span>
+                <strong>Manage sessions</strong>
+              </span>
+              <ChevronRight size={16} aria-hidden="true" />
+            </summary>
+            <div className="idt-settings-disclosure-body">
+              {sessionsLoading ? <p className="idt-app-alert">Loading active sessions...</p> : null}
+              {sessionsError ? (
+                <p className="idt-app-alert idt-app-alert-error" role="alert">
+                  {sessionsError}
+                </p>
+              ) : null}
+              {!sessionsLoading ? (
+                <SessionsList
+                  busySessionID={busySessionID}
+                  revokingOthers={revokingOthers}
+                  sessions={sessions}
+                  onRevoke={handleRevokeSession}
+                  onRevokeOthers={handleRevokeOtherSessions}
+                />
+              ) : null}
+            </div>
+          </details>
+        </section>
+
+        <section className="idt-settings-card idt-settings-workspace-card">
+          <div className="idt-settings-card-header">
+            <div>
+              <h3>Workspace</h3>
+            </div>
+          </div>
+          <dl className="idt-settings-facts">
+            <div>
+              <dt>Name</dt>
+              <dd>{workspaceDisplayName}</dd>
+            </div>
+            <div>
+              <dt>Your access</dt>
+              <dd>{formatTokenLabel(activeRole)}</dd>
+            </div>
+            <div>
+              <dt>Admins</dt>
+              <dd>{adminMembers}</dd>
+            </div>
+          </dl>
+          <div className="idt-settings-counts">
+            <article>
+              <strong>{members.length}</strong>
+              <span>Total members</span>
+            </article>
+            <article>
+              <strong>{activeMembers}</strong>
+              <span>Active</span>
+            </article>
+            <article>
+              <strong>{invitedMembers}</strong>
+              <span>Invited</span>
+            </article>
+          </div>
+          <Link className="idt-settings-action-row" to={workspacesPath}>
+            <span>
+              <strong>Manage members</strong>
+            </span>
+            <ChevronRight size={16} aria-hidden="true" />
+          </Link>
+        </section>
+      </div>
+
+      <details className="idt-settings-card idt-settings-disclosure">
+        <summary className="idt-settings-disclosure-summary">
+          <div>
+            <h3>Developer details</h3>
+          </div>
+          <span aria-hidden="true"><ChevronRight size={14} /></span>
+        </summary>
+        <div className="idt-settings-disclosure-body">
           <dl className="idt-settings-facts">
             <div>
               <dt>Tenant ID</dt>
@@ -14438,229 +15854,57 @@ export function ProductSettingsPage() {
               <dd>{scope?.workspaceID ?? 'Unavailable'}</dd>
             </div>
             <div>
-              <dt>Scope</dt>
-              <dd>{scope?.projectID ?? me?.project_id ?? 'All scopes'}</dd>
+              <dt>Principal ID</dt>
+              <dd>{whoAmI ? `${formatTokenLabel(whoAmI.principal.type)} - ${whoAmI.principal.id}` : 'Unavailable'}</dd>
             </div>
             <div>
-              <dt>Updated</dt>
-              <dd>{activeWorkspace?.updated_at ? formatDateLabel(activeWorkspace.updated_at) : 'Unavailable'}</dd>
+              <dt>Custom scopes</dt>
+              <dd>{developerScopeLabel}</dd>
             </div>
-          </dl>
-        </section>
-
-        <section className="idt-settings-card">
-          <div>
-            <p className="idt-app-kicker">Access</p>
-            <h3>{formatTokenLabel(activeRole)}</h3>
-          </div>
-          <dl className="idt-settings-facts">
-            <div>
-              <dt>User</dt>
-              <dd>{me?.user?.primary_email ?? whoAmI?.principal.id ?? 'Unavailable'}</dd>
-            </div>
-            <div>
-              <dt>Status</dt>
-              <dd>{me?.user?.status ? formatTokenLabel(me.user.status) : 'Unavailable'}</dd>
-            </div>
-            <div>
-              <dt>Principal</dt>
-              <dd>{whoAmI ? `${formatTokenLabel(whoAmI.principal.type)} · ${whoAmI.principal.id}` : 'Unavailable'}</dd>
-            </div>
-            <div>
-              <dt>Scopes</dt>
-              <dd>{scopes.length ? scopes.map(formatTokenLabel).join(', ') : 'None'}</dd>
-            </div>
-          </dl>
-        </section>
-      </div>
-
-      <div className="idt-settings-grid">
-        <section className="idt-settings-card">
-          <div className="idt-settings-card-header">
-            <div>
-              <p className="idt-app-kicker">Members</p>
-              <h3>{formatCountLabel(members.length, 'member')}</h3>
-            </div>
-            <Link to={workspacesPath}>Manage</Link>
-          </div>
-          <div className="idt-settings-counts">
-            <article>
-              <strong>{members.length}</strong>
-              <span>Total members</span>
-            </article>
-            <article>
-              <strong>{countMembersByStatus(members, 'active')}</strong>
-              <span>Active</span>
-            </article>
-            <article>
-              <strong>{countMembersByStatus(members, 'invited')}</strong>
-              <span>Invited</span>
-            </article>
-            <article>
-              <strong>{countMembersByRole(members, 'owner') + countMembersByRole(members, 'admin')}</strong>
-              <span>Admins</span>
-            </article>
-          </div>
-        </section>
-
-        <section className="idt-settings-card">
-          <div className="idt-settings-card-header">
-            <div>
-              <p className="idt-app-kicker">Authentication</p>
-              <h3>{authModeLabel}</h3>
-            </div>
-          </div>
-          <dl className="idt-settings-facts">
             <div>
               <dt>Hosted login</dt>
-              <dd>{authConfig?.auth.workos_login_enabled ? 'Enabled' : 'Disabled'}</dd>
+              <dd>{hostedLoginStatus}</dd>
             </div>
             <div>
-              <dt>Native SAML</dt>
-              <dd>{authConfig?.auth.native_saml_enabled ? 'Enabled' : 'Disabled'}</dd>
-            </div>
-            <div>
-              <dt>Manual mode</dt>
-              <dd>{authConfig?.auth.manual_mode ? 'Enabled' : 'Disabled'}</dd>
-            </div>
-            <div>
-              <dt>Providers</dt>
-              <dd>{authProviders.length ? authProviders.map(formatTokenLabel).join(', ') : 'None advertised'}</dd>
+              <dt>Auth providers</dt>
+              <dd>{developerProviderLabel}</dd>
             </div>
           </dl>
-        </section>
-      </div>
-
-      <details className="idt-settings-card idt-settings-disclosure">
-        <summary className="idt-settings-disclosure-summary">
-          <div>
-            <p className="idt-app-kicker">Areas</p>
-            <h3>Related areas</h3>
-            <p>Domain controls and member access.</p>
-          </div>
-          <span>Show areas</span>
-        </summary>
-        <div className="idt-settings-route-grid idt-settings-disclosure-body">
-          <Link to={awsPath}>
-            <strong>AWS</strong>
-            <span>Accounts, identities, findings, fixes.</span>
-          </Link>
-          <Link to={githubFindingsPath}>
-            <strong>GitHub findings</strong>
-            <span>Repository risk and evidence.</span>
-          </Link>
-          <Link to={kubernetesPath}>
-            <strong>Kubernetes</strong>
-            <span>Clusters, workloads, service accounts, RBAC.</span>
-          </Link>
-          <Link to={workspacesPath}>
-            <strong>Members</strong>
-            <span>Invites, roles, workspace access.</span>
-          </Link>
         </div>
       </details>
 
-      <details className="idt-settings-card idt-settings-disclosure idt-settings-sessions-card">
-        <summary className="idt-settings-disclosure-summary">
-          <div>
-            <p className="idt-app-kicker">Sessions</p>
-            <h3>{sessionsLoading ? 'Loading sessions' : formatCountLabel(sessions.length, 'active session')}</h3>
-            <p>{sessionsSummary}</p>
-          </div>
-          <span>Manage sessions</span>
-        </summary>
-        <div className="idt-settings-disclosure-body">
-          {sessionsLoading ? <p className="idt-app-alert">Loading active sessions...</p> : null}
-          {sessionsError ? (
-            <p className="idt-app-alert idt-app-alert-error" role="alert">
-              {sessionsError}
-            </p>
-          ) : null}
-          {!sessionsLoading ? (
-            <SessionsList
-              busySessionID={busySessionID}
-              revokingOthers={revokingOthers}
-              sessions={sessions}
-              onRevoke={handleRevokeSession}
-              onRevokeOthers={handleRevokeOtherSessions}
-            />
-          ) : null}
-        </div>
-      </details>
-
-      <DangerZone description="Export your data first, suspend access temporarily, or schedule permanent account deletion after the 30-day grace window.">
-        <article
-          className="idt-danger-zone-row idt-danger-zone-row--neutral"
-          data-testid="idt-export-account-row"
-        >
-          <div>
-            <strong>Download my data</strong>
-            <p>
-              Export a ZIP of your profile, workspaces, sessions, and audit activity. The download link is
-              valid for 24 hours.
-            </p>
-            {exportStatus.kind === 'ready' ? (
-              <p className="idt-danger-zone-success" data-testid="idt-export-ready">
-                Your data export is ready.{' '}
-                <a href={exportStatus.downloadURL} rel="noopener noreferrer">
-                  Download the ZIP
-                </a>
-                {exportStatus.expiresAt ? ` (link expires ${new Date(exportStatus.expiresAt).toLocaleString()})` : ''}.
-              </p>
-            ) : exportStatus.kind === 'preparing' ? (
-              <p className="idt-danger-zone-status" data-testid="idt-export-preparing">
-                {exportStatus.message}
-              </p>
-            ) : null}
-            {exportError ? (
-              <p className="idt-danger-zone-error" role="alert">
-                {exportError}
-              </p>
-            ) : null}
-          </div>
-          <button
-            className="idt-btn idt-btn-secondary"
-            data-testid="idt-export-account-button"
-            disabled={exportPending}
-            onClick={startDataExport}
-            type="button"
-          >
-            {exportPending ? 'Preparing…' : 'Download my data'}
-          </button>
-        </article>
-
+      <DangerZone>
         <DangerZoneRow
           actionLabel="Suspend account"
-          description="Ends all sessions until you sign in again."
           onAction={() => {
             setSuspendError('');
             setSuspendModalOpen(true);
           }}
           pending={suspendPending}
           testId="idt-suspend-account-row"
-          title="Account access"
+          title="Suspend account"
         />
         <DangerZoneRow
           actionLabel="Delete account"
-          description="Schedules permanent account deletion, revokes every other session, and removes your access to all workspaces after the recovery window."
           disabled={!primaryEmail}
           onAction={handleOpenDeleteModal}
           pending={deletePending}
           testId="idt-delete-account-row"
-          title="Delete my account permanently"
+          title="Delete account"
         />
       </DangerZone>
 
       <ConfirmDestructiveModal
         body={
           <>
-            <p>This revokes every active session and clears this device.</p>
-            <p>Your memberships, projects, and connector data stay intact.</p>
+            <p>You will be signed out on all devices.</p>
+            <p>Your workspace, projects, memberships, and connector data will remain intact.</p>
           </>
         }
         confirmation={{
-          kind: 'checkbox',
-          label: 'I understand this signs me out everywhere.'
+          kind: 'type-to-confirm',
+          expectedValue: 'SUSPEND',
+          inputLabel: 'Type SUSPEND to continue'
         }}
         continueLabel="Suspend account"
         errorMessage={suspendError || undefined}
@@ -14698,14 +15942,9 @@ export function ProductSettingsPage() {
       <ConfirmDestructiveModal
         body={
           <>
+            <p>This starts a 30-day recovery window and blocks normal sign-in.</p>
             <p>
-              Deleting your account immediately marks it for deletion and blocks normal sign-in. Identrail
-              keeps a recovery cookie in this browser so you can cancel deletion during the 30-day grace
-              window.
-            </p>
-            <p>
-              Permanent hard deletion happens after the grace period. Download your account archive first if
-              you need profile, workspace, session, or audit data.{' '}
+              After the window, the account is permanently deleted. Need an archive?{' '}
               <button
                 className="idt-inline-button-link"
                 disabled={exportPending}
@@ -14713,8 +15952,8 @@ export function ProductSettingsPage() {
                 type="button"
               >
                 {exportPending ? 'Preparing export' : 'Download my data'}
-              </button>
-              .
+              </button>{' '}
+              before deleting.
             </p>
             {deleteSoleOwnerWorkspaces.length > 0 ? (
               <div
@@ -14723,8 +15962,7 @@ export function ProductSettingsPage() {
                 role="alert"
               >
                 <p>
-                  You are the sole owner of these workspaces. Promote another owner from member management
-                  before deleting your account.
+                  Transfer ownership for these workspaces before deleting this account.
                 </p>
                 <ul>
                   {deleteSoleOwnerWorkspaces.map((workspace) => (
@@ -14741,16 +15979,16 @@ export function ProductSettingsPage() {
         confirmation={{
           kind: 'type-to-confirm',
           expectedValue: primaryEmail,
-          inputLabel: 'Type your primary email',
-          helpText: 'Use the primary email shown in your account profile.'
+          inputLabel: 'Confirm primary email',
+          helpText: primaryEmail ? `Enter ${primaryEmail} exactly.` : undefined
         }}
-        continueLabel="Continue"
+        continueLabel="Delete account"
         errorMessage={deleteError || undefined}
         onCancel={handleCancelDeleteModal}
         onConfirm={handleDeleteAccount}
         open={deleteModalOpen}
         pending={deletePending}
-        title="Delete my account permanently"
+        title="Delete account"
       />
     </section>
   );
