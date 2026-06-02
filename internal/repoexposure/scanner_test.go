@@ -978,6 +978,37 @@ func TestCloneRemoteRepositoryPinsHTTPSHostResolutionWithExplicitPort(t *testing
 	}
 }
 
+func TestCloneRemoteRepositoryPinsAllHTTPSHostResolutions(t *testing.T) {
+	stubRepositoryHostLookup(t, map[string][]net.IP{
+		"multi.example": {
+			net.ParseIP("93.184.216.34"),
+			net.ParseIP("93.184.216.35"),
+		},
+	})
+	var gotCommands [][]string
+	expectedLSRemote := pinnedGitCommandWithIPs("multi.example", "443", []string{"93.184.216.34", "93.184.216.35"}, "ls-remote", "--symref", "https://multi.example/owner/repo.git")
+	scanner := NewScanner(func(_ context.Context, name string, args ...string) ([]byte, error) {
+		command := append([]string{name}, args...)
+		gotCommands = append(gotCommands, command)
+		if reflect.DeepEqual(command, expectedLSRemote) {
+			return []byte(strings.Join([]string{
+				"ref: refs/heads/main\tHEAD",
+				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tHEAD",
+				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/heads/main",
+			}, "\n")), nil
+		}
+		return []byte("ok"), nil
+	})
+
+	err := scanner.cloneRemoteRepository(context.Background(), t.TempDir(), "https://multi.example/owner/repo.git", filepath.Join(t.TempDir(), "repo.git"))
+	if err != nil {
+		t.Fatalf("clone remote repository: %v", err)
+	}
+	if len(gotCommands) == 0 || !reflect.DeepEqual(gotCommands[0], expectedLSRemote) {
+		t.Fatalf("expected first git command to pin all HTTPS host resolutions, got %+v", gotCommands)
+	}
+}
+
 func TestCloneRemoteRepositoryFetchesRequiredDeltaRef(t *testing.T) {
 	stubRepositoryHostLookup(t, map[string][]net.IP{
 		"github.com": {net.ParseIP("140.82.112.3")},
@@ -1549,7 +1580,11 @@ func stubRepositoryHostLookup(t *testing.T, responses map[string][]net.IP) {
 }
 
 func pinnedGitCommand(host string, port string, ip string, args ...string) []string {
-	command := []string{"git", "-c", "http.curloptResolve=" + host + ":" + port + ":" + ip, "-c", "http.proxy="}
+	return pinnedGitCommandWithIPs(host, port, []string{ip}, args...)
+}
+
+func pinnedGitCommandWithIPs(host string, port string, ips []string, args ...string) []string {
+	command := []string{"git", "-c", "http.curloptResolve=" + host + ":" + port + ":" + strings.Join(ips, ","), "-c", "http.proxy="}
 	return append(command, args...)
 }
 

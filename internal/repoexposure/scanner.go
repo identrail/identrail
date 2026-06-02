@@ -544,15 +544,30 @@ func appendBoundedFetchDepthArgs(args []string, depth int) []string {
 type gitHTTPSResolvePin struct {
 	Host string
 	Port string
-	IP   net.IP
+	IPs  []net.IP
 }
 
 func (p gitHTTPSResolvePin) valid() bool {
-	return p.Host != "" && p.Port != "" && p.IP != nil
+	if p.Host == "" || p.Port == "" {
+		return false
+	}
+	for _, ip := range p.IPs {
+		if ip != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (p gitHTTPSResolvePin) gitConfigValue() string {
-	return "http.curloptResolve=" + p.Host + ":" + p.Port + ":" + curlResolveIPAddress(p.IP)
+	ips := make([]string, 0, len(p.IPs))
+	for _, ip := range p.IPs {
+		formatted := curlResolveIPAddress(ip)
+		if formatted != "" {
+			ips = append(ips, formatted)
+		}
+	}
+	return "http.curloptResolve=" + p.Host + ":" + p.Port + ":" + strings.Join(ips, ",")
 }
 
 func curlResolveIPAddress(ip net.IP) string {
@@ -1619,7 +1634,7 @@ func gitHTTPSResolvePinForCloneURL(ctx context.Context, cloneURL string) (gitHTT
 	if port == "" {
 		port = "443"
 	}
-	return gitHTTPSResolvePin{Host: normalizedHost, Port: port, IP: resolvedIPs[0]}, nil
+	return gitHTTPSResolvePin{Host: normalizedHost, Port: port, IPs: resolvedIPs}, nil
 }
 
 func isBlockedRepositoryIP(ip net.IP) bool {
