@@ -147,6 +147,29 @@ type SourceAvailability = {
   unavailableMessage?: string;
 };
 
+type OverviewDomainState = 'connected' | 'degraded' | 'not_connected' | 'no_data' | 'shell';
+
+const OVERVIEW_DOMAIN_STATE_LABELS: Record<OverviewDomainState, string> = {
+  connected: 'Connected',
+  degraded: 'Needs review',
+  not_connected: 'Not connected',
+  no_data: 'Pending',
+  shell: 'Unavailable'
+};
+
+type OverviewSourceConnection = AWSConnectionStatus | KubernetesConnectionStatus;
+
+type OverviewConnectionRollup = {
+  checkedCount: number;
+  connectedCount: number;
+  degradedCount: number;
+};
+
+type OverviewConnectionRollups = {
+  aws: OverviewConnectionRollup;
+  kubernetes: OverviewConnectionRollup;
+};
+
 function normalizeValue(value: unknown): string {
   if (typeof value === 'string') {
     return value.trim();
@@ -483,16 +506,24 @@ export function clearProductAuthSessionCacheForTests() {
 }
 
 function resolveEnabledSourceProvider(provider: SourceProvider): SourceProvider | null {
-  return SOURCE_STACK.includes(provider) ? provider : null;
+  return DOMAIN_NAV_ORDER.includes(provider) ? provider : null;
 }
 
-export function SourceLogoMark({ provider, className = '' }: { provider: SourceProvider; className?: string }) {
+export function SourceLogoMark({
+  provider,
+  className = '',
+  decorative = false
+}: {
+  provider: SourceProvider;
+  className?: string;
+  decorative?: boolean;
+}) {
   const enabledProvider = resolveEnabledSourceProvider(provider);
   if (!enabledProvider) {
     return null;
   }
 
-  return <DomainLogoMark domain={enabledProvider} className={className} />;
+  return <DomainLogoMark domain={enabledProvider} className={className} decorative={decorative} />;
 }
 
 function SourceLogoStack({
@@ -556,6 +587,90 @@ async function listOverviewProjects(
   } while (cursor);
 
   return items;
+}
+
+function emptyOverviewConnectionRollup(): OverviewConnectionRollup {
+  return { checkedCount: 0, connectedCount: 0, degradedCount: 0 };
+}
+
+function emptyOverviewConnectionRollups(): OverviewConnectionRollups {
+  return {
+    aws: emptyOverviewConnectionRollup(),
+    kubernetes: emptyOverviewConnectionRollup()
+  };
+}
+
+function summarizeOverviewConnections<T extends OverviewSourceConnection>(
+  results: Array<PromiseSettledResult<{ connection: T }>>
+): OverviewConnectionRollup {
+  const rollup = emptyOverviewConnectionRollup();
+
+  results.forEach((result) => {
+    if (result.status !== 'fulfilled') {
+      return;
+    }
+    const connection = result.value.connection;
+    if (!connection) {
+      return;
+    }
+    rollup.checkedCount += 1;
+    if (!connection.connected) {
+      return;
+    }
+    rollup.connectedCount += 1;
+    if (connectionDomainTone(connection) !== 'success') {
+      rollup.degradedCount += 1;
+    }
+  });
+
+  return rollup;
+}
+
+async function loadOverviewConnectionRollups(
+  scope: ProductSession,
+  projects: ProjectRecord[],
+  sourceAvailability: Record<SourceProvider, SourceAvailability>,
+  auth: RequestAuthContext
+): Promise<OverviewConnectionRollups> {
+  const projectIDs = projects.map((project) => project.project_id).filter(Boolean);
+  if (projectIDs.length === 0) {
+    return emptyOverviewConnectionRollups();
+  }
+
+  const [awsResults, kubernetesResults] = await Promise.all([
+    Promise.allSettled(
+      projectIDs.map((projectID) => apiClient.getAWSProjectConnection(scope.workspaceID, projectID, auth))
+    ),
+    sourceAvailability.kubernetes.available
+      ? Promise.allSettled(
+          projectIDs.map((projectID) =>
+            apiClient.getKubernetesProjectConnection(scope.workspaceID, projectID, auth)
+          )
+        )
+      : Promise.resolve([])
+  ]);
+
+  return {
+    aws: summarizeOverviewConnections(awsResults),
+    kubernetes: summarizeOverviewConnections(kubernetesResults)
+  };
+}
+
+function overviewStateFromConnectionRollup(
+  availability: SourceAvailability,
+  rollup: OverviewConnectionRollup
+): OverviewDomainState {
+  if (!availability.available) {
+    return 'shell';
+  }
+  if (rollup.connectedCount === 0) {
+    return 'not_connected';
+  }
+  return rollup.degradedCount > 0 ? 'degraded' : 'connected';
+}
+
+function overviewConnectionMetric(rollup: OverviewConnectionRollup, singular: string): string {
+  return rollup.connectedCount > 0 ? formatCountLabel(rollup.connectedCount, singular) : 'Not connected';
 }
 
 async function listAIRisksRepoFindings(
@@ -7087,7 +7202,7 @@ function gitHubRecentScansTimeline(scans: RepoScanRecord[]): DomainTimelineEntry
     const detail = isCompletedScanStatus(scan.status)
       ? scan.error_message
         ? summarizeScanFailure(scan)
-        : `${scan.finding_count} findings · ${scan.files_scanned} files`
+        : summarizeSuccessfulRepoScan(scan)
       : `${scan.scan_mode ?? 'scan'} queued`;
     return {
       id: scan.id,
@@ -9108,7 +9223,7 @@ export function ProductShellLayout() {
       {
         id: 'overview',
         label: 'Overview',
-        description: 'Domain coverage, recent scans, and next actions',
+        description: 'Cross-domain posture and next actions',
         keywords: ['home', 'dashboard', 'workspace', 'domains'],
         path: basePath
       }
@@ -9918,6 +10033,14 @@ type ScanGroup = {
   repos: string[];
 };
 
+function summarizeSuccessfulRepoScan(scan: RepoScanRecord): string {
+  const parts = [formatCountLabel(scan.finding_count ?? 0, 'finding')];
+  if (Number.isFinite(scan.files_scanned)) {
+    parts.push(formatCountLabel(scan.files_scanned, 'file'));
+  }
+  return parts.join(' · ');
+}
+
 function groupRecentScans(scans: RepoScanRecord[]): ScanGroup[] {
   const groups: ScanGroup[] = [];
   scans.forEach((scan) => {
@@ -9926,7 +10049,7 @@ function groupRecentScans(scans: RepoScanRecord[]): ScanGroup[] {
     const reason = isFailure
       ? summarizeScanFailure(scan)
       : status === 'succeeded' || status === 'completed'
-        ? `${scan.finding_count} findings · ${scan.files_scanned} files`
+        ? summarizeSuccessfulRepoScan(scan)
         : 'In progress';
     const repo = canonicalGitHubRepositoryDisplay(scan.repository) || scan.repository;
     const last = groups[groups.length - 1];
@@ -10009,12 +10132,14 @@ export function ProductOverviewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeProjects, setActiveProjects] = useState<ProjectRecord[]>([]);
-  const [archivedProjectCount, setArchivedProjectCount] = useState(0);
   const [repoScans, setRepoScans] = useState<RepoScanRecord[]>([]);
   const [repoFindings, setRepoFindings] = useState<ApiFinding[]>([]);
-  const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
+  const [sourceConnectionRollups, setSourceConnectionRollups] = useState<OverviewConnectionRollups>(
+    emptyOverviewConnectionRollups()
+  );
   const [, setInviteSkipTick] = useState(0);
   const [connectorConfiguredFromOnboarding, setConnectorConfiguredFromOnboarding] = useState(false);
+  const [onboardingConnectorProvider, setOnboardingConnectorProvider] = useState<SourceProvider | null>(null);
 
   useEffect(() => {
     const tenantID = scope?.tenantID;
@@ -10022,12 +10147,14 @@ export function ProductOverviewPage() {
     if (!FEATURE_ONBOARDING_WIZARD || !tenantID || !workspaceID) {
       setShowTour(false);
       setConnectorConfiguredFromOnboarding(false);
+      setOnboardingConnectorProvider(null);
       return;
     }
     let mounted = true;
     // Reset immediately when scope changes so stale onboarding data cannot
     // bleed connector-complete state into another workspace.
     setConnectorConfiguredFromOnboarding(false);
+    setOnboardingConnectorProvider(null);
     const run = async () => {
       try {
         const response = await apiClient.getOnboardingState({ tenantID, workspaceID });
@@ -10052,10 +10179,12 @@ export function ProductOverviewPage() {
           (Boolean(state.connector_id) ||
             (!state.connector_skipped && stepsPastConnect.includes(state.current_step)));
         setConnectorConfiguredFromOnboarding(reachedConnect);
+        setOnboardingConnectorProvider(reachedConnect ? normalizeSourceProvider(state.connector_type) : null);
       } catch {
         if (mounted) {
           setShowTour(false);
           setConnectorConfiguredFromOnboarding(false);
+          setOnboardingConnectorProvider(null);
         }
       }
     };
@@ -10069,6 +10198,7 @@ export function ProductOverviewPage() {
     if (!scope) {
       setError('Choose a workspace before loading the overview.');
       setLoading(false);
+      setSourceConnectionRollups(emptyOverviewConnectionRollups());
       return;
     }
 
@@ -10078,9 +10208,8 @@ export function ProductOverviewPage() {
       setError('');
       try {
         const auth = buildProductAuthContext(scope);
-        const [allProjectItems, activeProjectItems, scanResponse, findingResponse, trendResponse] = await Promise.all([
-          listOverviewProjects(scope.workspaceID, { include_archived: true }, auth),
-          listOverviewProjects(scope.workspaceID, { include_archived: false }, auth),
+        const activeProjectItems = await listOverviewProjects(scope.workspaceID, { include_archived: false }, auth);
+        const [scanResponse, findingResponse, connectionRollups] = await Promise.all([
           apiClient.listRepoScans({ limit: OVERVIEW_SCAN_LIMIT }, auth),
           apiClient.listRepoFindings(
             {
@@ -10091,7 +10220,7 @@ export function ProductOverviewPage() {
             },
             auth
           ),
-          apiClient.getRepoFindingsTrends({ points: TREND_POINTS }, auth)
+          loadOverviewConnectionRollups(scope, activeProjectItems, sourceAvailability, auth)
         ]);
         if (!mounted) {
           return;
@@ -10101,19 +10230,19 @@ export function ProductOverviewPage() {
             .slice()
             .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
         );
-        setArchivedProjectCount(allProjectItems.filter((project) => project.archived_at).length);
         setRepoScans(scanResponse.items);
         setRepoFindings(
           findingResponse.items
             .slice()
             .sort((left, right) => severityRank(right.severity) - severityRank(left.severity))
         );
-        setTrendPoints(trendResponse.items);
+        setSourceConnectionRollups(connectionRollups);
       } catch (err) {
         if (!mounted) {
           return;
         }
         setError(formatAPIError(err, 'Unable to load workspace overview'));
+        setSourceConnectionRollups(emptyOverviewConnectionRollups());
       } finally {
         if (mounted) {
           setLoading(false);
@@ -10126,7 +10255,13 @@ export function ProductOverviewPage() {
     return () => {
       mounted = false;
     };
-  }, [scope?.tenantID, scope?.workspaceID, scope?.projectID]);
+  }, [
+    scope?.tenantID,
+    scope?.workspaceID,
+    scope?.projectID,
+    sourceAvailability.aws.available,
+    sourceAvailability.kubernetes.available
+  ]);
 
   const dismissTour = async () => {
     setShowTour(false);
@@ -10137,12 +10272,12 @@ export function ProductOverviewPage() {
     }
   };
 
-  const openFindingCount = repoFindings.filter((finding) => normalizeFindingStatus(finding.triage?.status) === 'open').length;
-  const urgentFindingCount = repoFindings.filter((finding) => {
+  const openFindings = repoFindings.filter((finding) => normalizeFindingStatus(finding.triage?.status) === 'open');
+  const highPriorityFindings = openFindings.filter((finding) => {
     const severity = normalizeValue(finding.severity).toLowerCase();
     return severity === 'critical' || severity === 'high';
-  }).length;
-  const activeScanCount = repoScans.filter((scan) => isActiveScanStatus(scan.status)).length;
+  });
+  const agenticRiskFindings = openFindings.filter(isAgenticRiskFinding);
   const succeededScanCount = repoScans.filter((scan) => {
     const normalized = normalizeValue(scan.status).toLowerCase();
     return normalized === 'succeeded' || normalized === 'completed';
@@ -10151,28 +10286,165 @@ export function ProductOverviewPage() {
     const normalized = normalizeValue(scan.status).toLowerCase();
     return normalized === 'failed' || normalized === 'canceled';
   }).length;
-  const latestTrend = trendPoints[trendPoints.length - 1];
-  const previousTrend = trendPoints[trendPoints.length - 2];
-  const trendDelta = latestTrend && previousTrend ? latestTrend.total - previousTrend.total : null;
   const awsPath = scope ? buildScopedPath(scope, 'aws') : '/app';
+  const awsConnectPath = scope ? buildScopedPath(scope, 'aws/connect') : '/app';
+  const awsGovernancePath = scope ? buildScopedPath(scope, 'aws/governance') : '/app';
+  const githubPath = scope ? buildScopedPath(scope, 'github') : '/app';
   const findingsPath = scope ? buildScopedPath(scope, 'github/findings') : '/app';
+  const githubRemediationPath = scope ? buildScopedPath(scope, 'github/remediation') : '/app';
+  const githubAgenticRiskPath = scope ? buildScopedPath(scope, 'github/agentic-risk') : '/app';
+  const kubernetesPath = scope ? buildScopedPath(scope, 'kubernetes') : '/app';
+  const kubernetesConnectPath = scope ? buildScopedPath(scope, 'kubernetes/connect') : '/app';
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
   const connectSourcesProvider = DOMAIN_NAV_ORDER.find((provider) => sourceAvailability[provider].available) ?? 'aws';
   const connectSourcesPath = scope ? buildScopedPath(scope, `${connectSourcesProvider}/connect`) : '/app';
   const connectSourcesLabel = `Connect ${PRODUCT_DOMAIN_CONFIGS[connectSourcesProvider].navLabel}`;
-  const coverageSourcePath = scope ? buildScopedPath(scope, connectSourcesProvider) : '/app';
-  const coverageSourceLabel = `Open ${PRODUCT_DOMAIN_CONFIGS[connectSourcesProvider].navLabel}`;
   const hasAnySuccessfulScan = succeededScanCount > 0;
+  const awsRollup = sourceConnectionRollups.aws;
+  const kubernetesRollup = sourceConnectionRollups.kubernetes;
   // A source counts as connected when either (a) onboarding records a connector
-  // configuration on the workspace, or (b) any scan has run (you can't scan
-  // without a connector). The previous "scans-only" signal incorrectly left the
-  // checklist stuck at "Connect a source" for users who had a healthy connector
-  // but hadn't kicked off their first scan yet.
-  const hasConnectedSource = connectorConfiguredFromOnboarding || repoScans.length > 0;
+  // configuration on the workspace, (b) any scan has run (you can't scan
+  // without a connector), or (c) AWS/Kubernetes report an active environment
+  // connector. This keeps non-GitHub customers out of duplicate setup prompts.
+  const hasConnectedSource =
+    connectorConfiguredFromOnboarding ||
+    repoScans.length > 0 ||
+    awsRollup.connectedCount > 0 ||
+    kubernetesRollup.connectedCount > 0;
+  const hasGitHubFindingEvidence = repoFindings.length > 0;
+  const hasGitHubEvidence = repoScans.length > 0 || hasGitHubFindingEvidence;
+  const hasGitHubConnectorEvidence = hasGitHubEvidence || onboardingConnectorProvider === 'github';
+  const highPriorityCount = highPriorityFindings.length;
+  const activeEnvironmentCount = activeProjects.length;
+  const githubState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubConnectorEvidence
+    ? 'shell'
+    : failedScanCount > 0 && succeededScanCount === 0
+      ? 'degraded'
+      : succeededScanCount > 0 || hasGitHubFindingEvidence
+        ? 'connected'
+        : hasGitHubConnectorEvidence
+        ? 'no_data'
+        : 'not_connected';
+  const awsState = overviewStateFromConnectionRollup(sourceAvailability.aws, awsRollup);
+  const kubernetesState = overviewStateFromConnectionRollup(sourceAvailability.kubernetes, kubernetesRollup);
+  const agenticRiskState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubConnectorEvidence
+    ? 'shell'
+    : agenticRiskFindings.length > 0
+      ? 'degraded'
+      : hasGitHubConnectorEvidence
+        ? 'no_data'
+        : 'not_connected';
+  const domainPosture: Array<{
+    id: string;
+    label: string;
+    provider: SourceProvider;
+    state: OverviewDomainState;
+    metric: string;
+    to: string;
+  }> = [
+    {
+      id: 'aws',
+      label: 'AWS',
+      provider: 'aws',
+      state: awsState,
+      metric: awsState === 'shell' ? 'Connector off' : overviewConnectionMetric(awsRollup, 'account'),
+      to: awsState === 'not_connected' ? awsConnectPath : awsPath
+    },
+    {
+      id: 'github',
+      label: 'GitHub',
+      provider: 'github',
+      state: githubState,
+      metric:
+        githubState === 'shell'
+          ? 'Connector off'
+          : repoScans.length > 0
+          ? formatCountLabel(repoScans.length, 'scan')
+          : hasGitHubFindingEvidence
+            ? formatCountLabel(repoFindings.length, 'finding')
+            : 'No scans',
+      to: highPriorityCount > 0 ? findingsPath : githubPath
+    },
+    {
+      id: 'kubernetes',
+      label: 'Kubernetes',
+      provider: 'kubernetes',
+      state: kubernetesState,
+      metric: kubernetesState === 'shell' ? 'Connector off' : overviewConnectionMetric(kubernetesRollup, 'cluster'),
+      to: kubernetesState === 'not_connected' ? kubernetesConnectPath : kubernetesPath
+    },
+    {
+      id: 'agentic-risk',
+      label: 'AI / Agentic Risk',
+      provider: 'github',
+      state: agenticRiskState,
+      metric:
+        agenticRiskState === 'shell'
+          ? 'Connector off'
+          : agenticRiskFindings.length > 0
+            ? formatCountLabel(agenticRiskFindings.length, 'signal')
+            : 'No signals',
+      to: agenticRiskState === 'not_connected' ? githubPath : githubAgenticRiskPath
+    }
+  ];
+  const activeDomainCount = domainPosture.filter((item) =>
+    item.state === 'connected' || item.state === 'degraded' || item.state === 'no_data'
+  ).length;
+  const hasDomainDegradation = domainPosture.some((item) => item.state === 'degraded');
+  const postureLabel = highPriorityCount > 0 || failedScanCount > 0 || hasDomainDegradation ? 'Action needed' : 'Stable';
+  const coverageLabel = `${activeDomainCount}/${domainPosture.length}`;
+  const evidenceLabel = repoScans.length > 0 ? formatCountLabel(repoScans.length, 'scan') : 'No scans';
+  const nextActions: Array<{ id: string; label: string; to: string; tone?: 'danger' | 'warning' | 'neutral' }> = [];
+  if (highPriorityCount > 0) {
+    nextActions.push({
+      id: 'priority',
+      label: 'Review priority findings',
+      to: findingsPath,
+      tone: 'danger'
+    });
+  }
+  if (!hasConnectedSource) {
+    nextActions.push({
+      id: 'connect',
+      label: connectSourcesLabel,
+      to: connectSourcesPath,
+      tone: 'warning'
+    });
+  }
+  if (failedScanCount > 0) {
+    nextActions.push({
+      id: 'scan',
+      label: 'Review scan health',
+      to: findingsPath,
+      tone: 'warning'
+    });
+  }
+  if (agenticRiskFindings.length > 0) {
+    nextActions.push({
+      id: 'agentic',
+      label: 'Open agentic risk',
+      to: githubAgenticRiskPath,
+      tone: 'danger'
+    });
+  }
+  nextActions.push(
+    {
+      id: 'remediation',
+      label: 'Open remediation',
+      to: githubRemediationPath,
+      tone: highPriorityCount > 0 ? 'warning' : 'neutral'
+    },
+    {
+      id: 'governance',
+      label: 'Check governance',
+      to: awsGovernancePath,
+      tone: 'neutral'
+    }
+  );
+  const visibleActions = nextActions.slice(0, 3);
   const onboardingChecklist: Array<{
     id: string;
     label: string;
-    description: string;
     complete: boolean;
     actionLabel?: string;
     to?: string;
@@ -10181,15 +10453,13 @@ export function ProductOverviewPage() {
     {
       id: 'domain',
       label: 'Choose your first domain',
-      description: 'Start from AWS, GitHub, or Kubernetes based on the machine identity surface you want to cover.',
-      complete: activeProjects.length > 0,
-      actionLabel: activeProjects.length > 0 ? undefined : 'Open',
+      complete: activeEnvironmentCount > 0,
+      actionLabel: activeEnvironmentCount > 0 ? undefined : 'Open',
       to: awsPath
     },
     {
       id: 'source',
       label: 'Connect a domain source',
-      description: 'Attach GitHub, AWS, or Kubernetes telemetry to this workspace.',
       complete: hasConnectedSource,
       actionLabel: hasConnectedSource ? undefined : 'Connect',
       to: connectSourcesPath
@@ -10197,7 +10467,6 @@ export function ProductOverviewPage() {
     {
       id: 'scan',
       label: 'Run your first scan',
-      description: 'Produce evidence that can feed the right domain findings page.',
       complete: hasAnySuccessfulScan,
       actionLabel: hasAnySuccessfulScan ? undefined : 'Run scan',
       to: connectSourcesPath
@@ -10205,22 +10474,20 @@ export function ProductOverviewPage() {
     {
       id: 'invite',
       label: 'Invite a teammate',
-      description: 'Give analysts and admins access to this workspace.',
       complete: readInviteSkipped(scope?.tenantID, scope?.workspaceID),
       actionLabel: readInviteSkipped(scope?.tenantID, scope?.workspaceID) ? undefined : 'Invite',
       to: workspacesPath,
       skippable: !readInviteSkipped(scope?.tenantID, scope?.workspaceID)
     }
   ];
-  const onboardingComplete = onboardingChecklist.every((item) => item.complete);
-  const shouldShowOnboarding = !onboardingComplete;
+  const shouldShowOnboarding = onboardingChecklist.some((item) => item.id !== 'invite' && !item.complete);
 
   if (loading) {
     return (
       <section className="idt-app-panel idt-overview-page" aria-busy="true" aria-live="polite">
         <header className="idt-overview-header">
           <h2>Overview</h2>
-          <p>Loading workspace activity, domain coverage, scans, and open findings.</p>
+          <p>Loading command center.</p>
         </header>
       </section>
     );
@@ -10243,10 +10510,7 @@ export function ProductOverviewPage() {
     <>
       <section className="idt-app-panel idt-overview-page">
         <header className="idt-overview-header">
-          <div>
-            <h2>Overview</h2>
-            <p className="idt-overview-header-sub">Domain control plane activity</p>
-          </div>
+          <h2>Overview</h2>
         </header>
 
         {shouldShowOnboarding ? (
@@ -10267,7 +10531,6 @@ export function ProductOverviewPage() {
                   </span>
                   <div className="idt-overview-checklist-body">
                     <strong>{item.label}</strong>
-                    <span>{item.description}</span>
                   </div>
                   <div className="idt-overview-checklist-actions">
                     {item.skippable && !item.complete ? (
@@ -10295,65 +10558,47 @@ export function ProductOverviewPage() {
           </section>
         ) : null}
 
-        <div className="idt-overview-metrics" aria-label="Workspace health metrics">
-          <article className="idt-overview-metric-card">
-            <span className="idt-overview-metric-label">Configured scopes</span>
-            <strong>{activeProjects.length}</strong>
-            <p>{archivedProjectCount > 0 ? `${archivedProjectCount} archived` : activeProjects.length === 0 ? 'None yet' : activeProjects.length === 1 ? '1 scope active' : `${activeProjects.length} scopes active`}</p>
+        <div className="idt-overview-metrics" aria-label="Command center summary">
+          <article className={`idt-overview-metric-card${postureLabel === 'Action needed' ? ' is-attention' : ''}`}>
+            <span className="idt-overview-metric-label">Posture</span>
+            <strong>{postureLabel}</strong>
           </article>
           <article className="idt-overview-metric-card">
-            <span className="idt-overview-metric-label">Priority findings</span>
-            <strong>{openFindingCount}</strong>
-            <p>{urgentFindingCount > 0 ? `${urgentFindingCount} critical or high` : 'No critical or high open'}</p>
+            <span className="idt-overview-metric-label">High priority</span>
+            <strong>{highPriorityCount}</strong>
           </article>
-          <article className={`idt-overview-metric-card${failedScanCount > 0 && succeededScanCount === 0 && repoScans.length > 0 ? ' is-attention' : ''}`}>
-            <span className="idt-overview-metric-label">Recent scans</span>
-            <strong>{repoScans.length}</strong>
-            <p className="idt-overview-metric-breakdown">
-              {repoScans.length === 0 ? (
-                'No scans yet'
-              ) : (
-                <>
-                  {succeededScanCount > 0 ? <span className="is-success">{succeededScanCount} succeeded</span> : null}
-                  {failedScanCount > 0 ? <span className="is-error">{failedScanCount} failed</span> : null}
-                  {activeScanCount > 0 ? <span className="is-warning">{activeScanCount} running</span> : null}
-                  {repoScans.length === OVERVIEW_SCAN_LIMIT ? (
-                    <span className="is-muted">last {OVERVIEW_SCAN_LIMIT}</span>
-                  ) : null}
-                </>
-              )}
-            </p>
+          <article className="idt-overview-metric-card">
+            <span className="idt-overview-metric-label">Coverage</span>
+            <strong>{coverageLabel}</strong>
           </article>
-          {latestTrend ? (
-            <article className="idt-overview-metric-card">
-              <span className="idt-overview-metric-label">Trend</span>
-              <strong>
-                {trendDelta === null
-                  ? '—'
-                  : trendDelta > 0
-                    ? `+${trendDelta}`
-                    : trendDelta === 0
-                      ? '0'
-                      : trendDelta}
-              </strong>
-              <p>
-                {previousTrend
-                  ? `vs. previous scan (${latestTrend.total} total)`
-                  : `${latestTrend.total} findings · awaiting another scan`}
-              </p>
-            </article>
-          ) : null}
+          <article className="idt-overview-metric-card">
+            <span className="idt-overview-metric-label">Evidence</span>
+            <strong>{evidenceLabel}</strong>
+          </article>
         </div>
+
+        <section className="idt-overview-domain-strip" aria-label="Domain posture">
+          {domainPosture.map((item) => (
+            <Link key={item.id} to={item.to} className={`idt-overview-domain-card is-${item.state}`}>
+              <div className="idt-overview-domain-card-top">
+                <SourceLogoMark provider={item.provider} className="is-row" decorative />
+                <span className={`idt-overview-state-pill is-${item.state}`}>{OVERVIEW_DOMAIN_STATE_LABELS[item.state]}</span>
+              </div>
+              <strong>{item.label}</strong>
+              <span>{item.metric}</span>
+            </Link>
+          ))}
+        </section>
 
         <div className="idt-overview-grid">
           <section className="idt-overview-card">
             <div className="idt-overview-card-header">
-              <h3>Open risk</h3>
-              <Link to={findingsPath}>View GitHub findings</Link>
+              <h3>Highest priority</h3>
+              <Link className="idt-premium-text-link" to={findingsPath}>View GitHub findings</Link>
             </div>
-            {repoFindings.length > 0 ? (
+            {highPriorityFindings.length > 0 ? (
               <div className="idt-overview-list">
-                {repoFindings.slice(0, OVERVIEW_RISK_DISPLAY_LIMIT).map((finding) => {
+                {highPriorityFindings.slice(0, OVERVIEW_RISK_DISPLAY_LIMIT).map((finding) => {
                   const repository = canonicalGitHubRepositoryDisplay(finding.repository ?? '');
                   return (
                     <article key={`${finding.scan_id}:${finding.id}`} className="idt-overview-risk-row">
@@ -10373,8 +10618,8 @@ export function ProductOverviewPage() {
               </div>
             ) : (
               <AppShellEmptyState
-                title="No open findings"
-                body="Findings will appear here with severity, repository, and line context."
+                title="No priority findings"
+                body="Critical and high findings appear here."
                 action={hasAnySuccessfulScan ? undefined : { label: 'Run a scan', to: connectSourcesPath }}
               />
             )}
@@ -10382,11 +10627,30 @@ export function ProductOverviewPage() {
 
           <section className="idt-overview-card">
             <div className="idt-overview-card-header">
-              <h3>Recent scans</h3>
-              <Link to={findingsPath}>View GitHub findings</Link>
+              <h3>Next actions</h3>
+              <Link className="idt-premium-text-link" to={githubRemediationPath}>Open remediation</Link>
+            </div>
+            <div className="idt-overview-action-list">
+              {visibleActions.map((item) => (
+                <Link key={item.id} to={item.to} className={`idt-overview-action-row is-${item.tone ?? 'neutral'}`}>
+                  <span>
+                    <strong>{item.label}</strong>
+                  </span>
+                  <ChevronRight size={16} aria-hidden="true" />
+                </Link>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <div className="idt-overview-grid idt-overview-grid-single">
+          <section className="idt-overview-card">
+            <div className="idt-overview-card-header">
+              <h3>Recent activity</h3>
+              <Link className="idt-premium-text-link" to={findingsPath}>View GitHub findings</Link>
             </div>
             {scanGroups.length > 0 ? (
-              <div className="idt-overview-list">
+              <div className="idt-overview-list idt-overview-activity-list">
                 {scanGroups.map((group) => {
                   const isFailure = group.status === 'failed' || group.status === 'canceled';
                   const isActive = isActiveScanStatus(group.status);
@@ -10394,7 +10658,6 @@ export function ProductOverviewPage() {
                     group.repos.length === 1
                       ? group.repos[0]
                       : `${group.repos[0]} +${group.repos.length - 1} more`;
-                  const countLabel = group.count > 1 ? `${group.count} scans` : '1 scan';
                   return (
                     <article
                       key={`${group.status}-${group.reason}-${group.latest.id}`}
@@ -10404,9 +10667,7 @@ export function ProductOverviewPage() {
                       <div className="idt-overview-row-copy">
                         <div>
                           <strong>{repoLabel}</strong>
-                          <p>
-                            {countLabel} · {group.reason} · {formatRelativeTime(group.latest.started_at)}
-                          </p>
+                          <p>{group.reason} · {formatRelativeTime(group.latest.started_at)}</p>
                         </div>
                         <span className={`idt-overview-scan-badge is-${isFailure ? 'error' : isActive ? 'warning' : 'success'}`}>
                           {isFailure ? 'Failed' : isActive ? 'Running' : 'Succeeded'}
@@ -10418,38 +10679,9 @@ export function ProductOverviewPage() {
               </div>
             ) : (
               <AppShellEmptyState
-                title="No scans yet"
-                body="Connect a domain source and run the first scan to populate activity."
+                title="No activity"
+                body="Scans and connector events appear here."
                 action={{ label: 'Connect a source', to: connectSourcesPath }}
-              />
-            )}
-          </section>
-        </div>
-
-        <div className="idt-overview-grid idt-overview-grid-single">
-          <section className="idt-overview-card">
-            <div className="idt-overview-card-header">
-              <h3>Domain coverage</h3>
-              <Link to={coverageSourcePath}>{coverageSourceLabel}</Link>
-            </div>
-            {activeProjects.length > 0 ? (
-              <div className="idt-overview-projects">
-                {activeProjects.slice(0, 6).map((project) => (
-                  <Link key={project.project_id} to={scope ? buildProjectPath(scope, project.project_id) : '/app'}>
-                    <div className="idt-overview-project-title">
-                      <strong>{project.name}</strong>
-                      <SourceLogoStack label={`${project.name} domain stack`} />
-                    </div>
-                    <span>{project.description || 'No description'}</span>
-                    <small>Updated {formatRelativeTime(project.updated_at)}</small>
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <AppShellEmptyState
-                title="No configured scopes"
-                body="Open a domain section to connect telemetry and start building coverage."
-                action={{ label: connectSourcesLabel, to: connectSourcesPath }}
               />
             )}
           </section>
@@ -14459,11 +14691,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     [filteredFindings, repoRiskGraph]
   );
 
-  const linkedFindingCount = useMemo(
-    () => filteredFindings.filter((finding) => normalizeValue(finding.source_url ?? '')).length,
-    [filteredFindings]
-  );
-
   const criticalFindingCount = useMemo(
     () => filteredFindings.filter((finding) => normalizeValue(finding.severity).toLowerCase() === 'critical').length,
     [filteredFindings]
@@ -14484,21 +14711,9 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     [filteredFindings, repoFindingSummary?.total_open]
   );
 
-  const fixedFindingCount = repoFindingSummary?.fixed_count ?? filteredFindings.filter((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'fixed').length;
-  const reopenedFindingCount =
-    repoFindingSummary?.reopened_count ?? filteredFindings.filter((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'reopened').length;
   const slaAgedFindingCount = repoFindingSummary?.sla_aged_count ?? 0;
   const mttrSeconds = repoFindingSummary?.mean_time_to_resolve_seconds;
   const mttrLabel = typeof mttrSeconds === 'number' && Number.isFinite(mttrSeconds) ? formatExecutiveDuration(mttrSeconds) : 'N/A';
-
-  const averageConfidence = useMemo(() => {
-    const findingsWithConfidence = filteredFindings.filter((finding) => Number.isFinite(finding.confidence_score ?? NaN));
-    if (findingsWithConfidence.length === 0) {
-      return 'N/A';
-    }
-    const sum = findingsWithConfidence.reduce((acc, finding) => acc + (finding.confidence_score ?? 0), 0);
-    return formatConfidenceScore(sum / findingsWithConfidence.length);
-  }, [filteredFindings]);
 
   const loadRepoFindings = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
     const requestID = ++requestRef.current;
@@ -15056,9 +15271,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       <section className="idt-app-panel idt-repo-findings-page">
         <div className="idt-repo-findings-header">
           <div>
-            <p className="idt-app-kicker">GitHub findings</p>
             <h2>GitHub findings</h2>
-            <p>Review repository findings and jump directly to the exact GitHub line when link metadata is available.</p>
           </div>
           <div className="idt-inline-actions">
             <Link className="idt-btn idt-btn-primary" to={remediationPath}>
@@ -15137,13 +15350,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     <section className="idt-app-panel idt-repo-findings-page">
       <div className="idt-repo-findings-header">
         <div>
-          <p className="idt-app-kicker">GitHub findings</p>
           <h2>GitHub findings</h2>
-          <p>Review repository findings and jump directly to the exact GitHub line when link metadata is available.</p>
-          <div className="idt-overview-source-strip">
-            <SourceLogoMark provider="github" />
-            <span>GitHub evidence stays tied to triage, remediation, and ownership state.</span>
-          </div>
         </div>
         <div className="idt-inline-actions">
           <Link className="idt-btn idt-btn-primary" to={remediationPath}>
@@ -15176,26 +15383,19 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         <article className="idt-repo-finding-stat">
           <span>Open findings</span>
           <strong>{openFindingCount}</strong>
-          <small className="idt-repo-finding-stat-note">
-            {filteredFindings.length} total · {fixedFindingCount} fixed · {reopenedFindingCount} reopened
-          </small>
         </article>
         <article className="idt-repo-finding-stat">
           <span>Critical findings</span>
           <strong>{criticalFindingCount}</strong>
-          <small className="idt-repo-finding-stat-note">
-            {slaAgedFindingCount} SLA-aged high{slaAgedFindingCount === 1 ? '' : 's'}
-          </small>
+          {slaAgedFindingCount > 0 ? <small className="idt-repo-finding-stat-note">SLA-aged {slaAgedFindingCount}</small> : null}
         </article>
         <article className="idt-repo-finding-stat">
           <span>Mean time to fix</span>
           <strong>{mttrLabel}</strong>
-          <small className="idt-repo-finding-stat-note">avg confidence {averageConfidence}</small>
         </article>
         <article className="idt-repo-finding-stat">
           <span>Completed scans</span>
           <strong>{activeScanCount}</strong>
-          <small className="idt-repo-finding-stat-note">{linkedFindingCount} GitHub-linked</small>
         </article>
       </div>
 
@@ -15208,7 +15408,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         >
           <summary className="idt-repo-filter-panel-header">
             <span>Filters and sorting</span>
-            <small>{filteredFindings.length ? `${filteredFindings.length} findings shown` : 'No findings in scope'}</small>
           </summary>
           <div className="idt-repo-finding-filters">
             <label>
@@ -15310,11 +15509,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         <div className="idt-repo-finding-list">
           <div className="idt-repo-finding-list-header">
             <h3>Repository findings</h3>
-            <p>
-              {filteredFindings.length
-                ? `${findingHierarchy.length} repositories grouped by scan date and severity`
-                : 'No findings match the current filters.'}
-            </p>
           </div>
           {findingHierarchy.length === 0 ? (
             filtersActive ? (
@@ -15361,7 +15555,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                           <FolderKanban size={18} strokeWidth={2} />
                         </span>
                         <span>
-                          <span className="idt-repo-summary-label">Repository</span>
                           <strong>{repositoryGroup.label}</strong>
                         </span>
                       </span>
@@ -15393,12 +15586,10 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                           <summary className="idt-repo-scan-summary">
                             <span className="idt-repo-scan-node" aria-hidden="true" />
                             <span className="idt-repo-scan-copy">
-                              <span>Scan date</span>
                               <strong>{scanGroup.label}</strong>
                             </span>
                             <span className="idt-repo-scan-meta">
                               <span>{scanGroup.findings.length} findings</span>
-                              <span>{scanGroup.severityGroups.length} severity groups</span>
                             </span>
                           </summary>
                           <div className="idt-repo-finding-bucket-body idt-repo-severity-lanes">
@@ -15416,7 +15607,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                     <span className={repoFindingSeverityClass(severityGroup.label)}>
                                       {formatTokenLabel(severityGroup.label)}
                                     </span>
-                                    <strong>{severityGroup.label === 'critical' ? 'Immediate attention' : `${formatTokenLabel(severityGroup.label)} risk`}</strong>
                                   </span>
                                   <span className="idt-repo-severity-count">
                                     <strong>{severityGroup.findings.length}</strong>
@@ -15431,7 +15621,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                     const selectionKey = buildRepoFindingSelectionKey(finding);
                                     const isSelected = selectedFindingKey === selectionKey;
                                     const lifecycle = normalizeRepoFindingLifecycleStatus(finding.lifecycle_status);
-                                    const triageStatus = normalizeFindingStatus(finding.triage?.status);
                                     return (
                                       <button
                                         key={selectionKey}
@@ -15449,18 +15638,12 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                               {formatTokenLabel(finding.severity)}
                                             </span>
                                           </div>
-                                          <p>{finding.human_summary}</p>
                                           <div className="idt-repo-finding-row-meta">
                                             <span>{repositoryLabel}</span>
                                             <span>{repoFindingLocationLabel(finding)}</span>
                                             <span>{formatTokenLabel(finding.type)}</span>
-                                            <span>{`Confidence ${formatConfidenceScore(finding.confidence_score)}`}</span>
-                                          </div>
-                                          <div className="idt-repo-finding-row-meta">
                                             <span className={repoFindingStatusClass(lifecycle)}>{formatTokenLabel(lifecycle)}</span>
-                                            <span>{`Source ${finding.adapter_source || 'native'}`}</span>
-                                            <span>{`Owner ${finding.owner || finding.triage?.assignee || 'Unassigned'}`}</span>
-                                            <span>{`Triage ${formatTokenLabel(triageStatus)}`}</span>
+                                            <span>{finding.owner || finding.triage?.assignee || 'Unassigned'}</span>
                                           </div>
                                         </div>
                                       </button>

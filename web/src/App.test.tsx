@@ -916,12 +916,28 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /Continue in dev mode/i }));
 
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
-    expect(await screen.findByText(/Open risk/i)).toBeInTheDocument();
-    expect(await screen.findByText(/Priority findings/i)).toBeInTheDocument();
-    expect(await screen.findByText(/Production GitHub/i)).toBeInTheDocument();
-    expect(await screen.findByText(/1 archived/i)).toBeInTheDocument();
-    expect(await screen.findByText(/vs\. previous scan \(4 total\)/i)).toBeInTheDocument();
-    expect(await screen.findByText('-6')).toBeInTheDocument();
+    expect(await screen.findByText(/Highest priority/i)).toBeInTheDocument();
+    expect(await screen.findByText(/High priority/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Review priority findings/i)).toBeInTheDocument();
+    const domainPosture = screen.getByLabelText('Domain posture');
+    const awsCard = within(domainPosture).getByRole('link', { name: /AWS/i });
+    const githubCard = within(domainPosture).getByRole('link', { name: /GitHub/i });
+    const kubernetesCard = within(domainPosture).getByRole('link', { name: /Kubernetes/i });
+    const agenticRiskCard = within(domainPosture).getByRole('link', { name: /AI \/ Agentic Risk/i });
+    expect(within(awsCard).getAllByText('Not connected')).toHaveLength(2);
+    expect(within(githubCard).getByText('Connected')).toBeInTheDocument();
+    expect(within(githubCard).getByText('1 scan')).toBeInTheDocument();
+    expect(kubernetesCard.querySelector('img[src="/brand-logos/kubernetes.svg"]')).toBeInTheDocument();
+    expect(within(kubernetesCard).getByText('Unavailable')).toBeInTheDocument();
+    expect(within(kubernetesCard).getByText('Connector off')).toBeInTheDocument();
+    expect(agenticRiskCard.querySelector('img[src="/brand-logos/github.svg"]')).toBeInTheDocument();
+    expect(within(agenticRiskCard).getByText('Needs review')).toBeInTheDocument();
+    expect(within(agenticRiskCard).getByText('1 signal')).toBeInTheDocument();
+    expect(screen.queryByText(/1 environment/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Machine identity command center/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/since prior scan/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Production GitHub/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/archived/i)).not.toBeInTheDocument();
     expect(
       fetchMock.mock.calls.some(([url]) => {
         return (
@@ -987,10 +1003,19 @@ describe('App', () => {
 
     await screen.findByRole('region', { name: /Get started/i });
     expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Production GitHub/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/projects/project-1'
-    );
+    expect(screen.queryByText(/Machine identity command center/i)).not.toBeInTheDocument();
+    const domainPosture = screen.getByLabelText('Domain posture');
+    expect(within(within(domainPosture).getByRole('link', { name: /AWS/i })).getAllByText('Not connected')).toHaveLength(2);
+    const githubCard = within(domainPosture).getByRole('link', { name: /GitHub/i });
+    const kubernetesCard = within(domainPosture).getByRole('link', { name: /Kubernetes/i });
+    expect(githubCard.querySelector('img[src="/brand-logos/github.svg"]')).toBeInTheDocument();
+    expect(within(githubCard).getByText('Unavailable')).toBeInTheDocument();
+    expect(within(githubCard).getByText('Connector off')).toBeInTheDocument();
+    expect(kubernetesCard.querySelector('img[src="/brand-logos/kubernetes.svg"]')).toBeInTheDocument();
+    expect(within(kubernetesCard).getByText('Unavailable')).toBeInTheDocument();
+    expect(within(kubernetesCard).getByText('Connector off')).toBeInTheDocument();
+    expect(screen.queryByText(/1 environment/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Production GitHub/i)).not.toBeInTheDocument();
     const meCallsBeforeNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
 
     fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
@@ -1332,10 +1357,12 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a');
     render(<App />);
 
-    expect(await screen.findByText(/Trend/i)).toBeInTheDocument();
-    expect(await screen.findByText('—')).toBeInTheDocument();
-    expect(await screen.findByText(/12 findings · awaiting another scan/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
+    expect(await screen.findByText('Evidence', { selector: '.idt-overview-metric-label' })).toBeInTheDocument();
+    expect(screen.getByText('No scans', { selector: '.idt-overview-metrics strong' })).toBeInTheDocument();
+    expect(screen.queryByText(/Trend pending/i)).not.toBeInTheDocument();
     expect(screen.queryByText('+12')).not.toBeInTheDocument();
+    expect(screen.queryByText(/12 findings/i)).not.toBeInTheDocument();
   });
 
   it('does not mark source onboarding complete when onboarding state belongs to another workspace', async () => {
@@ -1391,7 +1418,7 @@ describe('App', () => {
       'href',
       '/app/tenant-b/workspace-b/aws/connect'
     );
-    expect(screen.getByRole('link', { name: 'Connect AWS' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /Connect AWS/i })).toHaveAttribute(
       'href',
       '/app/tenant-b/workspace-b/aws/connect'
     );
@@ -2003,7 +2030,7 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 2, name: /^GitHub findings$/i })).toBeInTheDocument();
-    expect(await screen.findByText(/Review repository findings and jump directly to the exact GitHub line/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Review repository findings and jump directly to the exact GitHub line/i)).not.toBeInTheDocument();
     expect(await screen.findByText(/Risk graph/i)).toBeInTheDocument();
     expect(await screen.findByText(/High-risk findings/i)).toBeInTheDocument();
     expect(await screen.findByText('91')).toBeInTheDocument();

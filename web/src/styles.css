@@ -21898,7 +21898,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-project-card-meta div {
 .idt-repo-filter-panel summary,
 .idt-repo-filter-panel-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto var(--repo-disclosure-column);
+  grid-template-columns: minmax(0, 1fr) var(--repo-disclosure-column);
   align-items: center;
   gap: 1rem;
   padding: 0.85rem 1rem;
@@ -24593,10 +24593,10 @@ html[data-theme='light'] .idt-overview-source-strip > span {
 .idt-app-console-layout .idt-projects-summary article,
 .idt-app-console-layout .idt-source-summary article,
 .idt-app-console-layout .idt-repo-finding-stat {
-  min-height: 7rem;
+  min-height: 5.8rem;
   display: grid;
-  align-content: space-between;
-  gap: 0.8rem;
+  align-content: start;
+  gap: 0.55rem;
   overflow: hidden;
   position: relative;
 }
@@ -27624,7 +27624,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
 
 .idt-app-console-layout .idt-overview-metrics strong {
   font-family: var(--idt-display);
-  font-size: 1.85rem;
+  font-size: clamp(1.35rem, 1.8vw, 1.7rem);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
@@ -27633,11 +27633,165 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   line-height: 1;
 }
 
-.idt-app-console-layout .idt-overview-metrics p {
-  margin: 0;
+.idt-app-console-layout .idt-overview-domain-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.idt-app-console-layout .idt-overview-domain-card {
+  display: grid;
+  gap: 0.5rem;
+  min-height: 7.25rem;
+  padding: 0.9rem;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  background: #0a0a0c;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.idt-app-console-layout .idt-overview-domain-card:hover,
+.idt-app-console-layout .idt-overview-domain-card:focus-visible {
+  border-color: var(--app-border);
+  background: #0d0d10;
+  outline: none;
+}
+
+.idt-app-console-layout .idt-overview-domain-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.idt-app-console-layout .idt-overview-domain-card strong {
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.idt-app-console-layout .idt-overview-domain-card span:not(.idt-overview-state-pill) {
+  color: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+
+.idt-overview-state-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.35rem;
+  padding: 0.18rem 0.5rem;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 999px;
+  background: #111116;
   color: var(--app-muted);
-  font-size: 0.82rem;
-  line-height: 1.3;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.idt-overview-state-pill.is-connected {
+  border-color: rgba(110, 210, 156, 0.28);
+  background: rgba(110, 210, 156, 0.1);
+  color: #7bdca8;
+}
+
+.idt-overview-state-pill.is-degraded {
+  border-color: rgba(207, 73, 78, 0.32);
+  background: rgba(207, 73, 78, 0.12);
+  color: #ef888c;
+}
+
+.idt-overview-state-pill.is-not_connected,
+.idt-overview-state-pill.is-no_data {
+  border-color: rgba(240, 198, 107, 0.24);
+  background: rgba(240, 198, 107, 0.1);
+  color: #e3c06d;
+}
+
+.idt-overview-state-pill.is-shell {
+  border-color: rgba(151, 156, 171, 0.2);
+  background: rgba(151, 156, 171, 0.08);
+  color: #a4a9b8;
+}
+
+.idt-app-console-layout .idt-overview-action-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.idt-app-console-layout .idt-overview-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  min-height: 3.35rem;
+  padding: 0.72rem 0.8rem;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  background: #0d0d10;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.idt-app-console-layout .idt-overview-action-row:hover,
+.idt-app-console-layout .idt-overview-action-row:focus-visible {
+  border-color: var(--app-border);
+  background: #111116;
+  outline: none;
+}
+
+.idt-app-console-layout .idt-overview-action-row span {
+  display: block;
+  min-width: 0;
+}
+
+.idt-app-console-layout .idt-overview-action-row strong {
+  color: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.idt-app-console-layout .idt-overview-action-row svg {
+  color: var(--app-muted);
+  flex: 0 0 auto;
+}
+
+.idt-app-console-layout .idt-overview-action-row.is-danger {
+  border-color: rgba(207, 73, 78, 0.34);
+  background: rgba(207, 73, 78, 0.08);
+}
+
+.idt-app-console-layout .idt-overview-action-row.is-warning {
+  border-color: rgba(240, 198, 107, 0.24);
+  background: rgba(240, 198, 107, 0.07);
+}
+
+.idt-app-console-layout .idt-overview-activity-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 1100px) {
+  .idt-app-console-layout .idt-overview-domain-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .idt-app-console-layout .idt-overview-activity-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 680px) {
+  .idt-app-console-layout .idt-overview-domain-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .idt-app-console-layout .idt-overview-action-row {
+    align-items: flex-start;
+  }
 }
 
 .idt-app-console-layout .idt-overview-metric-breakdown {
@@ -27709,10 +27863,30 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   font-weight: 500;
 }
 
+.idt-app-console-layout .idt-premium-text-link {
+  display: inline-flex;
+  align-items: center;
+  padding-bottom: 0.1rem;
+  color: #d9d6ff;
+  text-decoration: none;
+  background-image: linear-gradient(90deg, rgba(217, 214, 255, 0.28), rgba(217, 214, 255, 0.82));
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 100% 1px;
+  transition: color 0.12s ease, background-size 0.12s ease, background-image 0.12s ease;
+}
+
 .idt-app-console-layout .idt-overview-card-header a:hover,
 .idt-app-console-layout .idt-overview-card-header a:focus-visible {
   color: #ffffff;
   text-decoration: none;
+}
+
+.idt-app-console-layout .idt-premium-text-link:hover,
+.idt-app-console-layout .idt-premium-text-link:focus-visible {
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.42), #ffffff);
+  background-size: 100% 2px;
+  outline: none;
 }
 
 /* Scan rows */

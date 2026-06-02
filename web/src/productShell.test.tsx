@@ -814,7 +814,7 @@ describe('ProductShellLayout', () => {
     vi.resetModules();
   });
 
-  it('keeps source logo stacks feature-scoped while domain sections stay discoverable', async () => {
+  it('keeps official source logos visible while domain sections stay discoverable', async () => {
     vi.resetModules();
     vi.doMock('./pages/onboarding/onboardingUtils', async (importOriginal) => {
       const actual = await importOriginal<typeof import('./pages/onboarding/onboardingUtils')>();
@@ -849,8 +849,8 @@ describe('ProductShellLayout', () => {
     );
 
     expect(screen.getAllByRole('img', { name: 'AWS' }).length).toBeGreaterThan(0);
-    expect(screen.queryByRole('img', { name: 'GitHub' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('img', { name: 'Kubernetes' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('img', { name: 'GitHub' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('img', { name: 'Kubernetes' }).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'GitHub' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Kubernetes' })).toBeInTheDocument();
   });
@@ -913,7 +913,7 @@ describe('ProductShellLayout', () => {
     expect(screen.queryByRole('option', { name: /^Projects\b/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('option', { name: /^Findings\b/i })).not.toBeInTheDocument();
     expect(
-      within(within(finder).getByRole('option', { name: /^OverviewDomain/i })).queryByText('O')
+      within(within(finder).getByRole('option', { name: /^OverviewCross-domain/i })).queryByText('O')
     ).not.toBeInTheDocument();
     expect(
       within(within(finder).getByRole('option', { name: /^GitHub findingsRepository/i })).queryByText('F')
@@ -1014,6 +1014,196 @@ describe('ProductShellLayout', () => {
 
     expect(screen.getByRole('link', { name: 'Settings' })).not.toHaveClass('active');
     expect(screen.getByRole('button', { name: 'Kubernetes' })).toHaveClass('is-open');
+  });
+});
+
+describe('ProductOverviewPage', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.doUnmock('./hooks/useBackendFeatures');
+    vi.doUnmock('./pages/onboarding/onboardingUtils');
+    vi.resetModules();
+  });
+
+  it('derives AWS and Kubernetes domain cards from environment connector status', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'aws-env',
+          name: 'AWS Production',
+          slug: 'aws-production',
+          description: '',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        },
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'k8s-env',
+          name: 'Kubernetes Production',
+          slug: 'kubernetes-production',
+          description: '',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
+    const getAWSProjectConnection = vi
+      .spyOn(api.apiClient, 'getAWSProjectConnection')
+      .mockImplementation(async (_workspaceID, projectID) => ({
+        connection: projectID === 'aws-env' ? connectedAWS : disconnectedAWS
+      }));
+    const getKubernetesProjectConnection = vi
+      .spyOn(api.apiClient, 'getKubernetesProjectConnection')
+      .mockImplementation(async (_workspaceID, projectID) => ({
+        connection: projectID === 'k8s-env' ? connectedKubernetes : disconnectedKubernetes
+      }));
+
+    const { ProductOverviewPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const domainPosture = await screen.findByRole('region', { name: 'Domain posture' });
+    const awsCard = within(domainPosture).getByRole('link', { name: /AWS/i });
+    const kubernetesCard = within(domainPosture).getByRole('link', { name: /Kubernetes/i });
+
+    expect(within(awsCard).getByText('Connected')).toBeInTheDocument();
+    expect(within(awsCard).getByText('1 account')).toBeInTheDocument();
+    expect(awsCard).toHaveAttribute('href', '/app/tenant-a/workspace-a/aws');
+    expect(within(kubernetesCard).getByText('Connected')).toBeInTheDocument();
+    expect(within(kubernetesCard).getByText('1 cluster')).toBeInTheDocument();
+    expect(kubernetesCard).toHaveAttribute('href', '/app/tenant-a/workspace-a/kubernetes');
+    expect(screen.queryByRole('link', { name: 'Connect AWS' })).not.toBeInTheDocument();
+    expect(getAWSProjectConnection).toHaveBeenCalledWith(
+      'workspace-a',
+      'aws-env',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getKubernetesProjectConnection).toHaveBeenCalledWith(
+      'workspace-a',
+      'k8s-env',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+  });
+
+  it('keeps GitHub pending when onboarding has connected it before the first scan', async () => {
+    vi.resetModules();
+    vi.doMock('./pages/onboarding/onboardingUtils', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./pages/onboarding/onboardingUtils')>();
+      return {
+        ...actual,
+        FEATURE_ONBOARDING_WIZARD: true,
+        FEATURE_ONBOARDING_CONNECTOR_AWS: true,
+        FEATURE_ONBOARDING_CONNECTOR_GITHUB: true,
+        FEATURE_ONBOARDING_CONNECTOR_K8S: true
+      };
+    });
+    mockBackendFeatures({ github: true, kubernetes: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'getOnboardingState').mockResolvedValue({
+      state: {
+        user_id: 'user-1',
+        org_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'project-a',
+        connector_id: 'github-app',
+        connector_type: 'github',
+        current_step: 'scan',
+        connector_skipped: false,
+        scan_skipped: false,
+        started_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
+
+    const { ProductOverviewPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const domainPosture = await screen.findByRole('region', { name: 'Domain posture' });
+    const githubCard = within(domainPosture).getByRole('link', { name: /GitHub/i });
+
+    await waitFor(() => expect(within(githubCard).getByText('Pending')).toBeInTheDocument());
+    expect(within(githubCard).getByText('No scans')).toBeInTheDocument();
+    expect(githubCard).toHaveAttribute('href', '/app/tenant-a/workspace-a/github');
+    expect(screen.queryByRole('link', { name: 'Connect GitHub' })).not.toBeInTheDocument();
+  });
+
+  it('does not use AWS onboarding as GitHub domain evidence', async () => {
+    vi.resetModules();
+    vi.doMock('./pages/onboarding/onboardingUtils', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./pages/onboarding/onboardingUtils')>();
+      return {
+        ...actual,
+        FEATURE_ONBOARDING_WIZARD: true,
+        FEATURE_ONBOARDING_CONNECTOR_AWS: true,
+        FEATURE_ONBOARDING_CONNECTOR_GITHUB: true,
+        FEATURE_ONBOARDING_CONNECTOR_K8S: true
+      };
+    });
+    mockBackendFeatures({ github: true, kubernetes: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'getOnboardingState').mockResolvedValue({
+      state: {
+        user_id: 'user-1',
+        org_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'project-a',
+        connector_id: 'aws-connector',
+        connector_type: 'aws',
+        current_step: 'scan',
+        connector_skipped: false,
+        scan_skipped: false,
+        started_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
+
+    const { ProductOverviewPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const domainPosture = await screen.findByRole('region', { name: 'Domain posture' });
+    const githubCard = within(domainPosture).getByRole('link', { name: /GitHub/i });
+    const agenticRiskCard = within(domainPosture).getByRole('link', { name: /AI \/ Agentic Risk/i });
+
+    await waitFor(() => expect(within(githubCard).getByText('Not connected')).toBeInTheDocument());
+    expect(within(githubCard).getByText('No scans')).toBeInTheDocument();
+    expect(within(agenticRiskCard).getByText('Not connected')).toBeInTheDocument();
+    expect(within(agenticRiskCard).getByText('No signals')).toBeInTheDocument();
+    expect(screen.getByText('0/4')).toBeInTheDocument();
   });
 });
 
@@ -3281,7 +3471,7 @@ describe('ProductFindingsPage states', () => {
     const severityFilter = screen.getByLabelText('Severity');
     fireEvent.change(severityFilter, { target: { value: 'high' } });
 
-    expect(await screen.findByText('No findings match the current filters.')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'No findings match these filters' })).toBeInTheDocument();
     expect(screen.getByLabelText('Repository finding filters and sorting')).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: /IAM role with wildcard trust/i })).not.toBeInTheDocument();
   });
