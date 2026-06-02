@@ -29,6 +29,16 @@ function errorJSON(status: number, error: string) {
   };
 }
 
+function errorWithoutJSON(status: number) {
+  return {
+    ok: false,
+    status,
+    json: async () => {
+      throw new SyntaxError('No JSON error body');
+    }
+  };
+}
+
 function getLinkByPath(path: string) {
   const link = screen.getAllByRole('link').find((item) => item.getAttribute('href') === path);
   if (!link) {
@@ -2628,7 +2638,7 @@ describe('App', () => {
 
   it('explains when the deployed API does not yet expose data export', async () => {
     const fetchMock = settingsFetchMock({
-      onExport: () => errorJSON(404, 'not found')
+      onExport: () => errorWithoutJSON(404)
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -2642,6 +2652,22 @@ describe('App', () => {
       'Data export is not available on this deployment yet. Deploy the latest API image, then try again.'
     );
     expect(screen.getByRole('heading', { level: 2, name: /Settings/i })).toBeInTheDocument();
+  });
+
+  it('keeps specific API 404 messages for data export', async () => {
+    const fetchMock = settingsFetchMock({
+      onExport: () => errorJSON(404, 'export job not found')
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/settings');
+    render(<App />);
+
+    const exportRow = await screen.findByTestId('idt-export-account-row');
+    fireEvent.click(within(exportRow).getByRole('button', { name: /Download my data/i }));
+
+    expect(await within(exportRow).findByRole('alert')).toHaveTextContent('export job not found');
+    expect(within(exportRow).getByRole('alert')).not.toHaveTextContent('Deploy the latest API image');
   });
 
   it('highlights the suspend confirmation phrase distinctly', async () => {

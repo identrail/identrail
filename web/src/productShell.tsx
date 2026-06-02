@@ -14960,7 +14960,7 @@ function isAbortError(err: unknown): boolean {
 }
 
 function formatDataExportError(err: unknown): string {
-  if (err instanceof ApiError && err.status === 404) {
+  if (err instanceof ApiError && err.status === 404 && err.message === 'Request failed (404)' && err.payload === undefined) {
     return 'Data export is not available on this deployment yet. Deploy the latest API image, then try again.';
   }
   return err instanceof Error ? err.message : 'Unable to start the export.';
