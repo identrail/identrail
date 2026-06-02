@@ -26687,17 +26687,19 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 }
 
 .idt-domain-flyout {
+  --idt-domain-flyout-indent: 1.08rem;
   position: static;
   z-index: auto;
   display: grid;
   gap: 0.46rem;
-  width: 100%;
+  box-sizing: border-box;
+  width: calc(100% - var(--idt-domain-flyout-indent));
   max-height: none;
   overflow: visible;
   border: 0;
   border-left: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 0;
-  margin: 0.34rem 0 0.45rem 1.08rem;
+  margin: 0.34rem 0 0.45rem var(--idt-domain-flyout-indent);
   padding: 0.15rem 0 0.2rem 0.58rem;
   background: transparent;
   box-shadow: none;
@@ -26846,6 +26848,10 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 }
 
 .idt-app-console-layout.is-sidebar-collapsed .idt-app-nav-disclosure {
+  display: none;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-domain-flyout {
   display: none;
 }
 

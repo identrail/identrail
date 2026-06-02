@@ -744,6 +744,7 @@ describe('ProductSettingsPage profile', () => {
 
 describe('ProductShellLayout', () => {
   afterEach(() => {
+    window.localStorage.removeItem('idt:sidebar:collapsed');
     vi.restoreAllMocks();
     vi.doUnmock('./pages/onboarding/onboardingUtils');
     vi.doUnmock('./hooks/useBackendFeatures');
@@ -794,6 +795,7 @@ describe('ProductShellLayout', () => {
 
 describe('ProductShellLayout', () => {
   afterEach(() => {
+    window.localStorage.removeItem('idt:sidebar:collapsed');
     vi.doUnmock('./hooks/useMe');
     vi.doUnmock('./hooks/useBackendFeatures');
     vi.doUnmock('./pages/onboarding/onboardingUtils');
@@ -954,6 +956,7 @@ describe('ProductShellLayout', () => {
 
 describe('Domain-first app routes', () => {
   afterEach(() => {
+    window.localStorage.removeItem('idt:sidebar:collapsed');
     vi.restoreAllMocks();
     vi.doUnmock('./hooks/useBackendFeatures');
     vi.doUnmock('./pages/onboarding/onboardingUtils');
@@ -2033,6 +2036,32 @@ describe('Domain-first app routes', () => {
     expect(screen.queryByRole('dialog', { name: 'GitHub' })).not.toBeInTheDocument();
     expect(container.querySelector('.idt-domain-flyout-backdrop')).not.toBeInTheDocument();
     expect(container.querySelector('details.idt-domain-flyout-nested')).toHaveAttribute('open');
+  });
+
+  it('expands the collapsed sidebar before opening an inline domain flyout', async () => {
+    window.localStorage.setItem('idt:sidebar:collapsed', '1');
+    mockConnectorFeatureFlags({ github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const { ProductShellLayout } = await import('./productShell');
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
+            <Route index element={<h2>Overview content</h2>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const sidebar = container.querySelector('.idt-app-sidebar');
+    expect(sidebar).toHaveAttribute('data-collapsed', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
+
+    await waitFor(() => expect(sidebar).toHaveAttribute('data-collapsed', 'false'));
+    expect(screen.getByRole('region', { name: 'AWS' })).toBeInTheDocument();
+    expect(container.querySelector('.idt-domain-flyout-backdrop')).not.toBeInTheDocument();
   });
 });
 

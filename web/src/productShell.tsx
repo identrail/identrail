@@ -8607,6 +8607,9 @@ export function ProductShellLayout() {
     setAccountMenuOpen(false);
     setWorkspaceMenuOpen(false);
     setCommandOpen(false);
+    if (sidebarCollapsed) {
+      setSidebarCollapsedPref(false);
+    }
     setOpenDomainFlyout((current) => (current === domain ? null : domain));
   };
 
