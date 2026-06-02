@@ -6324,12 +6324,20 @@ export function ProductKubernetesConnectPage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const submitRequestRef = useRef(0);
+  const scopeKey = scope ? `${scope.tenantID}:${scope.workspaceID}` : '';
+  const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
+  const scopeKeyRef = useRef(scopeKey);
+  selectedEnvironmentIDRef.current = selectedEnvironmentID;
+  scopeKeyRef.current = scopeKey;
 
   useEffect(() => {
+    submitRequestRef.current += 1;
     setEnrollment(null);
     setMessage('');
     setError('');
-  }, [selectedEnvironmentID]);
+    setSubmitting(false);
+  }, [selectedEnvironmentID, scopeKey]);
 
   useEffect(() => {
     setForm((current) => ({
@@ -6368,39 +6376,60 @@ export function ProductKubernetesConnectPage() {
     setError('');
     setMessage('');
     setEnrollment(null);
+    const requestID = ++submitRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKey;
+    const requestScope = scope;
+    const isStale = () =>
+      requestID !== submitRequestRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
     try {
       if (form.mode === 'kubeconfig') {
         const response = await apiClient.upsertKubernetesKubeconfigConnector(
           {
-            workspace_id: scope.workspaceID,
-            project_id: selectedEnvironmentID,
+            workspace_id: requestScope.workspaceID,
+            project_id: requestEnvironmentID,
             connector_id: data.connection?.connector_id,
             display_name: normalizeValue(form.displayName) || undefined,
             context: normalizeValue(form.context) || undefined,
             kubeconfig: form.kubeconfig
           },
-          buildProductAuthContext(scope)
+          buildProductAuthContext(requestScope)
         );
+        if (isStale()) {
+          return;
+        }
         setMessage(response.connection.connected ? 'Kubeconfig active.' : 'Kubeconfig saved.');
       } else {
         const response = await apiClient.startKubernetesConnector(
           {
-            workspace_id: scope.workspaceID,
-            project_id: selectedEnvironmentID,
+            workspace_id: requestScope.workspaceID,
+            project_id: requestEnvironmentID,
             connector_id: data.connection?.connector_id,
             display_name: normalizeValue(form.displayName) || undefined,
             api_url: normalizeValue(form.apiURL) || undefined
           },
-          buildProductAuthContext(scope)
+          buildProductAuthContext(requestScope)
         );
+        if (isStale()) {
+          return;
+        }
         setEnrollment(response);
         setMessage('Enrollment token ready.');
       }
-      await data.refresh();
+      if (!isStale()) {
+        await data.refresh();
+      }
     } catch (requestError) {
+      if (isStale()) {
+        return;
+      }
       setError(formatAPIError(requestError, 'Unable to validate Kubernetes connection.'));
     } finally {
-      setSubmitting(false);
+      if (!isStale()) {
+        setSubmitting(false);
+      }
     }
   };
 

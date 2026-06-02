@@ -8,6 +8,7 @@ import type {
   CurrentUserContext,
   Finding,
   GitHubConnectionStatus,
+  KubernetesConnectorStartResponse,
   KubernetesConnectionStatus,
   RepoFindingRemediationPreview,
   RepoFindingRemediationPublishResponse,
@@ -1541,6 +1542,96 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByDisplayValue('Production Kubernetes')).toBeInTheDocument();
     expect(screen.getByText('enroll-token-123')).toBeInTheDocument();
     expect(screen.getByText(/helm upgrade --install identrail-agent/i)).toBeInTheDocument();
+  });
+
+  it('ignores stale Kubernetes enrollment responses after switching environments', async () => {
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production Kubernetes boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        },
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'staging',
+          name: 'Staging',
+          slug: 'staging',
+          description: 'Staging Kubernetes boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z'
+        }
+      ]
+    });
+    const getKubernetesProjectConnection = vi
+      .spyOn(api.apiClient, 'getKubernetesProjectConnection')
+      .mockResolvedValue({ connection: disconnectedKubernetes });
+    const enrollment = deferred<KubernetesConnectorStartResponse>();
+    vi.spyOn(api.apiClient, 'startKubernetesConnector').mockReturnValue(enrollment.promise);
+
+    const { ProductKubernetesConnectPage } = await import('./productShell');
+    function KubernetesConnectHarness() {
+      const location = useLocation();
+      const navigate = useNavigate();
+      return (
+        <>
+          <p data-testid="location">{`${location.pathname}${location.search}`}</p>
+          <button
+            type="button"
+            onClick={() => navigate('/app/tenant-a/workspace-a/kubernetes/connect?environment=staging')}
+          >
+            Open staging
+          </button>
+          <ProductKubernetesConnectPage />
+        </>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/kubernetes/connect" element={<KubernetesConnectHarness />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const submitButton = await screen.findByRole('button', { name: /Generate token/i });
+    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production K8s' } });
+    fireEvent.click(submitButton);
+    await waitFor(() =>
+      expect(api.apiClient.startKubernetesConnector).toHaveBeenCalledWith(
+        expect.objectContaining({ project_id: 'production' }),
+        expect.objectContaining({ workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open staging' }));
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('environment=staging'));
+
+    await act(async () => {
+      enrollment.resolve({
+        connection: connectedKubernetes,
+        enrollment_token: 'stale-enroll-token',
+        enrollment_expires_at: '2026-05-17T11:00:00Z',
+        helm_command: 'helm upgrade --install identrail-agent identrail/agent --set token=stale-enroll-token'
+      });
+      await enrollment.promise;
+    });
+
+    expect(screen.queryByText('stale-enroll-token')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Enrollment token ready/i)).not.toBeInTheDocument();
+    expect(
+      getKubernetesProjectConnection.mock.calls.filter(([, projectID]) => projectID === 'production')
+    ).toHaveLength(1);
   });
 
   it('does not prefill Kubernetes agent API URL from the cluster server', async () => {
