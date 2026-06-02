@@ -10183,34 +10183,30 @@ export function ProductOverviewPage() {
   // checklist stuck at "Connect a source" for users who had a healthy connector
   // but hadn't kicked off their first scan yet.
   const hasConnectedSource = connectorConfiguredFromOnboarding || repoScans.length > 0;
+  const hasGitHubFindingEvidence = repoFindings.length > 0;
+  const hasGitHubEvidence = repoScans.length > 0 || hasGitHubFindingEvidence;
   const highPriorityCount = highPriorityFindings.length;
   const activeEnvironmentCount = activeProjects.length;
-  const githubState: OverviewDomainState = !sourceAvailability.github.available
+  const githubState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubEvidence
     ? 'shell'
     : failedScanCount > 0 && succeededScanCount === 0
       ? 'degraded'
-      : succeededScanCount > 0
+      : succeededScanCount > 0 || hasGitHubFindingEvidence
         ? 'connected'
-        : hasConnectedSource
+        : hasGitHubEvidence
           ? 'no_data'
           : 'not_connected';
-  const awsState: OverviewDomainState = sourceAvailability.aws.available
-    ? activeEnvironmentCount > 0
-      ? 'no_data'
-      : 'not_connected'
-    : 'shell';
+  const awsState: OverviewDomainState = sourceAvailability.aws.available ? 'not_connected' : 'shell';
   const kubernetesState: OverviewDomainState = !sourceAvailability.kubernetes.available
     ? 'shell'
-    : activeEnvironmentCount > 0
-      ? 'no_data'
-      : 'not_connected';
-  const agenticRiskState: OverviewDomainState = !sourceAvailability.github.available
+    : 'not_connected';
+  const agenticRiskState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubEvidence
     ? 'shell'
     : agenticRiskFindings.length > 0
       ? 'degraded'
-      : repoScans.length > 0
+      : hasGitHubEvidence
         ? 'no_data'
-        : 'shell';
+        : 'not_connected';
   const domainPosture: Array<{
     id: string;
     label: string;
@@ -10224,7 +10220,7 @@ export function ProductOverviewPage() {
       label: 'AWS',
       provider: 'aws',
       state: awsState,
-      metric: activeEnvironmentCount > 0 ? formatCountLabel(activeEnvironmentCount, 'environment') : 'No environment',
+      metric: awsState === 'shell' ? 'Shell' : 'Not connected',
       to: awsState === 'not_connected' ? awsConnectPath : awsPath
     },
     {
@@ -10232,7 +10228,12 @@ export function ProductOverviewPage() {
       label: 'GitHub',
       provider: 'github',
       state: githubState,
-      metric: repoScans.length > 0 ? formatCountLabel(repoScans.length, 'scan') : 'No scans',
+      metric:
+        repoScans.length > 0
+          ? formatCountLabel(repoScans.length, 'scan')
+          : hasGitHubFindingEvidence
+            ? formatCountLabel(repoFindings.length, 'finding')
+            : 'No scans',
       to: highPriorityCount > 0 ? findingsPath : githubPath
     },
     {
@@ -10240,7 +10241,7 @@ export function ProductOverviewPage() {
       label: 'Kubernetes',
       provider: 'kubernetes',
       state: kubernetesState,
-      metric: kubernetesState === 'shell' ? 'Shell' : activeEnvironmentCount > 0 ? 'No cluster data' : 'Not connected',
+      metric: kubernetesState === 'shell' ? 'Shell' : 'Not connected',
       to: kubernetesState === 'not_connected' ? kubernetesConnectPath : kubernetesPath
     },
     {
@@ -10249,7 +10250,7 @@ export function ProductOverviewPage() {
       provider: 'github',
       state: agenticRiskState,
       metric: agenticRiskFindings.length > 0 ? formatCountLabel(agenticRiskFindings.length, 'signal') : 'No signals',
-      to: githubAgenticRiskPath
+      to: agenticRiskState === 'not_connected' ? githubPath : githubAgenticRiskPath
     }
   ];
   const activeDomainCount = domainPosture.filter((item) =>

@@ -919,7 +919,19 @@ describe('App', () => {
     expect(await screen.findByText(/Highest priority/i)).toBeInTheDocument();
     expect(await screen.findByText(/High priority/i)).toBeInTheDocument();
     expect(await screen.findByText(/Review priority findings/i)).toBeInTheDocument();
-    expect(await screen.findByText(/1 environment/i)).toBeInTheDocument();
+    const domainPosture = screen.getByLabelText('Domain posture');
+    const awsCard = within(domainPosture).getByRole('link', { name: /AWS/i });
+    const githubCard = within(domainPosture).getByRole('link', { name: /GitHub/i });
+    const kubernetesCard = within(domainPosture).getByRole('link', { name: /Kubernetes/i });
+    const agenticRiskCard = within(domainPosture).getByRole('link', { name: /AI \/ Agentic Risk/i });
+    expect(within(awsCard).getAllByText('Not connected')).toHaveLength(2);
+    expect(within(githubCard).getByText('Connected')).toBeInTheDocument();
+    expect(within(githubCard).getByText('1 scan')).toBeInTheDocument();
+    expect(within(kubernetesCard).getByText('Planned')).toBeInTheDocument();
+    expect(within(kubernetesCard).getByText('Shell')).toBeInTheDocument();
+    expect(within(agenticRiskCard).getByText('Needs review')).toBeInTheDocument();
+    expect(within(agenticRiskCard).getByText('1 signal')).toBeInTheDocument();
+    expect(screen.queryByText(/1 environment/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Machine identity command center/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/since prior scan/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Production GitHub/i)).not.toBeInTheDocument();
@@ -990,7 +1002,13 @@ describe('App', () => {
     await screen.findByRole('region', { name: /Get started/i });
     expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     expect(screen.queryByText(/Machine identity command center/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/1 environment/i)).toBeInTheDocument();
+    const domainPosture = screen.getByLabelText('Domain posture');
+    expect(within(within(domainPosture).getByRole('link', { name: /AWS/i })).getAllByText('Not connected')).toHaveLength(2);
+    expect(within(within(domainPosture).getByRole('link', { name: /GitHub/i })).getByText('Planned')).toBeInTheDocument();
+    expect(within(within(domainPosture).getByRole('link', { name: /GitHub/i })).getByText('No scans')).toBeInTheDocument();
+    expect(within(within(domainPosture).getByRole('link', { name: /Kubernetes/i })).getByText('Planned')).toBeInTheDocument();
+    expect(within(within(domainPosture).getByRole('link', { name: /Kubernetes/i })).getByText('Shell')).toBeInTheDocument();
+    expect(screen.queryByText(/1 environment/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Production GitHub/i)).not.toBeInTheDocument();
     const meCallsBeforeNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
 
