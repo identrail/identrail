@@ -1709,6 +1709,70 @@ describe('Domain-first app routes', () => {
     expect(screen.queryByPlaceholderText('https://kubernetes.default.svc')).not.toBeInTheDocument();
   });
 
+  it('preserves existing Kubernetes kubeconfig mode when loading the connection', async () => {
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production Kubernetes boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    const kubeconfigConnection: KubernetesConnectionStatus = {
+      ...connectedKubernetes,
+      connector_id: 'k8s-kubeconfig',
+      display_name: 'Production fallback',
+      context: 'production-admin',
+      connection_mode: 'kubeconfig'
+    };
+    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: kubeconfigConnection });
+    vi.spyOn(api.apiClient, 'upsertKubernetesKubeconfigConnector').mockResolvedValue({ connection: kubeconfigConnection });
+    const startKubernetesConnector = vi.spyOn(api.apiClient, 'startKubernetesConnector');
+
+    const { ProductKubernetesConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/kubernetes/connect" element={<ProductKubernetesConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('button', { name: /Save kubeconfig/i })).toBeInTheDocument();
+    expect(screen.getByLabelText('Mode')).toHaveValue('kubeconfig');
+    expect(screen.getByLabelText('Display name')).toHaveValue('Production fallback');
+    expect(screen.getByLabelText('Kubeconfig context')).toHaveValue('production-admin');
+    expect(screen.queryByLabelText('API URL')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Kubeconfig'), { target: { value: 'apiVersion: v1\nclusters: []' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save kubeconfig/i }));
+
+    await waitFor(() =>
+      expect(api.apiClient.upsertKubernetesKubeconfigConnector).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          connector_id: 'k8s-kubeconfig',
+          display_name: 'Production fallback',
+          context: 'production-admin',
+          kubeconfig: 'apiVersion: v1\nclusters: []'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(startKubernetesConnector).not.toHaveBeenCalled();
+  });
+
   it('saves Kubernetes kubeconfig fallback with workspace and environment scope', async () => {
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
     mockBackendFeatures({ github: true, kubernetes: true });

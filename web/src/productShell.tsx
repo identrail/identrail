@@ -6342,12 +6342,19 @@ export function ProductKubernetesConnectPage() {
   useEffect(() => {
     setForm((current) => ({
       ...current,
+      mode: data.connection?.connection_mode ?? current.mode,
       displayName: data.connection?.display_name ?? '',
       context: data.connection?.context ?? '',
       apiURL: '',
       kubeconfig: ''
     }));
-  }, [data.connection?.connector_id, data.connection?.display_name, data.connection?.context, selectedEnvironmentID]);
+  }, [
+    data.connection?.connector_id,
+    data.connection?.connection_mode,
+    data.connection?.display_name,
+    data.connection?.context,
+    selectedEnvironmentID
+  ]);
 
   if (!scope) {
     return (
