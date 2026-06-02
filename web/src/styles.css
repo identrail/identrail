@@ -29,6 +29,137 @@ a {
   outline-offset: 2px;
 }
 
+:root {
+  --idt-motion-fast: 120ms;
+  --idt-motion-standard: 160ms;
+  --idt-motion-slow: 220ms;
+  --idt-motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --idt-motion-pop: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes idtOverlayFadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes idtPanelScaleIn {
+  from {
+    opacity: 0;
+    transform: translateY(0.28rem) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes idtPanelPopIn {
+  0% {
+    opacity: 0;
+    transform: translateY(0.35rem) scale(0.965);
+  }
+
+  72% {
+    opacity: 1;
+    transform: translateY(0) scale(1.006);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes idtDrawerSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(1.6rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes idtFlyoutRevealIn {
+  from {
+    opacity: 0;
+    clip-path: inset(0 0 100% 0);
+    transform: translateY(-0.18rem);
+  }
+
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+    transform: translateY(0);
+  }
+}
+
+@keyframes idtMenuSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(0.28rem) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes idtStatusFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-0.18rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .idt-modal-backdrop,
+  .idt-modal,
+  .idt-permission-preview-modal,
+  .idt-repo-finding-detail-modal,
+  .idt-danger-modal,
+  .idt-command-palette-backdrop,
+  .idt-command-palette,
+  .idt-domain-drawer-root,
+  .idt-domain-drawer-scrim,
+  .idt-domain-drawer,
+  .idt-domain-flyout,
+  .idt-domain-flyout-section,
+  .idt-domain-flyout-nested-body,
+  .idt-profile-avatar-menu,
+  .idt-auth-theme-menu,
+  .idt-app-sidebar-account-menu,
+  .idt-app-sidebar-workspace-menu,
+  .idt-app-alert,
+  .idt-settings-inline-status,
+  .idt-form-error,
+  .idt-auth-provider-grid,
+  .idt-scan-stepper li.is-active,
+  .idt-danger-modal-error,
+  .idt-danger-modal-blocker,
+  .idt-form-success,
+  .idt-auth-mfa-setup,
+  .idt-auth-provider-stack,
+  .idt-settings-disclosure[open] .idt-settings-disclosure-body,
+  .idt-settings-inline-disclosure[open] .idt-settings-disclosure-body {
+    animation: none !important;
+  }
+}
+
 .idt-site {
   min-height: 100vh;
   background: #ffffff;
@@ -1422,6 +1553,7 @@ h3 {
   margin: 0;
   color: #ffb4b1;
   font-size: 0.85rem;
+  animation: idtStatusFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both;
 }
 
 .idt-form-success {
@@ -1431,6 +1563,7 @@ h3 {
   background: rgba(137, 169, 255, 0.14);
   padding: 0.75rem;
   color: #ecf2ff;
+  animation: idtStatusFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both;
 }
 
 .idt-lead-form.is-compact {
@@ -2229,6 +2362,7 @@ h2 {
   display: grid;
   place-items: center;
   padding: 1rem;
+  animation: idtOverlayFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both;
 }
 
 .idt-modal {
@@ -2239,6 +2373,7 @@ h2 {
   box-shadow: var(--idt-shadow);
   padding: 1.2rem;
   position: relative;
+  animation: idtPanelScaleIn var(--idt-motion-slow) var(--idt-motion-pop) both;
 }
 
 .idt-modal-close {
@@ -4337,6 +4472,7 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   background: rgba(12, 20, 33, 0.72);
   color: #d7e6ff;
   padding: 0.55rem 0.7rem;
+  animation: idtStatusFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both;
 }
 
 .idt-app-alert-error {
@@ -4525,6 +4661,8 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   border-radius: 8px;
   background: #070708;
   box-shadow: var(--idt-console-shadow);
+  transform-origin: top left;
+  animation: idtMenuSlideIn var(--idt-motion-standard) var(--idt-motion-pop) both;
 }
 
 .idt-profile-avatar-menu button {
@@ -4790,6 +4928,7 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
 .idt-settings-inline-status {
   margin: 0;
   font-size: 0.86rem;
+  animation: idtStatusFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both;
 }
 
 .idt-settings-inline-disclosure {
@@ -6196,6 +6335,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   color: #f4f8ff;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.56);
   overflow: hidden;
+  animation: idtPanelScaleIn var(--idt-motion-slow) var(--idt-motion-pop) both;
 }
 
 .idt-repo-finding-detail-modal-header {
@@ -6491,6 +6631,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   display: grid;
   gap: 0.75rem;
   justify-items: center;
+  animation: idtFlyoutRevealIn var(--idt-motion-slow) var(--idt-motion-ease) both;
 }
 
 .idt-auth-mfa-qr {
@@ -7202,6 +7343,7 @@ html[data-theme='light'] .idt-auth-mfa-form input {
   background: #0d1422;
   box-shadow: var(--idt-shadow);
   padding: 1rem;
+  animation: idtPanelScaleIn var(--idt-motion-slow) var(--idt-motion-pop) both;
 }
 
 .idt-permission-preview-modal header,
@@ -8166,6 +8308,7 @@ html[data-theme='light'] .idt-auth-panel-signup h1 {
   display: grid;
   width: 100%;
   gap: 0.72rem;
+  animation: idtStatusFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both;
 }
 
 .idt-auth-provider,
@@ -8723,6 +8866,8 @@ html[data-theme='light'] .idt-auth-page .idt-auth-legal-footer a {
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
     0 18px 42px rgba(0, 0, 0, 0.36);
   backdrop-filter: blur(18px);
+  transform-origin: bottom right;
+  animation: idtMenuSlideIn var(--idt-motion-standard) var(--idt-motion-pop) both;
 }
 
 .idt-auth-theme-menu button {
@@ -17389,6 +17534,7 @@ html[data-theme='light'] .idt-scan-form .idt-btn-ghost,
   border-color: #ffffff;
   background: #ffffff;
   color: #000000;
+  animation: idtStatusFadeIn var(--idt-motion-fast) var(--idt-motion-ease) both;
 }
 
 .idt-scan-stepper li.is-active span {
@@ -20855,6 +21001,7 @@ html[data-theme='light'] .idt-app-quick-find {
   padding: min(8vh, 5rem) 1rem 1rem;
   background: rgba(0, 0, 0, 0.72);
   backdrop-filter: blur(12px);
+  animation: idtOverlayFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both;
 }
 
 .idt-command-palette {
@@ -20871,6 +21018,8 @@ html[data-theme='light'] .idt-app-quick-find {
     var(--app-panel);
   color: #ffffff;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+  transform-origin: top center;
+  animation: idtPanelScaleIn var(--idt-motion-slow) var(--idt-motion-pop) both;
 }
 
 .idt-command-palette-results button {
@@ -24185,6 +24334,7 @@ button.idt-domain-finding-card:focus-visible {
   z-index: 60;
   display: flex;
   justify-content: flex-end;
+  animation: idtOverlayFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both;
 }
 
 .idt-domain-drawer-scrim {
@@ -24194,6 +24344,7 @@ button.idt-domain-finding-card:focus-visible {
   padding: 0;
   background: rgba(0, 0, 0, 0.62);
   cursor: pointer;
+  animation: idtOverlayFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both;
 }
 
 .idt-domain-drawer {
@@ -24206,6 +24357,7 @@ button.idt-domain-finding-card:focus-visible {
   background: #080809;
   color: var(--app-text);
   box-shadow: -16px 0 32px rgba(0, 0, 0, 0.32);
+  animation: idtDrawerSlideIn var(--idt-motion-slow) var(--idt-motion-pop) both;
 }
 
 .idt-domain-drawer header {
@@ -26855,6 +27007,8 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   padding: 0.15rem 0 0.2rem 0.58rem;
   background: transparent;
   box-shadow: none;
+  transform-origin: top left;
+  animation: idtFlyoutRevealIn var(--idt-motion-slow) var(--idt-motion-ease) both;
 }
 
 .idt-domain-flyout::before {
@@ -26880,6 +27034,7 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 .idt-domain-flyout-section {
   gap: 0.34rem;
   padding-top: 0;
+  animation: idtStatusFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both;
 }
 
 .idt-domain-flyout-section + .idt-domain-flyout-section,
@@ -26987,6 +27142,8 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 
 .idt-domain-flyout-nested-body {
   margin-top: 0.34rem;
+  transform-origin: top;
+  animation: idtFlyoutRevealIn var(--idt-motion-standard) var(--idt-motion-ease) both;
 }
 
 .idt-app-console-layout.is-sidebar-collapsed .idt-app-nav-domain-trigger {
@@ -27105,6 +27262,8 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   border-radius: 8px;
   background: #0d0d10;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  transform-origin: bottom left;
+  animation: idtMenuSlideIn var(--idt-motion-standard) var(--idt-motion-pop) both;
 }
 
 .idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-account-menu {
@@ -27726,6 +27885,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   border-radius: 8px;
   background: #0d0d10;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  transform-origin: top left;
+  animation: idtMenuSlideIn var(--idt-motion-standard) var(--idt-motion-pop) both;
 }
 
 .idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-workspace-menu {
@@ -29679,6 +29840,7 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   display: grid;
   gap: 0.9rem;
   color: #f6f7f8;
+  animation: idtPanelPopIn var(--idt-motion-slow) var(--idt-motion-pop) both;
 }
 
 .idt-danger-modal header {
@@ -29780,6 +29942,7 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   background: rgba(70, 14, 18, 0.55);
   color: #ffd7d7;
   font-size: 0.9rem;
+  animation: idtStatusFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both;
 }
 
 .idt-danger-modal-blocker {
@@ -29789,6 +29952,7 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   border-radius: 0.5rem;
   background: rgba(40, 12, 16, 0.65);
   color: #ffd0d0;
+  animation: idtStatusFadeIn var(--idt-motion-standard) var(--idt-motion-ease) both;
 }
 
 .idt-danger-modal-blocker ul {
@@ -29925,6 +30089,12 @@ html[data-theme='light'] .idt-app-console-layout .idt-settings-header h2 {
   margin: 0 1.15rem 1.15rem;
   padding-top: 1rem;
   border-top: 1px solid var(--app-border-soft);
+}
+
+.idt-settings-disclosure[open] .idt-settings-disclosure-body,
+.idt-settings-inline-disclosure[open] .idt-settings-disclosure-body {
+  transform-origin: top;
+  animation: idtFlyoutRevealIn var(--idt-motion-slow) var(--idt-motion-ease) both;
 }
 
 .idt-settings-sessions-card .idt-session-stack {
