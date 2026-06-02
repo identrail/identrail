@@ -20692,6 +20692,7 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
 .idt-app-sidebar {
   position: sticky;
   top: 0;
+  z-index: 90;
   height: 100dvh;
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
@@ -20702,6 +20703,7 @@ html[data-theme='light'] .idt-legal-contact-panel .idt-btn-primary {
    * by an overflow:auto scroll container. The inner nav handles its own
    * vertical scroll when there are more nav items than fit. */
   overflow: visible;
+  isolation: isolate;
   border-right: 1px solid var(--app-border);
   background: #080809;
 }
@@ -27750,7 +27752,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   width: 10px;
   height: 100%;
   cursor: col-resize;
-  z-index: 30;
+  z-index: 120;
   background: transparent;
   transition: background-color 0.12s ease;
   touch-action: none;
@@ -27765,7 +27767,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   content: attr(data-sidebar-action) " " attr(data-sidebar-shortcut) "\A Drag to resize";
   position: absolute;
   top: 50%;
-  left: calc(100% + 0.8rem);
+  right: calc(100% + 0.8rem);
   z-index: 2;
   min-width: 10.8rem;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -27779,7 +27781,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   white-space: pre;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-50%) translateX(-0.2rem);
+  transform: translateY(-50%) translateX(0.2rem);
   transition: opacity 0.12s ease, transform 0.12s ease;
   box-shadow: 0 14px 42px rgba(0, 0, 0, 0.45);
 }
@@ -27803,6 +27805,20 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
 .idt-app-sidebar-resize-handle.is-focused::before,
 .idt-app-sidebar-resize-handle.is-dragging::before {
   opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-resize-handle::before {
+  right: auto;
+  left: calc(100% + 0.8rem);
+  transform: translateY(-50%) translateX(-0.2rem);
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-resize-handle:hover::before,
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-resize-handle:focus::before,
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-resize-handle:focus-visible::before,
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-resize-handle.is-focused::before,
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-sidebar-resize-handle.is-dragging::before {
   transform: translateY(-50%) translateX(0);
 }
 
