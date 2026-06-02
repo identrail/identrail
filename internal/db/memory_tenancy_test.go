@@ -1747,7 +1747,7 @@ func TestMemoryStoreHardDeleteWorkspaceClearsSessionAndOnboardingScope(t *testin
 	// Codex unresolved on #1450: session and onboarding rows keep
 	// workspace/project scope even after a hard workspace purge. Postgres
 	// cascades those foreign keys to NULL, so memory store should mirror by
-	// clearing matching scope fields.
+	// clearing matching scope fields only for the deleted tenant/workspace.
 	store, ctx, ownerUUID := setupWorkspaceLifecycleStore(t)
 	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
 	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
@@ -1781,6 +1781,7 @@ func TestMemoryStoreHardDeleteWorkspaceClearsSessionAndOnboardingScope(t *testin
 	_, err = store.UpsertOnboardingState(ctx, OnboardingState{
 		UserID:      owner.ID,
 		CurrentStep: "connect",
+		OrgID:       "tenant-a",
 		WorkspaceID: "ws-1",
 		ProjectID:   "project-a",
 		StartedAt:   now,
@@ -1788,6 +1789,60 @@ func TestMemoryStoreHardDeleteWorkspaceClearsSessionAndOnboardingScope(t *testin
 	})
 	if err != nil {
 		t.Fatalf("upsert onboarding state: %v", err)
+	}
+
+	tenantBCtx := WithScope(context.Background(), Scope{TenantID: "tenant-b", WorkspaceID: "ws-1"})
+	if err := store.UpsertOrganization(tenantBCtx, TenancyOrganization{DisplayName: "Tenant B", Slug: "tenant-b"}); err != nil {
+		t.Fatalf("seed tenant b org: %v", err)
+	}
+	if err := store.UpsertWorkspace(tenantBCtx, TenancyWorkspace{WorkspaceID: "ws-1", DisplayName: "Tenant B Workspace", Slug: "ws-1"}); err != nil {
+		t.Fatalf("seed tenant b workspace: %v", err)
+	}
+	if err := store.UpsertProject(tenantBCtx, TenancyProject{
+		WorkspaceID: "ws-1",
+		ProjectID:   "project-b",
+		Name:        "Back to work",
+		Slug:        "project-b",
+	}); err != nil {
+		t.Fatalf("seed tenant b project: %v", err)
+	}
+
+	tenantBUserUUID := "22222222-2222-2222-2222-222222222222"
+	tenantBUser, err := store.UpsertUser(context.Background(), User{
+		ID:           tenantBUserUUID,
+		PrimaryEmail: "tenant-b-owner@example.com",
+		CreatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("seed tenant b owner: %v", err)
+	}
+	tenantBSessionHash := sha256.Sum256([]byte("tenant-b-workspace-deletion"))
+	tenantBSession, err := store.CreateSession(context.Background(), Session{
+		ID:                tenantBSessionHash[:],
+		UserID:            tenantBUser.ID,
+		AuthMethod:        "manual",
+		IdleExpiresAt:     now.Add(15 * time.Minute),
+		AbsoluteExpiresAt: now.Add(24 * time.Hour),
+		LastSeenAt:        now,
+		CreatedAt:         now,
+	})
+	if err != nil {
+		t.Fatalf("create tenant b session: %v", err)
+	}
+	if _, err := store.UpdateSessionContext(tenantBCtx, tenantBUser.ID, tenantBSession.ID, "tenant-b", "ws-1", "project-b", now); err != nil {
+		t.Fatalf("update tenant b session context: %v", err)
+	}
+	tenantBOnboardingState, err := store.UpsertOnboardingState(context.Background(), OnboardingState{
+		UserID:      tenantBUser.ID,
+		CurrentStep: "connect",
+		OrgID:       "tenant-b",
+		WorkspaceID: "ws-1",
+		ProjectID:   "project-b",
+		StartedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("upsert tenant b onboarding state: %v", err)
 	}
 
 	saved, err := store.SoftDeleteWorkspace(ctx, "ws-1", past)
@@ -1808,13 +1863,45 @@ func TestMemoryStoreHardDeleteWorkspaceClearsSessionAndOnboardingScope(t *testin
 	if sessions[0].CurrentWorkspaceID != "" || sessions[0].CurrentProjectID != "" {
 		t.Fatalf("expected stale session scope cleared, got workspace=%q project=%q", sessions[0].CurrentWorkspaceID, sessions[0].CurrentProjectID)
 	}
+	if sessions[0].CurrentOrgID != "" {
+		t.Fatalf("expected stale session tenant scope cleared, got org=%q", sessions[0].CurrentOrgID)
+	}
 
 	state, err := store.GetOnboardingState(context.Background(), owner.ID)
 	if err != nil {
 		t.Fatalf("get onboarding state: %v", err)
 	}
-	if state.WorkspaceID != "" || state.ProjectID != "" {
-		t.Fatalf("expected stale onboarding scope cleared, got workspace=%q project=%q", state.WorkspaceID, state.ProjectID)
+	if state.OrgID != "" || state.WorkspaceID != "" || state.ProjectID != "" {
+		t.Fatalf("expected stale onboarding scope cleared, got org=%q workspace=%q project=%q", state.OrgID, state.WorkspaceID, state.ProjectID)
+	}
+
+	tenantBSessions, err := store.ListUserSessions(context.Background(), tenantBUser.ID, now, 10)
+	if err != nil {
+		t.Fatalf("list tenant b user sessions: %v", err)
+	}
+	if len(tenantBSessions) != 1 {
+		t.Fatalf("expected one active session for tenant b user, got %d", len(tenantBSessions))
+	}
+	if tenantBSessions[0].CurrentOrgID != "tenant-b" || tenantBSessions[0].CurrentWorkspaceID != "ws-1" || tenantBSessions[0].CurrentProjectID != "project-b" {
+		t.Fatalf(
+			"expected tenant b session to remain untouched, got org=%q workspace=%q project=%q",
+			tenantBSessions[0].CurrentOrgID,
+			tenantBSessions[0].CurrentWorkspaceID,
+			tenantBSessions[0].CurrentProjectID,
+		)
+	}
+
+	state, err = store.GetOnboardingState(context.Background(), tenantBUser.ID)
+	if err != nil {
+		t.Fatalf("get tenant b onboarding state: %v", err)
+	}
+	if state.OrgID != tenantBOnboardingState.OrgID || state.WorkspaceID != tenantBOnboardingState.WorkspaceID || state.ProjectID != tenantBOnboardingState.ProjectID {
+		t.Fatalf(
+			"expected tenant b onboarding scope to remain untouched after tenant a purge, got org=%q workspace=%q project=%q",
+			state.OrgID,
+			state.WorkspaceID,
+			state.ProjectID,
+		)
 	}
 }
 

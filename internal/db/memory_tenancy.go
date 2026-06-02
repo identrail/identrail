@@ -725,14 +725,16 @@ func (m *MemoryStore) HardDeleteWorkspace(ctx context.Context, tenantID, workspa
 		}
 	}
 	for sessionKey, session := range m.sessions {
-		if session.CurrentWorkspaceID == id {
+		if session.CurrentOrgID == tenant && session.CurrentWorkspaceID == id {
+			session.CurrentOrgID = ""
 			session.CurrentWorkspaceID = ""
 			session.CurrentProjectID = ""
 			m.sessions[sessionKey] = session
 		}
 	}
 	for userID, state := range m.onboardingStates {
-		if state.WorkspaceID == id {
+		if state.OrgID == tenant && state.WorkspaceID == id {
+			state.OrgID = ""
 			state.WorkspaceID = ""
 			state.ProjectID = ""
 			m.onboardingStates[userID] = state
