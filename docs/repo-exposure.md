@@ -597,6 +597,10 @@ the scan as skipped instead of queueing duplicate work.
   - comma-separated list of allowed target patterns
   - supports prefix wildcard with `*` (example: `trusted-org/*`)
   - set `*` only if you intentionally want open target scope
+- Direct remote scans accept GitHub `owner/repo` shorthand and HTTPS URLs only.
+  SSH/SCP-style remotes are rejected because the scanner pins validated HTTPS
+  DNS answers into Git before network access and cannot apply the same guard to
+  an external SSH subprocess.
 - Optional worker scheduling:
   - `IDENTRAIL_WORKER_REPO_SCAN_ENABLED` (`false` by default)
   - `IDENTRAIL_WORKER_REPO_SCAN_RUN_NOW` (`false` by default)

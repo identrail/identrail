@@ -864,12 +864,15 @@ func TestPrepareRepositoryRejectsInsecureHTTPRepositoryURL(t *testing.T) {
 }
 
 func TestCloneRemoteRepositoryUsesBoundedFetchPlan(t *testing.T) {
+	stubRepositoryHostLookup(t, map[string][]net.IP{
+		"github.com": {net.ParseIP("140.82.112.3")},
+	})
 	var gotCommands [][]string
 	scanner := NewScanner(
 		func(_ context.Context, name string, args ...string) ([]byte, error) {
 			command := append([]string{name}, args...)
 			gotCommands = append(gotCommands, command)
-			if reflect.DeepEqual(command, []string{"git", "ls-remote", "--symref", "https://github.com/owner/repo.git"}) {
+			if reflect.DeepEqual(command, pinnedGitCommand("github.com", "443", "140.82.112.3", "ls-remote", "--symref", "https://github.com/owner/repo.git")) {
 				return []byte(strings.Join([]string{
 					"ref: refs/heads/main\tHEAD",
 					"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tHEAD",
@@ -890,11 +893,11 @@ func TestCloneRemoteRepositoryUsesBoundedFetchPlan(t *testing.T) {
 	}
 
 	expected := [][]string{
-		{"git", "ls-remote", "--symref", "https://github.com/owner/repo.git"},
+		pinnedGitCommand("github.com", "443", "140.82.112.3", "ls-remote", "--symref", "https://github.com/owner/repo.git"),
 		{"git", "init", "--bare", "--quiet", repoPath},
 		{"git", "--git-dir", repoPath, "remote", "add", "origin", "https://github.com/owner/repo.git"},
-		{"git", "--git-dir", repoPath, "fetch", "--quiet", "--no-tags", "--depth", "2", "origin", "+refs/tags/release-keep:refs/tags/release-keep", "+refs/identrail/archive:refs/identrail/archive"},
-		{"git", "--git-dir", repoPath, "fetch", "--quiet", "--no-tags", "--depth", "33", "origin", "+refs/heads/main:refs/heads/main"},
+		pinnedGitCommand("github.com", "443", "140.82.112.3", "--git-dir", repoPath, "fetch", "--quiet", "--no-tags", "--depth", "2", "origin", "+refs/tags/release-keep:refs/tags/release-keep", "+refs/identrail/archive:refs/identrail/archive"),
+		pinnedGitCommand("github.com", "443", "140.82.112.3", "--git-dir", repoPath, "fetch", "--quiet", "--no-tags", "--depth", "33", "origin", "+refs/heads/main:refs/heads/main"),
 		{"git", "--git-dir", repoPath, "symbolic-ref", "HEAD", "refs/heads/main"},
 	}
 	if !reflect.DeepEqual(gotCommands, expected) {
@@ -907,14 +910,63 @@ func TestCloneRemoteRepositoryUsesBoundedFetchPlan(t *testing.T) {
 	}
 }
 
+func TestCloneRemoteRepositoryRejectsReboundPrivateHostBeforeGit(t *testing.T) {
+	stubRepositoryHostLookup(t, map[string][]net.IP{
+		"rebind.example": {net.ParseIP("169.254.169.254")},
+	})
+	cloneCalled := false
+	scanner := NewScanner(func(context.Context, string, ...string) ([]byte, error) {
+		cloneCalled = true
+		return nil, errors.New("git should not run")
+	})
+
+	err := scanner.cloneRemoteRepository(context.Background(), t.TempDir(), "https://rebind.example/owner/repo.git", filepath.Join(t.TempDir(), "repo.git"))
+	if err == nil {
+		t.Fatal("expected private rebound host to be rejected")
+	}
+	if cloneCalled {
+		t.Fatal("expected git runner not to run for private rebound host")
+	}
+}
+
+func TestCloneRemoteRepositoryPinsHTTPSHostResolutionWithExplicitPort(t *testing.T) {
+	stubRepositoryHostLookup(t, map[string][]net.IP{
+		"example.com": {net.ParseIP("93.184.216.34")},
+	})
+	var gotCommands [][]string
+	scanner := NewScanner(func(_ context.Context, name string, args ...string) ([]byte, error) {
+		command := append([]string{name}, args...)
+		gotCommands = append(gotCommands, command)
+		if reflect.DeepEqual(command, pinnedGitCommand("example.com", "8443", "93.184.216.34", "ls-remote", "--symref", "https://example.com:8443/owner/repo.git")) {
+			return []byte(strings.Join([]string{
+				"ref: refs/heads/main\tHEAD",
+				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tHEAD",
+				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/heads/main",
+			}, "\n")), nil
+		}
+		return []byte("ok"), nil
+	})
+
+	err := scanner.cloneRemoteRepository(context.Background(), t.TempDir(), "https://example.com:8443/owner/repo.git", filepath.Join(t.TempDir(), "repo.git"))
+	if err != nil {
+		t.Fatalf("clone remote repository: %v", err)
+	}
+	if len(gotCommands) == 0 || !reflect.DeepEqual(gotCommands[0], pinnedGitCommand("example.com", "8443", "93.184.216.34", "ls-remote", "--symref", "https://example.com:8443/owner/repo.git")) {
+		t.Fatalf("expected first git command to pin HTTPS host resolution, got %+v", gotCommands)
+	}
+}
+
 func TestCloneRemoteRepositoryFetchesRequiredDeltaRef(t *testing.T) {
+	stubRepositoryHostLookup(t, map[string][]net.IP{
+		"github.com": {net.ParseIP("140.82.112.3")},
+	})
 	head := strings.Repeat("b", 40)
 	var gotCommands [][]string
 	scanner := NewScanner(
 		func(_ context.Context, name string, args ...string) ([]byte, error) {
 			command := append([]string{name}, args...)
 			gotCommands = append(gotCommands, command)
-			if reflect.DeepEqual(command, []string{"git", "ls-remote", "--symref", "https://github.com/owner/repo.git"}) {
+			if reflect.DeepEqual(command, pinnedGitCommand("github.com", "443", "140.82.112.3", "ls-remote", "--symref", "https://github.com/owner/repo.git")) {
 				return []byte(strings.Join([]string{
 					"ref: refs/heads/main\tHEAD",
 					strings.Repeat("a", 40) + "\tHEAD",
@@ -939,12 +991,12 @@ func TestCloneRemoteRepositoryFetchesRequiredDeltaRef(t *testing.T) {
 	}
 
 	expected := [][]string{
-		{"git", "ls-remote", "--symref", "https://github.com/owner/repo.git"},
+		pinnedGitCommand("github.com", "443", "140.82.112.3", "ls-remote", "--symref", "https://github.com/owner/repo.git"),
 		{"git", "init", "--bare", "--quiet", repoPath},
 		{"git", "--git-dir", repoPath, "remote", "add", "origin", "https://github.com/owner/repo.git"},
-		{"git", "--git-dir", repoPath, "fetch", "--quiet", "--no-tags", "--depth", "2", "origin", "+refs/tags/release-keep:refs/tags/release-keep"},
-		{"git", "--git-dir", repoPath, "fetch", "--quiet", "--no-tags", "--depth", "2", "origin", "+refs/heads/main:refs/heads/main"},
-		{"git", "--git-dir", repoPath, "fetch", "--quiet", "--no-tags", "--depth", "4", "origin", "+refs/heads/feature:refs/heads/feature"},
+		pinnedGitCommand("github.com", "443", "140.82.112.3", "--git-dir", repoPath, "fetch", "--quiet", "--no-tags", "--depth", "2", "origin", "+refs/tags/release-keep:refs/tags/release-keep"),
+		pinnedGitCommand("github.com", "443", "140.82.112.3", "--git-dir", repoPath, "fetch", "--quiet", "--no-tags", "--depth", "2", "origin", "+refs/heads/main:refs/heads/main"),
+		pinnedGitCommand("github.com", "443", "140.82.112.3", "--git-dir", repoPath, "fetch", "--quiet", "--no-tags", "--depth", "4", "origin", "+refs/heads/feature:refs/heads/feature"),
 		{"git", "--git-dir", repoPath, "cat-file", "-e", head + "^{commit}"},
 		{"git", "--git-dir", repoPath, "symbolic-ref", "HEAD", "refs/heads/main"},
 	}
@@ -1230,6 +1282,9 @@ func TestBuildRemoteRepositoryClonePlanKeepsDefaultTipScannable(t *testing.T) {
 }
 
 func TestCloneRemoteRepositoryUsesAskPassCredentialWithoutCommandArgLeak(t *testing.T) {
+	stubRepositoryHostLookup(t, map[string][]net.IP{
+		"github.com": {net.ParseIP("140.82.112.3")},
+	})
 	const secret = "ghs_secret_token"
 	var gotEnv []string
 	var gotCommands [][]string
@@ -1254,7 +1309,7 @@ func TestCloneRemoteRepositoryUsesAskPassCredentialWithoutCommandArgLeak(t *test
 			if _, err := os.Stat(askPass); err != nil {
 				t.Fatalf("expected askpass helper to exist during clone: %v", err)
 			}
-			if reflect.DeepEqual(command, []string{"git", "ls-remote", "--symref", "https://github.com/owner/repo.git"}) {
+			if reflect.DeepEqual(command, pinnedGitCommand("github.com", "443", "140.82.112.3", "ls-remote", "--symref", "https://github.com/owner/repo.git")) {
 				return []byte(strings.Join([]string{
 					"ref: refs/heads/main\tHEAD",
 					"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\tHEAD",
@@ -1283,6 +1338,9 @@ func TestCloneRemoteRepositoryUsesAskPassCredentialWithoutCommandArgLeak(t *test
 }
 
 func TestCloneRemoteRepositoryRedactsCredentialFromErrors(t *testing.T) {
+	stubRepositoryHostLookup(t, map[string][]net.IP{
+		"github.com": {net.ParseIP("140.82.112.3")},
+	})
 	const secret = "ghs_secret_token"
 	scanner := NewScanner(nil,
 		WithHTTPSCloneCredential(HTTPSCloneCredential{
@@ -1305,6 +1363,9 @@ func TestCloneRemoteRepositoryRedactsCredentialFromErrors(t *testing.T) {
 }
 
 func TestCloneRemoteRepositoryRejectsCredentialHostMismatch(t *testing.T) {
+	stubRepositoryHostLookup(t, map[string][]net.IP{
+		"gitlab.com": {net.ParseIP("172.65.251.78")},
+	})
 	called := false
 	scanner := NewScanner(nil,
 		WithHTTPSCloneCredential(HTTPSCloneCredential{
@@ -1353,8 +1414,9 @@ func TestValidateCloneURL(t *testing.T) {
 		expectErr bool
 	}{
 		{name: "github shorthand", target: "https://github.com/owner/repo.git"},
-		{name: "ssh url", target: "ssh://git@github.com/owner/repo.git"},
-		{name: "git scp form", target: "git@github.com:owner/repo.git"},
+		{name: "ssh url", target: "ssh://git@github.com/owner/repo.git", expectErr: true},
+		{name: "git scp form", target: "git@github.com:owner/repo.git", expectErr: true},
+		{name: "argument-like target", target: "--upload-pack=/bin/echo", expectErr: true},
 		{name: "insecure http", target: "http://github.com/owner/repo.git", expectErr: true},
 		{name: "unsupported file scheme", target: "file:///tmp/repo.git", expectErr: true},
 		{name: "credentials in https url", target: "https://token@example.com/owner/repo.git", expectErr: true},
@@ -1433,6 +1495,25 @@ func envValue(env []string, key string) string {
 		}
 	}
 	return ""
+}
+
+func stubRepositoryHostLookup(t *testing.T, responses map[string][]net.IP) {
+	t.Helper()
+	originalLookup := repositoryHostLookupIPs
+	repositoryHostLookupIPs = func(_ context.Context, host string) ([]net.IP, error) {
+		if ips, ok := responses[strings.ToLower(strings.TrimSpace(host))]; ok {
+			return append([]net.IP(nil), ips...), nil
+		}
+		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+	}
+	t.Cleanup(func() {
+		repositoryHostLookupIPs = originalLookup
+	})
+}
+
+func pinnedGitCommand(host string, port string, ip string, args ...string) []string {
+	command := []string{"git", "-c", "http.curloptResolve=" + host + ":" + port + ":" + ip}
+	return append(command, args...)
 }
 
 func TestHelperFunctions(t *testing.T) {

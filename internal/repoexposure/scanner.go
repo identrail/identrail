@@ -394,7 +394,7 @@ func (s *Scanner) cloneRemoteRepository(ctx context.Context, workdir string, clo
 }
 
 func (s *Scanner) cloneRemoteRepositoryWithOptions(ctx context.Context, workdir string, cloneURL string, repoPath string, options ScanOptions) error {
-	runner, cleanup, err := s.cloneCommandRunner(workdir, cloneURL)
+	runner, cleanup, err := s.cloneCommandRunner(ctx, workdir, cloneURL)
 	if err != nil {
 		return err
 	}
@@ -531,13 +531,41 @@ func appendBoundedFetchDepthArgs(args []string, depth int) []string {
 	return append(args, "--depth", strconv.Itoa(depth))
 }
 
-func (s *Scanner) cloneCommandRunner(workdir string, cloneURL string) (CommandRunner, func(), error) {
+type gitHTTPSResolvePin struct {
+	Host string
+	Port string
+	IP   net.IP
+}
+
+func (p gitHTTPSResolvePin) valid() bool {
+	return p.Host != "" && p.Port != "" && p.IP != nil
+}
+
+func (p gitHTTPSResolvePin) gitConfigValue() string {
+	return "http.curloptResolve=" + p.Host + ":" + p.Port + ":" + curlResolveIPAddress(p.IP)
+}
+
+func curlResolveIPAddress(ip net.IP) string {
+	if ip == nil {
+		return ""
+	}
+	if ipv4 := ip.To4(); ipv4 != nil {
+		return ipv4.String()
+	}
+	return "[" + ip.String() + "]"
+}
+
+func (s *Scanner) cloneCommandRunner(ctx context.Context, workdir string, cloneURL string) (CommandRunner, func(), error) {
+	resolvePin, err := gitHTTPSResolvePinForCloneURL(ctx, cloneURL)
+	if err != nil {
+		return nil, nil, err
+	}
 	credential, useCredential, err := s.credentialForCloneURL(cloneURL)
 	if err != nil {
 		return nil, nil, err
 	}
 	if !useCredential {
-		return s.run, func() {}, nil
+		return withGitHTTPSResolvePin(s.run, resolvePin), func() {}, nil
 	}
 	if s.runEnv == nil {
 		s.runEnv = defaultEnvCommandRunner
@@ -553,7 +581,7 @@ func (s *Scanner) cloneCommandRunner(workdir string, cloneURL string) (CommandRu
 		"IDENTRAIL_GIT_USERNAME=" + credential.Username,
 		"IDENTRAIL_GIT_PASSWORD=" + credential.Password,
 	}
-	return func(ctx context.Context, name string, args ...string) ([]byte, error) {
+	runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		output, runErr := s.runEnv(ctx, env, name, args...)
 		if runErr != nil {
 			if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
@@ -562,7 +590,37 @@ func (s *Scanner) cloneCommandRunner(workdir string, cloneURL string) (CommandRu
 			return output, sanitizeError(runErr, credential.Password)
 		}
 		return output, nil
-	}, cleanup, nil
+	}
+	return withGitHTTPSResolvePin(runner, resolvePin), cleanup, nil
+}
+
+func withGitHTTPSResolvePin(runner CommandRunner, pin gitHTTPSResolvePin) CommandRunner {
+	if runner == nil || !pin.valid() {
+		return runner
+	}
+	return func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		return runner(ctx, name, pinGitHTTPSCommandArgs(name, args, pin)...)
+	}
+}
+
+func pinGitHTTPSCommandArgs(name string, args []string, pin gitHTTPSResolvePin) []string {
+	if strings.TrimSpace(name) != defaultRepositoryCommand || !pin.valid() || !gitCommandMayResolveRemote(args) {
+		return args
+	}
+	pinned := make([]string, 0, len(args)+2)
+	pinned = append(pinned, "-c", pin.gitConfigValue())
+	pinned = append(pinned, args...)
+	return pinned
+}
+
+func gitCommandMayResolveRemote(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "ls-remote", "fetch":
+			return true
+		}
+	}
+	return false
 }
 
 func parseRemoteRepositoryRefs(output []byte) ([]remoteRepositoryRef, string) {
@@ -1390,13 +1448,16 @@ func validateCloneURL(cloneURL string) error {
 
 	lower := strings.ToLower(trimmed)
 	if strings.HasPrefix(lower, "http://") {
-		return fmt.Errorf("insecure repository url scheme http is not allowed; use https or ssh")
+		return fmt.Errorf("insecure repository url scheme http is not allowed; use https")
 	}
 	if !strings.Contains(lower, "://") {
 		if host, ok := parseGitSCPTargetHost(trimmed); ok {
-			return validateRepositoryHost(host)
+			if err := validateRepositoryHost(host); err != nil {
+				return err
+			}
+			return fmt.Errorf("remote ssh repository targets are not supported; use https")
 		}
-		return nil
+		return fmt.Errorf("unsupported repository target; use owner/repo shorthand or an https URL")
 	}
 
 	parsed, err := url.Parse(trimmed)
@@ -1418,7 +1479,10 @@ func validateCloneURL(cloneURL string) error {
 				return fmt.Errorf("repository target must not include credentials in URL userinfo")
 			}
 		}
-		return validateRepositoryHost(parsed.Hostname())
+		if err := validateRepositoryHost(parsed.Hostname()); err != nil {
+			return err
+		}
+		return fmt.Errorf("remote ssh repository targets are not supported; use https")
 	default:
 		return fmt.Errorf("unsupported repository url scheme %q", parsed.Scheme)
 	}
@@ -1475,13 +1539,18 @@ func parseGitSCPTargetHost(target string) (string, bool) {
 }
 
 func validateRepositoryHost(host string) error {
+	_, _, err := resolveAllowedRepositoryHost(context.Background(), host)
+	return err
+}
+
+func resolveAllowedRepositoryHost(ctx context.Context, host string) (string, []net.IP, error) {
 	normalizedHost := strings.TrimSpace(host)
 	if normalizedHost == "" {
-		return fmt.Errorf("repository target host is required")
+		return "", nil, fmt.Errorf("repository target host is required")
 	}
 	lowerHost := strings.TrimSuffix(strings.ToLower(normalizedHost), ".")
 	if lowerHost == "localhost" || strings.HasSuffix(lowerHost, ".localhost") {
-		return fmt.Errorf("repository target host %q is not allowed", normalizedHost)
+		return "", nil, fmt.Errorf("repository target host %q is not allowed", normalizedHost)
 	}
 	ipCandidate := lowerHost
 	if zoneIndex := strings.Index(ipCandidate, "%"); zoneIndex != -1 {
@@ -1493,24 +1562,50 @@ func validateRepositoryHost(host string) error {
 	}
 	if ip != nil {
 		if isBlockedRepositoryIP(ip) {
-			return fmt.Errorf("repository target host %q is not allowed", normalizedHost)
+			return "", nil, fmt.Errorf("repository target host %q is not allowed", normalizedHost)
 		}
-		return nil
+		return lowerHost, []net.IP{ip}, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	resolvedIPs, err := repositoryHostLookupIPs(ctx, lowerHost)
+	resolvedIPs, err := repositoryHostLookupIPs(lookupCtx, lowerHost)
 	if err != nil {
-		return fmt.Errorf("repository target host %q could not be resolved: %w", normalizedHost, err)
+		return "", nil, fmt.Errorf("repository target host %q could not be resolved: %w", normalizedHost, err)
+	}
+	if len(resolvedIPs) == 0 {
+		return "", nil, fmt.Errorf("repository target host %q could not be resolved", normalizedHost)
 	}
 	for _, resolvedIP := range resolvedIPs {
 		if isBlockedRepositoryIP(resolvedIP) {
-			return fmt.Errorf("repository target host %q is not allowed", normalizedHost)
+			return "", nil, fmt.Errorf("repository target host %q is not allowed", normalizedHost)
 		}
 	}
-	return nil
+	return lowerHost, resolvedIPs, nil
+}
+
+func gitHTTPSResolvePinForCloneURL(ctx context.Context, cloneURL string) (gitHTTPSResolvePin, error) {
+	parsed, err := url.Parse(strings.TrimSpace(cloneURL))
+	if err != nil || parsed == nil || !strings.EqualFold(parsed.Scheme, "https") {
+		return gitHTTPSResolvePin{}, nil
+	}
+	host := parsed.Hostname()
+	if parseRepositoryHostIP(host) != nil {
+		return gitHTTPSResolvePin{}, validateRepositoryHost(host)
+	}
+	normalizedHost, resolvedIPs, err := resolveAllowedRepositoryHost(ctx, host)
+	if err != nil {
+		return gitHTTPSResolvePin{}, err
+	}
+	port := strings.TrimSpace(parsed.Port())
+	if port == "" {
+		port = "443"
+	}
+	return gitHTTPSResolvePin{Host: normalizedHost, Port: port, IP: resolvedIPs[0]}, nil
 }
 
 func isBlockedRepositoryIP(ip net.IP) bool {
@@ -1524,6 +1619,18 @@ func isBlockedRepositoryIP(ip net.IP) bool {
 		ip.IsMulticast() ||
 		ip.IsUnspecified() ||
 		repositorySharedAddressRange.Contains(ip)
+}
+
+func parseRepositoryHostIP(host string) net.IP {
+	ipCandidate := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	if zoneIndex := strings.Index(ipCandidate, "%"); zoneIndex != -1 {
+		ipCandidate = ipCandidate[:zoneIndex]
+	}
+	ip := net.ParseIP(ipCandidate)
+	if ip != nil {
+		return ip
+	}
+	return parseLegacyIPv4Host(ipCandidate)
 }
 
 func parseLegacyIPv4Host(host string) net.IP {
