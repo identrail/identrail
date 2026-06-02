@@ -1483,6 +1483,44 @@ describe('Domain-first app routes', () => {
     expect(getKubernetesProjectConnection).not.toHaveBeenCalled();
   });
 
+  it('disables Kubernetes connector submit while feature metadata loads', async () => {
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: undefined }, { loading: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production Kubernetes boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    const getKubernetesProjectConnection = vi.spyOn(api.apiClient, 'getKubernetesProjectConnection');
+    const startKubernetesConnector = vi.spyOn(api.apiClient, 'startKubernetesConnector');
+
+    const { ProductKubernetesConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/kubernetes/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/kubernetes/connect" element={<ProductKubernetesConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const submitButton = await screen.findByRole('button', { name: /Generate token/i });
+    expect(submitButton).toBeDisabled();
+    fireEvent.click(submitButton);
+    expect(getKubernetesProjectConnection).not.toHaveBeenCalled();
+    expect(startKubernetesConnector).not.toHaveBeenCalled();
+  });
+
   it('starts Kubernetes agent enrollment with workspace and environment scope', async () => {
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
     mockBackendFeatures({ github: true, kubernetes: true });

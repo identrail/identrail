@@ -6360,12 +6360,16 @@ export function ProductKubernetesConnectPage() {
   }
 
   const clustersPath = kubernetesRouteLink(scope, 'clusters', selectedEnvironmentID);
-  const canSubmit = availability.available && Boolean(selectedEnvironmentID) && !submitting && !data.loading;
+  const canSubmit = availability.available && !availability.loading && Boolean(selectedEnvironmentID) && !submitting && !data.loading;
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedEnvironmentID) {
       setError('Choose an environment before connecting Kubernetes.');
+      return;
+    }
+    if (availability.loading) {
+      setError('Kubernetes availability is still loading.');
       return;
     }
     if (!availability.available) {
