@@ -149,6 +149,8 @@ a {
   .idt-form-error,
   .idt-auth-provider-grid,
   .idt-scan-stepper li.is-active,
+  .idt-danger-modal-error,
+  .idt-danger-modal-blocker,
   .idt-form-success,
   .idt-auth-mfa-setup,
   .idt-auth-provider-stack,
