@@ -10139,6 +10139,7 @@ export function ProductOverviewPage() {
   );
   const [, setInviteSkipTick] = useState(0);
   const [connectorConfiguredFromOnboarding, setConnectorConfiguredFromOnboarding] = useState(false);
+  const [onboardingConnectorProvider, setOnboardingConnectorProvider] = useState<SourceProvider | null>(null);
 
   useEffect(() => {
     const tenantID = scope?.tenantID;
@@ -10146,12 +10147,14 @@ export function ProductOverviewPage() {
     if (!FEATURE_ONBOARDING_WIZARD || !tenantID || !workspaceID) {
       setShowTour(false);
       setConnectorConfiguredFromOnboarding(false);
+      setOnboardingConnectorProvider(null);
       return;
     }
     let mounted = true;
     // Reset immediately when scope changes so stale onboarding data cannot
     // bleed connector-complete state into another workspace.
     setConnectorConfiguredFromOnboarding(false);
+    setOnboardingConnectorProvider(null);
     const run = async () => {
       try {
         const response = await apiClient.getOnboardingState({ tenantID, workspaceID });
@@ -10176,10 +10179,12 @@ export function ProductOverviewPage() {
           (Boolean(state.connector_id) ||
             (!state.connector_skipped && stepsPastConnect.includes(state.current_step)));
         setConnectorConfiguredFromOnboarding(reachedConnect);
+        setOnboardingConnectorProvider(reachedConnect ? normalizeSourceProvider(state.connector_type) : null);
       } catch {
         if (mounted) {
           setShowTour(false);
           setConnectorConfiguredFromOnboarding(false);
+          setOnboardingConnectorProvider(null);
         }
       }
     };
@@ -10308,7 +10313,7 @@ export function ProductOverviewPage() {
     kubernetesRollup.connectedCount > 0;
   const hasGitHubFindingEvidence = repoFindings.length > 0;
   const hasGitHubEvidence = repoScans.length > 0 || hasGitHubFindingEvidence;
-  const hasGitHubConnectorEvidence = hasGitHubEvidence || connectorConfiguredFromOnboarding;
+  const hasGitHubConnectorEvidence = hasGitHubEvidence || onboardingConnectorProvider === 'github';
   const highPriorityCount = highPriorityFindings.length;
   const activeEnvironmentCount = activeProjects.length;
   const githubState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubConnectorEvidence
