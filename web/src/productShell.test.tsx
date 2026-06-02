@@ -913,7 +913,7 @@ describe('ProductShellLayout', () => {
     expect(screen.queryByRole('option', { name: /^Projects\b/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('option', { name: /^Findings\b/i })).not.toBeInTheDocument();
     expect(
-      within(within(finder).getByRole('option', { name: /^OverviewDomain/i })).queryByText('O')
+      within(within(finder).getByRole('option', { name: /^OverviewCross-domain/i })).queryByText('O')
     ).not.toBeInTheDocument();
     expect(
       within(within(finder).getByRole('option', { name: /^GitHub findingsRepository/i })).queryByText('F')

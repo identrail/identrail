@@ -916,12 +916,14 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /Continue in dev mode/i }));
 
     expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
-    expect(await screen.findByText(/Open risk/i)).toBeInTheDocument();
-    expect(await screen.findByText(/Priority findings/i)).toBeInTheDocument();
-    expect(await screen.findByText(/Production GitHub/i)).toBeInTheDocument();
-    expect(await screen.findByText(/1 archived/i)).toBeInTheDocument();
-    expect(await screen.findByText(/vs\. previous scan \(4 total\)/i)).toBeInTheDocument();
-    expect(await screen.findByText('-6')).toBeInTheDocument();
+    expect(await screen.findByText(/Machine identity command center/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Highest priority/i)).toBeInTheDocument();
+    expect(await screen.findByText(/High priority/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Review priority findings/i)).toBeInTheDocument();
+    expect(await screen.findByText(/1 environment/i)).toBeInTheDocument();
+    expect(await screen.findByText(/-6 since prior scan/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Production GitHub/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/archived/i)).not.toBeInTheDocument();
     expect(
       fetchMock.mock.calls.some(([url]) => {
         return (
@@ -987,10 +989,9 @@ describe('App', () => {
 
     await screen.findByRole('region', { name: /Get started/i });
     expect(screen.getByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Production GitHub/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/projects/project-1'
-    );
+    expect(screen.getByText(/Machine identity command center/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 environment/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Production GitHub/i)).not.toBeInTheDocument();
     const meCallsBeforeNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
 
     fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
@@ -1332,10 +1333,12 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a');
     render(<App />);
 
-    expect(await screen.findByText(/Trend/i)).toBeInTheDocument();
-    expect(await screen.findByText('—')).toBeInTheDocument();
-    expect(await screen.findByText(/12 findings · awaiting another scan/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Machine identity command center/i)).toBeInTheDocument();
+    expect(screen.getByText('Evidence', { selector: '.idt-overview-metric-label' })).toBeInTheDocument();
+    expect(screen.getByText('No scans', { selector: '.idt-overview-metrics strong' })).toBeInTheDocument();
+    expect(await screen.findByText(/Trend pending/i)).toBeInTheDocument();
     expect(screen.queryByText('+12')).not.toBeInTheDocument();
+    expect(screen.queryByText(/12 findings/i)).not.toBeInTheDocument();
   });
 
   it('does not mark source onboarding complete when onboarding state belongs to another workspace', async () => {
@@ -1391,7 +1394,7 @@ describe('App', () => {
       'href',
       '/app/tenant-b/workspace-b/aws/connect'
     );
-    expect(screen.getByRole('link', { name: 'Connect AWS' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /Connect AWS/i })).toHaveAttribute(
       'href',
       '/app/tenant-b/workspace-b/aws/connect'
     );
