@@ -897,7 +897,7 @@ describe('ProductShellLayout', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
 
     fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
-    const githubFlyout = screen.getByRole('region', { name: 'GitHub' });
+    const githubFlyout = screen.getByRole('dialog', { name: 'GitHub' });
     expect(within(githubFlyout).queryByText('Section')).not.toBeInTheDocument();
     expect(within(githubFlyout).queryByRole('heading', { name: 'GitHub' })).not.toBeInTheDocument();
     expect(within(githubFlyout).getByRole('link', { name: 'GitHub Control center' })).toBeInTheDocument();
@@ -952,7 +952,7 @@ describe('ProductShellLayout', () => {
     const githubButton = screen.getByRole('button', { name: 'GitHub' });
     expect(githubButton).not.toBeDisabled();
     fireEvent.click(githubButton);
-    expect(screen.getByRole('region', { name: 'GitHub' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'GitHub' })).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: '/' });
     expect(screen.getByRole('dialog', { name: /Workspace finder/i })).toBeInTheDocument();
@@ -966,7 +966,7 @@ describe('ProductShellLayout', () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const { ProductShellLayout } = await import('./productShell');
 
-    render(
+    const { container } = render(
       <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/reports']}>
         <Routes>
           <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
@@ -978,12 +978,26 @@ describe('ProductShellLayout', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: /Reports content/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Reports' })).toHaveClass('active');
+    const resizeHandle = screen.getByRole('separator', { name: /sidebar/i });
+    expect(resizeHandle).toHaveAttribute('tabindex', '0');
 
     fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
 
     expect(screen.getByRole('link', { name: 'Reports' })).not.toHaveClass('active');
     expect(screen.getByRole('button', { name: 'AWS' })).toHaveClass('is-open');
     expect(screen.getByRole('button', { name: 'AWS' })).toHaveAttribute('aria-expanded', 'true');
+    const sidebarBackdrop = container.querySelector('.idt-domain-flyout-sidebar-backdrop');
+    expect(sidebarBackdrop).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'AWS' }).closest('.idt-app-domain-nav-item')).toHaveClass('is-open');
+    expect(resizeHandle).toHaveClass('is-domain-flyout-blocked');
+    expect(resizeHandle).toHaveAttribute('tabindex', '-1');
+
+    fireEvent.click(sidebarBackdrop as Element);
+
+    expect(screen.queryByRole('dialog', { name: 'AWS' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Reports' })).toHaveClass('active');
+    expect(resizeHandle).not.toHaveClass('is-domain-flyout-blocked');
+    expect(resizeHandle).toHaveAttribute('tabindex', '0');
 
     fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
 
@@ -2775,7 +2789,7 @@ describe('Domain-first app routes', () => {
     expect(payload.project_id).not.toBe('default-environment');
   });
 
-  it('opens nested GitHub AI risk routes inline from the sidebar domain flyout', async () => {
+  it('opens nested GitHub AI risk routes from the sidebar domain flyout', async () => {
     mockConnectorFeatureFlags({ github: true, kubernetes: true });
     mockBackendFeatures({ github: true, kubernetes: true });
     const { ProductShellLayout } = await import('./productShell');
@@ -2793,41 +2807,13 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /MCP tools content/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
 
-    const githubFlyout = screen.getByRole('region', { name: 'GitHub' });
+    const githubFlyout = screen.getByRole('dialog', { name: 'GitHub' });
     expect(within(githubFlyout).getAllByText('AI / Agentic Risk').length).toBeGreaterThan(0);
     expect(within(githubFlyout).getByRole('link', { name: 'GitHub AI / Agentic Risk MCP / tools' })).toHaveAttribute(
       'aria-current',
       'page'
     );
-    expect(screen.queryByRole('dialog', { name: 'GitHub' })).not.toBeInTheDocument();
-    expect(container.querySelector('.idt-domain-flyout-backdrop')).not.toBeInTheDocument();
     expect(container.querySelector('details.idt-domain-flyout-nested')).toHaveAttribute('open');
-  });
-
-  it('expands the collapsed sidebar before opening an inline domain flyout', async () => {
-    window.localStorage.setItem('idt:sidebar:collapsed', '1');
-    mockConnectorFeatureFlags({ github: true, kubernetes: true });
-    mockBackendFeatures({ github: true, kubernetes: true });
-    const { ProductShellLayout } = await import('./productShell');
-
-    const { container } = render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
-            <Route index element={<h2>Overview content</h2>} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
-    );
-
-    const sidebar = container.querySelector('.idt-app-sidebar');
-    expect(sidebar).toHaveAttribute('data-collapsed', 'true');
-
-    fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
-
-    await waitFor(() => expect(sidebar).toHaveAttribute('data-collapsed', 'false'));
-    expect(screen.getByRole('region', { name: 'AWS' })).toBeInTheDocument();
-    expect(container.querySelector('.idt-domain-flyout-backdrop')).not.toBeInTheDocument();
   });
 });
 
