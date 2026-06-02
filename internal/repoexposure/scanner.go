@@ -1548,6 +1548,9 @@ func resolveAllowedRepositoryHost(ctx context.Context, host string) (string, []n
 	if normalizedHost == "" {
 		return "", nil, fmt.Errorf("repository target host is required")
 	}
+	if strings.HasSuffix(normalizedHost, ".") {
+		return "", nil, fmt.Errorf("repository target host %q is not allowed", normalizedHost)
+	}
 	lowerHost := strings.TrimSuffix(strings.ToLower(normalizedHost), ".")
 	if lowerHost == "localhost" || strings.HasSuffix(lowerHost, ".localhost") {
 		return "", nil, fmt.Errorf("repository target host %q is not allowed", normalizedHost)

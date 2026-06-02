@@ -929,6 +929,25 @@ func TestCloneRemoteRepositoryRejectsReboundPrivateHostBeforeGit(t *testing.T) {
 	}
 }
 
+func TestCloneRemoteRepositoryRejectsTrailingDotHTTPSHostBeforeGit(t *testing.T) {
+	stubRepositoryHostLookup(t, map[string][]net.IP{
+		"rebind.example": {net.ParseIP("93.184.216.34")},
+	})
+	cloneCalled := false
+	scanner := NewScanner(func(context.Context, string, ...string) ([]byte, error) {
+		cloneCalled = true
+		return nil, errors.New("git should not run")
+	})
+
+	err := scanner.cloneRemoteRepository(context.Background(), t.TempDir(), "https://rebind.example./owner/repo.git", filepath.Join(t.TempDir(), "repo.git"))
+	if err == nil {
+		t.Fatal("expected trailing-dot HTTPS host to be rejected")
+	}
+	if cloneCalled {
+		t.Fatal("expected git runner not to run for trailing-dot HTTPS host")
+	}
+}
+
 func TestCloneRemoteRepositoryPinsHTTPSHostResolutionWithExplicitPort(t *testing.T) {
 	stubRepositoryHostLookup(t, map[string][]net.IP{
 		"example.com": {net.ParseIP("93.184.216.34")},
@@ -1421,6 +1440,7 @@ func TestValidateCloneURL(t *testing.T) {
 		{name: "unsupported file scheme", target: "file:///tmp/repo.git", expectErr: true},
 		{name: "credentials in https url", target: "https://token@example.com/owner/repo.git", expectErr: true},
 		{name: "credentials in ssh url", target: "ssh://git:password@example.com/owner/repo.git", expectErr: true},
+		{name: "trailing dot https host", target: "https://github.com./owner/repo.git", expectErr: true},
 		{name: "loopback ip host", target: "https://127.0.0.1/owner/repo.git", expectErr: true},
 		{name: "private ip host", target: "https://10.0.0.8/owner/repo.git", expectErr: true},
 		{name: "shared address ip host", target: "https://100.64.0.1/owner/repo.git", expectErr: true},
