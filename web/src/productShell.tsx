@@ -10308,24 +10308,25 @@ export function ProductOverviewPage() {
     kubernetesRollup.connectedCount > 0;
   const hasGitHubFindingEvidence = repoFindings.length > 0;
   const hasGitHubEvidence = repoScans.length > 0 || hasGitHubFindingEvidence;
+  const hasGitHubConnectorEvidence = hasGitHubEvidence || connectorConfiguredFromOnboarding;
   const highPriorityCount = highPriorityFindings.length;
   const activeEnvironmentCount = activeProjects.length;
-  const githubState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubEvidence
+  const githubState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubConnectorEvidence
     ? 'shell'
     : failedScanCount > 0 && succeededScanCount === 0
       ? 'degraded'
       : succeededScanCount > 0 || hasGitHubFindingEvidence
         ? 'connected'
-        : hasGitHubEvidence
+        : hasGitHubConnectorEvidence
         ? 'no_data'
         : 'not_connected';
   const awsState = overviewStateFromConnectionRollup(sourceAvailability.aws, awsRollup);
   const kubernetesState = overviewStateFromConnectionRollup(sourceAvailability.kubernetes, kubernetesRollup);
-  const agenticRiskState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubEvidence
+  const agenticRiskState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubConnectorEvidence
     ? 'shell'
     : agenticRiskFindings.length > 0
       ? 'degraded'
-      : hasGitHubEvidence
+      : hasGitHubConnectorEvidence
         ? 'no_data'
         : 'not_connected';
   const domainPosture: Array<{

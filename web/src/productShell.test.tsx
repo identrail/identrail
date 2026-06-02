@@ -1099,6 +1099,58 @@ describe('ProductOverviewPage', () => {
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
   });
+
+  it('keeps GitHub pending when onboarding has connected it before the first scan', async () => {
+    vi.resetModules();
+    vi.doMock('./pages/onboarding/onboardingUtils', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./pages/onboarding/onboardingUtils')>();
+      return {
+        ...actual,
+        FEATURE_ONBOARDING_WIZARD: true,
+        FEATURE_ONBOARDING_CONNECTOR_AWS: true,
+        FEATURE_ONBOARDING_CONNECTOR_GITHUB: true,
+        FEATURE_ONBOARDING_CONNECTOR_K8S: true
+      };
+    });
+    mockBackendFeatures({ github: true, kubernetes: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'getOnboardingState').mockResolvedValue({
+      state: {
+        user_id: 'user-1',
+        org_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'project-a',
+        connector_id: 'github-app',
+        connector_type: 'github',
+        current_step: 'scan',
+        connector_skipped: false,
+        scan_skipped: false,
+        started_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
+
+    const { ProductOverviewPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const domainPosture = await screen.findByRole('region', { name: 'Domain posture' });
+    const githubCard = within(domainPosture).getByRole('link', { name: /GitHub/i });
+
+    await waitFor(() => expect(within(githubCard).getByText('Pending')).toBeInTheDocument());
+    expect(within(githubCard).getByText('No scans')).toBeInTheDocument();
+    expect(githubCard).toHaveAttribute('href', '/app/tenant-a/workspace-a/github');
+    expect(screen.queryByRole('link', { name: 'Connect GitHub' })).not.toBeInTheDocument();
+  });
 });
 
 describe('Domain-first app routes', () => {
