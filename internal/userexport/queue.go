@@ -68,7 +68,7 @@ func (q *QueueRunner) RunOnce(ctx context.Context) (QueueResult, error) {
 	}
 	result.StaleFailed = len(staleFailed)
 	for _, job := range staleFailed {
-		if err := q.Runner.Storage.Delete(StorageKey(job)); err != nil {
+		if err := q.Runner.Storage.Delete(ctx, StorageKey(job)); err != nil {
 			// Best effort: mark stale jobs as failed first so the worker UI can
 			// progress, even if cleanup gets delayed or a backend mount is unavailable.
 			continue

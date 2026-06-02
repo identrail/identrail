@@ -74,6 +74,10 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED", "")
 	t.Setenv("IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL", "")
 	t.Setenv("IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE", "")
+	t.Setenv("IDENTRAIL_USER_DATA_EXPORT_PATH", "")
+	t.Setenv("IDENTRAIL_USER_DATA_EXPORT_S3_BUCKET", "")
+	t.Setenv("IDENTRAIL_USER_DATA_EXPORT_S3_PREFIX", "")
+	t.Setenv("IDENTRAIL_USER_DATA_EXPORT_S3_REGION", "")
 	t.Setenv("IDENTRAIL_LOCK_BACKEND", "")
 	t.Setenv("IDENTRAIL_LOCK_NAMESPACE", "")
 	t.Setenv("IDENTRAIL_DEFAULT_TENANT_ID", "")
@@ -118,6 +122,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.AllowMemoryStore {
 		t.Fatal("expected memory store opt-in to be false by default")
+	}
+	if cfg.UserDataExportPath != "" || cfg.UserDataExportS3Bucket != "" || cfg.UserDataExportS3Prefix != "" || cfg.UserDataExportS3Region != "" {
+		t.Fatalf("expected data export storage defaults to be empty, got path=%q bucket=%q prefix=%q region=%q", cfg.UserDataExportPath, cfg.UserDataExportS3Bucket, cfg.UserDataExportS3Prefix, cfg.UserDataExportS3Region)
 	}
 	if cfg.AWSSource != defaultAWSSource {
 		t.Fatalf("expected default aws source %q, got %q", defaultAWSSource, cfg.AWSSource)
@@ -824,6 +831,24 @@ func TestParseIntAllowZero(t *testing.T) {
 	}
 	if got := parseIntAllowZero("bad", 9); got != 9 {
 		t.Fatalf("expected fallback 9, got %d", got)
+	}
+}
+
+func TestLoadUserDataExportStorageFromEnv(t *testing.T) {
+	t.Setenv("IDENTRAIL_USER_DATA_EXPORT_PATH", "")
+	t.Setenv("IDENTRAIL_USER_DATA_EXPORT_S3_BUCKET", "identrail-dev-user-data-exports")
+	t.Setenv("IDENTRAIL_USER_DATA_EXPORT_S3_PREFIX", "exports/")
+	t.Setenv("IDENTRAIL_USER_DATA_EXPORT_S3_REGION", "us-east-2")
+
+	cfg := Load()
+	if cfg.UserDataExportS3Bucket != "identrail-dev-user-data-exports" {
+		t.Fatalf("unexpected export s3 bucket %q", cfg.UserDataExportS3Bucket)
+	}
+	if cfg.UserDataExportS3Prefix != "exports/" {
+		t.Fatalf("unexpected export s3 prefix %q", cfg.UserDataExportS3Prefix)
+	}
+	if cfg.UserDataExportS3Region != "us-east-2" {
+		t.Fatalf("unexpected export s3 region %q", cfg.UserDataExportS3Region)
 	}
 }
 

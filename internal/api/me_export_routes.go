@@ -223,7 +223,7 @@ func downloadMeExportHandler(logger *zap.Logger, svc *Service) gin.HandlerFunc {
 			c.JSON(http.StatusGone, gin.H{"error": "export bundle has been purged"})
 			return
 		}
-		f, err := svc.UserExportStorage.Open(userexport.StorageKey(job))
+		f, err := svc.UserExportStorage.Open(ctx, userexport.StorageKey(job))
 		if err != nil {
 			if logger != nil {
 				logger.Error("open export bundle", telemetry.ZapError(err))

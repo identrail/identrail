@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	goruntime "runtime"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/identrail/identrail/internal/config"
 	"github.com/identrail/identrail/internal/providers/aws"
 	"github.com/identrail/identrail/internal/scheduler"
+	"github.com/identrail/identrail/internal/userexport"
 )
 
 func TestBuildScanServiceMemoryStore(t *testing.T) {
@@ -129,6 +131,44 @@ func TestBuildScanServiceRejectsWeakUserExportSigningKey(t *testing.T) {
 	}
 	if _, _, err := BuildScanService(cfg); err == nil {
 		t.Fatal("expected weak export signing key error")
+	}
+}
+
+func TestBuildScanServiceInitializesS3UserExportStorage(t *testing.T) {
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	cfg := config.Config{
+		Provider:               "aws",
+		AllowMemoryStore:       true,
+		AWSFixturePath:         []string{"testdata/aws/role_with_policies.json"},
+		AWSRegion:              "us-east-1",
+		UserDataExportS3Bucket: "identrail-dev-user-data-exports",
+		UserDataExportS3Prefix: "exports/",
+		UserDataExportS3Region: "us-east-1",
+	}
+	svc, closeFn, err := BuildScanService(cfg)
+	if err != nil {
+		t.Fatalf("build service failed: %v", err)
+	}
+	defer func() { _ = closeFn() }()
+	storage, ok := svc.UserExportStorage.(*userexport.S3Storage)
+	if !ok {
+		t.Fatalf("expected s3 export storage, got %T", svc.UserExportStorage)
+	}
+	if storage.Bucket != "identrail-dev-user-data-exports" || storage.Prefix != "exports/" {
+		t.Fatalf("unexpected s3 storage bucket=%q prefix=%q", storage.Bucket, storage.Prefix)
+	}
+}
+
+func TestBuildScanServiceRejectsMultipleUserExportStorageBackends(t *testing.T) {
+	cfg := config.Config{
+		Provider:               "aws",
+		AllowMemoryStore:       true,
+		AWSFixturePath:         []string{"testdata/aws/role_with_policies.json"},
+		UserDataExportPath:     filepath.Join(t.TempDir(), "exports"),
+		UserDataExportS3Bucket: "identrail-dev-user-data-exports",
+	}
+	if _, _, err := BuildScanService(cfg); err == nil || !strings.Contains(err.Error(), "cannot both be set") {
+		t.Fatalf("expected multiple export backend error, got %v", err)
 	}
 }
 

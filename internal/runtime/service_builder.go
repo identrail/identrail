@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/identrail/identrail/internal/api"
 	"github.com/identrail/identrail/internal/app"
 	"github.com/identrail/identrail/internal/config"
@@ -162,18 +164,14 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		WorkspaceID: cfg.DefaultWorkspaceID,
 	}.Normalize()
 	svc.LockNamespace = strings.TrimSpace(cfg.LockNamespace)
-	// Self-serve "Download my data" (#1421). Bundle storage is opt-in via
-	// IDENTRAIL_USER_DATA_EXPORT_PATH; leaving it empty keeps the feature
-	// disabled instead of silently choosing a path the operator did not
-	// consent to. The API signs download URLs with the session key when it is
-	// configured, while workers can still build bundles without token-signing
-	// material.
-	if exportPath := strings.TrimSpace(cfg.UserDataExportPath); exportPath != "" {
-		storage, storageErr := userexport.NewLocalDiskStorage(exportPath)
-		if storageErr != nil {
-			_ = store.Close()
-			return nil, nil, fmt.Errorf("initialize user export storage: %w", storageErr)
-		}
+	// Self-serve "Download my data" (#1421). Bundle storage is opt-in via a
+	// local path for dev/test or S3 for hosted API+worker deployments.
+	storage, storageErr := buildUserExportStorage(ctx, cfg)
+	if storageErr != nil {
+		_ = store.Close()
+		return nil, nil, storageErr
+	}
+	if storage != nil {
 		svc.UserExportStorage = storage
 		if sessionKey := strings.TrimSpace(cfg.SessionKey); sessionKey != "" {
 			if keyErr := config.ValidateSessionKeyMaterial("IDENTRAIL_SESSION_KEY", sessionKey); keyErr != nil {
@@ -255,6 +253,46 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 func parseInt64Config(value string) int64 {
 	parsed, _ := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
 	return parsed
+}
+
+func buildUserExportStorage(ctx context.Context, cfg config.Config) (userexport.Storage, error) {
+	exportPath := strings.TrimSpace(cfg.UserDataExportPath)
+	exportBucket := strings.TrimSpace(cfg.UserDataExportS3Bucket)
+	if exportPath != "" && exportBucket != "" {
+		return nil, fmt.Errorf("IDENTRAIL_USER_DATA_EXPORT_PATH and IDENTRAIL_USER_DATA_EXPORT_S3_BUCKET cannot both be set")
+	}
+	if exportBucket != "" {
+		loadOptions := []func(*awsconfig.LoadOptions) error{}
+		if region := firstNonEmpty(cfg.UserDataExportS3Region, cfg.AWSRegion); region != "" {
+			loadOptions = append(loadOptions, awsconfig.WithRegion(region))
+		}
+		awsCfg, err := awsconfig.LoadDefaultConfig(ctx, loadOptions...)
+		if err != nil {
+			return nil, fmt.Errorf("initialize user export s3 config: %w", err)
+		}
+		storage, err := userexport.NewS3Storage(s3.NewFromConfig(awsCfg), exportBucket, cfg.UserDataExportS3Prefix)
+		if err != nil {
+			return nil, fmt.Errorf("initialize user export s3 storage: %w", err)
+		}
+		return storage, nil
+	}
+	if exportPath != "" {
+		storage, err := userexport.NewLocalDiskStorage(exportPath)
+		if err != nil {
+			return nil, fmt.Errorf("initialize user export storage: %w", err)
+		}
+		return storage, nil
+	}
+	return nil, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func newAWSScanner(iamAPI awsprovider.IAMAPI, accountID string, region string) app.Scanner {

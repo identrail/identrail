@@ -1,3 +1,7 @@
+data "aws_caller_identity" "current" {
+  count = local.user_data_export_bucket_enabled && trimspace(var.user_data_export_bucket_name) == "" ? 1 : 0
+}
+
 locals {
   api_service_name     = "${var.name_prefix}-${var.environment}-api"
   api_name_hash        = substr(sha1(local.api_service_name), 0, 8)
@@ -27,7 +31,22 @@ locals {
     IDENTRAIL_RUN_MIGRATIONS_ONLY  = "false"
     IDENTRAIL_TRUSTED_PROXIES      = local.api_trusted_proxies
   }
-  api_runtime_environment_variables = merge(local.api_default_environment_variables, var.api_environment_variables)
+  user_data_export_bucket_enabled = var.create_api_hosting_resources && var.user_data_export_bucket_enabled && var.create_worker_hosting_resources
+  user_data_export_bucket_name = (
+    trimspace(var.user_data_export_bucket_name) != "" ?
+    trimspace(var.user_data_export_bucket_name) :
+    (local.user_data_export_bucket_enabled ?
+      "${data.aws_caller_identity.current[0].account_id}-${local.api_name_prefix}-exports" :
+      ""
+    )
+  )
+  user_data_export_s3_prefix = trimsuffix(trim(trimspace(var.user_data_export_s3_prefix), "/"), "/") == "" ? "" : "${trimsuffix(trim(trimspace(var.user_data_export_s3_prefix), "/"), "/")}/"
+  api_user_data_export_environment_variables = local.user_data_export_bucket_enabled ? {
+    IDENTRAIL_USER_DATA_EXPORT_S3_BUCKET = local.user_data_export_bucket_name
+    IDENTRAIL_USER_DATA_EXPORT_S3_PREFIX = local.user_data_export_s3_prefix
+    IDENTRAIL_USER_DATA_EXPORT_S3_REGION = var.aws_region
+  } : {}
+  api_runtime_environment_variables = merge(local.api_default_environment_variables, local.api_user_data_export_environment_variables, var.api_environment_variables)
   api_config_names                  = toset(concat(keys(local.api_runtime_environment_variables), keys(var.api_secrets)))
   api_secret_config_names           = toset(keys(var.api_secrets))
   api_secret_resource_arns = toset([
@@ -623,6 +642,7 @@ resource "aws_ecs_service" "api" {
     aws_iam_role_policy_attachment.api_task_execution,
     aws_iam_role_policy.api_task_execution_secrets,
     aws_iam_role_policy.api_task_aws_collector,
+    aws_iam_role_policy.api_task_user_data_exports,
     aws_lb_listener.api_https,
   ]
 }

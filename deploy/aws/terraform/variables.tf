@@ -341,6 +341,53 @@ variable "api_connector_role_arns" {
   }
 }
 
+variable "user_data_export_bucket_enabled" {
+  description = "Create and wire an S3 bucket for self-serve account data export bundles when API hosting is enabled."
+  type        = bool
+  default     = true
+}
+
+variable "user_data_export_bucket_name" {
+  description = "Optional explicit S3 bucket name for self-serve account data exports. Defaults to a deterministic Identrail API name when blank."
+  type        = string
+  default     = ""
+  validation {
+    condition = length(trimspace(var.user_data_export_bucket_name)) == 0 || (
+      length(trimspace(var.user_data_export_bucket_name)) >= 3 &&
+      length(trimspace(var.user_data_export_bucket_name)) <= 63 &&
+      can(regex("^[a-z0-9][a-z0-9-]*[a-z0-9]$", trimspace(var.user_data_export_bucket_name)))
+    )
+    error_message = "user_data_export_bucket_name must be blank or a 3-63 character lowercase S3 bucket name using letters, numbers, and dashes."
+  }
+}
+
+variable "user_data_export_s3_prefix" {
+  description = "S3 object prefix for self-serve account data export bundles."
+  type        = string
+  default     = "user-data-exports/"
+  validation {
+    condition = (
+      length(trimspace(var.user_data_export_s3_prefix)) == length(var.user_data_export_s3_prefix) &&
+      !startswith(trimspace(var.user_data_export_s3_prefix), "/") &&
+      !strcontains(trimspace(var.user_data_export_s3_prefix), "..") &&
+      !strcontains(trimspace(var.user_data_export_s3_prefix), "\\") &&
+      !strcontains(trimspace(var.user_data_export_s3_prefix), "*") &&
+      !strcontains(trimspace(var.user_data_export_s3_prefix), "?")
+    )
+    error_message = "user_data_export_s3_prefix must not have surrounding whitespace, start with '/', contain '..', contain backslashes, '*' or '?'."
+  }
+}
+
+variable "user_data_export_retention_days" {
+  description = "Days before completed account data export objects expire from S3."
+  type        = number
+  default     = 8
+  validation {
+    condition     = var.user_data_export_retention_days >= 1 && var.user_data_export_retention_days <= 30
+    error_message = "user_data_export_retention_days must be between 1 and 30."
+  }
+}
+
 variable "api_container_insights_enabled" {
   description = "Enable ECS Container Insights for the API cluster."
   type        = bool

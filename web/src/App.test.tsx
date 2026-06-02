@@ -2632,7 +2632,9 @@ describe('App', () => {
     const exportRow = await screen.findByTestId('idt-export-account-row');
     fireEvent.click(within(exportRow).getByRole('button', { name: /Download my data/i }));
 
-    expect(await within(exportRow).findByRole('alert')).toHaveTextContent(/data export is not configured/i);
+    expect(await within(exportRow).findByRole('alert')).toHaveTextContent(
+      'Data export is not available on this deployment yet.'
+    );
     expect(screen.getByRole('heading', { level: 2, name: /Settings/i })).toBeInTheDocument();
   });
 
@@ -2649,7 +2651,7 @@ describe('App', () => {
     fireEvent.click(within(exportRow).getByRole('button', { name: /Download my data/i }));
 
     expect(await within(exportRow).findByRole('alert')).toHaveTextContent(
-      'Data export is not available on this deployment yet. Deploy the latest API image, then try again.'
+      'Data export is not available on this deployment yet.'
     );
     expect(screen.getByRole('heading', { level: 2, name: /Settings/i })).toBeInTheDocument();
   });
@@ -2667,7 +2669,7 @@ describe('App', () => {
     fireEvent.click(within(exportRow).getByRole('button', { name: /Download my data/i }));
 
     expect(await within(exportRow).findByRole('alert')).toHaveTextContent('export job not found');
-    expect(within(exportRow).getByRole('alert')).not.toHaveTextContent('Deploy the latest API image');
+    expect(within(exportRow).getByRole('alert')).not.toHaveTextContent('deployment');
   });
 
   it('highlights the suspend confirmation phrase distinctly', async () => {

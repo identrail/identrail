@@ -205,9 +205,9 @@ type Service struct {
 // that the data-export handlers depend on. Local here so Service tests don't
 // have to import the userexport package.
 type UserExportStorage interface {
-	Put(key string, r io.Reader) (string, error)
-	Open(key string) (io.ReadCloser, error)
-	Delete(key string) error
+	Put(ctx context.Context, key string, r io.Reader) (string, error)
+	Open(ctx context.Context, key string) (io.ReadCloser, error)
+	Delete(ctx context.Context, key string) error
 }
 
 // RepoScanQueueEvent reports visible lifecycle transitions for repository scans

@@ -47,7 +47,7 @@ func (r *Runner) Run(ctx context.Context, job db.UserDataExport) (db.UserDataExp
 		return r.fail(ctx, job, fmt.Errorf("build bundle: %w", buildErr), now)
 	}
 	key := StorageKey(job)
-	path, putErr := r.Storage.Put(key, bytes.NewReader(buf.Bytes()))
+	path, putErr := r.Storage.Put(ctx, key, bytes.NewReader(buf.Bytes()))
 	if putErr != nil {
 		return r.fail(ctx, job, fmt.Errorf("write bundle: %w", putErr), now)
 	}
@@ -56,7 +56,7 @@ func (r *Runner) Run(ctx context.Context, job db.UserDataExport) (db.UserDataExp
 	saved, err := r.Store.CompleteUserDataExport(ctx, job.ID, path, result.SizeBytes, result.SHA256, now, expiresAt, purgeAfter)
 	if err != nil {
 		completeErr := fmt.Errorf("complete job: %w", err)
-		deleteErr := r.Storage.Delete(key)
+		deleteErr := r.Storage.Delete(ctx, key)
 		if _, failErr := r.Store.FailUserDataExport(ctx, job.ID, completeErr.Error(), now); failErr != nil {
 			if deleteErr != nil {
 				return db.UserDataExport{}, fmt.Errorf("%w (and could not mark job failed: %v; and could not delete export bundle: %v)", completeErr, failErr, deleteErr)

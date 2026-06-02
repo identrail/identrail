@@ -60,7 +60,7 @@ func (g *GCRunner) RunOnce(ctx context.Context) (GCResult, error) {
 		// the next pass picks the row up again and Delete is a no-op for a
 		// missing file — net effect is one retried DB write, no leaked bytes.
 		key := StorageKey(job)
-		if delErr := g.Storage.Delete(key); delErr != nil {
+		if delErr := g.Storage.Delete(ctx, key); delErr != nil {
 			result.Errors++
 			continue
 		}

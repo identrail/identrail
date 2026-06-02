@@ -1,6 +1,7 @@
 package userexport
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -15,12 +16,12 @@ import (
 // adapter can be added later without touching API/worker code.
 type Storage interface {
 	// Put writes the bundle from r at the given key.
-	Put(key string, r io.Reader) (string, error)
+	Put(ctx context.Context, key string, r io.Reader) (string, error)
 	// Open returns a read handle for a bundle previously written via Put.
-	Open(key string) (io.ReadCloser, error)
+	Open(ctx context.Context, key string) (io.ReadCloser, error)
 	// Delete removes the bundle. Missing keys must not error so the worker
 	// can re-run after a crash without spurious failures.
-	Delete(key string) error
+	Delete(ctx context.Context, key string) error
 }
 
 // LocalDiskStorage persists bundles under a base directory. Files are
@@ -44,7 +45,7 @@ func NewLocalDiskStorage(baseDir string) (*LocalDiskStorage, error) {
 }
 
 // Put writes a bundle from r to baseDir/key and returns the absolute path.
-func (s *LocalDiskStorage) Put(key string, r io.Reader) (path string, err error) {
+func (s *LocalDiskStorage) Put(_ context.Context, key string, r io.Reader) (path string, err error) {
 	path, err = s.resolve(key)
 	if err != nil {
 		return "", err
@@ -71,7 +72,7 @@ func (s *LocalDiskStorage) Put(key string, r io.Reader) (path string, err error)
 }
 
 // Open returns a read handle for an existing bundle.
-func (s *LocalDiskStorage) Open(key string) (io.ReadCloser, error) {
+func (s *LocalDiskStorage) Open(_ context.Context, key string) (io.ReadCloser, error) {
 	path, err := s.resolve(key)
 	if err != nil {
 		return nil, err
@@ -80,7 +81,7 @@ func (s *LocalDiskStorage) Open(key string) (io.ReadCloser, error) {
 }
 
 // Delete removes a bundle. Missing files are not an error.
-func (s *LocalDiskStorage) Delete(key string) error {
+func (s *LocalDiskStorage) Delete(_ context.Context, key string) error {
 	path, err := s.resolve(key)
 	if err != nil {
 		return err

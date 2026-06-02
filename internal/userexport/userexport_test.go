@@ -86,7 +86,7 @@ type fakeStorage struct {
 	deletedKeys []string
 }
 
-func (s *fakeStorage) Put(key string, r io.Reader) (string, error) {
+func (s *fakeStorage) Put(_ context.Context, key string, r io.Reader) (string, error) {
 	if s.stored == nil {
 		s.stored = map[string][]byte{}
 	}
@@ -101,7 +101,7 @@ func (s *fakeStorage) Put(key string, r io.Reader) (string, error) {
 	return key, nil
 }
 
-func (s *fakeStorage) Open(key string) (io.ReadCloser, error) {
+func (s *fakeStorage) Open(_ context.Context, key string) (io.ReadCloser, error) {
 	s.openedKeys = append(s.openedKeys, key)
 	if s.openErr != nil {
 		return nil, s.openErr
@@ -113,7 +113,7 @@ func (s *fakeStorage) Open(key string) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(contents)), nil
 }
 
-func (s *fakeStorage) Delete(key string) error {
+func (s *fakeStorage) Delete(_ context.Context, key string) error {
 	s.deletedKeys = append(s.deletedKeys, key)
 	if s.deleteErr != nil {
 		return s.deleteErr
@@ -373,17 +373,17 @@ func TestStoragePutOpenDeleteFlow(t *testing.T) {
 		t.Fatalf("new storage: %v", err)
 	}
 
-	if _, err := storage.Put("../bad", strings.NewReader("x")); err == nil {
+	if _, err := storage.Put(context.Background(), "../bad", strings.NewReader("x")); err == nil {
 		t.Fatalf("expected invalid key rejection")
 	}
-	path, err := storage.Put("user-a/export.zip", strings.NewReader("export"))
+	path, err := storage.Put(context.Background(), "user-a/export.zip", strings.NewReader("export"))
 	if err != nil {
 		t.Fatalf("put: %v", err)
 	}
 	if want := filepath.Join(temp, "user-a", "export.zip"); path != want {
 		t.Fatalf("expected path %s got %s", want, path)
 	}
-	f, err := storage.Open("user-a/export.zip")
+	f, err := storage.Open(context.Background(), "user-a/export.zip")
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -398,14 +398,14 @@ func TestStoragePutOpenDeleteFlow(t *testing.T) {
 		t.Fatalf("close: %v", err)
 	}
 
-	if err := storage.Delete("user-a/export.zip"); err != nil {
+	if err := storage.Delete(context.Background(), "user-a/export.zip"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if _, err := storage.Open("user-a/export.zip"); err == nil {
+	if _, err := storage.Open(context.Background(), "user-a/export.zip"); err == nil {
 		t.Fatalf("expected file deleted")
 	}
 
-	if err := storage.Delete("user-a/missing.zip"); err != nil {
+	if err := storage.Delete(context.Background(), "user-a/missing.zip"); err != nil {
 		t.Fatalf("delete missing should be no-op")
 	}
 	if _, err := NewLocalDiskStorage("   "); err == nil {
@@ -420,7 +420,7 @@ func TestStorageCloseErrorPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new storage: %v", err)
 	}
-	if _, err := storage.Put("user-a/data", readerErr); err == nil {
+	if _, err := storage.Put(context.Background(), "user-a/data", readerErr); err == nil {
 		t.Fatalf("expected io copy error")
 	}
 }

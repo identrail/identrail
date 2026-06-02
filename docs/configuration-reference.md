@@ -93,6 +93,22 @@ Production deployment templates set `IDENTRAIL_REQUIRE_LIVE_SOURCES=true` with `
 - `IDENTRAIL_LOCK_BACKEND` (`auto|inmemory|postgres`)
 - `IDENTRAIL_LOCK_NAMESPACE`
 
+## User Data Export
+
+- `IDENTRAIL_USER_DATA_EXPORT_PATH` (local-disk export storage for dev/test)
+- `IDENTRAIL_USER_DATA_EXPORT_S3_BUCKET` (hosted export storage bucket)
+- `IDENTRAIL_USER_DATA_EXPORT_S3_PREFIX` (optional S3 object prefix)
+- `IDENTRAIL_USER_DATA_EXPORT_S3_REGION` (optional override; defaults to `IDENTRAIL_AWS_REGION` when set by deployment templates)
+- `IDENTRAIL_WORKER_USER_EXPORT_GC_ENABLED` (default: `true`)
+- `IDENTRAIL_WORKER_USER_EXPORT_GC_INTERVAL` (default: `1h`)
+
+Set exactly one export storage backend. Use `IDENTRAIL_USER_DATA_EXPORT_PATH`
+for a single local API/worker process. Use the S3 settings for hosted or
+multi-process deployments so the worker can write the ZIP and any API task can
+serve the signed download. Completed export bundles contain
+`manifest.json`, `user.json`, `workspaces.json`, `audit.json`, and
+`sessions.json`; session token material and session ID hashes are not included.
+
 ## App-Mode Feature Flags
 
 App-mode feature flags are supported runtime configuration for API and worker processes. They are disabled by default and must be explicitly enabled; dependent feature flags fail validation unless their parent flag is enabled.
