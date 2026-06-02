@@ -814,7 +814,7 @@ describe('ProductShellLayout', () => {
     vi.resetModules();
   });
 
-  it('keeps source logo stacks feature-scoped while domain sections stay discoverable', async () => {
+  it('keeps official source logos visible while domain sections stay discoverable', async () => {
     vi.resetModules();
     vi.doMock('./pages/onboarding/onboardingUtils', async (importOriginal) => {
       const actual = await importOriginal<typeof import('./pages/onboarding/onboardingUtils')>();
@@ -849,8 +849,8 @@ describe('ProductShellLayout', () => {
     );
 
     expect(screen.getAllByRole('img', { name: 'AWS' }).length).toBeGreaterThan(0);
-    expect(screen.queryByRole('img', { name: 'GitHub' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('img', { name: 'Kubernetes' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('img', { name: 'GitHub' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('img', { name: 'Kubernetes' }).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'GitHub' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Kubernetes' })).toBeInTheDocument();
   });

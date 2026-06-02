@@ -154,7 +154,7 @@ const OVERVIEW_DOMAIN_STATE_LABELS: Record<OverviewDomainState, string> = {
   degraded: 'Needs review',
   not_connected: 'Not connected',
   no_data: 'Pending',
-  shell: 'Planned'
+  shell: 'Unavailable'
 };
 
 function normalizeValue(value: unknown): string {
@@ -493,16 +493,24 @@ export function clearProductAuthSessionCacheForTests() {
 }
 
 function resolveEnabledSourceProvider(provider: SourceProvider): SourceProvider | null {
-  return SOURCE_STACK.includes(provider) ? provider : null;
+  return DOMAIN_NAV_ORDER.includes(provider) ? provider : null;
 }
 
-export function SourceLogoMark({ provider, className = '' }: { provider: SourceProvider; className?: string }) {
+export function SourceLogoMark({
+  provider,
+  className = '',
+  decorative = false
+}: {
+  provider: SourceProvider;
+  className?: string;
+  decorative?: boolean;
+}) {
   const enabledProvider = resolveEnabledSourceProvider(provider);
   if (!enabledProvider) {
     return null;
   }
 
-  return <DomainLogoMark domain={enabledProvider} className={className} />;
+  return <DomainLogoMark domain={enabledProvider} className={className} decorative={decorative} />;
 }
 
 function SourceLogoStack({
@@ -10220,7 +10228,7 @@ export function ProductOverviewPage() {
       label: 'AWS',
       provider: 'aws',
       state: awsState,
-      metric: awsState === 'shell' ? 'Shell' : 'Not connected',
+      metric: awsState === 'shell' ? 'Connector off' : 'Not connected',
       to: awsState === 'not_connected' ? awsConnectPath : awsPath
     },
     {
@@ -10229,7 +10237,9 @@ export function ProductOverviewPage() {
       provider: 'github',
       state: githubState,
       metric:
-        repoScans.length > 0
+        githubState === 'shell'
+          ? 'Connector off'
+          : repoScans.length > 0
           ? formatCountLabel(repoScans.length, 'scan')
           : hasGitHubFindingEvidence
             ? formatCountLabel(repoFindings.length, 'finding')
@@ -10241,7 +10251,7 @@ export function ProductOverviewPage() {
       label: 'Kubernetes',
       provider: 'kubernetes',
       state: kubernetesState,
-      metric: kubernetesState === 'shell' ? 'Shell' : 'Not connected',
+      metric: kubernetesState === 'shell' ? 'Connector off' : 'Not connected',
       to: kubernetesState === 'not_connected' ? kubernetesConnectPath : kubernetesPath
     },
     {
@@ -10249,7 +10259,12 @@ export function ProductOverviewPage() {
       label: 'AI / Agentic Risk',
       provider: 'github',
       state: agenticRiskState,
-      metric: agenticRiskFindings.length > 0 ? formatCountLabel(agenticRiskFindings.length, 'signal') : 'No signals',
+      metric:
+        agenticRiskState === 'shell'
+          ? 'Connector off'
+          : agenticRiskFindings.length > 0
+            ? formatCountLabel(agenticRiskFindings.length, 'signal')
+            : 'No signals',
       to: agenticRiskState === 'not_connected' ? githubPath : githubAgenticRiskPath
     }
   ];
@@ -10446,7 +10461,7 @@ export function ProductOverviewPage() {
           {domainPosture.map((item) => (
             <Link key={item.id} to={item.to} className={`idt-overview-domain-card is-${item.state}`}>
               <div className="idt-overview-domain-card-top">
-                <SourceLogoMark provider={item.provider} className="is-row" />
+                <SourceLogoMark provider={item.provider} className="is-row" decorative />
                 <span className={`idt-overview-state-pill is-${item.state}`}>{OVERVIEW_DOMAIN_STATE_LABELS[item.state]}</span>
               </div>
               <strong>{item.label}</strong>
