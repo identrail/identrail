@@ -1437,7 +1437,7 @@ describe('Domain-first app routes', () => {
     );
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Connect Kubernetes' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 3, name: /Create an environment before Kubernetes can resolve/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /Choose an environment/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Open environments/i })).toHaveAttribute(
       'href',
       '/app/tenant-a/workspace-a/projects?source=kubernetes'
@@ -1481,7 +1481,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    const submitButton = await screen.findByRole('button', { name: /Generate enrollment token/i });
+    const submitButton = await screen.findByRole('button', { name: /Generate token/i });
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production K8s' } });
     fireEvent.change(screen.getByLabelText('API URL'), { target: { value: 'https://k8s.example.com' } });
     fireEvent.click(submitButton);
@@ -1534,12 +1534,12 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    await screen.findByRole('button', { name: /Generate enrollment token/i });
+    await screen.findByRole('button', { name: /Generate token/i });
     fireEvent.change(screen.getByLabelText('Mode'), { target: { value: 'kubeconfig' } });
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production fallback' } });
     fireEvent.change(screen.getByLabelText('Kubeconfig context'), { target: { value: 'production-admin' } });
     fireEvent.change(screen.getByLabelText('Kubeconfig'), { target: { value: 'apiVersion: v1\nclusters: []' } });
-    fireEvent.click(screen.getByRole('button', { name: /Validate and save kubeconfig/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Save kubeconfig/i }));
 
     await waitFor(() =>
       expect(api.apiClient.upsertKubernetesKubeconfigConnector).toHaveBeenCalledWith(
@@ -1554,7 +1554,7 @@ describe('Domain-first app routes', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
-    expect(await screen.findByText('Kubernetes kubeconfig connector is active.')).toBeInTheDocument();
+    expect(await screen.findByText('Kubeconfig active.')).toBeInTheDocument();
   });
 
   it('clears stale AWS connect form values when the selected environment changes', async () => {

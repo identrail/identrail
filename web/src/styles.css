@@ -23422,8 +23422,6 @@ html[data-theme='light'] .idt-app-shell-screen select {
 .idt-kubernetes-enrollment {
   min-width: 0;
   max-width: 100%;
-  border-color: var(--app-border-soft);
-  background: #080809;
 }
 
 .idt-kubernetes-page .idt-domain-filter-bar {
@@ -23465,25 +23463,10 @@ html[data-theme='light'] .idt-app-shell-screen select {
   padding: 1rem;
 }
 
-.idt-kubernetes-connect-layout,
-.idt-kubernetes-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(17rem, 0.55fr);
-  gap: 1rem;
-  align-items: start;
-}
-
 .idt-kubernetes-connect-panel {
   display: grid;
   gap: 0.85rem;
-}
-
-.idt-kubernetes-connect-panel .idt-source-meta {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.idt-kubernetes-connect-panel .idt-source-meta dd {
-  overflow-wrap: anywhere;
+  width: min(100%, 56rem);
 }
 
 .idt-kubernetes-connect-panel textarea {
@@ -23587,8 +23570,6 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
   .idt-aws-status-grid,
   .idt-aws-connect-layout,
   .idt-aws-inventory-split,
-  .idt-kubernetes-connect-layout,
-  .idt-kubernetes-split,
   .idt-app-console-layout .idt-aws-connect-panel .idt-source-meta,
   .idt-aws-next-actions {
     grid-template-columns: 1fr;
@@ -23635,6 +23616,22 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
 
   .idt-kubernetes-page .idt-domain-data-table {
     min-width: 42rem;
+  }
+
+  .idt-kubernetes-page .idt-domain-filter-fields {
+    display: grid;
+    flex-basis: 100%;
+    grid-template-columns: 1fr;
+  }
+
+  .idt-kubernetes-page .idt-domain-filter-fields label {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .idt-kubernetes-page .idt-domain-filter-fields input,
+  .idt-kubernetes-page .idt-domain-filter-fields select {
+    width: 100%;
   }
 
   .idt-aws-risk-scope dl {
@@ -25582,10 +25579,6 @@ html[data-theme='light'] .idt-app-console-layout .idt-project-card-meta div {
 
 .idt-app-console-layout .idt-source-meta {
   grid-template-columns: minmax(0, 1.25fr) minmax(9rem, 0.5fr) minmax(12rem, 0.7fr);
-}
-
-.idt-app-console-layout .idt-kubernetes-connect-panel .idt-source-meta {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .idt-app-console-layout .idt-source-meta div,

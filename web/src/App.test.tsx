@@ -1835,7 +1835,7 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 2, name: /Connect Kubernetes/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 3, name: /Kubernetes connector is not available in this build/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /Kubernetes unavailable/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/kubernetes/connect');
     expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
   });
