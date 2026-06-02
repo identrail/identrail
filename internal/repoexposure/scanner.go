@@ -47,6 +47,13 @@ var gitProxyEnvOverrides = []string{
 	"NO_PROXY=*",
 	"no_proxy=*",
 }
+var gitConfigIsolationEnvOverrides = []string{
+	"GIT_CONFIG_NOSYSTEM=1",
+	"GIT_CONFIG_GLOBAL=" + os.DevNull,
+	"GIT_CONFIG_SYSTEM=" + os.DevNull,
+	"GIT_CONFIG_COUNT=0",
+	"GIT_CONFIG_PARAMETERS=",
+}
 var repositoryHostLookupIPs = func(ctx context.Context, host string) ([]net.IP, error) {
 	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
@@ -606,7 +613,7 @@ func (s *Scanner) cloneCommandRunner(ctx context.Context, workdir string, cloneU
 		"IDENTRAIL_GIT_USERNAME=" + credential.Username,
 		"IDENTRAIL_GIT_PASSWORD=" + credential.Password,
 	}
-	env = appendGitProxyEnvOverrides(env)
+	env = appendGitScanEnvOverrides(env)
 	runner := func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		output, runErr := s.runEnv(ctx, env, name, args...)
 		if runErr != nil {
@@ -1768,7 +1775,7 @@ func severityRank(severity domain.FindingSeverity) int {
 
 func defaultCommandRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := newRepositoryCommand(ctx, name, args...)
-	cmd.Env = appendGitProxyEnvOverrides(os.Environ())
+	cmd.Env = appendGitScanEnvOverrides(os.Environ())
 	output, err := cmd.CombinedOutput()
 	if err != nil && ctx.Err() != nil {
 		return output, ctx.Err()
@@ -1786,10 +1793,11 @@ func defaultEnvCommandRunner(ctx context.Context, env []string, name string, arg
 	return output, err
 }
 
-func appendGitProxyEnvOverrides(env []string) []string {
-	merged := make([]string, 0, len(env)+len(gitProxyEnvOverrides))
+func appendGitScanEnvOverrides(env []string) []string {
+	merged := make([]string, 0, len(env)+len(gitProxyEnvOverrides)+len(gitConfigIsolationEnvOverrides))
 	merged = append(merged, env...)
 	merged = append(merged, gitProxyEnvOverrides...)
+	merged = append(merged, gitConfigIsolationEnvOverrides...)
 	return merged
 }
 

@@ -1396,6 +1396,11 @@ func TestCloneRemoteRepositoryUsesAskPassCredentialWithoutCommandArgLeak(t *test
 			t.Fatalf("expected authenticated clone environment to include %q, got %+v", expected, gotEnv)
 		}
 	}
+	for _, expected := range gitConfigIsolationEnvOverrides {
+		if !hasEnvEntry(gotEnv, expected) {
+			t.Fatalf("expected authenticated clone environment to include %q, got %+v", expected, gotEnv)
+		}
+	}
 }
 
 func TestCloneRemoteRepositoryRedactsCredentialFromErrors(t *testing.T) {
