@@ -147,6 +147,8 @@ a {
   .idt-app-alert,
   .idt-settings-inline-status,
   .idt-form-error,
+  .idt-auth-provider-grid,
+  .idt-scan-stepper li.is-active,
   .idt-form-success,
   .idt-auth-mfa-setup,
   .idt-auth-provider-stack,
