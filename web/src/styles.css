@@ -27418,16 +27418,6 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   /* Collapsed mode is forced off on narrow viewports by JS because the rail
    * becomes a top bar where the desktop edge affordance is not useful. */
 
-  .idt-domain-flyout {
-    position: fixed;
-    top: auto;
-    right: 1rem;
-    bottom: 1rem;
-    left: 1rem;
-    width: auto;
-    max-height: min(76vh, 42rem);
-  }
-
   .idt-domain-flyout::before {
     display: none;
   }
