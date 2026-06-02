@@ -157,6 +157,19 @@ const OVERVIEW_DOMAIN_STATE_LABELS: Record<OverviewDomainState, string> = {
   shell: 'Unavailable'
 };
 
+type OverviewSourceConnection = AWSConnectionStatus | KubernetesConnectionStatus;
+
+type OverviewConnectionRollup = {
+  checkedCount: number;
+  connectedCount: number;
+  degradedCount: number;
+};
+
+type OverviewConnectionRollups = {
+  aws: OverviewConnectionRollup;
+  kubernetes: OverviewConnectionRollup;
+};
+
 function normalizeValue(value: unknown): string {
   if (typeof value === 'string') {
     return value.trim();
@@ -574,6 +587,90 @@ async function listOverviewProjects(
   } while (cursor);
 
   return items;
+}
+
+function emptyOverviewConnectionRollup(): OverviewConnectionRollup {
+  return { checkedCount: 0, connectedCount: 0, degradedCount: 0 };
+}
+
+function emptyOverviewConnectionRollups(): OverviewConnectionRollups {
+  return {
+    aws: emptyOverviewConnectionRollup(),
+    kubernetes: emptyOverviewConnectionRollup()
+  };
+}
+
+function summarizeOverviewConnections<T extends OverviewSourceConnection>(
+  results: Array<PromiseSettledResult<{ connection: T }>>
+): OverviewConnectionRollup {
+  const rollup = emptyOverviewConnectionRollup();
+
+  results.forEach((result) => {
+    if (result.status !== 'fulfilled') {
+      return;
+    }
+    const connection = result.value.connection;
+    if (!connection) {
+      return;
+    }
+    rollup.checkedCount += 1;
+    if (!connection.connected) {
+      return;
+    }
+    rollup.connectedCount += 1;
+    if (connectionDomainTone(connection) !== 'success') {
+      rollup.degradedCount += 1;
+    }
+  });
+
+  return rollup;
+}
+
+async function loadOverviewConnectionRollups(
+  scope: ProductSession,
+  projects: ProjectRecord[],
+  sourceAvailability: Record<SourceProvider, SourceAvailability>,
+  auth: RequestAuthContext
+): Promise<OverviewConnectionRollups> {
+  const projectIDs = projects.map((project) => project.project_id).filter(Boolean);
+  if (projectIDs.length === 0) {
+    return emptyOverviewConnectionRollups();
+  }
+
+  const [awsResults, kubernetesResults] = await Promise.all([
+    Promise.allSettled(
+      projectIDs.map((projectID) => apiClient.getAWSProjectConnection(scope.workspaceID, projectID, auth))
+    ),
+    sourceAvailability.kubernetes.available
+      ? Promise.allSettled(
+          projectIDs.map((projectID) =>
+            apiClient.getKubernetesProjectConnection(scope.workspaceID, projectID, auth)
+          )
+        )
+      : Promise.resolve([])
+  ]);
+
+  return {
+    aws: summarizeOverviewConnections(awsResults),
+    kubernetes: summarizeOverviewConnections(kubernetesResults)
+  };
+}
+
+function overviewStateFromConnectionRollup(
+  availability: SourceAvailability,
+  rollup: OverviewConnectionRollup
+): OverviewDomainState {
+  if (!availability.available) {
+    return 'shell';
+  }
+  if (rollup.connectedCount === 0) {
+    return 'not_connected';
+  }
+  return rollup.degradedCount > 0 ? 'degraded' : 'connected';
+}
+
+function overviewConnectionMetric(rollup: OverviewConnectionRollup, singular: string): string {
+  return rollup.connectedCount > 0 ? formatCountLabel(rollup.connectedCount, singular) : 'Not connected';
 }
 
 async function listAIRisksRepoFindings(
@@ -10037,6 +10134,9 @@ export function ProductOverviewPage() {
   const [activeProjects, setActiveProjects] = useState<ProjectRecord[]>([]);
   const [repoScans, setRepoScans] = useState<RepoScanRecord[]>([]);
   const [repoFindings, setRepoFindings] = useState<ApiFinding[]>([]);
+  const [sourceConnectionRollups, setSourceConnectionRollups] = useState<OverviewConnectionRollups>(
+    emptyOverviewConnectionRollups()
+  );
   const [, setInviteSkipTick] = useState(0);
   const [connectorConfiguredFromOnboarding, setConnectorConfiguredFromOnboarding] = useState(false);
 
@@ -10093,6 +10193,7 @@ export function ProductOverviewPage() {
     if (!scope) {
       setError('Choose a workspace before loading the overview.');
       setLoading(false);
+      setSourceConnectionRollups(emptyOverviewConnectionRollups());
       return;
     }
 
@@ -10102,8 +10203,8 @@ export function ProductOverviewPage() {
       setError('');
       try {
         const auth = buildProductAuthContext(scope);
-        const [activeProjectItems, scanResponse, findingResponse] = await Promise.all([
-          listOverviewProjects(scope.workspaceID, { include_archived: false }, auth),
+        const activeProjectItems = await listOverviewProjects(scope.workspaceID, { include_archived: false }, auth);
+        const [scanResponse, findingResponse, connectionRollups] = await Promise.all([
           apiClient.listRepoScans({ limit: OVERVIEW_SCAN_LIMIT }, auth),
           apiClient.listRepoFindings(
             {
@@ -10113,7 +10214,8 @@ export function ProductOverviewPage() {
               sort_order: 'desc'
             },
             auth
-          )
+          ),
+          loadOverviewConnectionRollups(scope, activeProjectItems, sourceAvailability, auth)
         ]);
         if (!mounted) {
           return;
@@ -10129,11 +10231,13 @@ export function ProductOverviewPage() {
             .slice()
             .sort((left, right) => severityRank(right.severity) - severityRank(left.severity))
         );
+        setSourceConnectionRollups(connectionRollups);
       } catch (err) {
         if (!mounted) {
           return;
         }
         setError(formatAPIError(err, 'Unable to load workspace overview'));
+        setSourceConnectionRollups(emptyOverviewConnectionRollups());
       } finally {
         if (mounted) {
           setLoading(false);
@@ -10146,7 +10250,13 @@ export function ProductOverviewPage() {
     return () => {
       mounted = false;
     };
-  }, [scope?.tenantID, scope?.workspaceID, scope?.projectID]);
+  }, [
+    scope?.tenantID,
+    scope?.workspaceID,
+    scope?.projectID,
+    sourceAvailability.aws.available,
+    sourceAvailability.kubernetes.available
+  ]);
 
   const dismissTour = async () => {
     setShowTour(false);
@@ -10185,12 +10295,17 @@ export function ProductOverviewPage() {
   const connectSourcesPath = scope ? buildScopedPath(scope, `${connectSourcesProvider}/connect`) : '/app';
   const connectSourcesLabel = `Connect ${PRODUCT_DOMAIN_CONFIGS[connectSourcesProvider].navLabel}`;
   const hasAnySuccessfulScan = succeededScanCount > 0;
+  const awsRollup = sourceConnectionRollups.aws;
+  const kubernetesRollup = sourceConnectionRollups.kubernetes;
   // A source counts as connected when either (a) onboarding records a connector
-  // configuration on the workspace, or (b) any scan has run (you can't scan
-  // without a connector). The previous "scans-only" signal incorrectly left the
-  // checklist stuck at "Connect a source" for users who had a healthy connector
-  // but hadn't kicked off their first scan yet.
-  const hasConnectedSource = connectorConfiguredFromOnboarding || repoScans.length > 0;
+  // configuration on the workspace, (b) any scan has run (you can't scan
+  // without a connector), or (c) AWS/Kubernetes report an active environment
+  // connector. This keeps non-GitHub customers out of duplicate setup prompts.
+  const hasConnectedSource =
+    connectorConfiguredFromOnboarding ||
+    repoScans.length > 0 ||
+    awsRollup.connectedCount > 0 ||
+    kubernetesRollup.connectedCount > 0;
   const hasGitHubFindingEvidence = repoFindings.length > 0;
   const hasGitHubEvidence = repoScans.length > 0 || hasGitHubFindingEvidence;
   const highPriorityCount = highPriorityFindings.length;
@@ -10202,12 +10317,10 @@ export function ProductOverviewPage() {
       : succeededScanCount > 0 || hasGitHubFindingEvidence
         ? 'connected'
         : hasGitHubEvidence
-          ? 'no_data'
-          : 'not_connected';
-  const awsState: OverviewDomainState = sourceAvailability.aws.available ? 'not_connected' : 'shell';
-  const kubernetesState: OverviewDomainState = !sourceAvailability.kubernetes.available
-    ? 'shell'
-    : 'not_connected';
+        ? 'no_data'
+        : 'not_connected';
+  const awsState = overviewStateFromConnectionRollup(sourceAvailability.aws, awsRollup);
+  const kubernetesState = overviewStateFromConnectionRollup(sourceAvailability.kubernetes, kubernetesRollup);
   const agenticRiskState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubEvidence
     ? 'shell'
     : agenticRiskFindings.length > 0
@@ -10228,7 +10341,7 @@ export function ProductOverviewPage() {
       label: 'AWS',
       provider: 'aws',
       state: awsState,
-      metric: awsState === 'shell' ? 'Connector off' : 'Not connected',
+      metric: awsState === 'shell' ? 'Connector off' : overviewConnectionMetric(awsRollup, 'account'),
       to: awsState === 'not_connected' ? awsConnectPath : awsPath
     },
     {
@@ -10251,7 +10364,7 @@ export function ProductOverviewPage() {
       label: 'Kubernetes',
       provider: 'kubernetes',
       state: kubernetesState,
-      metric: kubernetesState === 'shell' ? 'Connector off' : 'Not connected',
+      metric: kubernetesState === 'shell' ? 'Connector off' : overviewConnectionMetric(kubernetesRollup, 'cluster'),
       to: kubernetesState === 'not_connected' ? kubernetesConnectPath : kubernetesPath
     },
     {
@@ -10271,7 +10384,8 @@ export function ProductOverviewPage() {
   const activeDomainCount = domainPosture.filter((item) =>
     item.state === 'connected' || item.state === 'degraded' || item.state === 'no_data'
   ).length;
-  const postureLabel = highPriorityCount > 0 || failedScanCount > 0 ? 'Action needed' : 'Stable';
+  const hasDomainDegradation = domainPosture.some((item) => item.state === 'degraded');
+  const postureLabel = highPriorityCount > 0 || failedScanCount > 0 || hasDomainDegradation ? 'Action needed' : 'Stable';
   const coverageLabel = `${activeDomainCount}/${domainPosture.length}`;
   const evidenceLabel = repoScans.length > 0 ? formatCountLabel(repoScans.length, 'scan') : 'No scans';
   const nextActions: Array<{ id: string; label: string; to: string; tone?: 'danger' | 'warning' | 'neutral' }> = [];

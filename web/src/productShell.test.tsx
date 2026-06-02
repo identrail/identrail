@@ -1017,6 +1017,90 @@ describe('ProductShellLayout', () => {
   });
 });
 
+describe('ProductOverviewPage', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.doUnmock('./hooks/useBackendFeatures');
+    vi.doUnmock('./pages/onboarding/onboardingUtils');
+    vi.resetModules();
+  });
+
+  it('derives AWS and Kubernetes domain cards from environment connector status', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'aws-env',
+          name: 'AWS Production',
+          slug: 'aws-production',
+          description: '',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        },
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'k8s-env',
+          name: 'Kubernetes Production',
+          slug: 'kubernetes-production',
+          description: '',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
+    const getAWSProjectConnection = vi
+      .spyOn(api.apiClient, 'getAWSProjectConnection')
+      .mockImplementation(async (_workspaceID, projectID) => ({
+        connection: projectID === 'aws-env' ? connectedAWS : disconnectedAWS
+      }));
+    const getKubernetesProjectConnection = vi
+      .spyOn(api.apiClient, 'getKubernetesProjectConnection')
+      .mockImplementation(async (_workspaceID, projectID) => ({
+        connection: projectID === 'k8s-env' ? connectedKubernetes : disconnectedKubernetes
+      }));
+
+    const { ProductOverviewPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const domainPosture = await screen.findByRole('region', { name: 'Domain posture' });
+    const awsCard = within(domainPosture).getByRole('link', { name: /AWS/i });
+    const kubernetesCard = within(domainPosture).getByRole('link', { name: /Kubernetes/i });
+
+    expect(within(awsCard).getByText('Connected')).toBeInTheDocument();
+    expect(within(awsCard).getByText('1 account')).toBeInTheDocument();
+    expect(awsCard).toHaveAttribute('href', '/app/tenant-a/workspace-a/aws');
+    expect(within(kubernetesCard).getByText('Connected')).toBeInTheDocument();
+    expect(within(kubernetesCard).getByText('1 cluster')).toBeInTheDocument();
+    expect(kubernetesCard).toHaveAttribute('href', '/app/tenant-a/workspace-a/kubernetes');
+    expect(screen.queryByRole('link', { name: 'Connect AWS' })).not.toBeInTheDocument();
+    expect(getAWSProjectConnection).toHaveBeenCalledWith(
+      'workspace-a',
+      'aws-env',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getKubernetesProjectConnection).toHaveBeenCalledWith(
+      'workspace-a',
+      'k8s-env',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+  });
+});
+
 describe('Domain-first app routes', () => {
   afterEach(() => {
     window.localStorage.removeItem('idt:sidebar:collapsed');
