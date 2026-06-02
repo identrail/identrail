@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim@sha256:03eae3ef7e88a9de535496fb488d67e02b9d96a063a8967bae657744ecd513f2 AS builder
+FROM node:26-bookworm-slim@sha256:79723b41edbedf595f62e943a9f8b0ba9af5b1e61045c5f8f59c2c02c1212a16 AS builder
 WORKDIR /web
 
 COPY web/package*.json ./
@@ -25,7 +25,7 @@ ENV VITE_FEATURE_ONBOARDING_WIZARD=${VITE_FEATURE_ONBOARDING_WIZARD}
 
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.27-alpine@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0
+FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:02c985e54bee40c14c6de677226f394d96c661944185d407e77ca73602f15e1b
 ARG NGINX_CONF=default.conf
 COPY deploy/docker/nginx/${NGINX_CONF} /etc/nginx/conf.d/default.conf
 COPY --from=builder /web/dist /usr/share/nginx/html
