@@ -52,8 +52,8 @@ export function PermissionPreviewModal({ open, title, items, tiers, onClose }: P
             <p className="idt-app-kicker">Permission preview</p>
             <h3 id="permission-preview-title">{title}</h3>
           </div>
-          <button className="idt-icon-btn" type="button" aria-label="Close permission preview" onClick={onClose}>
-            x
+          <button className="idt-esc-close" type="button" aria-label="Close permission preview" onClick={onClose}>
+            ESC
           </button>
         </header>
         {tiers && tiers.length > 0 ? (

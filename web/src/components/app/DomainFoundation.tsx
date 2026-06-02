@@ -910,7 +910,7 @@ export function DomainDetailDrawer({
             <h3>{title}</h3>
           </div>
           <button type="button" className="idt-domain-drawer-close" onClick={onClose} aria-label={closeLabel}>
-            <span aria-hidden="true">×</span>
+            ESC
           </button>
         </header>
         <div className="idt-domain-drawer-body">{children}</div>

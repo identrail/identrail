@@ -5240,8 +5240,8 @@ components:
           description: Trimmed display name. Control and bidirectional formatting characters are rejected.
         avatar_url:
           type: string
-          pattern: '^$|^[Hh][Tt][Tt][Pp][Ss]://([A-Za-z0-9-]+\.)*(avatars\.githubusercontent\.com|githubusercontent\.com|googleusercontent\.com|gravatar\.com|identrail\.com|identrail\.io)(:[0-9]+)?(/.*)?$'
-          description: Blank to clear, otherwise an allowed https avatar URL hosted under githubusercontent.com, googleusercontent.com, gravatar.com, identrail.com, or identrail.io.
+          pattern: '^$|^[Hh][Tt][Tt][Pp][Ss]://([A-Za-z0-9-]+\.)*(avatars\.githubusercontent\.com|githubusercontent\.com|googleusercontent\.com|gravatar\.com|identrail\.com|identrail\.io)(:[0-9]+)?(/.*)?$|^data:image/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$'
+          description: Blank to clear, an allowed https avatar URL, or a base64 image data URL for PNG, JPEG, WebP, or GIF under 512 KB.
     CurrentUserContext:
       type: object
       properties:
