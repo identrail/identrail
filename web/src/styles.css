@@ -27110,7 +27110,7 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   z-index: 40;
   border: 0;
   padding: 0;
-  background: #000000;
+  background: rgba(5, 7, 10, 0.54);
   cursor: default;
   touch-action: none;
 }
