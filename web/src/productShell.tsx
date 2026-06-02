@@ -15939,8 +15939,12 @@ function isAbortError(err: unknown): boolean {
 }
 
 function formatDataExportError(err: unknown): string {
-  if (err instanceof ApiError && err.status === 404 && err.payload === undefined) {
-    return 'Data export is not available on this deployment yet. Deploy the latest API image, then try again.';
+  if (
+    err instanceof ApiError &&
+    ((err.status === 404 && err.payload === undefined) ||
+      (err.status === 503 && /data export is not configured/i.test(err.message)))
+  ) {
+    return 'Data export is not available on this deployment yet.';
   }
   return err instanceof Error ? err.message : 'Unable to start the export.';
 }

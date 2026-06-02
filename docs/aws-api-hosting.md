@@ -15,6 +15,7 @@ When `create_api_hosting_resources=true`, `deploy/aws/terraform` can create:
   traffic from the load balancer to the API tasks
 - task execution and task IAM roles
 - CloudWatch logs for API runtime output
+- a private S3 bucket for self-serve account data export bundles
 
 When `create_worker_hosting_resources=true`, the same Terraform root also
 creates a private ECS/Fargate worker service in the API cluster. The hosted
@@ -45,6 +46,15 @@ The worker task has its own execution role, task role, and egress-only security
 group. It inherits `api_secrets` and may receive worker-only overrides through
 `worker_secrets`; secret values still stay in Secrets Manager rather than
 Terraform state.
+
+The hosted API plan also creates and wires `IDENTRAIL_USER_DATA_EXPORT_S3_*`
+settings by default. The API and worker task roles can read, write, and delete
+objects only under the configured export prefix. The bucket blocks public
+access, uses server-side encryption, and expires completed export objects after
+`user_data_export_retention_days` days. A downloaded ZIP contains
+`manifest.json`, `user.json`, `workspaces.json`, `audit.json`, and
+`sessions.json`; it does not include session token material or session ID
+hashes.
 
 ## Required Operator Inputs
 

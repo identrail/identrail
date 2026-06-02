@@ -20,6 +20,7 @@ When `create_api_hosting_resources=true`, the root can also create:
   HTTP-to-HTTPS redirect
 - API load balancer and ECS service security groups
 - task execution and task IAM roles
+- a private S3 bucket for self-serve account data export bundles
 
 When `create_worker_hosting_resources=true`, the root also creates:
 
@@ -63,6 +64,14 @@ service.
 The task role includes the read-only IAM discovery calls required by that live
 collector. Optional `sts:AssumeRole` access is limited to ARNs listed in
 `api_connector_role_arns`.
+Hosted API plans create and wire `IDENTRAIL_USER_DATA_EXPORT_S3_*` settings by
+default so "Download my data" can store bundles in S3 instead of local task
+disk. The API and worker task roles can access only objects under the configured
+export prefix. The bucket blocks public access, uses server-side encryption,
+and expires completed export objects after `user_data_export_retention_days`
+days. Export ZIPs contain `manifest.json`, `user.json`, `workspaces.json`,
+`audit.json`, and `sessions.json`; they do not include session token material
+or session ID hashes.
 
 ## Safe Defaults
 

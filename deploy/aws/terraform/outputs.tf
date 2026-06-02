@@ -33,6 +33,11 @@ output "api_service_name" {
   value       = try(aws_ecs_service.api[0].name, local.api_service_name)
 }
 
+output "user_data_export_bucket_name" {
+  description = "S3 bucket used for self-serve account data export bundles when enabled."
+  value       = try(aws_s3_bucket.user_data_exports[0].bucket, null)
+}
+
 output "worker_hosting_enabled" {
   description = "Whether this plan creates the AWS worker hosting layer."
   value       = var.create_worker_hosting_resources

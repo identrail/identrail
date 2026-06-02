@@ -214,10 +214,13 @@ type Config struct {
 	AppModeWorkspaceAllowlist     []string
 	WorkerHeartbeatPath           string
 	// UserDataExportPath is the on-disk base directory for self-serve
-	// "Download my data" bundles (#1421). Empty disables the feature so
-	// dev deployments without a configured path are obvious rather than
-	// silently writing to /tmp.
-	UserDataExportPath string
+	// "Download my data" bundles (#1421). Empty disables the local-disk
+	// backend so dev deployments without a configured path are obvious rather
+	// than silently writing to /tmp.
+	UserDataExportPath     string
+	UserDataExportS3Bucket string
+	UserDataExportS3Prefix string
+	UserDataExportS3Region string
 	// WorkerUserExportGCEnabled controls whether the worker runs the
 	// retention-window GC pass for completed export bundles.
 	WorkerUserExportGCEnabled bool
@@ -339,6 +342,9 @@ func Load() Config {
 		WorkerWorkspacePurgeInterval:  durationEnv("IDENTRAIL_WORKER_WORKSPACE_PURGE_INTERVAL", defaultWorkerWorkspacePurgeInterval),
 		WorkerWorkspacePurgeBatchSize: parseInt(getEnv("IDENTRAIL_WORKER_WORKSPACE_PURGE_BATCH_SIZE", "100"), defaultWorkerWorkspacePurgeBatchSize),
 		UserDataExportPath:            strings.TrimSpace(getEnv("IDENTRAIL_USER_DATA_EXPORT_PATH", "")),
+		UserDataExportS3Bucket:        strings.TrimSpace(getEnv("IDENTRAIL_USER_DATA_EXPORT_S3_BUCKET", "")),
+		UserDataExportS3Prefix:        strings.TrimSpace(getEnv("IDENTRAIL_USER_DATA_EXPORT_S3_PREFIX", "")),
+		UserDataExportS3Region:        strings.TrimSpace(getEnv("IDENTRAIL_USER_DATA_EXPORT_S3_REGION", "")),
 		WorkerUserExportGCEnabled:     boolEnv("IDENTRAIL_WORKER_USER_EXPORT_GC_ENABLED", defaultWorkerUserExportGCEnabled),
 		WorkerUserExportGCInterval:    durationEnv("IDENTRAIL_WORKER_USER_EXPORT_GC_INTERVAL", defaultWorkerUserExportGCInterval),
 		WorkerHeartbeatPath:           strings.TrimSpace(getEnv("IDENTRAIL_WORKER_HEARTBEAT_PATH", "")),

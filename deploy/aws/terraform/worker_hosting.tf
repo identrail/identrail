@@ -231,5 +231,6 @@ resource "aws_ecs_service" "worker" {
     aws_iam_role_policy_attachment.worker_task_execution,
     aws_iam_role_policy.worker_task_execution_secrets,
     aws_iam_role_policy.worker_task_aws_collector,
+    aws_iam_role_policy.worker_task_user_data_exports,
   ]
 }
