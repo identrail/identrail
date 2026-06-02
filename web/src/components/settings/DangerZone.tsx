@@ -60,7 +60,7 @@ export function DangerZoneRow({
 
 type DangerConfirmation =
   | { kind: 'checkbox'; label: string }
-  | { kind: 'type-to-confirm'; expectedValue: string; inputLabel: string; helpText?: string };
+  | { kind: 'type-to-confirm'; expectedValue: string; inputLabel: ReactNode; helpText?: ReactNode };
 
 type ConfirmDestructiveModalProps = {
   open: boolean;

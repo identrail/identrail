@@ -1296,7 +1296,8 @@ function formatSettingsAuthProviders(config: AuthConfigResponse | null): string 
   return 'Session-only';
 }
 
-const PROFILE_AVATAR_MAX_BYTES = 512 * 1024;
+const PROFILE_AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+const PROFILE_AVATAR_MAX_BYTES_LABEL = '5 MB';
 const PROFILE_AVATAR_ALLOWED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
 function validateProfileDraft(draft: ProfileDraft): string {
@@ -1315,9 +1316,16 @@ function validateProfileAvatarFile(file: File): string {
     return 'Profile photo must be PNG, JPG, WebP, or GIF.';
   }
   if (file.size > PROFILE_AVATAR_MAX_BYTES) {
-    return 'Profile photo must be smaller than 512 KB.';
+    return `Profile photo must be smaller than ${PROFILE_AVATAR_MAX_BYTES_LABEL}.`;
   }
   return '';
+}
+
+function formatProfileAvatarError(err: unknown): string {
+  if (err instanceof ApiError && err.message.toLowerCase().includes('avatar_url')) {
+    return `Upload failed. Use a PNG, JPG, WebP, or GIF under ${PROFILE_AVATAR_MAX_BYTES_LABEL}.`;
+  }
+  return err instanceof Error ? err.message : 'Unable to update profile photo.';
 }
 
 function readProfileAvatarFile(file: File): Promise<string> {
@@ -2223,8 +2231,7 @@ function ProductDomainFlyout({
       id={`idt-${domain}-domain-flyout`}
       ref={panelRef}
       className={`idt-domain-flyout is-${domain}`}
-      role="dialog"
-      aria-modal="true"
+      role="region"
       aria-labelledby={labelledBy}
     >
       <div className="idt-domain-flyout-section">
@@ -8259,12 +8266,6 @@ export function ProductShellLayout() {
     }
     setAccountMenuOpen(false);
     setWorkspaceMenuOpen(false);
-    const focusFrame = window.requestAnimationFrame(() => {
-      const firstAction = domainFlyoutRef.current?.querySelector<HTMLElement>(
-        '[data-domain-flyout-primary="true"], a[href], button:not([disabled]), summary'
-      );
-      firstAction?.focus();
-    });
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -8273,31 +8274,9 @@ export function ProductShellLayout() {
         window.requestAnimationFrame(() => trigger?.focus());
         return;
       }
-      if (event.key === 'Tab' && domainFlyoutRef.current) {
-        const focusable = Array.from(
-          domainFlyoutRef.current.querySelectorAll<HTMLElement>(
-            'a[href], button:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
-          )
-        ).filter((element) => element.offsetParent !== null || element.tagName === 'SUMMARY');
-        if (!focusable.length) {
-          return;
-        }
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-          return;
-        }
-        if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
     };
     window.addEventListener('keydown', handleKey);
     return () => {
-      window.cancelAnimationFrame(focusFrame);
       window.removeEventListener('keydown', handleKey);
     };
   }, [openDomainFlyout]);
@@ -8307,23 +8286,6 @@ export function ProductShellLayout() {
       setOpenDomainFlyout(null);
     }
   }, [commandOpen]);
-
-  useEffect(() => {
-    if (!openDomainFlyout || typeof document === 'undefined') {
-      return undefined;
-    }
-
-    const root = document.documentElement;
-    const body = document.body;
-    const previousRootOverflow = root.style.overflow;
-    const previousBodyOverflow = body.style.overflow;
-    root.style.overflow = 'hidden';
-    body.style.overflow = 'hidden';
-    return () => {
-      root.style.overflow = previousRootOverflow;
-      body.style.overflow = previousBodyOverflow;
-    };
-  }, [openDomainFlyout]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -8777,7 +8739,6 @@ export function ProductShellLayout() {
                     type="button"
                     className={`idt-app-nav-domain-trigger${isActive ? ' is-active' : ''}${isOpen ? ' is-open' : ''}`}
                     data-connector-available={availability.available ? 'true' : 'false'}
-                    aria-haspopup="dialog"
                     aria-expanded={isOpen}
                     aria-controls={isOpen ? `idt-${domain}-domain-flyout` : undefined}
                     aria-label={config.navLabel}
@@ -8896,15 +8857,6 @@ export function ProductShellLayout() {
             </div>
           </div>
         </aside>
-
-        {openDomainFlyout ? (
-          <button
-            type="button"
-            className="idt-domain-flyout-backdrop"
-            aria-label="Close domain section menu"
-            onClick={closeDomainFlyout}
-          />
-        ) : null}
 
         <div className="idt-app-console">
           <main className="idt-app-shell-main">
@@ -15007,6 +14959,13 @@ function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === 'AbortError';
 }
 
+function formatDataExportError(err: unknown): string {
+  if (err instanceof ApiError && err.status === 404) {
+    return 'Data export is not available on this deployment yet. Deploy the latest API image, then try again.';
+  }
+  return err instanceof Error ? err.message : 'Unable to start the export.';
+}
+
 function waitForExportPoll(signal: AbortSignal, delayMs: number): Promise<void> {
   if (signal.aborted) {
     return Promise.reject(exportAbortError());
@@ -15086,7 +15045,7 @@ async function requestDataExport({ signal, setExportPending, setExportError, set
       return;
     }
     setExportStatus({ kind: 'idle' });
-    setExportError(err instanceof Error ? err.message : 'Unable to start the export.');
+    setExportError(formatDataExportError(err));
   } finally {
     if (!signal.aborted) {
       setExportPending(false);
@@ -15367,7 +15326,7 @@ export function ProductSettingsPage() {
     } catch (err) {
       primeMeCache(previousMe);
       setProfileDraft(wasProfileEditing ? previousDraft : profileDraftFromMe(previousMe));
-      setProfileError(err instanceof Error ? err.message : 'Unable to delete profile photo.');
+      setProfileError(formatProfileAvatarError(err));
     } finally {
       setProfileSaving(false);
     }
@@ -15425,7 +15384,7 @@ export function ProductSettingsPage() {
     } catch (err) {
       primeMeCache(previousMe);
       setProfileDraft(wasProfileEditing ? previousDraft : profileDraftFromMe(previousMe));
-      setProfileError(err instanceof Error ? err.message : 'Unable to update profile photo.');
+      setProfileError(formatProfileAvatarError(err));
     } finally {
       setProfileSaving(false);
     }
@@ -15644,6 +15603,9 @@ export function ProductSettingsPage() {
 
           {profileEditing ? (
             <form id="idt-profile-form" className="idt-app-form idt-profile-form" onSubmit={handleProfileSubmit}>
+              <div className="idt-profile-editing-note" role="status">
+                Editing profile
+              </div>
               <label>
                 Display name
                 <input
@@ -15679,10 +15641,6 @@ export function ProductSettingsPage() {
               <div>
                 <dt>Email</dt>
                 <dd>{me?.user.primary_email ?? 'Unavailable'}</dd>
-              </div>
-              <div>
-                <dt>Account status</dt>
-                <dd>{me?.user.status ? formatTokenLabel(me.user.status) : 'Unavailable'}</dd>
               </div>
             </dl>
           )}
@@ -15771,7 +15729,7 @@ export function ProductSettingsPage() {
               <span>
                 <strong>Manage sessions</strong>
               </span>
-              <ChevronRight size={16} aria-hidden="true" />
+              <ChevronDown className="idt-settings-row-chevron" size={16} aria-hidden="true" />
             </summary>
             <div className="idt-settings-disclosure-body">
               {sessionsLoading ? <p className="idt-app-alert">Loading active sessions...</p> : null}
@@ -15841,7 +15799,9 @@ export function ProductSettingsPage() {
           <div>
             <h3>Developer details</h3>
           </div>
-          <span aria-hidden="true"><ChevronRight size={14} /></span>
+          <span aria-hidden="true" className="idt-settings-disclosure-chevron">
+            <ChevronDown size={14} />
+          </span>
         </summary>
         <div className="idt-settings-disclosure-body">
           <dl className="idt-settings-facts">
@@ -15904,7 +15864,11 @@ export function ProductSettingsPage() {
         confirmation={{
           kind: 'type-to-confirm',
           expectedValue: 'SUSPEND',
-          inputLabel: 'Type SUSPEND to continue'
+          inputLabel: (
+            <>
+              Type <em className="idt-danger-confirm-value">SUSPEND</em> to continue
+            </>
+          )
         }}
         continueLabel="Suspend account"
         errorMessage={suspendError || undefined}
@@ -15980,7 +15944,11 @@ export function ProductSettingsPage() {
           kind: 'type-to-confirm',
           expectedValue: primaryEmail,
           inputLabel: 'Confirm primary email',
-          helpText: primaryEmail ? `Enter ${primaryEmail} exactly.` : undefined
+          helpText: primaryEmail ? (
+            <>
+              Enter <em className="idt-danger-confirm-value">{primaryEmail}</em> exactly.
+            </>
+          ) : undefined
         }}
         continueLabel="Delete account"
         errorMessage={deleteError || undefined}

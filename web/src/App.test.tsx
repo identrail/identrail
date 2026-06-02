@@ -267,6 +267,7 @@ function settingsSessionsPayload() {
 function settingsFetchMock(options: {
   onDelete?: () => ReturnType<typeof okJSON> | { ok: false; status: number; json: () => Promise<unknown> };
   onCancelDeletion?: () => ReturnType<typeof okJSON> | { ok: false; status: number; json: () => Promise<unknown> };
+  onExport?: () => ReturnType<typeof okJSON> | { ok: false; status: number; json: () => Promise<unknown> };
 } = {}) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
@@ -298,6 +299,9 @@ function settingsFetchMock(options: {
     }
     if (url.endsWith('/v1/me/sessions')) {
       return okJSON(settingsSessionsPayload());
+    }
+    if (url.endsWith('/v1/me/export') && method === 'POST') {
+      return options.onExport ? options.onExport() : okJSON({ id: 'export-job-1', status: 'queued' });
     }
     throw new Error(`Unexpected URL ${url}`);
   });
@@ -2622,6 +2626,40 @@ describe('App', () => {
     expect(screen.getByRole('heading', { level: 2, name: /Settings/i })).toBeInTheDocument();
   });
 
+  it('explains when the deployed API does not yet expose data export', async () => {
+    const fetchMock = settingsFetchMock({
+      onExport: () => errorJSON(404, 'not found')
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/settings');
+    render(<App />);
+
+    const exportRow = await screen.findByTestId('idt-export-account-row');
+    fireEvent.click(within(exportRow).getByRole('button', { name: /Download my data/i }));
+
+    expect(await within(exportRow).findByRole('alert')).toHaveTextContent(
+      'Data export is not available on this deployment yet. Deploy the latest API image, then try again.'
+    );
+    expect(screen.getByRole('heading', { level: 2, name: /Settings/i })).toBeInTheDocument();
+  });
+
+  it('highlights the suspend confirmation phrase distinctly', async () => {
+    const fetchMock = settingsFetchMock();
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/app/tenant-a/workspace-a/settings');
+    render(<App />);
+
+    const dangerZone = await screen.findByTestId('idt-danger-zone');
+    fireEvent.click(within(dangerZone).getByRole('button', { name: /Suspend account/i }));
+
+    const modal = await screen.findByRole('dialog', { name: /Suspend account/i });
+    const expectedPhrase = within(modal).getByText('SUSPEND');
+    expect(expectedPhrase).toHaveClass('idt-danger-confirm-value');
+    expect(expectedPhrase.tagName.toLowerCase()).toBe('em');
+  });
+
   it('gates permanent account deletion on exact primary email and redirects to recovery banner', async () => {
     const fetchMock = settingsFetchMock();
     vi.stubGlobal('fetch', fetchMock);
@@ -2636,6 +2674,7 @@ describe('App', () => {
     expect(modal).toHaveTextContent('This starts a 30-day recovery window and blocks normal sign-in.');
     expect(modal).toHaveTextContent('Need an archive? Download my data before deleting.');
     expect(modal).toHaveTextContent('Enter owner@example.com exactly.');
+    expect(within(modal).getByText('owner@example.com')).toHaveClass('idt-danger-confirm-value');
     expect(modal).not.toHaveTextContent('recovery cookie');
     const continueButton = within(modal).getByRole('button', { name: 'Delete account' });
     expect(continueButton).toBeDisabled();

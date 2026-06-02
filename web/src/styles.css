@@ -4550,6 +4550,19 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   align-items: end;
 }
 
+.idt-profile-editing-note {
+  grid-column: 1 / -1;
+  width: fit-content;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 0.22rem 0.52rem;
+  background: rgba(255, 255, 255, 0.045);
+  color: #d8dde6;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
 .idt-profile-form label {
   min-width: 0;
 }
@@ -4757,12 +4770,21 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   transition: transform 0.18s ease, color 0.18s ease;
 }
 
-.idt-settings-action-row:hover svg,
-.idt-settings-action-row:focus-visible svg,
-.idt-settings-disclosure[open] .idt-settings-disclosure-summary svg,
-.idt-settings-inline-disclosure[open] .idt-settings-action-summary svg {
+.idt-settings-action-row:hover svg:not(.idt-settings-row-chevron),
+.idt-settings-action-row:focus-visible svg:not(.idt-settings-row-chevron) {
   color: #ffffff;
   transform: translateX(2px);
+}
+
+.idt-settings-row-chevron,
+.idt-settings-disclosure-chevron svg {
+  transform: rotate(-90deg);
+}
+
+.idt-settings-inline-disclosure[open] .idt-settings-row-chevron,
+.idt-settings-disclosure[open] .idt-settings-disclosure-chevron svg {
+  color: #ffffff;
+  transform: rotate(0deg);
 }
 
 .idt-settings-inline-status {
@@ -26656,61 +26678,33 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   color: #ffffff;
 }
 
-.idt-domain-flyout-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  border: 0;
-  padding: 0;
-  background: rgba(5, 7, 10, 0.58);
-  -webkit-backdrop-filter: blur(22px) saturate(0.84) brightness(0.72);
-  backdrop-filter: blur(22px) saturate(0.84) brightness(0.72);
-  cursor: default;
-  touch-action: none;
-}
-
 .idt-app-console-layout.is-domain-flyout-open .idt-app-sidebar {
-  z-index: 35;
+  z-index: auto;
 }
 
 .idt-app-console-layout.is-domain-flyout-open .idt-app-shell-nav {
-  overflow: visible;
+  overflow-y: auto;
 }
 
 .idt-domain-flyout {
-  position: absolute;
-  top: -0.45rem;
-  left: calc(100% + 0.72rem);
-  z-index: 50;
+  position: static;
+  z-index: auto;
   display: grid;
-  gap: 0.58rem;
-  width: min(27rem, calc(100vw - var(--idt-sidebar-width, 15.5rem) - 1.8rem));
-  max-height: min(78vh, 42rem);
-  overflow: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 8px;
-  padding: 0.68rem;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 8rem),
-    #050607;
-  box-shadow:
-    0 28px 90px rgba(0, 0, 0, 0.62),
-    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  gap: 0.46rem;
+  width: 100%;
+  max-height: none;
+  overflow: visible;
+  border: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0;
+  margin: 0.34rem 0 0.45rem 1.08rem;
+  padding: 0.15rem 0 0.2rem 0.58rem;
+  background: transparent;
+  box-shadow: none;
 }
 
 .idt-domain-flyout::before {
-  content: '';
-  position: absolute;
-  top: 1.25rem;
-  left: -0.45rem;
-  width: 0.85rem;
-  height: 0.85rem;
-  border-left: 1px solid rgba(255, 255, 255, 0.13);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.13);
-  background: #050607;
-  transform: rotate(45deg);
+  display: none;
 }
 
 .idt-domain-flyout-section-label {
@@ -26726,7 +26720,7 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 .idt-domain-flyout-list,
 .idt-domain-flyout-nested-body {
   display: grid;
-  gap: 0.12rem;
+  gap: 0.1rem;
 }
 
 .idt-domain-flyout-section {
@@ -26745,10 +26739,10 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.55rem;
   align-items: center;
-  min-height: 2.28rem;
+  min-height: 2.06rem;
   border: 1px solid transparent;
   border-radius: 7px;
-  padding: 0.44rem 0.54rem;
+  padding: 0.36rem 0.48rem;
   color: #dce3eb;
   text-decoration: none;
   transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
@@ -26757,8 +26751,8 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 .idt-domain-flyout-link:hover,
 .idt-domain-flyout-link:focus-visible,
 .idt-domain-flyout-link.is-active {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: #10141a;
+  border-color: rgba(255, 255, 255, 0.09);
+  background: #101318;
   color: #ffffff;
   outline: none;
 }
@@ -26790,10 +26784,10 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 }
 
 .idt-domain-flyout-nested {
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 8px;
-  padding: 0.36rem;
-  background: rgba(255, 255, 255, 0.018);
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
 }
 
 .idt-domain-flyout-nested summary {
@@ -29392,9 +29386,9 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 }
 
 .idt-danger-zone {
-  border-color: rgba(248, 81, 73, 0.42);
+  border-color: rgba(229, 72, 77, 0.28);
   background:
-    linear-gradient(180deg, rgba(80, 18, 18, 0.2), rgba(10, 10, 11, 0.02) 52%),
+    linear-gradient(180deg, rgba(72, 20, 24, 0.16), rgba(10, 10, 11, 0.02) 48%),
     var(--idt-console-surface, #090b0e);
 }
 
@@ -29424,9 +29418,9 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   gap: 1rem;
   min-height: 4.25rem;
   padding: 0.78rem 0.9rem;
-  border: 1px solid rgba(248, 81, 73, 0.32);
+  border: 1px solid rgba(229, 72, 77, 0.26);
   border-radius: 8px;
-  background: rgba(8, 8, 9, 0.78);
+  background: rgba(11, 8, 9, 0.82);
 }
 
 .idt-danger-zone-row > div {
@@ -29478,8 +29472,8 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 }
 
 .idt-btn-danger {
-  border: 1px solid rgba(248, 81, 73, 0.72);
-  background: linear-gradient(180deg, #b4232a, #7f1d1d);
+  border: 1px solid rgba(255, 107, 107, 0.34);
+  background: #b83236;
   color: #fff;
   font-weight: 600;
   padding: 0.5rem 0.95rem;
@@ -29493,14 +29487,16 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 
 .idt-btn-danger:hover:not(:disabled),
 .idt-btn-danger:focus-visible:not(:disabled) {
-  filter: brightness(1.08);
+  border-color: rgba(255, 139, 139, 0.48);
+  background: #c43a3e;
+  filter: none;
   box-shadow: none;
 }
 
 .idt-btn-danger:disabled {
   opacity: 1;
-  border-color: rgba(248, 81, 73, 0.22);
-  background: #1d1012;
+  border-color: rgba(229, 72, 77, 0.22);
+  background: #1b1012;
   color: #8c929c;
   cursor: not-allowed;
 }
@@ -29513,7 +29509,7 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 
 .idt-danger-modal {
   width: min(100%, 520px);
-  border: 1px solid rgba(248, 81, 73, 0.42);
+  border: 1px solid rgba(229, 72, 77, 0.38);
   border-radius: 8px;
   background: #09090a;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.72);
@@ -29554,7 +29550,7 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   gap: 0.55rem;
   align-items: flex-start;
   padding: 0.65rem 0.75rem;
-  border: 1px solid rgba(248, 81, 73, 0.28);
+  border: 1px solid rgba(229, 72, 77, 0.24);
   border-radius: 0.55rem;
   background: rgba(18, 18, 20, 0.84);
   font-size: 0.92rem;
@@ -29578,7 +29574,7 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 }
 
 .idt-danger-modal-typed input {
-  border: 1px solid rgba(248, 81, 73, 0.42);
+  border: 1px solid rgba(229, 72, 77, 0.34);
   border-radius: 0.5rem;
   background: #030304;
   color: #ffffff;
@@ -29593,6 +29589,19 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   color: #e0e4ec;
 }
 
+.idt-danger-confirm-value {
+  display: inline-block;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 0.3rem;
+  padding: 0.02rem 0.32rem;
+  background: rgba(255, 255, 255, 0.07);
+  color: #ffffff;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-style: italic;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
 .idt-danger-modal-expected code {
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.06);
@@ -29604,7 +29613,7 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 .idt-danger-modal-error {
   margin: 0;
   padding: 0.55rem 0.7rem;
-  border: 1px solid rgba(248, 81, 73, 0.44);
+  border: 1px solid rgba(229, 72, 77, 0.38);
   border-radius: 0.5rem;
   background: rgba(70, 14, 18, 0.55);
   color: #ffd7d7;
@@ -29639,9 +29648,9 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 
 html[data-theme='light'] .idt-danger-zone {
   background:
-    linear-gradient(180deg, rgba(80, 18, 18, 0.2), rgba(10, 10, 11, 0.02) 52%),
+    linear-gradient(180deg, rgba(72, 20, 24, 0.16), rgba(10, 10, 11, 0.02) 52%),
     var(--idt-console-surface, #090b0e);
-  border-color: rgba(248, 81, 73, 0.42);
+  border-color: rgba(229, 72, 77, 0.28);
 }
 
 html[data-theme='light'] .idt-danger-zone h3,
@@ -29656,7 +29665,7 @@ html[data-theme='light'] .idt-danger-zone-row p {
 
 html[data-theme='light'] .idt-danger-zone-row {
   background: rgba(8, 8, 9, 0.78);
-  border-color: rgba(248, 81, 73, 0.32);
+  border-color: rgba(229, 72, 77, 0.26);
 }
 
 .idt-app-console-layout .idt-settings-page {
@@ -29943,7 +29952,7 @@ html[data-theme='light'] .idt-settings-sessions-card .idt-session-row {
 
 html[data-theme='light'] .idt-danger-modal {
   background: #09090a;
-  border-color: rgba(248, 81, 73, 0.42);
+  border-color: rgba(229, 72, 77, 0.38);
   color: #f6f7f8;
 }
 

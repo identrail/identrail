@@ -1011,7 +1011,7 @@ var currentUserAvatarAllowedDataTypes = map[string]struct{}{
 	"image/webp": {},
 }
 
-const currentUserAvatarMaxDataBytes = 512 * 1024
+const currentUserAvatarMaxDataBytes = 5 * 1024 * 1024
 
 func normalizeCurrentUserAvatarURL(raw string) (string, error) {
 	avatarURL := strings.TrimSpace(raw)
@@ -1023,16 +1023,16 @@ func normalizeCurrentUserAvatarURL(raw string) (string, error) {
 	}
 	parsed, err := url.Parse(avatarURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", invalidCurrentUserProfileUpdate("avatar_url must be a valid https URL or image data URL")
+		return "", invalidCurrentUserProfileUpdate("profile photo must be a valid https URL or image data URL")
 	}
 	if !strings.EqualFold(parsed.Scheme, "https") {
-		return "", invalidCurrentUserProfileUpdate("avatar_url must use https")
+		return "", invalidCurrentUserProfileUpdate("profile photo URL must use https")
 	}
 	if parsed.User != nil {
-		return "", invalidCurrentUserProfileUpdate("avatar_url cannot include credentials")
+		return "", invalidCurrentUserProfileUpdate("profile photo URL cannot include credentials")
 	}
 	if !currentUserAvatarHostAllowed(parsed.Hostname()) {
-		return "", invalidCurrentUserProfileUpdate("avatar_url host is not allowed")
+		return "", invalidCurrentUserProfileUpdate("profile photo host is not allowed")
 	}
 	return avatarURL, nil
 }
@@ -1040,32 +1040,32 @@ func normalizeCurrentUserAvatarURL(raw string) (string, error) {
 func normalizeCurrentUserAvatarDataURL(raw string) (string, error) {
 	header, encoded, ok := strings.Cut(raw, ",")
 	if !ok {
-		return "", invalidCurrentUserProfileUpdate("avatar_url must be a valid image data URL")
+		return "", invalidCurrentUserProfileUpdate("profile photo must be a valid image data URL")
 	}
 	if len(header) < len("data:") || !strings.EqualFold(header[:len("data:")], "data:") {
-		return "", invalidCurrentUserProfileUpdate("avatar_url must be a valid image data URL")
+		return "", invalidCurrentUserProfileUpdate("profile photo must be a valid image data URL")
 	}
 	mediaType := header[len("data:"):]
 	parts := strings.Split(mediaType, ";")
 	if len(parts) < 2 || !strings.EqualFold(parts[len(parts)-1], "base64") {
-		return "", invalidCurrentUserProfileUpdate("avatar_url must be a base64 image data URL")
+		return "", invalidCurrentUserProfileUpdate("profile photo must be a base64 image data URL")
 	}
 	contentType := strings.ToLower(strings.TrimSpace(parts[0]))
 	if _, ok := currentUserAvatarAllowedDataTypes[contentType]; !ok {
-		return "", invalidCurrentUserProfileUpdate("avatar_url image type must be PNG, JPG, WebP, or GIF")
+		return "", invalidCurrentUserProfileUpdate("profile photo must be PNG, JPG, WebP, or GIF")
 	}
 	if len(encoded) == 0 {
-		return "", invalidCurrentUserProfileUpdate("avatar_url image data is required")
+		return "", invalidCurrentUserProfileUpdate("profile photo data is required")
 	}
 	if len(encoded) > base64.StdEncoding.EncodedLen(currentUserAvatarMaxDataBytes) {
-		return "", invalidCurrentUserProfileUpdate("avatar_url image must be smaller than 512 KB")
+		return "", invalidCurrentUserProfileUpdate("profile photo must be smaller than 5 MB")
 	}
 	decoded, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return "", invalidCurrentUserProfileUpdate("avatar_url must be valid base64 image data")
+		return "", invalidCurrentUserProfileUpdate("profile photo must be valid base64 image data")
 	}
 	if len(decoded) > currentUserAvatarMaxDataBytes {
-		return "", invalidCurrentUserProfileUpdate("avatar_url image must be smaller than 512 KB")
+		return "", invalidCurrentUserProfileUpdate("profile photo must be smaller than 5 MB")
 	}
 	return raw, nil
 }

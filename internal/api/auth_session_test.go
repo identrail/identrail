@@ -183,6 +183,22 @@ func TestCurrentSessionUpdateCurrentUserProfileAcceptsImageDataAvatar(t *testing
 	}
 }
 
+func TestNormalizeCurrentUserAvatarDataURLAllowsFiveMegabytes(t *testing.T) {
+	allowed := base64.StdEncoding.EncodeToString(make([]byte, currentUserAvatarMaxDataBytes))
+	if _, err := normalizeCurrentUserAvatarURL("data:image/png;base64," + allowed); err != nil {
+		t.Fatalf("expected 5 MB data avatar to be accepted, got %v", err)
+	}
+
+	tooLarge := base64.StdEncoding.EncodeToString(make([]byte, currentUserAvatarMaxDataBytes+1))
+	_, err := normalizeCurrentUserAvatarURL("data:image/png;base64," + tooLarge)
+	if err == nil {
+		t.Fatal("expected avatar data over 5 MB to be rejected")
+	}
+	if !strings.Contains(err.Error(), "profile photo must be smaller than 5 MB") {
+		t.Fatalf("unexpected oversized avatar error: %v", err)
+	}
+}
+
 func TestCurrentSessionUpdateCurrentUserProfileRejectsInvalidPayloads(t *testing.T) {
 	cases := []struct {
 		name string
