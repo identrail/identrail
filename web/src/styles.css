@@ -23433,6 +23433,136 @@ html[data-theme='light'] .idt-app-shell-screen select {
   padding: 1rem;
 }
 
+.idt-kubernetes-page {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.idt-kubernetes-page .idt-domain-filter-bar,
+.idt-kubernetes-page .idt-domain-table-wrap,
+.idt-kubernetes-connect-panel,
+.idt-kubernetes-enrollment {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.idt-kubernetes-page .idt-domain-filter-bar {
+  padding: 0.68rem;
+}
+
+.idt-kubernetes-page .idt-domain-filter-fields {
+  gap: 0.5rem;
+}
+
+.idt-kubernetes-page .idt-domain-filter-fields label {
+  min-width: min(100%, 10.5rem);
+  font-size: 0.74rem;
+}
+
+.idt-kubernetes-page .idt-domain-filter-fields input,
+.idt-kubernetes-page .idt-domain-filter-fields select {
+  min-height: 2.2rem;
+  border-color: var(--app-border-soft);
+  background: #050505;
+}
+
+.idt-kubernetes-page .idt-domain-data-table th,
+.idt-kubernetes-page .idt-domain-data-table td {
+  padding: 0.68rem 0.76rem;
+}
+
+.idt-kubernetes-page .idt-domain-data-table td {
+  font-size: 0.84rem;
+}
+
+.idt-kubernetes-page .idt-domain-table-empty {
+  padding: 0;
+}
+
+.idt-kubernetes-page .idt-domain-table-empty .idt-domain-empty-state {
+  border: 0;
+  background: transparent;
+  padding: 1rem;
+}
+
+.idt-kubernetes-connect-panel {
+  display: grid;
+  gap: 0.85rem;
+  width: min(100%, 56rem);
+}
+
+.idt-kubernetes-connect-panel textarea {
+  min-height: 9rem;
+  resize: vertical;
+}
+
+.idt-kubernetes-enrollment {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.85rem;
+}
+
+.idt-kubernetes-enrollment div {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.idt-kubernetes-enrollment strong {
+  color: #ffffff;
+}
+
+.idt-kubernetes-enrollment span {
+  color: var(--app-muted);
+  font-size: 0.78rem;
+}
+
+.idt-kubernetes-enrollment code {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+  background: #050505;
+  color: #dbeafe;
+  font-family: var(--idt-mono);
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.idt-kubernetes-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.55rem;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  padding: 0.18rem 0.52rem;
+  background: #050505;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.idt-kubernetes-pill.is-wired {
+  border-color: rgba(88, 214, 141, 0.5);
+  color: #acf2c4;
+}
+
+.idt-kubernetes-pill.is-planned {
+  border-color: rgba(88, 166, 255, 0.42);
+  color: #b9d7ff;
+}
+
+.idt-kubernetes-pill.is-unavailable {
+  color: var(--app-muted);
+}
+
 html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-modal,
 html[data-theme='light'] .idt-app-console-layout .idt-permission-preview-list article,
 html[data-theme='light'] .idt-app-console-layout .idt-permission-tier {
@@ -23460,14 +23590,14 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
 @media (max-width: 1100px) {
   .idt-domain-header,
   .idt-domain-page-body.has-subnav,
-	  .idt-domain-page-body.has-subnav.has-aside,
-	  .idt-aws-status-grid,
-	  .idt-aws-connect-layout,
-	  .idt-aws-inventory-split,
-	  .idt-app-console-layout .idt-aws-connect-panel .idt-source-meta,
-	  .idt-aws-next-actions {
-	    grid-template-columns: 1fr;
-	  }
+  .idt-domain-page-body.has-subnav.has-aside,
+  .idt-aws-status-grid,
+  .idt-aws-connect-layout,
+  .idt-aws-inventory-split,
+  .idt-app-console-layout .idt-aws-connect-panel .idt-source-meta,
+  .idt-aws-next-actions {
+    grid-template-columns: 1fr;
+  }
 
   .idt-domain-header-aside {
     justify-items: start;
@@ -23500,12 +23630,32 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
     min-width: 34rem;
   }
 
-	  .idt-domain-page-shell.is-aws .idt-domain-data-table {
-	    min-width: 52rem;
-	  }
+  .idt-domain-page-shell.is-aws .idt-domain-data-table {
+    min-width: 52rem;
+  }
 
   .idt-aws-risk-page .idt-domain-data-table {
     min-width: 42rem;
+  }
+
+  .idt-kubernetes-page .idt-domain-data-table {
+    min-width: 42rem;
+  }
+
+  .idt-kubernetes-page .idt-domain-filter-fields {
+    display: grid;
+    flex-basis: 100%;
+    grid-template-columns: 1fr;
+  }
+
+  .idt-kubernetes-page .idt-domain-filter-fields label {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .idt-kubernetes-page .idt-domain-filter-fields input,
+  .idt-kubernetes-page .idt-domain-filter-fields select {
+    width: 100%;
   }
 
   .idt-aws-risk-scope dl {

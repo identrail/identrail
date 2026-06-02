@@ -420,17 +420,17 @@ const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
     key: 'kubernetes',
     label: 'Kubernetes',
     navLabel: 'Kubernetes',
-    description: 'Clusters, workloads, service accounts, RBAC, findings, and remediation for Kubernetes.',
+    description: 'Kubernetes identity and RBAC coverage.',
     routePrefix: 'kubernetes',
     connectRouteID: 'connect',
     routes: [
-      productDomainRoute('overview', 'Control center', '', 'Kubernetes Control Center', 'Cluster identity', 'Operate Kubernetes identity coverage across clusters, workloads, service accounts, RBAC, findings, and remediation.'),
-      productDomainRoute('connect', 'Connect Kubernetes', 'connect', 'Connect Kubernetes', 'Cluster onboarding', 'Prepare the Kubernetes-owned connector route for agent and kubeconfig-backed discovery.'),
-      productDomainRoute('clusters', 'Clusters', 'clusters', 'Kubernetes clusters', 'Cluster coverage', 'Track cluster inventory, version posture, environment labels, and control-plane reachability.'),
-      productDomainRoute('workloads', 'Workloads', 'workloads', 'Kubernetes workloads', 'Runtime workloads', 'Route workload identity evidence for deployments, pods, namespaces, labels, and workload ownership.'),
-      productDomainRoute('service-accounts', 'Service accounts / RBAC', 'service-accounts', 'Service accounts / RBAC', 'Kubernetes machine identity', 'Map service accounts, roles, role bindings, cluster roles, and privilege paths.'),
-      productDomainRoute('findings', 'Findings', 'findings', 'Kubernetes findings', 'Domain-scoped findings', 'Keep Kubernetes findings attached to cluster and service account context.'),
-      productDomainRoute('remediation', 'Remediation', 'remediation', 'Kubernetes remediation', 'Manifest and policy fixes', 'Stage RBAC reduction, workload identity hardening, and verification plans.')
+      productDomainRoute('overview', 'Control center', '', 'Kubernetes Control Center', 'Cluster identity', 'Cluster identity coverage.'),
+      productDomainRoute('connect', 'Connect Kubernetes', 'connect', 'Connect Kubernetes', 'Cluster onboarding', 'Agent enrollment and kubeconfig fallback.'),
+      productDomainRoute('clusters', 'Clusters', 'clusters', 'Kubernetes clusters', 'Cluster coverage', 'Cluster version and health.'),
+      productDomainRoute('workloads', 'Workloads', 'workloads', 'Kubernetes workloads', 'Runtime workloads', 'Workload identity inventory.'),
+      productDomainRoute('service-accounts', 'Service accounts / RBAC', 'service-accounts', 'Service accounts / RBAC', 'Kubernetes machine identity', 'Service accounts, roles, and bindings.'),
+      productDomainRoute('findings', 'Findings', 'findings', 'Kubernetes findings', 'Domain-scoped findings', 'Kubernetes-scoped findings.'),
+      productDomainRoute('remediation', 'Remediation', 'remediation', 'Kubernetes remediation', 'Manifest and policy fixes', 'RBAC and manifest fixes.')
     ]
   }
 };
@@ -1437,6 +1437,11 @@ function connectionTone(status?: GitHubConnectionStatus | AWSConnectionStatus | 
     return 'warning';
   }
   return 'neutral';
+}
+
+function connectionDomainTone(status?: GitHubConnectionStatus | AWSConnectionStatus | KubernetesConnectionStatus): 'success' | 'warning' | 'danger' | 'neutral' {
+  const tone = connectionTone(status);
+  return tone === 'error' ? 'danger' : tone;
 }
 
 function sourceAvailabilityTone(
@@ -5855,8 +5860,976 @@ export function ProductAWSConnectPage() {
   );
 }
 
+type KubernetesDomainRouteID = Extract<ProductDomainRouteID, 'overview' | 'connect' | 'clusters' | 'workloads' | 'service-accounts' | 'findings' | 'remediation'>;
+
+type KubernetesStage = 'wired' | 'planned' | 'unavailable';
+
+type KubernetesTableRow = {
+  id: string;
+  name: string;
+  kind: string;
+  cluster: string;
+  namespace: string;
+  identity: string;
+  evidence: string;
+  nextAction: string;
+  status: string;
+  stage: KubernetesStage;
+  filters: Record<string, string>;
+  searchText: string;
+};
+
+type KubernetesFilterConfig = {
+  id: string;
+  label: string;
+  options: Array<{ label: string; value: string }>;
+};
+
+type KubernetesFilterState = Record<string, string>;
+
+const KUBERNETES_FILTER_DEFAULTS: Record<Exclude<KubernetesDomainRouteID, 'overview' | 'connect'>, KubernetesFilterState> = {
+  clusters: { cluster: 'all', health: 'all', evidence: 'all', search: '' },
+  workloads: { namespace: 'all', kind: 'all', identity: 'all', search: '' },
+  'service-accounts': { namespace: 'all', binding: 'all', privilege: 'all', search: '' },
+  findings: { cluster: 'all', namespace: 'all', serviceAccount: 'all', severity: 'all', status: 'all', search: '' },
+  remediation: { change: 'all', approval: 'all', stage: 'all', search: '' }
+};
+
+const KUBERNETES_FILTERS: Record<Exclude<KubernetesDomainRouteID, 'overview' | 'connect'>, KubernetesFilterConfig[]> = {
+  clusters: [
+    { id: 'cluster', label: 'Cluster', options: [{ label: 'All clusters', value: 'all' }, { label: 'Connected cluster', value: 'connected' }, { label: 'Planned clusters', value: 'planned' }] },
+    { id: 'health', label: 'Health', options: [{ label: 'All health', value: 'all' }, { label: 'Healthy', value: 'healthy' }, { label: 'Needs attention', value: 'needs-attention' }, { label: 'Unavailable', value: 'unavailable' }] },
+    { id: 'evidence', label: 'Evidence', options: [{ label: 'All evidence', value: 'all' }, { label: 'Connector', value: 'connector' }, { label: 'Planned', value: 'planned' }] }
+  ],
+  workloads: [
+    { id: 'namespace', label: 'Namespace', options: [{ label: 'All namespaces', value: 'all' }, { label: 'Known namespace', value: 'known' }, { label: 'Unknown namespace', value: 'unknown' }] },
+    { id: 'kind', label: 'Kind', options: [{ label: 'All kinds', value: 'all' }, { label: 'Deployment', value: 'deployment' }, { label: 'CronJob', value: 'cronjob' }, { label: 'DaemonSet', value: 'daemonset' }] },
+    { id: 'identity', label: 'Identity', options: [{ label: 'All identities', value: 'all' }, { label: 'Service account', value: 'service-account' }, { label: 'External identity', value: 'external' }] }
+  ],
+  'service-accounts': [
+    { id: 'namespace', label: 'Namespace', options: [{ label: 'All namespaces', value: 'all' }, { label: 'Known namespace', value: 'known' }, { label: 'Unknown namespace', value: 'unknown' }] },
+    { id: 'binding', label: 'Binding', options: [{ label: 'All bindings', value: 'all' }, { label: 'RoleBinding', value: 'rolebinding' }, { label: 'ClusterRoleBinding', value: 'clusterrolebinding' }] },
+    { id: 'privilege', label: 'Privilege', options: [{ label: 'All privileges', value: 'all' }, { label: 'Read-only', value: 'read-only' }, { label: 'Elevated', value: 'elevated' }, { label: 'Unknown', value: 'unknown' }] }
+  ],
+  findings: [
+    { id: 'cluster', label: 'Cluster', options: [{ label: 'All clusters', value: 'all' }, { label: 'Connected cluster', value: 'connected' }, { label: 'Unknown cluster', value: 'unknown' }] },
+    { id: 'namespace', label: 'Namespace', options: [{ label: 'All namespaces', value: 'all' }, { label: 'Known namespace', value: 'known' }, { label: 'Unknown namespace', value: 'unknown' }] },
+    { id: 'serviceAccount', label: 'Service account', options: [{ label: 'All accounts', value: 'all' }, { label: 'Known account', value: 'known' }, { label: 'Unknown account', value: 'unknown' }] },
+    { id: 'severity', label: 'Severity', options: [{ label: 'All severities', value: 'all' }, { label: 'Critical', value: 'critical' }, { label: 'High', value: 'high' }, { label: 'Medium', value: 'medium' }, { label: 'Low', value: 'low' }] },
+    { id: 'status', label: 'Status', options: [{ label: 'All statuses', value: 'all' }, { label: 'Open', value: 'open' }, { label: 'Queued', value: 'queued' }, { label: 'Unavailable', value: 'unavailable' }] }
+  ],
+  remediation: [
+    { id: 'change', label: 'Change', options: [{ label: 'All changes', value: 'all' }, { label: 'RBAC hardening', value: 'rbac-hardening' }, { label: 'Service account', value: 'service-account' }, { label: 'Manifest patch', value: 'manifest-patch' }] },
+    { id: 'approval', label: 'Approval', options: [{ label: 'All approvals', value: 'all' }, { label: 'Platform required', value: 'platform-required' }, { label: 'Security required', value: 'security-required' }] },
+    { id: 'stage', label: 'Stage', options: [{ label: 'All stages', value: 'all' }, { label: 'Draft', value: 'draft' }, { label: 'Not active', value: 'not-active' }] }
+  ]
+};
+
+function kubernetesRouteLink(scope: ProductSession, routeID: ProductDomainRouteID, environmentID: string): string {
+  return appendEnvironmentQuery(domainRoutePath(scope, 'kubernetes', findDomainRoute('kubernetes', routeID)), environmentID);
+}
+
+function kubernetesStatusVariant(
+  connection: KubernetesConnectionStatus | null,
+  loading = false
+): 'connected' | 'disconnected' | 'needs-attention' | 'degraded' | 'coming-soon' {
+  if (loading) {
+    return 'coming-soon';
+  }
+  if (!connection) {
+    return 'disconnected';
+  }
+  if (connection.connected && connection.health_status === 'healthy') {
+    return 'connected';
+  }
+  if (connection.health_status === 'warning' || connection.status === 'degraded') {
+    return 'degraded';
+  }
+  if (connection.health_status === 'error' || connection.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+    return 'needs-attention';
+  }
+  return connection.connected ? 'connected' : 'disconnected';
+}
+
+function kubernetesConnectionLabel(connection: KubernetesConnectionStatus | null): string {
+  if (!connection) {
+    return 'Not connected';
+  }
+  if (connection.connected) {
+    return 'Connected';
+  }
+  return formatTokenLabel(connection.status || 'disconnected');
+}
+
+function kubernetesScopeLabel(connection: KubernetesConnectionStatus | null, selectedEnvironmentID: string): string {
+  if (connection?.cluster) {
+    return connection.cluster;
+  }
+  if (connection?.context) {
+    return connection.context;
+  }
+  return selectedEnvironmentID ? environmentFallbackLabel(selectedEnvironmentID) : 'No environment';
+}
+
+function kubernetesPermissionSummary(connection: KubernetesConnectionStatus | null): string {
+  const checks = connection?.permission_checks ?? [];
+  if (!checks.length) {
+    return 'No checks';
+  }
+  const allowed = checks.filter((check) => check.allowed).length;
+  return `${allowed}/${checks.length} allowed`;
+}
+
+function KubernetesPill({ stage, label }: { stage: KubernetesStage; label: string }) {
+  return (
+    <span className={`idt-kubernetes-pill is-${stage}`}>
+      {label}
+    </span>
+  );
+}
+
+function useKubernetesAvailability() {
+  const { features, loading } = useBackendFeatures({ enabled: FEATURE_CONNECTOR_K8S });
+  const availability = useMemo(() => buildSourceAvailability(features).kubernetes, [features]);
+  return {
+    loading,
+    available: availability.available,
+    visible: availability.visible,
+    unavailableMessage: availability.unavailableMessage ?? 'Connector disabled.'
+  };
+}
+
+function useKubernetesDomainScope() {
+  const params = useParams<ScopeRouteParams>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const scope = resolveScopeFromParams(params);
+  const requestedEnvironmentID = useMemo(() => environmentIDFromSearch(location.search), [location.search]);
+  const environmentScope = useEnvironmentScope(scope, requestedEnvironmentID);
+  const selectedEnvironmentID = environmentScope.selectedID;
+  const onChangeEnvironment = (environmentID: string) => {
+    navigate(
+      {
+        pathname: location.pathname,
+        search: environmentSearch(location.search, environmentID)
+      },
+      { replace: false }
+    );
+  };
+  return { scope, location, environmentScope, selectedEnvironmentID, onChangeEnvironment };
+}
+
+function useKubernetesConnection(scope: ProductSession | null, selectedEnvironmentID: string, enabled: boolean) {
+  const [connection, setConnection] = useState<KubernetesConnectionStatus | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const requestRef = useRef(0);
+
+  const refresh = useCallback(async () => {
+    const requestID = ++requestRef.current;
+    if (!scope || !selectedEnvironmentID || !enabled) {
+      setConnection(null);
+      setLoading(false);
+      setError('');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const response = await apiClient.getKubernetesProjectConnection(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== requestRef.current) {
+        return;
+      }
+      setConnection(response.connection);
+    } catch (requestError) {
+      if (requestID !== requestRef.current) {
+        return;
+      }
+      setConnection(null);
+      setError(formatAPIError(requestError, 'Unable to load Kubernetes connection.'));
+    } finally {
+      if (requestID === requestRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [enabled, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
+  useEffect(() => {
+    void refresh();
+    return () => {
+      requestRef.current += 1;
+    };
+  }, [refresh]);
+
+  return { connection, loading, error, refresh };
+}
+
+function KubernetesUnavailableState({
+  message,
+  connectPath
+}: {
+  message: string;
+  connectPath?: string;
+}) {
+  return (
+    <DomainEmptyState
+      eyebrow="Connector unavailable"
+      title="Kubernetes unavailable"
+      body={message}
+      nextAction={connectPath ? { label: 'Open Connect Kubernetes', to: connectPath } : undefined}
+    />
+  );
+}
+
+function KubernetesMissingEnvironmentState({ scope }: { scope: ProductSession }) {
+  return (
+    <DomainEmptyState
+      eyebrow="Environment required"
+      title="Choose an environment"
+      body="Kubernetes is scoped by environment."
+      nextAction={{ label: 'Open environments', to: appendSourceQuery(buildProjectsPath(scope), 'kubernetes') }}
+    />
+  );
+}
+
+function KubernetesFilterSet({
+  routeID,
+  filters,
+  onChange
+}: {
+  routeID: Exclude<KubernetesDomainRouteID, 'overview' | 'connect'>;
+  filters: KubernetesFilterState;
+  onChange: (filters: KubernetesFilterState) => void;
+}) {
+  const onFilterChange = (id: string, value: string) => onChange({ ...filters, [id]: value });
+  const onSearchChange = (event: ChangeEvent<HTMLInputElement>) => onChange({ ...filters, search: event.target.value });
+  return (
+    <DomainFilterBar label={`${PRODUCT_DOMAIN_CONFIGS.kubernetes.routes.find((route) => route.id === routeID)?.title ?? 'Kubernetes'} filters`}>
+      {KUBERNETES_FILTERS[routeID].map((filter) => (
+        <label key={filter.id}>
+          {filter.label}
+          <select value={filters[filter.id] ?? 'all'} onChange={(event) => onFilterChange(filter.id, event.target.value)}>
+            {filter.options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ))}
+      <label>
+        Search
+        <input
+          value={filters.search ?? ''}
+          onChange={onSearchChange}
+          placeholder={`Search ${routeID.replace('-', ' ')}`}
+          aria-label={`Search Kubernetes ${routeID}`}
+        />
+      </label>
+    </DomainFilterBar>
+  );
+}
+
+function filterKubernetesRows(rows: KubernetesTableRow[], filters: KubernetesFilterState): KubernetesTableRow[] {
+  const search = normalizeValue(filters.search ?? '').toLowerCase();
+  return rows.filter((row) => {
+    const matchesFilters = Object.entries(filters).every(([key, value]) => {
+      if (key === 'search' || value === 'all' || !value) {
+        return true;
+      }
+      return row.filters[key]?.split(',').includes(value);
+    });
+    const matchesSearch = !search || row.searchText.toLowerCase().includes(search);
+    return matchesFilters && matchesSearch;
+  });
+}
+
+function buildKubernetesSubnav(scope: ProductSession, activeRouteID: ProductDomainRouteID, selectedEnvironmentID: string) {
+  return PRODUCT_DOMAIN_CONFIGS.kubernetes.routes.map((route) => ({
+    id: route.id,
+    label: route.label,
+    to: appendEnvironmentQuery(domainRoutePath(scope, 'kubernetes', route), selectedEnvironmentID),
+    active: route.id === activeRouteID
+  }));
+}
+
+function KubernetesPageShell({
+  routeID,
+  children,
+  connection,
+  loading,
+  environmentScope,
+  selectedEnvironmentID,
+  onChangeEnvironment,
+  scope,
+  primaryAction,
+  secondaryActions = []
+}: {
+  routeID: KubernetesDomainRouteID;
+  children: ReactNode;
+  connection: KubernetesConnectionStatus | null;
+  loading: boolean;
+  environmentScope: EnvironmentScopeState;
+  selectedEnvironmentID: string;
+  onChangeEnvironment: (environmentID: string) => void;
+  scope: ProductSession;
+  primaryAction?: { label: string; to?: string; onClick?: () => void; disabled?: boolean; variant?: 'primary' | 'secondary' | 'ghost' };
+  secondaryActions?: Array<{ label: string; to: string; variant?: 'primary' | 'secondary' | 'ghost' }>;
+}) {
+  const route = findDomainRoute('kubernetes', routeID);
+  const connectPath = kubernetesRouteLink(scope, 'connect', selectedEnvironmentID);
+  const defaultPrimary =
+    routeID === 'connect'
+      ? { label: 'Kubernetes home', to: kubernetesRouteLink(scope, 'overview', selectedEnvironmentID), variant: 'secondary' as const }
+      : { label: 'Connect Kubernetes', to: connectPath, variant: 'primary' as const };
+  const statusVariant = kubernetesStatusVariant(connection, loading || environmentScope.loading);
+
+  return (
+    <DomainPageShell
+      domain="kubernetes"
+      eyebrow={route.eyebrow}
+      title={route.title}
+      description={route.description}
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
+      status={<DomainStatusBadge variant={statusVariant} label={loading ? 'Loading' : kubernetesConnectionLabel(connection)} />}
+      statusTone={connectionDomainTone(connection ?? undefined)}
+      primaryAction={primaryAction ?? defaultPrimary}
+      secondaryActions={secondaryActions}
+      subnav={buildKubernetesSubnav(scope, routeID, selectedEnvironmentID)}
+      subnavLabel="Kubernetes sections"
+    >
+      <div className="idt-kubernetes-page">{children}</div>
+    </DomainPageShell>
+  );
+}
+
+function KubernetesLoadingAndErrors({
+  loading,
+  error,
+  refresh
+}: {
+  loading: boolean;
+  error: string;
+  refresh: () => void;
+}) {
+  return (
+    <>
+      {loading ? <DomainLoadingState label="Loading Kubernetes connection" /> : null}
+      {error ? <DomainErrorState title="Unable to load Kubernetes state" body={error} retryAction={{ label: 'Retry', onClick: refresh }} /> : null}
+    </>
+  );
+}
+
+function KubernetesSectionRows({
+  scope,
+  selectedEnvironmentID,
+  connection
+}: {
+  scope: ProductSession;
+  selectedEnvironmentID: string;
+  connection: KubernetesConnectionStatus | null;
+}) {
+  const rows = [
+    {
+      label: 'Clusters',
+      focus: 'Version, health',
+      status: connection?.cluster ?? 'Pending',
+      to: kubernetesRouteLink(scope, 'clusters', selectedEnvironmentID)
+    },
+    {
+      label: 'Workloads',
+      focus: 'Namespace, account',
+      status: connection?.connected ? 'Planned' : 'Connect first',
+      to: kubernetesRouteLink(scope, 'workloads', selectedEnvironmentID)
+    },
+    {
+      label: 'Service accounts / RBAC',
+      focus: 'Roles, bindings',
+      status: kubernetesPermissionSummary(connection),
+      to: kubernetesRouteLink(scope, 'service-accounts', selectedEnvironmentID)
+    },
+    {
+      label: 'Findings',
+      focus: 'Open findings',
+      status: 'None',
+      to: kubernetesRouteLink(scope, 'findings', selectedEnvironmentID)
+    },
+    {
+      label: 'Remediation',
+      focus: 'Fixes, approvals',
+      status: 'Draft',
+      to: kubernetesRouteLink(scope, 'remediation', selectedEnvironmentID)
+    }
+  ];
+  return (
+    <DomainDataTable
+      label="Kubernetes section links"
+      rows={rows}
+      getRowKey={(row) => row.label}
+      columns={[
+        { key: 'section', header: 'Section', render: (row) => <Link to={row.to}><strong>{row.label}</strong></Link> },
+        { key: 'focus', header: 'Focus', render: (row) => row.focus },
+        { key: 'status', header: 'Status', render: (row) => row.status }
+      ]}
+    />
+  );
+}
+
+export function ProductKubernetesControlCenterPage() {
+  const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useKubernetesDomainScope();
+  const availability = useKubernetesAvailability();
+  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">Kubernetes</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading Kubernetes.</p>
+      </section>
+    );
+  }
+
+  return (
+    <KubernetesPageShell
+      routeID="overview"
+      scope={scope}
+      connection={data.connection}
+      loading={data.loading || availability.loading}
+      environmentScope={environmentScope}
+      selectedEnvironmentID={selectedEnvironmentID}
+      onChangeEnvironment={onChangeEnvironment}
+      primaryAction={{ label: 'Connect Kubernetes', to: kubernetesRouteLink(scope, 'connect', selectedEnvironmentID), variant: 'primary' }}
+      secondaryActions={[{ label: 'Kubernetes findings', to: kubernetesRouteLink(scope, 'findings', selectedEnvironmentID) }]}
+    >
+      <KubernetesLoadingAndErrors loading={data.loading || availability.loading} error={data.error} refresh={data.refresh} />
+      {!selectedEnvironmentID && !environmentScope.loading ? <KubernetesMissingEnvironmentState scope={scope} /> : null}
+      {!availability.available && !availability.loading ? (
+        <KubernetesUnavailableState message={availability.unavailableMessage} connectPath={kubernetesRouteLink(scope, 'connect', selectedEnvironmentID)} />
+      ) : null}
+      <KubernetesSectionRows scope={scope} selectedEnvironmentID={selectedEnvironmentID} connection={data.connection} />
+    </KubernetesPageShell>
+  );
+}
+
 export function ProductKubernetesConnectPage() {
-  return <ProductConnectorConnectPage provider="kubernetes" providerLabel="Kubernetes" />;
+  const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useKubernetesDomainScope();
+  const availability = useKubernetesAvailability();
+  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
+  const [form, setForm] = useState({
+    mode: 'agent' as 'agent' | 'kubeconfig',
+    displayName: '',
+    apiURL: '',
+    context: '',
+    kubeconfig: ''
+  });
+  const [enrollment, setEnrollment] = useState<KubernetesConnectorStartResponse | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const submitRequestRef = useRef(0);
+  const scopeKey = scope ? `${scope.tenantID}:${scope.workspaceID}` : '';
+  const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
+  const scopeKeyRef = useRef(scopeKey);
+  selectedEnvironmentIDRef.current = selectedEnvironmentID;
+  scopeKeyRef.current = scopeKey;
+
+  useEffect(() => {
+    submitRequestRef.current += 1;
+    setEnrollment(null);
+    setMessage('');
+    setError('');
+    setSubmitting(false);
+  }, [selectedEnvironmentID, scopeKey]);
+
+  useEffect(() => {
+    setForm((current) => ({
+      ...current,
+      mode: data.connection?.connection_mode ?? current.mode,
+      displayName: data.connection?.display_name ?? '',
+      context: data.connection?.context ?? '',
+      apiURL: '',
+      kubeconfig: ''
+    }));
+  }, [
+    data.connection?.connector_id,
+    data.connection?.connection_mode,
+    data.connection?.display_name,
+    data.connection?.context,
+    selectedEnvironmentID
+  ]);
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">Connect Kubernetes</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading Kubernetes setup.</p>
+      </section>
+    );
+  }
+
+  const clustersPath = kubernetesRouteLink(scope, 'clusters', selectedEnvironmentID);
+  const canSubmit = availability.available && !availability.loading && Boolean(selectedEnvironmentID) && !submitting && !data.loading;
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedEnvironmentID) {
+      setError('Choose an environment before connecting Kubernetes.');
+      return;
+    }
+    if (availability.loading) {
+      setError('Kubernetes availability is still loading.');
+      return;
+    }
+    if (!availability.available) {
+      setError(availability.unavailableMessage);
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    setMessage('');
+    setEnrollment(null);
+    const requestID = ++submitRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKey;
+    const requestScope = scope;
+    const isStale = () =>
+      requestID !== submitRequestRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
+    try {
+      if (form.mode === 'kubeconfig') {
+        const response = await apiClient.upsertKubernetesKubeconfigConnector(
+          {
+            workspace_id: requestScope.workspaceID,
+            project_id: requestEnvironmentID,
+            connector_id: data.connection?.connector_id,
+            display_name: normalizeValue(form.displayName) || undefined,
+            context: normalizeValue(form.context) || undefined,
+            kubeconfig: form.kubeconfig
+          },
+          buildProductAuthContext(requestScope)
+        );
+        if (isStale()) {
+          return;
+        }
+        setMessage(response.connection.connected ? 'Kubeconfig active.' : 'Kubeconfig saved.');
+      } else {
+        const response = await apiClient.startKubernetesConnector(
+          {
+            workspace_id: requestScope.workspaceID,
+            project_id: requestEnvironmentID,
+            connector_id: data.connection?.connector_id,
+            display_name: normalizeValue(form.displayName) || undefined,
+            api_url: normalizeValue(form.apiURL) || undefined
+          },
+          buildProductAuthContext(requestScope)
+        );
+        if (isStale()) {
+          return;
+        }
+        setEnrollment(response);
+        setMessage('Enrollment token ready.');
+      }
+      if (!isStale()) {
+        await data.refresh();
+      }
+    } catch (requestError) {
+      if (isStale()) {
+        return;
+      }
+      setError(formatAPIError(requestError, 'Unable to validate Kubernetes connection.'));
+    } finally {
+      if (!isStale()) {
+        setSubmitting(false);
+      }
+    }
+  };
+
+  return (
+    <KubernetesPageShell
+      routeID="connect"
+      scope={scope}
+      connection={data.connection}
+      loading={data.loading || availability.loading}
+      environmentScope={environmentScope}
+      selectedEnvironmentID={selectedEnvironmentID}
+      onChangeEnvironment={onChangeEnvironment}
+      secondaryActions={[{ label: 'Clusters', to: clustersPath }]}
+    >
+      <KubernetesLoadingAndErrors loading={data.loading || availability.loading} error={data.error} refresh={data.refresh} />
+      {!selectedEnvironmentID && !environmentScope.loading ? <KubernetesMissingEnvironmentState scope={scope} /> : null}
+      {!availability.available && !availability.loading ? <KubernetesUnavailableState message={availability.unavailableMessage} /> : null}
+      {message ? <p role="status" className="idt-app-alert idt-app-alert-success">{message}</p> : null}
+      {error ? <p role="alert" className="idt-app-alert idt-app-alert-error">{error}</p> : null}
+      {selectedEnvironmentID ? (
+        <form className="idt-source-config idt-kubernetes-connect-panel" onSubmit={submit} aria-label="Kubernetes connector setup">
+          <div className="idt-source-config-header">
+            <div className="idt-source-config-title">
+              <SourceLogoMark provider="kubernetes" className="is-hero" />
+              <div>
+                <p className="idt-app-kicker">Read-only enrollment</p>
+                <h3>Connector</h3>
+              </div>
+            </div>
+            <button className="idt-btn idt-btn-ghost" type="button" onClick={data.refresh} disabled={data.loading}>
+              Refresh
+            </button>
+          </div>
+          <label>
+            Mode
+            <select value={form.mode} onChange={(event) => setForm((current) => ({ ...current, mode: event.target.value === 'kubeconfig' ? 'kubeconfig' : 'agent' }))}>
+              <option value="agent">Agent</option>
+              <option value="kubeconfig">Kubeconfig</option>
+            </select>
+          </label>
+          <label>
+            Display name
+            <input value={form.displayName} onChange={(event) => setForm((current) => ({ ...current, displayName: event.target.value }))} placeholder="Production cluster" />
+          </label>
+          {form.mode === 'agent' ? (
+            <label>
+              API URL
+              <input value={form.apiURL} onChange={(event) => setForm((current) => ({ ...current, apiURL: event.target.value }))} placeholder="https://api.identrail.com" />
+            </label>
+          ) : (
+            <>
+              <label>
+                Kubeconfig context
+                <input value={form.context} onChange={(event) => setForm((current) => ({ ...current, context: event.target.value }))} placeholder="production-admin" />
+              </label>
+              <label>
+                Kubeconfig
+                <textarea value={form.kubeconfig} onChange={(event) => setForm((current) => ({ ...current, kubeconfig: event.target.value }))} placeholder="Paste kubeconfig YAML" required />
+              </label>
+            </>
+          )}
+          <button className="idt-btn idt-btn-primary" type="submit" disabled={!canSubmit}>
+            {submitting ? 'Preparing...' : form.mode === 'agent' ? 'Generate token' : 'Save kubeconfig'}
+          </button>
+          {enrollment ? (
+            <article className="idt-kubernetes-enrollment">
+              <div>
+                <strong>Enrollment token</strong>
+                <span>Expires {formatConnectionTime(enrollment.enrollment_expires_at)}</span>
+                <code>{enrollment.enrollment_token}</code>
+              </div>
+              <div>
+                <strong>Helm command</strong>
+                <code>{enrollment.helm_command}</code>
+              </div>
+            </article>
+          ) : null}
+        </form>
+      ) : null}
+    </KubernetesPageShell>
+  );
+}
+
+function buildKubernetesClusterRows(connection: KubernetesConnectionStatus | null): KubernetesTableRow[] {
+  return [
+    ...(connection?.cluster || connection?.context
+      ? [
+          {
+            id: 'connected-cluster',
+            name: connection.cluster || connection.context || 'Connected cluster',
+            kind: connection.git_version || connection.platform || 'Cluster',
+            cluster: kubernetesScopeLabel(connection, ''),
+            namespace: 'All namespaces',
+            identity: connection.connection_mode ? formatTokenLabel(connection.connection_mode) : 'Connector',
+            evidence: 'Connector',
+            nextAction: connection.connected ? 'Monitor heartbeat' : 'Resolve diagnostics',
+            status: connection.connected ? 'connected' : 'needs attention',
+            stage: connection.connected ? ('wired' as KubernetesStage) : ('planned' as KubernetesStage),
+            filters: { cluster: 'connected', health: connection.connected ? 'healthy' : 'needs-attention', evidence: 'connector' },
+            searchText: inventorySearchText([connection.cluster, connection.context, connection.git_version, connection.server])
+          }
+        ]
+      : []),
+    {
+      id: 'coverage-gaps',
+      name: 'Unenrolled clusters',
+      kind: 'Coverage',
+      cluster: 'Additional clusters',
+      namespace: 'All namespaces',
+      identity: 'Agent enrollment',
+      evidence: 'Planned',
+      nextAction: 'Enroll clusters',
+      status: 'planned',
+      stage: 'planned',
+      filters: { cluster: 'planned', health: 'unavailable', evidence: 'planned' },
+      searchText: inventorySearchText(['cluster coverage gaps enrollment planned'])
+    }
+  ];
+}
+
+export function ProductKubernetesClustersPage() {
+  const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useKubernetesDomainScope();
+  const availability = useKubernetesAvailability();
+  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
+  const [filters, setFilters] = useState(KUBERNETES_FILTER_DEFAULTS.clusters);
+  const inventoryReady = availability.available && !availability.loading && Boolean(selectedEnvironmentID);
+  const rows = inventoryReady ? filterKubernetesRows(buildKubernetesClusterRows(data.connection), filters) : [];
+
+  if (!scope) {
+    return <section className="idt-app-panel idt-app-panel-error" role="alert"><p className="idt-app-kicker">Kubernetes clusters</p><h2>Workspace route context is missing</h2></section>;
+  }
+
+  return (
+    <KubernetesPageShell routeID="clusters" scope={scope} connection={data.connection} loading={data.loading || availability.loading} environmentScope={environmentScope} selectedEnvironmentID={selectedEnvironmentID} onChangeEnvironment={onChangeEnvironment}>
+      <KubernetesLoadingAndErrors loading={data.loading || availability.loading} error={data.error} refresh={data.refresh} />
+      {!selectedEnvironmentID && !environmentScope.loading ? <KubernetesMissingEnvironmentState scope={scope} /> : null}
+      {!availability.available && !availability.loading ? <KubernetesUnavailableState message={availability.unavailableMessage} /> : null}
+      {inventoryReady ? (
+        <>
+          <KubernetesFilterSet routeID="clusters" filters={filters} onChange={setFilters} />
+          <DomainDataTable
+            label="Cluster coverage"
+            rows={rows}
+            getRowKey={(row) => row.id}
+            columns={[
+              { key: 'cluster', header: 'Cluster', render: (row) => <strong>{row.name}</strong> },
+              { key: 'version', header: 'Version / platform', render: (row) => row.kind },
+              { key: 'mode', header: 'Mode', render: (row) => row.identity },
+              { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
+              { key: 'status', header: 'Status', render: (row) => <KubernetesPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+            ]}
+          />
+        </>
+      ) : null}
+    </KubernetesPageShell>
+  );
+}
+
+function buildKubernetesWorkloadRows(connection: KubernetesConnectionStatus | null): KubernetesTableRow[] {
+  const cluster = kubernetesScopeLabel(connection, '');
+  return [
+    {
+      id: 'deployment-slot',
+      name: 'Deployments',
+      kind: 'Deployment',
+      cluster,
+      namespace: 'Known namespace',
+      identity: 'Service account',
+      evidence: connection?.connected ? 'Connector' : 'Planned',
+      nextAction: 'Collect workloads',
+      status: 'planned',
+      stage: 'planned',
+      filters: { namespace: connection?.context ? 'known' : 'unknown', kind: 'deployment', identity: 'service-account' },
+      searchText: inventorySearchText(['deployment workload service account relationship'])
+    },
+    {
+      id: 'cronjob-slot',
+      name: 'CronJobs',
+      kind: 'CronJob',
+      cluster,
+      namespace: 'Unknown namespace',
+      identity: 'External identity',
+      evidence: 'Planned',
+      nextAction: 'Map jobs',
+      status: 'planned',
+      stage: 'planned',
+      filters: { namespace: 'unknown', kind: 'cronjob', identity: 'external' },
+      searchText: inventorySearchText(['cronjob automation external identity'])
+    }
+  ];
+}
+
+export function ProductKubernetesWorkloadsPage() {
+  const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useKubernetesDomainScope();
+  const availability = useKubernetesAvailability();
+  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
+  const [filters, setFilters] = useState(KUBERNETES_FILTER_DEFAULTS.workloads);
+  const inventoryReady = availability.available && !availability.loading && Boolean(selectedEnvironmentID);
+  const rows = inventoryReady ? filterKubernetesRows(buildKubernetesWorkloadRows(data.connection), filters) : [];
+
+  if (!scope) {
+    return <section className="idt-app-panel idt-app-panel-error" role="alert"><p className="idt-app-kicker">Kubernetes workloads</p><h2>Workspace route context is missing</h2></section>;
+  }
+
+  return (
+    <KubernetesPageShell routeID="workloads" scope={scope} connection={data.connection} loading={data.loading || availability.loading} environmentScope={environmentScope} selectedEnvironmentID={selectedEnvironmentID} onChangeEnvironment={onChangeEnvironment}>
+      <KubernetesLoadingAndErrors loading={data.loading || availability.loading} error={data.error} refresh={data.refresh} />
+      {!selectedEnvironmentID && !environmentScope.loading ? <KubernetesMissingEnvironmentState scope={scope} /> : null}
+      {!availability.available && !availability.loading ? <KubernetesUnavailableState message={availability.unavailableMessage} /> : null}
+      {inventoryReady ? (
+        <>
+          <KubernetesFilterSet routeID="workloads" filters={filters} onChange={setFilters} />
+          <DomainDataTable
+            label="Workload identity"
+            rows={rows}
+            getRowKey={(row) => row.id}
+            columns={[
+              { key: 'workload', header: 'Workload', render: (row) => <strong>{row.name}</strong> },
+              { key: 'kind', header: 'Kind', render: (row) => row.kind },
+              { key: 'namespace', header: 'Namespace', render: (row) => row.namespace },
+              { key: 'identity', header: 'Identity', render: (row) => row.identity },
+              { key: 'status', header: 'Status', render: (row) => <KubernetesPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+            ]}
+          />
+        </>
+      ) : null}
+    </KubernetesPageShell>
+  );
+}
+
+function buildKubernetesServiceAccountRows(connection: KubernetesConnectionStatus | null): KubernetesTableRow[] {
+  return [
+    {
+      id: 'connector-rbac',
+      name: connection?.agent_id ? `Agent ${connection.agent_id}` : 'Connector service account',
+      kind: 'ServiceAccount',
+      cluster: kubernetesScopeLabel(connection, ''),
+      namespace: connection?.context || 'Known namespace',
+      identity: 'Read-only role',
+      evidence: connection?.permission_checks.length ? 'Permission checks' : 'Planned',
+      nextAction: connection?.connected ? 'Review RBAC' : 'Connect Kubernetes',
+      status: connection?.connected ? 'read only' : 'planned',
+      stage: connection?.connected ? 'wired' : 'planned',
+      filters: { namespace: connection?.context ? 'known' : 'unknown', binding: 'clusterrolebinding', privilege: 'read-only' },
+      searchText: inventorySearchText(['service account rbac clusterrolebinding readonly identrail connector'])
+    },
+    {
+      id: 'privilege-review',
+      name: 'Elevated bindings',
+      kind: 'ClusterRoleBinding',
+      cluster: kubernetesScopeLabel(connection, ''),
+      namespace: 'All namespaces',
+      identity: 'Privilege',
+      evidence: 'Planned',
+      nextAction: 'Collect RBAC',
+      status: 'planned',
+      stage: 'planned',
+      filters: { namespace: 'unknown', binding: 'clusterrolebinding', privilege: 'elevated' },
+      searchText: inventorySearchText(['elevated binding review clusterrolebinding privilege'])
+    }
+  ];
+}
+
+export function ProductKubernetesServiceAccountsPage() {
+  const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useKubernetesDomainScope();
+  const availability = useKubernetesAvailability();
+  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
+  const [filters, setFilters] = useState(KUBERNETES_FILTER_DEFAULTS['service-accounts']);
+  const inventoryReady = availability.available && !availability.loading && Boolean(selectedEnvironmentID);
+  const rows = inventoryReady ? filterKubernetesRows(buildKubernetesServiceAccountRows(data.connection), filters) : [];
+
+  if (!scope) {
+    return <section className="idt-app-panel idt-app-panel-error" role="alert"><p className="idt-app-kicker">Kubernetes service accounts</p><h2>Workspace route context is missing</h2></section>;
+  }
+
+  return (
+    <KubernetesPageShell routeID="service-accounts" scope={scope} connection={data.connection} loading={data.loading || availability.loading} environmentScope={environmentScope} selectedEnvironmentID={selectedEnvironmentID} onChangeEnvironment={onChangeEnvironment}>
+      <KubernetesLoadingAndErrors loading={data.loading || availability.loading} error={data.error} refresh={data.refresh} />
+      {!selectedEnvironmentID && !environmentScope.loading ? <KubernetesMissingEnvironmentState scope={scope} /> : null}
+      {!availability.available && !availability.loading ? <KubernetesUnavailableState message={availability.unavailableMessage} /> : null}
+      {inventoryReady ? (
+        <>
+          <KubernetesFilterSet routeID="service-accounts" filters={filters} onChange={setFilters} />
+          <DomainDataTable
+            label="Service accounts and RBAC"
+            rows={rows}
+            getRowKey={(row) => row.id}
+            columns={[
+              { key: 'account', header: 'Service account / binding', render: (row) => <strong>{row.name}</strong> },
+              { key: 'namespace', header: 'Namespace', render: (row) => row.namespace },
+              { key: 'identity', header: 'RBAC', render: (row) => row.identity },
+              { key: 'next', header: 'Next action', render: (row) => row.nextAction },
+              { key: 'status', header: 'Status', render: (row) => <KubernetesPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+            ]}
+          />
+        </>
+      ) : null}
+    </KubernetesPageShell>
+  );
+}
+
+export function ProductKubernetesFindingsPage() {
+  const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useKubernetesDomainScope();
+  const availability = useKubernetesAvailability();
+  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
+  const [filters, setFilters] = useState(KUBERNETES_FILTER_DEFAULTS.findings);
+  const inventoryReady = availability.available && !availability.loading && Boolean(selectedEnvironmentID);
+
+  if (!scope) {
+    return <section className="idt-app-panel idt-app-panel-error" role="alert"><p className="idt-app-kicker">Kubernetes findings</p><h2>Workspace route context is missing</h2></section>;
+  }
+
+  return (
+    <KubernetesPageShell routeID="findings" scope={scope} connection={data.connection} loading={data.loading || availability.loading} environmentScope={environmentScope} selectedEnvironmentID={selectedEnvironmentID} onChangeEnvironment={onChangeEnvironment}>
+      <KubernetesLoadingAndErrors loading={data.loading || availability.loading} error={data.error} refresh={data.refresh} />
+      {!selectedEnvironmentID && !environmentScope.loading ? <KubernetesMissingEnvironmentState scope={scope} /> : null}
+      {!availability.available && !availability.loading ? <KubernetesUnavailableState message={availability.unavailableMessage} /> : null}
+      {inventoryReady ? (
+        <>
+          <KubernetesFilterSet routeID="findings" filters={filters} onChange={setFilters} />
+          <DomainDataTable
+            label="Kubernetes findings"
+            rows={[] as KubernetesTableRow[]}
+            getRowKey={(row) => row.id}
+            emptyState={<DomainEmptyState eyebrow="Empty" title="No findings" body="No open items." />}
+            columns={[
+              { key: 'finding', header: 'Finding', render: (row) => <strong>{row.name}</strong> },
+              { key: 'scope', header: 'Cluster / namespace', render: (row) => `${row.cluster} / ${row.namespace}` },
+              { key: 'identity', header: 'Identity', render: (row) => row.identity },
+              { key: 'status', header: 'Status', render: (row) => <KubernetesPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+            ]}
+          />
+        </>
+      ) : null}
+    </KubernetesPageShell>
+  );
+}
+
+function buildKubernetesRemediationRows(): KubernetesTableRow[] {
+  return [
+    { id: 'rbac-hardening', name: 'RBAC reduction', kind: 'RBAC', cluster: 'Selected cluster', namespace: 'All namespaces', identity: 'Role / ClusterRole', evidence: 'Finding', nextAction: 'Draft fix', status: 'draft', stage: 'planned', filters: { change: 'rbac-hardening', approval: 'security-required', stage: 'draft' }, searchText: inventorySearchText(['rbac hardening role clusterrole']) },
+    { id: 'service-account-change', name: 'Service account update', kind: 'ServiceAccount', cluster: 'Selected cluster', namespace: 'Known namespace', identity: 'Service account', evidence: 'Owner approval', nextAction: 'Assign owner', status: 'draft', stage: 'planned', filters: { change: 'service-account', approval: 'platform-required', stage: 'draft' }, searchText: inventorySearchText(['service account change owner approval']) },
+    { id: 'manifest-patch', name: 'Manifest patch', kind: 'IaC', cluster: 'Selected cluster', namespace: 'Known namespace', identity: 'Manifest', evidence: 'Verification', nextAction: 'Map repo', status: 'not active', stage: 'unavailable', filters: { change: 'manifest-patch', approval: 'platform-required', stage: 'not-active' }, searchText: inventorySearchText(['manifest helm iac patch verification']) }
+  ];
+}
+
+export function ProductKubernetesRemediationPage() {
+  const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useKubernetesDomainScope();
+  const availability = useKubernetesAvailability();
+  const data = useKubernetesConnection(scope, selectedEnvironmentID, availability.available && !availability.loading);
+  const [filters, setFilters] = useState(KUBERNETES_FILTER_DEFAULTS.remediation);
+  const inventoryReady = availability.available && !availability.loading && Boolean(selectedEnvironmentID);
+  const rows = inventoryReady ? filterKubernetesRows(buildKubernetesRemediationRows(), filters) : [];
+
+  if (!scope) {
+    return <section className="idt-app-panel idt-app-panel-error" role="alert"><p className="idt-app-kicker">Kubernetes remediation</p><h2>Workspace route context is missing</h2></section>;
+  }
+
+  return (
+    <KubernetesPageShell routeID="remediation" scope={scope} connection={data.connection} loading={data.loading || availability.loading} environmentScope={environmentScope} selectedEnvironmentID={selectedEnvironmentID} onChangeEnvironment={onChangeEnvironment}>
+      <KubernetesLoadingAndErrors loading={data.loading || availability.loading} error={data.error} refresh={data.refresh} />
+      {!selectedEnvironmentID && !environmentScope.loading ? <KubernetesMissingEnvironmentState scope={scope} /> : null}
+      {!availability.available && !availability.loading ? <KubernetesUnavailableState message={availability.unavailableMessage} /> : null}
+      {inventoryReady ? (
+        <>
+          <KubernetesFilterSet routeID="remediation" filters={filters} onChange={setFilters} />
+          <DomainDataTable
+            label="Remediation"
+            rows={rows}
+            getRowKey={(row) => row.id}
+            columns={[
+              { key: 'plan', header: 'Plan', render: (row) => <strong>{row.name}</strong> },
+              { key: 'kind', header: 'Type', render: (row) => row.kind },
+              { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
+              { key: 'next', header: 'Next action', render: (row) => row.nextAction },
+              { key: 'status', header: 'Status', render: (row) => <KubernetesPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+            ]}
+          />
+        </>
+      ) : null}
+    </KubernetesPageShell>
+  );
 }
 
 // =====================================================
@@ -11358,7 +12331,7 @@ export function ProductProjectDetailPage() {
     if (!sourceAvailability.kubernetes.available) {
       setSourceErrors((current) => ({
         ...current,
-        kubernetes: sourceAvailability.kubernetes.unavailableMessage ?? 'Kubernetes connector is not available.'
+        kubernetes: sourceAvailability.kubernetes.unavailableMessage ?? 'Connector disabled.'
       }));
       return;
     }
@@ -11384,7 +12357,7 @@ export function ProductProjectDetailPage() {
         }
         setConnections((current) => ({ ...current, kubernetes: response.connection }));
         setKubernetesEnrollment(null);
-        setSuccessMessage('Kubernetes kubeconfig fallback is saved.');
+        setSuccessMessage('Kubeconfig saved.');
         return;
       }
       const response = await apiClient.startKubernetesConnector(
@@ -11401,7 +12374,7 @@ export function ProductProjectDetailPage() {
       }
       setConnections((current) => ({ ...current, kubernetes: response.connection }));
       setKubernetesEnrollment(response);
-      setSuccessMessage('Kubernetes agent enrollment token is ready.');
+      setSuccessMessage('Enrollment token ready.');
     } catch (error) {
       if (isStaleRequestSequence(requestSequence)) {
         return;
@@ -12073,7 +13046,7 @@ export function ProductProjectDetailPage() {
             <form className="idt-app-form" onSubmit={handleKubernetesSubmit}>
               <div className="idt-source-inline-fields">
                 <label>
-                  Connection mode
+                  Mode
                   <select
                     value={kubernetesForm.mode}
                     onChange={(event) =>
@@ -12083,8 +13056,8 @@ export function ProductProjectDetailPage() {
                       }))
                     }
                   >
-                    <option value="agent">In-cluster agent</option>
-                    <option value="kubeconfig">Kubeconfig fallback</option>
+                    <option value="agent">Agent</option>
+                    <option value="kubeconfig">Kubeconfig</option>
                   </select>
                 </label>
               </div>
@@ -12112,7 +13085,7 @@ export function ProductProjectDetailPage() {
                   </label>
                 ) : (
                   <label>
-                    kubeconfig context
+                    Kubeconfig context
                     <input
                       value={kubernetesForm.context}
                       onChange={(event) =>
@@ -12140,8 +13113,8 @@ export function ProductProjectDetailPage() {
                 {submitting === 'kubernetes'
                   ? 'Preparing...'
                   : kubernetesForm.mode === 'agent'
-                    ? 'Generate agent install'
-                    : 'Validate and save kubeconfig'}
+                    ? 'Generate token'
+                    : 'Save kubeconfig'}
               </button>
               {kubernetesEnrollment ? (
                 <div className="idt-source-diagnostics">
