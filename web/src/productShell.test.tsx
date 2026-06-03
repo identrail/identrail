@@ -961,7 +961,7 @@ describe('ProductShellLayout', () => {
     expect(screen.queryByRole('option', { name: /Connect GitHub/i })).not.toBeInTheDocument();
   });
 
-  it('lets an open domain flyout own the sidebar highlight over Reports routes', async () => {
+  it('lets a recently opened domain flyout own the sidebar highlight over Reports routes', async () => {
     mockConnectorFeatureFlags({ github: true, kubernetes: true });
     mockBackendFeatures({ github: true, kubernetes: true });
     const { ProductShellLayout } = await import('./productShell');
@@ -995,9 +995,15 @@ describe('ProductShellLayout', () => {
     fireEvent.click(sidebarBackdrop as Element);
 
     expect(screen.queryByRole('dialog', { name: 'AWS' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Reports' })).toHaveClass('active');
+    expect(screen.getByRole('link', { name: 'Reports' })).not.toHaveClass('active');
+    expect(screen.getByRole('button', { name: 'AWS' })).toHaveClass('is-active');
     expect(resizeHandle).not.toHaveClass('is-domain-flyout-blocked');
     expect(resizeHandle).toHaveAttribute('tabindex', '0');
+
+    fireEvent.click(screen.getByRole('link', { name: 'Reports' }));
+
+    expect(screen.getByRole('link', { name: 'Reports' })).toHaveClass('active');
+    expect(screen.getByRole('button', { name: 'AWS' })).not.toHaveClass('is-active');
 
     fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
 
@@ -1011,7 +1017,7 @@ describe('ProductShellLayout', () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const { ProductShellLayout } = await import('./productShell');
 
-    render(
+    const { container } = render(
       <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/settings']}>
         <Routes>
           <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
@@ -1028,6 +1034,14 @@ describe('ProductShellLayout', () => {
 
     expect(screen.getByRole('link', { name: 'Settings' })).not.toHaveClass('active');
     expect(screen.getByRole('button', { name: 'Kubernetes' })).toHaveClass('is-open');
+
+    const sidebarBackdrop = container.querySelector('.idt-domain-flyout-sidebar-backdrop');
+    fireEvent.click(sidebarBackdrop as Element);
+
+    expect(screen.queryByRole('dialog', { name: 'Kubernetes' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Settings' })).not.toHaveClass('active');
+    expect(screen.getByRole('button', { name: 'Kubernetes' })).toHaveClass('is-active');
+    expect(screen.getByRole('button', { name: 'Kubernetes' })).not.toHaveClass('is-open');
   });
 });
 

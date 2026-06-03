@@ -9177,6 +9177,7 @@ export function ProductShellLayout() {
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [openDomainFlyout, setOpenDomainFlyout] = useState<SourceProvider | null>(null);
+  const [lastOpenedDomainFlyout, setLastOpenedDomainFlyout] = useState<SourceProvider | null>(null);
   const [sidebarCollapsedPref, setSidebarCollapsedPref] = useState<boolean>(() => readSidebarCollapsed());
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => readSidebarWidth());
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
@@ -9350,6 +9351,7 @@ export function ProductShellLayout() {
 
   useEffect(() => {
     setOpenDomainFlyout(null);
+    setLastOpenedDomainFlyout(null);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -9733,6 +9735,7 @@ export function ProductShellLayout() {
   const runCommand = (item: CommandPaletteItem) => {
     setCommandOpen(false);
     setOpenDomainFlyout(null);
+    setLastOpenedDomainFlyout(null);
     if (item.path) {
       navigate(item.path);
       return;
@@ -9740,12 +9743,20 @@ export function ProductShellLayout() {
     item.action?.();
   };
   const closeDomainFlyout = () => setOpenDomainFlyout(null);
+  const resetDomainFlyoutHighlight = () => {
+    setOpenDomainFlyout(null);
+    setLastOpenedDomainFlyout(null);
+  };
   const toggleDomainFlyout = (domain: SourceProvider) => {
     setAccountMenuOpen(false);
     setWorkspaceMenuOpen(false);
     setCommandOpen(false);
+    setLastOpenedDomainFlyout(domain);
     setOpenDomainFlyout((current) => (current === domain ? null : domain));
   };
+  const rememberedDomainHighlight =
+    lastOpenedDomainFlyout && visibleDomainOrder.includes(lastOpenedDomainFlyout) ? lastOpenedDomainFlyout : null;
+  const domainFlyoutOwnsRouteHighlight = Boolean(openDomainFlyout || (!activeDomain && rememberedDomainHighlight));
 
   return (
     <ProductErrorBoundary>
@@ -9810,21 +9821,30 @@ export function ProductShellLayout() {
                 <Link
                   role="menuitem"
                   to={`${basePath}/workspaces`}
-                  onClick={() => setWorkspaceMenuOpen(false)}
+                  onClick={() => {
+                    setWorkspaceMenuOpen(false);
+                    resetDomainFlyoutHighlight();
+                  }}
                 >
                   Switch workspace
                 </Link>
                 <Link
                   role="menuitem"
                   to={`${basePath}/settings`}
-                  onClick={() => setWorkspaceMenuOpen(false)}
+                  onClick={() => {
+                    setWorkspaceMenuOpen(false);
+                    resetDomainFlyoutHighlight();
+                  }}
                 >
                   Settings
                 </Link>
                 <Link
                   role="menuitem"
                   to="/onboarding/org"
-                  onClick={() => setWorkspaceMenuOpen(false)}
+                  onClick={() => {
+                    setWorkspaceMenuOpen(false);
+                    resetDomainFlyoutHighlight();
+                  }}
                 >
                   Create a workspace
                 </Link>
@@ -9862,8 +9882,8 @@ export function ProductShellLayout() {
               end
               aria-label="Overview"
               title={sidebarCollapsed ? 'Overview' : undefined}
-              className={({ isActive }) => (isActive && !openDomainFlyout ? 'active' : undefined)}
-              onClick={closeDomainFlyout}
+              className={({ isActive }) => (isActive && !domainFlyoutOwnsRouteHighlight ? 'active' : undefined)}
+              onClick={resetDomainFlyoutHighlight}
             >
               <span className="idt-app-nav-icon" aria-hidden="true">
                 <LayoutDashboard size={16} strokeWidth={1.75} />
@@ -9874,7 +9894,9 @@ export function ProductShellLayout() {
               const config = PRODUCT_DOMAIN_CONFIGS[domain];
               const availability = sourceAvailability[domain];
               const isOpen = openDomainFlyout === domain;
-              const isActive = activeDomain === domain && (!openDomainFlyout || isOpen);
+              const isActive =
+                (activeDomain === domain && (!openDomainFlyout || isOpen)) ||
+                (!openDomainFlyout && !activeDomain && rememberedDomainHighlight === domain);
               const triggerID = `idt-${domain}-domain-trigger`;
               return (
                 <div key={domain} className={`idt-app-domain-nav-item${isOpen ? ' is-open' : ''}`}>
@@ -9922,8 +9944,8 @@ export function ProductShellLayout() {
               to={`${basePath}/reports`}
               aria-label="Reports"
               title={sidebarCollapsed ? 'Reports' : undefined}
-              className={({ isActive }) => (isActive && !openDomainFlyout ? 'active' : undefined)}
-              onClick={closeDomainFlyout}
+              className={({ isActive }) => (isActive && !domainFlyoutOwnsRouteHighlight ? 'active' : undefined)}
+              onClick={resetDomainFlyoutHighlight}
             >
               <span className="idt-app-nav-icon" aria-hidden="true">
                 <BarChart3 size={16} strokeWidth={1.75} />
@@ -9934,8 +9956,8 @@ export function ProductShellLayout() {
               to={`${basePath}/settings`}
               aria-label="Settings"
               title={sidebarCollapsed ? 'Settings' : undefined}
-              className={({ isActive }) => (isActive && !openDomainFlyout ? 'active' : undefined)}
-              onClick={closeDomainFlyout}
+              className={({ isActive }) => (isActive && !domainFlyoutOwnsRouteHighlight ? 'active' : undefined)}
+              onClick={resetDomainFlyoutHighlight}
             >
               <span className="idt-app-nav-icon" aria-hidden="true">
                 <SettingsIcon size={16} strokeWidth={1.75} />
