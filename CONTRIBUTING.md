@@ -173,7 +173,7 @@ maintainers must configure outside the codebase. The current list:
 
 | Secret | Used by | Purpose |
 |---|---|---|
-| `BRANCH_PROTECTION_APP_ID` | `enforce-branch-protection.yml` | Numeric App ID of the dedicated branch-protection GitHub App installed on this repo. |
+| `BRANCH_PROTECTION_APP_CLIENT_ID` | `enforce-branch-protection.yml` | Client ID of the dedicated branch-protection GitHub App installed on this repo (visible on the App's General page, format `Iv23li…`). |
 | `BRANCH_PROTECTION_APP_PRIVATE_KEY` | `enforce-branch-protection.yml` | Private key (`.pem` contents) for the same App. The workflow exchanges these two values for a short-lived installation token at runtime. |
 
 The branch-protection App must be installed on `identrail/identrail` with

@@ -1,6 +1,6 @@
 # Requires two repo secrets, sourced from a dedicated GitHub App installed on
 # this repository (see CONTRIBUTING.md → "Repo secrets" for setup):
-#   BRANCH_PROTECTION_APP_ID          - the App's numeric App ID
+#   BRANCH_PROTECTION_APP_CLIENT_ID   - the App's Client ID (Iv23li...)
 #   BRANCH_PROTECTION_APP_PRIVATE_KEY - the App's private key (.pem contents)
 # The App needs Repository permissions: Administration (Read & write),
 # Contents (Read-only), Metadata (Read-only). Nothing else.
@@ -49,15 +49,20 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.BRANCH_PROTECTION_APP_ID }}
+          client-id: ${{ secrets.BRANCH_PROTECTION_APP_CLIENT_ID }}
           private-key: ${{ secrets.BRANCH_PROTECTION_APP_PRIVATE_KEY }}
 
       - name: Audit drift and optionally apply protection
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          REPO_ADMIN_TOKEN: ${{ steps.app-token.outputs.token }}
           MODE: ${{ env.MODE }}
         with:
+          # The `github` script binding below is an Octokit instance already
+          # authenticated with this token, so calls like
+          # `github.rest.repos.getBranchProtection(...)` use the App's
+          # installation token (admin scope) rather than the default
+          # GITHUB_TOKEN (read-only contents).
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const fs = require('fs');
 
@@ -65,7 +70,6 @@ jobs:
             const repo = context.repo.repo;
             const branch = 'dev';
             const mode = (process.env.MODE || 'dry-run').trim();
-            const token = (process.env.REPO_ADMIN_TOKEN || '').trim();
 
             const desiredRaw = JSON.parse(
               fs.readFileSync('.github/branch-protection/dev.json', 'utf8')
@@ -143,21 +147,10 @@ jobs:
               `desired policy: ${JSON.stringify(desiredNormalized, null, 2)}`
             );
 
-            if (!token) {
-              core.setFailed(
-                'Missing installation token. Verify BRANCH_PROTECTION_APP_ID and ' +
-                'BRANCH_PROTECTION_APP_PRIVATE_KEY repo secrets are set and that ' +
-                'the GitHub App is installed on this repository.'
-              );
-              return;
-            }
-
-            const adminOctokit = github.getOctokit(token);
-
             let liveNormalized = null;
             let branchUnprotected = false;
             try {
-              const liveResponse = await adminOctokit.rest.repos.getBranchProtection({
+              const liveResponse = await github.rest.repos.getBranchProtection({
                 owner,
                 repo,
                 branch
@@ -201,14 +194,14 @@ jobs:
               return;
             }
 
-            await adminOctokit.rest.repos.updateBranchProtection({
+            await github.rest.repos.updateBranchProtection({
               owner,
               repo,
               branch,
               ...desiredRaw
             });
 
-            const postApply = await adminOctokit.rest.repos.getBranchProtection({
+            const postApply = await github.rest.repos.getBranchProtection({
               owner,
               repo,
               branch
