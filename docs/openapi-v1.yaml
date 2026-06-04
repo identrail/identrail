@@ -483,6 +483,11 @@ x-identrail-route-authorizations:
     action: tenancy.read
     resource_type: project
     resource_id_param: project_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/collector-contract
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
   - method: POST
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/baseline
     action: scans.run
@@ -3714,6 +3719,50 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/collector-contract:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS service collector contract
+      operationId: getAWSProjectCollectorContract
+      description: Returns the deterministic AWS service collector record, fixture, graph edge, permission, and read-only boundary contract required by future EC2, ECS, Lambda, EKS, Bedrock, and runtime collector PRs. The response is scoped to the tenant, workspace, project, and optional connector without calling AWS or reading customer payloads.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used only to add account and region context to the returned evidence.
+      responses:
+        "200":
+          description: AWS service collector contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contract:
+                    $ref: "#/components/schemas/AWSServiceCollectorContractResult"
+        "400":
+          description: Invalid AWS collector contract request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/start:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -6637,6 +6686,150 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSPlatformValidationScenario"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSServiceCollectorContractCheck:
+      type: object
+      properties:
+        name:
+          type: string
+        category:
+          type: string
+        required:
+          type: boolean
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        message:
+          type: string
+        failure_reason:
+          type: string
+        remediation:
+          type: string
+        evidence_url:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        evidence:
+          type: object
+          additionalProperties: true
+        checked_at:
+          type: string
+          format: date-time
+    AWSServiceCollectorGraphEdge:
+      type: object
+      properties:
+        name:
+          type: string
+          enum: [runs-on, assumes, passes-role, can-access, references-secret, invokes, observed-runtime-action]
+        relationship_type:
+          type: string
+          enum: [runs_as, can_assume, can_pass_role, can_access, uses_secret, invokes, observed_action]
+        from_endpoint:
+          type: string
+        to_endpoint:
+          type: string
+        evidence:
+          type: string
+        required:
+          type: boolean
+    AWSServiceCollectorFixtureCase:
+      type: object
+      properties:
+        id:
+          type: string
+        state:
+          type: string
+          enum: [success, empty, pagination, throttling, partial_failure, unsupported_region, permission_denied, degraded]
+        label:
+          type: string
+        expected_status:
+          type: string
+          enum: [ready, degraded, blocked]
+        source_error_code:
+          type: string
+        retryable:
+          type: boolean
+        required:
+          type: boolean
+        evidence_boundary:
+          type: string
+    AWSServiceCollectorContractResult:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        workspace_id:
+          type: string
+        project_id:
+          type: string
+        connector_id:
+          type: string
+        account_id:
+          type: string
+        region:
+          type: string
+        parent_issue_number:
+          type: integer
+        parent_issue_ref:
+          type: string
+        current_issue_number:
+          type: integer
+        current_issue_ref:
+          type: string
+        version:
+          type: string
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        required_field_count:
+          type: integer
+        graph_edge_count:
+          type: integer
+        fixture_case_count:
+          type: integer
+        required_fixture_case_count:
+          type: integer
+        normalized_record_fields:
+          type: array
+          items: { type: string }
+        required_permissions:
+          type: array
+          items: { type: string }
+        read_only_boundaries:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSServiceCollectorContractCheck"
+        graph_edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSServiceCollectorGraphEdge"
+        fixture_cases:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSServiceCollectorFixtureCase"
         generated_at:
           type: string
           format: date-time

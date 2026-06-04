@@ -20,8 +20,11 @@ type AWSCollectorScope struct {
 	Service   string
 }
 
-// awsServiceCollector defines the internal contract for collectable AWS service modules.
-type awsServiceCollector interface {
+// AWSServiceCollector defines the reusable contract for collectable AWS service
+// modules. Future EC2, ECS, Lambda, EKS, Bedrock, and runtime collectors should
+// implement this interface so the composite collector can preserve partial
+// failure diagnostics across account, region, and service boundaries.
+type AWSServiceCollector interface {
 	ServiceName() string
 	CollectWithDiagnostics(ctx context.Context, scope AWSCollectorScope) ([]providers.RawAsset, []providers.SourceError, error)
 }
@@ -30,7 +33,7 @@ type awsServiceCollector interface {
 type AWSCompositeCollector struct {
 	accountID string
 	region    string
-	services  []awsServiceCollector
+	services  []AWSServiceCollector
 }
 
 func (c *AWSCompositeCollector) AccountID() string {
@@ -49,8 +52,8 @@ func (c *AWSCompositeCollector) Region() string {
 
 // NewAWSCompositeCollector creates a composite AWS collector that runs IAM first by default
 // and accepts optional additional service collectors for future extension.
-func NewAWSCompositeCollector(iamAPI IAMAPI, accountID string, region string, additionalServices ...awsServiceCollector) *AWSCompositeCollector {
-	services := make([]awsServiceCollector, 0, 1+len(additionalServices))
+func NewAWSCompositeCollector(iamAPI IAMAPI, accountID string, region string, additionalServices ...AWSServiceCollector) *AWSCompositeCollector {
+	services := make([]AWSServiceCollector, 0, 1+len(additionalServices))
 	services = append(services, &iamCollectorAdapter{collector: NewCollector(iamAPI)})
 	for _, service := range additionalServices {
 		if service == nil {
@@ -245,4 +248,4 @@ func (a *iamCollectorAdapter) CollectWithDiagnostics(ctx context.Context, _ AWSC
 	return a.collector.CollectWithDiagnostics(ctx)
 }
 
-var _ awsServiceCollector = (*iamCollectorAdapter)(nil)
+var _ AWSServiceCollector = (*iamCollectorAdapter)(nil)

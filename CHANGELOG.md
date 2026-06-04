@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- Added the AWS service collector contract for #1476. The API now exposes
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/collector-contract`
+  as a read-only, project-scoped contract for normalized AWS collector records,
+  graph edge semantics, fixture conventions, metadata-only permissions, and
+  explicit failure states. The provider layer exports the reusable
+  `AWSServiceCollector` interface plus contract helpers for future collectors,
+  the AWS Control Center and Connect AWS pages surface contract readiness, and
+  the web client, OpenAPI contract, tests, and docs cover the new collector
+  foundation.
 - Added the AWS live app validation harness for #1475. The API now exposes
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/validation-harness`
   as a read-only, project-scoped proof path for AWS setup, scan state, graph

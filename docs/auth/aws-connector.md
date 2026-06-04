@@ -50,6 +50,11 @@ The [AWS platform validation harness](../aws-platform-validation-harness.md)
 provides deterministic browser and API proof states for AWS setup, scan, graph,
 runtime, remediation, and governance app surfaces as future AWS waves land.
 
+The [AWS service collector contract](../aws-service-collector-contract.md)
+defines the normalized record fields, graph edge semantics, fixture cases,
+read-only permission boundary, and failure states that future AWS service
+collectors must reuse.
+
 The registry is intentionally internal for now because the UI flow is not ready. Services can write coverage rows through the AWS service layer after discovering organization accounts, selected regions, or scan outcomes. Each row is scoped by tenant, workspace, project, connector, account ID, and region, and can store organization metadata, the connector role ARN, coverage status, the last successful scan time, the last scan error, a scan cursor, and account/region availability flags.
 
 Use the registry when a scanner, connector workflow, or future UI needs to distinguish these states:

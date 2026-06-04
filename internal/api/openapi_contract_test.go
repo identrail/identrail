@@ -183,6 +183,7 @@ func TestOpenAPIV1SpecContainsTenancyProjectContracts(t *testing.T) {
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/aws/baseline:",
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/aws/dependency-index:",
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/aws/validation-harness:",
+		"/v1/workspaces/{workspace_id}/projects/{project_id}/aws/collector-contract:",
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/start:",
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/complete:",
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/github/connection:",

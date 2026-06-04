@@ -992,6 +992,82 @@ export type AWSPlatformValidationHarnessResult = {
   updated_at: string;
 };
 
+export type AWSServiceCollectorContractStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSServiceCollectorFixtureState =
+  | 'success'
+  | 'empty'
+  | 'pagination'
+  | 'throttling'
+  | 'partial_failure'
+  | 'unsupported_region'
+  | 'permission_denied'
+  | 'degraded';
+
+export type AWSServiceCollectorContractCheck = {
+  name: string;
+  category: string;
+  required: boolean;
+  status: AWSServiceCollectorContractStatus;
+  message: string;
+  failure_reason?: string;
+  remediation?: string;
+  evidence_url?: string;
+  confidence: number;
+  evidence?: Record<string, unknown>;
+  checked_at: string;
+};
+
+export type AWSServiceCollectorGraphEdge = {
+  name: string;
+  relationship_type: string;
+  from_endpoint: string;
+  to_endpoint: string;
+  evidence: string;
+  required: boolean;
+};
+
+export type AWSServiceCollectorFixtureCase = {
+  id: string;
+  state: AWSServiceCollectorFixtureState;
+  label: string;
+  expected_status: AWSServiceCollectorContractStatus;
+  source_error_code?: string;
+  retryable: boolean;
+  required: boolean;
+  evidence_boundary: string;
+};
+
+export type AWSServiceCollectorContractResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSServiceCollectorContractStatus;
+  confidence: number;
+  required_field_count: number;
+  graph_edge_count: number;
+  fixture_case_count: number;
+  required_fixture_case_count: number;
+  normalized_record_fields: string[];
+  required_permissions: string[];
+  read_only_boundaries: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  checks: AWSServiceCollectorContractCheck[];
+  graph_edges: AWSServiceCollectorGraphEdge[];
+  fixture_cases: AWSServiceCollectorFixtureCase[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSConnectorStartRequest = {
   workspace_id?: string;
   project_id?: string;
@@ -1942,6 +2018,14 @@ export const apiClient = {
   getAWSProjectValidationHarness(workspaceID: string, projectID: string, connectorID?: string, auth?: RequestAuthContext) {
     return request<{ harness: AWSPlatformValidationHarnessResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/validation-harness${buildQuery({
+        connector_id: connectorID
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectCollectorContract(workspaceID: string, projectID: string, connectorID?: string, auth?: RequestAuthContext) {
+    return request<{ contract: AWSServiceCollectorContractResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/collector-contract${buildQuery({
         connector_id: connectorID
       })}`,
       auth

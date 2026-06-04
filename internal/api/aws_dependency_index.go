@@ -34,6 +34,8 @@ var (
 	awsPlatformCompletedIssueRefs = map[string]struct{}{
 		"#1473": {},
 		"#1474": {},
+		"#1475": {},
+		"#1476": {},
 	}
 )
 

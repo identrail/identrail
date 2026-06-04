@@ -32,6 +32,7 @@ import {
   type AWSPlatformBaselineResult,
   type AWSPlatformDependencyIndexResult,
   type AWSPlatformValidationHarnessResult,
+  type AWSServiceCollectorContractResult,
   type AWSPermissionPreviewItem,
   type CurrentUserContext,
   type ExecutiveReport,
@@ -3199,6 +3200,155 @@ function AWSValidationHarnessSummary({
   );
 }
 
+function awsServiceCollectorContractLabel(contract: AWSServiceCollectorContractResult | null): string {
+  if (!contract) {
+    return 'Not loaded';
+  }
+  if (contract.status === 'ready') {
+    return 'Ready';
+  }
+  if (contract.status === 'degraded') {
+    return 'Degraded';
+  }
+  return 'Blocked';
+}
+
+function awsServiceCollectorContractTone(
+  contract: AWSServiceCollectorContractResult | null,
+  loading = false
+): 'success' | 'warning' | 'danger' | 'neutral' | 'info' {
+  if (loading) {
+    return 'info';
+  }
+  if (!contract) {
+    return 'neutral';
+  }
+  if (contract.status === 'ready') {
+    return 'success';
+  }
+  if (contract.status === 'degraded') {
+    return 'warning';
+  }
+  return 'danger';
+}
+
+function awsServiceCollectorContractSummary(contract: AWSServiceCollectorContractResult | null): string {
+  if (!contract) {
+    return 'No collector contract loaded';
+  }
+  return `${formatCountLabel(contract.required_field_count, 'field')} · ${formatCountLabel(
+    contract.fixture_case_count,
+    'fixture'
+  )} · ${formatCountLabel(contract.graph_edge_count, 'edge')}`;
+}
+
+function awsServiceCollectorCheckTone(status: AWSServiceCollectorContractResult['checks'][number]['status']): 'success' | 'warning' | 'error' | 'neutral' {
+  if (status === 'ready') {
+    return 'success';
+  }
+  if (status === 'degraded') {
+    return 'warning';
+  }
+  if (status === 'blocked') {
+    return 'error';
+  }
+  return 'neutral';
+}
+
+function awsServiceCollectorFixtureTone(
+  status: AWSServiceCollectorContractResult['fixture_cases'][number]['expected_status']
+): 'success' | 'warning' | 'error' | 'neutral' {
+  if (status === 'ready') {
+    return 'success';
+  }
+  if (status === 'degraded') {
+    return 'warning';
+  }
+  if (status === 'blocked') {
+    return 'error';
+  }
+  return 'neutral';
+}
+
+function AWSServiceCollectorContractSummary({
+  contract,
+  loading = false,
+  emptyLabel = 'Collector contract has not loaded for this environment.'
+}: {
+  contract: AWSServiceCollectorContractResult | null;
+  loading?: boolean;
+  emptyLabel?: string;
+}) {
+  if (loading) {
+    return (
+      <article>
+        <strong>AWS collector contract</strong>
+        <span className="idt-source-status-pill is-neutral">Loading</span>
+        <p>Loading collector contract checks.</p>
+      </article>
+    );
+  }
+  if (!contract) {
+    return (
+      <article>
+        <strong>AWS collector contract</strong>
+        <span className="idt-source-status-pill is-neutral">Not loaded</span>
+        <p>{emptyLabel}</p>
+      </article>
+    );
+  }
+  return (
+    <>
+      <article>
+        <strong>Normalized record</strong>
+        <span className={`idt-source-status-pill is-${awsServiceCollectorCheckTone(contract.status)}`}>
+          {formatTokenLabel(contract.status)}
+        </span>
+        <p>{contract.normalized_record_fields.slice(0, 8).map(formatTokenLabel).join(', ')}</p>
+        <small>{awsServiceCollectorContractSummary(contract)}</small>
+      </article>
+      {contract.checks.map((check) => (
+        <article key={check.name}>
+          <strong>{formatTokenLabel(check.name)}</strong>
+          <span className={`idt-source-status-pill is-${awsServiceCollectorCheckTone(check.status)}`}>{formatTokenLabel(check.status)}</span>
+          <p>{check.message}</p>
+          <small>
+            {check.required ? 'Required' : 'Optional'} · confidence {formatConfidenceScore(check.confidence)} ·{' '}
+            {formatConnectionTime(check.checked_at)}
+          </small>
+          {check.failure_reason ? <small>{formatTokenLabel(check.failure_reason)}</small> : null}
+          {check.remediation ? <small>{check.remediation}</small> : null}
+          {check.evidence_url ? (
+            <a href={check.evidence_url} target={check.evidence_url.startsWith('http') ? '_blank' : undefined} rel="noreferrer">
+              Evidence
+            </a>
+          ) : null}
+        </article>
+      ))}
+      {contract.fixture_cases.map((fixture) => (
+        <article key={fixture.id}>
+          <strong>{fixture.label}</strong>
+          <span className={`idt-source-status-pill is-${awsServiceCollectorFixtureTone(fixture.expected_status)}`}>
+            {formatTokenLabel(fixture.state)}
+          </span>
+          <p>{fixture.evidence_boundary}</p>
+          <small>{fixture.source_error_code ? formatTokenLabel(fixture.source_error_code) : 'No source error expected'}</small>
+        </article>
+      ))}
+      {contract.graph_edges.map((edge) => (
+        <article key={edge.name}>
+          <strong>{edge.name}</strong>
+          <span className="idt-source-status-pill is-neutral">{formatTokenLabel(edge.relationship_type)}</span>
+          <p>{edge.evidence}</p>
+          <small>
+            {formatTokenLabel(edge.from_endpoint)} to {formatTokenLabel(edge.to_endpoint)}
+          </small>
+        </article>
+      ))}
+    </>
+  );
+}
+
 type AWSInventoryRouteID = Extract<ProductDomainRouteID, 'accounts' | 'identities' | 'agents' | 'resources'>;
 
 type AWSInventoryPageCopy = {
@@ -5328,10 +5478,14 @@ export function ProductAWSControlCenterPage() {
   const [validationHarness, setValidationHarness] = useState<AWSPlatformValidationHarnessResult | null>(null);
   const [validationLoading, setValidationLoading] = useState(false);
   const [validationError, setValidationError] = useState('');
+  const [collectorContract, setCollectorContract] = useState<AWSServiceCollectorContractResult | null>(null);
+  const [collectorContractLoading, setCollectorContractLoading] = useState(false);
+  const [collectorContractError, setCollectorContractError] = useState('');
   const connectionRequestRef = useRef(0);
   const baselineRequestRef = useRef(0);
   const dependencyRequestRef = useRef(0);
   const validationRequestRef = useRef(0);
+  const collectorContractRequestRef = useRef(0);
   const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
   selectedEnvironmentIDRef.current = selectedEnvironmentID;
 
@@ -5510,18 +5664,56 @@ export function ProductAWSControlCenterPage() {
     }
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
 
+  const refreshCollectorContract = useCallback(async () => {
+    const requestID = ++collectorContractRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    if (!scope || !requestEnvironmentID) {
+      setCollectorContract(null);
+      setCollectorContractError('');
+      setCollectorContractLoading(false);
+      return;
+    }
+    const isStale = () => requestID !== collectorContractRequestRef.current || selectedEnvironmentIDRef.current !== requestEnvironmentID;
+    setCollectorContractLoading(true);
+    setCollectorContractError('');
+    try {
+      const response = await apiClient.getAWSProjectCollectorContract(
+        scope.workspaceID,
+        requestEnvironmentID,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (isStale()) {
+        return;
+      }
+      setCollectorContract(response.contract);
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      setCollectorContract(null);
+      setCollectorContractError(formatAPIError(error, 'Unable to load AWS collector contract.'));
+    } finally {
+      if (!isStale()) {
+        setCollectorContractLoading(false);
+      }
+    }
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
   useEffect(() => {
     void refreshConnection();
     void refreshBaseline();
     void refreshDependencyIndex();
     void refreshValidationHarness();
+    void refreshCollectorContract();
     return () => {
       connectionRequestRef.current += 1;
       baselineRequestRef.current += 1;
       dependencyRequestRef.current += 1;
       validationRequestRef.current += 1;
+      collectorContractRequestRef.current += 1;
     };
-  }, [refreshConnection, refreshBaseline, refreshDependencyIndex, refreshValidationHarness]);
+  }, [refreshConnection, refreshBaseline, refreshDependencyIndex, refreshValidationHarness, refreshCollectorContract]);
 
   if (!scope) {
     return (
@@ -5538,14 +5730,17 @@ export function ProductAWSControlCenterPage() {
     baselineRequestRef.current += 1;
     dependencyRequestRef.current += 1;
     validationRequestRef.current += 1;
+    collectorContractRequestRef.current += 1;
     setConnection(null);
     setBaseline(null);
     setDependencyIndex(null);
     setValidationHarness(null);
+    setCollectorContract(null);
     setConnectionError('');
     setBaselineError('');
     setDependencyError('');
     setValidationError('');
+    setCollectorContractError('');
     navigate(
       {
         pathname: location.pathname,
@@ -5564,6 +5759,10 @@ export function ProductAWSControlCenterPage() {
   const baselineTone = awsBaselineTone(baseline, baselineLoading || environmentScope.loading);
   const dependencyTone = awsDependencyIndexTone(dependencyIndex, dependencyLoading || environmentScope.loading);
   const validationTone = awsValidationHarnessTone(validationHarness, validationLoading || environmentScope.loading);
+  const collectorContractTone = awsServiceCollectorContractTone(
+    collectorContract,
+    collectorContractLoading || environmentScope.loading
+  );
   const statusLabel = environmentScope.loading
     ? 'Loading scope'
     : connectionLoading
@@ -5649,11 +5848,17 @@ export function ProductAWSControlCenterPage() {
             value: awsValidationHarnessLabel(validationHarness),
             detail: validationLoading ? 'Proof states loading' : awsValidationHarnessSummary(validationHarness),
             tone: validationTone
+          },
+          {
+            label: 'Collector contract',
+            value: awsServiceCollectorContractLabel(collectorContract),
+            detail: collectorContractLoading ? 'Contract loading' : awsServiceCollectorContractSummary(collectorContract),
+            tone: collectorContractTone
           }
         ]}
       />
 
-      {environmentScope.loading || connectionLoading || baselineLoading || dependencyLoading || validationLoading ? (
+      {environmentScope.loading || connectionLoading || baselineLoading || dependencyLoading || validationLoading || collectorContractLoading ? (
         <DomainLoadingState label="Loading AWS control center status" />
       ) : null}
 
@@ -5683,6 +5888,13 @@ export function ProductAWSControlCenterPage() {
           title="AWS validation harness could not load"
           body={validationError}
           retryAction={{ label: 'Retry harness', onClick: () => void refreshValidationHarness() }}
+        />
+      ) : null}
+      {collectorContractError ? (
+        <DomainErrorState
+          title="AWS collector contract could not load"
+          body={collectorContractError}
+          retryAction={{ label: 'Retry contract', onClick: () => void refreshCollectorContract() }}
         />
       ) : null}
 
@@ -5865,6 +6077,58 @@ export function ProductAWSControlCenterPage() {
           </dl>
           <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS validation harness scenarios">
             <AWSValidationHarnessSummary harness={validationHarness} loading={validationLoading} />
+          </div>
+        </div>
+      </DomainStatusPanel>
+
+      <DomainStatusPanel
+        eyebrow="Collector contract"
+        title="AWS service collector contract"
+        status={awsServiceCollectorContractLabel(collectorContract)}
+        tone={collectorContractTone}
+        actions={[
+          {
+            label: 'Refresh contract',
+            onClick: () => void refreshCollectorContract(),
+            variant: 'secondary',
+            disabled: collectorContractLoading || !selectedEnvironmentID
+          },
+          {
+            label: 'Contract docs',
+            href: '/docs/aws-service-collector-contract',
+            variant: 'ghost'
+          }
+        ]}
+      >
+        <div className="idt-aws-status-grid">
+          <dl>
+            <div>
+              <dt>Issue</dt>
+              <dd>{collectorContract?.current_issue_ref ?? '#1476'}</dd>
+            </div>
+            <div>
+              <dt>Fields</dt>
+              <dd>{collectorContract ? formatCountLabel(collectorContract.required_field_count, 'field') : 'Pending'}</dd>
+            </div>
+            <div>
+              <dt>Fixtures</dt>
+              <dd>{collectorContract ? formatCountLabel(collectorContract.fixture_case_count, 'fixture') : 'Pending'}</dd>
+            </div>
+            <div>
+              <dt>Edges</dt>
+              <dd>{collectorContract ? formatCountLabel(collectorContract.graph_edge_count, 'edge') : 'Pending'}</dd>
+            </div>
+            <div>
+              <dt>Permissions</dt>
+              <dd>{collectorContract ? formatCountLabel(collectorContract.required_permissions.length, 'permission') : 'Pending'}</dd>
+            </div>
+            <div>
+              <dt>Updated</dt>
+              <dd>{formatConnectionTime(collectorContract?.updated_at)}</dd>
+            </div>
+          </dl>
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS service collector contract checks">
+            <AWSServiceCollectorContractSummary contract={collectorContract} loading={collectorContractLoading} />
           </div>
         </div>
       </DomainStatusPanel>
@@ -6155,6 +6419,9 @@ export function ProductAWSConnectPage() {
   const [validationHarness, setValidationHarness] = useState<AWSPlatformValidationHarnessResult | null>(null);
   const [validationLoading, setValidationLoading] = useState(false);
   const [validationError, setValidationError] = useState('');
+  const [collectorContract, setCollectorContract] = useState<AWSServiceCollectorContractResult | null>(null);
+  const [collectorContractLoading, setCollectorContractLoading] = useState(false);
+  const [collectorContractError, setCollectorContractError] = useState('');
   const [awsForm, setAWSForm] = useState({
     roleARN: '',
     externalID: '',
@@ -6172,6 +6439,7 @@ export function ProductAWSConnectPage() {
   const baselineRequestRef = useRef(0);
   const dependencyRequestRef = useRef(0);
   const validationRequestRef = useRef(0);
+  const collectorContractRequestRef = useRef(0);
   const awsStartRequestRef = useRef(0);
   const awsPollRequestRef = useRef(0);
   const awsValidationRequestRef = useRef(0);
@@ -6393,11 +6661,52 @@ export function ProductAWSConnectPage() {
     }
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
 
+  const refreshCollectorContract = useCallback(async () => {
+    const requestID = ++collectorContractRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKeyRef.current;
+    if (!scope || !requestEnvironmentID) {
+      setCollectorContract(null);
+      setCollectorContractError('');
+      setCollectorContractLoading(false);
+      return;
+    }
+    const isStale = () =>
+      requestID !== collectorContractRequestRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
+    setCollectorContractLoading(true);
+    setCollectorContractError('');
+    try {
+      const response = await apiClient.getAWSProjectCollectorContract(
+        scope.workspaceID,
+        requestEnvironmentID,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (isStale()) {
+        return;
+      }
+      setCollectorContract(response.contract);
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      setCollectorContract(null);
+      setCollectorContractError(formatAPIError(error, 'Unable to load AWS collector contract.'));
+    } finally {
+      if (!isStale()) {
+        setCollectorContractLoading(false);
+      }
+    }
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
   useEffect(() => {
     connectionRequestRef.current += 1;
     baselineRequestRef.current += 1;
     dependencyRequestRef.current += 1;
     validationRequestRef.current += 1;
+    collectorContractRequestRef.current += 1;
     awsStartRequestRef.current += 1;
     awsPollRequestRef.current += 1;
     awsValidationRequestRef.current += 1;
@@ -6409,6 +6718,8 @@ export function ProductAWSConnectPage() {
     setDependencyError('');
     setValidationHarness(null);
     setValidationError('');
+    setCollectorContract(null);
+    setCollectorContractError('');
     setSubmitting(false);
     setAWSCloudFormationStart(null);
     setAWSPermissionPreview([]);
@@ -6425,16 +6736,18 @@ export function ProductAWSConnectPage() {
     void refreshBaseline();
     void refreshDependencyIndex();
     void refreshValidationHarness();
+    void refreshCollectorContract();
     return () => {
       connectionRequestRef.current += 1;
       baselineRequestRef.current += 1;
       dependencyRequestRef.current += 1;
       validationRequestRef.current += 1;
+      collectorContractRequestRef.current += 1;
       awsStartRequestRef.current += 1;
       awsPollRequestRef.current += 1;
       awsValidationRequestRef.current += 1;
     };
-  }, [refreshConnection, refreshBaseline, refreshDependencyIndex, refreshValidationHarness]);
+  }, [refreshConnection, refreshBaseline, refreshDependencyIndex, refreshValidationHarness, refreshCollectorContract]);
 
   if (!scope) {
     return (
@@ -6451,6 +6764,7 @@ export function ProductAWSConnectPage() {
     baselineRequestRef.current += 1;
     dependencyRequestRef.current += 1;
     validationRequestRef.current += 1;
+    collectorContractRequestRef.current += 1;
     awsStartRequestRef.current += 1;
     awsPollRequestRef.current += 1;
     awsValidationRequestRef.current += 1;
@@ -6458,9 +6772,11 @@ export function ProductAWSConnectPage() {
     setBaseline(null);
     setDependencyIndex(null);
     setValidationHarness(null);
+    setCollectorContract(null);
     setBaselineError('');
     setDependencyError('');
     setValidationError('');
+    setCollectorContractError('');
     navigate(
       {
         pathname: location.pathname,
@@ -6476,6 +6792,10 @@ export function ProductAWSConnectPage() {
   const baselineTone = awsBaselineTone(baseline, baselineLoading || environmentScope.loading);
   const dependencyTone = awsDependencyIndexTone(dependencyIndex, dependencyLoading || environmentScope.loading);
   const validationTone = awsValidationHarnessTone(validationHarness, validationLoading || environmentScope.loading);
+  const collectorContractTone = awsServiceCollectorContractTone(
+    collectorContract,
+    collectorContractLoading || environmentScope.loading
+  );
   const canSubmit = !submitting && !loadingConnection && Boolean(selectedEnvironmentID);
   const activeConnectorID = awsCloudFormationStart?.connector_id ?? connection?.connector_id ?? '';
 
@@ -6561,6 +6881,7 @@ export function ProductAWSConnectPage() {
         void verifyBaseline();
         void refreshDependencyIndex();
         void refreshValidationHarness();
+        void refreshCollectorContract();
       }
     } catch (error) {
       if (isStale()) {
@@ -6630,6 +6951,7 @@ export function ProductAWSConnectPage() {
         void verifyBaseline();
         void refreshDependencyIndex();
         void refreshValidationHarness();
+        void refreshCollectorContract();
       }
     } catch (error) {
       if (isStale()) {
@@ -6715,11 +7037,17 @@ export function ProductAWSConnectPage() {
             value: awsValidationHarnessLabel(validationHarness),
             detail: validationLoading ? 'Proof states loading' : awsValidationHarnessSummary(validationHarness),
             tone: validationTone
+          },
+          {
+            label: 'Collector contract',
+            value: awsServiceCollectorContractLabel(collectorContract),
+            detail: collectorContractLoading ? 'Contract loading' : awsServiceCollectorContractSummary(collectorContract),
+            tone: collectorContractTone
           }
         ]}
       />
 
-      {loadingConnection || baselineLoading || dependencyLoading || validationLoading || environmentScope.loading ? (
+      {loadingConnection || baselineLoading || dependencyLoading || validationLoading || collectorContractLoading || environmentScope.loading ? (
         <DomainLoadingState label="Loading AWS setup state" />
       ) : null}
 
@@ -6755,6 +7083,11 @@ export function ProductAWSConnectPage() {
       {validationError ? (
         <p role="alert" className="idt-app-alert idt-app-alert-error">
           {validationError}
+        </p>
+      ) : null}
+      {collectorContractError ? (
+        <p role="alert" className="idt-app-alert idt-app-alert-error">
+          {collectorContractError}
         </p>
       ) : null}
 
@@ -7009,6 +7342,39 @@ export function ProductAWSConnectPage() {
               </dl>
               <div className="idt-source-diagnostics" aria-label="AWS validation harness diagnostics">
                 <AWSValidationHarnessSummary harness={validationHarness} loading={validationLoading} />
+              </div>
+            </DomainStatusPanel>
+
+            <DomainStatusPanel
+              eyebrow="Collector contract"
+              title="Service collector contract"
+              status={awsServiceCollectorContractLabel(collectorContract)}
+              tone={collectorContractTone}
+              actions={[
+                {
+                  label: 'Refresh contract',
+                  onClick: () => void refreshCollectorContract(),
+                  disabled: collectorContractLoading || !selectedEnvironmentID
+                },
+                { label: 'Contract docs', href: '/docs/aws-service-collector-contract', variant: 'ghost' }
+              ]}
+            >
+              <dl className="idt-domain-route-facts">
+                <div>
+                  <dt>Fields</dt>
+                  <dd>{collectorContract ? formatCountLabel(collectorContract.required_field_count, 'field') : 'Pending'}</dd>
+                </div>
+                <div>
+                  <dt>Fixtures</dt>
+                  <dd>{collectorContract ? formatCountLabel(collectorContract.fixture_case_count, 'fixture') : 'Pending'}</dd>
+                </div>
+                <div>
+                  <dt>Edges</dt>
+                  <dd>{collectorContract ? formatCountLabel(collectorContract.graph_edge_count, 'edge') : 'Pending'}</dd>
+                </div>
+              </dl>
+              <div className="idt-source-diagnostics" aria-label="AWS service collector contract diagnostics">
+                <AWSServiceCollectorContractSummary contract={collectorContract} loading={collectorContractLoading} />
               </div>
             </DomainStatusPanel>
 

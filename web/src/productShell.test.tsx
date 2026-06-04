@@ -8,6 +8,7 @@ import type {
   AWSPlatformBaselineResult,
   AWSPlatformDependencyIndexResult,
   AWSPlatformValidationHarnessResult,
+  AWSServiceCollectorContractResult,
   CurrentUserContext,
   Finding,
   GitHubConnectionStatus,
@@ -190,11 +191,32 @@ const readyAWSDependencyIndex: AWSPlatformDependencyIndexResult = {
   confidence: 0.97,
   issue_count: 85,
   wave_count: 11,
-  ready_issue_count: 1,
-  blocked_issue_count: 82,
-  completed_issue_refs: ['#1473', '#1474'],
-  ready_issue_refs: ['#1475'],
-  blocked_issue_refs: ['#1476'],
+  ready_issue_count: 20,
+  blocked_issue_count: 61,
+  completed_issue_refs: ['#1473', '#1474', '#1475', '#1476'],
+  ready_issue_refs: [
+    '#1477',
+    '#1478',
+    '#1479',
+    '#1480',
+    '#1481',
+    '#1482',
+    '#1483',
+    '#1484',
+    '#1485',
+    '#1486',
+    '#1487',
+    '#1488',
+    '#1489',
+    '#1490',
+    '#1491',
+    '#1492',
+    '#1493',
+    '#1494',
+    '#1495',
+    '#1496'
+  ],
+  blocked_issue_refs: ['#1497'],
   failure_reasons: [],
   remediation_hints: [],
   evidence_links: [
@@ -376,6 +398,115 @@ function mockAWSValidationHarness(
   });
 }
 
+const readyAWSServiceCollectorContract: AWSServiceCollectorContractResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  parent_issue_number: 1472,
+  parent_issue_ref: '#1472',
+  current_issue_number: 1476,
+  current_issue_ref: '#1476',
+  version: 'aws-service-collector-contract-v1',
+  status: 'ready',
+  confidence: 0.97,
+  required_field_count: 17,
+  graph_edge_count: 7,
+  fixture_case_count: 8,
+  required_fixture_case_count: 8,
+  normalized_record_fields: [
+    'tenant_id',
+    'workspace_id',
+    'project_id',
+    'connector_id',
+    'account_id',
+    'region',
+    'service',
+    'workload_id',
+    'workload_type',
+    'workload_name',
+    'role_arn',
+    'source',
+    'evidence_ref',
+    'confidence',
+    'scan_id',
+    'collector_name',
+    'collected_at'
+  ],
+  required_permissions: ['sts:GetCallerIdentity', 'iam:ListRoles', 'iam:GetRole'],
+  read_only_boundaries: ['collect metadata and policy documents only'],
+  failure_reasons: [],
+  remediation_hints: [],
+  evidence_links: [
+    'https://github.com/identrail/identrail/issues/1472',
+    'https://github.com/identrail/identrail/issues/1476',
+    '/docs/aws-service-collector-contract'
+  ],
+  checks: [
+    {
+      name: 'normalized_record_schema',
+      category: 'record',
+      required: true,
+      status: 'ready',
+      message: 'Normalized AWS service collector record fields are deterministic.',
+      confidence: 0.98,
+      checked_at: '2026-05-17T10:00:00Z'
+    }
+  ],
+  graph_edges: [
+    {
+      name: 'runs-on',
+      relationship_type: 'runs_as',
+      from_endpoint: 'workload',
+      to_endpoint: 'identity',
+      evidence: 'runtime or workload configuration proving the identity used at execution time',
+      required: true
+    },
+    {
+      name: 'observed-runtime-action',
+      relationship_type: 'observed_action',
+      from_endpoint: 'identity_workload_agent_or_runtime_session',
+      to_endpoint: 'observed_action_target',
+      evidence: 'audit log, trace span, runtime event, or provider activity record',
+      required: true
+    }
+  ],
+  fixture_cases: [
+    {
+      id: 'pagination_multiple_pages',
+      state: 'pagination',
+      label: 'Multi-page pagination',
+      expected_status: 'ready',
+      retryable: false,
+      required: true,
+      evidence_boundary: 'cursor/page counts only; no raw customer payloads'
+    },
+    {
+      id: 'permission_denied',
+      state: 'permission_denied',
+      label: 'Read-only permission denied',
+      expected_status: 'blocked',
+      source_error_code: 'permission_denied',
+      retryable: false,
+      required: true,
+      evidence_boundary: 'denied action name and remediation hint, never credentials'
+    }
+  ],
+  generated_at: '2026-05-17T10:00:00Z',
+  updated_at: '2026-05-17T10:00:00Z'
+};
+
+function mockAWSServiceCollectorContract(
+  api: typeof import('./api/client'),
+  contract: AWSServiceCollectorContractResult = readyAWSServiceCollectorContract
+) {
+  vi.spyOn(api.apiClient, 'getAWSProjectCollectorContract').mockResolvedValue({
+    contract
+  });
+}
+
 function mockAWSBaseline(api: typeof import('./api/client'), baseline: AWSPlatformBaselineResult = readyAWSBaseline) {
   vi.spyOn(api.apiClient, 'getAWSProjectBaseline').mockResolvedValue({
     baseline
@@ -385,6 +516,7 @@ function mockAWSBaseline(api: typeof import('./api/client'), baseline: AWSPlatfo
   });
   mockAWSDependencyIndex(api);
   mockAWSValidationHarness(api);
+  mockAWSServiceCollectorContract(api);
 }
 
 const disconnectedKubernetes: KubernetesConnectionStatus = {
@@ -1699,6 +1831,8 @@ describe('Domain-first app routes', () => {
     expect(screen.getByText('AWS live app validation harness')).toBeInTheDocument();
     expect(screen.getByText('Runtime evidence partial failure')).toBeInTheDocument();
     expect(screen.getByText('Remediation permission denied')).toBeInTheDocument();
+    expect(screen.getByText('AWS service collector contract')).toBeInTheDocument();
+    expect(screen.getByText('Read-only permission denied')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Resources and secrets/i })).toHaveAttribute(
       'href',
       '/app/tenant-a/workspace-a/aws/resources?environment=production'
@@ -1747,6 +1881,58 @@ describe('Domain-first app routes', () => {
     const coverage = within(harnessScenarios).getByText('Fixture coverage').closest('article');
     expect(coverage).not.toBeNull();
     expect(within(coverage as HTMLElement).getByText('Blocked')).toHaveClass('is-error');
+  });
+
+  it('does not style blocked AWS service collector contract as success', async () => {
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.mocked(api.apiClient.getAWSProjectCollectorContract).mockResolvedValue({
+      contract: {
+        ...readyAWSServiceCollectorContract,
+        status: 'blocked',
+        failure_reasons: ['missing required permission_denied fixture'],
+        remediation_hints: ['Restore deterministic AWS service collector fixtures.'],
+        checks: [
+          {
+            ...readyAWSServiceCollectorContract.checks[0],
+            status: 'blocked',
+            failure_reason: 'missing required permission_denied fixture',
+            remediation: 'Restore deterministic AWS service collector fixtures.'
+          }
+        ]
+      }
+    });
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+
+    const { ProductAWSControlCenterPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws" element={<ProductAWSControlCenterPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('AWS service collector contract')).toBeInTheDocument();
+    const contractChecks = screen.getByLabelText('AWS service collector contract checks');
+    const normalizedRecord = within(contractChecks).getByText('Normalized record').closest('article');
+    expect(normalizedRecord).not.toBeNull();
+    expect(within(normalizedRecord as HTMLElement).getByText('Blocked')).toHaveClass('is-error');
   });
 
   it('ignores stale AWS Control Center status loads after switching environments', async () => {

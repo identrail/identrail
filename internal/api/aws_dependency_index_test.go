@@ -34,13 +34,14 @@ func TestGetAWSPlatformDependencyIndexBuildsCanonicalLedger(t *testing.T) {
 	if result.IssueCount != 85 || result.WaveCount != 11 {
 		t.Fatalf("unexpected ledger shape: issues=%d waves=%d", result.IssueCount, result.WaveCount)
 	}
-	if got, want := strings.Join(result.CompletedIssueRefs, ","), "#1473,#1474"; got != want {
+	if got, want := strings.Join(result.CompletedIssueRefs, ","), "#1473,#1474,#1475,#1476"; got != want {
 		t.Fatalf("completed refs = %q, want %q", got, want)
 	}
-	if got, want := strings.Join(result.ReadyIssueRefs, ","), "#1475"; got != want {
-		t.Fatalf("ready refs = %q, want %q", got, want)
+	wantReadyRefs := "#1477,#1478,#1479,#1480,#1481,#1482,#1483,#1484,#1485,#1486,#1487,#1488,#1489,#1490,#1491,#1492,#1493,#1494,#1495,#1496"
+	if got := strings.Join(result.ReadyIssueRefs, ","); got != wantReadyRefs {
+		t.Fatalf("ready refs = %q, want %q", got, wantReadyRefs)
 	}
-	if result.BlockedIssueCount != 82 || !containsString(result.BlockedIssueRefs, "#1476") {
+	if result.BlockedIssueCount != 61 || !containsString(result.BlockedIssueRefs, "#1497") {
 		t.Fatalf("expected downstream issues blocked by incomplete blockers, got count=%d refs=%v", result.BlockedIssueCount, result.BlockedIssueRefs)
 	}
 	for _, check := range result.Checks {
@@ -52,9 +53,17 @@ func TestGetAWSPlatformDependencyIndexBuildsCanonicalLedger(t *testing.T) {
 	if current.ReadyForPR || current.DependencyStatus != awsPlatformIssueStateCompleted {
 		t.Fatalf("expected current issue completed after merge, got %+v", current)
 	}
-	blocked := requireAWSPlatformDependencyIssue(t, result.Issues, "#1476")
-	if blocked.ReadyForPR || blocked.DependencyStatus != awsPlatformIssueStateBlocked || !containsString(blocked.FailureReasons, "waiting on #1475") {
-		t.Fatalf("expected #1476 to wait on #1475, got %+v", blocked)
+	completed := requireAWSPlatformDependencyIssue(t, result.Issues, "#1476")
+	if completed.ReadyForPR || completed.DependencyStatus != awsPlatformIssueStateCompleted {
+		t.Fatalf("expected #1476 to be completed after this PR, got %+v", completed)
+	}
+	ready := requireAWSPlatformDependencyIssue(t, result.Issues, "#1477")
+	if !ready.ReadyForPR || ready.DependencyStatus != awsPlatformIssueStateReady || len(ready.FailureReasons) != 0 {
+		t.Fatalf("expected #1477 to be ready after #1476 completed, got %+v", ready)
+	}
+	blocked := requireAWSPlatformDependencyIssue(t, result.Issues, "#1497")
+	if blocked.ReadyForPR || blocked.DependencyStatus != awsPlatformIssueStateBlocked || !containsString(blocked.FailureReasons, "waiting on #1496") {
+		t.Fatalf("expected #1497 to wait on #1496, got %+v", blocked)
 	}
 	for _, issue := range result.Issues {
 		for _, blockerRef := range issue.BlockerRefs {
@@ -130,7 +139,7 @@ func TestRouterAWSPlatformDependencyIndex(t *testing.T) {
 	if body.Index.IssueCount != 85 || body.Index.ParentIssueRef != "#1472" || body.Index.CurrentIssueRef != "#1474" {
 		t.Fatalf("unexpected dependency index payload: %+v", body.Index)
 	}
-	if !containsString(body.Index.CompletedIssueRefs, "#1474") || !containsString(body.Index.ReadyIssueRefs, "#1475") || body.Index.Status != awsPlatformDependencyStatusReady {
+	if !containsString(body.Index.CompletedIssueRefs, "#1476") || !containsString(body.Index.ReadyIssueRefs, "#1477") || body.Index.Status != awsPlatformDependencyStatusReady {
 		t.Fatalf("expected merged issue and next ready issue in router payload, got %+v", body.Index)
 	}
 }

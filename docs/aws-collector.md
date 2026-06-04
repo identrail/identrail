@@ -37,14 +37,19 @@ Behavior:
 
 To add a new AWS service collector:
 
-1. Implement `awsServiceCollector` in `internal/providers/aws`:
+1. Implement `AWSServiceCollector` in `internal/providers/aws`:
    - `ServiceName() string`
    - `CollectWithDiagnostics(ctx, scope AWSCollectorScope) ([]providers.RawAsset, []providers.SourceError, error)`
-2. Append the service in `NewAWSCompositeCollector(...)`.
-3. Add unit tests proving:
+2. Validate the collector output against
+   [`ServiceCollectorRecord`](./aws-service-collector-contract.md), required
+   fixture states, and graph edge semantics.
+3. Append the service in `NewAWSCompositeCollector(...)`.
+4. Add unit tests proving:
    - success path and returned assets
    - non-fatal failure path
    - context-propagation (`account`, `region`) to the service.
+   - pagination, throttling, partial failure, unsupported region, permission
+     denied, empty, and degraded fixture states.
 
 No behavior rewrite is required inside the existing IAM collector.
 
@@ -64,6 +69,9 @@ No behavior rewrite is required inside the existing IAM collector.
 - `IAMAPI.ListRoles(ctx, nextToken, pageSize)`
 - `Collector.Collect(ctx) ([]providers.RawAsset, error)`
 - `providers.DiagnosticCollector` contract through `CollectWithDiagnostics(ctx)`
+- `AWSServiceCollector` contract through `CollectWithDiagnostics(ctx, scope)`
+- `awscontract.AWSServiceCollectorContract()` for record fields, graph edges,
+  fixture cases, permissions, and read-only boundaries
 
 `RawAsset` payloads from composite collection are deduplicated and deterministically
 ordered by `kind`, then `source_id`.
@@ -87,3 +95,6 @@ ordered by `kind`, then `source_id`.
 - IAM role collection remains implemented through the existing AWS SDK IAM adapter.
 - AWS SDK CLI and runtime paths now use `NewAWSScanner`, which wires the composite collector.
 - The composite layer is now the extension point for future AWS service collection in the CLI/runtime path.
+- The service collector contract is exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/collector-contract`
+  and the AWS app surfaces.
