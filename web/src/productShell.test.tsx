@@ -4070,24 +4070,88 @@ describe('GitHub domain pages (#1382)', () => {
     const olderSucceeded: RepoScanRecord = {
       ...succeededRepoScan,
       id: 'repo-scan-older-success',
+      repository: 'identrail/recent-fail',
       started_at: '2026-05-16T10:00:00Z',
       finished_at: '2026-05-16T10:05:00Z'
     };
     const newerFailed: RepoScanRecord = {
       ...succeededRepoScan,
       id: 'repo-scan-newer-failed',
+      repository: 'identrail/recent-fail',
       status: 'failed',
       started_at: '2026-05-17T12:00:00Z',
       finished_at: '2026-05-17T12:05:00Z',
       error_message: 'scan exploded',
       finding_count: 0
     };
-    await renderGitHubPage('control-center', { scans: [newerFailed, olderSucceeded] });
+    await renderGitHubPage('control-center', {
+      githubConnection: { ...connectedGitHub, selected_repositories: ['identrail/recent-fail'] },
+      scans: [newerFailed, olderSucceeded]
+    });
 
     await screen.findByRole('heading', { level: 2, name: 'GitHub' });
     const banner = await screen.findByLabelText('GitHub action recommendation');
     expect(within(banner).getByText(/failed its last scan/i)).toBeInTheDocument();
     expect(within(banner).getByText(/scan exploded/i)).toBeInTheDocument();
+  });
+
+  it('Control Center ignores a stale failure once a newer successful scan exists', async () => {
+    const olderFailed: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'repo-scan-older-fail',
+      repository: 'identrail/recovered',
+      status: 'failed',
+      started_at: '2026-05-15T10:00:00Z',
+      finished_at: '2026-05-15T10:05:00Z',
+      error_message: 'scan exploded',
+      finding_count: 0
+    };
+    const newerSucceeded: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'repo-scan-newer-success',
+      repository: 'identrail/recovered',
+      started_at: '2026-05-17T10:00:00Z',
+      finished_at: '2026-05-17T10:05:00Z',
+      finding_count: 0
+    };
+    await renderGitHubPage('control-center', {
+      githubConnection: { ...connectedGitHub, selected_repositories: ['identrail/recovered'] },
+      scans: [newerSucceeded, olderFailed]
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
+    await screen.findByText(/Installation 12345/i);
+    await waitFor(() => {
+      expect(screen.queryByLabelText('GitHub action recommendation')).not.toBeInTheDocument();
+    });
+  });
+
+  it('Control Center counts findings off the latest scan per repository, not historical totals', async () => {
+    const baseFields = {
+      project_id: succeededRepoScan.project_id,
+      status: succeededRepoScan.status,
+      scan_mode: succeededRepoScan.scan_mode,
+      files_scanned: succeededRepoScan.files_scanned
+    };
+    const repoA = 'identrail/repo-a';
+    const repoB = 'identrail/repo-b';
+    const scans: RepoScanRecord[] = [
+      // Latest scan per repo: repo-a has 2 findings, repo-b has 3 findings → banner expects 5.
+      { ...succeededRepoScan, ...baseFields, id: 'a-latest', repository: repoA, started_at: '2026-05-20T10:00:00Z', finished_at: '2026-05-20T10:05:00Z', finding_count: 2 },
+      { ...succeededRepoScan, ...baseFields, id: 'a-older', repository: repoA, started_at: '2026-05-19T10:00:00Z', finished_at: '2026-05-19T10:05:00Z', finding_count: 2 },
+      { ...succeededRepoScan, ...baseFields, id: 'a-older-2', repository: repoA, started_at: '2026-05-18T10:00:00Z', finished_at: '2026-05-18T10:05:00Z', finding_count: 2 },
+      { ...succeededRepoScan, ...baseFields, id: 'b-latest', repository: repoB, started_at: '2026-05-20T11:00:00Z', finished_at: '2026-05-20T11:05:00Z', finding_count: 3 },
+      { ...succeededRepoScan, ...baseFields, id: 'b-older', repository: repoB, started_at: '2026-05-19T11:00:00Z', finished_at: '2026-05-19T11:05:00Z', finding_count: 3 }
+    ];
+
+    await renderGitHubPage('control-center', {
+      githubConnection: { ...connectedGitHub, selected_repositories: [repoA, repoB] },
+      scans
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
+    const banner = await screen.findByLabelText('GitHub action recommendation');
+    expect(within(banner).getByText(/5 findings need triage\./)).toBeInTheDocument();
   });
 
   it('Connect page renders an Open GitHub fallback link when the install popup is blocked', async () => {

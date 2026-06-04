@@ -7349,9 +7349,10 @@ function selectGitHubControlCenterBanner({
       tone: 'info'
     };
   }
-  const failedScan = recentScans.find((scan) => isFailedScanStatus(scan.status));
-  if (failedScan) {
-    const repo = canonicalGitHubRepositoryDisplay(failedScan.repository) || failedScan.repository;
+  const latestPerRepo = latestCompletedScanPerRepository(recentScans);
+  const failedLatest = latestPerRepo.find((scan) => isFailedScanStatus(scan.status));
+  if (failedLatest) {
+    const repo = canonicalGitHubRepositoryDisplay(failedLatest.repository) || failedLatest.repository;
     return {
       id: 'review-failed-scan',
       message: (
@@ -7359,15 +7360,16 @@ function selectGitHubControlCenterBanner({
           <strong>{repo}</strong> failed its last scan.
         </>
       ),
-      detail: summarizeScanFailure(failedScan),
+      detail: summarizeScanFailure(failedLatest),
       actionLabel: 'Review',
       actionTo: repositoriesPath,
       tone: 'danger'
     };
   }
-  const findingsTotal = recentScans
-    .filter((scan) => isCompletedScanStatus(scan.status))
-    .reduce((total, scan) => total + Math.max(scan.finding_count, 0), 0);
+  const findingsTotal = latestPerRepo.reduce(
+    (total, scan) => total + Math.max(scan.finding_count, 0),
+    0
+  );
   if (findingsTotal > 0) {
     return {
       id: 'triage-findings',
@@ -7377,7 +7379,7 @@ function selectGitHubControlCenterBanner({
       tone: 'warning'
     };
   }
-  if (!recentScans.some((scan) => isCompletedScanStatus(scan.status))) {
+  if (latestPerRepo.length === 0) {
     return {
       id: 'run-first-scan',
       message: 'Queue the first repository scan.',
@@ -7387,6 +7389,30 @@ function selectGitHubControlCenterBanner({
     };
   }
   return null;
+}
+
+function latestCompletedScanPerRepository(scans: RepoScanRecord[]): RepoScanRecord[] {
+  const byRepo = new Map<string, RepoScanRecord>();
+  for (const scan of scans) {
+    if (!isCompletedScanStatus(scan.status)) {
+      continue;
+    }
+    const repo = canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase() || scan.repository.toLowerCase();
+    const existing = byRepo.get(repo);
+    if (!existing || scanFinishedAt(scan) > scanFinishedAt(existing)) {
+      byRepo.set(repo, scan);
+    }
+  }
+  return [...byRepo.values()];
+}
+
+function scanFinishedAt(scan: RepoScanRecord): number {
+  const stamp = scan.finished_at || scan.started_at;
+  if (!stamp) {
+    return 0;
+  }
+  const ms = Date.parse(stamp);
+  return Number.isNaN(ms) ? 0 : ms;
 }
 
 function GitHubControlCenterBannerView({ banner }: { banner: GitHubControlCenterBanner }) {
