@@ -7031,12 +7031,12 @@ function buildGitHubSectionLinks(scope: ProductSession, environmentID: string | 
     to: appendEnvironmentQuery(buildScopedPath(scope, `github/${suffix}`), environmentID)
   });
   return [
-    link('connect', 'connect', 'Installation', 'App installation and scope.'),
+    link('connect', 'connect', 'Connect GitHub', 'App installation and scope.'),
     link('repositories', 'repositories', 'Repositories', 'Scan history and controls.'),
-    link('actions', 'actions', 'Workflows', 'Permissions and OIDC trust paths.'),
+    link('actions', 'actions', 'Actions / OIDC', 'Permissions and OIDC trust paths.'),
     link('findings', 'findings', 'Findings', 'Repository, workflow, and secret findings.'),
     link('remediation', 'remediation', 'Remediation', 'Fix PRs and verification.'),
-    link('agentic-risk', 'agentic-risk', 'AI agents', 'Identities, MCP tools, prompts, and trust paths.')
+    link('agentic-risk', 'agentic-risk', 'AI / Agentic Risk', 'Identities, MCP tools, prompts, and trust paths.')
   ];
 }
 
