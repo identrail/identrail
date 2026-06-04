@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/identrail/identrail/internal/providers"
+	"github.com/identrail/identrail/internal/providers/awscontract"
 )
 
 func TestRoleNormalizerNormalizeFromFixture(t *testing.T) {
@@ -78,6 +80,69 @@ func TestRoleNormalizerSkipsUnsupportedAndDeduplicates(t *testing.T) {
 	}
 	if len(bundle.Identities) != 1 {
 		t.Fatalf("expected deduplicated identity count 1, got %d", len(bundle.Identities))
+	}
+}
+
+func TestRoleNormalizerPreservesIAMRoleMetadataWhenEC2ReferencesSameRole(t *testing.T) {
+	normalizer := NewRoleNormalizer()
+	roleARN := "arn:aws:iam::123456789012:role/payments-ec2"
+	createdAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	lastUsedAt := time.Date(2026, 6, 1, 8, 30, 0, 0, time.UTC)
+	role := IAMRole{
+		ARN:        roleARN,
+		Name:       "payments-authoritative",
+		CreatedAt:  &createdAt,
+		LastUsedAt: &lastUsedAt,
+		Tags:       map[string]string{"owner": "iam-team", "env": "prod"},
+	}
+	ec2Reference := EC2InstanceProfile{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			RoleARN: roleARN,
+		},
+		RoleName: "payments-placeholder",
+		Tags:     map[string]string{"owner": "ec2-team"},
+	}
+	rolePayload, err := json.Marshal(role)
+	if err != nil {
+		t.Fatalf("marshal role: %v", err)
+	}
+	ec2Payload, err := json.Marshal(ec2Reference)
+	if err != nil {
+		t.Fatalf("marshal ec2 reference: %v", err)
+	}
+
+	bundle, err := normalizer.Normalize(context.Background(), []providers.RawAsset{
+		{Kind: rawKindEC2InstanceProfile, SourceID: "ec2-profile", Payload: ec2Payload},
+		{Kind: "iam_role", SourceID: "iam-role", Payload: rolePayload},
+	})
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if len(bundle.Identities) != 1 {
+		t.Fatalf("expected one role identity, got %+v", bundle.Identities)
+	}
+
+	identity := bundle.Identities[0]
+	if identity.Name != "payments-authoritative" {
+		t.Fatalf("expected IAM role name, got %q", identity.Name)
+	}
+	if identity.RawRef != "iam-role" {
+		t.Fatalf("expected IAM raw ref, got %q", identity.RawRef)
+	}
+	if identity.OwnerHint != "iam-team" {
+		t.Fatalf("expected IAM owner hint, got %q", identity.OwnerHint)
+	}
+	if got := identity.Tags["env"]; got != "prod" {
+		t.Fatalf("expected IAM env tag, got %q", got)
+	}
+	if got := identity.Tags["owner"]; got != "iam-team" {
+		t.Fatalf("expected IAM owner tag, got %q", got)
+	}
+	if !identity.CreatedAt.Equal(createdAt) {
+		t.Fatalf("expected IAM created_at %s, got %s", createdAt, identity.CreatedAt)
+	}
+	if identity.LastUsedAt == nil || !identity.LastUsedAt.Equal(lastUsedAt) {
+		t.Fatalf("expected IAM last_used_at %s, got %v", lastUsedAt, identity.LastUsedAt)
 	}
 }
 

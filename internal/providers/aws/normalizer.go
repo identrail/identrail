@@ -29,7 +29,7 @@ func NewRoleNormalizer() *RoleNormalizer {
 	return &RoleNormalizer{}
 }
 
-// Normalize converts IAM role assets to normalized identities and policies.
+// Normalize converts AWS role and workload assets to normalized entities.
 func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset) (providers.NormalizedBundle, error) {
 	bundle := providers.NormalizedBundle{
 		Identities: make([]domain.Identity, 0, len(raw)),
@@ -47,17 +47,23 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		if err := ctx.Err(); err != nil {
 			return providers.NormalizedBundle{}, err
 		}
-		switch asset.Kind {
-		case "iam_role":
-			if err := normalizeIAMRoleAsset(asset, i, &bundle, identitySeen, policySeen); err != nil {
-				return providers.NormalizedBundle{}, err
-			}
-		case rawKindEC2InstanceProfile:
-			if err := normalizeEC2InstanceProfileAsset(asset, i, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
-				return providers.NormalizedBundle{}, err
-			}
-		default:
+		if asset.Kind != "iam_role" {
 			continue
+		}
+		if err := normalizeIAMRoleAsset(asset, i, &bundle, identitySeen, policySeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != rawKindEC2InstanceProfile {
+			continue
+		}
+		if err := normalizeEC2InstanceProfileAsset(asset, i, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
 		}
 	}
 
