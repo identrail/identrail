@@ -8657,7 +8657,7 @@ function useGitHubDomainData(
             setConnection(nextConnection);
             setScans(fallbackSnapshot.scans);
             writeGitHubDomainDataCache(requestCacheKey, { connection: nextConnection, scans: fallbackSnapshot.scans });
-            setError('');
+            setError(nextError);
             return;
           }
         }
@@ -8676,7 +8676,7 @@ function useGitHubDomainData(
         if (fallbackSnapshot) {
           setConnection(fallbackSnapshot.connection);
           setScans(fallbackSnapshot.scans);
-          setError('');
+          setError(formatAPIError(error, 'Unable to load GitHub connection status.'));
           return;
         }
         setError(formatAPIError(error, 'Unable to load GitHub connection status.'));

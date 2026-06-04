@@ -4691,6 +4691,45 @@ describe('GitHub domain pages (#1382)', () => {
     });
   });
 
+  it('Control Center keeps cached scans visible while surfacing same-environment refresh failures', async () => {
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
+    const getGitHubConnectorStatus = vi
+      .spyOn(api.apiClient, 'getGitHubConnectorStatus')
+      .mockResolvedValueOnce({ connection: connectedGitHub })
+      .mockResolvedValueOnce({ connection: connectedGitHub });
+    const listRepoScans = vi
+      .spyOn(api.apiClient, 'listRepoScans')
+      .mockResolvedValueOnce({ items: [succeededRepoScan] })
+      .mockRejectedValueOnce(new api.ApiError('rate limited', 429));
+
+    const productShell = await import('./productShell');
+    const renderControlCenter = () =>
+      render(
+        <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github?environment=production-platform']}>
+          <Routes>
+            <Route path="/app/:tenantID/:workspaceID/github" element={<productShell.ProductGitHubControlCenterPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+    const firstRender = renderControlCenter();
+    expect(await screen.findByRole('heading', { level: 3, name: 'Recent scans' })).toBeInTheDocument();
+    await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(1));
+    firstRender.unmount();
+
+    renderControlCenter();
+
+    expect(screen.getByRole('heading', { level: 3, name: 'Recent scans' })).toBeInTheDocument();
+    await screen.findByRole('heading', { level: 3, name: /Unable to load GitHub status/i });
+    expect(screen.getByText(/rate limited/i)).toBeInTheDocument();
+    await waitFor(() => expect(getGitHubConnectorStatus).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(2));
+  });
+
   it('Control Center hides recent scans when no repositories are selected', async () => {
     const unrelatedScan: RepoScanRecord = {
       ...succeededRepoScan,
