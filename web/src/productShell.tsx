@@ -7366,14 +7366,16 @@ function selectGitHubControlCenterBanner({
       tone: 'danger'
     };
   }
-  const findingsTotal = latestPerRepo.reduce(
-    (total, scan) => total + Math.max(scan.finding_count, 0),
-    0
-  );
-  if (findingsTotal > 0) {
+  // recentScans is capped at GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT, so a
+  // total summed from it would underreport when more selected repos have
+  // open findings than fit in the recent window. The findings page is the
+  // source of truth for the precise number — the banner just signals that
+  // there is work to do.
+  const hasOpenFindings = latestPerRepo.some((scan) => scan.finding_count > 0);
+  if (hasOpenFindings) {
     return {
       id: 'triage-findings',
-      message: `${formatCountLabel(findingsTotal, 'finding')} need triage.`,
+      message: 'Repository findings need triage.',
       actionLabel: 'Review',
       actionTo: findingsPath,
       tone: 'warning'

@@ -4126,31 +4126,59 @@ describe('GitHub domain pages (#1382)', () => {
     });
   });
 
-  it('Control Center counts findings off the latest scan per repository, not historical totals', async () => {
-    const baseFields = {
-      status: succeededRepoScan.status,
-      scan_mode: succeededRepoScan.scan_mode,
-      files_scanned: succeededRepoScan.files_scanned
+  it('Control Center surfaces a triage banner when latest scans have open findings', async () => {
+    const repoWithFindings: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'repo-scan-latest-has-findings',
+      repository: 'identrail/repo-a',
+      started_at: '2026-05-20T10:00:00Z',
+      finished_at: '2026-05-20T10:05:00Z',
+      finding_count: 2
     };
-    const repoA = 'identrail/repo-a';
-    const repoB = 'identrail/repo-b';
-    const scans: RepoScanRecord[] = [
-      // Latest scan per repo: repo-a has 2 findings, repo-b has 3 findings → banner expects 5.
-      { ...succeededRepoScan, ...baseFields, id: 'a-latest', repository: repoA, started_at: '2026-05-20T10:00:00Z', finished_at: '2026-05-20T10:05:00Z', finding_count: 2 },
-      { ...succeededRepoScan, ...baseFields, id: 'a-older', repository: repoA, started_at: '2026-05-19T10:00:00Z', finished_at: '2026-05-19T10:05:00Z', finding_count: 2 },
-      { ...succeededRepoScan, ...baseFields, id: 'a-older-2', repository: repoA, started_at: '2026-05-18T10:00:00Z', finished_at: '2026-05-18T10:05:00Z', finding_count: 2 },
-      { ...succeededRepoScan, ...baseFields, id: 'b-latest', repository: repoB, started_at: '2026-05-20T11:00:00Z', finished_at: '2026-05-20T11:05:00Z', finding_count: 3 },
-      { ...succeededRepoScan, ...baseFields, id: 'b-older', repository: repoB, started_at: '2026-05-19T11:00:00Z', finished_at: '2026-05-19T11:05:00Z', finding_count: 3 }
-    ];
 
     await renderGitHubPage('control-center', {
-      githubConnection: { ...connectedGitHub, selected_repositories: [repoA, repoB] },
-      scans
+      githubConnection: { ...connectedGitHub, selected_repositories: ['identrail/repo-a'] },
+      scans: [repoWithFindings]
     });
 
     await screen.findByRole('heading', { level: 2, name: 'GitHub' });
     const banner = await screen.findByLabelText('GitHub action recommendation');
-    expect(within(banner).getByText(/5 findings need triage\./)).toBeInTheDocument();
+    expect(within(banner).getByText(/Repository findings need triage\./)).toBeInTheDocument();
+    expect(within(banner).getByRole('link', { name: /Review/i })).toHaveAttribute(
+      'href',
+      expect.stringMatching(/\/github\/findings/)
+    );
+  });
+
+  it('Control Center triage banner ignores findings from older scans once the latest scan is clean', async () => {
+    const repo = 'identrail/repo-cleared';
+    const olderHadFindings: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'older-had-findings',
+      repository: repo,
+      started_at: '2026-05-19T10:00:00Z',
+      finished_at: '2026-05-19T10:05:00Z',
+      finding_count: 3
+    };
+    const latestClean: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'latest-clean',
+      repository: repo,
+      started_at: '2026-05-20T10:00:00Z',
+      finished_at: '2026-05-20T10:05:00Z',
+      finding_count: 0
+    };
+
+    await renderGitHubPage('control-center', {
+      githubConnection: { ...connectedGitHub, selected_repositories: [repo] },
+      scans: [latestClean, olderHadFindings]
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
+    await screen.findByText(/Installation 12345/i);
+    await waitFor(() => {
+      expect(screen.queryByLabelText('GitHub action recommendation')).not.toBeInTheDocument();
+    });
   });
 
   it('Connect page renders an Open GitHub fallback link when the install popup is blocked', async () => {
