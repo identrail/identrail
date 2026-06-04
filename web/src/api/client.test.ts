@@ -702,4 +702,26 @@ describe('apiClient', () => {
     expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
+
+  it('gets AWS project dependency index with scoped headers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ index: { status: 'ready', issue_count: 85, checks: [] } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectDependencyIndex('workspace/a', 'project 1', 'aws-prod', {
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace/a',
+      bearerToken: 'token-a'
+    });
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/workspaces/workspace%2Fa/projects/project%201/aws/dependency-index?connector_id=aws-prod');
+    expect(options.method ?? 'GET').toBe('GET');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
 });

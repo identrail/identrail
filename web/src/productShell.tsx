@@ -30,6 +30,7 @@ import {
   type AWSConnectorStartResponse,
   type AWSConnectionStatus,
   type AWSPlatformBaselineResult,
+  type AWSPlatformDependencyIndexResult,
   type AWSPermissionPreviewItem,
   type CurrentUserContext,
   type ExecutiveReport,
@@ -2956,6 +2957,119 @@ function AWSBaselineGateSummary({
   );
 }
 
+function awsDependencyIndexLabel(index: AWSPlatformDependencyIndexResult | null): string {
+  if (!index) {
+    return 'Not loaded';
+  }
+  if (index.status === 'ready') {
+    return 'Ready';
+  }
+  if (index.status === 'degraded') {
+    return 'Degraded';
+  }
+  return 'Blocked';
+}
+
+function awsDependencyIndexTone(
+  index: AWSPlatformDependencyIndexResult | null,
+  loading = false
+): 'success' | 'warning' | 'danger' | 'neutral' | 'info' {
+  if (loading) {
+    return 'info';
+  }
+  if (!index) {
+    return 'neutral';
+  }
+  if (index.status === 'ready') {
+    return 'success';
+  }
+  if (index.status === 'degraded') {
+    return 'warning';
+  }
+  return 'danger';
+}
+
+function awsDependencyCheckTone(status: AWSPlatformDependencyIndexResult['checks'][number]['status']): 'success' | 'warning' | 'error' | 'neutral' {
+  if (status === 'ready') {
+    return 'success';
+  }
+  if (status === 'degraded') {
+    return 'warning';
+  }
+  if (status === 'blocked') {
+    return 'error';
+  }
+  return 'neutral';
+}
+
+function awsDependencyIndexSummary(index: AWSPlatformDependencyIndexResult | null): string {
+  if (!index) {
+    return 'No ledger loaded';
+  }
+  return `${formatCountLabel(index.ready_issue_count, 'ready issue')} · ${formatCountLabel(index.blocked_issue_count, 'blocked issue')} · ${formatCountLabel(
+    index.completed_issue_refs.length,
+    'completed issue'
+  )}`;
+}
+
+function AWSDependencyIndexSummary({
+  index,
+  loading = false,
+  emptyLabel = 'Dependency index has not loaded for this environment.'
+}: {
+  index: AWSPlatformDependencyIndexResult | null;
+  loading?: boolean;
+  emptyLabel?: string;
+}) {
+  if (loading) {
+    return (
+      <article>
+        <strong>AWS dependency index</strong>
+        <span className="idt-source-status-pill is-neutral">Loading</span>
+        <p>Loading issue sequencing checks.</p>
+      </article>
+    );
+  }
+  if (!index) {
+    return (
+      <article>
+        <strong>AWS dependency index</strong>
+        <span className="idt-source-status-pill is-neutral">Not loaded</span>
+        <p>{emptyLabel}</p>
+      </article>
+    );
+  }
+  const readyRefs = index.ready_issue_refs.slice(0, 5);
+  return (
+    <>
+      <article>
+        <strong>Next ready issues</strong>
+        <span className="idt-source-status-pill is-success">Ready</span>
+        <p>{readyRefs.length ? readyRefs.join(', ') : 'No issue is currently ready.'}</p>
+        <small>{awsDependencyIndexSummary(index)}</small>
+      </article>
+      {index.checks.map((check) => (
+        <article key={check.name}>
+          <strong>{formatTokenLabel(check.name)}</strong>
+          <span className={`idt-source-status-pill is-${awsDependencyCheckTone(check.status)}`}>{formatTokenLabel(check.status)}</span>
+          <p>{check.message}</p>
+          <small>
+            {check.required ? 'Required' : 'Optional'} · confidence {formatConfidenceScore(check.confidence)} ·{' '}
+            {formatConnectionTime(check.checked_at)}
+          </small>
+          {check.failure_reason ? <small>{formatTokenLabel(check.failure_reason)}</small> : null}
+          {check.remediation ? <small>{check.remediation}</small> : null}
+          {check.evidence_url ? (
+            <a href={check.evidence_url} target={check.evidence_url.startsWith('http') ? '_blank' : undefined} rel="noreferrer">
+              Evidence
+            </a>
+          ) : null}
+        </article>
+      ))}
+    </>
+  );
+}
+
 type AWSInventoryRouteID = Extract<ProductDomainRouteID, 'accounts' | 'identities' | 'agents' | 'resources'>;
 
 type AWSInventoryPageCopy = {
@@ -5079,8 +5193,12 @@ export function ProductAWSControlCenterPage() {
   const [baseline, setBaseline] = useState<AWSPlatformBaselineResult | null>(null);
   const [baselineLoading, setBaselineLoading] = useState(false);
   const [baselineError, setBaselineError] = useState('');
+  const [dependencyIndex, setDependencyIndex] = useState<AWSPlatformDependencyIndexResult | null>(null);
+  const [dependencyLoading, setDependencyLoading] = useState(false);
+  const [dependencyError, setDependencyError] = useState('');
   const connectionRequestRef = useRef(0);
   const baselineRequestRef = useRef(0);
+  const dependencyRequestRef = useRef(0);
   const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
   selectedEnvironmentIDRef.current = selectedEnvironmentID;
 
@@ -5187,14 +5305,52 @@ export function ProductAWSControlCenterPage() {
     }
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connector_id]);
 
+  const refreshDependencyIndex = useCallback(async () => {
+    const requestID = ++dependencyRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    if (!scope || !requestEnvironmentID) {
+      setDependencyIndex(null);
+      setDependencyError('');
+      setDependencyLoading(false);
+      return;
+    }
+    const isStale = () => requestID !== dependencyRequestRef.current || selectedEnvironmentIDRef.current !== requestEnvironmentID;
+    setDependencyLoading(true);
+    setDependencyError('');
+    try {
+      const response = await apiClient.getAWSProjectDependencyIndex(
+        scope.workspaceID,
+        requestEnvironmentID,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (isStale()) {
+        return;
+      }
+      setDependencyIndex(response.index);
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      setDependencyIndex(null);
+      setDependencyError(formatAPIError(error, 'Unable to load AWS dependency index.'));
+    } finally {
+      if (!isStale()) {
+        setDependencyLoading(false);
+      }
+    }
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
   useEffect(() => {
     void refreshConnection();
     void refreshBaseline();
+    void refreshDependencyIndex();
     return () => {
       connectionRequestRef.current += 1;
       baselineRequestRef.current += 1;
+      dependencyRequestRef.current += 1;
     };
-  }, [refreshConnection, refreshBaseline]);
+  }, [refreshConnection, refreshBaseline, refreshDependencyIndex]);
 
   if (!scope) {
     return (
@@ -5209,10 +5365,13 @@ export function ProductAWSControlCenterPage() {
   const handleEnvironmentChange = (environmentID: string) => {
     connectionRequestRef.current += 1;
     baselineRequestRef.current += 1;
+    dependencyRequestRef.current += 1;
     setConnection(null);
     setBaseline(null);
+    setDependencyIndex(null);
     setConnectionError('');
     setBaselineError('');
+    setDependencyError('');
     navigate(
       {
         pathname: location.pathname,
@@ -5229,6 +5388,7 @@ export function ProductAWSControlCenterPage() {
   const effectiveCapabilities = connection?.capabilities.effective.length ?? 0;
   const statusTone = awsDomainTone(connection, connectionLoading || environmentScope.loading);
   const baselineTone = awsBaselineTone(baseline, baselineLoading || environmentScope.loading);
+  const dependencyTone = awsDependencyIndexTone(dependencyIndex, dependencyLoading || environmentScope.loading);
   const statusLabel = environmentScope.loading
     ? 'Loading scope'
     : connectionLoading
@@ -5302,11 +5462,19 @@ export function ProductAWSControlCenterPage() {
             value: awsBaselineLabel(baseline),
             detail: baselineLoading ? 'Verification loading' : awsBaselineSummary(baseline),
             tone: baselineTone
+          },
+          {
+            label: 'Dependency index',
+            value: awsDependencyIndexLabel(dependencyIndex),
+            detail: dependencyLoading ? 'Sequencing loading' : awsDependencyIndexSummary(dependencyIndex),
+            tone: dependencyTone
           }
         ]}
       />
 
-      {environmentScope.loading || connectionLoading || baselineLoading ? <DomainLoadingState label="Loading AWS control center status" /> : null}
+      {environmentScope.loading || connectionLoading || baselineLoading || dependencyLoading ? (
+        <DomainLoadingState label="Loading AWS control center status" />
+      ) : null}
 
       {connectionError ? (
         <DomainErrorState
@@ -5320,6 +5488,13 @@ export function ProductAWSControlCenterPage() {
           title="AWS baseline could not load"
           body={baselineError}
           retryAction={{ label: 'Retry baseline', onClick: () => void refreshBaseline() }}
+        />
+      ) : null}
+      {dependencyError ? (
+        <DomainErrorState
+          title="AWS dependency index could not load"
+          body={dependencyError}
+          retryAction={{ label: 'Retry index', onClick: () => void refreshDependencyIndex() }}
         />
       ) : null}
 
@@ -5406,6 +5581,55 @@ export function ProductAWSControlCenterPage() {
           </dl>
           <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS baseline checks">
             <AWSBaselineGateSummary baseline={baseline} loading={baselineLoading} />
+          </div>
+        </div>
+      </DomainStatusPanel>
+
+      <DomainStatusPanel
+        eyebrow="Issue sequencing"
+        title="AWS platform dependency index"
+        status={awsDependencyIndexLabel(dependencyIndex)}
+        tone={dependencyTone}
+        actions={[
+          { label: 'Refresh index', onClick: () => void refreshDependencyIndex(), variant: 'secondary', disabled: dependencyLoading || !selectedEnvironmentID },
+          {
+            label: 'Parent epic',
+            href: 'https://github.com/identrail/identrail/issues/1472',
+            target: '_blank',
+            rel: 'noreferrer',
+            variant: 'ghost'
+          }
+        ]}
+      >
+        <div className="idt-aws-status-grid">
+          <dl>
+            <div>
+              <dt>Parent</dt>
+              <dd>{dependencyIndex?.parent_issue_ref ?? '#1472'}</dd>
+            </div>
+            <div>
+              <dt>Issues</dt>
+              <dd>{dependencyIndex ? formatCountLabel(dependencyIndex.issue_count, 'issue') : 'Pending'}</dd>
+            </div>
+            <div>
+              <dt>Waves</dt>
+              <dd>{dependencyIndex ? formatCountLabel(dependencyIndex.wave_count, 'wave') : 'Pending'}</dd>
+            </div>
+            <div>
+              <dt>Ready</dt>
+              <dd>{dependencyIndex ? dependencyIndex.ready_issue_refs.join(', ') || 'None' : 'Pending'}</dd>
+            </div>
+            <div>
+              <dt>Blocked</dt>
+              <dd>{dependencyIndex ? formatCountLabel(dependencyIndex.blocked_issue_count, 'issue') : 'Pending'}</dd>
+            </div>
+            <div>
+              <dt>Updated</dt>
+              <dd>{formatConnectionTime(dependencyIndex?.updated_at)}</dd>
+            </div>
+          </dl>
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS dependency index checks">
+            <AWSDependencyIndexSummary index={dependencyIndex} loading={dependencyLoading} />
           </div>
         </div>
       </DomainStatusPanel>
@@ -5690,6 +5914,9 @@ export function ProductAWSConnectPage() {
   const [baseline, setBaseline] = useState<AWSPlatformBaselineResult | null>(null);
   const [baselineLoading, setBaselineLoading] = useState(false);
   const [baselineError, setBaselineError] = useState('');
+  const [dependencyIndex, setDependencyIndex] = useState<AWSPlatformDependencyIndexResult | null>(null);
+  const [dependencyLoading, setDependencyLoading] = useState(false);
+  const [dependencyError, setDependencyError] = useState('');
   const [awsForm, setAWSForm] = useState({
     roleARN: '',
     externalID: '',
@@ -5705,6 +5932,7 @@ export function ProductAWSConnectPage() {
   const [awsPreviewOpen, setAWSPreviewOpen] = useState(false);
   const connectionRequestRef = useRef(0);
   const baselineRequestRef = useRef(0);
+  const dependencyRequestRef = useRef(0);
   const awsStartRequestRef = useRef(0);
   const awsPollRequestRef = useRef(0);
   const awsValidationRequestRef = useRef(0);
@@ -5846,9 +6074,50 @@ export function ProductAWSConnectPage() {
     }
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, awsCloudFormationStart?.connector_id, connection?.connector_id]);
 
+  const refreshDependencyIndex = useCallback(async () => {
+    const requestID = ++dependencyRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKeyRef.current;
+    if (!scope || !requestEnvironmentID) {
+      setDependencyIndex(null);
+      setDependencyError('');
+      setDependencyLoading(false);
+      return;
+    }
+    const isStale = () =>
+      requestID !== dependencyRequestRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
+    setDependencyLoading(true);
+    setDependencyError('');
+    try {
+      const response = await apiClient.getAWSProjectDependencyIndex(
+        scope.workspaceID,
+        requestEnvironmentID,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (isStale()) {
+        return;
+      }
+      setDependencyIndex(response.index);
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      setDependencyIndex(null);
+      setDependencyError(formatAPIError(error, 'Unable to load AWS dependency index.'));
+    } finally {
+      if (!isStale()) {
+        setDependencyLoading(false);
+      }
+    }
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
   useEffect(() => {
     connectionRequestRef.current += 1;
     baselineRequestRef.current += 1;
+    dependencyRequestRef.current += 1;
     awsStartRequestRef.current += 1;
     awsPollRequestRef.current += 1;
     awsValidationRequestRef.current += 1;
@@ -5856,6 +6125,8 @@ export function ProductAWSConnectPage() {
     setErrorMessage('');
     setBaseline(null);
     setBaselineError('');
+    setDependencyIndex(null);
+    setDependencyError('');
     setSubmitting(false);
     setAWSCloudFormationStart(null);
     setAWSPermissionPreview([]);
@@ -5870,14 +6141,16 @@ export function ProductAWSConnectPage() {
     }));
     void refreshConnection('initial');
     void refreshBaseline();
+    void refreshDependencyIndex();
     return () => {
       connectionRequestRef.current += 1;
       baselineRequestRef.current += 1;
+      dependencyRequestRef.current += 1;
       awsStartRequestRef.current += 1;
       awsPollRequestRef.current += 1;
       awsValidationRequestRef.current += 1;
     };
-  }, [refreshConnection, refreshBaseline]);
+  }, [refreshConnection, refreshBaseline, refreshDependencyIndex]);
 
   if (!scope) {
     return (
@@ -5892,12 +6165,15 @@ export function ProductAWSConnectPage() {
   const handleEnvironmentChange = (environmentID: string) => {
     connectionRequestRef.current += 1;
     baselineRequestRef.current += 1;
+    dependencyRequestRef.current += 1;
     awsStartRequestRef.current += 1;
     awsPollRequestRef.current += 1;
     awsValidationRequestRef.current += 1;
     setConnection(null);
     setBaseline(null);
+    setDependencyIndex(null);
     setBaselineError('');
+    setDependencyError('');
     navigate(
       {
         pathname: location.pathname,
@@ -5911,6 +6187,7 @@ export function ProductAWSConnectPage() {
   const findingsPath = awsRouteLink(scope, 'findings', selectedEnvironmentID);
   const statusTone = awsDomainTone(connection, loadingConnection || refreshingConnection || environmentScope.loading);
   const baselineTone = awsBaselineTone(baseline, baselineLoading || environmentScope.loading);
+  const dependencyTone = awsDependencyIndexTone(dependencyIndex, dependencyLoading || environmentScope.loading);
   const canSubmit = !submitting && !loadingConnection && Boolean(selectedEnvironmentID);
   const activeConnectorID = awsCloudFormationStart?.connector_id ?? connection?.connector_id ?? '';
 
@@ -5994,6 +6271,7 @@ export function ProductAWSConnectPage() {
       setSuccessMessage(response.connection.connected ? 'AWS connector is active.' : 'AWS status refreshed.');
       if (response.connection.connected) {
         void verifyBaseline();
+        void refreshDependencyIndex();
       }
     } catch (error) {
       if (isStale()) {
@@ -6061,6 +6339,7 @@ export function ProductAWSConnectPage() {
       );
       if (response.connection.connected) {
         void verifyBaseline();
+        void refreshDependencyIndex();
       }
     } catch (error) {
       if (isStale()) {
@@ -6134,11 +6413,17 @@ export function ProductAWSConnectPage() {
             value: awsBaselineLabel(baseline),
             detail: baselineLoading ? 'Verification loading' : awsBaselineSummary(baseline),
             tone: baselineTone
+          },
+          {
+            label: 'Dependency index',
+            value: awsDependencyIndexLabel(dependencyIndex),
+            detail: dependencyLoading ? 'Sequencing loading' : awsDependencyIndexSummary(dependencyIndex),
+            tone: dependencyTone
           }
         ]}
       />
 
-      {loadingConnection || baselineLoading || environmentScope.loading ? <DomainLoadingState label="Loading AWS setup state" /> : null}
+      {loadingConnection || baselineLoading || dependencyLoading || environmentScope.loading ? <DomainLoadingState label="Loading AWS setup state" /> : null}
 
       {!selectedEnvironmentID && !environmentScope.loading ? (
         <DomainEmptyState
@@ -6162,6 +6447,11 @@ export function ProductAWSConnectPage() {
       {baselineError ? (
         <p role="alert" className="idt-app-alert idt-app-alert-error">
           {baselineError}
+        </p>
+      ) : null}
+      {dependencyError ? (
+        <p role="alert" className="idt-app-alert idt-app-alert-error">
+          {dependencyError}
         </p>
       ) : null}
 
@@ -6352,6 +6642,41 @@ export function ProductAWSConnectPage() {
               </dl>
               <div className="idt-source-diagnostics" aria-label="AWS baseline diagnostics">
                 <AWSBaselineGateSummary baseline={baseline} loading={baselineLoading} />
+              </div>
+            </DomainStatusPanel>
+
+            <DomainStatusPanel
+              eyebrow="Issue sequencing"
+              title="Dependency index"
+              status={awsDependencyIndexLabel(dependencyIndex)}
+              tone={dependencyTone}
+              actions={[
+                { label: 'Refresh index', onClick: () => void refreshDependencyIndex(), disabled: dependencyLoading || !selectedEnvironmentID },
+                {
+                  label: 'Parent epic',
+                  href: 'https://github.com/identrail/identrail/issues/1472',
+                  target: '_blank',
+                  rel: 'noreferrer',
+                  variant: 'ghost'
+                }
+              ]}
+            >
+              <dl className="idt-domain-route-facts">
+                <div>
+                  <dt>Ready</dt>
+                  <dd>{dependencyIndex ? dependencyIndex.ready_issue_refs.join(', ') || 'None' : 'Pending'}</dd>
+                </div>
+                <div>
+                  <dt>Blocked</dt>
+                  <dd>{dependencyIndex ? formatCountLabel(dependencyIndex.blocked_issue_count, 'issue') : 'Pending'}</dd>
+                </div>
+                <div>
+                  <dt>Updated</dt>
+                  <dd>{formatConnectionTime(dependencyIndex?.updated_at)}</dd>
+                </div>
+              </dl>
+              <div className="idt-source-diagnostics" aria-label="AWS dependency diagnostics">
+                <AWSDependencyIndexSummary index={dependencyIndex} loading={dependencyLoading} />
               </div>
             </DomainStatusPanel>
 

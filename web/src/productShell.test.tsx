@@ -6,6 +6,7 @@ import type {
   AWSConnectorStartResponse,
   AWSConnectionStatus,
   AWSPlatformBaselineResult,
+  AWSPlatformDependencyIndexResult,
   CurrentUserContext,
   Finding,
   GitHubConnectionStatus,
@@ -172,6 +173,76 @@ const readyAWSBaseline: AWSPlatformBaselineResult = {
   updated_at: '2026-05-17T10:00:00Z'
 };
 
+const readyAWSDependencyIndex: AWSPlatformDependencyIndexResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  parent_issue_number: 1472,
+  parent_issue_ref: '#1472',
+  current_issue_number: 1474,
+  current_issue_ref: '#1474',
+  version: 'aws-platform-dependency-index-v1',
+  status: 'ready',
+  confidence: 0.97,
+  issue_count: 85,
+  wave_count: 11,
+  ready_issue_count: 2,
+  blocked_issue_count: 82,
+  completed_issue_refs: ['#1473'],
+  ready_issue_refs: ['#1474', '#1475'],
+  blocked_issue_refs: ['#1476'],
+  failure_reasons: [],
+  remediation_hints: [],
+  evidence_links: [
+    'https://github.com/identrail/identrail/issues/1472',
+    'https://github.com/identrail/identrail/issues/1474',
+    '/docs/aws-platform-dependency-index'
+  ],
+  checks: [
+    {
+      name: 'current_issue_readiness',
+      category: 'readiness',
+      required: true,
+      status: 'ready',
+      message: '#1474 is unblocked because all blockers are closed in the ledger.',
+      confidence: 0.96,
+      checked_at: '2026-05-17T10:00:00Z'
+    }
+  ],
+  issues: [
+    {
+      issue_number: 1474,
+      issue_ref: '#1474',
+      title: 'AWS platform issue dependency index',
+      wave: 0,
+      wave_name: 'Clean baseline and epic setup',
+      sequence: 2,
+      blocker_refs: ['#1473'],
+      downstream_refs: [],
+      dependency_status: 'ready',
+      ready_for_pr: true,
+      failure_reasons: [],
+      remediation: 'Open exactly one focused PR for this issue from current origin/dev.',
+      next_action: 'Ready for a focused implementation PR.',
+      evidence_url: 'https://github.com/identrail/identrail/issues/1474'
+    }
+  ],
+  generated_at: '2026-05-17T10:00:00Z',
+  updated_at: '2026-05-17T10:00:00Z'
+};
+
+function mockAWSDependencyIndex(
+  api: typeof import('./api/client'),
+  index: AWSPlatformDependencyIndexResult = readyAWSDependencyIndex
+) {
+  vi.spyOn(api.apiClient, 'getAWSProjectDependencyIndex').mockResolvedValue({
+    index
+  });
+}
+
 function mockAWSBaseline(api: typeof import('./api/client'), baseline: AWSPlatformBaselineResult = readyAWSBaseline) {
   vi.spyOn(api.apiClient, 'getAWSProjectBaseline').mockResolvedValue({
     baseline
@@ -179,6 +250,7 @@ function mockAWSBaseline(api: typeof import('./api/client'), baseline: AWSPlatfo
   vi.spyOn(api.apiClient, 'verifyAWSProjectBaseline').mockResolvedValue({
     baseline
   });
+  mockAWSDependencyIndex(api);
 }
 
 const disconnectedKubernetes: KubernetesConnectionStatus = {

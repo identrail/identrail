@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Added the AWS platform issue dependency index for #1474. The API now exposes
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/dependency-index`
+  as a read-only, project-scoped ledger for the #1472 AWS child issue graph,
+  validating child count, blocker `#1234` formatting, blocker existence,
+  parent ordering, and current-issue readiness after #1473. The AWS Control
+  Center and Connect AWS pages surface the index as a sequencing gate with
+  ready/blocked/completed counts and per-check diagnostics, and the web client,
+  OpenAPI contract, tests, and docs cover the scriptable handoff response.
 - Reworked the GitHub overview (`/app/.../github`) so the page leads with
   one identity line and one primary action instead of stacking a hero with
   four KPI cards, an installation detail card, a "Next actions"

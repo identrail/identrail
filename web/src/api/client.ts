@@ -858,6 +858,70 @@ export type AWSPlatformBaselineRequest = {
   git_sha?: string;
 };
 
+export type AWSPlatformDependencyStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSPlatformIssueDependencyStatus = 'completed' | 'ready' | 'blocked';
+
+export type AWSPlatformDependencyCheck = {
+  name: string;
+  category: string;
+  required: boolean;
+  status: AWSPlatformDependencyStatus;
+  message: string;
+  failure_reason?: string;
+  remediation?: string;
+  evidence_url?: string;
+  confidence: number;
+  evidence?: Record<string, unknown>;
+  checked_at: string;
+};
+
+export type AWSPlatformDependencyIssue = {
+  issue_number: number;
+  issue_ref: string;
+  title: string;
+  wave: number;
+  wave_name: string;
+  sequence: number;
+  blocker_refs: string[];
+  downstream_refs: string[];
+  dependency_status: AWSPlatformIssueDependencyStatus;
+  ready_for_pr: boolean;
+  failure_reasons: string[];
+  remediation: string;
+  next_action: string;
+  evidence_url: string;
+};
+
+export type AWSPlatformDependencyIndexResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSPlatformDependencyStatus;
+  confidence: number;
+  issue_count: number;
+  wave_count: number;
+  ready_issue_count: number;
+  blocked_issue_count: number;
+  completed_issue_refs: string[];
+  ready_issue_refs: string[];
+  blocked_issue_refs: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  checks: AWSPlatformDependencyCheck[];
+  issues: AWSPlatformDependencyIssue[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSConnectorStartRequest = {
   workspace_id?: string;
   project_id?: string;
@@ -1792,6 +1856,14 @@ export const apiClient = {
   getAWSProjectBaseline(workspaceID: string, projectID: string, connectorID?: string, auth?: RequestAuthContext) {
     return request<{ baseline: AWSPlatformBaselineResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/baseline${buildQuery({
+        connector_id: connectorID
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectDependencyIndex(workspaceID: string, projectID: string, connectorID?: string, auth?: RequestAuthContext) {
+    return request<{ index: AWSPlatformDependencyIndexResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/dependency-index${buildQuery({
         connector_id: connectorID
       })}`,
       auth
