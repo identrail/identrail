@@ -2459,11 +2459,129 @@ type EnvironmentScopeState = {
   error: string;
 };
 
+type EnvironmentScopeSnapshot = {
+  items: ProjectRecord[];
+  rejectedRequestedID: string;
+  error: string;
+};
+
+const ENVIRONMENT_SCOPE_CACHE_LIMIT = 24;
+const environmentScopeCache = new Map<string, EnvironmentScopeSnapshot>();
+const environmentScopeRequests = new Map<string, Promise<EnvironmentScopeSnapshot>>();
+
+function environmentScopeCacheKey(scope: ProductSession | null, requestedEnvironmentID: string): string {
+  if (!scope) {
+    return '';
+  }
+  return [scope.tenantID, scope.workspaceID, normalizeValue(requestedEnvironmentID)].join('::');
+}
+
+function writeEnvironmentScopeCache(key: string, snapshot: EnvironmentScopeSnapshot) {
+  if (!key) {
+    return;
+  }
+  environmentScopeCache.delete(key);
+  environmentScopeCache.set(key, {
+    items: snapshot.items,
+    rejectedRequestedID: snapshot.rejectedRequestedID,
+    error: snapshot.error
+  });
+  while (environmentScopeCache.size > ENVIRONMENT_SCOPE_CACHE_LIMIT) {
+    const oldestKey = environmentScopeCache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    environmentScopeCache.delete(oldestKey);
+  }
+}
+
+function primeEnvironmentScopeCache(scope: ProductSession, projects: ProjectRecord[]) {
+  const key = environmentScopeCacheKey(scope, '');
+  writeEnvironmentScopeCache(key, {
+    items: projects
+      .slice()
+      .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
+      .slice(0, ENVIRONMENT_SELECTOR_LIMIT),
+    rejectedRequestedID: '',
+    error: ''
+  });
+}
+
+function loadEnvironmentScopeSnapshot(
+  scope: ProductSession,
+  requestedEnvironmentID: string,
+  auth: RequestAuthContext
+): Promise<EnvironmentScopeSnapshot> {
+  const cacheKey = environmentScopeCacheKey(scope, requestedEnvironmentID);
+  const cached = environmentScopeCache.get(cacheKey);
+  if (cached) {
+    return Promise.resolve(cached);
+  }
+  const inFlight = environmentScopeRequests.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const request = (async () => {
+    const requestedID = normalizeValue(requestedEnvironmentID);
+    const response = await apiClient.listProjects(
+      scope.workspaceID,
+      {
+        limit: ENVIRONMENT_SELECTOR_LIMIT,
+        sort_by: 'updated_at',
+        sort_order: 'desc',
+        include_archived: false
+      },
+      auth
+    );
+    let nextItems = response.items ?? [];
+    let rejectedID = '';
+    let error = '';
+
+    if (requestedID && !nextItems.some((item) => item.project_id === requestedID)) {
+      try {
+        const requestedResponse = await apiClient.getProject(scope.workspaceID, requestedID, auth);
+        if (isProjectArchived(requestedResponse.project)) {
+          rejectedID = requestedID;
+        } else {
+          nextItems = [requestedResponse.project, ...nextItems];
+        }
+      } catch (requestError) {
+        if (isTransientProjectLookupError(requestError)) {
+          const requestedErrorMessage = normalizeValue(formatAPIError(requestError, ''));
+          const fallbackMessage = `Unable to verify selected environment ${requestedID}.`;
+          error = requestedErrorMessage ? `${fallbackMessage} ${requestedErrorMessage}` : fallbackMessage;
+        } else {
+          rejectedID = requestedID;
+        }
+      }
+    }
+
+    return {
+      items: nextItems,
+      rejectedRequestedID: rejectedID,
+      error
+    };
+  })();
+
+  environmentScopeRequests.set(cacheKey, request);
+  return request
+    .then((snapshot) => {
+      writeEnvironmentScopeCache(cacheKey, snapshot);
+      return snapshot;
+    })
+    .finally(() => {
+      environmentScopeRequests.delete(cacheKey);
+    });
+}
+
 function useEnvironmentScope(scope: ProductSession | null, requestedEnvironmentID: string): EnvironmentScopeState {
-  const [items, setItems] = useState<ProjectRecord[]>([]);
-  const [loading, setLoading] = useState(Boolean(scope));
-  const [error, setError] = useState('');
-  const [rejectedRequestedID, setRejectedRequestedID] = useState('');
+  const cacheKey = environmentScopeCacheKey(scope, requestedEnvironmentID);
+  const cachedSnapshot = cacheKey ? environmentScopeCache.get(cacheKey) : undefined;
+  const [items, setItems] = useState<ProjectRecord[]>(() => cachedSnapshot?.items ?? []);
+  const [loading, setLoading] = useState(Boolean(scope) && !cachedSnapshot);
+  const [error, setError] = useState(() => cachedSnapshot?.error ?? '');
+  const [rejectedRequestedID, setRejectedRequestedID] = useState(() => cachedSnapshot?.rejectedRequestedID ?? '');
 
   useEffect(() => {
     if (!scope) {
@@ -2475,73 +2593,34 @@ function useEnvironmentScope(scope: ProductSession | null, requestedEnvironmentI
     }
 
     let active = true;
-    setLoading(true);
-    setError('');
-    setRejectedRequestedID('');
+    const requestCacheKey = environmentScopeCacheKey(scope, requestedEnvironmentID);
+    const requestSnapshot = requestCacheKey ? environmentScopeCache.get(requestCacheKey) : undefined;
+    setLoading(!requestSnapshot);
+    setError(requestSnapshot?.error ?? '');
+    setRejectedRequestedID(requestSnapshot?.rejectedRequestedID ?? '');
+    setItems(requestSnapshot?.items ?? []);
 
-    const loadEnvironments = async () => {
-      try {
-        const requestedID = normalizeValue(requestedEnvironmentID);
-        const response = await apiClient.listProjects(
-          scope.workspaceID,
-          {
-            limit: ENVIRONMENT_SELECTOR_LIMIT,
-            sort_by: 'updated_at',
-            sort_order: 'desc',
-            include_archived: false
-          },
-          buildProductAuthContext(scope)
-        );
+    loadEnvironmentScopeSnapshot(scope, requestedEnvironmentID, buildProductAuthContext(scope))
+      .then((snapshot) => {
         if (!active) {
           return;
         }
-        let nextItems = response.items ?? [];
-        let rejectedID = '';
-        if (requestedID && !nextItems.some((item) => item.project_id === requestedID)) {
-          try {
-            const requestedResponse = await apiClient.getProject(
-              scope.workspaceID,
-              requestedID,
-              buildProductAuthContext(scope)
-            );
-            if (!active) {
-              return;
-            }
-            if (isProjectArchived(requestedResponse.project)) {
-              rejectedID = requestedID;
-            } else {
-              nextItems = [requestedResponse.project, ...nextItems];
-            }
-          } catch (requestError) {
-            if (!active) {
-              return;
-            }
-            if (isTransientProjectLookupError(requestError)) {
-              const requestedErrorMessage = normalizeValue(formatAPIError(requestError, ''));
-              const fallbackMessage = `Unable to verify selected environment ${requestedID}.`;
-              setError(requestedErrorMessage ? `${fallbackMessage} ${requestedErrorMessage}` : fallbackMessage);
-            } else {
-              rejectedID = requestedID;
-            }
-          }
+        setItems(snapshot.items);
+        setRejectedRequestedID(snapshot.rejectedRequestedID);
+        setError(snapshot.error);
+      })
+      .catch((loadError) => {
+        if (active) {
+          setItems([]);
+          setRejectedRequestedID('');
+          setError(loadError instanceof Error ? loadError.message : 'Unable to load environments.');
         }
-        setRejectedRequestedID(rejectedID);
-        setItems(nextItems);
-      } catch (loadError) {
-        if (!active) {
-          return;
-        }
-        setItems([]);
-        setRejectedRequestedID('');
-        setError(loadError instanceof Error ? loadError.message : 'Unable to load environments.');
-      } finally {
+      })
+      .finally(() => {
         if (active) {
           setLoading(false);
         }
-      }
-    };
-
-    void loadEnvironments();
+      });
 
     return () => {
       active = false;
@@ -11839,6 +11918,7 @@ export function ProductOverviewPage() {
       try {
         const auth = buildProductAuthContext(scope);
         const activeProjectItems = await listOverviewProjects(scope.workspaceID, { include_archived: false }, auth);
+        primeEnvironmentScopeCache(scope, activeProjectItems);
         const [scanResponse, findingResponse, connectionRollups] = await Promise.all([
           apiClient.listRepoScans({ limit: OVERVIEW_SCAN_LIMIT }, auth),
           apiClient.listRepoFindings(

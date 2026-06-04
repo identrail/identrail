@@ -1545,7 +1545,7 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 2, name: heading })).toBeInTheDocument();
-    expect(await screen.findByText(marker)).toBeInTheDocument();
+    expect((await screen.findAllByText(marker)).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Domain-owned entry point is ready/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: /AWS sections/i })).not.toBeInTheDocument();
   });

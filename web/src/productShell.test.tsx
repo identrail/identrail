@@ -4730,6 +4730,64 @@ describe('GitHub domain pages (#1382)', () => {
     await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(2));
   });
 
+  it('Control Center reuses the overview environment cache before loading GitHub status', async () => {
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'getOnboardingState').mockResolvedValue({
+      state: {
+        user_id: 'user-1',
+        org_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: productionProject.project_id,
+        current_step: 'complete',
+        connector_skipped: false,
+        scan_skipped: false,
+        started_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
+    const getGitHubConnectorStatus = vi
+      .spyOn(api.apiClient, 'getGitHubConnectorStatus')
+      .mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: connectedKubernetes });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [succeededRepoScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [], summary: undefined });
+
+    const { ProductOverviewPage, ProductGitHubControlCenterPage } = await import('./productShell');
+    const overviewRender = render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('region', { name: 'Domain posture' });
+    await waitFor(() => expect(listProjects).toHaveBeenCalledTimes(1));
+    overviewRender.unmount();
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github" element={<ProductGitHubControlCenterPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
+    await waitFor(() =>
+      expect(getGitHubConnectorStatus).toHaveBeenCalledWith(
+        'workspace-a',
+        'production-platform',
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(listProjects).toHaveBeenCalledTimes(1);
+  });
+
   it('Control Center hides recent scans when no repositories are selected', async () => {
     const unrelatedScan: RepoScanRecord = {
       ...succeededRepoScan,
