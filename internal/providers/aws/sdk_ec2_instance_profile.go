@@ -121,6 +121,9 @@ func (a *SDKEC2InstanceProfileAPI) listInstanceProfiles(ctx context.Context, nex
 			if err := ctx.Err(); err != nil {
 				return EC2InstanceProfilePage{}, err
 			}
+			if isTerminalEC2InstanceState(instanceStateName(instance.State)) {
+				continue
+			}
 			record, err := a.recordFromInstance(ctx, instance)
 			if err != nil {
 				return EC2InstanceProfilePage{}, err
@@ -153,7 +156,7 @@ func (a *SDKEC2InstanceProfileAPI) listLaunchTemplateProfiles(ctx context.Contex
 
 	records := []EC2InstanceProfile{}
 	for _, template := range output.LaunchTemplates {
-		templateRecords, err := a.recordsFromLaunchTemplate(ctx, template)
+		templateRecords, err := a.recordsFromLaunchTemplate(ctx, template, pageSize)
 		if err != nil {
 			return EC2InstanceProfilePage{}, err
 		}
@@ -204,25 +207,20 @@ func (a *SDKEC2InstanceProfileAPI) recordFromInstance(ctx context.Context, insta
 	return record, nil
 }
 
-func (a *SDKEC2InstanceProfileAPI) recordsFromLaunchTemplate(ctx context.Context, template ec2types.LaunchTemplate) ([]EC2InstanceProfile, error) {
+func (a *SDKEC2InstanceProfileAPI) recordsFromLaunchTemplate(ctx context.Context, template ec2types.LaunchTemplate, pageSize int32) ([]EC2InstanceProfile, error) {
 	templateID := strings.TrimSpace(awsv2.ToString(template.LaunchTemplateId))
 	templateName := strings.TrimSpace(awsv2.ToString(template.LaunchTemplateName))
-	versions := launchTemplateVersions(template.DefaultVersionNumber, template.LatestVersionNumber)
-	if templateID == "" || len(versions) == 0 {
+	if templateID == "" {
 		return nil, nil
 	}
 
-	output, err := a.ec2Client.DescribeLaunchTemplateVersions(ctx, &ec2.DescribeLaunchTemplateVersionsInput{
-		LaunchTemplateId: awsv2.String(templateID),
-		Versions:         versions,
-		MaxResults:       awsv2.Int32(defaultPageSize),
-	})
+	versions, err := a.describeLaunchTemplateVersions(ctx, templateID, pageSize)
 	if err != nil {
 		return nil, fmt.Errorf("describe launch template versions %s: %w", templateID, err)
 	}
 
 	records := []EC2InstanceProfile{}
-	for _, version := range output.LaunchTemplateVersions {
+	for _, version := range versions {
 		if version.LaunchTemplateData == nil || version.LaunchTemplateData.IamInstanceProfile == nil {
 			continue
 		}
@@ -249,6 +247,35 @@ func (a *SDKEC2InstanceProfileAPI) recordsFromLaunchTemplate(ctx context.Context
 		})
 	}
 	return records, nil
+}
+
+func (a *SDKEC2InstanceProfileAPI) describeLaunchTemplateVersions(ctx context.Context, templateID string, pageSize int32) ([]ec2types.LaunchTemplateVersion, error) {
+	input := &ec2.DescribeLaunchTemplateVersionsInput{
+		LaunchTemplateId: awsv2.String(templateID),
+		MaxResults:       awsv2.Int32(pageSize),
+	}
+	versions := []ec2types.LaunchTemplateVersion{}
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		output, err := a.ec2Client.DescribeLaunchTemplateVersions(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		if output != nil {
+			versions = append(versions, output.LaunchTemplateVersions...)
+		}
+		nextToken := ""
+		if output != nil {
+			nextToken = strings.TrimSpace(awsv2.ToString(output.NextToken))
+		}
+		if nextToken == "" {
+			break
+		}
+		input.NextToken = awsv2.String(nextToken)
+	}
+	return versions, nil
 }
 
 func (a *SDKEC2InstanceProfileAPI) rolesForInstanceProfile(ctx context.Context, profileARN string, profileName string) ([]iamtypes.Role, error) {
@@ -299,22 +326,6 @@ func (a *SDKEC2InstanceProfileAPI) instanceARN(instanceID string) string {
 	return fmt.Sprintf("arn:aws:ec2:%s:%s:instance/%s", strings.TrimSpace(a.region), strings.TrimSpace(a.accountID), trimmed)
 }
 
-func launchTemplateVersions(defaultVersion *int64, latestVersion *int64) []string {
-	seen := map[int64]struct{}{}
-	versions := []string{}
-	for _, value := range []*int64{defaultVersion, latestVersion} {
-		if value == nil || *value <= 0 {
-			continue
-		}
-		if _, exists := seen[*value]; exists {
-			continue
-		}
-		seen[*value] = struct{}{}
-		versions = append(versions, strconv.FormatInt(*value, 10))
-	}
-	return versions
-}
-
 func firstRoleIdentity(roles []iamtypes.Role) (string, string) {
 	for _, role := range roles {
 		arn := strings.TrimSpace(awsv2.ToString(role.Arn))
@@ -363,6 +374,10 @@ func instanceStateName(state *ec2types.InstanceState) ec2types.InstanceStateName
 		return ""
 	}
 	return state.Name
+}
+
+func isTerminalEC2InstanceState(state ec2types.InstanceStateName) bool {
+	return state == ec2types.InstanceStateNameShuttingDown || state == ec2types.InstanceStateNameTerminated
 }
 
 func copyEC2Tags(tags []ec2types.Tag) map[string]string {

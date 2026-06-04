@@ -14,15 +14,17 @@ import (
 )
 
 type fakeEC2SDKClient struct {
-	describeInstancesInput              *ec2.DescribeInstancesInput
-	describeLaunchTemplatesInput        *ec2.DescribeLaunchTemplatesInput
-	describeLaunchTemplateVersionsInput *ec2.DescribeLaunchTemplateVersionsInput
-	describeInstancesOutput             *ec2.DescribeInstancesOutput
-	describeLaunchTemplatesOutput       *ec2.DescribeLaunchTemplatesOutput
-	describeLaunchTemplateVersionsOut   *ec2.DescribeLaunchTemplateVersionsOutput
-	describeInstancesErr                error
-	describeLaunchTemplatesErr          error
-	describeLaunchTemplateVersionsErr   error
+	describeInstancesInput                *ec2.DescribeInstancesInput
+	describeLaunchTemplatesInput          *ec2.DescribeLaunchTemplatesInput
+	describeLaunchTemplateVersionsInput   *ec2.DescribeLaunchTemplateVersionsInput
+	describeLaunchTemplateVersionsInputs  []*ec2.DescribeLaunchTemplateVersionsInput
+	describeInstancesOutput               *ec2.DescribeInstancesOutput
+	describeLaunchTemplatesOutput         *ec2.DescribeLaunchTemplatesOutput
+	describeLaunchTemplateVersionsOut     *ec2.DescribeLaunchTemplateVersionsOutput
+	describeLaunchTemplateVersionsOutputs []*ec2.DescribeLaunchTemplateVersionsOutput
+	describeInstancesErr                  error
+	describeLaunchTemplatesErr            error
+	describeLaunchTemplateVersionsErr     error
 }
 
 func (f *fakeEC2SDKClient) DescribeInstances(_ context.Context, params *ec2.DescribeInstancesInput, _ ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error) {
@@ -43,8 +45,16 @@ func (f *fakeEC2SDKClient) DescribeLaunchTemplates(_ context.Context, params *ec
 
 func (f *fakeEC2SDKClient) DescribeLaunchTemplateVersions(_ context.Context, params *ec2.DescribeLaunchTemplateVersionsInput, _ ...func(*ec2.Options)) (*ec2.DescribeLaunchTemplateVersionsOutput, error) {
 	f.describeLaunchTemplateVersionsInput = params
+	f.describeLaunchTemplateVersionsInputs = append(f.describeLaunchTemplateVersionsInputs, params)
 	if f.describeLaunchTemplateVersionsErr != nil {
 		return nil, f.describeLaunchTemplateVersionsErr
+	}
+	if len(f.describeLaunchTemplateVersionsOutputs) > 0 {
+		idx := len(f.describeLaunchTemplateVersionsInputs) - 1
+		if idx >= len(f.describeLaunchTemplateVersionsOutputs) {
+			return &ec2.DescribeLaunchTemplateVersionsOutput{}, nil
+		}
+		return f.describeLaunchTemplateVersionsOutputs[idx], nil
 	}
 	return f.describeLaunchTemplateVersionsOut, nil
 }
@@ -157,12 +167,132 @@ func TestSDKEC2InstanceProfileAPIMapsInstancesAndLaunchTemplates(t *testing.T) {
 	if got := awsv2.ToString(ec2Client.describeLaunchTemplateVersionsInput.LaunchTemplateId); got != "lt-0477" {
 		t.Fatalf("DescribeLaunchTemplateVersions template id = %q", got)
 	}
+	if got := ec2Client.describeLaunchTemplateVersionsInput.Versions; len(got) != 0 {
+		t.Fatalf("expected all launch template versions to be scanned, got filter %+v", got)
+	}
 	template := templatePage.Records[0]
 	if template.WorkloadType != "ec2_launch_template" || template.WorkloadID != "lt-0477:2" || template.RoleName != "template-ec2" {
 		t.Fatalf("unexpected launch template record: %+v", template)
 	}
 	if len(iamClient.calls) != 2 || iamClient.calls[0] != "payments-profile" || iamClient.calls[1] != "template-profile" {
 		t.Fatalf("unexpected IAM profile lookups: %+v", iamClient.calls)
+	}
+}
+
+func TestSDKEC2InstanceProfileAPISkipsTerminalInstances(t *testing.T) {
+	ec2Client := &fakeEC2SDKClient{
+		describeInstancesOutput: &ec2.DescribeInstancesOutput{
+			Reservations: []ec2types.Reservation{{
+				Instances: []ec2types.Instance{
+					{
+						InstanceId: awsv2.String("i-shutting-down"),
+						IamInstanceProfile: &ec2types.IamInstanceProfile{
+							Arn: awsv2.String("arn:aws:iam::123456789012:instance-profile/terminal-profile"),
+						},
+						State: &ec2types.InstanceState{Name: ec2types.InstanceStateNameShuttingDown},
+					},
+					{
+						InstanceId: awsv2.String("i-terminated"),
+						IamInstanceProfile: &ec2types.IamInstanceProfile{
+							Arn: awsv2.String("arn:aws:iam::123456789012:instance-profile/terminal-profile"),
+						},
+						State: &ec2types.InstanceState{Name: ec2types.InstanceStateNameTerminated},
+					},
+				},
+			}},
+		},
+	}
+	api := NewSDKEC2InstanceProfileAPIFromClients(ec2Client, nil, "123456789012", "us-east-1")
+
+	page, err := api.ListInstanceProfiles(context.Background(), "", 25)
+	if err != nil {
+		t.Fatalf("list instances: %v", err)
+	}
+	if len(page.Records) != 0 {
+		t.Fatalf("expected terminal instances to be skipped, got %+v", page.Records)
+	}
+	if page.NextToken != launchTemplatePageTokenPrefix {
+		t.Fatalf("expected scan to advance to launch templates, got next token %q", page.NextToken)
+	}
+	if !isTerminalEC2InstanceState(ec2types.InstanceStateNameShuttingDown) || !isTerminalEC2InstanceState(ec2types.InstanceStateNameTerminated) {
+		t.Fatal("expected shutting-down and terminated states to be terminal")
+	}
+	if isTerminalEC2InstanceState(ec2types.InstanceStateNameStopped) {
+		t.Fatal("expected stopped instances to remain collectible")
+	}
+}
+
+func TestSDKEC2InstanceProfileAPIScansAllLaunchTemplateVersionPages(t *testing.T) {
+	ec2Client := &fakeEC2SDKClient{
+		describeLaunchTemplatesOutput: &ec2.DescribeLaunchTemplatesOutput{
+			LaunchTemplates: []ec2types.LaunchTemplate{{
+				LaunchTemplateId:   awsv2.String("lt-all"),
+				LaunchTemplateName: awsv2.String("all-versions-template"),
+			}},
+		},
+		describeLaunchTemplateVersionsOutputs: []*ec2.DescribeLaunchTemplateVersionsOutput{
+			{
+				LaunchTemplateVersions: []ec2types.LaunchTemplateVersion{{
+					VersionNumber: awsv2.Int64(1),
+					LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+						IamInstanceProfile: &ec2types.LaunchTemplateIamInstanceProfileSpecification{Name: awsv2.String("legacy-profile")},
+					},
+				}},
+				NextToken: awsv2.String("versions-page-2"),
+			},
+			{
+				LaunchTemplateVersions: []ec2types.LaunchTemplateVersion{
+					{
+						VersionNumber: awsv2.Int64(3),
+						LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+							IamInstanceProfile: &ec2types.LaunchTemplateIamInstanceProfileSpecification{Name: awsv2.String("pinned-profile")},
+						},
+					},
+					{
+						VersionNumber:      awsv2.Int64(4),
+						LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{},
+					},
+				},
+			},
+		},
+	}
+	iamClient := &fakeIAMInstanceProfileSDKClient{
+		profiles: map[string][]iamtypes.Role{
+			"legacy-profile": {
+				{Arn: awsv2.String("arn:aws:iam::123456789012:role/legacy-role"), RoleName: awsv2.String("legacy-role")},
+			},
+			"pinned-profile": {
+				{Arn: awsv2.String("arn:aws:iam::123456789012:role/pinned-role"), RoleName: awsv2.String("pinned-role")},
+			},
+		},
+	}
+	api := NewSDKEC2InstanceProfileAPIFromClients(ec2Client, iamClient, "123456789012", "us-east-1")
+
+	page, err := api.ListInstanceProfiles(context.Background(), launchTemplatePageTokenPrefix, 25)
+	if err != nil {
+		t.Fatalf("list launch templates: %v", err)
+	}
+	if len(ec2Client.describeLaunchTemplateVersionsInputs) != 2 {
+		t.Fatalf("expected launch template versions to be paged, got %d calls", len(ec2Client.describeLaunchTemplateVersionsInputs))
+	}
+	firstInput := ec2Client.describeLaunchTemplateVersionsInputs[0]
+	if got := awsv2.ToString(firstInput.LaunchTemplateId); got != "lt-all" {
+		t.Fatalf("DescribeLaunchTemplateVersions template id = %q", got)
+	}
+	if len(firstInput.Versions) != 0 {
+		t.Fatalf("expected no launch template version filter, got %+v", firstInput.Versions)
+	}
+	if got := awsv2.ToString(ec2Client.describeLaunchTemplateVersionsInputs[1].NextToken); got != "versions-page-2" {
+		t.Fatalf("expected second versions page token, got %q", got)
+	}
+	if len(page.Records) != 2 {
+		t.Fatalf("expected records from non-default launch template versions, got %+v", page.Records)
+	}
+	if page.Records[0].WorkloadID != "lt-all:1" || page.Records[0].RoleName != "legacy-role" {
+		t.Fatalf("unexpected first launch template record: %+v", page.Records[0])
+	}
+	if page.Records[1].WorkloadID != "lt-all:3" || page.Records[1].RoleName != "pinned-role" {
+		t.Fatalf("unexpected second launch template record: %+v", page.Records[1])
 	}
 }
 
@@ -194,9 +324,6 @@ func TestSDKEC2InstanceProfileAPIHandlesClientErrorsAndHelpers(t *testing.T) {
 		t.Fatalf("expected EC2 error, got %v", err)
 	}
 
-	if got := launchTemplateVersions(awsv2.Int64(2), awsv2.Int64(2)); len(got) != 1 || got[0] != "2" {
-		t.Fatalf("expected launch template versions to dedupe, got %+v", got)
-	}
 	if arn, name := firstRoleIdentity([]iamtypes.Role{{Arn: awsv2.String("arn:aws:iam::123456789012:role/path/fallback")}}); name != "fallback" || !strings.Contains(arn, "fallback") {
 		t.Fatalf("expected role name fallback from arn, got arn=%q name=%q", arn, name)
 	}
