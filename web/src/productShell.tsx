@@ -8089,13 +8089,10 @@ function selectGitHubControlCenterBanner({
   }
   const latestPerRepo = latestCompletedScanPerRepository(recentScans);
   const activeScanRepos = new Set(
-    recentScans.filter((scan) => isActiveScanStatus(scan.status)).map((scan) => {
-      const repo = canonicalGitHubRepositoryDisplay(scan.repository);
-      return repo.toLowerCase() || scan.repository.toLowerCase();
-    })
+    recentScans.filter((scan) => isActiveScanStatus(scan.status)).map((scan) => repoLookupKey(scan.repository))
   );
   const failedLatest = latestPerRepo.find(
-    (scan) => !activeScanRepos.has(canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase()) && isFailedScanStatus(scan.status)
+    (scan) => !activeScanRepos.has(repoLookupKey(scan.repository)) && isFailedScanStatus(scan.status)
   );
   if (failedLatest) {
     const repo = canonicalGitHubRepositoryDisplay(failedLatest.repository) || failedLatest.repository;
@@ -8164,13 +8161,22 @@ function latestCompletedScanPerRepository(scans: RepoScanRecord[]): RepoScanReco
     if (!isCompletedScanStatus(scan.status) || isCanceledScanStatus(scan.status)) {
       continue;
     }
-    const repo = canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase() || scan.repository.toLowerCase();
+    const repo = repoLookupKey(scan.repository);
     const existing = byRepo.get(repo);
     if (!existing || scanFinishedAt(scan) > scanFinishedAt(existing)) {
       byRepo.set(repo, scan);
     }
   }
   return [...byRepo.values()];
+}
+
+// Single source of truth for the repository key used by the GitHub overview
+// banner selector. Building the key in two places (e.g. once when seeding a
+// Set and again when querying it) is the bug class this helper exists to
+// prevent — when canonicalGitHubRepositoryDisplay can't canonicalize a
+// value, the bare-string fallback must match on both sides.
+function repoLookupKey(repository: string): string {
+  return canonicalGitHubRepositoryDisplay(repository).toLowerCase() || repository.toLowerCase();
 }
 
 function isCanceledScanStatus(status: string): boolean {
