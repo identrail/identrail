@@ -17,6 +17,38 @@ func identityIDFromARN(arn string) string {
 	return "aws:identity:" + strings.TrimSpace(arn)
 }
 
+func ec2InstanceWorkloadID(accountID, region, instanceID string) string {
+	return fmt.Sprintf("aws:workload:ec2:%s:%s:instance/%s", normalizeName(accountID), normalizeName(region), normalizeName(instanceID))
+}
+
+func ec2LaunchTemplateWorkloadID(accountID, region, templateID, version string) string {
+	normalizedVersion := normalizeName(version)
+	if normalizedVersion == "" {
+		normalizedVersion = "default"
+	}
+	return fmt.Sprintf("aws:workload:ec2:%s:%s:launch-template/%s/%s", normalizeName(accountID), normalizeName(region), normalizeName(templateID), normalizedVersion)
+}
+
+func ec2InstanceProfileResourceID(profileARN string) string {
+	return "aws:resource:ec2-instance-profile:" + strings.TrimSpace(profileARN)
+}
+
+func ec2InstanceResourceID(accountID, region, instanceID string) string {
+	return fmt.Sprintf("aws:resource:ec2:%s:%s:instance/%s", normalizeName(accountID), normalizeName(region), normalizeName(instanceID))
+}
+
+func roleNameFromARN(arn string) string {
+	trimmed := strings.TrimSpace(arn)
+	if trimmed == "" {
+		return ""
+	}
+	idx := strings.LastIndex(trimmed, "/")
+	if idx < 0 || idx == len(trimmed)-1 {
+		return trimmed
+	}
+	return trimmed[idx+1:]
+}
+
 func permissionPolicyID(identityID, policyName string, index int) string {
 	normalizedName := normalizeName(policyName)
 	if normalizedName == "" {

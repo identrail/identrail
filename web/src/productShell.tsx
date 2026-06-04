@@ -29,6 +29,8 @@ import {
   type AWSCapabilityPermissionTier,
   type AWSConnectorStartResponse,
   type AWSConnectionStatus,
+  type AWSEC2InstanceProfileInventoryResult,
+  type AWSEC2InstanceProfileRecord,
   type AWSPlatformBaselineResult,
   type AWSPlatformDependencyIndexResult,
   type AWSPlatformValidationHarnessResult,
@@ -3557,6 +3559,13 @@ type AWSInventoryTableRow = AWSInventoryFilterable & {
   detail: string;
 };
 
+type AWSInventoryEC2State = {
+  inventory: AWSEC2InstanceProfileInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryCoverageRow = AWSInventoryFilterable & {
   id: string;
   category: string;
@@ -3612,7 +3621,13 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
     {
       id: 'status',
       label: 'Status',
-      options: [{ label: 'All status', value: 'all' }, { label: 'Wired now', value: 'wired-now' }, { label: 'Coming', value: 'coming' }, { label: 'Not yet available', value: 'not-yet-available' }]
+      options: [
+        { label: 'All status', value: 'all' },
+        { label: 'Wired now', value: 'wired-now' },
+        { label: 'Degraded', value: 'degraded' },
+        { label: 'Coming', value: 'coming' },
+        { label: 'Not yet available', value: 'not-yet-available' }
+      ]
     }
   ],
   agents: [
@@ -4142,13 +4157,17 @@ function AWSAccountsInventoryContent({
 
 function AWSMachineIdentitiesContent({
   connection,
+  ec2State,
   filters,
   onFiltersChange
 }: {
   connection: AWSConnectionStatus | null;
+  ec2State: AWSInventoryEC2State;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
+  const ec2Inventory = ec2State.inventory;
+  const ec2Rows = buildAWSEC2InstanceProfileRows(ec2Inventory, ec2State.loading, connection);
   const rows: AWSInventoryTableRow[] = [
     ...(connection?.role_arn
       ? [
@@ -4171,17 +4190,7 @@ function AWSMachineIdentitiesContent({
           }
         ]
       : []),
-    {
-      id: 'instance-profiles',
-      name: 'EC2 instance profiles',
-      category: 'Workload identity',
-      scope: 'Account and region expansion',
-      status: 'coming',
-      stage: 'coming',
-      detail: 'Instance profile inventory will map roles back to EC2 workloads.',
-      filters: { identityType: 'instance-profile', service: 'ec2', risk: 'unscored', status: 'coming', search: '' },
-      searchText: inventorySearchText(['ec2', 'instance profile', 'workload identity', 'inventory'])
-    },
+    ...ec2Rows,
     {
       id: 'ecs-lambda',
       name: 'ECS task roles and Lambda execution roles',
@@ -4221,6 +4230,32 @@ function AWSMachineIdentitiesContent({
   return (
     <>
       <AWSInventoryFilterSet routeID="identities" filters={filters} onChange={onFiltersChange} />
+      {ec2State.loading ? <DomainLoadingState label="Loading EC2 instance profiles" /> : null}
+      {ec2State.error ? (
+        <DomainErrorState
+          title="EC2 instance profiles could not load"
+          body={ec2State.error}
+          retryAction={{ label: 'Retry EC2 inventory', onClick: ec2State.onRetry }}
+        />
+      ) : null}
+      {ec2Inventory?.diagnostics.length ? (
+        <DomainStatusPanel
+          eyebrow="EC2 collector diagnostics"
+          title="Partial EC2 identity evidence"
+          status={formatTokenLabel(ec2Inventory.status)}
+          tone={ec2Inventory.status === 'blocked' ? 'danger' : 'warning'}
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="EC2 instance profile diagnostics">
+            {ec2Inventory.diagnostics.map((diagnostic) => (
+              <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
+                <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                <p>{diagnostic.message}</p>
+                {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
       <section className="idt-aws-inventory-split">
         <DomainDataTable
           label="AWS machine identity inventory"
@@ -4260,11 +4295,147 @@ function AWSMachineIdentitiesContent({
               <dt>Risk score</dt>
               <dd>Unscored until AWS findings land</dd>
             </div>
+            <div>
+              <dt>EC2 workload links</dt>
+              <dd>{ec2Inventory ? `${ec2Inventory.workload_count} workloads / ${ec2Inventory.relationship_count} relationships` : ec2State.loading ? 'Loading' : 'Not loaded'}</dd>
+            </div>
+            <div>
+              <dt>IMDS posture</dt>
+              <dd>{awsEC2IMDSLabel(ec2Inventory)}</dd>
+            </div>
+            <div>
+              <dt>EC2 diagnostics</dt>
+              <dd>{ec2Inventory?.diagnostics.length ? `${ec2Inventory.diagnostics.length} active` : ec2Inventory ? 'Clear' : 'Not loaded'}</dd>
+            </div>
           </dl>
         </DomainDetailPanel>
       </section>
     </>
   );
+}
+
+function buildAWSEC2InstanceProfileRows(
+  inventory: AWSEC2InstanceProfileInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsEC2InstanceProfileRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'instance-profiles-blocked',
+        name: 'EC2 instance profiles unavailable',
+        category: 'Workload identity',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'EC2 instance profile collection is blocked.',
+        filters: { identityType: 'instance-profile', service: 'ec2', risk: 'unscored', status: 'not-yet-available', search: '' },
+        searchText: inventorySearchText(['ec2', 'instance profile', inventory.account_id, inventory.region, 'blocked'])
+      }
+    ];
+  }
+  if (inventory) {
+    return [
+      {
+        id: 'instance-profiles-empty',
+        name: 'No EC2 instance profile workloads found',
+        category: 'Workload identity',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'wired now',
+        stage: 'wired',
+        detail: 'The collector completed for this account and region without role-bearing EC2 workloads.',
+        filters: { identityType: 'instance-profile', service: 'ec2', risk: 'low', status: 'wired-now', search: '' },
+        searchText: inventorySearchText(['ec2', 'instance profile', inventory.account_id, inventory.region, 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'instance-profiles-loading',
+        name: 'EC2 instance profiles',
+        category: 'Workload identity',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading EC2 instance profile evidence for the selected environment.',
+        filters: { identityType: 'instance-profile', service: 'ec2', risk: 'unscored', status: 'coming', search: '' },
+        searchText: inventorySearchText(['ec2', 'instance profile', 'loading'])
+      }
+    ];
+  }
+  return [
+    {
+      id: 'instance-profiles',
+      name: 'EC2 instance profiles',
+      category: 'Workload identity',
+      scope: 'Account and region expansion',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Instance profile inventory maps roles back to EC2 workloads after AWS is connected.',
+      filters: { identityType: 'instance-profile', service: 'ec2', risk: 'unscored', status: 'coming', search: '' },
+      searchText: inventorySearchText(['ec2', 'instance profile', 'workload identity', 'inventory'])
+    }
+  ];
+}
+
+function awsEC2InstanceProfileRow(record: AWSEC2InstanceProfileRecord): AWSInventoryTableRow {
+  const isLaunchTemplate = record.workload_type === 'ec2_launch_template';
+  const stage: AWSCapabilityStage = record.status === 'ready' && record.role_arn ? 'wired' : 'coming';
+  const status = stage === 'wired' ? 'wired now' : 'degraded';
+  const roleLabel = record.role_name || record.role_arn || 'role unresolved';
+  const workloadLabel = record.instance_name || record.launch_template_name || record.workload_name || record.workload_id;
+  const imdsLabel = record.imds_http_tokens ? `IMDS ${formatTokenLabel(record.imds_http_tokens)}` : 'IMDS not applicable';
+  return {
+    id: `instance-profile-${record.from_node_id}`,
+    name: record.instance_profile_name || roleLabel,
+    category: isLaunchTemplate ? 'Launch template profile' : 'EC2 instance profile',
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage,
+    detail: `${workloadLabel} ${isLaunchTemplate ? 'attaches' : 'runs as'} ${roleLabel}; ${imdsLabel}.`,
+    filters: {
+      identityType: 'instance-profile',
+      service: 'ec2',
+      risk: record.imds_http_tokens === 'required' || isLaunchTemplate ? 'low' : 'medium',
+      status: stage === 'wired' ? 'wired-now' : 'degraded',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.instance_profile_name,
+      record.role_arn,
+      record.role_name,
+      record.instance_id,
+      record.instance_name,
+      record.launch_template_id,
+      record.launch_template_name,
+      record.workload_id,
+      record.account_id,
+      record.region,
+      record.imds_http_tokens,
+      'ec2 instance profile'
+    ])
+  };
+}
+
+function awsAccountRegionInventoryLabel(accountID?: string, region?: string): string {
+  const accountLabel = accountID ? `Account ${accountID}` : 'Account pending';
+  const regionLabel = region ? `Region ${region}` : 'Region pending';
+  return `${accountLabel} / ${regionLabel}`;
+}
+
+function awsEC2IMDSLabel(inventory: AWSEC2InstanceProfileInventoryResult | null): string {
+  const instanceRecord = inventory?.records.find((record) => record.instance_id);
+  if (!instanceRecord) {
+    return inventory ? 'No EC2 instance record' : 'Not loaded';
+  }
+  if (!instanceRecord.imds_http_tokens) {
+    return 'Not reported';
+  }
+  return `${formatTokenLabel(instanceRecord.imds_http_tokens)} tokens, hop limit ${instanceRecord.imds_hop_limit || 'not reported'}`;
 }
 
 function AWSAgentIdentitiesContent({
@@ -4471,6 +4642,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [activeFilters, setActiveFilters] = useState<AWSInventoryFilterState>(() => ({
     ...AWS_INVENTORY_FILTER_DEFAULTS[routeID]
   }));
+  const [ec2Inventory, setEC2Inventory] = useState<AWSEC2InstanceProfileInventoryResult | null>(null);
+  const [ec2InventoryLoading, setEC2InventoryLoading] = useState(false);
+  const [ec2InventoryError, setEC2InventoryError] = useState('');
+  const ec2InventoryRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -4479,6 +4654,46 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   useEffect(() => {
     setActiveFilters({ ...AWS_INVENTORY_FILTER_DEFAULTS[routeID] });
   }, [routeID]);
+
+  const loadEC2Inventory = useCallback(async () => {
+    const requestID = ++ec2InventoryRequestRef.current;
+    setEC2Inventory(null);
+    setEC2InventoryError('');
+    if (routeID !== 'identities' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setEC2InventoryLoading(false);
+      return;
+    }
+    setEC2InventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectEC2InstanceProfiles(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== ec2InventoryRequestRef.current) {
+        return;
+      }
+      setEC2Inventory(response.inventory);
+    } catch (error) {
+      if (requestID !== ec2InventoryRequestRef.current) {
+        return;
+      }
+      setEC2InventoryError(formatAPIError(error, 'Unable to load EC2 instance profile inventory.'));
+    } finally {
+      if (requestID === ec2InventoryRequestRef.current) {
+        setEC2InventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadEC2Inventory();
+    return () => {
+      ec2InventoryRequestRef.current += 1;
+    };
+  }, [loadEC2Inventory]);
 
   if (!scope) {
     return (
@@ -4557,7 +4772,17 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
         <AWSAccountsInventoryContent connection={connection} connectPath={connectPath} filters={activeFilters} onFiltersChange={onFiltersChange} />
       ) : null}
       {routeID === 'identities' ? (
-        <AWSMachineIdentitiesContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
+        <AWSMachineIdentitiesContent
+          connection={connection}
+          ec2State={{
+            inventory: ec2Inventory,
+            loading: ec2InventoryLoading,
+            error: ec2InventoryError,
+            onRetry: () => void loadEC2Inventory()
+          }}
+          filters={activeFilters}
+          onFiltersChange={onFiltersChange}
+        />
       ) : null}
       {routeID === 'agents' ? (
         <AWSAgentIdentitiesContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />

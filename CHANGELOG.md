@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- Added the AWS EC2 instance profile collector for #1477. The provider now
+  collects EC2 instances, launch-template role references, instance profile
+  roles, tags, account, region, and IMDS posture through read-only EC2/IAM SDK
+  calls, normalizes EC2 workloads/resources into the AWS graph, emits `runs_as`
+  and `attached_to` relationship evidence, and reports degraded,
+  partial-failure, empty, and permission-denied fixture states. The API exposes
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/ec2-instance-profiles`,
+  the AWS machine identities page renders endpoint-backed EC2 profile rows, and
+  OpenAPI, connector permissions, tests, and docs cover the new inventory path.
 - Added the AWS service collector contract for #1476. The API now exposes
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/collector-contract`
   as a read-only, project-scoped contract for normalized AWS collector records,

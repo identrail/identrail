@@ -594,7 +594,13 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 			if err != nil {
 				return app.Scanner{}, fmt.Errorf("initialize aws sdk collector: %w", err)
 			}
-			return awsprovider.NewAWSScanner(iamAPI, cfg.AWSAccountID, cfg.AWSRegion, awsprovider.NewRuleSet(
+			ec2API, err := awsprovider.NewSDKEC2InstanceProfileAPI(cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if err != nil {
+				return app.Scanner{}, fmt.Errorf("initialize aws ec2 instance profile collector: %w", err)
+			}
+			return awsprovider.NewAWSScannerWithServices(iamAPI, cfg.AWSAccountID, cfg.AWSRegion, []awsprovider.AWSServiceCollector{
+				awsprovider.NewEC2InstanceProfileCollector(ec2API),
+			}, awsprovider.NewRuleSet(
 				awsprovider.WithStaleAfter(time.Duration(staleAfterDays)*24*time.Hour),
 			)), nil
 		default:

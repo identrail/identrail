@@ -58,8 +58,13 @@ func TestGetAWSServiceCollectorContractBuildsCanonicalContract(t *testing.T) {
 			t.Fatalf("expected contract check %s ready, got %+v", check.Name, check)
 		}
 	}
-	if !containsString(result.RequiredPermissions, "iam:GetRole") || len(result.ReadOnlyBoundaries) == 0 {
-		t.Fatalf("expected permissions and read-only boundaries, got permissions=%+v boundaries=%+v", result.RequiredPermissions, result.ReadOnlyBoundaries)
+	for _, permission := range []string{"iam:GetRole", "iam:GetInstanceProfile", "ec2:DescribeInstances", "ec2:DescribeLaunchTemplates", "ec2:DescribeLaunchTemplateVersions"} {
+		if !containsString(result.RequiredPermissions, permission) {
+			t.Fatalf("missing required permission %q in %+v", permission, result.RequiredPermissions)
+		}
+	}
+	if len(result.ReadOnlyBoundaries) == 0 {
+		t.Fatalf("expected read-only boundaries, got permissions=%+v boundaries=%+v", result.RequiredPermissions, result.ReadOnlyBoundaries)
 	}
 	if result.GeneratedAt != now || result.UpdatedAt != now {
 		t.Fatalf("expected deterministic timestamps %v, got %v/%v", now, result.GeneratedAt, result.UpdatedAt)

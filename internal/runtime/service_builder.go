@@ -73,7 +73,12 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws sdk collector: %w", iamErr)
 			}
-			scanner = newAWSScanner(iamAPI, cfg.AWSAccountID, cfg.AWSRegion)
+			ec2API, ec2Err := awsprovider.NewSDKEC2InstanceProfileAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if ec2Err != nil {
+				_ = store.Close()
+				return nil, nil, fmt.Errorf("initialize aws ec2 instance profile collector: %w", ec2Err)
+			}
+			scanner = newAWSScanner(iamAPI, cfg.AWSAccountID, cfg.AWSRegion, awsprovider.NewEC2InstanceProfileCollector(ec2API))
 		default:
 			_ = store.Close()
 			return nil, nil, fmt.Errorf("unsupported aws source %q", cfg.AWSSource)
@@ -161,7 +166,11 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		if iamErr != nil {
 			return nil, iamErr
 		}
-		scanner := newAWSScanner(iamAPI, connection.AccountID, connection.Region)
+		ec2API, ec2Err := awsprovider.NewSDKEC2InstanceProfileAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
+		if ec2Err != nil {
+			return nil, ec2Err
+		}
+		scanner := newAWSScanner(iamAPI, connection.AccountID, connection.Region, awsprovider.NewEC2InstanceProfileCollector(ec2API))
 		return scanner, nil
 	}
 	svc.DefaultScope = db.Scope{
@@ -300,8 +309,8 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func newAWSScanner(iamAPI awsprovider.IAMAPI, accountID string, region string) app.Scanner {
-	return awsprovider.NewAWSScanner(iamAPI, accountID, region)
+func newAWSScanner(iamAPI awsprovider.IAMAPI, accountID string, region string, services ...awsprovider.AWSServiceCollector) app.Scanner {
+	return awsprovider.NewAWSScannerWithServices(iamAPI, accountID, region, services)
 }
 
 // NewStore returns memory store by default, Postgres when database URL is provided.

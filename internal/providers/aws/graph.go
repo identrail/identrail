@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/identrail/identrail/internal/domain"
@@ -43,8 +44,36 @@ func (b *RelationshipBuilder) ResolveRelationships(ctx context.Context, bundle p
 	seen := map[string]struct{}{}
 
 	arnToIdentity := make(map[string]string, len(bundle.Identities))
+	identityIDs := make(map[string]struct{}, len(bundle.Identities))
 	for _, identity := range bundle.Identities {
 		arnToIdentity[identity.ARN] = identity.ID
+		identityIDs[identity.ID] = struct{}{}
+	}
+
+	for _, workload := range bundle.Workloads {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		identityID := strings.TrimSpace(workload.RawRef)
+		if identityID == "" {
+			continue
+		}
+		if _, exists := identityIDs[identityID]; !exists {
+			continue
+		}
+		relationshipType := domain.RelationshipRunsAs
+		if strings.EqualFold(workload.Type, "ec2_launch_template") {
+			relationshipType = domain.RelationshipAttachedTo
+		}
+		relationship := domain.Relationship{
+			ID:           relationshipID(relationshipType, workload.ID, identityID),
+			Type:         relationshipType,
+			FromNodeID:   workload.ID,
+			ToNodeID:     identityID,
+			EvidenceRef:  workload.ID,
+			DiscoveredAt: timestamp,
+		}
+		appendRelationship(&relationships, seen, relationship)
 	}
 
 	for _, policy := range bundle.Policies {

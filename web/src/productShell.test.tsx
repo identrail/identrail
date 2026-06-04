@@ -5,6 +5,7 @@ import type {
   AuthConfigResponse,
   AWSConnectorStartResponse,
   AWSConnectionStatus,
+  AWSEC2InstanceProfileInventoryResult,
   AWSPlatformBaselineResult,
   AWSPlatformDependencyIndexResult,
   AWSPlatformValidationHarnessResult,
@@ -140,6 +141,100 @@ const connectedAWS: AWSConnectionStatus = {
   capabilities: { requested: ['discovery'], validated: ['discovery'], effective: ['discovery'], unavailable: [] },
   updated_at: '2026-05-17T10:00:00Z',
   last_validated_at: '2026-05-17T10:00:00Z'
+};
+
+const readyAWSEC2InstanceProfileInventory: AWSEC2InstanceProfileInventoryResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  parent_issue_number: 1472,
+  parent_issue_ref: '#1472',
+  current_issue_number: 1477,
+  current_issue_ref: '#1477',
+  version: 'aws-ec2-instance-profile-inventory-v1',
+  status: 'ready',
+  fixture_state: 'success',
+  confidence: 0.97,
+  record_count: 2,
+  workload_count: 2,
+  identity_count: 2,
+  resource_count: 3,
+  relationship_count: 2,
+  failure_reasons: [],
+  remediation_hints: [],
+  evidence_links: ['/docs/aws-ec2-instance-profiles'],
+  records: [
+    {
+      account_id: '123456789012',
+      region: 'us-east-1',
+      service: 'ec2',
+      workload_id: 'i-0477ec2profile',
+      workload_type: 'ec2_instance',
+      workload_name: 'payments-api',
+      role_arn: 'arn:aws:iam::123456789012:role/payments-ec2-instance-profile',
+      role_name: 'payments-ec2-instance-profile',
+      instance_id: 'i-0477ec2profile',
+      instance_arn: 'arn:aws:ec2:us-east-1:123456789012:instance/i-0477ec2profile',
+      instance_name: 'payments-api',
+      instance_state: 'running',
+      instance_profile_arn: 'arn:aws:iam::123456789012:instance-profile/payments-ec2-profile',
+      instance_profile_id: 'AIPAJ477EXAMPLE',
+      instance_profile_name: 'payments-ec2-profile',
+      imds_endpoint: 'enabled',
+      imds_http_tokens: 'required',
+      imds_hop_limit: 2,
+      tags: { owner: 'platform', service: 'payments' },
+      source: 'describeinstances',
+      evidence_ref: 'arn:aws:ec2:us-east-1:123456789012:instance/i-0477ec2profile',
+      from_node_id: 'aws:workload:ec2:123456789012:us-east-1:instance/i-0477ec2profile',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-ec2-instance-profile',
+      confidence: 0.96,
+      collected_at: '2026-05-17T10:00:00Z',
+      status: 'ready'
+    },
+    {
+      account_id: '123456789012',
+      region: 'us-east-1',
+      service: 'ec2',
+      workload_id: 'lt-0477template:3',
+      workload_type: 'ec2_launch_template',
+      workload_name: 'web-launch-template',
+      role_arn: 'arn:aws:iam::123456789012:role/web-launch-template-role',
+      role_name: 'web-launch-template-role',
+      instance_profile_arn: 'arn:aws:iam::123456789012:instance-profile/web-launch-template-profile',
+      instance_profile_name: 'web-launch-template-profile',
+      launch_template_id: 'lt-0477template',
+      launch_template_name: 'web-launch-template',
+      launch_template_version: '3',
+      source: 'describelaunchtemplateversions',
+      evidence_ref: 'lt-0477template',
+      from_node_id: 'aws:workload:ec2:123456789012:us-east-1:launch-template/lt-0477template:3',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/web-launch-template-role',
+      confidence: 0.9,
+      collected_at: '2026-05-17T10:00:00Z',
+      status: 'ready'
+    }
+  ],
+  relationships: [
+    {
+      type: 'runs_as',
+      from_node_id: 'aws:workload:ec2:123456789012:us-east-1:instance/i-0477ec2profile',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-ec2-instance-profile',
+      evidence_ref: 'arn:aws:ec2:us-east-1:123456789012:instance/i-0477ec2profile'
+    },
+    {
+      type: 'attached_to',
+      from_node_id: 'aws:workload:ec2:123456789012:us-east-1:launch-template/lt-0477template:3',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/web-launch-template-role',
+      evidence_ref: 'lt-0477template'
+    }
+  ],
+  diagnostics: [],
+  generated_at: '2026-05-17T10:00:00Z',
+  updated_at: '2026-05-17T10:00:00Z'
 };
 
 const readyAWSBaseline: AWSPlatformBaselineResult = {
@@ -2036,7 +2131,7 @@ describe('Domain-first app routes', () => {
     );
   });
 
-  it('renders AWS machine identity inventory with the current IAM role and future workload rows', async () => {
+  it('renders AWS machine identity inventory with the current IAM role and EC2 instance profile rows', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: [
@@ -2053,6 +2148,9 @@ describe('Domain-first app routes', () => {
       ]
     });
     vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const getEC2InstanceProfiles = vi
+      .spyOn(api.apiClient, 'getAWSProjectEC2InstanceProfiles')
+      .mockResolvedValue({ inventory: readyAWSEC2InstanceProfileInventory });
 
     const { ProductAWSIdentitiesPage } = await import('./productShell');
 
@@ -2068,7 +2166,17 @@ describe('Domain-first app routes', () => {
     expect(screen.getByRole('search', { name: /AWS machine identities filters/i })).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'AWS machine identity inventory' })).toBeInTheDocument();
     expect(screen.getAllByText('arn:aws:iam::123456789012:role/IdentrailReadOnly').length).toBeGreaterThan(0);
-    expect(screen.getByText(/EC2 instance profiles/i)).toBeInTheDocument();
+    expect(await screen.findByText('payments-ec2-profile')).toBeInTheDocument();
+    expect(screen.getByText('web-launch-template-profile')).toBeInTheDocument();
+    expect(screen.getByText(/payments-api runs as payments-ec2-instance-profile; IMDS Required/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 workloads \/ 2 relationships/i)).toBeInTheDocument();
+    expect(getEC2InstanceProfiles).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      'aws-connector-1',
+      undefined,
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
     expect(screen.getByText(/Risk score/i)).toBeInTheDocument();
     expect(screen.getByText(/Unscored until AWS findings land/i)).toBeInTheDocument();
   });

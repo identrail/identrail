@@ -15,6 +15,7 @@ const readOnlyPolicyJSON = `{
       "Effect": "Allow",
       "Action": [
         "iam:GetAccountSummary",
+        "iam:GetInstanceProfile",
         "iam:GetPolicy",
         "iam:GetPolicyVersion",
         "iam:GetRole",
@@ -33,6 +34,8 @@ const readOnlyPolicyJSON = `{
       "Action": [
         "ec2:DescribeIamInstanceProfileAssociations",
         "ec2:DescribeInstances",
+        "ec2:DescribeLaunchTemplateVersions",
+        "ec2:DescribeLaunchTemplates",
         "ec2:DescribeRegions"
       ],
       "Resource": "*"
@@ -110,6 +113,7 @@ func PermissionPreview() []PermissionPreviewItem {
 				"iam:GetAccountSummary",
 				"iam:ListAccountAliases",
 				"iam:ListRoles",
+				"iam:GetInstanceProfile",
 				"iam:GetRole",
 				"iam:ListRolePolicies",
 				"iam:GetRolePolicy",
@@ -122,10 +126,16 @@ func PermissionPreview() []PermissionPreviewItem {
 			Reason:    "Reads role trust policies, attached policy documents, and effective permissions for machine identity graph analysis.",
 		},
 		{
-			Service:   "EC2",
-			Actions:   []string{"ec2:DescribeInstances", "ec2:DescribeIamInstanceProfileAssociations", "ec2:DescribeRegions"},
+			Service: "EC2",
+			Actions: []string{
+				"ec2:DescribeInstances",
+				"ec2:DescribeIamInstanceProfileAssociations",
+				"ec2:DescribeLaunchTemplates",
+				"ec2:DescribeLaunchTemplateVersions",
+				"ec2:DescribeRegions",
+			},
 			Resources: []string{"*"},
-			Reason:    "Maps compute workloads back to the IAM roles and instance profiles they can use.",
+			Reason:    "Maps EC2 instances and launch templates back to the IAM roles and instance profiles they can use.",
 		},
 		{
 			Service:   "S3",

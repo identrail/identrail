@@ -15,9 +15,14 @@ var _ providers.DiagnosticCollector = (*AWSCompositeCollector)(nil)
 
 // AWSCollectorScope carries service context used by each service-level collector.
 type AWSCollectorScope struct {
-	AccountID string
-	Region    string
-	Service   string
+	TenantID    string
+	WorkspaceID string
+	ProjectID   string
+	ConnectorID string
+	ScanID      string
+	AccountID   string
+	Region      string
+	Service     string
 }
 
 // AWSServiceCollector defines the reusable contract for collectable AWS service
@@ -70,13 +75,18 @@ func NewAWSCompositeCollector(iamAPI IAMAPI, accountID string, region string, ad
 
 // NewAWSScanner creates the canonical AWS app scanner wiring for shared runtime and CLI construction.
 func NewAWSScanner(iamAPI IAMAPI, accountID string, region string, ruleSet ...providers.RiskRuleSet) app.Scanner {
+	return NewAWSScannerWithServices(iamAPI, accountID, region, nil, ruleSet...)
+}
+
+// NewAWSScannerWithServices creates AWS scanner wiring with optional service collectors.
+func NewAWSScannerWithServices(iamAPI IAMAPI, accountID string, region string, additionalServices []AWSServiceCollector, ruleSet ...providers.RiskRuleSet) app.Scanner {
 	var resolvedRuleSet providers.RiskRuleSet = NewRuleSet()
 	if len(ruleSet) > 0 && ruleSet[0] != nil {
 		resolvedRuleSet = ruleSet[0]
 	}
 
 	return app.Scanner{
-		Collector:            NewAWSCompositeCollector(iamAPI, accountID, region),
+		Collector:            NewAWSCompositeCollector(iamAPI, accountID, region, additionalServices...),
 		Normalizer:           NewRoleNormalizer(),
 		PermissionResolver:   NewPolicyPermissionResolver(),
 		RelationshipResolver: NewRelationshipBuilder(),

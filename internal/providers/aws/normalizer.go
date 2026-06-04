@@ -34,70 +34,189 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 	bundle := providers.NormalizedBundle{
 		Identities: make([]domain.Identity, 0, len(raw)),
 		Policies:   make([]domain.Policy, 0, len(raw)*2),
+		Workloads:  make([]domain.Workload, 0, len(raw)),
+		Resources:  make([]domain.Resource, 0, len(raw)),
 	}
 
 	identitySeen := map[string]struct{}{}
 	policySeen := map[string]struct{}{}
+	workloadSeen := map[string]struct{}{}
+	resourceSeen := map[string]struct{}{}
 
 	for i, asset := range raw {
 		if err := ctx.Err(); err != nil {
 			return providers.NormalizedBundle{}, err
 		}
-		if asset.Kind != "iam_role" {
-			continue
-		}
-
-		var role IAMRole
-		if err := json.Unmarshal(asset.Payload, &role); err != nil {
-			return providers.NormalizedBundle{}, fmt.Errorf("decode iam role asset[%d]: %w", i, err)
-		}
-		arn := strings.TrimSpace(role.ARN)
-		if arn == "" {
-			continue
-		}
-
-		identityID := identityIDFromARN(arn)
-		if _, exists := identitySeen[identityID]; !exists {
-			identitySeen[identityID] = struct{}{}
-			bundle.Identities = append(bundle.Identities, domain.Identity{
-				ID:         identityID,
-				Provider:   domain.ProviderAWS,
-				Type:       domain.IdentityTypeRole,
-				Name:       strings.TrimSpace(role.Name),
-				ARN:        arn,
-				OwnerHint:  ownerHintFromTags(role.Tags),
-				CreatedAt:  derefTimeOrZero(role.CreatedAt),
-				LastUsedAt: role.LastUsedAt,
-				Tags:       copyTags(role.Tags),
-				RawRef:     asset.SourceID,
-			})
-		}
-
-		permissionPolicies, err := normalizePermissionPolicies(identityID, role.PermissionPolicies)
-		if err != nil {
-			return providers.NormalizedBundle{}, fmt.Errorf("normalize permission policies for %s: %w", arn, err)
-		}
-		for _, policy := range permissionPolicies {
-			if _, exists := policySeen[policy.ID]; exists {
-				continue
+		switch asset.Kind {
+		case "iam_role":
+			if err := normalizeIAMRoleAsset(asset, i, &bundle, identitySeen, policySeen); err != nil {
+				return providers.NormalizedBundle{}, err
 			}
-			policySeen[policy.ID] = struct{}{}
-			bundle.Policies = append(bundle.Policies, policy)
-		}
-
-		trustPolicy, err := normalizeTrustPolicy(identityID, role.AssumeRolePolicyDocument)
-		if err != nil {
-			return providers.NormalizedBundle{}, fmt.Errorf("normalize trust policy for %s: %w", arn, err)
-		}
-		if trustPolicy != nil {
-			if _, exists := policySeen[trustPolicy.ID]; !exists {
-				policySeen[trustPolicy.ID] = struct{}{}
-				bundle.Policies = append(bundle.Policies, *trustPolicy)
+		case rawKindEC2InstanceProfile:
+			if err := normalizeEC2InstanceProfileAsset(asset, i, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+				return providers.NormalizedBundle{}, err
 			}
+		default:
+			continue
 		}
 	}
 
 	return bundle, nil
+}
+
+func normalizeIAMRoleAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, policySeen map[string]struct{}) error {
+	var role IAMRole
+	if err := json.Unmarshal(asset.Payload, &role); err != nil {
+		return fmt.Errorf("decode iam role asset[%d]: %w", index, err)
+	}
+	arn := strings.TrimSpace(role.ARN)
+	if arn == "" {
+		return nil
+	}
+
+	identityID := identityIDFromARN(arn)
+	if _, exists := identitySeen[identityID]; !exists {
+		identitySeen[identityID] = struct{}{}
+		bundle.Identities = append(bundle.Identities, domain.Identity{
+			ID:         identityID,
+			Provider:   domain.ProviderAWS,
+			Type:       domain.IdentityTypeRole,
+			Name:       strings.TrimSpace(role.Name),
+			ARN:        arn,
+			OwnerHint:  ownerHintFromTags(role.Tags),
+			CreatedAt:  derefTimeOrZero(role.CreatedAt),
+			LastUsedAt: role.LastUsedAt,
+			Tags:       copyTags(role.Tags),
+			RawRef:     asset.SourceID,
+		})
+	}
+
+	permissionPolicies, err := normalizePermissionPolicies(identityID, role.PermissionPolicies)
+	if err != nil {
+		return fmt.Errorf("normalize permission policies for %s: %w", arn, err)
+	}
+	for _, policy := range permissionPolicies {
+		if _, exists := policySeen[policy.ID]; exists {
+			continue
+		}
+		policySeen[policy.ID] = struct{}{}
+		bundle.Policies = append(bundle.Policies, policy)
+	}
+
+	trustPolicy, err := normalizeTrustPolicy(identityID, role.AssumeRolePolicyDocument)
+	if err != nil {
+		return fmt.Errorf("normalize trust policy for %s: %w", arn, err)
+	}
+	if trustPolicy != nil {
+		if _, exists := policySeen[trustPolicy.ID]; !exists {
+			policySeen[trustPolicy.ID] = struct{}{}
+			bundle.Policies = append(bundle.Policies, *trustPolicy)
+		}
+	}
+	return nil
+}
+
+func normalizeEC2InstanceProfileAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record EC2InstanceProfile
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode ec2 instance profile asset[%d]: %w", index, err)
+	}
+
+	roleARN := strings.TrimSpace(record.RoleARN)
+	roleIdentityID := ""
+	if roleARN != "" {
+		roleIdentityID = identityIDFromARN(roleARN)
+		roleName := strings.TrimSpace(record.RoleName)
+		if roleName == "" {
+			roleName = roleNameFromARN(roleARN)
+		}
+		if _, exists := identitySeen[roleIdentityID]; !exists {
+			identitySeen[roleIdentityID] = struct{}{}
+			bundle.Identities = append(bundle.Identities, domain.Identity{
+				ID:        roleIdentityID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.IdentityTypeRole,
+				Name:      roleName,
+				ARN:       roleARN,
+				OwnerHint: ownerHintFromTags(record.Tags),
+				Tags:      copyTags(record.Tags),
+				RawRef:    asset.SourceID,
+			})
+		}
+	}
+
+	workloadID := ec2WorkloadID(record)
+	if workloadID != "" {
+		if _, exists := workloadSeen[workloadID]; !exists {
+			workloadSeen[workloadID] = struct{}{}
+			bundle.Workloads = append(bundle.Workloads, domain.Workload{
+				ID:        workloadID,
+				Provider:  domain.ProviderAWS,
+				Type:      ec2WorkloadType(record),
+				Name:      ec2WorkloadName(record),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Region:    strings.TrimSpace(record.Region),
+				RawRef:    roleIdentityID,
+			})
+		}
+	}
+
+	if strings.TrimSpace(record.InstanceID) != "" {
+		instanceResourceID := ec2InstanceResourceID(record.AccountID, record.Region, record.InstanceID)
+		if _, exists := resourceSeen[instanceResourceID]; !exists {
+			resourceSeen[instanceResourceID] = struct{}{}
+			bundle.Resources = append(bundle.Resources, domain.Resource{
+				ID:        instanceResourceID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.ResourceTypeEC2Instance,
+				Name:      ec2WorkloadName(record),
+				ARN:       strings.TrimSpace(record.InstanceARN),
+				Region:    strings.TrimSpace(record.Region),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Labels:    copyTags(record.Tags),
+				Metadata: map[string]any{
+					"state":                   strings.TrimSpace(record.InstanceState),
+					"instance_profile_arn":    strings.TrimSpace(record.InstanceProfileARN),
+					"role_arn":                roleARN,
+					"imds_endpoint":           strings.TrimSpace(record.IMDSEndpoint),
+					"imds_http_tokens":        strings.TrimSpace(record.IMDSHTTPTokens),
+					"imds_hop_limit":          record.IMDSHopLimit,
+					"launch_template_id":      strings.TrimSpace(record.LaunchTemplateID),
+					"launch_template_name":    strings.TrimSpace(record.LaunchTemplateName),
+					"launch_template_version": strings.TrimSpace(record.LaunchTemplateVersion),
+				},
+				RawRef:         asset.SourceID,
+				SourceEntityID: workloadID,
+			})
+		}
+	}
+
+	if strings.TrimSpace(record.InstanceProfileARN) != "" {
+		profileResourceID := ec2InstanceProfileResourceID(record.InstanceProfileARN)
+		if _, exists := resourceSeen[profileResourceID]; !exists {
+			resourceSeen[profileResourceID] = struct{}{}
+			bundle.Resources = append(bundle.Resources, domain.Resource{
+				ID:        profileResourceID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.ResourceTypeEC2InstanceProfile,
+				Name:      firstNonEmptyAWSValue(record.InstanceProfileName, roleNameFromARN(record.InstanceProfileARN)),
+				ARN:       strings.TrimSpace(record.InstanceProfileARN),
+				Region:    strings.TrimSpace(record.Region),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Labels:    copyTags(record.Tags),
+				Metadata: map[string]any{
+					"instance_profile_id": strings.TrimSpace(record.InstanceProfileID),
+					"role_arn":            roleARN,
+					"workload_id":         workloadID,
+					"workload_type":       ec2WorkloadType(record),
+				},
+				RawRef:         asset.SourceID,
+				SourceEntityID: roleIdentityID,
+			})
+		}
+	}
+
+	return nil
 }
 
 func normalizePermissionPolicies(identityID string, policies []IAMPermissionPolicy) ([]domain.Policy, error) {
@@ -175,6 +294,29 @@ func normalizeTrustPolicy(identityID, rawTrustDocument string) (*domain.Policy, 
 		},
 		RawRef: identityID,
 	}, nil
+}
+
+func ec2WorkloadID(record EC2InstanceProfile) string {
+	workloadType := ec2WorkloadType(record)
+	switch workloadType {
+	case "ec2_launch_template":
+		return ec2LaunchTemplateWorkloadID(record.AccountID, record.Region, firstNonEmptyAWSValue(record.LaunchTemplateID, record.WorkloadID), record.LaunchTemplateVersion)
+	default:
+		return ec2InstanceWorkloadID(record.AccountID, record.Region, firstNonEmptyAWSValue(record.InstanceID, record.WorkloadID))
+	}
+}
+
+func ec2WorkloadType(record EC2InstanceProfile) string {
+	switch strings.ToLower(strings.TrimSpace(record.WorkloadType)) {
+	case "ec2_launch_template", "launch_template":
+		return "ec2_launch_template"
+	default:
+		return "ec2_instance"
+	}
+}
+
+func ec2WorkloadName(record EC2InstanceProfile) string {
+	return firstNonEmptyAWSValue(record.WorkloadName, record.InstanceName, record.Tags["Name"], record.InstanceID, record.LaunchTemplateName, record.LaunchTemplateID, "ec2 workload")
 }
 
 func ownerHintFromTags(tags map[string]string) string {

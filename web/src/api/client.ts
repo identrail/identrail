@@ -1068,6 +1068,87 @@ export type AWSServiceCollectorContractResult = {
   updated_at: string;
 };
 
+export type AWSEC2InstanceProfileInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSEC2InstanceProfileFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+
+export type AWSEC2InstanceProfileRecord = {
+  account_id: string;
+  region: string;
+  service: string;
+  workload_id: string;
+  workload_type: string;
+  workload_name: string;
+  role_arn?: string;
+  role_name?: string;
+  instance_id?: string;
+  instance_arn?: string;
+  instance_name?: string;
+  instance_state?: string;
+  instance_profile_arn?: string;
+  instance_profile_id?: string;
+  instance_profile_name?: string;
+  launch_template_id?: string;
+  launch_template_name?: string;
+  launch_template_version?: string;
+  imds_endpoint?: string;
+  imds_http_tokens?: string;
+  imds_hop_limit?: number;
+  tags?: Record<string, string>;
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  to_node_id?: string;
+  confidence: number;
+  collected_at: string;
+  status: string;
+};
+
+export type AWSEC2InstanceProfileRelationship = {
+  type: 'runs_as' | 'attached_to' | string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSEC2InstanceProfileDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSEC2InstanceProfileInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSEC2InstanceProfileInventoryStatus;
+  fixture_state: AWSEC2InstanceProfileFixtureState;
+  confidence: number;
+  record_count: number;
+  workload_count: number;
+  identity_count: number;
+  resource_count: number;
+  relationship_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  records: AWSEC2InstanceProfileRecord[];
+  relationships: AWSEC2InstanceProfileRelationship[];
+  diagnostics: AWSEC2InstanceProfileDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSConnectorStartRequest = {
   workspace_id?: string;
   project_id?: string;
@@ -2027,6 +2108,21 @@ export const apiClient = {
     return request<{ contract: AWSServiceCollectorContractResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/collector-contract${buildQuery({
         connector_id: connectorID
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectEC2InstanceProfiles(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSEC2InstanceProfileFixtureState,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSEC2InstanceProfileInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/ec2-instance-profiles${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState
       })}`,
       auth
     );

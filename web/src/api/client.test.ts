@@ -768,4 +768,28 @@ describe('apiClient', () => {
     expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
+
+  it('gets AWS EC2 instance profile inventory with scoped headers and fixture state', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ inventory: { status: 'ready', record_count: 2, records: [] } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectEC2InstanceProfiles('workspace/a', 'project 1', 'aws-prod', 'partial_failure', {
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace/a',
+      bearerToken: 'token-a'
+    });
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(
+      '/v1/workspaces/workspace%2Fa/projects/project%201/aws/ec2-instance-profiles?connector_id=aws-prod&fixture_state=partial_failure'
+    );
+    expect(options.method ?? 'GET').toBe('GET');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
 });

@@ -2,9 +2,9 @@
 
 ## Purpose
 
-The AWS collector family now uses a composable service collection layer. IAM stays
-the current implementation and default first service, while new services can be added
-without modifying IAM collector behavior.
+The AWS collector family uses a composable service collection layer. IAM remains
+the default identity source, and EC2 instance profiles are now collected as the
+first workload identity service without changing IAM collector behavior.
 
 ## Composite Architecture
 
@@ -12,10 +12,12 @@ The collection path is:
 
 - `AWSCompositeCollector` (`internal/providers/aws/composite_collector.go`)
   orchestrates multiple AWS service collectors sequentially.
-- `AWSCollectorScope` carries shared context (`account_id`, `region`, `service`)
-  for each service invocation.
+- `AWSCollectorScope` carries shared tenant, workspace, project, connector,
+  scan, account, region, and service context for each service invocation.
 - `iamCollectorAdapter` wraps the existing IAM collector and preserves existing IAM
   retry and pagination semantics unchanged.
+- `EC2InstanceProfileCollector` maps EC2 instances and launch templates to the
+  IAM roles attached through instance profiles.
 
 Behavior:
 
@@ -83,18 +85,31 @@ ordered by `kind`, then `source_id`.
 - Context cancellation during IAM retries and composite execution
 - Duplicate roles/assets across pages and services
 - Missing identifiers are handled with diagnostics where appropriate
+- EC2 instance profiles with no resolvable role stay visible as degraded records
+- Launch template role references emit `attached_to` graph evidence
+- EC2 instances with profile roles emit `runs_as` graph evidence and include
+  IMDS endpoint/token posture
 
 ## Security Posture
 
 - Read-only ingestion only
 - No credential persistence in collector module
 - No mutation API calls
+- No instance user data, disk contents, object contents, database rows, prompt
+  bodies, completions, or secret values are collected
 
 ## Current Implementation State
 
 - IAM role collection remains implemented through the existing AWS SDK IAM adapter.
-- AWS SDK CLI and runtime paths now use `NewAWSScanner`, which wires the composite collector.
+- EC2 instance profile collection is implemented through AWS SDK EC2/IAM adapters
+  for `DescribeInstances`, `DescribeLaunchTemplates`,
+  `DescribeLaunchTemplateVersions`, and `GetInstanceProfile`.
+- AWS SDK CLI and runtime paths now use `NewAWSScanner`, which wires the
+  composite collector with IAM and EC2 instance profile services.
 - The composite layer is now the extension point for future AWS service collection in the CLI/runtime path.
 - The service collector contract is exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/collector-contract`
   and the AWS app surfaces.
+- EC2 instance profile inventory is exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/ec2-instance-profiles`
+  and the AWS machine identities page.

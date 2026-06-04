@@ -70,13 +70,8 @@ func (c *FixtureCollector) Collect(ctx context.Context) ([]providers.RawAsset, e
 			return nil, fmt.Errorf("read fixture %s: %w", path, err)
 		}
 
-		var role IAMRole
-		if err := json.Unmarshal(payload, &role); err != nil {
-			continue
-		}
-
-		sourceID := strings.TrimSpace(role.ARN)
-		if sourceID == "" {
+		assetKind, sourceID := fixtureAssetKindAndSourceID(payload)
+		if assetKind == "" || sourceID == "" {
 			continue
 		}
 		if _, exists := seen[sourceID]; exists {
@@ -84,7 +79,7 @@ func (c *FixtureCollector) Collect(ctx context.Context) ([]providers.RawAsset, e
 		}
 
 		assets = append(assets, providers.RawAsset{
-			Kind:      "iam_role",
+			Kind:      assetKind,
 			SourceID:  sourceID,
 			Payload:   payload,
 			Collected: collectedAt,
@@ -96,6 +91,25 @@ func (c *FixtureCollector) Collect(ctx context.Context) ([]providers.RawAsset, e
 	}
 
 	return assets, nil
+}
+
+func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
+	var role IAMRole
+	if err := json.Unmarshal(payload, &role); err == nil {
+		if sourceID := strings.TrimSpace(role.ARN); sourceID != "" {
+			return "iam_role", sourceID
+		}
+	}
+
+	var profile EC2InstanceProfile
+	if err := json.Unmarshal(payload, &profile); err == nil {
+		sourceID := ec2InstanceProfileSourceID(profile)
+		if strings.TrimSpace(profile.WorkloadID) != "" || strings.TrimSpace(profile.InstanceID) != "" || strings.TrimSpace(profile.LaunchTemplateID) != "" {
+			return rawKindEC2InstanceProfile, sourceID
+		}
+	}
+
+	return "", ""
 }
 
 func expandFixturePaths(inputs []string) ([]string, error) {

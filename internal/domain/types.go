@@ -57,20 +57,22 @@ const (
 type ResourceType string
 
 const (
-	ResourceTypeS3Bucket         ResourceType = "s3_bucket"
-	ResourceTypeKMSKey           ResourceType = "kms_key"
-	ResourceTypeSecretsManager   ResourceType = "secrets_manager_secret"
-	ResourceTypeSSMParameter     ResourceType = "ssm_parameter"
-	ResourceTypeLambdaFunction   ResourceType = "lambda_function"
-	ResourceTypeECSService       ResourceType = "ecs_service"
-	ResourceTypeECSTask          ResourceType = "ecs_task"
-	ResourceTypeEKSCluster       ResourceType = "eks_cluster"
-	ResourceTypeEKSWorkload      ResourceType = "eks_workload"
-	ResourceTypeBedrockAgentCore ResourceType = "bedrock_agentcore"
-	ResourceTypeTool             ResourceType = "tool"
-	ResourceTypeAccessNode       ResourceType = "access_node"
-	ResourceTypeRuntimeSession   ResourceType = "runtime_session"
-	ResourceTypeUnknown          ResourceType = "resource"
+	ResourceTypeS3Bucket           ResourceType = "s3_bucket"
+	ResourceTypeKMSKey             ResourceType = "kms_key"
+	ResourceTypeSecretsManager     ResourceType = "secrets_manager_secret"
+	ResourceTypeSSMParameter       ResourceType = "ssm_parameter"
+	ResourceTypeLambdaFunction     ResourceType = "lambda_function"
+	ResourceTypeEC2Instance        ResourceType = "ec2_instance"
+	ResourceTypeEC2InstanceProfile ResourceType = "ec2_instance_profile"
+	ResourceTypeECSService         ResourceType = "ecs_service"
+	ResourceTypeECSTask            ResourceType = "ecs_task"
+	ResourceTypeEKSCluster         ResourceType = "eks_cluster"
+	ResourceTypeEKSWorkload        ResourceType = "eks_workload"
+	ResourceTypeBedrockAgentCore   ResourceType = "bedrock_agentcore"
+	ResourceTypeTool               ResourceType = "tool"
+	ResourceTypeAccessNode         ResourceType = "access_node"
+	ResourceTypeRuntimeSession     ResourceType = "runtime_session"
+	ResourceTypeUnknown            ResourceType = "resource"
 )
 
 // CredentialType identifies secrets/keys usable by identities and agents.

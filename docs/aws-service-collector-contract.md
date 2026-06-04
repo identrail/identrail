@@ -63,7 +63,11 @@ The response envelope is:
     "required_permissions": [
       "sts:GetCallerIdentity",
       "iam:ListRoles",
-      "iam:GetRole"
+      "iam:GetRole",
+      "iam:GetInstanceProfile",
+      "ec2:DescribeInstances",
+      "ec2:DescribeLaunchTemplates",
+      "ec2:DescribeLaunchTemplateVersions"
     ],
     "read_only_boundaries": [
       "collect metadata and policy documents only; never collect secret values, customer payloads, prompts, completions, object contents, or database rows"
@@ -126,9 +130,11 @@ Negative fixture states are expected evidence, not successful findings.
 
 The foundation contract currently requires metadata-only IAM reads such as
 `sts:GetCallerIdentity`, `iam:ListRoles`, `iam:GetRole`,
-`iam:ListRolePolicies`, `iam:GetRolePolicy`,
+`iam:GetInstanceProfile`, `iam:ListRolePolicies`, `iam:GetRolePolicy`,
 `iam:ListAttachedRolePolicies`, `iam:GetPolicy`, and
-`iam:GetPolicyVersion`.
+`iam:GetPolicyVersion`. The first EC2 workload collector also requires
+metadata-only compute reads: `ec2:DescribeInstances`,
+`ec2:DescribeLaunchTemplates`, and `ec2:DescribeLaunchTemplateVersions`.
 
 Future service collectors may add service-specific read-only metadata
 permissions, but must not add actions that read secret values, object contents,
