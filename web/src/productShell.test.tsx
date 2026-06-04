@@ -4191,6 +4191,12 @@ describe('GitHub domain pages (#1382)', () => {
       expect(repos).toBeDefined();
     });
     expect(screen.getByRole('heading', { level: 3, name: 'Recent scans' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.listRepoScans).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 50, sort_by: 'started_at', sort_order: 'desc' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
   });
 
   it('Control Center prompts to connect when not connected', async () => {
@@ -4589,6 +4595,57 @@ describe('GitHub domain pages (#1382)', () => {
 
     await screen.findByRole('heading', { level: 2, name: 'GitHub' });
     await screen.findByRole('heading', { level: 3, name: /Unable to load GitHub status/i });
+    // The error panel is the single source of truth — the page must not
+    // also speculate a "run your first scan" recommendation or claim
+    // "no repository scans yet" off a failed fetch.
+    expect(screen.queryByLabelText('GitHub action recommendation')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 3, name: /No repository scans yet/i })).not.toBeInTheDocument();
+  });
+
+  it('Control Center reuses the last loaded dashboard while refreshing the same environment', async () => {
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
+    const getGitHubConnectorStatus = vi
+      .spyOn(api.apiClient, 'getGitHubConnectorStatus')
+      .mockResolvedValueOnce({ connection: connectedGitHub });
+    const listRepoScans = vi
+      .spyOn(api.apiClient, 'listRepoScans')
+      .mockResolvedValueOnce({ items: [succeededRepoScan] });
+
+    const productShell = await import('./productShell');
+    const renderControlCenter = () =>
+      render(
+        <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github?environment=production-platform']}>
+          <Routes>
+            <Route path="/app/:tenantID/:workspaceID/github" element={<productShell.ProductGitHubControlCenterPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+    const firstRender = renderControlCenter();
+    expect(await screen.findByRole('heading', { level: 3, name: 'Recent scans' })).toBeInTheDocument();
+    await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(1));
+    firstRender.unmount();
+
+    const pendingStatus = deferred<{ connection: GitHubConnectionStatus }>();
+    const pendingScans = deferred<{ items: RepoScanRecord[] }>();
+    getGitHubConnectorStatus.mockReturnValueOnce(pendingStatus.promise);
+    listRepoScans.mockReturnValueOnce(pendingScans.promise);
+
+    renderControlCenter();
+
+    expect(screen.getByRole('heading', { level: 3, name: 'Recent scans' })).toBeInTheDocument();
+    expect(screen.getByText(/Installation 12345/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Loading GitHub status/i)).not.toBeInTheDocument();
+    await waitFor(() => expect(getGitHubConnectorStatus).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      pendingStatus.resolve({ connection: connectedGitHub });
+      pendingScans.resolve({ items: [succeededRepoScan] });
+    });
   });
 
   it('Control Center hides recent scans when no repositories are selected', async () => {

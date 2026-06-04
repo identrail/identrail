@@ -8386,6 +8386,7 @@ export function ProductKubernetesRemediationPage() {
 // =====================================================
 
 const GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT = 5;
+const GITHUB_CONTROL_CENTER_SCAN_FETCH_LIMIT = 50;
 const GITHUB_REPOSITORIES_SCANS_LIMIT = 50;
 const GITHUB_REMEDIATION_FINDINGS_LIMIT = 100;
 const GITHUB_MAX_SCAN_PAGE_FETCHES = 50;
@@ -8472,15 +8473,47 @@ type GitHubDomainDataState = {
   reload: () => void;
 };
 
+type GitHubDomainDataSnapshot = {
+  connection: GitHubConnectionStatus | null;
+  scans: RepoScanRecord[];
+};
+
+const gitHubDomainDataCache = new Map<string, GitHubDomainDataSnapshot>();
+
+function gitHubDomainDataCacheKey(
+  scope: ProductSession | null,
+  projectID: string | undefined,
+  scanLimit: number
+): string {
+  const trimmedProject = normalizeValue(projectID);
+  if (!scope || !trimmedProject) {
+    return '';
+  }
+  return [scope.tenantID, scope.workspaceID, trimmedProject, scanLimit].join('::');
+}
+
+function writeGitHubDomainDataCache(key: string, snapshot: GitHubDomainDataSnapshot) {
+  if (!key) {
+    return;
+  }
+  gitHubDomainDataCache.set(key, {
+    connection: snapshot.connection,
+    scans: snapshot.scans
+  });
+}
+
 async function listRepoScansForSelectedRepositories(
   selectedRepositories: string[],
   scanLimit: number,
-  auth: RequestAuthContext
+  auth: RequestAuthContext,
+  options: { pageLimit?: number; maxPages?: number } = {}
 ): Promise<RepoScanRecord[]> {
   if (!selectedRepositories.length || scanLimit <= 0) {
     return [];
   }
 
+  const pageLimit = Math.max(scanLimit, options.pageLimit ?? scanLimit);
+  const maxPages = Math.max(1, options.maxPages ?? GITHUB_MAX_SCAN_PAGE_FETCHES);
   const allowed = new Set(selectedRepositories.map((repository) => canonicalGitHubRepositoryDisplay(repository).toLowerCase()));
   const matches: RepoScanRecord[] = [];
   const seenCursors = new Set<string>();
@@ -8488,14 +8521,14 @@ async function listRepoScansForSelectedRepositories(
   let pagesFetched = 0;
 
   do {
-    if (pagesFetched >= GITHUB_MAX_SCAN_PAGE_FETCHES) {
+    if (pagesFetched >= maxPages) {
       break;
     }
     pagesFetched += 1;
 
     const response = (await apiClient.listRepoScans(
       {
-        limit: scanLimit,
+        limit: pageLimit,
         cursor,
         sort_by: 'started_at',
         sort_order: 'desc'
@@ -8531,14 +8564,19 @@ function useGitHubDomainData(
   scope: ProductSession | null,
   projectID: string | undefined,
   available: boolean,
-  scanLimit: number
+  scanLimit: number,
+  scanPageLimit = scanLimit,
+  maxScanPages = GITHUB_MAX_SCAN_PAGE_FETCHES
 ): GitHubDomainDataState {
-  const [connection, setConnection] = useState<GitHubConnectionStatus | null>(null);
-  const [scans, setScans] = useState<RepoScanRecord[]>([]);
+  const cacheKey = gitHubDomainDataCacheKey(scope, projectID, scanLimit);
+  const cachedSnapshot = cacheKey ? gitHubDomainDataCache.get(cacheKey) : undefined;
+  const activeCacheKeyRef = useRef(cacheKey);
+  const [connection, setConnection] = useState<GitHubConnectionStatus | null>(() => cachedSnapshot?.connection ?? null);
+  const [scans, setScans] = useState<RepoScanRecord[]>(() => cachedSnapshot?.scans ?? []);
   // Start in the loading state when a fetch is going to happen so the very
   // first render does not falsely advertise the user as disconnected before
   // the API has even been called.
-  const [loading, setLoading] = useState<boolean>(Boolean(scope) && available);
+  const [loading, setLoading] = useState<boolean>(Boolean(scope) && available && !cachedSnapshot);
   const [error, setError] = useState('');
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -8546,6 +8584,7 @@ function useGitHubDomainData(
 
   useEffect(() => {
     if (!scope || !available) {
+      activeCacheKeyRef.current = '';
       setConnection(null);
       setScans([]);
       setError('');
@@ -8558,6 +8597,7 @@ function useGitHubDomainData(
       // loading state so the caller does not interpret connection=null as
       // "confirmed disconnected" while we are still waiting for the
       // project ID to settle.
+      activeCacheKeyRef.current = '';
       setLoading(true);
       setConnection(null);
       setScans([]);
@@ -8565,10 +8605,16 @@ function useGitHubDomainData(
       return undefined;
     }
     let active = true;
+    const requestCacheKey = gitHubDomainDataCacheKey(scope, trimmedProject, scanLimit);
+    const requestSnapshot = requestCacheKey ? gitHubDomainDataCache.get(requestCacheKey) : undefined;
+    const isSameRequestTarget = activeCacheKeyRef.current === requestCacheKey;
+    activeCacheKeyRef.current = requestCacheKey;
     setLoading(true);
     setError('');
-    setConnection(null);
-    setScans([]);
+    if (!isSameRequestTarget) {
+      setConnection(requestSnapshot?.connection ?? null);
+      setScans(requestSnapshot?.scans ?? []);
+    }
     const auth = buildProductAuthContext(scope);
     const statusRequest = apiClient.getGitHubConnectorStatus(scope.workspaceID, trimmedProject, auth);
 
@@ -8586,7 +8632,8 @@ function useGitHubDomainData(
           nextScans = await listRepoScansForSelectedRepositories(
             nextConnection?.selected_repositories ?? [],
             scanLimit,
-            auth
+            auth,
+            { pageLimit: scanPageLimit, maxPages: maxScanPages }
           );
         } catch (error) {
           nextError = formatAPIError(error, 'Unable to load recent repository scans.');
@@ -8595,12 +8642,32 @@ function useGitHubDomainData(
         if (!active) {
           return;
         }
+        if (nextError) {
+          const fallbackSnapshot = requestCacheKey ? gitHubDomainDataCache.get(requestCacheKey) : undefined;
+          if (fallbackSnapshot) {
+            setConnection(nextConnection);
+            setScans(fallbackSnapshot.scans);
+            writeGitHubDomainDataCache(requestCacheKey, { connection: nextConnection, scans: fallbackSnapshot.scans });
+            setError('');
+            return;
+          }
+        }
+        if (!nextError) {
+          writeGitHubDomainDataCache(requestCacheKey, { connection: nextConnection, scans: nextScans });
+        }
         setConnection(nextConnection);
         setScans(nextScans);
         setError(nextError);
       })
       .catch((error) => {
         if (!active) {
+          return;
+        }
+        const fallbackSnapshot = requestCacheKey ? gitHubDomainDataCache.get(requestCacheKey) : undefined;
+        if (fallbackSnapshot) {
+          setConnection(fallbackSnapshot.connection);
+          setScans(fallbackSnapshot.scans);
+          setError('');
           return;
         }
         setError(formatAPIError(error, 'Unable to load GitHub connection status.'));
@@ -8614,7 +8681,7 @@ function useGitHubDomainData(
     return () => {
       active = false;
     };
-  }, [available, projectID, reloadToken, scanLimit, scope?.tenantID, scope?.workspaceID]);
+  }, [available, maxScanPages, projectID, reloadToken, scanLimit, scanPageLimit, scope?.tenantID, scope?.workspaceID]);
 
   return { loading, error, connection, scans, reload };
 }
@@ -8995,7 +9062,9 @@ export function ProductGitHubControlCenterPage() {
     scope,
     selectedEnvironmentID,
     availability.available,
-    GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT
+    GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT,
+    GITHUB_CONTROL_CENTER_SCAN_FETCH_LIMIT,
+    1
   );
 
   if (!scope) {
@@ -9061,7 +9130,15 @@ export function ProductGitHubControlCenterPage() {
   // then flips to the connected state once the response lands — a
   // misleading flash that, on slower networks, can last several seconds.
   const awaitingFirstLoad = data.loading && data.connection === null && !data.error;
-  const banner = awaitingFirstLoad
+  const hasError = Boolean(data.error);
+  // When the scan list errors out, we cannot truthfully recommend a next
+  // action or claim "no repository scans yet" — the fetch failed, the
+  // page does not know whether scans exist. The error panel becomes the
+  // single source of truth and the speculative banner / empty state are
+  // suppressed. The header subtitle and primary CTA can still reflect
+  // the connection result because that fetch did succeed.
+  const suppressDerivedSurfaces = awaitingFirstLoad || hasError;
+  const banner = suppressDerivedSurfaces
     ? null
     : selectGitHubControlCenterBanner({
         connected,
@@ -9103,7 +9180,7 @@ export function ProductGitHubControlCenterPage() {
           </header>
           <DomainTimeline label="Recent repository scans" entries={gitHubRecentScansTimeline(recentScans)} />
         </section>
-      ) : !awaitingFirstLoad && connected ? (
+      ) : !suppressDerivedSurfaces && connected ? (
         <DomainEmptyState
           title="No repository scans yet"
           body="Queue a scan to populate the activity timeline."
@@ -9118,7 +9195,7 @@ export function ProductGitHubControlCenterPage() {
 export function ProductGitHubConnectPage() {
   const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useGitHubDomainScope();
   const availability = useGitHubAvailability();
-  const data = useGitHubDomainData(scope, selectedEnvironmentID, availability.available, GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT);
+  const data = useGitHubDomainData(scope, selectedEnvironmentID, availability.available, 0);
   const [installError, setInstallError] = useState('');
   const [installing, setInstalling] = useState(false);
   const [pendingInstallURL, setPendingInstallURL] = useState('');
@@ -9792,7 +9869,7 @@ export function ProductGitHubRemediationPage() {
     scope,
     selectedEnvironmentID,
     availability.available,
-    GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT
+    0
   );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
