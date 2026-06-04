@@ -4128,7 +4128,6 @@ describe('GitHub domain pages (#1382)', () => {
 
   it('Control Center counts findings off the latest scan per repository, not historical totals', async () => {
     const baseFields = {
-      project_id: succeededRepoScan.project_id,
       status: succeededRepoScan.status,
       scan_mode: succeededRepoScan.scan_mode,
       files_scanned: succeededRepoScan.files_scanned
