@@ -4181,6 +4181,57 @@ describe('GitHub domain pages (#1382)', () => {
     });
   });
 
+  it('Control Center triage banner survives a later canceled scan over a successful scan with findings', async () => {
+    const repo = 'identrail/repo-canceled-after-findings';
+    const succeededWithFindings: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'succeeded-with-findings',
+      repository: repo,
+      started_at: '2026-05-19T10:00:00Z',
+      finished_at: '2026-05-19T10:05:00Z',
+      finding_count: 3
+    };
+    const canceledAfter: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'canceled-after',
+      repository: repo,
+      status: 'canceled',
+      started_at: '2026-05-20T10:00:00Z',
+      finished_at: '2026-05-20T10:00:30Z',
+      finding_count: 0,
+      error_message: 'repository scan canceled by user'
+    };
+
+    await renderGitHubPage('control-center', {
+      githubConnection: { ...connectedGitHub, selected_repositories: [repo] },
+      scans: [canceledAfter, succeededWithFindings]
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
+    const banner = await screen.findByLabelText('GitHub action recommendation');
+    expect(within(banner).getByText(/Repository findings need triage\./)).toBeInTheDocument();
+  });
+
+  it('Control Center shows a scan-in-progress banner instead of prompting to queue another', async () => {
+    const queuedFirstScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'queued-first',
+      repository: 'identrail/in-progress',
+      status: 'running'
+    };
+
+    await renderGitHubPage('control-center', {
+      githubConnection: { ...connectedGitHub, selected_repositories: ['identrail/in-progress'] },
+      scans: [queuedFirstScan]
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
+    const banner = await screen.findByLabelText('GitHub action recommendation');
+    expect(within(banner).getByText(/Scan in progress/i)).toBeInTheDocument();
+    expect(within(banner).getByText('identrail/in-progress')).toBeInTheDocument();
+    expect(within(banner).queryByText(/Queue the first repository scan/i)).not.toBeInTheDocument();
+  });
+
   it('Connect page renders an Open GitHub fallback link when the install popup is blocked', async () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
     await renderGitHubPage('connect', {

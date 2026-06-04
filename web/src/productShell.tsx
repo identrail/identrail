@@ -7381,6 +7381,21 @@ function selectGitHubControlCenterBanner({
       tone: 'warning'
     };
   }
+  const activeScan = recentScans.find((scan) => isActiveScanStatus(scan.status));
+  if (activeScan) {
+    const repo = canonicalGitHubRepositoryDisplay(activeScan.repository) || activeScan.repository;
+    return {
+      id: 'scan-in-progress',
+      message: (
+        <>
+          Scan in progress · <strong>{repo}</strong>
+        </>
+      ),
+      actionLabel: 'Repositories',
+      actionTo: repositoriesPath,
+      tone: 'info'
+    };
+  }
   if (latestPerRepo.length === 0) {
     return {
       id: 'run-first-scan',
@@ -7393,10 +7408,14 @@ function selectGitHubControlCenterBanner({
   return null;
 }
 
+// Build the latest authoritative scan per repository. Canceled scans are
+// skipped because cancellation does not refresh the finding count or the
+// failure state — letting a canceled scan supersede a prior successful or
+// failed scan would hide real triage work or a real failure recommendation.
 function latestCompletedScanPerRepository(scans: RepoScanRecord[]): RepoScanRecord[] {
   const byRepo = new Map<string, RepoScanRecord>();
   for (const scan of scans) {
-    if (!isCompletedScanStatus(scan.status)) {
+    if (!isCompletedScanStatus(scan.status) || isCanceledScanStatus(scan.status)) {
       continue;
     }
     const repo = canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase() || scan.repository.toLowerCase();
@@ -7406,6 +7425,10 @@ function latestCompletedScanPerRepository(scans: RepoScanRecord[]): RepoScanReco
     }
   }
   return [...byRepo.values()];
+}
+
+function isCanceledScanStatus(status: string): boolean {
+  return normalizeValue(status).toLowerCase() === 'canceled';
 }
 
 function scanFinishedAt(scan: RepoScanRecord): number {
