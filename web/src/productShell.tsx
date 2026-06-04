@@ -2593,7 +2593,9 @@ function loadEnvironmentScopeSnapshot(
   environmentScopeRequests.set(cacheKey, request);
   return request
     .then((snapshot) => {
-      writeEnvironmentScopeCache(cacheKey, snapshot);
+      if (!snapshot.error) {
+        writeEnvironmentScopeCache(cacheKey, snapshot);
+      }
       return snapshot;
     })
     .finally(() => {
@@ -12132,6 +12134,7 @@ export function ProductOverviewPage() {
     scope?.workspaceID,
     scope?.projectID,
     sourceAvailability.aws.available,
+    sourceAvailability.github.available,
     sourceAvailability.kubernetes.available
   ]);
 

@@ -3063,6 +3063,65 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText(/Unable to verify selected environment older-production/i)).toBeInTheDocument();
   });
 
+  it('retries requested environment verification after transient getProject failures', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    const recentProjects = Array.from({ length: 50 }, (_, index) => ({
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: `recent-environment-${index + 1}`,
+      name: `Recent Environment ${index + 1}`,
+      slug: `recent-environment-${index + 1}`,
+      description: '',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z'
+    }));
+    const olderProduction = {
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: 'older-production',
+      name: 'Older Production',
+      slug: 'older-production',
+      description: 'Long-lived production boundary.',
+      created_at: '2025-01-01T00:00:00Z',
+      updated_at: '2025-01-02T00:00:00Z'
+    };
+    const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: recentProjects });
+    const getProject = vi
+      .spyOn(api.apiClient, 'getProject')
+      .mockRejectedValueOnce(new api.ApiError('temporary outage', 503))
+      .mockResolvedValueOnce({ project: olderProduction });
+
+    const { ProductDomainRoutePage } = await import('./productShell');
+    const renderRepositoriesPage = () =>
+      render(
+        <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/repositories?environment=older-production']}>
+          <Routes>
+            <Route
+              path="/app/:tenantID/:workspaceID/github/repositories"
+              element={<ProductDomainRoutePage domain="github" routeID="repositories" />}
+            />
+          </Routes>
+        </MemoryRouter>
+      );
+
+    const firstRender = renderRepositoriesPage();
+
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
+    expect(await screen.findByText(/Unable to verify selected environment older-production/i)).toBeInTheDocument();
+    await waitFor(() => expect(getProject).toHaveBeenCalledTimes(1));
+    firstRender.unmount();
+
+    renderRepositoriesPage();
+
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
+    await waitFor(() => expect(listProjects).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getProject).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.queryByText(/Unable to verify selected environment older-production/i)).not.toBeInTheDocument()
+    );
+  });
+
   it('does not silently switch AWS connect to a fallback environment when getProject check fails transiently', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
@@ -4885,6 +4944,74 @@ describe('GitHub domain pages (#1382)', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
+  });
+
+  it('Overview warms GitHub caches when backend availability resolves after mount', async () => {
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    let githubBackend: BackendFeatureState = false;
+    vi.doMock('./hooks/useBackendFeatures', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./hooks/useBackendFeatures')>();
+      return {
+        ...actual,
+        useBackendFeatures: () => ({
+          features: {
+            onboardingWizard: undefined,
+            connectors: { github: githubBackend, aws: undefined, kubernetes: true },
+            configReachable: true
+          },
+          loading: false
+        })
+      };
+    });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'getOnboardingState').mockResolvedValue({
+      state: {
+        user_id: 'user-1',
+        org_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: productionProject.project_id,
+        current_step: 'complete',
+        connector_skipped: false,
+        scan_skipped: false,
+        started_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
+    const getGitHubConnectorStatus = vi
+      .spyOn(api.apiClient, 'getGitHubConnectorStatus')
+      .mockResolvedValue({ connection: connectedGitHub });
+    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [succeededRepoScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [], summary: undefined });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: connectedKubernetes });
+
+    const { ProductOverviewPage } = await import('./productShell');
+    const renderOverviewRoute = () => (
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    const overviewRender = render(renderOverviewRoute());
+
+    await screen.findByRole('region', { name: 'Domain posture' });
+    await waitFor(() => expect(listProjects).toHaveBeenCalledTimes(1));
+    expect(getGitHubConnectorStatus).not.toHaveBeenCalled();
+
+    githubBackend = true;
+    overviewRender.rerender(renderOverviewRoute());
+
+    await waitFor(() => expect(listProjects).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(getGitHubConnectorStatus).toHaveBeenCalledWith(
+        'workspace-a',
+        'production-platform',
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(listRepoScans).toHaveBeenCalled();
   });
 
   it('Overview skips dashboard cache warmups after the auth session resets', async () => {
