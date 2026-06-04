@@ -68,6 +68,51 @@ func TestGetAWSPlatformDependencyIndexBuildsCanonicalLedger(t *testing.T) {
 	}
 }
 
+func TestBuildAWSPlatformDependencyIssuesBlocksRowsWithMalformedBlockers(t *testing.T) {
+	rows, parseFailures := parseAWSPlatformDependencyLedger(`
+### Wave 0: Clean baseline and epic setup
+- #1473 - AWS platform baseline verification gate (blocked by: none)
+- #1474 - AWS platform issue dependency index (blocked by: 1473)
+`)
+	if len(parseFailures) == 0 {
+		t.Fatalf("expected malformed blocker parse failure")
+	}
+
+	issues, validationFailures := buildAWSPlatformDependencyIssues(rows)
+	if len(validationFailures) != 0 {
+		t.Fatalf("did not expect graph validation failures, got %+v", validationFailures)
+	}
+	current := requireAWSPlatformDependencyIssue(t, issues, "#1474")
+	if current.ReadyForPR || current.DependencyStatus != awsPlatformIssueStateBlocked {
+		t.Fatalf("malformed blocker issue should be blocked, got %+v", current)
+	}
+	if !containsString(current.FailureReasons, `#1474 has malformed blocker refs "1473"`) {
+		t.Fatalf("expected issue failure reason to carry blocker parse error, got %+v", current.FailureReasons)
+	}
+
+	checks := awsPlatformDependencyChecks(rows, issues, parseFailures, time.Date(2026, 6, 4, 12, 30, 0, 0, time.UTC))
+	currentCheck := requireAWSPlatformDependencyCheck(t, checks, "current_issue_readiness")
+	if currentCheck.Status != awsPlatformDependencyStatusBlocked {
+		t.Fatalf("current readiness check should be blocked for malformed current issue, got %+v", currentCheck)
+	}
+}
+
+func TestAWSPlatformCurrentIssueReadyTreatsCompletedIssueAsSatisfied(t *testing.T) {
+	issues := []AWSPlatformDependencyIssue{{
+		IssueNumber:      awsPlatformDependencyCurrentIssue,
+		IssueRef:         awsIssueRef(awsPlatformDependencyCurrentIssue),
+		DependencyStatus: awsPlatformIssueStateCompleted,
+		ReadyForPR:       false,
+	}}
+	if !awsPlatformCurrentIssueReady(issues) {
+		t.Fatalf("completed current issue should satisfy readiness check")
+	}
+	issues[0].DependencyStatus = awsPlatformIssueStateBlocked
+	if awsPlatformCurrentIssueReady(issues) {
+		t.Fatalf("blocked current issue should not satisfy readiness check")
+	}
+}
+
 func TestRouterAWSPlatformDependencyIndex(t *testing.T) {
 	r := newAWSConnectionTestRouter(t, &fakeAWSConnectorValidator{})
 
@@ -99,6 +144,17 @@ func requireAWSPlatformDependencyIssue(t *testing.T, issues []AWSPlatformDepende
 	}
 	t.Fatalf("dependency issue %s not found", ref)
 	return AWSPlatformDependencyIssue{}
+}
+
+func requireAWSPlatformDependencyCheck(t *testing.T, checks []AWSPlatformDependencyCheck, name string) AWSPlatformDependencyCheck {
+	t.Helper()
+	for _, check := range checks {
+		if check.Name == name {
+			return check
+		}
+	}
+	t.Fatalf("dependency check %s not found", name)
+	return AWSPlatformDependencyCheck{}
 }
 
 func containsString(values []string, target string) bool {

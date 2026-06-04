@@ -218,13 +218,14 @@ type AWSPlatformDependencyIssue struct {
 }
 
 type awsPlatformDependencyRow struct {
-	IssueNumber int
-	IssueRef    string
-	Title       string
-	Wave        int
-	WaveName    string
-	Sequence    int
-	BlockerRefs []string
+	IssueNumber        int
+	IssueRef           string
+	Title              string
+	Wave               int
+	WaveName           string
+	Sequence           int
+	BlockerRefs        []string
+	ValidationFailures []string
 }
 
 // GetAWSPlatformDependencyIndex returns the deterministic AWS child-issue
@@ -318,8 +319,9 @@ func parseAWSPlatformDependencyLedger(raw string) ([]awsPlatformDependencyRow, [
 			failures = append(failures, fmt.Sprintf("ledger line does not match issue format: %s", line))
 			continue
 		}
+		rowFailures := []string{}
 		if wave < 0 {
-			failures = append(failures, fmt.Sprintf("issue %s appears before a wave heading", match[1]))
+			rowFailures = append(rowFailures, fmt.Sprintf("issue %s appears before a wave heading", match[1]))
 		}
 		issueNumber, err := strconv.Atoi(match[1])
 		if err != nil {
@@ -327,16 +329,18 @@ func parseAWSPlatformDependencyLedger(raw string) ([]awsPlatformDependencyRow, [
 			continue
 		}
 		blockerRefs, blockerFailures := parseAWSPlatformBlockerRefs(issueNumber, match[3])
-		failures = append(failures, blockerFailures...)
+		rowFailures = append(rowFailures, blockerFailures...)
+		failures = append(failures, rowFailures...)
 		sequence++
 		rows = append(rows, awsPlatformDependencyRow{
-			IssueNumber: issueNumber,
-			IssueRef:    awsIssueRef(issueNumber),
-			Title:       strings.TrimSpace(match[2]),
-			Wave:        wave,
-			WaveName:    waveName,
-			Sequence:    sequence,
-			BlockerRefs: append([]string(nil), blockerRefs...),
+			IssueNumber:        issueNumber,
+			IssueRef:           awsIssueRef(issueNumber),
+			Title:              strings.TrimSpace(match[2]),
+			Wave:               wave,
+			WaveName:           waveName,
+			Sequence:           sequence,
+			BlockerRefs:        append([]string(nil), blockerRefs...),
+			ValidationFailures: append([]string(nil), rowFailures...),
 		})
 	}
 	return rows, failures
@@ -367,10 +371,16 @@ func parseAWSPlatformBlockerRefs(issueNumber int, raw string) ([]string, []strin
 
 func buildAWSPlatformDependencyIssues(rows []awsPlatformDependencyRow) ([]AWSPlatformDependencyIssue, []string) {
 	failures := []string{}
+	issueFailures := map[string][]string{}
 	rowByRef := map[string]awsPlatformDependencyRow{}
 	for _, row := range rows {
+		if len(row.ValidationFailures) > 0 {
+			issueFailures[row.IssueRef] = append(issueFailures[row.IssueRef], row.ValidationFailures...)
+		}
 		if existing, ok := rowByRef[row.IssueRef]; ok {
-			failures = append(failures, fmt.Sprintf("duplicate issue ref %s at sequences %d and %d", row.IssueRef, existing.Sequence, row.Sequence))
+			failure := fmt.Sprintf("duplicate issue ref %s at sequences %d and %d", row.IssueRef, existing.Sequence, row.Sequence)
+			failures = append(failures, failure)
+			issueFailures[row.IssueRef] = append(issueFailures[row.IssueRef], failure)
 		}
 		rowByRef[row.IssueRef] = row
 	}
@@ -379,11 +389,15 @@ func buildAWSPlatformDependencyIssues(rows []awsPlatformDependencyRow) ([]AWSPla
 		for _, blockerRef := range row.BlockerRefs {
 			blocker, ok := rowByRef[blockerRef]
 			if !ok {
-				failures = append(failures, fmt.Sprintf("%s references missing blocker %s", row.IssueRef, blockerRef))
+				failure := fmt.Sprintf("%s references missing blocker %s", row.IssueRef, blockerRef)
+				failures = append(failures, failure)
+				issueFailures[row.IssueRef] = append(issueFailures[row.IssueRef], failure)
 				continue
 			}
 			if blocker.Sequence >= row.Sequence {
-				failures = append(failures, fmt.Sprintf("%s blocker %s is not earlier in the sequence", row.IssueRef, blockerRef))
+				failure := fmt.Sprintf("%s blocker %s is not earlier in the sequence", row.IssueRef, blockerRef)
+				failures = append(failures, failure)
+				issueFailures[row.IssueRef] = append(issueFailures[row.IssueRef], failure)
 			}
 			downstream[blockerRef] = append(downstream[blockerRef], row.IssueRef)
 		}
@@ -392,7 +406,7 @@ func buildAWSPlatformDependencyIssues(rows []awsPlatformDependencyRow) ([]AWSPla
 	for _, row := range rows {
 		downstreamRefs := append([]string(nil), downstream[row.IssueRef]...)
 		sortIssueRefs(downstreamRefs)
-		status, ready, reasons, remediation, nextAction := awsPlatformIssueReadiness(row)
+		status, ready, reasons, remediation, nextAction := awsPlatformIssueReadiness(row, issueFailures[row.IssueRef])
 		issues = append(issues, AWSPlatformDependencyIssue{
 			IssueNumber:      row.IssueNumber,
 			IssueRef:         row.IssueRef,
@@ -413,7 +427,10 @@ func buildAWSPlatformDependencyIssues(rows []awsPlatformDependencyRow) ([]AWSPla
 	return issues, failures
 }
 
-func awsPlatformIssueReadiness(row awsPlatformDependencyRow) (string, bool, []string, string, string) {
+func awsPlatformIssueReadiness(row awsPlatformDependencyRow, validationFailures []string) (string, bool, []string, string, string) {
+	if len(validationFailures) > 0 {
+		return awsPlatformIssueStateBlocked, false, dedupeStrings(validationFailures), "Fix dependency ledger validation errors before opening this issue.", "Correct the canonical dependency ledger before opening a PR."
+	}
 	if _, ok := awsPlatformCompletedIssueRefs[row.IssueRef]; ok {
 		return awsPlatformIssueStateCompleted, false, []string{}, "No PR needed; this dependency is already closed.", "Use as evidence for downstream blockers."
 	}
@@ -574,7 +591,7 @@ func awsPlatformDependencyBuckets(issues []AWSPlatformDependencyIssue) ([]string
 func awsPlatformCurrentIssueReady(issues []AWSPlatformDependencyIssue) bool {
 	for _, issue := range issues {
 		if issue.IssueNumber == awsPlatformDependencyCurrentIssue {
-			return issue.ReadyForPR
+			return issue.ReadyForPR || issue.DependencyStatus == awsPlatformIssueStateCompleted
 		}
 	}
 	return false
