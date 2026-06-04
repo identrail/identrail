@@ -1,0 +1,209 @@
+package aws
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
+)
+
+type fakeEC2SDKClient struct {
+	describeInstancesInput              *ec2.DescribeInstancesInput
+	describeLaunchTemplatesInput        *ec2.DescribeLaunchTemplatesInput
+	describeLaunchTemplateVersionsInput *ec2.DescribeLaunchTemplateVersionsInput
+	describeInstancesOutput             *ec2.DescribeInstancesOutput
+	describeLaunchTemplatesOutput       *ec2.DescribeLaunchTemplatesOutput
+	describeLaunchTemplateVersionsOut   *ec2.DescribeLaunchTemplateVersionsOutput
+	describeInstancesErr                error
+	describeLaunchTemplatesErr          error
+	describeLaunchTemplateVersionsErr   error
+}
+
+func (f *fakeEC2SDKClient) DescribeInstances(_ context.Context, params *ec2.DescribeInstancesInput, _ ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error) {
+	f.describeInstancesInput = params
+	if f.describeInstancesErr != nil {
+		return nil, f.describeInstancesErr
+	}
+	return f.describeInstancesOutput, nil
+}
+
+func (f *fakeEC2SDKClient) DescribeLaunchTemplates(_ context.Context, params *ec2.DescribeLaunchTemplatesInput, _ ...func(*ec2.Options)) (*ec2.DescribeLaunchTemplatesOutput, error) {
+	f.describeLaunchTemplatesInput = params
+	if f.describeLaunchTemplatesErr != nil {
+		return nil, f.describeLaunchTemplatesErr
+	}
+	return f.describeLaunchTemplatesOutput, nil
+}
+
+func (f *fakeEC2SDKClient) DescribeLaunchTemplateVersions(_ context.Context, params *ec2.DescribeLaunchTemplateVersionsInput, _ ...func(*ec2.Options)) (*ec2.DescribeLaunchTemplateVersionsOutput, error) {
+	f.describeLaunchTemplateVersionsInput = params
+	if f.describeLaunchTemplateVersionsErr != nil {
+		return nil, f.describeLaunchTemplateVersionsErr
+	}
+	return f.describeLaunchTemplateVersionsOut, nil
+}
+
+type fakeIAMInstanceProfileSDKClient struct {
+	profiles map[string][]iamtypes.Role
+	calls    []string
+	err      error
+}
+
+func (f *fakeIAMInstanceProfileSDKClient) GetInstanceProfile(_ context.Context, params *iam.GetInstanceProfileInput, _ ...func(*iam.Options)) (*iam.GetInstanceProfileOutput, error) {
+	name := strings.TrimSpace(awsv2.ToString(params.InstanceProfileName))
+	f.calls = append(f.calls, name)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &iam.GetInstanceProfileOutput{
+		InstanceProfile: &iamtypes.InstanceProfile{
+			InstanceProfileName: awsv2.String(name),
+			Roles:               append([]iamtypes.Role(nil), f.profiles[name]...),
+		},
+	}, nil
+}
+
+func TestSDKEC2InstanceProfileAPIMapsInstancesAndLaunchTemplates(t *testing.T) {
+	ec2Client := &fakeEC2SDKClient{
+		describeInstancesOutput: &ec2.DescribeInstancesOutput{
+			Reservations: []ec2types.Reservation{{
+				Instances: []ec2types.Instance{{
+					InstanceId: awsv2.String("i-0477"),
+					IamInstanceProfile: &ec2types.IamInstanceProfile{
+						Arn: awsv2.String("arn:aws:iam::123456789012:instance-profile/payments-profile"),
+						Id:  awsv2.String("AIPAJ477EXAMPLE"),
+					},
+					MetadataOptions: &ec2types.InstanceMetadataOptionsResponse{
+						HttpEndpoint:            ec2types.InstanceMetadataEndpointStateEnabled,
+						HttpTokens:              ec2types.HttpTokensStateRequired,
+						HttpPutResponseHopLimit: awsv2.Int32(2),
+					},
+					State: &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
+					Tags: []ec2types.Tag{
+						{Key: awsv2.String("Name"), Value: awsv2.String("payments-api")},
+						{Key: awsv2.String("owner"), Value: awsv2.String("platform")},
+					},
+				}},
+			}},
+		},
+		describeLaunchTemplatesOutput: &ec2.DescribeLaunchTemplatesOutput{
+			LaunchTemplates: []ec2types.LaunchTemplate{{
+				LaunchTemplateId:     awsv2.String("lt-0477"),
+				LaunchTemplateName:   awsv2.String("payments-template"),
+				DefaultVersionNumber: awsv2.Int64(2),
+				LatestVersionNumber:  awsv2.Int64(2),
+			}},
+		},
+		describeLaunchTemplateVersionsOut: &ec2.DescribeLaunchTemplateVersionsOutput{
+			LaunchTemplateVersions: []ec2types.LaunchTemplateVersion{{
+				VersionNumber: awsv2.Int64(2),
+				LaunchTemplateData: &ec2types.ResponseLaunchTemplateData{
+					IamInstanceProfile: &ec2types.LaunchTemplateIamInstanceProfileSpecification{
+						Name: awsv2.String("template-profile"),
+					},
+				},
+			}},
+		},
+	}
+	iamClient := &fakeIAMInstanceProfileSDKClient{
+		profiles: map[string][]iamtypes.Role{
+			"payments-profile": {
+				{
+					Arn:      awsv2.String("arn:aws:iam::123456789012:role/payments-ec2"),
+					RoleName: awsv2.String("payments-ec2"),
+				},
+			},
+			"template-profile": {
+				{
+					Arn:      awsv2.String("arn:aws:iam::123456789012:role/template-ec2"),
+					RoleName: awsv2.String("template-ec2"),
+				},
+			},
+		},
+	}
+	api := NewSDKEC2InstanceProfileAPIFromClients(ec2Client, iamClient, "123456789012", "us-east-1")
+
+	instancePage, err := api.ListInstanceProfiles(context.Background(), "", 25)
+	if err != nil {
+		t.Fatalf("list instances: %v", err)
+	}
+	if got := awsv2.ToInt32(ec2Client.describeInstancesInput.MaxResults); got != 25 {
+		t.Fatalf("DescribeInstances MaxResults = %d, want 25", got)
+	}
+	if instancePage.NextToken != launchTemplatePageTokenPrefix || len(instancePage.Records) != 1 {
+		t.Fatalf("unexpected instance page: %+v", instancePage)
+	}
+	instance := instancePage.Records[0]
+	if instance.WorkloadID != "i-0477" || instance.WorkloadName != "payments-api" || instance.RoleName != "payments-ec2" {
+		t.Fatalf("unexpected instance record: %+v", instance)
+	}
+	if instance.InstanceARN != "arn:aws:ec2:us-east-1:123456789012:instance/i-0477" || instance.IMDSHTTPTokens != "required" || instance.IMDSHopLimit != 2 {
+		t.Fatalf("expected instance ARN and IMDS posture, got %+v", instance)
+	}
+
+	templatePage, err := api.ListInstanceProfiles(context.Background(), instancePage.NextToken, 25)
+	if err != nil {
+		t.Fatalf("list launch templates: %v", err)
+	}
+	if templatePage.NextToken != "" || len(templatePage.Records) != 1 {
+		t.Fatalf("unexpected launch template page: %+v", templatePage)
+	}
+	if got := awsv2.ToString(ec2Client.describeLaunchTemplateVersionsInput.LaunchTemplateId); got != "lt-0477" {
+		t.Fatalf("DescribeLaunchTemplateVersions template id = %q", got)
+	}
+	template := templatePage.Records[0]
+	if template.WorkloadType != "ec2_launch_template" || template.WorkloadID != "lt-0477:2" || template.RoleName != "template-ec2" {
+		t.Fatalf("unexpected launch template record: %+v", template)
+	}
+	if len(iamClient.calls) != 2 || iamClient.calls[0] != "payments-profile" || iamClient.calls[1] != "template-profile" {
+		t.Fatalf("unexpected IAM profile lookups: %+v", iamClient.calls)
+	}
+}
+
+func TestSDKEC2InstanceProfileAPIHandlesClientErrorsAndHelpers(t *testing.T) {
+	missingEC2 := NewSDKEC2InstanceProfileAPIFromClients(nil, nil, "123456789012", "us-east-1")
+	if _, err := missingEC2.ListInstanceProfiles(context.Background(), "", 10); err == nil {
+		t.Fatal("expected missing EC2 client error")
+	}
+
+	ec2Client := &fakeEC2SDKClient{
+		describeInstancesOutput: &ec2.DescribeInstancesOutput{
+			Reservations: []ec2types.Reservation{{
+				Instances: []ec2types.Instance{{
+					InstanceId: awsv2.String("i-unresolved"),
+					IamInstanceProfile: &ec2types.IamInstanceProfile{
+						Arn: awsv2.String("arn:aws:iam::123456789012:instance-profile/unresolved-profile"),
+					},
+				}},
+			}},
+		},
+	}
+	missingIAM := NewSDKEC2InstanceProfileAPIFromClients(ec2Client, nil, "123456789012", "us-east-1")
+	if _, err := missingIAM.ListInstanceProfiles(context.Background(), "", 10); err == nil || !strings.Contains(err.Error(), "iam sdk client is required") {
+		t.Fatalf("expected missing IAM client error, got %v", err)
+	}
+
+	ec2Client.describeInstancesErr = errors.New("ec2 unavailable")
+	if _, err := NewSDKEC2InstanceProfileAPIFromClients(ec2Client, nil, "123456789012", "us-east-1").ListInstanceProfiles(context.Background(), "", 10); err == nil || !strings.Contains(err.Error(), "ec2 unavailable") {
+		t.Fatalf("expected EC2 error, got %v", err)
+	}
+
+	if got := launchTemplateVersions(awsv2.Int64(2), awsv2.Int64(2)); len(got) != 1 || got[0] != "2" {
+		t.Fatalf("expected launch template versions to dedupe, got %+v", got)
+	}
+	if arn, name := firstRoleIdentity([]iamtypes.Role{{Arn: awsv2.String("arn:aws:iam::123456789012:role/path/fallback")}}); name != "fallback" || !strings.Contains(arn, "fallback") {
+		t.Fatalf("expected role name fallback from arn, got arn=%q name=%q", arn, name)
+	}
+	if got := instanceProfileNameFromARN("arn:aws:iam::123456789012:instance-profile/path/payments-profile"); got != "payments-profile" {
+		t.Fatalf("instance profile name = %q", got)
+	}
+	if got := copyEC2Tags([]ec2types.Tag{{Key: awsv2.String(""), Value: awsv2.String("skip")}}); got != nil {
+		t.Fatalf("expected empty tag key to be skipped, got %+v", got)
+	}
+}
