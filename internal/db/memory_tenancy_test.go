@@ -548,6 +548,95 @@ func TestMemoryStoreAWSAccountRegionCoverageRegistry(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreAWSPlatformBaselineResult(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	tenantB := WithScope(context.Background(), Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "workspace-a", ProjectID: "project-1", Name: "Project 1", Slug: "project-1"}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	if err := store.UpsertTenancyConnector(ctx, TenancyConnector{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "Production AWS",
+		Status:      domain.ConnectorStatusActive,
+	}, TenancyConnectorState{WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws-prod", HealthStatus: "healthy"}); err != nil {
+		t.Fatalf("upsert connector: %v", err)
+	}
+	if err := store.UpsertOrganization(tenantB, TenancyOrganization{DisplayName: "Tenant B", Slug: "tenant-b"}); err != nil {
+		t.Fatalf("upsert tenant-b organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(tenantB, TenancyWorkspace{WorkspaceID: "workspace-b", DisplayName: "Workspace B", Slug: "workspace-b"}); err != nil {
+		t.Fatalf("upsert tenant-b workspace: %v", err)
+	}
+	if err := store.UpsertProject(tenantB, TenancyProject{WorkspaceID: "workspace-b", ProjectID: "project-1", Name: "Project B", Slug: "project-b"}); err != nil {
+		t.Fatalf("upsert tenant-b project: %v", err)
+	}
+
+	result, err := store.UpsertAWSPlatformBaselineResult(ctx, AWSPlatformBaselineResult{
+		WorkspaceID:          "workspace-a",
+		ProjectID:            "project-1",
+		ConnectorID:          "aws-prod",
+		GitSHA:               "6dd631b1",
+		SourceMode:           "fixture",
+		FixtureOnly:          true,
+		AccountID:            "123456789012",
+		Region:               "US-WEST-2",
+		Status:               AWSPlatformBaselineStatusReady,
+		Confidence:           1.2,
+		RequiredChecksPassed: true,
+		EvidenceLinks:        []string{"/app/tenant-a/workspace-a/aws"},
+		Checks: []AWSPlatformBaselineCheck{{
+			Name:       "aws_connector_health",
+			Required:   true,
+			Status:     AWSPlatformBaselineCheckPassed,
+			Message:    "ok",
+			Confidence: 0.9,
+			Evidence:   map[string]any{"connector_id": "aws-prod"},
+			CheckedAt:  now,
+		}},
+		VerifiedAt: now,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	})
+	if err != nil {
+		t.Fatalf("upsert baseline: %v", err)
+	}
+	if result.Region != "us-west-2" || result.Confidence != 1 {
+		t.Fatalf("expected normalized baseline, got %+v", result)
+	}
+	result.Checks[0].Evidence["connector_id"] = "mutated"
+	reloaded, err := store.GetAWSPlatformBaselineResult(ctx, AWSPlatformBaselineFilter{WorkspaceID: "workspace-a", ProjectID: "project-1", ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("reload baseline: %v", err)
+	}
+	if reloaded.Checks[0].Evidence["connector_id"] == "mutated" {
+		t.Fatalf("expected baseline evidence to be copied defensively")
+	}
+	if _, err := store.GetAWSPlatformBaselineResult(tenantB, AWSPlatformBaselineFilter{WorkspaceID: "workspace-b", ProjectID: "project-1", ConnectorID: "aws-prod"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected tenant isolation, got %v", err)
+	}
+	if _, err := store.UpsertAWSPlatformBaselineResult(ctx, AWSPlatformBaselineResult{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "missing",
+		Status:      AWSPlatformBaselineStatusBlocked,
+		VerifiedAt:  now,
+	}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing connector to be rejected, got %v", err)
+	}
+}
+
 func TestMemoryStoreTenancyScopeIsolation(t *testing.T) {
 	store := NewMemoryStore()
 	tenantA := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
@@ -1976,6 +2065,128 @@ func TestMemoryStoreHardDeleteWorkspacePurgesChildRows(t *testing.T) {
 	}
 	if _, err := store.GetProject(ctx, "ws-1", "project-a"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected project purged with workspace, got %v", err)
+	}
+}
+
+func TestMemoryStoreDeleteCascadesPurgeAWSPlatformBaselines(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+
+	t.Run("project", func(t *testing.T) {
+		store, ctx := setupMemoryBaselineCascadeStore(t)
+		seedMemoryAWSPlatformBaseline(t, store, ctx, now)
+
+		if err := store.DeleteProject(ctx, "ws-1", "project-a"); err != nil {
+			t.Fatalf("delete project: %v", err)
+		}
+		if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "ws-1", ProjectID: "project-a", Name: "Project A", Slug: "project-a"}); err != nil {
+			t.Fatalf("recreate project: %v", err)
+		}
+		assertMemoryAWSPlatformBaselinePurged(t, store, ctx)
+	})
+
+	t.Run("workspace", func(t *testing.T) {
+		store, ctx := setupMemoryBaselineCascadeStore(t)
+		seedMemoryAWSPlatformBaseline(t, store, ctx, now)
+
+		if err := store.DeleteWorkspace(ctx, "ws-1"); err != nil {
+			t.Fatalf("delete workspace: %v", err)
+		}
+		if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "ws-1", DisplayName: "Workspace 1", Slug: "ws-1"}); err != nil {
+			t.Fatalf("recreate workspace: %v", err)
+		}
+		if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "ws-1", ProjectID: "project-a", Name: "Project A", Slug: "project-a"}); err != nil {
+			t.Fatalf("recreate project: %v", err)
+		}
+		assertMemoryAWSPlatformBaselinePurged(t, store, ctx)
+	})
+
+	t.Run("organization", func(t *testing.T) {
+		store, ctx := setupMemoryBaselineCascadeStore(t)
+		seedMemoryAWSPlatformBaseline(t, store, ctx, now)
+
+		if err := store.DeleteOrganization(ctx); err != nil {
+			t.Fatalf("delete organization: %v", err)
+		}
+		if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+			t.Fatalf("recreate organization: %v", err)
+		}
+		if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "ws-1", DisplayName: "Workspace 1", Slug: "ws-1"}); err != nil {
+			t.Fatalf("recreate workspace: %v", err)
+		}
+		if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "ws-1", ProjectID: "project-a", Name: "Project A", Slug: "project-a"}); err != nil {
+			t.Fatalf("recreate project: %v", err)
+		}
+		assertMemoryAWSPlatformBaselinePurged(t, store, ctx)
+	})
+
+	t.Run("hard delete workspace", func(t *testing.T) {
+		store, ctx := setupMemoryBaselineCascadeStore(t)
+		seedMemoryAWSPlatformBaseline(t, store, ctx, now)
+		past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+		saved, err := store.SoftDeleteWorkspace(ctx, "ws-1", past)
+		if err != nil {
+			t.Fatalf("soft delete workspace: %v", err)
+		}
+		if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", *saved.DeletedAt, now); err != nil {
+			t.Fatalf("hard delete workspace: %v", err)
+		}
+		if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "ws-1", DisplayName: "Workspace 1", Slug: "ws-1"}); err != nil {
+			t.Fatalf("recreate workspace: %v", err)
+		}
+		if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "ws-1", ProjectID: "project-a", Name: "Project A", Slug: "project-a"}); err != nil {
+			t.Fatalf("recreate project: %v", err)
+		}
+		assertMemoryAWSPlatformBaselinePurged(t, store, ctx)
+	})
+}
+
+func setupMemoryBaselineCascadeStore(t *testing.T) (*MemoryStore, context.Context) {
+	t.Helper()
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "ws-1"})
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "ws-1", DisplayName: "Workspace 1", Slug: "ws-1"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "ws-1", ProjectID: "project-a", Name: "Project A", Slug: "project-a"}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	return store, ctx
+}
+
+func seedMemoryAWSPlatformBaseline(t *testing.T, store *MemoryStore, ctx context.Context, now time.Time) {
+	t.Helper()
+	if _, err := store.UpsertAWSPlatformBaselineResult(ctx, AWSPlatformBaselineResult{
+		WorkspaceID:          "ws-1",
+		ProjectID:            "project-a",
+		Status:               AWSPlatformBaselineStatusReady,
+		Confidence:           0.95,
+		RequiredChecksPassed: true,
+		Checks: []AWSPlatformBaselineCheck{{
+			Name:       "aws_connector_health",
+			Required:   true,
+			Status:     AWSPlatformBaselineCheckPassed,
+			Confidence: 0.96,
+			CheckedAt:  now,
+		}},
+		VerifiedAt: now,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("seed aws baseline: %v", err)
+	}
+}
+
+func assertMemoryAWSPlatformBaselinePurged(t *testing.T, store *MemoryStore, ctx context.Context) {
+	t.Helper()
+	_, err := store.GetAWSPlatformBaselineResult(ctx, AWSPlatformBaselineFilter{
+		WorkspaceID: "ws-1",
+		ProjectID:   "project-a",
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected AWS baseline purged, got %v", err)
 	}
 }
 

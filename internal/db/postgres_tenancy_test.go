@@ -305,6 +305,143 @@ func TestPostgresStoreAWSAccountRegionCoverageRegistry(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreAWSPlatformBaselineResultRegistry(t *testing.T) {
+	rawDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer rawDB.Close()
+
+	store := NewPostgresStoreWithDB(rawDB)
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	checks := []AWSPlatformBaselineCheck{{
+		Name:        "aws_connector_health",
+		Category:    "connector",
+		Required:    true,
+		Status:      AWSPlatformBaselineCheckPassed,
+		Message:     "AWS connector is active and healthy.",
+		EvidenceURL: "/docs/auth/aws-connector",
+		Confidence:  0.96,
+		Evidence:    map[string]any{"connector_id": "aws-prod"},
+		CheckedAt:   now,
+	}}
+	failureReasonsPayload, err := json.Marshal([]string{})
+	if err != nil {
+		t.Fatalf("marshal failure reasons: %v", err)
+	}
+	evidenceLinksPayload, err := json.Marshal([]string{"/docs/auth/aws-connector"})
+	if err != nil {
+		t.Fatalf("marshal evidence links: %v", err)
+	}
+	checksPayload, err := json.Marshal(checks)
+	if err != nil {
+		t.Fatalf("marshal checks: %v", err)
+	}
+	baselineColumns := []string{
+		"tenant_id", "workspace_id", "project_id", "connector_id", "git_sha", "source_mode",
+		"fixture_only", "connector_profile_version", "graph_contract_version", "account_id",
+		"region", "status", "confidence", "required_checks_passed", "failure_reasons",
+		"evidence_links", "checks", "verified_at", "created_at", "updated_at",
+	}
+	resultRows := sqlmock.NewRows(baselineColumns).AddRow(
+		"tenant-a", "workspace-a", "project-1", "aws-prod", "6dd631b1", "sdk",
+		false, "aws-readonly-iam-v1", "relationship-contract-v1", "123456789012",
+		"us-east-1", AWSPlatformBaselineStatusReady, 0.95, true, failureReasonsPayload,
+		evidenceLinksPayload, checksPayload, now, now, now,
+	)
+	mock.ExpectQuery(`(?s)INSERT INTO aws_platform_baseline_results.*FROM tenancy_projects p.*c\.type = \$21.*ON CONFLICT.*RETURNING`).
+		WithArgs(
+			"tenant-a",
+			"workspace-a",
+			"project-1",
+			"aws-prod",
+			"6dd631b1",
+			"sdk",
+			false,
+			"aws-readonly-iam-v1",
+			"relationship-contract-v1",
+			"123456789012",
+			"us-east-1",
+			AWSPlatformBaselineStatusReady,
+			0.95,
+			true,
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			string(domain.ConnectorTypeAWS),
+		).
+		WillReturnRows(resultRows)
+
+	upserted, err := store.UpsertAWSPlatformBaselineResult(ctx, AWSPlatformBaselineResult{
+		WorkspaceID:             "workspace-a",
+		ProjectID:               "project-1",
+		ConnectorID:             "aws-prod",
+		GitSHA:                  "6dd631b1",
+		SourceMode:              "sdk",
+		ConnectorProfileVersion: "aws-readonly-iam-v1",
+		GraphContractVersion:    "relationship-contract-v1",
+		AccountID:               "123456789012",
+		Region:                  "us-east-1",
+		Status:                  AWSPlatformBaselineStatusReady,
+		Confidence:              0.95,
+		RequiredChecksPassed:    true,
+		EvidenceLinks:           []string{"/docs/auth/aws-connector"},
+		Checks:                  checks,
+		VerifiedAt:              now,
+		CreatedAt:               now,
+		UpdatedAt:               now,
+	})
+	if err != nil {
+		t.Fatalf("upsert aws baseline: %v", err)
+	}
+	if upserted.Status != AWSPlatformBaselineStatusReady || len(upserted.Checks) != 1 {
+		t.Fatalf("unexpected upserted baseline: %+v", upserted)
+	}
+
+	getRows := sqlmock.NewRows(baselineColumns).AddRow(
+		"tenant-a", "workspace-a", "project-1", "aws-prod", "6dd631b1", "sdk",
+		false, "aws-readonly-iam-v1", "relationship-contract-v1", "123456789012",
+		"us-east-1", AWSPlatformBaselineStatusReady, 0.95, true, failureReasonsPayload,
+		evidenceLinksPayload, checksPayload, now, now, now,
+	)
+	mock.ExpectQuery(`(?s)SELECT tenant_id, workspace_id, project_id, connector_id, git_sha, source_mode.*FROM aws_platform_baseline_results.*connector_id = \$4`).
+		WithArgs("tenant-a", "workspace-a", "project-1", "aws-prod").
+		WillReturnRows(getRows)
+
+	loaded, err := store.GetAWSPlatformBaselineResult(ctx, AWSPlatformBaselineFilter{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+	})
+	if err != nil {
+		t.Fatalf("get aws baseline: %v", err)
+	}
+	if loaded.ConnectorID != "aws-prod" || len(loaded.EvidenceLinks) != 1 || loaded.Checks[0].Name != "aws_connector_health" {
+		t.Fatalf("unexpected loaded baseline: %+v", loaded)
+	}
+
+	emptyRows := sqlmock.NewRows(baselineColumns)
+	mock.ExpectQuery(`(?s)SELECT tenant_id, workspace_id, project_id, connector_id, git_sha, source_mode.*FROM aws_platform_baseline_results.*connector_id = \$4`).
+		WithArgs("tenant-a", "workspace-a", "project-1", "missing").
+		WillReturnRows(emptyRows)
+
+	_, err = store.GetAWSPlatformBaselineResult(ctx, AWSPlatformBaselineFilter{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "missing",
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing baseline to return ErrNotFound, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreKubernetesEnrollmentTokenClaim(t *testing.T) {
 	rawDB, mock, err := sqlmock.New()
 	if err != nil {

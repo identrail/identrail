@@ -1413,9 +1413,11 @@ func TestPostgresStoreScanQueueLifecycle(t *testing.T) {
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
 		   AND ($3 = '' OR provider = $3)
+		   AND ($4 = '' OR source_project_id = $4)
+		   AND ($5 = '' OR source_connector_id = $5)
 		   AND status = 'queued'
 		   AND dead_lettered = FALSE`)).
-		WithArgs("default", "default", "aws").
+		WithArgs("default", "default", "aws", "", "").
 		WillReturnRows(countRows)
 
 	count, err := store.CountQueuedScans(defaultScopeContext(), "aws")
@@ -1588,8 +1590,11 @@ func TestPostgresStoreCountQueuedScansBlankProviderIsWildcard(t *testing.T) {
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
 		   AND ($3 = '' OR provider = $3)
-		   AND status = 'queued'`)).
-		WithArgs("default", "default", "").
+		   AND ($4 = '' OR source_project_id = $4)
+		   AND ($5 = '' OR source_connector_id = $5)
+		   AND status = 'queued'
+		   AND dead_lettered = FALSE`)).
+		WithArgs("default", "default", "", "", "").
 		WillReturnRows(countRows)
 
 	count, err := store.CountQueuedScans(defaultScopeContext(), "")
@@ -1598,6 +1603,74 @@ func TestPostgresStoreCountQueuedScansBlankProviderIsWildcard(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("expected wildcard queued count 2, got %d", count)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreCountQueuedScansWithSource(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	countRows := sqlmock.NewRows([]string{"count"}).AddRow(1)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)
+		 FROM scans
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND ($3 = '' OR provider = $3)
+		   AND ($4 = '' OR source_project_id = $4)
+		   AND ($5 = '' OR source_connector_id = $5)
+		   AND status = 'queued'
+		   AND dead_lettered = FALSE`)).
+		WithArgs("default", "default", "aws", "project-a", "aws-prod").
+		WillReturnRows(countRows)
+
+	count, err := store.CountQueuedScansWithSource(defaultScopeContext(), "aws", ScanSource{ProjectID: " project-a ", ConnectorID: " aws-prod "})
+	if err != nil {
+		t.Fatalf("count queued scans with source: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected source-scoped queued count 1, got %d", count)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreCountPendingScansWithSource(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	countRows := sqlmock.NewRows([]string{"count"}).AddRow(2)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)
+		 FROM scans
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND ($3 = '' OR provider = $3)
+		   AND ($4 = '' OR source_project_id = $4)
+		   AND ($5 = '' OR source_connector_id = $5)
+		   AND status IN ('queued', 'running')
+		   AND dead_lettered = FALSE`)).
+		WithArgs("default", "default", "aws", "project-a", "aws-prod").
+		WillReturnRows(countRows)
+
+	count, err := store.CountPendingScansWithSource(defaultScopeContext(), "aws", ScanSource{ProjectID: " project-a ", ConnectorID: " aws-prod "})
+	if err != nil {
+		t.Fatalf("count pending scans with source: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected source-scoped pending count 2, got %d", count)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

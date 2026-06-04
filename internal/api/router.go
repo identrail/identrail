@@ -1161,6 +1161,10 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		scan, err := svc.EnqueueScan(c.Request.Context(), request)
 		if err != nil {
 			metrics.ScanEnqueueFailureTotal.Inc()
+			if status, payload, ok := awsBaselineNotReadyResponse(err); ok {
+				c.JSON(status, payload)
+				return
+			}
 			if errors.Is(err, ErrInvalidScanRequest) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan request"})
 				return
@@ -1199,6 +1203,10 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		scan, err := svc.ReplayScan(c.Request.Context(), scanID)
 		if err != nil {
 			metrics.ScanEnqueueFailureTotal.Inc()
+			if status, payload, ok := awsBaselineNotReadyResponse(err); ok {
+				c.JSON(status, payload)
+				return
+			}
 			switch {
 			case errors.Is(err, db.ErrNotFound):
 				c.JSON(http.StatusNotFound, gin.H{"error": "scan not found"})
@@ -2426,6 +2434,58 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"connection": record})
 	})
 
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/baseline", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetAWSPlatformBaseline(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSPlatformBaselineRequest{
+			ConnectorID: strings.TrimSpace(c.Query("connector_id")),
+		})
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
+				return
+			}
+			if logger != nil {
+				logger.Error("get aws platform baseline", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws platform baseline"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"baseline": record})
+	})
+
+	v1.POST("/workspaces/:workspace_id/projects/:project_id/aws/baseline", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		var request AWSPlatformBaselineRequest
+		if c.Request.Body != nil && c.Request.ContentLength != 0 {
+			if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+				return
+			}
+		}
+		record, err := svc.VerifyAWSPlatformBaseline(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), request)
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project or connector not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws baseline request"})
+			default:
+				if logger != nil {
+					logger.Error("verify aws platform baseline", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify aws platform baseline"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"baseline": record})
+	})
+
 	v1.POST("/workspaces/:workspace_id/projects/:project_id/github/connect/complete", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)
@@ -2634,6 +2694,19 @@ func repoScanEnqueueErrorResponse(err error) (int, gin.H) {
 			"error_detail": detail,
 		}
 	}
+}
+
+func awsBaselineNotReadyResponse(err error) (int, gin.H, bool) {
+	var notReady AWSPlatformBaselineNotReadyError
+	if !errors.As(err, &notReady) {
+		return 0, nil, false
+	}
+	return http.StatusPreconditionFailed, gin.H{
+		"error":           "aws platform baseline is not ready",
+		"error_code":      "aws_platform_baseline_not_ready",
+		"failure_reasons": notReady.Result.FailureReasons,
+		"baseline":        notReady.Result,
+	}, true
 }
 
 func repoScanListErrorResponse(err error) gin.H {

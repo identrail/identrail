@@ -93,6 +93,7 @@ type Config struct {
 	LogLevel                      string
 	Provider                      string
 	ServiceName                   string
+	BaselineGitSHA                string
 	TrustedProxies                []string
 	CORSAllowedOrigins            []string
 	DatabaseURL                   string
@@ -267,6 +268,7 @@ func Load() Config {
 		LogLevel:                      strings.ToLower(getEnv("IDENTRAIL_LOG_LEVEL", defaultLogLevel)),
 		Provider:                      strings.ToLower(getEnv("IDENTRAIL_PROVIDER", defaultProvider)),
 		ServiceName:                   getEnv("IDENTRAIL_SERVICE_NAME", defaultServiceName),
+		BaselineGitSHA:                getEnv("IDENTRAIL_BASELINE_GIT_SHA", getEnv("IDENTRAIL_GIT_SHA", "")),
 		TrustedProxies:                parseCommaSeparated(getEnv("IDENTRAIL_TRUSTED_PROXIES", "")),
 		CORSAllowedOrigins:            parseCommaSeparated(getEnv("IDENTRAIL_CORS_ALLOWED_ORIGINS", "")),
 		DatabaseURL:                   getEnv("IDENTRAIL_DATABASE_URL", ""),

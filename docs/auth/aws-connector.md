@@ -42,6 +42,10 @@ The read-only policy and rationale live together under `deploy/connectors/aws/po
 
 AWS connector health answers whether Identrail can assume the configured connector role. The account and region coverage registry answers a separate product question: which AWS accounts and regions are currently in scope, covered, pending, or blocked.
 
+The [AWS platform baseline gate](../aws-platform-baseline.md) combines connector
+health with graph contract, queue, fixture, and app prerequisites before
+project-scoped AWS scans or remediation work can start.
+
 The registry is intentionally internal for now because the UI flow is not ready. Services can write coverage rows through the AWS service layer after discovering organization accounts, selected regions, or scan outcomes. Each row is scoped by tenant, workspace, project, connector, account ID, and region, and can store organization metadata, the connector role ARN, coverage status, the last successful scan time, the last scan error, a scan cursor, and account/region availability flags.
 
 Use the registry when a scanner, connector workflow, or future UI needs to distinguish these states:

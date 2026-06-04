@@ -13,6 +13,8 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_LOG_LEVEL", "")
 	t.Setenv("IDENTRAIL_PROVIDER", "")
 	t.Setenv("IDENTRAIL_SERVICE_NAME", "")
+	t.Setenv("IDENTRAIL_BASELINE_GIT_SHA", "")
+	t.Setenv("IDENTRAIL_GIT_SHA", "")
 	t.Setenv("IDENTRAIL_TRUSTED_PROXIES", "")
 	t.Setenv("IDENTRAIL_CORS_ALLOWED_ORIGINS", "")
 	t.Setenv("IDENTRAIL_DATABASE_URL", "")
@@ -379,6 +381,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_LOG_LEVEL", "DEBUG")
 	t.Setenv("IDENTRAIL_PROVIDER", "AWS")
 	t.Setenv("IDENTRAIL_SERVICE_NAME", "identrail-dev")
+	t.Setenv("IDENTRAIL_BASELINE_GIT_SHA", "6dd631b1")
 	t.Setenv("IDENTRAIL_TRUSTED_PROXIES", "10.0.0.0/8,127.0.0.1")
 	t.Setenv("IDENTRAIL_CORS_ALLOWED_ORIGINS", "https://app.identrail.io,https://console.identrail.io")
 	t.Setenv("IDENTRAIL_DATABASE_URL", "postgres://example")
@@ -479,6 +482,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.ServiceName != "identrail-dev" {
 		t.Fatalf("unexpected service name: %q", cfg.ServiceName)
+	}
+	if cfg.BaselineGitSHA != "6dd631b1" {
+		t.Fatalf("unexpected baseline git sha: %q", cfg.BaselineGitSHA)
 	}
 	if len(cfg.TrustedProxies) != 2 || cfg.TrustedProxies[0] != "10.0.0.0/8" || cfg.TrustedProxies[1] != "127.0.0.1" {
 		t.Fatalf("unexpected trusted proxies: %+v", cfg.TrustedProxies)

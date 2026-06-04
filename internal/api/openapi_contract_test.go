@@ -180,6 +180,7 @@ func TestOpenAPIV1SpecContainsTenancyProjectContracts(t *testing.T) {
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/scan-policies/{policy_id}:",
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/kubernetes/connection:",
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/aws/connection:",
+		"/v1/workspaces/{workspace_id}/projects/{project_id}/aws/baseline:",
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/start:",
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/complete:",
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/github/connection:",

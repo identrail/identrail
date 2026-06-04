@@ -46,6 +46,7 @@ type MemoryStore struct {
 	connStates                    map[string]TenancyConnectorState
 	connSecrets                   map[string]TenancyConnectorSecretEnvelope
 	awsCoverages                  map[string]AWSAccountRegionCoverage
+	awsBaselines                  map[string]AWSPlatformBaselineResult
 	users                         map[string]User
 	userIdentityByID              map[string]UserIdentity
 	userIdentityByProviderSubject map[string]string
@@ -98,6 +99,7 @@ func NewMemoryStore() *MemoryStore {
 		connStates:                    map[string]TenancyConnectorState{},
 		connSecrets:                   map[string]TenancyConnectorSecretEnvelope{},
 		awsCoverages:                  map[string]AWSAccountRegionCoverage{},
+		awsBaselines:                  map[string]AWSPlatformBaselineResult{},
 		users:                         map[string]User{},
 		userIdentityByID:              map[string]UserIdentity{},
 		userIdentityByProviderSubject: map[string]string{},
@@ -382,6 +384,11 @@ func (m *MemoryStore) claimNextQueuedScanLocked(scope *Scope, provider string) (
 
 // CountQueuedScans returns the queued scan count for one provider.
 func (m *MemoryStore) CountQueuedScans(ctx context.Context, provider string) (int, error) {
+	return m.CountQueuedScansWithSource(ctx, provider, ScanSource{})
+}
+
+// CountQueuedScansWithSource returns the queued scan count for one provider and scan source.
+func (m *MemoryStore) CountQueuedScansWithSource(ctx context.Context, provider string, source ScanSource) (int, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -390,6 +397,7 @@ func (m *MemoryStore) CountQueuedScans(ctx context.Context, provider string) (in
 		return 0, err
 	}
 	normalizedProvider := strings.TrimSpace(provider)
+	normalizedSource := source.Normalize()
 	count := 0
 	for _, record := range m.scans {
 		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
@@ -399,6 +407,39 @@ func (m *MemoryStore) CountQueuedScans(ctx context.Context, provider string) (in
 			continue
 		}
 		if normalizedProvider != "" && strings.TrimSpace(record.Provider) != normalizedProvider {
+			continue
+		}
+		if !scanSourceMatches(record, normalizedSource) {
+			continue
+		}
+		count++
+	}
+	return count, nil
+}
+
+// CountPendingScansWithSource returns queued or running scan count for one provider and scan source.
+func (m *MemoryStore) CountPendingScansWithSource(ctx context.Context, provider string, source ScanSource) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return 0, err
+	}
+	normalizedProvider := strings.TrimSpace(provider)
+	normalizedSource := source.Normalize()
+	count := 0
+	for _, record := range m.scans {
+		if !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+			continue
+		}
+		if record.DeadLettered || (record.Status != "queued" && record.Status != "running") {
+			continue
+		}
+		if normalizedProvider != "" && strings.TrimSpace(record.Provider) != normalizedProvider {
+			continue
+		}
+		if !scanSourceMatches(record, normalizedSource) {
 			continue
 		}
 		count++

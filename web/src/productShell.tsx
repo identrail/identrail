@@ -29,6 +29,7 @@ import {
   type AWSCapabilityPermissionTier,
   type AWSConnectorStartResponse,
   type AWSConnectionStatus,
+  type AWSPlatformBaselineResult,
   type AWSPermissionPreviewItem,
   type CurrentUserContext,
   type ExecutiveReport,
@@ -2752,6 +2753,73 @@ function awsDiagnosticSummary(connection: AWSConnectionStatus | null): string {
   return formatCountLabel(connection.diagnostics.length, 'item');
 }
 
+function awsBaselineLabel(baseline: AWSPlatformBaselineResult | null): string {
+  if (!baseline) {
+    return 'Not verified';
+  }
+  if (baseline.status === 'ready') {
+    return 'Ready';
+  }
+  if (baseline.status === 'degraded') {
+    return 'Degraded';
+  }
+  if (baseline.status === 'blocked') {
+    return 'Blocked';
+  }
+  return 'Not run';
+}
+
+function awsBaselineTone(
+  baseline: AWSPlatformBaselineResult | null,
+  loading = false
+): 'success' | 'warning' | 'danger' | 'neutral' | 'info' {
+  if (loading) {
+    return 'info';
+  }
+  if (!baseline) {
+    return 'neutral';
+  }
+  if (baseline.status === 'ready') {
+    return 'success';
+  }
+  if (baseline.status === 'degraded' || baseline.status === 'not_run') {
+    return 'warning';
+  }
+  return 'danger';
+}
+
+function awsBaselineCheckTone(status: AWSPlatformBaselineResult['checks'][number]['status']): 'success' | 'warning' | 'error' | 'neutral' {
+  if (status === 'passed') {
+    return 'success';
+  }
+  if (status === 'failed' || status === 'permission_denied') {
+    return 'error';
+  }
+  if (status === 'degraded') {
+    return 'warning';
+  }
+  return 'neutral';
+}
+
+function awsBaselineSummary(baseline: AWSPlatformBaselineResult | null): string {
+  if (!baseline) {
+    return 'No verification';
+  }
+  if (baseline.status === 'ready') {
+    return `${formatConfidenceScore(baseline.confidence)} confidence`;
+  }
+  return baseline.failure_reasons[0] ? formatTokenLabel(baseline.failure_reasons[0]) : formatTokenLabel(baseline.status);
+}
+
+function awsBaselineAccountRegionLabel(baseline: AWSPlatformBaselineResult | null): string {
+  if (!baseline?.account_id && !baseline?.region) {
+    return 'Pending';
+  }
+  return [baseline.account_id ? `Account ${baseline.account_id}` : '', baseline.region ? `Region ${baseline.region}` : '']
+    .filter(Boolean)
+    .join(' · ');
+}
+
 function awsAccountRegionLabel(connection: AWSConnectionStatus | null): string {
   if (!connection?.account_id && !connection?.region) {
     return 'Pending';
@@ -2820,6 +2888,68 @@ function AWSConnectionDiagnostics({
           <span className="idt-source-status-pill is-warning">Diagnostic</span>
           <p>{diagnostic.message}</p>
           {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+        </article>
+      ))}
+    </>
+  );
+}
+
+function AWSBaselineGateSummary({
+  baseline,
+  loading = false,
+  emptyLabel = 'AWS baseline has not run for this environment.'
+}: {
+  baseline: AWSPlatformBaselineResult | null;
+  loading?: boolean;
+  emptyLabel?: string;
+}) {
+  if (loading) {
+    return (
+      <article>
+        <strong>AWS baseline gate</strong>
+        <span className="idt-source-status-pill is-neutral">Loading</span>
+        <p>Loading baseline checks.</p>
+      </article>
+    );
+  }
+  if (!baseline) {
+    return (
+      <article>
+        <strong>AWS baseline gate</strong>
+        <span className="idt-source-status-pill is-neutral">Not run</span>
+        <p>{emptyLabel}</p>
+      </article>
+    );
+  }
+  if (baseline.checks.length === 0) {
+    return (
+      <article>
+        <strong>AWS baseline gate</strong>
+        <span className={`idt-source-status-pill is-${baseline.status === 'ready' ? 'success' : 'warning'}`}>
+          {awsBaselineLabel(baseline)}
+        </span>
+        <p>{awsBaselineSummary(baseline)}</p>
+      </article>
+    );
+  }
+  return (
+    <>
+      {baseline.checks.map((check) => (
+        <article key={check.name}>
+          <strong>{formatTokenLabel(check.name)}</strong>
+          <span className={`idt-source-status-pill is-${awsBaselineCheckTone(check.status)}`}>{formatTokenLabel(check.status)}</span>
+          <p>{check.message}</p>
+          <small>
+            {check.required ? 'Required' : 'Optional'} · confidence {formatConfidenceScore(check.confidence)} ·{' '}
+            {formatConnectionTime(check.checked_at)}
+          </small>
+          {check.failure_reason ? <small>{formatTokenLabel(check.failure_reason)}</small> : null}
+          {check.remediation ? <small>{check.remediation}</small> : null}
+          {check.evidence_url ? (
+            <a href={check.evidence_url} target={check.evidence_url.startsWith('http') ? '_blank' : undefined} rel="noreferrer">
+              Evidence
+            </a>
+          ) : null}
         </article>
       ))}
     </>
@@ -4946,7 +5076,11 @@ export function ProductAWSControlCenterPage() {
   const [connection, setConnection] = useState<AWSConnectionStatus | null>(null);
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [connectionError, setConnectionError] = useState('');
+  const [baseline, setBaseline] = useState<AWSPlatformBaselineResult | null>(null);
+  const [baselineLoading, setBaselineLoading] = useState(false);
+  const [baselineError, setBaselineError] = useState('');
   const connectionRequestRef = useRef(0);
+  const baselineRequestRef = useRef(0);
   const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
   selectedEnvironmentIDRef.current = selectedEnvironmentID;
 
@@ -4985,12 +5119,82 @@ export function ProductAWSControlCenterPage() {
     }
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
 
+  const refreshBaseline = useCallback(async () => {
+    const requestID = ++baselineRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    if (!scope || !requestEnvironmentID) {
+      setBaseline(null);
+      setBaselineError('');
+      setBaselineLoading(false);
+      return;
+    }
+    const isStale = () => requestID !== baselineRequestRef.current || selectedEnvironmentIDRef.current !== requestEnvironmentID;
+    setBaselineLoading(true);
+    setBaselineError('');
+    try {
+      const response = await apiClient.getAWSProjectBaseline(
+        scope.workspaceID,
+        requestEnvironmentID,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (isStale()) {
+        return;
+      }
+      setBaseline(response.baseline);
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      setBaseline(null);
+      setBaselineError(formatAPIError(error, 'Unable to load AWS baseline gate.'));
+    } finally {
+      if (!isStale()) {
+        setBaselineLoading(false);
+      }
+    }
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
+  const verifyBaseline = useCallback(async () => {
+    const requestID = ++baselineRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    if (!scope || !requestEnvironmentID) {
+      return;
+    }
+    const isStale = () => requestID !== baselineRequestRef.current || selectedEnvironmentIDRef.current !== requestEnvironmentID;
+    setBaselineLoading(true);
+    setBaselineError('');
+    try {
+      const response = await apiClient.verifyAWSProjectBaseline(
+        scope.workspaceID,
+        requestEnvironmentID,
+        { connector_id: connection?.connector_id },
+        buildProductAuthContext(scope)
+      );
+      if (isStale()) {
+        return;
+      }
+      setBaseline(response.baseline);
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      setBaselineError(formatAPIError(error, 'Unable to verify AWS baseline gate.'));
+    } finally {
+      if (!isStale()) {
+        setBaselineLoading(false);
+      }
+    }
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connector_id]);
+
   useEffect(() => {
     void refreshConnection();
+    void refreshBaseline();
     return () => {
       connectionRequestRef.current += 1;
+      baselineRequestRef.current += 1;
     };
-  }, [refreshConnection]);
+  }, [refreshConnection, refreshBaseline]);
 
   if (!scope) {
     return (
@@ -5004,8 +5208,11 @@ export function ProductAWSControlCenterPage() {
 
   const handleEnvironmentChange = (environmentID: string) => {
     connectionRequestRef.current += 1;
+    baselineRequestRef.current += 1;
     setConnection(null);
+    setBaseline(null);
     setConnectionError('');
+    setBaselineError('');
     navigate(
       {
         pathname: location.pathname,
@@ -5021,6 +5228,7 @@ export function ProductAWSControlCenterPage() {
   const failedChecks = connection?.permission_checks.filter((check) => !check.passed).length ?? 0;
   const effectiveCapabilities = connection?.capabilities.effective.length ?? 0;
   const statusTone = awsDomainTone(connection, connectionLoading || environmentScope.loading);
+  const baselineTone = awsBaselineTone(baseline, baselineLoading || environmentScope.loading);
   const statusLabel = environmentScope.loading
     ? 'Loading scope'
     : connectionLoading
@@ -5088,17 +5296,30 @@ export function ProductAWSControlCenterPage() {
             value: effectiveCapabilities > 0 ? `${effectiveCapabilities} active` : 'Planned',
             detail: 'Runtime evidence, remediation, and governance waves are labeled honestly below.',
             tone: effectiveCapabilities > 0 ? 'success' : 'info'
+          },
+          {
+            label: 'Baseline gate',
+            value: awsBaselineLabel(baseline),
+            detail: baselineLoading ? 'Verification loading' : awsBaselineSummary(baseline),
+            tone: baselineTone
           }
         ]}
       />
 
-      {environmentScope.loading || connectionLoading ? <DomainLoadingState label="Loading AWS control center status" /> : null}
+      {environmentScope.loading || connectionLoading || baselineLoading ? <DomainLoadingState label="Loading AWS control center status" /> : null}
 
       {connectionError ? (
         <DomainErrorState
           title="AWS status could not load"
           body={connectionError}
           retryAction={{ label: 'Retry status', onClick: () => void refreshConnection() }}
+        />
+      ) : null}
+      {baselineError ? (
+        <DomainErrorState
+          title="AWS baseline could not load"
+          body={baselineError}
+          retryAction={{ label: 'Retry baseline', onClick: () => void refreshBaseline() }}
         />
       ) : null}
 
@@ -5142,6 +5363,49 @@ export function ProductAWSControlCenterPage() {
           </dl>
           <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS diagnostics summary">
             <AWSConnectionDiagnostics connection={connection} />
+          </div>
+        </div>
+      </DomainStatusPanel>
+
+      <DomainStatusPanel
+        eyebrow="Baseline gate"
+        title="AWS platform baseline verification"
+        status={awsBaselineLabel(baseline)}
+        tone={baselineTone}
+        actions={[
+          { label: 'Run baseline', onClick: () => void verifyBaseline(), variant: 'secondary', disabled: baselineLoading || !selectedEnvironmentID },
+          { label: 'Refresh gate', onClick: () => void refreshBaseline(), variant: 'ghost', disabled: baselineLoading || !selectedEnvironmentID }
+        ]}
+      >
+        <div className="idt-aws-status-grid">
+          <dl>
+            <div>
+              <dt>Result</dt>
+              <dd>{awsBaselineLabel(baseline)}</dd>
+            </div>
+            <div>
+              <dt>Confidence</dt>
+              <dd>{baseline ? formatConfidenceScore(baseline.confidence) : 'N/A'}</dd>
+            </div>
+            <div>
+              <dt>Verified</dt>
+              <dd>{formatConnectionTime(baseline?.verified_at)}</dd>
+            </div>
+            <div>
+              <dt>Revision</dt>
+              <dd>{baseline?.git_sha || 'Not stamped'}</dd>
+            </div>
+            <div>
+              <dt>Source</dt>
+              <dd>{baseline?.fixture_only ? 'Fixture only' : formatTokenLabel(baseline?.source_mode || 'unknown')}</dd>
+            </div>
+            <div>
+              <dt>Contract</dt>
+              <dd>{baseline?.graph_contract_version || 'Not verified'}</dd>
+            </div>
+          </dl>
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS baseline checks">
+            <AWSBaselineGateSummary baseline={baseline} loading={baselineLoading} />
           </div>
         </div>
       </DomainStatusPanel>
@@ -5423,6 +5687,9 @@ export function ProductAWSConnectPage() {
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [baseline, setBaseline] = useState<AWSPlatformBaselineResult | null>(null);
+  const [baselineLoading, setBaselineLoading] = useState(false);
+  const [baselineError, setBaselineError] = useState('');
   const [awsForm, setAWSForm] = useState({
     roleARN: '',
     externalID: '',
@@ -5437,6 +5704,7 @@ export function ProductAWSConnectPage() {
   const [awsPermissionTiers, setAWSPermissionTiers] = useState<AWSCapabilityPermissionTier[]>([]);
   const [awsPreviewOpen, setAWSPreviewOpen] = useState(false);
   const connectionRequestRef = useRef(0);
+  const baselineRequestRef = useRef(0);
   const awsStartRequestRef = useRef(0);
   const awsPollRequestRef = useRef(0);
   const awsValidationRequestRef = useRef(0);
@@ -5500,13 +5768,94 @@ export function ProductAWSConnectPage() {
     [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]
   );
 
+  const refreshBaseline = useCallback(async () => {
+    const requestID = ++baselineRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKeyRef.current;
+    if (!scope || !requestEnvironmentID) {
+      setBaseline(null);
+      setBaselineError('');
+      setBaselineLoading(false);
+      return;
+    }
+    const isStale = () =>
+      requestID !== baselineRequestRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
+    setBaselineLoading(true);
+    setBaselineError('');
+    try {
+      const response = await apiClient.getAWSProjectBaseline(
+        scope.workspaceID,
+        requestEnvironmentID,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (isStale()) {
+        return;
+      }
+      setBaseline(response.baseline);
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      setBaseline(null);
+      setBaselineError(formatAPIError(error, 'Unable to load AWS baseline gate.'));
+    } finally {
+      if (!isStale()) {
+        setBaselineLoading(false);
+      }
+    }
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
+  const verifyBaseline = useCallback(async () => {
+    const requestID = ++baselineRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKeyRef.current;
+    if (!scope || !requestEnvironmentID) {
+      return;
+    }
+    const isStale = () =>
+      requestID !== baselineRequestRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
+    setBaselineLoading(true);
+    setBaselineError('');
+    try {
+      const response = await apiClient.verifyAWSProjectBaseline(
+        scope.workspaceID,
+        requestEnvironmentID,
+        {
+          connector_id: awsCloudFormationStart?.connector_id ?? connection?.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (isStale()) {
+        return;
+      }
+      setBaseline(response.baseline);
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      setBaselineError(formatAPIError(error, 'Unable to verify AWS baseline gate.'));
+    } finally {
+      if (!isStale()) {
+        setBaselineLoading(false);
+      }
+    }
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, awsCloudFormationStart?.connector_id, connection?.connector_id]);
+
   useEffect(() => {
     connectionRequestRef.current += 1;
+    baselineRequestRef.current += 1;
     awsStartRequestRef.current += 1;
     awsPollRequestRef.current += 1;
     awsValidationRequestRef.current += 1;
     setSuccessMessage('');
     setErrorMessage('');
+    setBaseline(null);
+    setBaselineError('');
     setSubmitting(false);
     setAWSCloudFormationStart(null);
     setAWSPermissionPreview([]);
@@ -5520,13 +5869,15 @@ export function ProductAWSConnectPage() {
       displayName: ''
     }));
     void refreshConnection('initial');
+    void refreshBaseline();
     return () => {
       connectionRequestRef.current += 1;
+      baselineRequestRef.current += 1;
       awsStartRequestRef.current += 1;
       awsPollRequestRef.current += 1;
       awsValidationRequestRef.current += 1;
     };
-  }, [refreshConnection]);
+  }, [refreshConnection, refreshBaseline]);
 
   if (!scope) {
     return (
@@ -5540,10 +5891,13 @@ export function ProductAWSConnectPage() {
 
   const handleEnvironmentChange = (environmentID: string) => {
     connectionRequestRef.current += 1;
+    baselineRequestRef.current += 1;
     awsStartRequestRef.current += 1;
     awsPollRequestRef.current += 1;
     awsValidationRequestRef.current += 1;
     setConnection(null);
+    setBaseline(null);
+    setBaselineError('');
     navigate(
       {
         pathname: location.pathname,
@@ -5556,6 +5910,7 @@ export function ProductAWSConnectPage() {
   const controlPath = appendEnvironmentQuery(buildScopedPath(scope, 'aws'), selectedEnvironmentID);
   const findingsPath = awsRouteLink(scope, 'findings', selectedEnvironmentID);
   const statusTone = awsDomainTone(connection, loadingConnection || refreshingConnection || environmentScope.loading);
+  const baselineTone = awsBaselineTone(baseline, baselineLoading || environmentScope.loading);
   const canSubmit = !submitting && !loadingConnection && Boolean(selectedEnvironmentID);
   const activeConnectorID = awsCloudFormationStart?.connector_id ?? connection?.connector_id ?? '';
 
@@ -5637,6 +5992,9 @@ export function ProductAWSConnectPage() {
       }
       setConnection(response.connection);
       setSuccessMessage(response.connection.connected ? 'AWS connector is active.' : 'AWS status refreshed.');
+      if (response.connection.connected) {
+        void verifyBaseline();
+      }
     } catch (error) {
       if (isStale()) {
         return;
@@ -5701,6 +6059,9 @@ export function ProductAWSConnectPage() {
       setSuccessMessage(
         response.connection.connected ? 'AWS connector is active.' : 'AWS connector saved with diagnostics to resolve.'
       );
+      if (response.connection.connected) {
+        void verifyBaseline();
+      }
     } catch (error) {
       if (isStale()) {
         return;
@@ -5767,11 +6128,17 @@ export function ProductAWSConnectPage() {
             value: connection?.account_id ?? 'Pending',
             detail: connection?.region ? `Default region ${connection.region}` : `Default region ${awsForm.region || 'us-east-1'}`,
             tone: connection?.account_id ? 'success' : 'info'
+          },
+          {
+            label: 'Baseline gate',
+            value: awsBaselineLabel(baseline),
+            detail: baselineLoading ? 'Verification loading' : awsBaselineSummary(baseline),
+            tone: baselineTone
           }
         ]}
       />
 
-      {loadingConnection || environmentScope.loading ? <DomainLoadingState label="Loading AWS setup state" /> : null}
+      {loadingConnection || baselineLoading || environmentScope.loading ? <DomainLoadingState label="Loading AWS setup state" /> : null}
 
       {!selectedEnvironmentID && !environmentScope.loading ? (
         <DomainEmptyState
@@ -5790,6 +6157,11 @@ export function ProductAWSConnectPage() {
       {errorMessage ? (
         <p role="alert" className="idt-app-alert idt-app-alert-error">
           {errorMessage}
+        </p>
+      ) : null}
+      {baselineError ? (
+        <p role="alert" className="idt-app-alert idt-app-alert-error">
+          {baselineError}
         </p>
       ) : null}
 
@@ -5951,6 +6323,35 @@ export function ProductAWSConnectPage() {
             >
               <div className="idt-source-diagnostics" aria-label="AWS permission diagnostics">
                 <AWSConnectionDiagnostics connection={connection} emptyLabel="Validate the role to populate permission checks." />
+              </div>
+            </DomainStatusPanel>
+
+            <DomainStatusPanel
+              eyebrow="Baseline gate"
+              title="Platform readiness"
+              status={awsBaselineLabel(baseline)}
+              tone={baselineTone}
+              actions={[
+                { label: 'Run baseline', onClick: () => void verifyBaseline(), disabled: baselineLoading || !selectedEnvironmentID },
+                { label: 'Refresh gate', onClick: () => void refreshBaseline(), variant: 'ghost', disabled: baselineLoading || !selectedEnvironmentID }
+              ]}
+            >
+              <dl className="idt-domain-route-facts">
+                <div>
+                  <dt>Verified</dt>
+                  <dd>{formatConnectionTime(baseline?.verified_at)}</dd>
+                </div>
+                <div>
+                  <dt>Confidence</dt>
+                  <dd>{baseline ? formatConfidenceScore(baseline.confidence) : 'N/A'}</dd>
+                </div>
+                <div>
+                  <dt>Account / region</dt>
+                  <dd>{awsBaselineAccountRegionLabel(baseline)}</dd>
+                </div>
+              </dl>
+              <div className="idt-source-diagnostics" aria-label="AWS baseline diagnostics">
+                <AWSBaselineGateSummary baseline={baseline} loading={baselineLoading} />
               </div>
             </DomainStatusPanel>
 

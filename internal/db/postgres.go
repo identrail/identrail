@@ -577,10 +577,16 @@ func (p *PostgresStore) claimNextQueuedScan(ctx context.Context, provider string
 
 // CountQueuedScans returns queued scan requests count for one provider.
 func (p *PostgresStore) CountQueuedScans(ctx context.Context, provider string) (int, error) {
+	return p.CountQueuedScansWithSource(ctx, provider, ScanSource{})
+}
+
+// CountQueuedScansWithSource returns queued scan requests count for one provider and scan source.
+func (p *PostgresStore) CountQueuedScansWithSource(ctx context.Context, provider string, source ScanSource) (int, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return 0, err
 	}
+	normalizedSource := source.Normalize()
 	var count int
 	if err := p.queryRowContext(
 		ctx,
@@ -589,13 +595,47 @@ func (p *PostgresStore) CountQueuedScans(ctx context.Context, provider string) (
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
 		   AND ($3 = '' OR provider = $3)
+		   AND ($4 = '' OR source_project_id = $4)
+		   AND ($5 = '' OR source_connector_id = $5)
 		   AND status = 'queued'
 		   AND dead_lettered = FALSE`,
 		scope.TenantID,
 		scope.WorkspaceID,
 		strings.TrimSpace(provider),
+		normalizedSource.ProjectID,
+		normalizedSource.ConnectorID,
 	).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count queued scans: %w", err)
+	}
+	return count, nil
+}
+
+// CountPendingScansWithSource returns queued or running scan count for one provider and scan source.
+func (p *PostgresStore) CountPendingScansWithSource(ctx context.Context, provider string, source ScanSource) (int, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return 0, err
+	}
+	normalizedSource := source.Normalize()
+	var count int
+	if err := p.queryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM scans
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND ($3 = '' OR provider = $3)
+		   AND ($4 = '' OR source_project_id = $4)
+		   AND ($5 = '' OR source_connector_id = $5)
+		   AND status IN ('queued', 'running')
+		   AND dead_lettered = FALSE`,
+		scope.TenantID,
+		scope.WorkspaceID,
+		strings.TrimSpace(provider),
+		normalizedSource.ProjectID,
+		normalizedSource.ConnectorID,
+	).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count pending scans: %w", err)
 	}
 	return count, nil
 }

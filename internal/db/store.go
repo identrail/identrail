@@ -984,6 +984,20 @@ const (
 	AWSAccountRegionCoverageUnreachable = "unreachable"
 )
 
+const (
+	AWSPlatformBaselineStatusNotRun   = "not_run"
+	AWSPlatformBaselineStatusReady    = "ready"
+	AWSPlatformBaselineStatusDegraded = "degraded"
+	AWSPlatformBaselineStatusBlocked  = "blocked"
+
+	AWSPlatformBaselineCheckPassed           = "passed"
+	AWSPlatformBaselineCheckFailed           = "failed"
+	AWSPlatformBaselineCheckDegraded         = "degraded"
+	AWSPlatformBaselineCheckPermissionDenied = "permission_denied"
+	AWSPlatformBaselineCheckUnknown          = "unknown"
+	AWSPlatformBaselineCheckSkipped          = "skipped"
+)
+
 // AWSAccountRegionCoverage stores account/region inventory and scan readiness
 // for one project-scoped AWS connector. Connector health describes whether
 // Identrail can use the connector role; coverage describes each target account
@@ -1021,6 +1035,56 @@ type AWSAccountRegionCoverageFilter struct {
 	AccountID   string
 	Region      string
 	Limit       int
+}
+
+// AWSPlatformBaselineCheck records one operator-visible readiness check for the
+// AWS baseline gate. Evidence must never contain secret values.
+type AWSPlatformBaselineCheck struct {
+	Name          string         `json:"name"`
+	Category      string         `json:"category"`
+	Required      bool           `json:"required"`
+	Status        string         `json:"status"`
+	Message       string         `json:"message"`
+	FailureReason string         `json:"failure_reason,omitempty"`
+	Remediation   string         `json:"remediation,omitempty"`
+	EvidenceURL   string         `json:"evidence_url,omitempty"`
+	Confidence    float64        `json:"confidence"`
+	Evidence      map[string]any `json:"evidence,omitempty"`
+	CheckedAt     time.Time      `json:"checked_at"`
+}
+
+// AWSPlatformBaselineResult is the persisted project-scoped readiness gate
+// result used before AWS scans or later remediation/governance jobs can start.
+type AWSPlatformBaselineResult struct {
+	TenantID                string                     `json:"tenant_id"`
+	WorkspaceID             string                     `json:"workspace_id"`
+	ProjectID               string                     `json:"project_id"`
+	ConnectorID             string                     `json:"connector_id,omitempty"`
+	GitSHA                  string                     `json:"git_sha"`
+	SourceMode              string                     `json:"source_mode"`
+	FixtureOnly             bool                       `json:"fixture_only"`
+	ConnectorProfileVersion string                     `json:"connector_profile_version"`
+	GraphContractVersion    string                     `json:"graph_contract_version"`
+	AccountID               string                     `json:"account_id,omitempty"`
+	Region                  string                     `json:"region,omitempty"`
+	Status                  string                     `json:"status"`
+	Confidence              float64                    `json:"confidence"`
+	RequiredChecksPassed    bool                       `json:"required_checks_passed"`
+	FailureReasons          []string                   `json:"failure_reasons"`
+	EvidenceLinks           []string                   `json:"evidence_links"`
+	Checks                  []AWSPlatformBaselineCheck `json:"checks"`
+	VerifiedAt              time.Time                  `json:"verified_at"`
+	CreatedAt               time.Time                  `json:"created_at"`
+	UpdatedAt               time.Time                  `json:"updated_at"`
+}
+
+// AWSPlatformBaselineFilter identifies one scoped AWS baseline result. An empty
+// connector id returns the project-level result when no specific connector was
+// requested.
+type AWSPlatformBaselineFilter struct {
+	WorkspaceID string
+	ProjectID   string
+	ConnectorID string
 }
 
 // TenancyConnectorSecretEnvelope stores one encrypted connector secret envelope.
@@ -2251,6 +2315,149 @@ func NormalizeAWSAccountRegionCoverageForWrite(coverage AWSAccountRegionCoverage
 	return normalized, nil
 }
 
+// NormalizeAWSPlatformBaselineResultForWrite validates and canonicalizes one AWS
+// platform baseline gate result before persistence.
+func NormalizeAWSPlatformBaselineResultForWrite(result AWSPlatformBaselineResult) (AWSPlatformBaselineResult, error) {
+	normalized := result
+	normalized.TenantID = strings.TrimSpace(result.TenantID)
+	if normalized.TenantID == "" {
+		return AWSPlatformBaselineResult{}, fmt.Errorf("tenant id is required")
+	}
+	normalized.WorkspaceID = strings.TrimSpace(result.WorkspaceID)
+	if normalized.WorkspaceID == "" {
+		return AWSPlatformBaselineResult{}, fmt.Errorf("workspace id is required")
+	}
+	normalized.ProjectID = strings.TrimSpace(result.ProjectID)
+	if normalized.ProjectID == "" {
+		return AWSPlatformBaselineResult{}, fmt.Errorf("project id is required")
+	}
+	normalized.ConnectorID = strings.TrimSpace(result.ConnectorID)
+	normalized.GitSHA = strings.TrimSpace(result.GitSHA)
+	normalized.SourceMode = strings.ToLower(strings.TrimSpace(result.SourceMode))
+	normalized.ConnectorProfileVersion = strings.TrimSpace(result.ConnectorProfileVersion)
+	normalized.GraphContractVersion = strings.TrimSpace(result.GraphContractVersion)
+	normalized.AccountID = strings.TrimSpace(result.AccountID)
+	if normalized.AccountID != "" && !validAWSAccountID(normalized.AccountID) {
+		return AWSPlatformBaselineResult{}, fmt.Errorf("aws account id must be 12 digits")
+	}
+	normalized.Region = strings.ToLower(strings.TrimSpace(result.Region))
+	normalized.Status = strings.ToLower(strings.TrimSpace(result.Status))
+	if normalized.Status == "" {
+		normalized.Status = AWSPlatformBaselineStatusNotRun
+	}
+	switch normalized.Status {
+	case AWSPlatformBaselineStatusNotRun,
+		AWSPlatformBaselineStatusReady,
+		AWSPlatformBaselineStatusDegraded,
+		AWSPlatformBaselineStatusBlocked:
+	default:
+		return AWSPlatformBaselineResult{}, fmt.Errorf("invalid aws platform baseline status")
+	}
+	normalized.Confidence = clampConfidence(result.Confidence)
+	normalized.FailureReasons = normalizeStringList(result.FailureReasons)
+	normalized.EvidenceLinks = normalizeStringList(result.EvidenceLinks)
+	normalized.Checks = normalizeAWSPlatformBaselineChecks(result.Checks)
+	if normalized.FailureReasons == nil {
+		normalized.FailureReasons = []string{}
+	}
+	if normalized.EvidenceLinks == nil {
+		normalized.EvidenceLinks = []string{}
+	}
+	if normalized.Checks == nil {
+		normalized.Checks = []AWSPlatformBaselineCheck{}
+	}
+	if normalized.VerifiedAt.IsZero() {
+		normalized.VerifiedAt = time.Now().UTC()
+	} else {
+		normalized.VerifiedAt = normalized.VerifiedAt.UTC()
+	}
+	if normalized.CreatedAt.IsZero() {
+		normalized.CreatedAt = normalized.VerifiedAt
+	} else {
+		normalized.CreatedAt = normalized.CreatedAt.UTC()
+	}
+	if normalized.UpdatedAt.IsZero() {
+		normalized.UpdatedAt = normalized.VerifiedAt
+	} else {
+		normalized.UpdatedAt = normalized.UpdatedAt.UTC()
+	}
+	return normalized, nil
+}
+
+func normalizeAWSPlatformBaselineChecks(checks []AWSPlatformBaselineCheck) []AWSPlatformBaselineCheck {
+	if len(checks) == 0 {
+		return []AWSPlatformBaselineCheck{}
+	}
+	normalized := make([]AWSPlatformBaselineCheck, 0, len(checks))
+	for _, check := range checks {
+		item := check
+		item.Name = strings.TrimSpace(check.Name)
+		if item.Name == "" {
+			continue
+		}
+		item.Category = strings.TrimSpace(check.Category)
+		item.Status = strings.ToLower(strings.TrimSpace(check.Status))
+		switch item.Status {
+		case AWSPlatformBaselineCheckPassed,
+			AWSPlatformBaselineCheckFailed,
+			AWSPlatformBaselineCheckDegraded,
+			AWSPlatformBaselineCheckPermissionDenied,
+			AWSPlatformBaselineCheckUnknown,
+			AWSPlatformBaselineCheckSkipped:
+		default:
+			item.Status = AWSPlatformBaselineCheckUnknown
+		}
+		item.Message = strings.TrimSpace(check.Message)
+		item.FailureReason = strings.TrimSpace(check.FailureReason)
+		item.Remediation = strings.TrimSpace(check.Remediation)
+		item.EvidenceURL = strings.TrimSpace(check.EvidenceURL)
+		item.Confidence = clampConfidence(check.Confidence)
+		if item.Evidence == nil {
+			item.Evidence = map[string]any{}
+		} else {
+			item.Evidence = cloneMetadataMap(item.Evidence)
+		}
+		if item.CheckedAt.IsZero() {
+			item.CheckedAt = time.Now().UTC()
+		} else {
+			item.CheckedAt = item.CheckedAt.UTC()
+		}
+		normalized = append(normalized, item)
+	}
+	return normalized
+}
+
+func normalizeStringList(items []string) []string {
+	if len(items) == 0 {
+		return []string{}
+	}
+	normalized := make([]string, 0, len(items))
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		value := strings.TrimSpace(item)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+	return normalized
+}
+
+func clampConfidence(confidence float64) float64 {
+	switch {
+	case confidence < 0:
+		return 0
+	case confidence > 1:
+		return 1
+	default:
+		return confidence
+	}
+}
+
 func validAWSAccountID(accountID string) bool {
 	if len(accountID) != 12 {
 		return false
@@ -2656,6 +2863,8 @@ type Store interface {
 	ClaimNextQueuedScan(ctx context.Context, provider string) (ScanRecord, error)
 	ClaimNextQueuedScanAnyScope(ctx context.Context, provider string) (ScanRecord, error)
 	CountQueuedScans(ctx context.Context, provider string) (int, error)
+	CountQueuedScansWithSource(ctx context.Context, provider string, source ScanSource) (int, error)
+	CountPendingScansWithSource(ctx context.Context, provider string, source ScanSource) (int, error)
 	GetScan(ctx context.Context, scanID string) (ScanRecord, error)
 	CompleteScan(ctx context.Context, scanID string, status string, finishedAt time.Time, assetCount int, findingCount int, errorMessage string) error
 	ScheduleScanRetry(ctx context.Context, scanID string, queuedAt time.Time, retryCount int, maxRetryCount int, failureCategory string, errorMessage string, nextRetryAt time.Time) error
@@ -2760,6 +2969,8 @@ type Store interface {
 	ListTenancyConnectorsUnscoped(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error)
 	UpsertAWSAccountRegionCoverage(ctx context.Context, coverage AWSAccountRegionCoverage) (AWSAccountRegionCoverage, error)
 	ListAWSAccountRegionCoverages(ctx context.Context, filter AWSAccountRegionCoverageFilter) ([]AWSAccountRegionCoverage, error)
+	UpsertAWSPlatformBaselineResult(ctx context.Context, result AWSPlatformBaselineResult) (AWSPlatformBaselineResult, error)
+	GetAWSPlatformBaselineResult(ctx context.Context, filter AWSPlatformBaselineFilter) (AWSPlatformBaselineResult, error)
 	ClaimKubernetesEnrollmentToken(ctx context.Context, workspaceID string, projectID string, connectorID string, expectedEnrollmentTokenHash string, updatedMetadata map[string]any, status domain.ConnectorStatus, health string, lastErrorCode string, lastErrorMessage string, observedAt time.Time, updatedAt time.Time) (bool, error)
 	UpsertTenancyScanPolicy(ctx context.Context, policy TenancyScanPolicy) error
 	GetTenancyScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) (TenancyScanPolicy, error)

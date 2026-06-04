@@ -106,6 +106,7 @@ func (m *MemoryStore) DeleteOrganization(ctx context.Context) error {
 			delete(m.awsCoverages, coverageKey)
 		}
 	}
+	m.deleteAWSPlatformBaselineResultsLocked(scope.TenantID, "", "")
 	m.mu.Unlock()
 
 	audit.WriteAction(ctx, audit.AuditEvent{
@@ -496,6 +497,7 @@ func (m *MemoryStore) DeleteWorkspace(ctx context.Context, workspaceID string) e
 			delete(m.awsCoverages, coverageKey)
 		}
 	}
+	m.deleteAWSPlatformBaselineResultsLocked(scope.TenantID, normalizedWorkspaceID, "")
 	m.mu.Unlock()
 
 	audit.WriteAction(ctx, audit.AuditEvent{
@@ -604,6 +606,7 @@ func (m *MemoryStore) HardDeleteWorkspace(ctx context.Context, tenantID, workspa
 			delete(m.awsCoverages, coverageKey)
 		}
 	}
+	m.deleteAWSPlatformBaselineResultsLocked(tenant, id, "")
 	// Collect scan + repo-scan IDs first so the second pass can drain
 	// their child artifact maps. The postgres backend gets this "for
 	// free" via FK ON DELETE CASCADE on scans/repo_scans; the memory
@@ -1196,6 +1199,7 @@ func (m *MemoryStore) DeleteProject(ctx context.Context, workspaceID string, pro
 			delete(m.awsCoverages, coverageKey)
 		}
 	}
+	m.deleteAWSPlatformBaselineResultsLocked(scope.TenantID, resolvedWorkspaceID, projectID)
 	m.mu.Unlock()
 
 	audit.WriteAction(ctx, audit.AuditEvent{
@@ -1488,6 +1492,10 @@ func awsAccountRegionCoverageKey(tenantID string, workspaceID string, projectID 
 	return tenancyCompositeKey(strings.TrimSpace(tenantID), strings.TrimSpace(workspaceID), strings.TrimSpace(projectID), strings.TrimSpace(connectorID), strings.TrimSpace(accountID), strings.ToLower(strings.TrimSpace(region)))
 }
 
+func awsPlatformBaselineKey(tenantID string, workspaceID string, projectID string, connectorID string) string {
+	return tenancyCompositeKey(strings.TrimSpace(tenantID), strings.TrimSpace(workspaceID), strings.TrimSpace(projectID), strings.TrimSpace(connectorID))
+}
+
 // UpsertTenancyConnector persists one connector and its latest state atomically.
 func (m *MemoryStore) UpsertTenancyConnector(ctx context.Context, connector TenancyConnector, state TenancyConnectorState) error {
 	m.mu.Lock()
@@ -1776,6 +1784,94 @@ func cloneAWSAccountRegionCoverage(coverage AWSAccountRegionCoverage) AWSAccount
 	if coverage.LastSuccessfulScanAt != nil {
 		scanned := coverage.LastSuccessfulScanAt.UTC()
 		cloned.LastSuccessfulScanAt = &scanned
+	}
+	return cloned
+}
+
+// UpsertAWSPlatformBaselineResult persists one project-scoped AWS baseline gate result.
+func (m *MemoryStore) UpsertAWSPlatformBaselineResult(ctx context.Context, result AWSPlatformBaselineResult) (AWSPlatformBaselineResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, err
+	}
+	result.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, result.WorkspaceID)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, err
+	}
+	result.WorkspaceID = resolvedWorkspaceID
+	normalized, err := NormalizeAWSPlatformBaselineResultForWrite(result)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, err
+	}
+	if _, exists := m.projects[tenancyProjectKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID)]; !exists {
+		return AWSPlatformBaselineResult{}, ErrNotFound
+	}
+	if normalized.ConnectorID != "" {
+		connectorKey := tenancyConnectorKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID)
+		if connector, exists := m.connectors[connectorKey]; !exists || connector.Type != domain.ConnectorTypeAWS {
+			return AWSPlatformBaselineResult{}, ErrNotFound
+		}
+	}
+	key := awsPlatformBaselineKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID)
+	if existing, exists := m.awsBaselines[key]; exists {
+		normalized.CreatedAt = existing.CreatedAt
+	}
+	m.awsBaselines[key] = normalized
+	return cloneAWSPlatformBaselineResult(normalized), nil
+}
+
+// GetAWSPlatformBaselineResult returns the latest scoped AWS baseline gate result.
+func (m *MemoryStore) GetAWSPlatformBaselineResult(ctx context.Context, filter AWSPlatformBaselineFilter) (AWSPlatformBaselineResult, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, filter.WorkspaceID)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, err
+	}
+	projectID := strings.TrimSpace(filter.ProjectID)
+	if projectID == "" {
+		return AWSPlatformBaselineResult{}, fmt.Errorf("project id is required")
+	}
+	key := awsPlatformBaselineKey(scope.TenantID, resolvedWorkspaceID, projectID, filter.ConnectorID)
+	result, exists := m.awsBaselines[key]
+	if !exists {
+		return AWSPlatformBaselineResult{}, ErrNotFound
+	}
+	return cloneAWSPlatformBaselineResult(result), nil
+}
+
+func (m *MemoryStore) deleteAWSPlatformBaselineResultsLocked(tenantID string, workspaceID string, projectID string) {
+	for key, baseline := range m.awsBaselines {
+		if tenantID != "" && baseline.TenantID != tenantID {
+			continue
+		}
+		if workspaceID != "" && baseline.WorkspaceID != workspaceID {
+			continue
+		}
+		if projectID != "" && baseline.ProjectID != projectID {
+			continue
+		}
+		delete(m.awsBaselines, key)
+	}
+}
+
+func cloneAWSPlatformBaselineResult(result AWSPlatformBaselineResult) AWSPlatformBaselineResult {
+	cloned := result
+	cloned.FailureReasons = append([]string(nil), result.FailureReasons...)
+	cloned.EvidenceLinks = append([]string(nil), result.EvidenceLinks...)
+	cloned.Checks = make([]AWSPlatformBaselineCheck, len(result.Checks))
+	for idx, check := range result.Checks {
+		cloned.Checks[idx] = check
+		cloned.Checks[idx].Evidence = cloneMetadataMap(check.Evidence)
 	}
 	return cloned
 }

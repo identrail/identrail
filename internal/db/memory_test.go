@@ -1145,6 +1145,98 @@ func TestMemoryStoreCountQueuedScansBlankProviderIsWildcard(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreCountQueuedScansWithSource(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)
+	if _, err := store.CreateQueuedScanWithSource(defaultScopeContext(), "aws", ScanSource{ProjectID: "project-a", ConnectorID: "aws-a"}, now); err != nil {
+		t.Fatalf("create project-a queued scan: %v", err)
+	}
+	if _, err := store.CreateQueuedScanWithSource(defaultScopeContext(), "aws", ScanSource{ProjectID: "project-b", ConnectorID: "aws-b"}, now.Add(time.Minute)); err != nil {
+		t.Fatalf("create project-b queued scan: %v", err)
+	}
+	if _, err := store.CreateQueuedScanWithSource(defaultScopeContext(), "gcp", ScanSource{ProjectID: "project-a"}, now.Add(2*time.Minute)); err != nil {
+		t.Fatalf("create gcp queued scan: %v", err)
+	}
+
+	count, err := store.CountQueuedScansWithSource(defaultScopeContext(), "aws", ScanSource{ProjectID: "project-a"})
+	if err != nil {
+		t.Fatalf("count project-a queued scans: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected source-scoped queued count 1, got %d", count)
+	}
+	count, err = store.CountQueuedScansWithSource(defaultScopeContext(), "aws", ScanSource{ProjectID: "project-a", ConnectorID: "missing"})
+	if err != nil {
+		t.Fatalf("count missing connector queued scans: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected missing connector queued count 0, got %d", count)
+	}
+	count, err = store.CountQueuedScansWithSource(defaultScopeContext(), "aws", ScanSource{})
+	if err != nil {
+		t.Fatalf("count unscoped aws queued scans: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected unscoped aws queued count 2, got %d", count)
+	}
+}
+
+func TestMemoryStoreCountPendingScansWithSource(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)
+	source := ScanSource{ProjectID: "project-a", ConnectorID: "aws-a"}
+	queued, err := store.CreateQueuedScanWithSource(ctx, "aws", source, now)
+	if err != nil {
+		t.Fatalf("create project-a queued scan: %v", err)
+	}
+	running, err := store.ClaimNextQueuedScan(ctx, "aws")
+	if err != nil {
+		t.Fatalf("claim project-a scan: %v", err)
+	}
+	if running.ID != queued.ID || running.Status != "running" {
+		t.Fatalf("expected seeded scan to be running, got %+v", running)
+	}
+	if _, err := store.CreateQueuedScanWithSource(ctx, "aws", source, now.Add(time.Minute)); err != nil {
+		t.Fatalf("create second project-a queued scan: %v", err)
+	}
+	if _, err := store.CreateQueuedScanWithSource(ctx, "aws", ScanSource{ProjectID: "project-b"}, now.Add(2*time.Minute)); err != nil {
+		t.Fatalf("create project-b queued scan: %v", err)
+	}
+	if _, err := store.CreateQueuedScanWithSource(ctx, "gcp", source, now.Add(3*time.Minute)); err != nil {
+		t.Fatalf("create gcp queued scan: %v", err)
+	}
+
+	count, err := store.CountPendingScansWithSource(ctx, "aws", source)
+	if err != nil {
+		t.Fatalf("count project-a pending scans: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected source-scoped pending count 2, got %d", count)
+	}
+	count, err = store.CountQueuedScansWithSource(ctx, "aws", source)
+	if err != nil {
+		t.Fatalf("count project-a queued scans: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected queued-only count 1, got %d", count)
+	}
+	count, err = store.CountPendingScansWithSource(ctx, "aws", ScanSource{ProjectID: "project-a", ConnectorID: "missing"})
+	if err != nil {
+		t.Fatalf("count missing connector pending scans: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected missing connector pending count 0, got %d", count)
+	}
+	count, err = store.CountPendingScansWithSource(ctx, "aws", ScanSource{})
+	if err != nil {
+		t.Fatalf("count unscoped aws pending scans: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("expected unscoped aws pending count 3, got %d", count)
+	}
+}
+
 func TestMemoryStoreCountQueuedScansAnyScope(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)

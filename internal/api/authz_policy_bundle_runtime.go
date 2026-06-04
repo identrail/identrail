@@ -737,6 +737,8 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodPost, Path: "/v1/connectors/k8s/heartbeat", Action: policyActionTenancyWrite, ResourceType: "connector"},
 		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/connection", Action: policyActionTenancyWrite, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/connection", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
+		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/baseline", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
+		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/baseline", Action: policyActionScansRun, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/github/connect/start", Action: policyActionTenancyWrite, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/github/connect/complete", Action: policyActionTenancyWrite, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/github/connection", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},

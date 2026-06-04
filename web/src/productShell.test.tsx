@@ -5,6 +5,7 @@ import type {
   AuthConfigResponse,
   AWSConnectorStartResponse,
   AWSConnectionStatus,
+  AWSPlatformBaselineResult,
   CurrentUserContext,
   Finding,
   GitHubConnectionStatus,
@@ -137,6 +138,48 @@ const connectedAWS: AWSConnectionStatus = {
   updated_at: '2026-05-17T10:00:00Z',
   last_validated_at: '2026-05-17T10:00:00Z'
 };
+
+const readyAWSBaseline: AWSPlatformBaselineResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  git_sha: '6dd631b1',
+  source_mode: 'sdk',
+  fixture_only: false,
+  connector_profile_version: 'aws-readonly-iam-v1',
+  graph_contract_version: 'relationship-contract-v1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  status: 'ready',
+  confidence: 0.95,
+  required_checks_passed: true,
+  failure_reasons: [],
+  evidence_links: ['/app/tenant-a/workspace-a/aws?environment=production'],
+  checks: [
+    {
+      name: 'aws_connector_health',
+      category: 'connector',
+      required: true,
+      status: 'passed',
+      message: 'AWS connector is active and healthy.',
+      confidence: 0.96,
+      checked_at: '2026-05-17T10:00:00Z'
+    }
+  ],
+  verified_at: '2026-05-17T10:00:00Z',
+  created_at: '2026-05-17T10:00:00Z',
+  updated_at: '2026-05-17T10:00:00Z'
+};
+
+function mockAWSBaseline(api: typeof import('./api/client'), baseline: AWSPlatformBaselineResult = readyAWSBaseline) {
+  vi.spyOn(api.apiClient, 'getAWSProjectBaseline').mockResolvedValue({
+    baseline
+  });
+  vi.spyOn(api.apiClient, 'verifyAWSProjectBaseline').mockResolvedValue({
+    baseline
+  });
+}
 
 const disconnectedKubernetes: KubernetesConnectionStatus = {
   provider: 'kubernetes',
@@ -1411,6 +1454,7 @@ describe('Domain-first app routes', () => {
 
   it('renders the AWS Control Center with current and future capability labels', async () => {
     const api = await import('./api/client');
+    mockAWSBaseline(api);
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: [
         {
@@ -1454,6 +1498,7 @@ describe('Domain-first app routes', () => {
 
   it('ignores stale AWS Control Center status loads after switching environments', async () => {
     const api = await import('./api/client');
+    mockAWSBaseline(api);
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: [
         {
@@ -1653,6 +1698,7 @@ describe('Domain-first app routes', () => {
   it('keeps AWS connect on the domain page when no environment exists', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
+    mockAWSBaseline(api);
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
 
     const { ProductAWSConnectPage } = await import('./productShell');
@@ -2202,6 +2248,7 @@ describe('Domain-first app routes', () => {
   it('clears stale AWS connect form values when the selected environment changes', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
+    mockAWSBaseline(api);
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: [
         {
@@ -2271,6 +2318,7 @@ describe('Domain-first app routes', () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
     const api = await import('./api/client');
+    mockAWSBaseline(api);
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: [
         {
@@ -2346,6 +2394,7 @@ describe('Domain-first app routes', () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
     const api = await import('./api/client');
+    mockAWSBaseline(api);
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: [
         {
@@ -2416,6 +2465,7 @@ describe('Domain-first app routes', () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
     const api = await import('./api/client');
+    mockAWSBaseline(api);
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: [
         {
@@ -2481,6 +2531,7 @@ describe('Domain-first app routes', () => {
   it('loads AWS connect actions for the selected environment even when it is outside the first page', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
+    mockAWSBaseline(api);
     const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: Array.from({ length: 50 }, (_, index) => ({
         tenant_id: 'tenant-a',
@@ -2574,6 +2625,7 @@ describe('Domain-first app routes', () => {
   it('does not silently switch AWS connect to a fallback environment when getProject check fails transiently', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
+    mockAWSBaseline(api);
     const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: [
         {

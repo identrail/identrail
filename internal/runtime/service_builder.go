@@ -131,6 +131,11 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 	svc.AWSConnectorValidator = awsprovider.NewConnectionValidator(cfg.AWSRegion, cfg.AWSProfile)
 	svc.AWSCloudFormationTemplateURL = cfg.AWSCloudFormationTemplateURL
 	svc.AWSAccountID = cfg.AWSAccountID
+	svc.AWSBaselineGitSHA = cfg.BaselineGitSHA
+	svc.AWSBaselineSourceMode = cfg.AWSSource
+	svc.AWSBaselineFixturePaths = append([]string(nil), cfg.AWSFixturePath...)
+	svc.AWSBaselineConnectorProfileVersion = "aws-readonly-iam-v1"
+	svc.AWSBaselineGraphContractVersion = "relationship-contract-v1"
 	svc.AWSConnectorCapabilityPolicy = awsconnector.NewCapabilityPolicyFromStrings(cfg.AWSConnectorCapabilities)
 	svc.GitHubAppID = parseInt64Config(cfg.GitHubAppID)
 	svc.GitHubAppName = cfg.GitHubAppName

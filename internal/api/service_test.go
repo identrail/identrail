@@ -5573,15 +5573,18 @@ func TestServiceProjectScopedAWSScanWithoutConnectorDoesNotUseOtherProjectConnec
 		return fakeScanner{err: fmt.Errorf("unexpected connector %s", connection.ConnectorID)}, nil
 	}
 
-	if _, err := svc.EnqueueScan(ctx, ScanRequest{ProjectID: "project-a"}); err != nil {
-		t.Fatalf("enqueue project without connector: %v", err)
+	var notReady AWSPlatformBaselineNotReadyError
+	if _, err := svc.EnqueueScan(ctx, ScanRequest{ProjectID: "project-a"}); !errors.As(err, &notReady) {
+		t.Fatalf("expected aws baseline not ready error, got %v", err)
 	}
-	processed, err := svc.ProcessNextQueuedScan(ctx)
-	if err != nil {
-		t.Fatalf("process project without connector: %v", err)
+	if notReady.Result.Status != db.AWSPlatformBaselineStatusBlocked || notReady.Result.RequiredChecksPassed {
+		t.Fatalf("expected blocked baseline result, got %+v", notReady.Result)
 	}
-	if !processed {
-		t.Fatal("expected queued scan to be processed")
+	if len(notReady.Result.FailureReasons) == 0 || !strings.Contains(notReady.Result.FailureReasons[0], "connector") {
+		t.Fatalf("expected connector failure reason, got %+v", notReady.Result.FailureReasons)
+	}
+	if _, err := store.GetAWSPlatformBaselineResult(ctx, db.AWSPlatformBaselineFilter{WorkspaceID: "default", ProjectID: "project-a"}); err != nil {
+		t.Fatalf("expected persisted baseline failure: %v", err)
 	}
 	if factoryCalled {
 		t.Fatal("expected project-a scan not to hydrate project-b connector")

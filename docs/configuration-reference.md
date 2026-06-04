@@ -53,6 +53,7 @@ AWS:
 - `IDENTRAIL_AWS_REGION`
 - `IDENTRAIL_AWS_PROFILE`
 - `IDENTRAIL_AWS_FIXTURES`
+- `IDENTRAIL_BASELINE_GIT_SHA` (optional revision stamped onto AWS platform baseline results; falls back to `IDENTRAIL_GIT_SHA` when unset)
 - `IDENTRAIL_AWS_CONNECTOR_CAPABILITIES` (comma-separated connector capability tiers to permit beyond the read-only `discovery` default; unknown values are ignored. Write-capable tiers stay gated until listed here _and_ provisioned with a dedicated write role. See [connector-capabilities.md](connector-capabilities.md).)
 
 Kubernetes:

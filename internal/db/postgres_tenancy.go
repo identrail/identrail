@@ -2305,6 +2305,222 @@ func scanAWSAccountRegionCoverageRows(rows rowsScanner) ([]AWSAccountRegionCover
 	return results, rows.Err()
 }
 
+// UpsertAWSPlatformBaselineResult persists one project-scoped AWS platform readiness result.
+func (p *PostgresStore) UpsertAWSPlatformBaselineResult(ctx context.Context, result AWSPlatformBaselineResult) (AWSPlatformBaselineResult, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, err
+	}
+	result.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, result.WorkspaceID)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, err
+	}
+	result.WorkspaceID = resolvedWorkspaceID
+	normalized, err := NormalizeAWSPlatformBaselineResultForWrite(result)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, err
+	}
+	failureReasonsPayload, err := json.Marshal(normalized.FailureReasons)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, fmt.Errorf("marshal aws baseline failure reasons: %w", err)
+	}
+	evidenceLinksPayload, err := json.Marshal(normalized.EvidenceLinks)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, fmt.Errorf("marshal aws baseline evidence links: %w", err)
+	}
+	checksPayload, err := json.Marshal(normalized.Checks)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, fmt.Errorf("marshal aws baseline checks: %w", err)
+	}
+	rows, err := p.queryContext(
+		ctx,
+		`INSERT INTO aws_platform_baseline_results (
+		     tenant_id, workspace_id, project_id, connector_id, git_sha, source_mode,
+		     fixture_only, connector_profile_version, graph_contract_version, account_id,
+		     region, status, confidence, required_checks_passed, failure_reasons,
+		     evidence_links, checks, verified_at, created_at, updated_at
+		 )
+		 SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16::jsonb, $17::jsonb, $18, $19, $20
+		 FROM tenancy_projects p
+		 WHERE p.tenant_id = $1
+		   AND p.workspace_id = $2
+		   AND p.project_id = $3
+		   AND (
+		     $4 = ''
+		     OR EXISTS (
+		       SELECT 1
+		       FROM tenancy_connectors c
+		       WHERE c.tenant_id = $1
+		         AND c.workspace_id = $2
+		         AND c.project_id = $3
+		         AND c.connector_id = $4
+		         AND c.type = $21
+		     )
+		   )
+		 ON CONFLICT (tenant_id, workspace_id, project_id, connector_id) DO UPDATE
+		 SET git_sha = EXCLUDED.git_sha,
+		     source_mode = EXCLUDED.source_mode,
+		     fixture_only = EXCLUDED.fixture_only,
+		     connector_profile_version = EXCLUDED.connector_profile_version,
+		     graph_contract_version = EXCLUDED.graph_contract_version,
+		     account_id = EXCLUDED.account_id,
+		     region = EXCLUDED.region,
+		     status = EXCLUDED.status,
+		     confidence = EXCLUDED.confidence,
+		     required_checks_passed = EXCLUDED.required_checks_passed,
+		     failure_reasons = EXCLUDED.failure_reasons,
+		     evidence_links = EXCLUDED.evidence_links,
+		     checks = EXCLUDED.checks,
+		     verified_at = EXCLUDED.verified_at,
+		     updated_at = EXCLUDED.updated_at
+		 RETURNING tenant_id, workspace_id, project_id, connector_id, git_sha, source_mode,
+		           fixture_only, connector_profile_version, graph_contract_version, account_id,
+		           region, status, confidence, required_checks_passed, failure_reasons,
+		           evidence_links, checks, verified_at, created_at, updated_at`,
+		normalized.TenantID,
+		normalized.WorkspaceID,
+		normalized.ProjectID,
+		normalized.ConnectorID,
+		normalized.GitSHA,
+		normalized.SourceMode,
+		normalized.FixtureOnly,
+		normalized.ConnectorProfileVersion,
+		normalized.GraphContractVersion,
+		normalized.AccountID,
+		normalized.Region,
+		normalized.Status,
+		normalized.Confidence,
+		normalized.RequiredChecksPassed,
+		failureReasonsPayload,
+		evidenceLinksPayload,
+		checksPayload,
+		normalized.VerifiedAt,
+		normalized.CreatedAt,
+		normalized.UpdatedAt,
+		string(domain.ConnectorTypeAWS),
+	)
+	if isTenancyFKViolation(err) {
+		return AWSPlatformBaselineResult{}, ErrNotFound
+	}
+	if err != nil {
+		return AWSPlatformBaselineResult{}, fmt.Errorf("upsert aws platform baseline result: %w", err)
+	}
+	defer rows.Close()
+	records, err := scanAWSPlatformBaselineRows(rows)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, err
+	}
+	if len(records) == 0 {
+		return AWSPlatformBaselineResult{}, ErrNotFound
+	}
+	return records[0], nil
+}
+
+// GetAWSPlatformBaselineResult returns one persisted project-scoped AWS platform readiness result.
+func (p *PostgresStore) GetAWSPlatformBaselineResult(ctx context.Context, filter AWSPlatformBaselineFilter) (AWSPlatformBaselineResult, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, filter.WorkspaceID)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, err
+	}
+	projectID := strings.TrimSpace(filter.ProjectID)
+	if projectID == "" {
+		return AWSPlatformBaselineResult{}, fmt.Errorf("project id is required")
+	}
+	rows, err := p.queryContext(
+		ctx,
+		`SELECT tenant_id, workspace_id, project_id, connector_id, git_sha, source_mode,
+		        fixture_only, connector_profile_version, graph_contract_version, account_id,
+		        region, status, confidence, required_checks_passed, failure_reasons,
+		        evidence_links, checks, verified_at, created_at, updated_at
+		 FROM aws_platform_baseline_results
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND connector_id = $4`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		projectID,
+		strings.TrimSpace(filter.ConnectorID),
+	)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, fmt.Errorf("query aws platform baseline result: %w", err)
+	}
+	defer rows.Close()
+	records, err := scanAWSPlatformBaselineRows(rows)
+	if err != nil {
+		return AWSPlatformBaselineResult{}, err
+	}
+	if len(records) == 0 {
+		return AWSPlatformBaselineResult{}, ErrNotFound
+	}
+	return records[0], nil
+}
+
+func scanAWSPlatformBaselineRows(rows rowsScanner) ([]AWSPlatformBaselineResult, error) {
+	results := []AWSPlatformBaselineResult{}
+	for rows.Next() {
+		var item AWSPlatformBaselineResult
+		var failureReasonsPayload []byte
+		var evidenceLinksPayload []byte
+		var checksPayload []byte
+		if err := rows.Scan(
+			&item.TenantID,
+			&item.WorkspaceID,
+			&item.ProjectID,
+			&item.ConnectorID,
+			&item.GitSHA,
+			&item.SourceMode,
+			&item.FixtureOnly,
+			&item.ConnectorProfileVersion,
+			&item.GraphContractVersion,
+			&item.AccountID,
+			&item.Region,
+			&item.Status,
+			&item.Confidence,
+			&item.RequiredChecksPassed,
+			&failureReasonsPayload,
+			&evidenceLinksPayload,
+			&checksPayload,
+			&item.VerifiedAt,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan aws platform baseline row: %w", err)
+		}
+		if len(failureReasonsPayload) > 0 {
+			if err := json.Unmarshal(failureReasonsPayload, &item.FailureReasons); err != nil {
+				return nil, fmt.Errorf("decode aws baseline failure reasons: %w", err)
+			}
+		}
+		if len(evidenceLinksPayload) > 0 {
+			if err := json.Unmarshal(evidenceLinksPayload, &item.EvidenceLinks); err != nil {
+				return nil, fmt.Errorf("decode aws baseline evidence links: %w", err)
+			}
+		}
+		if len(checksPayload) > 0 {
+			if err := json.Unmarshal(checksPayload, &item.Checks); err != nil {
+				return nil, fmt.Errorf("decode aws baseline checks: %w", err)
+			}
+		}
+		if item.FailureReasons == nil {
+			item.FailureReasons = []string{}
+		}
+		if item.EvidenceLinks == nil {
+			item.EvidenceLinks = []string{}
+		}
+		if item.Checks == nil {
+			item.Checks = []AWSPlatformBaselineCheck{}
+		}
+		results = append(results, item)
+	}
+	return results, rows.Err()
+}
+
 func (p *PostgresStore) listTenancyConnectorRows(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, connectorType string, limit int) ([]TenancyConnectorWithState, error) {
 	query := `SELECT
 		     c.tenant_id, c.workspace_id, c.project_id, c.connector_id, c.type, c.display_name, c.status,

@@ -813,6 +813,51 @@ export type AWSConnectionUpsertRequest = {
   capabilities?: ConnectorCapability[];
 };
 
+export type AWSPlatformBaselineStatus = 'not_run' | 'ready' | 'degraded' | 'blocked';
+export type AWSPlatformBaselineCheckStatus = 'passed' | 'failed' | 'degraded' | 'permission_denied' | 'unknown' | 'skipped';
+
+export type AWSPlatformBaselineCheck = {
+  name: string;
+  category: string;
+  required: boolean;
+  status: AWSPlatformBaselineCheckStatus;
+  message: string;
+  failure_reason?: string;
+  remediation?: string;
+  evidence_url?: string;
+  confidence: number;
+  evidence?: Record<string, unknown>;
+  checked_at: string;
+};
+
+export type AWSPlatformBaselineResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  git_sha: string;
+  source_mode: string;
+  fixture_only: boolean;
+  connector_profile_version: string;
+  graph_contract_version: string;
+  account_id?: string;
+  region?: string;
+  status: AWSPlatformBaselineStatus;
+  confidence: number;
+  required_checks_passed: boolean;
+  failure_reasons: string[];
+  evidence_links: string[];
+  checks: AWSPlatformBaselineCheck[];
+  verified_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSPlatformBaselineRequest = {
+  connector_id?: string;
+  git_sha?: string;
+};
+
 export type AWSConnectorStartRequest = {
   workspace_id?: string;
   project_id?: string;
@@ -1742,6 +1787,24 @@ export const apiClient = {
     return request<{ connection: AWSConnectionStatus }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/connection`,
       auth
+    );
+  },
+  getAWSProjectBaseline(workspaceID: string, projectID: string, connectorID?: string, auth?: RequestAuthContext) {
+    return request<{ baseline: AWSPlatformBaselineResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/baseline${buildQuery({
+        connector_id: connectorID
+      })}`,
+      auth
+    );
+  },
+  verifyAWSProjectBaseline(workspaceID: string, projectID: string, payload: AWSPlatformBaselineRequest = {}, auth?: RequestAuthContext) {
+    return request<{ baseline: AWSPlatformBaselineResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/baseline`,
+      auth,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }
     );
   },
   startAWSConnector(payload: AWSConnectorStartRequest, auth?: RequestAuthContext) {

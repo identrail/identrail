@@ -468,6 +468,16 @@ x-identrail-route-authorizations:
     action: tenancy.read
     resource_type: project
     resource_id_param: project_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/baseline
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: POST
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/baseline
+    action: scans.run
+    resource_type: project
+    resource_id_param: project_id
   - method: POST
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/start
     action: tenancy.write
@@ -3542,6 +3552,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/baseline:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS platform baseline gate status
+      operationId: getAWSProjectBaseline
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS platform baseline result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  baseline:
+                    $ref: "#/components/schemas/AWSPlatformBaselineResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [ProjectManagement]
+      summary: Verify AWS platform baseline gate
+      operationId: verifyAWSProjectBaseline
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AWSPlatformBaselineRequest"
+      responses:
+        "200":
+          description: AWS platform baseline result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  baseline:
+                    $ref: "#/components/schemas/AWSPlatformBaselineResult"
+        "400":
+          description: Invalid AWS baseline request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/start:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -4116,6 +4190,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "412":
+          description: AWS platform baseline gate is not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AWSPlatformBaselineNotReadyResponse"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "503":
@@ -4155,6 +4235,12 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "412":
+          description: AWS platform baseline gate is not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AWSPlatformBaselineNotReadyResponse"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -6092,6 +6178,109 @@ components:
           type: string
           format: date-time
           nullable: true
+    AWSPlatformBaselineRequest:
+      type: object
+      properties:
+        connector_id:
+          type: string
+        git_sha:
+          type: string
+    AWSPlatformBaselineCheck:
+      type: object
+      properties:
+        name:
+          type: string
+        category:
+          type: string
+        required:
+          type: boolean
+        status:
+          type: string
+          enum: [passed, failed, degraded, permission_denied, unknown, skipped]
+        message:
+          type: string
+        failure_reason:
+          type: string
+        remediation:
+          type: string
+        evidence_url:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        evidence:
+          type: object
+          additionalProperties: true
+        checked_at:
+          type: string
+          format: date-time
+    AWSPlatformBaselineResult:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        workspace_id:
+          type: string
+        project_id:
+          type: string
+        connector_id:
+          type: string
+        git_sha:
+          type: string
+        source_mode:
+          type: string
+        fixture_only:
+          type: boolean
+        connector_profile_version:
+          type: string
+        graph_contract_version:
+          type: string
+        account_id:
+          type: string
+        region:
+          type: string
+        status:
+          type: string
+          enum: [not_run, ready, degraded, blocked]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        required_checks_passed:
+          type: boolean
+        failure_reasons:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSPlatformBaselineCheck"
+        verified_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSPlatformBaselineNotReadyResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        error_code:
+          type: string
+          enum: [aws_platform_baseline_not_ready]
+        failure_reasons:
+          type: array
+          items: { type: string }
+        baseline:
+          $ref: "#/components/schemas/AWSPlatformBaselineResult"
     GitHubConnectionStartRequest:
       type: object
       properties:

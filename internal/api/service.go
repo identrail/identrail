@@ -168,6 +168,11 @@ type Service struct {
 	AWSScannerFactory                  AWSScannerFactory
 	AWSCloudFormationTemplateURL       string
 	AWSAccountID                       string
+	AWSBaselineGitSHA                  string
+	AWSBaselineSourceMode              string
+	AWSBaselineFixturePaths            []string
+	AWSBaselineConnectorProfileVersion string
+	AWSBaselineGraphContractVersion    string
 	AWSConnectorCapabilityPolicy       awsconnector.CapabilityPolicy
 	WorkflowRouter                     *workflow.Router
 	GitHubAppID                        int64
@@ -612,6 +617,9 @@ func (s *Service) EnqueueScan(ctx context.Context, requests ...ScanRequest) (db.
 	if err != nil {
 		return db.ScanRecord{}, err
 	}
+	if err := s.ensureAWSPlatformBaselineReadyForScan(ctx, s.Provider, source); err != nil {
+		return db.ScanRecord{}, err
+	}
 	maxPending := s.ScanQueueMaxPending
 	if maxPending <= 0 {
 		maxPending = 1
@@ -712,6 +720,9 @@ func (s *Service) ReplayScan(ctx context.Context, scanID string) (db.ScanRecord,
 	sourceContext := db.ScanSource{
 		ProjectID:   source.ProjectID,
 		ConnectorID: source.ConnectorID,
+	}
+	if err := s.ensureAWSPlatformBaselineReadyForScan(ctx, source.Provider, sourceContext); err != nil {
+		return db.ScanRecord{}, err
 	}
 	if maxPending == 1 {
 		replay, err = s.Store.CreateQueuedScanIfNoPendingWithSource(ctx, source.Provider, sourceContext, s.Now().UTC())

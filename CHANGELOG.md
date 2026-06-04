@@ -26,6 +26,16 @@
   `DomainHeader` accepts `eyebrow: null` and a new `hideLogo` prop to opt
   into the compact layout; the AWS and Kubernetes control centers are
   unchanged.
+- Added the AWS platform baseline gate for #1473. The API now persists
+  scoped `aws_platform_baseline_results`, exposes
+  `GET/POST /v1/workspaces/:workspace_id/projects/:project_id/aws/baseline`,
+  and blocks project-scoped AWS scan enqueue/replay with a structured
+  `412 aws_platform_baseline_not_ready` payload when required checks fail.
+  The gate verifies AWS connector health, graph contract availability, worker
+  queue capacity, fixture availability in fixture mode, app route prerequisites,
+  source mode, profile/contract versions, timestamps, evidence links, and the
+  configured baseline git SHA. The AWS Control Center and Connect AWS surfaces
+  now show the gate result and per-check diagnostics.
 - Switched the `Enforce Branch Protection` workflow off the long-lived
   `REPO_ADMIN_TOKEN` PAT and onto a dedicated GitHub App that mints a
   short-lived installation token per run via `actions/create-github-app-token`.

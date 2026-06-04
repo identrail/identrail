@@ -285,6 +285,93 @@ func TestNormalizeAWSAccountRegionCoverageForWrite(t *testing.T) {
 	}
 }
 
+func TestNormalizeAWSPlatformBaselineResultForWrite(t *testing.T) {
+	verified := time.Date(2026, 6, 4, 12, 0, 0, 0, time.FixedZone("WAT", 60*60))
+	normalized, err := NormalizeAWSPlatformBaselineResultForWrite(AWSPlatformBaselineResult{
+		TenantID:                " tenant-a ",
+		WorkspaceID:             " workspace-a ",
+		ProjectID:               " project-1 ",
+		ConnectorID:             " aws-prod ",
+		GitSHA:                  " 6dd631b1 ",
+		SourceMode:              " SDK ",
+		ConnectorProfileVersion: " aws-readonly-iam-v1 ",
+		GraphContractVersion:    " relationship-contract-v1 ",
+		AccountID:               " 123456789012 ",
+		Region:                  " US-EAST-1 ",
+		Status:                  " READY ",
+		Confidence:              1.5,
+		FailureReasons:          []string{" ", "missing connector", "missing connector"},
+		EvidenceLinks:           []string{"/docs/auth/aws-connector", " ", "/docs/auth/aws-connector"},
+		Checks: []AWSPlatformBaselineCheck{
+			{
+				Name:          " aws_connector_health ",
+				Category:      " connector ",
+				Required:      true,
+				Status:        "PERMISSION_DENIED",
+				Message:       " denied ",
+				FailureReason: " iam denied ",
+				Remediation:   " reconnect ",
+				EvidenceURL:   " /docs/auth/aws-connector ",
+				Confidence:    -1,
+				Evidence:      map[string]any{"connector_id": "aws-prod"},
+				CheckedAt:     verified,
+			},
+			{Name: " ", Status: AWSPlatformBaselineCheckPassed},
+			{Name: "unknown_status", Status: "custom"},
+		},
+		VerifiedAt: verified,
+	})
+	if err != nil {
+		t.Fatalf("normalize aws baseline: %v", err)
+	}
+	if normalized.TenantID != "tenant-a" || normalized.SourceMode != "sdk" || normalized.Region != "us-east-1" {
+		t.Fatalf("unexpected normalized identity fields: %+v", normalized)
+	}
+	if normalized.Status != AWSPlatformBaselineStatusReady || normalized.Confidence != 1 {
+		t.Fatalf("expected ready status and clamped confidence, got %+v", normalized)
+	}
+	if len(normalized.FailureReasons) != 1 || normalized.FailureReasons[0] != "missing connector" {
+		t.Fatalf("expected deduped failure reasons, got %+v", normalized.FailureReasons)
+	}
+	if len(normalized.EvidenceLinks) != 1 || len(normalized.Checks) != 2 {
+		t.Fatalf("expected deduped evidence and blank check removal, got links=%+v checks=%+v", normalized.EvidenceLinks, normalized.Checks)
+	}
+	if normalized.Checks[0].Status != AWSPlatformBaselineCheckPermissionDenied || normalized.Checks[0].Confidence != 0 {
+		t.Fatalf("expected normalized first check, got %+v", normalized.Checks[0])
+	}
+	if normalized.Checks[1].Status != AWSPlatformBaselineCheckUnknown {
+		t.Fatalf("expected unsupported check status to become unknown, got %+v", normalized.Checks[1])
+	}
+	if normalized.VerifiedAt.Location() != time.UTC || normalized.CreatedAt.Location() != time.UTC || normalized.UpdatedAt.Location() != time.UTC {
+		t.Fatalf("expected baseline timestamps in UTC, got %+v", normalized)
+	}
+
+	defaulted, err := NormalizeAWSPlatformBaselineResultForWrite(AWSPlatformBaselineResult{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+	})
+	if err != nil {
+		t.Fatalf("normalize default baseline: %v", err)
+	}
+	if defaulted.Status != AWSPlatformBaselineStatusNotRun || defaulted.FailureReasons == nil || defaulted.EvidenceLinks == nil || defaulted.Checks == nil {
+		t.Fatalf("expected default empty baseline fields, got %+v", defaulted)
+	}
+
+	invalids := []AWSPlatformBaselineResult{
+		{WorkspaceID: "workspace-a", ProjectID: "project-1"},
+		{TenantID: "tenant-a", ProjectID: "project-1"},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a"},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-1", AccountID: "not-account"},
+		{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-1", Status: "bad"},
+	}
+	for _, invalid := range invalids {
+		if _, err := NormalizeAWSPlatformBaselineResultForWrite(invalid); err == nil {
+			t.Fatalf("expected invalid aws baseline error for %+v", invalid)
+		}
+	}
+}
+
 func TestNormalizeAuthzEntityAttributesForWrite(t *testing.T) {
 	normalized, err := NormalizeAuthzEntityAttributesForWrite(AuthzEntityAttributes{
 		EntityKind:     "RESOURCE",
