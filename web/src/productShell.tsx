@@ -498,6 +498,7 @@ function setValidatedProductAuthScope(routeScopeKey: string) {
 
 function resetProductAuthSessionCache(options: { unauthenticated?: boolean } = {}) {
   productAuthSessionVersion += 1;
+  clearProductScopedDataCaches();
   validatedProductAuthSession = false;
   validatedProductAuthScopeKey = '';
   clearMeCache(options);
@@ -505,8 +506,24 @@ function resetProductAuthSessionCache(options: { unauthenticated?: boolean } = {
 
 export function clearProductAuthSessionCacheForTests() {
   productAuthSessionVersion += 1;
+  clearProductScopedDataCaches();
   validatedProductAuthSession = false;
   validatedProductAuthScopeKey = '';
+}
+
+function productScopedCacheKey(parts: string[]): string {
+  return [String(productAuthSessionVersion), ...parts].join('::');
+}
+
+function isCurrentProductScopedCacheKey(key: string): boolean {
+  return key.startsWith(`${productAuthSessionVersion}::`);
+}
+
+function clearProductScopedDataCaches() {
+  environmentScopeCache.clear();
+  environmentScopeRequests.clear();
+  gitHubDomainDataCache.clear();
+  gitHubDomainDataRequests.clear();
 }
 
 function resolveEnabledSourceProvider(provider: SourceProvider): SourceProvider | null {
@@ -2473,11 +2490,11 @@ function environmentScopeCacheKey(scope: ProductSession | null, requestedEnviron
   if (!scope) {
     return '';
   }
-  return [scope.tenantID, scope.workspaceID, normalizeValue(requestedEnvironmentID)].join('::');
+  return productScopedCacheKey([scope.tenantID, scope.workspaceID, normalizeValue(requestedEnvironmentID)]);
 }
 
 function writeEnvironmentScopeCache(key: string, snapshot: EnvironmentScopeSnapshot) {
-  if (!key) {
+  if (!key || !isCurrentProductScopedCacheKey(key)) {
     return;
   }
   environmentScopeCache.delete(key);
@@ -2602,7 +2619,7 @@ function useEnvironmentScope(scope: ProductSession | null, requestedEnvironmentI
 
     loadEnvironmentScopeSnapshot(scope, requestedEnvironmentID, buildProductAuthContext(scope))
       .then((snapshot) => {
-        if (!active) {
+        if (!active || !isCurrentProductScopedCacheKey(requestCacheKey)) {
           return;
         }
         setItems(snapshot.items);
@@ -2610,14 +2627,14 @@ function useEnvironmentScope(scope: ProductSession | null, requestedEnvironmentI
         setError(snapshot.error);
       })
       .catch((loadError) => {
-        if (active) {
+        if (active && isCurrentProductScopedCacheKey(requestCacheKey)) {
           setItems([]);
           setRejectedRequestedID('');
           setError(loadError instanceof Error ? loadError.message : 'Unable to load environments.');
         }
       })
       .finally(() => {
-        if (active) {
+        if (active && isCurrentProductScopedCacheKey(requestCacheKey)) {
           setLoading(false);
         }
       });
@@ -8574,11 +8591,11 @@ function gitHubDomainDataCacheKey(
   if (!scope || !trimmedProject) {
     return '';
   }
-  return [scope.tenantID, scope.workspaceID, trimmedProject, scanLimit].join('::');
+  return productScopedCacheKey([scope.tenantID, scope.workspaceID, trimmedProject, String(scanLimit)]);
 }
 
 function writeGitHubDomainDataCache(key: string, snapshot: GitHubDomainDataSnapshot) {
-  if (!key) {
+  if (!key || !isCurrentProductScopedCacheKey(key)) {
     return;
   }
   gitHubDomainDataCache.delete(key);
@@ -8796,7 +8813,7 @@ function useGitHubDomainData(
 
     fetchGitHubDomainDataSnapshot(scope, trimmedProject, scanLimit, scanPageLimit, maxScanPages, auth)
       .then((snapshot) => {
-        if (!active) {
+        if (!active || !isCurrentProductScopedCacheKey(requestCacheKey)) {
           return;
         }
         if (snapshot.error) {
@@ -8817,7 +8834,7 @@ function useGitHubDomainData(
         setError(snapshot.error);
       })
       .catch((error) => {
-        if (!active) {
+        if (!active || !isCurrentProductScopedCacheKey(requestCacheKey)) {
           return;
         }
         const fallbackSnapshot = requestCacheKey ? gitHubDomainDataCache.get(requestCacheKey) : undefined;
@@ -8830,7 +8847,7 @@ function useGitHubDomainData(
         setError(formatAPIError(error, 'Unable to load GitHub connection status.'));
       })
       .finally(() => {
-        if (active) {
+        if (active && isCurrentProductScopedCacheKey(requestCacheKey)) {
           setLoading(false);
         }
       });

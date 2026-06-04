@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -4197,6 +4197,50 @@ describe('GitHub domain pages (#1382)', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
+  });
+
+  it('Control Center clears cached dashboard data when the auth session resets', async () => {
+    const firstRender = await renderGitHubPage('control-center', { scans: [succeededRepoScan] });
+
+    await screen.findByText(/Installation 12345/i);
+    await waitFor(() => expect(firstRender.listRepoScans).toHaveBeenCalledTimes(1));
+    cleanup();
+    vi.restoreAllMocks();
+
+    const productShell = await import('./productShell');
+    productShell.clearProductAuthSessionCacheForTests();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
+    const nextSessionStatus = deferred<{ connection: GitHubConnectionStatus }>();
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockReturnValue(nextSessionStatus.promise);
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github" element={<productShell.ProductGitHubControlCenterPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
+    expect(screen.queryByText(/Installation 12345/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Loading GitHub status/i)).not.toBeInTheDocument();
+
+    await act(async () => {
+      nextSessionStatus.resolve({
+        connection: {
+          ...connectedGitHub,
+          installation_id: 67890,
+          selected_repositories: []
+        }
+      });
+    });
+
+    expect(await screen.findByText(/Installation 67890/i)).toBeInTheDocument();
   });
 
   it('Control Center fetches additional scan pages until selected-repository activity is available', async () => {
