@@ -20,8 +20,21 @@ The response envelope is:
 ```json
 {
   "harness": {
+    "tenant_id": "tenant-a",
+    "workspace_id": "workspace-a",
+    "project_id": "production",
+    "connector_id": "aws-prod",
+    "account_id": "123456789012",
+    "region": "us-east-1",
+    "parent_issue_number": 1472,
+    "parent_issue_ref": "#1472",
+    "current_issue_number": 1475,
+    "current_issue_ref": "#1475",
     "version": "aws-platform-validation-harness-v1",
     "status": "ready",
+    "confidence": 0.98,
+    "scenario_count": 6,
+    "required_scenario_count": 6,
     "fixture_states": [
       "success",
       "empty",
@@ -29,10 +42,76 @@ The response envelope is:
       "partial_failure",
       "permission_denied",
       "unsupported_service"
-    ]
+    ],
+    "failure_reasons": [],
+    "remediation_hints": [],
+    "evidence_links": [
+      "https://github.com/identrail/identrail/issues/1472",
+      "https://github.com/identrail/identrail/issues/1475",
+      "/docs/aws-platform-validation-harness",
+      "/app/tenant-a/workspace-a/aws?environment=production",
+      "/app/tenant-a/workspace-a/aws/connect?environment=production"
+    ],
+    "browser_steps": [
+      {
+        "id": "browser_control_center_states",
+        "kind": "browser",
+        "flow": "diagnostics",
+        "label": "Validate AWS Control Center state panels",
+        "target": "/app/tenant-a/workspace-a/aws?environment=production",
+        "expected_state": "success, empty, degraded, partial_failure, permission_denied, unsupported_service",
+        "required": true,
+        "evidence_url": "/app/tenant-a/workspace-a/aws?environment=production"
+      }
+    ],
+    "api_steps": [
+      {
+        "id": "api_validation_harness",
+        "kind": "api",
+        "flow": "validation_harness",
+        "label": "Fetch deterministic AWS validation harness",
+        "target": "/v1/workspaces/workspace-a/projects/production/aws/validation-harness",
+        "method": "GET",
+        "expected_state": "all fixture states returned with scoped evidence",
+        "required": true,
+        "evidence_url": "/docs/aws-platform-validation-harness"
+      }
+    ],
+    "scenarios": [
+      {
+        "id": "runtime_evidence_partial_failure",
+        "flow": "runtime_evidence",
+        "fixture_state": "partial_failure",
+        "status": "ready",
+        "label": "Runtime evidence partial failure",
+        "summary": "The app can show runtime evidence where one account, region, or service succeeds while another reports an explicit partial failure.",
+        "operator_message": "Use this fixture when runtime ingestion, timeline, or account/region fan-out behavior changes.",
+        "failure_reason": "one AWS service partition did not return runtime evidence",
+        "remediation": "Keep successful runtime evidence separate from the failed partition and list the retry target.",
+        "next_action": "Summarize successful and failed partitions separately in PR notes.",
+        "evidence_url": "/app/tenant-a/workspace-a/aws?environment=production",
+        "account_id": "123456789012",
+        "region": "us-east-1",
+        "required": true,
+        "confidence": 0.95,
+        "evidence": {
+          "workspace_id": "workspace-a",
+          "project_id": "production",
+          "fixture_state": "partial_failure",
+          "read_only": true
+        },
+        "browser_step_ids": ["browser_control_center_states"],
+        "api_step_ids": ["api_validation_harness"],
+        "checked_at": "2026-06-04T14:00:00Z"
+      }
+    ],
+    "generated_at": "2026-06-04T14:00:00Z",
+    "updated_at": "2026-06-04T14:00:00Z"
   }
 }
 ```
+
+The `scenarios` array contains one entry for each fixture state listed above.
 
 ## Fixture states
 

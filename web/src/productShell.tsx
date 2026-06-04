@@ -3128,6 +3128,16 @@ function awsValidationFixtureTone(
   return 'warning';
 }
 
+function awsValidationHarnessStatusPillTone(status: AWSPlatformValidationHarnessResult['status']): 'success' | 'warning' | 'error' {
+  if (status === 'ready') {
+    return 'success';
+  }
+  if (status === 'degraded') {
+    return 'warning';
+  }
+  return 'error';
+}
+
 function AWSValidationHarnessSummary({
   harness,
   loading = false,
@@ -3159,7 +3169,9 @@ function AWSValidationHarnessSummary({
     <>
       <article>
         <strong>Fixture coverage</strong>
-        <span className="idt-source-status-pill is-success">{formatTokenLabel(harness.status)}</span>
+        <span className={`idt-source-status-pill is-${awsValidationHarnessStatusPillTone(harness.status)}`}>
+          {formatTokenLabel(harness.status)}
+        </span>
         <p>{harness.fixture_states.map(formatTokenLabel).join(', ')}</p>
         <small>{awsValidationHarnessSummary(harness)}</small>
       </article>

@@ -1705,6 +1705,50 @@ describe('Domain-first app routes', () => {
     );
   });
 
+  it('does not style blocked AWS validation harness coverage as success', async () => {
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.mocked(api.apiClient.getAWSProjectValidationHarness).mockResolvedValue({
+      harness: {
+        ...readyAWSValidationHarness,
+        status: 'blocked',
+        failure_reasons: ['missing permission_denied validation fixture'],
+        remediation_hints: ['Restore all required AWS validation fixture states.']
+      }
+    });
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+
+    const { ProductAWSControlCenterPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws" element={<ProductAWSControlCenterPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('AWS live app validation harness')).toBeInTheDocument();
+    const harnessScenarios = screen.getByLabelText('AWS validation harness scenarios');
+    const coverage = within(harnessScenarios).getByText('Fixture coverage').closest('article');
+    expect(coverage).not.toBeNull();
+    expect(within(coverage as HTMLElement).getByText('Blocked')).toHaveClass('is-error');
+  });
+
   it('ignores stale AWS Control Center status loads after switching environments', async () => {
     const api = await import('./api/client');
     mockAWSBaseline(api);
