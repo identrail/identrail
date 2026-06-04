@@ -8558,7 +8558,12 @@ type GitHubDomainDataSnapshot = {
   scans: RepoScanRecord[];
 };
 
+type GitHubDomainDataLoadResult = GitHubDomainDataSnapshot & {
+  error: string;
+};
+
 const gitHubDomainDataCache = new Map<string, GitHubDomainDataSnapshot>();
+const gitHubDomainDataRequests = new Map<string, Promise<GitHubDomainDataLoadResult>>();
 
 function gitHubDomainDataCacheKey(
   scope: ProductSession | null,
@@ -8648,6 +8653,90 @@ async function listRepoScansForSelectedRepositories(
   return matches.slice(0, scanLimit);
 }
 
+function gitHubDomainDataRequestKey(cacheKey: string, scanPageLimit: number, maxScanPages: number): string {
+  return [cacheKey, scanPageLimit, maxScanPages].join('::');
+}
+
+function fetchGitHubDomainDataSnapshot(
+  scope: ProductSession,
+  projectID: string,
+  scanLimit: number,
+  scanPageLimit: number,
+  maxScanPages: number,
+  auth: RequestAuthContext
+): Promise<GitHubDomainDataLoadResult> {
+  const cacheKey = gitHubDomainDataCacheKey(scope, projectID, scanLimit);
+  const requestKey = gitHubDomainDataRequestKey(cacheKey, scanPageLimit, maxScanPages);
+  const inFlight = gitHubDomainDataRequests.get(requestKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const request = (async () => {
+    const statusResult = await apiClient.getGitHubConnectorStatus(scope.workspaceID, projectID, auth);
+    const connection = statusResult.connection ?? null;
+    let scans: RepoScanRecord[] = [];
+    let error = '';
+
+    try {
+      scans = await listRepoScansForSelectedRepositories(connection?.selected_repositories ?? [], scanLimit, auth, {
+        pageLimit: scanPageLimit,
+        maxPages: maxScanPages
+      });
+    } catch (scanError) {
+      error = formatAPIError(scanError, 'Unable to load recent repository scans.');
+    }
+
+    return { connection, scans, error };
+  })();
+
+  gitHubDomainDataRequests.set(requestKey, request);
+  return request.finally(() => {
+    gitHubDomainDataRequests.delete(requestKey);
+  });
+}
+
+function primeGitHubControlCenterDataCache(
+  scope: ProductSession,
+  projects: ProjectRecord[],
+  availability: SourceAvailability,
+  auth: RequestAuthContext
+) {
+  if (!availability.available) {
+    return;
+  }
+  const defaultProject = projects.find((project) => !isProjectArchived(project));
+  if (!defaultProject) {
+    return;
+  }
+  const cacheKey = gitHubDomainDataCacheKey(
+    scope,
+    defaultProject.project_id,
+    GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT
+  );
+  if (!cacheKey || gitHubDomainDataCache.has(cacheKey)) {
+    return;
+  }
+
+  void fetchGitHubDomainDataSnapshot(
+    scope,
+    defaultProject.project_id,
+    GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT,
+    GITHUB_CONTROL_CENTER_SCAN_FETCH_LIMIT,
+    GITHUB_MAX_SCAN_PAGE_FETCHES,
+    auth
+  )
+    .then((snapshot) => {
+      if (!snapshot.error) {
+        writeGitHubDomainDataCache(cacheKey, { connection: snapshot.connection, scans: snapshot.scans });
+      }
+    })
+    .catch(() => {
+      // This is a background warm-up only. The Control Center performs the
+      // authoritative load and surfaces any failure when the user opens it.
+    });
+}
+
 function useGitHubDomainData(
   scope: ProductSession | null,
   projectID: string | undefined,
@@ -8697,55 +8786,35 @@ function useGitHubDomainData(
     const requestSnapshot = requestCacheKey ? gitHubDomainDataCache.get(requestCacheKey) : undefined;
     const isSameRequestTarget = activeCacheKeyRef.current === requestCacheKey;
     activeCacheKeyRef.current = requestCacheKey;
-    setLoading(true);
+    setLoading(!requestSnapshot);
     setError('');
     if (!isSameRequestTarget) {
       setConnection(requestSnapshot?.connection ?? null);
       setScans(requestSnapshot?.scans ?? []);
     }
     const auth = buildProductAuthContext(scope);
-    const statusRequest = apiClient.getGitHubConnectorStatus(scope.workspaceID, trimmedProject, auth);
 
-    statusRequest
-      .then((statusResult) => statusResult.connection ?? null)
-      .then(async (connectionResult) => {
+    fetchGitHubDomainDataSnapshot(scope, trimmedProject, scanLimit, scanPageLimit, maxScanPages, auth)
+      .then((snapshot) => {
         if (!active) {
           return;
         }
-        let nextError = '';
-        const nextConnection = connectionResult;
-
-        let nextScans: RepoScanRecord[] = [];
-        try {
-          nextScans = await listRepoScansForSelectedRepositories(
-            nextConnection?.selected_repositories ?? [],
-            scanLimit,
-            auth,
-            { pageLimit: scanPageLimit, maxPages: maxScanPages }
-          );
-        } catch (error) {
-          nextError = formatAPIError(error, 'Unable to load recent repository scans.');
-        }
-
-        if (!active) {
-          return;
-        }
-        if (nextError) {
+        if (snapshot.error) {
           const fallbackSnapshot = requestCacheKey ? gitHubDomainDataCache.get(requestCacheKey) : undefined;
           if (fallbackSnapshot) {
-            setConnection(nextConnection);
+            setConnection(snapshot.connection);
             setScans(fallbackSnapshot.scans);
-            writeGitHubDomainDataCache(requestCacheKey, { connection: nextConnection, scans: fallbackSnapshot.scans });
-            setError(nextError);
+            writeGitHubDomainDataCache(requestCacheKey, { connection: snapshot.connection, scans: fallbackSnapshot.scans });
+            setError(snapshot.error);
             return;
           }
         }
-        if (!nextError) {
-          writeGitHubDomainDataCache(requestCacheKey, { connection: nextConnection, scans: nextScans });
+        if (!snapshot.error) {
+          writeGitHubDomainDataCache(requestCacheKey, { connection: snapshot.connection, scans: snapshot.scans });
         }
-        setConnection(nextConnection);
-        setScans(nextScans);
-        setError(nextError);
+        setConnection(snapshot.connection);
+        setScans(snapshot.scans);
+        setError(snapshot.error);
       })
       .catch((error) => {
         if (!active) {
@@ -9241,7 +9310,7 @@ export function ProductGitHubControlCenterPage() {
       ? { label: 'Repositories', to: repositoriesPath, variant: 'primary' as const }
       : { label: 'Connect GitHub', to: connectPath, variant: 'primary' as const };
   const subtitle = awaitingFirstLoad
-    ? 'Loading GitHub status…'
+    ? undefined
     : gitHubOverviewSubtitle(data.connection, recentScans);
 
   return (
@@ -11919,6 +11988,7 @@ export function ProductOverviewPage() {
         const auth = buildProductAuthContext(scope);
         const activeProjectItems = await listOverviewProjects(scope.workspaceID, { include_archived: false }, auth);
         primeEnvironmentScopeCache(scope, activeProjectItems);
+        primeGitHubControlCenterDataCache(scope, activeProjectItems, sourceAvailability.github, auth);
         const [scanResponse, findingResponse, connectionRollups] = await Promise.all([
           apiClient.listRepoScans({ limit: OVERVIEW_SCAN_LIMIT }, auth),
           apiClient.listRepoFindings(

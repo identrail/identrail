@@ -4294,7 +4294,7 @@ describe('GitHub domain pages (#1382)', () => {
     // the Sections grid still renders its own "Connect GitHub" navigation
     // card, which is fine.
     expect(document.querySelector('.idt-domain-header-actions')).toBeNull();
-    expect(screen.getByText(/Loading GitHub status/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Loading GitHub status/i)).not.toBeInTheDocument();
 
     // Resolve as disconnected; the page should now show the real disconnected UI.
     resolveStatus?.({
@@ -4730,7 +4730,7 @@ describe('GitHub domain pages (#1382)', () => {
     await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(2));
   });
 
-  it('Control Center reuses the overview environment cache before loading GitHub status', async () => {
+  it('Control Center reuses overview caches without showing a loading status', async () => {
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
@@ -4753,7 +4753,7 @@ describe('GitHub domain pages (#1382)', () => {
       .mockResolvedValue({ connection: connectedGitHub });
     vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
     vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: connectedKubernetes });
-    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [succeededRepoScan] });
+    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [succeededRepoScan] });
     vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [], summary: undefined });
 
     const { ProductOverviewPage, ProductGitHubControlCenterPage } = await import('./productShell');
@@ -4767,6 +4767,8 @@ describe('GitHub domain pages (#1382)', () => {
 
     await screen.findByRole('region', { name: 'Domain posture' });
     await waitFor(() => expect(listProjects).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(getGitHubConnectorStatus).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(2));
     overviewRender.unmount();
 
     render(
@@ -4778,6 +4780,9 @@ describe('GitHub domain pages (#1382)', () => {
     );
 
     await screen.findByRole('heading', { level: 2, name: 'GitHub' });
+    expect(screen.getByText(/Installation 12345/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Loading GitHub status/i)).not.toBeInTheDocument();
+    expect(listProjects).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(getGitHubConnectorStatus).toHaveBeenCalledWith(
         'workspace-a',
@@ -4785,7 +4790,6 @@ describe('GitHub domain pages (#1382)', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
-    expect(listProjects).toHaveBeenCalledTimes(1);
   });
 
   it('Control Center hides recent scans when no repositories are selected', async () => {
