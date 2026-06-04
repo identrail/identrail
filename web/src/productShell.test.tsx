@@ -3681,31 +3681,23 @@ describe('GitHub domain pages (#1382)', () => {
     };
   }
 
-  it('Control Center loads the GitHub connection and surfaces premium status', async () => {
+  it('Control Center loads the GitHub connection and surfaces connection status', async () => {
     const mocks = await renderGitHubPage('control-center', { scans: [succeededRepoScan] });
 
-    await screen.findByRole('heading', { level: 2, name: 'GitHub Control Center' });
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
     await waitFor(() => expect(mocks.getGitHubConnectorStatus).toHaveBeenCalledWith(
       'workspace-a',
       'production-platform',
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     ));
-    await screen.findByText(/Connected as identrail/i);
+    await screen.findByText(/Installation 12345/i);
     await waitFor(() => {
-      const openRepos = screen
-        .getAllByRole('link', { name: /Open Repositories/i })
+      const repos = screen
+        .getAllByRole('link', { name: /^Repositories$/ })
         .find((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github/repositories'));
-      expect(openRepos).toBeDefined();
+      expect(repos).toBeDefined();
     });
-    const connectLinks = screen
-      .getAllByRole('link', { name: /Connect GitHub/i })
-      .filter((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github/connect'));
-    expect(connectLinks.length).toBeGreaterThan(0);
-    const findingsLinks = screen
-      .getAllByRole('link', { name: /GitHub findings/i })
-      .filter((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github/findings'));
-    expect(findingsLinks.length).toBeGreaterThan(0);
-    expect(screen.getByText(/Last 1 repository scans/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'Recent scans' })).toBeInTheDocument();
   });
 
   it('Control Center prompts to connect when not connected', async () => {
@@ -3720,8 +3712,8 @@ describe('GitHub domain pages (#1382)', () => {
       scans: []
     });
 
-    await screen.findByRole('heading', { level: 2, name: 'GitHub Control Center' });
-    await screen.findByText(/GitHub is not connected for this environment yet/i);
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
+    await screen.findByText(/Not connected for this environment\./i);
     await waitFor(() => {
       const heroConnect = screen
         .getAllByRole('link', { name: /Connect GitHub/i })
@@ -4053,7 +4045,7 @@ describe('GitHub domain pages (#1382)', () => {
       </MemoryRouter>
     );
 
-    await screen.findByRole('heading', { level: 2, name: 'GitHub Control Center' });
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
     await screen.findByRole('heading', { level: 3, name: /Unable to load GitHub status/i });
   });
 
@@ -4068,13 +4060,13 @@ describe('GitHub domain pages (#1382)', () => {
       scans: [unrelatedScan]
     });
 
-    await screen.findByRole('heading', { level: 2, name: 'GitHub Control Center' });
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
     expect(screen.queryByText(/Last \d+ repository scans/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/someone-else\/other-repo/i)).not.toBeInTheDocument();
-    await screen.findByRole('heading', { level: 3, name: /No repository scans yet/i });
+    await screen.findByText(/Pick repositories for Identrail to watch\./i);
   });
 
-  it('Control Center latest-scan KPI reflects the newest scan even when it failed', async () => {
+  it('Control Center surfaces the most recent failed scan in the banner', async () => {
     const olderSucceeded: RepoScanRecord = {
       ...succeededRepoScan,
       id: 'repo-scan-older-success',
@@ -4092,10 +4084,10 @@ describe('GitHub domain pages (#1382)', () => {
     };
     await renderGitHubPage('control-center', { scans: [newerFailed, olderSucceeded] });
 
-    await screen.findByRole('heading', { level: 2, name: 'GitHub Control Center' });
-    await screen.findAllByText(/scan exploded/i);
-    const kpiStrip = screen.getByLabelText('GitHub control center metrics');
-    expect(within(kpiStrip).getByText(/scan exploded/i)).toBeInTheDocument();
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
+    const banner = await screen.findByLabelText('GitHub action recommendation');
+    expect(within(banner).getByText(/failed its last scan/i)).toBeInTheDocument();
+    expect(within(banner).getByText(/scan exploded/i)).toBeInTheDocument();
   });
 
   it('Connect page renders an Open GitHub fallback link when the install popup is blocked', async () => {

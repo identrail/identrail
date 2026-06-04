@@ -1,6 +1,31 @@
 # Changelog
 
 ## Unreleased
+- Reworked the GitHub overview (`/app/.../github`) so the page leads with
+  one identity line and one primary action instead of stacking a hero with
+  four KPI cards, an installation detail card, a "Next actions"
+  recommendation card, and a "Domain charter" aside. The header now drops
+  the brand logo, the all-caps eyebrow, and the marketing tagline ("Operate
+  repository, workflow, OIDC, and AI/agentic risk coverage from one premium
+  control surface"); the title is just "GitHub" and the subtitle is the
+  one fact that matters (e.g. `Installation 135895761 · Healthy · Last
+  scan May 27`). The standalone Connection / Repositories / Active scans /
+  Latest scan KPI strip, the "GitHub installation" detail panel, and the
+  "What GitHub owns" charter aside are removed because the same status is
+  now on the header and the same exits are in the Sections grid. The
+  prior multi-row "Next actions" list collapses to one context-aware
+  banner (connect → select repos → triage findings → review failed scan)
+  with one action button. Section descriptions ("Manage the GitHub App
+  installation, account scope, and PAT fallback.") are tightened to ≤6
+  words ("App installation and scope."), and `Connect GitHub` / `Actions /
+  OIDC` / `AI / Agentic Risk` are relabeled to `Installation` /
+  `Workflows` / `Agent identities` to drop the redundant `GitHub`
+  prefix and the "agentic" filler. The redundant `GitHub findings`
+  secondary CTA is gone and the primary CTA is `Repositories` (not `Open
+  Repositories`). Sections render as a card grid instead of plain links.
+  `DomainHeader` accepts `eyebrow: null` and a new `hideLogo` prop to opt
+  into the compact layout; the AWS and Kubernetes control centers are
+  unchanged.
 - Switched the `Enforce Branch Protection` workflow off the long-lived
   `REPO_ADMIN_TOKEN` PAT and onto a dedicated GitHub App that mints a
   short-lived installation token per run via `actions/create-github-app-token`.

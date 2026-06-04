@@ -128,15 +128,16 @@ function renderDomainAction(action: DomainAction, key: string) {
 
 export type DomainHeaderProps = {
   domain: DomainAssetKey;
-  eyebrow?: string;
+  eyebrow?: string | null;
   title: string;
-  description: ReactNode;
+  description?: ReactNode;
   scope?: ReactNode;
   status?: ReactNode;
   statusTone?: Tone;
   primaryAction?: DomainAction;
   secondaryActions?: DomainAction[];
   titleId?: string;
+  hideLogo?: boolean;
 };
 
 export function DomainHeader({
@@ -149,19 +150,22 @@ export function DomainHeader({
   statusTone = 'neutral',
   primaryAction,
   secondaryActions = [],
-  titleId
+  titleId,
+  hideLogo = false
 }: DomainHeaderProps) {
   const asset = getDomainAsset(domain);
   const actions = primaryAction ? [primaryAction, ...secondaryActions] : secondaryActions;
+  const resolvedEyebrow = eyebrow === null ? null : eyebrow ?? asset.description;
+  const hasDescription = description !== undefined && description !== null && description !== '';
 
   return (
-    <header className={classNames(['idt-domain-header', `is-${domain}`])}>
+    <header className={classNames(['idt-domain-header', `is-${domain}`, hideLogo ? 'is-logoless' : ''])}>
       <div className="idt-domain-header-main">
-        <DomainLogoMark domain={domain} size="hero" />
+        {hideLogo ? null : <DomainLogoMark domain={domain} size="hero" />}
         <div>
-          <p className="idt-app-kicker">{eyebrow ?? asset.description}</p>
+          {resolvedEyebrow ? <p className="idt-app-kicker">{resolvedEyebrow}</p> : null}
           <h2 id={titleId}>{title}</h2>
-          <p>{description}</p>
+          {hasDescription ? <p>{description}</p> : null}
         </div>
       </div>
       <div className="idt-domain-header-aside">

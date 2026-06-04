@@ -7031,12 +7031,12 @@ function buildGitHubSectionLinks(scope: ProductSession, environmentID: string | 
     to: appendEnvironmentQuery(buildScopedPath(scope, `github/${suffix}`), environmentID)
   });
   return [
-    link('connect', 'connect', 'Connect GitHub', 'Manage the GitHub App installation, account scope, and PAT fallback.'),
-    link('repositories', 'repositories', 'Repositories', 'Launch, monitor, and cancel repository scans for the connected installation.'),
-    link('actions', 'actions', 'Actions / OIDC', 'Workflow permissions, runner posture, and OIDC trust path coverage.'),
-    link('findings', 'findings', 'Findings', 'Repository, workflow, and secret findings detected by Identrail.'),
-    link('remediation', 'remediation', 'Remediation', 'Stage repository fix PRs, lifecycle review, and verification.'),
-    link('agentic-risk', 'agentic-risk', 'AI / Agentic Risk', 'Agent identities, MCP tools, prompts, secrets, and workflow trust paths.')
+    link('connect', 'connect', 'Installation', 'App installation and scope.'),
+    link('repositories', 'repositories', 'Repositories', 'Scan history and controls.'),
+    link('actions', 'actions', 'Workflows', 'Permissions and OIDC trust paths.'),
+    link('findings', 'findings', 'Findings', 'Repository, workflow, and secret findings.'),
+    link('remediation', 'remediation', 'Remediation', 'Fix PRs and verification.'),
+    link('agentic-risk', 'agentic-risk', 'Agent identities', 'MCP tools, prompts, and trust paths.')
   ];
 }
 
@@ -7247,6 +7247,27 @@ function gitHubConnectionSummary(status: GitHubConnectionStatus | null): string 
   return `${parts.join(' · ')}.`;
 }
 
+function gitHubOverviewSubtitle(
+  status: GitHubConnectionStatus | null,
+  recentScans: RepoScanRecord[]
+): ReactNode {
+  if (!status || !status.connected) {
+    return 'Not connected for this environment.';
+  }
+  const parts: string[] = [];
+  if (status.installation_id) {
+    parts.push(`Installation ${status.installation_id}`);
+  } else if (status.account_login) {
+    parts.push(`@${status.account_login}`);
+  }
+  parts.push(formatTokenLabel(connectionHealth(status)));
+  const lastCompleted = recentScans.find((scan) => isCompletedScanStatus(scan.status));
+  if (lastCompleted) {
+    parts.push(`Last scan ${formatRelativeTime(lastCompleted.finished_at || lastCompleted.started_at)}`);
+  }
+  return parts.join(' · ');
+}
+
 function gitHubConnectionStatusVariantFor(status: GitHubConnectionStatus | null, loading: boolean) {
   if (loading) {
     return 'coming-soon' as const;
@@ -7264,57 +7285,13 @@ function gitHubConnectionStatusVariantFor(status: GitHubConnectionStatus | null,
   return 'connected' as const;
 }
 
-function buildGitHubControlCenterMetrics(
-  status: GitHubConnectionStatus | null,
-  selectedRepositories: string[],
-  recentScans: RepoScanRecord[]
-) {
-  const activeScans = recentScans.filter((scan) => isActiveScanStatus(scan.status)).length;
-  const latestCompleted = recentScans.find((scan) => isCompletedScanStatus(scan.status));
-  const latestCompletedFailed = latestCompleted ? isFailedScanStatus(latestCompleted.status) : false;
-  return [
-    {
-      label: 'Connection',
-      value: status?.connected ? formatTokenLabel(connectionLifecycle(status)) : 'Not connected',
-      detail: status?.connected ? `Health ${formatTokenLabel(connectionHealth(status))}` : 'Install the GitHub App to begin.',
-      tone: gitHubConnectionTone(status, false) === 'danger' ? 'danger' : status?.connected ? 'success' : 'neutral'
-    },
-    {
-      label: 'Repositories',
-      value: selectedRepositories.length,
-      detail: selectedRepositories.length === 0 ? 'No repositories selected yet.' : `${formatCountLabel(selectedRepositories.length, 'repo')} in scope.`,
-      tone: selectedRepositories.length > 0 ? 'success' : 'neutral'
-    },
-    {
-      label: 'Active scans',
-      value: activeScans,
-      detail: activeScans > 0 ? 'Queued or running right now.' : 'No scans waiting.',
-      tone: activeScans > 0 ? 'warning' : 'neutral'
-    },
-    {
-      label: 'Latest scan',
-      value: latestCompleted
-        ? formatRelativeTime(latestCompleted.finished_at || latestCompleted.started_at)
-        : '—',
-      detail: latestCompleted
-        ? latestCompletedFailed
-          ? summarizeScanFailure(latestCompleted)
-          : `${latestCompleted.finding_count} findings · ${canonicalGitHubRepositoryDisplay(latestCompleted.repository) || latestCompleted.repository}`
-        : 'Run a scan from the Repositories page.',
-      tone: latestCompleted ? (latestCompletedFailed ? 'danger' : 'success') : 'neutral'
-    }
-  ] as const;
-}
-
 function GitHubSectionLinksGrid({ links }: { links: GitHubSectionLink[] }) {
   return (
-    <section className="idt-domain-status-panel idt-github-section-links" aria-label="GitHub subsections">
+    <section className="idt-domain-status-panel idt-github-section-links" aria-label="GitHub sections">
       <header>
         <div>
-          <p className="idt-app-kicker">Domain map</p>
-          <h3>Where to go next inside GitHub</h3>
+          <h3>Sections</h3>
         </div>
-        <span>{`${links.length} sections`}</span>
       </header>
       <div className="idt-domain-readiness-items">
         {links.map((link) => (
@@ -7323,7 +7300,6 @@ function GitHubSectionLinksGrid({ links }: { links: GitHubSectionLink[] }) {
               <strong>{link.label}</strong>
               <p>{link.description}</p>
             </div>
-            <span aria-hidden="true">→</span>
           </Link>
         ))}
       </div>
@@ -7331,7 +7307,16 @@ function GitHubSectionLinksGrid({ links }: { links: GitHubSectionLink[] }) {
   );
 }
 
-function GitHubControlCenterNextActions({
+type GitHubControlCenterBanner = {
+  id: string;
+  message: ReactNode;
+  detail?: string;
+  actionLabel: string;
+  actionTo: string;
+  tone: 'info' | 'warning' | 'danger';
+};
+
+function selectGitHubControlCenterBanner({
   connected,
   selectedRepositories,
   recentScans,
@@ -7345,71 +7330,79 @@ function GitHubControlCenterNextActions({
   connectPath: string;
   repositoriesPath: string;
   findingsPath: string;
-}) {
-  const failedScan = recentScans.find((scan) => isFailedScanStatus(scan.status));
-  const actions: Array<{ id: string; title: string; detail: string; to: string }> = [];
+}): GitHubControlCenterBanner | null {
   if (!connected) {
-    actions.push({
+    return {
       id: 'connect',
-      title: 'Connect GitHub',
-      detail: 'Install the GitHub App or paste an Enterprise PAT to enable repository scanning.',
-      to: connectPath
-    });
+      message: 'Install the GitHub App to enable repository scanning.',
+      actionLabel: 'Connect GitHub',
+      actionTo: connectPath,
+      tone: 'info'
+    };
   }
-  if (connected && selectedRepositories.length === 0) {
-    actions.push({
+  if (selectedRepositories.length === 0) {
+    return {
       id: 'select-repositories',
-      title: 'Select repositories to scan',
-      detail: 'Pick the repositories Identrail should watch for exposure, secrets, and workflow risk.',
-      to: connectPath
-    });
+      message: 'Pick repositories for Identrail to watch.',
+      actionLabel: 'Select repositories',
+      actionTo: connectPath,
+      tone: 'info'
+    };
   }
-  if (connected && selectedRepositories.length > 0 && !recentScans.some((scan) => isCompletedScanStatus(scan.status))) {
-    actions.push({
-      id: 'run-first-scan',
-      title: 'Run a first repository scan',
-      detail: 'Queue a scan to seed the findings pipeline for the selected repositories.',
-      to: repositoriesPath
-    });
-  }
+  const failedScan = recentScans.find((scan) => isFailedScanStatus(scan.status));
   if (failedScan) {
-    actions.push({
+    const repo = canonicalGitHubRepositoryDisplay(failedScan.repository) || failedScan.repository;
+    return {
       id: 'review-failed-scan',
-      title: 'Investigate the most recent failed scan',
-      detail: `${canonicalGitHubRepositoryDisplay(failedScan.repository) || failedScan.repository}: ${summarizeScanFailure(failedScan)}`,
-      to: repositoriesPath
-    });
+      message: (
+        <>
+          <strong>{repo}</strong> failed its last scan.
+        </>
+      ),
+      detail: summarizeScanFailure(failedScan),
+      actionLabel: 'Review',
+      actionTo: repositoriesPath,
+      tone: 'danger'
+    };
   }
-  if (connected && recentScans.some((scan) => isCompletedScanStatus(scan.status) && scan.finding_count > 0)) {
-    actions.push({
+  const findingsTotal = recentScans
+    .filter((scan) => isCompletedScanStatus(scan.status))
+    .reduce((total, scan) => total + Math.max(scan.finding_count, 0), 0);
+  if (findingsTotal > 0) {
+    return {
       id: 'triage-findings',
-      title: 'Triage GitHub findings',
-      detail: 'Open the GitHub findings queue to review repository and workflow risk.',
-      to: findingsPath
-    });
+      message: `${formatCountLabel(findingsTotal, 'finding')} need triage.`,
+      actionLabel: 'Review',
+      actionTo: findingsPath,
+      tone: 'warning'
+    };
   }
-  if (actions.length === 0) {
-    return null;
+  if (!recentScans.some((scan) => isCompletedScanStatus(scan.status))) {
+    return {
+      id: 'run-first-scan',
+      message: 'Queue the first repository scan.',
+      actionLabel: 'Repositories',
+      actionTo: repositoriesPath,
+      tone: 'info'
+    };
   }
+  return null;
+}
+
+function GitHubControlCenterBannerView({ banner }: { banner: GitHubControlCenterBanner }) {
   return (
-    <section className="idt-domain-status-panel idt-github-next-actions" aria-label="GitHub next actions">
-      <header>
-        <div>
-          <p className="idt-app-kicker">Next actions</p>
-          <h3>{`${actions.length} thing${actions.length === 1 ? '' : 's'} to do`}</h3>
-        </div>
-        <span>Recommended</span>
-      </header>
-      <ol className="idt-github-next-actions-list">
-        {actions.map((action) => (
-          <li key={action.id}>
-            <Link to={action.to}>
-              <strong>{action.title}</strong>
-              <p>{action.detail}</p>
-            </Link>
-          </li>
-        ))}
-      </ol>
+    <section
+      className={`idt-github-overview-banner is-${banner.tone}`}
+      aria-label="GitHub action recommendation"
+      data-banner-id={banner.id}
+    >
+      <div>
+        <p>{banner.message}</p>
+        {banner.detail ? <small>{banner.detail}</small> : null}
+      </div>
+      <Link to={banner.actionTo} className="idt-btn idt-btn-primary idt-domain-action">
+        <span>{banner.actionLabel}</span>
+      </Link>
     </section>
   );
 }
@@ -7559,97 +7552,50 @@ export function ProductGitHubControlCenterPage() {
   const findingsPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/findings'), selectedEnvironmentID);
   const selectedRepositories = uniqueGitHubRepositories(data.connection?.selected_repositories ?? []);
   const recentScans = gitHubRecentScans(data.scans, selectedRepositories, GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT);
-  const metrics = buildGitHubControlCenterMetrics(data.connection, selectedRepositories, recentScans);
-  const statusVariant = gitHubConnectionStatusVariantFor(data.connection, data.loading);
+  const connected = Boolean(data.connection?.connected);
+  const banner = selectGitHubControlCenterBanner({
+    connected,
+    selectedRepositories,
+    recentScans,
+    connectPath,
+    repositoriesPath,
+    findingsPath
+  });
 
   return (
     <DomainPageShell
       domain="github"
-      eyebrow="GitHub"
-      title="GitHub Control Center"
-      description="Operate repository, workflow, OIDC, and AI/agentic risk coverage from one premium control surface."
+      eyebrow={null}
+      hideLogo
+      title="GitHub"
+      description={gitHubOverviewSubtitle(data.connection, recentScans)}
       scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
-      status={
-        <DomainStatusBadge
-          variant={statusVariant}
-          detail={data.connection?.account_login ? `@${data.connection.account_login}` : undefined}
-        />
-      }
       statusTone={gitHubConnectionTone(data.connection, data.loading)}
       primaryAction={
-        data.connection?.connected
-          ? { label: 'Open Repositories', to: repositoriesPath, variant: 'primary' }
+        connected
+          ? { label: 'Repositories', to: repositoriesPath, variant: 'primary' }
           : { label: 'Connect GitHub', to: connectPath, variant: 'primary' }
-      }
-      secondaryActions={[{ label: 'GitHub findings', to: findingsPath }]}
-      aside={
-        <DomainDetailPanel title="What GitHub owns" eyebrow="Domain charter">
-          <ul className="idt-domain-charter-list">
-            <li>Repository exposure and secret risk</li>
-            <li>GitHub Actions workflow permissions</li>
-            <li>OIDC trust paths and runner identity posture</li>
-            <li>AI/agentic repo configuration risk</li>
-          </ul>
-        </DomainDetailPanel>
       }
     >
       {data.error ? <DomainErrorState title="Unable to load GitHub status" body={data.error} retryAction={{ label: 'Retry', onClick: data.reload }} /> : null}
-      <DomainKpiStrip label="GitHub control center metrics" items={metrics.map((metric) => ({ ...metric }))} />
-      <DomainStatusPanel
-        eyebrow="Connection"
-        title={data.connection?.connected ? `${data.connection.account_login ?? 'GitHub'} installation` : 'GitHub not connected'}
-        status={<DomainStatusBadge variant={statusVariant} />}
-        tone={gitHubConnectionTone(data.connection, data.loading) === 'danger' ? 'danger' : data.connection?.connected ? 'success' : 'neutral'}
-      >
-        <p>{gitHubConnectionSummary(data.connection)}</p>
-        {data.connection?.connected ? (
-          <dl className="idt-domain-route-facts">
-            <div>
-              <dt>Account</dt>
-              <dd>{data.connection.account_login ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>Installation</dt>
-              <dd>{data.connection.installation_id ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>Lifecycle</dt>
-              <dd>{formatTokenLabel(connectionLifecycle(data.connection))}</dd>
-            </div>
-            <div>
-              <dt>Health</dt>
-              <dd>{formatTokenLabel(connectionHealth(data.connection))}</dd>
-            </div>
-          </dl>
-        ) : null}
-      </DomainStatusPanel>
+      {banner ? <GitHubControlCenterBannerView banner={banner} /> : null}
       {recentScans.length > 0 ? (
         <section className="idt-domain-status-panel" aria-label="Recent repository scans">
           <header>
             <div>
-              <p className="idt-app-kicker">Recent scans</p>
-              <h3>Last {recentScans.length} repository scans</h3>
+              <h3>Recent scans</h3>
             </div>
             <Link to={repositoriesPath}>Manage scans</Link>
           </header>
           <DomainTimeline label="Recent repository scans" entries={gitHubRecentScansTimeline(recentScans)} />
         </section>
-      ) : (
+      ) : connected ? (
         <DomainEmptyState
-          eyebrow="Recent scans"
           title="No repository scans yet"
-          body="Connect GitHub and queue the first repository scan to populate the activity timeline."
-          nextAction={{ label: 'Open Repositories', to: repositoriesPath }}
+          body="Queue a scan to populate the activity timeline."
+          nextAction={{ label: 'Repositories', to: repositoriesPath }}
         />
-      )}
-      <GitHubControlCenterNextActions
-        connected={Boolean(data.connection?.connected)}
-        selectedRepositories={selectedRepositories}
-        recentScans={recentScans}
-        connectPath={connectPath}
-        repositoriesPath={repositoriesPath}
-        findingsPath={findingsPath}
-      />
+      ) : null}
       <GitHubSectionLinksGrid links={links} />
     </DomainPageShell>
   );
