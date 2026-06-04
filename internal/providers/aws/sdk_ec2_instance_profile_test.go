@@ -73,6 +73,8 @@ func (f *fakeIAMInstanceProfileSDKClient) GetInstanceProfile(_ context.Context, 
 	}
 	return &iam.GetInstanceProfileOutput{
 		InstanceProfile: &iamtypes.InstanceProfile{
+			Arn:                 awsv2.String("arn:aws:iam::123456789012:instance-profile/" + name),
+			InstanceProfileId:   awsv2.String("profile-id-" + name),
 			InstanceProfileName: awsv2.String(name),
 			Roles:               append([]iamtypes.Role(nil), f.profiles[name]...),
 		},
@@ -174,6 +176,9 @@ func TestSDKEC2InstanceProfileAPIMapsInstancesAndLaunchTemplates(t *testing.T) {
 	if template.WorkloadType != "ec2_launch_template" || template.WorkloadID != "lt-0477:2" || template.RoleName != "template-ec2" {
 		t.Fatalf("unexpected launch template record: %+v", template)
 	}
+	if template.InstanceProfileARN != "arn:aws:iam::123456789012:instance-profile/template-profile" || template.InstanceProfileID != "profile-id-template-profile" {
+		t.Fatalf("expected launch template instance profile metadata from IAM, got %+v", template)
+	}
 	if len(iamClient.calls) != 2 || iamClient.calls[0] != "payments-profile" || iamClient.calls[1] != "template-profile" {
 		t.Fatalf("unexpected IAM profile lookups: %+v", iamClient.calls)
 	}
@@ -197,6 +202,10 @@ func TestSDKEC2InstanceProfileAPISkipsTerminalInstances(t *testing.T) {
 							Arn: awsv2.String("arn:aws:iam::123456789012:instance-profile/terminal-profile"),
 						},
 						State: &ec2types.InstanceState{Name: ec2types.InstanceStateNameTerminated},
+					},
+					{
+						InstanceId: awsv2.String("i-no-profile"),
+						State:      &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
 					},
 				},
 			}},
@@ -293,6 +302,9 @@ func TestSDKEC2InstanceProfileAPIScansAllLaunchTemplateVersionPages(t *testing.T
 	}
 	if page.Records[1].WorkloadID != "lt-all:3" || page.Records[1].RoleName != "pinned-role" {
 		t.Fatalf("unexpected second launch template record: %+v", page.Records[1])
+	}
+	if page.Records[1].InstanceProfileARN != "arn:aws:iam::123456789012:instance-profile/pinned-profile" || page.Records[1].InstanceProfileID != "profile-id-pinned-profile" {
+		t.Fatalf("expected IAM profile metadata for name-only launch template profile, got %+v", page.Records[1])
 	}
 }
 

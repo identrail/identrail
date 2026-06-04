@@ -34,11 +34,18 @@ type IAMInstanceProfileSDKClient interface {
 
 // SDKEC2InstanceProfileAPI adapts AWS SDK EC2/IAM calls to EC2InstanceProfileAPI.
 type SDKEC2InstanceProfileAPI struct {
-	ec2Client EC2SDKClient
-	iamClient IAMInstanceProfileSDKClient
-	accountID string
-	region    string
-	roleCache map[string][]iamtypes.Role
+	ec2Client    EC2SDKClient
+	iamClient    IAMInstanceProfileSDKClient
+	accountID    string
+	region       string
+	profileCache map[string]resolvedInstanceProfile
+}
+
+type resolvedInstanceProfile struct {
+	ARN   string
+	ID    string
+	Name  string
+	Roles []iamtypes.Role
 }
 
 var _ EC2InstanceProfileAPI = (*SDKEC2InstanceProfileAPI)(nil)
@@ -84,11 +91,11 @@ func NewSDKEC2InstanceProfileAPIFromAssumeRole(ctx context.Context, region strin
 // NewSDKEC2InstanceProfileAPIFromClients creates an EC2InstanceProfileAPI from provided SDK clients.
 func NewSDKEC2InstanceProfileAPIFromClients(ec2Client EC2SDKClient, iamClient IAMInstanceProfileSDKClient, accountID string, region string) EC2InstanceProfileAPI {
 	return &SDKEC2InstanceProfileAPI{
-		ec2Client: ec2Client,
-		iamClient: iamClient,
-		accountID: strings.TrimSpace(accountID),
-		region:    strings.TrimSpace(region),
-		roleCache: map[string][]iamtypes.Role{},
+		ec2Client:    ec2Client,
+		iamClient:    iamClient,
+		accountID:    strings.TrimSpace(accountID),
+		region:       strings.TrimSpace(region),
+		profileCache: map[string]resolvedInstanceProfile{},
 	}
 }
 
@@ -122,6 +129,9 @@ func (a *SDKEC2InstanceProfileAPI) listInstanceProfiles(ctx context.Context, nex
 				return EC2InstanceProfilePage{}, err
 			}
 			if isTerminalEC2InstanceState(instanceStateName(instance.State)) {
+				continue
+			}
+			if instance.IamInstanceProfile == nil || strings.TrimSpace(awsv2.ToString(instance.IamInstanceProfile.Arn)) == "" {
 				continue
 			}
 			record, err := a.recordFromInstance(ctx, instance)
@@ -181,11 +191,14 @@ func (a *SDKEC2InstanceProfileAPI) recordFromInstance(ctx context.Context, insta
 		profileID = strings.TrimSpace(awsv2.ToString(instance.IamInstanceProfile.Id))
 		profileName = instanceProfileNameFromARN(profileARN)
 	}
-	roles, err := a.rolesForInstanceProfile(ctx, profileARN, profileName)
+	profile, err := a.resolveInstanceProfile(ctx, profileARN, profileName)
 	if err != nil {
 		return EC2InstanceProfile{}, err
 	}
-	roleARN, roleName := firstRoleIdentity(roles)
+	profileARN = firstNonEmptyAWSValue(profile.ARN, profileARN)
+	profileID = firstNonEmptyAWSValue(profile.ID, profileID)
+	profileName = firstNonEmptyAWSValue(profile.Name, profileName)
+	roleARN, roleName := firstRoleIdentity(profile.Roles)
 
 	record := EC2InstanceProfile{
 		ServiceCollectorRecord: awsServiceCollectorRecordSeed(a.accountID, a.region, "ec2_instance", instanceID, instanceName(instance.Tags, instanceID), roleARN, "describeinstances", instanceARN),
@@ -227,11 +240,13 @@ func (a *SDKEC2InstanceProfileAPI) recordsFromLaunchTemplate(ctx context.Context
 		profileSpec := version.LaunchTemplateData.IamInstanceProfile
 		profileARN := strings.TrimSpace(awsv2.ToString(profileSpec.Arn))
 		profileName := firstNonEmptyAWSValue(strings.TrimSpace(awsv2.ToString(profileSpec.Name)), instanceProfileNameFromARN(profileARN))
-		roles, err := a.rolesForInstanceProfile(ctx, profileARN, profileName)
+		profile, err := a.resolveInstanceProfile(ctx, profileARN, profileName)
 		if err != nil {
 			return nil, err
 		}
-		roleARN, roleName := firstRoleIdentity(roles)
+		profileARN = firstNonEmptyAWSValue(profile.ARN, profileARN)
+		profileName = firstNonEmptyAWSValue(profile.Name, profileName)
+		roleARN, roleName := firstRoleIdentity(profile.Roles)
 		versionNumber := strconv.FormatInt(awsv2.ToInt64(version.VersionNumber), 10)
 		workloadID := templateID + ":" + versionNumber
 		seed := awsServiceCollectorRecordSeed(a.accountID, a.region, "ec2_launch_template", workloadID, firstNonEmptyAWSValue(templateName, templateID), roleARN, "describelaunchtemplateversions", templateID)
@@ -239,6 +254,7 @@ func (a *SDKEC2InstanceProfileAPI) recordsFromLaunchTemplate(ctx context.Context
 		records = append(records, EC2InstanceProfile{
 			ServiceCollectorRecord: seed,
 			InstanceProfileARN:     profileARN,
+			InstanceProfileID:      profile.ID,
 			InstanceProfileName:    profileName,
 			RoleName:               roleName,
 			LaunchTemplateID:       templateID,
@@ -278,28 +294,37 @@ func (a *SDKEC2InstanceProfileAPI) describeLaunchTemplateVersions(ctx context.Co
 	return versions, nil
 }
 
-func (a *SDKEC2InstanceProfileAPI) rolesForInstanceProfile(ctx context.Context, profileARN string, profileName string) ([]iamtypes.Role, error) {
+func (a *SDKEC2InstanceProfileAPI) resolveInstanceProfile(ctx context.Context, profileARN string, profileName string) (resolvedInstanceProfile, error) {
 	name := firstNonEmptyAWSValue(profileName, instanceProfileNameFromARN(profileARN))
 	if name == "" {
-		return nil, nil
+		return resolvedInstanceProfile{}, nil
 	}
-	if cached, ok := a.roleCache[name]; ok {
+	if cached, ok := a.profileCache[name]; ok {
 		return cached, nil
 	}
 	if a.iamClient == nil {
-		return nil, fmt.Errorf("iam sdk client is required to resolve instance profile %s", name)
+		return resolvedInstanceProfile{}, fmt.Errorf("iam sdk client is required to resolve instance profile %s", name)
 	}
 	output, err := a.iamClient.GetInstanceProfile(ctx, &iam.GetInstanceProfileInput{InstanceProfileName: awsv2.String(name)})
 	if err != nil {
-		return nil, fmt.Errorf("get instance profile %s: %w", name, err)
+		return resolvedInstanceProfile{}, fmt.Errorf("get instance profile %s: %w", name, err)
 	}
 	if output.InstanceProfile == nil {
-		a.roleCache[name] = nil
-		return nil, nil
+		profile := resolvedInstanceProfile{
+			ARN:  strings.TrimSpace(profileARN),
+			Name: strings.TrimSpace(name),
+		}
+		a.profileCache[name] = profile
+		return profile, nil
 	}
-	roles := append([]iamtypes.Role(nil), output.InstanceProfile.Roles...)
-	a.roleCache[name] = roles
-	return roles, nil
+	profile := resolvedInstanceProfile{
+		ARN:   firstNonEmptyAWSValue(awsv2.ToString(output.InstanceProfile.Arn), profileARN),
+		ID:    strings.TrimSpace(awsv2.ToString(output.InstanceProfile.InstanceProfileId)),
+		Name:  firstNonEmptyAWSValue(awsv2.ToString(output.InstanceProfile.InstanceProfileName), name),
+		Roles: append([]iamtypes.Role(nil), output.InstanceProfile.Roles...),
+	}
+	a.profileCache[name] = profile
+	return profile, nil
 }
 
 func awsServiceCollectorRecordSeed(accountID, region, workloadType, workloadID, workloadName, roleARN, source, evidenceRef string) awscontract.ServiceCollectorRecord {
