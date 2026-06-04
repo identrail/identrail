@@ -478,6 +478,11 @@ x-identrail-route-authorizations:
     action: tenancy.read
     resource_type: project
     resource_id_param: project_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/validation-harness
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
   - method: POST
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/baseline
     action: scans.run
@@ -3665,6 +3670,50 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/validation-harness:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS live app validation harness
+      operationId: getAWSProjectValidationHarness
+      description: Returns deterministic browser and API validation scenarios for AWS connector setup, scan state, graph state, runtime evidence, remediation, and governance flows. The response includes expected success, empty, degraded, partial-failure, permission-denied, and unsupported-service fixture states without reading customer payloads or mutating AWS.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used only to add account and region context to the returned evidence.
+      responses:
+        "200":
+          description: AWS live app validation harness
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  harness:
+                    $ref: "#/components/schemas/AWSPlatformValidationHarnessResult"
+        "400":
+          description: Invalid AWS validation harness request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/start:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -6449,6 +6498,145 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSPlatformDependencyIssue"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSPlatformValidationStep:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [browser, api]
+        flow:
+          type: string
+        label:
+          type: string
+        target:
+          type: string
+        method:
+          type: string
+        expected_state:
+          type: string
+        required:
+          type: boolean
+        evidence_url:
+          type: string
+    AWSPlatformValidationScenario:
+      type: object
+      properties:
+        id:
+          type: string
+        flow:
+          type: string
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied, unsupported_service]
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        label:
+          type: string
+        summary:
+          type: string
+        operator_message:
+          type: string
+        failure_reason:
+          type: string
+        remediation:
+          type: string
+        next_action:
+          type: string
+        evidence_url:
+          type: string
+        account_id:
+          type: string
+        region:
+          type: string
+        required:
+          type: boolean
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        evidence:
+          type: object
+          additionalProperties: true
+        browser_step_ids:
+          type: array
+          items: { type: string }
+        api_step_ids:
+          type: array
+          items: { type: string }
+        checked_at:
+          type: string
+          format: date-time
+    AWSPlatformValidationHarnessResult:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        workspace_id:
+          type: string
+        project_id:
+          type: string
+        connector_id:
+          type: string
+        account_id:
+          type: string
+        region:
+          type: string
+        parent_issue_number:
+          type: integer
+        parent_issue_ref:
+          type: string
+        current_issue_number:
+          type: integer
+        current_issue_ref:
+          type: string
+        version:
+          type: string
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        scenario_count:
+          type: integer
+        required_scenario_count:
+          type: integer
+        fixture_states:
+          type: array
+          items:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied, unsupported_service]
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        browser_steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSPlatformValidationStep"
+        api_steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSPlatformValidationStep"
+        scenarios:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSPlatformValidationScenario"
         generated_at:
           type: string
           format: date-time

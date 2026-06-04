@@ -46,6 +46,10 @@ The [AWS platform baseline gate](../aws-platform-baseline.md) combines connector
 health with graph contract, queue, fixture, and app prerequisites before
 project-scoped AWS scans or remediation work can start.
 
+The [AWS platform validation harness](../aws-platform-validation-harness.md)
+provides deterministic browser and API proof states for AWS setup, scan, graph,
+runtime, remediation, and governance app surfaces as future AWS waves land.
+
 The registry is intentionally internal for now because the UI flow is not ready. Services can write coverage rows through the AWS service layer after discovering organization accounts, selected regions, or scan outcomes. Each row is scoped by tenant, workspace, project, connector, account ID, and region, and can store organization metadata, the connector role ARN, coverage status, the last successful scan time, the last scan error, a scan cursor, and account/region availability flags.
 
 Use the registry when a scanner, connector workflow, or future UI needs to distinguish these states:

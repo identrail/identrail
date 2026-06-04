@@ -31,6 +31,7 @@ import {
   type AWSConnectionStatus,
   type AWSPlatformBaselineResult,
   type AWSPlatformDependencyIndexResult,
+  type AWSPlatformValidationHarnessResult,
   type AWSPermissionPreviewItem,
   type CurrentUserContext,
   type ExecutiveReport,
@@ -3070,6 +3071,122 @@ function AWSDependencyIndexSummary({
   );
 }
 
+function awsValidationHarnessLabel(harness: AWSPlatformValidationHarnessResult | null): string {
+  if (!harness) {
+    return 'Not loaded';
+  }
+  if (harness.status === 'ready') {
+    return 'Ready';
+  }
+  if (harness.status === 'degraded') {
+    return 'Degraded';
+  }
+  return 'Blocked';
+}
+
+function awsValidationHarnessTone(
+  harness: AWSPlatformValidationHarnessResult | null,
+  loading = false
+): 'success' | 'warning' | 'danger' | 'neutral' | 'info' {
+  if (loading) {
+    return 'info';
+  }
+  if (!harness) {
+    return 'neutral';
+  }
+  if (harness.status === 'ready') {
+    return 'success';
+  }
+  if (harness.status === 'degraded') {
+    return 'warning';
+  }
+  return 'danger';
+}
+
+function awsValidationHarnessSummary(harness: AWSPlatformValidationHarnessResult | null): string {
+  if (!harness) {
+    return 'No app proof loaded';
+  }
+  return `${formatCountLabel(harness.scenario_count, 'scenario')} · ${formatCountLabel(
+    harness.browser_steps.length,
+    'browser step'
+  )} · ${formatCountLabel(harness.api_steps.length, 'API step')}`;
+}
+
+function awsValidationFixtureTone(
+  state: AWSPlatformValidationHarnessResult['scenarios'][number]['fixture_state']
+): 'success' | 'warning' | 'error' | 'neutral' {
+  if (state === 'success') {
+    return 'success';
+  }
+  if (state === 'empty') {
+    return 'neutral';
+  }
+  if (state === 'permission_denied') {
+    return 'error';
+  }
+  return 'warning';
+}
+
+function AWSValidationHarnessSummary({
+  harness,
+  loading = false,
+  emptyLabel = 'Validation harness has not loaded for this environment.'
+}: {
+  harness: AWSPlatformValidationHarnessResult | null;
+  loading?: boolean;
+  emptyLabel?: string;
+}) {
+  if (loading) {
+    return (
+      <article>
+        <strong>AWS validation harness</strong>
+        <span className="idt-source-status-pill is-neutral">Loading</span>
+        <p>Loading app proof states.</p>
+      </article>
+    );
+  }
+  if (!harness) {
+    return (
+      <article>
+        <strong>AWS validation harness</strong>
+        <span className="idt-source-status-pill is-neutral">Not loaded</span>
+        <p>{emptyLabel}</p>
+      </article>
+    );
+  }
+  return (
+    <>
+      <article>
+        <strong>Fixture coverage</strong>
+        <span className="idt-source-status-pill is-success">{formatTokenLabel(harness.status)}</span>
+        <p>{harness.fixture_states.map(formatTokenLabel).join(', ')}</p>
+        <small>{awsValidationHarnessSummary(harness)}</small>
+      </article>
+      {harness.scenarios.map((scenario) => (
+        <article key={scenario.id}>
+          <strong>{scenario.label}</strong>
+          <span className={`idt-source-status-pill is-${awsValidationFixtureTone(scenario.fixture_state)}`}>
+            {formatTokenLabel(scenario.fixture_state)}
+          </span>
+          <p>{scenario.summary}</p>
+          <small>
+            {formatTokenLabel(scenario.flow)} · confidence {formatConfidenceScore(scenario.confidence)} ·{' '}
+            {formatConnectionTime(scenario.checked_at)}
+          </small>
+          {scenario.failure_reason ? <small>{formatTokenLabel(scenario.failure_reason)}</small> : null}
+          {scenario.remediation ? <small>{scenario.remediation}</small> : null}
+          {scenario.evidence_url ? (
+            <a href={scenario.evidence_url} target={scenario.evidence_url.startsWith('http') ? '_blank' : undefined} rel="noreferrer">
+              Evidence
+            </a>
+          ) : null}
+        </article>
+      ))}
+    </>
+  );
+}
+
 type AWSInventoryRouteID = Extract<ProductDomainRouteID, 'accounts' | 'identities' | 'agents' | 'resources'>;
 
 type AWSInventoryPageCopy = {
@@ -5196,9 +5313,13 @@ export function ProductAWSControlCenterPage() {
   const [dependencyIndex, setDependencyIndex] = useState<AWSPlatformDependencyIndexResult | null>(null);
   const [dependencyLoading, setDependencyLoading] = useState(false);
   const [dependencyError, setDependencyError] = useState('');
+  const [validationHarness, setValidationHarness] = useState<AWSPlatformValidationHarnessResult | null>(null);
+  const [validationLoading, setValidationLoading] = useState(false);
+  const [validationError, setValidationError] = useState('');
   const connectionRequestRef = useRef(0);
   const baselineRequestRef = useRef(0);
   const dependencyRequestRef = useRef(0);
+  const validationRequestRef = useRef(0);
   const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
   selectedEnvironmentIDRef.current = selectedEnvironmentID;
 
@@ -5341,16 +5462,54 @@ export function ProductAWSControlCenterPage() {
     }
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
 
+  const refreshValidationHarness = useCallback(async () => {
+    const requestID = ++validationRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    if (!scope || !requestEnvironmentID) {
+      setValidationHarness(null);
+      setValidationError('');
+      setValidationLoading(false);
+      return;
+    }
+    const isStale = () => requestID !== validationRequestRef.current || selectedEnvironmentIDRef.current !== requestEnvironmentID;
+    setValidationLoading(true);
+    setValidationError('');
+    try {
+      const response = await apiClient.getAWSProjectValidationHarness(
+        scope.workspaceID,
+        requestEnvironmentID,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (isStale()) {
+        return;
+      }
+      setValidationHarness(response.harness);
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      setValidationHarness(null);
+      setValidationError(formatAPIError(error, 'Unable to load AWS validation harness.'));
+    } finally {
+      if (!isStale()) {
+        setValidationLoading(false);
+      }
+    }
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
   useEffect(() => {
     void refreshConnection();
     void refreshBaseline();
     void refreshDependencyIndex();
+    void refreshValidationHarness();
     return () => {
       connectionRequestRef.current += 1;
       baselineRequestRef.current += 1;
       dependencyRequestRef.current += 1;
+      validationRequestRef.current += 1;
     };
-  }, [refreshConnection, refreshBaseline, refreshDependencyIndex]);
+  }, [refreshConnection, refreshBaseline, refreshDependencyIndex, refreshValidationHarness]);
 
   if (!scope) {
     return (
@@ -5366,12 +5525,15 @@ export function ProductAWSControlCenterPage() {
     connectionRequestRef.current += 1;
     baselineRequestRef.current += 1;
     dependencyRequestRef.current += 1;
+    validationRequestRef.current += 1;
     setConnection(null);
     setBaseline(null);
     setDependencyIndex(null);
+    setValidationHarness(null);
     setConnectionError('');
     setBaselineError('');
     setDependencyError('');
+    setValidationError('');
     navigate(
       {
         pathname: location.pathname,
@@ -5389,6 +5551,7 @@ export function ProductAWSControlCenterPage() {
   const statusTone = awsDomainTone(connection, connectionLoading || environmentScope.loading);
   const baselineTone = awsBaselineTone(baseline, baselineLoading || environmentScope.loading);
   const dependencyTone = awsDependencyIndexTone(dependencyIndex, dependencyLoading || environmentScope.loading);
+  const validationTone = awsValidationHarnessTone(validationHarness, validationLoading || environmentScope.loading);
   const statusLabel = environmentScope.loading
     ? 'Loading scope'
     : connectionLoading
@@ -5468,11 +5631,17 @@ export function ProductAWSControlCenterPage() {
             value: awsDependencyIndexLabel(dependencyIndex),
             detail: dependencyLoading ? 'Sequencing loading' : awsDependencyIndexSummary(dependencyIndex),
             tone: dependencyTone
+          },
+          {
+            label: 'Validation harness',
+            value: awsValidationHarnessLabel(validationHarness),
+            detail: validationLoading ? 'Proof states loading' : awsValidationHarnessSummary(validationHarness),
+            tone: validationTone
           }
         ]}
       />
 
-      {environmentScope.loading || connectionLoading || baselineLoading || dependencyLoading ? (
+      {environmentScope.loading || connectionLoading || baselineLoading || dependencyLoading || validationLoading ? (
         <DomainLoadingState label="Loading AWS control center status" />
       ) : null}
 
@@ -5495,6 +5664,13 @@ export function ProductAWSControlCenterPage() {
           title="AWS dependency index could not load"
           body={dependencyError}
           retryAction={{ label: 'Retry index', onClick: () => void refreshDependencyIndex() }}
+        />
+      ) : null}
+      {validationError ? (
+        <DomainErrorState
+          title="AWS validation harness could not load"
+          body={validationError}
+          retryAction={{ label: 'Retry harness', onClick: () => void refreshValidationHarness() }}
         />
       ) : null}
 
@@ -5630,6 +5806,53 @@ export function ProductAWSControlCenterPage() {
           </dl>
           <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS dependency index checks">
             <AWSDependencyIndexSummary index={dependencyIndex} loading={dependencyLoading} />
+          </div>
+        </div>
+      </DomainStatusPanel>
+
+      <DomainStatusPanel
+        eyebrow="App validation"
+        title="AWS live app validation harness"
+        status={awsValidationHarnessLabel(validationHarness)}
+        tone={validationTone}
+        actions={[
+          { label: 'Refresh harness', onClick: () => void refreshValidationHarness(), variant: 'secondary', disabled: validationLoading || !selectedEnvironmentID },
+          {
+            label: 'Harness docs',
+            href: '/docs/aws-platform-validation-harness',
+            variant: 'ghost'
+          }
+        ]}
+      >
+        <div className="idt-aws-status-grid">
+          <dl>
+            <div>
+              <dt>Issue</dt>
+              <dd>{validationHarness?.current_issue_ref ?? '#1475'}</dd>
+            </div>
+            <div>
+              <dt>Scenarios</dt>
+              <dd>{validationHarness ? formatCountLabel(validationHarness.scenario_count, 'scenario') : 'Pending'}</dd>
+            </div>
+            <div>
+              <dt>Fixture states</dt>
+              <dd>{validationHarness ? validationHarness.fixture_states.map(formatTokenLabel).join(', ') : 'Pending'}</dd>
+            </div>
+            <div>
+              <dt>Browser steps</dt>
+              <dd>{validationHarness ? formatCountLabel(validationHarness.browser_steps.length, 'step') : 'Pending'}</dd>
+            </div>
+            <div>
+              <dt>API steps</dt>
+              <dd>{validationHarness ? formatCountLabel(validationHarness.api_steps.length, 'step') : 'Pending'}</dd>
+            </div>
+            <div>
+              <dt>Updated</dt>
+              <dd>{formatConnectionTime(validationHarness?.updated_at)}</dd>
+            </div>
+          </dl>
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS validation harness scenarios">
+            <AWSValidationHarnessSummary harness={validationHarness} loading={validationLoading} />
           </div>
         </div>
       </DomainStatusPanel>
@@ -5917,6 +6140,9 @@ export function ProductAWSConnectPage() {
   const [dependencyIndex, setDependencyIndex] = useState<AWSPlatformDependencyIndexResult | null>(null);
   const [dependencyLoading, setDependencyLoading] = useState(false);
   const [dependencyError, setDependencyError] = useState('');
+  const [validationHarness, setValidationHarness] = useState<AWSPlatformValidationHarnessResult | null>(null);
+  const [validationLoading, setValidationLoading] = useState(false);
+  const [validationError, setValidationError] = useState('');
   const [awsForm, setAWSForm] = useState({
     roleARN: '',
     externalID: '',
@@ -5933,6 +6159,7 @@ export function ProductAWSConnectPage() {
   const connectionRequestRef = useRef(0);
   const baselineRequestRef = useRef(0);
   const dependencyRequestRef = useRef(0);
+  const validationRequestRef = useRef(0);
   const awsStartRequestRef = useRef(0);
   const awsPollRequestRef = useRef(0);
   const awsValidationRequestRef = useRef(0);
@@ -6114,10 +6341,51 @@ export function ProductAWSConnectPage() {
     }
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
 
+  const refreshValidationHarness = useCallback(async () => {
+    const requestID = ++validationRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKeyRef.current;
+    if (!scope || !requestEnvironmentID) {
+      setValidationHarness(null);
+      setValidationError('');
+      setValidationLoading(false);
+      return;
+    }
+    const isStale = () =>
+      requestID !== validationRequestRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
+    setValidationLoading(true);
+    setValidationError('');
+    try {
+      const response = await apiClient.getAWSProjectValidationHarness(
+        scope.workspaceID,
+        requestEnvironmentID,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (isStale()) {
+        return;
+      }
+      setValidationHarness(response.harness);
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      setValidationHarness(null);
+      setValidationError(formatAPIError(error, 'Unable to load AWS validation harness.'));
+    } finally {
+      if (!isStale()) {
+        setValidationLoading(false);
+      }
+    }
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
   useEffect(() => {
     connectionRequestRef.current += 1;
     baselineRequestRef.current += 1;
     dependencyRequestRef.current += 1;
+    validationRequestRef.current += 1;
     awsStartRequestRef.current += 1;
     awsPollRequestRef.current += 1;
     awsValidationRequestRef.current += 1;
@@ -6127,6 +6395,8 @@ export function ProductAWSConnectPage() {
     setBaselineError('');
     setDependencyIndex(null);
     setDependencyError('');
+    setValidationHarness(null);
+    setValidationError('');
     setSubmitting(false);
     setAWSCloudFormationStart(null);
     setAWSPermissionPreview([]);
@@ -6142,15 +6412,17 @@ export function ProductAWSConnectPage() {
     void refreshConnection('initial');
     void refreshBaseline();
     void refreshDependencyIndex();
+    void refreshValidationHarness();
     return () => {
       connectionRequestRef.current += 1;
       baselineRequestRef.current += 1;
       dependencyRequestRef.current += 1;
+      validationRequestRef.current += 1;
       awsStartRequestRef.current += 1;
       awsPollRequestRef.current += 1;
       awsValidationRequestRef.current += 1;
     };
-  }, [refreshConnection, refreshBaseline, refreshDependencyIndex]);
+  }, [refreshConnection, refreshBaseline, refreshDependencyIndex, refreshValidationHarness]);
 
   if (!scope) {
     return (
@@ -6166,14 +6438,17 @@ export function ProductAWSConnectPage() {
     connectionRequestRef.current += 1;
     baselineRequestRef.current += 1;
     dependencyRequestRef.current += 1;
+    validationRequestRef.current += 1;
     awsStartRequestRef.current += 1;
     awsPollRequestRef.current += 1;
     awsValidationRequestRef.current += 1;
     setConnection(null);
     setBaseline(null);
     setDependencyIndex(null);
+    setValidationHarness(null);
     setBaselineError('');
     setDependencyError('');
+    setValidationError('');
     navigate(
       {
         pathname: location.pathname,
@@ -6188,6 +6463,7 @@ export function ProductAWSConnectPage() {
   const statusTone = awsDomainTone(connection, loadingConnection || refreshingConnection || environmentScope.loading);
   const baselineTone = awsBaselineTone(baseline, baselineLoading || environmentScope.loading);
   const dependencyTone = awsDependencyIndexTone(dependencyIndex, dependencyLoading || environmentScope.loading);
+  const validationTone = awsValidationHarnessTone(validationHarness, validationLoading || environmentScope.loading);
   const canSubmit = !submitting && !loadingConnection && Boolean(selectedEnvironmentID);
   const activeConnectorID = awsCloudFormationStart?.connector_id ?? connection?.connector_id ?? '';
 
@@ -6272,6 +6548,7 @@ export function ProductAWSConnectPage() {
       if (response.connection.connected) {
         void verifyBaseline();
         void refreshDependencyIndex();
+        void refreshValidationHarness();
       }
     } catch (error) {
       if (isStale()) {
@@ -6340,6 +6617,7 @@ export function ProductAWSConnectPage() {
       if (response.connection.connected) {
         void verifyBaseline();
         void refreshDependencyIndex();
+        void refreshValidationHarness();
       }
     } catch (error) {
       if (isStale()) {
@@ -6419,11 +6697,19 @@ export function ProductAWSConnectPage() {
             value: awsDependencyIndexLabel(dependencyIndex),
             detail: dependencyLoading ? 'Sequencing loading' : awsDependencyIndexSummary(dependencyIndex),
             tone: dependencyTone
+          },
+          {
+            label: 'Validation harness',
+            value: awsValidationHarnessLabel(validationHarness),
+            detail: validationLoading ? 'Proof states loading' : awsValidationHarnessSummary(validationHarness),
+            tone: validationTone
           }
         ]}
       />
 
-      {loadingConnection || baselineLoading || dependencyLoading || environmentScope.loading ? <DomainLoadingState label="Loading AWS setup state" /> : null}
+      {loadingConnection || baselineLoading || dependencyLoading || validationLoading || environmentScope.loading ? (
+        <DomainLoadingState label="Loading AWS setup state" />
+      ) : null}
 
       {!selectedEnvironmentID && !environmentScope.loading ? (
         <DomainEmptyState
@@ -6452,6 +6738,11 @@ export function ProductAWSConnectPage() {
       {dependencyError ? (
         <p role="alert" className="idt-app-alert idt-app-alert-error">
           {dependencyError}
+        </p>
+      ) : null}
+      {validationError ? (
+        <p role="alert" className="idt-app-alert idt-app-alert-error">
+          {validationError}
         </p>
       ) : null}
 
@@ -6677,6 +6968,35 @@ export function ProductAWSConnectPage() {
               </dl>
               <div className="idt-source-diagnostics" aria-label="AWS dependency diagnostics">
                 <AWSDependencyIndexSummary index={dependencyIndex} loading={dependencyLoading} />
+              </div>
+            </DomainStatusPanel>
+
+            <DomainStatusPanel
+              eyebrow="App validation"
+              title="Live app validation harness"
+              status={awsValidationHarnessLabel(validationHarness)}
+              tone={validationTone}
+              actions={[
+                { label: 'Refresh harness', onClick: () => void refreshValidationHarness(), disabled: validationLoading || !selectedEnvironmentID },
+                { label: 'Harness docs', href: '/docs/aws-platform-validation-harness', variant: 'ghost' }
+              ]}
+            >
+              <dl className="idt-domain-route-facts">
+                <div>
+                  <dt>Scenarios</dt>
+                  <dd>{validationHarness ? formatCountLabel(validationHarness.scenario_count, 'scenario') : 'Pending'}</dd>
+                </div>
+                <div>
+                  <dt>States</dt>
+                  <dd>{validationHarness ? validationHarness.fixture_states.map(formatTokenLabel).join(', ') : 'Pending'}</dd>
+                </div>
+                <div>
+                  <dt>Updated</dt>
+                  <dd>{formatConnectionTime(validationHarness?.updated_at)}</dd>
+                </div>
+              </dl>
+              <div className="idt-source-diagnostics" aria-label="AWS validation harness diagnostics">
+                <AWSValidationHarnessSummary harness={validationHarness} loading={validationLoading} />
               </div>
             </DomainStatusPanel>
 

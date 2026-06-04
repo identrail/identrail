@@ -7,6 +7,7 @@ import type {
   AWSConnectionStatus,
   AWSPlatformBaselineResult,
   AWSPlatformDependencyIndexResult,
+  AWSPlatformValidationHarnessResult,
   CurrentUserContext,
   Finding,
   GitHubConnectionStatus,
@@ -189,10 +190,10 @@ const readyAWSDependencyIndex: AWSPlatformDependencyIndexResult = {
   confidence: 0.97,
   issue_count: 85,
   wave_count: 11,
-  ready_issue_count: 2,
+  ready_issue_count: 1,
   blocked_issue_count: 82,
-  completed_issue_refs: ['#1473'],
-  ready_issue_refs: ['#1474', '#1475'],
+  completed_issue_refs: ['#1473', '#1474'],
+  ready_issue_refs: ['#1475'],
   blocked_issue_refs: ['#1476'],
   failure_reasons: [],
   remediation_hints: [],
@@ -222,11 +223,11 @@ const readyAWSDependencyIndex: AWSPlatformDependencyIndexResult = {
       sequence: 2,
       blocker_refs: ['#1473'],
       downstream_refs: [],
-      dependency_status: 'ready',
-      ready_for_pr: true,
+      dependency_status: 'completed',
+      ready_for_pr: false,
       failure_reasons: [],
-      remediation: 'Open exactly one focused PR for this issue from current origin/dev.',
-      next_action: 'Ready for a focused implementation PR.',
+      remediation: 'No PR needed; this dependency is already closed.',
+      next_action: 'Use as evidence for downstream blockers.',
       evidence_url: 'https://github.com/identrail/identrail/issues/1474'
     }
   ],
@@ -243,6 +244,138 @@ function mockAWSDependencyIndex(
   });
 }
 
+const readyAWSValidationHarness: AWSPlatformValidationHarnessResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  parent_issue_number: 1472,
+  parent_issue_ref: '#1472',
+  current_issue_number: 1475,
+  current_issue_ref: '#1475',
+  version: 'aws-platform-validation-harness-v1',
+  status: 'ready',
+  confidence: 0.98,
+  scenario_count: 6,
+  required_scenario_count: 6,
+  fixture_states: ['success', 'empty', 'degraded', 'partial_failure', 'permission_denied', 'unsupported_service'],
+  failure_reasons: [],
+  remediation_hints: [],
+  evidence_links: [
+    'https://github.com/identrail/identrail/issues/1472',
+    'https://github.com/identrail/identrail/issues/1475',
+    '/docs/aws-platform-validation-harness'
+  ],
+  browser_steps: [
+    {
+      id: 'browser_connector_setup',
+      kind: 'browser',
+      flow: 'connector_setup',
+      label: 'Open Connect AWS setup',
+      target: '/app/tenant-a/workspace-a/aws/connect?environment=production',
+      expected_state: 'success',
+      required: true,
+      evidence_url: '/app/tenant-a/workspace-a/aws/connect?environment=production'
+    },
+    {
+      id: 'browser_control_center_states',
+      kind: 'browser',
+      flow: 'diagnostics',
+      label: 'Validate AWS Control Center state panels',
+      target: '/app/tenant-a/workspace-a/aws?environment=production',
+      expected_state: 'success, empty, degraded, partial_failure, permission_denied, unsupported_service',
+      required: true,
+      evidence_url: '/app/tenant-a/workspace-a/aws?environment=production'
+    }
+  ],
+  api_steps: [
+    {
+      id: 'api_validation_harness',
+      kind: 'api',
+      flow: 'validation_harness',
+      label: 'Fetch deterministic AWS validation harness',
+      target: '/v1/workspaces/workspace-a/projects/production/aws/validation-harness',
+      method: 'GET',
+      expected_state: 'all fixture states returned with scoped evidence',
+      required: true,
+      evidence_url: '/docs/aws-platform-validation-harness'
+    }
+  ],
+  scenarios: [
+    {
+      id: 'connector_setup_success',
+      flow: 'connector_setup',
+      fixture_state: 'success',
+      status: 'ready',
+      label: 'Connector setup success',
+      summary: 'The app can show a connected AWS role with account, region, permission checks, diagnostics, and evidence links.',
+      operator_message: 'Use this fixture when a PR changes AWS setup.',
+      next_action: 'Capture the Connect AWS and Control Center panels in PR validation notes.',
+      evidence_url: '/app/tenant-a/workspace-a/aws/connect?environment=production',
+      account_id: '123456789012',
+      region: 'us-east-1',
+      required: true,
+      confidence: 0.98,
+      browser_step_ids: ['browser_connector_setup'],
+      api_step_ids: ['api_validation_harness'],
+      checked_at: '2026-05-17T10:00:00Z'
+    },
+    {
+      id: 'runtime_evidence_partial_failure',
+      flow: 'runtime_evidence',
+      fixture_state: 'partial_failure',
+      status: 'ready',
+      label: 'Runtime evidence partial failure',
+      summary: 'The app can show runtime evidence where one service succeeds while another reports an explicit partial failure.',
+      operator_message: 'Use this fixture when runtime ingestion changes.',
+      failure_reason: 'one AWS service partition did not return runtime evidence',
+      remediation: 'Keep successful runtime evidence separate from the failed partition and list the retry target.',
+      next_action: 'Summarize successful and failed partitions separately in PR notes.',
+      evidence_url: '/app/tenant-a/workspace-a/aws?environment=production',
+      account_id: '123456789012',
+      region: 'us-east-1',
+      required: true,
+      confidence: 0.95,
+      browser_step_ids: ['browser_control_center_states'],
+      api_step_ids: ['api_validation_harness'],
+      checked_at: '2026-05-17T10:00:00Z'
+    },
+    {
+      id: 'remediation_permission_denied',
+      flow: 'remediation',
+      fixture_state: 'permission_denied',
+      status: 'ready',
+      label: 'Remediation permission denied',
+      summary: 'The app can show an approved remediation path that is blocked by read-only scope or missing approval without hiding the reason.',
+      operator_message: 'Use this fixture when approval or executor UX changes.',
+      failure_reason: 'live AWS mutation is not permitted by this harness',
+      remediation: 'Require explicit approval and executor scope before any live AWS mutation.',
+      next_action: 'Show the denied action, approval requirement, and rollback guidance.',
+      evidence_url: '/app/tenant-a/workspace-a/aws?environment=production',
+      account_id: '123456789012',
+      region: 'us-east-1',
+      required: true,
+      confidence: 0.97,
+      browser_step_ids: ['browser_control_center_states'],
+      api_step_ids: ['api_validation_harness'],
+      checked_at: '2026-05-17T10:00:00Z'
+    }
+  ],
+  generated_at: '2026-05-17T10:00:00Z',
+  updated_at: '2026-05-17T10:00:00Z'
+};
+
+function mockAWSValidationHarness(
+  api: typeof import('./api/client'),
+  harness: AWSPlatformValidationHarnessResult = readyAWSValidationHarness
+) {
+  vi.spyOn(api.apiClient, 'getAWSProjectValidationHarness').mockResolvedValue({
+    harness
+  });
+}
+
 function mockAWSBaseline(api: typeof import('./api/client'), baseline: AWSPlatformBaselineResult = readyAWSBaseline) {
   vi.spyOn(api.apiClient, 'getAWSProjectBaseline').mockResolvedValue({
     baseline
@@ -251,6 +384,7 @@ function mockAWSBaseline(api: typeof import('./api/client'), baseline: AWSPlatfo
     baseline
   });
   mockAWSDependencyIndex(api);
+  mockAWSValidationHarness(api);
 }
 
 const disconnectedKubernetes: KubernetesConnectionStatus = {
@@ -1562,6 +1696,9 @@ describe('Domain-first app routes', () => {
     expect(screen.getAllByText('Wired now').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Coming').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Not yet available').length).toBeGreaterThan(0);
+    expect(screen.getByText('AWS live app validation harness')).toBeInTheDocument();
+    expect(screen.getByText('Runtime evidence partial failure')).toBeInTheDocument();
+    expect(screen.getByText('Remediation permission denied')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Resources and secrets/i })).toHaveAttribute(
       'href',
       '/app/tenant-a/workspace-a/aws/resources?environment=production'
@@ -2651,6 +2788,8 @@ describe('Domain-first app routes', () => {
     const setupPayload = screen.getByLabelText('Setup payload');
     expect(within(setupPayload).getByText('workspace-a')).toBeInTheDocument();
     expect(within(setupPayload).getByText('older-production')).toBeInTheDocument();
+    expect(screen.getByText('Live app validation harness')).toBeInTheDocument();
+    expect(screen.getByText('Connector setup success')).toBeInTheDocument();
     expect(listProjects).toHaveBeenCalled();
     expect(getAWSProjectConnection).toHaveBeenCalledWith(
       'workspace-a',

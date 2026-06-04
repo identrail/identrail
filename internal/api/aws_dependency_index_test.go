@@ -34,10 +34,10 @@ func TestGetAWSPlatformDependencyIndexBuildsCanonicalLedger(t *testing.T) {
 	if result.IssueCount != 85 || result.WaveCount != 11 {
 		t.Fatalf("unexpected ledger shape: issues=%d waves=%d", result.IssueCount, result.WaveCount)
 	}
-	if got, want := strings.Join(result.CompletedIssueRefs, ","), "#1473"; got != want {
+	if got, want := strings.Join(result.CompletedIssueRefs, ","), "#1473,#1474"; got != want {
 		t.Fatalf("completed refs = %q, want %q", got, want)
 	}
-	if got, want := strings.Join(result.ReadyIssueRefs, ","), "#1474,#1475"; got != want {
+	if got, want := strings.Join(result.ReadyIssueRefs, ","), "#1475"; got != want {
 		t.Fatalf("ready refs = %q, want %q", got, want)
 	}
 	if result.BlockedIssueCount != 82 || !containsString(result.BlockedIssueRefs, "#1476") {
@@ -49,8 +49,8 @@ func TestGetAWSPlatformDependencyIndexBuildsCanonicalLedger(t *testing.T) {
 		}
 	}
 	current := requireAWSPlatformDependencyIssue(t, result.Issues, "#1474")
-	if !current.ReadyForPR || current.DependencyStatus != awsPlatformIssueStateReady {
-		t.Fatalf("expected current issue ready for PR, got %+v", current)
+	if current.ReadyForPR || current.DependencyStatus != awsPlatformIssueStateCompleted {
+		t.Fatalf("expected current issue completed after merge, got %+v", current)
 	}
 	blocked := requireAWSPlatformDependencyIssue(t, result.Issues, "#1476")
 	if blocked.ReadyForPR || blocked.DependencyStatus != awsPlatformIssueStateBlocked || !containsString(blocked.FailureReasons, "waiting on #1475") {
@@ -130,8 +130,8 @@ func TestRouterAWSPlatformDependencyIndex(t *testing.T) {
 	if body.Index.IssueCount != 85 || body.Index.ParentIssueRef != "#1472" || body.Index.CurrentIssueRef != "#1474" {
 		t.Fatalf("unexpected dependency index payload: %+v", body.Index)
 	}
-	if !containsString(body.Index.ReadyIssueRefs, "#1474") || body.Index.Status != awsPlatformDependencyStatusReady {
-		t.Fatalf("expected current issue ready in router payload, got %+v", body.Index)
+	if !containsString(body.Index.CompletedIssueRefs, "#1474") || !containsString(body.Index.ReadyIssueRefs, "#1475") || body.Index.Status != awsPlatformDependencyStatusReady {
+		t.Fatalf("expected merged issue and next ready issue in router payload, got %+v", body.Index)
 	}
 }
 

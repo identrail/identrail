@@ -33,6 +33,7 @@ var (
 	awsPlatformBlockerRefsPattern = regexp.MustCompile(`^#[0-9]+(, #[0-9]+)*$`)
 	awsPlatformCompletedIssueRefs = map[string]struct{}{
 		"#1473": {},
+		"#1474": {},
 	}
 )
 

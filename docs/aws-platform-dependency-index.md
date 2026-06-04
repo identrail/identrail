@@ -4,8 +4,9 @@ The AWS platform dependency index is the canonical, scriptable issue-ordering
 ledger for the AWS machine identity program under parent issue #1472. It exists
 so implementation PRs only open when their declared blockers are closed.
 
-Issue #1474 is the index itself. It is allowed to proceed because issue #1473,
-the AWS platform baseline verification gate, is closed.
+Issue #1474 is the index itself and is now completed. Issue #1475, the AWS live
+app validation harness, is the next Wave 0 item allowed to proceed because issue
+#1473, the AWS platform baseline verification gate, is closed.
 
 ## API
 
@@ -23,9 +24,9 @@ The endpoint returns:
     "status": "ready",
     "issue_count": 85,
     "wave_count": 11,
-    "ready_issue_refs": ["#1474", "#1475"],
+    "ready_issue_refs": ["#1475"],
     "blocked_issue_refs": ["#1476"],
-    "completed_issue_refs": ["#1473"],
+    "completed_issue_refs": ["#1473", "#1474"],
     "checks": [],
     "issues": []
   }
@@ -48,7 +49,8 @@ The index validates these required checks on every read:
   the same ledger.
 - `parent_sequence_ordering`: every blocker appears earlier than the issue it
   blocks.
-- `current_issue_readiness`: #1474 is ready because its blocker #1473 is closed.
+- `current_issue_readiness`: #1474 remains satisfied because it is completed,
+  and #1475 is the next allowed implementation issue.
 
 If any required check fails, `status` becomes `blocked`, `confidence` drops, and
 `failure_reasons` plus `remediation_hints` explain what to fix before opening a

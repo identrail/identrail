@@ -922,6 +922,76 @@ export type AWSPlatformDependencyIndexResult = {
   updated_at: string;
 };
 
+export type AWSPlatformValidationStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSPlatformValidationFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied'
+  | 'unsupported_service';
+
+export type AWSPlatformValidationStep = {
+  id: string;
+  kind: 'browser' | 'api' | string;
+  flow: string;
+  label: string;
+  target: string;
+  method?: string;
+  expected_state: string;
+  required: boolean;
+  evidence_url: string;
+};
+
+export type AWSPlatformValidationScenario = {
+  id: string;
+  flow: string;
+  fixture_state: AWSPlatformValidationFixtureState;
+  status: AWSPlatformValidationStatus;
+  label: string;
+  summary: string;
+  operator_message: string;
+  failure_reason?: string;
+  remediation?: string;
+  next_action: string;
+  evidence_url: string;
+  account_id?: string;
+  region?: string;
+  required: boolean;
+  confidence: number;
+  evidence?: Record<string, unknown>;
+  browser_step_ids: string[];
+  api_step_ids: string[];
+  checked_at: string;
+};
+
+export type AWSPlatformValidationHarnessResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSPlatformValidationStatus;
+  confidence: number;
+  scenario_count: number;
+  required_scenario_count: number;
+  fixture_states: AWSPlatformValidationFixtureState[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  browser_steps: AWSPlatformValidationStep[];
+  api_steps: AWSPlatformValidationStep[];
+  scenarios: AWSPlatformValidationScenario[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSConnectorStartRequest = {
   workspace_id?: string;
   project_id?: string;
@@ -1864,6 +1934,14 @@ export const apiClient = {
   getAWSProjectDependencyIndex(workspaceID: string, projectID: string, connectorID?: string, auth?: RequestAuthContext) {
     return request<{ index: AWSPlatformDependencyIndexResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/dependency-index${buildQuery({
+        connector_id: connectorID
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectValidationHarness(workspaceID: string, projectID: string, connectorID?: string, auth?: RequestAuthContext) {
+    return request<{ harness: AWSPlatformValidationHarnessResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/validation-harness${buildQuery({
         connector_id: connectorID
       })}`,
       auth
