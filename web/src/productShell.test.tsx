@@ -3846,6 +3846,55 @@ describe('GitHub domain pages (#1382)', () => {
     });
   });
 
+  it('Control Center does not flash a disconnected state while the connection is still loading', async () => {
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
+    let resolveStatus: ((value: { connection: GitHubConnectionStatus }) => void) | undefined;
+    const pendingStatus = new Promise<{ connection: GitHubConnectionStatus }>((resolve) => {
+      resolveStatus = resolve;
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockReturnValue(pendingStatus);
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github" element={<productShell.ProductGitHubControlCenterPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
+    // While loading, the page must not claim the user is disconnected.
+    expect(screen.queryByText(/Not connected for this environment\./i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('GitHub action recommendation')).not.toBeInTheDocument();
+    // The primary CTA in the header is omitted during the initial load —
+    // the Sections grid still renders its own "Connect GitHub" navigation
+    // card, which is fine.
+    expect(document.querySelector('.idt-domain-header-actions')).toBeNull();
+    expect(screen.getByText(/Loading GitHub status/i)).toBeInTheDocument();
+
+    // Resolve as disconnected; the page should now show the real disconnected UI.
+    resolveStatus?.({
+      connection: {
+        ...connectedGitHub,
+        connected: false,
+        account_login: undefined,
+        installation_id: undefined,
+        selected_repositories: []
+      }
+    });
+    await screen.findByText(/Not connected for this environment\./i);
+    await waitFor(() => {
+      const banner = screen.getByLabelText('GitHub action recommendation');
+      expect(banner).toHaveAttribute('data-banner-id', 'connect');
+    });
+  });
+
   it('Control Center shows the unavailable shell when the GitHub connector is gated off', async () => {
     await renderGitHubPage('control-center', { githubFeatureFlag: false, githubBackend: false });
 
@@ -4382,6 +4431,43 @@ describe('GitHub domain pages (#1382)', () => {
     expect(within(banner).getByText(/Scan in progress/i)).toBeInTheDocument();
     expect(within(banner).getByText('identrail/in-progress')).toBeInTheDocument();
     expect(within(banner).queryByText(/Queue the first repository scan/i)).not.toBeInTheDocument();
+  });
+
+  it('Control Center shows an active scan banner when a failed scan is being retried', async () => {
+    const failedScan: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'failed-retry',
+      repository: 'identrail/retrying-repo',
+      status: 'failed',
+      started_at: '2026-05-16T10:00:00Z',
+      finished_at: '2026-05-16T10:05:00Z',
+      finding_count: 0,
+      error_message: 'scan exploded'
+    };
+    const retryScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'retry-in-progress',
+      repository: 'identrail/retrying-repo',
+      status: 'running'
+    };
+
+    await renderGitHubPage('control-center', {
+      githubConnection: { ...connectedGitHub, selected_repositories: ['identrail/retrying-repo'] },
+      scans: [retryScan, failedScan]
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
+    await screen.findByText(/Installation 12345/i);
+    await waitFor(() => {
+      expect(screen.getByLabelText('GitHub action recommendation')).toHaveAttribute(
+        'data-banner-id',
+        'scan-in-progress'
+      );
+    });
+    const banner = screen.getByLabelText('GitHub action recommendation');
+    expect(within(banner).queryByText(/failed its last scan/i)).not.toBeInTheDocument();
+    expect(within(banner).getByText(/Scan in progress/i)).toBeInTheDocument();
+    expect(within(banner).getByText('identrail/retrying-repo')).toBeInTheDocument();
   });
 
   it('Connect page renders an Open GitHub fallback link when the install popup is blocked', async () => {

@@ -7837,7 +7837,10 @@ function useGitHubDomainData(
 ): GitHubDomainDataState {
   const [connection, setConnection] = useState<GitHubConnectionStatus | null>(null);
   const [scans, setScans] = useState<RepoScanRecord[]>([]);
-  const [loading, setLoading] = useState(false);
+  // Start in the loading state when a fetch is going to happen so the very
+  // first render does not falsely advertise the user as disconnected before
+  // the API has even been called.
+  const [loading, setLoading] = useState<boolean>(Boolean(scope) && available);
   const [error, setError] = useState('');
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -7851,16 +7854,25 @@ function useGitHubDomainData(
       setLoading(false);
       return undefined;
     }
+    const trimmedProject = normalizeValue(projectID);
+    if (!trimmedProject) {
+      // The environment scope has not finished resolving yet. Stay in the
+      // loading state so the caller does not interpret connection=null as
+      // "confirmed disconnected" while we are still waiting for the
+      // project ID to settle.
+      setLoading(true);
+      setConnection(null);
+      setScans([]);
+      setError('');
+      return undefined;
+    }
     let active = true;
     setLoading(true);
     setError('');
     setConnection(null);
     setScans([]);
     const auth = buildProductAuthContext(scope);
-    const trimmedProject = normalizeValue(projectID);
-    const statusRequest = trimmedProject
-      ? apiClient.getGitHubConnectorStatus(scope.workspaceID, trimmedProject, auth)
-      : Promise.resolve<{ connection: GitHubConnectionStatus | null }>({ connection: null });
+    const statusRequest = apiClient.getGitHubConnectorStatus(scope.workspaceID, trimmedProject, auth);
 
     statusRequest
       .then((statusResult) => statusResult.connection ?? null)
@@ -8076,7 +8088,15 @@ function selectGitHubControlCenterBanner({
     };
   }
   const latestPerRepo = latestCompletedScanPerRepository(recentScans);
-  const failedLatest = latestPerRepo.find((scan) => isFailedScanStatus(scan.status));
+  const activeScanRepos = new Set(
+    recentScans.filter((scan) => isActiveScanStatus(scan.status)).map((scan) => {
+      const repo = canonicalGitHubRepositoryDisplay(scan.repository);
+      return repo.toLowerCase() || scan.repository.toLowerCase();
+    })
+  );
+  const failedLatest = latestPerRepo.find(
+    (scan) => !activeScanRepos.has(canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase()) && isFailedScanStatus(scan.status)
+  );
   if (failedLatest) {
     const repo = canonicalGitHubRepositoryDisplay(failedLatest.repository) || failedLatest.repository;
     return {
@@ -8330,14 +8350,31 @@ export function ProductGitHubControlCenterPage() {
   const selectedRepositories = uniqueGitHubRepositories(data.connection?.selected_repositories ?? []);
   const recentScans = gitHubRecentScans(data.scans, selectedRepositories, GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT);
   const connected = Boolean(data.connection?.connected);
-  const banner = selectGitHubControlCenterBanner({
-    connected,
-    selectedRepositories,
-    recentScans,
-    connectPath,
-    repositoriesPath,
-    findingsPath
-  });
+  // Suppress every connection-dependent surface (subtitle copy, banner,
+  // primary CTA, empty state) while the very first connection fetch is
+  // still in flight. Without this guard the page renders "Not connected"
+  // + "Install the GitHub App" + a Connect CTA during the API round-trip,
+  // then flips to the connected state once the response lands — a
+  // misleading flash that, on slower networks, can last several seconds.
+  const awaitingFirstLoad = data.loading && data.connection === null && !data.error;
+  const banner = awaitingFirstLoad
+    ? null
+    : selectGitHubControlCenterBanner({
+        connected,
+        selectedRepositories,
+        recentScans,
+        connectPath,
+        repositoriesPath,
+        findingsPath
+      });
+  const primaryAction = awaitingFirstLoad
+    ? undefined
+    : connected
+      ? { label: 'Repositories', to: repositoriesPath, variant: 'primary' as const }
+      : { label: 'Connect GitHub', to: connectPath, variant: 'primary' as const };
+  const subtitle = awaitingFirstLoad
+    ? 'Loading GitHub status…'
+    : gitHubOverviewSubtitle(data.connection, recentScans);
 
   return (
     <DomainPageShell
@@ -8345,14 +8382,10 @@ export function ProductGitHubControlCenterPage() {
       eyebrow={null}
       hideLogo
       title="GitHub"
-      description={gitHubOverviewSubtitle(data.connection, recentScans)}
+      description={subtitle}
       scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
       statusTone={gitHubConnectionTone(data.connection, data.loading)}
-      primaryAction={
-        connected
-          ? { label: 'Repositories', to: repositoriesPath, variant: 'primary' }
-          : { label: 'Connect GitHub', to: connectPath, variant: 'primary' }
-      }
+      primaryAction={primaryAction}
     >
       {data.error ? <DomainErrorState title="Unable to load GitHub status" body={data.error} retryAction={{ label: 'Retry', onClick: data.reload }} /> : null}
       {banner ? <GitHubControlCenterBannerView banner={banner} /> : null}
@@ -8366,7 +8399,7 @@ export function ProductGitHubControlCenterPage() {
           </header>
           <DomainTimeline label="Recent repository scans" entries={gitHubRecentScansTimeline(recentScans)} />
         </section>
-      ) : connected ? (
+      ) : !awaitingFirstLoad && connected ? (
         <DomainEmptyState
           title="No repository scans yet"
           body="Queue a scan to populate the activity timeline."
