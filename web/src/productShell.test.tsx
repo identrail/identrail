@@ -4090,7 +4090,14 @@ describe('GitHub domain pages (#1382)', () => {
     });
 
     await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    const banner = await screen.findByLabelText('GitHub action recommendation');
+    await screen.findByText(/Installation 12345/i);
+    await waitFor(() => {
+      expect(screen.getByLabelText('GitHub action recommendation')).toHaveAttribute(
+        'data-banner-id',
+        'review-failed-scan'
+      );
+    });
+    const banner = screen.getByLabelText('GitHub action recommendation');
     expect(within(banner).getByText(/failed its last scan/i)).toBeInTheDocument();
     expect(within(banner).getByText(/scan exploded/i)).toBeInTheDocument();
   });
@@ -4142,7 +4149,14 @@ describe('GitHub domain pages (#1382)', () => {
     });
 
     await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    const banner = await screen.findByLabelText('GitHub action recommendation');
+    await screen.findByText(/Installation 12345/i);
+    await waitFor(() => {
+      expect(screen.getByLabelText('GitHub action recommendation')).toHaveAttribute(
+        'data-banner-id',
+        'triage-findings'
+      );
+    });
+    const banner = screen.getByLabelText('GitHub action recommendation');
     expect(within(banner).getByText(/Repository findings need triage\./)).toBeInTheDocument();
     expect(within(banner).getByRole('link', { name: /Review/i })).toHaveAttribute(
       'href',
@@ -4208,7 +4222,14 @@ describe('GitHub domain pages (#1382)', () => {
     });
 
     await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    const banner = await screen.findByLabelText('GitHub action recommendation');
+    await screen.findByText(/Installation 12345/i);
+    await waitFor(() => {
+      expect(screen.getByLabelText('GitHub action recommendation')).toHaveAttribute(
+        'data-banner-id',
+        'triage-findings'
+      );
+    });
+    const banner = screen.getByLabelText('GitHub action recommendation');
     expect(within(banner).getByText(/Repository findings need triage\./)).toBeInTheDocument();
   });
 
@@ -4226,7 +4247,14 @@ describe('GitHub domain pages (#1382)', () => {
     });
 
     await screen.findByRole('heading', { level: 2, name: 'GitHub' });
-    const banner = await screen.findByLabelText('GitHub action recommendation');
+    await screen.findByText(/Installation 12345/i);
+    await waitFor(() => {
+      expect(screen.getByLabelText('GitHub action recommendation')).toHaveAttribute(
+        'data-banner-id',
+        'scan-in-progress'
+      );
+    });
+    const banner = screen.getByLabelText('GitHub action recommendation');
     expect(within(banner).getByText(/Scan in progress/i)).toBeInTheDocument();
     expect(within(banner).getByText('identrail/in-progress')).toBeInTheDocument();
     expect(within(banner).queryByText(/Queue the first repository scan/i)).not.toBeInTheDocument();
