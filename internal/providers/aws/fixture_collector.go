@@ -109,6 +109,14 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	var ecsRole ECSTaskRole
+	if err := json.Unmarshal(payload, &ecsRole); err == nil {
+		sourceID := ecsTaskRoleSourceID(ecsRole)
+		if strings.TrimSpace(ecsRole.WorkloadID) != "" || strings.TrimSpace(ecsRole.ServiceARN) != "" || strings.TrimSpace(ecsRole.TaskDefinitionARN) != "" {
+			return rawKindECSTaskRole, sourceID
+		}
+	}
+
 	return "", ""
 }
 

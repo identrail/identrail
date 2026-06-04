@@ -6,6 +6,7 @@ import type {
   AWSConnectorStartResponse,
   AWSConnectionStatus,
   AWSEC2InstanceProfileInventoryResult,
+  AWSECSTaskRoleInventoryResult,
   AWSPlatformBaselineResult,
   AWSPlatformDependencyIndexResult,
   AWSPlatformValidationHarnessResult,
@@ -230,6 +231,129 @@ const readyAWSEC2InstanceProfileInventory: AWSEC2InstanceProfileInventoryResult 
       from_node_id: 'aws:workload:ec2:123456789012:us-east-1:launch-template/lt-0477template:3',
       to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/web-launch-template-role',
       evidence_ref: 'lt-0477template'
+    }
+  ],
+  diagnostics: [],
+  generated_at: '2026-05-17T10:00:00Z',
+  updated_at: '2026-05-17T10:00:00Z'
+};
+
+const readyAWSECSTaskRoleInventory: AWSECSTaskRoleInventoryResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  parent_issue_number: 1472,
+  parent_issue_ref: '#1472',
+  current_issue_number: 1478,
+  current_issue_ref: '#1478',
+  version: 'aws-ecs-task-role-inventory-v1',
+  status: 'ready',
+  fixture_state: 'success',
+  confidence: 0.97,
+  record_count: 2,
+  task_role_count: 1,
+  execution_role_count: 1,
+  workload_count: 2,
+  identity_count: 2,
+  resource_count: 2,
+  relationship_count: 2,
+  failure_reasons: [],
+  remediation_hints: [],
+  evidence_links: ['/docs/aws-ecs-task-roles'],
+  records: [
+    {
+      account_id: '123456789012',
+      region: 'us-east-1',
+      service: 'ecs',
+      workload_id: 'arn:aws:ecs:us-east-1:123456789012:service/prod-cluster/payments-api',
+      workload_type: 'ecs_service',
+      workload_name: 'payments-api',
+      role_kind: 'task_role',
+      role_arn: 'arn:aws:iam::123456789012:role/payments-ecs-task',
+      role_name: 'payments-ecs-task',
+      cluster_arn: 'arn:aws:ecs:us-east-1:123456789012:cluster/prod-cluster',
+      cluster_name: 'prod-cluster',
+      service_arn: 'arn:aws:ecs:us-east-1:123456789012:service/prod-cluster/payments-api',
+      service_name: 'payments-api',
+      service_status: 'ACTIVE',
+      task_definition_arn: 'arn:aws:ecs:us-east-1:123456789012:task-definition/payments-api:42',
+      task_definition_family: 'payments-api',
+      task_definition_revision: '42',
+      task_definition_status: 'ACTIVE',
+      task_role_arn: 'arn:aws:iam::123456789012:role/payments-ecs-task',
+      execution_role_arn: 'arn:aws:iam::123456789012:role/payments-ecs-execution',
+      launch_type: 'FARGATE',
+      scheduling_strategy: 'REPLICA',
+      desired_count: 3,
+      running_count: 3,
+      pending_count: 0,
+      compatibilities: ['FARGATE'],
+      container_images: ['123456789012.dkr.ecr.us-east-1.amazonaws.com/payments-api:2026-06-04'],
+      secret_refs: ['DATABASE_PASSWORD=arn:aws:secretsmanager:us-east-1:123456789012:secret:payments/db'],
+      environment_keys: ['APP_ENV', 'LOG_LEVEL'],
+      tags: { owner: 'platform', service: 'payments' },
+      source: 'describeservices',
+      evidence_ref: 'arn:aws:ecs:us-east-1:123456789012:service/prod-cluster/payments-api',
+      from_node_id: 'aws:workload:ecs:123456789012:us-east-1:ecs_service/payments-api/task_role',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-ecs-task',
+      relationship_type: 'runs_as',
+      confidence: 0.96,
+      collected_at: '2026-05-17T10:00:00Z',
+      status: 'ready'
+    },
+    {
+      account_id: '123456789012',
+      region: 'us-east-1',
+      service: 'ecs',
+      workload_id: 'arn:aws:ecs:us-east-1:123456789012:service/prod-cluster/payments-api',
+      workload_type: 'ecs_service',
+      workload_name: 'payments-api',
+      role_kind: 'execution_role',
+      role_arn: 'arn:aws:iam::123456789012:role/payments-ecs-execution',
+      role_name: 'payments-ecs-execution',
+      cluster_name: 'prod-cluster',
+      service_name: 'payments-api',
+      service_status: 'ACTIVE',
+      task_definition_arn: 'arn:aws:ecs:us-east-1:123456789012:task-definition/payments-api:42',
+      task_definition_family: 'payments-api',
+      task_definition_revision: '42',
+      task_definition_status: 'ACTIVE',
+      task_role_arn: 'arn:aws:iam::123456789012:role/payments-ecs-task',
+      execution_role_arn: 'arn:aws:iam::123456789012:role/payments-ecs-execution',
+      launch_type: 'FARGATE',
+      scheduling_strategy: 'REPLICA',
+      desired_count: 3,
+      running_count: 3,
+      pending_count: 0,
+      compatibilities: ['FARGATE'],
+      container_images: ['123456789012.dkr.ecr.us-east-1.amazonaws.com/payments-api:2026-06-04'],
+      secret_refs: ['DATABASE_PASSWORD=arn:aws:secretsmanager:us-east-1:123456789012:secret:payments/db'],
+      environment_keys: ['APP_ENV', 'LOG_LEVEL'],
+      source: 'describeservices',
+      evidence_ref: 'arn:aws:ecs:us-east-1:123456789012:service/prod-cluster/payments-api',
+      from_node_id: 'aws:workload:ecs:123456789012:us-east-1:ecs_service/payments-api/execution_role',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-ecs-execution',
+      relationship_type: 'attached_to',
+      confidence: 0.9,
+      collected_at: '2026-05-17T10:00:00Z',
+      status: 'ready'
+    }
+  ],
+  relationships: [
+    {
+      type: 'runs_as',
+      from_node_id: 'aws:workload:ecs:123456789012:us-east-1:ecs_service/payments-api/task_role',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-ecs-task',
+      evidence_ref: 'arn:aws:ecs:us-east-1:123456789012:service/prod-cluster/payments-api'
+    },
+    {
+      type: 'attached_to',
+      from_node_id: 'aws:workload:ecs:123456789012:us-east-1:ecs_service/payments-api/execution_role',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-ecs-execution',
+      evidence_ref: 'arn:aws:ecs:us-east-1:123456789012:service/prod-cluster/payments-api'
     }
   ],
   diagnostics: [],
@@ -2131,7 +2255,7 @@ describe('Domain-first app routes', () => {
     );
   });
 
-  it('renders AWS machine identity inventory with the current IAM role and EC2 instance profile rows', async () => {
+  it('renders AWS machine identity inventory with current IAM, EC2, and ECS role rows', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: [
@@ -2151,6 +2275,9 @@ describe('Domain-first app routes', () => {
     const getEC2InstanceProfiles = vi
       .spyOn(api.apiClient, 'getAWSProjectEC2InstanceProfiles')
       .mockResolvedValue({ inventory: readyAWSEC2InstanceProfileInventory });
+    const getECSTaskRoles = vi
+      .spyOn(api.apiClient, 'getAWSProjectECSTaskRoles')
+      .mockResolvedValue({ inventory: readyAWSECSTaskRoleInventory });
 
     const { ProductAWSIdentitiesPage } = await import('./productShell');
 
@@ -2168,9 +2295,21 @@ describe('Domain-first app routes', () => {
     expect(screen.getAllByText('arn:aws:iam::123456789012:role/IdentrailReadOnly').length).toBeGreaterThan(0);
     expect(await screen.findByText('payments-ec2-profile')).toBeInTheDocument();
     expect(screen.getByText('web-launch-template-profile')).toBeInTheDocument();
+    expect(await screen.findByText('payments-ecs-task')).toBeInTheDocument();
+    expect(screen.getByText('payments-ecs-execution')).toBeInTheDocument();
     expect(screen.getByText(/payments-api runs as payments-ec2-instance-profile; IMDS Required/i)).toBeInTheDocument();
-    expect(screen.getByText(/2 workloads \/ 2 relationships/i)).toBeInTheDocument();
+    expect(screen.getByText(/payments-api runs as payments-ecs-task; FARGATE; 3\/3 running/i)).toBeInTheDocument();
+    expect(screen.getByText(/payments-api attaches execution support to payments-ecs-execution; FARGATE; 3\/3 running/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/2 workloads \/ 2 relationships/i).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/1 task \/ 1 execution/i)).toBeInTheDocument();
     expect(getEC2InstanceProfiles).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      'aws-connector-1',
+      undefined,
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getECSTaskRoles).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       'aws-connector-1',

@@ -78,7 +78,12 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws ec2 instance profile collector: %w", ec2Err)
 			}
-			scanner = newAWSScanner(iamAPI, cfg.AWSAccountID, cfg.AWSRegion, awsprovider.NewEC2InstanceProfileCollector(ec2API))
+			ecsAPI, ecsErr := awsprovider.NewSDKECSTaskRoleAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if ecsErr != nil {
+				_ = store.Close()
+				return nil, nil, fmt.Errorf("initialize aws ecs task role collector: %w", ecsErr)
+			}
+			scanner = newAWSScanner(iamAPI, cfg.AWSAccountID, cfg.AWSRegion, awsprovider.NewEC2InstanceProfileCollector(ec2API), awsprovider.NewECSTaskRoleCollector(ecsAPI))
 		default:
 			_ = store.Close()
 			return nil, nil, fmt.Errorf("unsupported aws source %q", cfg.AWSSource)
@@ -170,7 +175,11 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		if ec2Err != nil {
 			return nil, ec2Err
 		}
-		scanner := newAWSScanner(iamAPI, connection.AccountID, connection.Region, awsprovider.NewEC2InstanceProfileCollector(ec2API))
+		ecsAPI, ecsErr := awsprovider.NewSDKECSTaskRoleAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
+		if ecsErr != nil {
+			return nil, ecsErr
+		}
+		scanner := newAWSScanner(iamAPI, connection.AccountID, connection.Region, awsprovider.NewEC2InstanceProfileCollector(ec2API), awsprovider.NewECSTaskRoleCollector(ecsAPI))
 		return scanner, nil
 	}
 	svc.DefaultScope = db.Scope{

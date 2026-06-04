@@ -61,10 +61,7 @@ func (b *RelationshipBuilder) ResolveRelationships(ctx context.Context, bundle p
 		if _, exists := identityIDs[identityID]; !exists {
 			continue
 		}
-		relationshipType := domain.RelationshipRunsAs
-		if strings.EqualFold(workload.Type, "ec2_launch_template") {
-			relationshipType = domain.RelationshipAttachedTo
-		}
+		relationshipType := workloadRelationshipType(workload.Type)
 		relationship := domain.Relationship{
 			ID:           relationshipID(relationshipType, workload.ID, identityID),
 			Type:         relationshipType,
@@ -137,6 +134,18 @@ func (b *RelationshipBuilder) ResolveRelationships(ctx context.Context, bundle p
 	}
 
 	return relationships, nil
+}
+
+func workloadRelationshipType(workloadType string) domain.RelationshipType {
+	normalized := strings.ToLower(strings.TrimSpace(workloadType))
+	switch {
+	case normalized == "ec2_launch_template":
+		return domain.RelationshipAttachedTo
+	case strings.Contains(normalized, "execution_role"):
+		return domain.RelationshipAttachedTo
+	default:
+		return domain.RelationshipRunsAs
+	}
 }
 
 func appendRelationship(destination *[]domain.Relationship, seen map[string]struct{}, relationship domain.Relationship) {

@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Added the AWS ECS task and execution role collector for #1478. The provider
+  now collects ECS clusters, services, active and inactive task definitions,
+  task roles, execution roles, launch/scheduling metadata, container images,
+  secret references, and environment keys through read-only ECS SDK calls while
+  omitting secret values and environment values. Normalization adds ECS
+  workload/resource nodes, task roles emit `runs_as` relationships, execution
+  roles emit `attached_to` relationships, the API exposes
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/ecs-task-roles`,
+  and the AWS machine identities page renders ECS task/execution role rows with
+  explicit empty, degraded, partial-failure, and permission-denied states.
 - Added the AWS EC2 instance profile collector for #1477. The provider now
   collects EC2 instances, launch-template role references, instance profile
   roles, tags, account, region, and IMDS posture through read-only EC2/IAM SDK

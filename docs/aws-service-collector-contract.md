@@ -67,7 +67,12 @@ The response envelope is:
       "iam:GetInstanceProfile",
       "ec2:DescribeInstances",
       "ec2:DescribeLaunchTemplates",
-      "ec2:DescribeLaunchTemplateVersions"
+      "ec2:DescribeLaunchTemplateVersions",
+      "ecs:ListClusters",
+      "ecs:ListServices",
+      "ecs:DescribeServices",
+      "ecs:ListTaskDefinitions",
+      "ecs:DescribeTaskDefinition"
     ],
     "read_only_boundaries": [
       "collect metadata and policy documents only; never collect secret values, customer payloads, prompts, completions, object contents, or database rows"
@@ -134,12 +139,19 @@ The foundation contract currently requires metadata-only IAM reads such as
 `iam:ListAttachedRolePolicies`, `iam:GetPolicy`, and
 `iam:GetPolicyVersion`. The first EC2 workload collector also requires
 metadata-only compute reads: `ec2:DescribeInstances`,
-`ec2:DescribeLaunchTemplates`, and `ec2:DescribeLaunchTemplateVersions`.
+`ec2:DescribeLaunchTemplates`, and `ec2:DescribeLaunchTemplateVersions`. The
+ECS workload collector adds metadata-only reads: `ecs:ListClusters`,
+`ecs:ListServices`, `ecs:DescribeServices`, `ecs:ListTaskDefinitions`, and
+`ecs:DescribeTaskDefinition`.
 
 Future service collectors may add service-specific read-only metadata
 permissions, but must not add actions that read secret values, object contents,
 prompts, completions, browser pages, code-interpreter output, database rows, or
 customer payloads by default.
+
+For ECS, `secret_refs` are only secret or parameter names/source references and
+`environment_keys` are only variable names. Plaintext environment values and
+secret values are intentionally outside the collector contract.
 
 ## Validation
 

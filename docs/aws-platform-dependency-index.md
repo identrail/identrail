@@ -5,9 +5,9 @@ ledger for the AWS machine identity program under parent issue #1472. It exists
 so implementation PRs only open when their declared blockers are closed.
 
 Issue #1474 is the index itself and is completed. Issue #1476, the AWS service
-collector contract, and issue #1477, the EC2 instance profile collector, are
-completed too, so issues #1478 through #1496 are the next ready collector and
-resource-mapping items.
+collector contract, issue #1477, the EC2 instance profile collector, and issue
+#1478, the ECS task and execution role collector, are completed too, so issues
+#1479 through #1496 are the next ready collector and resource-mapping items.
 
 ## API
 
@@ -25,9 +25,9 @@ The endpoint returns:
     "status": "ready",
     "issue_count": 85,
     "wave_count": 11,
-    "ready_issue_refs": ["#1478", "#1479", "#1480", "#1481", "#1482", "#1483", "#1484", "#1485", "#1486", "#1487", "#1488", "#1489", "#1490", "#1491", "#1492", "#1493", "#1494", "#1495", "#1496"],
+    "ready_issue_refs": ["#1479", "#1480", "#1481", "#1482", "#1483", "#1484", "#1485", "#1486", "#1487", "#1488", "#1489", "#1490", "#1491", "#1492", "#1493", "#1494", "#1495", "#1496"],
     "blocked_issue_refs": ["#1497"],
-    "completed_issue_refs": ["#1473", "#1474", "#1475", "#1476", "#1477"],
+    "completed_issue_refs": ["#1473", "#1474", "#1475", "#1476", "#1477", "#1478"],
     "checks": [],
     "issues": []
   }
@@ -51,7 +51,7 @@ The index validates these required checks on every read:
 - `parent_sequence_ordering`: every blocker appears earlier than the issue it
   blocks.
 - `current_issue_readiness`: #1474 remains satisfied because it is completed,
-  #1477 is completed, and #1478 through #1496 are the next allowed
+  #1477 and #1478 are completed, and #1479 through #1496 are the next allowed
   implementation issues.
 
 If any required check fails, `status` becomes `blocked`, `confidence` drops, and

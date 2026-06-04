@@ -3,8 +3,9 @@
 ## Purpose
 
 The AWS collector family uses a composable service collection layer. IAM remains
-the default identity source, and EC2 instance profiles are now collected as the
-first workload identity service without changing IAM collector behavior.
+the default identity source, and EC2 instance profiles plus ECS task/execution
+roles are collected as workload identity services without changing IAM collector
+behavior.
 
 ## Composite Architecture
 
@@ -18,6 +19,8 @@ The collection path is:
   retry and pagination semantics unchanged.
 - `EC2InstanceProfileCollector` maps EC2 instances and launch templates to the
   IAM roles attached through instance profiles.
+- `ECSTaskRoleCollector` maps ECS services and active/inactive task definitions
+  to task roles and execution roles.
 
 Behavior:
 
@@ -89,6 +92,12 @@ ordered by `kind`, then `source_id`.
 - Launch template role references emit `attached_to` graph evidence
 - EC2 instances with profile roles emit `runs_as` graph evidence and include
   IMDS endpoint/token posture
+- ECS cluster-level service failures stay visible as retryable partial-failure
+  diagnostics while successful clusters remain available.
+- ECS task roles emit `runs_as` graph evidence; ECS execution roles emit
+  `attached_to` graph evidence.
+- ECS records include container images, secret references, and environment keys,
+  but not environment values or secret values.
 
 ## Security Posture
 
@@ -104,12 +113,18 @@ ordered by `kind`, then `source_id`.
 - EC2 instance profile collection is implemented through AWS SDK EC2/IAM adapters
   for `DescribeInstances`, `DescribeLaunchTemplates`,
   `DescribeLaunchTemplateVersions`, and `GetInstanceProfile`.
+- ECS task/execution role collection is implemented through AWS SDK ECS adapters
+  for `ListClusters`, `ListServices`, `DescribeServices`,
+  `ListTaskDefinitions`, and `DescribeTaskDefinition`.
 - AWS SDK CLI and runtime paths now use `NewAWSScanner`, which wires the
-  composite collector with IAM and EC2 instance profile services.
+  composite collector with IAM, EC2 instance profile, and ECS task role services.
 - The composite layer is now the extension point for future AWS service collection in the CLI/runtime path.
 - The service collector contract is exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/collector-contract`
   and the AWS app surfaces.
 - EC2 instance profile inventory is exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/ec2-instance-profiles`
+  and the AWS machine identities page.
+- ECS task/execution role inventory is exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/ecs-task-roles`
   and the AWS machine identities page.

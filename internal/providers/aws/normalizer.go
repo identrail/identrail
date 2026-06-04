@@ -67,6 +67,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		}
 	}
 
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != rawKindECSTaskRole {
+			continue
+		}
+		if err := normalizeECSTaskRoleAsset(asset, i, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
 	return bundle, nil
 }
 
@@ -225,6 +237,129 @@ func normalizeEC2InstanceProfileAsset(asset providers.RawAsset, index int, bundl
 	return nil
 }
 
+func normalizeECSTaskRoleAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record ECSTaskRole
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode ecs task role asset[%d]: %w", index, err)
+	}
+
+	roleARN := strings.TrimSpace(record.RoleARN)
+	roleIdentityID := ""
+	if roleARN != "" {
+		roleIdentityID = identityIDFromARN(roleARN)
+		roleName := strings.TrimSpace(record.RoleName)
+		if roleName == "" {
+			roleName = roleNameFromARN(roleARN)
+		}
+		if _, exists := identitySeen[roleIdentityID]; !exists {
+			identitySeen[roleIdentityID] = struct{}{}
+			bundle.Identities = append(bundle.Identities, domain.Identity{
+				ID:        roleIdentityID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.IdentityTypeRole,
+				Name:      roleName,
+				ARN:       roleARN,
+				OwnerHint: ownerHintFromTags(record.Tags),
+				Tags:      copyTags(record.Tags),
+				RawRef:    asset.SourceID,
+			})
+		}
+	}
+
+	workloadID := ecsRoleWorkloadID(record)
+	if workloadID != "" {
+		if _, exists := workloadSeen[workloadID]; !exists {
+			workloadSeen[workloadID] = struct{}{}
+			bundle.Workloads = append(bundle.Workloads, domain.Workload{
+				ID:        workloadID,
+				Provider:  domain.ProviderAWS,
+				Type:      ecsRoleWorkloadType(record),
+				Name:      ecsRoleWorkloadName(record),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Region:    strings.TrimSpace(record.Region),
+				RawRef:    roleIdentityID,
+			})
+		}
+	}
+
+	if strings.TrimSpace(record.ServiceARN) != "" {
+		serviceResourceID := ecsServiceResourceID(record.ServiceARN)
+		if _, exists := resourceSeen[serviceResourceID]; !exists {
+			resourceSeen[serviceResourceID] = struct{}{}
+			bundle.Resources = append(bundle.Resources, domain.Resource{
+				ID:        serviceResourceID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.ResourceTypeECSService,
+				Name:      firstNonEmptyAWSValue(record.ServiceName, ecsNameFromARN(record.ServiceARN)),
+				ARN:       strings.TrimSpace(record.ServiceARN),
+				Region:    strings.TrimSpace(record.Region),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Labels:    copyTags(record.Tags),
+				Metadata: map[string]any{
+					"cluster_arn":              strings.TrimSpace(record.ClusterARN),
+					"cluster_name":             strings.TrimSpace(record.ClusterName),
+					"service_status":           strings.TrimSpace(record.ServiceStatus),
+					"task_definition_arn":      strings.TrimSpace(record.TaskDefinitionARN),
+					"task_definition_family":   strings.TrimSpace(record.TaskDefinitionFamily),
+					"task_definition_revision": strings.TrimSpace(record.TaskDefinitionRevision),
+					"task_definition_status":   strings.TrimSpace(record.TaskDefinitionStatus),
+					"task_role_arn":            strings.TrimSpace(record.TaskRoleARN),
+					"execution_role_arn":       strings.TrimSpace(record.ExecutionRoleARN),
+					"launch_type":              strings.TrimSpace(record.LaunchType),
+					"scheduling_strategy":      strings.TrimSpace(record.SchedulingStrategy),
+					"desired_count":            record.DesiredCount,
+					"running_count":            record.RunningCount,
+					"pending_count":            record.PendingCount,
+					"compatibilities":          append([]string(nil), record.Compatibilities...),
+					"container_images":         append([]string(nil), record.ContainerImages...),
+					"secret_refs":              append([]string(nil), record.SecretRefs...),
+					"environment_keys":         append([]string(nil), record.EnvironmentKeys...),
+				},
+				RawRef:         asset.SourceID,
+				SourceEntityID: workloadID,
+			})
+		}
+	}
+
+	if strings.TrimSpace(record.TaskDefinitionARN) != "" {
+		taskDefinitionResourceID := ecsTaskDefinitionResourceID(record.TaskDefinitionARN)
+		if _, exists := resourceSeen[taskDefinitionResourceID]; !exists {
+			resourceSeen[taskDefinitionResourceID] = struct{}{}
+			bundle.Resources = append(bundle.Resources, domain.Resource{
+				ID:        taskDefinitionResourceID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.ResourceTypeECSTask,
+				Name:      firstNonEmptyAWSValue(record.TaskDefinitionFamily, ecsNameFromARN(record.TaskDefinitionARN)),
+				ARN:       strings.TrimSpace(record.TaskDefinitionARN),
+				Region:    strings.TrimSpace(record.Region),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Labels:    copyTags(record.Tags),
+				Metadata: map[string]any{
+					"family":              strings.TrimSpace(record.TaskDefinitionFamily),
+					"revision":            strings.TrimSpace(record.TaskDefinitionRevision),
+					"status":              strings.TrimSpace(record.TaskDefinitionStatus),
+					"task_role_arn":       strings.TrimSpace(record.TaskRoleARN),
+					"execution_role_arn":  strings.TrimSpace(record.ExecutionRoleARN),
+					"service_arn":         strings.TrimSpace(record.ServiceARN),
+					"service_name":        strings.TrimSpace(record.ServiceName),
+					"cluster_arn":         strings.TrimSpace(record.ClusterARN),
+					"cluster_name":        strings.TrimSpace(record.ClusterName),
+					"launch_type":         strings.TrimSpace(record.LaunchType),
+					"scheduling_strategy": strings.TrimSpace(record.SchedulingStrategy),
+					"compatibilities":     append([]string(nil), record.Compatibilities...),
+					"container_images":    append([]string(nil), record.ContainerImages...),
+					"secret_refs":         append([]string(nil), record.SecretRefs...),
+					"environment_keys":    append([]string(nil), record.EnvironmentKeys...),
+				},
+				RawRef:         asset.SourceID,
+				SourceEntityID: workloadID,
+			})
+		}
+	}
+
+	return nil
+}
+
 func normalizePermissionPolicies(identityID string, policies []IAMPermissionPolicy) ([]domain.Policy, error) {
 	result := make([]domain.Policy, 0, len(policies))
 	for idx, policy := range policies {
@@ -323,6 +458,39 @@ func ec2WorkloadType(record EC2InstanceProfile) string {
 
 func ec2WorkloadName(record EC2InstanceProfile) string {
 	return firstNonEmptyAWSValue(record.WorkloadName, record.InstanceName, record.Tags["Name"], record.InstanceID, record.LaunchTemplateName, record.LaunchTemplateID, "ec2 workload")
+}
+
+func ecsRoleWorkloadID(record ECSTaskRole) string {
+	return ecsWorkloadID(
+		record.AccountID,
+		record.Region,
+		ecsBaseWorkloadType(record),
+		firstNonEmptyAWSValue(record.WorkloadID, record.ServiceARN, record.TaskDefinitionARN, record.ServiceName, record.TaskDefinitionFamily),
+		record.RoleKind,
+	)
+}
+
+func ecsBaseWorkloadType(record ECSTaskRole) string {
+	switch strings.ToLower(strings.TrimSpace(record.WorkloadType)) {
+	case "ecs_service", "service":
+		return "ecs_service"
+	default:
+		return "ecs_task_definition"
+	}
+}
+
+func ecsRoleWorkloadType(record ECSTaskRole) string {
+	base := ecsBaseWorkloadType(record)
+	roleKind := normalizeECSRoleKind(record.RoleKind, record.RoleARN, record.TaskRoleARN, record.ExecutionRoleARN)
+	return base + "_" + roleKind
+}
+
+func ecsRoleWorkloadName(record ECSTaskRole) string {
+	roleKindLabel := "task role"
+	if strings.EqualFold(record.RoleKind, ecsRoleKindExecution) {
+		roleKindLabel = "execution role"
+	}
+	return firstNonEmptyAWSValue(record.WorkloadName, record.ServiceName, record.TaskDefinitionFamily, ecsNameFromARN(record.ServiceARN), ecsNameFromARN(record.TaskDefinitionARN), "ecs workload") + " " + roleKindLabel
 }
 
 func ownerHintFromTags(tags map[string]string) string {

@@ -31,6 +31,8 @@ import {
   type AWSConnectionStatus,
   type AWSEC2InstanceProfileInventoryResult,
   type AWSEC2InstanceProfileRecord,
+  type AWSECSTaskRoleInventoryResult,
+  type AWSECSTaskRoleRecord,
   type AWSPlatformBaselineResult,
   type AWSPlatformDependencyIndexResult,
   type AWSPlatformValidationHarnessResult,
@@ -3566,6 +3568,13 @@ type AWSInventoryEC2State = {
   onRetry: () => void;
 };
 
+type AWSInventoryECSState = {
+  inventory: AWSECSTaskRoleInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryCoverageRow = AWSInventoryFilterable & {
   id: string;
   category: string;
@@ -4158,16 +4167,20 @@ function AWSAccountsInventoryContent({
 function AWSMachineIdentitiesContent({
   connection,
   ec2State,
+  ecsState,
   filters,
   onFiltersChange
 }: {
   connection: AWSConnectionStatus | null;
   ec2State: AWSInventoryEC2State;
+  ecsState: AWSInventoryECSState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
   const ec2Inventory = ec2State.inventory;
+  const ecsInventory = ecsState.inventory;
   const ec2Rows = buildAWSEC2InstanceProfileRows(ec2Inventory, ec2State.loading, connection);
+  const ecsRows = buildAWSECSTaskRoleRows(ecsInventory, ecsState.loading, connection);
   const rows: AWSInventoryTableRow[] = [
     ...(connection?.role_arn
       ? [
@@ -4191,16 +4204,17 @@ function AWSMachineIdentitiesContent({
         ]
       : []),
     ...ec2Rows,
+    ...ecsRows,
     {
-      id: 'ecs-lambda',
-      name: 'ECS task roles and Lambda execution roles',
+      id: 'lambda-execution-roles',
+      name: 'Lambda execution roles',
       category: 'Service identity',
-      scope: 'ECS / Lambda',
+      scope: 'Lambda',
       status: 'coming',
       stage: 'coming',
-      detail: 'Future collectors will identify workload ownership and attached policies.',
-      filters: { identityType: 'ecs-task-role,lambda-role', service: 'ecs,lambda', risk: 'unscored', status: 'coming', search: '' },
-      searchText: inventorySearchText(['ecs', 'lambda', 'task roles', 'execution roles', 'service identity'])
+      detail: 'Lambda execution-role ownership arrives in a later AWS service collector wave.',
+      filters: { identityType: 'lambda-role', service: 'lambda', risk: 'unscored', status: 'coming', search: '' },
+      searchText: inventorySearchText(['lambda', 'execution roles', 'service identity'])
     },
     {
       id: 'eks-irsa',
@@ -4231,11 +4245,19 @@ function AWSMachineIdentitiesContent({
     <>
       <AWSInventoryFilterSet routeID="identities" filters={filters} onChange={onFiltersChange} />
       {ec2State.loading ? <DomainLoadingState label="Loading EC2 instance profiles" /> : null}
+      {ecsState.loading ? <DomainLoadingState label="Loading ECS task roles" /> : null}
       {ec2State.error ? (
         <DomainErrorState
           title="EC2 instance profiles could not load"
           body={ec2State.error}
           retryAction={{ label: 'Retry EC2 inventory', onClick: ec2State.onRetry }}
+        />
+      ) : null}
+      {ecsState.error ? (
+        <DomainErrorState
+          title="ECS task roles could not load"
+          body={ecsState.error}
+          retryAction={{ label: 'Retry ECS inventory', onClick: ecsState.onRetry }}
         />
       ) : null}
       {ec2Inventory?.diagnostics.length ? (
@@ -4247,6 +4269,24 @@ function AWSMachineIdentitiesContent({
         >
           <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="EC2 instance profile diagnostics">
             {ec2Inventory.diagnostics.map((diagnostic) => (
+              <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
+                <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                <p>{diagnostic.message}</p>
+                {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
+      {ecsInventory?.diagnostics.length ? (
+        <DomainStatusPanel
+          eyebrow="ECS collector diagnostics"
+          title="Partial ECS task role evidence"
+          status={formatTokenLabel(ecsInventory.status)}
+          tone={ecsInventory.status === 'blocked' ? 'danger' : 'warning'}
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="ECS task role diagnostics">
+            {ecsInventory.diagnostics.map((diagnostic) => (
               <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
                 <strong>{formatTokenLabel(diagnostic.code)}</strong>
                 <p>{diagnostic.message}</p>
@@ -4306,6 +4346,18 @@ function AWSMachineIdentitiesContent({
             <div>
               <dt>EC2 diagnostics</dt>
               <dd>{ec2Inventory?.diagnostics.length ? `${ec2Inventory.diagnostics.length} active` : ec2Inventory ? 'Clear' : 'Not loaded'}</dd>
+            </div>
+            <div>
+              <dt>ECS workload links</dt>
+              <dd>{ecsInventory ? `${ecsInventory.workload_count} workloads / ${ecsInventory.relationship_count} relationships` : ecsState.loading ? 'Loading' : 'Not loaded'}</dd>
+            </div>
+            <div>
+              <dt>ECS task roles</dt>
+              <dd>{ecsInventory ? `${ecsInventory.task_role_count} task / ${ecsInventory.execution_role_count} execution` : 'Not loaded'}</dd>
+            </div>
+            <div>
+              <dt>ECS diagnostics</dt>
+              <dd>{ecsInventory?.diagnostics.length ? `${ecsInventory.diagnostics.length} active` : ecsInventory ? 'Clear' : 'Not loaded'}</dd>
             </div>
           </dl>
         </DomainDetailPanel>
@@ -4417,6 +4469,119 @@ function awsEC2InstanceProfileRow(record: AWSEC2InstanceProfileRecord): AWSInven
       record.region,
       record.imds_http_tokens,
       'ec2 instance profile'
+    ])
+  };
+}
+
+function buildAWSECSTaskRoleRows(
+  inventory: AWSECSTaskRoleInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsECSTaskRoleRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'ecs-task-roles-blocked',
+        name: 'ECS task roles unavailable',
+        category: 'ECS task role',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'ECS task role collection is blocked.',
+        filters: { identityType: 'ecs-task-role', service: 'ecs', risk: 'unscored', status: 'not-yet-available', search: '' },
+        searchText: inventorySearchText(['ecs', 'task role', 'execution role', inventory.account_id, inventory.region, 'blocked'])
+      }
+    ];
+  }
+  if (inventory) {
+    return [
+      {
+        id: 'ecs-task-roles-empty',
+        name: 'No ECS task or execution roles found',
+        category: 'ECS task role',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'wired now',
+        stage: 'wired',
+        detail: 'The collector completed for this account and region without ECS workloads that reference task or execution roles.',
+        filters: { identityType: 'ecs-task-role', service: 'ecs', risk: 'low', status: 'wired-now', search: '' },
+        searchText: inventorySearchText(['ecs', 'task role', 'execution role', inventory.account_id, inventory.region, 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'ecs-task-roles-loading',
+        name: 'ECS task and execution roles',
+        category: 'ECS task role',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading ECS task role evidence for the selected environment.',
+        filters: { identityType: 'ecs-task-role', service: 'ecs', risk: 'unscored', status: 'coming', search: '' },
+        searchText: inventorySearchText(['ecs', 'task role', 'execution role', 'loading'])
+      }
+    ];
+  }
+  return [
+    {
+      id: 'ecs-task-roles',
+      name: 'ECS task and execution roles',
+      category: 'ECS task role',
+      scope: 'Account and region expansion',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Task-role inventory maps ECS services and task definitions back to IAM roles after AWS is connected.',
+      filters: { identityType: 'ecs-task-role', service: 'ecs', risk: 'unscored', status: 'coming', search: '' },
+      searchText: inventorySearchText(['ecs', 'task role', 'execution role', 'inventory'])
+    }
+  ];
+}
+
+function awsECSTaskRoleRow(record: AWSECSTaskRoleRecord): AWSInventoryTableRow {
+  const isExecutionRole = record.role_kind === 'execution_role';
+  const stage: AWSCapabilityStage = record.status === 'ready' && record.role_arn ? 'wired' : 'coming';
+  const status = stage === 'wired' ? 'wired now' : 'degraded';
+  const roleLabel = record.role_name || record.role_arn || 'role unresolved';
+  const workloadLabel = record.service_name || record.task_definition_family || record.workload_name || record.workload_id;
+  const launchLabel = record.launch_type || record.compatibilities?.join(', ') || 'launch not reported';
+  const imageLabel = record.container_images?.[0] ? `image ${record.container_images[0]}` : 'image not reported';
+  const secretLabel = record.secret_refs?.length ? `${record.secret_refs.length} secret refs, values hidden` : 'no secret refs reported';
+  const taskCountLabel = typeof record.running_count === 'number' && record.running_count > 0 ? `${record.running_count}/${record.desired_count ?? record.running_count} running` : 'task count not reported';
+  return {
+    id: `ecs-task-role-${record.from_node_id}`,
+    name: roleLabel,
+    category: isExecutionRole ? 'ECS execution role' : 'ECS task role',
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage,
+    detail: `${workloadLabel} ${isExecutionRole ? 'attaches execution support to' : 'runs as'} ${roleLabel}; ${launchLabel}; ${taskCountLabel}; ${imageLabel}; ${secretLabel}.`,
+    filters: {
+      identityType: 'ecs-task-role',
+      service: 'ecs',
+      risk: record.secret_refs?.length ? 'medium' : 'low',
+      status: stage === 'wired' ? 'wired-now' : 'degraded',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.role_arn,
+      record.role_name,
+      record.role_kind,
+      record.cluster_name,
+      record.service_name,
+      record.task_definition_family,
+      record.task_definition_arn,
+      record.launch_type,
+      ...(record.compatibilities ?? []),
+      ...(record.container_images ?? []),
+      ...(record.secret_refs ?? []),
+      ...(record.environment_keys ?? []),
+      record.account_id,
+      record.region,
+      'ecs task role execution role'
     ])
   };
 }
@@ -4646,6 +4811,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [ec2InventoryLoading, setEC2InventoryLoading] = useState(false);
   const [ec2InventoryError, setEC2InventoryError] = useState('');
   const ec2InventoryRequestRef = useRef(0);
+  const [ecsInventory, setECSInventory] = useState<AWSECSTaskRoleInventoryResult | null>(null);
+  const [ecsInventoryLoading, setECSInventoryLoading] = useState(false);
+  const [ecsInventoryError, setECSInventoryError] = useState('');
+  const ecsInventoryRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -4694,6 +4863,46 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
       ec2InventoryRequestRef.current += 1;
     };
   }, [loadEC2Inventory]);
+
+  const loadECSInventory = useCallback(async () => {
+    const requestID = ++ecsInventoryRequestRef.current;
+    setECSInventory(null);
+    setECSInventoryError('');
+    if (routeID !== 'identities' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setECSInventoryLoading(false);
+      return;
+    }
+    setECSInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectECSTaskRoles(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== ecsInventoryRequestRef.current) {
+        return;
+      }
+      setECSInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== ecsInventoryRequestRef.current) {
+        return;
+      }
+      setECSInventoryError(formatAPIError(error, 'Unable to load ECS task role inventory.'));
+    } finally {
+      if (requestID === ecsInventoryRequestRef.current) {
+        setECSInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadECSInventory();
+    return () => {
+      ecsInventoryRequestRef.current += 1;
+    };
+  }, [loadECSInventory]);
 
   if (!scope) {
     return (
@@ -4779,6 +4988,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: ec2InventoryLoading,
             error: ec2InventoryError,
             onRetry: () => void loadEC2Inventory()
+          }}
+          ecsState={{
+            inventory: ecsInventory,
+            loading: ecsInventoryLoading,
+            error: ecsInventoryError,
+            onRetry: () => void loadECSInventory()
           }}
           filters={activeFilters}
           onFiltersChange={onFiltersChange}

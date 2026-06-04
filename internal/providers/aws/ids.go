@@ -37,6 +37,26 @@ func ec2InstanceResourceID(accountID, region, instanceID string) string {
 	return fmt.Sprintf("aws:resource:ec2:%s:%s:instance/%s", normalizeName(accountID), normalizeName(region), normalizeName(instanceID))
 }
 
+func ecsWorkloadID(accountID, region, workloadType, workloadID, roleKind string) string {
+	normalizedType := normalizeName(workloadType)
+	if normalizedType == "" {
+		normalizedType = "workload"
+	}
+	normalizedRoleKind := normalizeName(roleKind)
+	if normalizedRoleKind == "" {
+		normalizedRoleKind = "role"
+	}
+	return fmt.Sprintf("aws:workload:ecs:%s:%s:%s/%s/%s", normalizeName(accountID), normalizeName(region), normalizedType, normalizeName(workloadID), normalizedRoleKind)
+}
+
+func ecsServiceResourceID(serviceARN string) string {
+	return "aws:resource:ecs-service:" + strings.TrimSpace(serviceARN)
+}
+
+func ecsTaskDefinitionResourceID(taskDefinitionARN string) string {
+	return "aws:resource:ecs-task-definition:" + strings.TrimSpace(taskDefinitionARN)
+}
+
 func roleNameFromARN(arn string) string {
 	trimmed := strings.TrimSpace(arn)
 	if trimmed == "" {

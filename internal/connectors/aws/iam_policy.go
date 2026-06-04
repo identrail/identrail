@@ -41,6 +41,18 @@ const readOnlyPolicyJSON = `{
       "Resource": "*"
     },
     {
+      "Sid": "IdentityTrustGraphReadOnlyECS",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeServices",
+        "ecs:DescribeTaskDefinition",
+        "ecs:ListClusters",
+        "ecs:ListServices",
+        "ecs:ListTaskDefinitions"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "IdentityTrustGraphReadOnlyStorage",
       "Effect": "Allow",
       "Action": [
@@ -136,6 +148,18 @@ func PermissionPreview() []PermissionPreviewItem {
 			},
 			Resources: []string{"*"},
 			Reason:    "Maps EC2 instances and launch templates back to the IAM roles and instance profiles they can use.",
+		},
+		{
+			Service: "ECS",
+			Actions: []string{
+				"ecs:ListClusters",
+				"ecs:ListServices",
+				"ecs:DescribeServices",
+				"ecs:ListTaskDefinitions",
+				"ecs:DescribeTaskDefinition",
+			},
+			Resources: []string{"*"},
+			Reason:    "Maps ECS services and task definitions back to task roles, execution roles, container images, and metadata-only secret references.",
 		},
 		{
 			Service:   "S3",

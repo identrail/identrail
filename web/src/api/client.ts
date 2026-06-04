@@ -1149,6 +1149,98 @@ export type AWSEC2InstanceProfileInventoryResult = {
   updated_at: string;
 };
 
+export type AWSECSTaskRoleInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSECSTaskRoleFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+
+export type AWSECSTaskRoleRecord = {
+  account_id: string;
+  region: string;
+  service: string;
+  workload_id: string;
+  workload_type: string;
+  workload_name: string;
+  role_kind: 'task_role' | 'execution_role' | string;
+  role_arn?: string;
+  role_name?: string;
+  cluster_arn?: string;
+  cluster_name?: string;
+  service_arn?: string;
+  service_name?: string;
+  service_status?: string;
+  task_definition_arn?: string;
+  task_definition_family?: string;
+  task_definition_revision?: string;
+  task_definition_status?: string;
+  task_role_arn?: string;
+  execution_role_arn?: string;
+  launch_type?: string;
+  scheduling_strategy?: string;
+  desired_count?: number;
+  running_count?: number;
+  pending_count?: number;
+  compatibilities?: string[];
+  container_images?: string[];
+  secret_refs?: string[];
+  environment_keys?: string[];
+  tags?: Record<string, string>;
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  to_node_id?: string;
+  relationship_type: 'runs_as' | 'attached_to' | string;
+  confidence: number;
+  collected_at: string;
+  status: string;
+};
+
+export type AWSECSTaskRoleRelationship = {
+  type: 'runs_as' | 'attached_to' | string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSECSTaskRoleDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSECSTaskRoleInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSECSTaskRoleInventoryStatus;
+  fixture_state: AWSECSTaskRoleFixtureState;
+  confidence: number;
+  record_count: number;
+  task_role_count: number;
+  execution_role_count: number;
+  workload_count: number;
+  identity_count: number;
+  resource_count: number;
+  relationship_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  records: AWSECSTaskRoleRecord[];
+  relationships: AWSECSTaskRoleRelationship[];
+  diagnostics: AWSECSTaskRoleDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSConnectorStartRequest = {
   workspace_id?: string;
   project_id?: string;
@@ -2121,6 +2213,21 @@ export const apiClient = {
   ) {
     return request<{ inventory: AWSEC2InstanceProfileInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/ec2-instance-profiles${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectECSTaskRoles(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSECSTaskRoleFixtureState,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSECSTaskRoleInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/ecs-task-roles${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
       })}`,
