@@ -1,6 +1,19 @@
 # Changelog
 
 ## Unreleased
+- Stopped the GitHub overview (`/app/.../github`) from briefly showing a
+  "Not connected for this environment" subtitle, an "Install the GitHub
+  App" banner, and a Connect GitHub primary CTA on every load before the
+  connector-status API actually responded. The page now shows a neutral
+  "Loading GitHub status…" subtitle and suppresses the banner and primary
+  CTA until either the connection or an error has been observed, so on
+  slow networks the app no longer looks like it is denying a real
+  installation. The underlying `useGitHubDomainData` hook now starts in
+  the loading state when a fetch is going to happen and stays loading
+  while the project ID is still being resolved, instead of taking a
+  no-op resolved-null code path that left `loading=false` plus
+  `connection=null` — the exact state callers treated as "confirmed
+  disconnected".
 - Added the AWS platform issue dependency index for #1474. The API now exposes
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/dependency-index`
   as a read-only, project-scoped ledger for the #1472 AWS child issue graph,
