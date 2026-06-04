@@ -4425,6 +4425,57 @@ describe('GitHub domain pages (#1382)', () => {
     await screen.findByText(/Repository scan queued for identrail\/identrail/i);
   });
 
+  it('Repositories page bypasses in-flight refreshes after queueing a scan', async () => {
+    const initialMocks = await renderGitHubPage('repositories', { scans: [] });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await waitFor(() => expect(initialMocks.listRepoScans).toHaveBeenCalledTimes(1));
+    cleanup();
+    vi.restoreAllMocks();
+
+    const pendingRefresh = deferred<{ items: RepoScanRecord[]; next_cursor?: string }>();
+    const queuedAfterMutation: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-after-mutation'
+    };
+    let listCalls = 0;
+    const mocks = await renderGitHubPage('repositories', {
+      listRepoScans: () => {
+        listCalls += 1;
+        if (listCalls === 1) {
+          return pendingRefresh.promise;
+        }
+        return Promise.resolve({ items: [queuedAfterMutation] });
+      }
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(1));
+    const queueButton = await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' });
+    await waitFor(() => expect(queueButton).not.toBeDisabled());
+    fireEvent.click(queueButton);
+
+    await waitFor(() =>
+      expect(mocks.runRepoScan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repository: 'identrail/identrail',
+          project_id: 'production-platform',
+          connector_id: 'github-app'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(2));
+    await screen.findByText(/Repository scan queued for identrail\/identrail/i);
+    await screen.findByText(/scan in flight/i);
+
+    await act(async () => {
+      pendingRefresh.resolve({ items: [] });
+    });
+
+    expect(screen.getByLabelText('Selected repositories')).toHaveTextContent('scan in flight');
+  });
+
   it('Repositories page cancels an active scan via the existing API', async () => {
     const mocks = await renderGitHubPage('repositories', { scans: [queuedRepoScan] });
 

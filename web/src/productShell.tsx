@@ -524,6 +524,7 @@ function clearProductScopedDataCaches() {
   environmentScopeRequests.clear();
   gitHubDomainDataCache.clear();
   gitHubDomainDataRequests.clear();
+  gitHubDomainDataCacheEpochs.clear();
 }
 
 function resolveEnabledSourceProvider(provider: SourceProvider): SourceProvider | null {
@@ -8579,8 +8580,17 @@ type GitHubDomainDataLoadResult = GitHubDomainDataSnapshot & {
   error: string;
 };
 
+type GitHubDomainDataCacheWriteOptions = {
+  expectedEpoch?: number;
+};
+
+type GitHubDomainDataFetchOptions = {
+  bypassInFlight?: boolean;
+};
+
 const gitHubDomainDataCache = new Map<string, GitHubDomainDataSnapshot>();
 const gitHubDomainDataRequests = new Map<string, Promise<GitHubDomainDataLoadResult>>();
+const gitHubDomainDataCacheEpochs = new Map<string, number>();
 
 function gitHubDomainDataCacheKey(
   scope: ProductSession | null,
@@ -8594,8 +8604,42 @@ function gitHubDomainDataCacheKey(
   return productScopedCacheKey([scope.tenantID, scope.workspaceID, trimmedProject, String(scanLimit)]);
 }
 
-function writeGitHubDomainDataCache(key: string, snapshot: GitHubDomainDataSnapshot) {
+function rememberGitHubDomainDataCacheEpoch(key: string, epoch: number) {
+  if (!key) {
+    return;
+  }
+  gitHubDomainDataCacheEpochs.delete(key);
+  gitHubDomainDataCacheEpochs.set(key, epoch);
+  while (gitHubDomainDataCacheEpochs.size > GITHUB_DOMAIN_DATA_CACHE_LIMIT * 2) {
+    const oldestKey = gitHubDomainDataCacheEpochs.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    gitHubDomainDataCacheEpochs.delete(oldestKey);
+  }
+}
+
+function gitHubDomainDataCacheEpoch(key: string): number {
+  const epoch = key ? (gitHubDomainDataCacheEpochs.get(key) ?? 0) : 0;
+  rememberGitHubDomainDataCacheEpoch(key, epoch);
+  return epoch;
+}
+
+function bumpGitHubDomainDataCacheEpoch(key: string): number {
+  const epoch = key ? (gitHubDomainDataCacheEpochs.get(key) ?? 0) + 1 : 0;
+  rememberGitHubDomainDataCacheEpoch(key, epoch);
+  return epoch;
+}
+
+function writeGitHubDomainDataCache(
+  key: string,
+  snapshot: GitHubDomainDataSnapshot,
+  options: GitHubDomainDataCacheWriteOptions = {}
+) {
   if (!key || !isCurrentProductScopedCacheKey(key)) {
+    return;
+  }
+  if (options.expectedEpoch !== undefined && gitHubDomainDataCacheEpochs.get(key) !== options.expectedEpoch) {
     return;
   }
   gitHubDomainDataCache.delete(key);
@@ -8609,6 +8653,7 @@ function writeGitHubDomainDataCache(key: string, snapshot: GitHubDomainDataSnaps
       break;
     }
     gitHubDomainDataCache.delete(oldestKey);
+    gitHubDomainDataCacheEpochs.delete(oldestKey);
   }
 }
 
@@ -8680,13 +8725,16 @@ function fetchGitHubDomainDataSnapshot(
   scanLimit: number,
   scanPageLimit: number,
   maxScanPages: number,
-  auth: RequestAuthContext
+  auth: RequestAuthContext,
+  options: GitHubDomainDataFetchOptions = {}
 ): Promise<GitHubDomainDataLoadResult> {
   const cacheKey = gitHubDomainDataCacheKey(scope, projectID, scanLimit);
   const requestKey = gitHubDomainDataRequestKey(cacheKey, scanPageLimit, maxScanPages);
-  const inFlight = gitHubDomainDataRequests.get(requestKey);
-  if (inFlight) {
-    return inFlight;
+  if (!options.bypassInFlight) {
+    const inFlight = gitHubDomainDataRequests.get(requestKey);
+    if (inFlight) {
+      return inFlight;
+    }
   }
 
   const request = (async () => {
@@ -8709,7 +8757,9 @@ function fetchGitHubDomainDataSnapshot(
 
   gitHubDomainDataRequests.set(requestKey, request);
   return request.finally(() => {
-    gitHubDomainDataRequests.delete(requestKey);
+    if (gitHubDomainDataRequests.get(requestKey) === request) {
+      gitHubDomainDataRequests.delete(requestKey);
+    }
   });
 }
 
@@ -8734,6 +8784,7 @@ function primeGitHubControlCenterDataCache(
   if (!cacheKey || gitHubDomainDataCache.has(cacheKey)) {
     return;
   }
+  const cacheEpoch = gitHubDomainDataCacheEpoch(cacheKey);
 
   void fetchGitHubDomainDataSnapshot(
     scope,
@@ -8745,7 +8796,9 @@ function primeGitHubControlCenterDataCache(
   )
     .then((snapshot) => {
       if (!snapshot.error) {
-        writeGitHubDomainDataCache(cacheKey, { connection: snapshot.connection, scans: snapshot.scans });
+        writeGitHubDomainDataCache(cacheKey, { connection: snapshot.connection, scans: snapshot.scans }, {
+          expectedEpoch: cacheEpoch
+        });
       }
     })
     .catch(() => {
@@ -8803,6 +8856,10 @@ function useGitHubDomainData(
     const requestSnapshot = requestCacheKey ? gitHubDomainDataCache.get(requestCacheKey) : undefined;
     const isSameRequestTarget = activeCacheKeyRef.current === requestCacheKey;
     activeCacheKeyRef.current = requestCacheKey;
+    const bypassInFlight = reloadToken > 0 && isSameRequestTarget;
+    const requestCacheEpoch = bypassInFlight
+      ? bumpGitHubDomainDataCacheEpoch(requestCacheKey)
+      : gitHubDomainDataCacheEpoch(requestCacheKey);
     setLoading(!requestSnapshot);
     setError('');
     if (!isSameRequestTarget) {
@@ -8811,7 +8868,9 @@ function useGitHubDomainData(
     }
     const auth = buildProductAuthContext(scope);
 
-    fetchGitHubDomainDataSnapshot(scope, trimmedProject, scanLimit, scanPageLimit, maxScanPages, auth)
+    fetchGitHubDomainDataSnapshot(scope, trimmedProject, scanLimit, scanPageLimit, maxScanPages, auth, {
+      bypassInFlight
+    })
       .then((snapshot) => {
         if (!active || !isCurrentProductScopedCacheKey(requestCacheKey)) {
           return;
@@ -8821,13 +8880,17 @@ function useGitHubDomainData(
           if (fallbackSnapshot) {
             setConnection(snapshot.connection);
             setScans(fallbackSnapshot.scans);
-            writeGitHubDomainDataCache(requestCacheKey, { connection: snapshot.connection, scans: fallbackSnapshot.scans });
+            writeGitHubDomainDataCache(requestCacheKey, { connection: snapshot.connection, scans: fallbackSnapshot.scans }, {
+              expectedEpoch: requestCacheEpoch
+            });
             setError(snapshot.error);
             return;
           }
         }
         if (!snapshot.error) {
-          writeGitHubDomainDataCache(requestCacheKey, { connection: snapshot.connection, scans: snapshot.scans });
+          writeGitHubDomainDataCache(requestCacheKey, { connection: snapshot.connection, scans: snapshot.scans }, {
+            expectedEpoch: requestCacheEpoch
+          });
         }
         setConnection(snapshot.connection);
         setScans(snapshot.scans);
