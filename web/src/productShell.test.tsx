@@ -4199,6 +4199,49 @@ describe('GitHub domain pages (#1382)', () => {
     );
   });
 
+  it('Control Center fetches additional scan pages until selected-repository activity is available', async () => {
+    const unrelatedRepoScans: RepoScanRecord[] = Array.from({ length: 3 }).map((_, index) => ({
+      ...succeededRepoScan,
+      id: `repo-scan-control-center-unrelated-${index}`,
+      repository: `team-${index + 1}/unrelated`
+    }));
+    const selectedRepoScan: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'repo-scan-control-center-selected',
+      repository: 'identrail/identrail',
+      started_at: '2026-05-18T10:00:00Z',
+      finished_at: '2026-05-18T10:05:00Z',
+      finding_count: 2,
+      files_scanned: 17
+    };
+
+    let pageCalls = 0;
+    const mocks = await renderGitHubPage('control-center', {
+      listRepoScans: () => {
+        pageCalls += 1;
+        if (pageCalls === 1) {
+          return Promise.resolve({
+            items: unrelatedRepoScans,
+            next_cursor: 'repo-page-2'
+          });
+        }
+        return Promise.resolve({
+          items: [selectedRepoScan]
+        });
+      }
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
+    await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(2));
+    expect(mocks.listRepoScans).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ cursor: 'repo-page-2', limit: 50 }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(screen.getByRole('heading', { level: 3, name: 'Recent scans' })).toBeInTheDocument();
+    expect(screen.getByText(/identrail\/identrail/i)).toBeInTheDocument();
+  });
+
   it('Control Center prompts to connect when not connected', async () => {
     await renderGitHubPage('control-center', {
       githubConnection: {

@@ -8390,6 +8390,7 @@ const GITHUB_CONTROL_CENTER_SCAN_FETCH_LIMIT = 50;
 const GITHUB_REPOSITORIES_SCANS_LIMIT = 50;
 const GITHUB_REMEDIATION_FINDINGS_LIMIT = 100;
 const GITHUB_MAX_SCAN_PAGE_FETCHES = 50;
+const GITHUB_DOMAIN_DATA_CACHE_LIMIT = 24;
 
 type GitHubAvailability = {
   loading: boolean;
@@ -8496,10 +8497,18 @@ function writeGitHubDomainDataCache(key: string, snapshot: GitHubDomainDataSnaps
   if (!key) {
     return;
   }
+  gitHubDomainDataCache.delete(key);
   gitHubDomainDataCache.set(key, {
     connection: snapshot.connection,
     scans: snapshot.scans
   });
+  while (gitHubDomainDataCache.size > GITHUB_DOMAIN_DATA_CACHE_LIMIT) {
+    const oldestKey = gitHubDomainDataCache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    gitHubDomainDataCache.delete(oldestKey);
+  }
 }
 
 async function listRepoScansForSelectedRepositories(
@@ -9063,8 +9072,7 @@ export function ProductGitHubControlCenterPage() {
     selectedEnvironmentID,
     availability.available,
     GITHUB_CONTROL_CENTER_RECENT_SCANS_LIMIT,
-    GITHUB_CONTROL_CENTER_SCAN_FETCH_LIMIT,
-    1
+    GITHUB_CONTROL_CENTER_SCAN_FETCH_LIMIT
   );
 
   if (!scope) {
