@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- Added an AWS epic PR guard for #1472. Pull requests that reference the AWS
+  Machine Identity Platform parent issue or child issues #1473 through #1557 now
+  get a dedicated workflow check that requires the PR to target `dev`, prevents
+  direct closure of the parent epic, and requires child implementation PRs to
+  close exactly one focused child issue in the PR body. Qualified issue
+  references only activate the guard for `identrail/identrail`, and bare same-repo
+  AWS issue mentions activate it as non-closing references. The guard also scans
+  PR commit messages so commit-level closing keywords cannot prematurely close
+  the parent epic. The workflow runs from trusted base-branch code, reads PR
+  metadata through the GitHub API instead of checking out PR code, and adds the
+  `aws-epic-pr-guard` status to the dev branch-protection policy. Parent-only
+  PRs are rejected unless the diff is limited to the guard workflow, dev
+  branch-protection config, validator, validator tests, dependency-index docs,
+  and changelog files. The guard is backed by a local Node validator with
+  regression tests and documented in the AWS dependency index handoff guide.
 - Added the AWS service collector contract for #1476. The API now exposes
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/collector-contract`
   as a read-only, project-scoped contract for normalized AWS collector records,

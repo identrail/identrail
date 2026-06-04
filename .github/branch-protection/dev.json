@@ -8,6 +8,7 @@
       "CLI Smoke",
       "Web Build",
       "Infra Validate",
+      "aws-epic-pr-guard",
       "Deploy Portability",
       "Analyze (go)",
       "Analyze (javascript-typescript)"
@@ -27,4 +28,3 @@
   "required_linear_history": true,
   "block_creations": false
 }
-

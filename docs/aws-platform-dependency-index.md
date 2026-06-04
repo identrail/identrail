@@ -72,6 +72,38 @@ Each `issues[]` item includes `blocker_refs`, `downstream_refs`,
 This rule is intentionally mechanical: blocked AWS child issues must not receive
 PRs until every blocker listed in the index is closed.
 
+## PR Discipline
+
+The AWS platform parent epic (#1472) remains open while the 85 child issues move
+through the program. The `AWS Epic PR Guard` workflow enforces the parent epic's
+PR discipline on every pull request that references #1472 or one of the AWS
+child issues from #1473 through #1557:
+
+- The guard runs as the required `aws-epic-pr-guard` status check for PRs into
+  `dev`.
+- The workflow runs from trusted base-branch code and validates PR-head metadata
+  through the GitHub API without checking out or executing the PR's copy of the
+  validator.
+- AWS platform PRs must target `dev`, matching the `origin/dev` base expected by
+  the epic.
+- AWS child implementation PRs must reference exactly one child issue.
+- Bare same-repo AWS issue mentions such as `Related: #1477` activate the guard
+  as non-closing references.
+- The focused child issue must use a closing keyword in the PR body, such as
+  `Closes #1477` or `Closes: #1477`, while the parent epic may only be referenced
+  with `Refs #1472`. Commit-message closing keywords do not satisfy the
+  child-closure rule.
+- Parent-only AWS epic PRs fail unless they are limited to the guard workflow,
+  dev branch-protection config, validator, validator tests, dependency-index
+  docs, and changelog files. This narrow path exists only so the guardrail can be
+  introduced and maintained without pretending to close one of the 85
+  implementation issues.
+- Qualified issue references only count for `identrail/identrail`; references to
+  other repositories do not activate AWS epic policy.
+- PRs that try to close #1472 directly fail the guard because the parent epic is
+  only complete after the full issue program is complete. The guard checks PR
+  title, PR body, and PR commit messages for parent-closing keywords.
+
 ## Scriptable Handoff
 
 The response is sorted by issue number and stable enough for automation. A

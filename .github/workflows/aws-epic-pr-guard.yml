@@ -1,0 +1,43 @@
+name: AWS Epic PR Guard
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  aws-epic-pr-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted base
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          path: base
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24"
+
+      - name: Collect changed files
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" --jq '.[].filename' > "${RUNNER_TEMP}/aws-epic-pr-files.txt"
+          cat "${RUNNER_TEMP}/aws-epic-pr-files.txt"
+
+      - name: Collect commit messages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/commits" --jq '.[].commit.message' > "${RUNNER_TEMP}/aws-epic-pr-commits.txt"
+
+      - name: Validate AWS epic PR discipline
+        run: node base/scripts/validate_aws_epic_pr.mjs "$GITHUB_EVENT_PATH" "${RUNNER_TEMP}/aws-epic-pr-files.txt" "${RUNNER_TEMP}/aws-epic-pr-commits.txt"
