@@ -515,6 +515,14 @@ function productScopedCacheKey(parts: string[]): string {
   return [String(productAuthSessionVersion), ...parts].join('::');
 }
 
+function currentProductAuthSessionVersion(): number {
+  return productAuthSessionVersion;
+}
+
+function isCurrentProductAuthSessionVersion(version: number): boolean {
+  return version === productAuthSessionVersion;
+}
+
 function isCurrentProductScopedCacheKey(key: string): boolean {
   return key.startsWith(`${productAuthSessionVersion}::`);
 }
@@ -12062,11 +12070,15 @@ export function ProductOverviewPage() {
 
     let mounted = true;
     const loadOverview = async () => {
+      const requestSessionVersion = currentProductAuthSessionVersion();
       setLoading(true);
       setError('');
       try {
         const auth = buildProductAuthContext(scope);
         const activeProjectItems = await listOverviewProjects(scope.workspaceID, { include_archived: false }, auth);
+        if (!mounted || !isCurrentProductAuthSessionVersion(requestSessionVersion)) {
+          return;
+        }
         primeEnvironmentScopeCache(scope, activeProjectItems);
         primeGitHubControlCenterDataCache(scope, activeProjectItems, sourceAvailability.github, auth);
         const [scanResponse, findingResponse, connectionRollups] = await Promise.all([
@@ -12082,7 +12094,7 @@ export function ProductOverviewPage() {
           ),
           loadOverviewConnectionRollups(scope, activeProjectItems, sourceAvailability, auth)
         ]);
-        if (!mounted) {
+        if (!mounted || !isCurrentProductAuthSessionVersion(requestSessionVersion)) {
           return;
         }
         setActiveProjects(
@@ -12098,13 +12110,13 @@ export function ProductOverviewPage() {
         );
         setSourceConnectionRollups(connectionRollups);
       } catch (err) {
-        if (!mounted) {
+        if (!mounted || !isCurrentProductAuthSessionVersion(requestSessionVersion)) {
           return;
         }
         setError(formatAPIError(err, 'Unable to load workspace overview'));
         setSourceConnectionRollups(emptyOverviewConnectionRollups());
       } finally {
-        if (mounted) {
+        if (mounted && isCurrentProductAuthSessionVersion(requestSessionVersion)) {
           setLoading(false);
         }
       }

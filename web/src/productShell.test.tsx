@@ -4887,6 +4887,87 @@ describe('GitHub domain pages (#1382)', () => {
     );
   });
 
+  it('Overview skips dashboard cache warmups after the auth session resets', async () => {
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'getOnboardingState').mockResolvedValue({
+      state: {
+        user_id: 'user-1',
+        org_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: productionProject.project_id,
+        current_step: 'complete',
+        connector_skipped: false,
+        scan_skipped: false,
+        started_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    const pendingProjects = deferred<{ items: typeof productionProject[] }>();
+    const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockReturnValue(pendingProjects.promise);
+    const getGitHubConnectorStatus = vi
+      .spyOn(api.apiClient, 'getGitHubConnectorStatus')
+      .mockResolvedValue({ connection: connectedGitHub });
+    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [succeededRepoScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [], summary: undefined });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getKubernetesProjectConnection').mockResolvedValue({ connection: connectedKubernetes });
+
+    const { ProductOverviewPage, ProductGitHubControlCenterPage, clearProductAuthSessionCacheForTests } = await import('./productShell');
+    const overviewRender = render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(listProjects).toHaveBeenCalledTimes(1));
+    overviewRender.unmount();
+    clearProductAuthSessionCacheForTests();
+
+    await act(async () => {
+      pendingProjects.resolve({ items: [productionProject] });
+      await pendingProjects.promise;
+      await Promise.resolve();
+    });
+
+    expect(getGitHubConnectorStatus).not.toHaveBeenCalled();
+    expect(listRepoScans).not.toHaveBeenCalled();
+    cleanup();
+    vi.restoreAllMocks();
+
+    const nextSessionStatus = deferred<{ connection: GitHubConnectionStatus }>();
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockReturnValue(nextSessionStatus.promise);
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github" element={<ProductGitHubControlCenterPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('heading', { level: 2, name: 'GitHub' });
+    expect(screen.queryByText(/Installation 12345/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Loading GitHub status/i)).not.toBeInTheDocument();
+
+    await act(async () => {
+      nextSessionStatus.resolve({
+        connection: {
+          ...connectedGitHub,
+          installation_id: 67890,
+          selected_repositories: []
+        }
+      });
+    });
+
+    expect(await screen.findByText(/Installation 67890/i)).toBeInTheDocument();
+  });
+
   it('Control Center hides recent scans when no repositories are selected', async () => {
     const unrelatedScan: RepoScanRecord = {
       ...succeededRepoScan,
