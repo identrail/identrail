@@ -77,7 +77,15 @@ The response envelope is:
       "lambda:ListAliases",
       "lambda:ListVersionsByFunction",
       "lambda:ListEventSourceMappings",
-      "lambda:ListTags"
+      "lambda:ListTags",
+      "eks:ListClusters",
+      "eks:DescribeCluster",
+      "eks:ListPodIdentityAssociations",
+      "eks:DescribePodIdentityAssociation",
+      "eks:ListNodegroups",
+      "eks:DescribeNodegroup",
+      "eks:ListFargateProfiles",
+      "eks:DescribeFargateProfile"
     ],
     "read_only_boundaries": [
       "collect metadata and policy documents only; never collect secret values, customer payloads, prompts, completions, object contents, or database rows"

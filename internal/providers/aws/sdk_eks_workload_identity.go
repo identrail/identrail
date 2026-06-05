@@ -106,11 +106,13 @@ func (a *SDKEKSWorkloadIdentityAPI) ListWorkloadIdentities(ctx context.Context, 
 			return EKSWorkloadIdentityPage{}, err
 		}
 		cluster, err := a.describeCluster(ctx, clusterName)
+		clusterCore := EKSWorkloadIdentity{}
 		if err != nil {
 			diagnostics = append(diagnostics, eksSourceDiagnostic("cluster_describe_failed", clusterName, fmt.Sprintf("EKS cluster metadata could not be described: %v", err), true))
-			continue
+			clusterCore = a.clusterCoreRecordFromName(clusterName)
+		} else {
+			clusterCore = a.clusterCoreRecord(cluster)
 		}
-		clusterCore := a.clusterCoreRecord(cluster)
 		if clusterCore.OIDCIssuer != "" {
 			diagnostics = append(diagnostics, eksSourceDiagnostic(
 				"kubernetes_api_unavailable",
@@ -121,18 +123,27 @@ func (a *SDKEKSWorkloadIdentityAPI) ListWorkloadIdentities(ctx context.Context, 
 		}
 
 		podIdentities, podDiagnostics := a.podIdentityAssociationsForCluster(ctx, clusterCore.ClusterName, pageSize)
+		if err := ctx.Err(); err != nil {
+			return EKSWorkloadIdentityPage{}, err
+		}
 		diagnostics = append(diagnostics, podDiagnostics...)
 		for _, association := range podIdentities {
 			records = append(records, a.recordFromPodIdentityAssociation(clusterCore, association))
 		}
 
 		nodegroups, nodeDiagnostics := a.nodegroupsForCluster(ctx, clusterCore.ClusterName, pageSize)
+		if err := ctx.Err(); err != nil {
+			return EKSWorkloadIdentityPage{}, err
+		}
 		diagnostics = append(diagnostics, nodeDiagnostics...)
 		for _, nodegroup := range nodegroups {
 			records = append(records, a.recordFromNodegroup(clusterCore, nodegroup))
 		}
 
 		fargateProfiles, fargateDiagnostics := a.fargateProfilesForCluster(ctx, clusterCore.ClusterName, pageSize)
+		if err := ctx.Err(); err != nil {
+			return EKSWorkloadIdentityPage{}, err
+		}
 		diagnostics = append(diagnostics, fargateDiagnostics...)
 		for _, profile := range fargateProfiles {
 			records = append(records, a.recordFromFargateProfile(clusterCore, profile))
@@ -339,6 +350,18 @@ func (a *SDKEKSWorkloadIdentityAPI) clusterCoreRecord(cluster ekstypes.Cluster) 
 		OIDCIssuer:        issuer,
 		OIDCProviderARN:   oidcProviderARNFromIssuer(a.accountID, issuer),
 		Tags:              copyTags(cluster.Tags),
+	}
+}
+
+func (a *SDKEKSWorkloadIdentityAPI) clusterCoreRecordFromName(clusterName string) EKSWorkloadIdentity {
+	return EKSWorkloadIdentity{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID: a.accountID,
+			Region:    a.region,
+			Service:   eksServiceName,
+		},
+		ClusterName:            strings.TrimSpace(clusterName),
+		KubernetesAccessStatus: "aws_metadata_only",
 	}
 }
 

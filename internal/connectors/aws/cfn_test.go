@@ -90,6 +90,9 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 	if !strings.Contains(string(policy), "iam:SimulatePrincipalPolicy") {
 		t.Fatalf("expected IAM simulation action in policy")
 	}
+	if !strings.Contains(string(policy), "eks:ListClusters") || !strings.Contains(string(policy), "eks:DescribePodIdentityAssociation") {
+		t.Fatalf("expected EKS workload identity read actions in policy")
+	}
 	hash, err := ReadOnlyPolicyHash()
 	if err != nil {
 		t.Fatalf("hash policy: %v", err)
@@ -100,4 +103,16 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 	if len(PermissionPreview()) == 0 {
 		t.Fatalf("expected permission preview entries")
 	}
+	if !permissionPreviewContainsService(PermissionPreview(), "EKS") {
+		t.Fatalf("expected EKS permission preview entry")
+	}
+}
+
+func permissionPreviewContainsService(items []PermissionPreviewItem, service string) bool {
+	for _, item := range items {
+		if item.Service == service {
+			return true
+		}
+	}
+	return false
 }

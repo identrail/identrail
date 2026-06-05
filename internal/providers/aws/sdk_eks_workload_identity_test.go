@@ -18,9 +18,9 @@ type fakeEKSSDKClient struct {
 
 	listClustersOutputs []*eks.ListClustersOutput
 	clustersByName      map[string]*eks.DescribeClusterOutput
-	associationsByID    map[string]*eks.DescribePodIdentityAssociationOutput
-	nodegroupsByName    map[string]*eks.DescribeNodegroupOutput
-	fargateByName       map[string]*eks.DescribeFargateProfileOutput
+	associationsByKey   map[string]*eks.DescribePodIdentityAssociationOutput
+	nodegroupsByKey     map[string]*eks.DescribeNodegroupOutput
+	fargateByKey        map[string]*eks.DescribeFargateProfileOutput
 
 	podIdentitySummaries map[string]*eks.ListPodIdentityAssociationsOutput
 	nodegroupNames       map[string]*eks.ListNodegroupsOutput
@@ -28,6 +28,11 @@ type fakeEKSSDKClient struct {
 
 	listClustersErr error
 	listPodErr      error
+	onListPod       func()
+}
+
+func eksFakeSDKKey(clusterName string, name string) string {
+	return clusterName + "/" + name
 }
 
 func (f *fakeEKSSDKClient) ListClusters(_ context.Context, params *eks.ListClustersInput, _ ...func(*eks.Options)) (*eks.ListClustersOutput, error) {
@@ -48,6 +53,9 @@ func (f *fakeEKSSDKClient) DescribeCluster(_ context.Context, params *eks.Descri
 
 func (f *fakeEKSSDKClient) ListPodIdentityAssociations(_ context.Context, params *eks.ListPodIdentityAssociationsInput, _ ...func(*eks.Options)) (*eks.ListPodIdentityAssociationsOutput, error) {
 	f.listPodIdentityAssociationsInputs = append(f.listPodIdentityAssociationsInputs, params)
+	if f.onListPod != nil {
+		f.onListPod()
+	}
 	if f.listPodErr != nil {
 		return nil, f.listPodErr
 	}
@@ -58,7 +66,7 @@ func (f *fakeEKSSDKClient) ListPodIdentityAssociations(_ context.Context, params
 }
 
 func (f *fakeEKSSDKClient) DescribePodIdentityAssociation(_ context.Context, params *eks.DescribePodIdentityAssociationInput, _ ...func(*eks.Options)) (*eks.DescribePodIdentityAssociationOutput, error) {
-	return f.associationsByID[awsv2.ToString(params.AssociationId)], nil
+	return f.associationsByKey[eksFakeSDKKey(awsv2.ToString(params.ClusterName), awsv2.ToString(params.AssociationId))], nil
 }
 
 func (f *fakeEKSSDKClient) ListNodegroups(_ context.Context, params *eks.ListNodegroupsInput, _ ...func(*eks.Options)) (*eks.ListNodegroupsOutput, error) {
@@ -70,7 +78,7 @@ func (f *fakeEKSSDKClient) ListNodegroups(_ context.Context, params *eks.ListNod
 }
 
 func (f *fakeEKSSDKClient) DescribeNodegroup(_ context.Context, params *eks.DescribeNodegroupInput, _ ...func(*eks.Options)) (*eks.DescribeNodegroupOutput, error) {
-	return f.nodegroupsByName[awsv2.ToString(params.NodegroupName)], nil
+	return f.nodegroupsByKey[eksFakeSDKKey(awsv2.ToString(params.ClusterName), awsv2.ToString(params.NodegroupName))], nil
 }
 
 func (f *fakeEKSSDKClient) ListFargateProfiles(_ context.Context, params *eks.ListFargateProfilesInput, _ ...func(*eks.Options)) (*eks.ListFargateProfilesOutput, error) {
@@ -82,7 +90,7 @@ func (f *fakeEKSSDKClient) ListFargateProfiles(_ context.Context, params *eks.Li
 }
 
 func (f *fakeEKSSDKClient) DescribeFargateProfile(_ context.Context, params *eks.DescribeFargateProfileInput, _ ...func(*eks.Options)) (*eks.DescribeFargateProfileOutput, error) {
-	return f.fargateByName[awsv2.ToString(params.FargateProfileName)], nil
+	return f.fargateByKey[eksFakeSDKKey(awsv2.ToString(params.ClusterName), awsv2.ToString(params.FargateProfileName))], nil
 }
 
 func TestSDKEKSWorkloadIdentityAPIMapsAssociationsNodegroupsAndFargate(t *testing.T) {
@@ -107,8 +115,8 @@ func TestSDKEKSWorkloadIdentityAPIMapsAssociationsNodegroupsAndFargate(t *testin
 		podIdentitySummaries: map[string]*eks.ListPodIdentityAssociationsOutput{
 			"prod-cluster": {Associations: []ekstypes.PodIdentityAssociationSummary{{AssociationId: awsv2.String("a-123")}}},
 		},
-		associationsByID: map[string]*eks.DescribePodIdentityAssociationOutput{
-			"a-123": {Association: &ekstypes.PodIdentityAssociation{
+		associationsByKey: map[string]*eks.DescribePodIdentityAssociationOutput{
+			eksFakeSDKKey("prod-cluster", "a-123"): {Association: &ekstypes.PodIdentityAssociation{
 				AssociationArn: awsv2.String("arn:aws:eks:us-east-1:123456789012:podidentityassociation/prod-cluster/a-123"),
 				AssociationId:  awsv2.String("a-123"),
 				ClusterName:    awsv2.String("prod-cluster"),
@@ -122,8 +130,8 @@ func TestSDKEKSWorkloadIdentityAPIMapsAssociationsNodegroupsAndFargate(t *testin
 		nodegroupNames: map[string]*eks.ListNodegroupsOutput{
 			"prod-cluster": {Nodegroups: []string{"payments-ng"}},
 		},
-		nodegroupsByName: map[string]*eks.DescribeNodegroupOutput{
-			"payments-ng": {Nodegroup: &ekstypes.Nodegroup{
+		nodegroupsByKey: map[string]*eks.DescribeNodegroupOutput{
+			eksFakeSDKKey("prod-cluster", "payments-ng"): {Nodegroup: &ekstypes.Nodegroup{
 				NodegroupArn:  awsv2.String("arn:aws:eks:us-east-1:123456789012:nodegroup/prod-cluster/payments-ng/id"),
 				NodegroupName: awsv2.String("payments-ng"),
 				NodeRole:      awsv2.String(nodeRoleARN),
@@ -133,8 +141,8 @@ func TestSDKEKSWorkloadIdentityAPIMapsAssociationsNodegroupsAndFargate(t *testin
 		fargateNames: map[string]*eks.ListFargateProfilesOutput{
 			"prod-cluster": {FargateProfileNames: []string{"payments-fargate"}},
 		},
-		fargateByName: map[string]*eks.DescribeFargateProfileOutput{
-			"payments-fargate": {FargateProfile: &ekstypes.FargateProfile{
+		fargateByKey: map[string]*eks.DescribeFargateProfileOutput{
+			eksFakeSDKKey("prod-cluster", "payments-fargate"): {FargateProfile: &ekstypes.FargateProfile{
 				FargateProfileArn:   awsv2.String("arn:aws:eks:us-east-1:123456789012:fargateprofile/prod-cluster/payments-fargate/id"),
 				FargateProfileName:  awsv2.String("payments-fargate"),
 				PodExecutionRoleArn: awsv2.String(fargateRoleARN),
@@ -197,12 +205,12 @@ func TestSDKEKSWorkloadIdentityAPIRetainsClusterOnPodIdentityPartialFailure(t *t
 				}},
 			}},
 		},
-		listPodErr:       errors.New("pod identity unavailable"),
-		nodegroupNames:   map[string]*eks.ListNodegroupsOutput{},
-		fargateNames:     map[string]*eks.ListFargateProfilesOutput{},
-		associationsByID: map[string]*eks.DescribePodIdentityAssociationOutput{},
-		nodegroupsByName: map[string]*eks.DescribeNodegroupOutput{},
-		fargateByName:    map[string]*eks.DescribeFargateProfileOutput{},
+		listPodErr:        errors.New("pod identity unavailable"),
+		nodegroupNames:    map[string]*eks.ListNodegroupsOutput{},
+		fargateNames:      map[string]*eks.ListFargateProfilesOutput{},
+		associationsByKey: map[string]*eks.DescribePodIdentityAssociationOutput{},
+		nodegroupsByKey:   map[string]*eks.DescribeNodegroupOutput{},
+		fargateByKey:      map[string]*eks.DescribeFargateProfileOutput{},
 	}
 	api := NewSDKEKSWorkloadIdentityAPIFromClient(client, "123456789012", "us-east-1")
 
@@ -215,5 +223,66 @@ func TestSDKEKSWorkloadIdentityAPIRetainsClusterOnPodIdentityPartialFailure(t *t
 	}
 	if len(page.Diagnostics) != 2 || page.Diagnostics[1].Code != "pod_identity_association_list_failed" || !page.Diagnostics[1].Retryable {
 		t.Fatalf("expected Kubernetes degraded plus retryable pod identity diagnostic, got %+v", page.Diagnostics)
+	}
+}
+
+func TestSDKEKSWorkloadIdentityAPIContinuesAfterClusterDescribeFailure(t *testing.T) {
+	podRoleARN := "arn:aws:iam::123456789012:role/batch-pod-identity"
+	client := &fakeEKSSDKClient{
+		listClustersOutputs: []*eks.ListClustersOutput{{Clusters: []string{"prod-cluster"}}},
+		clustersByName:      map[string]*eks.DescribeClusterOutput{},
+		podIdentitySummaries: map[string]*eks.ListPodIdentityAssociationsOutput{
+			"prod-cluster": {Associations: []ekstypes.PodIdentityAssociationSummary{{AssociationId: awsv2.String("a-123")}}},
+		},
+		associationsByKey: map[string]*eks.DescribePodIdentityAssociationOutput{
+			eksFakeSDKKey("prod-cluster", "a-123"): {Association: &ekstypes.PodIdentityAssociation{
+				AssociationArn: awsv2.String("arn:aws:eks:us-east-1:123456789012:podidentityassociation/prod-cluster/a-123"),
+				AssociationId:  awsv2.String("a-123"),
+				ClusterName:    awsv2.String("prod-cluster"),
+				Namespace:      awsv2.String("jobs"),
+				ServiceAccount: awsv2.String("batch-worker"),
+				RoleArn:        awsv2.String(podRoleARN),
+			}},
+		},
+		nodegroupNames:  map[string]*eks.ListNodegroupsOutput{},
+		fargateNames:    map[string]*eks.ListFargateProfilesOutput{},
+		nodegroupsByKey: map[string]*eks.DescribeNodegroupOutput{},
+		fargateByKey:    map[string]*eks.DescribeFargateProfileOutput{},
+	}
+	api := NewSDKEKSWorkloadIdentityAPIFromClient(client, "123456789012", "us-east-1")
+
+	page, err := api.ListWorkloadIdentities(context.Background(), "", 10)
+	if err != nil {
+		t.Fatalf("list workload identities should retain cluster-scoped evidence after describe failure: %v", err)
+	}
+	if len(page.Records) != 1 || page.Records[0].RoleARN != podRoleARN || page.Records[0].ClusterName != "prod-cluster" {
+		t.Fatalf("expected retained pod identity record, got %+v", page.Records)
+	}
+	if len(page.Diagnostics) != 1 || page.Diagnostics[0].Code != "cluster_describe_failed" {
+		t.Fatalf("expected cluster describe diagnostic, got %+v", page.Diagnostics)
+	}
+}
+
+func TestSDKEKSWorkloadIdentityAPIPropagatesCancellationDuringClusterPartitions(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	client := &fakeEKSSDKClient{
+		listClustersOutputs: []*eks.ListClustersOutput{{Clusters: []string{"prod-cluster"}}},
+		clustersByName: map[string]*eks.DescribeClusterOutput{
+			"prod-cluster": {Cluster: &ekstypes.Cluster{Name: awsv2.String("prod-cluster")}},
+		},
+		podIdentitySummaries: map[string]*eks.ListPodIdentityAssociationsOutput{
+			"prod-cluster": {},
+		},
+		nodegroupNames:    map[string]*eks.ListNodegroupsOutput{},
+		fargateNames:      map[string]*eks.ListFargateProfilesOutput{},
+		associationsByKey: map[string]*eks.DescribePodIdentityAssociationOutput{},
+		nodegroupsByKey:   map[string]*eks.DescribeNodegroupOutput{},
+		fargateByKey:      map[string]*eks.DescribeFargateProfileOutput{},
+		onListPod:         cancel,
+	}
+	api := NewSDKEKSWorkloadIdentityAPIFromClient(client, "123456789012", "us-east-1")
+
+	if _, err := api.ListWorkloadIdentities(ctx, "", 10); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation to propagate, got %v", err)
 	}
 }

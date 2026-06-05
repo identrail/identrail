@@ -741,12 +741,13 @@ func lambdaRoleWorkloadName(record LambdaExecutionRole) string {
 }
 
 func eksWorkloadIdentityNormalizedWorkloadID(record EKSWorkloadIdentity) string {
+	roleKind := normalizeEKSRoleKind(record.RoleKind, record)
 	return eksWorkloadIdentityWorkloadID(
 		record.AccountID,
 		record.Region,
 		eksWorkloadIdentityNormalizedWorkloadType(record),
 		firstNonEmptyAWSValue(record.WorkloadID, record.AssociationARN, record.NodegroupARN, record.FargateProfileARN, record.KubernetesSubject),
-		record.RoleKind,
+		roleKind,
 	)
 }
 

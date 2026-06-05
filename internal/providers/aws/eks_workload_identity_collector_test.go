@@ -272,6 +272,30 @@ func TestEKSWorkloadIdentityCollectorRetriesThenCollects(t *testing.T) {
 	}
 }
 
+func TestEKSWorkloadIdentityIDsUseCanonicalRoleKindAliases(t *testing.T) {
+	aliasRecord := EKSWorkloadIdentity{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID:    "123456789012",
+			Region:       "us-east-1",
+			WorkloadID:   "prod-cluster/jobs/batch-worker",
+			WorkloadType: "eks_service_account",
+		},
+		RoleKind:       "podidentity",
+		ClusterName:    "prod-cluster",
+		Namespace:      "jobs",
+		ServiceAccount: "batch-worker",
+	}
+	canonicalRecord := aliasRecord
+	canonicalRecord.RoleKind = eksRoleKindPodIdentity
+
+	if got, want := eksWorkloadIdentityNormalizedWorkloadID(aliasRecord), eksWorkloadIdentityNormalizedWorkloadID(canonicalRecord); got != want {
+		t.Fatalf("alias workload id = %q, want canonical %q", got, want)
+	}
+	if got, want := eksWorkloadResourceID(aliasRecord), eksWorkloadResourceID(canonicalRecord); got != want {
+		t.Fatalf("alias workload resource id = %q, want canonical %q", got, want)
+	}
+}
+
 func hasResourceType(resources []domain.Resource, resourceType domain.ResourceType) bool {
 	for _, resource := range resources {
 		if resource.Type == resourceType {

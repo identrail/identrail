@@ -4879,10 +4879,20 @@ function awsEKSWorkloadIdentityRow(record: AWSEKSWorkloadIdentityRecord): AWSInv
   const roleKindLabel = formatTokenLabel(record.role_kind);
   const associationLabel = record.association_id ? `association ${record.association_id}` : record.nodegroup_status || record.fargate_profile_status || record.cluster_status || 'status not reported';
   const risk = record.role_kind === 'irsa' && record.kubernetes_access_status !== 'available' ? 'medium' : record.role_kind === 'node_role' ? 'medium' : 'low';
+  const category =
+    record.role_kind === 'irsa'
+      ? 'EKS IRSA'
+      : record.role_kind === 'pod_identity'
+        ? 'EKS Pod Identity'
+        : record.role_kind === 'node_role'
+          ? 'EKS node role'
+          : record.role_kind === 'fargate_pod_execution_role'
+            ? 'EKS Fargate pod role'
+            : 'EKS workload identity';
   return {
     id: `eks-workload-identity-${record.from_node_id}-${record.to_node_id || record.role_arn || record.evidence_ref}`,
     name: roleLabel,
-    category: record.role_kind === 'irsa' ? 'EKS IRSA' : record.role_kind === 'pod_identity' ? 'EKS Pod Identity' : record.role_kind === 'node_role' ? 'EKS node role' : 'EKS Fargate pod role',
+    category,
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
     stage: status === 'wired now' ? 'wired' : 'coming',

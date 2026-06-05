@@ -112,6 +112,28 @@ func TestFixtureCollectorClassifiesECSTaskRoleWithWorkloadIDAsECS(t *testing.T) 
 	}
 }
 
+func TestFixtureCollectorClassifiesEKSWorkloadBeforeGenericRoleKindFallback(t *testing.T) {
+	payload := []byte(`{
+		"account_id":"123456789012",
+		"region":"us-east-1",
+		"workload_id":"prod-cluster/jobs/batch-worker",
+		"workload_type":"eks_service_account",
+		"role_kind":"pod_identity",
+		"role_arn":"arn:aws:iam::123456789012:role/batch-pod-identity",
+		"cluster_name":"prod-cluster",
+		"namespace":"jobs",
+		"service_account":"batch-worker"
+	}`)
+
+	kind, sourceID := fixtureAssetKindAndSourceID(payload)
+	if kind != rawKindEKSWorkloadIdentity {
+		t.Fatalf("expected EKS workload identity fixture, got kind=%q sourceID=%q", kind, sourceID)
+	}
+	if sourceID == "" {
+		t.Fatal("expected EKS source ID")
+	}
+}
+
 func TestFixtureCollectorDoesNotClassifyGenericEnvironmentKeysAsLambda(t *testing.T) {
 	genericPayload := []byte(`{
 		"role_arn":"arn:aws:iam::123456789012:role/shared-runtime",

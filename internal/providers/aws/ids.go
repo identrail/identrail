@@ -82,14 +82,11 @@ func eksClusterResourceID(clusterARN string) string {
 }
 
 func eksWorkloadResourceID(record EKSWorkloadIdentity) string {
-	return fmt.Sprintf(
-		"aws:resource:eks-workload:%s:%s:%s/%s/%s",
-		normalizeName(record.AccountID),
-		normalizeName(record.Region),
-		normalizeName(firstNonEmptyAWSValue(record.ClusterName, record.ClusterARN, "cluster")),
-		normalizeName(firstNonEmptyAWSValue(record.WorkloadID, record.KubernetesSubject, record.AssociationARN, record.NodegroupARN, record.FargateProfileARN, "workload")),
-		normalizeName(firstNonEmptyAWSValue(record.RoleKind, "role")),
-	)
+	suffix := strings.TrimPrefix(eksWorkloadIdentityNormalizedWorkloadID(record), "aws:workload:eks:")
+	if strings.TrimSpace(suffix) == "" {
+		suffix = "workload"
+	}
+	return "aws:resource:eks-workload:" + suffix
 }
 
 func roleNameFromARN(arn string) string {

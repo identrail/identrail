@@ -53,6 +53,21 @@ const readOnlyPolicyJSON = `{
       "Resource": "*"
     },
     {
+      "Sid": "IdentityTrustGraphReadOnlyEKS",
+      "Effect": "Allow",
+      "Action": [
+        "eks:DescribeCluster",
+        "eks:DescribeFargateProfile",
+        "eks:DescribeNodegroup",
+        "eks:DescribePodIdentityAssociation",
+        "eks:ListClusters",
+        "eks:ListFargateProfiles",
+        "eks:ListNodegroups",
+        "eks:ListPodIdentityAssociations"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "IdentityTrustGraphReadOnlyStorage",
       "Effect": "Allow",
       "Action": [
@@ -160,6 +175,21 @@ func PermissionPreview() []PermissionPreviewItem {
 			},
 			Resources: []string{"*"},
 			Reason:    "Maps ECS services and task definitions back to task roles, execution roles, container images, and metadata-only secret references.",
+		},
+		{
+			Service: "EKS",
+			Actions: []string{
+				"eks:ListClusters",
+				"eks:DescribeCluster",
+				"eks:ListPodIdentityAssociations",
+				"eks:DescribePodIdentityAssociation",
+				"eks:ListNodegroups",
+				"eks:DescribeNodegroup",
+				"eks:ListFargateProfiles",
+				"eks:DescribeFargateProfile",
+			},
+			Resources: []string{"*"},
+			Reason:    "Maps EKS Pod Identity associations, node roles, Fargate pod execution roles, and cluster OIDC metadata back to IAM roles without reading Kubernetes secrets or payloads.",
 		},
 		{
 			Service:   "S3",
