@@ -111,3 +111,24 @@ func TestFixtureCollectorClassifiesECSTaskRoleWithWorkloadIDAsECS(t *testing.T) 
 		t.Fatal("expected ECS source ID")
 	}
 }
+
+func TestFixtureCollectorDoesNotClassifyGenericEnvironmentKeysAsLambda(t *testing.T) {
+	genericPayload := []byte(`{
+		"role_arn":"arn:aws:iam::123456789012:role/shared-runtime",
+		"environment_keys":["APP_ENV"]
+	}`)
+	kind, sourceID := fixtureAssetKindAndSourceID(genericPayload)
+	if kind != "" || sourceID != "" {
+		t.Fatalf("expected generic environment key fixture to stay unclassified, got kind=%q sourceID=%q", kind, sourceID)
+	}
+
+	lambdaPayload := []byte(`{
+		"function_arn":"arn:aws:lambda:us-east-1:123456789012:function:payments-worker",
+		"role_arn":"arn:aws:iam::123456789012:role/payments-lambda-execution",
+		"environment_keys":["APP_ENV"]
+	}`)
+	kind, sourceID = fixtureAssetKindAndSourceID(lambdaPayload)
+	if kind != rawKindLambdaExecutionRole || sourceID == "" {
+		t.Fatalf("expected explicit Lambda fixture to classify, got kind=%q sourceID=%q", kind, sourceID)
+	}
+}

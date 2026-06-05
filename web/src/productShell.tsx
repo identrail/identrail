@@ -33,6 +33,8 @@ import {
   type AWSEC2InstanceProfileRecord,
   type AWSECSTaskRoleInventoryResult,
   type AWSECSTaskRoleRecord,
+  type AWSLambdaExecutionRoleInventoryResult,
+  type AWSLambdaExecutionRoleRecord,
   type AWSPlatformBaselineResult,
   type AWSPlatformDependencyIndexResult,
   type AWSPlatformValidationHarnessResult,
@@ -3575,6 +3577,13 @@ type AWSInventoryECSState = {
   onRetry: () => void;
 };
 
+type AWSInventoryLambdaState = {
+  inventory: AWSLambdaExecutionRoleInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryCoverageRow = AWSInventoryFilterable & {
   id: string;
   category: string;
@@ -4168,19 +4177,23 @@ function AWSMachineIdentitiesContent({
   connection,
   ec2State,
   ecsState,
+  lambdaState,
   filters,
   onFiltersChange
 }: {
   connection: AWSConnectionStatus | null;
   ec2State: AWSInventoryEC2State;
   ecsState: AWSInventoryECSState;
+  lambdaState: AWSInventoryLambdaState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
   const ec2Inventory = ec2State.inventory;
   const ecsInventory = ecsState.inventory;
+  const lambdaInventory = lambdaState.inventory;
   const ec2Rows = buildAWSEC2InstanceProfileRows(ec2Inventory, ec2State.loading, connection);
   const ecsRows = buildAWSECSTaskRoleRows(ecsInventory, ecsState.loading, connection);
+  const lambdaRows = buildAWSLambdaExecutionRoleRows(lambdaInventory, lambdaState.loading, connection);
   const rows: AWSInventoryTableRow[] = [
     ...(connection?.role_arn
       ? [
@@ -4205,17 +4218,7 @@ function AWSMachineIdentitiesContent({
       : []),
     ...ec2Rows,
     ...ecsRows,
-    {
-      id: 'lambda-execution-roles',
-      name: 'Lambda execution roles',
-      category: 'Service identity',
-      scope: 'Lambda',
-      status: 'coming',
-      stage: 'coming',
-      detail: 'Lambda execution-role ownership arrives in a later AWS service collector wave.',
-      filters: { identityType: 'lambda-role', service: 'lambda', risk: 'unscored', status: 'coming', search: '' },
-      searchText: inventorySearchText(['lambda', 'execution roles', 'service identity'])
-    },
+    ...lambdaRows,
     {
       id: 'eks-irsa',
       name: 'EKS IRSA and Pod Identity associations',
@@ -4246,6 +4249,7 @@ function AWSMachineIdentitiesContent({
       <AWSInventoryFilterSet routeID="identities" filters={filters} onChange={onFiltersChange} />
       {ec2State.loading ? <DomainLoadingState label="Loading EC2 instance profiles" /> : null}
       {ecsState.loading ? <DomainLoadingState label="Loading ECS task roles" /> : null}
+      {lambdaState.loading ? <DomainLoadingState label="Loading Lambda execution roles" /> : null}
       {ec2State.error ? (
         <DomainErrorState
           title="EC2 instance profiles could not load"
@@ -4258,6 +4262,13 @@ function AWSMachineIdentitiesContent({
           title="ECS task roles could not load"
           body={ecsState.error}
           retryAction={{ label: 'Retry ECS inventory', onClick: ecsState.onRetry }}
+        />
+      ) : null}
+      {lambdaState.error ? (
+        <DomainErrorState
+          title="Lambda execution roles could not load"
+          body={lambdaState.error}
+          retryAction={{ label: 'Retry Lambda inventory', onClick: lambdaState.onRetry }}
         />
       ) : null}
       {ec2Inventory?.diagnostics.length ? (
@@ -4287,6 +4298,24 @@ function AWSMachineIdentitiesContent({
         >
           <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="ECS task role diagnostics">
             {ecsInventory.diagnostics.map((diagnostic) => (
+              <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
+                <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                <p>{diagnostic.message}</p>
+                {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
+      {lambdaInventory?.diagnostics.length ? (
+        <DomainStatusPanel
+          eyebrow="Lambda collector diagnostics"
+          title="Partial Lambda execution-role evidence"
+          status={formatTokenLabel(lambdaInventory.status)}
+          tone={lambdaInventory.status === 'blocked' ? 'danger' : 'warning'}
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="Lambda execution role diagnostics">
+            {lambdaInventory.diagnostics.map((diagnostic) => (
               <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
                 <strong>{formatTokenLabel(diagnostic.code)}</strong>
                 <p>{diagnostic.message}</p>
@@ -4358,6 +4387,18 @@ function AWSMachineIdentitiesContent({
             <div>
               <dt>ECS diagnostics</dt>
               <dd>{ecsInventory?.diagnostics.length ? `${ecsInventory.diagnostics.length} active` : ecsInventory ? 'Clear' : 'Not loaded'}</dd>
+            </div>
+            <div>
+              <dt>Lambda workload links</dt>
+              <dd>{lambdaInventory ? `${lambdaInventory.function_count} functions / ${lambdaInventory.relationship_count} relationships` : lambdaState.loading ? 'Loading' : 'Not loaded'}</dd>
+            </div>
+            <div>
+              <dt>Lambda event sources</dt>
+              <dd>{lambdaInventory ? `${lambdaInventory.event_source_count} mapped / ${lambdaInventory.disabled_event_source_count} disabled` : 'Not loaded'}</dd>
+            </div>
+            <div>
+              <dt>Lambda diagnostics</dt>
+              <dd>{lambdaInventory?.diagnostics.length ? `${lambdaInventory.diagnostics.length} active` : lambdaInventory ? 'Clear' : 'Not loaded'}</dd>
             </div>
           </dl>
         </DomainDetailPanel>
@@ -4586,6 +4627,123 @@ function awsECSTaskRoleRow(record: AWSECSTaskRoleRecord): AWSInventoryTableRow {
       record.account_id,
       record.region,
       'ecs task role execution role'
+    ])
+  };
+}
+
+function buildAWSLambdaExecutionRoleRows(
+  inventory: AWSLambdaExecutionRoleInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsLambdaExecutionRoleRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'lambda-execution-roles-blocked',
+        name: 'Lambda execution roles unavailable',
+        category: 'Lambda execution role',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'Lambda execution-role collection is blocked.',
+        filters: { identityType: 'lambda-role', service: 'lambda', risk: 'unscored', status: 'not-yet-available', search: '' },
+        searchText: inventorySearchText(['lambda', 'execution role', inventory.account_id, inventory.region, 'blocked'])
+      }
+    ];
+  }
+  if (inventory) {
+    return [
+      {
+        id: 'lambda-execution-roles-empty',
+        name: 'No Lambda execution roles found',
+        category: 'Lambda execution role',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'wired now',
+        stage: 'wired',
+        detail: 'The collector completed for this account and region without Lambda functions that reference execution roles.',
+        filters: { identityType: 'lambda-role', service: 'lambda', risk: 'low', status: 'wired-now', search: '' },
+        searchText: inventorySearchText(['lambda', 'execution role', inventory.account_id, inventory.region, 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'lambda-execution-roles-loading',
+        name: 'Lambda execution roles',
+        category: 'Lambda execution role',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading Lambda execution-role evidence for the selected environment.',
+        filters: { identityType: 'lambda-role', service: 'lambda', risk: 'unscored', status: 'coming', search: '' },
+        searchText: inventorySearchText(['lambda', 'execution role', 'loading'])
+      }
+    ];
+  }
+  return [
+    {
+      id: 'lambda-execution-roles',
+      name: 'Lambda execution roles',
+      category: 'Lambda execution role',
+      scope: 'Account and region expansion',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Execution-role inventory maps Lambda functions back to IAM roles after AWS is connected.',
+      filters: { identityType: 'lambda-role', service: 'lambda', risk: 'unscored', status: 'coming', search: '' },
+      searchText: inventorySearchText(['lambda', 'execution role', 'inventory'])
+    }
+  ];
+}
+
+function awsLambdaExecutionRoleRow(record: AWSLambdaExecutionRoleRecord): AWSInventoryTableRow {
+  const stage: AWSCapabilityStage = record.status === 'ready' && record.role_arn ? 'wired' : 'coming';
+  const status = stage === 'wired' ? 'wired now' : 'degraded';
+  const roleLabel = record.role_name || record.role_arn || 'role unresolved';
+  const functionLabel = record.function_name || record.workload_name || record.function_arn || record.workload_id;
+  const runtimeLabel = record.runtime ? `${record.runtime}${record.handler ? ` / ${record.handler}` : ''}` : record.package_type || 'runtime not reported';
+  const eventSourceCount = (record.event_source_arns?.length ?? 0) + (record.disabled_event_source_arns?.length ?? 0);
+  const eventSourceLabel = eventSourceCount
+    ? `${eventSourceCount} event source${eventSourceCount === 1 ? '' : 's'}${record.disabled_event_source_arns?.length ? `, ${record.disabled_event_source_arns.length} disabled` : ''}`
+    : 'no event sources reported';
+  const envLabel = record.environment_keys?.length ? `${record.environment_keys.length} env keys, values hidden` : 'no env keys reported';
+  const secretLabel = record.secret_refs?.length ? `${record.secret_refs.length} secret refs, values hidden` : 'no secret refs reported';
+  return {
+    id: `lambda-execution-role-${record.from_node_id}-${record.to_node_id || record.role_arn || record.function_arn}`,
+    name: roleLabel,
+    category: 'Lambda execution role',
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage,
+    detail: `${functionLabel} runs as ${roleLabel}; ${runtimeLabel}; ${eventSourceLabel}; ${envLabel}; ${secretLabel}.`,
+    filters: {
+      identityType: 'lambda-role',
+      service: 'lambda',
+      risk: record.secret_refs?.length || record.disabled_event_source_arns?.length ? 'medium' : 'low',
+      status: stage === 'wired' ? 'wired-now' : 'degraded',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.role_arn,
+      record.role_name,
+      record.function_arn,
+      record.function_name,
+      record.runtime,
+      record.package_type,
+      record.handler,
+      record.kms_key_arn,
+      ...(record.alias_names ?? []),
+      ...(record.version_refs ?? []),
+      ...(record.event_source_arns ?? []),
+      ...(record.disabled_event_source_arns ?? []),
+      ...(record.secret_refs ?? []),
+      ...(record.environment_keys ?? []),
+      record.account_id,
+      record.region,
+      'lambda execution role'
     ])
   };
 }
@@ -4819,6 +4977,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [ecsInventoryLoading, setECSInventoryLoading] = useState(false);
   const [ecsInventoryError, setECSInventoryError] = useState('');
   const ecsInventoryRequestRef = useRef(0);
+  const [lambdaInventory, setLambdaInventory] = useState<AWSLambdaExecutionRoleInventoryResult | null>(null);
+  const [lambdaInventoryLoading, setLambdaInventoryLoading] = useState(false);
+  const [lambdaInventoryError, setLambdaInventoryError] = useState('');
+  const lambdaInventoryRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -4907,6 +5069,46 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
       ecsInventoryRequestRef.current += 1;
     };
   }, [loadECSInventory]);
+
+  const loadLambdaInventory = useCallback(async () => {
+    const requestID = ++lambdaInventoryRequestRef.current;
+    setLambdaInventory(null);
+    setLambdaInventoryError('');
+    if (routeID !== 'identities' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setLambdaInventoryLoading(false);
+      return;
+    }
+    setLambdaInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectLambdaExecutionRoles(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== lambdaInventoryRequestRef.current) {
+        return;
+      }
+      setLambdaInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== lambdaInventoryRequestRef.current) {
+        return;
+      }
+      setLambdaInventoryError(formatAPIError(error, 'Unable to load Lambda execution role inventory.'));
+    } finally {
+      if (requestID === lambdaInventoryRequestRef.current) {
+        setLambdaInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadLambdaInventory();
+    return () => {
+      lambdaInventoryRequestRef.current += 1;
+    };
+  }, [loadLambdaInventory]);
 
   if (!scope) {
     return (
@@ -4998,6 +5200,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: ecsInventoryLoading,
             error: ecsInventoryError,
             onRetry: () => void loadECSInventory()
+          }}
+          lambdaState={{
+            inventory: lambdaInventory,
+            loading: lambdaInventoryLoading,
+            error: lambdaInventoryError,
+            onRetry: () => void loadLambdaInventory()
           }}
           filters={activeFilters}
           onFiltersChange={onFiltersChange}

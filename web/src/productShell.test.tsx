@@ -7,6 +7,7 @@ import type {
   AWSConnectionStatus,
   AWSEC2InstanceProfileInventoryResult,
   AWSECSTaskRoleInventoryResult,
+  AWSLambdaExecutionRoleInventoryResult,
   AWSPlatformBaselineResult,
   AWSPlatformDependencyIndexResult,
   AWSPlatformValidationHarnessResult,
@@ -361,6 +362,86 @@ const readyAWSECSTaskRoleInventory: AWSECSTaskRoleInventoryResult = {
   updated_at: '2026-05-17T10:00:00Z'
 };
 
+const readyAWSLambdaExecutionRoleInventory: AWSLambdaExecutionRoleInventoryResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  parent_issue_number: 1472,
+  parent_issue_ref: '#1472',
+  current_issue_number: 1479,
+  current_issue_ref: '#1479',
+  version: 'aws-lambda-execution-role-inventory-v1',
+  status: 'ready',
+  fixture_state: 'success',
+  confidence: 0.97,
+  record_count: 1,
+  function_count: 1,
+  identity_count: 1,
+  resource_count: 1,
+  relationship_count: 1,
+  event_source_count: 1,
+  disabled_event_source_count: 0,
+  failure_reasons: [],
+  remediation_hints: [],
+  evidence_links: ['/docs/aws-lambda-execution-roles'],
+  records: [
+    {
+      account_id: '123456789012',
+      region: 'us-east-1',
+      service: 'lambda',
+      workload_id: 'arn:aws:lambda:us-east-1:123456789012:function:payments-worker',
+      workload_type: 'lambda_function',
+      workload_name: 'payments-worker',
+      role_arn: 'arn:aws:iam::123456789012:role/payments-lambda-execution',
+      role_name: 'payments-lambda-execution',
+      function_arn: 'arn:aws:lambda:us-east-1:123456789012:function:payments-worker',
+      function_name: 'payments-worker',
+      function_version: '$LATEST',
+      function_state: 'Active',
+      last_update_status: 'Successful',
+      runtime: 'nodejs20.x',
+      package_type: 'Zip',
+      handler: 'index.handler',
+      kms_key_arn: 'arn:aws:kms:us-east-1:123456789012:key/lambda-env',
+      memory_size: 512,
+      timeout: 30,
+      vpc_id: 'vpc-prod',
+      subnet_ids: ['subnet-a', 'subnet-b'],
+      security_group_ids: ['sg-lambda-payments'],
+      architectures: ['x86_64'],
+      alias_names: ['prod=3'],
+      version_refs: ['$LATEST', '3'],
+      event_source_arns: ['arn:aws:sqs:us-east-1:123456789012:payments'],
+      event_source_mapping_uuids: ['mapping-payments-sqs'],
+      environment_keys: ['APP_ENV', 'LOG_LEVEL', 'DATABASE_PASSWORD'],
+      secret_refs: ['BASIC_AUTH=arn:aws:secretsmanager:us-east-1:123456789012:secret:lambda/kafka'],
+      tags: { owner: 'platform', service: 'payments' },
+      source: 'listfunctions',
+      evidence_ref: 'arn:aws:lambda:us-east-1:123456789012:function:payments-worker',
+      from_node_id: 'aws:workload:lambda:123456789012:us-east-1:function/payments-worker',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-lambda-execution',
+      relationship_type: 'runs_as',
+      confidence: 0.96,
+      collected_at: '2026-05-17T10:00:00Z',
+      status: 'ready'
+    }
+  ],
+  relationships: [
+    {
+      type: 'runs_as',
+      from_node_id: 'aws:workload:lambda:123456789012:us-east-1:function/payments-worker',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-lambda-execution',
+      evidence_ref: 'arn:aws:lambda:us-east-1:123456789012:function:payments-worker'
+    }
+  ],
+  diagnostics: [],
+  generated_at: '2026-05-17T10:00:00Z',
+  updated_at: '2026-05-17T10:00:00Z'
+};
+
 const readyAWSBaseline: AWSPlatformBaselineResult = {
   tenant_id: 'tenant-a',
   workspace_id: 'workspace-a',
@@ -410,13 +491,10 @@ const readyAWSDependencyIndex: AWSPlatformDependencyIndexResult = {
   confidence: 0.97,
   issue_count: 85,
   wave_count: 11,
-  ready_issue_count: 20,
+  ready_issue_count: 17,
   blocked_issue_count: 61,
-  completed_issue_refs: ['#1473', '#1474', '#1475', '#1476'],
+  completed_issue_refs: ['#1473', '#1474', '#1475', '#1476', '#1477', '#1478', '#1479'],
   ready_issue_refs: [
-    '#1477',
-    '#1478',
-    '#1479',
     '#1480',
     '#1481',
     '#1482',
@@ -654,7 +732,16 @@ const readyAWSServiceCollectorContract: AWSServiceCollectorContractResult = {
     'collector_name',
     'collected_at'
   ],
-  required_permissions: ['sts:GetCallerIdentity', 'iam:ListRoles', 'iam:GetRole'],
+  required_permissions: [
+    'sts:GetCallerIdentity',
+    'iam:ListRoles',
+    'iam:GetRole',
+    'lambda:ListFunctions',
+    'lambda:ListAliases',
+    'lambda:ListVersionsByFunction',
+    'lambda:ListEventSourceMappings',
+    'lambda:ListTags'
+  ],
   read_only_boundaries: ['collect metadata and policy documents only'],
   failure_reasons: [],
   remediation_hints: [],
@@ -2255,7 +2342,7 @@ describe('Domain-first app routes', () => {
     );
   });
 
-  it('renders AWS machine identity inventory with current IAM, EC2, and ECS role rows', async () => {
+  it('renders AWS machine identity inventory with current IAM, EC2, ECS, and Lambda role rows', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: [
@@ -2278,6 +2365,9 @@ describe('Domain-first app routes', () => {
     const getECSTaskRoles = vi
       .spyOn(api.apiClient, 'getAWSProjectECSTaskRoles')
       .mockResolvedValue({ inventory: readyAWSECSTaskRoleInventory });
+    const getLambdaExecutionRoles = vi
+      .spyOn(api.apiClient, 'getAWSProjectLambdaExecutionRoles')
+      .mockResolvedValue({ inventory: readyAWSLambdaExecutionRoleInventory });
 
     const { ProductAWSIdentitiesPage } = await import('./productShell');
 
@@ -2297,11 +2387,16 @@ describe('Domain-first app routes', () => {
     expect(screen.getByText('web-launch-template-profile')).toBeInTheDocument();
     expect(await screen.findByText('payments-ecs-task')).toBeInTheDocument();
     expect(screen.getByText('payments-ecs-execution')).toBeInTheDocument();
+    expect(await screen.findByText('payments-lambda-execution')).toBeInTheDocument();
     expect(screen.getByText(/payments-api runs as payments-ec2-instance-profile; IMDS Required/i)).toBeInTheDocument();
     expect(screen.getByText(/payments-api runs as payments-ecs-task; FARGATE; 0\/3 running/i)).toBeInTheDocument();
     expect(screen.getByText(/payments-api attaches execution support to payments-ecs-execution; FARGATE; 0\/3 running/i)).toBeInTheDocument();
+    expect(screen.getByText(/payments-worker runs as payments-lambda-execution; nodejs20\.x \/ index\.handler; 1 event source; 3 env keys, values hidden; 1 secret refs, values hidden/i)).toBeInTheDocument();
     expect(screen.getAllByText(/2 workloads \/ 2 relationships/i).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/1 functions \/ 1 relationships/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 mapped \/ 0 disabled/i)).toBeInTheDocument();
     expect(screen.getByText(/1 task \/ 1 execution/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Lambda execution-role ownership arrives in a later AWS service collector wave/i)).not.toBeInTheDocument();
     expect(getEC2InstanceProfiles).toHaveBeenCalledWith(
       'workspace-a',
       'production',
@@ -2310,6 +2405,13 @@ describe('Domain-first app routes', () => {
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
     expect(getECSTaskRoles).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      'aws-connector-1',
+      undefined,
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getLambdaExecutionRoles).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       'aws-connector-1',

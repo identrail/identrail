@@ -109,6 +109,14 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	var lambdaRole LambdaExecutionRole
+	if err := json.Unmarshal(payload, &lambdaRole); err == nil {
+		sourceID := lambdaExecutionRoleSourceID(lambdaRole)
+		if isLambdaExecutionRoleFixture(lambdaRole) {
+			return rawKindLambdaExecutionRole, sourceID
+		}
+	}
+
 	var profile EC2InstanceProfile
 	if err := json.Unmarshal(payload, &profile); err == nil {
 		sourceID := ec2InstanceProfileSourceID(profile)
@@ -136,6 +144,25 @@ func isECSTaskRoleFixture(record ECSTaskRole) bool {
 		strings.TrimSpace(record.TaskDefinitionFamily) != "" ||
 		strings.TrimSpace(record.TaskRoleARN) != "" ||
 		strings.TrimSpace(record.ExecutionRoleARN) != ""
+}
+
+func isLambdaExecutionRoleFixture(record LambdaExecutionRole) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), lambdaServiceName) || strings.EqualFold(strings.TrimSpace(record.CollectorName), lambdaExecutionRoleCollectorName) {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(record.WorkloadType)) {
+	case "lambda_function", "function":
+		return true
+	}
+	return strings.TrimSpace(record.FunctionARN) != "" ||
+		strings.TrimSpace(record.FunctionName) != "" ||
+		strings.TrimSpace(record.FunctionVersion) != "" ||
+		strings.TrimSpace(record.Runtime) != "" ||
+		strings.TrimSpace(record.PackageType) != "" ||
+		strings.TrimSpace(record.Handler) != "" ||
+		strings.TrimSpace(record.KMSKeyARN) != "" ||
+		len(record.EventSourceARNs) > 0 ||
+		len(record.DisabledEventSourceARNs) > 0
 }
 
 func isEC2InstanceProfileFixture(record EC2InstanceProfile) bool {

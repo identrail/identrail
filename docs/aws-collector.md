@@ -3,9 +3,9 @@
 ## Purpose
 
 The AWS collector family uses a composable service collection layer. IAM remains
-the default identity source, and EC2 instance profiles plus ECS task/execution
-roles are collected as workload identity services without changing IAM collector
-behavior.
+the default identity source, and EC2 instance profiles, ECS task/execution roles,
+and Lambda execution roles are collected as workload identity services without
+changing IAM collector behavior.
 
 ## Composite Architecture
 
@@ -21,6 +21,9 @@ The collection path is:
   IAM roles attached through instance profiles.
 - `ECSTaskRoleCollector` maps ECS services and active/inactive task definitions
   to task roles and execution roles.
+- `LambdaExecutionRoleCollector` maps Lambda functions to execution roles, alias
+  and version references, event-source mappings, KMS metadata, and secret
+  references without collecting function code or environment values.
 
 Behavior:
 
@@ -98,6 +101,12 @@ ordered by `kind`, then `source_id`.
   `attached_to` graph evidence.
 - ECS records include container images, secret references, and environment keys,
   but not environment values or secret values.
+- Lambda event-source mapping failures are surfaced as partial-failure
+  diagnostics while successful function-to-role evidence remains visible.
+- Disabled Lambda event sources are explicit degraded metadata, not silent gaps.
+- Lambda records include environment key names, KMS key ARNs, and secret/source
+  access references, but not function code, logs, environment values, invocation
+  payloads, or secret values.
 
 ## Security Posture
 
@@ -116,8 +125,12 @@ ordered by `kind`, then `source_id`.
 - ECS task/execution role collection is implemented through AWS SDK ECS adapters
   for `ListClusters`, `ListServices`, `DescribeServices`,
   `ListTaskDefinitions`, and `DescribeTaskDefinition`.
+- Lambda execution-role collection is implemented through AWS SDK Lambda
+  adapters for `ListFunctions`, `ListAliases`, `ListVersionsByFunction`,
+  `ListEventSourceMappings`, and `ListTags`.
 - AWS SDK CLI and runtime paths now use `NewAWSScanner`, which wires the
-  composite collector with IAM, EC2 instance profile, and ECS task role services.
+  composite collector with IAM, EC2 instance profile, ECS task role, and Lambda
+  execution role services.
 - The composite layer is now the extension point for future AWS service collection in the CLI/runtime path.
 - The service collector contract is exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/collector-contract`
@@ -127,4 +140,7 @@ ordered by `kind`, then `source_id`.
   and the AWS machine identities page.
 - ECS task/execution role inventory is exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/ecs-task-roles`
+  and the AWS machine identities page.
+- Lambda execution role inventory is exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/lambda-execution-roles`
   and the AWS machine identities page.

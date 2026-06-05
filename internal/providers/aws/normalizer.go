@@ -79,6 +79,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		}
 	}
 
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != rawKindLambdaExecutionRole {
+			continue
+		}
+		if err := normalizeLambdaExecutionRoleAsset(asset, i, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
 	return bundle, nil
 }
 
@@ -360,6 +372,99 @@ func normalizeECSTaskRoleAsset(asset providers.RawAsset, index int, bundle *prov
 	return nil
 }
 
+func normalizeLambdaExecutionRoleAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record LambdaExecutionRole
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode lambda execution role asset[%d]: %w", index, err)
+	}
+
+	roleARN := strings.TrimSpace(record.RoleARN)
+	roleIdentityID := ""
+	if roleARN != "" {
+		roleIdentityID = identityIDFromARN(roleARN)
+		roleName := strings.TrimSpace(record.RoleName)
+		if roleName == "" {
+			roleName = roleNameFromARN(roleARN)
+		}
+		if _, exists := identitySeen[roleIdentityID]; !exists {
+			identitySeen[roleIdentityID] = struct{}{}
+			bundle.Identities = append(bundle.Identities, domain.Identity{
+				ID:        roleIdentityID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.IdentityTypeRole,
+				Name:      roleName,
+				ARN:       roleARN,
+				OwnerHint: ownerHintFromTags(record.Tags),
+				Tags:      copyTags(record.Tags),
+				RawRef:    asset.SourceID,
+			})
+		}
+	}
+
+	workloadID := lambdaRoleWorkloadID(record)
+	if workloadID != "" {
+		if _, exists := workloadSeen[workloadID]; !exists {
+			workloadSeen[workloadID] = struct{}{}
+			bundle.Workloads = append(bundle.Workloads, domain.Workload{
+				ID:        workloadID,
+				Provider:  domain.ProviderAWS,
+				Type:      "lambda_function",
+				Name:      lambdaRoleWorkloadName(record),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Region:    strings.TrimSpace(record.Region),
+				RawRef:    roleIdentityID,
+			})
+		}
+	}
+
+	if strings.TrimSpace(record.FunctionARN) != "" {
+		functionResourceID := lambdaFunctionResourceID(record.FunctionARN)
+		if _, exists := resourceSeen[functionResourceID]; !exists {
+			resourceSeen[functionResourceID] = struct{}{}
+			bundle.Resources = append(bundle.Resources, domain.Resource{
+				ID:        functionResourceID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.ResourceTypeLambdaFunction,
+				Name:      lambdaRoleWorkloadName(record),
+				ARN:       strings.TrimSpace(record.FunctionARN),
+				Region:    strings.TrimSpace(record.Region),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Labels:    copyTags(record.Tags),
+				Metadata: map[string]any{
+					"role_arn":                      roleARN,
+					"function_name":                 strings.TrimSpace(record.FunctionName),
+					"function_version":              strings.TrimSpace(record.FunctionVersion),
+					"function_state":                strings.TrimSpace(record.FunctionState),
+					"last_update_status":            strings.TrimSpace(record.LastUpdateStatus),
+					"runtime":                       strings.TrimSpace(record.Runtime),
+					"package_type":                  strings.TrimSpace(record.PackageType),
+					"handler":                       strings.TrimSpace(record.Handler),
+					"kms_key_arn":                   strings.TrimSpace(record.KMSKeyARN),
+					"memory_size":                   record.MemorySize,
+					"timeout":                       record.Timeout,
+					"vpc_id":                        strings.TrimSpace(record.VPCID),
+					"subnet_ids":                    append([]string(nil), record.SubnetIDs...),
+					"security_group_ids":            append([]string(nil), record.SecurityGroupIDs...),
+					"architectures":                 append([]string(nil), record.Architectures...),
+					"layer_arns":                    append([]string(nil), record.LayerARNs...),
+					"alias_names":                   append([]string(nil), record.AliasNames...),
+					"version_refs":                  append([]string(nil), record.VersionRefs...),
+					"event_source_arns":             append([]string(nil), record.EventSourceARNs...),
+					"event_source_mapping_uuids":    append([]string(nil), record.EventSourceMappingUUIDs...),
+					"disabled_event_source_arns":    append([]string(nil), record.DisabledEventSourceARNs...),
+					"disabled_event_source_reasons": append([]string(nil), record.DisabledEventSourceReasons...),
+					"environment_keys":              append([]string(nil), record.EnvironmentKeys...),
+					"secret_refs":                   append([]string(nil), record.SecretRefs...),
+				},
+				RawRef:         asset.SourceID,
+				SourceEntityID: workloadID,
+			})
+		}
+	}
+
+	return nil
+}
+
 func normalizePermissionPolicies(identityID string, policies []IAMPermissionPolicy) ([]domain.Policy, error) {
 	result := make([]domain.Policy, 0, len(policies))
 	for idx, policy := range policies {
@@ -492,6 +597,18 @@ func ecsRoleWorkloadName(record ECSTaskRole) string {
 		roleKindLabel = "execution role"
 	}
 	return firstNonEmptyAWSValue(record.WorkloadName, record.ServiceName, record.TaskDefinitionFamily, ecsNameFromARN(record.ServiceARN), ecsNameFromARN(record.TaskDefinitionARN), "ecs workload") + " " + roleKindLabel
+}
+
+func lambdaRoleWorkloadID(record LambdaExecutionRole) string {
+	return lambdaFunctionWorkloadID(
+		record.AccountID,
+		record.Region,
+		firstNonEmptyAWSValue(record.FunctionARN, record.WorkloadID, record.FunctionName),
+	)
+}
+
+func lambdaRoleWorkloadName(record LambdaExecutionRole) string {
+	return firstNonEmptyAWSValue(record.WorkloadName, record.FunctionName, lambdaFunctionNameFromARN(record.FunctionARN), "lambda function")
 }
 
 func ownerHintFromTags(tags map[string]string) string {

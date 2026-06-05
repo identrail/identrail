@@ -1241,6 +1241,101 @@ export type AWSECSTaskRoleInventoryResult = {
   updated_at: string;
 };
 
+export type AWSLambdaExecutionRoleInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSLambdaExecutionRoleFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+
+export type AWSLambdaExecutionRoleRecord = {
+  account_id: string;
+  region: string;
+  service: string;
+  workload_id: string;
+  workload_type: string;
+  workload_name: string;
+  role_arn?: string;
+  role_name?: string;
+  function_arn?: string;
+  function_name?: string;
+  function_version?: string;
+  function_state?: string;
+  last_update_status?: string;
+  runtime?: string;
+  package_type?: string;
+  handler?: string;
+  kms_key_arn?: string;
+  memory_size?: number;
+  timeout?: number;
+  vpc_id?: string;
+  subnet_ids?: string[];
+  security_group_ids?: string[];
+  architectures?: string[];
+  layer_arns?: string[];
+  alias_names?: string[];
+  version_refs?: string[];
+  event_source_arns?: string[];
+  event_source_mapping_uuids?: string[];
+  disabled_event_source_arns?: string[];
+  disabled_event_source_reasons?: string[];
+  environment_keys?: string[];
+  secret_refs?: string[];
+  tags?: Record<string, string>;
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  to_node_id?: string;
+  relationship_type: 'runs_as' | string;
+  confidence: number;
+  collected_at: string;
+  status: string;
+};
+
+export type AWSLambdaExecutionRoleRelationship = {
+  type: 'runs_as' | string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSLambdaExecutionRoleDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSLambdaExecutionRoleInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSLambdaExecutionRoleInventoryStatus;
+  fixture_state: AWSLambdaExecutionRoleFixtureState;
+  confidence: number;
+  record_count: number;
+  function_count: number;
+  identity_count: number;
+  resource_count: number;
+  relationship_count: number;
+  event_source_count: number;
+  disabled_event_source_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  records: AWSLambdaExecutionRoleRecord[];
+  relationships: AWSLambdaExecutionRoleRelationship[];
+  diagnostics: AWSLambdaExecutionRoleDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSConnectorStartRequest = {
   workspace_id?: string;
   project_id?: string;
@@ -2228,6 +2323,21 @@ export const apiClient = {
   ) {
     return request<{ inventory: AWSECSTaskRoleInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/ecs-task-roles${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectLambdaExecutionRoles(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSLambdaExecutionRoleFixtureState,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSLambdaExecutionRoleInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/lambda-execution-roles${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
       })}`,
