@@ -57,6 +57,14 @@ func ecsTaskDefinitionResourceID(taskDefinitionARN string) string {
 	return "aws:resource:ecs-task-definition:" + strings.TrimSpace(taskDefinitionARN)
 }
 
+func lambdaFunctionWorkloadID(accountID, region, functionRef string) string {
+	return fmt.Sprintf("aws:workload:lambda:%s:%s:function/%s", normalizeName(accountID), normalizeName(region), normalizeName(functionRef))
+}
+
+func lambdaFunctionResourceID(functionARN string) string {
+	return "aws:resource:lambda-function:" + strings.TrimSpace(functionARN)
+}
+
 func roleNameFromARN(arn string) string {
 	trimmed := strings.TrimSpace(arn)
 	if trimmed == "" {

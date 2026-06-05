@@ -58,7 +58,7 @@ func TestGetAWSServiceCollectorContractBuildsCanonicalContract(t *testing.T) {
 			t.Fatalf("expected contract check %s ready, got %+v", check.Name, check)
 		}
 	}
-	for _, permission := range []string{"iam:GetRole", "iam:GetInstanceProfile", "ec2:DescribeInstances", "ec2:DescribeLaunchTemplates", "ec2:DescribeLaunchTemplateVersions"} {
+	for _, permission := range []string{"iam:GetRole", "iam:GetInstanceProfile", "ec2:DescribeInstances", "ec2:DescribeLaunchTemplates", "ec2:DescribeLaunchTemplateVersions", "lambda:ListFunctions", "lambda:ListEventSourceMappings", "lambda:ListTags"} {
 		if !containsString(result.RequiredPermissions, permission) {
 			t.Fatalf("missing required permission %q in %+v", permission, result.RequiredPermissions)
 		}

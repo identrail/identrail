@@ -119,6 +119,11 @@ func AWSServiceCollectorContract() ServiceCollectorContract {
 			"ecs:DescribeServices",
 			"ecs:ListTaskDefinitions",
 			"ecs:DescribeTaskDefinition",
+			"lambda:ListFunctions",
+			"lambda:ListAliases",
+			"lambda:ListVersionsByFunction",
+			"lambda:ListEventSourceMappings",
+			"lambda:ListTags",
 		},
 		ReadOnlyBoundaries: []string{
 			"collect metadata and policy documents only; never collect secret values, customer payloads, prompts, completions, object contents, or database rows",

@@ -264,50 +264,11 @@ func (c *ECSTaskRoleCollector) CollectWithDiagnostics(ctx context.Context, scope
 }
 
 func (c *ECSTaskRoleCollector) withRetry(ctx context.Context, fn func(context.Context) (ECSTaskRolePage, error)) (ECSTaskRolePage, error) {
-	var lastErr error
-	for attempt := 0; attempt <= c.retry.MaxRetries; attempt++ {
-		if ctx.Err() != nil {
-			return ECSTaskRolePage{}, ctx.Err()
-		}
-		result, err := fn(ctx)
-		if err == nil {
-			return result, nil
-		}
-		if !isRetryable(err) || attempt == c.retry.MaxRetries {
-			lastErr = err
-			break
-		}
-		delay := c.backoff(attempt)
-		if sleepErr := c.sleep(ctx, delay); sleepErr != nil {
-			return ECSTaskRolePage{}, sleepErr
-		}
-		lastErr = err
-	}
-	return ECSTaskRolePage{}, fmt.Errorf("retries exhausted: %w", lastErr)
+	return retryAWSPage(ctx, c.retry, c.jitter, c.randFn, c.sleep, fn)
 }
 
 func (c *ECSTaskRoleCollector) backoff(attempt int) time.Duration {
-	delay := c.retry.BaseDelay << attempt
-	if delay > c.retry.MaxDelay {
-		delay = c.retry.MaxDelay
-	}
-	if c.jitter <= 0 {
-		return delay
-	}
-	randFn := c.randFn
-	if randFn == nil {
-		randFn = rand.Float64
-	}
-	jitterRange := float64(delay) * c.jitter
-	jitterOffset := (randFn()*2 - 1) * jitterRange
-	jittered := time.Duration(float64(delay) + jitterOffset)
-	if jittered < 0 {
-		return 0
-	}
-	if jittered > c.retry.MaxDelay {
-		return c.retry.MaxDelay
-	}
-	return jittered
+	return awsRetryBackoff(c.retry, c.jitter, c.randFn, attempt)
 }
 
 func (c *ECSTaskRoleCollector) addIssue(issue providers.SourceError) {

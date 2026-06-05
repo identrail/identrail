@@ -72,7 +72,12 @@ The response envelope is:
       "ecs:ListServices",
       "ecs:DescribeServices",
       "ecs:ListTaskDefinitions",
-      "ecs:DescribeTaskDefinition"
+      "ecs:DescribeTaskDefinition",
+      "lambda:ListFunctions",
+      "lambda:ListAliases",
+      "lambda:ListVersionsByFunction",
+      "lambda:ListEventSourceMappings",
+      "lambda:ListTags"
     ],
     "read_only_boundaries": [
       "collect metadata and policy documents only; never collect secret values, customer payloads, prompts, completions, object contents, or database rows"
@@ -142,7 +147,10 @@ metadata-only compute reads: `ec2:DescribeInstances`,
 `ec2:DescribeLaunchTemplates`, and `ec2:DescribeLaunchTemplateVersions`. The
 ECS workload collector adds metadata-only reads: `ecs:ListClusters`,
 `ecs:ListServices`, `ecs:DescribeServices`, `ecs:ListTaskDefinitions`, and
-`ecs:DescribeTaskDefinition`.
+`ecs:DescribeTaskDefinition`. The Lambda workload collector adds metadata-only
+reads: `lambda:ListFunctions`, `lambda:ListAliases`,
+`lambda:ListVersionsByFunction`, `lambda:ListEventSourceMappings`, and
+`lambda:ListTags`.
 
 Future service collectors may add service-specific read-only metadata
 permissions, but must not add actions that read secret values, object contents,

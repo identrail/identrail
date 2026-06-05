@@ -498,6 +498,11 @@ x-identrail-route-authorizations:
     action: tenancy.read
     resource_type: project
     resource_id_param: project_id
+  - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/lambda-execution-roles
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
   - method: POST
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/baseline
     action: scans.run
@@ -3863,6 +3868,56 @@ paths:
                     $ref: "#/components/schemas/AWSECSTaskRoleInventoryResult"
         "400":
           description: Invalid AWS ECS task role inventory request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/lambda-execution-roles:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS Lambda execution role machine identities
+      operationId: getAWSProjectLambdaExecutionRoles
+      description: Returns scoped Lambda function, execution role, runtime, alias, version, event-source, secret-reference, environment-key, graph relationship, and collector diagnostic evidence for the selected AWS connector without reading function code, environment values, secret values, logs, or invocation payloads.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope the account, region, and read-only Lambda inventory evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+      responses:
+        "200":
+          description: AWS Lambda execution role inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inventory:
+                    $ref: "#/components/schemas/AWSLambdaExecutionRoleInventoryResult"
+        "400":
+          description: Invalid AWS Lambda execution role inventory request
           content:
             application/json:
               schema:
@@ -7308,6 +7363,218 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSECSTaskRoleDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSLambdaExecutionRoleRecord:
+      type: object
+      properties:
+        account_id:
+          type: string
+        region:
+          type: string
+        service:
+          type: string
+          enum: [lambda]
+        workload_id:
+          type: string
+        workload_type:
+          type: string
+          enum: [lambda_function]
+        workload_name:
+          type: string
+        role_arn:
+          type: string
+        role_name:
+          type: string
+        function_arn:
+          type: string
+        function_name:
+          type: string
+        function_version:
+          type: string
+        function_state:
+          type: string
+        last_update_status:
+          type: string
+        runtime:
+          type: string
+        package_type:
+          type: string
+        handler:
+          type: string
+        kms_key_arn:
+          type: string
+        memory_size:
+          type: integer
+        timeout:
+          type: integer
+        vpc_id:
+          type: string
+        subnet_ids:
+          type: array
+          items: { type: string }
+        security_group_ids:
+          type: array
+          items: { type: string }
+        architectures:
+          type: array
+          items: { type: string }
+        layer_arns:
+          type: array
+          items: { type: string }
+        alias_names:
+          type: array
+          items: { type: string }
+        version_refs:
+          type: array
+          items: { type: string }
+        event_source_arns:
+          type: array
+          items: { type: string }
+        event_source_mapping_uuids:
+          type: array
+          items: { type: string }
+        disabled_event_source_arns:
+          type: array
+          items: { type: string }
+        disabled_event_source_reasons:
+          type: array
+          items: { type: string }
+        environment_keys:
+          type: array
+          description: Environment variable names only; values are intentionally not collected.
+          items: { type: string }
+        secret_refs:
+          type: array
+          description: Secret or source-access references by name/source only; never secret values.
+          items: { type: string }
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        source:
+          type: string
+        evidence_ref:
+          type: string
+        from_node_id:
+          type: string
+        to_node_id:
+          type: string
+        relationship_type:
+          type: string
+          enum: [runs_as]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        collected_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [ready, degraded]
+    AWSLambdaExecutionRoleRelationship:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [runs_as]
+        from_node_id:
+          type: string
+        to_node_id:
+          type: string
+        evidence_ref:
+          type: string
+    AWSLambdaExecutionRoleDiagnostic:
+      type: object
+      properties:
+        collector:
+          type: string
+        source_id:
+          type: string
+        code:
+          type: string
+          enum: [alias_list_failed, disabled_event_source, event_source_mapping_list_failed, missing_function_arn, missing_lambda_execution_role, permission_denied, tags_list_failed, version_list_failed]
+        message:
+          type: string
+        remediation:
+          type: string
+        retryable:
+          type: boolean
+    AWSLambdaExecutionRoleInventoryResult:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        workspace_id:
+          type: string
+        project_id:
+          type: string
+        connector_id:
+          type: string
+        account_id:
+          type: string
+        region:
+          type: string
+        parent_issue_number:
+          type: integer
+        parent_issue_ref:
+          type: string
+        current_issue_number:
+          type: integer
+        current_issue_ref:
+          type: string
+        version:
+          type: string
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        record_count:
+          type: integer
+        function_count:
+          type: integer
+        identity_count:
+          type: integer
+        resource_count:
+          type: integer
+        relationship_count:
+          type: integer
+        event_source_count:
+          type: integer
+        disabled_event_source_count:
+          type: integer
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLambdaExecutionRoleRecord"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLambdaExecutionRoleRelationship"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLambdaExecutionRoleDiagnostic"
         generated_at:
           type: string
           format: date-time
