@@ -1,6 +1,46 @@
 # Changelog
 
 ## Unreleased
+- Reworked the GitHub **Repositories** page (`/app/.../github/repositories`)
+  with the same compact treatment applied to the overview and Connect
+  pages. The header drops the GitHub icon, the `REPOSITORY INVENTORY`
+  eyebrow, the "Launch, monitor, and cancel repository scans for the
+  selected installation." tagline, the standalone Connected pill, and
+  two of the three header CTAs (`Manage connection` and `GitHub home`).
+  The title is just `Repositories` and the subtitle is a single
+  state-aware line — `15 repositories · 8 recent scans · 2 failed`
+  when there is recent activity, just `15 repositories` for a clean
+  inventory, `Not connected for this environment.` when disconnected,
+  `Loading repositories…` during the first fetch, and `Unable to load
+  repositories.` when the status fetch fails. One primary CTA per
+  state: `Connect GitHub` (disconnected) or `GitHub findings`
+  (connected); the CTA is omitted while loading or in an error state
+  so the error panel stays the single source of truth.
+  The repository list is rebuilt as a compact table-like grid: each
+  row is a single card with the bold repo name and a clean status
+  line (`May 27 · 8 findings`, `May 24 · failed · Scan timed out`,
+  `full in flight`, or `Not scanned`), and the `Queue scan` / `Cancel
+  scan` buttons sit trailing on the same row. The previous bullet-list
+  rendering (`<ul>`/`<li>`) with browser default disc markers and the
+  inconsistent row heights are gone.
+  The `Selected repositories / X repositories in scope` sub-header,
+  the floating `Environment t` chrome chip, the `Activity / Recent
+  repository scan activity` framing with the `X scans loaded` counter,
+  and the `Reference / Scan operations` documentation aside (which
+  exposed three meta-bullets including the implementation rule
+  "Cancel is only available while a scan is queued or running.") are
+  all removed. The activity section header is now just `Recent
+  activity`. While loading or in an error state the install/manage
+  body, the recent activity section, and the speculative empty states
+  are suppressed so the page does not contradict the error panel or
+  prompt a user to "Connect GitHub" off an unknown status.
+  Backend behaviour is unchanged: `runRepoScan` is still posted with
+  `repository`, `project_id`, and `connector_id` (for github_app
+  installations) against the same auth context; `cancelRepoScan` is
+  still posted with the scan id; `data.reload()` is still called after
+  every successful mutation; and the four early-return shells (no
+  scope, availability loading, unavailable, missing environment) are
+  unchanged.
 - Reworked the GitHub **Connect** page (`/app/.../github/connect`) so it
   reads as a product surface rather than an AI-generated onboarding demo.
   The header drops the GitHub icon, the `GITHUB APP ONBOARDING` eyebrow,

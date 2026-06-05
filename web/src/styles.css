@@ -22880,6 +22880,63 @@ html[data-theme='light'] .idt-app-shell-screen select {
   line-height: 1.55;
 }
 
+.idt-github-repository-panel header {
+  margin-bottom: 0.35rem;
+}
+
+.idt-github-repository-table {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.idt-github-repository-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  padding: 0.7rem 0.95rem;
+  background: #050505;
+}
+
+.idt-github-repository-row-main {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.idt-github-repository-row-main strong {
+  color: #ffffff;
+  font-family: var(--idt-display);
+  font-size: 0.98rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.idt-github-repository-row-status {
+  color: var(--app-muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.idt-github-repository-row-actions {
+  display: flex;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+@media (max-width: 760px) {
+  .idt-github-repository-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .idt-github-repository-row-actions {
+    justify-content: flex-start;
+  }
+}
+
 .idt-github-section-links > div {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));

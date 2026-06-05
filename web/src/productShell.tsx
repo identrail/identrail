@@ -10416,7 +10416,6 @@ export function ProductGitHubRepositoriesPage() {
   }
 
   const connectPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/connect'), selectedEnvironmentID);
-  const basePath = appendEnvironmentQuery(buildScopedPath(scope, 'github'), selectedEnvironmentID);
   const findingsPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/findings'), selectedEnvironmentID);
   const selectedRepositories = uniqueGitHubRepositories(data.connection?.selected_repositories ?? []);
   const rows = buildGitHubRepositoryRows(selectedRepositories, data.scans);
@@ -10471,35 +10470,55 @@ export function ProductGitHubRepositoriesPage() {
     }
   };
 
+  // Suppress every connection-dependent surface (subtitle, repo list,
+  // recent activity) while the first connection fetch is in flight or
+  // has failed. The header subtitle and any error panel below speak for
+  // the page in those states — the body is silenced so we do not
+  // contradict the error panel by, e.g., rendering "Connect GitHub to
+  // manage repositories" when the connection request itself failed.
+  const awaitingFirstLoad = data.loading && data.connection === null && !data.error;
+  const hasError = Boolean(data.error);
+  const showBody = !awaitingFirstLoad && !hasError;
+  const recentScanCount = selectedRepositoryScans.length;
+  const failedRecentScanCount = selectedRepositoryScans.filter((scan) => isFailedScanStatus(scan.status)).length;
+  const subtitle = (() => {
+    if (awaitingFirstLoad) {
+      return 'Loading repositories…';
+    }
+    if (hasError) {
+      return 'Unable to load repositories.';
+    }
+    if (!connected) {
+      return 'Not connected for this environment.';
+    }
+    const parts: string[] = [];
+    parts.push(
+      `${selectedRepositories.length} ${selectedRepositories.length === 1 ? 'repository' : 'repositories'}`
+    );
+    if (recentScanCount > 0) {
+      parts.push(`${recentScanCount} recent ${recentScanCount === 1 ? 'scan' : 'scans'}`);
+    }
+    if (failedRecentScanCount > 0) {
+      parts.push(`${failedRecentScanCount} failed`);
+    }
+    return parts.join(' · ');
+  })();
+  const primaryAction = awaitingFirstLoad || hasError
+    ? undefined
+    : connected
+      ? { label: 'GitHub findings', to: findingsPath, variant: 'primary' as const }
+      : { label: 'Connect GitHub', to: connectPath, variant: 'primary' as const };
+
   return (
     <DomainPageShell
       domain="github"
-      eyebrow="Repository inventory"
-      title="GitHub repositories"
-      description="Launch, monitor, and cancel repository scans for the selected installation."
+      eyebrow={null}
+      hideLogo
+      title="Repositories"
+      description={subtitle}
       scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
-      status={
-        <DomainStatusBadge
-          variant={statusVariant}
-          detail={data.connection?.account_login ? `@${data.connection.account_login}` : undefined}
-        />
-      }
       statusTone={gitHubConnectionTone(data.connection, data.loading)}
-      primaryAction={
-        connected
-          ? { label: 'Manage connection', to: connectPath, variant: 'secondary' }
-          : { label: 'Connect GitHub', to: connectPath, variant: 'primary' }
-      }
-      secondaryActions={[{ label: 'GitHub findings', to: findingsPath }, { label: 'GitHub home', to: basePath }]}
-      aside={
-        <DomainDetailPanel title="Scan operations" eyebrow="Reference">
-          <ul className="idt-domain-charter-list">
-            <li>Scans use the existing repository scan APIs.</li>
-            <li>Cancel is only available while a scan is queued or running.</li>
-            <li>Repository scope mirrors the GitHub App selection.</li>
-          </ul>
-        </DomainDetailPanel>
-      }
+      primaryAction={primaryAction}
     >
       {data.error ? <DomainErrorState title="Unable to load repository status" body={data.error} retryAction={{ label: 'Retry', onClick: data.reload }} /> : null}
       {scanError ? <DomainErrorState title="Repository scan error" body={scanError} /> : null}
@@ -10508,53 +10527,57 @@ export function ProductGitHubRepositoriesPage() {
           <p>{scanInfo}</p>
         </DomainStatusPanel>
       ) : null}
-      {!connected ? (
+      {showBody && !connected ? (
         <DomainEmptyState
-          eyebrow="Not connected"
           title="Connect GitHub to manage repositories"
           body="Install the GitHub App or paste an Enterprise PAT to populate the repository inventory."
           nextAction={{ label: 'Connect GitHub', to: connectPath }}
         />
-      ) : !hasRepositories ? (
+      ) : null}
+      {showBody && connected && !hasRepositories ? (
         <DomainEmptyState
-          eyebrow="No repositories selected"
           title="Select repositories for Identrail to watch"
           body="Pick repositories on the connection page so Identrail can queue scans and detect risk."
           nextAction={{ label: 'Select repositories', to: connectPath }}
         />
-      ) : (
-        <section className="idt-domain-status-panel" aria-label="Selected repositories">
+      ) : null}
+      {showBody && connected && hasRepositories ? (
+        <section className="idt-domain-status-panel idt-github-repository-panel" aria-label="Selected repositories">
           <header>
             <div>
-              <p className="idt-app-kicker">Selected repositories</p>
-              <h3>{`${rows.length} ${rows.length === 1 ? 'repository' : 'repositories'} in scope`}</h3>
+              <h3>Repositories</h3>
             </div>
-            <span>{`Environment ${selectedEnvironmentID}`}</span>
           </header>
-          <ul className="idt-github-repository-list">
+          <div className="idt-github-repository-table" role="list" aria-label="Repository scan controls">
             {rows.map((row) => {
               const submitting = submittingRepository === row.repository;
               const canCancel = Boolean(row.activeScan);
               const cancelingThis = canCancel && cancelingScanID === row.activeScan?.id;
+              const statusText = row.latest
+                ? isFailedScanStatus(row.latest.status)
+                  ? `${formatRelativeTime(row.latest.finished_at || row.latest.started_at)} · failed · ${summarizeScanFailure(row.latest)}`
+                  : isCompletedScanStatus(row.latest.status)
+                    ? `${formatRelativeTime(row.latest.finished_at || row.latest.started_at)} · ${row.latest.finding_count} ${row.latest.finding_count === 1 ? 'finding' : 'findings'}`
+                    : `${row.latest.scan_mode ?? 'scan'} in flight`
+                : 'Not scanned';
               return (
-                <li key={row.repository} className="idt-github-repository-row">
-                  <div>
+                <article key={row.repository} role="listitem" className="idt-github-repository-row">
+                  <div className="idt-github-repository-row-main">
                     <strong>{row.repository}</strong>
-                    {row.latest ? (
-                      <small>
-                        Last scan {formatRelativeTime(row.latest.finished_at || row.latest.started_at)} ·{' '}
-                        {formatTokenLabel(row.latest.status)} ·{' '}
-                        {isCompletedScanStatus(row.latest.status) && !isFailedScanStatus(row.latest.status)
-                          ? `${row.latest.finding_count} findings`
-                          : isFailedScanStatus(row.latest.status)
-                            ? summarizeScanFailure(row.latest)
-                            : `${row.latest.scan_mode ?? 'scan'} in flight`}
-                      </small>
-                    ) : (
-                      <small>No scans yet.</small>
-                    )}
+                    <span className="idt-github-repository-row-status">{statusText}</span>
                   </div>
-                  <div className="idt-inline-actions">
+                  <div className="idt-github-repository-row-actions">
+                    {canCancel && row.activeScan ? (
+                      <button
+                        type="button"
+                        className="idt-btn idt-btn-ghost"
+                        onClick={() => cancelScan(row.activeScan as RepoScanRecord)}
+                        disabled={cancelingThis || data.loading}
+                        aria-label={`Cancel scan for ${row.repository}`}
+                      >
+                        {cancelingThis ? 'Canceling...' : 'Cancel scan'}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="idt-btn idt-btn-primary"
@@ -10570,36 +10593,22 @@ export function ProductGitHubRepositoriesPage() {
                             ? 'Scan in progress'
                             : 'Queue scan'}
                     </button>
-                    {canCancel && row.activeScan ? (
-                      <button
-                        type="button"
-                        className="idt-btn idt-btn-ghost"
-                        onClick={() => cancelScan(row.activeScan as RepoScanRecord)}
-                        disabled={cancelingThis || data.loading}
-                        aria-label={`Cancel scan for ${row.repository}`}
-                      >
-                        {cancelingThis ? 'Canceling...' : 'Cancel scan'}
-                      </button>
-                    ) : null}
                   </div>
-                </li>
+                </article>
               );
             })}
-          </ul>
+          </div>
         </section>
-      )}
-      {connected && hasRepositories ? (
+      ) : null}
+      {showBody && connected && hasRepositories ? (
         <section className="idt-domain-status-panel" aria-label="Recent repository scan activity">
           <header>
             <div>
-              <p className="idt-app-kicker">Activity</p>
-              <h3>Recent repository scan activity</h3>
+              <h3>Recent activity</h3>
             </div>
-            <span>{`${selectedRepositoryScans.length} scan${selectedRepositoryScans.length === 1 ? '' : 's'} loaded`}</span>
           </header>
           {selectedRepositoryScans.length === 0 ? (
             <DomainEmptyState
-              eyebrow="No activity"
               title="No repository scans recorded yet"
               body="Queue a scan for a selected repository to seed activity here."
             />

@@ -4816,7 +4816,7 @@ describe('GitHub domain pages (#1382)', () => {
   it('Repositories page launches a scan via the existing API', async () => {
     const mocks = await renderGitHubPage('repositories', { scans: [] });
 
-    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
     const queueButton = await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' });
     fireEvent.click(queueButton);
 
@@ -4836,7 +4836,7 @@ describe('GitHub domain pages (#1382)', () => {
   it('Repositories page bypasses in-flight refreshes after queueing a scan', async () => {
     const initialMocks = await renderGitHubPage('repositories', { scans: [] });
 
-    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
     await waitFor(() => expect(initialMocks.listRepoScans).toHaveBeenCalledTimes(1));
     cleanup();
     vi.restoreAllMocks();
@@ -4857,7 +4857,7 @@ describe('GitHub domain pages (#1382)', () => {
       }
     });
 
-    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
     await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(1));
     const queueButton = await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' });
     await waitFor(() => expect(queueButton).not.toBeDisabled());
@@ -4887,7 +4887,7 @@ describe('GitHub domain pages (#1382)', () => {
   it('Repositories page cancels an active scan via the existing API', async () => {
     const mocks = await renderGitHubPage('repositories', { scans: [queuedRepoScan] });
 
-    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
     const cancelButton = await screen.findByRole('button', { name: 'Cancel scan for identrail/identrail' });
     fireEvent.click(cancelButton);
 
@@ -4905,7 +4905,7 @@ describe('GitHub domain pages (#1382)', () => {
       githubConnection: { ...connectedGitHub, selected_repositories: [] }
     });
 
-    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
     await screen.findByRole('heading', { level: 3, name: /Select repositories for Identrail to watch/i });
     await waitFor(() => {
       const selectLink = screen
@@ -4921,15 +4921,38 @@ describe('GitHub domain pages (#1382)', () => {
       runRepoScanError: { message: 'rate limited', status: 429 }
     });
 
-    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
     const queueButton = await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' });
     fireEvent.click(queueButton);
 
     await screen.findByRole('heading', { level: 3, name: /Repository scan error/i });
-    const homeLink = screen
-      .getAllByRole('link', { name: /GitHub home/i })
-      .find((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github'));
-    expect(homeLink).toBeDefined();
+    // Navigation must still work after a scan error — the primary CTA in
+    // the page header (GitHub findings link) stays reachable.
+    const findingsLink = screen
+      .getAllByRole('link', { name: /GitHub findings/i })
+      .find((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/github/findings'));
+    expect(findingsLink).toBeDefined();
+  });
+
+  it('Repositories page renders a compact subtitle and drops the Scan operations reference', async () => {
+    await renderGitHubPage('repositories', { scans: [succeededRepoScan] });
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    // Subtitle reflects the live repo count and scan totals — replaces
+    // the long "Launch, monitor, and cancel repository scans..." tagline.
+    await screen.findByText(/1 repository · 1 recent scan/i);
+    // The "Selected repositories / 1 repository in scope" sub-header is
+    // dropped — the section heading is just "Repositories".
+    expect(screen.queryByText(/1 repository in scope/i)).not.toBeInTheDocument();
+    // The "Reference / Scan operations" aside (with three meta-docs
+    // bullets) is removed entirely.
+    expect(screen.queryByRole('heading', { level: 3, name: 'Scan operations' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Scans use the existing repository scan APIs\./i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Cancel is only available while a scan is queued or running\./i)).not.toBeInTheDocument();
+    // The Activity section header is the tighter "Recent activity"
+    // instead of "Activity / Recent repository scan activity".
+    expect(screen.queryByRole('heading', { level: 3, name: /Recent repository scan activity/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'Recent activity' })).toBeInTheDocument();
   });
 
   it('Actions page renders the premium waiting-for-coverage shell', async () => {
@@ -5780,9 +5803,10 @@ describe('GitHub domain pages (#1382)', () => {
     };
     await renderGitHubPage('repositories', { scans: [unrelatedScan] });
 
-    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
-    await screen.findByRole('heading', { level: 3, name: /Recent repository scan activity/i });
-    expect(screen.getByText(/0 scans loaded/i)).toBeInTheDocument();
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    await screen.findByRole('heading', { level: 3, name: 'Recent activity' });
+    const activity = screen.getByRole('region', { name: 'Recent repository scan activity' });
+    expect(within(activity).getByRole('heading', { level: 3, name: /No repository scans recorded yet/i })).toBeInTheDocument();
     expect(screen.queryByText(/someone-else\/other-repo/i)).not.toBeInTheDocument();
   });
 
@@ -5819,10 +5843,13 @@ describe('GitHub domain pages (#1382)', () => {
       }
     });
 
-    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
     await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.getByText(/1 scan loaded/i)).toBeInTheDocument());
-    expect(screen.getAllByText(/identrail\/identrail/i)).toHaveLength(2);
+    await waitFor(() => {
+      const activity = screen.getByRole('region', { name: 'Recent repository scan activity' });
+      expect(within(activity).getAllByText(/identrail\/identrail/i).length).toBeGreaterThan(0);
+    });
+    expect(screen.getAllByText(/identrail\/identrail/i).length).toBeGreaterThan(1);
   });
 
   it('Repositories page clears stale GitHub connection data when a reloading environment status fails', async () => {
@@ -5864,7 +5891,7 @@ describe('GitHub domain pages (#1382)', () => {
       </MemoryRouter>
     );
 
-    await screen.findByRole('heading', { level: 2, name: 'GitHub repositories' });
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'Environment' })).toHaveValue('production-platform'));
     expect(await screen.findByRole('button', { name: 'Queue scan for identrail/identrail' })).toBeInTheDocument();
 
@@ -5875,8 +5902,15 @@ describe('GitHub domain pages (#1382)', () => {
     });
 
     await screen.findByRole('heading', { level: 3, name: /Unable to load repository status/i });
+    // After the reloading status request fails the stale Queue scan
+    // affordance is dropped and the body is suppressed so the error
+    // panel stays the single source of truth — the page must not also
+    // render a speculative "Connect GitHub to manage repositories"
+    // empty state off an errored status.
     expect(screen.queryByRole('button', { name: 'Queue scan for identrail/identrail' })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 3, name: /Connect GitHub to manage repositories/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 3, name: /Connect GitHub to manage repositories/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Selected repositories' })).not.toBeInTheDocument();
+    await screen.findByText(/Unable to load repositories\./i);
 
     expect(getGitHubConnectorStatus).toHaveBeenCalledTimes(2);
   });
