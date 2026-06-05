@@ -314,6 +314,32 @@ func TestEKSWorkloadIdentityIDsUseCanonicalRoleKindAliases(t *testing.T) {
 	}
 }
 
+func TestEKSWorkloadIdentityNamesUseCanonicalRoleKindAliases(t *testing.T) {
+	record := EKSWorkloadIdentity{
+		RoleKind:      "nodegroup_role",
+		NodegroupARN:  "arn:aws:eks:us-east-1:123456789012:nodegroup/prod-cluster/payments-ng/01234567-89ab-cdef",
+		NodegroupName: "payments-ng",
+	}
+
+	if got := eksWorkloadIdentityName(record); got != "payments-ng" {
+		t.Fatalf("expected nodegroup alias to use nodegroup name, got %q", got)
+	}
+}
+
+func TestEKSNameFromARNUsesNamedResourceSegment(t *testing.T) {
+	cases := map[string]string{
+		"arn:aws:eks:us-east-1:123456789012:cluster/prod-cluster":                                            "prod-cluster",
+		"arn:aws:eks:us-east-1:123456789012:nodegroup/prod-cluster/payments-ng/01234567-89ab-cdef":           "payments-ng",
+		"arn:aws:eks:us-east-1:123456789012:fargateprofile/prod-cluster/payments-fargate/01234567-89ab-cdef": "payments-fargate",
+		"arn:aws:eks:us-east-1:123456789012:podidentityassociation/prod-cluster/a-123":                       "a-123",
+	}
+	for arn, want := range cases {
+		if got := eksNameFromARN(arn); got != want {
+			t.Fatalf("eksNameFromARN(%q) = %q, want %q", arn, got, want)
+		}
+	}
+}
+
 func hasResourceType(resources []domain.Resource, resourceType domain.ResourceType) bool {
 	for _, resource := range resources {
 		if resource.Type == resourceType {

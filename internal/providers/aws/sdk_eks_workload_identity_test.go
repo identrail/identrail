@@ -15,6 +15,7 @@ type fakeEKSSDKClient struct {
 	listPodIdentityAssociationsInputs []*eks.ListPodIdentityAssociationsInput
 	listNodegroupsInputs              []*eks.ListNodegroupsInput
 	listFargateProfilesInputs         []*eks.ListFargateProfilesInput
+	describePodInputs                 []*eks.DescribePodIdentityAssociationInput
 
 	listClustersOutputs []*eks.ListClustersOutput
 	clustersByName      map[string]*eks.DescribeClusterOutput
@@ -29,6 +30,7 @@ type fakeEKSSDKClient struct {
 	listClustersErr error
 	listPodErr      error
 	onListPod       func()
+	onDescribePod   func()
 }
 
 func eksFakeSDKKey(clusterName string, name string) string {
@@ -66,6 +68,10 @@ func (f *fakeEKSSDKClient) ListPodIdentityAssociations(_ context.Context, params
 }
 
 func (f *fakeEKSSDKClient) DescribePodIdentityAssociation(_ context.Context, params *eks.DescribePodIdentityAssociationInput, _ ...func(*eks.Options)) (*eks.DescribePodIdentityAssociationOutput, error) {
+	f.describePodInputs = append(f.describePodInputs, params)
+	if f.onDescribePod != nil {
+		f.onDescribePod()
+	}
 	return f.associationsByKey[eksFakeSDKKey(awsv2.ToString(params.ClusterName), awsv2.ToString(params.AssociationId))], nil
 }
 
@@ -163,8 +169,8 @@ func TestSDKEKSWorkloadIdentityAPIMapsAssociationsNodegroupsAndFargate(t *testin
 	if len(page.Records) != 3 {
 		t.Fatalf("expected pod identity, node role, and fargate records, got %+v", page.Records)
 	}
-	if len(page.Diagnostics) != 0 {
-		t.Fatalf("did not expect source diagnostics when AWS EKS metadata collection succeeds, got %+v", page.Diagnostics)
+	if len(page.Diagnostics) != 1 || page.Diagnostics[0].Code != "irsa_annotation_collection_unconfigured" || page.Diagnostics[0].Retryable {
+		t.Fatalf("expected non-retryable IRSA annotation coverage diagnostic, got %+v", page.Diagnostics)
 	}
 	if got := awsv2.ToInt32(client.listClustersInputs[0].MaxResults); got != 25 {
 		t.Fatalf("ListClusters MaxResults = %d, want 25", got)
@@ -224,7 +230,13 @@ func TestSDKEKSWorkloadIdentityAPIRetainsClusterOnPodIdentityPartialFailure(t *t
 	if len(page.Records) != 0 {
 		t.Fatalf("did not expect records when only pod identity partition failed, got %+v", page.Records)
 	}
-	if len(page.Diagnostics) != 1 || page.Diagnostics[0].Code != "pod_identity_association_list_failed" || !page.Diagnostics[0].Retryable {
+	if len(page.Diagnostics) != 2 {
+		t.Fatalf("expected IRSA coverage and pod identity diagnostics, got %+v", page.Diagnostics)
+	}
+	if page.Diagnostics[0].Code != "irsa_annotation_collection_unconfigured" || page.Diagnostics[0].Retryable {
+		t.Fatalf("expected non-retryable IRSA coverage diagnostic, got %+v", page.Diagnostics)
+	}
+	if page.Diagnostics[1].Code != "pod_identity_association_list_failed" || !page.Diagnostics[1].Retryable {
 		t.Fatalf("expected retryable pod identity diagnostic, got %+v", page.Diagnostics)
 	}
 }
@@ -287,5 +299,49 @@ func TestSDKEKSWorkloadIdentityAPIPropagatesCancellationDuringClusterPartitions(
 
 	if _, err := api.ListWorkloadIdentities(ctx, "", 10); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context cancellation to propagate, got %v", err)
+	}
+}
+
+func TestSDKEKSWorkloadIdentityAPIStopsPodIdentityDescribeLoopAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	podRoleARN := "arn:aws:iam::123456789012:role/batch-pod-identity"
+	client := &fakeEKSSDKClient{
+		listClustersOutputs: []*eks.ListClustersOutput{{Clusters: []string{"prod-cluster"}}},
+		clustersByName: map[string]*eks.DescribeClusterOutput{
+			"prod-cluster": {Cluster: &ekstypes.Cluster{Name: awsv2.String("prod-cluster")}},
+		},
+		podIdentitySummaries: map[string]*eks.ListPodIdentityAssociationsOutput{
+			"prod-cluster": {Associations: []ekstypes.PodIdentityAssociationSummary{
+				{AssociationId: awsv2.String("a-1")},
+				{AssociationId: awsv2.String("a-2")},
+			}},
+		},
+		associationsByKey: map[string]*eks.DescribePodIdentityAssociationOutput{
+			eksFakeSDKKey("prod-cluster", "a-1"): {Association: &ekstypes.PodIdentityAssociation{
+				AssociationArn: awsv2.String("arn:aws:eks:us-east-1:123456789012:podidentityassociation/prod-cluster/a-1"),
+				AssociationId:  awsv2.String("a-1"),
+				ClusterName:    awsv2.String("prod-cluster"),
+				Namespace:      awsv2.String("jobs"),
+				ServiceAccount: awsv2.String("batch-worker"),
+				RoleArn:        awsv2.String(podRoleARN),
+			}},
+			eksFakeSDKKey("prod-cluster", "a-2"): {Association: &ekstypes.PodIdentityAssociation{
+				AssociationId: awsv2.String("a-2"),
+				RoleArn:       awsv2.String(podRoleARN),
+			}},
+		},
+		nodegroupNames:  map[string]*eks.ListNodegroupsOutput{},
+		fargateNames:    map[string]*eks.ListFargateProfilesOutput{},
+		nodegroupsByKey: map[string]*eks.DescribeNodegroupOutput{},
+		fargateByKey:    map[string]*eks.DescribeFargateProfileOutput{},
+		onDescribePod:   cancel,
+	}
+	api := NewSDKEKSWorkloadIdentityAPIFromClient(client, "123456789012", "us-east-1")
+
+	if _, err := api.ListWorkloadIdentities(ctx, "", 10); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation to propagate, got %v", err)
+	}
+	if len(client.describePodInputs) != 1 {
+		t.Fatalf("expected describe loop to stop after first canceled call, got %d calls", len(client.describePodInputs))
 	}
 }

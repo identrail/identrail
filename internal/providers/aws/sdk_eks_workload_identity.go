@@ -113,6 +113,7 @@ func (a *SDKEKSWorkloadIdentityAPI) ListWorkloadIdentities(ctx context.Context, 
 		} else {
 			clusterCore = a.clusterCoreRecord(cluster)
 		}
+		diagnostics = append(diagnostics, irsaAnnotationCoverageDiagnostics(clusterCore)...)
 
 		podIdentities, podDiagnostics := a.podIdentityAssociationsForCluster(ctx, clusterCore.ClusterName, pageSize)
 		if err := ctx.Err(); err != nil {
@@ -215,6 +216,9 @@ func (a *SDKEKSWorkloadIdentityAPI) podIdentityAssociationsForCluster(ctx contex
 	associations := []ekstypes.PodIdentityAssociation{}
 	diagnostics := []providers.SourceError{}
 	for _, summary := range summaries {
+		if err := ctx.Err(); err != nil {
+			return associations, diagnostics
+		}
 		associationID := strings.TrimSpace(awsv2.ToString(summary.AssociationId))
 		if associationID == "" {
 			diagnostics = append(diagnostics, eksSourceDiagnostic("pod_identity_association_missing_id", clusterName, "EKS Pod Identity association summary did not include an association ID", false))
@@ -225,6 +229,9 @@ func (a *SDKEKSWorkloadIdentityAPI) podIdentityAssociationsForCluster(ctx contex
 			AssociationId: awsv2.String(associationID),
 		})
 		if err != nil {
+			if ctx.Err() != nil {
+				return associations, diagnostics
+			}
 			diagnostics = append(diagnostics, eksSourceDiagnostic("pod_identity_association_describe_failed", associationID, fmt.Sprintf("EKS Pod Identity association could not be described: %v", err), true))
 			continue
 		}
@@ -265,11 +272,17 @@ func (a *SDKEKSWorkloadIdentityAPI) nodegroupsForCluster(ctx context.Context, cl
 	nodegroups := []ekstypes.Nodegroup{}
 	diagnostics := []providers.SourceError{}
 	for _, nodegroupName := range normalizeStringList(nodegroupNames) {
+		if err := ctx.Err(); err != nil {
+			return nodegroups, diagnostics
+		}
 		output, err := a.eksClient.DescribeNodegroup(ctx, &eks.DescribeNodegroupInput{
 			ClusterName:   awsv2.String(clusterName),
 			NodegroupName: awsv2.String(nodegroupName),
 		})
 		if err != nil {
+			if ctx.Err() != nil {
+				return nodegroups, diagnostics
+			}
 			diagnostics = append(diagnostics, eksSourceDiagnostic("nodegroup_describe_failed", nodegroupName, fmt.Sprintf("EKS node group could not be described: %v", err), true))
 			continue
 		}
@@ -310,11 +323,17 @@ func (a *SDKEKSWorkloadIdentityAPI) fargateProfilesForCluster(ctx context.Contex
 	profiles := []ekstypes.FargateProfile{}
 	diagnostics := []providers.SourceError{}
 	for _, profileName := range normalizeStringList(profileNames) {
+		if err := ctx.Err(); err != nil {
+			return profiles, diagnostics
+		}
 		output, err := a.eksClient.DescribeFargateProfile(ctx, &eks.DescribeFargateProfileInput{
 			ClusterName:        awsv2.String(clusterName),
 			FargateProfileName: awsv2.String(profileName),
 		})
 		if err != nil {
+			if ctx.Err() != nil {
+				return profiles, diagnostics
+			}
 			diagnostics = append(diagnostics, eksSourceDiagnostic("fargate_profile_describe_failed", profileName, fmt.Sprintf("EKS Fargate profile could not be described: %v", err), true))
 			continue
 		}
@@ -484,6 +503,19 @@ func eksFargateSelectorLabels(selectors []ekstypes.FargateProfileSelector) []str
 		}
 	}
 	return normalizeStringList(values)
+}
+
+func irsaAnnotationCoverageDiagnostics(cluster EKSWorkloadIdentity) []providers.SourceError {
+	if strings.TrimSpace(cluster.OIDCIssuer) == "" && strings.TrimSpace(cluster.OIDCProviderARN) == "" {
+		return nil
+	}
+	sourceID := firstNonEmptyAWSValue(cluster.ClusterARN, cluster.ClusterName)
+	return []providers.SourceError{eksSourceDiagnostic(
+		"irsa_annotation_collection_unconfigured",
+		sourceID,
+		"EKS cluster has OIDC metadata, but AWS-only collection cannot read Kubernetes service-account IRSA annotations",
+		false,
+	)}
 }
 
 func eksSourceDiagnostic(code string, sourceID string, message string, retryable bool) providers.SourceError {

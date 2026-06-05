@@ -112,6 +112,23 @@ func TestFixtureCollectorClassifiesECSTaskRoleWithWorkloadIDAsECS(t *testing.T) 
 	}
 }
 
+func TestFixtureCollectorDoesNotClassifyECSClusterARNAsEKS(t *testing.T) {
+	payload := []byte(`{
+		"account_id":"123456789012",
+		"region":"us-east-1",
+		"cluster_arn":"arn:aws:ecs:us-east-1:123456789012:cluster/prod",
+		"workload_type":"ecs_service"
+	}`)
+
+	kind, sourceID := fixtureAssetKindAndSourceID(payload)
+	if kind != rawKindECSTaskRole {
+		t.Fatalf("expected ECS task role fixture, got kind=%q sourceID=%q", kind, sourceID)
+	}
+	if sourceID == "" {
+		t.Fatal("expected ECS source ID")
+	}
+}
+
 func TestFixtureCollectorClassifiesEKSWorkloadBeforeGenericRoleKindFallback(t *testing.T) {
 	payload := []byte(`{
 		"account_id":"123456789012",

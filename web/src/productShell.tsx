@@ -4821,7 +4821,7 @@ function buildAWSEKSWorkloadIdentityRows(
         scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
         status: 'wired now',
         stage: 'wired',
-        detail: 'The collector completed for this account and region without EKS IRSA, Pod Identity, node role, or Fargate pod execution role evidence.',
+        detail: 'The collector completed for this account and region without Kubernetes-backed IRSA, Pod Identity, node role, or Fargate pod execution role evidence.',
         filters: { identityType: 'eks-identity', service: 'eks', risk: 'low', status: 'wired-now', search: '' },
         searchText: inventorySearchText(['eks', 'irsa', 'pod identity', 'node role', inventory.account_id, inventory.region, 'empty'])
       }
@@ -4836,7 +4836,7 @@ function buildAWSEKSWorkloadIdentityRows(
         scope: awsAccountRegionLabel(connection),
         status: 'coming',
         stage: 'coming',
-        detail: 'Loading EKS IRSA, Pod Identity, node role, and Fargate pod execution-role evidence for the selected environment.',
+        detail: 'Loading Kubernetes-backed IRSA, EKS Pod Identity, node role, and Fargate pod execution-role evidence for the selected environment.',
         filters: { identityType: 'eks-identity', service: 'eks', risk: 'unscored', status: 'coming', search: '' },
         searchText: inventorySearchText(['eks', 'irsa', 'pod identity', 'node role', 'loading'])
       }
@@ -4850,7 +4850,7 @@ function buildAWSEKSWorkloadIdentityRows(
       scope: 'Account and region expansion',
       status: 'coming',
       stage: 'coming',
-      detail: 'IRSA and Pod Identity inventory maps Kubernetes service accounts and EKS compute back to IAM roles after AWS is connected.',
+      detail: 'Kubernetes-backed IRSA and Pod Identity inventory maps service accounts and EKS compute back to IAM roles after AWS is connected.',
       filters: { identityType: 'eks-identity', service: 'eks', risk: 'unscored', status: 'coming', search: '' },
       searchText: inventorySearchText(['eks', 'irsa', 'pod identity', 'node role', 'inventory'])
     }

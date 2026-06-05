@@ -187,8 +187,7 @@ func isEKSWorkloadIdentityFixture(record EKSWorkloadIdentity) bool {
 	case "eks_service_account", "eks_node_group", "eks_fargate_profile", "eks_fargate_pod_execution_role":
 		return true
 	}
-	return strings.TrimSpace(record.ClusterARN) != "" ||
-		strings.TrimSpace(record.OIDCIssuer) != "" ||
+	return strings.TrimSpace(record.OIDCIssuer) != "" ||
 		strings.TrimSpace(record.Namespace) != "" ||
 		strings.TrimSpace(record.ServiceAccount) != "" ||
 		strings.TrimSpace(record.AssociationARN) != "" ||
@@ -197,15 +196,8 @@ func isEKSWorkloadIdentityFixture(record EKSWorkloadIdentity) bool {
 }
 
 func isExplicitEKSRoleKind(roleKind string) bool {
-	switch strings.ToLower(strings.TrimSpace(roleKind)) {
-	case eksRoleKindIRSA, "irsa_annotation", "service_account_role",
-		eksRoleKindPodIdentity, "podidentity", "pod_identity_association",
-		eksRoleKindNodeRole, "nodegroup_role", "node_group_role",
-		eksRoleKindFargatePodExecution, "fargate_role", "pod_execution_role":
-		return true
-	default:
-		return false
-	}
+	_, ok := canonicalEKSRoleKindAlias(roleKind)
+	return ok
 }
 
 func isEC2InstanceProfileFixture(record EC2InstanceProfile) bool {

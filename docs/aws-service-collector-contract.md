@@ -176,8 +176,9 @@ secret values are intentionally outside the collector contract.
 For EKS, AWS-side metadata proves clusters, OIDC issuer relationships, Pod
 Identity associations, managed node roles, and Fargate pod execution roles.
 IRSA service account annotations require Kubernetes API access; when that access
-is missing, collectors must emit degraded AWS-side evidence instead of claiming
-complete IRSA coverage.
+is missing, collectors must emit degraded AWS-side evidence such as
+`irsa_annotation_collection_unconfigured` instead of claiming complete IRSA
+coverage.
 
 ## Validation
 

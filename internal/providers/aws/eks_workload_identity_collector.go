@@ -75,8 +75,10 @@ type EKSWorkloadIdentityAPI interface {
 	ListWorkloadIdentities(ctx context.Context, nextToken string, pageSize int32) (EKSWorkloadIdentityPage, error)
 }
 
-// EKSWorkloadIdentityCollector collects EKS IRSA, Pod Identity, node-role, and
-// Fargate pod-execution-role machine identities.
+// EKSWorkloadIdentityCollector collects EKS Pod Identity, node-role, Fargate
+// pod-execution-role, and Kubernetes-backed IRSA annotation machine identities.
+// The AWS SDK adapter reports IRSA annotation coverage as degraded unless a
+// Kubernetes-backed source supplies service-account annotation records.
 type EKSWorkloadIdentityCollector struct {
 	client   EKSWorkloadIdentityAPI
 	pageSize int32
@@ -346,15 +348,8 @@ func normalizeEKSWorkloadIdentityScope(scope AWSCollectorScope, record EKSWorklo
 }
 
 func normalizeEKSRoleKind(roleKind string, record EKSWorkloadIdentity) string {
-	switch strings.ToLower(strings.TrimSpace(roleKind)) {
-	case eksRoleKindIRSA, "irsa_annotation", "service_account_role":
-		return eksRoleKindIRSA
-	case eksRoleKindPodIdentity, "podidentity", "pod_identity_association":
-		return eksRoleKindPodIdentity
-	case eksRoleKindNodeRole, "nodegroup_role", "node_group_role":
-		return eksRoleKindNodeRole
-	case eksRoleKindFargatePodExecution, "fargate_role", "pod_execution_role":
-		return eksRoleKindFargatePodExecution
+	if canonical, ok := canonicalEKSRoleKindAlias(roleKind); ok {
+		return canonical
 	}
 	switch {
 	case strings.TrimSpace(record.AssociationARN) != "" || strings.TrimSpace(record.AssociationID) != "":
@@ -365,6 +360,21 @@ func normalizeEKSRoleKind(roleKind string, record EKSWorkloadIdentity) string {
 		return eksRoleKindFargatePodExecution
 	default:
 		return eksRoleKindIRSA
+	}
+}
+
+func canonicalEKSRoleKindAlias(roleKind string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(roleKind)) {
+	case eksRoleKindIRSA, "irsa_annotation", "service_account_role":
+		return eksRoleKindIRSA, true
+	case eksRoleKindPodIdentity, "podidentity", "pod_identity_association":
+		return eksRoleKindPodIdentity, true
+	case eksRoleKindNodeRole, "nodegroup_role", "node_group_role":
+		return eksRoleKindNodeRole, true
+	case eksRoleKindFargatePodExecution, "fargate_role", "pod_execution_role":
+		return eksRoleKindFargatePodExecution, true
+	default:
+		return "", false
 	}
 }
 
@@ -408,13 +418,15 @@ func eksWorkloadIdentityWorkloadRef(record EKSWorkloadIdentity) string {
 }
 
 func eksWorkloadIdentityName(record EKSWorkloadIdentity) string {
-	switch record.RoleKind {
+	normalized := record
+	normalized.RoleKind = normalizeEKSRoleKind(record.RoleKind, record)
+	switch normalized.RoleKind {
 	case eksRoleKindNodeRole:
-		return firstNonEmptyAWSValue(record.NodegroupName, eksNameFromARN(record.NodegroupARN), "eks node group")
+		return firstNonEmptyAWSValue(normalized.NodegroupName, eksNameFromARN(normalized.NodegroupARN), "eks node group")
 	case eksRoleKindFargatePodExecution:
-		return firstNonEmptyAWSValue(record.FargateProfileName, eksNameFromARN(record.FargateProfileARN), "eks fargate profile")
+		return firstNonEmptyAWSValue(normalized.FargateProfileName, eksNameFromARN(normalized.FargateProfileARN), "eks fargate profile")
 	default:
-		return firstNonEmptyAWSValue(record.KubernetesSubject, eksKubernetesSubject(record.Namespace, record.ServiceAccount), "eks service account")
+		return firstNonEmptyAWSValue(normalized.KubernetesSubject, eksKubernetesSubject(normalized.Namespace, normalized.ServiceAccount), "eks service account")
 	}
 }
 
@@ -488,6 +500,23 @@ func eksNameFromARN(arn string) string {
 	trimmed := strings.TrimSpace(arn)
 	if trimmed == "" {
 		return ""
+	}
+	resource := trimmed
+	if idx := strings.LastIndex(resource, ":"); idx >= 0 && idx < len(resource)-1 {
+		resource = resource[idx+1:]
+	}
+	parts := strings.Split(resource, "/")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	if len(parts) >= 3 {
+		switch parts[0] {
+		case "nodegroup", "fargateprofile", "podidentityassociation":
+			return parts[2]
+		}
+	}
+	if len(parts) >= 2 && parts[0] == "cluster" {
+		return parts[1]
 	}
 	idx := strings.LastIndex(trimmed, "/")
 	if idx < 0 || idx == len(trimmed)-1 {

@@ -2,10 +2,11 @@
 
 ## Purpose
 
-Issue #1480 adds metadata-only EKS IRSA and Pod Identity inventory to the AWS
-machine identity graph. It maps Kubernetes service accounts, EKS Pod Identity
-associations, managed node groups, and Fargate profiles back to the IAM roles
-they use.
+Issue #1480 adds EKS workload identity inventory to the AWS machine identity
+graph. AWS metadata maps EKS Pod Identity associations, managed node groups,
+and Fargate profiles back to the IAM roles they use. IRSA service-account
+annotations are Kubernetes-side evidence and are only complete when a
+Kubernetes-backed source supplies those annotations.
 
 ## Endpoint
 
@@ -50,10 +51,13 @@ or Fargate profiles are degraded partial failures; successful records remain
 visible.
 
 IRSA annotations are Kubernetes-side evidence. AWS-only scans carry
-`kubernetes_access_status: "aws_metadata_only"` and do not mark the scan partial
-just because Kubernetes service account annotations were not attempted. The
-deterministic `degraded` fixture can still emit `kubernetes_api_unavailable`
-when validating UI handling for a separate Kubernetes-access failure.
+`kubernetes_access_status: "aws_metadata_only"` on AWS-sourced records and emit
+`irsa_annotation_collection_unconfigured` when OIDC metadata exists but no
+Kubernetes service-account annotation source is configured. That keeps Pod
+Identity, node role, and Fargate evidence visible while preventing a false claim
+of complete IRSA coverage. The deterministic `degraded` fixture can still emit
+`kubernetes_api_unavailable` when validating UI handling for a Kubernetes-access
+failure.
 
 ## Graph Shape
 
@@ -83,9 +87,9 @@ The EKS collector uses these metadata-only actions:
 - `eks:DescribeFargateProfile`
 
 Kubernetes IRSA annotation coverage also requires a Kubernetes connector or
-runtime identity that can list service accounts. Missing Kubernetes access is
-represented as metadata-only coverage unless a Kubernetes collection path
-actually fails.
+runtime identity that can list service accounts. Without that source, the AWS
+collector reports metadata-only EKS evidence and an explicit IRSA annotation
+coverage diagnostic.
 
 ## Validation
 

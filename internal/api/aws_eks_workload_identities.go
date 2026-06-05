@@ -424,8 +424,8 @@ func awsEKSWorkloadIdentityServiceAccountCount(records []AWSEKSWorkloadIdentityR
 		if record.RoleKind != "irsa" && record.RoleKind != "pod_identity" {
 			continue
 		}
-		if subject := firstNonEmptyAWSValue(record.KubernetesSubject, record.Namespace+"/"+record.ServiceAccount); strings.Trim(subject, "/") != "" {
-			seen[subject] = struct{}{}
+		if key := awsEKSWorkloadIdentityClusterSubjectKey(record); key != "" {
+			seen[key] = struct{}{}
 		}
 	}
 	return len(seen)
@@ -454,13 +454,26 @@ func awsEKSWorkloadIdentityIdentityCount(records []AWSEKSWorkloadIdentityRecord)
 func awsEKSWorkloadIdentityResourceCount(records []AWSEKSWorkloadIdentityRecord) int {
 	seen := map[string]struct{}{}
 	for _, record := range records {
-		for _, value := range []string{record.ClusterARN, record.AssociationARN, record.NodegroupARN, record.FargateProfileARN, record.KubernetesSubject} {
+		for _, value := range []string{record.ClusterARN, record.AssociationARN, record.NodegroupARN, record.FargateProfileARN} {
 			if strings.TrimSpace(value) != "" {
 				seen[value] = struct{}{}
 			}
 		}
+		if key := awsEKSWorkloadIdentityClusterSubjectKey(record); key != "" {
+			seen[key] = struct{}{}
+		}
 	}
 	return len(seen)
+}
+
+func awsEKSWorkloadIdentityClusterSubjectKey(record AWSEKSWorkloadIdentityRecord) string {
+	subject := firstNonEmptyAWSValue(record.KubernetesSubject, record.Namespace+"/"+record.ServiceAccount)
+	subject = strings.Trim(subject, "/")
+	if subject == "" {
+		return ""
+	}
+	cluster := firstNonEmptyAWSValue(record.ClusterARN, record.ClusterName, strings.Join([]string{record.AccountID, record.Region}, "/"), "cluster")
+	return cluster + "|" + subject
 }
 
 func awsEKSWorkloadIdentityDiagnostics(diagnostics []providers.SourceError) []AWSEKSWorkloadIdentityDiagnostic {
@@ -484,6 +497,8 @@ func awsEKSWorkloadIdentityDiagnosticRemediation(code string) string {
 		return "Grant metadata-only EKS read permissions; do not add mutation, Kubernetes secret, pod log, or object-content reads."
 	case "kubernetes_api_unavailable":
 		return "Connect Kubernetes read access for serviceaccounts so IRSA annotations can be proven; keep AWS-side EKS evidence visible as degraded until then."
+	case "irsa_annotation_collection_unconfigured":
+		return "Connect the Kubernetes service-account annotation collector before treating IRSA coverage as complete; AWS-only EKS metadata remains visible."
 	case "pod_identity_association_list_failed", "pod_identity_association_describe_failed", "nodegroup_list_failed", "nodegroup_describe_failed", "fargate_profile_list_failed", "fargate_profile_describe_failed":
 		return "Retry only the failed EKS metadata partition and keep successful workload identity records visible."
 	case "missing_eks_role":

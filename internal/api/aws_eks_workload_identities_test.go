@@ -147,7 +147,7 @@ func TestAWSEKSWorkloadIdentityInventoryHelperBranches(t *testing.T) {
 		t.Fatalf("expected diagnostics to degrade successful state, got status=%s confidence=%f failures=%+v remediations=%+v", status, confidence, failures, remediations)
 	}
 
-	for _, code := range []string{"permission_denied", "kubernetes_api_unavailable", "pod_identity_association_list_failed", "pod_identity_association_describe_failed", "nodegroup_list_failed", "nodegroup_describe_failed", "fargate_profile_list_failed", "fargate_profile_describe_failed", "missing_eks_role", "unknown"} {
+	for _, code := range []string{"permission_denied", "kubernetes_api_unavailable", "irsa_annotation_collection_unconfigured", "pod_identity_association_list_failed", "pod_identity_association_describe_failed", "nodegroup_list_failed", "nodegroup_describe_failed", "fargate_profile_list_failed", "fargate_profile_describe_failed", "missing_eks_role", "unknown"} {
 		if remediation := awsEKSWorkloadIdentityDiagnosticRemediation(code); strings.TrimSpace(remediation) == "" {
 			t.Fatalf("expected remediation for %q", code)
 		}
@@ -162,5 +162,38 @@ func TestAWSEKSWorkloadIdentityInventoryHelperBranches(t *testing.T) {
 	}
 	if got := awsEKSWorkloadNodeID("", "", "", ""); !strings.Contains(got, "account") || !strings.Contains(got, "region") || !strings.Contains(got, "workload/workload") {
 		t.Fatalf("expected fallback eks workload node id, got %q", got)
+	}
+
+	sameSubjectAcrossClusters := []AWSEKSWorkloadIdentityRecord{
+		{
+			AccountID:          "123456789012",
+			Region:             "us-east-1",
+			RoleKind:           "irsa",
+			ClusterARN:         "arn:aws:eks:us-east-1:123456789012:cluster/prod-a",
+			KubernetesSubject:  "payments/payments-api",
+			AssociationARN:     "",
+			NodegroupARN:       "",
+			FargateProfileARN:  "",
+			KubernetesVersion:  "1.30",
+			OIDCProviderARN:    "arn:aws:iam::123456789012:oidc-provider/oidc-a",
+			IRSAAnnotationKeys: []string{"eks.amazonaws.com/role-arn"},
+		},
+		{
+			AccountID:          "123456789012",
+			Region:             "us-east-1",
+			RoleKind:           "pod_identity",
+			ClusterARN:         "arn:aws:eks:us-east-1:123456789012:cluster/prod-b",
+			KubernetesSubject:  "payments/payments-api",
+			AssociationARN:     "arn:aws:eks:us-east-1:123456789012:podidentityassociation/prod-b/a-123",
+			KubernetesVersion:  "1.30",
+			OIDCProviderARN:    "arn:aws:iam::123456789012:oidc-provider/oidc-b",
+			IRSAAnnotationKeys: []string{"eks.amazonaws.com/role-arn"},
+		},
+	}
+	if got := awsEKSWorkloadIdentityServiceAccountCount(sameSubjectAcrossClusters); got != 2 {
+		t.Fatalf("expected cluster-scoped service account count 2, got %d", got)
+	}
+	if got := awsEKSWorkloadIdentityResourceCount(sameSubjectAcrossClusters); got != 5 {
+		t.Fatalf("expected cluster-scoped resource count 5, got %d", got)
 	}
 }
