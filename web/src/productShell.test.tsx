@@ -5613,6 +5613,53 @@ describe('GitHub domain pages (#1382)', () => {
     openSpy.mockRestore();
   });
 
+  it('Connect page shows the manage view with installation facts when already connected', async () => {
+    await renderGitHubPage('connect', { githubConnection: connectedGitHub });
+
+    await screen.findByRole('heading', { level: 2, name: 'Connect GitHub' });
+    await screen.findByText(/Installation 12345/i);
+    const installation = await screen.findByRole('region', { name: 'GitHub installation' });
+    expect(within(installation).getByText('Account')).toBeInTheDocument();
+    expect(within(installation).getByText('identrail')).toBeInTheDocument();
+    expect(within(installation).getByText('Selected repositories')).toBeInTheDocument();
+    // The reinstall affordance and the legacy Enterprise/PAT link are both
+    // reachable from the manage view.
+    expect(within(installation).getByRole('button', { name: 'Install GitHub App' })).toBeInTheDocument();
+    expect(within(installation).getByRole('link', { name: /Manage Enterprise \/ PAT/i })).toBeInTheDocument();
+    // The page must not also render the disconnected "Install the Identrail
+    // GitHub App" install card on top of the manage view.
+    expect(screen.queryByRole('region', { name: 'Install GitHub App' })).not.toBeInTheDocument();
+  });
+
+  it('Connect page hides the install/manage body when the connection status request fails', async () => {
+    const api = await import('./api/client');
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockRejectedValue(
+      new api.ApiError('rate limited', 429)
+    );
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect']}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/connect"
+            element={<productShell.ProductGitHubConnectPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('heading', { level: 2, name: 'Connect GitHub' });
+    await screen.findByRole('heading', { level: 3, name: /Unable to load connection status/i });
+    expect(screen.queryByRole('region', { name: 'Install GitHub App' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'GitHub installation' })).not.toBeInTheDocument();
+  });
+
   it('Repositories page activity timeline ignores scans for unselected repositories', async () => {
     const unrelatedScan: RepoScanRecord = {
       ...succeededRepoScan,

@@ -22862,6 +22862,24 @@ html[data-theme='light'] .idt-app-shell-screen select {
   border-left-color: rgba(124, 97, 255, 0.85);
 }
 
+.idt-github-connect-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.85rem;
+}
+
+.idt-github-connect-installation .idt-domain-route-facts {
+  margin-top: 0.35rem;
+}
+
+.idt-github-connect-install p {
+  margin: 0;
+  color: var(--app-muted);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
 .idt-github-section-links > div {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));

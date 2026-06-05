@@ -9976,47 +9976,58 @@ export function ProductGitHubConnectPage() {
     }
   };
 
-  const statusVariant = gitHubConnectionStatusVariantFor(data.connection, data.loading);
   const connected = Boolean(data.connection?.connected);
+  const selectedRepositoryCount = uniqueGitHubRepositories(data.connection?.selected_repositories ?? []).length;
+  // Suppress the install/manage body during the first connection fetch and
+  // during a load failure. The page header still shows the loading subtitle
+  // or the error panel respectively, so the body would only add a
+  // speculative state surface (e.g. an Install button while we already have
+  // a real installation, or a Manage card built from stale data).
+  const awaitingFirstLoad = data.loading && data.connection === null && !data.error;
+  const hasError = Boolean(data.error);
+  const showBody = !awaitingFirstLoad && !hasError;
+  const subtitle = (() => {
+    if (awaitingFirstLoad) {
+      return 'Loading GitHub status…';
+    }
+    if (!connected) {
+      return 'Not connected for this environment.';
+    }
+    const parts: string[] = [];
+    if (data.connection?.installation_id) {
+      parts.push(`Installation ${data.connection.installation_id}`);
+    } else if (data.connection?.account_login) {
+      parts.push(`@${data.connection.account_login}`);
+    }
+    if (data.connection) {
+      parts.push(formatTokenLabel(connectionHealth(data.connection)));
+    }
+    parts.push(
+      `${selectedRepositoryCount} ${selectedRepositoryCount === 1 ? 'repository' : 'repositories'}`
+    );
+    return parts.join(' · ');
+  })();
+  const primaryAction = awaitingFirstLoad
+    ? undefined
+    : connected
+      ? { label: 'Open Repositories', to: repositoriesPath, variant: 'primary' as const }
+      : {
+          label: installing ? 'Opening install...' : 'Install GitHub App',
+          onClick: handleInstall,
+          disabled: installing,
+          variant: 'primary' as const
+        };
 
   return (
     <DomainPageShell
       domain="github"
-      eyebrow="GitHub App onboarding"
+      eyebrow={null}
+      hideLogo
       title="Connect GitHub"
-      description="GitHub App installation, account scope, and Enterprise/PAT fallback live in the GitHub section."
+      description={subtitle}
       scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
-      status={
-        <DomainStatusBadge
-          variant={statusVariant}
-          detail={data.connection?.account_login ? `@${data.connection.account_login}` : undefined}
-        />
-      }
       statusTone={gitHubConnectionTone(data.connection, data.loading)}
-      primaryAction={
-        connected
-          ? { label: 'Open Repositories', to: repositoriesPath, variant: 'primary' }
-          : {
-              label: installing ? 'Opening install...' : 'Install GitHub App',
-              onClick: handleInstall,
-              disabled: installing,
-              variant: 'primary'
-            }
-      }
-      secondaryActions={[
-        { label: 'Manage Enterprise / PAT', to: legacyPath },
-        { label: 'GitHub home', to: basePath }
-      ]}
-      aside={
-        <DomainDetailPanel title="Why connect GitHub" eyebrow="Coverage">
-          <ul className="idt-domain-charter-list">
-            <li>Inventory repositories Identrail should monitor.</li>
-            <li>Queue repository scans for exposure and secret risk.</li>
-            <li>Detect risky GitHub Actions workflow permissions.</li>
-            <li>Map OIDC trust paths used by deploy automation.</li>
-          </ul>
-        </DomainDetailPanel>
-      }
+      primaryAction={primaryAction}
     >
       {installError ? <DomainErrorState title="Unable to start install" body={installError} retryAction={{ label: 'Try again', onClick: handleInstall }} /> : null}
       {pendingInstallURL ? (
@@ -10038,42 +10049,57 @@ export function ProductGitHubConnectPage() {
         </DomainStatusPanel>
       ) : null}
       {data.error ? <DomainErrorState title="Unable to load connection status" body={data.error} retryAction={{ label: 'Retry', onClick: data.reload }} /> : null}
-      <DomainStatusPanel
-        eyebrow="Status"
-        title={connected ? `${data.connection?.account_login ?? 'GitHub'} installation` : 'Not connected yet'}
-        status={<DomainStatusBadge variant={statusVariant} />}
-        tone={connected ? 'success' : 'neutral'}
-      >
-        <p>{gitHubConnectionSummary(data.connection)}</p>
-        {connected ? (
-          <dl className="idt-domain-route-facts">
+      {showBody && connected ? (
+        <section className="idt-domain-status-panel idt-github-connect-installation" aria-label="GitHub installation">
+          <header>
             <div>
-              <dt>Account</dt>
-              <dd>{data.connection?.account_login ?? '—'}</dd>
+              <h3>Installation</h3>
             </div>
+          </header>
+          <dl className="idt-domain-route-facts">
+            {data.connection?.account_login ? (
+              <div>
+                <dt>Account</dt>
+                <dd>{data.connection.account_login}</dd>
+              </div>
+            ) : null}
             <div>
               <dt>Installation</dt>
               <dd>{data.connection?.installation_id ?? '—'}</dd>
             </div>
             <div>
               <dt>Selected repositories</dt>
-              <dd>{uniqueGitHubRepositories(data.connection?.selected_repositories ?? []).length}</dd>
+              <dd>{selectedRepositoryCount}</dd>
             </div>
           </dl>
-        ) : null}
-      </DomainStatusPanel>
-      <section className="idt-domain-status-panel" aria-label="Connection paths">
-        <header>
-          <div>
-            <p className="idt-app-kicker">Connection paths</p>
-            <h3>Pick how to attach GitHub</h3>
-          </div>
-          <span>{`Environment ${selectedEnvironmentID}`}</span>
-        </header>
-        <div className="idt-domain-connection-paths">
-          <article>
-            <h4>GitHub App (recommended)</h4>
-            <p>Install the Identrail GitHub App to grant scoped repository and Actions access.</p>
+          <footer className="idt-github-connect-actions">
+            <button
+              type="button"
+              className="idt-btn idt-btn-dark"
+              onClick={handleInstall}
+              disabled={installing}
+              aria-label="Install GitHub App"
+            >
+              {installing ? 'Opening install...' : 'Reinstall on GitHub'}
+            </button>
+            <Link to={legacyPath} className="idt-btn idt-btn-ghost">
+              Manage Enterprise / PAT
+            </Link>
+            <Link to={basePath} className="idt-btn idt-btn-ghost">
+              GitHub home
+            </Link>
+          </footer>
+        </section>
+      ) : null}
+      {showBody && !connected ? (
+        <section className="idt-domain-status-panel idt-github-connect-install" aria-label="Install GitHub App">
+          <header>
+            <div>
+              <h3>Install the Identrail GitHub App</h3>
+            </div>
+          </header>
+          <p>Grants scoped repository and Actions access for the selected environment.</p>
+          <footer className="idt-github-connect-actions">
             <button
               type="button"
               className="idt-btn idt-btn-primary"
@@ -10083,23 +10109,12 @@ export function ProductGitHubConnectPage() {
             >
               {installing ? 'Opening install...' : 'Install GitHub App'}
             </button>
-          </article>
-          <article>
-            <h4>Enterprise host or PAT</h4>
-            <p>For GitHub Enterprise Server or PAT-only environments, manage credentials on the project setup view.</p>
             <Link to={legacyPath} className="idt-btn idt-btn-dark">
-              Open Enterprise / PAT setup
+              Manage Enterprise / PAT
             </Link>
-          </article>
-          <article>
-            <h4>Selected repositories</h4>
-            <p>Repository selection lives on the project setup view today and will move into this section in a follow-up PR.</p>
-            <Link to={legacyPath} className="idt-btn idt-btn-ghost">
-              Manage selected repositories
-            </Link>
-          </article>
-        </div>
-      </section>
+          </footer>
+        </section>
+      ) : null}
     </DomainPageShell>
   );
 }

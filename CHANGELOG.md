@@ -1,6 +1,34 @@
 # Changelog
 
 ## Unreleased
+- Reworked the GitHub **Connect** page (`/app/.../github/connect`) so it
+  reads as a product surface rather than an AI-generated onboarding demo.
+  The header drops the GitHub icon, the `GITHUB APP ONBOARDING` eyebrow,
+  the "GitHub App installation, account scope, and Enterprise/PAT fallback
+  live in the GitHub section." tagline, the standalone Connected pill,
+  and two of the three header CTAs; the title is just "Connect GitHub"
+  and the subtitle condenses connection state to one line
+  (`Installation 135895761 · Healthy · 15 repositories` when connected,
+  "Not connected for this environment." when not, and "Loading GitHub
+  status…" during the first connector-status fetch). The page is now
+  state-aware: connected users see an "Installation" panel with account,
+  installation id, and selected-repository count plus a Reinstall on
+  GitHub button, a Manage Enterprise / PAT link, and a GitHub home link;
+  disconnected users see one "Install the Identrail GitHub App" panel
+  with the Install button and a Manage Enterprise / PAT fallback. The
+  speculative install/manage body is suppressed entirely while the
+  status request is still pending or has errored, so the error panel
+  stays the single source of truth. The "Connection paths / Pick how to
+  attach GitHub" framing, the "Why connect GitHub" Domain Charter aside,
+  the standalone STATUS card whose facts are now in the header subtitle,
+  and the "Selected repositories lives on the project setup view today
+  and will move into this section in a follow-up PR." production-UI
+  disclosure of TODO work are all removed. Backend behavior is
+  unchanged: the install flow still posts to `startGitHubConnector` with
+  `project_id`, `install_account_type=any`, and the same
+  `/app/github/callback` redirect URI; the popup-blocked fallback still
+  renders an Open GitHub link; the Manage Enterprise / PAT link still
+  resolves to the existing project setup view with `source=github`.
 - Added the AWS ECS task and execution role collector for #1478. The provider
   now collects ECS clusters, services, active and inactive task definitions,
   task roles, execution roles, launch/scheduling metadata, container images,
