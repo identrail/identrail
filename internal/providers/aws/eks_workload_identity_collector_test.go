@@ -162,6 +162,8 @@ func TestRoleNormalizerAddsEKSWorkloadIdentityEdges(t *testing.T) {
 		KubernetesSubject:      "jobs/batch-worker",
 		AssociationARN:         "arn:aws:eks:us-east-1:123456789012:podidentityassociation/prod-cluster/a-123",
 		KubernetesAccessStatus: "aws_metadata_only",
+		ClusterTags:            map[string]string{"owner": "platform", "env": "prod"},
+		Tags:                   map[string]string{"owner": "data", "service": "batch"},
 	}
 	fargate := EKSWorkloadIdentity{
 		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
@@ -212,6 +214,22 @@ func TestRoleNormalizerAddsEKSWorkloadIdentityEdges(t *testing.T) {
 	}
 	if !hasResourceType(bundle.Resources, domain.ResourceTypeEKSCluster) || !hasResourceType(bundle.Resources, domain.ResourceTypeEKSWorkload) {
 		t.Fatalf("expected EKS cluster and workload resources, got %+v", bundle.Resources)
+	}
+	clusterLabels := map[string]string{}
+	podWorkloadLabels := map[string]string{}
+	for _, resource := range bundle.Resources {
+		if resource.Type == domain.ResourceTypeEKSCluster {
+			clusterLabels = resource.Labels
+		}
+		if resource.Type == domain.ResourceTypeEKSWorkload && resource.Name == "jobs/batch-worker" {
+			podWorkloadLabels = resource.Labels
+		}
+	}
+	if clusterLabels["owner"] != "platform" || clusterLabels["service"] != "" {
+		t.Fatalf("expected EKS cluster labels to use only cluster tags, got %+v", clusterLabels)
+	}
+	if podWorkloadLabels["owner"] != "data" || podWorkloadLabels["service"] != "batch" {
+		t.Fatalf("expected EKS workload labels to use workload tags, got %+v", podWorkloadLabels)
 	}
 
 	relationships, err := NewRelationshipBuilder().ResolveRelationships(context.Background(), bundle, nil)

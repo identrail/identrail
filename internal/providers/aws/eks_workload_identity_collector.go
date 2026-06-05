@@ -59,6 +59,7 @@ type EKSWorkloadIdentity struct {
 	SubnetIDs              []string          `json:"subnet_ids,omitempty"`
 	KubernetesAccessStatus string            `json:"kubernetes_access_status,omitempty"`
 	IRSAAnnotationKeys     []string          `json:"irsa_annotation_keys,omitempty"`
+	ClusterTags            map[string]string `json:"cluster_tags,omitempty"`
 	Tags                   map[string]string `json:"tags,omitempty"`
 }
 
@@ -324,6 +325,7 @@ func normalizeEKSWorkloadIdentityScope(scope AWSCollectorScope, record EKSWorklo
 	normalized.SubnetIDs = normalizeStringList(record.SubnetIDs)
 	normalized.KubernetesAccessStatus = firstNonEmptyAWSValue(record.KubernetesAccessStatus, "aws_metadata_only")
 	normalized.IRSAAnnotationKeys = normalizeStringList(record.IRSAAnnotationKeys)
+	normalized.ClusterTags = copyTags(record.ClusterTags)
 	normalized.Tags = copyTags(record.Tags)
 	normalized.WorkloadType = firstNonEmptyAWSValue(record.WorkloadType, eksWorkloadTypeForRoleKind(normalized.RoleKind))
 	normalized.WorkloadID = firstNonEmptyAWSValue(record.WorkloadID, eksWorkloadIdentityWorkloadRef(normalized))

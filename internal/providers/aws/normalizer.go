@@ -534,7 +534,7 @@ func normalizeEKSWorkloadIdentityAsset(asset providers.RawAsset, index int, bund
 				ARN:       strings.TrimSpace(record.ClusterARN),
 				Region:    strings.TrimSpace(record.Region),
 				AccountID: strings.TrimSpace(record.AccountID),
-				Labels:    copyTags(record.Tags),
+				Labels:    copyTags(record.ClusterTags),
 				Metadata: map[string]any{
 					"cluster_status":           strings.TrimSpace(record.ClusterStatus),
 					"kubernetes_version":       strings.TrimSpace(record.KubernetesVersion),

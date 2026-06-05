@@ -177,6 +177,9 @@ func TestSDKEKSWorkloadIdentityAPIMapsAssociationsNodegroupsAndFargate(t *testin
 	if byKind[eksRoleKindPodIdentity].RoleARN != podRoleARN || byKind[eksRoleKindPodIdentity].KubernetesSubject != "jobs/batch-worker" {
 		t.Fatalf("expected pod identity metadata, got %+v", byKind[eksRoleKindPodIdentity])
 	}
+	if byKind[eksRoleKindPodIdentity].ClusterTags["owner"] != "platform" || byKind[eksRoleKindPodIdentity].Tags["owner"] != "data" {
+		t.Fatalf("expected cluster and workload tags to stay separate, got cluster_tags=%+v tags=%+v", byKind[eksRoleKindPodIdentity].ClusterTags, byKind[eksRoleKindPodIdentity].Tags)
+	}
 	if byKind[eksRoleKindNodeRole].RoleARN != nodeRoleARN || byKind[eksRoleKindNodeRole].NodegroupName != "payments-ng" {
 		t.Fatalf("expected node role metadata, got %+v", byKind[eksRoleKindNodeRole])
 	}

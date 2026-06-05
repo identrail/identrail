@@ -341,7 +341,7 @@ func (a *SDKEKSWorkloadIdentityAPI) clusterCoreRecord(cluster ekstypes.Cluster) 
 		KubernetesVersion: awsv2.ToString(cluster.Version),
 		OIDCIssuer:        issuer,
 		OIDCProviderARN:   oidcProviderARNFromIssuer(a.accountID, issuer),
-		Tags:              copyTags(cluster.Tags),
+		ClusterTags:       copyTags(cluster.Tags),
 	}
 }
 
