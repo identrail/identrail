@@ -9990,6 +9990,14 @@ export function ProductGitHubConnectPage() {
     if (awaitingFirstLoad) {
       return 'Loading GitHub status…';
     }
+    // When the connection-status request fails we do not actually know
+    // whether the user is connected, so the subtitle must not assert
+    // "Not connected" — that would contradict the error panel below and
+    // tempt a user into a redundant reinstall flow when the real state
+    // is "unknown".
+    if (hasError) {
+      return 'Unable to load GitHub status.';
+    }
     if (!connected) {
       return 'Not connected for this environment.';
     }
@@ -10007,7 +10015,12 @@ export function ProductGitHubConnectPage() {
     );
     return parts.join(' · ');
   })();
-  const primaryAction = awaitingFirstLoad
+  // The primary CTA is omitted both during the initial load and during a
+  // load failure: in the error case the connection state is unknown, so
+  // any "Install" / "Open Repositories" call-to-action is speculative —
+  // the user should retry via the error panel rather than start a flow
+  // that might collide with a real existing installation.
+  const primaryAction = awaitingFirstLoad || hasError
     ? undefined
     : connected
       ? { label: 'Open Repositories', to: repositoriesPath, variant: 'primary' as const }

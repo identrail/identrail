@@ -5658,6 +5658,16 @@ describe('GitHub domain pages (#1382)', () => {
     await screen.findByRole('heading', { level: 3, name: /Unable to load connection status/i });
     expect(screen.queryByRole('region', { name: 'Install GitHub App' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'GitHub installation' })).not.toBeInTheDocument();
+    // When the status request fails the connection state is unknown, so
+    // the header must not claim "Not connected" and must not surface a
+    // speculative install/open CTA — the error panel is the single
+    // source of truth.
+    expect(screen.queryByText(/Not connected for this environment\./i)).not.toBeInTheDocument();
+    await screen.findByText(/Unable to load GitHub status\./i);
+    expect(document.querySelector('.idt-domain-header-actions')).toBeNull();
+    expect(
+      screen.queryAllByRole('button', { name: /Install GitHub App/i })
+    ).toHaveLength(0);
   });
 
   it('Repositories page activity timeline ignores scans for unselected repositories', async () => {
