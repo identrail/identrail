@@ -163,8 +163,8 @@ func TestSDKEKSWorkloadIdentityAPIMapsAssociationsNodegroupsAndFargate(t *testin
 	if len(page.Records) != 3 {
 		t.Fatalf("expected pod identity, node role, and fargate records, got %+v", page.Records)
 	}
-	if len(page.Diagnostics) != 1 || page.Diagnostics[0].Code != "kubernetes_api_unavailable" || page.Diagnostics[0].Retryable {
-		t.Fatalf("expected degraded Kubernetes API diagnostic, got %+v", page.Diagnostics)
+	if len(page.Diagnostics) != 0 {
+		t.Fatalf("did not expect source diagnostics when AWS EKS metadata collection succeeds, got %+v", page.Diagnostics)
 	}
 	if got := awsv2.ToInt32(client.listClustersInputs[0].MaxResults); got != 25 {
 		t.Fatalf("ListClusters MaxResults = %d, want 25", got)
@@ -221,8 +221,8 @@ func TestSDKEKSWorkloadIdentityAPIRetainsClusterOnPodIdentityPartialFailure(t *t
 	if len(page.Records) != 0 {
 		t.Fatalf("did not expect records when only pod identity partition failed, got %+v", page.Records)
 	}
-	if len(page.Diagnostics) != 2 || page.Diagnostics[1].Code != "pod_identity_association_list_failed" || !page.Diagnostics[1].Retryable {
-		t.Fatalf("expected Kubernetes degraded plus retryable pod identity diagnostic, got %+v", page.Diagnostics)
+	if len(page.Diagnostics) != 1 || page.Diagnostics[0].Code != "pod_identity_association_list_failed" || !page.Diagnostics[0].Retryable {
+		t.Fatalf("expected retryable pod identity diagnostic, got %+v", page.Diagnostics)
 	}
 }
 

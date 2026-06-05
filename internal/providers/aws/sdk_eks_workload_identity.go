@@ -113,14 +113,6 @@ func (a *SDKEKSWorkloadIdentityAPI) ListWorkloadIdentities(ctx context.Context, 
 		} else {
 			clusterCore = a.clusterCoreRecord(cluster)
 		}
-		if clusterCore.OIDCIssuer != "" {
-			diagnostics = append(diagnostics, eksSourceDiagnostic(
-				"kubernetes_api_unavailable",
-				clusterCore.ClusterARN,
-				"EKS cluster OIDC metadata is visible from AWS, but Kubernetes service account annotations require Kubernetes API access",
-				false,
-			))
-		}
 
 		podIdentities, podDiagnostics := a.podIdentityAssociationsForCluster(ctx, clusterCore.ClusterName, pageSize)
 		if err := ctx.Err(); err != nil {

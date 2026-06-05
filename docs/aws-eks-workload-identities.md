@@ -49,10 +49,11 @@ entry points. Per-cluster failures for Pod Identity associations, node groups,
 or Fargate profiles are degraded partial failures; successful records remain
 visible.
 
-IRSA annotations are Kubernetes-side evidence. When the AWS collector can prove
-cluster OIDC metadata but cannot access the Kubernetes API, it reports
-`kubernetes_api_unavailable` and keeps AWS-side Pod Identity, node role, and
-Fargate evidence visible as degraded coverage.
+IRSA annotations are Kubernetes-side evidence. AWS-only scans carry
+`kubernetes_access_status: "aws_metadata_only"` and do not mark the scan partial
+just because Kubernetes service account annotations were not attempted. The
+deterministic `degraded` fixture can still emit `kubernetes_api_unavailable`
+when validating UI handling for a separate Kubernetes-access failure.
 
 ## Graph Shape
 
@@ -83,7 +84,8 @@ The EKS collector uses these metadata-only actions:
 
 Kubernetes IRSA annotation coverage also requires a Kubernetes connector or
 runtime identity that can list service accounts. Missing Kubernetes access is
-reported as degraded evidence, not as success.
+represented as metadata-only coverage unless a Kubernetes collection path
+actually fails.
 
 ## Validation
 
