@@ -6,6 +6,7 @@ import type {
   AWSConnectorStartResponse,
   AWSConnectionStatus,
   AWSEC2InstanceProfileInventoryResult,
+  AWSEKSWorkloadIdentityInventoryResult,
   AWSECSTaskRoleInventoryResult,
   AWSLambdaExecutionRoleInventoryResult,
   AWSPlatformBaselineResult,
@@ -435,6 +436,113 @@ const readyAWSLambdaExecutionRoleInventory: AWSLambdaExecutionRoleInventoryResul
       from_node_id: 'aws:workload:lambda:123456789012:us-east-1:function/payments-worker',
       to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-lambda-execution',
       evidence_ref: 'arn:aws:lambda:us-east-1:123456789012:function:payments-worker'
+    }
+  ],
+  diagnostics: [],
+  generated_at: '2026-05-17T10:00:00Z',
+  updated_at: '2026-05-17T10:00:00Z'
+};
+
+const readyAWSEKSWorkloadIdentityInventory: AWSEKSWorkloadIdentityInventoryResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  parent_issue_number: 1472,
+  parent_issue_ref: '#1472',
+  current_issue_number: 1480,
+  current_issue_ref: '#1480',
+  version: 'aws-eks-workload-identity-inventory-v1',
+  status: 'ready',
+  fixture_state: 'success',
+  confidence: 0.97,
+  record_count: 2,
+  cluster_count: 1,
+  oidc_provider_count: 1,
+  service_account_count: 2,
+  pod_identity_association_count: 1,
+  irsa_annotation_count: 1,
+  node_role_count: 0,
+  fargate_profile_count: 0,
+  identity_count: 2,
+  resource_count: 3,
+  relationship_count: 2,
+  failure_reasons: [],
+  remediation_hints: [],
+  evidence_links: ['/docs/aws-eks-workload-identities'],
+  records: [
+    {
+      account_id: '123456789012',
+      region: 'us-east-1',
+      service: 'eks',
+      workload_id: 'prod-cluster/payments/payments-api',
+      workload_type: 'eks_service_account',
+      workload_name: 'payments/payments-api',
+      role_kind: 'irsa',
+      role_arn: 'arn:aws:iam::123456789012:role/payments-irsa',
+      role_name: 'payments-irsa',
+      cluster_arn: 'arn:aws:eks:us-east-1:123456789012:cluster/prod-cluster',
+      cluster_name: 'prod-cluster',
+      cluster_status: 'ACTIVE',
+      kubernetes_version: '1.30',
+      oidc_provider_arn: 'arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-east-1.amazonaws.com/id/EXAMPLE',
+      namespace: 'payments',
+      service_account: 'payments-api',
+      kubernetes_subject: 'payments/payments-api',
+      kubernetes_access_status: 'available',
+      irsa_annotation_keys: ['eks.amazonaws.com/role-arn'],
+      source: 'kubernetes_serviceaccount_annotation',
+      evidence_ref: 'payments/payments-api',
+      from_node_id: 'aws:workload:eks:123456789012:us-east-1:irsa/prod-cluster/payments/payments-api',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-irsa',
+      relationship_type: 'runs_as',
+      confidence: 0.95,
+      collected_at: '2026-05-17T10:00:00Z',
+      status: 'ready'
+    },
+    {
+      account_id: '123456789012',
+      region: 'us-east-1',
+      service: 'eks',
+      workload_id: 'arn:aws:eks:us-east-1:123456789012:podidentityassociation/prod-cluster/a-123',
+      workload_type: 'eks_service_account',
+      workload_name: 'jobs/batch-worker',
+      role_kind: 'pod_identity',
+      role_arn: 'arn:aws:iam::123456789012:role/batch-pod-identity',
+      role_name: 'batch-pod-identity',
+      cluster_arn: 'arn:aws:eks:us-east-1:123456789012:cluster/prod-cluster',
+      cluster_name: 'prod-cluster',
+      oidc_provider_arn: 'arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-east-1.amazonaws.com/id/EXAMPLE',
+      namespace: 'jobs',
+      service_account: 'batch-worker',
+      kubernetes_subject: 'jobs/batch-worker',
+      association_arn: 'arn:aws:eks:us-east-1:123456789012:podidentityassociation/prod-cluster/a-123',
+      association_id: 'a-123',
+      kubernetes_access_status: 'aws_metadata_only',
+      source: 'listpodidentityassociations',
+      evidence_ref: 'arn:aws:eks:us-east-1:123456789012:podidentityassociation/prod-cluster/a-123',
+      from_node_id: 'aws:workload:eks:123456789012:us-east-1:pod-identity/jobs/batch-worker',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/batch-pod-identity',
+      relationship_type: 'runs_as',
+      confidence: 0.97,
+      collected_at: '2026-05-17T10:00:00Z',
+      status: 'ready'
+    }
+  ],
+  relationships: [
+    {
+      type: 'runs_as',
+      from_node_id: 'aws:workload:eks:123456789012:us-east-1:irsa/prod-cluster/payments/payments-api',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-irsa',
+      evidence_ref: 'payments/payments-api'
+    },
+    {
+      type: 'runs_as',
+      from_node_id: 'aws:workload:eks:123456789012:us-east-1:pod-identity/jobs/batch-worker',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/batch-pod-identity',
+      evidence_ref: 'arn:aws:eks:us-east-1:123456789012:podidentityassociation/prod-cluster/a-123'
     }
   ],
   diagnostics: [],
@@ -2342,7 +2450,7 @@ describe('Domain-first app routes', () => {
     );
   });
 
-  it('renders AWS machine identity inventory with current IAM, EC2, ECS, and Lambda role rows', async () => {
+  it('renders AWS machine identity inventory with current IAM, EC2, ECS, Lambda, and EKS role rows', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: [
@@ -2368,6 +2476,9 @@ describe('Domain-first app routes', () => {
     const getLambdaExecutionRoles = vi
       .spyOn(api.apiClient, 'getAWSProjectLambdaExecutionRoles')
       .mockResolvedValue({ inventory: readyAWSLambdaExecutionRoleInventory });
+    const getEKSWorkloadIdentities = vi
+      .spyOn(api.apiClient, 'getAWSProjectEKSWorkloadIdentities')
+      .mockResolvedValue({ inventory: readyAWSEKSWorkloadIdentityInventory });
 
     const { ProductAWSIdentitiesPage } = await import('./productShell');
 
@@ -2388,14 +2499,20 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText('payments-ecs-task')).toBeInTheDocument();
     expect(screen.getByText('payments-ecs-execution')).toBeInTheDocument();
     expect(await screen.findByText('payments-lambda-execution')).toBeInTheDocument();
+    expect(await screen.findByText('payments-irsa')).toBeInTheDocument();
+    expect(screen.getByText('batch-pod-identity')).toBeInTheDocument();
     expect(screen.getByText(/payments-api runs as payments-ec2-instance-profile; IMDS Required/i)).toBeInTheDocument();
     expect(screen.getByText(/payments-api runs as payments-ecs-task; FARGATE; 0\/3 running/i)).toBeInTheDocument();
     expect(screen.getByText(/payments-api attaches execution support to payments-ecs-execution; FARGATE; 0\/3 running/i)).toBeInTheDocument();
     expect(screen.getByText(/payments-worker runs as payments-lambda-execution; nodejs20\.x \/ index\.handler; 1 event source; 3 env keys, values hidden; 1 secret refs, values hidden/i)).toBeInTheDocument();
+    expect(screen.getByText(/payments\/payments-api runs as payments-irsa; prod-cluster; Irsa; OIDC provider linked; ACTIVE; Kubernetes annotations proven/i)).toBeInTheDocument();
+    expect(screen.getByText(/jobs\/batch-worker runs as batch-pod-identity; prod-cluster; Pod Identity; OIDC provider linked; association a-123; AWS-side evidence/i)).toBeInTheDocument();
     expect(screen.getAllByText(/2 workloads \/ 2 relationships/i).length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText(/1 functions \/ 1 relationships/i)).toBeInTheDocument();
     expect(screen.getByText(/1 mapped \/ 0 disabled/i)).toBeInTheDocument();
     expect(screen.getByText(/1 task \/ 1 execution/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 service accounts \/ 2 relationships/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 IRSA \/ 1 Pod Identity \/ 0 node/i)).toBeInTheDocument();
     expect(screen.queryByText(/Lambda execution-role ownership arrives in a later AWS service collector wave/i)).not.toBeInTheDocument();
     expect(getEC2InstanceProfiles).toHaveBeenCalledWith(
       'workspace-a',
@@ -2412,6 +2529,13 @@ describe('Domain-first app routes', () => {
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
     expect(getLambdaExecutionRoles).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      'aws-connector-1',
+      undefined,
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getEKSWorkloadIdentities).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       'aws-connector-1',

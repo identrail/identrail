@@ -744,6 +744,7 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/ec2-instance-profiles", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/ecs-task-roles", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/lambda-execution-roles", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
+		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/eks-workload-identities", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/baseline", Action: policyActionScansRun, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/github/connect/start", Action: policyActionTenancyWrite, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/github/connect/complete", Action: policyActionTenancyWrite, ResourceType: "project", ResourceIDParam: "project_id"},

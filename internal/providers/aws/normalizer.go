@@ -91,6 +91,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		}
 	}
 
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != rawKindEKSWorkloadIdentity {
+			continue
+		}
+		if err := normalizeEKSWorkloadIdentityAsset(asset, i, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
 	return bundle, nil
 }
 
@@ -465,6 +477,123 @@ func normalizeLambdaExecutionRoleAsset(asset providers.RawAsset, index int, bund
 	return nil
 }
 
+func normalizeEKSWorkloadIdentityAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record EKSWorkloadIdentity
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode eks workload identity asset[%d]: %w", index, err)
+	}
+
+	roleARN := strings.TrimSpace(record.RoleARN)
+	roleIdentityID := ""
+	if roleARN != "" {
+		roleIdentityID = identityIDFromARN(roleARN)
+		roleName := strings.TrimSpace(record.RoleName)
+		if roleName == "" {
+			roleName = roleNameFromARN(roleARN)
+		}
+		if _, exists := identitySeen[roleIdentityID]; !exists {
+			identitySeen[roleIdentityID] = struct{}{}
+			bundle.Identities = append(bundle.Identities, domain.Identity{
+				ID:        roleIdentityID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.IdentityTypeRole,
+				Name:      roleName,
+				ARN:       roleARN,
+				OwnerHint: ownerHintFromTags(record.Tags),
+				Tags:      copyTags(record.Tags),
+				RawRef:    asset.SourceID,
+			})
+		}
+	}
+
+	workloadID := eksWorkloadIdentityNormalizedWorkloadID(record)
+	if workloadID != "" {
+		if _, exists := workloadSeen[workloadID]; !exists {
+			workloadSeen[workloadID] = struct{}{}
+			bundle.Workloads = append(bundle.Workloads, domain.Workload{
+				ID:        workloadID,
+				Provider:  domain.ProviderAWS,
+				Type:      eksWorkloadIdentityNormalizedWorkloadType(record),
+				Name:      eksWorkloadIdentityName(record),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Region:    strings.TrimSpace(record.Region),
+				RawRef:    roleIdentityID,
+			})
+		}
+	}
+
+	if strings.TrimSpace(record.ClusterARN) != "" {
+		clusterResourceID := eksClusterResourceID(record.ClusterARN)
+		if _, exists := resourceSeen[clusterResourceID]; !exists {
+			resourceSeen[clusterResourceID] = struct{}{}
+			bundle.Resources = append(bundle.Resources, domain.Resource{
+				ID:        clusterResourceID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.ResourceTypeEKSCluster,
+				Name:      firstNonEmptyAWSValue(record.ClusterName, eksNameFromARN(record.ClusterARN)),
+				ARN:       strings.TrimSpace(record.ClusterARN),
+				Region:    strings.TrimSpace(record.Region),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Labels:    copyTags(record.Tags),
+				Metadata: map[string]any{
+					"cluster_status":           strings.TrimSpace(record.ClusterStatus),
+					"kubernetes_version":       strings.TrimSpace(record.KubernetesVersion),
+					"oidc_issuer":              strings.TrimSpace(record.OIDCIssuer),
+					"oidc_provider_arn":        strings.TrimSpace(record.OIDCProviderARN),
+					"kubernetes_access_status": strings.TrimSpace(record.KubernetesAccessStatus),
+				},
+				RawRef:         asset.SourceID,
+				SourceEntityID: workloadID,
+			})
+		}
+	}
+
+	if workloadID != "" {
+		workloadResourceID := eksWorkloadResourceID(record)
+		if _, exists := resourceSeen[workloadResourceID]; !exists {
+			resourceSeen[workloadResourceID] = struct{}{}
+			bundle.Resources = append(bundle.Resources, domain.Resource{
+				ID:        workloadResourceID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.ResourceTypeEKSWorkload,
+				Name:      eksWorkloadIdentityName(record),
+				ARN:       firstNonEmptyAWSValue(record.AssociationARN, record.NodegroupARN, record.FargateProfileARN),
+				Region:    strings.TrimSpace(record.Region),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Labels:    copyTags(record.Tags),
+				Metadata: map[string]any{
+					"role_kind":                strings.TrimSpace(record.RoleKind),
+					"role_arn":                 roleARN,
+					"cluster_arn":              strings.TrimSpace(record.ClusterARN),
+					"cluster_name":             strings.TrimSpace(record.ClusterName),
+					"namespace":                strings.TrimSpace(record.Namespace),
+					"service_account":          strings.TrimSpace(record.ServiceAccount),
+					"kubernetes_subject":       strings.TrimSpace(record.KubernetesSubject),
+					"association_arn":          strings.TrimSpace(record.AssociationARN),
+					"association_id":           strings.TrimSpace(record.AssociationID),
+					"association_owner_arn":    strings.TrimSpace(record.AssociationOwnerARN),
+					"target_role_arn":          strings.TrimSpace(record.TargetRoleARN),
+					"nodegroup_arn":            strings.TrimSpace(record.NodegroupARN),
+					"nodegroup_name":           strings.TrimSpace(record.NodegroupName),
+					"nodegroup_status":         strings.TrimSpace(record.NodegroupStatus),
+					"fargate_profile_arn":      strings.TrimSpace(record.FargateProfileARN),
+					"fargate_profile_name":     strings.TrimSpace(record.FargateProfileName),
+					"fargate_profile_status":   strings.TrimSpace(record.FargateProfileStatus),
+					"selector_namespaces":      append([]string(nil), record.SelectorNamespaces...),
+					"selector_labels":          append([]string(nil), record.SelectorLabels...),
+					"subnet_ids":               append([]string(nil), record.SubnetIDs...),
+					"kubernetes_access_status": strings.TrimSpace(record.KubernetesAccessStatus),
+					"irsa_annotation_keys":     append([]string(nil), record.IRSAAnnotationKeys...),
+				},
+				RawRef:         asset.SourceID,
+				SourceEntityID: workloadID,
+			})
+		}
+	}
+
+	return nil
+}
+
 func normalizePermissionPolicies(identityID string, policies []IAMPermissionPolicy) ([]domain.Policy, error) {
 	result := make([]domain.Policy, 0, len(policies))
 	for idx, policy := range policies {
@@ -609,6 +738,27 @@ func lambdaRoleWorkloadID(record LambdaExecutionRole) string {
 
 func lambdaRoleWorkloadName(record LambdaExecutionRole) string {
 	return firstNonEmptyAWSValue(record.WorkloadName, record.FunctionName, lambdaFunctionNameFromARN(record.FunctionARN), "lambda function")
+}
+
+func eksWorkloadIdentityNormalizedWorkloadID(record EKSWorkloadIdentity) string {
+	return eksWorkloadIdentityWorkloadID(
+		record.AccountID,
+		record.Region,
+		eksWorkloadIdentityNormalizedWorkloadType(record),
+		firstNonEmptyAWSValue(record.WorkloadID, record.AssociationARN, record.NodegroupARN, record.FargateProfileARN, record.KubernetesSubject),
+		record.RoleKind,
+	)
+}
+
+func eksWorkloadIdentityNormalizedWorkloadType(record EKSWorkloadIdentity) string {
+	switch normalizeEKSRoleKind(record.RoleKind, record) {
+	case eksRoleKindNodeRole:
+		return "eks_node_group"
+	case eksRoleKindFargatePodExecution:
+		return "eks_fargate_pod_execution_role"
+	default:
+		return "eks_service_account"
+	}
 }
 
 func ownerHintFromTags(tags map[string]string) string {

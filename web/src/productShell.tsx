@@ -31,6 +31,8 @@ import {
   type AWSConnectionStatus,
   type AWSEC2InstanceProfileInventoryResult,
   type AWSEC2InstanceProfileRecord,
+  type AWSEKSWorkloadIdentityInventoryResult,
+  type AWSEKSWorkloadIdentityRecord,
   type AWSECSTaskRoleInventoryResult,
   type AWSECSTaskRoleRecord,
   type AWSLambdaExecutionRoleInventoryResult,
@@ -3584,6 +3586,13 @@ type AWSInventoryLambdaState = {
   onRetry: () => void;
 };
 
+type AWSInventoryEKSState = {
+  inventory: AWSEKSWorkloadIdentityInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryCoverageRow = AWSInventoryFilterable & {
   id: string;
   category: string;
@@ -4178,6 +4187,7 @@ function AWSMachineIdentitiesContent({
   ec2State,
   ecsState,
   lambdaState,
+  eksState,
   filters,
   onFiltersChange
 }: {
@@ -4185,15 +4195,18 @@ function AWSMachineIdentitiesContent({
   ec2State: AWSInventoryEC2State;
   ecsState: AWSInventoryECSState;
   lambdaState: AWSInventoryLambdaState;
+  eksState: AWSInventoryEKSState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
   const ec2Inventory = ec2State.inventory;
   const ecsInventory = ecsState.inventory;
   const lambdaInventory = lambdaState.inventory;
+  const eksInventory = eksState.inventory;
   const ec2Rows = buildAWSEC2InstanceProfileRows(ec2Inventory, ec2State.loading, connection);
   const ecsRows = buildAWSECSTaskRoleRows(ecsInventory, ecsState.loading, connection);
   const lambdaRows = buildAWSLambdaExecutionRoleRows(lambdaInventory, lambdaState.loading, connection);
+  const eksRows = buildAWSEKSWorkloadIdentityRows(eksInventory, eksState.loading, connection);
   const rows: AWSInventoryTableRow[] = [
     ...(connection?.role_arn
       ? [
@@ -4219,17 +4232,7 @@ function AWSMachineIdentitiesContent({
     ...ec2Rows,
     ...ecsRows,
     ...lambdaRows,
-    {
-      id: 'eks-irsa',
-      name: 'EKS IRSA and Pod Identity associations',
-      category: 'Federated identity',
-      scope: 'EKS',
-      status: 'coming',
-      stage: 'coming',
-      detail: 'EKS identity mapping belongs here once Kubernetes and AWS graphs join.',
-      filters: { identityType: 'eks-identity', service: 'eks', risk: 'unscored', status: 'coming', search: '' },
-      searchText: inventorySearchText(['eks', 'irsa', 'pod identity', 'federated identity'])
-    },
+    ...eksRows,
     {
       id: 'cicd-oidc',
       name: 'CI/CD deploy and OIDC roles',
@@ -4250,6 +4253,7 @@ function AWSMachineIdentitiesContent({
       {ec2State.loading ? <DomainLoadingState label="Loading EC2 instance profiles" /> : null}
       {ecsState.loading ? <DomainLoadingState label="Loading ECS task roles" /> : null}
       {lambdaState.loading ? <DomainLoadingState label="Loading Lambda execution roles" /> : null}
+      {eksState.loading ? <DomainLoadingState label="Loading EKS workload identities" /> : null}
       {ec2State.error ? (
         <DomainErrorState
           title="EC2 instance profiles could not load"
@@ -4269,6 +4273,13 @@ function AWSMachineIdentitiesContent({
           title="Lambda execution roles could not load"
           body={lambdaState.error}
           retryAction={{ label: 'Retry Lambda inventory', onClick: lambdaState.onRetry }}
+        />
+      ) : null}
+      {eksState.error ? (
+        <DomainErrorState
+          title="EKS workload identities could not load"
+          body={eksState.error}
+          retryAction={{ label: 'Retry EKS inventory', onClick: eksState.onRetry }}
         />
       ) : null}
       {ec2Inventory?.diagnostics.length ? (
@@ -4316,6 +4327,24 @@ function AWSMachineIdentitiesContent({
         >
           <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="Lambda execution role diagnostics">
             {lambdaInventory.diagnostics.map((diagnostic) => (
+              <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
+                <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                <p>{diagnostic.message}</p>
+                {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
+      {eksInventory?.diagnostics.length ? (
+        <DomainStatusPanel
+          eyebrow="EKS collector diagnostics"
+          title="Partial EKS workload identity evidence"
+          status={formatTokenLabel(eksInventory.status)}
+          tone={eksInventory.status === 'blocked' ? 'danger' : 'warning'}
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="EKS workload identity diagnostics">
+            {eksInventory.diagnostics.map((diagnostic) => (
               <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
                 <strong>{formatTokenLabel(diagnostic.code)}</strong>
                 <p>{diagnostic.message}</p>
@@ -4399,6 +4428,18 @@ function AWSMachineIdentitiesContent({
             <div>
               <dt>Lambda diagnostics</dt>
               <dd>{lambdaInventory?.diagnostics.length ? `${lambdaInventory.diagnostics.length} active` : lambdaInventory ? 'Clear' : 'Not loaded'}</dd>
+            </div>
+            <div>
+              <dt>EKS workload links</dt>
+              <dd>{eksInventory ? `${eksInventory.service_account_count} service accounts / ${eksInventory.relationship_count} relationships` : eksState.loading ? 'Loading' : 'Not loaded'}</dd>
+            </div>
+            <div>
+              <dt>EKS identity mix</dt>
+              <dd>{eksInventory ? `${eksInventory.irsa_annotation_count} IRSA / ${eksInventory.pod_identity_association_count} Pod Identity / ${eksInventory.node_role_count} node` : 'Not loaded'}</dd>
+            </div>
+            <div>
+              <dt>EKS diagnostics</dt>
+              <dd>{eksInventory?.diagnostics.length ? `${eksInventory.diagnostics.length} active` : eksInventory ? 'Clear' : 'Not loaded'}</dd>
             </div>
           </dl>
         </DomainDetailPanel>
@@ -4748,6 +4789,135 @@ function awsLambdaExecutionRoleRow(record: AWSLambdaExecutionRoleRecord): AWSInv
   };
 }
 
+function buildAWSEKSWorkloadIdentityRows(
+  inventory: AWSEKSWorkloadIdentityInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsEKSWorkloadIdentityRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'eks-workload-identities-blocked',
+        name: 'EKS workload identities unavailable',
+        category: 'EKS workload identity',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'EKS workload identity collection is blocked.',
+        filters: { identityType: 'eks-identity', service: 'eks', risk: 'unscored', status: 'not-yet-available', search: '' },
+        searchText: inventorySearchText(['eks', 'irsa', 'pod identity', 'node role', inventory.account_id, inventory.region, 'blocked'])
+      }
+    ];
+  }
+  if (inventory) {
+    return [
+      {
+        id: 'eks-workload-identities-empty',
+        name: 'No EKS workload identities found',
+        category: 'EKS workload identity',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'wired now',
+        stage: 'wired',
+        detail: 'The collector completed for this account and region without EKS IRSA, Pod Identity, node role, or Fargate pod execution role evidence.',
+        filters: { identityType: 'eks-identity', service: 'eks', risk: 'low', status: 'wired-now', search: '' },
+        searchText: inventorySearchText(['eks', 'irsa', 'pod identity', 'node role', inventory.account_id, inventory.region, 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'eks-workload-identities-loading',
+        name: 'EKS workload identities',
+        category: 'EKS workload identity',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading EKS IRSA, Pod Identity, node role, and Fargate pod execution-role evidence for the selected environment.',
+        filters: { identityType: 'eks-identity', service: 'eks', risk: 'unscored', status: 'coming', search: '' },
+        searchText: inventorySearchText(['eks', 'irsa', 'pod identity', 'node role', 'loading'])
+      }
+    ];
+  }
+  return [
+    {
+      id: 'eks-workload-identities',
+      name: 'EKS workload identities',
+      category: 'EKS workload identity',
+      scope: 'Account and region expansion',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'IRSA and Pod Identity inventory maps Kubernetes service accounts and EKS compute back to IAM roles after AWS is connected.',
+      filters: { identityType: 'eks-identity', service: 'eks', risk: 'unscored', status: 'coming', search: '' },
+      searchText: inventorySearchText(['eks', 'irsa', 'pod identity', 'node role', 'inventory'])
+    }
+  ];
+}
+
+function awsEKSWorkloadIdentityRow(record: AWSEKSWorkloadIdentityRecord): AWSInventoryTableRow {
+  const stage: AWSCapabilityStage = record.status === 'ready' && record.role_arn ? 'wired' : 'coming';
+  const status = stage === 'wired' ? (record.kubernetes_access_status === 'available' || record.role_kind !== 'irsa' ? 'wired now' : 'degraded') : 'degraded';
+  const roleLabel = record.role_name || record.role_arn || 'role unresolved';
+  const clusterLabel = record.cluster_name || record.cluster_arn || 'cluster not reported';
+  const subjectLabel =
+    record.kubernetes_subject ||
+    (record.namespace && record.service_account ? `${record.namespace}/${record.service_account}` : '') ||
+    record.nodegroup_name ||
+    record.fargate_profile_name ||
+    record.workload_name ||
+    record.workload_id;
+  const oidcLabel = record.oidc_provider_arn ? 'OIDC provider linked' : 'OIDC provider unresolved';
+  const kubernetesLabel =
+    record.kubernetes_access_status === 'available'
+      ? 'Kubernetes annotations proven'
+      : record.role_kind === 'irsa'
+        ? 'Kubernetes annotations degraded'
+        : 'AWS-side evidence';
+  const roleKindLabel = formatTokenLabel(record.role_kind);
+  const associationLabel = record.association_id ? `association ${record.association_id}` : record.nodegroup_status || record.fargate_profile_status || record.cluster_status || 'status not reported';
+  const risk = record.role_kind === 'irsa' && record.kubernetes_access_status !== 'available' ? 'medium' : record.role_kind === 'node_role' ? 'medium' : 'low';
+  return {
+    id: `eks-workload-identity-${record.from_node_id}-${record.to_node_id || record.role_arn || record.evidence_ref}`,
+    name: roleLabel,
+    category: record.role_kind === 'irsa' ? 'EKS IRSA' : record.role_kind === 'pod_identity' ? 'EKS Pod Identity' : record.role_kind === 'node_role' ? 'EKS node role' : 'EKS Fargate pod role',
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage: status === 'wired now' ? 'wired' : 'coming',
+    detail: `${subjectLabel} ${record.relationship_type === 'attached_to' ? 'attaches' : 'runs as'} ${roleLabel}; ${clusterLabel}; ${roleKindLabel}; ${oidcLabel}; ${associationLabel}; ${kubernetesLabel}.`,
+    filters: {
+      identityType: 'eks-identity',
+      service: 'eks',
+      risk,
+      status: status === 'wired now' ? 'wired-now' : 'degraded',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.role_arn,
+      record.role_name,
+      record.role_kind,
+      record.cluster_name,
+      record.cluster_arn,
+      record.namespace,
+      record.service_account,
+      record.kubernetes_subject,
+      record.association_arn,
+      record.association_id,
+      record.nodegroup_name,
+      record.fargate_profile_name,
+      record.oidc_provider_arn,
+      ...(record.selector_namespaces ?? []),
+      ...(record.selector_labels ?? []),
+      ...(record.irsa_annotation_keys ?? []),
+      record.account_id,
+      record.region,
+      'eks irsa pod identity workload identity'
+    ])
+  };
+}
+
 function awsAccountRegionInventoryLabel(accountID?: string, region?: string): string {
   const accountLabel = accountID ? `Account ${accountID}` : 'Account pending';
   const regionLabel = region ? `Region ${region}` : 'Region pending';
@@ -4981,6 +5151,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [lambdaInventoryLoading, setLambdaInventoryLoading] = useState(false);
   const [lambdaInventoryError, setLambdaInventoryError] = useState('');
   const lambdaInventoryRequestRef = useRef(0);
+  const [eksInventory, setEKSInventory] = useState<AWSEKSWorkloadIdentityInventoryResult | null>(null);
+  const [eksInventoryLoading, setEKSInventoryLoading] = useState(false);
+  const [eksInventoryError, setEKSInventoryError] = useState('');
+  const eksInventoryRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -5110,6 +5284,46 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadLambdaInventory]);
 
+  const loadEKSInventory = useCallback(async () => {
+    const requestID = ++eksInventoryRequestRef.current;
+    setEKSInventory(null);
+    setEKSInventoryError('');
+    if (routeID !== 'identities' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setEKSInventoryLoading(false);
+      return;
+    }
+    setEKSInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectEKSWorkloadIdentities(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== eksInventoryRequestRef.current) {
+        return;
+      }
+      setEKSInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== eksInventoryRequestRef.current) {
+        return;
+      }
+      setEKSInventoryError(formatAPIError(error, 'Unable to load EKS workload identity inventory.'));
+    } finally {
+      if (requestID === eksInventoryRequestRef.current) {
+        setEKSInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadEKSInventory();
+    return () => {
+      eksInventoryRequestRef.current += 1;
+    };
+  }, [loadEKSInventory]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -5206,6 +5420,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: lambdaInventoryLoading,
             error: lambdaInventoryError,
             onRetry: () => void loadLambdaInventory()
+          }}
+          eksState={{
+            inventory: eksInventory,
+            loading: eksInventoryLoading,
+            error: eksInventoryError,
+            onRetry: () => void loadEKSInventory()
           }}
           filters={activeFilters}
           onFiltersChange={onFiltersChange}

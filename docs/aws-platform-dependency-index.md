@@ -7,7 +7,8 @@ so implementation PRs only open when their declared blockers are closed.
 Issue #1474 is the index itself and is completed. Issue #1476, the AWS service
 collector contract, issue #1477, the EC2 instance profile collector, issue
 #1478, the ECS task and execution role collector, and issue #1479, the Lambda
-execution role collector, are completed too, so issues #1480 through #1496 are
+execution role collector, and issue #1480, the EKS IRSA and Pod Identity
+collector, are completed too, so issues #1481 through #1496 are
 the next ready collector and resource-mapping items.
 
 ## API
@@ -26,9 +27,9 @@ The endpoint returns:
     "status": "ready",
     "issue_count": 85,
     "wave_count": 11,
-    "ready_issue_refs": ["#1480", "#1481", "#1482", "#1483", "#1484", "#1485", "#1486", "#1487", "#1488", "#1489", "#1490", "#1491", "#1492", "#1493", "#1494", "#1495", "#1496"],
+    "ready_issue_refs": ["#1481", "#1482", "#1483", "#1484", "#1485", "#1486", "#1487", "#1488", "#1489", "#1490", "#1491", "#1492", "#1493", "#1494", "#1495", "#1496"],
     "blocked_issue_refs": ["#1497"],
-    "completed_issue_refs": ["#1473", "#1474", "#1475", "#1476", "#1477", "#1478", "#1479"],
+    "completed_issue_refs": ["#1473", "#1474", "#1475", "#1476", "#1477", "#1478", "#1479", "#1480"],
     "checks": [],
     "issues": []
   }

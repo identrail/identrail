@@ -65,6 +65,33 @@ func lambdaFunctionResourceID(functionARN string) string {
 	return "aws:resource:lambda-function:" + strings.TrimSpace(functionARN)
 }
 
+func eksWorkloadIdentityWorkloadID(accountID, region, workloadType, workloadID, roleKind string) string {
+	normalizedType := normalizeName(workloadType)
+	if normalizedType == "" {
+		normalizedType = "eks-workload"
+	}
+	normalizedRoleKind := normalizeName(roleKind)
+	if normalizedRoleKind == "" {
+		normalizedRoleKind = "role"
+	}
+	return fmt.Sprintf("aws:workload:eks:%s:%s:%s/%s/%s", normalizeName(accountID), normalizeName(region), normalizedType, normalizeName(workloadID), normalizedRoleKind)
+}
+
+func eksClusterResourceID(clusterARN string) string {
+	return "aws:resource:eks-cluster:" + strings.TrimSpace(clusterARN)
+}
+
+func eksWorkloadResourceID(record EKSWorkloadIdentity) string {
+	return fmt.Sprintf(
+		"aws:resource:eks-workload:%s:%s:%s/%s/%s",
+		normalizeName(record.AccountID),
+		normalizeName(record.Region),
+		normalizeName(firstNonEmptyAWSValue(record.ClusterName, record.ClusterARN, "cluster")),
+		normalizeName(firstNonEmptyAWSValue(record.WorkloadID, record.KubernetesSubject, record.AssociationARN, record.NodegroupARN, record.FargateProfileARN, "workload")),
+		normalizeName(firstNonEmptyAWSValue(record.RoleKind, "role")),
+	)
+}
+
 func roleNameFromARN(arn string) string {
 	trimmed := strings.TrimSpace(arn)
 	if trimmed == "" {

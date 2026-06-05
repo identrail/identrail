@@ -1336,6 +1336,110 @@ export type AWSLambdaExecutionRoleInventoryResult = {
   updated_at: string;
 };
 
+export type AWSEKSWorkloadIdentityInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSEKSWorkloadIdentityFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+
+export type AWSEKSWorkloadIdentityRecord = {
+  account_id: string;
+  region: string;
+  service: string;
+  workload_id: string;
+  workload_type: string;
+  workload_name: string;
+  role_kind: 'irsa' | 'pod_identity' | 'node_role' | 'fargate_pod_execution_role' | string;
+  role_arn?: string;
+  role_name?: string;
+  cluster_arn?: string;
+  cluster_name?: string;
+  cluster_status?: string;
+  kubernetes_version?: string;
+  oidc_issuer?: string;
+  oidc_provider_arn?: string;
+  namespace?: string;
+  service_account?: string;
+  kubernetes_subject?: string;
+  association_arn?: string;
+  association_id?: string;
+  association_owner_arn?: string;
+  external_id?: string;
+  disable_session_tags?: boolean;
+  target_role_arn?: string;
+  nodegroup_arn?: string;
+  nodegroup_name?: string;
+  nodegroup_status?: string;
+  node_role_arn?: string;
+  fargate_profile_arn?: string;
+  fargate_profile_name?: string;
+  fargate_profile_status?: string;
+  pod_execution_role_arn?: string;
+  selector_namespaces?: string[];
+  selector_labels?: string[];
+  subnet_ids?: string[];
+  kubernetes_access_status?: string;
+  irsa_annotation_keys?: string[];
+  tags?: Record<string, string>;
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  to_node_id?: string;
+  relationship_type: 'runs_as' | 'attached_to' | string;
+  confidence: number;
+  collected_at: string;
+  status: string;
+};
+
+export type AWSEKSWorkloadIdentityRelationship = {
+  type: 'runs_as' | 'attached_to' | string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSEKSWorkloadIdentityDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSEKSWorkloadIdentityInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSEKSWorkloadIdentityInventoryStatus;
+  fixture_state: AWSEKSWorkloadIdentityFixtureState;
+  confidence: number;
+  record_count: number;
+  cluster_count: number;
+  oidc_provider_count: number;
+  service_account_count: number;
+  pod_identity_association_count: number;
+  irsa_annotation_count: number;
+  node_role_count: number;
+  fargate_profile_count: number;
+  identity_count: number;
+  resource_count: number;
+  relationship_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  records: AWSEKSWorkloadIdentityRecord[];
+  relationships: AWSEKSWorkloadIdentityRelationship[];
+  diagnostics: AWSEKSWorkloadIdentityDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSConnectorStartRequest = {
   workspace_id?: string;
   project_id?: string;
@@ -2338,6 +2442,21 @@ export const apiClient = {
   ) {
     return request<{ inventory: AWSLambdaExecutionRoleInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/lambda-execution-roles${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectEKSWorkloadIdentities(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSEKSWorkloadIdentityFixtureState,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSEKSWorkloadIdentityInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/eks-workload-identities${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
       })}`,
