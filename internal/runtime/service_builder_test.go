@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/identrail/identrail/internal/api"
 	"github.com/identrail/identrail/internal/app"
 	"github.com/identrail/identrail/internal/config"
 	"github.com/identrail/identrail/internal/providers/aws"
@@ -285,9 +286,42 @@ func TestBuildScanServiceAWSSDKMode(t *testing.T) {
 		t.Fatalf("expected composite collector, got %T", scannerRunner.Collector)
 	} else if composite.AccountID() != cfg.AWSAccountID || composite.Region() != cfg.AWSRegion {
 		t.Fatalf("unexpected composite scope: account=%q region=%q", composite.AccountID(), composite.Region())
+	} else {
+		assertAWSCompositeServiceNames(t, composite, []string{"iam", "ec2", "ecs", "lambda", "eks"})
+	}
+	connectorScanner, err := svc.AWSScannerFactory(context.Background(), api.AWSConnectionStatus{
+		AccountID:  cfg.AWSAccountID,
+		Region:     cfg.AWSRegion,
+		RoleARN:    "arn:aws:iam::123456789012:role/identrail-readonly",
+		ExternalID: "external-id",
+	})
+	if err != nil {
+		t.Fatalf("build connector scanner failed: %v", err)
+	}
+	connectorAppScanner, ok := connectorScanner.(app.Scanner)
+	if !ok {
+		t.Fatalf("expected connector app.Scanner, got %T", connectorScanner)
+	}
+	if connectorComposite, ok := connectorAppScanner.Collector.(*aws.AWSCompositeCollector); !ok {
+		t.Fatalf("expected connector composite collector, got %T", connectorAppScanner.Collector)
+	} else {
+		assertAWSCompositeServiceNames(t, connectorComposite, []string{"iam", "ec2", "ecs", "lambda", "eks"})
 	}
 	if err := closeFn(); err != nil {
 		t.Fatalf("close failed: %v", err)
+	}
+}
+
+func assertAWSCompositeServiceNames(t *testing.T, composite *aws.AWSCompositeCollector, want []string) {
+	t.Helper()
+	got := composite.ServiceNames()
+	if len(got) != len(want) {
+		t.Fatalf("service names = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("service names = %v, want %v", got, want)
+		}
 	}
 }
 

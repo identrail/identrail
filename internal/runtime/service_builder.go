@@ -88,7 +88,20 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws lambda execution role collector: %w", lambdaErr)
 			}
-			scanner = newAWSScanner(iamAPI, cfg.AWSAccountID, cfg.AWSRegion, awsprovider.NewEC2InstanceProfileCollector(ec2API), awsprovider.NewECSTaskRoleCollector(ecsAPI), awsprovider.NewLambdaExecutionRoleCollector(lambdaAPI))
+			eksAPI, eksErr := awsprovider.NewSDKEKSWorkloadIdentityAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if eksErr != nil {
+				_ = store.Close()
+				return nil, nil, fmt.Errorf("initialize aws eks workload identity collector: %w", eksErr)
+			}
+			scanner = newAWSScanner(
+				iamAPI,
+				cfg.AWSAccountID,
+				cfg.AWSRegion,
+				awsprovider.NewEC2InstanceProfileCollector(ec2API),
+				awsprovider.NewECSTaskRoleCollector(ecsAPI),
+				awsprovider.NewLambdaExecutionRoleCollector(lambdaAPI),
+				awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
+			)
 		default:
 			_ = store.Close()
 			return nil, nil, fmt.Errorf("unsupported aws source %q", cfg.AWSSource)
@@ -188,7 +201,19 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		if lambdaErr != nil {
 			return nil, lambdaErr
 		}
-		scanner := newAWSScanner(iamAPI, connection.AccountID, connection.Region, awsprovider.NewEC2InstanceProfileCollector(ec2API), awsprovider.NewECSTaskRoleCollector(ecsAPI), awsprovider.NewLambdaExecutionRoleCollector(lambdaAPI))
+		eksAPI, eksErr := awsprovider.NewSDKEKSWorkloadIdentityAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
+		if eksErr != nil {
+			return nil, eksErr
+		}
+		scanner := newAWSScanner(
+			iamAPI,
+			connection.AccountID,
+			connection.Region,
+			awsprovider.NewEC2InstanceProfileCollector(ec2API),
+			awsprovider.NewECSTaskRoleCollector(ecsAPI),
+			awsprovider.NewLambdaExecutionRoleCollector(lambdaAPI),
+			awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
+		)
 		return scanner, nil
 	}
 	svc.DefaultScope = db.Scope{

@@ -493,6 +493,20 @@ func TestBuildScannerForProviderAWSUsesCompositeCollector(t *testing.T) {
 	if composite.AccountID() != cfg.AWSAccountID || composite.Region() != cfg.AWSRegion {
 		t.Fatalf("unexpected composite scope account=%q region=%q", composite.AccountID(), composite.Region())
 	}
+	assertAWSCompositeServiceNames(t, composite, []string{"iam", "ec2", "ecs", "lambda", "eks"})
+}
+
+func assertAWSCompositeServiceNames(t *testing.T, composite *awsprovider.AWSCompositeCollector, want []string) {
+	t.Helper()
+	got := composite.ServiceNames()
+	if len(got) != len(want) {
+		t.Fatalf("service names = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("service names = %v, want %v", got, want)
+		}
+	}
 }
 
 func TestExecuteUnknownCommand(t *testing.T) {

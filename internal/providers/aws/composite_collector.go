@@ -55,6 +55,20 @@ func (c *AWSCompositeCollector) Region() string {
 	return c.region
 }
 
+func (c *AWSCompositeCollector) ServiceNames() []string {
+	if c == nil {
+		return nil
+	}
+	names := make([]string, 0, len(c.services))
+	for _, service := range c.services {
+		if service == nil {
+			continue
+		}
+		names = append(names, service.ServiceName())
+	}
+	return names
+}
+
 // NewAWSCompositeCollector creates a composite AWS collector that runs IAM first by default
 // and accepts optional additional service collectors for future extension.
 func NewAWSCompositeCollector(iamAPI IAMAPI, accountID string, region string, additionalServices ...AWSServiceCollector) *AWSCompositeCollector {
