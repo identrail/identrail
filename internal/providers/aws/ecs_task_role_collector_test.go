@@ -223,6 +223,47 @@ func TestRoleNormalizerAddsECSTaskAndExecutionRoleEdges(t *testing.T) {
 	}
 }
 
+func TestRoleNormalizerUsesNormalizedECSRoleKindInWorkloadName(t *testing.T) {
+	record := ECSTaskRole{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID:     "123456789012",
+			Region:        "us-east-1",
+			Service:       "ecs",
+			WorkloadID:    "arn:aws:ecs:us-east-1:123456789012:service/prod/payments",
+			WorkloadType:  "ecs_service",
+			RoleARN:       "arn:aws:iam::123456789012:role/payments-execution",
+			Source:        "describeservices",
+			EvidenceRef:   "arn:aws:ecs:us-east-1:123456789012:service/prod/payments",
+			Confidence:    0.9,
+			ScanID:        "scan-ecs",
+			CollectorName: ecsTaskRoleCollectorName,
+			CollectedAt:   time.Date(2026, 6, 4, 17, 0, 0, 0, time.UTC),
+		},
+		RoleKind:         "execution",
+		RoleName:         "payments-execution",
+		ServiceARN:       "arn:aws:ecs:us-east-1:123456789012:service/prod/payments",
+		ServiceName:      "payments",
+		ExecutionRoleARN: "arn:aws:iam::123456789012:role/payments-execution",
+	}
+	payload, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal execution record: %v", err)
+	}
+
+	bundle, err := NewRoleNormalizer().Normalize(context.Background(), []providers.RawAsset{
+		{Kind: rawKindECSTaskRole, SourceID: "ecs-execution", Payload: payload},
+	})
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if len(bundle.Workloads) != 1 {
+		t.Fatalf("expected one workload, got %+v", bundle.Workloads)
+	}
+	if !strings.Contains(bundle.Workloads[0].Name, "execution role") {
+		t.Fatalf("expected normalized execution role workload label, got %q", bundle.Workloads[0].Name)
+	}
+}
+
 func fmtAny(value any) string {
 	if value == nil {
 		return ""

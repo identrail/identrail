@@ -35,7 +35,7 @@ func TestGetAWSECSTaskRoleInventoryBuildsScopedRecords(t *testing.T) {
 	if result.ConnectorID != "aws-prod" || result.AccountID != "123456789012" || result.Region != "us-east-1" {
 		t.Fatalf("expected connector account/region context, got %+v", result)
 	}
-	if result.RecordCount != 3 || result.TaskRoleCount != 2 || result.ExecutionRoleCount != 1 || result.RelationshipCount != 3 {
+	if result.RecordCount != 3 || result.TaskRoleCount != 2 || result.ExecutionRoleCount != 1 || result.WorkloadCount != 2 || result.RelationshipCount != 3 {
 		t.Fatalf("unexpected inventory counts: %+v", result)
 	}
 	if result.ResourceCount != 3 {
@@ -49,6 +49,9 @@ func TestGetAWSECSTaskRoleInventoryBuildsScopedRecords(t *testing.T) {
 	}
 	if result.Records[1].RoleKind != "execution_role" || result.Records[1].RelationshipType != "attached_to" {
 		t.Fatalf("expected execution role attachment evidence, got %+v", result.Records[1])
+	}
+	if result.Records[0].FromNodeID != result.Records[1].FromNodeID {
+		t.Fatalf("expected task and execution role records to share the ECS workload node, got %q and %q", result.Records[0].FromNodeID, result.Records[1].FromNodeID)
 	}
 	if len(result.Records[0].SecretRefs) != 1 || len(result.Records[0].EnvironmentKeys) != 2 {
 		t.Fatalf("expected secret refs and environment keys without values, got %+v", result.Records[0])
@@ -81,7 +84,7 @@ func TestGetAWSECSTaskRoleInventorySurfacesDegradedState(t *testing.T) {
 	if result.RecordCount != 1 || len(result.Diagnostics) != 1 {
 		t.Fatalf("expected one retained record and diagnostic, got %+v", result)
 	}
-	if result.Diagnostics[0].Code != "missing_execution_role" || result.Records[0].Status != "ready" {
+	if result.Diagnostics[0].Code != "missing_execution_role" || result.Records[0].Status != "ready" || result.Records[0].ExecutionRoleARN != "" {
 		t.Fatalf("expected explicit missing execution role state, got record=%+v diagnostics=%+v", result.Records[0], result.Diagnostics)
 	}
 }

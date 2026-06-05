@@ -42,9 +42,9 @@ The response is returned as:
     "current_issue_ref": "#1478",
     "version": "aws-ecs-task-role-inventory-v1",
     "status": "ready",
-    "record_count": 3,
-    "task_role_count": 2,
-    "execution_role_count": 1,
+    "record_count": 0,
+    "task_role_count": 0,
+    "execution_role_count": 0,
     "records": [],
     "relationships": [],
     "diagnostics": []

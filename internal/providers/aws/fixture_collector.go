@@ -101,23 +101,59 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
-	var profile EC2InstanceProfile
-	if err := json.Unmarshal(payload, &profile); err == nil {
-		sourceID := ec2InstanceProfileSourceID(profile)
-		if strings.TrimSpace(profile.WorkloadID) != "" || strings.TrimSpace(profile.InstanceID) != "" || strings.TrimSpace(profile.LaunchTemplateID) != "" {
-			return rawKindEC2InstanceProfile, sourceID
-		}
-	}
-
 	var ecsRole ECSTaskRole
 	if err := json.Unmarshal(payload, &ecsRole); err == nil {
 		sourceID := ecsTaskRoleSourceID(ecsRole)
-		if strings.TrimSpace(ecsRole.WorkloadID) != "" || strings.TrimSpace(ecsRole.ServiceARN) != "" || strings.TrimSpace(ecsRole.TaskDefinitionARN) != "" {
+		if isECSTaskRoleFixture(ecsRole) {
 			return rawKindECSTaskRole, sourceID
 		}
 	}
 
+	var profile EC2InstanceProfile
+	if err := json.Unmarshal(payload, &profile); err == nil {
+		sourceID := ec2InstanceProfileSourceID(profile)
+		if isEC2InstanceProfileFixture(profile) {
+			return rawKindEC2InstanceProfile, sourceID
+		}
+	}
+
 	return "", ""
+}
+
+func isECSTaskRoleFixture(record ECSTaskRole) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), ecsServiceName) || strings.EqualFold(strings.TrimSpace(record.CollectorName), ecsTaskRoleCollectorName) {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(record.WorkloadType)) {
+	case "ecs_service", "service", "ecs_task_definition", "task_definition":
+		return true
+	}
+	return strings.TrimSpace(record.RoleKind) != "" ||
+		strings.TrimSpace(record.ClusterARN) != "" ||
+		strings.TrimSpace(record.ServiceARN) != "" ||
+		strings.TrimSpace(record.ServiceName) != "" ||
+		strings.TrimSpace(record.TaskDefinitionARN) != "" ||
+		strings.TrimSpace(record.TaskDefinitionFamily) != "" ||
+		strings.TrimSpace(record.TaskRoleARN) != "" ||
+		strings.TrimSpace(record.ExecutionRoleARN) != ""
+}
+
+func isEC2InstanceProfileFixture(record EC2InstanceProfile) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), ec2ServiceName) || strings.EqualFold(strings.TrimSpace(record.CollectorName), ec2InstanceProfileCollectorName) {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(record.WorkloadType)) {
+	case "ec2_instance", "instance", "ec2_launch_template", "launch_template":
+		return true
+	}
+	return strings.TrimSpace(record.InstanceID) != "" ||
+		strings.TrimSpace(record.InstanceARN) != "" ||
+		strings.TrimSpace(record.InstanceName) != "" ||
+		strings.TrimSpace(record.InstanceProfileARN) != "" ||
+		strings.TrimSpace(record.InstanceProfileID) != "" ||
+		strings.TrimSpace(record.InstanceProfileName) != "" ||
+		strings.TrimSpace(record.LaunchTemplateID) != "" ||
+		strings.TrimSpace(record.LaunchTemplateName) != ""
 }
 
 func expandFixturePaths(inputs []string) ([]string, error) {

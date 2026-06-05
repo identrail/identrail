@@ -288,7 +288,7 @@ const readyAWSECSTaskRoleInventory: AWSECSTaskRoleInventoryResult = {
       launch_type: 'FARGATE',
       scheduling_strategy: 'REPLICA',
       desired_count: 3,
-      running_count: 3,
+      running_count: 0,
       pending_count: 0,
       compatibilities: ['FARGATE'],
       container_images: ['123456789012.dkr.ecr.us-east-1.amazonaws.com/payments-api:2026-06-04'],
@@ -297,7 +297,7 @@ const readyAWSECSTaskRoleInventory: AWSECSTaskRoleInventoryResult = {
       tags: { owner: 'platform', service: 'payments' },
       source: 'describeservices',
       evidence_ref: 'arn:aws:ecs:us-east-1:123456789012:service/prod-cluster/payments-api',
-      from_node_id: 'aws:workload:ecs:123456789012:us-east-1:ecs_service/payments-api/task_role',
+      from_node_id: 'aws:workload:ecs:123456789012:us-east-1:ecs_service/arn:aws:ecs:us-east-1:123456789012:service/prod-cluster/payments-api',
       to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-ecs-task',
       relationship_type: 'runs_as',
       confidence: 0.96,
@@ -326,7 +326,7 @@ const readyAWSECSTaskRoleInventory: AWSECSTaskRoleInventoryResult = {
       launch_type: 'FARGATE',
       scheduling_strategy: 'REPLICA',
       desired_count: 3,
-      running_count: 3,
+      running_count: 0,
       pending_count: 0,
       compatibilities: ['FARGATE'],
       container_images: ['123456789012.dkr.ecr.us-east-1.amazonaws.com/payments-api:2026-06-04'],
@@ -334,7 +334,7 @@ const readyAWSECSTaskRoleInventory: AWSECSTaskRoleInventoryResult = {
       environment_keys: ['APP_ENV', 'LOG_LEVEL'],
       source: 'describeservices',
       evidence_ref: 'arn:aws:ecs:us-east-1:123456789012:service/prod-cluster/payments-api',
-      from_node_id: 'aws:workload:ecs:123456789012:us-east-1:ecs_service/payments-api/execution_role',
+      from_node_id: 'aws:workload:ecs:123456789012:us-east-1:ecs_service/arn:aws:ecs:us-east-1:123456789012:service/prod-cluster/payments-api',
       to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-ecs-execution',
       relationship_type: 'attached_to',
       confidence: 0.9,
@@ -2298,8 +2298,8 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText('payments-ecs-task')).toBeInTheDocument();
     expect(screen.getByText('payments-ecs-execution')).toBeInTheDocument();
     expect(screen.getByText(/payments-api runs as payments-ec2-instance-profile; IMDS Required/i)).toBeInTheDocument();
-    expect(screen.getByText(/payments-api runs as payments-ecs-task; FARGATE; 3\/3 running/i)).toBeInTheDocument();
-    expect(screen.getByText(/payments-api attaches execution support to payments-ecs-execution; FARGATE; 3\/3 running/i)).toBeInTheDocument();
+    expect(screen.getByText(/payments-api runs as payments-ecs-task; FARGATE; 0\/3 running/i)).toBeInTheDocument();
+    expect(screen.getByText(/payments-api attaches execution support to payments-ecs-execution; FARGATE; 0\/3 running/i)).toBeInTheDocument();
     expect(screen.getAllByText(/2 workloads \/ 2 relationships/i).length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText(/1 task \/ 1 execution/i)).toBeInTheDocument();
     expect(getEC2InstanceProfiles).toHaveBeenCalledWith(

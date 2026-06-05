@@ -251,7 +251,7 @@ func awsECSTaskRoleFixtureRecords(scope db.Scope, project db.TenancyProject, con
 			Tags:             map[string]string{"owner": "platform", "service": "payments"},
 			Source:           source,
 			EvidenceRef:      evidenceRef,
-			FromNodeID:       awsECSWorkloadNodeID(accountID, region, workloadType, workloadID, roleKind),
+			FromNodeID:       awsECSWorkloadNodeID(accountID, region, workloadType, workloadID),
 			ToNodeID:         awsIdentityNodeIDForAPI(roleARN),
 			RelationshipType: relationshipType,
 			Confidence:       0.96,
@@ -309,6 +309,7 @@ func awsECSTaskRoleFixtureRecords(scope db.Scope, project db.TenancyProject, con
 		return nil, nil
 	case "degraded":
 		degraded := taskRole
+		degraded.ExecutionRoleARN = ""
 		return []AWSECSTaskRoleRecord{degraded}, []providers.SourceError{{
 			Collector: "aws_ecs/ecs_task_role",
 			SourceID:  taskDefinitionARN,
@@ -449,7 +450,7 @@ func awsECSTaskRoleDiagnosticRemediation(code string) string {
 	}
 }
 
-func awsECSWorkloadNodeID(accountID string, region string, workloadType string, workloadID string, roleKind string) string {
+func awsECSWorkloadNodeID(accountID string, region string, workloadType string, workloadID string) string {
 	account := strings.TrimSpace(accountID)
 	if account == "" {
 		account = "account"
@@ -462,9 +463,9 @@ func awsECSWorkloadNodeID(accountID string, region string, workloadType string, 
 	if normalizedWorkloadID == "" {
 		normalizedWorkloadID = "workload"
 	}
-	normalizedRoleKind := strings.TrimSpace(roleKind)
-	if normalizedRoleKind == "" {
-		normalizedRoleKind = "role"
+	normalizedWorkloadType := strings.TrimSpace(workloadType)
+	if normalizedWorkloadType == "" {
+		normalizedWorkloadType = "workload"
 	}
-	return fmt.Sprintf("aws:workload:ecs:%s:%s:%s/%s/%s", account, trimmedRegion, strings.TrimSpace(workloadType), normalizedWorkloadID, normalizedRoleKind)
+	return fmt.Sprintf("aws:workload:ecs:%s:%s:%s/%s", account, trimmedRegion, normalizedWorkloadType, normalizedWorkloadID)
 }

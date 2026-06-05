@@ -89,3 +89,25 @@ func TestFixtureCollectorSkipsMalformedAndMissingARNFixturesWhenValidRecordsExis
 		t.Fatalf("unexpected source id for retained fixture: %q", assets[0].SourceID)
 	}
 }
+
+func TestFixtureCollectorClassifiesECSTaskRoleWithWorkloadIDAsECS(t *testing.T) {
+	payload := []byte(`{
+		"service":"ecs",
+		"collector_name":"ecs_task_role",
+		"account_id":"123456789012",
+		"region":"us-east-1",
+		"workload_id":"arn:aws:ecs:us-east-1:123456789012:service/prod/payments",
+		"workload_type":"ecs_service",
+		"role_kind":"task_role",
+		"role_arn":"arn:aws:iam::123456789012:role/payments-task",
+		"task_definition_arn":"arn:aws:ecs:us-east-1:123456789012:task-definition/payments:4"
+	}`)
+
+	kind, sourceID := fixtureAssetKindAndSourceID(payload)
+	if kind != rawKindECSTaskRole {
+		t.Fatalf("expected ECS task role fixture, got kind=%q sourceID=%q", kind, sourceID)
+	}
+	if sourceID == "" {
+		t.Fatal("expected ECS source ID")
+	}
+}

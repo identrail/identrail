@@ -486,8 +486,9 @@ func ecsRoleWorkloadType(record ECSTaskRole) string {
 }
 
 func ecsRoleWorkloadName(record ECSTaskRole) string {
+	roleKind := normalizeECSRoleKind(record.RoleKind, record.RoleARN, record.TaskRoleARN, record.ExecutionRoleARN)
 	roleKindLabel := "task role"
-	if strings.EqualFold(record.RoleKind, ecsRoleKindExecution) {
+	if roleKind == ecsRoleKindExecution {
 		roleKindLabel = "execution role"
 	}
 	return firstNonEmptyAWSValue(record.WorkloadName, record.ServiceName, record.TaskDefinitionFamily, ecsNameFromARN(record.ServiceARN), ecsNameFromARN(record.TaskDefinitionARN), "ecs workload") + " " + roleKindLabel

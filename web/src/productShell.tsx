@@ -4550,9 +4550,13 @@ function awsECSTaskRoleRow(record: AWSECSTaskRoleRecord): AWSInventoryTableRow {
   const launchLabel = record.launch_type || record.compatibilities?.join(', ') || 'launch not reported';
   const imageLabel = record.container_images?.[0] ? `image ${record.container_images[0]}` : 'image not reported';
   const secretLabel = record.secret_refs?.length ? `${record.secret_refs.length} secret refs, values hidden` : 'no secret refs reported';
-  const taskCountLabel = typeof record.running_count === 'number' && record.running_count > 0 ? `${record.running_count}/${record.desired_count ?? record.running_count} running` : 'task count not reported';
+  const hasTaskCount = typeof record.running_count === 'number' || typeof record.desired_count === 'number';
+  const runningCount = record.running_count ?? 0;
+  const desiredCount = record.desired_count ?? runningCount;
+  const taskCountLabel = hasTaskCount ? `${runningCount}/${desiredCount} running` : 'task count not reported';
+  const rowRoleID = record.to_node_id || record.role_arn || record.role_name || record.role_kind;
   return {
-    id: `ecs-task-role-${record.from_node_id}`,
+    id: `ecs-task-role-${record.from_node_id}-${rowRoleID}`,
     name: roleLabel,
     category: isExecutionRole ? 'ECS execution role' : 'ECS task role',
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
