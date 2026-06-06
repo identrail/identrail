@@ -208,7 +208,19 @@ func (c *CodeBuildServiceRoleCollector) CollectWithDiagnostics(ctx context.Conte
 			return c.client.ListServiceRoles(callCtx, nextToken, c.pageSize)
 		})
 		if err != nil {
-			return nil, nil, fmt.Errorf("list codebuild service roles page %d: %w", page, err)
+			wrapped := fmt.Errorf("list codebuild service roles page %d: %w", page, err)
+			c.addIssue(providers.SourceError{
+				Collector: codeBuildServiceRoleCollectorName,
+				SourceID:  firstNonEmptyAWSValue(nextToken, "page"),
+				Code:      "codebuild_service_role_page_failed",
+				Message:   wrapped.Error(),
+				Retryable: isRetryable(err),
+			})
+			issues := append([]providers.SourceError(nil), c.issues...)
+			if len(assets) > 0 {
+				return assets, issues, wrapped
+			}
+			return nil, issues, wrapped
 		}
 		for _, diagnostic := range response.Diagnostics {
 			c.addIssue(diagnostic)

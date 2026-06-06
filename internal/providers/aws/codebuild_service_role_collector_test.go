@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -249,6 +250,72 @@ func TestCodeBuildServiceRoleCollectorRetriesThenCollects(t *testing.T) {
 	}
 	if delays[0] <= 100*time.Millisecond || delays[0] > 125*time.Millisecond {
 		t.Fatalf("expected bounded jittered delay, got %s", delays[0])
+	}
+}
+
+func TestCodeBuildServiceRoleCollectorPreservesAssetsWhenLaterPageFails(t *testing.T) {
+	calls := 0
+	api := codeBuildServiceRoleAPIFunc(func(_ context.Context, nextToken string, pageSize int32) (CodeBuildServiceRolePage, error) {
+		calls++
+		if pageSize != 2 {
+			t.Fatalf("expected page size 2, got %d", pageSize)
+		}
+		switch calls {
+		case 1:
+			if nextToken != "" {
+				t.Fatalf("expected first request without token, got %q", nextToken)
+			}
+			return CodeBuildServiceRolePage{
+				Records: []CodeBuildServiceRole{{
+					ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+						WorkloadID:   "arn:aws:codebuild:us-east-1:123456789012:project/payments-build",
+						WorkloadType: "codebuild_project",
+						WorkloadName: "payments-build",
+						RoleARN:      "arn:aws:iam::123456789012:role/payments-codebuild-service",
+						Source:       "batchgetprojects",
+						EvidenceRef:  "arn:aws:codebuild:us-east-1:123456789012:project/payments-build",
+					},
+					RoleName:    "payments-codebuild-service",
+					ProjectARN:  "arn:aws:codebuild:us-east-1:123456789012:project/payments-build",
+					ProjectName: "payments-build",
+				}},
+				NextToken: "page-2",
+			}, nil
+		case 2:
+			if nextToken != "page-2" {
+				t.Fatalf("expected second request with page-2 token, got %q", nextToken)
+			}
+			return CodeBuildServiceRolePage{}, errors.New("batch failed")
+		default:
+			t.Fatalf("unexpected extra page request %d", calls)
+			return CodeBuildServiceRolePage{}, nil
+		}
+	})
+	collector := NewCodeBuildServiceRoleCollector(api, WithCodeBuildServiceRolePageSize(2))
+
+	assets, diagnostics, err := collector.CollectWithDiagnostics(context.Background(), AWSCollectorScope{
+		AccountID: "123456789012",
+		Region:    "us-east-1",
+	})
+	if err == nil || !strings.Contains(err.Error(), "list codebuild service roles page 2") {
+		t.Fatalf("expected page 2 failure, got %v", err)
+	}
+	if len(assets) != 1 {
+		t.Fatalf("expected earlier page asset to be preserved, got %d assets: %+v", len(assets), assets)
+	}
+	if len(diagnostics) != 1 {
+		t.Fatalf("expected one page-failure diagnostic, got %+v", diagnostics)
+	}
+	if diagnostics[0].Code != "codebuild_service_role_page_failed" || diagnostics[0].SourceID != "page-2" {
+		t.Fatalf("expected page-failure diagnostic for page-2, got %+v", diagnostics[0])
+	}
+
+	var payload CodeBuildServiceRole
+	if err := json.Unmarshal(assets[0].Payload, &payload); err != nil {
+		t.Fatalf("decode preserved payload: %v", err)
+	}
+	if payload.ProjectName != "payments-build" || payload.RoleARN != "arn:aws:iam::123456789012:role/payments-codebuild-service" {
+		t.Fatalf("expected first-page project evidence, got %+v", payload)
 	}
 }
 
