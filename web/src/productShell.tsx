@@ -5030,17 +5030,18 @@ function buildAWSCodePipelineDeploymentRoleRows(
     ];
   }
   if (inventory) {
+    const degraded = inventory.status === 'degraded' || inventory.diagnostics.length > 0 || inventory.failure_reasons.length > 0;
     return [
       {
         id: 'codepipeline-deployment-roles-empty',
-        name: 'No CodePipeline deployment roles found',
+        name: degraded ? 'CodePipeline deployment roles incomplete' : 'No CodePipeline deployment roles found',
         category: 'CodePipeline deployment role',
         scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
-        status: 'wired now',
+        status: degraded ? 'degraded' : 'wired now',
         stage: 'wired',
-        detail: 'The collector completed for this account and region without CodePipeline pipelines that reference deployment roles.',
-        filters: { identityType: 'codepipeline-role', service: 'codepipeline', risk: 'low', status: 'wired-now', search: '' },
-        searchText: inventorySearchText(['codepipeline', 'deployment role', inventory.account_id, inventory.region, 'empty'])
+        detail: degraded ? (inventory.failure_reasons[0] ?? 'CodePipeline deployment-role collection completed with degraded evidence and no retained records.') : 'The collector completed for this account and region without CodePipeline pipelines that reference deployment roles.',
+        filters: { identityType: 'codepipeline-role', service: 'codepipeline', risk: degraded ? 'medium' : 'low', status: degraded ? 'degraded' : 'wired-now', search: '' },
+        searchText: inventorySearchText(['codepipeline', 'deployment role', inventory.account_id, inventory.region, degraded ? 'degraded empty' : 'empty'])
       }
     ];
   }
@@ -5075,7 +5076,7 @@ function buildAWSCodePipelineDeploymentRoleRows(
 }
 
 function awsCodePipelineDeploymentRoleRow(record: AWSCodePipelineDeploymentRoleRecord): AWSInventoryTableRow {
-  const degraded = record.status !== 'ready' || record.cross_account_role || record.cross_region_action || Boolean(record.disabled_stage_transitions?.length);
+  const degraded = record.status !== 'ready' || record.cross_account_role || record.cross_region_action || record.cross_region_artifact_stores || Boolean(record.disabled_stage_transitions?.length);
   const stage: AWSCapabilityStage = record.status === 'ready' && record.role_arn ? 'wired' : 'coming';
   const status = stage === 'wired' ? (degraded ? 'degraded' : 'wired now') : 'degraded';
   const roleLabel = record.role_name || record.role_arn || 'role unresolved';
@@ -5087,9 +5088,10 @@ function awsCodePipelineDeploymentRoleRow(record: AWSCodePipelineDeploymentRoleR
   const pathLabel = [
     record.cross_account_role ? 'cross-account role' : '',
     record.cross_region_action ? 'cross-region action' : '',
+    record.cross_region_artifact_stores ? 'cross-region artifact store' : '',
     record.disabled_stage_transitions?.length ? 'disabled transition' : ''
   ].filter(Boolean).join(', ') || 'standard deployment path';
-  const risk = record.cross_account_role || record.disabled_stage_transitions?.length ? 'high' : record.cross_region_action || record.pass_role_adjacent ? 'medium' : 'low';
+  const risk = record.cross_account_role || record.disabled_stage_transitions?.length ? 'high' : record.cross_region_action || record.cross_region_artifact_stores || record.pass_role_adjacent ? 'medium' : 'low';
   return {
     id: `codepipeline-deployment-role-${record.from_node_id}-${record.to_node_id || record.role_arn || record.pipeline_arn}`,
     name: roleLabel,

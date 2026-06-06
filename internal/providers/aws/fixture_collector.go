@@ -219,7 +219,6 @@ func isCodePipelineDeploymentRoleFixture(record CodePipelineDeploymentRole) bool
 	}
 	return strings.TrimSpace(record.PipelineARN) != "" ||
 		strings.TrimSpace(record.PipelineName) != "" ||
-		strings.TrimSpace(record.RoleKind) != "" ||
 		strings.TrimSpace(record.StageName) != "" ||
 		strings.TrimSpace(record.ActionName) != "" ||
 		strings.TrimSpace(record.ActionProvider) != "" ||

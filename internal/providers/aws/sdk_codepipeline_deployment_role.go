@@ -257,7 +257,13 @@ func codePipelineArtifactStores(pipeline codepipelinetypes.PipelineDeclaration) 
 	if pipeline.ArtifactStore != nil {
 		addStore("", *pipeline.ArtifactStore)
 	}
-	for region, store := range pipeline.ArtifactStores {
+	storeRegions := make([]string, 0, len(pipeline.ArtifactStores))
+	for region := range pipeline.ArtifactStores {
+		storeRegions = append(storeRegions, region)
+	}
+	sort.Strings(storeRegions)
+	for _, region := range storeRegions {
+		store := pipeline.ArtifactStores[region]
 		addStore(region, store)
 	}
 	return normalizeStringList(types), normalizeStringList(locations), normalizeStringList(regions), normalizeStringList(kmsKeys)
@@ -304,6 +310,7 @@ func codePipelineConfigurationKeys(config map[string]string) []string {
 	for key := range config {
 		result = append(result, key)
 	}
+	sort.Strings(result)
 	return normalizeStringList(result)
 }
 

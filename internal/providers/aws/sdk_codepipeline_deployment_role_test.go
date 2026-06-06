@@ -120,6 +120,15 @@ func TestSDKCodePipelineDeploymentRoleAPIMapsPipelineAndActionRoles(t *testing.T
 	if len(actionRecord.ArtifactStoreRegions) != 2 || !pipelineRecord.CrossRegionArtifactStores {
 		t.Fatalf("expected cross-region artifact stores, got pipeline=%+v action=%+v", pipelineRecord, actionRecord)
 	}
+	if got := strings.Join(actionRecord.ArtifactStoreRegions, ","); got != "us-east-1,us-west-2" {
+		t.Fatalf("expected stable artifact store region ordering, got %q", got)
+	}
+	if got := strings.Join(actionRecord.ArtifactStoreLocations, ","); got != "payments-pipeline-artifacts-east,payments-pipeline-artifacts-west" {
+		t.Fatalf("expected stable artifact store location ordering, got %q", got)
+	}
+	if got := strings.Join(actionRecord.ConfigurationKeys, ","); got != "ApplicationName,DeploymentGroupName" {
+		t.Fatalf("expected stable configuration key ordering, got %q", got)
+	}
 	if len(pipelineRecord.DisabledStageTransitions) != 1 || !strings.Contains(pipelineRecord.DisabledStageTransitions[0], "freeze window") {
 		t.Fatalf("expected disabled transition evidence, got %+v", pipelineRecord.DisabledStageTransitions)
 	}

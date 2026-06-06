@@ -151,6 +151,12 @@ func TestFixtureCollectorClassifiesEKSWorkloadBeforeGenericRoleKindFallback(t *t
 	}
 }
 
+func TestFixtureCollectorDoesNotClassifyGenericRoleKindAsCodePipeline(t *testing.T) {
+	if isCodePipelineDeploymentRoleFixture(CodePipelineDeploymentRole{RoleKind: "action_role"}) {
+		t.Fatal("expected role_kind alone not to classify a fixture as CodePipeline")
+	}
+}
+
 func TestFixtureCollectorDoesNotClassifyGenericEnvironmentKeysAsLambda(t *testing.T) {
 	genericPayload := []byte(`{
 		"role_arn":"arn:aws:iam::123456789012:role/shared-runtime",

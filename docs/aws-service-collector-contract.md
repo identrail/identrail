@@ -187,10 +187,10 @@ references and `environment_keys` are only variable names. Build logs, source
 contents, artifact contents, plaintext environment values, and secret values are
 intentionally outside the collector contract.
 
-For CodePipeline, `configuration_keys` and environment variable names are
-metadata only. Configuration values, source contents, action outputs, artifact
-contents, deployment payloads, and secret values are intentionally outside the
-collector contract.
+For CodePipeline, `configuration_keys` are action configuration key names only.
+Configuration values, source contents, action outputs, artifact contents,
+deployment payloads, environment variable names, and secret values are
+intentionally outside the collector contract.
 
 For EKS, AWS-side metadata proves clusters, OIDC issuer relationships, Pod
 Identity associations, managed node roles, and Fargate pod execution roles.
