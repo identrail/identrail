@@ -181,13 +181,13 @@ func TestStepFunctionsStateMachineRoleCollectorPageFailureAfterEvidence(t *testi
 }
 
 func TestStepFunctionsDefinitionMetadataExtractsOnlySafeReferences(t *testing.T) {
-	definition := `{"StartAt":"Charge","States":{"Charge":{"Type":"Task","Resource":"arn:aws:states:::lambda:invoke","Parameters":{"FunctionName":"arn:aws:lambda:us-east-1:123456789012:function:charge-card","Payload":{"card":"do-not-store","ExampleRoleArn":"arn:aws:iam::123456789012:role/customer-example"}},"Result":{"ExampleTopicArn":"arn:aws:sns:us-east-1:123456789012:customer-topic"},"Next":"Nested"},"Nested":{"Type":"Task","Resource":"arn:aws:states:::states:startExecution","Parameters":{"StateMachineArn":"arn:aws:states:us-east-1:123456789012:stateMachine:risk-check"},"End":true}}}`
+	definition := `{"StartAt":"Charge","States":{"Charge":{"Type":"Task","Resource":"arn:aws:states:::lambda:invoke","Parameters":{"FunctionName":"arn:aws:lambda:us-east-1:123456789012:function:charge-card","CustomerRoleArn":"arn:aws:iam::123456789012:role/customer-parameter","Payload":{"card":"do-not-store","ExampleRoleArn":"arn:aws:iam::123456789012:role/customer-example"}},"Result":{"ExampleTopicArn":"arn:aws:sns:us-east-1:123456789012:customer-topic"},"Next":"Nested"},"Nested":{"Type":"Task","Resource":"arn:aws:states:::states:startExecution","Parameters":{"StateMachineArn":"arn:aws:states:us-east-1:123456789012:stateMachine:risk-check"},"End":true}}}`
 	summary := stepFunctionsDefinitionMetadata(definition)
 	if summary.Hash == "" {
 		t.Fatal("expected hash")
 	}
 	resourceARNs := strings.Join(summary.ResourceARNs, ",")
-	if strings.Contains(resourceARNs, "do-not-store") || strings.Contains(resourceARNs, "customer-example") || strings.Contains(resourceARNs, "customer-topic") {
+	if strings.Contains(resourceARNs, "do-not-store") || strings.Contains(resourceARNs, "customer-example") || strings.Contains(resourceARNs, "customer-topic") || strings.Contains(resourceARNs, "customer-parameter") {
 		t.Fatalf("payload leaked into resource refs: %+v", summary.ResourceARNs)
 	}
 	if len(summary.ServiceIntegrations) != 2 || summary.ServiceIntegrations[0] != "lambda" || summary.ServiceIntegrations[1] != "states" {

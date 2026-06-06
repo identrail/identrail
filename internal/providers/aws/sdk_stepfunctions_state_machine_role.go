@@ -302,10 +302,25 @@ func shouldSkipStepFunctionsDefinitionSubtree(key string) bool {
 }
 
 func isStepFunctionsDefinitionReferenceKey(lowerKey string) bool {
-	if lowerKey == "resource" || lowerKey == "functionname" || lowerKey == "statemachinearn" {
+	switch lowerKey {
+	case "resource",
+		"functionname",
+		"statemachinearn",
+		"rolearn",
+		"topicarn",
+		"queuearn",
+		"streamarn",
+		"tablearn",
+		"kmskeyarn",
+		"loggrouparn",
+		"cluster",
+		"taskdefinition",
+		"eventbusname",
+		"secretid":
 		return true
+	default:
+		return false
 	}
-	return strings.HasSuffix(lowerKey, "arn")
 }
 
 func stepFunctionsServiceIntegration(resource string) string {
