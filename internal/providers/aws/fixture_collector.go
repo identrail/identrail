@@ -141,6 +141,14 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	var stepFunctionsRole StepFunctionsStateMachineRole
+	if err := json.Unmarshal(payload, &stepFunctionsRole); err == nil {
+		sourceID := stepFunctionsStateMachineRoleSourceID(stepFunctionsRole)
+		if isStepFunctionsStateMachineRoleFixture(stepFunctionsRole) {
+			return rawKindStepFunctionsStateMachineRole, sourceID
+		}
+	}
+
 	var profile EC2InstanceProfile
 	if err := json.Unmarshal(payload, &profile); err == nil {
 		sourceID := ec2InstanceProfileSourceID(profile)
@@ -225,6 +233,22 @@ func isCodePipelineDeploymentRoleFixture(record CodePipelineDeploymentRole) bool
 		len(record.ArtifactStoreLocations) > 0 ||
 		len(record.ConfigurationKeys) > 0 ||
 		len(record.DisabledStageTransitions) > 0
+}
+
+func isStepFunctionsStateMachineRoleFixture(record StepFunctionsStateMachineRole) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), stepFunctionsServiceName) || strings.EqualFold(strings.TrimSpace(record.CollectorName), stepFunctionsStateMachineRoleCollectorName) {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(record.WorkloadType)) {
+	case "stepfunctions_state_machine", "state_machine", "workflow":
+		return true
+	}
+	return strings.TrimSpace(record.StateMachineARN) != "" ||
+		strings.TrimSpace(record.StateMachineName) != "" ||
+		strings.TrimSpace(record.StateMachineType) != "" ||
+		len(record.ServiceIntegrationResources) > 0 ||
+		len(record.NestedStateMachineARNs) > 0 ||
+		len(record.LogGroupARNs) > 0
 }
 
 func isEKSWorkloadIdentityFixture(record EKSWorkloadIdentity) bool {

@@ -4,9 +4,9 @@
 
 The AWS collector family uses a composable service collection layer. IAM remains
 the default identity source, and EC2 instance profiles, ECS task/execution roles,
-Lambda execution roles, CodeBuild service roles, and CodePipeline deployment
-roles are collected as workload identity services without changing IAM collector
-behavior.
+Lambda execution roles, CodeBuild service roles, CodePipeline deployment roles,
+and Step Functions state-machine roles are collected as workload identity
+services without changing IAM collector behavior.
 
 ## Composite Architecture
 
@@ -34,6 +34,10 @@ The collection path is:
   cross-region/cross-account role paths, disabled transitions, and
   PassRole-adjacent evidence without collecting action configuration values,
   source contents, artifact contents, or deployment payloads.
+- `StepFunctionsStateMachineRoleCollector` maps Step Functions state machines
+  to execution roles, task resources, service integrations, nested workflows,
+  logging config, tracing, encryption metadata, and tags without storing raw
+  definitions, execution history, or customer payload examples.
 
 Behavior:
 
@@ -130,6 +134,12 @@ ordered by `kind`, then `source_id`.
   artifact store, cross-region/cross-account, disabled-transition, and
   configuration-key metadata, but not action configuration values, source
   contents, artifact contents, deployment payloads, or secret values.
+- Step Functions describe failures are surfaced as partial-failure diagnostics
+  while successfully described state-machine role evidence remains visible.
+- Step Functions records include execution role, task resource ARNs, extracted
+  service integrations, nested workflow ARNs, logging, tracing, encryption, and
+  tag metadata, but not raw definitions, execution history, customer payload
+  examples, object contents, or secret values.
 
 ## Security Posture
 
@@ -156,10 +166,13 @@ ordered by `kind`, then `source_id`.
 - CodePipeline deployment-role collection is implemented through AWS SDK
   CodePipeline adapters for `ListPipelines`, `GetPipeline`, and
   `GetPipelineState`.
+- Step Functions state-machine role collection is implemented through AWS SDK
+  Step Functions adapters for `ListStateMachines`, `DescribeStateMachine` with
+  metadata-only included data, and `ListTagsForResource`.
 - AWS SDK CLI and runtime paths now use `NewAWSScanner`, which wires the
   composite collector with IAM, EC2 instance profile, ECS task role, Lambda
-  execution role, CodeBuild service role, CodePipeline deployment role, and EKS
-  workload identity services.
+  execution role, CodeBuild service role, CodePipeline deployment role, Step
+  Functions state-machine role, and EKS workload identity services.
 - The composite layer is now the extension point for future AWS service collection in the CLI/runtime path.
 - The service collector contract is exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/collector-contract`
@@ -178,4 +191,7 @@ ordered by `kind`, then `source_id`.
   and the AWS machine identities page.
 - CodePipeline deployment role inventory is exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/codepipeline-deployment-roles`
+  and the AWS machine identities page.
+- Step Functions state-machine role inventory is exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/stepfunctions-state-machine-roles`
   and the AWS machine identities page.

@@ -1537,6 +1537,96 @@ export type AWSCodePipelineDeploymentRoleInventoryResult = {
   updated_at: string;
 };
 
+export type AWSStepFunctionsStateMachineRoleInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSStepFunctionsStateMachineRoleFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+
+export type AWSStepFunctionsStateMachineRoleRecord = {
+  account_id: string;
+  region: string;
+  service: string;
+  workload_id: string;
+  workload_type: string;
+  workload_name: string;
+  role_arn?: string;
+  role_name?: string;
+  role_account_id?: string;
+  state_machine_arn?: string;
+  state_machine_name?: string;
+  state_machine_type?: string;
+  state_machine_status?: string;
+  revision_id?: string;
+  definition_sha256?: string;
+  definition_resource_arns?: string[];
+  task_resource_arns?: string[];
+  service_integration_resources?: string[];
+  nested_state_machine_arns?: string[];
+  logging_level?: string;
+  logging_include_execution_data?: boolean;
+  log_group_arns?: string[];
+  tracing_enabled?: boolean;
+  encryption_type?: string;
+  kms_key_arn?: string;
+  tags?: Record<string, string>;
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  to_node_id?: string;
+  relationship_type: 'runs_as' | string;
+  confidence: number;
+  collected_at: string;
+  status: string;
+};
+
+export type AWSStepFunctionsStateMachineRoleRelationship = {
+  type: 'runs_as' | string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSStepFunctionsStateMachineRoleDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSStepFunctionsStateMachineRoleInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSStepFunctionsStateMachineRoleInventoryStatus;
+  fixture_state: AWSStepFunctionsStateMachineRoleFixtureState;
+  confidence: number;
+  record_count: number;
+  state_machine_count: number;
+  nested_workflow_count: number;
+  task_resource_count: number;
+  service_integration_count: number;
+  log_group_count: number;
+  identity_count: number;
+  resource_count: number;
+  relationship_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  records: AWSStepFunctionsStateMachineRoleRecord[];
+  relationships: AWSStepFunctionsStateMachineRoleRelationship[];
+  diagnostics: AWSStepFunctionsStateMachineRoleDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSEKSWorkloadIdentityInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSEKSWorkloadIdentityFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 
@@ -2673,6 +2763,21 @@ export const apiClient = {
   ) {
     return request<{ inventory: AWSCodePipelineDeploymentRoleInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/codepipeline-deployment-roles${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectStepFunctionsStateMachineRoles(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSStepFunctionsStateMachineRoleFixtureState,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSStepFunctionsStateMachineRoleInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/stepfunctions-state-machine-roles${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
       })}`,

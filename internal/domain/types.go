@@ -70,6 +70,7 @@ const (
 	ResourceTypeEKSWorkload        ResourceType = "eks_workload"
 	ResourceTypeCodeBuildProject   ResourceType = "codebuild_project"
 	ResourceTypeCodePipeline       ResourceType = "codepipeline_pipeline"
+	ResourceTypeStepFunctions      ResourceType = "stepfunctions_state_machine"
 	ResourceTypeBedrockAgentCore   ResourceType = "bedrock_agentcore"
 	ResourceTypeTool               ResourceType = "tool"
 	ResourceTypeAccessNode         ResourceType = "access_node"

@@ -85,6 +85,14 @@ func codePipelineResourceID(pipelineARN string) string {
 	return "aws:resource:codepipeline-pipeline:" + strings.TrimSpace(pipelineARN)
 }
 
+func stepFunctionsStateMachineWorkloadID(accountID, region, stateMachineRef string) string {
+	return fmt.Sprintf("aws:workload:stepfunctions:%s:%s:state-machine/%s", normalizeName(accountID), normalizeName(region), normalizeName(stateMachineRef))
+}
+
+func stepFunctionsStateMachineResourceID(stateMachineARN string) string {
+	return "aws:resource:stepfunctions-state-machine:" + strings.TrimSpace(stateMachineARN)
+}
+
 func eksWorkloadIdentityWorkloadID(accountID, region, workloadType, workloadID, roleKind string) string {
 	normalizedType := normalizeName(workloadType)
 	if normalizedType == "" {

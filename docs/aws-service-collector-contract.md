@@ -167,7 +167,9 @@ reads: `lambda:ListFunctions`, `lambda:ListAliases`,
 reads: `codebuild:ListProjects` and `codebuild:BatchGetProjects`. The
 CodePipeline deployment-role collector adds metadata-only reads:
 `codepipeline:ListPipelines`, `codepipeline:GetPipeline`, and
-`codepipeline:GetPipelineState`. The EKS
+`codepipeline:GetPipelineState`. The Step Functions state-machine role
+collector adds metadata-only reads: `states:ListStateMachines`,
+`states:DescribeStateMachine`, and `states:ListTagsForResource`. The EKS
 workload identity collector adds metadata-only reads: `eks:ListClusters`, `eks:DescribeCluster`,
 `eks:ListPodIdentityAssociations`, `eks:DescribePodIdentityAssociation`,
 `eks:ListNodegroups`, `eks:DescribeNodegroup`, `eks:ListFargateProfiles`, and
@@ -191,6 +193,11 @@ For CodePipeline, `configuration_keys` are action configuration key names only.
 Configuration values, source contents, action outputs, artifact contents,
 deployment payloads, environment variable names, and secret values are
 intentionally outside the collector contract.
+
+For Step Functions, raw definitions, execution history, customer payload
+examples, object contents, and secret values are intentionally outside the
+collector contract. Collectors may retain definition SHA-256 hashes and extracted
+ARN/service-integration identifiers only.
 
 For EKS, AWS-side metadata proves clusters, OIDC issuer relationships, Pod
 Identity associations, managed node roles, and Fargate pod execution roles.

@@ -33,6 +33,8 @@ import {
   type AWSCodeBuildServiceRoleRecord,
   type AWSCodePipelineDeploymentRoleInventoryResult,
   type AWSCodePipelineDeploymentRoleRecord,
+  type AWSStepFunctionsStateMachineRoleInventoryResult,
+  type AWSStepFunctionsStateMachineRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
   type AWSEC2InstanceProfileRecord,
   type AWSEKSWorkloadIdentityInventoryResult,
@@ -3585,6 +3587,13 @@ type AWSInventoryCodePipelineState = {
   onRetry: () => void;
 };
 
+type AWSInventoryStepFunctionsState = {
+  inventory: AWSStepFunctionsStateMachineRoleInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryEKSState = {
   inventory: AWSEKSWorkloadIdentityInventoryResult | null;
   loading: boolean;
@@ -3636,11 +3645,12 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'Lambda role', value: 'lambda-role' },
         { label: 'CodeBuild role', value: 'codebuild-role' },
         { label: 'CodePipeline role', value: 'codepipeline-role' },
+        { label: 'Step Functions role', value: 'stepfunctions-role' },
         { label: 'EKS identity', value: 'eks-identity' },
         { label: 'CI/CD role', value: 'cicd-role' }
       ]
     },
-    { id: 'service', label: 'Service', options: [{ label: 'All services', value: 'all' }, { label: 'IAM', value: 'iam' }, { label: 'EC2', value: 'ec2' }, { label: 'ECS', value: 'ecs' }, { label: 'Lambda', value: 'lambda' }, { label: 'CodeBuild', value: 'codebuild' }, { label: 'CodePipeline', value: 'codepipeline' }, { label: 'EKS', value: 'eks' }, { label: 'OIDC', value: 'oidc' }] },
+    { id: 'service', label: 'Service', options: [{ label: 'All services', value: 'all' }, { label: 'IAM', value: 'iam' }, { label: 'EC2', value: 'ec2' }, { label: 'ECS', value: 'ecs' }, { label: 'Lambda', value: 'lambda' }, { label: 'CodeBuild', value: 'codebuild' }, { label: 'CodePipeline', value: 'codepipeline' }, { label: 'Step Functions', value: 'stepfunctions' }, { label: 'EKS', value: 'eks' }, { label: 'OIDC', value: 'oidc' }] },
     {
       id: 'risk',
       label: 'Risk',
@@ -4190,6 +4200,7 @@ function AWSMachineIdentitiesContent({
   lambdaState,
   codeBuildState,
   codePipelineState,
+  stepFunctionsState,
   eksState,
   filters,
   onFiltersChange
@@ -4200,6 +4211,7 @@ function AWSMachineIdentitiesContent({
   lambdaState: AWSInventoryLambdaState;
   codeBuildState: AWSInventoryCodeBuildState;
   codePipelineState: AWSInventoryCodePipelineState;
+  stepFunctionsState: AWSInventoryStepFunctionsState;
   eksState: AWSInventoryEKSState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
@@ -4209,12 +4221,14 @@ function AWSMachineIdentitiesContent({
   const lambdaInventory = lambdaState.inventory;
   const codeBuildInventory = codeBuildState.inventory;
   const codePipelineInventory = codePipelineState.inventory;
+  const stepFunctionsInventory = stepFunctionsState.inventory;
   const eksInventory = eksState.inventory;
   const ec2Rows = buildAWSEC2InstanceProfileRows(ec2Inventory, ec2State.loading, connection);
   const ecsRows = buildAWSECSTaskRoleRows(ecsInventory, ecsState.loading, connection);
   const lambdaRows = buildAWSLambdaExecutionRoleRows(lambdaInventory, lambdaState.loading, connection);
   const codeBuildRows = buildAWSCodeBuildServiceRoleRows(codeBuildInventory, codeBuildState.loading, connection);
   const codePipelineRows = buildAWSCodePipelineDeploymentRoleRows(codePipelineInventory, codePipelineState.loading, connection);
+  const stepFunctionsRows = buildAWSStepFunctionsStateMachineRoleRows(stepFunctionsInventory, stepFunctionsState.loading, connection);
   const eksRows = buildAWSEKSWorkloadIdentityRows(eksInventory, eksState.loading, connection);
   const rows: AWSInventoryTableRow[] = [
     ...(connection?.role_arn
@@ -4243,6 +4257,7 @@ function AWSMachineIdentitiesContent({
     ...lambdaRows,
     ...codeBuildRows,
     ...codePipelineRows,
+    ...stepFunctionsRows,
     ...eksRows,
     {
       id: 'cicd-oidc',
@@ -4266,6 +4281,7 @@ function AWSMachineIdentitiesContent({
       {lambdaState.loading ? <DomainLoadingState label="Loading Lambda execution roles" /> : null}
       {codeBuildState.loading ? <DomainLoadingState label="Loading CodeBuild service roles" /> : null}
       {codePipelineState.loading ? <DomainLoadingState label="Loading CodePipeline deployment roles" /> : null}
+      {stepFunctionsState.loading ? <DomainLoadingState label="Loading Step Functions state-machine roles" /> : null}
       {eksState.loading ? <DomainLoadingState label="Loading EKS workload identities" /> : null}
       {ec2State.error ? (
         <DomainErrorState
@@ -4300,6 +4316,13 @@ function AWSMachineIdentitiesContent({
           title="CodePipeline deployment roles could not load"
           body={codePipelineState.error}
           retryAction={{ label: 'Retry CodePipeline inventory', onClick: codePipelineState.onRetry }}
+        />
+      ) : null}
+      {stepFunctionsState.error ? (
+        <DomainErrorState
+          title="Step Functions state-machine roles could not load"
+          body={stepFunctionsState.error}
+          retryAction={{ label: 'Retry Step Functions inventory', onClick: stepFunctionsState.onRetry }}
         />
       ) : null}
       {eksState.error ? (
@@ -4390,6 +4413,24 @@ function AWSMachineIdentitiesContent({
         >
           <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="CodePipeline deployment role diagnostics">
             {codePipelineInventory.diagnostics.map((diagnostic) => (
+              <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
+                <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                <p>{diagnostic.message}</p>
+                {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
+      {stepFunctionsInventory?.diagnostics.length ? (
+        <DomainStatusPanel
+          eyebrow="Step Functions collector diagnostics"
+          title="Partial Step Functions state-machine role evidence"
+          status={formatTokenLabel(stepFunctionsInventory.status)}
+          tone={stepFunctionsInventory.status === 'blocked' ? 'danger' : 'warning'}
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="Step Functions state-machine role diagnostics">
+            {stepFunctionsInventory.diagnostics.map((diagnostic) => (
               <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
                 <strong>{formatTokenLabel(diagnostic.code)}</strong>
                 <p>{diagnostic.message}</p>
@@ -5119,6 +5160,125 @@ function awsCodePipelineDeploymentRoleRow(record: AWSCodePipelineDeploymentRoleR
   };
 }
 
+function buildAWSStepFunctionsStateMachineRoleRows(
+  inventory: AWSStepFunctionsStateMachineRoleInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsStepFunctionsStateMachineRoleRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'stepfunctions-state-machine-roles-blocked',
+        name: 'Step Functions state-machine roles unavailable',
+        category: 'Step Functions state-machine role',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'Step Functions state-machine role collection is blocked.',
+        filters: { identityType: 'stepfunctions-role', service: 'stepfunctions', risk: 'unscored', status: 'not-yet-available', search: '' },
+        searchText: inventorySearchText(['step functions', 'stepfunctions', 'state machine role', inventory.account_id, inventory.region, 'blocked'])
+      }
+    ];
+  }
+  if (inventory) {
+    const degraded = inventory.status === 'degraded' || inventory.diagnostics.length > 0 || inventory.failure_reasons.length > 0;
+    return [
+      {
+        id: 'stepfunctions-state-machine-roles-empty',
+        name: degraded ? 'Step Functions state-machine roles incomplete' : 'No Step Functions state-machine roles found',
+        category: 'Step Functions state-machine role',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: degraded ? 'degraded' : 'wired now',
+        stage: 'wired',
+        detail: degraded ? (inventory.failure_reasons[0] ?? 'Step Functions collection completed with degraded evidence and no retained records.') : 'The collector completed for this account and region without Step Functions state machines that reference execution roles.',
+        filters: { identityType: 'stepfunctions-role', service: 'stepfunctions', risk: degraded ? 'medium' : 'low', status: degraded ? 'degraded' : 'wired-now', search: '' },
+        searchText: inventorySearchText(['step functions', 'stepfunctions', 'state machine role', inventory.account_id, inventory.region, degraded ? 'degraded empty' : 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'stepfunctions-state-machine-roles-loading',
+        name: 'Step Functions state-machine roles',
+        category: 'Step Functions state-machine role',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading Step Functions workflow, execution role, service integration, nested workflow, and logging evidence.',
+        filters: { identityType: 'stepfunctions-role', service: 'stepfunctions', risk: 'unscored', status: 'coming', search: '' },
+        searchText: inventorySearchText(['step functions', 'stepfunctions', 'state machine role', 'loading'])
+      }
+    ];
+  }
+  return [
+    {
+      id: 'stepfunctions-state-machine-roles',
+      name: 'Step Functions state-machine roles',
+      category: 'Step Functions state-machine role',
+      scope: 'Account and region expansion',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'State-machine role inventory maps workflows, nested workflows, service integrations, and logging config back to IAM roles after AWS is connected.',
+      filters: { identityType: 'stepfunctions-role', service: 'stepfunctions', risk: 'unscored', status: 'coming', search: '' },
+      searchText: inventorySearchText(['step functions', 'stepfunctions', 'state machine role', 'workflow', 'inventory'])
+    }
+  ];
+}
+
+function awsStepFunctionsStateMachineRoleRow(record: AWSStepFunctionsStateMachineRoleRecord): AWSInventoryTableRow {
+  const degraded = record.status !== 'ready' || Boolean(record.logging_include_execution_data);
+  const stage: AWSCapabilityStage = record.status === 'ready' && record.role_arn ? 'wired' : 'coming';
+  const status = stage === 'wired' ? (degraded ? 'degraded' : 'wired now') : 'degraded';
+  const roleLabel = record.role_name || record.role_arn || 'role unresolved';
+  const workflowLabel = record.state_machine_name || record.workload_name || record.state_machine_arn || record.workload_id;
+  const integrationLabel = record.service_integration_resources?.length ? `${record.service_integration_resources.join(', ')} integrations` : 'no service integrations reported';
+  const nestedLabel = record.nested_state_machine_arns?.length ? `${record.nested_state_machine_arns.length} nested workflows` : 'no nested workflows reported';
+  const loggingLabel = record.logging_level ? `logging ${record.logging_level}${record.logging_include_execution_data ? ' with execution data' : ''}` : 'logging not reported';
+  const risk = record.logging_include_execution_data ? 'high' : record.nested_state_machine_arns?.length || record.service_integration_resources?.length ? 'medium' : 'low';
+  return {
+    id: `stepfunctions-state-machine-role-${record.from_node_id}-${record.to_node_id || record.role_arn || record.state_machine_arn}`,
+    name: roleLabel,
+    category: 'Step Functions state-machine role',
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage,
+    detail: `${workflowLabel} runs as ${roleLabel}; ${integrationLabel}; ${nestedLabel}; ${loggingLabel}.`,
+    filters: {
+      identityType: 'stepfunctions-role',
+      service: 'stepfunctions',
+      risk,
+      status: status === 'wired now' ? 'wired-now' : 'degraded',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.role_arn,
+      record.role_name,
+      record.role_account_id,
+      record.state_machine_arn,
+      record.state_machine_name,
+      record.state_machine_type,
+      record.state_machine_status,
+      record.revision_id,
+      record.definition_sha256,
+      ...(record.definition_resource_arns ?? []),
+      ...(record.task_resource_arns ?? []),
+      ...(record.service_integration_resources ?? []),
+      ...(record.nested_state_machine_arns ?? []),
+      record.logging_level,
+      ...(record.log_group_arns ?? []),
+      record.encryption_type,
+      record.kms_key_arn,
+      record.account_id,
+      record.region,
+      'step functions stepfunctions state machine workflow role'
+    ])
+  };
+}
+
 function buildAWSEKSWorkloadIdentityRows(
   inventory: AWSEKSWorkloadIdentityInventoryResult | null,
   loading: boolean,
@@ -5499,6 +5659,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [codePipelineInventoryLoading, setCodePipelineInventoryLoading] = useState(false);
   const [codePipelineInventoryError, setCodePipelineInventoryError] = useState('');
   const codePipelineInventoryRequestRef = useRef(0);
+  const [stepFunctionsInventory, setStepFunctionsInventory] = useState<AWSStepFunctionsStateMachineRoleInventoryResult | null>(null);
+  const [stepFunctionsInventoryLoading, setStepFunctionsInventoryLoading] = useState(false);
+  const [stepFunctionsInventoryError, setStepFunctionsInventoryError] = useState('');
+  const stepFunctionsInventoryRequestRef = useRef(0);
   const [eksInventory, setEKSInventory] = useState<AWSEKSWorkloadIdentityInventoryResult | null>(null);
   const [eksInventoryLoading, setEKSInventoryLoading] = useState(false);
   const [eksInventoryError, setEKSInventoryError] = useState('');
@@ -5712,6 +5876,46 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadCodePipelineInventory]);
 
+  const loadStepFunctionsInventory = useCallback(async () => {
+    const requestID = ++stepFunctionsInventoryRequestRef.current;
+    setStepFunctionsInventory(null);
+    setStepFunctionsInventoryError('');
+    if (routeID !== 'identities' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setStepFunctionsInventoryLoading(false);
+      return;
+    }
+    setStepFunctionsInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectStepFunctionsStateMachineRoles(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== stepFunctionsInventoryRequestRef.current) {
+        return;
+      }
+      setStepFunctionsInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== stepFunctionsInventoryRequestRef.current) {
+        return;
+      }
+      setStepFunctionsInventoryError(formatAPIError(error, 'Unable to load Step Functions state-machine role inventory.'));
+    } finally {
+      if (requestID === stepFunctionsInventoryRequestRef.current) {
+        setStepFunctionsInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadStepFunctionsInventory();
+    return () => {
+      stepFunctionsInventoryRequestRef.current += 1;
+    };
+  }, [loadStepFunctionsInventory]);
+
   const loadEKSInventory = useCallback(async () => {
     const requestID = ++eksInventoryRequestRef.current;
     setEKSInventory(null);
@@ -5853,6 +6057,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: codePipelineInventoryLoading,
             error: codePipelineInventoryError,
             onRetry: () => void loadCodePipelineInventory()
+          }}
+          stepFunctionsState={{
+            inventory: stepFunctionsInventory,
+            loading: stepFunctionsInventoryLoading,
+            error: stepFunctionsInventoryError,
+            onRetry: () => void loadStepFunctionsInventory()
           }}
           eksState={{
             inventory: eksInventory,

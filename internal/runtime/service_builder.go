@@ -98,6 +98,11 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws codepipeline deployment role collector: %w", codePipelineErr)
 			}
+			stepFunctionsAPI, stepFunctionsErr := awsprovider.NewSDKStepFunctionsStateMachineRoleAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if stepFunctionsErr != nil {
+				_ = store.Close()
+				return nil, nil, fmt.Errorf("initialize aws stepfunctions state machine role collector: %w", stepFunctionsErr)
+			}
 			eksAPI, eksErr := awsprovider.NewSDKEKSWorkloadIdentityAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
 			if eksErr != nil {
 				_ = store.Close()
@@ -112,6 +117,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				awsprovider.NewLambdaExecutionRoleCollector(lambdaAPI),
 				awsprovider.NewCodeBuildServiceRoleCollector(codeBuildAPI),
 				awsprovider.NewCodePipelineDeploymentRoleCollector(codePipelineAPI),
+				awsprovider.NewStepFunctionsStateMachineRoleCollector(stepFunctionsAPI),
 				awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 			)
 		default:
@@ -221,6 +227,10 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		if codePipelineErr != nil {
 			return nil, codePipelineErr
 		}
+		stepFunctionsAPI, stepFunctionsErr := awsprovider.NewSDKStepFunctionsStateMachineRoleAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
+		if stepFunctionsErr != nil {
+			return nil, stepFunctionsErr
+		}
 		eksAPI, eksErr := awsprovider.NewSDKEKSWorkloadIdentityAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
 		if eksErr != nil {
 			return nil, eksErr
@@ -234,6 +244,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 			awsprovider.NewLambdaExecutionRoleCollector(lambdaAPI),
 			awsprovider.NewCodeBuildServiceRoleCollector(codeBuildAPI),
 			awsprovider.NewCodePipelineDeploymentRoleCollector(codePipelineAPI),
+			awsprovider.NewStepFunctionsStateMachineRoleCollector(stepFunctionsAPI),
 			awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 		)
 		return scanner, nil

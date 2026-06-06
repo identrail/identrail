@@ -119,6 +119,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		if err := ctx.Err(); err != nil {
 			return providers.NormalizedBundle{}, err
 		}
+		if asset.Kind != rawKindStepFunctionsStateMachineRole {
+			continue
+		}
+		if err := normalizeStepFunctionsStateMachineRoleAsset(asset, i, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
 		if asset.Kind != rawKindEKSWorkloadIdentity {
 			continue
 		}
@@ -701,6 +713,97 @@ func codePipelineResourceFromRecord(record CodePipelineDeploymentRole, rawRef st
 	}
 }
 
+func normalizeStepFunctionsStateMachineRoleAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record StepFunctionsStateMachineRole
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode stepfunctions state machine role asset[%d]: %w", index, err)
+	}
+
+	roleARN := strings.TrimSpace(record.RoleARN)
+	roleIdentityID := ""
+	if roleARN != "" {
+		roleIdentityID = identityIDFromARN(roleARN)
+		roleName := strings.TrimSpace(record.RoleName)
+		if roleName == "" {
+			roleName = roleNameFromARN(roleARN)
+		}
+		if _, exists := identitySeen[roleIdentityID]; !exists {
+			identitySeen[roleIdentityID] = struct{}{}
+			bundle.Identities = append(bundle.Identities, domain.Identity{
+				ID:        roleIdentityID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.IdentityTypeRole,
+				Name:      roleName,
+				ARN:       roleARN,
+				OwnerHint: ownerHintFromTags(record.Tags),
+				Tags:      copyTags(record.Tags),
+				RawRef:    asset.SourceID,
+			})
+		}
+	}
+
+	workloadID := stepFunctionsRoleWorkloadID(record)
+	if workloadID != "" {
+		if _, exists := workloadSeen[workloadID]; !exists {
+			workloadSeen[workloadID] = struct{}{}
+			bundle.Workloads = append(bundle.Workloads, domain.Workload{
+				ID:        workloadID,
+				Provider:  domain.ProviderAWS,
+				Type:      "stepfunctions_state_machine",
+				Name:      stepFunctionsRoleWorkloadName(record),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Region:    strings.TrimSpace(record.Region),
+				RawRef:    roleIdentityID,
+			})
+		}
+	}
+
+	if strings.TrimSpace(record.StateMachineARN) != "" {
+		resourceID := stepFunctionsStateMachineResourceID(record.StateMachineARN)
+		if _, exists := resourceSeen[resourceID]; !exists {
+			resourceSeen[resourceID] = struct{}{}
+			bundle.Resources = append(bundle.Resources, stepFunctionsResourceFromRecord(record, asset.SourceID, workloadID, roleARN))
+		}
+	}
+
+	return nil
+}
+
+func stepFunctionsResourceFromRecord(record StepFunctionsStateMachineRole, rawRef string, workloadID string, roleARN string) domain.Resource {
+	return domain.Resource{
+		ID:        stepFunctionsStateMachineResourceID(record.StateMachineARN),
+		Provider:  domain.ProviderAWS,
+		Type:      domain.ResourceTypeStepFunctions,
+		Name:      firstNonEmptyAWSValue(record.StateMachineName, stepFunctionsStateMachineNameFromARN(record.StateMachineARN)),
+		ARN:       strings.TrimSpace(record.StateMachineARN),
+		Region:    strings.TrimSpace(record.Region),
+		AccountID: strings.TrimSpace(record.AccountID),
+		Labels:    copyTags(record.Tags),
+		Metadata: map[string]any{
+			"role_arn":                       roleARN,
+			"role_account_id":                strings.TrimSpace(record.RoleAccountID),
+			"state_machine_name":             strings.TrimSpace(record.StateMachineName),
+			"state_machine_type":             strings.TrimSpace(record.StateMachineType),
+			"state_machine_status":           strings.TrimSpace(record.StateMachineStatus),
+			"revision_id":                    strings.TrimSpace(record.RevisionID),
+			"description":                    strings.TrimSpace(record.Description),
+			"definition_sha256":              strings.TrimSpace(record.DefinitionSHA256),
+			"definition_resource_arns":       append([]string(nil), record.DefinitionResourceARNs...),
+			"task_resource_arns":             append([]string(nil), record.TaskResourceARNs...),
+			"service_integration_resources":  append([]string(nil), record.ServiceIntegrationResources...),
+			"nested_state_machine_arns":      append([]string(nil), record.NestedStateMachineARNs...),
+			"logging_level":                  strings.TrimSpace(record.LoggingLevel),
+			"logging_include_execution_data": record.LoggingIncludeExecutionData,
+			"log_group_arns":                 append([]string(nil), record.LogGroupARNs...),
+			"tracing_enabled":                record.TracingEnabled,
+			"encryption_type":                strings.TrimSpace(record.EncryptionType),
+			"kms_key_arn":                    strings.TrimSpace(record.KMSKeyARN),
+		},
+		RawRef:         rawRef,
+		SourceEntityID: workloadID,
+	}
+}
+
 func normalizeEKSWorkloadIdentityAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
 	var record EKSWorkloadIdentity
 	if err := json.Unmarshal(asset.Payload, &record); err != nil {
@@ -997,6 +1100,18 @@ func codePipelineRoleWorkloadName(record CodePipelineDeploymentRole) string {
 		return firstNonEmptyAWSValue(record.WorkloadName, strings.Join(normalizeStringList([]string{record.PipelineName, record.StageName, record.ActionName}), " / "), "codepipeline action")
 	}
 	return firstNonEmptyAWSValue(record.WorkloadName, record.PipelineName, codePipelineNameFromARN(record.PipelineARN), "codepipeline pipeline")
+}
+
+func stepFunctionsRoleWorkloadID(record StepFunctionsStateMachineRole) string {
+	return stepFunctionsStateMachineWorkloadID(
+		record.AccountID,
+		record.Region,
+		firstNonEmptyAWSValue(record.WorkloadID, record.StateMachineARN, record.StateMachineName),
+	)
+}
+
+func stepFunctionsRoleWorkloadName(record StepFunctionsStateMachineRole) string {
+	return firstNonEmptyAWSValue(record.WorkloadName, record.StateMachineName, stepFunctionsStateMachineNameFromARN(record.StateMachineARN), "stepfunctions state machine")
 }
 
 func eksWorkloadIdentityNormalizedWorkloadID(record EKSWorkloadIdentity) string {
