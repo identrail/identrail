@@ -25,6 +25,10 @@ import type {
   WhoAmIResponse
 } from './api/client';
 import type { BackendFeatureState } from './hooks/useBackendFeatures';
+// Vite's `?raw` import returns the file contents as a string at bundle
+// time, so the AWS copy-redundancy guard below can scan productShell.tsx
+// without needing node's `require` or fs typings.
+import productShellSource from './productShell.tsx?raw';
 
 const loggedInWithoutWorkspace: CurrentUserContext = {
   user: {
@@ -6378,12 +6382,6 @@ describe('Workspace Danger Zone (#1420)', () => {
 // "shell" in a function or type name are fine.
 
 describe('AWS copy redundancy guard (#1582)', () => {
-  const productShellSource = (() => {
-    // Vitest runs from web/, so the source path is relative to that.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { readFileSync } = require('node:fs') as typeof import('node:fs');
-    return readFileSync('./src/productShell.tsx', 'utf8');
-  })();
 
   // Strings that must never appear as customer-visible copy in the AWS
   // section. Anything wrapped in JSX literal quotes is fair game for the

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	sfntypes "github.com/aws/aws-sdk-go-v2/service/sfn/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/aws/smithy-go"
 
 	"github.com/identrail/identrail/internal/providers"
 	"github.com/identrail/identrail/internal/providers/awscontract"
@@ -139,6 +141,19 @@ func (a *SDKStepFunctionsStateMachineRoleAPI) describeStateMachine(ctx context.C
 	if err == nil {
 		return allDataOutput, nil, nil
 	}
+	// Only fall back to the metadata-only describe when the all-data
+	// describe failed because the definition could not be decrypted (the
+	// KMS access denied / key-disabled cases, or a generic
+	// AccessDeniedException on the definition action). Other failure
+	// modes — throttling, KMS throttling, internal server errors,
+	// timeouts — must propagate so the existing retryAWSPage policy can
+	// run; silently downgrading them to `state_machine_definition_unavailable`
+	// would swallow retryable signal and permanently drop the definition
+	// hash, task resources, service integrations, and nested workflow
+	// evidence for this state machine.
+	if !isStepFunctionsDefinitionDecryptError(err) {
+		return nil, nil, err
+	}
 	metadataOutput, metadataErr := a.stepFunctionsClient.DescribeStateMachine(ctx, &sfn.DescribeStateMachineInput{
 		StateMachineArn: awsv2.String(stateMachineARN),
 		IncludedData:    sfntypes.IncludedDataMetadataOnly,
@@ -147,6 +162,29 @@ func (a *SDKStepFunctionsStateMachineRoleAPI) describeStateMachine(ctx context.C
 		return nil, nil, err
 	}
 	return metadataOutput, err, nil
+}
+
+// isStepFunctionsDefinitionDecryptError reports whether an error from
+// DescribeStateMachine with IncludedData=ALL_DATA indicates that the
+// state-machine definition could not be decrypted or read, so a
+// metadata-only retry is a meaningful fallback. It deliberately excludes
+// transient errors (throttling, KMS throttling, 5xx, timeout) which
+// should propagate to the retry policy unchanged.
+func isStepFunctionsDefinitionDecryptError(err error) bool {
+	var apiErr smithy.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	switch strings.TrimSpace(apiErr.ErrorCode()) {
+	case "KMSAccessDeniedException",
+		"KmsAccessDeniedException",
+		"KMSInvalidStateException",
+		"KmsInvalidStateException",
+		"AccessDeniedException",
+		"AccessDenied":
+		return true
+	}
+	return false
 }
 
 func (a *SDKStepFunctionsStateMachineRoleAPI) recordFromStateMachine(summary sfntypes.StateMachineListItem, describe *sfn.DescribeStateMachineOutput) StepFunctionsStateMachineRole {

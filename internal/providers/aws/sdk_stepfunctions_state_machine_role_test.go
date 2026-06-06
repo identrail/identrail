@@ -8,6 +8,7 @@ import (
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	sfntypes "github.com/aws/aws-sdk-go-v2/service/sfn/types"
+	"github.com/aws/smithy-go"
 )
 
 type fakeStepFunctionsSDKClient struct {
@@ -134,7 +135,10 @@ func TestSDKStepFunctionsStateMachineRoleAPIFallsBackToMetadataOnlyDescribe(t *t
 			},
 		},
 		describeErrs: map[string]error{
-			stateMachineARN + "|" + string(sfntypes.IncludedDataAllData): errors.New("kms decrypt denied"),
+			stateMachineARN + "|" + string(sfntypes.IncludedDataAllData): &smithy.GenericAPIError{
+				Code:    "KMSAccessDeniedException",
+				Message: "kms key cannot be accessed to decrypt the state machine definition",
+			},
 		},
 	}
 	api := NewSDKStepFunctionsStateMachineRoleAPIFromClient(client, "123456789012", "us-east-1")
@@ -152,5 +156,72 @@ func TestSDKStepFunctionsStateMachineRoleAPIFallsBackToMetadataOnlyDescribe(t *t
 		client.describeInputs[0].IncludedData != sfntypes.IncludedDataAllData ||
 		client.describeInputs[1].IncludedData != sfntypes.IncludedDataMetadataOnly {
 		t.Fatalf("expected ALL_DATA then METADATA_ONLY describe calls, got %+v", client.describeInputs)
+	}
+}
+
+// TestSDKStepFunctionsStateMachineRoleAPIPropagatesTransientDescribeErrors
+// guards against the regression Codex flagged on PR #1580: if the
+// all-data DescribeStateMachine call fails for a retryable reason
+// (throttling, KMS throttling, 5xx, timeout) the collector must
+// surface that error so the existing retryAWSPage policy can retry,
+// rather than silently downgrading to a metadata-only fallback that
+// would permanently lose the definition hash, task resources,
+// service integrations, and nested workflow evidence for the state
+// machine.
+func TestSDKStepFunctionsStateMachineRoleAPIPropagatesTransientDescribeErrors(t *testing.T) {
+	stateMachineARN := "arn:aws:states:us-east-1:123456789012:stateMachine:throttled"
+	for _, tc := range []struct {
+		name string
+		code string
+	}{
+		{name: "ThrottlingException", code: "ThrottlingException"},
+		{name: "KMSThrottlingException", code: "KMSThrottlingException"},
+		{name: "InternalServerError", code: "InternalServerError"},
+		{name: "TooManyRequestsException", code: "TooManyRequestsException"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &fakeStepFunctionsSDKClient{
+				listOutput: &sfn.ListStateMachinesOutput{
+					StateMachines: []sfntypes.StateMachineListItem{{Name: awsv2.String("throttled"), StateMachineArn: awsv2.String(stateMachineARN)}},
+				},
+				describeErrs: map[string]error{
+					stateMachineARN + "|" + string(sfntypes.IncludedDataAllData): &smithy.GenericAPIError{
+						Code:    tc.code,
+						Message: tc.code + " from describe state machine",
+					},
+				},
+			}
+			api := NewSDKStepFunctionsStateMachineRoleAPIFromClient(client, "123456789012", "us-east-1")
+			page, err := api.ListServiceRoles(context.Background(), "", 25)
+			if err != nil {
+				t.Fatalf("page-level transient errors should not bubble up here; collector handles them per-state-machine. got %v", err)
+			}
+			// The retryable error must surface as a diagnostic (so the
+			// outer retry layer can see it) and the state machine must
+			// NOT be recorded as definition-unavailable.
+			if len(page.Records) != 0 {
+				t.Fatalf("transient describe failure must not be downgraded to a metadata-only record, got %+v", page.Records)
+			}
+			if len(page.Diagnostics) == 0 {
+				t.Fatalf("transient describe failure must surface a diagnostic, got none")
+			}
+			foundUnavailable := false
+			for _, diag := range page.Diagnostics {
+				if diag.Code == "state_machine_definition_unavailable" {
+					foundUnavailable = true
+					break
+				}
+			}
+			if foundUnavailable {
+				t.Fatalf("transient describe failure must not be classified as state_machine_definition_unavailable; that diagnostic is reserved for KMS/access-denied decrypt failures")
+			}
+			// Only the all-data describe must have been called; no
+			// metadata-only fallback on a transient error.
+			for _, input := range client.describeInputs {
+				if input.IncludedData == sfntypes.IncludedDataMetadataOnly {
+					t.Fatalf("transient describe failure must not trigger a metadata-only describe fallback, got %+v", client.describeInputs)
+				}
+			}
+		})
 	}
 }
