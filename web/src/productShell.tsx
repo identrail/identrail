@@ -33,6 +33,8 @@ import {
   type AWSCodeBuildServiceRoleRecord,
   type AWSCodePipelineDeploymentRoleInventoryResult,
   type AWSCodePipelineDeploymentRoleRecord,
+  type AWSEventDrivenRoleInventoryResult,
+  type AWSEventDrivenRoleRecord,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
@@ -3594,6 +3596,13 @@ type AWSInventoryStepFunctionsState = {
   onRetry: () => void;
 };
 
+type AWSInventoryEventDrivenState = {
+  inventory: AWSEventDrivenRoleInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryEKSState = {
   inventory: AWSEKSWorkloadIdentityInventoryResult | null;
   loading: boolean;
@@ -3646,11 +3655,12 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'CodeBuild role', value: 'codebuild-role' },
         { label: 'CodePipeline role', value: 'codepipeline-role' },
         { label: 'Step Functions role', value: 'stepfunctions-role' },
+        { label: 'Event-driven role', value: 'event-driven-role' },
         { label: 'EKS identity', value: 'eks-identity' },
         { label: 'CI/CD role', value: 'cicd-role' }
       ]
     },
-    { id: 'service', label: 'Service', options: [{ label: 'All services', value: 'all' }, { label: 'IAM', value: 'iam' }, { label: 'EC2', value: 'ec2' }, { label: 'ECS', value: 'ecs' }, { label: 'Lambda', value: 'lambda' }, { label: 'CodeBuild', value: 'codebuild' }, { label: 'CodePipeline', value: 'codepipeline' }, { label: 'Step Functions', value: 'stepfunctions' }, { label: 'EKS', value: 'eks' }, { label: 'OIDC', value: 'oidc' }] },
+    { id: 'service', label: 'Service', options: [{ label: 'All services', value: 'all' }, { label: 'IAM', value: 'iam' }, { label: 'EC2', value: 'ec2' }, { label: 'ECS', value: 'ecs' }, { label: 'Lambda', value: 'lambda' }, { label: 'CodeBuild', value: 'codebuild' }, { label: 'CodePipeline', value: 'codepipeline' }, { label: 'Step Functions', value: 'stepfunctions' }, { label: 'EventBridge', value: 'eventbridge' }, { label: 'Scheduler', value: 'scheduler' }, { label: 'Pipes', value: 'pipes' }, { label: 'EKS', value: 'eks' }, { label: 'OIDC', value: 'oidc' }] },
     {
       id: 'risk',
       label: 'Risk',
@@ -3663,6 +3673,7 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'All status', value: 'all' },
         { label: 'Wired now', value: 'wired-now' },
         { label: 'Degraded', value: 'degraded' },
+        { label: 'Disabled', value: 'disabled' },
         { label: 'Coming', value: 'coming' },
         { label: 'Not yet available', value: 'not-yet-available' }
       ]
@@ -4201,6 +4212,7 @@ function AWSMachineIdentitiesContent({
   codeBuildState,
   codePipelineState,
   stepFunctionsState,
+  eventDrivenState,
   eksState,
   filters,
   onFiltersChange
@@ -4212,6 +4224,7 @@ function AWSMachineIdentitiesContent({
   codeBuildState: AWSInventoryCodeBuildState;
   codePipelineState: AWSInventoryCodePipelineState;
   stepFunctionsState: AWSInventoryStepFunctionsState;
+  eventDrivenState: AWSInventoryEventDrivenState;
   eksState: AWSInventoryEKSState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
@@ -4222,6 +4235,7 @@ function AWSMachineIdentitiesContent({
   const codeBuildInventory = codeBuildState.inventory;
   const codePipelineInventory = codePipelineState.inventory;
   const stepFunctionsInventory = stepFunctionsState.inventory;
+  const eventDrivenInventory = eventDrivenState.inventory;
   const eksInventory = eksState.inventory;
   const ec2Rows = buildAWSEC2InstanceProfileRows(ec2Inventory, ec2State.loading, connection);
   const ecsRows = buildAWSECSTaskRoleRows(ecsInventory, ecsState.loading, connection);
@@ -4229,6 +4243,7 @@ function AWSMachineIdentitiesContent({
   const codeBuildRows = buildAWSCodeBuildServiceRoleRows(codeBuildInventory, codeBuildState.loading, connection);
   const codePipelineRows = buildAWSCodePipelineDeploymentRoleRows(codePipelineInventory, codePipelineState.loading, connection);
   const stepFunctionsRows = buildAWSStepFunctionsStateMachineRoleRows(stepFunctionsInventory, stepFunctionsState.loading, connection);
+  const eventDrivenRows = buildAWSEventDrivenRoleRows(eventDrivenInventory, eventDrivenState.loading, connection);
   const eksRows = buildAWSEKSWorkloadIdentityRows(eksInventory, eksState.loading, connection);
   const rows: AWSInventoryTableRow[] = [
     ...(connection?.role_arn
@@ -4258,6 +4273,7 @@ function AWSMachineIdentitiesContent({
     ...codeBuildRows,
     ...codePipelineRows,
     ...stepFunctionsRows,
+    ...eventDrivenRows,
     ...eksRows,
     {
       id: 'cicd-oidc',
@@ -4282,6 +4298,7 @@ function AWSMachineIdentitiesContent({
       {codeBuildState.loading ? <DomainLoadingState label="Loading CodeBuild service roles" /> : null}
       {codePipelineState.loading ? <DomainLoadingState label="Loading CodePipeline deployment roles" /> : null}
       {stepFunctionsState.loading ? <DomainLoadingState label="Loading Step Functions state-machine roles" /> : null}
+      {eventDrivenState.loading ? <DomainLoadingState label="Loading EventBridge, Scheduler, and Pipes roles" /> : null}
       {eksState.loading ? <DomainLoadingState label="Loading EKS workload identities" /> : null}
       {ec2State.error ? (
         <DomainErrorState
@@ -4323,6 +4340,13 @@ function AWSMachineIdentitiesContent({
           title="Step Functions state-machine roles could not load"
           body={stepFunctionsState.error}
           retryAction={{ label: 'Retry Step Functions inventory', onClick: stepFunctionsState.onRetry }}
+        />
+      ) : null}
+      {eventDrivenState.error ? (
+        <DomainErrorState
+          title="Event-driven roles could not load"
+          body={eventDrivenState.error}
+          retryAction={{ label: 'Retry event-driven inventory', onClick: eventDrivenState.onRetry }}
         />
       ) : null}
       {eksState.error ? (
@@ -4431,6 +4455,24 @@ function AWSMachineIdentitiesContent({
         >
           <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="Step Functions state-machine role diagnostics">
             {stepFunctionsInventory.diagnostics.map((diagnostic) => (
+              <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
+                <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                <p>{diagnostic.message}</p>
+                {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
+      {eventDrivenInventory?.diagnostics.length ? (
+        <DomainStatusPanel
+          eyebrow="EventBridge collector diagnostics"
+          title="Partial event-driven role evidence"
+          status={formatTokenLabel(eventDrivenInventory.status)}
+          tone={eventDrivenInventory.status === 'blocked' ? 'danger' : 'warning'}
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="EventBridge Scheduler and Pipes role diagnostics">
+            {eventDrivenInventory.diagnostics.map((diagnostic) => (
               <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
                 <strong>{formatTokenLabel(diagnostic.code)}</strong>
                 <p>{diagnostic.message}</p>
@@ -5279,6 +5321,134 @@ function awsStepFunctionsStateMachineRoleRow(record: AWSStepFunctionsStateMachin
   };
 }
 
+function buildAWSEventDrivenRoleRows(
+  inventory: AWSEventDrivenRoleInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsEventDrivenRoleRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'event-driven-roles-blocked',
+        name: 'Event-driven roles unavailable',
+        category: 'Event-driven role',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'EventBridge, Scheduler, and Pipes role collection is blocked.',
+        filters: { identityType: 'event-driven-role', service: 'eventbridge', risk: 'unscored', status: 'not-yet-available', search: '' },
+        searchText: inventorySearchText(['eventbridge', 'scheduler', 'pipes', 'event driven role', inventory.account_id, inventory.region, 'blocked'])
+      }
+    ];
+  }
+  if (inventory) {
+    const degraded = inventory.status === 'degraded' || inventory.diagnostics.length > 0 || inventory.failure_reasons.length > 0;
+    return [
+      {
+        id: 'event-driven-roles-empty',
+        name: degraded ? 'Event-driven roles incomplete' : 'No EventBridge, Scheduler, or Pipes roles found',
+        category: 'Event-driven role',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: degraded ? 'degraded' : 'wired now',
+        stage: 'wired',
+        detail: degraded ? (inventory.failure_reasons[0] ?? 'Event-driven collection completed with degraded evidence and no retained records.') : 'The collector completed for this account and region without EventBridge rules, schedules, or pipes that reference invocation roles.',
+        filters: { identityType: 'event-driven-role', service: 'eventbridge', risk: degraded ? 'medium' : 'low', status: degraded ? 'degraded' : 'wired-now', search: '' },
+        searchText: inventorySearchText(['eventbridge', 'scheduler', 'pipes', 'event driven role', inventory.account_id, inventory.region, degraded ? 'degraded empty' : 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'event-driven-roles-loading',
+        name: 'EventBridge, Scheduler, and Pipes roles',
+        category: 'Event-driven role',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading rule target roles, schedule target roles, pipe execution roles, targets, DLQs, and payload-safe metadata.',
+        filters: { identityType: 'event-driven-role', service: 'eventbridge', risk: 'unscored', status: 'coming', search: '' },
+        searchText: inventorySearchText(['eventbridge', 'scheduler', 'pipes', 'event driven role', 'loading'])
+      }
+    ];
+  }
+  return [
+    {
+      id: 'event-driven-roles',
+      name: 'EventBridge, Scheduler, and Pipes roles',
+      category: 'Event-driven role',
+      scope: 'Account and region expansion',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Event-driven role inventory maps rules, schedules, pipes, targets, and DLQs back to IAM roles after AWS is connected.',
+      filters: { identityType: 'event-driven-role', service: 'eventbridge', risk: 'unscored', status: 'coming', search: '' },
+      searchText: inventorySearchText(['eventbridge', 'scheduler', 'pipes', 'event driven role', 'inventory'])
+    }
+  ];
+}
+
+function awsEventDrivenRoleRow(record: AWSEventDrivenRoleRecord): AWSInventoryTableRow {
+  const service = record.service || 'eventbridge';
+  const disabled = Boolean(record.disabled) || record.status === 'disabled';
+  const degraded = record.status === 'degraded' || Boolean(record.execution_data_logging);
+  const stage: AWSCapabilityStage = record.role_arn ? 'wired' : 'coming';
+  const status = disabled ? 'disabled' : stage === 'wired' ? (degraded ? 'degraded' : 'wired now') : 'degraded';
+  const roleLabel = record.role_name || record.role_arn || 'role unresolved';
+  const workloadLabel = record.workload_name || record.workload_arn || record.workload_id;
+  const targetRef = record.target_arn || record.pipe_target_arn || 'target not reported';
+  const dlqLabel = record.dead_letter_arns?.length ? `${record.dead_letter_arns.length} DLQs` : 'no DLQ reported';
+  const metadataLabel = record.event_pattern_sha256 || record.input_transformer_sha256 ? 'hashed matching metadata retained' : 'no pattern hash reported';
+  const risk = record.execution_data_logging ? 'high' : disabled ? 'low' : record.dead_letter_arns?.length ? 'medium' : 'low';
+  return {
+    id: `event-driven-role-${record.from_node_id}-${record.to_node_id || record.role_arn || record.workload_arn}`,
+    name: roleLabel,
+    category: formatTokenLabel(record.workload_type || 'event_driven_role'),
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage,
+    detail: `${workloadLabel} runs as ${roleLabel}; target ${targetRef}; ${dlqLabel}; ${metadataLabel}.`,
+    filters: {
+      identityType: 'event-driven-role',
+      service,
+      risk,
+      status: status === 'wired now' ? 'wired-now' : disabled ? 'disabled' : 'degraded',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.role_arn,
+      record.role_name,
+      record.role_kind,
+      record.role_account_id,
+      record.workload_arn,
+      record.workload_name,
+      record.workload_type,
+      record.event_bus_name,
+      record.event_bus_arn,
+      record.schedule_group_name,
+      record.schedule_expression,
+      record.schedule_timezone,
+      record.pipe_source_arn,
+      record.pipe_target_arn,
+      record.pipe_enrichment_arn,
+      record.target_arn,
+      record.target_id,
+      record.target_service,
+      ...(record.dead_letter_arns ?? []),
+      record.event_pattern_sha256,
+      record.input_transformer_sha256,
+      ...(record.log_destination_arns ?? []),
+      record.kms_key_arn,
+      record.state_reason,
+      record.account_id,
+      record.region,
+      'eventbridge scheduler pipes event driven rule schedule pipe role'
+    ])
+  };
+}
+
 function buildAWSEKSWorkloadIdentityRows(
   inventory: AWSEKSWorkloadIdentityInventoryResult | null,
   loading: boolean,
@@ -5663,6 +5833,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [stepFunctionsInventoryLoading, setStepFunctionsInventoryLoading] = useState(false);
   const [stepFunctionsInventoryError, setStepFunctionsInventoryError] = useState('');
   const stepFunctionsInventoryRequestRef = useRef(0);
+  const [eventDrivenInventory, setEventDrivenInventory] = useState<AWSEventDrivenRoleInventoryResult | null>(null);
+  const [eventDrivenInventoryLoading, setEventDrivenInventoryLoading] = useState(false);
+  const [eventDrivenInventoryError, setEventDrivenInventoryError] = useState('');
+  const eventDrivenInventoryRequestRef = useRef(0);
   const [eksInventory, setEKSInventory] = useState<AWSEKSWorkloadIdentityInventoryResult | null>(null);
   const [eksInventoryLoading, setEKSInventoryLoading] = useState(false);
   const [eksInventoryError, setEKSInventoryError] = useState('');
@@ -5916,6 +6090,46 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadStepFunctionsInventory]);
 
+  const loadEventDrivenInventory = useCallback(async () => {
+    const requestID = ++eventDrivenInventoryRequestRef.current;
+    setEventDrivenInventory(null);
+    setEventDrivenInventoryError('');
+    if (routeID !== 'identities' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setEventDrivenInventoryLoading(false);
+      return;
+    }
+    setEventDrivenInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectEventDrivenRoles(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== eventDrivenInventoryRequestRef.current) {
+        return;
+      }
+      setEventDrivenInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== eventDrivenInventoryRequestRef.current) {
+        return;
+      }
+      setEventDrivenInventoryError(formatAPIError(error, 'Unable to load EventBridge, Scheduler, and Pipes role inventory.'));
+    } finally {
+      if (requestID === eventDrivenInventoryRequestRef.current) {
+        setEventDrivenInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadEventDrivenInventory();
+    return () => {
+      eventDrivenInventoryRequestRef.current += 1;
+    };
+  }, [loadEventDrivenInventory]);
+
   const loadEKSInventory = useCallback(async () => {
     const requestID = ++eksInventoryRequestRef.current;
     setEKSInventory(null);
@@ -6063,6 +6277,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: stepFunctionsInventoryLoading,
             error: stepFunctionsInventoryError,
             onRetry: () => void loadStepFunctionsInventory()
+          }}
+          eventDrivenState={{
+            inventory: eventDrivenInventory,
+            loading: eventDrivenInventoryLoading,
+            error: eventDrivenInventoryError,
+            onRetry: () => void loadEventDrivenInventory()
           }}
           eksState={{
             inventory: eksInventory,

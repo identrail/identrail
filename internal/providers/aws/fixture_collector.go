@@ -149,6 +149,14 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	var eventDrivenRole EventDrivenRole
+	if err := json.Unmarshal(payload, &eventDrivenRole); err == nil {
+		sourceID := eventDrivenRoleSourceID(eventDrivenRole)
+		if isEventDrivenRoleFixture(eventDrivenRole) {
+			return rawKindEventDrivenRole, sourceID
+		}
+	}
+
 	var profile EC2InstanceProfile
 	if err := json.Unmarshal(payload, &profile); err == nil {
 		sourceID := ec2InstanceProfileSourceID(profile)
@@ -249,6 +257,30 @@ func isStepFunctionsStateMachineRoleFixture(record StepFunctionsStateMachineRole
 		len(record.ServiceIntegrationResources) > 0 ||
 		len(record.NestedStateMachineARNs) > 0 ||
 		len(record.LogGroupARNs) > 0
+}
+
+func isEventDrivenRoleFixture(record EventDrivenRole) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), eventDrivenServiceName) || strings.EqualFold(strings.TrimSpace(record.CollectorName), eventDrivenRoleCollectorName) {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(record.Service)) {
+	case "scheduler", "pipes":
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(record.WorkloadType)) {
+	case "eventbridge_rule", "scheduler_schedule", "eventbridge_pipe", "rule", "schedule", "pipe":
+		return true
+	}
+	return strings.TrimSpace(record.WorkloadARN) != "" ||
+		strings.TrimSpace(record.EventBusName) != "" ||
+		strings.TrimSpace(record.EventBusARN) != "" ||
+		strings.TrimSpace(record.ScheduleGroupName) != "" ||
+		strings.TrimSpace(record.ScheduleExpression) != "" ||
+		strings.TrimSpace(record.PipeSourceARN) != "" ||
+		strings.TrimSpace(record.PipeTargetARN) != "" ||
+		strings.TrimSpace(record.TargetARN) != "" ||
+		strings.TrimSpace(record.TargetID) != "" ||
+		len(record.DeadLetterARNs) > 0
 }
 
 func isEKSWorkloadIdentityFixture(record EKSWorkloadIdentity) bool {

@@ -5,8 +5,8 @@
 The AWS collector family uses a composable service collection layer. IAM remains
 the default identity source, and EC2 instance profiles, ECS task/execution roles,
 Lambda execution roles, CodeBuild service roles, CodePipeline deployment roles,
-and Step Functions state-machine roles are collected as workload identity
-services without changing IAM collector behavior.
+Step Functions state-machine roles, and EventBridge/Scheduler/Pipes roles are
+collected as workload identity services without changing IAM collector behavior.
 
 ## Composite Architecture
 
@@ -39,6 +39,11 @@ The collection path is:
   logging config, tracing, encryption metadata, and tags. It reads definitions
   only to compute a hash and extract ARN/service references, then discards the
   raw definition without storing execution history or payload examples.
+- `EventDrivenRoleCollector` maps EventBridge rules and targets, EventBridge
+  Scheduler schedules, and EventBridge Pipes to invocation/execution roles,
+  targets, DLQs, retry metadata, disabled state, logging config, KMS metadata,
+  and tags without collecting event payloads, schedule input bodies, pipe
+  payloads, object contents, or secret values.
 
 Behavior:
 
@@ -145,6 +150,19 @@ ordered by `kind`, then `source_id`.
   visible as metadata-only role evidence when decrypt is unavailable; the
   missing definition-derived fields are surfaced through
   `state_machine_definition_unavailable`.
+- EventBridge target, Scheduler schedule, and Pipes describe failures are
+  surfaced as partial-failure diagnostics while successful rule, schedule, and
+  pipe role evidence remains visible.
+- Disabled EventBridge rules and Scheduler schedules stay visible as disabled
+  metadata rather than being merged into active identity rows.
+- EventBridge records include event pattern and input transformer hashes,
+  target/DLQ references, retry metadata, and tags, but not raw event patterns
+  or transformed event payloads.
+- Scheduler records include schedule expression/time zone, target/DLQ
+  references, retry metadata, KMS key reference, and disabled state, but not
+  schedule target input bodies.
+- Pipes records include source, target, enrichment, DLQ, logging, and KMS
+  references, but not source records, enriched payloads, or target payloads.
 
 ## Security Posture
 
@@ -175,10 +193,15 @@ ordered by `kind`, then `source_id`.
   Step Functions adapters for `ListStateMachines`, `DescribeStateMachine`, and
   `ListTagsForResource`. Raw definitions are not persisted; only definition
   hashes and extracted ARN/service identifiers are retained.
+- EventBridge, Scheduler, and Pipes role collection is implemented through AWS
+  SDK adapters for `ListEventBuses`, `ListRules`, `ListTargetsByRule`,
+  `ListTagsForResource`, `ListSchedules`, `GetSchedule`, `ListPipes`, and
+  `DescribePipe`.
 - AWS SDK CLI and runtime paths now use `NewAWSScanner`, which wires the
   composite collector with IAM, EC2 instance profile, ECS task role, Lambda
   execution role, CodeBuild service role, CodePipeline deployment role, Step
-  Functions state-machine role, and EKS workload identity services.
+  Functions state-machine role, EventBridge/Scheduler/Pipes role, and EKS
+  workload identity services.
 - The composite layer is now the extension point for future AWS service collection in the CLI/runtime path.
 - The service collector contract is exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/collector-contract`
@@ -200,4 +223,7 @@ ordered by `kind`, then `source_id`.
   and the AWS machine identities page.
 - Step Functions state-machine role inventory is exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/stepfunctions-state-machine-roles`
+  and the AWS machine identities page.
+- EventBridge, Scheduler, and Pipes role inventory is exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/event-driven-roles`
   and the AWS machine identities page.

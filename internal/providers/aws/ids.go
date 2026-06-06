@@ -93,6 +93,33 @@ func stepFunctionsStateMachineResourceID(stateMachineARN string) string {
 	return "aws:resource:stepfunctions-state-machine:" + strings.TrimSpace(stateMachineARN)
 }
 
+func eventDrivenWorkloadID(accountID, region, workloadType, workloadRef, roleKind string) string {
+	normalizedType := normalizeName(workloadType)
+	if normalizedType == "" {
+		normalizedType = "event-driven"
+	}
+	normalizedRoleKind := normalizeName(roleKind)
+	if normalizedRoleKind == "" {
+		normalizedRoleKind = "role"
+	}
+	return fmt.Sprintf("aws:workload:event-driven:%s:%s:%s/%s/%s", normalizeName(accountID), normalizeName(region), normalizedType, normalizeName(workloadRef), normalizedRoleKind)
+}
+
+func eventDrivenResourceID(record EventDrivenRole) string {
+	ref := strings.TrimSpace(record.WorkloadARN)
+	if ref == "" {
+		ref = strings.TrimSpace(record.WorkloadID)
+	}
+	switch eventDrivenResourceType(record) {
+	case domain.ResourceTypeSchedulerSchedule:
+		return "aws:resource:scheduler-schedule:" + ref
+	case domain.ResourceTypeEventBridgePipe:
+		return "aws:resource:eventbridge-pipe:" + ref
+	default:
+		return "aws:resource:eventbridge-rule:" + ref
+	}
+}
+
 func eksWorkloadIdentityWorkloadID(accountID, region, workloadType, workloadID, roleKind string) string {
 	normalizedType := normalizeName(workloadType)
 	if normalizedType == "" {

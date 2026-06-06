@@ -618,6 +618,10 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 			if err != nil {
 				return app.Scanner{}, fmt.Errorf("initialize aws stepfunctions state machine role collector: %w", err)
 			}
+			eventDrivenAPI, err := awsprovider.NewSDKEventDrivenRoleAPI(cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if err != nil {
+				return app.Scanner{}, fmt.Errorf("initialize aws event-driven role collector: %w", err)
+			}
 			eksAPI, err := awsprovider.NewSDKEKSWorkloadIdentityAPI(cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
 			if err != nil {
 				return app.Scanner{}, fmt.Errorf("initialize aws eks workload identity collector: %w", err)
@@ -629,6 +633,7 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 				awsprovider.NewCodeBuildServiceRoleCollector(codeBuildAPI),
 				awsprovider.NewCodePipelineDeploymentRoleCollector(codePipelineAPI),
 				awsprovider.NewStepFunctionsStateMachineRoleCollector(stepFunctionsAPI),
+				awsprovider.NewEventDrivenRoleCollector(eventDrivenAPI),
 				awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 			}, awsprovider.NewRuleSet(
 				awsprovider.WithStaleAfter(time.Duration(staleAfterDays)*24*time.Hour),

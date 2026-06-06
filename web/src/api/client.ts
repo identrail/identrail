@@ -1627,6 +1627,107 @@ export type AWSStepFunctionsStateMachineRoleInventoryResult = {
   updated_at: string;
 };
 
+export type AWSEventDrivenRoleInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSEventDrivenRoleFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+
+export type AWSEventDrivenRoleRecord = {
+  account_id: string;
+  region: string;
+  service: 'eventbridge' | 'scheduler' | 'pipes' | string;
+  workload_id: string;
+  workload_type: 'eventbridge_rule' | 'scheduler_schedule' | 'eventbridge_pipe' | string;
+  workload_name: string;
+  role_arn?: string;
+  role_name?: string;
+  role_kind?: string;
+  role_account_id?: string;
+  workload_arn?: string;
+  event_bus_name?: string;
+  event_bus_arn?: string;
+  schedule_group_name?: string;
+  schedule_expression?: string;
+  schedule_timezone?: string;
+  pipe_source_arn?: string;
+  pipe_target_arn?: string;
+  pipe_enrichment_arn?: string;
+  target_arn?: string;
+  target_id?: string;
+  target_service?: string;
+  dead_letter_arns?: string[];
+  retry_maximum_age_seconds?: number;
+  retry_maximum_attempts?: number;
+  event_pattern_sha256?: string;
+  input_transformer_sha256?: string;
+  input_path_configured?: boolean;
+  target_input_configured?: boolean;
+  execution_data_logging?: boolean;
+  log_destination_arns?: string[];
+  kms_key_arn?: string;
+  active: boolean;
+  disabled: boolean;
+  state_reason?: string;
+  tags?: Record<string, string>;
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  to_node_id?: string;
+  relationship_type: 'runs_as' | string;
+  confidence: number;
+  collected_at: string;
+  status: string;
+};
+
+export type AWSEventDrivenRoleRelationship = {
+  type: 'runs_as' | string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSEventDrivenRoleDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSEventDrivenRoleInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSEventDrivenRoleInventoryStatus;
+  fixture_state: AWSEventDrivenRoleFixtureState;
+  confidence: number;
+  record_count: number;
+  rule_count: number;
+  schedule_count: number;
+  pipe_count: number;
+  target_count: number;
+  dead_letter_count: number;
+  disabled_count: number;
+  identity_count: number;
+  resource_count: number;
+  relationship_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  records: AWSEventDrivenRoleRecord[];
+  relationships: AWSEventDrivenRoleRelationship[];
+  diagnostics: AWSEventDrivenRoleDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSEKSWorkloadIdentityInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSEKSWorkloadIdentityFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 
@@ -2778,6 +2879,21 @@ export const apiClient = {
   ) {
     return request<{ inventory: AWSStepFunctionsStateMachineRoleInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/stepfunctions-state-machine-roles${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectEventDrivenRoles(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSEventDrivenRoleFixtureState,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSEventDrivenRoleInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/event-driven-roles${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
       })}`,

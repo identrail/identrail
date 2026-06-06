@@ -131,6 +131,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		if err := ctx.Err(); err != nil {
 			return providers.NormalizedBundle{}, err
 		}
+		if asset.Kind != rawKindEventDrivenRole {
+			continue
+		}
+		if err := normalizeEventDrivenRoleAsset(asset, i, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
 		if asset.Kind != rawKindEKSWorkloadIdentity {
 			continue
 		}
@@ -804,6 +816,107 @@ func stepFunctionsResourceFromRecord(record StepFunctionsStateMachineRole, rawRe
 	}
 }
 
+func normalizeEventDrivenRoleAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record EventDrivenRole
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode event-driven role asset[%d]: %w", index, err)
+	}
+
+	roleARN := strings.TrimSpace(record.RoleARN)
+	roleIdentityID := ""
+	if roleARN != "" {
+		roleIdentityID = identityIDFromARN(roleARN)
+		roleName := strings.TrimSpace(record.RoleName)
+		if roleName == "" {
+			roleName = roleNameFromARN(roleARN)
+		}
+		if _, exists := identitySeen[roleIdentityID]; !exists {
+			identitySeen[roleIdentityID] = struct{}{}
+			bundle.Identities = append(bundle.Identities, domain.Identity{
+				ID:        roleIdentityID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.IdentityTypeRole,
+				Name:      roleName,
+				ARN:       roleARN,
+				OwnerHint: ownerHintFromTags(record.Tags),
+				Tags:      copyTags(record.Tags),
+				RawRef:    asset.SourceID,
+			})
+		}
+	}
+
+	workloadID := eventDrivenRoleWorkloadID(record)
+	if workloadID != "" {
+		if _, exists := workloadSeen[workloadID]; !exists {
+			workloadSeen[workloadID] = struct{}{}
+			bundle.Workloads = append(bundle.Workloads, domain.Workload{
+				ID:        workloadID,
+				Provider:  domain.ProviderAWS,
+				Type:      eventDrivenRoleWorkloadType(record),
+				Name:      eventDrivenRoleWorkloadName(record),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Region:    strings.TrimSpace(record.Region),
+				RawRef:    roleIdentityID,
+			})
+		}
+	}
+
+	if strings.TrimSpace(record.WorkloadARN) != "" {
+		resourceID := eventDrivenResourceID(record)
+		if _, exists := resourceSeen[resourceID]; !exists {
+			resourceSeen[resourceID] = struct{}{}
+			bundle.Resources = append(bundle.Resources, eventDrivenResourceFromRecord(record, asset.SourceID, workloadID, roleARN))
+		}
+	}
+
+	return nil
+}
+
+func eventDrivenResourceFromRecord(record EventDrivenRole, rawRef string, workloadID string, roleARN string) domain.Resource {
+	return domain.Resource{
+		ID:        eventDrivenResourceID(record),
+		Provider:  domain.ProviderAWS,
+		Type:      eventDrivenResourceType(record),
+		Name:      eventDrivenRoleWorkloadName(record),
+		ARN:       strings.TrimSpace(record.WorkloadARN),
+		Region:    strings.TrimSpace(record.Region),
+		AccountID: strings.TrimSpace(record.AccountID),
+		Labels:    copyTags(record.Tags),
+		Metadata: map[string]any{
+			"service":                   strings.TrimSpace(record.Service),
+			"role_arn":                  roleARN,
+			"role_kind":                 strings.TrimSpace(record.RoleKind),
+			"role_account_id":           strings.TrimSpace(record.RoleAccountID),
+			"event_bus_name":            strings.TrimSpace(record.EventBusName),
+			"event_bus_arn":             strings.TrimSpace(record.EventBusARN),
+			"schedule_group_name":       strings.TrimSpace(record.ScheduleGroupName),
+			"schedule_expression":       strings.TrimSpace(record.ScheduleExpression),
+			"schedule_timezone":         strings.TrimSpace(record.ScheduleTimezone),
+			"pipe_source_arn":           strings.TrimSpace(record.PipeSourceARN),
+			"pipe_target_arn":           strings.TrimSpace(record.PipeTargetARN),
+			"pipe_enrichment_arn":       strings.TrimSpace(record.PipeEnrichmentARN),
+			"target_arn":                strings.TrimSpace(record.TargetARN),
+			"target_id":                 strings.TrimSpace(record.TargetID),
+			"target_service":            strings.TrimSpace(record.TargetService),
+			"dead_letter_arns":          append([]string(nil), record.DeadLetterARNs...),
+			"retry_maximum_age_seconds": record.RetryMaximumAgeSeconds,
+			"retry_maximum_attempts":    record.RetryMaximumAttempts,
+			"event_pattern_sha256":      strings.TrimSpace(record.EventPatternSHA256),
+			"input_transformer_sha256":  strings.TrimSpace(record.InputTransformerSHA256),
+			"input_path_configured":     record.InputPathConfigured,
+			"target_input_configured":   record.TargetInputConfigured,
+			"execution_data_logging":    record.ExecutionDataLogging,
+			"log_destination_arns":      append([]string(nil), record.LogDestinationARNs...),
+			"kms_key_arn":               strings.TrimSpace(record.KMSKeyARN),
+			"active":                    record.Active,
+			"disabled":                  record.Disabled,
+			"state_reason":              strings.TrimSpace(record.StateReason),
+		},
+		RawRef:         rawRef,
+		SourceEntityID: workloadID,
+	}
+}
+
 func normalizeEKSWorkloadIdentityAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
 	var record EKSWorkloadIdentity
 	if err := json.Unmarshal(asset.Payload, &record); err != nil {
@@ -1112,6 +1225,38 @@ func stepFunctionsRoleWorkloadID(record StepFunctionsStateMachineRole) string {
 
 func stepFunctionsRoleWorkloadName(record StepFunctionsStateMachineRole) string {
 	return firstNonEmptyAWSValue(record.WorkloadName, record.StateMachineName, stepFunctionsStateMachineNameFromARN(record.StateMachineARN), "stepfunctions state machine")
+}
+
+func eventDrivenRoleWorkloadID(record EventDrivenRole) string {
+	return eventDrivenWorkloadID(
+		record.AccountID,
+		record.Region,
+		eventDrivenRoleWorkloadType(record),
+		firstNonEmptyAWSValue(record.WorkloadID, record.WorkloadARN, record.WorkloadName),
+		record.RoleKind,
+	)
+}
+
+func eventDrivenRoleWorkloadType(record EventDrivenRole) string {
+	if strings.TrimSpace(record.WorkloadType) != "" {
+		return strings.TrimSpace(record.WorkloadType)
+	}
+	return eventDrivenDefaultWorkloadType(record)
+}
+
+func eventDrivenRoleWorkloadName(record EventDrivenRole) string {
+	return firstNonEmptyAWSValue(record.WorkloadName, eventDrivenNameFromARN(record.WorkloadARN), "event-driven workload")
+}
+
+func eventDrivenResourceType(record EventDrivenRole) domain.ResourceType {
+	switch eventDrivenRoleWorkloadType(record) {
+	case "scheduler_schedule":
+		return domain.ResourceTypeSchedulerSchedule
+	case "eventbridge_pipe":
+		return domain.ResourceTypeEventBridgePipe
+	default:
+		return domain.ResourceTypeEventBridgeRule
+	}
 }
 
 func eksWorkloadIdentityNormalizedWorkloadID(record EKSWorkloadIdentity) string {
