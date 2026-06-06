@@ -209,6 +209,14 @@ func TestStepFunctionsDefinitionMetadataSupportsAWSPartitions(t *testing.T) {
 	}
 }
 
+func TestStepFunctionsDefinitionMetadataReportsAWSSDKIntegrationTargets(t *testing.T) {
+	definition := `{"States":{"ReadItem":{"Type":"Task","Resource":"arn:aws:states:::aws-sdk:dynamodb:getItem","Next":"Send"},"Send":{"Type":"Task","Resource":"arn:aws:states:::aws-sdk:sqs:sendMessage","End":true}}}`
+	summary := stepFunctionsDefinitionMetadata(definition)
+	if len(summary.ServiceIntegrations) != 2 || summary.ServiceIntegrations[0] != "dynamodb" || summary.ServiceIntegrations[1] != "sqs" {
+		t.Fatalf("expected AWS SDK target services, got %+v", summary.ServiceIntegrations)
+	}
+}
+
 func TestStepFunctionsRoleNormalizerCreatesGraphNodes(t *testing.T) {
 	roleARN := "arn:aws:iam::123456789012:role/payments-stepfunctions"
 	stateMachineARN := "arn:aws:states:us-east-1:123456789012:stateMachine:payments"

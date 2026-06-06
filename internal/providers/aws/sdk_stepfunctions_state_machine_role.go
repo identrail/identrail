@@ -314,6 +314,9 @@ func stepFunctionsServiceIntegration(resource string) string {
 		return ""
 	}
 	rest := parts[5]
+	if strings.HasPrefix(rest, "aws-sdk:") {
+		rest = strings.TrimPrefix(rest, "aws-sdk:")
+	}
 	end := len(rest)
 	for _, sep := range []string{":", "."} {
 		if idx := strings.Index(rest, sep); idx >= 0 && idx < end {
