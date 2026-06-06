@@ -171,6 +171,32 @@ func TestSDKCodeBuildServiceRoleAPIEmitsProjectNotFoundDiagnostic(t *testing.T) 
 	}
 }
 
+func TestSDKCodeBuildServiceRoleAPIBatchesFullListProjectsPage(t *testing.T) {
+	client := &fakeCodeBuildSDKClient{
+		listProjectsOutputs: []*codebuild.ListProjectsOutput{{Projects: []string{"project-a", "project-b", "project-c"}, NextToken: awsv2.String("page-2")}},
+		projectsByName: map[string]codebuildtypes.Project{
+			"project-a": codeBuildSDKTestProject("project-a"),
+			"project-b": codeBuildSDKTestProject("project-b"),
+			"project-c": codeBuildSDKTestProject("project-c"),
+		},
+	}
+	api := NewSDKCodeBuildServiceRoleAPIFromClient(client, "123456789012", "us-east-1")
+
+	page, err := api.ListServiceRoles(context.Background(), "", 1)
+	if err != nil {
+		t.Fatalf("list service roles: %v", err)
+	}
+	if len(page.Records) != 3 {
+		t.Fatalf("expected every listed project to be resolved despite smaller public page size, got %+v", page.Records)
+	}
+	if page.NextToken != "page-2" {
+		t.Fatalf("expected AWS next token to be preserved, got %q", page.NextToken)
+	}
+	if len(client.batchGetProjectsInput) != 1 || len(client.batchGetProjectsInput[0].Names) != 3 {
+		t.Fatalf("expected full ListProjects page to be batched, got %+v", client.batchGetProjectsInput)
+	}
+}
+
 func TestSDKCodeBuildServiceRoleAPIHandlesNextTokenAndBatchErrors(t *testing.T) {
 	client := &fakeCodeBuildSDKClient{
 		listProjectsOutputs: []*codebuild.ListProjectsOutput{{Projects: []string{"payments-build"}, NextToken: awsv2.String("page-2")}},
@@ -184,5 +210,13 @@ func TestSDKCodeBuildServiceRoleAPIHandlesNextTokenAndBatchErrors(t *testing.T) 
 	}
 	if got := awsv2.ToString(client.listProjectsInputs[0].NextToken); got != "page-1" {
 		t.Fatalf("expected forwarded next token, got %q", got)
+	}
+}
+
+func codeBuildSDKTestProject(name string) codebuildtypes.Project {
+	return codebuildtypes.Project{
+		Arn:         awsv2.String("arn:aws:codebuild:us-east-1:123456789012:project/" + name),
+		Name:        awsv2.String(name),
+		ServiceRole: awsv2.String("arn:aws:iam::123456789012:role/" + name + "-service"),
 	}
 }

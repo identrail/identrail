@@ -98,9 +98,6 @@ func (a *SDKCodeBuildServiceRoleAPI) ListServiceRoles(ctx context.Context, nextT
 	}
 
 	names := normalizeStringList(output.Projects)
-	if pageSize > 0 && int(pageSize) < len(names) {
-		names = names[:pageSize]
-	}
 	records, diagnostics, err := a.batchGetProjectRecords(ctx, names)
 	if err != nil {
 		return CodeBuildServiceRolePage{}, err
