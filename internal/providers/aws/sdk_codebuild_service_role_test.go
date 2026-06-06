@@ -114,7 +114,7 @@ func TestSDKCodeBuildServiceRoleAPIMapsProjectRoleAndMetadata(t *testing.T) {
 	if len(page.Records) != 1 {
 		t.Fatalf("expected one codebuild role record, got %+v", page.Records)
 	}
-	if len(client.listProjectsInputs) != 1 || awsv2.ToString(client.listProjectsInputs[0].NextToken) != "" {
+	if len(client.listProjectsInputs) != 1 || client.listProjectsInputs[0].NextToken != nil {
 		t.Fatalf("expected one ListProjects call, got %+v", client.listProjectsInputs)
 	}
 	if len(client.batchGetProjectsInput) != 1 || len(client.batchGetProjectsInput[0].Names) != 1 || client.batchGetProjectsInput[0].Names[0] != "payments-build" {

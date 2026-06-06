@@ -1350,6 +1350,7 @@ export type AWSCodeBuildServiceRoleRecord = {
   role_name?: string;
   project_arn?: string;
   project_name?: string;
+  project_description?: string;
   project_visibility?: string;
   source_type?: string;
   source_location?: string;

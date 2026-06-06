@@ -7716,6 +7716,8 @@ components:
           type: string
         project_name:
           type: string
+        project_description:
+          type: string
         project_visibility:
           type: string
         source_type:

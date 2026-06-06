@@ -86,7 +86,7 @@ func (a *SDKCodeBuildServiceRoleAPI) ListServiceRoles(ctx context.Context, nextT
 	}
 
 	output, err := a.codeBuildClient.ListProjects(ctx, &codebuild.ListProjectsInput{
-		NextToken: awsv2.String(strings.TrimSpace(nextToken)),
+		NextToken: codeBuildListProjectsNextToken(nextToken),
 		SortBy:    codebuildtypes.ProjectSortByTypeName,
 		SortOrder: codebuildtypes.SortOrderTypeAscending,
 	})
@@ -109,6 +109,14 @@ func (a *SDKCodeBuildServiceRoleAPI) ListServiceRoles(ctx context.Context, nextT
 		return codeBuildServiceRoleSourceID(records[i]) < codeBuildServiceRoleSourceID(records[j])
 	})
 	return CodeBuildServiceRolePage{Records: records, NextToken: nextTokenFromCodeBuildListProjects(output), Diagnostics: diagnostics}, nil
+}
+
+func codeBuildListProjectsNextToken(nextToken string) *string {
+	trimmed := strings.TrimSpace(nextToken)
+	if trimmed == "" {
+		return nil
+	}
+	return awsv2.String(trimmed)
 }
 
 func (a *SDKCodeBuildServiceRoleAPI) batchGetProjectRecords(ctx context.Context, names []string) ([]CodeBuildServiceRole, []providers.SourceError, error) {

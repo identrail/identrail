@@ -4927,7 +4927,7 @@ function awsCodeBuildServiceRoleRow(record: AWSCodeBuildServiceRoleRecord): AWSI
     category: 'CodeBuild service role',
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
-    stage: status === 'wired now' ? 'wired' : 'coming',
+    stage,
     detail: `${projectLabel} runs as ${roleLabel}; ${sourceLabel}; ${environmentLabel}; ${artifactLabel}; ${vpcLabel}; ${secretLabel}.`,
     filters: {
       identityType: 'codebuild-role',
