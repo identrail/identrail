@@ -141,6 +141,10 @@ ordered by `kind`, then `source_id`.
   service integrations, nested workflow ARNs, logging, tracing, encryption, and
   tag metadata, but not raw definitions, execution history, customer payload
   examples, object contents, or secret values.
+- Step Functions definitions encrypted with customer-managed KMS keys remain
+  visible as metadata-only role evidence when decrypt is unavailable; the
+  missing definition-derived fields are surfaced through
+  `state_machine_definition_unavailable`.
 
 ## Security Posture
 

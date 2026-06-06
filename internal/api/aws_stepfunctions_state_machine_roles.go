@@ -429,6 +429,8 @@ func awsStepFunctionsStateMachineRoleDiagnosticRemediation(code string) string {
 		return "Grant metadata-only Step Functions read permissions; do not add execution history, payload, object, or secret-value reads."
 	case "logging_execution_data_enabled":
 		return "Review Step Functions logging before using workflow evidence for data-exposure decisions."
+	case "state_machine_definition_unavailable":
+		return "Grant kms:Decrypt only if definition-derived task-resource evidence is required; otherwise keep metadata-only role evidence visible."
 	case "state_machine_describe_failed", "state_machine_not_found", "state_machine_tags_failed":
 		return "Retry only the failed Step Functions metadata call and keep successful state-machine role records visible."
 	case "missing_stepfunctions_execution_role":

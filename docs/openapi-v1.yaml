@@ -8264,7 +8264,7 @@ components:
         source_id: { type: string }
         code:
           type: string
-          enum: [logging_execution_data_enabled, missing_state_machine_arn, missing_stepfunctions_execution_role, permission_denied, state_machine_describe_failed, state_machine_not_found, state_machine_tags_failed]
+          enum: [logging_execution_data_enabled, missing_state_machine_arn, missing_stepfunctions_execution_role, permission_denied, state_machine_definition_unavailable, state_machine_describe_failed, state_machine_not_found, state_machine_tags_failed]
         message: { type: string }
         remediation: { type: string }
         retryable: { type: boolean }

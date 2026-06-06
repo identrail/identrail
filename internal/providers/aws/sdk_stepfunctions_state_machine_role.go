@@ -104,10 +104,7 @@ func (a *SDKStepFunctionsStateMachineRoleAPI) ListServiceRoles(ctx context.Conte
 			diagnostics = append(diagnostics, stepFunctionsSourceDiagnostic("missing_state_machine_arn", "liststatemachines", "Step Functions list response included a state machine without an ARN", false))
 			continue
 		}
-		describeOutput, err := a.stepFunctionsClient.DescribeStateMachine(ctx, &sfn.DescribeStateMachineInput{
-			StateMachineArn: awsv2.String(stateMachineARN),
-			IncludedData:    sfntypes.IncludedDataAllData,
-		})
+		describeOutput, definitionUnavailable, err := a.describeStateMachine(ctx, stateMachineARN)
 		if err != nil {
 			diagnostics = append(diagnostics, stepFunctionsSourceDiagnostic("state_machine_describe_failed", stateMachineARN, fmt.Sprintf("Step Functions state machine %s could not be described: %v", stateMachineARN, err), true))
 			continue
@@ -115,6 +112,9 @@ func (a *SDKStepFunctionsStateMachineRoleAPI) ListServiceRoles(ctx context.Conte
 		if describeOutput == nil {
 			diagnostics = append(diagnostics, stepFunctionsSourceDiagnostic("state_machine_not_found", stateMachineARN, "Step Functions state machine listed by ListStateMachines was not returned by DescribeStateMachine", true))
 			continue
+		}
+		if definitionUnavailable != nil {
+			diagnostics = append(diagnostics, stepFunctionsSourceDiagnostic("state_machine_definition_unavailable", stateMachineARN, fmt.Sprintf("Step Functions definition for state machine %s could not be read; retained metadata-only role evidence: %v", stateMachineARN, definitionUnavailable), true))
 		}
 		record := a.recordFromStateMachine(summary, describeOutput)
 		tagsOutput, err := a.stepFunctionsClient.ListTagsForResource(ctx, &sfn.ListTagsForResourceInput{ResourceArn: awsv2.String(stateMachineARN)})
@@ -129,6 +129,24 @@ func (a *SDKStepFunctionsStateMachineRoleAPI) ListServiceRoles(ctx context.Conte
 		return stepFunctionsStateMachineRoleSourceID(records[i]) < stepFunctionsStateMachineRoleSourceID(records[j])
 	})
 	return StepFunctionsStateMachineRolePage{Records: records, NextToken: nextTokenFromStepFunctionsList(output), Diagnostics: diagnostics}, nil
+}
+
+func (a *SDKStepFunctionsStateMachineRoleAPI) describeStateMachine(ctx context.Context, stateMachineARN string) (*sfn.DescribeStateMachineOutput, error, error) {
+	allDataOutput, err := a.stepFunctionsClient.DescribeStateMachine(ctx, &sfn.DescribeStateMachineInput{
+		StateMachineArn: awsv2.String(stateMachineARN),
+		IncludedData:    sfntypes.IncludedDataAllData,
+	})
+	if err == nil {
+		return allDataOutput, nil, nil
+	}
+	metadataOutput, metadataErr := a.stepFunctionsClient.DescribeStateMachine(ctx, &sfn.DescribeStateMachineInput{
+		StateMachineArn: awsv2.String(stateMachineARN),
+		IncludedData:    sfntypes.IncludedDataMetadataOnly,
+	})
+	if metadataErr != nil {
+		return nil, nil, err
+	}
+	return metadataOutput, err, nil
 }
 
 func (a *SDKStepFunctionsStateMachineRoleAPI) recordFromStateMachine(summary sfntypes.StateMachineListItem, describe *sfn.DescribeStateMachineOutput) StepFunctionsStateMachineRole {

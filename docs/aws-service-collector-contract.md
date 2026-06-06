@@ -197,7 +197,10 @@ intentionally outside the collector contract.
 For Step Functions, raw definitions, execution history, customer payload
 examples, object contents, and secret values are intentionally outside the
 collector contract. Collectors may retain definition SHA-256 hashes and extracted
-ARN/service-integration identifiers only.
+ARN/service-integration identifiers only. If a customer-managed KMS key blocks
+definition reads, collectors must keep metadata-only execution-role evidence
+visible and emit `state_machine_definition_unavailable` instead of dropping the
+state machine.
 
 For EKS, AWS-side metadata proves clusters, OIDC issuer relationships, Pod
 Identity associations, managed node roles, and Fargate pod execution roles.

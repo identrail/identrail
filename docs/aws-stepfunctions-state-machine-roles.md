@@ -51,14 +51,21 @@ The live SDK collector uses read-only AWS APIs only:
 `DescribeStateMachine` is used to read state-machine definitions for reference
 extraction. The raw definition is discarded after hashing and ARN/service
 identifier extraction, and it is not logged or returned by the API.
+If AWS requires `kms:Decrypt` for an encrypted definition and that permission is
+not granted, the collector retries with metadata-only included data, keeps the
+state-machine execution role visible, and emits
+`state_machine_definition_unavailable` for the missing definition-derived
+evidence.
 
 ## Diagnostics
 
-Permission denial blocks the inventory because the collector cannot prove state
-machines or execution roles without Step Functions metadata access. Per-state
-machine describe or tag failures are reported as partial failures so successful
-role records remain visible. Execution-data logging is surfaced as degraded
-metadata because it changes the operator's data-exposure context.
+Permission denial blocks the inventory only when the collector cannot prove
+state machines or execution roles without Step Functions metadata access.
+Definition decrypt failures are degraded, not blocked, when metadata-only
+fallback succeeds. Per-state machine describe or tag failures are reported as
+partial failures so successful role records remain visible. Execution-data
+logging is surfaced as degraded metadata because it changes the operator's
+data-exposure context.
 
 ## Graph Shape
 
