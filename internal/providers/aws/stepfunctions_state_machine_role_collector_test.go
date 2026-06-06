@@ -13,13 +13,17 @@ import (
 )
 
 type fakeStepFunctionsRoleAPI struct {
-	pages []StepFunctionsStateMachineRolePage
-	err   error
-	calls int
+	pages     []StepFunctionsStateMachineRolePage
+	err       error
+	tokens    []string
+	pageSizes []int32
+	calls     int
 }
 
 func (f *fakeStepFunctionsRoleAPI) ListServiceRoles(ctx context.Context, nextToken string, pageSize int32) (StepFunctionsStateMachineRolePage, error) {
 	f.calls++
+	f.tokens = append(f.tokens, nextToken)
+	f.pageSizes = append(f.pageSizes, pageSize)
 	if len(f.pages) == 0 {
 		if f.err != nil {
 			return StepFunctionsStateMachineRolePage{}, f.err
@@ -31,7 +35,7 @@ func (f *fakeStepFunctionsRoleAPI) ListServiceRoles(ctx context.Context, nextTok
 	return page, nil
 }
 
-func TestStepFunctionsStateMachineRoleCollectorEmitsMetadataOnlyAsset(t *testing.T) {
+func TestStepFunctionsStateMachineRoleCollectorEmitsSafeDefinitionAsset(t *testing.T) {
 	collectedAt := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
 	roleARN := "arn:aws:iam::123456789012:role/payments-stepfunctions-execution"
 	stateMachineARN := "arn:aws:states:us-east-1:123456789012:stateMachine:payments-orchestrator"
@@ -83,6 +87,24 @@ func TestStepFunctionsStateMachineRoleCollectorEmitsMetadataOnlyAsset(t *testing
 	}
 	if record.DefinitionSHA256 != "hash-only" || strings.Contains(string(assets[0].Payload), "Payload") {
 		t.Fatalf("expected hash-only definition evidence, got %s", string(assets[0].Payload))
+	}
+}
+
+func TestStepFunctionsStateMachineRoleCollectorPassesPaginationInputs(t *testing.T) {
+	api := &fakeStepFunctionsRoleAPI{pages: []StepFunctionsStateMachineRolePage{
+		{NextToken: "page-2"},
+		{},
+	}}
+	collector := NewStepFunctionsStateMachineRoleCollector(api, WithStepFunctionsStateMachineRolePageSize(37))
+	_, _, err := collector.CollectWithDiagnostics(context.Background(), AWSCollectorScope{})
+	if err != nil {
+		t.Fatalf("collect failed: %v", err)
+	}
+	if got, want := strings.Join(api.tokens, ","), ",page-2"; got != want {
+		t.Fatalf("expected next tokens %q, got %q", want, got)
+	}
+	if len(api.pageSizes) != 2 || api.pageSizes[0] != 37 || api.pageSizes[1] != 37 {
+		t.Fatalf("expected page size to be passed on every call, got %+v", api.pageSizes)
 	}
 }
 
@@ -172,6 +194,14 @@ func TestStepFunctionsDefinitionMetadataExtractsOnlySafeReferences(t *testing.T)
 	}
 	if len(summary.NestedStateMachineARNs) != 1 {
 		t.Fatalf("expected nested state machine ARN, got %+v", summary.NestedStateMachineARNs)
+	}
+}
+
+func TestStepFunctionsDefinitionMetadataSupportsAWSPartitions(t *testing.T) {
+	definition := `{"States":{"Gov":{"Type":"Task","Resource":"arn:aws-us-gov:lambda:us-gov-west-1:123456789012:function:charge-card","End":true}}}`
+	summary := stepFunctionsDefinitionMetadata(definition)
+	if len(summary.TaskResourceARNs) != 1 || summary.TaskResourceARNs[0] != "arn:aws-us-gov:lambda:us-gov-west-1:123456789012:function:charge-card" {
+		t.Fatalf("expected aws-us-gov ARN extraction, got %+v", summary.TaskResourceARNs)
 	}
 }
 

@@ -36,8 +36,9 @@ The collection path is:
   source contents, artifact contents, or deployment payloads.
 - `StepFunctionsStateMachineRoleCollector` maps Step Functions state machines
   to execution roles, task resources, service integrations, nested workflows,
-  logging config, tracing, encryption metadata, and tags without storing raw
-  definitions, execution history, or customer payload examples.
+  logging config, tracing, encryption metadata, and tags. It reads definitions
+  only to compute a hash and extract ARN/service references, then discards the
+  raw definition without storing execution history or payload examples.
 
 Behavior:
 
@@ -167,8 +168,9 @@ ordered by `kind`, then `source_id`.
   CodePipeline adapters for `ListPipelines`, `GetPipeline`, and
   `GetPipelineState`.
 - Step Functions state-machine role collection is implemented through AWS SDK
-  Step Functions adapters for `ListStateMachines`, `DescribeStateMachine` with
-  metadata-only included data, and `ListTagsForResource`.
+  Step Functions adapters for `ListStateMachines`, `DescribeStateMachine`, and
+  `ListTagsForResource`. Raw definitions are not persisted; only definition
+  hashes and extracted ARN/service identifiers are retained.
 - AWS SDK CLI and runtime paths now use `NewAWSScanner`, which wires the
   composite collector with IAM, EC2 instance profile, ECS task role, Lambda
   execution role, CodeBuild service role, CodePipeline deployment role, Step

@@ -38,7 +38,7 @@ func (f *fakeStepFunctionsSDKClient) ListTagsForResource(ctx context.Context, pa
 	return f.tagsOutput, nil
 }
 
-func TestSDKStepFunctionsStateMachineRoleAPIListsMetadataOnlyRecords(t *testing.T) {
+func TestSDKStepFunctionsStateMachineRoleAPIListsDefinitionReferenceRecords(t *testing.T) {
 	stateMachineARN := "arn:aws:states:us-east-1:123456789012:stateMachine:payments"
 	roleARN := "arn:aws:iam::123456789012:role/payments-stepfunctions"
 	client := &fakeStepFunctionsSDKClient{
@@ -77,8 +77,8 @@ func TestSDKStepFunctionsStateMachineRoleAPIListsMetadataOnlyRecords(t *testing.
 	if len(page.Records) != 1 {
 		t.Fatalf("expected one record, got %+v", page.Records)
 	}
-	if len(client.describeInputs) != 1 || client.describeInputs[0].IncludedData != sfntypes.IncludedDataMetadataOnly {
-		t.Fatalf("DescribeStateMachine must use metadata-only mode, got %+v", client.describeInputs)
+	if len(client.describeInputs) != 1 || client.describeInputs[0].IncludedData != sfntypes.IncludedDataAllData {
+		t.Fatalf("DescribeStateMachine must request definition data for reference extraction, got %+v", client.describeInputs)
 	}
 	record := page.Records[0]
 	if record.RoleARN != roleARN || record.RoleName != "payments-stepfunctions" {

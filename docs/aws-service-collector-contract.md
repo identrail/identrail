@@ -168,7 +168,7 @@ reads: `codebuild:ListProjects` and `codebuild:BatchGetProjects`. The
 CodePipeline deployment-role collector adds metadata-only reads:
 `codepipeline:ListPipelines`, `codepipeline:GetPipeline`, and
 `codepipeline:GetPipelineState`. The Step Functions state-machine role
-collector adds metadata-only reads: `states:ListStateMachines`,
+collector adds read-only state-machine reads: `states:ListStateMachines`,
 `states:DescribeStateMachine`, and `states:ListTagsForResource`. The EKS
 workload identity collector adds metadata-only reads: `eks:ListClusters`, `eks:DescribeCluster`,
 `eks:ListPodIdentityAssociations`, `eks:DescribePodIdentityAssociation`,

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Issue #1483 adds metadata-only Step Functions state-machine role inventory to the
+Issue #1483 adds read-only Step Functions state-machine role inventory to the
 AWS machine identity graph. It maps state machines to execution roles,
 downstream service integrations, nested workflow references, and logging config
 so operators can see which IAM roles power workflow automation.
@@ -35,20 +35,22 @@ Each record includes:
 - Logging level, execution-data logging flag, log group ARNs, tracing flag,
   encryption type, KMS key reference, and tags when available.
 
-The collector never stores raw workflow definitions, execution history,
-customer payload examples, object contents, database rows, prompt contents,
-completions, browser pages, code-interpreter output, or secret values.
+The collector reads workflow definitions only to compute a hash and extract
+ARN/service references. It never stores raw workflow definitions, execution
+history, customer payload examples, object contents, database rows, prompt
+contents, completions, browser pages, code-interpreter output, or secret values.
 
 ## Required AWS Permissions
 
-The live SDK collector uses read-only metadata APIs only:
+The live SDK collector uses read-only AWS APIs only:
 
 - `states:ListStateMachines`
 - `states:DescribeStateMachine`
 - `states:ListTagsForResource`
 
-`DescribeStateMachine` is called with `METADATA_ONLY` included data so encrypted
-state-machine definitions are not decrypted for collection.
+`DescribeStateMachine` is used to read state-machine definitions for reference
+extraction. The raw definition is discarded after hashing and ARN/service
+identifier extraction, and it is not logged or returned by the API.
 
 ## Diagnostics
 

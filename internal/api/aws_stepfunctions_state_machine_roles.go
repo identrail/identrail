@@ -137,6 +137,9 @@ func buildAWSStepFunctionsStateMachineRoleInventory(scope db.Scope, project db.T
 	records, diagnostics := awsStepFunctionsStateMachineRoleFixtureRecords(accountID, region, fixtureState, checkedAt)
 
 	for _, record := range records {
+		if strings.TrimSpace(record.RoleARN) == "" {
+			continue
+		}
 		if _, err := awscontract.NormalizeServiceCollectorRecord(awscontract.ServiceCollectorRecord{
 			TenantID:      scope.TenantID,
 			WorkspaceID:   project.WorkspaceID,

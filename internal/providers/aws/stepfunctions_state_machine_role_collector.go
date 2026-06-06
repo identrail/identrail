@@ -19,7 +19,7 @@ const (
 	stepFunctionsServiceName                   = "stepfunctions"
 )
 
-// StepFunctionsStateMachineRole captures metadata-only Step Functions role evidence.
+// StepFunctionsStateMachineRole captures safe Step Functions role evidence.
 // Raw state-machine definitions are never persisted; only hashes and extracted
 // ARN/service identifiers are retained.
 type StepFunctionsStateMachineRole struct {

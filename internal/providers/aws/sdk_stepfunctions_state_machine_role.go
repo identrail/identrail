@@ -106,7 +106,7 @@ func (a *SDKStepFunctionsStateMachineRoleAPI) ListServiceRoles(ctx context.Conte
 		}
 		describeOutput, err := a.stepFunctionsClient.DescribeStateMachine(ctx, &sfn.DescribeStateMachineInput{
 			StateMachineArn: awsv2.String(stateMachineARN),
-			IncludedData:    sfntypes.IncludedDataMetadataOnly,
+			IncludedData:    sfntypes.IncludedDataAllData,
 		})
 		if err != nil {
 			diagnostics = append(diagnostics, stepFunctionsSourceDiagnostic("state_machine_describe_failed", stateMachineARN, fmt.Sprintf("Step Functions state machine %s could not be described: %v", stateMachineARN, err), true))
@@ -254,7 +254,7 @@ func collectStepFunctionsDefinitionString(value string, key string, resourceARNs
 		return
 	}
 	lowerKey := strings.ToLower(strings.TrimSpace(key))
-	if strings.HasPrefix(trimmed, "arn:aws") {
+	if strings.HasPrefix(trimmed, "arn:") {
 		resourceARNs[trimmed] = struct{}{}
 		if lowerKey == "resource" {
 			taskARNs[trimmed] = struct{}{}
