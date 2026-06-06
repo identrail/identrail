@@ -188,6 +188,7 @@ func (a *SDKCodePipelineDeploymentRoleAPI) recordsFromPipeline(pipeline codepipe
 			record.RoleName = roleNameFromARN(roleARN)
 			record.RoleAccountID = roleAccountID
 			record.RoleKind = "action_role"
+			record.DisabledStageTransitions = nil
 			record.StageName = stageName
 			record.ActionName = strings.TrimSpace(awsv2.ToString(action.Name))
 			record.ActionRegion = strings.TrimSpace(awsv2.ToString(action.Region))

@@ -132,6 +132,9 @@ func TestSDKCodePipelineDeploymentRoleAPIMapsPipelineAndActionRoles(t *testing.T
 	if len(pipelineRecord.DisabledStageTransitions) != 1 || !strings.Contains(pipelineRecord.DisabledStageTransitions[0], "freeze window") {
 		t.Fatalf("expected disabled transition evidence, got %+v", pipelineRecord.DisabledStageTransitions)
 	}
+	if len(actionRecord.DisabledStageTransitions) != 0 {
+		t.Fatalf("expected disabled transition evidence to stay pipeline-scoped, got action=%+v", actionRecord.DisabledStageTransitions)
+	}
 }
 
 func TestSDKCodePipelineDeploymentRoleAPISurfacesPartialPipelineFailures(t *testing.T) {
