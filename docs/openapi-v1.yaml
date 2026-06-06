@@ -8472,7 +8472,7 @@ components:
         source_id: { type: string }
         code:
           type: string
-          enum: [eventbridge_targets_failed, missing_event_driven_role, permission_denied, pipe_describe_failed, pipe_execution_data_logging_enabled, schedule_describe_failed]
+          enum: [event_driven_role_page_failed, eventbridge_rule_list_failed, eventbridge_rules_failed, eventbridge_targets_failed, malformed_source_record, missing_event_driven_role, permission_denied, pipe_describe_failed, pipe_execution_data_logging_enabled, pipe_name_missing, pipes_failed, scheduler_schedule_get_failed, scheduler_schedule_name_missing, scheduler_schedule_target_missing, scheduler_schedules_failed]
         message: { type: string }
         remediation: { type: string }
         retryable: { type: boolean }

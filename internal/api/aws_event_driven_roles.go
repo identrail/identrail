@@ -482,7 +482,7 @@ func awsEventDrivenRoleDiagnosticRemediation(code string) string {
 		return "Grant metadata-only events, scheduler, and pipes read permissions; do not add payload, secret-value, or execution-history reads."
 	case "pipe_execution_data_logging_enabled":
 		return "Review EventBridge Pipes logging before using pipe evidence for data-exposure decisions."
-	case "eventbridge_targets_failed", "schedule_describe_failed", "pipe_describe_failed":
+	case "event_driven_role_page_failed", "malformed_source_record", "eventbridge_rules_failed", "eventbridge_rule_list_failed", "eventbridge_targets_failed", "scheduler_schedules_failed", "scheduler_schedule_name_missing", "scheduler_schedule_get_failed", "scheduler_schedule_target_missing", "pipes_failed", "pipe_name_missing", "pipe_describe_failed":
 		return "Retry only the failed event-driven metadata call and keep successful role records visible."
 	case "missing_event_driven_role":
 		return "Inspect the rule target, schedule target, or pipe execution role configuration before using it for least-privilege reasoning."

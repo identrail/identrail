@@ -5330,64 +5330,52 @@ function buildAWSEventDrivenRoleRows(
     return inventory.records.map((record) => awsEventDrivenRoleRow(record));
   }
   if (inventory?.status === 'blocked') {
-    return [
-      {
-        id: 'event-driven-roles-blocked',
-        name: 'Event-driven roles unavailable',
-        category: 'Event-driven role',
-        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
-        status: 'not yet available',
-        stage: 'not-available',
-        detail: inventory.failure_reasons[0] ?? 'EventBridge, Scheduler, and Pipes role collection is blocked.',
-        filters: { identityType: 'event-driven-role', service: 'eventbridge', risk: 'unscored', status: 'not-yet-available', search: '' },
-        searchText: inventorySearchText(['eventbridge', 'scheduler', 'pipes', 'event driven role', inventory.account_id, inventory.region, 'blocked'])
-      }
-    ];
+    return eventDrivenFallbackRows(inventory, 'not-yet-available', 'not-available', 'not yet available', inventory.failure_reasons[0] ?? 'Event-driven role collection is blocked.');
   }
   if (inventory) {
     const degraded = inventory.status === 'degraded' || inventory.diagnostics.length > 0 || inventory.failure_reasons.length > 0;
-    return [
-      {
-        id: 'event-driven-roles-empty',
-        name: degraded ? 'Event-driven roles incomplete' : 'No EventBridge, Scheduler, or Pipes roles found',
-        category: 'Event-driven role',
-        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
-        status: degraded ? 'degraded' : 'wired now',
-        stage: 'wired',
-        detail: degraded ? (inventory.failure_reasons[0] ?? 'Event-driven collection completed with degraded evidence and no retained records.') : 'The collector completed for this account and region without EventBridge rules, schedules, or pipes that reference invocation roles.',
-        filters: { identityType: 'event-driven-role', service: 'eventbridge', risk: degraded ? 'medium' : 'low', status: degraded ? 'degraded' : 'wired-now', search: '' },
-        searchText: inventorySearchText(['eventbridge', 'scheduler', 'pipes', 'event driven role', inventory.account_id, inventory.region, degraded ? 'degraded empty' : 'empty'])
-      }
-    ];
+    const filterStatus = degraded ? 'degraded' : 'wired-now';
+    return eventDrivenFallbackRows(
+      inventory,
+      filterStatus,
+      'wired',
+      degraded ? 'degraded' : 'wired now',
+      degraded
+        ? (inventory.failure_reasons[0] ?? 'Event-driven collection completed with degraded evidence and no retained records.')
+        : 'The collector completed for this account and region without matching invocation roles.'
+    );
   }
   if (loading) {
-    return [
-      {
-        id: 'event-driven-roles-loading',
-        name: 'EventBridge, Scheduler, and Pipes roles',
-        category: 'Event-driven role',
-        scope: awsAccountRegionLabel(connection),
-        status: 'coming',
-        stage: 'coming',
-        detail: 'Loading rule target roles, schedule target roles, pipe execution roles, targets, DLQs, and payload-safe metadata.',
-        filters: { identityType: 'event-driven-role', service: 'eventbridge', risk: 'unscored', status: 'coming', search: '' },
-        searchText: inventorySearchText(['eventbridge', 'scheduler', 'pipes', 'event driven role', 'loading'])
-      }
-    ];
+    return eventDrivenFallbackRows(null, 'coming', 'coming', 'coming', 'Loading rule target roles, schedule target roles, pipe execution roles, targets, DLQs, and payload-safe metadata.', connection);
   }
+  return eventDrivenFallbackRows(null, 'coming', 'coming', 'coming', 'Event-driven role inventory maps rules, schedules, pipes, targets, and DLQs back to IAM roles after AWS is connected.');
+}
+
+function eventDrivenFallbackRows(
+  inventory: AWSEventDrivenRoleInventoryResult | null,
+  filterStatus: string,
+  stage: AWSCapabilityStage,
+  status: string,
+  detail: string,
+  connection?: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  const scope = inventory ? awsAccountRegionInventoryLabel(inventory.account_id, inventory.region) : connection ? awsAccountRegionLabel(connection) : 'Account and region expansion';
+  const risk = filterStatus === 'degraded' ? 'medium' : filterStatus === 'wired-now' ? 'low' : 'unscored';
   return [
-    {
-      id: 'event-driven-roles',
-      name: 'EventBridge, Scheduler, and Pipes roles',
-      category: 'Event-driven role',
-      scope: 'Account and region expansion',
-      status: 'coming',
-      stage: 'coming',
-      detail: 'Event-driven role inventory maps rules, schedules, pipes, targets, and DLQs back to IAM roles after AWS is connected.',
-      filters: { identityType: 'event-driven-role', service: 'eventbridge', risk: 'unscored', status: 'coming', search: '' },
-      searchText: inventorySearchText(['eventbridge', 'scheduler', 'pipes', 'event driven role', 'inventory'])
-    }
-  ];
+    { service: 'eventbridge', name: 'EventBridge rule roles', category: 'EventBridge rule role' },
+    { service: 'scheduler', name: 'EventBridge Scheduler roles', category: 'Scheduler schedule role' },
+    { service: 'pipes', name: 'EventBridge Pipes roles', category: 'Pipes execution role' }
+  ].map((item) => ({
+    id: `event-driven-roles-${item.service}-${filterStatus}`,
+    name: item.name,
+    category: item.category,
+    scope,
+    status,
+    stage,
+    detail,
+    filters: { identityType: 'event-driven-role', service: item.service, risk, status: filterStatus, search: '' },
+    searchText: inventorySearchText([item.service, item.name, item.category, inventory?.account_id, inventory?.region, filterStatus])
+  }));
 }
 
 function awsEventDrivenRoleRow(record: AWSEventDrivenRoleRecord): AWSInventoryTableRow {

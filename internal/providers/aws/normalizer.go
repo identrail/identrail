@@ -1238,10 +1238,7 @@ func eventDrivenRoleWorkloadID(record EventDrivenRole) string {
 }
 
 func eventDrivenRoleWorkloadType(record EventDrivenRole) string {
-	if strings.TrimSpace(record.WorkloadType) != "" {
-		return strings.TrimSpace(record.WorkloadType)
-	}
-	return eventDrivenDefaultWorkloadType(record)
+	return canonicalEventDrivenWorkloadType(record.WorkloadType, record.Service)
 }
 
 func eventDrivenRoleWorkloadName(record EventDrivenRole) string {

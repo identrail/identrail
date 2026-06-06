@@ -253,7 +253,7 @@ func normalizeEventDrivenRoleScope(scope AWSCollectorScope, record EventDrivenRo
 	normalized.RoleKind = firstNonEmptyAWSValue(record.RoleKind, eventDrivenDefaultRoleKind(record))
 	normalized.RoleAccountID = firstNonEmptyAWSValue(record.RoleAccountID, roleAccountIDFromARN(normalized.RoleARN))
 	normalized.WorkloadARN = strings.TrimSpace(record.WorkloadARN)
-	normalized.WorkloadType = firstNonEmptyAWSValue(record.WorkloadType, eventDrivenDefaultWorkloadType(record))
+	normalized.WorkloadType = canonicalEventDrivenWorkloadType(record.WorkloadType, record.Service)
 	normalized.WorkloadID = firstNonEmptyAWSValue(record.WorkloadID, normalized.WorkloadARN, normalized.WorkloadName)
 	normalized.WorkloadName = firstNonEmptyAWSValue(record.WorkloadName, eventDrivenNameFromARN(normalized.WorkloadARN))
 	normalized.Source = firstNonEmptyAWSValue(record.Source, eventDrivenDefaultSource(record))
@@ -290,7 +290,7 @@ func normalizeEventDrivenRoleScope(scope AWSCollectorScope, record EventDrivenRo
 }
 
 func eventDrivenDefaultRoleKind(record EventDrivenRole) string {
-	switch strings.TrimSpace(record.WorkloadType) {
+	switch canonicalEventDrivenWorkloadType(record.WorkloadType, record.Service) {
 	case "scheduler_schedule":
 		return "scheduler_schedule_role"
 	case "eventbridge_pipe":
@@ -304,7 +304,23 @@ func eventDrivenDefaultRoleKind(record EventDrivenRole) string {
 }
 
 func eventDrivenDefaultWorkloadType(record EventDrivenRole) string {
-	switch strings.TrimSpace(record.Service) {
+	return canonicalEventDrivenWorkloadType("", record.Service)
+}
+
+func canonicalEventDrivenWorkloadType(workloadType string, service string) string {
+	switch strings.ToLower(strings.TrimSpace(workloadType)) {
+	case "eventbridge_rule", "rule":
+		return "eventbridge_rule"
+	case "scheduler_schedule", "schedule":
+		return "scheduler_schedule"
+	case "eventbridge_pipe", "pipe":
+		return "eventbridge_pipe"
+	}
+	trimmedType := strings.TrimSpace(workloadType)
+	if trimmedType != "" {
+		return trimmedType
+	}
+	switch strings.ToLower(strings.TrimSpace(service)) {
 	case "scheduler":
 		return "scheduler_schedule"
 	case "pipes":
