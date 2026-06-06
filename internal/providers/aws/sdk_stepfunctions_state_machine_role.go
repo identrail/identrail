@@ -240,6 +240,9 @@ func stepFunctionsDefinitionMetadata(definition string) stepFunctionsDefinitionS
 	nested := map[string]struct{}{}
 	var walk func(value any, key string)
 	walk = func(value any, key string) {
+		if shouldSkipStepFunctionsDefinitionSubtree(key) {
+			return
+		}
 		switch typed := value.(type) {
 		case map[string]any:
 			keys := make([]string, 0, len(typed))
@@ -273,6 +276,9 @@ func collectStepFunctionsDefinitionString(value string, key string, resourceARNs
 	}
 	lowerKey := strings.ToLower(strings.TrimSpace(key))
 	if strings.HasPrefix(trimmed, "arn:") {
+		if !isStepFunctionsDefinitionReferenceKey(lowerKey) {
+			return
+		}
 		resourceARNs[trimmed] = struct{}{}
 		if lowerKey == "resource" {
 			taskARNs[trimmed] = struct{}{}
@@ -284,6 +290,22 @@ func collectStepFunctionsDefinitionString(value string, key string, resourceARNs
 			integrations[integration] = struct{}{}
 		}
 	}
+}
+
+func shouldSkipStepFunctionsDefinitionSubtree(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "payload", "result":
+		return true
+	default:
+		return false
+	}
+}
+
+func isStepFunctionsDefinitionReferenceKey(lowerKey string) bool {
+	if lowerKey == "resource" || lowerKey == "functionname" || lowerKey == "statemachinearn" {
+		return true
+	}
+	return strings.HasSuffix(lowerKey, "arn")
 }
 
 func stepFunctionsServiceIntegration(resource string) string {
