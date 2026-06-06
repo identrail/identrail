@@ -108,6 +108,16 @@ func (a *SDKStepFunctionsStateMachineRoleAPI) ListServiceRoles(ctx context.Conte
 		}
 		describeOutput, definitionUnavailable, err := a.describeStateMachine(ctx, stateMachineARN)
 		if err != nil {
+			// Retryable AWS errors (throttling, KMS throttling, 5xx,
+			// RequestLimitExceeded) must bubble back to retryAWSPage so
+			// the whole page is retried under the existing backoff
+			// policy. Anything else — non-retryable failures like
+			// resource-not-found or contract violations — is reported as
+			// a per-state-machine diagnostic so the rest of the page can
+			// still be returned.
+			if isRetryable(err) {
+				return StepFunctionsStateMachineRolePage{}, fmt.Errorf("describe state machine %s: %w", stateMachineARN, err)
+			}
 			diagnostics = append(diagnostics, stepFunctionsSourceDiagnostic("state_machine_describe_failed", stateMachineARN, fmt.Sprintf("Step Functions state machine %s could not be described: %v", stateMachineARN, err), true))
 			continue
 		}

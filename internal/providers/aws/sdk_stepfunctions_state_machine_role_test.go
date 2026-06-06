@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
@@ -159,16 +160,19 @@ func TestSDKStepFunctionsStateMachineRoleAPIFallsBackToMetadataOnlyDescribe(t *t
 	}
 }
 
-// TestSDKStepFunctionsStateMachineRoleAPIPropagatesTransientDescribeErrors
-// guards against the regression Codex flagged on PR #1580: if the
-// all-data DescribeStateMachine call fails for a retryable reason
-// (throttling, KMS throttling, 5xx, timeout) the collector must
-// surface that error so the existing retryAWSPage policy can retry,
-// rather than silently downgrading to a metadata-only fallback that
-// would permanently lose the definition hash, task resources,
-// service integrations, and nested workflow evidence for the state
-// machine.
-func TestSDKStepFunctionsStateMachineRoleAPIPropagatesTransientDescribeErrors(t *testing.T) {
+// TestSDKStepFunctionsStateMachineRoleAPIPropagatesRetryableDescribeErrors
+// guards against the regression Codex flagged on PR #1580: when the
+// all-data DescribeStateMachine call fails with a retryable AWS error
+// (throttling, KMS throttling, RequestLimitExceeded, TooManyRequests)
+// the collector must return that error from ListServiceRoles so the
+// outer retryAWSPage policy can back off and retry the whole page,
+// rather than silently downgrading the state machine to a per-record
+// diagnostic and permanently dropping its definition hash, task
+// resources, service integrations, and nested workflow evidence.
+//
+// The metadata-only fallback path must also not run, because the
+// definition-decrypt classifier rejects retryable codes.
+func TestSDKStepFunctionsStateMachineRoleAPIPropagatesRetryableDescribeErrors(t *testing.T) {
 	stateMachineARN := "arn:aws:states:us-east-1:123456789012:stateMachine:throttled"
 	for _, tc := range []struct {
 		name string
@@ -176,8 +180,7 @@ func TestSDKStepFunctionsStateMachineRoleAPIPropagatesTransientDescribeErrors(t 
 	}{
 		{name: "ThrottlingException", code: "ThrottlingException"},
 		{name: "KMSThrottlingException", code: "KMSThrottlingException"},
-		{name: "InternalServerError", code: "InternalServerError"},
-		{name: "TooManyRequestsException", code: "TooManyRequestsException"},
+		{name: "RequestLimitExceeded", code: "RequestLimitExceeded"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := &fakeStepFunctionsSDKClient{
@@ -193,35 +196,65 @@ func TestSDKStepFunctionsStateMachineRoleAPIPropagatesTransientDescribeErrors(t 
 			}
 			api := NewSDKStepFunctionsStateMachineRoleAPIFromClient(client, "123456789012", "us-east-1")
 			page, err := api.ListServiceRoles(context.Background(), "", 25)
-			if err != nil {
-				t.Fatalf("page-level transient errors should not bubble up here; collector handles them per-state-machine. got %v", err)
+			if err == nil {
+				t.Fatalf("retryable describe failure must propagate from ListServiceRoles so retryAWSPage can retry; got nil error and page %+v", page)
 			}
-			// The retryable error must surface as a diagnostic (so the
-			// outer retry layer can see it) and the state machine must
-			// NOT be recorded as definition-unavailable.
-			if len(page.Records) != 0 {
-				t.Fatalf("transient describe failure must not be downgraded to a metadata-only record, got %+v", page.Records)
+			if !isRetryable(err) {
+				t.Fatalf("propagated describe error must remain classified as retryable for retryAWSPage; got %v", err)
 			}
-			if len(page.Diagnostics) == 0 {
-				t.Fatalf("transient describe failure must surface a diagnostic, got none")
+			if !strings.Contains(err.Error(), stateMachineARN) {
+				t.Fatalf("propagated error should name the failing state machine for log/diagnostic context; got %v", err)
 			}
-			foundUnavailable := false
-			for _, diag := range page.Diagnostics {
-				if diag.Code == "state_machine_definition_unavailable" {
-					foundUnavailable = true
-					break
-				}
-			}
-			if foundUnavailable {
-				t.Fatalf("transient describe failure must not be classified as state_machine_definition_unavailable; that diagnostic is reserved for KMS/access-denied decrypt failures")
+			// Page must be empty and the state machine must NOT have
+			// been silently downgraded to a definition-unavailable
+			// record.
+			if len(page.Records) != 0 || len(page.Diagnostics) != 0 {
+				t.Fatalf("retryable describe failure must surface as a page error, not as a record or diagnostic; got %+v", page)
 			}
 			// Only the all-data describe must have been called; no
-			// metadata-only fallback on a transient error.
+			// metadata-only fallback on a retryable error.
 			for _, input := range client.describeInputs {
 				if input.IncludedData == sfntypes.IncludedDataMetadataOnly {
-					t.Fatalf("transient describe failure must not trigger a metadata-only describe fallback, got %+v", client.describeInputs)
+					t.Fatalf("retryable describe failure must not trigger a metadata-only describe fallback, got %+v", client.describeInputs)
 				}
 			}
 		})
+	}
+}
+
+// TestSDKStepFunctionsStateMachineRoleAPIReportsNonRetryableDescribeAsDiagnostic
+// is the complement of the test above: when DescribeStateMachine fails
+// with a non-retryable code (validation, resource-not-found, etc.) the
+// failure should stay scoped to that one state machine as a diagnostic
+// so the rest of the page still returns successfully.
+func TestSDKStepFunctionsStateMachineRoleAPIReportsNonRetryableDescribeAsDiagnostic(t *testing.T) {
+	stateMachineARN := "arn:aws:states:us-east-1:123456789012:stateMachine:invalid"
+	client := &fakeStepFunctionsSDKClient{
+		listOutput: &sfn.ListStateMachinesOutput{
+			StateMachines: []sfntypes.StateMachineListItem{{Name: awsv2.String("invalid"), StateMachineArn: awsv2.String(stateMachineARN)}},
+		},
+		describeErrs: map[string]error{
+			stateMachineARN + "|" + string(sfntypes.IncludedDataAllData): &smithy.GenericAPIError{
+				Code:    "ValidationException",
+				Message: "invalid state machine arn",
+			},
+		},
+	}
+	api := NewSDKStepFunctionsStateMachineRoleAPIFromClient(client, "123456789012", "us-east-1")
+	page, err := api.ListServiceRoles(context.Background(), "", 25)
+	if err != nil {
+		t.Fatalf("non-retryable describe failure must stay scoped to the state machine, not abort the page; got %v", err)
+	}
+	if len(page.Records) != 0 {
+		t.Fatalf("non-retryable describe failure must not produce a record, got %+v", page.Records)
+	}
+	if len(page.Diagnostics) != 1 || page.Diagnostics[0].Code != "state_machine_describe_failed" {
+		t.Fatalf("non-retryable describe failure must surface a state_machine_describe_failed diagnostic, got %+v", page.Diagnostics)
+	}
+	// No metadata-only fallback on a non-decrypt non-retryable error.
+	for _, input := range client.describeInputs {
+		if input.IncludedData == sfntypes.IncludedDataMetadataOnly {
+			t.Fatalf("non-decrypt describe failure must not trigger metadata-only fallback, got %+v", client.describeInputs)
+		}
 	}
 }
