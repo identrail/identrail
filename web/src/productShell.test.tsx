@@ -2290,7 +2290,7 @@ describe('Domain-first app routes', () => {
     );
   });
 
-  it('renders the AWS Control Center with current and future capability labels', async () => {
+  it('renders the AWS overview with a compact header and a navigation grid', async () => {
     const api = await import('./api/client');
     mockAWSBaseline(api);
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
@@ -2319,121 +2319,35 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'AWS Control Center' })).toBeInTheDocument();
-    expect((await screen.findAllByText(/Account 123456789012/i)).length).toBeGreaterThan(0);
-    expect(screen.getByRole('link', { name: /Connect AWS/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/aws/connect?environment=production'
-    );
-    expect(screen.getAllByText('Wired now').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Coming').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Not yet available').length).toBeGreaterThan(0);
-    expect(screen.getByText('AWS live app validation harness')).toBeInTheDocument();
-    expect(screen.getByText('Runtime evidence partial failure')).toBeInTheDocument();
-    expect(screen.getByText('Remediation permission denied')).toBeInTheDocument();
-    expect(screen.getByText('AWS service collector contract')).toBeInTheDocument();
-    expect(screen.getByText('Read-only permission denied')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Resources and secrets/i })).toHaveAttribute(
+    // Title is just "AWS" — no eyebrow, no marketing tagline.
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS' })).toBeInTheDocument();
+    // The account / region facts move into the header subtitle.
+    expect(await screen.findByText(/123456789012/)).toBeInTheDocument();
+    // The capability nav grid is still the way users reach the sub-pages.
+    expect(screen.getByRole('link', { name: /Resources/i })).toHaveAttribute(
       'href',
       '/app/tenant-a/workspace-a/aws/resources?environment=production'
     );
-  });
-
-  it('does not style blocked AWS validation harness coverage as success', async () => {
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.mocked(api.apiClient.getAWSProjectValidationHarness).mockResolvedValue({
-      harness: {
-        ...readyAWSValidationHarness,
-        status: 'blocked',
-        failure_reasons: ['missing permission_denied validation fixture'],
-        remediation_hints: ['Restore all required AWS validation fixture states.']
-      }
-    });
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-
-    const { ProductAWSControlCenterPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws" element={<ProductAWSControlCenterPage />} />
-        </Routes>
-      </MemoryRouter>
+    expect(screen.getByRole('link', { name: /Identities/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/identities?environment=production'
     );
-
-    expect(await screen.findByText('AWS live app validation harness')).toBeInTheDocument();
-    const harnessScenarios = screen.getByLabelText('AWS validation harness scenarios');
-    const coverage = within(harnessScenarios).getByText('Fixture coverage').closest('article');
-    expect(coverage).not.toBeNull();
-    expect(within(coverage as HTMLElement).getByText('Blocked')).toHaveClass('is-error');
+    // The engineering-dashboard panels (validation harness, collector
+    // contract, dependency index, Wired-now / Coming wave labels) are
+    // gone from the customer UI.
+    expect(screen.queryByText('AWS live app validation harness')).not.toBeInTheDocument();
+    expect(screen.queryByText('AWS service collector contract')).not.toBeInTheDocument();
+    expect(screen.queryByText('AWS platform dependency index')).not.toBeInTheDocument();
+    expect(screen.queryByText('Wired now')).not.toBeInTheDocument();
+    expect(screen.queryByText('Coming wave')).not.toBeInTheDocument();
   });
 
-  it('does not style blocked AWS service collector contract as success', async () => {
-    const api = await import('./api/client');
-    mockAWSBaseline(api);
-    vi.mocked(api.apiClient.getAWSProjectCollectorContract).mockResolvedValue({
-      contract: {
-        ...readyAWSServiceCollectorContract,
-        status: 'blocked',
-        failure_reasons: ['missing required permission_denied fixture'],
-        remediation_hints: ['Restore deterministic AWS service collector fixtures.'],
-        checks: [
-          {
-            ...readyAWSServiceCollectorContract.checks[0],
-            status: 'blocked',
-            failure_reason: 'missing required permission_denied fixture',
-            remediation: 'Restore deterministic AWS service collector fixtures.'
-          }
-        ]
-      }
-    });
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
-      items: [
-        {
-          tenant_id: 'tenant-a',
-          workspace_id: 'workspace-a',
-          project_id: 'production',
-          name: 'Production',
-          slug: 'production',
-          description: 'Production AWS boundary.',
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-02T00:00:00Z'
-        }
-      ]
-    });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-
-    const { ProductAWSControlCenterPage } = await import('./productShell');
-
-    render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws?environment=production']}>
-        <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws" element={<ProductAWSControlCenterPage />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText('AWS service collector contract')).toBeInTheDocument();
-    const contractChecks = screen.getByLabelText('AWS service collector contract checks');
-    const normalizedRecord = within(contractChecks).getByText('Normalized record').closest('article');
-    expect(normalizedRecord).not.toBeNull();
-    expect(within(normalizedRecord as HTMLElement).getByText('Blocked')).toHaveClass('is-error');
-  });
+  // The validation-harness and collector-contract status panels were
+  // removed from the customer AWS Control Center along with the rest of
+  // the engineering dashboard. Their tone helpers (awsValidationHarnessStatusPillTone,
+  // awsServiceCollectorContractStatusPillTone) still exist for engineering
+  // tooling but no longer render in the product UI, so the corresponding
+  // "blocked is not styled as success" UI assertions no longer apply.
 
   it('ignores stale AWS Control Center status loads after switching environments', async () => {
     const api = await import('./api/client');
@@ -2486,16 +2400,18 @@ describe('Domain-first app routes', () => {
         connection: { ...connectedAWS, display_name: 'Staging AWS', account_id: '222222222222', region: 'us-west-2' }
       });
     });
-    expect(await screen.findByText('Staging AWS')).toBeInTheDocument();
-    expect(screen.getAllByText(/Account 222222222222/i).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/222222222222/)).toBeInTheDocument();
+    expect(await screen.findByText(/us-west-2/)).toBeInTheDocument();
 
     await act(async () => {
       productionStatus.resolve({
         connection: { ...connectedAWS, display_name: 'Production AWS', account_id: '111111111111', region: 'us-east-1' }
       });
     });
-    expect(screen.getByText('Staging AWS')).toBeInTheDocument();
-    expect(screen.queryByText('Production AWS')).not.toBeInTheDocument();
+    // The staging connection is the active selection; the late-arriving
+    // production response must not overwrite the displayed account id.
+    expect(screen.getByText(/222222222222/)).toBeInTheDocument();
+    expect(screen.queryByText(/111111111111/)).not.toBeInTheDocument();
   });
 
   it('renders AWS account and region inventory with current connector coverage', async () => {
@@ -2526,7 +2442,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'AWS accounts and regions' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Accounts' })).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'AWS account and region coverage' })).toBeInTheDocument();
     expect(screen.getAllByText(/AWS account 123456789012/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Region us-east-1/i).length).toBeGreaterThan(0);
@@ -2579,8 +2495,8 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'AWS machine identities' })).toBeInTheDocument();
-    expect(screen.getByRole('search', { name: /AWS machine identities filters/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Identities' })).toBeInTheDocument();
+    expect(screen.getByRole('search', { name: /Identities filters/i })).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'AWS machine identity inventory' })).toBeInTheDocument();
     expect(screen.getAllByText('arn:aws:iam::123456789012:role/IdentrailReadOnly').length).toBeGreaterThan(0);
     expect(await screen.findByText('payments-ec2-profile')).toBeInTheDocument();
@@ -2674,7 +2590,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'AWS agent identities' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Agents' })).toBeInTheDocument();
     expect(screen.getAllByText(/Connect AWS to populate current inventory anchors/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Bedrock agents/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/AgentCore runtime and gateway identity/i).length).toBeGreaterThan(0);
@@ -2696,7 +2612,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'AWS resources and credentials' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Resources' })).toBeInTheDocument();
     expect(screen.getByText(/Create an environment before inventory can resolve/i)).toBeInTheDocument();
     expect(screen.getByText(/No secret value reads/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Secrets Manager metadata/i).length).toBeGreaterThan(0);
@@ -2737,7 +2653,7 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Connect AWS' })).toBeInTheDocument();
     expect(screen.getByTestId('location')).toHaveTextContent('/app/tenant-a/workspace-a/aws/connect');
-    expect(screen.getByRole('heading', { level: 3, name: /Create an environment before connecting AWS/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /Pick an environment/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Open environments/i })).toHaveAttribute(
       'href',
       '/app/tenant-a/workspace-a/projects?source=aws'
@@ -3584,15 +3500,15 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
     expect(await screen.findByRole('heading', { level: 3, name: /AWS read-only connector/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /AWS home/i })).toHaveAttribute(
+    // The connected-state primary CTA is the AWS overview link.
+    expect(screen.getByRole('link', { name: /AWS overview/i })).toHaveAttribute(
       'href',
       '/app/tenant-a/workspace-a/aws?environment=older-production'
     );
-    const setupPayload = screen.getByLabelText('Setup payload');
-    expect(within(setupPayload).getByText('workspace-a')).toBeInTheDocument();
-    expect(within(setupPayload).getByText('older-production')).toBeInTheDocument();
-    expect(screen.getByText('Live app validation harness')).toBeInTheDocument();
-    expect(screen.getByText('Connector setup success')).toBeInTheDocument();
+    // The page must still have fetched the AWS connection for the
+    // requested environment (the engineering Setup payload / validation
+    // harness / collector contract panels have been removed from the
+    // customer UI but the connection fetch is unchanged).
     expect(listProjects).toHaveBeenCalled();
     expect(getAWSProjectConnection).toHaveBeenCalledWith(
       'workspace-a',
@@ -3731,7 +3647,6 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('heading', { level: 2, name: 'Connect AWS' })).toBeInTheDocument();
     expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
     expect(screen.getByText(/Unable to verify selected environment older-production/i)).toBeInTheDocument();
-    expect(screen.getByText('older-production')).toBeInTheDocument();
     expect(listProjects).toHaveBeenCalled();
     expect(getAWSProjectConnection).toHaveBeenCalledWith(
       'workspace-a',

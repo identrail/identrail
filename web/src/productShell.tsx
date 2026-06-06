@@ -386,42 +386,21 @@ const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
     key: 'aws',
     label: 'AWS',
     navLabel: 'AWS',
-    description: 'Machine identities, accounts, resources, runtime evidence, remediation, and governance for AWS.',
+    description: 'AWS for this workspace.',
     routePrefix: 'aws',
     connectRouteID: 'connect',
     routes: [
-      productDomainRoute(
-        'overview',
-        'Control center',
-        '',
-        'AWS Control Center',
-        'AWS machine identity',
-        'Operate AWS identity coverage by account, region, workload, resource reachability, findings, and approved governance.'
-      ),
-      productDomainRoute(
-        'connect',
-        'Connect AWS',
-        'connect',
-        'Connect AWS',
-        'Read-only account onboarding',
-        'Prepare the AWS-owned connection entry point for account and region discovery without moving connector internals yet.',
-        {
-          metrics: [
-            { label: 'Access model', value: 'Read-only', detail: 'No secret value reads by default.', tone: 'success' },
-            { label: 'Scopes', value: 'Account', detail: 'Account and region targeting arrives in a later PR.' },
-            { label: 'Status', value: 'Shell', detail: 'Connector wiring remains in its existing flow.' }
-          ]
-        }
-      ),
-      productDomainRoute('accounts', 'Accounts', 'accounts', 'AWS accounts and regions', 'Coverage planning', 'Track account, organization, and region coverage before the scale planner lands.'),
-      productDomainRoute('identities', 'Machine identities', 'identities', 'AWS machine identities', 'Identity inventory', 'Inventory IAM roles, EC2 instance profiles, ECS task roles, Lambda execution roles, EKS identities, and CI/CD roles.'),
-      productDomainRoute('agents', 'Agent identities', 'agents', 'AWS agent identities', 'AI agent discovery', 'Prepare Bedrock, AgentCore, tool, MCP, key, and agent-to-role mapping as first-class machine identity routes.'),
-      productDomainRoute('resources', 'Resources', 'resources', 'AWS resources and credentials', 'Reachability mapping', 'Map what AWS identities can touch across secrets metadata, SSM parameters, KMS, S3, and sensitive control-plane resources.'),
-      productDomainRoute('runtime', 'Runtime', 'runtime', 'AWS runtime evidence', 'Behavior timeline', 'Reserve the runtime evidence surface for CloudTrail, STS session resolution, secret reads, KMS decrypts, and agent tool activity.'),
-      productDomainRoute('graph', 'Graph', 'graph', 'AWS graph explorer', 'Identity graph', 'Give AWS identity, resource, agent, secret, and user edges a durable graph entry point.'),
-      productDomainRoute('findings', 'Findings', 'findings', 'AWS findings', 'Domain-scoped findings', 'Keep AWS findings inside the AWS section so risk triage stays attached to the identity system that produced it.'),
-      productDomainRoute('remediation', 'Remediation', 'remediation', 'AWS remediation', 'Approved fix planning', 'Stage IAM diffs, trust policy hardening, secret rotation planning, IaC PR plans, and verification evidence.'),
-      productDomainRoute('governance', 'Governance', 'governance', 'AWS governance', 'Runtime authorization', 'Reserve advisory and limited enforcement surfaces for session policy, permission boundary, and AgentCore gateway decisions.')
+      productDomainRoute('overview', 'Overview', '', 'AWS', '', 'AWS for this workspace.'),
+      productDomainRoute('connect', 'Connect AWS', 'connect', 'Connect AWS', '', 'Connect an AWS account so Identrail can scan it.'),
+      productDomainRoute('accounts', 'Accounts', 'accounts', 'Accounts', '', "Which AWS account and region you're connected to."),
+      productDomainRoute('identities', 'Identities', 'identities', 'Identities', '', 'IAM roles, workload identities, and what they can reach.'),
+      productDomainRoute('agents', 'Agents', 'agents', 'Agents', '', 'Bedrock and MCP agents Identrail can see.'),
+      productDomainRoute('resources', 'Resources', 'resources', 'Resources', '', 'Secrets, KMS keys, and S3 buckets your AWS roles can reach.'),
+      productDomainRoute('runtime', 'Runtime', 'runtime', 'Runtime', '', 'What your AWS roles actually did, from CloudTrail.'),
+      productDomainRoute('graph', 'Graph', 'graph', 'Graph', '', 'How AWS roles can reach things, visualised.'),
+      productDomainRoute('findings', 'Findings', 'findings', 'Findings', '', 'Risks Identrail found in your AWS setup.'),
+      productDomainRoute('remediation', 'Remediation', 'remediation', 'Remediation', '', 'AWS fixes Identrail prepares for you to approve.'),
+      productDomainRoute('governance', 'Governance', 'governance', 'Governance', '', "Advice on AWS access. Identrail won't apply changes for you.")
     ]
   },
   github: {
@@ -2745,70 +2724,76 @@ type AWSControlCard = {
   detail: string;
 };
 
+// AWS_CONTROL_CARDS is the source of truth for what surfaces this app
+// actually has today. New surfaces appear here when they ship — that is the
+// mechanism for "feature shipping" since the page no longer carries a
+// roadmap-in-UI ("Wired now" / "Coming wave"). Pre-ship surfaces stay out
+// of the array (or are added with a `featureFlag` gate) so users never see
+// a placeholder card for something that doesn't work.
 const AWS_CONTROL_CARDS: AWSControlCard[] = [
   {
     id: 'connect',
-    label: 'Connection and validation',
+    label: 'Connection',
     routeID: 'connect',
     stage: 'wired',
-    metric: 'Wired now',
-    detail: 'CloudFormation launch, role ARN validation, permission preview, polling, and diagnostics.'
+    metric: '',
+    detail: 'Manage the AWS connection for this environment.'
   },
   {
     id: 'accounts',
-    label: 'Accounts and regions',
+    label: 'Accounts',
     routeID: 'accounts',
     stage: 'coming',
-    metric: 'Coming wave',
-    detail: 'Organization, account, and region coverage will land after inventory scale support.'
+    metric: '',
+    detail: "Which AWS account and region you're connected to."
   },
   {
     id: 'identities',
-    label: 'Machine identities',
+    label: 'Identities',
     routeID: 'identities',
     stage: 'coming',
-    metric: 'Coming wave',
-    detail: 'IAM roles, instance profiles, task roles, Lambda roles, EKS identities, and CI/CD roles.'
+    metric: '',
+    detail: 'IAM roles, workload identities, and what they can reach.'
   },
   {
     id: 'agents',
-    label: 'Agent identities',
+    label: 'Agents',
     routeID: 'agents',
     stage: 'coming',
-    metric: 'Coming wave',
-    detail: 'Bedrock, AgentCore, MCP, tool, and agent-to-role mapping surfaces.'
+    metric: '',
+    detail: 'Bedrock and MCP agents Identrail can see.'
   },
   {
     id: 'resources',
-    label: 'Resources and secrets',
+    label: 'Resources',
     routeID: 'resources',
     stage: 'coming',
-    metric: 'Coming wave',
-    detail: 'Secrets metadata, SSM parameters, KMS, S3, and sensitive control-plane reachability.'
+    metric: '',
+    detail: 'Secrets, KMS keys, and S3 buckets your AWS roles can reach.'
   },
   {
     id: 'runtime',
-    label: 'Runtime evidence',
+    label: 'Runtime',
     routeID: 'runtime',
     stage: 'coming',
-    metric: 'Coming wave',
-    detail: 'CloudTrail, STS session resolution, secret reads, KMS decrypts, and agent tool activity.'
+    metric: '',
+    detail: 'What your AWS roles actually did, from CloudTrail.'
   },
   {
     id: 'findings',
-    label: 'AWS findings',
+    label: 'Findings',
     routeID: 'findings',
     stage: 'not-available',
-    metric: 'Not yet available',
-    detail: 'Domain-scoped findings will appear here after AWS collectors and reasoning engines land.'
+    metric: '',
+    detail: 'Risks Identrail found in your AWS setup.'
   },
   {
     id: 'remediation',
-    label: 'Remediation and governance',
+    label: 'Remediation',
     routeID: 'remediation',
     stage: 'not-available',
-    metric: 'Not yet available',
-    detail: 'Approved IAM diffs, trust hardening, verification, and runtime guardrails are staged for later PRs.'
+    metric: '',
+    detail: 'AWS fixes Identrail prepares for you to approve.'
   }
 ];
 
@@ -3484,47 +3469,43 @@ type AWSInventoryPageCopy = {
 const AWS_INVENTORY_PAGE_COPY: Record<AWSInventoryRouteID, AWSInventoryPageCopy> = {
   accounts: {
     routeID: 'accounts',
-    title: 'AWS accounts and regions',
-    eyebrow: 'Coverage inventory',
-    description:
-      'Track the selected AWS account, active region, connector coverage, scan readiness, and the account/region planner that will support future scale.',
-    statusLabel: 'Coverage shell',
+    title: 'Accounts',
+    eyebrow: '',
+    description: "Which AWS account and region you're connected to.",
+    statusLabel: '',
     primaryKpi: 'Account scope',
-    currentCapability: 'Current connector account and region from AWS role validation.',
-    plannedCapability: 'Organization account discovery, multi-region cursor state, and partial-failure reporting.'
+    currentCapability: '',
+    plannedCapability: ''
   },
   identities: {
     routeID: 'identities',
-    title: 'AWS machine identities',
-    eyebrow: 'Identity inventory',
-    description:
-      'Inspect the IAM role Identrail can see today while reserving first-class inventory space for workload, CI/CD, and federation identities.',
-    statusLabel: 'Inventory shell',
+    title: 'Identities',
+    eyebrow: '',
+    description: 'IAM roles, workload identities, and what they can reach.',
+    statusLabel: '',
     primaryKpi: 'Identity anchor',
-    currentCapability: 'Current IAM role ARN, principal ARN, account, region, and permission diagnostics.',
-    plannedCapability: 'Instance profiles, ECS task roles, Lambda roles, CodeBuild service roles, CodePipeline deployment roles, and EKS IRSA/Pod Identity.'
+    currentCapability: '',
+    plannedCapability: ''
   },
   agents: {
     routeID: 'agents',
-    title: 'AWS agent identities',
-    eyebrow: 'Agent inventory',
-    description:
-      'Reserve a first-class AWS agent identity workspace for Bedrock, AgentCore, tool, MCP, and agent-to-role relationship coverage.',
-    statusLabel: 'Reserved surface',
+    title: 'Agents',
+    eyebrow: '',
+    description: 'Bedrock and MCP agents Identrail can see.',
+    statusLabel: '',
     primaryKpi: 'Agent graph',
-    currentCapability: 'Current AWS role context is visible as the future agent-to-role anchor.',
-    plannedCapability: 'Bedrock agents, AgentCore runtime/gateway identity, MCP tools, and external AI key metadata.'
+    currentCapability: '',
+    plannedCapability: ''
   },
   resources: {
     routeID: 'resources',
-    title: 'AWS resources and credentials',
-    eyebrow: 'Reachability inventory',
-    description:
-      'Map the resource and credential metadata Identrail will reason about without requesting or displaying secret values.',
-    statusLabel: 'Reachability shell',
+    title: 'Resources',
+    eyebrow: '',
+    description: 'Secrets, KMS keys, and S3 buckets your AWS roles can reach.',
+    statusLabel: '',
     primaryKpi: 'Resource scope',
-    currentCapability: 'Current account, region, role, permission checks, and diagnostics frame the reachability boundary.',
-    plannedCapability: 'Secrets Manager metadata, SSM Parameter metadata, KMS policies/grants, S3 sensitivity, and credential references.'
+    currentCapability: '',
+    plannedCapability: ''
   }
 };
 
@@ -5785,40 +5766,46 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const connectPath = awsRouteLink(scope, 'connect', selectedEnvironmentID);
   const homePath = appendEnvironmentQuery(buildScopedPath(scope, 'aws'), selectedEnvironmentID);
   const findingsPath = awsRouteLink(scope, 'findings', selectedEnvironmentID);
-  const status =
-    environmentScope.loading || connectionLoading
-      ? 'Loading inventory'
-      : connectionError
-        ? 'Needs retry'
-        : connection?.connected
-          ? copy.statusLabel
-          : 'Setup required';
+  // Subtitle: the inventory shell carries no "shell" / "reserved" labels.
+  // It just describes what the user can see today — same as overview.
+  const inventorySubtitle = (() => {
+    if (environmentScope.loading || connectionLoading) {
+      return `Loading ${copy.title.toLowerCase()}…`;
+    }
+    if (connectionError) {
+      return "Couldn't load AWS status.";
+    }
+    if (!connection?.connected) {
+      return 'Not connected for this environment.';
+    }
+    const bits: string[] = [];
+    if (connection.account_id) bits.push(connection.account_id);
+    if (connection.region) bits.push(connection.region);
+    return bits.join(' · ') || copy.description;
+  })();
 
   return (
     <DomainPageShell
       domain="aws"
-      eyebrow={copy.eyebrow}
+      eyebrow={null}
+      hideLogo
       title={copy.title}
-      description={copy.description}
+      description={inventorySubtitle}
       scope={<ProductEnvironmentSelector state={environmentScope} onChange={data.onChangeEnvironment} />}
-      status={status}
       statusTone={connectionError ? 'danger' : statusTone}
-      primaryAction={{ label: 'Connect AWS', to: connectPath, variant: connection?.connected ? 'secondary' : 'primary' }}
-      secondaryActions={[
-        { label: 'AWS home', to: homePath },
-        { label: 'AWS findings', to: findingsPath }
-      ]}
-      aside={<AWSInventoryRouteAside copy={copy} connection={connection} selectedEnvironmentID={selectedEnvironmentID} />}
+      primaryAction={
+        connectionError || environmentScope.loading || connectionLoading
+          ? undefined
+          : connection?.connected
+            ? { label: 'AWS findings', to: findingsPath, variant: 'primary' }
+            : { label: 'Connect AWS', to: connectPath, variant: 'primary' }
+      }
     >
-      <DomainKpiStrip label={`${copy.title} status`} items={buildAWSInventoryKpis(routeID, connection)} />
-
-      {environmentScope.loading || connectionLoading ? <DomainLoadingState label={`Loading ${copy.title.toLowerCase()}`} /> : null}
-
       {connectionError ? (
         <DomainErrorState
-          title="AWS inventory status could not load"
+          title="Couldn't load AWS status"
           body={connectionError}
-          retryAction={{ label: 'Retry AWS status', onClick: data.refreshConnection }}
+          retryAction={{ label: 'Retry', onClick: data.refreshConnection }}
         />
       ) : null}
 
@@ -5830,19 +5817,6 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
           connectPath={connectPath}
         />
       ) : null}
-
-      <DomainStatusPanel eyebrow="Current vs planned" title="Inventory capability boundary" status={copy.statusLabel} tone="info">
-        <div className="idt-aws-inventory-boundary">
-          <article>
-            <strong>Wired now</strong>
-            <p>{copy.currentCapability}</p>
-          </article>
-          <article>
-            <strong>Planned coverage</strong>
-            <p>{copy.plannedCapability}</p>
-          </article>
-        </div>
-      </DomainStatusPanel>
 
       {routeID === 'accounts' ? (
         <AWSAccountsInventoryContent connection={connection} connectPath={connectPath} filters={activeFilters} onFiltersChange={onFiltersChange} />
@@ -5937,63 +5911,63 @@ type AWSRiskOperationPageCopy = {
 const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOperationPageCopy> = {
   runtime: {
     routeID: 'runtime',
-    title: 'AWS runtime evidence',
-    eyebrow: 'Runtime',
-    description: 'Connector-scoped evidence for CloudTrail, STS, KMS, secrets, and agent activity.',
-    statusLabel: 'Not ingesting',
-    currentCapability: 'Connector validation only.',
-    plannedCapability: 'Runtime event ingestion.',
-    nextAction: 'Wire runtime ingestion.',
-    unavailableTitle: 'No event ingestion',
-    unavailableBody: 'Connector validation only.'
+    title: 'Runtime',
+    eyebrow: '',
+    description: 'What your AWS roles actually did, from CloudTrail.',
+    statusLabel: '',
+    currentCapability: '',
+    plannedCapability: '',
+    nextAction: '',
+    unavailableTitle: 'No runtime events yet',
+    unavailableBody: "Runtime activity will appear here once Identrail starts ingesting your AWS logs."
   },
   graph: {
     routeID: 'graph',
-    title: 'AWS graph explorer',
-    eyebrow: 'Graph',
-    description: 'AWS identities, resources, findings, owners, and blast-radius paths.',
-    statusLabel: 'Connector only',
-    currentCapability: 'Connector role anchor.',
-    plannedCapability: 'Collected graph edges.',
-    nextAction: 'Collect graph edges.',
-    unavailableTitle: 'No graph edges',
-    unavailableBody: 'Connector role anchor only.'
+    title: 'Graph',
+    eyebrow: '',
+    description: 'How AWS roles can reach things, visualised.',
+    statusLabel: '',
+    currentCapability: '',
+    plannedCapability: '',
+    nextAction: '',
+    unavailableTitle: 'No graph yet',
+    unavailableBody: 'The graph will populate once Identrail has scanned your AWS roles and resources.'
   },
   findings: {
     routeID: 'findings',
-    title: 'AWS findings',
-    eyebrow: 'Findings',
-    description: 'AWS risk rows scoped by account, region, evidence, owner, and remediation.',
-    statusLabel: 'No findings',
-    currentCapability: 'Connector scope only.',
-    plannedCapability: 'AWS findings API.',
-    nextAction: 'Wire finding generation.',
-    unavailableTitle: 'No findings API',
-    unavailableBody: 'No AWS findings are fetched or synthesized.'
+    title: 'Findings',
+    eyebrow: '',
+    description: 'Risks Identrail found in your AWS setup.',
+    statusLabel: '',
+    currentCapability: '',
+    plannedCapability: '',
+    nextAction: '',
+    unavailableTitle: 'No findings yet',
+    unavailableBody: "Findings will appear here after your first AWS scan."
   },
   remediation: {
     routeID: 'remediation',
-    title: 'AWS remediation',
-    eyebrow: 'Remediation',
-    description: 'Approval, diff, dry-run, rollback, and verification surfaces for AWS fixes.',
-    statusLabel: 'No cases',
-    currentCapability: 'No live changes.',
-    plannedCapability: 'Approved remediation APIs.',
-    nextAction: 'Wire remediation cases.',
-    unavailableTitle: 'No remediation cases',
-    unavailableBody: 'No policy changes run from this route.'
+    title: 'Remediation',
+    eyebrow: '',
+    description: 'AWS fixes Identrail prepares for you to approve.',
+    statusLabel: '',
+    currentCapability: '',
+    plannedCapability: '',
+    nextAction: '',
+    unavailableTitle: 'No fixes prepared',
+    unavailableBody: 'Fixes will appear here after a finding has been triaged.'
   },
   governance: {
     routeID: 'governance',
-    title: 'AWS governance',
-    eyebrow: 'Governance',
-    description: 'Advisory authorization decisions and safety controls for AWS runtime access.',
-    statusLabel: 'Advisory only',
-    currentCapability: 'Advisory only.',
-    plannedCapability: 'Runtime enforcement.',
-    nextAction: 'Keep advisory.',
-    unavailableTitle: 'Not enforcing',
-    unavailableBody: 'No AWS access is blocked or changed.'
+    title: 'Governance',
+    eyebrow: '',
+    description: "Advice on AWS access. Identrail won't apply changes for you.",
+    statusLabel: '',
+    currentCapability: '',
+    plannedCapability: '',
+    nextAction: '',
+    unavailableTitle: 'No advice yet',
+    unavailableBody: "Identrail will flag risky AWS access requests here once it has graph and runtime evidence."
   }
 };
 
@@ -6804,39 +6778,52 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
         : connection?.connected
           ? copy.statusLabel
           : 'Setup required';
-  const secondaryActions =
-    routeID === 'runtime'
-      ? [{ label: 'Graph', to: graphPath }]
-      : routeID === 'graph'
-        ? [{ label: 'Findings', to: findingsPath }]
-        : routeID === 'findings'
-          ? [{ label: 'Remediation', to: remediationPath }]
-          : routeID === 'remediation'
-            ? [{ label: 'Governance', to: governancePath }]
-            : [{ label: 'AWS home', to: homePath }];
+  // Suppress engineering-status copy ("Setup required" / "Not ingesting"
+  // / "Advisory only") and the noun-list secondary nav. The header subtitle
+  // is the same state-driven single line used across the AWS section.
+  const riskSubtitle = (() => {
+    if (environmentScope.loading || connectionLoading) {
+      return `Loading ${copy.title.toLowerCase()}…`;
+    }
+    if (connectionError) {
+      return "Couldn't load AWS status.";
+    }
+    if (!connection?.connected) {
+      return 'Not connected for this environment.';
+    }
+    return copy.description;
+  })();
+  // Silence unused linter warnings for the path helpers that used to feed
+  // the prior secondary-nav noun-list; they still exist for downstream
+  // pages but are not surfaced as header CTAs anymore.
+  void graphPath;
+  void remediationPath;
+  void governancePath;
+  void homePath;
 
   return (
     <DomainPageShell
       domain="aws"
-      eyebrow={copy.eyebrow}
+      eyebrow={null}
+      hideLogo
       title={copy.title}
-      description={copy.description}
+      description={riskSubtitle}
       scope={<ProductEnvironmentSelector state={environmentScope} onChange={data.onChangeEnvironment} />}
-      status={status}
       statusTone={connectionError ? 'danger' : statusTone}
-      primaryAction={connection?.connected ? undefined : { label: 'Connect AWS', to: connectPath, variant: 'primary' }}
-      secondaryActions={secondaryActions}
+      primaryAction={
+        connectionError || environmentScope.loading || connectionLoading
+          ? undefined
+          : connection?.connected
+            ? undefined
+            : { label: 'Connect AWS', to: connectPath, variant: 'primary' }
+      }
     >
       <div className="idt-aws-risk-page">
-        <AWSRiskOperationScope copy={copy} connection={connection} selectedEnvironmentID={selectedEnvironmentID} />
-
-        {environmentScope.loading || connectionLoading ? <DomainLoadingState label={`Loading ${copy.title.toLowerCase()}`} /> : null}
-
         {connectionError ? (
           <DomainErrorState
-            title={`${copy.title} status could not load`}
+            title="Couldn't load AWS status"
             body={connectionError}
-            retryAction={{ label: 'Retry AWS status', onClick: data.refreshConnection }}
+            retryAction={{ label: 'Retry', onClick: data.refreshConnection }}
           />
         ) : null}
 
@@ -6910,20 +6897,8 @@ export function ProductAWSControlCenterPage() {
   const [baseline, setBaseline] = useState<AWSPlatformBaselineResult | null>(null);
   const [baselineLoading, setBaselineLoading] = useState(false);
   const [baselineError, setBaselineError] = useState('');
-  const [dependencyIndex, setDependencyIndex] = useState<AWSPlatformDependencyIndexResult | null>(null);
-  const [dependencyLoading, setDependencyLoading] = useState(false);
-  const [dependencyError, setDependencyError] = useState('');
-  const [validationHarness, setValidationHarness] = useState<AWSPlatformValidationHarnessResult | null>(null);
-  const [validationLoading, setValidationLoading] = useState(false);
-  const [validationError, setValidationError] = useState('');
-  const [collectorContract, setCollectorContract] = useState<AWSServiceCollectorContractResult | null>(null);
-  const [collectorContractLoading, setCollectorContractLoading] = useState(false);
-  const [collectorContractError, setCollectorContractError] = useState('');
   const connectionRequestRef = useRef(0);
   const baselineRequestRef = useRef(0);
-  const dependencyRequestRef = useRef(0);
-  const validationRequestRef = useRef(0);
-  const collectorContractRequestRef = useRef(0);
   const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
   selectedEnvironmentIDRef.current = selectedEnvironmentID;
 
@@ -7030,133 +7005,19 @@ export function ProductAWSControlCenterPage() {
     }
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connector_id]);
 
-  const refreshDependencyIndex = useCallback(async () => {
-    const requestID = ++dependencyRequestRef.current;
-    const requestEnvironmentID = selectedEnvironmentID;
-    if (!scope || !requestEnvironmentID) {
-      setDependencyIndex(null);
-      setDependencyError('');
-      setDependencyLoading(false);
-      return;
-    }
-    const isStale = () => requestID !== dependencyRequestRef.current || selectedEnvironmentIDRef.current !== requestEnvironmentID;
-    setDependencyLoading(true);
-    setDependencyError('');
-    try {
-      const response = await apiClient.getAWSProjectDependencyIndex(
-        scope.workspaceID,
-        requestEnvironmentID,
-        undefined,
-        buildProductAuthContext(scope)
-      );
-      if (isStale()) {
-        return;
-      }
-      setDependencyIndex(response.index);
-    } catch (error) {
-      if (isStale()) {
-        return;
-      }
-      setDependencyIndex(null);
-      setDependencyError(formatAPIError(error, 'Unable to load AWS dependency index.'));
-    } finally {
-      if (!isStale()) {
-        setDependencyLoading(false);
-      }
-    }
-  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
-
-  const refreshValidationHarness = useCallback(async () => {
-    const requestID = ++validationRequestRef.current;
-    const requestEnvironmentID = selectedEnvironmentID;
-    if (!scope || !requestEnvironmentID) {
-      setValidationHarness(null);
-      setValidationError('');
-      setValidationLoading(false);
-      return;
-    }
-    const isStale = () => requestID !== validationRequestRef.current || selectedEnvironmentIDRef.current !== requestEnvironmentID;
-    setValidationLoading(true);
-    setValidationError('');
-    try {
-      const response = await apiClient.getAWSProjectValidationHarness(
-        scope.workspaceID,
-        requestEnvironmentID,
-        undefined,
-        buildProductAuthContext(scope)
-      );
-      if (isStale()) {
-        return;
-      }
-      setValidationHarness(response.harness);
-    } catch (error) {
-      if (isStale()) {
-        return;
-      }
-      setValidationHarness(null);
-      setValidationError(formatAPIError(error, 'Unable to load AWS validation harness.'));
-    } finally {
-      if (!isStale()) {
-        setValidationLoading(false);
-      }
-    }
-  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
-
-  const refreshCollectorContract = useCallback(async () => {
-    const requestID = ++collectorContractRequestRef.current;
-    const requestEnvironmentID = selectedEnvironmentID;
-    if (!scope || !requestEnvironmentID) {
-      setCollectorContract(null);
-      setCollectorContractError('');
-      setCollectorContractLoading(false);
-      return;
-    }
-    const isStale = () => requestID !== collectorContractRequestRef.current || selectedEnvironmentIDRef.current !== requestEnvironmentID;
-    setCollectorContractLoading(true);
-    setCollectorContractError('');
-    try {
-      const response = await apiClient.getAWSProjectCollectorContract(
-        scope.workspaceID,
-        requestEnvironmentID,
-        undefined,
-        buildProductAuthContext(scope)
-      );
-      if (isStale()) {
-        return;
-      }
-      setCollectorContract(response.contract);
-    } catch (error) {
-      if (isStale()) {
-        return;
-      }
-      setCollectorContract(null);
-      setCollectorContractError(formatAPIError(error, 'Unable to load AWS collector contract.'));
-    } finally {
-      if (!isStale()) {
-        setCollectorContractLoading(false);
-      }
-    }
-  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
-
   useEffect(() => {
     void refreshConnection();
     void refreshBaseline();
-    void refreshDependencyIndex();
-    void refreshValidationHarness();
-    void refreshCollectorContract();
     return () => {
       connectionRequestRef.current += 1;
       baselineRequestRef.current += 1;
-      dependencyRequestRef.current += 1;
-      validationRequestRef.current += 1;
-      collectorContractRequestRef.current += 1;
     };
-  }, [refreshConnection, refreshBaseline, refreshDependencyIndex, refreshValidationHarness, refreshCollectorContract]);
+  }, [refreshConnection, refreshBaseline]);
 
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
-        <p className="idt-app-kicker">AWS Control Center</p>
+        <p className="idt-app-kicker">AWS</p>
         <h2>Workspace route context is missing</h2>
         <p>Choose a tenant and workspace before loading AWS.</p>
       </section>
@@ -7166,19 +7027,10 @@ export function ProductAWSControlCenterPage() {
   const handleEnvironmentChange = (environmentID: string) => {
     connectionRequestRef.current += 1;
     baselineRequestRef.current += 1;
-    dependencyRequestRef.current += 1;
-    validationRequestRef.current += 1;
-    collectorContractRequestRef.current += 1;
     setConnection(null);
     setBaseline(null);
-    setDependencyIndex(null);
-    setValidationHarness(null);
-    setCollectorContract(null);
     setConnectionError('');
     setBaselineError('');
-    setDependencyError('');
-    setValidationError('');
-    setCollectorContractError('');
     navigate(
       {
         pathname: location.pathname,
@@ -7189,419 +7041,199 @@ export function ProductAWSControlCenterPage() {
   };
 
   const connectPath = awsRouteLink(scope, 'connect', selectedEnvironmentID);
-  const accountsPath = awsRouteLink(scope, 'accounts', selectedEnvironmentID);
   const findingsPath = awsRouteLink(scope, 'findings', selectedEnvironmentID);
   const failedChecks = connection?.permission_checks.filter((check) => !check.passed).length ?? 0;
-  const effectiveCapabilities = connection?.capabilities.effective.length ?? 0;
   const statusTone = awsDomainTone(connection, connectionLoading || environmentScope.loading);
-  const baselineTone = awsBaselineTone(baseline, baselineLoading || environmentScope.loading);
-  const dependencyTone = awsDependencyIndexTone(dependencyIndex, dependencyLoading || environmentScope.loading);
-  const validationTone = awsValidationHarnessTone(validationHarness, validationLoading || environmentScope.loading);
-  const collectorContractTone = awsServiceCollectorContractTone(
-    collectorContract,
-    collectorContractLoading || environmentScope.loading
-  );
-  const statusLabel = environmentScope.loading
-    ? 'Loading scope'
-    : connectionLoading
-      ? 'Loading status'
-      : connectionError
-        ? 'Needs retry'
-        : awsConnectionLabel(connection);
+  const connected = Boolean(connection?.connected);
+  const awaitingFirstLoad =
+    (environmentScope.loading || connectionLoading) && !connection && !connectionError;
+  const hasConnectionError = Boolean(connectionError);
+  const baselineReady = baseline?.status === 'ready';
+  const baselineKnown = Boolean(baseline);
+
+  // Subtitle: one short line. State-aware. No KPI cards.
+  const subtitle = (() => {
+    if (awaitingFirstLoad) {
+      return 'Loading AWS status…';
+    }
+    if (hasConnectionError) {
+      return "Couldn't load AWS status.";
+    }
+    if (!connected) {
+      const bits: string[] = ['Not connected'];
+      if (connection && !connection.external_id_configured) {
+        bits.push('External ID not set');
+      }
+      return bits.join(' · ');
+    }
+    const bits: string[] = [];
+    if (connection?.account_id) {
+      bits.push(connection.account_id);
+    }
+    if (connection?.region) {
+      bits.push(connection.region);
+    }
+    if (failedChecks > 0) {
+      bits.push(`${failedChecks} permission check${failedChecks === 1 ? '' : 's'} failing`);
+    } else if (connection?.permission_checks.length) {
+      bits.push('Permissions OK');
+    }
+    if (baselineReady) {
+      bits.push('Baseline ready');
+    } else if (baselineKnown) {
+      bits.push('Baseline needs attention');
+    }
+    return bits.join(' · ');
+  })();
+
+  // Primary CTA: state-aware. Connect when disconnected, Findings when connected,
+  // omitted while the first load is in flight or the status request errored
+  // (matches the pattern used on the GitHub overview and Connect pages).
+  const primaryAction = awaitingFirstLoad || hasConnectionError
+    ? undefined
+    : connected
+      ? { label: 'Findings', to: findingsPath, variant: 'primary' as const }
+      : { label: 'Connect AWS', to: connectPath, variant: 'primary' as const };
+
+  type AWSOverviewBanner = {
+    id: string;
+    message: ReactNode;
+    detail?: string;
+    actionLabel: string;
+    actionTo?: string;
+    actionOnClick?: () => void;
+    tone: 'info' | 'warning' | 'danger';
+  };
+
+  // Single contextual banner: one recommendation, one button. The actual
+  // state surfaces (recent findings, scan history, etc.) live on their own
+  // sub-pages — this page just nudges the user toward the next thing.
+  const banner: AWSOverviewBanner | null = (() => {
+    if (awaitingFirstLoad || hasConnectionError) {
+      return null;
+    }
+    if (!selectedEnvironmentID) {
+      return {
+        id: 'pick-environment',
+        message: 'Pick an environment to load AWS status.',
+        actionLabel: 'Open environments',
+        actionTo: buildProjectsPath(scope),
+        tone: 'info'
+      };
+    }
+    if (!connected) {
+      return {
+        id: 'connect-aws',
+        message: 'Connect AWS to start scanning this environment.',
+        actionLabel: 'Connect AWS',
+        actionTo: connectPath,
+        tone: 'info'
+      };
+    }
+    if (failedChecks > 0) {
+      return {
+        id: 'fix-permissions',
+        message: `${failedChecks} permission check${failedChecks === 1 ? '' : 's'} failing.`,
+        actionLabel: 'Open setup',
+        actionTo: connectPath,
+        tone: 'warning'
+      };
+    }
+    if (!baselineReady) {
+      return {
+        id: 'run-baseline',
+        message: 'Baseline not verified yet for this environment.',
+        actionLabel: baselineLoading ? 'Running…' : 'Run baseline',
+        actionOnClick: () => void verifyBaseline(),
+        tone: 'info'
+      };
+    }
+    return null;
+  })();
+
+  const showCards = !awaitingFirstLoad && !hasConnectionError && Boolean(selectedEnvironmentID);
 
   return (
     <DomainPageShell
       domain="aws"
-      eyebrow="AWS machine identity"
-      title="AWS Control Center"
-      description="Operate AWS connection health, account and region scope, permission posture, and the AWS machine-identity roadmap from one domain-owned surface."
+      eyebrow={null}
+      hideLogo
+      title="AWS"
+      description={subtitle}
       scope={<ProductEnvironmentSelector state={environmentScope} onChange={handleEnvironmentChange} />}
-      status={statusLabel}
       statusTone={statusTone}
-      primaryAction={{ label: 'Connect AWS', to: connectPath, variant: 'primary' }}
-      secondaryActions={[
-        { label: 'Accounts', to: accountsPath },
-        { label: 'Findings', to: findingsPath }
-      ]}
-      aside={
-        <DomainDetailPanel title="AWS scope" eyebrow="Workspace contract">
-          <dl className="idt-domain-route-facts">
-            <div>
-              <dt>Environment</dt>
-              <dd>{selectedEnvironmentID ? environmentFallbackLabel(selectedEnvironmentID) : 'Default environment'}</dd>
-            </div>
-            <div>
-              <dt>Account / region</dt>
-              <dd>{awsAccountRegionLabel(connection)}</dd>
-            </div>
-            <div>
-              <dt>Connector</dt>
-              <dd>{connection?.connector_id ?? 'Not assigned'}</dd>
-            </div>
-          </dl>
-        </DomainDetailPanel>
-      }
+      primaryAction={primaryAction}
     >
-      <DomainKpiStrip
-        label="AWS status summary"
-        items={[
-          {
-            label: 'Connection',
-            value: awsConnectionLabel(connection),
-            detail: connection?.display_name ?? (selectedEnvironmentID ? 'AWS connector status for selected environment' : 'Choose an environment'),
-            tone: statusTone === 'danger' ? 'danger' : statusTone
-          },
-          {
-            label: 'Account / region',
-            value: connection?.account_id ? '1 account' : 'Pending',
-            detail: awsAccountRegionLabel(connection),
-            tone: connection?.account_id ? 'success' : 'warning'
-          },
-          {
-            label: 'Permissions',
-            value: awsPermissionSummary(connection),
-            detail: failedChecks > 0 ? `${failedChecks} check${failedChecks === 1 ? '' : 's'} need attention` : 'Validation status from AWS connector',
-            tone: failedChecks > 0 ? 'warning' : connection?.permission_checks.length ? 'success' : 'neutral'
-          },
-          {
-            label: 'Runtime and actions',
-            value: effectiveCapabilities > 0 ? `${effectiveCapabilities} active` : 'Planned',
-            detail: 'Runtime evidence, remediation, and governance waves are labeled honestly below.',
-            tone: effectiveCapabilities > 0 ? 'success' : 'info'
-          },
-          {
-            label: 'Baseline gate',
-            value: awsBaselineLabel(baseline),
-            detail: baselineLoading ? 'Verification loading' : awsBaselineSummary(baseline),
-            tone: baselineTone
-          },
-          {
-            label: 'Dependency index',
-            value: awsDependencyIndexLabel(dependencyIndex),
-            detail: dependencyLoading ? 'Sequencing loading' : awsDependencyIndexSummary(dependencyIndex),
-            tone: dependencyTone
-          },
-          {
-            label: 'Validation harness',
-            value: awsValidationHarnessLabel(validationHarness),
-            detail: validationLoading ? 'Proof states loading' : awsValidationHarnessSummary(validationHarness),
-            tone: validationTone
-          },
-          {
-            label: 'Collector contract',
-            value: awsServiceCollectorContractLabel(collectorContract),
-            detail: collectorContractLoading ? 'Contract loading' : awsServiceCollectorContractSummary(collectorContract),
-            tone: collectorContractTone
-          }
-        ]}
-      />
-
-      {environmentScope.loading || connectionLoading || baselineLoading || dependencyLoading || validationLoading || collectorContractLoading ? (
-        <DomainLoadingState label="Loading AWS control center status" />
-      ) : null}
-
       {connectionError ? (
         <DomainErrorState
-          title="AWS status could not load"
+          title="Couldn't load AWS status"
           body={connectionError}
-          retryAction={{ label: 'Retry status', onClick: () => void refreshConnection() }}
+          retryAction={{ label: 'Retry', onClick: () => void refreshConnection() }}
         />
       ) : null}
-      {baselineError ? (
+      {baselineError && !connectionError ? (
         <DomainErrorState
-          title="AWS baseline could not load"
+          title="Couldn't load AWS baseline"
           body={baselineError}
-          retryAction={{ label: 'Retry baseline', onClick: () => void refreshBaseline() }}
+          retryAction={{ label: 'Retry', onClick: () => void refreshBaseline() }}
         />
       ) : null}
-      {dependencyError ? (
-        <DomainErrorState
-          title="AWS dependency index could not load"
-          body={dependencyError}
-          retryAction={{ label: 'Retry index', onClick: () => void refreshDependencyIndex() }}
-        />
+      {banner ? <AWSOverviewBannerView banner={banner} /> : null}
+      {showCards ? (
+        <section className="idt-aws-control-grid" aria-label="AWS sections">
+          {AWS_CONTROL_CARDS.map((card) => (
+            <Link
+              key={card.id}
+              className={`idt-aws-capability-card is-${card.stage}`}
+              to={awsRouteLink(scope, card.routeID, selectedEnvironmentID)}
+            >
+              <strong>{card.label}</strong>
+              <p>{card.detail}</p>
+            </Link>
+          ))}
+        </section>
       ) : null}
-      {validationError ? (
-        <DomainErrorState
-          title="AWS validation harness could not load"
-          body={validationError}
-          retryAction={{ label: 'Retry harness', onClick: () => void refreshValidationHarness() }}
-        />
-      ) : null}
-      {collectorContractError ? (
-        <DomainErrorState
-          title="AWS collector contract could not load"
-          body={collectorContractError}
-          retryAction={{ label: 'Retry contract', onClick: () => void refreshCollectorContract() }}
-        />
-      ) : null}
-
-      {!selectedEnvironmentID && !environmentScope.loading ? (
-        <DomainEmptyState
-          eyebrow="Environment required"
-          title="Create an environment before connecting AWS"
-          body="AWS connection payloads remain scoped to a workspace environment, so setup needs an environment before validation can run."
-          nextAction={{ label: 'Open environments', to: buildProjectsPath(scope) }}
-        />
-      ) : null}
-
-      <DomainStatusPanel
-        eyebrow="Connection health"
-        title="AWS connector status and diagnostics"
-        status={<DomainStatusBadge variant={awsStatusVariant(connection)} detail={connection?.health_status ?? 'unknown'} />}
-        tone={statusTone === 'danger' ? 'danger' : statusTone}
-        actions={[
-          { label: 'Refresh status', onClick: () => void refreshConnection(), variant: 'secondary', disabled: connectionLoading },
-          { label: 'Open setup', to: connectPath, variant: 'ghost' }
-        ]}
-      >
-        <div className="idt-aws-status-grid">
-          <dl>
-            <div>
-              <dt>Lifecycle</dt>
-              <dd>{connection ? connectionLifecycle(connection) : 'Not connected'}</dd>
-            </div>
-            <div>
-              <dt>Last validation</dt>
-              <dd>{formatConnectionTime(connection?.last_validated_at ?? connection?.updated_at)}</dd>
-            </div>
-            <div>
-              <dt>External ID</dt>
-              <dd>{connection?.external_id_configured ? 'Configured' : 'Not configured'}</dd>
-            </div>
-            <div>
-              <dt>Role ARN</dt>
-              <dd>{connection?.role_arn ?? 'Not saved'}</dd>
-            </div>
-          </dl>
-          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS diagnostics summary">
-            <AWSConnectionDiagnostics connection={connection} />
-          </div>
-        </div>
-      </DomainStatusPanel>
-
-      <DomainStatusPanel
-        eyebrow="Baseline gate"
-        title="AWS platform baseline verification"
-        status={awsBaselineLabel(baseline)}
-        tone={baselineTone}
-        actions={[
-          { label: 'Run baseline', onClick: () => void verifyBaseline(), variant: 'secondary', disabled: baselineLoading || !selectedEnvironmentID },
-          { label: 'Refresh gate', onClick: () => void refreshBaseline(), variant: 'ghost', disabled: baselineLoading || !selectedEnvironmentID }
-        ]}
-      >
-        <div className="idt-aws-status-grid">
-          <dl>
-            <div>
-              <dt>Result</dt>
-              <dd>{awsBaselineLabel(baseline)}</dd>
-            </div>
-            <div>
-              <dt>Confidence</dt>
-              <dd>{baseline ? formatConfidenceScore(baseline.confidence) : 'N/A'}</dd>
-            </div>
-            <div>
-              <dt>Verified</dt>
-              <dd>{formatConnectionTime(baseline?.verified_at)}</dd>
-            </div>
-            <div>
-              <dt>Revision</dt>
-              <dd>{baseline?.git_sha || 'Not stamped'}</dd>
-            </div>
-            <div>
-              <dt>Source</dt>
-              <dd>{baseline?.fixture_only ? 'Fixture only' : formatTokenLabel(baseline?.source_mode || 'unknown')}</dd>
-            </div>
-            <div>
-              <dt>Contract</dt>
-              <dd>{baseline?.graph_contract_version || 'Not verified'}</dd>
-            </div>
-          </dl>
-          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS baseline checks">
-            <AWSBaselineGateSummary baseline={baseline} loading={baselineLoading} />
-          </div>
-        </div>
-      </DomainStatusPanel>
-
-      <DomainStatusPanel
-        eyebrow="Issue sequencing"
-        title="AWS platform dependency index"
-        status={awsDependencyIndexLabel(dependencyIndex)}
-        tone={dependencyTone}
-        actions={[
-          { label: 'Refresh index', onClick: () => void refreshDependencyIndex(), variant: 'secondary', disabled: dependencyLoading || !selectedEnvironmentID },
-          {
-            label: 'Parent epic',
-            href: 'https://github.com/identrail/identrail/issues/1472',
-            target: '_blank',
-            rel: 'noreferrer',
-            variant: 'ghost'
-          }
-        ]}
-      >
-        <div className="idt-aws-status-grid">
-          <dl>
-            <div>
-              <dt>Parent</dt>
-              <dd>{dependencyIndex?.parent_issue_ref ?? '#1472'}</dd>
-            </div>
-            <div>
-              <dt>Issues</dt>
-              <dd>{dependencyIndex ? formatCountLabel(dependencyIndex.issue_count, 'issue') : 'Pending'}</dd>
-            </div>
-            <div>
-              <dt>Waves</dt>
-              <dd>{dependencyIndex ? formatCountLabel(dependencyIndex.wave_count, 'wave') : 'Pending'}</dd>
-            </div>
-            <div>
-              <dt>Ready</dt>
-              <dd>{dependencyIndex ? dependencyIndex.ready_issue_refs.join(', ') || 'None' : 'Pending'}</dd>
-            </div>
-            <div>
-              <dt>Blocked</dt>
-              <dd>{dependencyIndex ? formatCountLabel(dependencyIndex.blocked_issue_count, 'issue') : 'Pending'}</dd>
-            </div>
-            <div>
-              <dt>Updated</dt>
-              <dd>{formatConnectionTime(dependencyIndex?.updated_at)}</dd>
-            </div>
-          </dl>
-          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS dependency index checks">
-            <AWSDependencyIndexSummary index={dependencyIndex} loading={dependencyLoading} />
-          </div>
-        </div>
-      </DomainStatusPanel>
-
-      <DomainStatusPanel
-        eyebrow="App validation"
-        title="AWS live app validation harness"
-        status={awsValidationHarnessLabel(validationHarness)}
-        tone={validationTone}
-        actions={[
-          { label: 'Refresh harness', onClick: () => void refreshValidationHarness(), variant: 'secondary', disabled: validationLoading || !selectedEnvironmentID },
-          {
-            label: 'Harness docs',
-            href: '/docs/aws-platform-validation-harness',
-            variant: 'ghost'
-          }
-        ]}
-      >
-        <div className="idt-aws-status-grid">
-          <dl>
-            <div>
-              <dt>Issue</dt>
-              <dd>{validationHarness?.current_issue_ref ?? '#1475'}</dd>
-            </div>
-            <div>
-              <dt>Scenarios</dt>
-              <dd>{validationHarness ? formatCountLabel(validationHarness.scenario_count, 'scenario') : 'Pending'}</dd>
-            </div>
-            <div>
-              <dt>Fixture states</dt>
-              <dd>{validationHarness ? validationHarness.fixture_states.map(formatTokenLabel).join(', ') : 'Pending'}</dd>
-            </div>
-            <div>
-              <dt>Browser steps</dt>
-              <dd>{validationHarness ? formatCountLabel(validationHarness.browser_steps.length, 'step') : 'Pending'}</dd>
-            </div>
-            <div>
-              <dt>API steps</dt>
-              <dd>{validationHarness ? formatCountLabel(validationHarness.api_steps.length, 'step') : 'Pending'}</dd>
-            </div>
-            <div>
-              <dt>Updated</dt>
-              <dd>{formatConnectionTime(validationHarness?.updated_at)}</dd>
-            </div>
-          </dl>
-          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS validation harness scenarios">
-            <AWSValidationHarnessSummary harness={validationHarness} loading={validationLoading} />
-          </div>
-        </div>
-      </DomainStatusPanel>
-
-      <DomainStatusPanel
-        eyebrow="Collector contract"
-        title="AWS service collector contract"
-        status={awsServiceCollectorContractLabel(collectorContract)}
-        tone={collectorContractTone}
-        actions={[
-          {
-            label: 'Refresh contract',
-            onClick: () => void refreshCollectorContract(),
-            variant: 'secondary',
-            disabled: collectorContractLoading || !selectedEnvironmentID
-          },
-          {
-            label: 'Contract docs',
-            href: '/docs/aws-service-collector-contract',
-            variant: 'ghost'
-          }
-        ]}
-      >
-        <div className="idt-aws-status-grid">
-          <dl>
-            <div>
-              <dt>Issue</dt>
-              <dd>{collectorContract?.current_issue_ref ?? '#1476'}</dd>
-            </div>
-            <div>
-              <dt>Fields</dt>
-              <dd>{collectorContract ? formatCountLabel(collectorContract.required_field_count, 'field') : 'Pending'}</dd>
-            </div>
-            <div>
-              <dt>Fixtures</dt>
-              <dd>{collectorContract ? formatCountLabel(collectorContract.fixture_case_count, 'fixture') : 'Pending'}</dd>
-            </div>
-            <div>
-              <dt>Edges</dt>
-              <dd>{collectorContract ? formatCountLabel(collectorContract.graph_edge_count, 'edge') : 'Pending'}</dd>
-            </div>
-            <div>
-              <dt>Permissions</dt>
-              <dd>{collectorContract ? formatCountLabel(collectorContract.required_permissions.length, 'permission') : 'Pending'}</dd>
-            </div>
-            <div>
-              <dt>Updated</dt>
-              <dd>{formatConnectionTime(collectorContract?.updated_at)}</dd>
-            </div>
-          </dl>
-          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS service collector contract checks">
-            <AWSServiceCollectorContractSummary contract={collectorContract} loading={collectorContractLoading} />
-          </div>
-        </div>
-      </DomainStatusPanel>
-
-      <section className="idt-aws-control-grid" aria-label="AWS capability map">
-        {AWS_CONTROL_CARDS.map((card) => (
-          <Link
-            key={card.id}
-            className={`idt-aws-capability-card is-${card.stage}`}
-            to={awsRouteLink(scope, card.routeID, selectedEnvironmentID)}
-          >
-            <span className={`idt-domain-status-badge is-${awsStageTone(card.stage)}`}>
-              <span aria-hidden="true" className="idt-domain-status-dot" />
-              <strong>{awsStageLabel(card.stage)}</strong>
-            </span>
-            <strong>{card.label}</strong>
-            <span>{card.metric}</span>
-            <p>{card.detail}</p>
-          </Link>
-        ))}
-      </section>
-
-      <DomainStatusPanel eyebrow="Next actions" title="What AWS can do today" status={awsDiagnosticSummary(connection)} tone="info">
-        <div className="idt-aws-next-actions">
-          <article>
-            <strong>Wired now</strong>
-            <p>Use Connect AWS to launch the read-only stack, validate the role ARN, inspect permissions, and review diagnostics.</p>
-          </article>
-          <article>
-            <strong>Coming waves</strong>
-            <p>Account and region coverage, identity inventory, resource reachability, runtime evidence, findings, remediation, and governance stay clearly labeled until their APIs land.</p>
-          </article>
-        </div>
-      </DomainStatusPanel>
     </DomainPageShell>
+  );
+}
+
+function AWSOverviewBannerView({
+  banner
+}: {
+  banner: {
+    id: string;
+    message: ReactNode;
+    detail?: string;
+    actionLabel: string;
+    actionTo?: string;
+    actionOnClick?: () => void;
+    tone: 'info' | 'warning' | 'danger';
+  };
+}) {
+  return (
+    <section
+      className={`idt-overview-banner is-${banner.tone}`}
+      aria-label="AWS action recommendation"
+      data-banner-id={banner.id}
+    >
+      <div>
+        <p>{banner.message}</p>
+        {banner.detail ? <small>{banner.detail}</small> : null}
+      </div>
+      {banner.actionTo ? (
+        <Link to={banner.actionTo} className="idt-btn idt-btn-primary idt-domain-action">
+          <span>{banner.actionLabel}</span>
+        </Link>
+      ) : (
+        <button
+          type="button"
+          className="idt-btn idt-btn-primary idt-domain-action"
+          onClick={banner.actionOnClick}
+        >
+          <span>{banner.actionLabel}</span>
+        </button>
+      )}
+    </section>
   );
 }
 
@@ -7851,15 +7483,6 @@ export function ProductAWSConnectPage() {
   const [baseline, setBaseline] = useState<AWSPlatformBaselineResult | null>(null);
   const [baselineLoading, setBaselineLoading] = useState(false);
   const [baselineError, setBaselineError] = useState('');
-  const [dependencyIndex, setDependencyIndex] = useState<AWSPlatformDependencyIndexResult | null>(null);
-  const [dependencyLoading, setDependencyLoading] = useState(false);
-  const [dependencyError, setDependencyError] = useState('');
-  const [validationHarness, setValidationHarness] = useState<AWSPlatformValidationHarnessResult | null>(null);
-  const [validationLoading, setValidationLoading] = useState(false);
-  const [validationError, setValidationError] = useState('');
-  const [collectorContract, setCollectorContract] = useState<AWSServiceCollectorContractResult | null>(null);
-  const [collectorContractLoading, setCollectorContractLoading] = useState(false);
-  const [collectorContractError, setCollectorContractError] = useState('');
   const [awsForm, setAWSForm] = useState({
     roleARN: '',
     externalID: '',
@@ -7875,9 +7498,6 @@ export function ProductAWSConnectPage() {
   const [awsPreviewOpen, setAWSPreviewOpen] = useState(false);
   const connectionRequestRef = useRef(0);
   const baselineRequestRef = useRef(0);
-  const dependencyRequestRef = useRef(0);
-  const validationRequestRef = useRef(0);
-  const collectorContractRequestRef = useRef(0);
   const awsStartRequestRef = useRef(0);
   const awsPollRequestRef = useRef(0);
   const awsValidationRequestRef = useRef(0);
@@ -8019,132 +7639,10 @@ export function ProductAWSConnectPage() {
     }
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, awsCloudFormationStart?.connector_id, connection?.connector_id]);
 
-  const refreshDependencyIndex = useCallback(async () => {
-    const requestID = ++dependencyRequestRef.current;
-    const requestEnvironmentID = selectedEnvironmentID;
-    const requestScopeKey = scopeKeyRef.current;
-    if (!scope || !requestEnvironmentID) {
-      setDependencyIndex(null);
-      setDependencyError('');
-      setDependencyLoading(false);
-      return;
-    }
-    const isStale = () =>
-      requestID !== dependencyRequestRef.current ||
-      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
-      scopeKeyRef.current !== requestScopeKey;
-    setDependencyLoading(true);
-    setDependencyError('');
-    try {
-      const response = await apiClient.getAWSProjectDependencyIndex(
-        scope.workspaceID,
-        requestEnvironmentID,
-        undefined,
-        buildProductAuthContext(scope)
-      );
-      if (isStale()) {
-        return;
-      }
-      setDependencyIndex(response.index);
-    } catch (error) {
-      if (isStale()) {
-        return;
-      }
-      setDependencyIndex(null);
-      setDependencyError(formatAPIError(error, 'Unable to load AWS dependency index.'));
-    } finally {
-      if (!isStale()) {
-        setDependencyLoading(false);
-      }
-    }
-  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
-
-  const refreshValidationHarness = useCallback(async () => {
-    const requestID = ++validationRequestRef.current;
-    const requestEnvironmentID = selectedEnvironmentID;
-    const requestScopeKey = scopeKeyRef.current;
-    if (!scope || !requestEnvironmentID) {
-      setValidationHarness(null);
-      setValidationError('');
-      setValidationLoading(false);
-      return;
-    }
-    const isStale = () =>
-      requestID !== validationRequestRef.current ||
-      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
-      scopeKeyRef.current !== requestScopeKey;
-    setValidationLoading(true);
-    setValidationError('');
-    try {
-      const response = await apiClient.getAWSProjectValidationHarness(
-        scope.workspaceID,
-        requestEnvironmentID,
-        undefined,
-        buildProductAuthContext(scope)
-      );
-      if (isStale()) {
-        return;
-      }
-      setValidationHarness(response.harness);
-    } catch (error) {
-      if (isStale()) {
-        return;
-      }
-      setValidationHarness(null);
-      setValidationError(formatAPIError(error, 'Unable to load AWS validation harness.'));
-    } finally {
-      if (!isStale()) {
-        setValidationLoading(false);
-      }
-    }
-  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
-
-  const refreshCollectorContract = useCallback(async () => {
-    const requestID = ++collectorContractRequestRef.current;
-    const requestEnvironmentID = selectedEnvironmentID;
-    const requestScopeKey = scopeKeyRef.current;
-    if (!scope || !requestEnvironmentID) {
-      setCollectorContract(null);
-      setCollectorContractError('');
-      setCollectorContractLoading(false);
-      return;
-    }
-    const isStale = () =>
-      requestID !== collectorContractRequestRef.current ||
-      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
-      scopeKeyRef.current !== requestScopeKey;
-    setCollectorContractLoading(true);
-    setCollectorContractError('');
-    try {
-      const response = await apiClient.getAWSProjectCollectorContract(
-        scope.workspaceID,
-        requestEnvironmentID,
-        undefined,
-        buildProductAuthContext(scope)
-      );
-      if (isStale()) {
-        return;
-      }
-      setCollectorContract(response.contract);
-    } catch (error) {
-      if (isStale()) {
-        return;
-      }
-      setCollectorContract(null);
-      setCollectorContractError(formatAPIError(error, 'Unable to load AWS collector contract.'));
-    } finally {
-      if (!isStale()) {
-        setCollectorContractLoading(false);
-      }
-    }
-  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
 
   useEffect(() => {
     connectionRequestRef.current += 1;
     baselineRequestRef.current += 1;
-    dependencyRequestRef.current += 1;
-    validationRequestRef.current += 1;
-    collectorContractRequestRef.current += 1;
     awsStartRequestRef.current += 1;
     awsPollRequestRef.current += 1;
     awsValidationRequestRef.current += 1;
@@ -8152,12 +7650,6 @@ export function ProductAWSConnectPage() {
     setErrorMessage('');
     setBaseline(null);
     setBaselineError('');
-    setDependencyIndex(null);
-    setDependencyError('');
-    setValidationHarness(null);
-    setValidationError('');
-    setCollectorContract(null);
-    setCollectorContractError('');
     setSubmitting(false);
     setAWSCloudFormationStart(null);
     setAWSPermissionPreview([]);
@@ -8172,20 +7664,14 @@ export function ProductAWSConnectPage() {
     }));
     void refreshConnection('initial');
     void refreshBaseline();
-    void refreshDependencyIndex();
-    void refreshValidationHarness();
-    void refreshCollectorContract();
     return () => {
       connectionRequestRef.current += 1;
       baselineRequestRef.current += 1;
-      dependencyRequestRef.current += 1;
-      validationRequestRef.current += 1;
-      collectorContractRequestRef.current += 1;
       awsStartRequestRef.current += 1;
       awsPollRequestRef.current += 1;
       awsValidationRequestRef.current += 1;
     };
-  }, [refreshConnection, refreshBaseline, refreshDependencyIndex, refreshValidationHarness, refreshCollectorContract]);
+  }, [refreshConnection, refreshBaseline]);
 
   if (!scope) {
     return (
@@ -8200,21 +7686,12 @@ export function ProductAWSConnectPage() {
   const handleEnvironmentChange = (environmentID: string) => {
     connectionRequestRef.current += 1;
     baselineRequestRef.current += 1;
-    dependencyRequestRef.current += 1;
-    validationRequestRef.current += 1;
-    collectorContractRequestRef.current += 1;
     awsStartRequestRef.current += 1;
     awsPollRequestRef.current += 1;
     awsValidationRequestRef.current += 1;
     setConnection(null);
     setBaseline(null);
-    setDependencyIndex(null);
-    setValidationHarness(null);
-    setCollectorContract(null);
     setBaselineError('');
-    setDependencyError('');
-    setValidationError('');
-    setCollectorContractError('');
     navigate(
       {
         pathname: location.pathname,
@@ -8228,12 +7705,6 @@ export function ProductAWSConnectPage() {
   const findingsPath = awsRouteLink(scope, 'findings', selectedEnvironmentID);
   const statusTone = awsDomainTone(connection, loadingConnection || refreshingConnection || environmentScope.loading);
   const baselineTone = awsBaselineTone(baseline, baselineLoading || environmentScope.loading);
-  const dependencyTone = awsDependencyIndexTone(dependencyIndex, dependencyLoading || environmentScope.loading);
-  const validationTone = awsValidationHarnessTone(validationHarness, validationLoading || environmentScope.loading);
-  const collectorContractTone = awsServiceCollectorContractTone(
-    collectorContract,
-    collectorContractLoading || environmentScope.loading
-  );
   const canSubmit = !submitting && !loadingConnection && Boolean(selectedEnvironmentID);
   const activeConnectorID = awsCloudFormationStart?.connector_id ?? connection?.connector_id ?? '';
 
@@ -8317,9 +7788,6 @@ export function ProductAWSConnectPage() {
       setSuccessMessage(response.connection.connected ? 'AWS connector is active.' : 'AWS status refreshed.');
       if (response.connection.connected) {
         void verifyBaseline();
-        void refreshDependencyIndex();
-        void refreshValidationHarness();
-        void refreshCollectorContract();
       }
     } catch (error) {
       if (isStale()) {
@@ -8387,9 +7855,6 @@ export function ProductAWSConnectPage() {
       );
       if (response.connection.connected) {
         void verifyBaseline();
-        void refreshDependencyIndex();
-        void refreshValidationHarness();
-        void refreshCollectorContract();
       }
     } catch (error) {
       if (isStale()) {
@@ -8403,97 +7868,55 @@ export function ProductAWSConnectPage() {
     }
   };
 
+  const connectedNow = Boolean(connection?.connected);
+  const awaitingFirstConnectLoad = loadingConnection && !connection && !errorMessage;
+  const connectSubtitle = (() => {
+    if (awaitingFirstConnectLoad || environmentScope.loading) {
+      return 'Loading AWS status…';
+    }
+    if (!selectedEnvironmentID) {
+      return 'Pick an environment to connect.';
+    }
+    if (!connectedNow) {
+      return 'Not connected for this environment.';
+    }
+    const bits: string[] = [];
+    if (connection?.account_id) {
+      bits.push(connection.account_id);
+    }
+    if (connection?.region) {
+      bits.push(connection.region);
+    }
+    const failed = connection?.permission_checks.filter((check) => !check.passed).length ?? 0;
+    if (failed > 0) {
+      bits.push(`${failed} permission check${failed === 1 ? '' : 's'} failing`);
+    } else if (connection?.permission_checks.length) {
+      bits.push('Permissions OK');
+    }
+    return bits.join(' · ');
+  })();
+
   return (
     <DomainPageShell
       domain="aws"
-      eyebrow="Read-only account onboarding"
+      eyebrow={null}
+      hideLogo
       title="Connect AWS"
-      description="Connect AWS with the existing read-only role flow while keeping environment scope, permission health, diagnostics, and CloudFormation status visible."
+      description={connectSubtitle}
       scope={<ProductEnvironmentSelector state={environmentScope} onChange={handleEnvironmentChange} />}
-      status={loadingConnection || environmentScope.loading ? 'Loading status' : awsConnectionLabel(connection)}
       statusTone={statusTone}
-      primaryAction={{ label: 'AWS home', to: controlPath, variant: 'secondary' }}
-      secondaryActions={[{ label: 'AWS findings', to: findingsPath }]}
-      aside={
-        <DomainDetailPanel title="Setup payload" eyebrow="Scoped contract">
-          <dl className="idt-domain-route-facts">
-            <div>
-              <dt>Workspace</dt>
-              <dd>{scope.workspaceID}</dd>
-            </div>
-            <div>
-              <dt>Environment</dt>
-              <dd>{selectedEnvironmentID || 'Not selected'}</dd>
-            </div>
-            <div>
-              <dt>Connector</dt>
-              <dd>{activeConnectorID || 'Created during setup'}</dd>
-            </div>
-          </dl>
-        </DomainDetailPanel>
+      primaryAction={
+        awaitingFirstConnectLoad
+          ? undefined
+          : connectedNow
+            ? { label: 'AWS overview', to: controlPath, variant: 'primary' }
+            : undefined
       }
     >
-      <DomainKpiStrip
-        label="Connect AWS status"
-        items={[
-          {
-            label: 'Connection',
-            value: awsConnectionLabel(connection),
-            detail: connection?.display_name ?? 'Read-only IAM role connector',
-            tone: statusTone === 'danger' ? 'danger' : statusTone
-          },
-          {
-            label: 'Permission checks',
-            value: awsPermissionSummary(connection),
-            detail: 'Role validation and diagnostics stay visible after save.',
-            tone: connection?.permission_checks.some((check) => !check.passed)
-              ? 'warning'
-              : connection?.permission_checks.length
-                ? 'success'
-                : 'neutral'
-          },
-          {
-            label: 'Account / region',
-            value: connection?.account_id ?? 'Pending',
-            detail: connection?.region ? `Default region ${connection.region}` : `Default region ${awsForm.region || 'us-east-1'}`,
-            tone: connection?.account_id ? 'success' : 'info'
-          },
-          {
-            label: 'Baseline gate',
-            value: awsBaselineLabel(baseline),
-            detail: baselineLoading ? 'Verification loading' : awsBaselineSummary(baseline),
-            tone: baselineTone
-          },
-          {
-            label: 'Dependency index',
-            value: awsDependencyIndexLabel(dependencyIndex),
-            detail: dependencyLoading ? 'Sequencing loading' : awsDependencyIndexSummary(dependencyIndex),
-            tone: dependencyTone
-          },
-          {
-            label: 'Validation harness',
-            value: awsValidationHarnessLabel(validationHarness),
-            detail: validationLoading ? 'Proof states loading' : awsValidationHarnessSummary(validationHarness),
-            tone: validationTone
-          },
-          {
-            label: 'Collector contract',
-            value: awsServiceCollectorContractLabel(collectorContract),
-            detail: collectorContractLoading ? 'Contract loading' : awsServiceCollectorContractSummary(collectorContract),
-            tone: collectorContractTone
-          }
-        ]}
-      />
-
-      {loadingConnection || baselineLoading || dependencyLoading || validationLoading || collectorContractLoading || environmentScope.loading ? (
-        <DomainLoadingState label="Loading AWS setup state" />
-      ) : null}
-
       {!selectedEnvironmentID && !environmentScope.loading ? (
         <DomainEmptyState
-          eyebrow="Environment required"
-          title="Create an environment before connecting AWS"
-          body="The AWS connector still writes through workspace and project-scoped APIs. Pick or create an environment, then return to this page."
+          title="Pick an environment"
+          body="The AWS connection is scoped per environment. Pick or create one before continuing."
           nextAction={{ label: 'Open environments', to: appendSourceQuery(buildProjectsPath(scope), 'aws') }}
         />
       ) : null}
@@ -8513,21 +7936,6 @@ export function ProductAWSConnectPage() {
           {baselineError}
         </p>
       ) : null}
-      {dependencyError ? (
-        <p role="alert" className="idt-app-alert idt-app-alert-error">
-          {dependencyError}
-        </p>
-      ) : null}
-      {validationError ? (
-        <p role="alert" className="idt-app-alert idt-app-alert-error">
-          {validationError}
-        </p>
-      ) : null}
-      {collectorContractError ? (
-        <p role="alert" className="idt-app-alert idt-app-alert-error">
-          {collectorContractError}
-        </p>
-      ) : null}
 
       {selectedEnvironmentID ? (
         <div className="idt-aws-connect-layout">
@@ -8536,9 +7944,8 @@ export function ProductAWSConnectPage() {
               <div className="idt-source-config-title">
                 <SourceLogoMark provider="aws" className="is-hero" />
                 <div>
-                  <p className="idt-app-kicker">Wired now</p>
                   <h3>AWS read-only connector</h3>
-                  <p>Launch the role stack or validate an existing role ARN for this environment.</p>
+                  <p>Launch the role stack or paste an existing role ARN.</p>
                 </div>
               </div>
               <DomainStatusBadge variant={awsStatusVariant(connection)} detail={connection?.health_status ?? 'unknown'} />
@@ -8719,113 +8126,6 @@ export function ProductAWSConnectPage() {
               </div>
             </DomainStatusPanel>
 
-            <DomainStatusPanel
-              eyebrow="Issue sequencing"
-              title="Dependency index"
-              status={awsDependencyIndexLabel(dependencyIndex)}
-              tone={dependencyTone}
-              actions={[
-                { label: 'Refresh index', onClick: () => void refreshDependencyIndex(), disabled: dependencyLoading || !selectedEnvironmentID },
-                {
-                  label: 'Parent epic',
-                  href: 'https://github.com/identrail/identrail/issues/1472',
-                  target: '_blank',
-                  rel: 'noreferrer',
-                  variant: 'ghost'
-                }
-              ]}
-            >
-              <dl className="idt-domain-route-facts">
-                <div>
-                  <dt>Ready</dt>
-                  <dd>{dependencyIndex ? dependencyIndex.ready_issue_refs.join(', ') || 'None' : 'Pending'}</dd>
-                </div>
-                <div>
-                  <dt>Blocked</dt>
-                  <dd>{dependencyIndex ? formatCountLabel(dependencyIndex.blocked_issue_count, 'issue') : 'Pending'}</dd>
-                </div>
-                <div>
-                  <dt>Updated</dt>
-                  <dd>{formatConnectionTime(dependencyIndex?.updated_at)}</dd>
-                </div>
-              </dl>
-              <div className="idt-source-diagnostics" aria-label="AWS dependency diagnostics">
-                <AWSDependencyIndexSummary index={dependencyIndex} loading={dependencyLoading} />
-              </div>
-            </DomainStatusPanel>
-
-            <DomainStatusPanel
-              eyebrow="App validation"
-              title="Live app validation harness"
-              status={awsValidationHarnessLabel(validationHarness)}
-              tone={validationTone}
-              actions={[
-                { label: 'Refresh harness', onClick: () => void refreshValidationHarness(), disabled: validationLoading || !selectedEnvironmentID },
-                { label: 'Harness docs', href: '/docs/aws-platform-validation-harness', variant: 'ghost' }
-              ]}
-            >
-              <dl className="idt-domain-route-facts">
-                <div>
-                  <dt>Scenarios</dt>
-                  <dd>{validationHarness ? formatCountLabel(validationHarness.scenario_count, 'scenario') : 'Pending'}</dd>
-                </div>
-                <div>
-                  <dt>States</dt>
-                  <dd>{validationHarness ? validationHarness.fixture_states.map(formatTokenLabel).join(', ') : 'Pending'}</dd>
-                </div>
-                <div>
-                  <dt>Updated</dt>
-                  <dd>{formatConnectionTime(validationHarness?.updated_at)}</dd>
-                </div>
-              </dl>
-              <div className="idt-source-diagnostics" aria-label="AWS validation harness diagnostics">
-                <AWSValidationHarnessSummary harness={validationHarness} loading={validationLoading} />
-              </div>
-            </DomainStatusPanel>
-
-            <DomainStatusPanel
-              eyebrow="Collector contract"
-              title="Service collector contract"
-              status={awsServiceCollectorContractLabel(collectorContract)}
-              tone={collectorContractTone}
-              actions={[
-                {
-                  label: 'Refresh contract',
-                  onClick: () => void refreshCollectorContract(),
-                  disabled: collectorContractLoading || !selectedEnvironmentID
-                },
-                { label: 'Contract docs', href: '/docs/aws-service-collector-contract', variant: 'ghost' }
-              ]}
-            >
-              <dl className="idt-domain-route-facts">
-                <div>
-                  <dt>Fields</dt>
-                  <dd>{collectorContract ? formatCountLabel(collectorContract.required_field_count, 'field') : 'Pending'}</dd>
-                </div>
-                <div>
-                  <dt>Fixtures</dt>
-                  <dd>{collectorContract ? formatCountLabel(collectorContract.fixture_case_count, 'fixture') : 'Pending'}</dd>
-                </div>
-                <div>
-                  <dt>Edges</dt>
-                  <dd>{collectorContract ? formatCountLabel(collectorContract.graph_edge_count, 'edge') : 'Pending'}</dd>
-                </div>
-              </dl>
-              <div className="idt-source-diagnostics" aria-label="AWS service collector contract diagnostics">
-                <AWSServiceCollectorContractSummary contract={collectorContract} loading={collectorContractLoading} />
-              </div>
-            </DomainStatusPanel>
-
-            <DomainStatusPanel eyebrow="Coming later" title="AWS capability expansion" status="Labeled" tone="info">
-              <div className="idt-aws-mini-roadmap">
-                <span>Accounts / regions</span>
-                <span>Machine identities</span>
-                <span>Resources / secrets</span>
-                <span>Runtime evidence</span>
-                <span>Findings</span>
-                <span>Remediation</span>
-              </div>
-            </DomainStatusPanel>
           </div>
         </div>
       ) : null}
@@ -10538,7 +9838,7 @@ function scanFinishedAt(scan: RepoScanRecord): number {
 function GitHubControlCenterBannerView({ banner }: { banner: GitHubControlCenterBanner }) {
   return (
     <section
-      className={`idt-github-overview-banner is-${banner.tone}`}
+      className={`idt-overview-banner is-${banner.tone}`}
       aria-label="GitHub action recommendation"
       data-banner-id={banner.id}
     >

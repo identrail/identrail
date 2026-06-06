@@ -1,6 +1,89 @@
 # Changelog
 
 ## Unreleased
+- Reworked the entire **AWS section** (`/app/.../aws*`) so customer pages
+  read as a product instead of an engineering progress dashboard.
+  - The AWS overview header drops the AWS icon, the `AWS MACHINE
+    IDENTITY` eyebrow, and the "Operate AWS connection health, account
+    and region scope, permission posture, and the AWS machine-identity
+    roadmap from one domain-owned surface." tagline. Title is just
+    "AWS" and the subtitle condenses to a single state-aware line
+    (`Disconnected · External ID not set` / `123456789012 · us-east-1 ·
+    Permissions OK · Baseline ready` / `Loading AWS status…` /
+    `Couldn't load AWS status.`).
+  - The eight-card KPI strip (Connection / Account & region /
+    Permissions / Runtime and actions / Baseline gate / Dependency
+    index / Validation harness / Collector contract) is deleted.
+  - The three "issue-tracker as UI" panels are removed from every AWS
+    customer page: **Issue sequencing / AWS platform dependency index**
+    (with its `#1472 · 85 issues · 11 waves · 18 ready · 61 blocked ·
+    #1479 …#1496` dump), **App validation / AWS live app validation
+    harness** (with its scenario fixture states and per-scenario
+    confidence percentages), and **Collector contract / AWS service
+    collector contract** (with its fields/fixtures/edges/permissions
+    counts and raw graph relationship labels like `Workload to
+    Identity`, `CAN PASS ROLE`). The underlying API endpoints
+    (`/aws/dependency-index`, `/aws/validation-harness`,
+    `/aws/collector-contract`) stay live for engineering tooling — only
+    the customer UI calls are removed.
+  - The header secondary CTAs (`Accounts` and `Findings` on the
+    overview, `AWS home` / `AWS findings` on every subpage) collapse
+    into a single state-driven primary CTA (`Connect AWS` when
+    disconnected, `Findings` when connected, omitted while loading or
+    on a status error).
+  - A single contextual banner replaces the "Next actions / What AWS
+    can do today / Wired now / Coming waves" panel: `Connect AWS to
+    start scanning this environment.` / `Baseline not verified yet for
+    this environment.` / `N permission check(s) failing.` — each with
+    one action button.
+  - Every AWS subpage shell (Connect, Accounts, Identities, Agents,
+    Resources, Runtime, Graph, Findings, Remediation, Governance) gets
+    the same compact header treatment plus plain-English titles and
+    one-line subtitles, replacing the "Coverage inventory / Identity
+    inventory / Agent inventory / Reachability inventory / Reserved
+    surface / Inventory shell / Coverage shell / Reachability shell"
+    LLM-cadence copy and the per-page "Inventory contract" /
+    "Wired now / Planned coverage / Current vs planned / Coming wave"
+    repeats. Sub-page taglines: `Which AWS account and region you're
+    connected to.` / `IAM roles, workload identities, and what they
+    can reach.` / `Bedrock and MCP agents Identrail can see.` /
+    `Secrets, KMS keys, and S3 buckets your AWS roles can reach.` /
+    `What your AWS roles actually did, from CloudTrail.` /
+    `How AWS roles can reach things, visualised.` / `Risks Identrail
+    found in your AWS setup.` / `AWS fixes Identrail prepares for you
+    to approve.` / `Advice on AWS access. Identrail won't apply
+    changes for you.`
+  - The Connect AWS form keeps every existing CloudFormation install,
+    role-ARN validation, permission preview, popup-fallback link,
+    baseline gate, and permission diagnostics panel — only the
+    surrounding header, KPI strip, "Setup payload" aside, and four
+    issue/harness/contract side panels are removed.
+  - New features reach the AWS app through the existing feature-flag +
+    nav-card pattern (`AWS_CONTROL_CARDS` + the `VITE_FEATURE_*`
+    flags). No more roadmap-in-UI: pre-ship surfaces simply stay out
+    of the navigation grid until they actually work, and shipped
+    surfaces communicate state via real empty states ("No findings
+    yet. They'll appear after your first AWS scan.") rather than
+    "Coming wave" / "Reserved surface" badges on non-functional pages.
+- Slimmed every primary button across the **product app** so short
+  labels like `Repositories`, `Queue scan`, `Connect AWS`, `Findings`,
+  `Run baseline`, and `AWS overview` actually hug their text. The base
+  `.idt-btn` rule is tuned for the marketing surface (44px min-height,
+  full pill border-radius, uppercase, 0.08em letter-spacing) which
+  made every button in the data-dense product app look oversized with
+  visible padding on the right of short labels. A scoped override
+  inside `.idt-app-console-layout` reduces min-height to 2.15rem,
+  tightens padding to 0.4rem × 0.95rem, swaps the full-pill radius
+  for a 8px rounded-rect, drops the uppercase + lets buttons take
+  `width: max-content` so they fit content. The marketing site
+  buttons are untouched. The existing mobile-stacked
+  `width: 100%` override still applies inside the product app on
+  narrow viewports.
+- Renamed the shared GitHub-overview banner class from
+  `.idt-overview-banner` (formerly `.idt-github-overview-banner`) so
+  the AWS overview can reuse the same pill-banner shape. The class
+  rename is invisible to users — both AWS and GitHub overview
+  recommendations now render with the identical pill banner.
 - Reworked the GitHub **Repositories** page (`/app/.../github/repositories`)
   with the same compact treatment applied to the overview and Connect
   pages. The header drops the GitHub icon, the `REPOSITORY INVENTORY`

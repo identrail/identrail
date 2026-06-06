@@ -22820,7 +22820,7 @@ html[data-theme='light'] .idt-app-shell-screen select {
   letter-spacing: 0.01em;
 }
 
-.idt-github-overview-banner {
+.idt-overview-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -22832,33 +22832,33 @@ html[data-theme='light'] .idt-app-shell-screen select {
   background: #050505;
 }
 
-.idt-github-overview-banner > div {
+.idt-overview-banner > div {
   display: grid;
   gap: 0.15rem;
   min-width: 0;
 }
 
-.idt-github-overview-banner p {
+.idt-overview-banner p {
   margin: 0;
   color: #ffffff;
   font-weight: 700;
   font-size: 0.95rem;
 }
 
-.idt-github-overview-banner small {
+.idt-overview-banner small {
   color: var(--app-muted);
   font-size: 0.78rem;
 }
 
-.idt-github-overview-banner.is-warning {
+.idt-overview-banner.is-warning {
   border-left-color: rgba(245, 196, 81, 0.85);
 }
 
-.idt-github-overview-banner.is-danger {
+.idt-overview-banner.is-danger {
   border-left-color: rgba(255, 107, 107, 0.85);
 }
 
-.idt-github-overview-banner.is-info {
+.idt-overview-banner.is-info {
   border-left-color: rgba(124, 97, 255, 0.85);
 }
 
@@ -23114,6 +23114,38 @@ html[data-theme='light'] .idt-app-shell-screen select {
   justify-content: center;
   gap: 0.38rem;
   min-height: 2.35rem;
+}
+
+/* Compact button proportions for the product app.
+ *
+ * The base .idt-btn rule is tuned for the marketing surface — pill shape,
+ * 44px min-height, uppercase, generous letter-spacing — which makes every
+ * button in the data-dense product app (header CTAs, row actions, banner
+ * actions) look oversized with visible padding on the right of short
+ * labels like "Repositories" or "Queue scan". Scoping this override to
+ * .idt-app-console-layout keeps marketing buttons untouched. */
+.idt-app-console-layout .idt-btn {
+  min-height: 2.15rem;
+  padding: 0.4rem 0.95rem;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  letter-spacing: 0.005em;
+  text-transform: none;
+  font-weight: 700;
+  width: max-content;
+  max-width: 100%;
+}
+
+/* In the mobile/stacked container the same rule still applies, but the
+ * existing media query at the bottom of this file forces width: 100% —
+ * make sure max-content does not override that. */
+@media (max-width: 760px) {
+  .idt-app-console-layout .idt-domain-header-actions .idt-btn,
+  .idt-app-console-layout .idt-domain-filter-actions .idt-btn,
+  .idt-app-console-layout .idt-domain-action-footer .idt-btn,
+  .idt-app-console-layout .idt-domain-status-panel footer .idt-btn {
+    width: 100%;
+  }
 }
 
 .idt-domain-action-icon {
