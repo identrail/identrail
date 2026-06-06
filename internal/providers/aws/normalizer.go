@@ -641,52 +641,64 @@ func normalizeCodePipelineDeploymentRoleAsset(asset providers.RawAsset, index in
 
 	if strings.TrimSpace(record.PipelineARN) != "" {
 		pipelineResourceID := codePipelineResourceID(record.PipelineARN)
+		resource := codePipelineResourceFromRecord(record, asset.SourceID, workloadID, roleARN)
 		if _, exists := resourceSeen[pipelineResourceID]; !exists {
 			resourceSeen[pipelineResourceID] = struct{}{}
-			bundle.Resources = append(bundle.Resources, domain.Resource{
-				ID:        pipelineResourceID,
-				Provider:  domain.ProviderAWS,
-				Type:      domain.ResourceTypeCodePipeline,
-				Name:      firstNonEmptyAWSValue(record.PipelineName, codePipelineNameFromARN(record.PipelineARN)),
-				ARN:       strings.TrimSpace(record.PipelineARN),
-				Region:    strings.TrimSpace(record.Region),
-				AccountID: strings.TrimSpace(record.AccountID),
-				Labels:    copyTags(record.Tags),
-				Metadata: map[string]any{
-					"role_arn":                     roleARN,
-					"role_account_id":              strings.TrimSpace(record.RoleAccountID),
-					"role_kind":                    strings.TrimSpace(record.RoleKind),
-					"pipeline_name":                strings.TrimSpace(record.PipelineName),
-					"pipeline_version":             record.PipelineVersion,
-					"pipeline_type":                strings.TrimSpace(record.PipelineType),
-					"execution_mode":               strings.TrimSpace(record.ExecutionMode),
-					"stage_name":                   strings.TrimSpace(record.StageName),
-					"action_name":                  strings.TrimSpace(record.ActionName),
-					"action_category":              strings.TrimSpace(record.ActionCategory),
-					"action_owner":                 strings.TrimSpace(record.ActionOwner),
-					"action_provider":              strings.TrimSpace(record.ActionProvider),
-					"action_region":                strings.TrimSpace(record.ActionRegion),
-					"input_artifact_names":         append([]string(nil), record.InputArtifactNames...),
-					"output_artifact_names":        append([]string(nil), record.OutputArtifactNames...),
-					"artifact_store_types":         append([]string(nil), record.ArtifactStoreTypes...),
-					"artifact_store_locations":     append([]string(nil), record.ArtifactStoreLocations...),
-					"artifact_store_regions":       append([]string(nil), record.ArtifactStoreRegions...),
-					"artifact_kms_key_arns":        append([]string(nil), record.ArtifactKMSKeyARNs...),
-					"configuration_keys":           append([]string(nil), record.ConfigurationKeys...),
-					"provider_identifiers":         append([]string(nil), record.ProviderIdentifiers...),
-					"disabled_stage_transitions":   append([]string(nil), record.DisabledStageTransitions...),
-					"cross_region_artifact_stores": record.CrossRegionArtifactStores,
-					"cross_region_action":          record.CrossRegionAction,
-					"cross_account_role":           record.CrossAccountRole,
-					"pass_role_adjacent":           record.PassRoleAdjacent,
-				},
-				RawRef:         asset.SourceID,
-				SourceEntityID: workloadID,
-			})
+			bundle.Resources = append(bundle.Resources, resource)
+		} else if strings.EqualFold(record.RoleKind, "pipeline_service_role") {
+			for idx := range bundle.Resources {
+				if bundle.Resources[idx].ID == pipelineResourceID {
+					bundle.Resources[idx] = resource
+					break
+				}
+			}
 		}
 	}
 
 	return nil
+}
+
+func codePipelineResourceFromRecord(record CodePipelineDeploymentRole, rawRef string, workloadID string, roleARN string) domain.Resource {
+	return domain.Resource{
+		ID:        codePipelineResourceID(record.PipelineARN),
+		Provider:  domain.ProviderAWS,
+		Type:      domain.ResourceTypeCodePipeline,
+		Name:      firstNonEmptyAWSValue(record.PipelineName, codePipelineNameFromARN(record.PipelineARN)),
+		ARN:       strings.TrimSpace(record.PipelineARN),
+		Region:    strings.TrimSpace(record.Region),
+		AccountID: strings.TrimSpace(record.AccountID),
+		Labels:    copyTags(record.Tags),
+		Metadata: map[string]any{
+			"role_arn":                     roleARN,
+			"role_account_id":              strings.TrimSpace(record.RoleAccountID),
+			"role_kind":                    strings.TrimSpace(record.RoleKind),
+			"pipeline_name":                strings.TrimSpace(record.PipelineName),
+			"pipeline_version":             record.PipelineVersion,
+			"pipeline_type":                strings.TrimSpace(record.PipelineType),
+			"execution_mode":               strings.TrimSpace(record.ExecutionMode),
+			"stage_name":                   strings.TrimSpace(record.StageName),
+			"action_name":                  strings.TrimSpace(record.ActionName),
+			"action_category":              strings.TrimSpace(record.ActionCategory),
+			"action_owner":                 strings.TrimSpace(record.ActionOwner),
+			"action_provider":              strings.TrimSpace(record.ActionProvider),
+			"action_region":                strings.TrimSpace(record.ActionRegion),
+			"input_artifact_names":         append([]string(nil), record.InputArtifactNames...),
+			"output_artifact_names":        append([]string(nil), record.OutputArtifactNames...),
+			"artifact_store_types":         append([]string(nil), record.ArtifactStoreTypes...),
+			"artifact_store_locations":     append([]string(nil), record.ArtifactStoreLocations...),
+			"artifact_store_regions":       append([]string(nil), record.ArtifactStoreRegions...),
+			"artifact_kms_key_arns":        append([]string(nil), record.ArtifactKMSKeyARNs...),
+			"configuration_keys":           append([]string(nil), record.ConfigurationKeys...),
+			"provider_identifiers":         append([]string(nil), record.ProviderIdentifiers...),
+			"disabled_stage_transitions":   append([]string(nil), record.DisabledStageTransitions...),
+			"cross_region_artifact_stores": record.CrossRegionArtifactStores,
+			"cross_region_action":          record.CrossRegionAction,
+			"cross_account_role":           record.CrossAccountRole,
+			"pass_role_adjacent":           record.PassRoleAdjacent,
+		},
+		RawRef:         rawRef,
+		SourceEntityID: workloadID,
+	}
 }
 
 func normalizeEKSWorkloadIdentityAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {

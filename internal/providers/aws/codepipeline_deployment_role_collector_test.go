@@ -239,6 +239,83 @@ func TestRoleNormalizerKeepsCrossAccountCodePipelineActionScopedToPipelineAccoun
 	}
 }
 
+func TestRoleNormalizerPrefersCodePipelineResourceMetadataFromPipelineRole(t *testing.T) {
+	pipelineARN := "arn:aws:codepipeline:us-east-1:123456789012:payments-release"
+	collectedAt := time.Date(2026, 6, 6, 11, 0, 0, 0, time.UTC)
+	action := CodePipelineDeploymentRole{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID:     "123456789012",
+			Region:        "us-east-1",
+			Service:       "codepipeline",
+			WorkloadID:    pipelineARN + "/Build/Deploy",
+			WorkloadType:  "codepipeline_action",
+			WorkloadName:  "payments-release / Build / Deploy",
+			RoleARN:       "arn:aws:iam::210987654321:role/payments-deploy-action",
+			Source:        "getpipeline",
+			EvidenceRef:   pipelineARN + "#stage/Build/action/Deploy",
+			Confidence:    0.9,
+			ScanID:        "scan-codepipeline",
+			CollectorName: codePipelineDeploymentRoleCollectorName,
+			CollectedAt:   collectedAt,
+		},
+		RoleName:         "payments-deploy-action",
+		RoleAccountID:    "210987654321",
+		RoleKind:         "action_role",
+		PipelineARN:      pipelineARN,
+		PipelineName:     "payments-release",
+		StageName:        "Build",
+		ActionName:       "Deploy",
+		CrossAccountRole: true,
+	}
+	pipeline := CodePipelineDeploymentRole{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID:     "123456789012",
+			Region:        "us-east-1",
+			Service:       "codepipeline",
+			WorkloadID:    pipelineARN,
+			WorkloadType:  "codepipeline_pipeline",
+			WorkloadName:  "payments-release",
+			RoleARN:       "arn:aws:iam::123456789012:role/payments-codepipeline-service",
+			Source:        "getpipeline",
+			EvidenceRef:   pipelineARN,
+			Confidence:    0.96,
+			ScanID:        "scan-codepipeline",
+			CollectorName: codePipelineDeploymentRoleCollectorName,
+			CollectedAt:   collectedAt,
+		},
+		RoleName:     "payments-codepipeline-service",
+		RoleKind:     "pipeline_service_role",
+		PipelineARN:  pipelineARN,
+		PipelineName: "payments-release",
+	}
+	actionPayload, err := json.Marshal(action)
+	if err != nil {
+		t.Fatalf("marshal action: %v", err)
+	}
+	pipelinePayload, err := json.Marshal(pipeline)
+	if err != nil {
+		t.Fatalf("marshal pipeline: %v", err)
+	}
+
+	bundle, err := NewRoleNormalizer().Normalize(context.Background(), []providers.RawAsset{
+		{Kind: rawKindCodePipelineDeploymentRole, SourceID: "action-first", Payload: actionPayload},
+		{Kind: rawKindCodePipelineDeploymentRole, SourceID: "pipeline-second", Payload: pipelinePayload},
+	})
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if len(bundle.Resources) != 1 {
+		t.Fatalf("expected one CodePipeline resource, got %+v", bundle.Resources)
+	}
+	resource := bundle.Resources[0]
+	if resource.Metadata["role_kind"] != "pipeline_service_role" || resource.Metadata["role_arn"] != pipeline.RoleARN {
+		t.Fatalf("expected pipeline service role metadata to win, got %+v", resource.Metadata)
+	}
+	if resource.SourceEntityID != codePipelineRoleWorkloadID(pipeline) {
+		t.Fatalf("expected resource source entity to point at pipeline workload, got %+v", resource)
+	}
+}
+
 func TestCodePipelineDeploymentRoleCollectorPreservesAssetsWhenLaterPageFails(t *testing.T) {
 	calls := 0
 	api := codePipelineDeploymentRoleAPIFunc(func(_ context.Context, nextToken string, _ int32) (CodePipelineDeploymentRolePage, error) {
