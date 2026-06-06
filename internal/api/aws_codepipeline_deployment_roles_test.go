@@ -46,6 +46,9 @@ func TestGetAWSCodePipelineDeploymentRoleInventoryBuildsScopedRecords(t *testing
 	if result.Records[1].RelationshipType != "runs_as" || result.Records[1].ActionProvider != "CodeDeploy" || !result.Records[1].CrossAccountRole {
 		t.Fatalf("expected CodePipeline action role evidence, got %+v", result.Records[1])
 	}
+	if result.Records[1].AccountID != "123456789012" || result.Records[1].RoleAccountID != "210987654321" || !strings.Contains(result.Records[1].FromNodeID, "123456789012") {
+		t.Fatalf("expected action workload account and role account to remain separate, got %+v", result.Records[1])
+	}
 	if strings.Contains(strings.Join(result.Records[1].ConfigurationKeys, ","), "must-not-appear") {
 		t.Fatalf("configuration values must not be collected, got %+v", result.Records[1])
 	}

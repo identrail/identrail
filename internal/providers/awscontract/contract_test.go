@@ -173,6 +173,16 @@ func TestValidateServiceCollectorRecordAcceptsSupportedAWSPartitions(t *testing.
 	}
 }
 
+func TestValidateServiceCollectorRecordAllowsCodePipelineCrossAccountActionRoles(t *testing.T) {
+	record := validServiceCollectorRecord()
+	record.Service = "codepipeline"
+	record.WorkloadType = "codepipeline_action"
+	record.RoleARN = "arn:aws:iam::210987654321:role/CrossAccountDeploy"
+	if err := ValidateServiceCollectorRecord(record); err != nil {
+		t.Fatalf("expected CodePipeline action roles to allow cross-account role ARNs: %v", err)
+	}
+}
+
 func TestValidateAWSServiceCollectorContractRejectsMalformedContract(t *testing.T) {
 	tests := []struct {
 		name    string

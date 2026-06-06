@@ -108,6 +108,9 @@ func TestSDKCodePipelineDeploymentRoleAPIMapsPipelineAndActionRoles(t *testing.T
 	if actionRecord.RoleARN != actionRoleARN || actionRecord.RoleKind != "action_role" || !actionRecord.CrossAccountRole || !actionRecord.CrossRegionAction {
 		t.Fatalf("expected cross-account cross-region action role metadata, got %+v", actionRecord)
 	}
+	if actionRecord.AccountID != "123456789012" || actionRecord.RoleAccountID != "210987654321" {
+		t.Fatalf("expected action workload account and role account to remain separate, got %+v", actionRecord)
+	}
 	if actionRecord.ActionProvider != "CodeDeploy" || actionRecord.ActionCategory != "Deploy" || len(actionRecord.InputArtifactNames) != 1 {
 		t.Fatalf("expected action provider/artifact metadata, got %+v", actionRecord)
 	}

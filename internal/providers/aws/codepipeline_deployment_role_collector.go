@@ -33,6 +33,7 @@ type CodePipelineDeploymentRole struct {
 	ExecutionMode             string            `json:"execution_mode,omitempty"`
 	StageName                 string            `json:"stage_name,omitempty"`
 	ActionName                string            `json:"action_name,omitempty"`
+	RoleAccountID             string            `json:"role_account_id,omitempty"`
 	ActionCategory            string            `json:"action_category,omitempty"`
 	ActionOwner               string            `json:"action_owner,omitempty"`
 	ActionProvider            string            `json:"action_provider,omitempty"`
@@ -301,6 +302,7 @@ func normalizeCodePipelineDeploymentRoleScope(scope AWSCollectorScope, record Co
 	normalized.Service = firstNonEmptyAWSValue(record.Service, codePipelineServiceName)
 	normalized.RoleARN = strings.TrimSpace(record.RoleARN)
 	normalized.RoleName = firstNonEmptyAWSValue(record.RoleName, roleNameFromARN(record.RoleARN))
+	normalized.RoleAccountID = firstNonEmptyAWSValue(record.RoleAccountID, roleAccountIDFromARN(normalized.RoleARN))
 	normalized.RoleKind = firstNonEmptyAWSValue(record.RoleKind, "pipeline_service_role")
 	normalized.PipelineARN = strings.TrimSpace(record.PipelineARN)
 	normalized.PipelineName = firstNonEmptyAWSValue(record.PipelineName, codePipelineNameFromARN(record.PipelineARN))

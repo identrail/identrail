@@ -65,6 +65,7 @@ type AWSCodePipelineDeploymentRoleRecord struct {
 	WorkloadName              string            `json:"workload_name"`
 	RoleARN                   string            `json:"role_arn,omitempty"`
 	RoleName                  string            `json:"role_name,omitempty"`
+	RoleAccountID             string            `json:"role_account_id,omitempty"`
 	RoleKind                  string            `json:"role_kind,omitempty"`
 	PipelineARN               string            `json:"pipeline_arn,omitempty"`
 	PipelineName              string            `json:"pipeline_name,omitempty"`
@@ -270,12 +271,12 @@ func awsCodePipelineDeploymentRoleFixtureRecords(accountID string, region string
 	}
 	actionRoleARN := "arn:aws:iam::210987654321:role/payments-prod-deploy-action"
 	action := base
-	action.AccountID = "210987654321"
 	action.WorkloadID = pipelineARN + "/Deploy/Prod"
 	action.WorkloadType = "codepipeline_action"
 	action.WorkloadName = "payments-release / Deploy / Prod"
 	action.RoleARN = actionRoleARN
 	action.RoleName = roleNameFromARNForAPI(actionRoleARN)
+	action.RoleAccountID = roleAccountIDFromARNForAPI(actionRoleARN)
 	action.RoleKind = "action_role"
 	action.StageName = "Deploy"
 	action.ActionName = "Prod"
@@ -477,4 +478,12 @@ func awsCodePipelineNodeID(accountID string, region string, pipelineRef string, 
 	normalizedRef := firstNonEmptyAWSValue(pipelineRef, "pipeline")
 	normalizedRoleKind := firstNonEmptyAWSValue(roleKind, "role")
 	return fmt.Sprintf("aws:workload:codepipeline:%s:%s:pipeline/%s/%s", account, trimmedRegion, normalizedRef, normalizedRoleKind)
+}
+
+func roleAccountIDFromARNForAPI(arn string) string {
+	parts := strings.Split(strings.TrimSpace(arn), ":")
+	if len(parts) >= 5 {
+		return strings.TrimSpace(parts[4])
+	}
+	return ""
 }

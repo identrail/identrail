@@ -56,11 +56,11 @@ func TestCodePipelineDeploymentRoleCollectorEmitsContractRecordsAndDiagnostics(t
 					WorkloadType: "codepipeline_action",
 					WorkloadName: "payments-release / Deploy / Prod",
 					RoleARN:      "arn:aws:iam::210987654321:role/payments-prod-deploy-action",
-					AccountID:    "210987654321",
 					Source:       "getpipeline",
 					EvidenceRef:  "arn:aws:codepipeline:us-east-1:123456789012:payments-release#stage/Deploy/action/Prod",
 				},
 				RoleKind:             "action_role",
+				RoleAccountID:        "210987654321",
 				PipelineARN:          "arn:aws:codepipeline:us-east-1:123456789012:payments-release",
 				PipelineName:         "payments-release",
 				StageName:            "Deploy",
@@ -124,6 +124,9 @@ func TestCodePipelineDeploymentRoleCollectorEmitsContractRecordsAndDiagnostics(t
 	if strings.Contains(strings.Join(payload.ConfigurationKeys, ","), "must-not-appear") {
 		t.Fatalf("configuration values must not be collected, got %+v", payload.ConfigurationKeys)
 	}
+	if payload.AccountID != "123456789012" || payload.RoleAccountID != "210987654321" {
+		t.Fatalf("expected action workload account and role account to stay separate, got %+v", payload)
+	}
 	if _, err := awscontract.NormalizeServiceCollectorRecord(payload.ServiceCollectorRecord); err != nil {
 		t.Fatalf("expected payload to satisfy service collector contract: %v", err)
 	}
@@ -182,6 +185,57 @@ func TestRoleNormalizerAddsCodePipelineRunsAsEdges(t *testing.T) {
 	}
 	if !hasRelationshipType(relationships, domain.RelationshipRunsAs) {
 		t.Fatalf("expected codepipeline role runs_as edge, got %+v", relationships)
+	}
+}
+
+func TestRoleNormalizerKeepsCrossAccountCodePipelineActionScopedToPipelineAccount(t *testing.T) {
+	record := CodePipelineDeploymentRole{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID:     "123456789012",
+			Region:        "us-east-1",
+			Service:       "codepipeline",
+			WorkloadID:    "arn:aws:codepipeline:us-east-1:123456789012:payments-release/Deploy/Prod",
+			WorkloadType:  "codepipeline_action",
+			WorkloadName:  "payments-release / Deploy / Prod",
+			RoleARN:       "arn:aws:iam::210987654321:role/payments-prod-deploy-action",
+			Source:        "getpipeline",
+			EvidenceRef:   "arn:aws:codepipeline:us-east-1:123456789012:payments-release#stage/Deploy/action/Prod",
+			Confidence:    0.9,
+			ScanID:        "scan-codepipeline",
+			CollectorName: codePipelineDeploymentRoleCollectorName,
+			CollectedAt:   time.Date(2026, 6, 6, 11, 0, 0, 0, time.UTC),
+		},
+		RoleName:         "payments-prod-deploy-action",
+		RoleAccountID:    "210987654321",
+		RoleKind:         "action_role",
+		PipelineARN:      "arn:aws:codepipeline:us-east-1:123456789012:payments-release",
+		PipelineName:     "payments-release",
+		StageName:        "Deploy",
+		ActionName:       "Prod",
+		CrossAccountRole: true,
+	}
+	payload, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal record: %v", err)
+	}
+
+	bundle, err := NewRoleNormalizer().Normalize(context.Background(), []providers.RawAsset{
+		{Kind: rawKindCodePipelineDeploymentRole, SourceID: "codepipeline-action-role", Payload: payload},
+	})
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if len(bundle.Identities) != 1 || bundle.Identities[0].ID != "aws:identity:arn:aws:iam::210987654321:role/payments-prod-deploy-action" {
+		t.Fatalf("expected cross-account role identity, got %+v", bundle.Identities)
+	}
+	if len(bundle.Workloads) != 1 || bundle.Workloads[0].AccountID != "123456789012" {
+		t.Fatalf("expected CodePipeline action workload to remain in pipeline account, got %+v", bundle.Workloads)
+	}
+	if len(bundle.Resources) != 1 || bundle.Resources[0].AccountID != "123456789012" {
+		t.Fatalf("expected CodePipeline resource to remain in pipeline account, got %+v", bundle.Resources)
+	}
+	if got := bundle.Resources[0].Metadata["role_account_id"]; got != "210987654321" {
+		t.Fatalf("expected role account metadata, got %+v", bundle.Resources[0].Metadata)
 	}
 }
 

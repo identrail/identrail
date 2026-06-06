@@ -34,8 +34,8 @@ Each record includes:
 - Artifact store type, bucket/location name, region, and KMS key reference.
 - Action configuration key names only.
 - Provider identifiers, disabled stage transitions, cross-region artifact store
-  state, cross-region action state, cross-account role state, and
-  PassRole-adjacent state.
+  state, cross-region action state, role account ID for cross-account action
+  roles, cross-account role state, and PassRole-adjacent state.
 - Tags when available.
 
 The collector does not read source contents, action configuration values,

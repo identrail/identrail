@@ -1446,6 +1446,7 @@ export type AWSCodePipelineDeploymentRoleRecord = {
   workload_name: string;
   role_arn?: string;
   role_name?: string;
+  role_account_id?: string;
   role_kind?: string;
   pipeline_arn?: string;
   pipeline_name?: string;

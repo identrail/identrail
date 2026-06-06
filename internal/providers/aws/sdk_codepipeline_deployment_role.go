@@ -184,9 +184,9 @@ func (a *SDKCodePipelineDeploymentRoleAPI) recordsFromPipeline(pipeline codepipe
 			}
 			roleAccountID := roleAccountIDFromARN(roleARN)
 			record := base
-			record.AccountID = firstNonEmptyAWSValue(roleAccountID, record.AccountID)
 			record.RoleARN = roleARN
 			record.RoleName = roleNameFromARN(roleARN)
+			record.RoleAccountID = roleAccountID
 			record.RoleKind = "action_role"
 			record.StageName = stageName
 			record.ActionName = strings.TrimSpace(awsv2.ToString(action.Name))

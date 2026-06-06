@@ -654,6 +654,7 @@ func normalizeCodePipelineDeploymentRoleAsset(asset providers.RawAsset, index in
 				Labels:    copyTags(record.Tags),
 				Metadata: map[string]any{
 					"role_arn":                     roleARN,
+					"role_account_id":              strings.TrimSpace(record.RoleAccountID),
 					"role_kind":                    strings.TrimSpace(record.RoleKind),
 					"pipeline_name":                strings.TrimSpace(record.PipelineName),
 					"pipeline_version":             record.PipelineVersion,

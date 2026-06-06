@@ -5083,6 +5083,7 @@ function awsCodePipelineDeploymentRoleRow(record: AWSCodePipelineDeploymentRoleR
   const actionLabel = record.action_name ? `${record.stage_name || 'stage'} / ${record.action_name}` : 'pipeline service role';
   const providerLabel = record.action_provider ? `${record.action_category || 'action'} via ${record.action_provider}` : 'pipeline service role';
   const artifactLabel = record.artifact_store_regions?.length ? `${record.artifact_store_regions.length} artifact regions` : 'artifact store region not reported';
+  const roleAccountLabel = record.role_account_id && record.role_account_id !== record.account_id ? `role account ${record.role_account_id}` : 'same-account role';
   const pathLabel = [
     record.cross_account_role ? 'cross-account role' : '',
     record.cross_region_action ? 'cross-region action' : '',
@@ -5096,7 +5097,7 @@ function awsCodePipelineDeploymentRoleRow(record: AWSCodePipelineDeploymentRoleR
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
     stage,
-    detail: `${pipelineLabel} ${actionLabel} runs as ${roleLabel}; ${providerLabel}; ${artifactLabel}; ${pathLabel}.`,
+    detail: `${pipelineLabel} ${actionLabel} runs as ${roleLabel}; ${providerLabel}; ${artifactLabel}; ${roleAccountLabel}; ${pathLabel}.`,
     filters: {
       identityType: 'codepipeline-role',
       service: 'codepipeline',
@@ -5107,6 +5108,7 @@ function awsCodePipelineDeploymentRoleRow(record: AWSCodePipelineDeploymentRoleR
     searchText: inventorySearchText([
       record.role_arn,
       record.role_name,
+      record.role_account_id,
       record.role_kind,
       record.pipeline_arn,
       record.pipeline_name,

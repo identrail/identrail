@@ -7975,6 +7975,7 @@ components:
         workload_name: { type: string }
         role_arn: { type: string }
         role_name: { type: string }
+        role_account_id: { type: string }
         role_kind:
           type: string
           enum: [pipeline_service_role, action_role]
