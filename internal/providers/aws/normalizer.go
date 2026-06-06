@@ -95,6 +95,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		if err := ctx.Err(); err != nil {
 			return providers.NormalizedBundle{}, err
 		}
+		if asset.Kind != rawKindCodeBuildServiceRole {
+			continue
+		}
+		if err := normalizeCodeBuildServiceRoleAsset(asset, i, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
 		if asset.Kind != rawKindEKSWorkloadIdentity {
 			continue
 		}
@@ -477,6 +489,99 @@ func normalizeLambdaExecutionRoleAsset(asset providers.RawAsset, index int, bund
 	return nil
 }
 
+func normalizeCodeBuildServiceRoleAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record CodeBuildServiceRole
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode codebuild service role asset[%d]: %w", index, err)
+	}
+
+	roleARN := strings.TrimSpace(record.RoleARN)
+	roleIdentityID := ""
+	if roleARN != "" {
+		roleIdentityID = identityIDFromARN(roleARN)
+		roleName := strings.TrimSpace(record.RoleName)
+		if roleName == "" {
+			roleName = roleNameFromARN(roleARN)
+		}
+		if _, exists := identitySeen[roleIdentityID]; !exists {
+			identitySeen[roleIdentityID] = struct{}{}
+			bundle.Identities = append(bundle.Identities, domain.Identity{
+				ID:        roleIdentityID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.IdentityTypeRole,
+				Name:      roleName,
+				ARN:       roleARN,
+				OwnerHint: ownerHintFromTags(record.Tags),
+				Tags:      copyTags(record.Tags),
+				RawRef:    asset.SourceID,
+			})
+		}
+	}
+
+	workloadID := codeBuildRoleWorkloadID(record)
+	if workloadID != "" {
+		if _, exists := workloadSeen[workloadID]; !exists {
+			workloadSeen[workloadID] = struct{}{}
+			bundle.Workloads = append(bundle.Workloads, domain.Workload{
+				ID:        workloadID,
+				Provider:  domain.ProviderAWS,
+				Type:      "codebuild_project",
+				Name:      codeBuildRoleWorkloadName(record),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Region:    strings.TrimSpace(record.Region),
+				RawRef:    roleIdentityID,
+			})
+		}
+	}
+
+	if strings.TrimSpace(record.ProjectARN) != "" {
+		projectResourceID := codeBuildProjectResourceID(record.ProjectARN)
+		if _, exists := resourceSeen[projectResourceID]; !exists {
+			resourceSeen[projectResourceID] = struct{}{}
+			bundle.Resources = append(bundle.Resources, domain.Resource{
+				ID:        projectResourceID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.ResourceTypeCodeBuildProject,
+				Name:      codeBuildRoleWorkloadName(record),
+				ARN:       strings.TrimSpace(record.ProjectARN),
+				Region:    strings.TrimSpace(record.Region),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Labels:    copyTags(record.Tags),
+				Metadata: map[string]any{
+					"role_arn":                    roleARN,
+					"project_name":                strings.TrimSpace(record.ProjectName),
+					"project_visibility":          strings.TrimSpace(record.ProjectVisibility),
+					"source_type":                 strings.TrimSpace(record.SourceType),
+					"source_location":             strings.TrimSpace(record.SourceLocation),
+					"source_auth_type":            strings.TrimSpace(record.SourceAuthType),
+					"source_version":              strings.TrimSpace(record.SourceVersion),
+					"source_identifiers":          append([]string(nil), record.SourceIdentifiers...),
+					"artifact_types":              append([]string(nil), record.ArtifactTypes...),
+					"artifact_locations":          append([]string(nil), record.ArtifactLocations...),
+					"environment_type":            strings.TrimSpace(record.EnvironmentType),
+					"compute_type":                strings.TrimSpace(record.ComputeType),
+					"image":                       strings.TrimSpace(record.Image),
+					"image_pull_credentials_type": strings.TrimSpace(record.ImagePullCredentialsType),
+					"privileged_mode":             record.PrivilegedMode,
+					"kms_key_arn":                 strings.TrimSpace(record.KMSKeyARN),
+					"cache_type":                  strings.TrimSpace(record.CacheType),
+					"cache_location":              strings.TrimSpace(record.CacheLocation),
+					"log_types":                   append([]string(nil), record.LogTypes...),
+					"vpc_id":                      strings.TrimSpace(record.VPCID),
+					"subnet_ids":                  append([]string(nil), record.SubnetIDs...),
+					"security_group_ids":          append([]string(nil), record.SecurityGroupIDs...),
+					"environment_keys":            append([]string(nil), record.EnvironmentKeys...),
+					"secret_refs":                 append([]string(nil), record.SecretRefs...),
+				},
+				RawRef:         asset.SourceID,
+				SourceEntityID: workloadID,
+			})
+		}
+	}
+
+	return nil
+}
+
 func normalizeEKSWorkloadIdentityAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
 	var record EKSWorkloadIdentity
 	if err := json.Unmarshal(asset.Payload, &record); err != nil {
@@ -738,6 +843,18 @@ func lambdaRoleWorkloadID(record LambdaExecutionRole) string {
 
 func lambdaRoleWorkloadName(record LambdaExecutionRole) string {
 	return firstNonEmptyAWSValue(record.WorkloadName, record.FunctionName, lambdaFunctionNameFromARN(record.FunctionARN), "lambda function")
+}
+
+func codeBuildRoleWorkloadID(record CodeBuildServiceRole) string {
+	return codeBuildProjectWorkloadID(
+		record.AccountID,
+		record.Region,
+		firstNonEmptyAWSValue(record.ProjectARN, record.WorkloadID, record.ProjectName),
+	)
+}
+
+func codeBuildRoleWorkloadName(record CodeBuildServiceRole) string {
+	return firstNonEmptyAWSValue(record.WorkloadName, record.ProjectName, codeBuildProjectNameFromARN(record.ProjectARN), "codebuild project")
 }
 
 func eksWorkloadIdentityNormalizedWorkloadID(record EKSWorkloadIdentity) string {

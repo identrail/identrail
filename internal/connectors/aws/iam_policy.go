@@ -53,6 +53,15 @@ const readOnlyPolicyJSON = `{
       "Resource": "*"
     },
     {
+      "Sid": "IdentityTrustGraphReadOnlyCodeBuild",
+      "Effect": "Allow",
+      "Action": [
+        "codebuild:BatchGetProjects",
+        "codebuild:ListProjects"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "IdentityTrustGraphReadOnlyEKS",
       "Effect": "Allow",
       "Action": [
@@ -175,6 +184,15 @@ func PermissionPreview() []PermissionPreviewItem {
 			},
 			Resources: []string{"*"},
 			Reason:    "Maps ECS services and task definitions back to task roles, execution roles, container images, and metadata-only secret references.",
+		},
+		{
+			Service: "CodeBuild",
+			Actions: []string{
+				"codebuild:ListProjects",
+				"codebuild:BatchGetProjects",
+			},
+			Resources: []string{"*"},
+			Reason:    "Maps CodeBuild projects back to service roles, project sources, artifacts, VPC metadata, and metadata-only secret references.",
 		},
 		{
 			Service: "EKS",

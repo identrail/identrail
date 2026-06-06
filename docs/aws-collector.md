@@ -4,8 +4,8 @@
 
 The AWS collector family uses a composable service collection layer. IAM remains
 the default identity source, and EC2 instance profiles, ECS task/execution roles,
-and Lambda execution roles are collected as workload identity services without
-changing IAM collector behavior.
+Lambda execution roles, and CodeBuild service roles are collected as workload
+identity services without changing IAM collector behavior.
 
 ## Composite Architecture
 
@@ -24,6 +24,10 @@ The collection path is:
 - `LambdaExecutionRoleCollector` maps Lambda functions to execution roles, alias
   and version references, event-source mappings, KMS metadata, and secret
   references without collecting function code or environment values.
+- `CodeBuildServiceRoleCollector` maps CodeBuild projects to service roles,
+  source/provider metadata, environment key names, credential references, VPC
+  config, and artifact metadata without collecting build logs, source,
+  artifacts, environment values, or secret values.
 
 Behavior:
 
@@ -107,6 +111,12 @@ ordered by `kind`, then `source_id`.
 - Lambda records include environment key names, KMS key ARNs, and secret/source
   access references, but not function code, logs, environment values, invocation
   payloads, or secret values.
+- CodeBuild project batch failures are surfaced as partial-failure diagnostics
+  while successfully described project-to-role evidence remains visible.
+- CodeBuild records include source/provider metadata, build environment
+  metadata, VPC config, artifact metadata, environment key names, and
+  Parameter Store or Secrets Manager references, but not build logs, source,
+  artifacts, environment values, or secret values.
 
 ## Security Posture
 
@@ -128,9 +138,11 @@ ordered by `kind`, then `source_id`.
 - Lambda execution-role collection is implemented through AWS SDK Lambda
   adapters for `ListFunctions`, `ListAliases`, `ListVersionsByFunction`,
   `ListEventSourceMappings`, and `ListTags`.
+- CodeBuild service-role collection is implemented through AWS SDK CodeBuild
+  adapters for `ListProjects` and `BatchGetProjects`.
 - AWS SDK CLI and runtime paths now use `NewAWSScanner`, which wires the
-  composite collector with IAM, EC2 instance profile, ECS task role, and Lambda
-  execution role services.
+  composite collector with IAM, EC2 instance profile, ECS task role, Lambda
+  execution role, CodeBuild service role, and EKS workload identity services.
 - The composite layer is now the extension point for future AWS service collection in the CLI/runtime path.
 - The service collector contract is exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/collector-contract`
@@ -143,4 +155,7 @@ ordered by `kind`, then `source_id`.
   and the AWS machine identities page.
 - Lambda execution role inventory is exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/lambda-execution-roles`
+  and the AWS machine identities page.
+- CodeBuild service role inventory is exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/codebuild-service-roles`
   and the AWS machine identities page.

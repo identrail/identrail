@@ -1336,6 +1336,103 @@ export type AWSLambdaExecutionRoleInventoryResult = {
   updated_at: string;
 };
 
+export type AWSCodeBuildServiceRoleInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSCodeBuildServiceRoleFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+
+export type AWSCodeBuildServiceRoleRecord = {
+  account_id: string;
+  region: string;
+  service: string;
+  workload_id: string;
+  workload_type: string;
+  workload_name: string;
+  role_arn?: string;
+  role_name?: string;
+  project_arn?: string;
+  project_name?: string;
+  project_visibility?: string;
+  source_type?: string;
+  source_location?: string;
+  source_auth_type?: string;
+  source_version?: string;
+  source_identifiers?: string[];
+  artifact_types?: string[];
+  artifact_locations?: string[];
+  environment_type?: string;
+  compute_type?: string;
+  image?: string;
+  image_pull_credentials_type?: string;
+  privileged_mode?: boolean;
+  kms_key_arn?: string;
+  cache_type?: string;
+  cache_location?: string;
+  log_types?: string[];
+  vpc_id?: string;
+  subnet_ids?: string[];
+  security_group_ids?: string[];
+  environment_keys?: string[];
+  secret_refs?: string[];
+  tags?: Record<string, string>;
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  to_node_id?: string;
+  relationship_type: 'runs_as' | string;
+  confidence: number;
+  collected_at: string;
+  status: string;
+};
+
+export type AWSCodeBuildServiceRoleRelationship = {
+  type: 'runs_as' | string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSCodeBuildServiceRoleDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSCodeBuildServiceRoleInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSCodeBuildServiceRoleInventoryStatus;
+  fixture_state: AWSCodeBuildServiceRoleFixtureState;
+  confidence: number;
+  record_count: number;
+  project_count: number;
+  identity_count: number;
+  resource_count: number;
+  relationship_count: number;
+  secret_ref_count: number;
+  vpc_project_count: number;
+  public_project_count: number;
+  privileged_project_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  records: AWSCodeBuildServiceRoleRecord[];
+  relationships: AWSCodeBuildServiceRoleRelationship[];
+  diagnostics: AWSCodeBuildServiceRoleDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSEKSWorkloadIdentityInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSEKSWorkloadIdentityFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 
@@ -2442,6 +2539,21 @@ export const apiClient = {
   ) {
     return request<{ inventory: AWSLambdaExecutionRoleInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/lambda-execution-roles${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectCodeBuildServiceRoles(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSCodeBuildServiceRoleFixtureState,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSCodeBuildServiceRoleInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/codebuild-service-roles${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
       })}`,

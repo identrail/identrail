@@ -29,6 +29,8 @@ import {
   type AWSCapabilityPermissionTier,
   type AWSConnectorStartResponse,
   type AWSConnectionStatus,
+  type AWSCodeBuildServiceRoleInventoryResult,
+  type AWSCodeBuildServiceRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
   type AWSEC2InstanceProfileRecord,
   type AWSEKSWorkloadIdentityInventoryResult,
@@ -3498,7 +3500,7 @@ const AWS_INVENTORY_PAGE_COPY: Record<AWSInventoryRouteID, AWSInventoryPageCopy>
     statusLabel: 'Inventory shell',
     primaryKpi: 'Identity anchor',
     currentCapability: 'Current IAM role ARN, principal ARN, account, region, and permission diagnostics.',
-    plannedCapability: 'Instance profiles, ECS task roles, Lambda roles, EKS IRSA/Pod Identity, and deploy roles.'
+    plannedCapability: 'Instance profiles, ECS task roles, Lambda roles, CodeBuild service roles, EKS IRSA/Pod Identity, and deploy roles.'
   },
   agents: {
     routeID: 'agents',
@@ -3586,6 +3588,13 @@ type AWSInventoryLambdaState = {
   onRetry: () => void;
 };
 
+type AWSInventoryCodeBuildState = {
+  inventory: AWSCodeBuildServiceRoleInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryEKSState = {
   inventory: AWSEKSWorkloadIdentityInventoryResult | null;
   loading: boolean;
@@ -3635,11 +3644,12 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'Instance profile', value: 'instance-profile' },
         { label: 'ECS task role', value: 'ecs-task-role' },
         { label: 'Lambda role', value: 'lambda-role' },
+        { label: 'CodeBuild role', value: 'codebuild-role' },
         { label: 'EKS identity', value: 'eks-identity' },
         { label: 'CI/CD role', value: 'cicd-role' }
       ]
     },
-    { id: 'service', label: 'Service', options: [{ label: 'All services', value: 'all' }, { label: 'IAM', value: 'iam' }, { label: 'EC2', value: 'ec2' }, { label: 'ECS', value: 'ecs' }, { label: 'Lambda', value: 'lambda' }, { label: 'EKS', value: 'eks' }, { label: 'OIDC', value: 'oidc' }] },
+    { id: 'service', label: 'Service', options: [{ label: 'All services', value: 'all' }, { label: 'IAM', value: 'iam' }, { label: 'EC2', value: 'ec2' }, { label: 'ECS', value: 'ecs' }, { label: 'Lambda', value: 'lambda' }, { label: 'CodeBuild', value: 'codebuild' }, { label: 'EKS', value: 'eks' }, { label: 'OIDC', value: 'oidc' }] },
     {
       id: 'risk',
       label: 'Risk',
@@ -4187,6 +4197,7 @@ function AWSMachineIdentitiesContent({
   ec2State,
   ecsState,
   lambdaState,
+  codeBuildState,
   eksState,
   filters,
   onFiltersChange
@@ -4195,6 +4206,7 @@ function AWSMachineIdentitiesContent({
   ec2State: AWSInventoryEC2State;
   ecsState: AWSInventoryECSState;
   lambdaState: AWSInventoryLambdaState;
+  codeBuildState: AWSInventoryCodeBuildState;
   eksState: AWSInventoryEKSState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
@@ -4202,10 +4214,12 @@ function AWSMachineIdentitiesContent({
   const ec2Inventory = ec2State.inventory;
   const ecsInventory = ecsState.inventory;
   const lambdaInventory = lambdaState.inventory;
+  const codeBuildInventory = codeBuildState.inventory;
   const eksInventory = eksState.inventory;
   const ec2Rows = buildAWSEC2InstanceProfileRows(ec2Inventory, ec2State.loading, connection);
   const ecsRows = buildAWSECSTaskRoleRows(ecsInventory, ecsState.loading, connection);
   const lambdaRows = buildAWSLambdaExecutionRoleRows(lambdaInventory, lambdaState.loading, connection);
+  const codeBuildRows = buildAWSCodeBuildServiceRoleRows(codeBuildInventory, codeBuildState.loading, connection);
   const eksRows = buildAWSEKSWorkloadIdentityRows(eksInventory, eksState.loading, connection);
   const rows: AWSInventoryTableRow[] = [
     ...(connection?.role_arn
@@ -4232,6 +4246,7 @@ function AWSMachineIdentitiesContent({
     ...ec2Rows,
     ...ecsRows,
     ...lambdaRows,
+    ...codeBuildRows,
     ...eksRows,
     {
       id: 'cicd-oidc',
@@ -4253,6 +4268,7 @@ function AWSMachineIdentitiesContent({
       {ec2State.loading ? <DomainLoadingState label="Loading EC2 instance profiles" /> : null}
       {ecsState.loading ? <DomainLoadingState label="Loading ECS task roles" /> : null}
       {lambdaState.loading ? <DomainLoadingState label="Loading Lambda execution roles" /> : null}
+      {codeBuildState.loading ? <DomainLoadingState label="Loading CodeBuild service roles" /> : null}
       {eksState.loading ? <DomainLoadingState label="Loading EKS workload identities" /> : null}
       {ec2State.error ? (
         <DomainErrorState
@@ -4273,6 +4289,13 @@ function AWSMachineIdentitiesContent({
           title="Lambda execution roles could not load"
           body={lambdaState.error}
           retryAction={{ label: 'Retry Lambda inventory', onClick: lambdaState.onRetry }}
+        />
+      ) : null}
+      {codeBuildState.error ? (
+        <DomainErrorState
+          title="CodeBuild service roles could not load"
+          body={codeBuildState.error}
+          retryAction={{ label: 'Retry CodeBuild inventory', onClick: codeBuildState.onRetry }}
         />
       ) : null}
       {eksState.error ? (
@@ -4327,6 +4350,24 @@ function AWSMachineIdentitiesContent({
         >
           <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="Lambda execution role diagnostics">
             {lambdaInventory.diagnostics.map((diagnostic) => (
+              <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
+                <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                <p>{diagnostic.message}</p>
+                {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
+      {codeBuildInventory?.diagnostics.length ? (
+        <DomainStatusPanel
+          eyebrow="CodeBuild collector diagnostics"
+          title="Partial CodeBuild service-role evidence"
+          status={formatTokenLabel(codeBuildInventory.status)}
+          tone={codeBuildInventory.status === 'blocked' ? 'danger' : 'warning'}
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="CodeBuild service role diagnostics">
+            {codeBuildInventory.diagnostics.map((diagnostic) => (
               <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
                 <strong>{formatTokenLabel(diagnostic.code)}</strong>
                 <p>{diagnostic.message}</p>
@@ -4428,6 +4469,18 @@ function AWSMachineIdentitiesContent({
             <div>
               <dt>Lambda diagnostics</dt>
               <dd>{lambdaInventory?.diagnostics.length ? `${lambdaInventory.diagnostics.length} active` : lambdaInventory ? 'Clear' : 'Not loaded'}</dd>
+            </div>
+            <div>
+              <dt>CodeBuild workload links</dt>
+              <dd>{codeBuildInventory ? `${codeBuildInventory.project_count} projects / ${codeBuildInventory.relationship_count} relationships` : codeBuildState.loading ? 'Loading' : 'Not loaded'}</dd>
+            </div>
+            <div>
+              <dt>CodeBuild credential refs</dt>
+              <dd>{codeBuildInventory ? `${codeBuildInventory.secret_ref_count} secret refs / ${codeBuildInventory.vpc_project_count} VPC projects` : 'Not loaded'}</dd>
+            </div>
+            <div>
+              <dt>CodeBuild diagnostics</dt>
+              <dd>{codeBuildInventory?.diagnostics.length ? `${codeBuildInventory.diagnostics.length} active` : codeBuildInventory ? 'Clear' : 'Not loaded'}</dd>
             </div>
             <div>
               <dt>EKS workload links</dt>
@@ -4785,6 +4838,129 @@ function awsLambdaExecutionRoleRow(record: AWSLambdaExecutionRoleRecord): AWSInv
       record.account_id,
       record.region,
       'lambda execution role'
+    ])
+  };
+}
+
+function buildAWSCodeBuildServiceRoleRows(
+  inventory: AWSCodeBuildServiceRoleInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsCodeBuildServiceRoleRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'codebuild-service-roles-blocked',
+        name: 'CodeBuild service roles unavailable',
+        category: 'CodeBuild service role',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'CodeBuild service-role collection is blocked.',
+        filters: { identityType: 'codebuild-role', service: 'codebuild', risk: 'unscored', status: 'not-yet-available', search: '' },
+        searchText: inventorySearchText(['codebuild', 'service role', inventory.account_id, inventory.region, 'blocked'])
+      }
+    ];
+  }
+  if (inventory) {
+    return [
+      {
+        id: 'codebuild-service-roles-empty',
+        name: 'No CodeBuild service roles found',
+        category: 'CodeBuild service role',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'wired now',
+        stage: 'wired',
+        detail: 'The collector completed for this account and region without CodeBuild projects that reference service roles.',
+        filters: { identityType: 'codebuild-role', service: 'codebuild', risk: 'low', status: 'wired-now', search: '' },
+        searchText: inventorySearchText(['codebuild', 'service role', inventory.account_id, inventory.region, 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'codebuild-service-roles-loading',
+        name: 'CodeBuild service roles',
+        category: 'CodeBuild service role',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading CodeBuild project service-role evidence for the selected environment.',
+        filters: { identityType: 'codebuild-role', service: 'codebuild', risk: 'unscored', status: 'coming', search: '' },
+        searchText: inventorySearchText(['codebuild', 'service role', 'loading'])
+      }
+    ];
+  }
+  return [
+    {
+      id: 'codebuild-service-roles',
+      name: 'CodeBuild service roles',
+      category: 'CodeBuild service role',
+      scope: 'Account and region expansion',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Service-role inventory maps CodeBuild projects back to IAM roles after AWS is connected.',
+      filters: { identityType: 'codebuild-role', service: 'codebuild', risk: 'unscored', status: 'coming', search: '' },
+      searchText: inventorySearchText(['codebuild', 'service role', 'ci', 'cd', 'inventory'])
+    }
+  ];
+}
+
+function awsCodeBuildServiceRoleRow(record: AWSCodeBuildServiceRoleRecord): AWSInventoryTableRow {
+  const stage: AWSCapabilityStage = record.status === 'ready' && record.role_arn ? 'wired' : 'coming';
+  const status = stage === 'wired' ? (record.privileged_mode || record.project_visibility === 'PUBLIC_READ' ? 'degraded' : 'wired now') : 'degraded';
+  const roleLabel = record.role_name || record.role_arn || 'role unresolved';
+  const projectLabel = record.project_name || record.workload_name || record.project_arn || record.workload_id;
+  const sourceLabel = record.source_type ? `${formatTokenLabel(record.source_type)} source` : 'source not reported';
+  const environmentLabel = record.environment_type || record.compute_type ? `${record.environment_type || 'environment not reported'} / ${record.compute_type || 'compute not reported'}` : 'environment not reported';
+  const artifactLabel = record.artifact_types?.length ? `${record.artifact_types.join(', ')} artifacts` : 'artifacts not reported';
+  const secretLabel = record.secret_refs?.length ? `${record.secret_refs.length} secret refs, values hidden` : 'no secret refs reported';
+  const vpcLabel = record.vpc_id ? `VPC ${record.vpc_id}` : 'no VPC config reported';
+  const risk = record.privileged_mode || record.project_visibility === 'PUBLIC_READ' ? 'high' : record.secret_refs?.length ? 'medium' : 'low';
+  return {
+    id: `codebuild-service-role-${record.from_node_id}-${record.to_node_id || record.role_arn || record.project_arn}`,
+    name: roleLabel,
+    category: 'CodeBuild service role',
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage: status === 'wired now' ? 'wired' : 'coming',
+    detail: `${projectLabel} runs as ${roleLabel}; ${sourceLabel}; ${environmentLabel}; ${artifactLabel}; ${vpcLabel}; ${secretLabel}.`,
+    filters: {
+      identityType: 'codebuild-role',
+      service: 'codebuild',
+      risk,
+      status: status === 'wired now' ? 'wired-now' : 'degraded',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.role_arn,
+      record.role_name,
+      record.project_arn,
+      record.project_name,
+      record.source_type,
+      record.source_location,
+      record.source_auth_type,
+      record.source_version,
+      record.environment_type,
+      record.compute_type,
+      record.image,
+      record.kms_key_arn,
+      record.vpc_id,
+      ...(record.source_identifiers ?? []),
+      ...(record.artifact_types ?? []),
+      ...(record.artifact_locations ?? []),
+      ...(record.log_types ?? []),
+      ...(record.subnet_ids ?? []),
+      ...(record.security_group_ids ?? []),
+      ...(record.secret_refs ?? []),
+      ...(record.environment_keys ?? []),
+      record.account_id,
+      record.region,
+      'codebuild service role ci cd build project'
     ])
   };
 }
@@ -5161,6 +5337,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [lambdaInventoryLoading, setLambdaInventoryLoading] = useState(false);
   const [lambdaInventoryError, setLambdaInventoryError] = useState('');
   const lambdaInventoryRequestRef = useRef(0);
+  const [codeBuildInventory, setCodeBuildInventory] = useState<AWSCodeBuildServiceRoleInventoryResult | null>(null);
+  const [codeBuildInventoryLoading, setCodeBuildInventoryLoading] = useState(false);
+  const [codeBuildInventoryError, setCodeBuildInventoryError] = useState('');
+  const codeBuildInventoryRequestRef = useRef(0);
   const [eksInventory, setEKSInventory] = useState<AWSEKSWorkloadIdentityInventoryResult | null>(null);
   const [eksInventoryLoading, setEKSInventoryLoading] = useState(false);
   const [eksInventoryError, setEKSInventoryError] = useState('');
@@ -5293,6 +5473,46 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
       lambdaInventoryRequestRef.current += 1;
     };
   }, [loadLambdaInventory]);
+
+  const loadCodeBuildInventory = useCallback(async () => {
+    const requestID = ++codeBuildInventoryRequestRef.current;
+    setCodeBuildInventory(null);
+    setCodeBuildInventoryError('');
+    if (routeID !== 'identities' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setCodeBuildInventoryLoading(false);
+      return;
+    }
+    setCodeBuildInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectCodeBuildServiceRoles(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== codeBuildInventoryRequestRef.current) {
+        return;
+      }
+      setCodeBuildInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== codeBuildInventoryRequestRef.current) {
+        return;
+      }
+      setCodeBuildInventoryError(formatAPIError(error, 'Unable to load CodeBuild service role inventory.'));
+    } finally {
+      if (requestID === codeBuildInventoryRequestRef.current) {
+        setCodeBuildInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadCodeBuildInventory();
+    return () => {
+      codeBuildInventoryRequestRef.current += 1;
+    };
+  }, [loadCodeBuildInventory]);
 
   const loadEKSInventory = useCallback(async () => {
     const requestID = ++eksInventoryRequestRef.current;
@@ -5430,6 +5650,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: lambdaInventoryLoading,
             error: lambdaInventoryError,
             onRetry: () => void loadLambdaInventory()
+          }}
+          codeBuildState={{
+            inventory: codeBuildInventory,
+            loading: codeBuildInventoryLoading,
+            error: codeBuildInventoryError,
+            onRetry: () => void loadCodeBuildInventory()
           }}
           eksState={{
             inventory: eksInventory,

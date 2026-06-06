@@ -93,6 +93,9 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 	if !strings.Contains(string(policy), "eks:ListClusters") || !strings.Contains(string(policy), "eks:DescribePodIdentityAssociation") {
 		t.Fatalf("expected EKS workload identity read actions in policy")
 	}
+	if !strings.Contains(string(policy), "codebuild:ListProjects") || !strings.Contains(string(policy), "codebuild:BatchGetProjects") {
+		t.Fatalf("expected CodeBuild service role read actions in policy")
+	}
 	hash, err := ReadOnlyPolicyHash()
 	if err != nil {
 		t.Fatalf("hash policy: %v", err)
@@ -105,6 +108,9 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 	}
 	if !permissionPreviewContainsService(PermissionPreview(), "EKS") {
 		t.Fatalf("expected EKS permission preview entry")
+	}
+	if !permissionPreviewContainsService(PermissionPreview(), "CodeBuild") {
+		t.Fatalf("expected CodeBuild permission preview entry")
 	}
 }
 

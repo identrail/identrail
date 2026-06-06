@@ -125,6 +125,14 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	var codeBuildRole CodeBuildServiceRole
+	if err := json.Unmarshal(payload, &codeBuildRole); err == nil {
+		sourceID := codeBuildServiceRoleSourceID(codeBuildRole)
+		if isCodeBuildServiceRoleFixture(codeBuildRole) {
+			return rawKindCodeBuildServiceRole, sourceID
+		}
+	}
+
 	var profile EC2InstanceProfile
 	if err := json.Unmarshal(payload, &profile); err == nil {
 		sourceID := ec2InstanceProfileSourceID(profile)
@@ -171,6 +179,26 @@ func isLambdaExecutionRoleFixture(record LambdaExecutionRole) bool {
 		strings.TrimSpace(record.KMSKeyARN) != "" ||
 		len(record.EventSourceARNs) > 0 ||
 		len(record.DisabledEventSourceARNs) > 0
+}
+
+func isCodeBuildServiceRoleFixture(record CodeBuildServiceRole) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), codeBuildServiceName) || strings.EqualFold(strings.TrimSpace(record.CollectorName), codeBuildServiceRoleCollectorName) {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(record.WorkloadType)) {
+	case "codebuild_project", "project":
+		return true
+	}
+	return strings.TrimSpace(record.ProjectARN) != "" ||
+		strings.TrimSpace(record.ProjectName) != "" ||
+		strings.TrimSpace(record.ProjectVisibility) != "" ||
+		strings.TrimSpace(record.SourceType) != "" ||
+		strings.TrimSpace(record.EnvironmentType) != "" ||
+		strings.TrimSpace(record.ComputeType) != "" ||
+		strings.TrimSpace(record.Image) != "" ||
+		strings.TrimSpace(record.CacheType) != "" ||
+		len(record.ArtifactTypes) > 0 ||
+		len(record.SourceIdentifiers) > 0
 }
 
 func isEKSWorkloadIdentityFixture(record EKSWorkloadIdentity) bool {

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   AuthConfigResponse,
   AWSConnectorStartResponse,
+  AWSCodeBuildServiceRoleInventoryResult,
   AWSConnectionStatus,
   AWSEC2InstanceProfileInventoryResult,
   AWSEKSWorkloadIdentityInventoryResult,
@@ -436,6 +437,91 @@ const readyAWSLambdaExecutionRoleInventory: AWSLambdaExecutionRoleInventoryResul
       from_node_id: 'aws:workload:lambda:123456789012:us-east-1:function/payments-worker',
       to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-lambda-execution',
       evidence_ref: 'arn:aws:lambda:us-east-1:123456789012:function:payments-worker'
+    }
+  ],
+  diagnostics: [],
+  generated_at: '2026-05-17T10:00:00Z',
+  updated_at: '2026-05-17T10:00:00Z'
+};
+
+const readyAWSCodeBuildServiceRoleInventory: AWSCodeBuildServiceRoleInventoryResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  parent_issue_number: 1472,
+  parent_issue_ref: '#1472',
+  current_issue_number: 1481,
+  current_issue_ref: '#1481',
+  version: 'aws-codebuild-service-role-inventory-v1',
+  status: 'ready',
+  fixture_state: 'success',
+  confidence: 0.96,
+  record_count: 1,
+  project_count: 1,
+  identity_count: 1,
+  resource_count: 1,
+  relationship_count: 1,
+  secret_ref_count: 1,
+  vpc_project_count: 1,
+  public_project_count: 0,
+  privileged_project_count: 0,
+  failure_reasons: [],
+  remediation_hints: [],
+  evidence_links: ['/docs/aws-codebuild-service-roles'],
+  records: [
+    {
+      account_id: '123456789012',
+      region: 'us-east-1',
+      service: 'codebuild',
+      workload_id: 'arn:aws:codebuild:us-east-1:123456789012:project/payments-build',
+      workload_type: 'codebuild_project',
+      workload_name: 'payments-build',
+      role_arn: 'arn:aws:iam::123456789012:role/payments-codebuild-service',
+      role_name: 'payments-codebuild-service',
+      project_arn: 'arn:aws:codebuild:us-east-1:123456789012:project/payments-build',
+      project_name: 'payments-build',
+      project_visibility: 'PRIVATE',
+      source_type: 'GITHUB',
+      source_location: 'https://github.com/identrail/payments',
+      source_auth_type: 'CODECONNECTIONS',
+      source_version: 'main',
+      source_identifiers: ['payments/main'],
+      artifact_types: ['S3'],
+      artifact_locations: ['identrail-build-artifacts/payments'],
+      environment_type: 'LINUX_CONTAINER',
+      compute_type: 'BUILD_GENERAL1_MEDIUM',
+      image: 'aws/codebuild/standard:7.0',
+      image_pull_credentials_type: 'CODEBUILD',
+      privileged_mode: false,
+      kms_key_arn: 'arn:aws:kms:us-east-1:123456789012:key/codebuild-artifacts',
+      cache_type: 'S3',
+      cache_location: 'identrail-codebuild-cache/payments',
+      log_types: ['cloudwatch'],
+      vpc_id: 'vpc-prod',
+      subnet_ids: ['subnet-a', 'subnet-b'],
+      security_group_ids: ['sg-codebuild-payments'],
+      environment_keys: ['APP_ENV', 'NPM_TOKEN'],
+      secret_refs: ['NPM_TOKEN=arn:aws:secretsmanager:us-east-1:123456789012:secret:codebuild/npm'],
+      tags: { owner: 'platform', service: 'payments' },
+      source: 'batchgetprojects',
+      evidence_ref: 'arn:aws:codebuild:us-east-1:123456789012:project/payments-build',
+      from_node_id: 'aws:workload:codebuild:123456789012:us-east-1:project/payments-build',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-codebuild-service',
+      relationship_type: 'runs_as',
+      confidence: 0.96,
+      collected_at: '2026-05-17T10:00:00Z',
+      status: 'ready'
+    }
+  ],
+  relationships: [
+    {
+      type: 'runs_as',
+      from_node_id: 'aws:workload:codebuild:123456789012:us-east-1:project/payments-build',
+      to_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-codebuild-service',
+      evidence_ref: 'arn:aws:codebuild:us-east-1:123456789012:project/payments-build'
     }
   ],
   diagnostics: [],
@@ -2450,7 +2536,7 @@ describe('Domain-first app routes', () => {
     );
   });
 
-  it('renders AWS machine identity inventory with current IAM, EC2, ECS, Lambda, and EKS role rows', async () => {
+  it('renders AWS machine identity inventory with current IAM, EC2, ECS, Lambda, CodeBuild, and EKS role rows', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: [
@@ -2476,6 +2562,9 @@ describe('Domain-first app routes', () => {
     const getLambdaExecutionRoles = vi
       .spyOn(api.apiClient, 'getAWSProjectLambdaExecutionRoles')
       .mockResolvedValue({ inventory: readyAWSLambdaExecutionRoleInventory });
+    const getCodeBuildServiceRoles = vi
+      .spyOn(api.apiClient, 'getAWSProjectCodeBuildServiceRoles')
+      .mockResolvedValue({ inventory: readyAWSCodeBuildServiceRoleInventory });
     const getEKSWorkloadIdentities = vi
       .spyOn(api.apiClient, 'getAWSProjectEKSWorkloadIdentities')
       .mockResolvedValue({ inventory: readyAWSEKSWorkloadIdentityInventory });
@@ -2499,17 +2588,21 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText('payments-ecs-task')).toBeInTheDocument();
     expect(screen.getByText('payments-ecs-execution')).toBeInTheDocument();
     expect(await screen.findByText('payments-lambda-execution')).toBeInTheDocument();
+    expect(await screen.findByText('payments-codebuild-service')).toBeInTheDocument();
     expect(await screen.findByText('payments-irsa')).toBeInTheDocument();
     expect(screen.getByText('batch-pod-identity')).toBeInTheDocument();
     expect(screen.getByText(/payments-api runs as payments-ec2-instance-profile; IMDS Required/i)).toBeInTheDocument();
     expect(screen.getByText(/payments-api runs as payments-ecs-task; FARGATE; 0\/3 running/i)).toBeInTheDocument();
     expect(screen.getByText(/payments-api attaches execution support to payments-ecs-execution; FARGATE; 0\/3 running/i)).toBeInTheDocument();
     expect(screen.getByText(/payments-worker runs as payments-lambda-execution; nodejs20\.x \/ index\.handler; 1 event source; 3 env keys, values hidden; 1 secret refs, values hidden/i)).toBeInTheDocument();
+    expect(screen.getByText(/payments-build runs as payments-codebuild-service; Github source; LINUX_CONTAINER \/ BUILD_GENERAL1_MEDIUM; S3 artifacts; VPC vpc-prod; 1 secret refs, values hidden/i)).toBeInTheDocument();
     expect(screen.getByText(/payments\/payments-api runs as payments-irsa; prod-cluster; Irsa; OIDC provider linked; ACTIVE; Kubernetes annotations proven/i)).toBeInTheDocument();
     expect(screen.getByText(/jobs\/batch-worker runs as batch-pod-identity; prod-cluster; Pod Identity; OIDC provider linked; association a-123; AWS-side evidence/i)).toBeInTheDocument();
     expect(screen.getAllByText(/2 workloads \/ 2 relationships/i).length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText(/1 functions \/ 1 relationships/i)).toBeInTheDocument();
     expect(screen.getByText(/1 mapped \/ 0 disabled/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 projects \/ 1 relationships/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 secret refs \/ 1 VPC projects/i)).toBeInTheDocument();
     expect(screen.getByText(/1 task \/ 1 execution/i)).toBeInTheDocument();
     expect(screen.getByText(/2 service accounts \/ 2 relationships/i)).toBeInTheDocument();
     expect(screen.getByText(/1 IRSA \/ 1 Pod Identity \/ 0 node/i)).toBeInTheDocument();
@@ -2529,6 +2622,13 @@ describe('Domain-first app routes', () => {
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
     expect(getLambdaExecutionRoles).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      'aws-connector-1',
+      undefined,
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getCodeBuildServiceRoles).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       'aws-connector-1',

@@ -65,6 +65,14 @@ func lambdaFunctionResourceID(functionARN string) string {
 	return "aws:resource:lambda-function:" + strings.TrimSpace(functionARN)
 }
 
+func codeBuildProjectWorkloadID(accountID, region, projectRef string) string {
+	return fmt.Sprintf("aws:workload:codebuild:%s:%s:project/%s", normalizeName(accountID), normalizeName(region), normalizeName(projectRef))
+}
+
+func codeBuildProjectResourceID(projectARN string) string {
+	return "aws:resource:codebuild-project:" + strings.TrimSpace(projectARN)
+}
+
 func eksWorkloadIdentityWorkloadID(accountID, region, workloadType, workloadID, roleKind string) string {
 	normalizedType := normalizeName(workloadType)
 	if normalizedType == "" {

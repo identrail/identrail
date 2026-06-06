@@ -88,6 +88,11 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws lambda execution role collector: %w", lambdaErr)
 			}
+			codeBuildAPI, codeBuildErr := awsprovider.NewSDKCodeBuildServiceRoleAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if codeBuildErr != nil {
+				_ = store.Close()
+				return nil, nil, fmt.Errorf("initialize aws codebuild service role collector: %w", codeBuildErr)
+			}
 			eksAPI, eksErr := awsprovider.NewSDKEKSWorkloadIdentityAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
 			if eksErr != nil {
 				_ = store.Close()
@@ -100,6 +105,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				awsprovider.NewEC2InstanceProfileCollector(ec2API),
 				awsprovider.NewECSTaskRoleCollector(ecsAPI),
 				awsprovider.NewLambdaExecutionRoleCollector(lambdaAPI),
+				awsprovider.NewCodeBuildServiceRoleCollector(codeBuildAPI),
 				awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 			)
 		default:
@@ -201,6 +207,10 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		if lambdaErr != nil {
 			return nil, lambdaErr
 		}
+		codeBuildAPI, codeBuildErr := awsprovider.NewSDKCodeBuildServiceRoleAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
+		if codeBuildErr != nil {
+			return nil, codeBuildErr
+		}
 		eksAPI, eksErr := awsprovider.NewSDKEKSWorkloadIdentityAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
 		if eksErr != nil {
 			return nil, eksErr
@@ -212,6 +222,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 			awsprovider.NewEC2InstanceProfileCollector(ec2API),
 			awsprovider.NewECSTaskRoleCollector(ecsAPI),
 			awsprovider.NewLambdaExecutionRoleCollector(lambdaAPI),
+			awsprovider.NewCodeBuildServiceRoleCollector(codeBuildAPI),
 			awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 		)
 		return scanner, nil

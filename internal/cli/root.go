@@ -606,6 +606,10 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 			if err != nil {
 				return app.Scanner{}, fmt.Errorf("initialize aws lambda execution role collector: %w", err)
 			}
+			codeBuildAPI, err := awsprovider.NewSDKCodeBuildServiceRoleAPI(cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if err != nil {
+				return app.Scanner{}, fmt.Errorf("initialize aws codebuild service role collector: %w", err)
+			}
 			eksAPI, err := awsprovider.NewSDKEKSWorkloadIdentityAPI(cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
 			if err != nil {
 				return app.Scanner{}, fmt.Errorf("initialize aws eks workload identity collector: %w", err)
@@ -614,6 +618,7 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 				awsprovider.NewEC2InstanceProfileCollector(ec2API),
 				awsprovider.NewECSTaskRoleCollector(ecsAPI),
 				awsprovider.NewLambdaExecutionRoleCollector(lambdaAPI),
+				awsprovider.NewCodeBuildServiceRoleCollector(codeBuildAPI),
 				awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 			}, awsprovider.NewRuleSet(
 				awsprovider.WithStaleAfter(time.Duration(staleAfterDays)*24*time.Hour),

@@ -124,6 +124,8 @@ func AWSServiceCollectorContract() ServiceCollectorContract {
 			"lambda:ListVersionsByFunction",
 			"lambda:ListEventSourceMappings",
 			"lambda:ListTags",
+			"codebuild:ListProjects",
+			"codebuild:BatchGetProjects",
 			"eks:ListClusters",
 			"eks:DescribeCluster",
 			"eks:ListPodIdentityAssociations",

@@ -78,6 +78,8 @@ The response envelope is:
       "lambda:ListVersionsByFunction",
       "lambda:ListEventSourceMappings",
       "lambda:ListTags",
+      "codebuild:ListProjects",
+      "codebuild:BatchGetProjects",
       "eks:ListClusters",
       "eks:DescribeCluster",
       "eks:ListPodIdentityAssociations",
@@ -158,8 +160,9 @@ ECS workload collector adds metadata-only reads: `ecs:ListClusters`,
 `ecs:DescribeTaskDefinition`. The Lambda workload collector adds metadata-only
 reads: `lambda:ListFunctions`, `lambda:ListAliases`,
 `lambda:ListVersionsByFunction`, `lambda:ListEventSourceMappings`, and
-`lambda:ListTags`. The EKS workload identity collector adds metadata-only
-reads: `eks:ListClusters`, `eks:DescribeCluster`,
+`lambda:ListTags`. The CodeBuild service-role collector adds metadata-only
+reads: `codebuild:ListProjects` and `codebuild:BatchGetProjects`. The EKS
+workload identity collector adds metadata-only reads: `eks:ListClusters`, `eks:DescribeCluster`,
 `eks:ListPodIdentityAssociations`, `eks:DescribePodIdentityAssociation`,
 `eks:ListNodegroups`, `eks:DescribeNodegroup`, `eks:ListFargateProfiles`, and
 `eks:DescribeFargateProfile`.
@@ -172,6 +175,11 @@ customer payloads by default.
 For ECS, `secret_refs` are only secret or parameter names/source references and
 `environment_keys` are only variable names. Plaintext environment values and
 secret values are intentionally outside the collector contract.
+
+For CodeBuild, `secret_refs` are only Parameter Store or Secrets Manager source
+references and `environment_keys` are only variable names. Build logs, source
+contents, artifact contents, plaintext environment values, and secret values are
+intentionally outside the collector contract.
 
 For EKS, AWS-side metadata proves clusters, OIDC issuer relationships, Pod
 Identity associations, managed node roles, and Fargate pod execution roles.
