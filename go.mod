@@ -7,14 +7,21 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.41.12
 	github.com/aws/aws-sdk-go-v2/config v1.32.21
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.20
+	github.com/aws/aws-sdk-go-v2/service/apprunner v1.40.5
+	github.com/aws/aws-sdk-go-v2/service/batch v1.65.5
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.69.3
 	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.47.3
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.305.2
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.82.3
 	github.com/aws/aws-sdk-go-v2/service/eks v1.84.5
+	github.com/aws/aws-sdk-go-v2/service/emr v1.61.0
+	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.46.5
+	github.com/aws/aws-sdk-go-v2/service/glue v1.143.0
 	github.com/aws/aws-sdk-go-v2/service/iam v1.54.1
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.92.2
+	github.com/aws/aws-sdk-go-v2/service/pipes v1.24.5
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.103.0
+	github.com/aws/aws-sdk-go-v2/service/scheduler v1.18.6
 	github.com/aws/aws-sdk-go-v2/service/sfn v1.42.2
 	github.com/aws/aws-sdk-go-v2/service/sts v1.43.0
 	github.com/aws/smithy-go v1.27.1
@@ -48,13 +55,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.28 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.28 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.29 // indirect
-	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.46.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.12 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.28 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.26 // indirect
-	github.com/aws/aws-sdk-go-v2/service/pipes v1.24.5 // indirect
-	github.com/aws/aws-sdk-go-v2/service/scheduler v1.18.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.1.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.31.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.36.3 // indirect

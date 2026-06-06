@@ -143,6 +143,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		if err := ctx.Err(); err != nil {
 			return providers.NormalizedBundle{}, err
 		}
+		if asset.Kind != rawKindManagedComputeRole {
+			continue
+		}
+		if err := normalizeManagedComputeRoleAsset(asset, i, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
 		if asset.Kind != rawKindEKSWorkloadIdentity {
 			continue
 		}
@@ -917,6 +929,94 @@ func eventDrivenResourceFromRecord(record EventDrivenRole, rawRef string, worklo
 	}
 }
 
+func normalizeManagedComputeRoleAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record ManagedComputeRole
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode managed compute role asset[%d]: %w", index, err)
+	}
+
+	roleARN := strings.TrimSpace(record.RoleARN)
+	roleIdentityID := ""
+	if roleARN != "" {
+		roleIdentityID = identityIDFromARN(roleARN)
+		roleName := strings.TrimSpace(record.RoleName)
+		if roleName == "" {
+			roleName = roleNameFromARN(roleARN)
+		}
+		if _, exists := identitySeen[roleIdentityID]; !exists {
+			identitySeen[roleIdentityID] = struct{}{}
+			bundle.Identities = append(bundle.Identities, domain.Identity{
+				ID:        roleIdentityID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.IdentityTypeRole,
+				Name:      roleName,
+				ARN:       roleARN,
+				OwnerHint: ownerHintFromTags(record.Tags),
+				Tags:      copyTags(record.Tags),
+				RawRef:    asset.SourceID,
+			})
+		}
+	}
+
+	workloadID := managedComputeRoleWorkloadID(record)
+	if workloadID != "" {
+		if _, exists := workloadSeen[workloadID]; !exists {
+			workloadSeen[workloadID] = struct{}{}
+			bundle.Workloads = append(bundle.Workloads, domain.Workload{
+				ID:        workloadID,
+				Provider:  domain.ProviderAWS,
+				Type:      managedComputeRoleWorkloadType(record),
+				Name:      managedComputeRoleWorkloadName(record),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Region:    strings.TrimSpace(record.Region),
+				RawRef:    roleIdentityID,
+			})
+		}
+	}
+
+	if strings.TrimSpace(record.WorkloadARN) != "" || strings.TrimSpace(record.ResourceARN) != "" {
+		resourceID := managedComputeResourceID(record)
+		if _, exists := resourceSeen[resourceID]; !exists {
+			resourceSeen[resourceID] = struct{}{}
+			bundle.Resources = append(bundle.Resources, managedComputeResourceFromRecord(record, asset.SourceID, workloadID, roleARN))
+		}
+	}
+
+	return nil
+}
+
+func managedComputeResourceFromRecord(record ManagedComputeRole, rawRef string, workloadID string, roleARN string) domain.Resource {
+	return domain.Resource{
+		ID:        managedComputeResourceID(record),
+		Provider:  domain.ProviderAWS,
+		Type:      managedComputeResourceType(record),
+		Name:      managedComputeRoleWorkloadName(record),
+		ARN:       firstNonEmptyAWSValue(record.ResourceARN, record.WorkloadARN),
+		Region:    strings.TrimSpace(record.Region),
+		AccountID: strings.TrimSpace(record.AccountID),
+		Labels:    copyTags(record.Tags),
+		Metadata: map[string]any{
+			"service":             strings.TrimSpace(record.Service),
+			"role_arn":            roleARN,
+			"role_kind":           strings.TrimSpace(record.RoleKind),
+			"role_account_id":     strings.TrimSpace(record.RoleAccountID),
+			"resource_status":     strings.TrimSpace(record.ResourceStatus),
+			"compute_engine":      strings.TrimSpace(record.ComputeEngine),
+			"queue_arn":           strings.TrimSpace(record.QueueARN),
+			"cluster_arn":         strings.TrimSpace(record.ClusterARN),
+			"job_definition_arn":  strings.TrimSpace(record.JobDefinitionARN),
+			"revision":            record.Revision,
+			"coverage_status":     strings.TrimSpace(record.CoverageStatus),
+			"coverage_reason":     strings.TrimSpace(record.CoverageReason),
+			"unsupported_service": strings.TrimSpace(record.UnsupportedService),
+			"active":              record.Active,
+			"disabled":            record.Disabled,
+		},
+		RawRef:         rawRef,
+		SourceEntityID: workloadID,
+	}
+}
+
 func normalizeEKSWorkloadIdentityAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
 	var record EKSWorkloadIdentity
 	if err := json.Unmarshal(asset.Payload, &record); err != nil {
@@ -1253,6 +1353,49 @@ func eventDrivenResourceType(record EventDrivenRole) domain.ResourceType {
 		return domain.ResourceTypeEventBridgePipe
 	default:
 		return domain.ResourceTypeEventBridgeRule
+	}
+}
+
+func managedComputeRoleWorkloadID(record ManagedComputeRole) string {
+	return managedComputeWorkloadID(
+		record.AccountID,
+		record.Region,
+		managedComputeRoleWorkloadType(record),
+		firstNonEmptyAWSValue(record.WorkloadID, record.WorkloadARN, record.ResourceARN, record.WorkloadName),
+		record.RoleKind,
+	)
+}
+
+func managedComputeRoleWorkloadType(record ManagedComputeRole) string {
+	if workloadType := strings.TrimSpace(record.WorkloadType); workloadType != "" {
+		return workloadType
+	}
+	if resourceType := strings.TrimSpace(record.ResourceType); resourceType != "" {
+		return resourceType
+	}
+	return managedComputeDefaultWorkloadType(record)
+}
+
+func managedComputeRoleWorkloadName(record ManagedComputeRole) string {
+	return firstNonEmptyAWSValue(record.WorkloadName, eventDrivenNameFromARN(firstNonEmptyAWSValue(record.WorkloadARN, record.ResourceARN)), "managed compute workload")
+}
+
+func managedComputeResourceType(record ManagedComputeRole) domain.ResourceType {
+	switch managedComputeRoleWorkloadType(record) {
+	case "apprunner_service":
+		return domain.ResourceTypeAppRunnerService
+	case "batch_compute_environment":
+		return domain.ResourceTypeBatchComputeEnv
+	case "batch_job_definition":
+		return domain.ResourceTypeBatchJobDefinition
+	case "glue_job":
+		return domain.ResourceTypeGlueJob
+	case "glue_crawler":
+		return domain.ResourceTypeGlueCrawler
+	case "emr_cluster":
+		return domain.ResourceTypeEMRCluster
+	default:
+		return domain.ResourceTypeManagedCompute
 	}
 }
 

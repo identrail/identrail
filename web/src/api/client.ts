@@ -1728,6 +1728,105 @@ export type AWSEventDrivenRoleInventoryResult = {
   updated_at: string;
 };
 
+export type AWSManagedComputeRoleInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSManagedComputeRoleFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+
+export type AWSManagedComputeCoverageGap = {
+  service: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSManagedComputeRoleRecord = {
+  account_id: string;
+  region: string;
+  service: 'apprunner' | 'batch' | 'glue' | 'emr' | string;
+  workload_id: string;
+  workload_type: string;
+  workload_name: string;
+  role_arn?: string;
+  role_name?: string;
+  role_kind?: string;
+  role_account_id?: string;
+  workload_arn?: string;
+  resource_arn?: string;
+  resource_type?: string;
+  resource_status?: string;
+  compute_engine?: string;
+  queue_arn?: string;
+  cluster_arn?: string;
+  job_definition_arn?: string;
+  revision?: number;
+  unsupported_service?: string;
+  coverage_status: string;
+  coverage_reason?: string;
+  active: boolean;
+  disabled: boolean;
+  tags?: Record<string, string>;
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  to_node_id?: string;
+  relationship_type: 'runs_as' | string;
+  confidence: number;
+  collected_at: string;
+  status: string;
+};
+
+export type AWSManagedComputeRoleRelationship = {
+  type: 'runs_as' | string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSManagedComputeRoleDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSManagedComputeRoleInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSManagedComputeRoleInventoryStatus;
+  fixture_state: AWSManagedComputeRoleFixtureState;
+  confidence: number;
+  record_count: number;
+  service_count: number;
+  app_runner_count: number;
+  batch_count: number;
+  glue_count: number;
+  emr_count: number;
+  unsupported_service_count: number;
+  disabled_count: number;
+  identity_count: number;
+  resource_count: number;
+  relationship_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSManagedComputeCoverageGap[];
+  records: AWSManagedComputeRoleRecord[];
+  relationships: AWSManagedComputeRoleRelationship[];
+  diagnostics: AWSManagedComputeRoleDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSEKSWorkloadIdentityInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSEKSWorkloadIdentityFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 
@@ -2894,6 +2993,21 @@ export const apiClient = {
   ) {
     return request<{ inventory: AWSEventDrivenRoleInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/event-driven-roles${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectManagedComputeRoles(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSManagedComputeRoleFixtureState,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSManagedComputeRoleInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/managed-compute-roles${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
       })}`,

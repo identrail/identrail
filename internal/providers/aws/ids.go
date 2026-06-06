@@ -120,6 +120,38 @@ func eventDrivenResourceID(record EventDrivenRole) string {
 	}
 }
 
+func managedComputeWorkloadID(accountID, region, workloadType, workloadRef, roleKind string) string {
+	normalizedType := normalizeName(workloadType)
+	if normalizedType == "" {
+		normalizedType = "managed-compute"
+	}
+	normalizedRoleKind := normalizeName(roleKind)
+	if normalizedRoleKind == "" {
+		normalizedRoleKind = "role"
+	}
+	return fmt.Sprintf("aws:workload:managed-compute:%s:%s:%s/%s/%s", normalizeName(accountID), normalizeName(region), normalizedType, normalizeName(workloadRef), normalizedRoleKind)
+}
+
+func managedComputeResourceID(record ManagedComputeRole) string {
+	ref := firstNonEmptyAWSValue(record.ResourceARN, record.WorkloadARN, record.WorkloadID)
+	switch managedComputeResourceType(record) {
+	case domain.ResourceTypeAppRunnerService:
+		return "aws:resource:apprunner-service:" + strings.TrimSpace(ref)
+	case domain.ResourceTypeBatchComputeEnv:
+		return "aws:resource:batch-compute-environment:" + strings.TrimSpace(ref)
+	case domain.ResourceTypeBatchJobDefinition:
+		return "aws:resource:batch-job-definition:" + strings.TrimSpace(ref)
+	case domain.ResourceTypeGlueJob:
+		return "aws:resource:glue-job:" + strings.TrimSpace(ref)
+	case domain.ResourceTypeGlueCrawler:
+		return "aws:resource:glue-crawler:" + strings.TrimSpace(ref)
+	case domain.ResourceTypeEMRCluster:
+		return "aws:resource:emr-cluster:" + strings.TrimSpace(ref)
+	default:
+		return "aws:resource:managed-compute:" + strings.TrimSpace(ref)
+	}
+}
+
 func eksWorkloadIdentityWorkloadID(accountID, region, workloadType, workloadID, roleKind string) string {
 	normalizedType := normalizeName(workloadType)
 	if normalizedType == "" {

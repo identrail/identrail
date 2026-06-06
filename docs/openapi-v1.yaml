@@ -524,6 +524,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/managed-compute-roles
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/eks-workload-identities
     action: tenancy.read
     resource_type: project
@@ -4143,6 +4148,56 @@ paths:
                     $ref: "#/components/schemas/AWSEventDrivenRoleInventoryResult"
         "400":
           description: Invalid AWS event-driven role inventory request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/managed-compute-roles:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS managed compute service role identities
+      operationId: getAWSProjectManagedComputeRoles
+      description: Returns scoped App Runner, Batch, Glue, and EMR service, job, execution, and workload role evidence with resource status, service drilldowns, coverage gaps, graph relationships, and collector diagnostics without storing logs, payloads, execution history, object contents, or secret values.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope the account, region, and read-only managed compute inventory evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+      responses:
+        "200":
+          description: AWS managed compute service role inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inventory:
+                    $ref: "#/components/schemas/AWSManagedComputeRoleInventoryResult"
+        "400":
+          description: Invalid AWS managed compute role inventory request
           content:
             application/json:
               schema:
@@ -8531,6 +8586,157 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSEventDrivenRoleDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSManagedComputeCoverageGap:
+      type: object
+      properties:
+        service: { type: string }
+        status:
+          type: string
+          enum: [unsupported]
+        reason: { type: string }
+        remediation: { type: string }
+    AWSManagedComputeRoleRecord:
+      type: object
+      properties:
+        account_id: { type: string }
+        region: { type: string }
+        service:
+          type: string
+          enum: [apprunner, batch, glue, emr]
+        workload_id: { type: string }
+        workload_type:
+          type: string
+          enum: [apprunner_service, batch_compute_environment, batch_job_definition, glue_job, glue_crawler, emr_cluster, managed_compute_workload]
+        workload_name: { type: string }
+        role_arn: { type: string }
+        role_name: { type: string }
+        role_kind:
+          type: string
+          enum: [apprunner_instance_role, apprunner_access_role, batch_service_role, batch_instance_role, batch_spot_fleet_role, batch_job_role, batch_execution_role, glue_job_role, glue_crawler_role, emr_service_role, emr_autoscaling_role, managed_compute_role]
+        role_account_id: { type: string }
+        workload_arn: { type: string }
+        resource_arn: { type: string }
+        resource_type: { type: string }
+        resource_status: { type: string }
+        compute_engine: { type: string }
+        queue_arn: { type: string }
+        cluster_arn: { type: string }
+        job_definition_arn: { type: string }
+        revision: { type: integer }
+        unsupported_service: { type: string }
+        coverage_status:
+          type: string
+          enum: [covered, unsupported]
+        coverage_reason: { type: string }
+        active: { type: boolean }
+        disabled: { type: boolean }
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+        source: { type: string }
+        evidence_ref: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        relationship_type:
+          type: string
+          enum: [runs_as]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        collected_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [ready, degraded, disabled]
+    AWSManagedComputeRoleRelationship:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [runs_as]
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSManagedComputeRoleDiagnostic:
+      type: object
+      properties:
+        collector: { type: string }
+        source_id: { type: string }
+        code:
+          type: string
+          enum: [managed_compute_role_page_failed, managed_compute_workload_disabled, malformed_managed_compute_record, missing_managed_compute_role, permission_denied, managed_compute_unsupported_service, apprunner_services_failed, apprunner_service_arn_missing, apprunner_service_describe_failed, batch_failed, batch_job_definitions_failed, glue_failed, glue_crawlers_failed, emr_failed, emr_cluster_id_missing, emr_cluster_describe_failed]
+        message: { type: string }
+        remediation: { type: string }
+        retryable: { type: boolean }
+    AWSManagedComputeRoleInventoryResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        record_count: { type: integer }
+        service_count: { type: integer }
+        app_runner_count: { type: integer }
+        batch_count: { type: integer }
+        glue_count: { type: integer }
+        emr_count: { type: integer }
+        unsupported_service_count: { type: integer }
+        disabled_count: { type: integer }
+        identity_count: { type: integer }
+        resource_count: { type: integer }
+        relationship_count: { type: integer }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSManagedComputeCoverageGap"
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSManagedComputeRoleRecord"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSManagedComputeRoleRelationship"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSManagedComputeRoleDiagnostic"
         generated_at:
           type: string
           format: date-time

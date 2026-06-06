@@ -44,6 +44,11 @@ The collection path is:
   targets, DLQs, retry metadata, disabled state, logging config, KMS metadata,
   and tags without collecting event payloads, schedule input bodies, pipe
   payloads, object contents, or secret values.
+- `ManagedComputeRoleCollector` maps App Runner, AWS Batch, AWS Glue, and Amazon
+  EMR workloads to service, job, execution, access, and autoscaling roles with
+  resource status, compute engine, job definition, cluster, tags, diagnostics,
+  and explicit unsupported-service coverage gaps without collecting logs,
+  payloads, execution history, object contents, or secret values.
 
 Behavior:
 
@@ -226,4 +231,7 @@ ordered by `kind`, then `source_id`.
   and the AWS machine identities page.
 - EventBridge, Scheduler, and Pipes role inventory is exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/event-driven-roles`
+  and the AWS machine identities page.
+- Managed compute role inventory is exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/managed-compute-roles`
   and the AWS machine identities page.

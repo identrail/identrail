@@ -109,6 +109,14 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	var managedComputeRole ManagedComputeRole
+	if err := json.Unmarshal(payload, &managedComputeRole); err == nil {
+		sourceID := managedComputeRoleSourceID(managedComputeRole)
+		if isManagedComputeRoleFixture(managedComputeRole) {
+			return rawKindManagedComputeRole, sourceID
+		}
+	}
+
 	var ecsRole ECSTaskRole
 	if err := json.Unmarshal(payload, &ecsRole); err == nil {
 		sourceID := ecsTaskRoleSourceID(ecsRole)
@@ -281,6 +289,25 @@ func isEventDrivenRoleFixture(record EventDrivenRole) bool {
 		strings.TrimSpace(record.TargetARN) != "" ||
 		strings.TrimSpace(record.TargetID) != "" ||
 		len(record.DeadLetterARNs) > 0
+}
+
+func isManagedComputeRoleFixture(record ManagedComputeRole) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), managedComputeServiceName) || strings.EqualFold(strings.TrimSpace(record.CollectorName), managedComputeRoleCollectorName) {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(record.Service)) {
+	case "apprunner", "batch", "glue", "emr":
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(record.WorkloadType)) {
+	case "apprunner_service", "batch_compute_environment", "batch_job_definition", "glue_job", "glue_crawler", "emr_cluster", "managed_compute_workload":
+		return true
+	}
+	return strings.TrimSpace(record.ResourceARN) != "" ||
+		strings.TrimSpace(record.ComputeEngine) != "" ||
+		strings.TrimSpace(record.JobDefinitionARN) != "" ||
+		strings.TrimSpace(record.UnsupportedService) != "" ||
+		strings.TrimSpace(record.CoverageStatus) != ""
 }
 
 func isEKSWorkloadIdentityFixture(record EKSWorkloadIdentity) bool {

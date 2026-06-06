@@ -35,6 +35,8 @@ import {
   type AWSCodePipelineDeploymentRoleRecord,
   type AWSEventDrivenRoleInventoryResult,
   type AWSEventDrivenRoleRecord,
+  type AWSManagedComputeRoleInventoryResult,
+  type AWSManagedComputeRoleRecord,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
@@ -3603,6 +3605,13 @@ type AWSInventoryEventDrivenState = {
   onRetry: () => void;
 };
 
+type AWSInventoryManagedComputeState = {
+  inventory: AWSManagedComputeRoleInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryEKSState = {
   inventory: AWSEKSWorkloadIdentityInventoryResult | null;
   loading: boolean;
@@ -3656,11 +3665,12 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'CodePipeline role', value: 'codepipeline-role' },
         { label: 'Step Functions role', value: 'stepfunctions-role' },
         { label: 'Event-driven role', value: 'event-driven-role' },
+        { label: 'Managed compute role', value: 'managed-compute-role' },
         { label: 'EKS identity', value: 'eks-identity' },
         { label: 'CI/CD role', value: 'cicd-role' }
       ]
     },
-    { id: 'service', label: 'Service', options: [{ label: 'All services', value: 'all' }, { label: 'IAM', value: 'iam' }, { label: 'EC2', value: 'ec2' }, { label: 'ECS', value: 'ecs' }, { label: 'Lambda', value: 'lambda' }, { label: 'CodeBuild', value: 'codebuild' }, { label: 'CodePipeline', value: 'codepipeline' }, { label: 'Step Functions', value: 'stepfunctions' }, { label: 'EventBridge', value: 'eventbridge' }, { label: 'Scheduler', value: 'scheduler' }, { label: 'Pipes', value: 'pipes' }, { label: 'EKS', value: 'eks' }, { label: 'OIDC', value: 'oidc' }] },
+    { id: 'service', label: 'Service', options: [{ label: 'All services', value: 'all' }, { label: 'IAM', value: 'iam' }, { label: 'EC2', value: 'ec2' }, { label: 'ECS', value: 'ecs' }, { label: 'Lambda', value: 'lambda' }, { label: 'CodeBuild', value: 'codebuild' }, { label: 'CodePipeline', value: 'codepipeline' }, { label: 'Step Functions', value: 'stepfunctions' }, { label: 'EventBridge', value: 'eventbridge' }, { label: 'Scheduler', value: 'scheduler' }, { label: 'Pipes', value: 'pipes' }, { label: 'App Runner', value: 'apprunner' }, { label: 'Batch', value: 'batch' }, { label: 'Glue', value: 'glue' }, { label: 'EMR', value: 'emr' }, { label: 'EKS', value: 'eks' }, { label: 'OIDC', value: 'oidc' }] },
     {
       id: 'risk',
       label: 'Risk',
@@ -4213,6 +4223,7 @@ function AWSMachineIdentitiesContent({
   codePipelineState,
   stepFunctionsState,
   eventDrivenState,
+  managedComputeState,
   eksState,
   filters,
   onFiltersChange
@@ -4225,6 +4236,7 @@ function AWSMachineIdentitiesContent({
   codePipelineState: AWSInventoryCodePipelineState;
   stepFunctionsState: AWSInventoryStepFunctionsState;
   eventDrivenState: AWSInventoryEventDrivenState;
+  managedComputeState: AWSInventoryManagedComputeState;
   eksState: AWSInventoryEKSState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
@@ -4236,6 +4248,7 @@ function AWSMachineIdentitiesContent({
   const codePipelineInventory = codePipelineState.inventory;
   const stepFunctionsInventory = stepFunctionsState.inventory;
   const eventDrivenInventory = eventDrivenState.inventory;
+  const managedComputeInventory = managedComputeState.inventory;
   const eksInventory = eksState.inventory;
   const ec2Rows = buildAWSEC2InstanceProfileRows(ec2Inventory, ec2State.loading, connection);
   const ecsRows = buildAWSECSTaskRoleRows(ecsInventory, ecsState.loading, connection);
@@ -4244,6 +4257,7 @@ function AWSMachineIdentitiesContent({
   const codePipelineRows = buildAWSCodePipelineDeploymentRoleRows(codePipelineInventory, codePipelineState.loading, connection);
   const stepFunctionsRows = buildAWSStepFunctionsStateMachineRoleRows(stepFunctionsInventory, stepFunctionsState.loading, connection);
   const eventDrivenRows = buildAWSEventDrivenRoleRows(eventDrivenInventory, eventDrivenState.loading, connection);
+  const managedComputeRows = buildAWSManagedComputeRoleRows(managedComputeInventory, managedComputeState.loading, connection);
   const eksRows = buildAWSEKSWorkloadIdentityRows(eksInventory, eksState.loading, connection);
   const rows: AWSInventoryTableRow[] = [
     ...(connection?.role_arn
@@ -4274,6 +4288,7 @@ function AWSMachineIdentitiesContent({
     ...codePipelineRows,
     ...stepFunctionsRows,
     ...eventDrivenRows,
+    ...managedComputeRows,
     ...eksRows,
     {
       id: 'cicd-oidc',
@@ -4299,6 +4314,7 @@ function AWSMachineIdentitiesContent({
       {codePipelineState.loading ? <DomainLoadingState label="Loading CodePipeline deployment roles" /> : null}
       {stepFunctionsState.loading ? <DomainLoadingState label="Loading Step Functions state-machine roles" /> : null}
       {eventDrivenState.loading ? <DomainLoadingState label="Loading EventBridge, Scheduler, and Pipes roles" /> : null}
+      {managedComputeState.loading ? <DomainLoadingState label="Loading managed compute roles" /> : null}
       {eksState.loading ? <DomainLoadingState label="Loading EKS workload identities" /> : null}
       {ec2State.error ? (
         <DomainErrorState
@@ -4347,6 +4363,13 @@ function AWSMachineIdentitiesContent({
           title="Event-driven roles could not load"
           body={eventDrivenState.error}
           retryAction={{ label: 'Retry event-driven inventory', onClick: eventDrivenState.onRetry }}
+        />
+      ) : null}
+      {managedComputeState.error ? (
+        <DomainErrorState
+          title="Managed compute roles could not load"
+          body={managedComputeState.error}
+          retryAction={{ label: 'Retry managed compute inventory', onClick: managedComputeState.onRetry }}
         />
       ) : null}
       {eksState.error ? (
@@ -4477,6 +4500,42 @@ function AWSMachineIdentitiesContent({
                 <strong>{formatTokenLabel(diagnostic.code)}</strong>
                 <p>{diagnostic.message}</p>
                 {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
+      {managedComputeInventory?.diagnostics.length ? (
+        <DomainStatusPanel
+          eyebrow="Managed compute collector diagnostics"
+          title="Partial managed compute role evidence"
+          status={formatTokenLabel(managedComputeInventory.status)}
+          tone={managedComputeInventory.status === 'blocked' ? 'danger' : 'warning'}
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="Managed compute role diagnostics">
+            {managedComputeInventory.diagnostics.map((diagnostic) => (
+              <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
+                <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                <p>{diagnostic.message}</p>
+                {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
+      {managedComputeInventory?.coverage_gaps.length ? (
+        <DomainStatusPanel
+          eyebrow="Managed compute coverage gaps"
+          title="Unsupported managed compute services"
+          status={`${managedComputeInventory.coverage_gaps.length} gaps`}
+          tone="warning"
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="Managed compute coverage gaps">
+            {managedComputeInventory.coverage_gaps.map((gap) => (
+              <article key={`${gap.service}-${gap.status}`}>
+                <strong>{formatTokenLabel(gap.service)}</strong>
+                <p>{gap.reason}</p>
+                {gap.remediation ? <small>{gap.remediation}</small> : null}
               </article>
             ))}
           </div>
@@ -5437,6 +5496,116 @@ function awsEventDrivenRoleRow(record: AWSEventDrivenRoleRecord): AWSInventoryTa
   };
 }
 
+function buildAWSManagedComputeRoleRows(
+  inventory: AWSManagedComputeRoleInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsManagedComputeRoleRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return managedComputeFallbackRows(inventory, 'not-yet-available', 'not-available', 'not yet available', inventory.failure_reasons[0] ?? 'Managed compute role collection is blocked.');
+  }
+  if (inventory) {
+    const degraded = inventory.status === 'degraded' || inventory.diagnostics.length > 0 || inventory.failure_reasons.length > 0;
+    const filterStatus = degraded ? 'degraded' : 'wired-now';
+    return managedComputeFallbackRows(
+      inventory,
+      filterStatus,
+      'wired',
+      degraded ? 'degraded' : 'wired now',
+      degraded
+        ? (inventory.failure_reasons[0] ?? 'Managed compute collection completed with degraded evidence and no retained records.')
+        : 'The collector completed for this account and region without matching managed compute roles.'
+    );
+  }
+  if (loading) {
+    return managedComputeFallbackRows(null, 'coming', 'coming', 'coming', 'Loading App Runner, Batch, Glue, and EMR service role evidence.', connection);
+  }
+  return managedComputeFallbackRows(null, 'coming', 'coming', 'coming', 'Managed compute inventory maps App Runner, Batch, Glue, and EMR workloads back to IAM roles after AWS is connected.');
+}
+
+function managedComputeFallbackRows(
+  inventory: AWSManagedComputeRoleInventoryResult | null,
+  filterStatus: string,
+  stage: AWSCapabilityStage,
+  status: string,
+  detail: string,
+  connection?: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  const scope = inventory ? awsAccountRegionInventoryLabel(inventory.account_id, inventory.region) : connection ? awsAccountRegionLabel(connection) : 'Account and region expansion';
+  const risk = filterStatus === 'degraded' ? 'medium' : filterStatus === 'wired-now' ? 'low' : 'unscored';
+  return [
+    { service: 'apprunner', name: 'App Runner service roles', category: 'App Runner service role' },
+    { service: 'batch', name: 'AWS Batch roles', category: 'Batch workload role' },
+    { service: 'glue', name: 'AWS Glue roles', category: 'Glue workload role' },
+    { service: 'emr', name: 'Amazon EMR roles', category: 'EMR cluster role' }
+  ].map((item) => ({
+    id: `managed-compute-roles-${item.service}-${filterStatus}`,
+    name: item.name,
+    category: item.category,
+    scope,
+    status,
+    stage,
+    detail,
+    filters: { identityType: 'managed-compute-role', service: item.service, risk, status: filterStatus, search: '' },
+    searchText: inventorySearchText([item.service, item.name, item.category, inventory?.account_id, inventory?.region, filterStatus])
+  }));
+}
+
+function awsManagedComputeRoleRow(record: AWSManagedComputeRoleRecord): AWSInventoryTableRow {
+  const service = record.service || 'managed-compute';
+  const disabled = Boolean(record.disabled) || record.status === 'disabled';
+  const degraded = record.status === 'degraded' || record.coverage_status === 'unsupported';
+  const stage: AWSCapabilityStage = record.role_arn ? 'wired' : 'coming';
+  const status = disabled ? 'disabled' : stage === 'wired' ? (degraded ? 'degraded' : 'wired now') : 'degraded';
+  const roleLabel = record.role_name || record.role_arn || 'role unresolved';
+  const workloadLabel = record.workload_name || record.workload_arn || record.workload_id;
+  const statusLabel = record.resource_status ? `status ${record.resource_status}` : 'status not reported';
+  const engineLabel = record.compute_engine ? `engine ${record.compute_engine}` : formatTokenLabel(record.workload_type || 'managed_compute_workload');
+  const revisionLabel = record.revision ? `revision ${record.revision}` : '';
+  const risk = record.coverage_status === 'unsupported' ? 'medium' : disabled ? 'low' : record.role_kind?.includes('execution') ? 'medium' : 'low';
+  return {
+    id: `managed-compute-role-${record.from_node_id}-${record.to_node_id || record.role_arn || record.workload_arn}`,
+    name: roleLabel,
+    category: formatTokenLabel(record.role_kind || record.workload_type || 'managed_compute_role'),
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage,
+    detail: `${workloadLabel} uses ${roleLabel}; ${statusLabel}; ${engineLabel}${revisionLabel ? `; ${revisionLabel}` : ''}.`,
+    filters: {
+      identityType: 'managed-compute-role',
+      service,
+      risk,
+      status: status === 'wired now' ? 'wired-now' : disabled ? 'disabled' : 'degraded',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.role_arn,
+      record.role_name,
+      record.role_kind,
+      record.role_account_id,
+      record.workload_arn,
+      record.workload_name,
+      record.workload_type,
+      record.resource_arn,
+      record.resource_type,
+      record.resource_status,
+      record.compute_engine,
+      record.queue_arn,
+      record.cluster_arn,
+      record.job_definition_arn,
+      record.unsupported_service,
+      record.coverage_status,
+      record.coverage_reason,
+      record.account_id,
+      record.region,
+      'apprunner batch glue emr managed compute service role job execution'
+    ])
+  };
+}
+
 function buildAWSEKSWorkloadIdentityRows(
   inventory: AWSEKSWorkloadIdentityInventoryResult | null,
   loading: boolean,
@@ -5825,6 +5994,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [eventDrivenInventoryLoading, setEventDrivenInventoryLoading] = useState(false);
   const [eventDrivenInventoryError, setEventDrivenInventoryError] = useState('');
   const eventDrivenInventoryRequestRef = useRef(0);
+  const [managedComputeInventory, setManagedComputeInventory] = useState<AWSManagedComputeRoleInventoryResult | null>(null);
+  const [managedComputeInventoryLoading, setManagedComputeInventoryLoading] = useState(false);
+  const [managedComputeInventoryError, setManagedComputeInventoryError] = useState('');
+  const managedComputeInventoryRequestRef = useRef(0);
   const [eksInventory, setEKSInventory] = useState<AWSEKSWorkloadIdentityInventoryResult | null>(null);
   const [eksInventoryLoading, setEKSInventoryLoading] = useState(false);
   const [eksInventoryError, setEKSInventoryError] = useState('');
@@ -6118,6 +6291,46 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadEventDrivenInventory]);
 
+  const loadManagedComputeInventory = useCallback(async () => {
+    const requestID = ++managedComputeInventoryRequestRef.current;
+    setManagedComputeInventory(null);
+    setManagedComputeInventoryError('');
+    if (routeID !== 'identities' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setManagedComputeInventoryLoading(false);
+      return;
+    }
+    setManagedComputeInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectManagedComputeRoles(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== managedComputeInventoryRequestRef.current) {
+        return;
+      }
+      setManagedComputeInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== managedComputeInventoryRequestRef.current) {
+        return;
+      }
+      setManagedComputeInventoryError(formatAPIError(error, 'Unable to load App Runner, Batch, Glue, and EMR role inventory.'));
+    } finally {
+      if (requestID === managedComputeInventoryRequestRef.current) {
+        setManagedComputeInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadManagedComputeInventory();
+    return () => {
+      managedComputeInventoryRequestRef.current += 1;
+    };
+  }, [loadManagedComputeInventory]);
+
   const loadEKSInventory = useCallback(async () => {
     const requestID = ++eksInventoryRequestRef.current;
     setEKSInventory(null);
@@ -6271,6 +6484,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: eventDrivenInventoryLoading,
             error: eventDrivenInventoryError,
             onRetry: () => void loadEventDrivenInventory()
+          }}
+          managedComputeState={{
+            inventory: managedComputeInventory,
+            loading: managedComputeInventoryLoading,
+            error: managedComputeInventoryError,
+            onRetry: () => void loadManagedComputeInventory()
           }}
           eksState={{
             inventory: eksInventory,
