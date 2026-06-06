@@ -7908,9 +7908,7 @@ export function ProductAWSConnectPage() {
       primaryAction={
         awaitingFirstConnectLoad
           ? undefined
-          : connectedNow
-            ? { label: 'AWS overview', to: controlPath, variant: 'primary' }
-            : undefined
+          : { label: 'AWS overview', to: controlPath, variant: 'primary' as const }
       }
     >
       {!selectedEnvironmentID && !environmentScope.loading ? (

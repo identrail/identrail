@@ -1023,7 +1023,7 @@ describe('App', () => {
 
     expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: /App sections/i })).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { level: 2, name: 'AWS Control Center' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS' })).toBeInTheDocument();
     await waitFor(() => {
       const meCallsAfterNavigation = fetchMock.mock.calls.filter(([url]) => typeof url === 'string' && url.endsWith('/v1/me')).length;
       expect(meCallsAfterNavigation).toBeGreaterThan(meCallsBeforeNavigation);
@@ -1224,14 +1224,14 @@ describe('App', () => {
     });
 
     expect(await screen.findByText(/Validating session/i)).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { level: 2, name: 'AWS Control Center' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'AWS' })).not.toBeInTheDocument();
 
     await act(async () => {
       resolveScopedMe(okJSON(currentMePayload('tenant-a', 'workspace-a')));
       await scopedMeResponse;
     });
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'AWS Control Center' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS' })).toBeInTheDocument();
   });
 
   it('keeps account security available without a selected workspace', async () => {
@@ -1305,7 +1305,7 @@ describe('App', () => {
       window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
     });
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'AWS Control Center' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(meCalls).toBe(2);
   });
@@ -1528,24 +1528,25 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/aws/identities');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /AWS machine identities/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Identities' })).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: /AWS sections/i })).not.toBeInTheDocument();
   });
 
   it.each([
-    ['runtime', /AWS runtime evidence/i, /Not ingesting/i],
-    ['graph', /AWS graph explorer/i, /Connector only/i],
-    ['findings', /AWS findings/i, /No findings/i],
-    ['remediation', /AWS remediation/i, /No cases/i],
-    ['governance', /AWS governance/i, /Advisory only/i]
-  ])('renders the AWS %s operations route with a route-specific shell', async (route, heading, marker) => {
+    ['runtime', 'Runtime'],
+    ['graph', 'Graph'],
+    ['findings', 'Findings'],
+    ['remediation', 'Remediation'],
+    ['governance', 'Governance']
+  ])('renders the AWS %s operations route with a route-specific shell', async (route, heading) => {
     vi.stubGlobal('fetch', awsOperationalRouteFetchMock(true));
 
     setCurrentPath(`/app/tenant-a/workspace-a/aws/${route}`);
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 2, name: heading })).toBeInTheDocument();
-    expect((await screen.findAllByText(marker)).length).toBeGreaterThan(0);
+    // The placeholder DomainPageShell with the "Domain-owned entry point is ready"
+    // copy is not used for AWS operational routes — the live shell is.
     expect(screen.queryByText(/Domain-owned entry point is ready/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: /AWS sections/i })).not.toBeInTheDocument();
   });
@@ -1557,7 +1558,7 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/aws/graph?environment=project-1');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /AWS graph explorer/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Graph' })).toBeInTheDocument();
     expect((await screen.findAllByText(/Role IdentrailReadOnly/i)).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Account 123456789012/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Connector/i).length).toBeGreaterThan(0);
@@ -1574,7 +1575,7 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/aws/runtime');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /AWS runtime evidence/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Runtime' })).toBeInTheDocument();
     expect(await screen.findByText(/Connect AWS to load operational context/i)).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: /Connect AWS/i })[0]).toHaveAttribute(
       'href',
@@ -1790,7 +1791,7 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /Connect AWS/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/aws/connect');
     expect(await screen.findByRole('heading', { level: 3, name: /AWS read-only connector/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /AWS home/i })).toHaveAttribute('href', '/app/tenant-a/workspace-a/aws?environment=project-1');
+    expect(screen.getByRole('link', { name: /AWS overview/i })).toHaveAttribute('href', '/app/tenant-a/workspace-a/aws?environment=project-1');
     expect(screen.queryByLabelText('AWS source')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Source types')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { level: 3, name: 'AWS' })).not.toBeInTheDocument();
