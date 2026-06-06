@@ -198,10 +198,13 @@ func TestStepFunctionsDefinitionMetadataExtractsOnlySafeReferences(t *testing.T)
 }
 
 func TestStepFunctionsDefinitionMetadataSupportsAWSPartitions(t *testing.T) {
-	definition := `{"States":{"Gov":{"Type":"Task","Resource":"arn:aws-us-gov:lambda:us-gov-west-1:123456789012:function:charge-card","End":true}}}`
+	definition := `{"States":{"Gov":{"Type":"Task","Resource":"arn:aws-us-gov:lambda:us-gov-west-1:123456789012:function:charge-card","Next":"China"},"China":{"Type":"Task","Resource":"arn:aws-cn:states:::lambda:invoke","End":true}}}`
 	summary := stepFunctionsDefinitionMetadata(definition)
-	if len(summary.TaskResourceARNs) != 1 || summary.TaskResourceARNs[0] != "arn:aws-us-gov:lambda:us-gov-west-1:123456789012:function:charge-card" {
+	if !strings.Contains(strings.Join(summary.TaskResourceARNs, ","), "arn:aws-us-gov:lambda:us-gov-west-1:123456789012:function:charge-card") {
 		t.Fatalf("expected aws-us-gov ARN extraction, got %+v", summary.TaskResourceARNs)
+	}
+	if len(summary.ServiceIntegrations) != 1 || summary.ServiceIntegrations[0] != "lambda" {
+		t.Fatalf("expected aws-cn Step Functions integration extraction, got %+v", summary.ServiceIntegrations)
 	}
 }
 

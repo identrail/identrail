@@ -287,11 +287,11 @@ func collectStepFunctionsDefinitionString(value string, key string, resourceARNs
 }
 
 func stepFunctionsServiceIntegration(resource string) string {
-	const marker = "arn:aws:states:::"
-	if !strings.HasPrefix(resource, marker) {
+	parts := strings.SplitN(resource, ":", 6)
+	if len(parts) != 6 || parts[0] != "arn" || parts[2] != "states" || parts[3] != "" || parts[4] != "" {
 		return ""
 	}
-	rest := strings.TrimPrefix(resource, marker)
+	rest := parts[5]
 	end := len(rest)
 	for _, sep := range []string{":", "."} {
 		if idx := strings.Index(rest, sep); idx >= 0 && idx < end {
