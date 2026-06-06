@@ -6357,3 +6357,128 @@ describe('Workspace Danger Zone (#1420)', () => {
     await screen.findByTestId('idt-suspend-workspace-row');
   });
 });
+
+// ---------------------------------------------------------------------------
+// AWS section copy-redundancy regression
+// ---------------------------------------------------------------------------
+//
+// PR #1582 stripped the AWS section of engineering-vibe copy: the marketing
+// tagline on the overview, the eight-card KPI strip, every per-page
+// `Current vs planned / Wired now / Planned coverage` block, the
+// `Inventory contract` and `AWSRiskOperationScope` asides, the three
+// `Issue sequencing / App validation / Collector contract` issue-tracker
+// panels, and the `Coming wave / Coming later / Reserved surface /
+// Inventory shell` status labels.
+//
+// This test reads productShell.tsx as source so that a future PR cannot
+// quietly re-introduce any of those strings. The check is a substring
+// match — if any banned phrase reappears anywhere in the file, this test
+// fails with a clear pointer to which one. The list is intentionally
+// scoped to *copy*; new code paths that happen to mention "wave" or
+// "shell" in a function or type name are fine.
+
+describe('AWS copy redundancy guard (#1582)', () => {
+  const productShellSource = (() => {
+    // Vitest runs from web/, so the source path is relative to that.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { readFileSync } = require('node:fs') as typeof import('node:fs');
+    return readFileSync('./src/productShell.tsx', 'utf8');
+  })();
+
+  // Strings that must never appear as customer-visible copy in the AWS
+  // section. Anything wrapped in JSX literal quotes is fair game for the
+  // check; type names and helper-function identifiers do not match
+  // because they use camelCase or PascalCase.
+  // The list is scoped to phrases that are unambiguously
+  // engineering-roadmap-in-UI; phrases that double as legitimate
+  // filter-option labels (e.g. 'Coming wave' is also an inventory
+  // filter value), internal helper return values, or content-card copy
+  // are intentionally NOT on this list — the per-constant assertions
+  // below cover the page-shell constants where those phrases were the
+  // actual redundancy.
+  const bannedAWSCopyStrings: ReadonlyArray<string> = [
+    // Header / overview chrome removed by #1582
+    'AWS MACHINE IDENTITY',
+    'AWS Control Center',
+    'from one domain-owned surface',
+    'Operate AWS connection health',
+    // Issue-tracker panels removed from customer UI by #1582
+    'AWS platform dependency index',
+    'AWS live app validation harness',
+    'AWS service collector contract',
+    // Page-shell shells / scopes / asides removed by #1582
+    'Coverage shell',
+    'Inventory shell',
+    'Reachability shell',
+    'Reserved surface',
+    'AWS capability expansion',
+    'AWS capability map',
+    'Setup payload',
+    'Scoped contract',
+    'Workspace contract',
+    'Read-only account onboarding'
+    // Note: short engineering-vibe phrases like "Not ingesting" / "Advisory
+    // only" / "Coming wave" / "Wired now" / "Not yet available" are
+    // intentionally not substring-banned because they double as legitimate
+    // inventory filter labels or appear in cleanup comments. Their
+    // reintroduction into the AWS_INVENTORY_PAGE_COPY and
+    // AWS_RISK_OPERATION_PAGE_COPY shells is caught by the per-constant
+    // assertions below.
+  ];
+
+  it.each(bannedAWSCopyStrings)(
+    'productShell.tsx must not reintroduce the AWS copy redundancy %p',
+    (phrase) => {
+      // We match an opening single or double quote, optional intervening
+      // whitespace, and the phrase, so we only catch the strings as
+      // literal copy — not as parts of variable names.
+      const literalForms = [`'${phrase}`, `"${phrase}`, `\`${phrase}`];
+      const matched = literalForms.find((needle) => productShellSource.includes(needle));
+      if (matched) {
+        throw new Error(
+          `AWS copy redundancy reintroduced: ${JSON.stringify(phrase)} was found as a string literal in productShell.tsx. ` +
+            `PR #1582 removed this string family because it pushed engineering-roadmap language onto the customer UI. ` +
+            `Use plain-English page copy and a real empty state instead.`
+        );
+      }
+      expect(matched).toBeUndefined();
+    }
+  );
+
+  it('AWS inventory copy entries keep the legacy roadmap-in-UI fields blank', () => {
+    // The four AWSInventoryPageCopy entries were the source of every
+    // `Wired now / Planned coverage / Statuslabel` repeat across the
+    // Accounts / Identities / Agents / Resources sub-pages. The fields
+    // still exist on the type so the surrounding shell continues to
+    // compile, but their *values* must stay empty so the deleted panel
+    // cannot accidentally reappear if a future PR re-renders them.
+    const inventoryCopyBlock = productShellSource.match(
+      /const AWS_INVENTORY_PAGE_COPY[\s\S]*?^};/m
+    );
+    expect(inventoryCopyBlock).not.toBeNull();
+    const block = inventoryCopyBlock![0];
+    // Every assignment to the four fields must be the empty string.
+    for (const field of ['eyebrow', 'statusLabel', 'currentCapability', 'plannedCapability']) {
+      const matches = [...block.matchAll(new RegExp(`${field}:\\s*'([^']*)'`, 'g'))];
+      expect(matches.length).toBeGreaterThan(0);
+      for (const match of matches) {
+        expect(match[1]).toBe('');
+      }
+    }
+  });
+
+  it('AWS risk-operation copy entries keep the legacy roadmap-in-UI fields blank', () => {
+    const riskCopyBlock = productShellSource.match(
+      /const AWS_RISK_OPERATION_PAGE_COPY[\s\S]*?^};/m
+    );
+    expect(riskCopyBlock).not.toBeNull();
+    const block = riskCopyBlock![0];
+    for (const field of ['eyebrow', 'statusLabel', 'currentCapability', 'plannedCapability', 'nextAction']) {
+      const matches = [...block.matchAll(new RegExp(`${field}:\\s*'([^']*)'`, 'g'))];
+      expect(matches.length).toBeGreaterThan(0);
+      for (const match of matches) {
+        expect(match[1]).toBe('');
+      }
+    }
+  });
+});
