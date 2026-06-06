@@ -73,6 +73,18 @@ func codeBuildProjectResourceID(projectARN string) string {
 	return "aws:resource:codebuild-project:" + strings.TrimSpace(projectARN)
 }
 
+func codePipelineWorkloadID(accountID, region, pipelineRef, roleKind string) string {
+	normalizedRoleKind := normalizeName(roleKind)
+	if normalizedRoleKind == "" {
+		normalizedRoleKind = "role"
+	}
+	return fmt.Sprintf("aws:workload:codepipeline:%s:%s:pipeline/%s/%s", normalizeName(accountID), normalizeName(region), normalizeName(pipelineRef), normalizedRoleKind)
+}
+
+func codePipelineResourceID(pipelineARN string) string {
+	return "aws:resource:codepipeline-pipeline:" + strings.TrimSpace(pipelineARN)
+}
+
 func eksWorkloadIdentityWorkloadID(accountID, region, workloadType, workloadID, roleKind string) string {
 	normalizedType := normalizeName(workloadType)
 	if normalizedType == "" {

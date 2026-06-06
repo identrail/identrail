@@ -1434,6 +1434,108 @@ export type AWSCodeBuildServiceRoleInventoryResult = {
   updated_at: string;
 };
 
+export type AWSCodePipelineDeploymentRoleInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSCodePipelineDeploymentRoleFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+
+export type AWSCodePipelineDeploymentRoleRecord = {
+  account_id: string;
+  region: string;
+  service: string;
+  workload_id: string;
+  workload_type: string;
+  workload_name: string;
+  role_arn?: string;
+  role_name?: string;
+  role_kind?: string;
+  pipeline_arn?: string;
+  pipeline_name?: string;
+  pipeline_version?: number;
+  pipeline_type?: string;
+  execution_mode?: string;
+  stage_name?: string;
+  action_name?: string;
+  action_category?: string;
+  action_owner?: string;
+  action_provider?: string;
+  action_version?: string;
+  action_region?: string;
+  run_order?: number;
+  namespace?: string;
+  input_artifact_names?: string[];
+  output_artifact_names?: string[];
+  artifact_store_types?: string[];
+  artifact_store_locations?: string[];
+  artifact_store_regions?: string[];
+  artifact_kms_key_arns?: string[];
+  configuration_keys?: string[];
+  provider_identifiers?: string[];
+  disabled_stage_transitions?: string[];
+  cross_region_artifact_stores?: boolean;
+  cross_region_action?: boolean;
+  cross_account_role?: boolean;
+  pass_role_adjacent?: boolean;
+  tags?: Record<string, string>;
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  to_node_id?: string;
+  relationship_type: 'runs_as' | string;
+  confidence: number;
+  collected_at: string;
+  status: string;
+};
+
+export type AWSCodePipelineDeploymentRoleRelationship = {
+  type: 'runs_as' | string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSCodePipelineDeploymentRoleDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSCodePipelineDeploymentRoleInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSCodePipelineDeploymentRoleInventoryStatus;
+  fixture_state: AWSCodePipelineDeploymentRoleFixtureState;
+  confidence: number;
+  record_count: number;
+  pipeline_count: number;
+  action_role_count: number;
+  cross_account_role_count: number;
+  cross_region_action_count: number;
+  disabled_stage_transition_count: number;
+  pass_role_adjacent_count: number;
+  identity_count: number;
+  resource_count: number;
+  relationship_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  records: AWSCodePipelineDeploymentRoleRecord[];
+  relationships: AWSCodePipelineDeploymentRoleRelationship[];
+  diagnostics: AWSCodePipelineDeploymentRoleDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSEKSWorkloadIdentityInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSEKSWorkloadIdentityFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 
@@ -2555,6 +2657,21 @@ export const apiClient = {
   ) {
     return request<{ inventory: AWSCodeBuildServiceRoleInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/codebuild-service-roles${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectCodePipelineDeploymentRoles(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSCodePipelineDeploymentRoleFixtureState,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSCodePipelineDeploymentRoleInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/codepipeline-deployment-roles${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
       })}`,

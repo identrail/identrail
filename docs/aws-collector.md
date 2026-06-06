@@ -4,8 +4,9 @@
 
 The AWS collector family uses a composable service collection layer. IAM remains
 the default identity source, and EC2 instance profiles, ECS task/execution roles,
-Lambda execution roles, and CodeBuild service roles are collected as workload
-identity services without changing IAM collector behavior.
+Lambda execution roles, CodeBuild service roles, and CodePipeline deployment
+roles are collected as workload identity services without changing IAM collector
+behavior.
 
 ## Composite Architecture
 
@@ -28,6 +29,11 @@ The collection path is:
   source/provider metadata, environment key names, credential references, VPC
   config, and artifact metadata without collecting build logs, source,
   artifacts, environment values, or secret values.
+- `CodePipelineDeploymentRoleCollector` maps CodePipeline pipelines and action
+  roles to deployment identities, artifact stores, stage/action providers,
+  cross-region/cross-account role paths, disabled transitions, and
+  PassRole-adjacent evidence without collecting action configuration values,
+  source contents, artifact contents, or deployment payloads.
 
 Behavior:
 
@@ -117,6 +123,13 @@ ordered by `kind`, then `source_id`.
   metadata, VPC config, artifact metadata, environment key names, and
   Parameter Store or Secrets Manager references, but not build logs, source,
   artifacts, environment values, or secret values.
+- CodePipeline pipeline describe failures are surfaced as partial-failure
+  diagnostics while successfully described pipeline/action role evidence remains
+  visible.
+- CodePipeline records include pipeline role, action role, provider/category,
+  artifact store, cross-region/cross-account, disabled-transition, and
+  configuration-key metadata, but not action configuration values, source
+  contents, artifact contents, deployment payloads, or secret values.
 
 ## Security Posture
 
@@ -140,9 +153,13 @@ ordered by `kind`, then `source_id`.
   `ListEventSourceMappings`, and `ListTags`.
 - CodeBuild service-role collection is implemented through AWS SDK CodeBuild
   adapters for `ListProjects` and `BatchGetProjects`.
+- CodePipeline deployment-role collection is implemented through AWS SDK
+  CodePipeline adapters for `ListPipelines`, `GetPipeline`, and
+  `GetPipelineState`.
 - AWS SDK CLI and runtime paths now use `NewAWSScanner`, which wires the
   composite collector with IAM, EC2 instance profile, ECS task role, Lambda
-  execution role, CodeBuild service role, and EKS workload identity services.
+  execution role, CodeBuild service role, CodePipeline deployment role, and EKS
+  workload identity services.
 - The composite layer is now the extension point for future AWS service collection in the CLI/runtime path.
 - The service collector contract is exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/collector-contract`
@@ -158,4 +175,7 @@ ordered by `kind`, then `source_id`.
   and the AWS machine identities page.
 - CodeBuild service role inventory is exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/codebuild-service-roles`
+  and the AWS machine identities page.
+- CodePipeline deployment role inventory is exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/codepipeline-deployment-roles`
   and the AWS machine identities page.

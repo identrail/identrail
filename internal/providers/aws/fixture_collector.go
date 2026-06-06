@@ -133,6 +133,14 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	var codePipelineRole CodePipelineDeploymentRole
+	if err := json.Unmarshal(payload, &codePipelineRole); err == nil {
+		sourceID := codePipelineDeploymentRoleSourceID(codePipelineRole)
+		if isCodePipelineDeploymentRoleFixture(codePipelineRole) {
+			return rawKindCodePipelineDeploymentRole, sourceID
+		}
+	}
+
 	var profile EC2InstanceProfile
 	if err := json.Unmarshal(payload, &profile); err == nil {
 		sourceID := ec2InstanceProfileSourceID(profile)
@@ -199,6 +207,25 @@ func isCodeBuildServiceRoleFixture(record CodeBuildServiceRole) bool {
 		strings.TrimSpace(record.CacheType) != "" ||
 		len(record.ArtifactTypes) > 0 ||
 		len(record.SourceIdentifiers) > 0
+}
+
+func isCodePipelineDeploymentRoleFixture(record CodePipelineDeploymentRole) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), codePipelineServiceName) || strings.EqualFold(strings.TrimSpace(record.CollectorName), codePipelineDeploymentRoleCollectorName) {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(record.WorkloadType)) {
+	case "codepipeline_pipeline", "codepipeline_action", "pipeline", "action":
+		return true
+	}
+	return strings.TrimSpace(record.PipelineARN) != "" ||
+		strings.TrimSpace(record.PipelineName) != "" ||
+		strings.TrimSpace(record.RoleKind) != "" ||
+		strings.TrimSpace(record.StageName) != "" ||
+		strings.TrimSpace(record.ActionName) != "" ||
+		strings.TrimSpace(record.ActionProvider) != "" ||
+		len(record.ArtifactStoreLocations) > 0 ||
+		len(record.ConfigurationKeys) > 0 ||
+		len(record.DisabledStageTransitions) > 0
 }
 
 func isEKSWorkloadIdentityFixture(record EKSWorkloadIdentity) bool {

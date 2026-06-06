@@ -107,6 +107,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		if err := ctx.Err(); err != nil {
 			return providers.NormalizedBundle{}, err
 		}
+		if asset.Kind != rawKindCodePipelineDeploymentRole {
+			continue
+		}
+		if err := normalizeCodePipelineDeploymentRoleAsset(asset, i, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
 		if asset.Kind != rawKindEKSWorkloadIdentity {
 			continue
 		}
@@ -582,6 +594,100 @@ func normalizeCodeBuildServiceRoleAsset(asset providers.RawAsset, index int, bun
 	return nil
 }
 
+func normalizeCodePipelineDeploymentRoleAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record CodePipelineDeploymentRole
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode codepipeline deployment role asset[%d]: %w", index, err)
+	}
+
+	roleARN := strings.TrimSpace(record.RoleARN)
+	roleIdentityID := ""
+	if roleARN != "" {
+		roleIdentityID = identityIDFromARN(roleARN)
+		roleName := strings.TrimSpace(record.RoleName)
+		if roleName == "" {
+			roleName = roleNameFromARN(roleARN)
+		}
+		if _, exists := identitySeen[roleIdentityID]; !exists {
+			identitySeen[roleIdentityID] = struct{}{}
+			bundle.Identities = append(bundle.Identities, domain.Identity{
+				ID:        roleIdentityID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.IdentityTypeRole,
+				Name:      roleName,
+				ARN:       roleARN,
+				OwnerHint: ownerHintFromTags(record.Tags),
+				Tags:      copyTags(record.Tags),
+				RawRef:    asset.SourceID,
+			})
+		}
+	}
+
+	workloadID := codePipelineRoleWorkloadID(record)
+	if workloadID != "" {
+		if _, exists := workloadSeen[workloadID]; !exists {
+			workloadSeen[workloadID] = struct{}{}
+			bundle.Workloads = append(bundle.Workloads, domain.Workload{
+				ID:        workloadID,
+				Provider:  domain.ProviderAWS,
+				Type:      codePipelineRoleWorkloadType(record),
+				Name:      codePipelineRoleWorkloadName(record),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Region:    strings.TrimSpace(record.Region),
+				RawRef:    roleIdentityID,
+			})
+		}
+	}
+
+	if strings.TrimSpace(record.PipelineARN) != "" {
+		pipelineResourceID := codePipelineResourceID(record.PipelineARN)
+		if _, exists := resourceSeen[pipelineResourceID]; !exists {
+			resourceSeen[pipelineResourceID] = struct{}{}
+			bundle.Resources = append(bundle.Resources, domain.Resource{
+				ID:        pipelineResourceID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.ResourceTypeCodePipeline,
+				Name:      firstNonEmptyAWSValue(record.PipelineName, codePipelineNameFromARN(record.PipelineARN)),
+				ARN:       strings.TrimSpace(record.PipelineARN),
+				Region:    strings.TrimSpace(record.Region),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Labels:    copyTags(record.Tags),
+				Metadata: map[string]any{
+					"role_arn":                     roleARN,
+					"role_kind":                    strings.TrimSpace(record.RoleKind),
+					"pipeline_name":                strings.TrimSpace(record.PipelineName),
+					"pipeline_version":             record.PipelineVersion,
+					"pipeline_type":                strings.TrimSpace(record.PipelineType),
+					"execution_mode":               strings.TrimSpace(record.ExecutionMode),
+					"stage_name":                   strings.TrimSpace(record.StageName),
+					"action_name":                  strings.TrimSpace(record.ActionName),
+					"action_category":              strings.TrimSpace(record.ActionCategory),
+					"action_owner":                 strings.TrimSpace(record.ActionOwner),
+					"action_provider":              strings.TrimSpace(record.ActionProvider),
+					"action_region":                strings.TrimSpace(record.ActionRegion),
+					"input_artifact_names":         append([]string(nil), record.InputArtifactNames...),
+					"output_artifact_names":        append([]string(nil), record.OutputArtifactNames...),
+					"artifact_store_types":         append([]string(nil), record.ArtifactStoreTypes...),
+					"artifact_store_locations":     append([]string(nil), record.ArtifactStoreLocations...),
+					"artifact_store_regions":       append([]string(nil), record.ArtifactStoreRegions...),
+					"artifact_kms_key_arns":        append([]string(nil), record.ArtifactKMSKeyARNs...),
+					"configuration_keys":           append([]string(nil), record.ConfigurationKeys...),
+					"provider_identifiers":         append([]string(nil), record.ProviderIdentifiers...),
+					"disabled_stage_transitions":   append([]string(nil), record.DisabledStageTransitions...),
+					"cross_region_artifact_stores": record.CrossRegionArtifactStores,
+					"cross_region_action":          record.CrossRegionAction,
+					"cross_account_role":           record.CrossAccountRole,
+					"pass_role_adjacent":           record.PassRoleAdjacent,
+				},
+				RawRef:         asset.SourceID,
+				SourceEntityID: workloadID,
+			})
+		}
+	}
+
+	return nil
+}
+
 func normalizeEKSWorkloadIdentityAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
 	var record EKSWorkloadIdentity
 	if err := json.Unmarshal(asset.Payload, &record); err != nil {
@@ -855,6 +961,29 @@ func codeBuildRoleWorkloadID(record CodeBuildServiceRole) string {
 
 func codeBuildRoleWorkloadName(record CodeBuildServiceRole) string {
 	return firstNonEmptyAWSValue(record.WorkloadName, record.ProjectName, codeBuildProjectNameFromARN(record.ProjectARN), "codebuild project")
+}
+
+func codePipelineRoleWorkloadID(record CodePipelineDeploymentRole) string {
+	return codePipelineWorkloadID(
+		record.AccountID,
+		record.Region,
+		firstNonEmptyAWSValue(record.WorkloadID, record.PipelineARN, record.PipelineName),
+		record.RoleKind,
+	)
+}
+
+func codePipelineRoleWorkloadType(record CodePipelineDeploymentRole) string {
+	if strings.EqualFold(record.RoleKind, "action_role") {
+		return "codepipeline_action"
+	}
+	return "codepipeline_pipeline"
+}
+
+func codePipelineRoleWorkloadName(record CodePipelineDeploymentRole) string {
+	if strings.EqualFold(record.RoleKind, "action_role") {
+		return firstNonEmptyAWSValue(record.WorkloadName, strings.Join(normalizeStringList([]string{record.PipelineName, record.StageName, record.ActionName}), " / "), "codepipeline action")
+	}
+	return firstNonEmptyAWSValue(record.WorkloadName, record.PipelineName, codePipelineNameFromARN(record.PipelineARN), "codepipeline pipeline")
 }
 
 func eksWorkloadIdentityNormalizedWorkloadID(record EKSWorkloadIdentity) string {

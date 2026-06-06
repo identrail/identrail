@@ -31,6 +31,8 @@ import {
   type AWSConnectionStatus,
   type AWSCodeBuildServiceRoleInventoryResult,
   type AWSCodeBuildServiceRoleRecord,
+  type AWSCodePipelineDeploymentRoleInventoryResult,
+  type AWSCodePipelineDeploymentRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
   type AWSEC2InstanceProfileRecord,
   type AWSEKSWorkloadIdentityInventoryResult,
@@ -3500,7 +3502,7 @@ const AWS_INVENTORY_PAGE_COPY: Record<AWSInventoryRouteID, AWSInventoryPageCopy>
     statusLabel: 'Inventory shell',
     primaryKpi: 'Identity anchor',
     currentCapability: 'Current IAM role ARN, principal ARN, account, region, and permission diagnostics.',
-    plannedCapability: 'Instance profiles, ECS task roles, Lambda roles, CodeBuild service roles, EKS IRSA/Pod Identity, and deploy roles.'
+    plannedCapability: 'Instance profiles, ECS task roles, Lambda roles, CodeBuild service roles, CodePipeline deployment roles, and EKS IRSA/Pod Identity.'
   },
   agents: {
     routeID: 'agents',
@@ -3595,6 +3597,13 @@ type AWSInventoryCodeBuildState = {
   onRetry: () => void;
 };
 
+type AWSInventoryCodePipelineState = {
+  inventory: AWSCodePipelineDeploymentRoleInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryEKSState = {
   inventory: AWSEKSWorkloadIdentityInventoryResult | null;
   loading: boolean;
@@ -3645,11 +3654,12 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'ECS task role', value: 'ecs-task-role' },
         { label: 'Lambda role', value: 'lambda-role' },
         { label: 'CodeBuild role', value: 'codebuild-role' },
+        { label: 'CodePipeline role', value: 'codepipeline-role' },
         { label: 'EKS identity', value: 'eks-identity' },
         { label: 'CI/CD role', value: 'cicd-role' }
       ]
     },
-    { id: 'service', label: 'Service', options: [{ label: 'All services', value: 'all' }, { label: 'IAM', value: 'iam' }, { label: 'EC2', value: 'ec2' }, { label: 'ECS', value: 'ecs' }, { label: 'Lambda', value: 'lambda' }, { label: 'CodeBuild', value: 'codebuild' }, { label: 'EKS', value: 'eks' }, { label: 'OIDC', value: 'oidc' }] },
+    { id: 'service', label: 'Service', options: [{ label: 'All services', value: 'all' }, { label: 'IAM', value: 'iam' }, { label: 'EC2', value: 'ec2' }, { label: 'ECS', value: 'ecs' }, { label: 'Lambda', value: 'lambda' }, { label: 'CodeBuild', value: 'codebuild' }, { label: 'CodePipeline', value: 'codepipeline' }, { label: 'EKS', value: 'eks' }, { label: 'OIDC', value: 'oidc' }] },
     {
       id: 'risk',
       label: 'Risk',
@@ -4198,6 +4208,7 @@ function AWSMachineIdentitiesContent({
   ecsState,
   lambdaState,
   codeBuildState,
+  codePipelineState,
   eksState,
   filters,
   onFiltersChange
@@ -4207,6 +4218,7 @@ function AWSMachineIdentitiesContent({
   ecsState: AWSInventoryECSState;
   lambdaState: AWSInventoryLambdaState;
   codeBuildState: AWSInventoryCodeBuildState;
+  codePipelineState: AWSInventoryCodePipelineState;
   eksState: AWSInventoryEKSState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
@@ -4215,11 +4227,13 @@ function AWSMachineIdentitiesContent({
   const ecsInventory = ecsState.inventory;
   const lambdaInventory = lambdaState.inventory;
   const codeBuildInventory = codeBuildState.inventory;
+  const codePipelineInventory = codePipelineState.inventory;
   const eksInventory = eksState.inventory;
   const ec2Rows = buildAWSEC2InstanceProfileRows(ec2Inventory, ec2State.loading, connection);
   const ecsRows = buildAWSECSTaskRoleRows(ecsInventory, ecsState.loading, connection);
   const lambdaRows = buildAWSLambdaExecutionRoleRows(lambdaInventory, lambdaState.loading, connection);
   const codeBuildRows = buildAWSCodeBuildServiceRoleRows(codeBuildInventory, codeBuildState.loading, connection);
+  const codePipelineRows = buildAWSCodePipelineDeploymentRoleRows(codePipelineInventory, codePipelineState.loading, connection);
   const eksRows = buildAWSEKSWorkloadIdentityRows(eksInventory, eksState.loading, connection);
   const rows: AWSInventoryTableRow[] = [
     ...(connection?.role_arn
@@ -4247,6 +4261,7 @@ function AWSMachineIdentitiesContent({
     ...ecsRows,
     ...lambdaRows,
     ...codeBuildRows,
+    ...codePipelineRows,
     ...eksRows,
     {
       id: 'cicd-oidc',
@@ -4269,6 +4284,7 @@ function AWSMachineIdentitiesContent({
       {ecsState.loading ? <DomainLoadingState label="Loading ECS task roles" /> : null}
       {lambdaState.loading ? <DomainLoadingState label="Loading Lambda execution roles" /> : null}
       {codeBuildState.loading ? <DomainLoadingState label="Loading CodeBuild service roles" /> : null}
+      {codePipelineState.loading ? <DomainLoadingState label="Loading CodePipeline deployment roles" /> : null}
       {eksState.loading ? <DomainLoadingState label="Loading EKS workload identities" /> : null}
       {ec2State.error ? (
         <DomainErrorState
@@ -4296,6 +4312,13 @@ function AWSMachineIdentitiesContent({
           title="CodeBuild service roles could not load"
           body={codeBuildState.error}
           retryAction={{ label: 'Retry CodeBuild inventory', onClick: codeBuildState.onRetry }}
+        />
+      ) : null}
+      {codePipelineState.error ? (
+        <DomainErrorState
+          title="CodePipeline deployment roles could not load"
+          body={codePipelineState.error}
+          retryAction={{ label: 'Retry CodePipeline inventory', onClick: codePipelineState.onRetry }}
         />
       ) : null}
       {eksState.error ? (
@@ -4368,6 +4391,24 @@ function AWSMachineIdentitiesContent({
         >
           <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="CodeBuild service role diagnostics">
             {codeBuildInventory.diagnostics.map((diagnostic) => (
+              <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
+                <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                <p>{diagnostic.message}</p>
+                {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
+      {codePipelineInventory?.diagnostics.length ? (
+        <DomainStatusPanel
+          eyebrow="CodePipeline collector diagnostics"
+          title="Partial CodePipeline deployment-role evidence"
+          status={formatTokenLabel(codePipelineInventory.status)}
+          tone={codePipelineInventory.status === 'blocked' ? 'danger' : 'warning'}
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="CodePipeline deployment role diagnostics">
+            {codePipelineInventory.diagnostics.map((diagnostic) => (
               <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
                 <strong>{formatTokenLabel(diagnostic.code)}</strong>
                 <p>{diagnostic.message}</p>
@@ -4965,6 +5006,134 @@ function awsCodeBuildServiceRoleRow(record: AWSCodeBuildServiceRoleRecord): AWSI
   };
 }
 
+function buildAWSCodePipelineDeploymentRoleRows(
+  inventory: AWSCodePipelineDeploymentRoleInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsCodePipelineDeploymentRoleRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'codepipeline-deployment-roles-blocked',
+        name: 'CodePipeline deployment roles unavailable',
+        category: 'CodePipeline deployment role',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'CodePipeline deployment-role collection is blocked.',
+        filters: { identityType: 'codepipeline-role', service: 'codepipeline', risk: 'unscored', status: 'not-yet-available', search: '' },
+        searchText: inventorySearchText(['codepipeline', 'deployment role', inventory.account_id, inventory.region, 'blocked'])
+      }
+    ];
+  }
+  if (inventory) {
+    return [
+      {
+        id: 'codepipeline-deployment-roles-empty',
+        name: 'No CodePipeline deployment roles found',
+        category: 'CodePipeline deployment role',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'wired now',
+        stage: 'wired',
+        detail: 'The collector completed for this account and region without CodePipeline pipelines that reference deployment roles.',
+        filters: { identityType: 'codepipeline-role', service: 'codepipeline', risk: 'low', status: 'wired-now', search: '' },
+        searchText: inventorySearchText(['codepipeline', 'deployment role', inventory.account_id, inventory.region, 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'codepipeline-deployment-roles-loading',
+        name: 'CodePipeline deployment roles',
+        category: 'CodePipeline deployment role',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading CodePipeline pipeline and action role evidence for the selected environment.',
+        filters: { identityType: 'codepipeline-role', service: 'codepipeline', risk: 'unscored', status: 'coming', search: '' },
+        searchText: inventorySearchText(['codepipeline', 'deployment role', 'loading'])
+      }
+    ];
+  }
+  return [
+    {
+      id: 'codepipeline-deployment-roles',
+      name: 'CodePipeline deployment roles',
+      category: 'CodePipeline deployment role',
+      scope: 'Account and region expansion',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Deployment-role inventory maps CodePipeline pipelines and action roles back to IAM roles after AWS is connected.',
+      filters: { identityType: 'codepipeline-role', service: 'codepipeline', risk: 'unscored', status: 'coming', search: '' },
+      searchText: inventorySearchText(['codepipeline', 'deployment role', 'ci', 'cd', 'inventory'])
+    }
+  ];
+}
+
+function awsCodePipelineDeploymentRoleRow(record: AWSCodePipelineDeploymentRoleRecord): AWSInventoryTableRow {
+  const degraded = record.status !== 'ready' || record.cross_account_role || record.cross_region_action || Boolean(record.disabled_stage_transitions?.length);
+  const stage: AWSCapabilityStage = record.status === 'ready' && record.role_arn ? 'wired' : 'coming';
+  const status = stage === 'wired' ? (degraded ? 'degraded' : 'wired now') : 'degraded';
+  const roleLabel = record.role_name || record.role_arn || 'role unresolved';
+  const pipelineLabel = record.pipeline_name || record.workload_name || record.pipeline_arn || record.workload_id;
+  const actionLabel = record.action_name ? `${record.stage_name || 'stage'} / ${record.action_name}` : 'pipeline service role';
+  const providerLabel = record.action_provider ? `${record.action_category || 'action'} via ${record.action_provider}` : 'pipeline service role';
+  const artifactLabel = record.artifact_store_regions?.length ? `${record.artifact_store_regions.length} artifact regions` : 'artifact store region not reported';
+  const pathLabel = [
+    record.cross_account_role ? 'cross-account role' : '',
+    record.cross_region_action ? 'cross-region action' : '',
+    record.disabled_stage_transitions?.length ? 'disabled transition' : ''
+  ].filter(Boolean).join(', ') || 'standard deployment path';
+  const risk = record.cross_account_role || record.disabled_stage_transitions?.length ? 'high' : record.cross_region_action || record.pass_role_adjacent ? 'medium' : 'low';
+  return {
+    id: `codepipeline-deployment-role-${record.from_node_id}-${record.to_node_id || record.role_arn || record.pipeline_arn}`,
+    name: roleLabel,
+    category: 'CodePipeline deployment role',
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage,
+    detail: `${pipelineLabel} ${actionLabel} runs as ${roleLabel}; ${providerLabel}; ${artifactLabel}; ${pathLabel}.`,
+    filters: {
+      identityType: 'codepipeline-role',
+      service: 'codepipeline',
+      risk,
+      status: status === 'wired now' ? 'wired-now' : 'degraded',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.role_arn,
+      record.role_name,
+      record.role_kind,
+      record.pipeline_arn,
+      record.pipeline_name,
+      record.pipeline_type,
+      record.execution_mode,
+      record.stage_name,
+      record.action_name,
+      record.action_category,
+      record.action_owner,
+      record.action_provider,
+      record.action_region,
+      ...(record.input_artifact_names ?? []),
+      ...(record.output_artifact_names ?? []),
+      ...(record.artifact_store_types ?? []),
+      ...(record.artifact_store_locations ?? []),
+      ...(record.artifact_store_regions ?? []),
+      ...(record.artifact_kms_key_arns ?? []),
+      ...(record.configuration_keys ?? []),
+      ...(record.provider_identifiers ?? []),
+      ...(record.disabled_stage_transitions ?? []),
+      record.account_id,
+      record.region,
+      'codepipeline deployment role ci cd pipeline action'
+    ])
+  };
+}
+
 function buildAWSEKSWorkloadIdentityRows(
   inventory: AWSEKSWorkloadIdentityInventoryResult | null,
   loading: boolean,
@@ -5341,6 +5510,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [codeBuildInventoryLoading, setCodeBuildInventoryLoading] = useState(false);
   const [codeBuildInventoryError, setCodeBuildInventoryError] = useState('');
   const codeBuildInventoryRequestRef = useRef(0);
+  const [codePipelineInventory, setCodePipelineInventory] = useState<AWSCodePipelineDeploymentRoleInventoryResult | null>(null);
+  const [codePipelineInventoryLoading, setCodePipelineInventoryLoading] = useState(false);
+  const [codePipelineInventoryError, setCodePipelineInventoryError] = useState('');
+  const codePipelineInventoryRequestRef = useRef(0);
   const [eksInventory, setEKSInventory] = useState<AWSEKSWorkloadIdentityInventoryResult | null>(null);
   const [eksInventoryLoading, setEKSInventoryLoading] = useState(false);
   const [eksInventoryError, setEKSInventoryError] = useState('');
@@ -5514,6 +5687,46 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadCodeBuildInventory]);
 
+  const loadCodePipelineInventory = useCallback(async () => {
+    const requestID = ++codePipelineInventoryRequestRef.current;
+    setCodePipelineInventory(null);
+    setCodePipelineInventoryError('');
+    if (routeID !== 'identities' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setCodePipelineInventoryLoading(false);
+      return;
+    }
+    setCodePipelineInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectCodePipelineDeploymentRoles(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== codePipelineInventoryRequestRef.current) {
+        return;
+      }
+      setCodePipelineInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== codePipelineInventoryRequestRef.current) {
+        return;
+      }
+      setCodePipelineInventoryError(formatAPIError(error, 'Unable to load CodePipeline deployment role inventory.'));
+    } finally {
+      if (requestID === codePipelineInventoryRequestRef.current) {
+        setCodePipelineInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadCodePipelineInventory();
+    return () => {
+      codePipelineInventoryRequestRef.current += 1;
+    };
+  }, [loadCodePipelineInventory]);
+
   const loadEKSInventory = useCallback(async () => {
     const requestID = ++eksInventoryRequestRef.current;
     setEKSInventory(null);
@@ -5656,6 +5869,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: codeBuildInventoryLoading,
             error: codeBuildInventoryError,
             onRetry: () => void loadCodeBuildInventory()
+          }}
+          codePipelineState={{
+            inventory: codePipelineInventory,
+            loading: codePipelineInventoryLoading,
+            error: codePipelineInventoryError,
+            onRetry: () => void loadCodePipelineInventory()
           }}
           eksState={{
             inventory: eksInventory,

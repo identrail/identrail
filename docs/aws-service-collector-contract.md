@@ -80,6 +80,9 @@ The response envelope is:
       "lambda:ListTags",
       "codebuild:ListProjects",
       "codebuild:BatchGetProjects",
+      "codepipeline:ListPipelines",
+      "codepipeline:GetPipeline",
+      "codepipeline:GetPipelineState",
       "eks:ListClusters",
       "eks:DescribeCluster",
       "eks:ListPodIdentityAssociations",
@@ -161,7 +164,10 @@ ECS workload collector adds metadata-only reads: `ecs:ListClusters`,
 reads: `lambda:ListFunctions`, `lambda:ListAliases`,
 `lambda:ListVersionsByFunction`, `lambda:ListEventSourceMappings`, and
 `lambda:ListTags`. The CodeBuild service-role collector adds metadata-only
-reads: `codebuild:ListProjects` and `codebuild:BatchGetProjects`. The EKS
+reads: `codebuild:ListProjects` and `codebuild:BatchGetProjects`. The
+CodePipeline deployment-role collector adds metadata-only reads:
+`codepipeline:ListPipelines`, `codepipeline:GetPipeline`, and
+`codepipeline:GetPipelineState`. The EKS
 workload identity collector adds metadata-only reads: `eks:ListClusters`, `eks:DescribeCluster`,
 `eks:ListPodIdentityAssociations`, `eks:DescribePodIdentityAssociation`,
 `eks:ListNodegroups`, `eks:DescribeNodegroup`, `eks:ListFargateProfiles`, and
@@ -180,6 +186,11 @@ For CodeBuild, `secret_refs` are only Parameter Store or Secrets Manager source
 references and `environment_keys` are only variable names. Build logs, source
 contents, artifact contents, plaintext environment values, and secret values are
 intentionally outside the collector contract.
+
+For CodePipeline, `configuration_keys` and environment variable names are
+metadata only. Configuration values, source contents, action outputs, artifact
+contents, deployment payloads, and secret values are intentionally outside the
+collector contract.
 
 For EKS, AWS-side metadata proves clusters, OIDC issuer relationships, Pod
 Identity associations, managed node roles, and Fargate pod execution roles.
