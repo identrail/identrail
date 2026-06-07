@@ -239,7 +239,6 @@ func (a *SDKManagedComputeRoleAPI) listBatchRoles(ctx context.Context, pageSize 
 			}{{arn: awsv2.ToString(env.ServiceRole), kind: "batch_service_role"}}
 			if env.ComputeResources != nil {
 				roles = append(roles,
-					struct{ arn, kind string }{arn: awsv2.ToString(env.ComputeResources.InstanceRole), kind: "batch_instance_role"},
 					struct{ arn, kind string }{arn: awsv2.ToString(env.ComputeResources.SpotIamFleetRole), kind: "batch_spot_fleet_role"},
 				)
 			}
@@ -404,8 +403,8 @@ func (a *SDKManagedComputeRoleAPI) recordsFromEMRCluster(cluster *emrtypes.Clust
 		arn  string
 		kind string
 	}{
-		{arn: awsv2.ToString(cluster.ServiceRole), kind: "emr_service_role"},
-		{arn: awsv2.ToString(cluster.AutoScalingRole), kind: "emr_autoscaling_role"},
+		{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(cluster.ServiceRole)), kind: "emr_service_role"},
+		{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(cluster.AutoScalingRole)), kind: "emr_autoscaling_role"},
 	}, nil)
 }
 
@@ -468,6 +467,21 @@ func glueResourceARN(region string, accountID string, kind string, name string) 
 		return ""
 	}
 	return fmt.Sprintf("arn:aws:glue:%s:%s:%s/%s", normalizeName(region), normalizeName(accountID), normalizeName(kind), strings.TrimSpace(name))
+}
+
+func (a *SDKManagedComputeRoleAPI) iamRoleARNFromNameOrARN(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.HasPrefix(trimmed, "arn:") {
+		return trimmed
+	}
+	accountID := strings.TrimSpace(a.accountID)
+	if accountID == "" {
+		return trimmed
+	}
+	return fmt.Sprintf("arn:aws:iam::%s:role/%s", accountID, strings.TrimPrefix(trimmed, "/"))
 }
 
 func managedComputeSDKPageSize(pageSize int32, max int32) int32 {

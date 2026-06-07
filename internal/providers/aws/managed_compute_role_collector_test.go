@@ -246,12 +246,15 @@ func TestManagedComputeSDKRecordHelpersRetainSafeMetadata(t *testing.T) {
 		Id:              awsv2.String("j-2AXXXXXXGAPLF"),
 		Name:            awsv2.String("analytics"),
 		ClusterArn:      awsv2.String("arn:aws:elasticmapreduce:us-east-1:123456789012:cluster/j-2AXXXXXXGAPLF"),
-		ServiceRole:     awsv2.String("arn:aws:iam::123456789012:role/emr-default"),
-		AutoScalingRole: awsv2.String("arn:aws:iam::123456789012:role/emr-autoscaling"),
+		ServiceRole:     awsv2.String("EMR_DefaultRole"),
+		AutoScalingRole: awsv2.String("EMR_AutoScaling_DefaultRole"),
 		Status:          &emrtypes.ClusterStatus{State: emrtypes.ClusterStateRunning},
 	})
 	if len(emrRecords) != 2 || emrRecords[0].ResourceStatus != "RUNNING" || !emrRecords[0].Active {
 		t.Fatalf("expected EMR service/autoscaling records, got %+v", emrRecords)
+	}
+	if emrRecords[0].RoleARN != "arn:aws:iam::123456789012:role/EMR_DefaultRole" || emrRecords[1].RoleARN != "arn:aws:iam::123456789012:role/EMR_AutoScaling_DefaultRole" {
+		t.Fatalf("expected EMR role names expanded to IAM role ARNs, got %+v", emrRecords)
 	}
 }
 
@@ -275,6 +278,9 @@ func TestManagedComputeSDKPaginatesBatchRoles(t *testing.T) {
 					ComputeEnvironmentName: awsv2.String("env-a"),
 					ServiceRole:            awsv2.String("arn:aws:iam::123456789012:role/batch-service-a"),
 					State:                  batchtypes.CEStateEnabled,
+					ComputeResources: &batchtypes.ComputeResource{
+						InstanceRole: awsv2.String("arn:aws:iam::123456789012:instance-profile/ecsInstanceRole"),
+					},
 				}},
 				NextToken: awsv2.String("env-page-2"),
 			},
@@ -316,6 +322,11 @@ func TestManagedComputeSDKPaginatesBatchRoles(t *testing.T) {
 	}
 	if len(diagnostics) != 0 || len(records) != 4 {
 		t.Fatalf("expected four role records and no diagnostics, records=%+v diagnostics=%+v", records, diagnostics)
+	}
+	for _, record := range records {
+		if strings.Contains(record.RoleARN, ":instance-profile/") || record.RoleKind == "batch_instance_role" {
+			t.Fatalf("expected Batch instance profile to be skipped, got %+v", records)
+		}
 	}
 	if got, want := strings.Join(client.envTokens, ","), ",env-page-2"; got != want {
 		t.Fatalf("expected compute environment tokens %q, got %q", want, got)
