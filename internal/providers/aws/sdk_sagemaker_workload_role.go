@@ -372,15 +372,34 @@ func (a *SDKSageMakerWorkloadRoleAPI) listTransformJobs(ctx context.Context, pag
 			}
 			arn := strings.TrimSpace(awsv2.ToString(describe.TransformJobArn))
 			modelName := strings.TrimSpace(awsv2.ToString(describe.ModelName))
+			opts := sageMakerRecordOptions{ModelName: modelName}
 			roleARN := ""
 			if modelName != "" {
 				if modelDescribe, modelErr := a.client.DescribeModel(ctx, &sagemaker.DescribeModelInput{ModelName: awsv2.String(modelName)}); modelErr == nil && modelDescribe != nil {
 					roleARN = strings.TrimSpace(awsv2.ToString(modelDescribe.ExecutionRoleArn))
+					// DescribeTransformJob does not expose the model ARN,
+					// container image, or model artifact S3 URI directly, so
+					// fold the related model evidence onto the transform job
+					// record before emitting it. This keeps the execution
+					// role's S3/ECR reach visible for blast-radius reasoning
+					// on real transform jobs (the fixture/API already shows
+					// this context for parity).
+					opts.ModelARN = strings.TrimSpace(awsv2.ToString(modelDescribe.ModelArn))
+					if modelDescribe.PrimaryContainer != nil {
+						opts.ImageURIs = append(opts.ImageURIs, strings.TrimSpace(awsv2.ToString(modelDescribe.PrimaryContainer.Image)))
+						opts.S3References = append(opts.S3References, strings.TrimSpace(awsv2.ToString(modelDescribe.PrimaryContainer.ModelDataUrl)))
+					}
+					for _, container := range modelDescribe.Containers {
+						opts.ImageURIs = append(opts.ImageURIs, strings.TrimSpace(awsv2.ToString(container.Image)))
+						opts.S3References = append(opts.S3References, strings.TrimSpace(awsv2.ToString(container.ModelDataUrl)))
+					}
+					if modelDescribe.VpcConfig != nil {
+						opts.NetworkMode = "vpc"
+					}
 				} else if modelErr != nil {
 					diagnostics = append(diagnostics, sageMakerDiagnostic("sagemaker_transform_model_describe_failed", modelName, fmt.Sprintf("SageMaker transform job %q model %q could not be described: %v", name, modelName, modelErr), true))
 				}
 			}
-			opts := sageMakerRecordOptions{ModelName: modelName}
 			if describe.TransformInput != nil && describe.TransformInput.DataSource != nil && describe.TransformInput.DataSource.S3DataSource != nil {
 				opts.S3References = append(opts.S3References, strings.TrimSpace(awsv2.ToString(describe.TransformInput.DataSource.S3DataSource.S3Uri)))
 			}

@@ -901,3 +901,64 @@ func TestSageMakerNormalizerEmitsWorkloadPerEndpointModelRole(t *testing.T) {
 		t.Fatalf("expected distinct RawRef (identity) on each workload, got %v", seenRefs)
 	}
 }
+
+func TestSDKSageMakerTransformJobPullsModelEvidence(t *testing.T) {
+	region := "us-east-1"
+	account := "123456789012"
+	transformARN := "arn:aws:sagemaker:us-east-1:123456789012:transform-job/score"
+	modelARN := "arn:aws:sagemaker:us-east-1:123456789012:model/score-model"
+	client := &fullSageMakerSDKClient{
+		transforms: []sagemakertypes.TransformJobSummary{{TransformJobName: awsv2.String("score")}},
+		transform: &sagemaker.DescribeTransformJobOutput{
+			TransformJobArn:    awsv2.String(transformARN),
+			TransformJobStatus: sagemakertypes.TransformJobStatusInProgress,
+			ModelName:          awsv2.String("score-model"),
+			TransformInput:     &sagemakertypes.TransformInput{DataSource: &sagemakertypes.TransformDataSource{S3DataSource: &sagemakertypes.TransformS3DataSource{S3Uri: awsv2.String("s3://score/in/")}}},
+			TransformOutput:    &sagemakertypes.TransformOutput{S3OutputPath: awsv2.String("s3://score/out/"), KmsKeyId: awsv2.String("arn:aws:kms:" + region + ":" + account + ":key/score-out")},
+			TransformResources: &sagemakertypes.TransformResources{VolumeKmsKeyId: awsv2.String("arn:aws:kms:" + region + ":" + account + ":key/score-vol")},
+		},
+		transformModel: &sagemaker.DescribeModelOutput{
+			ModelName:        awsv2.String("score-model"),
+			ModelArn:         awsv2.String(modelARN),
+			ExecutionRoleArn: awsv2.String("arn:aws:iam::" + account + ":role/score-model"),
+			PrimaryContainer: &sagemakertypes.ContainerDefinition{
+				Image:        awsv2.String(account + ".dkr.ecr." + region + ".amazonaws.com/score-model:1"),
+				ModelDataUrl: awsv2.String("s3://score-models/score-model/"),
+			},
+			VpcConfig: &sagemakertypes.VpcConfig{},
+		},
+	}
+	api := &SDKSageMakerWorkloadRoleAPI{client: client, accountID: account, region: region}
+	records, _, err := api.listTransformJobs(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("list transform jobs: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected one transform record, got %d", len(records))
+	}
+	record := records[0]
+	if record.ModelARN != modelARN {
+		t.Fatalf("expected model ARN copied from DescribeModel, got %q", record.ModelARN)
+	}
+	if record.NetworkMode != "vpc" {
+		t.Fatalf("expected vpc network mode inherited from model vpc config, got %q", record.NetworkMode)
+	}
+	hasImage := false
+	for _, image := range record.ImageURIs {
+		if image == account+".dkr.ecr."+region+".amazonaws.com/score-model:1" {
+			hasImage = true
+		}
+	}
+	if !hasImage {
+		t.Fatalf("expected model container image URI, got %v", record.ImageURIs)
+	}
+	hasModelArtifact := false
+	for _, ref := range record.S3References {
+		if ref == "s3://score-models/score-model/" {
+			hasModelArtifact = true
+		}
+	}
+	if !hasModelArtifact {
+		t.Fatalf("expected model artifact S3 prefix, got %v", record.S3References)
+	}
+}
