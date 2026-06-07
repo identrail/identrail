@@ -1827,6 +1827,120 @@ export type AWSManagedComputeRoleInventoryResult = {
   updated_at: string;
 };
 
+export type AWSSageMakerWorkloadRoleInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSSageMakerWorkloadRoleFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+
+export type AWSSageMakerCoverageGap = {
+  workload_type: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSSageMakerWorkloadRoleRecord = {
+  account_id: string;
+  region: string;
+  service: 'sagemaker' | string;
+  workload_id: string;
+  workload_type: string;
+  workload_name: string;
+  role_arn?: string;
+  role_name?: string;
+  role_kind?: string;
+  role_account_id?: string;
+  workload_arn?: string;
+  resource_arn?: string;
+  resource_type?: string;
+  resource_status?: string;
+  domain_id?: string;
+  domain_arn?: string;
+  user_profile?: string;
+  space_name?: string;
+  pipeline_arn?: string;
+  model_arn?: string;
+  endpoint_config?: string;
+  network_mode?: string;
+  image_uris?: string[];
+  s3_references?: string[];
+  kms_key_arns?: string[];
+  coverage_status: string;
+  coverage_reason?: string;
+  active: boolean;
+  disabled: boolean;
+  tags?: Record<string, string>;
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  to_node_id?: string;
+  relationship_type: 'runs_as' | 'attached_to' | string;
+  confidence: number;
+  collected_at: string;
+  status: string;
+};
+
+export type AWSSageMakerWorkloadRoleRelationship = {
+  type: 'runs_as' | 'attached_to' | string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSSageMakerWorkloadRoleDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSSageMakerWorkloadRoleInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSSageMakerWorkloadRoleInventoryStatus;
+  fixture_state: AWSSageMakerWorkloadRoleFixtureState;
+  confidence: number;
+  record_count: number;
+  workload_type_count: number;
+  notebook_count: number;
+  training_job_count: number;
+  processing_job_count: number;
+  transform_job_count: number;
+  model_count: number;
+  endpoint_count: number;
+  pipeline_count: number;
+  domain_count: number;
+  s3_reference_count: number;
+  ecr_image_count: number;
+  kms_key_count: number;
+  identity_count: number;
+  resource_count: number;
+  relationship_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSSageMakerCoverageGap[];
+  records: AWSSageMakerWorkloadRoleRecord[];
+  relationships: AWSSageMakerWorkloadRoleRelationship[];
+  diagnostics: AWSSageMakerWorkloadRoleDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSEKSWorkloadIdentityInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSEKSWorkloadIdentityFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 
@@ -3008,6 +3122,21 @@ export const apiClient = {
   ) {
     return request<{ inventory: AWSManagedComputeRoleInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/managed-compute-roles${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectSageMakerWorkloadRoles(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSSageMakerWorkloadRoleFixtureState,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSSageMakerWorkloadRoleInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/sagemaker-workload-roles${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
       })}`,

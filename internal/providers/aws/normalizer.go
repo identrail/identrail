@@ -163,6 +163,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		}
 	}
 
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != rawKindSageMakerWorkloadRole {
+			continue
+		}
+		if err := normalizeSageMakerWorkloadRoleAsset(asset, i, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
 	return bundle, nil
 }
 
@@ -1505,4 +1517,164 @@ func copyTags(tags map[string]string) map[string]string {
 		copied[key] = value
 	}
 	return copied
+}
+
+func normalizeSageMakerWorkloadRoleAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record SageMakerWorkloadRole
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode sagemaker workload role asset[%d]: %w", index, err)
+	}
+
+	roleARN := strings.TrimSpace(record.RoleARN)
+	roleIdentityID := ""
+	if roleARN != "" {
+		roleIdentityID = identityIDFromARN(roleARN)
+		roleName := strings.TrimSpace(record.RoleName)
+		if roleName == "" {
+			roleName = roleNameFromARN(roleARN)
+		}
+		if _, exists := identitySeen[roleIdentityID]; !exists {
+			identitySeen[roleIdentityID] = struct{}{}
+			bundle.Identities = append(bundle.Identities, domain.Identity{
+				ID:        roleIdentityID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.IdentityTypeRole,
+				Name:      roleName,
+				ARN:       roleARN,
+				OwnerHint: ownerHintFromTags(record.Tags),
+				Tags:      copyTags(record.Tags),
+				RawRef:    asset.SourceID,
+			})
+		}
+	}
+
+	workloadID := sageMakerRecordWorkloadID(record)
+	if workloadID != "" {
+		if _, exists := workloadSeen[workloadID]; !exists {
+			workloadSeen[workloadID] = struct{}{}
+			bundle.Workloads = append(bundle.Workloads, domain.Workload{
+				ID:        workloadID,
+				Provider:  domain.ProviderAWS,
+				Type:      sageMakerWorkloadType(record),
+				Name:      sageMakerWorkloadName(record),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Region:    strings.TrimSpace(record.Region),
+				RawRef:    roleIdentityID,
+			})
+		}
+	}
+
+	if strings.TrimSpace(record.WorkloadARN) != "" || strings.TrimSpace(record.ResourceARN) != "" {
+		resourceID := sageMakerResourceID(record)
+		if _, exists := resourceSeen[resourceID]; !exists {
+			resourceSeen[resourceID] = struct{}{}
+			bundle.Resources = append(bundle.Resources, sageMakerResourceFromRecord(record, asset.SourceID, workloadID, roleARN))
+		} else {
+			mergeSageMakerResourceRoleMetadata(bundle, resourceID, record, roleARN)
+		}
+	}
+
+	return nil
+}
+
+func sageMakerResourceFromRecord(record SageMakerWorkloadRole, rawRef string, workloadID string, roleARN string) domain.Resource {
+	return domain.Resource{
+		ID:        sageMakerResourceID(record),
+		Provider:  domain.ProviderAWS,
+		Type:      sageMakerResourceType(record),
+		Name:      sageMakerWorkloadName(record),
+		ARN:       firstNonEmptyAWSValue(record.ResourceARN, record.WorkloadARN),
+		Region:    strings.TrimSpace(record.Region),
+		AccountID: strings.TrimSpace(record.AccountID),
+		Labels:    copyTags(record.Tags),
+		Metadata: map[string]any{
+			"service":         strings.TrimSpace(record.Service),
+			"role_arn":        roleARN,
+			"role_kind":       strings.TrimSpace(record.RoleKind),
+			"role_account_id": strings.TrimSpace(record.RoleAccountID),
+			"resource_status": strings.TrimSpace(record.ResourceStatus),
+			"domain_id":       strings.TrimSpace(record.DomainID),
+			"domain_arn":      strings.TrimSpace(record.DomainARN),
+			"pipeline_arn":    strings.TrimSpace(record.PipelineARN),
+			"model_arn":       strings.TrimSpace(record.ModelARN),
+			"endpoint_config": strings.TrimSpace(record.EndpointConfig),
+			"network_mode":    strings.TrimSpace(record.NetworkMode),
+			"image_uris":      append([]string(nil), record.ImageURIs...),
+			"s3_references":   append([]string(nil), record.S3References...),
+			"kms_key_arns":    append([]string(nil), record.KMSKeyARNs...),
+			"coverage_status": strings.TrimSpace(record.CoverageStatus),
+			"coverage_reason": strings.TrimSpace(record.CoverageReason),
+			"active":          record.Active,
+			"disabled":        record.Disabled,
+			"roles":           []map[string]any{sageMakerResourceRoleMetadata(record, roleARN)},
+		},
+		RawRef:         rawRef,
+		SourceEntityID: workloadID,
+	}
+}
+
+func mergeSageMakerResourceRoleMetadata(bundle *providers.NormalizedBundle, resourceID string, record SageMakerWorkloadRole, roleARN string) {
+	if strings.TrimSpace(roleARN) == "" {
+		return
+	}
+	role := sageMakerResourceRoleMetadata(record, roleARN)
+	for idx := range bundle.Resources {
+		if bundle.Resources[idx].ID != resourceID {
+			continue
+		}
+		if bundle.Resources[idx].Metadata == nil {
+			bundle.Resources[idx].Metadata = map[string]any{}
+		}
+		roles, _ := bundle.Resources[idx].Metadata["roles"].([]map[string]any)
+		for _, existing := range roles {
+			if existingARN, _ := existing["role_arn"].(string); strings.TrimSpace(existingARN) == roleARN {
+				return
+			}
+		}
+		bundle.Resources[idx].Metadata["roles"] = append(roles, role)
+		return
+	}
+}
+
+func sageMakerResourceRoleMetadata(record SageMakerWorkloadRole, roleARN string) map[string]any {
+	return map[string]any{
+		"role_arn":        strings.TrimSpace(roleARN),
+		"role_name":       strings.TrimSpace(firstNonEmptyAWSValue(record.RoleName, roleNameFromARN(roleARN))),
+		"role_kind":       strings.TrimSpace(record.RoleKind),
+		"role_account_id": strings.TrimSpace(record.RoleAccountID),
+		"confidence":      record.Confidence,
+	}
+}
+
+func sageMakerRecordWorkloadID(record SageMakerWorkloadRole) string {
+	return sageMakerWorkloadID(
+		record.AccountID,
+		record.Region,
+		sageMakerBaseWorkloadType(record),
+		firstNonEmptyAWSValue(record.WorkloadID, record.WorkloadARN, record.ResourceARN, record.WorkloadName),
+		record.RoleKind,
+	)
+}
+
+func sageMakerBaseWorkloadType(record SageMakerWorkloadRole) string {
+	if workloadType := strings.TrimSpace(record.WorkloadType); workloadType != "" {
+		return workloadType
+	}
+	if resourceType := strings.TrimSpace(record.ResourceType); resourceType != "" {
+		return resourceType
+	}
+	return sageMakerDefaultWorkloadType(record)
+}
+
+func sageMakerWorkloadType(record SageMakerWorkloadRole) string {
+	baseType := sageMakerBaseWorkloadType(record)
+	roleKind := strings.ToLower(strings.TrimSpace(record.RoleKind))
+	if strings.Contains(roleKind, "execution_role") {
+		return baseType + "_execution_role"
+	}
+	return baseType
+}
+
+func sageMakerWorkloadName(record SageMakerWorkloadRole) string {
+	return firstNonEmptyAWSValue(record.WorkloadName, managedComputeNameFromARN(firstNonEmptyAWSValue(record.WorkloadARN, record.ResourceARN)), "sagemaker workload")
 }

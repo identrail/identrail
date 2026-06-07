@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Add **SageMaker workload identity collector** (#1486). Read-only inventory
+  of notebook, training, processing, transform, model, endpoint, pipeline,
+  and Studio domain execution roles, with S3 prefix, ECR image, and KMS key
+  evidence. Adds the
+  `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/sagemaker-workload-roles`
+  endpoint with `success`, `empty`, `degraded`, `partial_failure`, and
+  `permission_denied` fixture states, OpenAPI schema, web API client types,
+  runtime/CLI wiring, and operator docs. The collector is metadata-only and
+  never reads notebook contents, training payloads, model artifacts, or
+  endpoint invocation bodies.
 - Reworked the entire **AWS section** (`/app/.../aws*`) so customer pages
   read as a product instead of an engineering progress dashboard.
   - The AWS overview header drops the AWS icon, the `AWS MACHINE

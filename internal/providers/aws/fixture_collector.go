@@ -117,6 +117,14 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	var sageMakerRole SageMakerWorkloadRole
+	if err := json.Unmarshal(payload, &sageMakerRole); err == nil {
+		sourceID := sageMakerWorkloadRoleSourceID(sageMakerRole)
+		if isSageMakerWorkloadRoleFixture(sageMakerRole) {
+			return rawKindSageMakerWorkloadRole, sourceID
+		}
+	}
+
 	var ecsRole ECSTaskRole
 	if err := json.Unmarshal(payload, &ecsRole); err == nil {
 		sourceID := ecsTaskRoleSourceID(ecsRole)
@@ -308,6 +316,26 @@ func isManagedComputeRoleFixture(record ManagedComputeRole) bool {
 		strings.TrimSpace(record.JobDefinitionARN) != "" ||
 		strings.TrimSpace(record.UnsupportedService) != "" ||
 		strings.TrimSpace(record.CoverageStatus) != ""
+}
+
+func isSageMakerWorkloadRoleFixture(record SageMakerWorkloadRole) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), sageMakerServiceName) || strings.EqualFold(strings.TrimSpace(record.CollectorName), sageMakerWorkloadRoleCollectorName) {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(record.WorkloadType)) {
+	case "sagemaker_notebook_instance", "sagemaker_training_job", "sagemaker_processing_job",
+		"sagemaker_transform_job", "sagemaker_model", "sagemaker_endpoint",
+		"sagemaker_pipeline", "sagemaker_domain", "sagemaker_workload":
+		return true
+	}
+	return strings.TrimSpace(record.DomainID) != "" ||
+		strings.TrimSpace(record.DomainARN) != "" ||
+		strings.TrimSpace(record.PipelineARN) != "" ||
+		strings.TrimSpace(record.ModelARN) != "" ||
+		strings.TrimSpace(record.EndpointConfig) != "" ||
+		len(record.ImageURIs) > 0 ||
+		len(record.S3References) > 0 ||
+		(len(record.KMSKeyARNs) > 0 && strings.HasPrefix(strings.TrimSpace(record.RoleKind), "sagemaker_"))
 }
 
 func isEKSWorkloadIdentityFixture(record EKSWorkloadIdentity) bool {

@@ -749,6 +749,7 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/stepfunctions-state-machine-roles", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/event-driven-roles", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/managed-compute-roles", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
+		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/sagemaker-workload-roles", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/eks-workload-identities", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/baseline", Action: policyActionScansRun, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/github/connect/start", Action: policyActionTenancyWrite, ResourceType: "project", ResourceIDParam: "project_id"},

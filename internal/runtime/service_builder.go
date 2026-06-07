@@ -113,6 +113,11 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws managed compute role collector: %w", managedComputeErr)
 			}
+			sageMakerAPI, sageMakerErr := awsprovider.NewSDKSageMakerWorkloadRoleAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if sageMakerErr != nil {
+				_ = store.Close()
+				return nil, nil, fmt.Errorf("initialize aws sagemaker workload role collector: %w", sageMakerErr)
+			}
 			eksAPI, eksErr := awsprovider.NewSDKEKSWorkloadIdentityAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
 			if eksErr != nil {
 				_ = store.Close()
@@ -130,6 +135,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				awsprovider.NewStepFunctionsStateMachineRoleCollector(stepFunctionsAPI),
 				awsprovider.NewEventDrivenRoleCollector(eventDrivenAPI),
 				awsprovider.NewManagedComputeRoleCollector(managedComputeAPI),
+				awsprovider.NewSageMakerWorkloadRoleCollector(sageMakerAPI),
 				awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 			)
 		default:
@@ -251,6 +257,10 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		if managedComputeErr != nil {
 			return nil, managedComputeErr
 		}
+		sageMakerAPI, sageMakerErr := awsprovider.NewSDKSageMakerWorkloadRoleAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
+		if sageMakerErr != nil {
+			return nil, sageMakerErr
+		}
 		eksAPI, eksErr := awsprovider.NewSDKEKSWorkloadIdentityAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
 		if eksErr != nil {
 			return nil, eksErr
@@ -267,6 +277,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 			awsprovider.NewStepFunctionsStateMachineRoleCollector(stepFunctionsAPI),
 			awsprovider.NewEventDrivenRoleCollector(eventDrivenAPI),
 			awsprovider.NewManagedComputeRoleCollector(managedComputeAPI),
+			awsprovider.NewSageMakerWorkloadRoleCollector(sageMakerAPI),
 			awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 		)
 		return scanner, nil

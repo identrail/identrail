@@ -235,3 +235,9 @@ ordered by `kind`, then `source_id`.
 - Managed compute role inventory is exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/managed-compute-roles`
   and the AWS machine identities page.
+- SageMaker workload role inventory is exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/sagemaker-workload-roles`
+  and the AWS machine identities page. The collector is metadata-only — it
+  records execution roles, S3 prefix references, ECR image URIs, and KMS key
+  ARNs without reading notebook contents, training payloads, or model
+  artifacts.

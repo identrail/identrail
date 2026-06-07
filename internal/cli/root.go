@@ -626,6 +626,10 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 			if err != nil {
 				return app.Scanner{}, fmt.Errorf("initialize aws managed compute role collector: %w", err)
 			}
+			sageMakerAPI, err := awsprovider.NewSDKSageMakerWorkloadRoleAPI(cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if err != nil {
+				return app.Scanner{}, fmt.Errorf("initialize aws sagemaker workload role collector: %w", err)
+			}
 			eksAPI, err := awsprovider.NewSDKEKSWorkloadIdentityAPI(cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
 			if err != nil {
 				return app.Scanner{}, fmt.Errorf("initialize aws eks workload identity collector: %w", err)
@@ -639,6 +643,7 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 				awsprovider.NewStepFunctionsStateMachineRoleCollector(stepFunctionsAPI),
 				awsprovider.NewEventDrivenRoleCollector(eventDrivenAPI),
 				awsprovider.NewManagedComputeRoleCollector(managedComputeAPI),
+				awsprovider.NewSageMakerWorkloadRoleCollector(sageMakerAPI),
 				awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 			}, awsprovider.NewRuleSet(
 				awsprovider.WithStaleAfter(time.Duration(staleAfterDays)*24*time.Hour),

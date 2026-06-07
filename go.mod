@@ -21,6 +21,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.92.2
 	github.com/aws/aws-sdk-go-v2/service/pipes v1.24.5
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.103.0
+	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.253.0
 	github.com/aws/aws-sdk-go-v2/service/scheduler v1.18.6
 	github.com/aws/aws-sdk-go-v2/service/sfn v1.42.2
 	github.com/aws/aws-sdk-go-v2/service/sts v1.43.0
