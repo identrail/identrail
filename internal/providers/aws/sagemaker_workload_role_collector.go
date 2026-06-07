@@ -370,11 +370,22 @@ func sageMakerWorkloadRoleConfidence(record SageMakerWorkloadRole) float64 {
 }
 
 func sageMakerWorkloadRoleSourceID(record SageMakerWorkloadRole) string {
+	// Endpoints carry the model execution role rather than a role of their
+	// own, so multiple production variants whose backing models share the
+	// same execution role would otherwise collide on
+	// (service|workloadARN|roleKind|roleARN) and one model record would be
+	// silently dropped during cross-page dedupe. Include the model ARN on
+	// endpoint records so each variant's evidence is retained.
+	modelDiscriminator := ""
+	if strings.EqualFold(strings.TrimSpace(record.WorkloadType), "sagemaker_endpoint") || strings.EqualFold(strings.TrimSpace(record.ResourceType), "sagemaker_endpoint") {
+		modelDiscriminator = strings.TrimSpace(record.ModelARN)
+	}
 	return strings.Join(normalizeStringList([]string{
 		record.Service,
 		record.WorkloadARN,
 		record.RoleKind,
 		record.RoleARN,
+		modelDiscriminator,
 	}), "|")
 }
 

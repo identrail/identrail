@@ -719,3 +719,43 @@ func TestIsSageMakerWorkloadRoleFixtureDiscriminatesByARN(t *testing.T) {
 		t.Fatalf("SageMaker pipeline ARN should be classified")
 	}
 }
+
+func TestSageMakerWorkloadRoleSourceIDDistinguishesEndpointModels(t *testing.T) {
+	endpointARN := "arn:aws:sagemaker:us-east-1:123456789012:endpoint/payments"
+	roleARN := "arn:aws:iam::123456789012:role/shared-execution"
+	baseline := SageMakerWorkloadRole{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			Service:      "sagemaker",
+			WorkloadType: "sagemaker_endpoint",
+			RoleARN:      roleARN,
+		},
+		WorkloadARN:  endpointARN,
+		ResourceType: "sagemaker_endpoint",
+		RoleKind:     "sagemaker_endpoint_execution_role",
+	}
+	variantA := baseline
+	variantA.ModelARN = "arn:aws:sagemaker:us-east-1:123456789012:model/payments-a"
+	variantB := baseline
+	variantB.ModelARN = "arn:aws:sagemaker:us-east-1:123456789012:model/payments-b"
+	if sageMakerWorkloadRoleSourceID(variantA) == sageMakerWorkloadRoleSourceID(variantB) {
+		t.Fatalf("endpoint records for different backing models must produce distinct source IDs")
+	}
+
+	// Non-endpoint records continue to ignore ModelARN so older callers
+	// keep their stable source IDs.
+	nonEndpoint := SageMakerWorkloadRole{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			Service:      "sagemaker",
+			WorkloadType: "sagemaker_training_job",
+			RoleARN:      roleARN,
+		},
+		WorkloadARN: "arn:aws:sagemaker:us-east-1:123456789012:training-job/train",
+		RoleKind:    "sagemaker_training_execution_role",
+		ModelARN:    "arn:aws:sagemaker:us-east-1:123456789012:model/different",
+	}
+	nonEndpointTwin := nonEndpoint
+	nonEndpointTwin.ModelARN = "arn:aws:sagemaker:us-east-1:123456789012:model/another"
+	if sageMakerWorkloadRoleSourceID(nonEndpoint) != sageMakerWorkloadRoleSourceID(nonEndpointTwin) {
+		t.Fatalf("non-endpoint records must keep deterministic source ids regardless of ModelARN")
+	}
+}
