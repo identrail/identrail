@@ -8646,7 +8646,7 @@ components:
         to_node_id: { type: string }
         relationship_type:
           type: string
-          enum: [runs_as]
+          enum: [runs_as, attached_to]
         confidence:
           type: number
           minimum: 0
@@ -8662,7 +8662,7 @@ components:
       properties:
         type:
           type: string
-          enum: [runs_as]
+          enum: [runs_as, attached_to]
         from_node_id: { type: string }
         to_node_id: { type: string }
         evidence_ref: { type: string }
