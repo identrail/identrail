@@ -68,6 +68,13 @@ do not, and must not, include `sagemaker:CreatePresignedNotebookInstanceUrl`,
 `sagemaker:CreatePresignedDomainUrl`, `sagemaker:InvokeEndpoint`, or any
 write APIs.
 
+The connector read-only IAM policy template
+(`deploy/connectors/aws/policies/identrail-readonly-policy.json` and the
+canonical `internal/connectors/aws/iam_policy.go`) includes every action
+above under the `IdentityTrustGraphReadOnlySageMaker` statement, so new
+connectors created from the policy can call the collector without any extra
+permission grant.
+
 ## What Is Intentionally Not Collected
 
 - Notebook contents, presigned notebook URLs, and shell command output.

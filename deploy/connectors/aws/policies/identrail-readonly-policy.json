@@ -50,6 +50,31 @@
       "Resource": "*"
     },
     {
+      "Sid": "IdentityTrustGraphReadOnlySageMaker",
+      "Effect": "Allow",
+      "Action": [
+        "sagemaker:DescribeDomain",
+        "sagemaker:DescribeEndpoint",
+        "sagemaker:DescribeEndpointConfig",
+        "sagemaker:DescribeModel",
+        "sagemaker:DescribeNotebookInstance",
+        "sagemaker:DescribePipeline",
+        "sagemaker:DescribeProcessingJob",
+        "sagemaker:DescribeTrainingJob",
+        "sagemaker:DescribeTransformJob",
+        "sagemaker:ListDomains",
+        "sagemaker:ListEndpoints",
+        "sagemaker:ListModels",
+        "sagemaker:ListNotebookInstances",
+        "sagemaker:ListPipelines",
+        "sagemaker:ListProcessingJobs",
+        "sagemaker:ListTags",
+        "sagemaker:ListTrainingJobs",
+        "sagemaker:ListTransformJobs"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "IdentityTrustGraphCallerIdentity",
       "Effect": "Allow",
       "Action": "sts:GetCallerIdentity",

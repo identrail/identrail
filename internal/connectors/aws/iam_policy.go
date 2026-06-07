@@ -77,6 +77,31 @@ const readOnlyPolicyJSON = `{
       "Resource": "*"
     },
     {
+      "Sid": "IdentityTrustGraphReadOnlySageMaker",
+      "Effect": "Allow",
+      "Action": [
+        "sagemaker:DescribeDomain",
+        "sagemaker:DescribeEndpoint",
+        "sagemaker:DescribeEndpointConfig",
+        "sagemaker:DescribeModel",
+        "sagemaker:DescribeNotebookInstance",
+        "sagemaker:DescribePipeline",
+        "sagemaker:DescribeProcessingJob",
+        "sagemaker:DescribeTrainingJob",
+        "sagemaker:DescribeTransformJob",
+        "sagemaker:ListDomains",
+        "sagemaker:ListEndpoints",
+        "sagemaker:ListModels",
+        "sagemaker:ListNotebookInstances",
+        "sagemaker:ListPipelines",
+        "sagemaker:ListProcessingJobs",
+        "sagemaker:ListTags",
+        "sagemaker:ListTrainingJobs",
+        "sagemaker:ListTransformJobs"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "IdentityTrustGraphReadOnlyStorage",
       "Effect": "Allow",
       "Action": [
@@ -208,6 +233,31 @@ func PermissionPreview() []PermissionPreviewItem {
 			},
 			Resources: []string{"*"},
 			Reason:    "Maps EKS Pod Identity associations, node roles, Fargate pod execution roles, and cluster OIDC metadata back to IAM roles without reading Kubernetes secrets or payloads.",
+		},
+		{
+			Service: "SageMaker",
+			Actions: []string{
+				"sagemaker:ListNotebookInstances",
+				"sagemaker:DescribeNotebookInstance",
+				"sagemaker:ListTrainingJobs",
+				"sagemaker:DescribeTrainingJob",
+				"sagemaker:ListProcessingJobs",
+				"sagemaker:DescribeProcessingJob",
+				"sagemaker:ListTransformJobs",
+				"sagemaker:DescribeTransformJob",
+				"sagemaker:ListModels",
+				"sagemaker:DescribeModel",
+				"sagemaker:ListEndpoints",
+				"sagemaker:DescribeEndpoint",
+				"sagemaker:DescribeEndpointConfig",
+				"sagemaker:ListPipelines",
+				"sagemaker:DescribePipeline",
+				"sagemaker:ListDomains",
+				"sagemaker:DescribeDomain",
+				"sagemaker:ListTags",
+			},
+			Resources: []string{"*"},
+			Reason:    "Maps SageMaker notebook, training, processing, transform, model, endpoint, pipeline, and Studio domain workloads back to their execution roles plus the S3 prefix, ECR image, and KMS key references those roles can reach. Metadata-only — no presigned notebook URLs, payload reads, model artifact reads, or endpoint invocations.",
 		},
 		{
 			Service:   "S3",

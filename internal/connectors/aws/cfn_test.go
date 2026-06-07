@@ -96,6 +96,39 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 	if !strings.Contains(string(policy), "codebuild:ListProjects") || !strings.Contains(string(policy), "codebuild:BatchGetProjects") {
 		t.Fatalf("expected CodeBuild service role read actions in policy")
 	}
+	for _, action := range []string{
+		"sagemaker:ListNotebookInstances",
+		"sagemaker:DescribeNotebookInstance",
+		"sagemaker:ListTrainingJobs",
+		"sagemaker:DescribeTrainingJob",
+		"sagemaker:ListProcessingJobs",
+		"sagemaker:DescribeProcessingJob",
+		"sagemaker:ListTransformJobs",
+		"sagemaker:DescribeTransformJob",
+		"sagemaker:ListModels",
+		"sagemaker:DescribeModel",
+		"sagemaker:ListEndpoints",
+		"sagemaker:DescribeEndpoint",
+		"sagemaker:DescribeEndpointConfig",
+		"sagemaker:ListPipelines",
+		"sagemaker:DescribePipeline",
+		"sagemaker:ListDomains",
+		"sagemaker:DescribeDomain",
+		"sagemaker:ListTags",
+	} {
+		if !strings.Contains(string(policy), action) {
+			t.Fatalf("expected SageMaker workload-role read action %q in policy", action)
+		}
+	}
+	for _, mutating := range []string{
+		"sagemaker:CreatePresignedNotebookInstanceUrl",
+		"sagemaker:CreatePresignedDomainUrl",
+		"sagemaker:InvokeEndpoint",
+	} {
+		if strings.Contains(string(policy), mutating) {
+			t.Fatalf("connector policy must not include sensitive SageMaker action %q", mutating)
+		}
+	}
 	hash, err := ReadOnlyPolicyHash()
 	if err != nil {
 		t.Fatalf("hash policy: %v", err)
@@ -111,6 +144,9 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 	}
 	if !permissionPreviewContainsService(PermissionPreview(), "CodeBuild") {
 		t.Fatalf("expected CodeBuild permission preview entry")
+	}
+	if !permissionPreviewContainsService(PermissionPreview(), "SageMaker") {
+		t.Fatalf("expected SageMaker permission preview entry")
 	}
 }
 
