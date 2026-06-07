@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	sagemakertypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 
+	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/providers"
 	"github.com/identrail/identrail/internal/providers/awscontract"
 )
@@ -330,5 +331,391 @@ func TestSDKSageMakerIAMRoleARNUsesRegionPartition(t *testing.T) {
 	got := api.iamRoleARNForSageMaker("SageMakerExecutionRole", "arn:aws-us-gov:sagemaker:us-gov-west-1:123456789012:model/payments")
 	if !strings.HasPrefix(got, "arn:aws-us-gov:iam::") {
 		t.Fatalf("expected GovCloud partition in expanded role arn, got %q", got)
+	}
+}
+
+// fullSageMakerSDKClient is a richer fake covering every SageMaker workload
+// type so the SDK collector's training, processing, transform, model, endpoint,
+// and domain branches are exercised end-to-end.
+type fullSageMakerSDKClient struct {
+	trainings      []sagemakertypes.TrainingJobSummary
+	training       *sagemaker.DescribeTrainingJobOutput
+	processings    []sagemakertypes.ProcessingJobSummary
+	processing     *sagemaker.DescribeProcessingJobOutput
+	transforms     []sagemakertypes.TransformJobSummary
+	transform      *sagemaker.DescribeTransformJobOutput
+	transformModel *sagemaker.DescribeModelOutput
+	models         []sagemakertypes.ModelSummary
+	model          *sagemaker.DescribeModelOutput
+	endpoints      []sagemakertypes.EndpointSummary
+	endpoint       *sagemaker.DescribeEndpointOutput
+	endpointConfig *sagemaker.DescribeEndpointConfigOutput
+	endpointModel  *sagemaker.DescribeModelOutput
+	pipelines      []sagemakertypes.PipelineSummary
+	pipeline       *sagemaker.DescribePipelineOutput
+	domains        []sagemakertypes.DomainDetails
+	domain         *sagemaker.DescribeDomainOutput
+}
+
+func (f *fullSageMakerSDKClient) ListNotebookInstances(ctx context.Context, params *sagemaker.ListNotebookInstancesInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListNotebookInstancesOutput, error) {
+	return &sagemaker.ListNotebookInstancesOutput{}, nil
+}
+func (f *fullSageMakerSDKClient) DescribeNotebookInstance(ctx context.Context, params *sagemaker.DescribeNotebookInstanceInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeNotebookInstanceOutput, error) {
+	return nil, nil
+}
+func (f *fullSageMakerSDKClient) ListTrainingJobs(ctx context.Context, params *sagemaker.ListTrainingJobsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListTrainingJobsOutput, error) {
+	return &sagemaker.ListTrainingJobsOutput{TrainingJobSummaries: f.trainings}, nil
+}
+func (f *fullSageMakerSDKClient) DescribeTrainingJob(ctx context.Context, params *sagemaker.DescribeTrainingJobInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeTrainingJobOutput, error) {
+	return f.training, nil
+}
+func (f *fullSageMakerSDKClient) ListProcessingJobs(ctx context.Context, params *sagemaker.ListProcessingJobsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListProcessingJobsOutput, error) {
+	return &sagemaker.ListProcessingJobsOutput{ProcessingJobSummaries: f.processings}, nil
+}
+func (f *fullSageMakerSDKClient) DescribeProcessingJob(ctx context.Context, params *sagemaker.DescribeProcessingJobInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeProcessingJobOutput, error) {
+	return f.processing, nil
+}
+func (f *fullSageMakerSDKClient) ListTransformJobs(ctx context.Context, params *sagemaker.ListTransformJobsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListTransformJobsOutput, error) {
+	return &sagemaker.ListTransformJobsOutput{TransformJobSummaries: f.transforms}, nil
+}
+func (f *fullSageMakerSDKClient) DescribeTransformJob(ctx context.Context, params *sagemaker.DescribeTransformJobInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeTransformJobOutput, error) {
+	return f.transform, nil
+}
+func (f *fullSageMakerSDKClient) ListModels(ctx context.Context, params *sagemaker.ListModelsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListModelsOutput, error) {
+	return &sagemaker.ListModelsOutput{Models: f.models}, nil
+}
+func (f *fullSageMakerSDKClient) DescribeModel(ctx context.Context, params *sagemaker.DescribeModelInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeModelOutput, error) {
+	name := awsv2.ToString(params.ModelName)
+	if f.endpoint != nil && f.endpointModel != nil && name == awsv2.ToString(f.endpointModel.ModelName) {
+		return f.endpointModel, nil
+	}
+	if f.transform != nil && f.transformModel != nil && name == awsv2.ToString(f.transformModel.ModelName) {
+		return f.transformModel, nil
+	}
+	return f.model, nil
+}
+func (f *fullSageMakerSDKClient) ListEndpoints(ctx context.Context, params *sagemaker.ListEndpointsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListEndpointsOutput, error) {
+	return &sagemaker.ListEndpointsOutput{Endpoints: f.endpoints}, nil
+}
+func (f *fullSageMakerSDKClient) DescribeEndpoint(ctx context.Context, params *sagemaker.DescribeEndpointInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeEndpointOutput, error) {
+	return f.endpoint, nil
+}
+func (f *fullSageMakerSDKClient) DescribeEndpointConfig(ctx context.Context, params *sagemaker.DescribeEndpointConfigInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeEndpointConfigOutput, error) {
+	return f.endpointConfig, nil
+}
+func (f *fullSageMakerSDKClient) ListPipelines(ctx context.Context, params *sagemaker.ListPipelinesInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListPipelinesOutput, error) {
+	return &sagemaker.ListPipelinesOutput{PipelineSummaries: f.pipelines}, nil
+}
+func (f *fullSageMakerSDKClient) DescribePipeline(ctx context.Context, params *sagemaker.DescribePipelineInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribePipelineOutput, error) {
+	return f.pipeline, nil
+}
+func (f *fullSageMakerSDKClient) ListDomains(ctx context.Context, params *sagemaker.ListDomainsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListDomainsOutput, error) {
+	return &sagemaker.ListDomainsOutput{Domains: f.domains}, nil
+}
+func (f *fullSageMakerSDKClient) DescribeDomain(ctx context.Context, params *sagemaker.DescribeDomainInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeDomainOutput, error) {
+	return f.domain, nil
+}
+func (f *fullSageMakerSDKClient) ListTags(ctx context.Context, params *sagemaker.ListTagsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListTagsOutput, error) {
+	return &sagemaker.ListTagsOutput{}, nil
+}
+
+func TestSDKSageMakerWorkloadRoleEnumeratesEveryWorkloadType(t *testing.T) {
+	region := "us-east-1"
+	account := "123456789012"
+	trainingARN := "arn:aws:sagemaker:us-east-1:123456789012:training-job/train"
+	processingARN := "arn:aws:sagemaker:us-east-1:123456789012:processing-job/process"
+	transformARN := "arn:aws:sagemaker:us-east-1:123456789012:transform-job/score"
+	modelARN := "arn:aws:sagemaker:us-east-1:123456789012:model/payments"
+	endpointARN := "arn:aws:sagemaker:us-east-1:123456789012:endpoint/payments"
+	pipelineARN := "arn:aws:sagemaker:us-east-1:123456789012:pipeline/mlops"
+	domainARN := "arn:aws:sagemaker:us-east-1:123456789012:domain/d-1"
+	endpointModel := &sagemaker.DescribeModelOutput{
+		ModelName:        awsv2.String("payments"),
+		ModelArn:         awsv2.String(modelARN),
+		ExecutionRoleArn: awsv2.String("arn:aws:iam::123456789012:role/model"),
+	}
+	client := &fullSageMakerSDKClient{
+		trainings: []sagemakertypes.TrainingJobSummary{{TrainingJobName: awsv2.String("train")}},
+		training: &sagemaker.DescribeTrainingJobOutput{
+			TrainingJobArn:         awsv2.String(trainingARN),
+			TrainingJobStatus:      sagemakertypes.TrainingJobStatusInProgress,
+			RoleArn:                awsv2.String("arn:aws:iam::" + account + ":role/train"),
+			AlgorithmSpecification: &sagemakertypes.AlgorithmSpecification{TrainingImage: awsv2.String(account + ".dkr.ecr." + region + ".amazonaws.com/train:1")},
+			OutputDataConfig:       &sagemakertypes.OutputDataConfig{S3OutputPath: awsv2.String("s3://train/out/"), KmsKeyId: awsv2.String("arn:aws:kms:" + region + ":" + account + ":key/out")},
+			ResourceConfig:         &sagemakertypes.ResourceConfig{VolumeKmsKeyId: awsv2.String("arn:aws:kms:" + region + ":" + account + ":key/vol")},
+			InputDataConfig: []sagemakertypes.Channel{{
+				DataSource: &sagemakertypes.DataSource{S3DataSource: &sagemakertypes.S3DataSource{S3Uri: awsv2.String("s3://train/in/")}},
+			}},
+			VpcConfig: &sagemakertypes.VpcConfig{},
+		},
+		processings: []sagemakertypes.ProcessingJobSummary{{ProcessingJobName: awsv2.String("process")}},
+		processing: &sagemaker.DescribeProcessingJobOutput{
+			ProcessingJobArn:    awsv2.String(processingARN),
+			ProcessingJobStatus: sagemakertypes.ProcessingJobStatusInProgress,
+			RoleArn:             awsv2.String("arn:aws:iam::" + account + ":role/process"),
+			AppSpecification:    &sagemakertypes.AppSpecification{ImageUri: awsv2.String(account + ".dkr.ecr." + region + ".amazonaws.com/process:1")},
+			ProcessingResources: &sagemakertypes.ProcessingResources{ClusterConfig: &sagemakertypes.ProcessingClusterConfig{VolumeKmsKeyId: awsv2.String("arn:aws:kms:" + region + ":" + account + ":key/proc-vol")}},
+			ProcessingInputs:    []sagemakertypes.ProcessingInput{{S3Input: &sagemakertypes.ProcessingS3Input{S3Uri: awsv2.String("s3://process/in/")}}},
+			ProcessingOutputConfig: &sagemakertypes.ProcessingOutputConfig{
+				KmsKeyId: awsv2.String("arn:aws:kms:" + region + ":" + account + ":key/proc-out"),
+				Outputs:  []sagemakertypes.ProcessingOutput{{S3Output: &sagemakertypes.ProcessingS3Output{S3Uri: awsv2.String("s3://process/out/")}}},
+			},
+			NetworkConfig: &sagemakertypes.NetworkConfig{VpcConfig: &sagemakertypes.VpcConfig{}},
+		},
+		transforms: []sagemakertypes.TransformJobSummary{{TransformJobName: awsv2.String("score")}},
+		transform: &sagemaker.DescribeTransformJobOutput{
+			TransformJobArn:    awsv2.String(transformARN),
+			TransformJobStatus: sagemakertypes.TransformJobStatusInProgress,
+			ModelName:          awsv2.String("score-model"),
+			TransformInput:     &sagemakertypes.TransformInput{DataSource: &sagemakertypes.TransformDataSource{S3DataSource: &sagemakertypes.TransformS3DataSource{S3Uri: awsv2.String("s3://score/in/")}}},
+			TransformOutput:    &sagemakertypes.TransformOutput{S3OutputPath: awsv2.String("s3://score/out/"), KmsKeyId: awsv2.String("arn:aws:kms:" + region + ":" + account + ":key/score-out")},
+			TransformResources: &sagemakertypes.TransformResources{VolumeKmsKeyId: awsv2.String("arn:aws:kms:" + region + ":" + account + ":key/score-vol")},
+		},
+		transformModel: &sagemaker.DescribeModelOutput{
+			ModelName:        awsv2.String("score-model"),
+			ModelArn:         awsv2.String("arn:aws:sagemaker:us-east-1:123456789012:model/score-model"),
+			ExecutionRoleArn: awsv2.String("arn:aws:iam::" + account + ":role/score-model"),
+		},
+		models: []sagemakertypes.ModelSummary{{ModelName: awsv2.String("payments")}},
+		model: &sagemaker.DescribeModelOutput{
+			ModelName:        awsv2.String("payments"),
+			ModelArn:         awsv2.String(modelARN),
+			ExecutionRoleArn: awsv2.String("arn:aws:iam::" + account + ":role/model"),
+			PrimaryContainer: &sagemakertypes.ContainerDefinition{
+				Image:        awsv2.String(account + ".dkr.ecr." + region + ".amazonaws.com/model:1"),
+				ModelDataUrl: awsv2.String("s3://models/payments/"),
+			},
+			Containers: []sagemakertypes.ContainerDefinition{{
+				Image:        awsv2.String(account + ".dkr.ecr." + region + ".amazonaws.com/secondary:1"),
+				ModelDataUrl: awsv2.String("s3://models/payments-secondary/"),
+			}},
+			VpcConfig: &sagemakertypes.VpcConfig{},
+		},
+		endpoints: []sagemakertypes.EndpointSummary{{EndpointName: awsv2.String("payments")}},
+		endpoint: &sagemaker.DescribeEndpointOutput{
+			EndpointArn:        awsv2.String(endpointARN),
+			EndpointStatus:     sagemakertypes.EndpointStatusInService,
+			EndpointConfigName: awsv2.String("payments-config"),
+		},
+		endpointConfig: &sagemaker.DescribeEndpointConfigOutput{
+			KmsKeyId: awsv2.String("arn:aws:kms:" + region + ":" + account + ":key/endpoint"),
+			ProductionVariants: []sagemakertypes.ProductionVariant{
+				{ModelName: awsv2.String("payments")},
+				// duplicate variant pointing at the same model — must dedupe
+				{ModelName: awsv2.String("payments")},
+				// empty name — must be skipped
+				{ModelName: awsv2.String("")},
+			},
+		},
+		endpointModel: endpointModel,
+		pipelines:     []sagemakertypes.PipelineSummary{{PipelineName: awsv2.String("mlops"), PipelineArn: awsv2.String(pipelineARN)}},
+		pipeline: &sagemaker.DescribePipelineOutput{
+			PipelineName:   awsv2.String("mlops"),
+			PipelineArn:    awsv2.String(pipelineARN),
+			PipelineStatus: sagemakertypes.PipelineStatusActive,
+			RoleArn:        awsv2.String("arn:aws:iam::" + account + ":role/pipeline"),
+		},
+		domains: []sagemakertypes.DomainDetails{{DomainId: awsv2.String("d-1"), DomainName: awsv2.String("payments")}},
+		domain: &sagemaker.DescribeDomainOutput{
+			DomainArn:           awsv2.String(domainARN),
+			Status:              sagemakertypes.DomainStatusInService,
+			KmsKeyId:            awsv2.String("arn:aws:kms:" + region + ":" + account + ":key/domain"),
+			DefaultUserSettings: &sagemakertypes.UserSettings{ExecutionRole: awsv2.String("arn:aws:iam::" + account + ":role/domain")},
+		},
+	}
+	api := &SDKSageMakerWorkloadRoleAPI{client: client, accountID: account, region: region}
+	page, err := api.ListServiceRoles(context.Background(), "", 100)
+	if err != nil {
+		t.Fatalf("list service roles: %v", err)
+	}
+	// Should produce one record per non-notebook workload type, including a
+	// single endpoint record (deduped) and a single transform record (its
+	// role comes from the model describe call).
+	want := map[string]bool{
+		"sagemaker_training_execution_role":        false,
+		"sagemaker_processing_execution_role":      false,
+		"sagemaker_batch_transform_execution_role": false,
+		"sagemaker_model_execution_role":           false,
+		"sagemaker_endpoint_execution_role":        false,
+		"sagemaker_pipeline_execution_role":        false,
+		"sagemaker_domain_execution_role":          false,
+	}
+	endpointCount := 0
+	for _, record := range page.Records {
+		if record.RoleKind == "sagemaker_endpoint_execution_role" {
+			endpointCount++
+		}
+		if _, ok := want[record.RoleKind]; ok {
+			want[record.RoleKind] = true
+		}
+	}
+	for kind, seen := range want {
+		if !seen {
+			t.Fatalf("missing %q record, got %+v", kind, page.Records)
+		}
+	}
+	if endpointCount != 1 {
+		t.Fatalf("expected one endpoint record after dedupe, got %d", endpointCount)
+	}
+}
+
+func TestSageMakerDedupeStringSliceTrimsAndSorts(t *testing.T) {
+	got := dedupeStringSlice([]string{"b", "  a  ", "a", "", "b"})
+	if strings.Join(got, ",") != "a,b" {
+		t.Fatalf("expected sorted unique slice, got %v", got)
+	}
+}
+
+func TestSageMakerWorkloadRoleConfidenceBranches(t *testing.T) {
+	cases := []struct {
+		record SageMakerWorkloadRole
+		want   float64
+	}{
+		{SageMakerWorkloadRole{CoverageStatus: "unsupported"}, 0.4},
+		{SageMakerWorkloadRole{Disabled: true}, 0.72},
+		{SageMakerWorkloadRole{}, 0.86},
+		{SageMakerWorkloadRole{ResourceStatus: "InService"}, 0.93},
+	}
+	for i, tc := range cases {
+		if got := sageMakerWorkloadRoleConfidence(tc.record); got != tc.want {
+			t.Fatalf("case %d: confidence = %v, want %v", i, got, tc.want)
+		}
+	}
+}
+
+func TestSageMakerDefaultRoleKindFallsBackToWorkloadType(t *testing.T) {
+	got := sageMakerDefaultRoleKind(SageMakerWorkloadRole{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{WorkloadType: "sagemaker_training_job"},
+	})
+	if got != "sagemaker_training_execution_role" {
+		t.Fatalf("expected workload-type fallback, got %q", got)
+	}
+}
+
+func TestSDKSageMakerWorkloadRoleRequiresClient(t *testing.T) {
+	api := &SDKSageMakerWorkloadRoleAPI{}
+	if _, err := api.ListServiceRoles(context.Background(), "", 100); err == nil {
+		t.Fatalf("expected error when client missing")
+	}
+}
+
+func TestSageMakerNormalizerProjectsAssetIntoBundle(t *testing.T) {
+	collectedAt := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	roleARN := "arn:aws:iam::123456789012:role/sagemaker-payments-training"
+	workloadARN := "arn:aws:sagemaker:us-east-1:123456789012:training-job/payments-train"
+	record := SageMakerWorkloadRole{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID:    "123456789012",
+			Region:       "us-east-1",
+			Service:      "sagemaker",
+			WorkloadID:   workloadARN,
+			WorkloadName: "payments-train",
+			WorkloadType: "sagemaker_training_job",
+			RoleARN:      roleARN,
+		},
+		RoleKind:       "sagemaker_training_execution_role",
+		WorkloadARN:    workloadARN,
+		ResourceType:   "sagemaker_training_job",
+		ResourceStatus: "InProgress",
+		ImageURIs:      []string{"123456789012.dkr.ecr.us-east-1.amazonaws.com/train:1"},
+		S3References:   []string{"s3://train/in/"},
+		KMSKeyARNs:     []string{"arn:aws:kms:us-east-1:123456789012:key/train"},
+		Active:         true,
+	}
+	payload, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	asset := providers.RawAsset{
+		Kind:      rawKindSageMakerWorkloadRole,
+		SourceID:  "sagemaker|" + workloadARN + "|sagemaker_training_execution_role|" + roleARN,
+		Payload:   payload,
+		Collected: collectedAt.Format(time.RFC3339Nano),
+	}
+	bundle := providers.NormalizedBundle{}
+	identitySeen := map[string]struct{}{}
+	workloadSeen := map[string]struct{}{}
+	resourceSeen := map[string]struct{}{}
+	if err := normalizeSageMakerWorkloadRoleAsset(asset, 0, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if len(bundle.Identities) != 1 || bundle.Identities[0].ARN != roleARN {
+		t.Fatalf("expected identity from role arn, got %+v", bundle.Identities)
+	}
+	if len(bundle.Workloads) != 1 || bundle.Workloads[0].Type != "sagemaker_training_job_execution_role" {
+		t.Fatalf("expected suffixed workload type, got %+v", bundle.Workloads)
+	}
+	if len(bundle.Resources) != 1 {
+		t.Fatalf("expected one resource, got %+v", bundle.Resources)
+	}
+	res := bundle.Resources[0]
+	if res.Type != domain.ResourceTypeSageMakerTraining {
+		t.Fatalf("expected training resource type, got %q", res.Type)
+	}
+	images, _ := res.Metadata["image_uris"].([]string)
+	if len(images) != 1 || images[0] == "" {
+		t.Fatalf("expected image uris carried into resource metadata, got %v", images)
+	}
+
+	// Second asset with the same workload but a different role kind should
+	// merge into the existing resource's role list, not create a duplicate.
+	second := record
+	second.RoleARN = "arn:aws:iam::123456789012:role/sagemaker-payments-other"
+	second.RoleKind = "sagemaker_training_execution_role"
+	secondPayload, err := json.Marshal(second)
+	if err != nil {
+		t.Fatalf("marshal second: %v", err)
+	}
+	secondAsset := asset
+	secondAsset.Payload = secondPayload
+	if err := normalizeSageMakerWorkloadRoleAsset(secondAsset, 1, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+		t.Fatalf("normalize second: %v", err)
+	}
+	if len(bundle.Resources) != 1 {
+		t.Fatalf("expected resource merged, got %d", len(bundle.Resources))
+	}
+	roles, _ := bundle.Resources[0].Metadata["roles"].([]map[string]any)
+	if len(roles) != 2 {
+		t.Fatalf("expected two role entries on resource metadata, got %d (%+v)", len(roles), roles)
+	}
+}
+
+func TestSageMakerResourceIDClassifiesEveryType(t *testing.T) {
+	cases := []struct {
+		workloadType string
+		want         string
+	}{
+		{"sagemaker_notebook_instance", "aws:resource:sagemaker-notebook:"},
+		{"sagemaker_training_job", "aws:resource:sagemaker-training-job:"},
+		{"sagemaker_processing_job", "aws:resource:sagemaker-processing-job:"},
+		{"sagemaker_transform_job", "aws:resource:sagemaker-transform-job:"},
+		{"sagemaker_model", "aws:resource:sagemaker-model:"},
+		{"sagemaker_endpoint", "aws:resource:sagemaker-endpoint:"},
+		{"sagemaker_pipeline", "aws:resource:sagemaker-pipeline:"},
+		{"sagemaker_domain", "aws:resource:sagemaker-domain:"},
+		{"sagemaker_workload", "aws:resource:sagemaker-workload:"},
+	}
+	for _, tc := range cases {
+		got := sageMakerResourceID(SageMakerWorkloadRole{
+			ResourceType: tc.workloadType,
+			WorkloadARN:  "arn:aws:sagemaker:us-east-1:123456789012:" + tc.workloadType,
+		})
+		if !strings.HasPrefix(got, tc.want) {
+			t.Fatalf("workload %q resource id = %q, want prefix %q", tc.workloadType, got, tc.want)
+		}
+	}
+}
+
+func TestIsSageMakerWorkloadRoleFixtureDiscriminatesByARN(t *testing.T) {
+	// A CodePipeline-style record whose PipelineARN is *not* a SageMaker ARN
+	// must not be misclassified.
+	codePipelineRecord := SageMakerWorkloadRole{PipelineARN: "arn:aws:codepipeline:us-east-1:123456789012:pipeline/myapp"}
+	if isSageMakerWorkloadRoleFixture(codePipelineRecord) {
+		t.Fatalf("CodePipeline pipeline ARN should not be classified as SageMaker")
+	}
+	// A SageMaker pipeline ARN should be classified.
+	sageRecord := SageMakerWorkloadRole{PipelineARN: "arn:aws:sagemaker:us-east-1:123456789012:pipeline/mlops"}
+	if !isSageMakerWorkloadRoleFixture(sageRecord) {
+		t.Fatalf("SageMaker pipeline ARN should be classified")
 	}
 }

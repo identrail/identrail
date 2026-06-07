@@ -10,7 +10,6 @@ import (
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/sagemaker"
-	sagemakertypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 
 	"github.com/identrail/identrail/internal/providers"
@@ -73,7 +72,8 @@ func NewSDKSageMakerWorkloadRoleAPIWithContext(ctx context.Context, region strin
 	if err != nil {
 		return nil, err
 	}
-	return NewSDKSageMakerWorkloadRoleAPIFromClient(sagemaker.NewFromConfig(cfg), resolved, region), nil
+	resolvedRegion := firstNonEmptyAWSValue(strings.TrimSpace(region), strings.TrimSpace(cfg.Region))
+	return NewSDKSageMakerWorkloadRoleAPIFromClient(sagemaker.NewFromConfig(cfg), resolved, resolvedRegion), nil
 }
 
 // NewSDKSageMakerWorkloadRoleAPIFromAssumeRole constructs the SDK-backed API
@@ -102,7 +102,8 @@ func NewSDKSageMakerWorkloadRoleAPIFromAssumeRole(ctx context.Context, region st
 	if err != nil {
 		return nil, err
 	}
-	return NewSDKSageMakerWorkloadRoleAPIFromClient(sagemaker.NewFromConfig(cfg), resolved, region), nil
+	resolvedRegion := firstNonEmptyAWSValue(strings.TrimSpace(region), strings.TrimSpace(cfg.Region))
+	return NewSDKSageMakerWorkloadRoleAPIFromClient(sagemaker.NewFromConfig(cfg), resolved, resolvedRegion), nil
 }
 
 // NewSDKSageMakerWorkloadRoleAPIFromClient is the seam tests use to inject a
@@ -212,9 +213,8 @@ func (a *SDKSageMakerWorkloadRoleAPI) listTrainingJobs(ctx context.Context, page
 	token := ""
 	for {
 		output, err := a.client.ListTrainingJobs(ctx, &sagemaker.ListTrainingJobsInput{
-			MaxResults:   awsv2.Int32(sageMakerSDKPageSize(pageSize, 100)),
-			NextToken:    stringPtrOrNil(token),
-			StatusEquals: sagemakertypes.TrainingJobStatusInProgress,
+			MaxResults: awsv2.Int32(sageMakerSDKPageSize(pageSize, 100)),
+			NextToken:  stringPtrOrNil(token),
 		})
 		if err != nil {
 			return records, diagnostics, err
@@ -278,9 +278,8 @@ func (a *SDKSageMakerWorkloadRoleAPI) listProcessingJobs(ctx context.Context, pa
 	token := ""
 	for {
 		output, err := a.client.ListProcessingJobs(ctx, &sagemaker.ListProcessingJobsInput{
-			MaxResults:   awsv2.Int32(sageMakerSDKPageSize(pageSize, 100)),
-			NextToken:    stringPtrOrNil(token),
-			StatusEquals: sagemakertypes.ProcessingJobStatusInProgress,
+			MaxResults: awsv2.Int32(sageMakerSDKPageSize(pageSize, 100)),
+			NextToken:  stringPtrOrNil(token),
 		})
 		if err != nil {
 			return records, diagnostics, err
@@ -348,9 +347,8 @@ func (a *SDKSageMakerWorkloadRoleAPI) listTransformJobs(ctx context.Context, pag
 	token := ""
 	for {
 		output, err := a.client.ListTransformJobs(ctx, &sagemaker.ListTransformJobsInput{
-			MaxResults:   awsv2.Int32(sageMakerSDKPageSize(pageSize, 100)),
-			NextToken:    stringPtrOrNil(token),
-			StatusEquals: sagemakertypes.TransformJobStatusInProgress,
+			MaxResults: awsv2.Int32(sageMakerSDKPageSize(pageSize, 100)),
+			NextToken:  stringPtrOrNil(token),
 		})
 		if err != nil {
 			return records, diagnostics, err
@@ -498,6 +496,7 @@ func (a *SDKSageMakerWorkloadRoleAPI) listEndpoints(ctx context.Context, pageSiz
 			configName := strings.TrimSpace(awsv2.ToString(describe.EndpointConfigName))
 			opts := sageMakerRecordOptions{EndpointConfig: configName}
 			var modelNames []string
+			seenModel := map[string]struct{}{}
 			if configName != "" {
 				configDescribe, configErr := a.client.DescribeEndpointConfig(ctx, &sagemaker.DescribeEndpointConfigInput{EndpointConfigName: awsv2.String(configName)})
 				if configErr != nil {
@@ -505,17 +504,24 @@ func (a *SDKSageMakerWorkloadRoleAPI) listEndpoints(ctx context.Context, pageSiz
 				} else if configDescribe != nil {
 					opts.KMSKeyARNs = append(opts.KMSKeyARNs, strings.TrimSpace(awsv2.ToString(configDescribe.KmsKeyId)))
 					for _, variant := range configDescribe.ProductionVariants {
-						modelNames = append(modelNames, strings.TrimSpace(awsv2.ToString(variant.ModelName)))
+						modelName := strings.TrimSpace(awsv2.ToString(variant.ModelName))
+						if modelName == "" {
+							continue
+						}
+						if _, exists := seenModel[modelName]; exists {
+							continue
+						}
+						seenModel[modelName] = struct{}{}
+						modelNames = append(modelNames, modelName)
 					}
 				}
 			}
 			// Endpoints carry no role of their own; they inherit the model
-			// execution role. Emit one record per backing model so the graph
-			// shows the endpoint→model→role relationship.
+			// execution role. Emit one record per unique backing model so the
+			// graph shows the endpoint→model→role relationship without
+			// duplicate DescribeModel calls or duplicate records when an
+			// endpoint config has multiple variants pointing at the same model.
 			for _, modelName := range modelNames {
-				if modelName == "" {
-					continue
-				}
 				modelDescribe, modelErr := a.client.DescribeModel(ctx, &sagemaker.DescribeModelInput{ModelName: awsv2.String(modelName)})
 				if modelErr != nil {
 					diagnostics = append(diagnostics, sageMakerDiagnostic("sagemaker_endpoint_model_describe_failed", modelName, fmt.Sprintf("SageMaker endpoint %q model %q could not be described: %v", name, modelName, modelErr), true))

@@ -311,7 +311,7 @@ func awsSageMakerWorkloadRoleFixtureRecords(accountID string, region string, fix
 		}),
 		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_model", "payments-risk-classifier", modelARN, fmt.Sprintf("arn:aws:iam::%s:role/sagemaker-payments-model", accountID), "sagemaker_model_execution_role", "InService", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
 			r.ImageURIs = []string{fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com/payments-classifier:2026-04", accountID, region)}
-			r.S3References = []string{"s3://payments-models/payments-risk-classifier/model.tar.gz"}
+			r.S3References = []string{"s3://payments-models/payments-risk-classifier/"}
 			r.ModelARN = modelARN
 			r.NetworkMode = "vpc"
 		}),

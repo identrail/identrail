@@ -159,7 +159,14 @@ func TestRouterAWSSageMakerWorkloadRoleInventoryPermissionDenied(t *testing.T) {
 	if len(body.Inventory.Records) != 0 {
 		t.Fatalf("expected no records on permission_denied, got %d", len(body.Inventory.Records))
 	}
-	if len(body.Inventory.Diagnostics) == 0 || body.Inventory.Diagnostics[0].Code != "permission_denied" {
+	foundPermissionDenied := false
+	for _, diag := range body.Inventory.Diagnostics {
+		if diag.Code == "permission_denied" {
+			foundPermissionDenied = true
+			break
+		}
+	}
+	if !foundPermissionDenied {
 		t.Fatalf("expected permission_denied diagnostic, got %+v", body.Inventory.Diagnostics)
 	}
 }

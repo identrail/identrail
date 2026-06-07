@@ -328,14 +328,32 @@ func isSageMakerWorkloadRoleFixture(record SageMakerWorkloadRole) bool {
 		"sagemaker_pipeline", "sagemaker_domain", "sagemaker_workload":
 		return true
 	}
-	return strings.TrimSpace(record.DomainID) != "" ||
-		strings.TrimSpace(record.DomainARN) != "" ||
-		strings.TrimSpace(record.PipelineARN) != "" ||
-		strings.TrimSpace(record.ModelARN) != "" ||
-		strings.TrimSpace(record.EndpointConfig) != "" ||
-		len(record.ImageURIs) > 0 ||
-		len(record.S3References) > 0 ||
-		(len(record.KMSKeyARNs) > 0 && strings.HasPrefix(strings.TrimSpace(record.RoleKind), "sagemaker_"))
+	// Discriminators below are SageMaker-specific only when the field value is
+	// itself a SageMaker ARN. ARN-shaped fields like PipelineARN/ModelARN/
+	// DomainARN are reused by other AWS services (CodePipeline pipeline ARNs,
+	// Bedrock model ARNs) so classifying SageMaker on the field being non-empty
+	// alone would misroute those fixtures.
+	if isSageMakerARN(record.DomainARN) ||
+		isSageMakerARN(record.PipelineARN) ||
+		isSageMakerARN(record.ModelARN) ||
+		isSageMakerARN(record.WorkloadARN) ||
+		isSageMakerARN(record.ResourceARN) {
+		return true
+	}
+	roleKind := strings.TrimSpace(record.RoleKind)
+	if strings.HasPrefix(roleKind, "sagemaker_") {
+		return true
+	}
+	// DomainID and EndpointConfig are SageMaker-only operator-facing fields.
+	return strings.TrimSpace(record.DomainID) != "" || strings.TrimSpace(record.EndpointConfig) != ""
+}
+
+func isSageMakerARN(arn string) bool {
+	trimmed := strings.TrimSpace(arn)
+	if trimmed == "" {
+		return false
+	}
+	return strings.Contains(trimmed, ":sagemaker:")
 }
 
 func isEKSWorkloadIdentityFixture(record EKSWorkloadIdentity) bool {

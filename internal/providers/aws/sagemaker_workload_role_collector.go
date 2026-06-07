@@ -329,13 +329,29 @@ func sageMakerDefaultWorkloadType(record SageMakerWorkloadRole) string {
 }
 
 func sageMakerDefaultRoleKind(record SageMakerWorkloadRole) string {
-	switch strings.TrimSpace(record.ResourceType) {
+	// Prefer the explicit ResourceType, but fall back to WorkloadType so the
+	// default role kind stays consistent when only the workload shape is set.
+	workloadType := strings.TrimSpace(record.ResourceType)
+	if workloadType == "" {
+		workloadType = strings.TrimSpace(record.WorkloadType)
+	}
+	switch workloadType {
 	case "sagemaker_pipeline":
 		return "sagemaker_pipeline_execution_role"
 	case "sagemaker_model":
 		return "sagemaker_model_execution_role"
 	case "sagemaker_domain":
 		return "sagemaker_domain_execution_role"
+	case "sagemaker_notebook_instance":
+		return "sagemaker_notebook_execution_role"
+	case "sagemaker_training_job":
+		return "sagemaker_training_execution_role"
+	case "sagemaker_processing_job":
+		return "sagemaker_processing_execution_role"
+	case "sagemaker_transform_job":
+		return "sagemaker_batch_transform_execution_role"
+	case "sagemaker_endpoint":
+		return "sagemaker_endpoint_execution_role"
 	}
 	return "sagemaker_execution_role"
 }
