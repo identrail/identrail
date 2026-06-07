@@ -2729,7 +2729,7 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			case errors.Is(err, ErrInvalidAWSConnectionRequest):
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws managed compute role request"})
 			default:
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws managed compute role inventory"})
 			}
 			return
 		}

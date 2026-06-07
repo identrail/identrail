@@ -8,7 +8,9 @@ import (
 	"time"
 
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/apprunner"
 	apprunnertypes "github.com/aws/aws-sdk-go-v2/service/apprunner/types"
+	"github.com/aws/aws-sdk-go-v2/service/batch"
 	batchtypes "github.com/aws/aws-sdk-go-v2/service/batch/types"
 	emrtypes "github.com/aws/aws-sdk-go-v2/service/emr/types"
 	"github.com/identrail/identrail/internal/domain"
@@ -162,6 +164,52 @@ func TestManagedComputeRoleFixtureKindDetection(t *testing.T) {
 	}
 }
 
+func TestManagedComputeRoleScopeDefaultsUnsupportedCoverage(t *testing.T) {
+	record := normalizeManagedComputeRoleScope(AWSCollectorScope{AccountID: "123456789012", Region: "us-east-1"}, ManagedComputeRole{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			RoleARN: "arn:aws:iam::123456789012:role/mwaa-execution",
+		},
+		UnsupportedService: "mwaa",
+		WorkloadARN:        "arn:aws:airflow:us-east-1:123456789012:environment/customer-airflow",
+	}, time.Date(2026, 6, 7, 10, 0, 0, 0, time.UTC))
+	if record.CoverageStatus != "unsupported" || record.Service != "mwaa" {
+		t.Fatalf("expected unsupported coverage default, got %+v", record)
+	}
+}
+
+func TestManagedComputeRoleNormalizerMergesResourceRoleMetadata(t *testing.T) {
+	jobARN := "arn:aws:batch:us-east-1:123456789012:job-definition/customer-import:5"
+	records := []ManagedComputeRole{
+		managedComputeTestRecord("batch", "batch_job_definition", jobARN, "arn:aws:iam::123456789012:role/batch-job", "batch_job_role"),
+		managedComputeTestRecord("batch", "batch_job_definition", jobARN, "arn:aws:iam::123456789012:role/batch-execution", "batch_execution_role"),
+	}
+	for idx := range records {
+		records[idx].WorkloadName = ""
+	}
+	raw := make([]providers.RawAsset, 0, len(records))
+	for _, record := range records {
+		payload, err := json.Marshal(record)
+		if err != nil {
+			t.Fatalf("marshal record: %v", err)
+		}
+		raw = append(raw, providers.RawAsset{Kind: rawKindManagedComputeRole, SourceID: managedComputeRoleSourceID(record), Payload: payload})
+	}
+	bundle, err := NewRoleNormalizer().Normalize(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if len(bundle.Resources) != 1 {
+		t.Fatalf("expected one deduped Batch job-definition resource, got %+v", bundle.Resources)
+	}
+	roles, ok := bundle.Resources[0].Metadata["roles"].([]map[string]any)
+	if !ok || len(roles) != 2 {
+		t.Fatalf("expected both role associations in resource metadata, got %+v", bundle.Resources[0].Metadata)
+	}
+	if bundle.Resources[0].Name != "customer-import:5" {
+		t.Fatalf("expected Batch ARN fallback to retain name and revision, got %q", bundle.Resources[0].Name)
+	}
+}
+
 func TestManagedComputeSDKRecordHelpersRetainSafeMetadata(t *testing.T) {
 	api := &SDKManagedComputeRoleAPI{accountID: "123456789012", region: "us-east-1"}
 	appRunnerRecords := api.recordsFromAppRunnerService(&apprunnertypes.Service{
@@ -207,6 +255,76 @@ func TestManagedComputeSDKRecordHelpersRetainSafeMetadata(t *testing.T) {
 	}
 }
 
+func TestManagedComputeSDKClampsAppRunnerPageSize(t *testing.T) {
+	client := &fakeAppRunnerSDKClient{}
+	api := &SDKManagedComputeRoleAPI{appRunnerClient: client, accountID: "123456789012", region: "us-east-1"}
+	if _, _, err := api.listAppRunnerRoles(context.Background(), 100); err != nil {
+		t.Fatalf("list app runner roles: %v", err)
+	}
+	if len(client.listInputs) != 1 || awsv2.ToInt32(client.listInputs[0].MaxResults) != 20 {
+		t.Fatalf("expected App Runner MaxResults clamp to 20, got %+v", client.listInputs)
+	}
+}
+
+func TestManagedComputeSDKPaginatesBatchRoles(t *testing.T) {
+	client := &fakeBatchSDKClient{
+		envOutputs: []*batch.DescribeComputeEnvironmentsOutput{
+			{
+				ComputeEnvironments: []batchtypes.ComputeEnvironmentDetail{{
+					ComputeEnvironmentArn:  awsv2.String("arn:aws:batch:us-east-1:123456789012:compute-environment/env-a"),
+					ComputeEnvironmentName: awsv2.String("env-a"),
+					ServiceRole:            awsv2.String("arn:aws:iam::123456789012:role/batch-service-a"),
+					State:                  batchtypes.CEStateEnabled,
+				}},
+				NextToken: awsv2.String("env-page-2"),
+			},
+			{
+				ComputeEnvironments: []batchtypes.ComputeEnvironmentDetail{{
+					ComputeEnvironmentArn:  awsv2.String("arn:aws:batch:us-east-1:123456789012:compute-environment/env-b"),
+					ComputeEnvironmentName: awsv2.String("env-b"),
+					ServiceRole:            awsv2.String("arn:aws:iam::123456789012:role/batch-service-b"),
+					State:                  batchtypes.CEStateEnabled,
+				}},
+			},
+		},
+		jobOutputs: []*batch.DescribeJobDefinitionsOutput{
+			{
+				JobDefinitions: []batchtypes.JobDefinition{{
+					JobDefinitionArn:  awsv2.String("arn:aws:batch:us-east-1:123456789012:job-definition/import-a:1"),
+					JobDefinitionName: awsv2.String("import-a"),
+					ContainerProperties: &batchtypes.ContainerProperties{
+						JobRoleArn: awsv2.String("arn:aws:iam::123456789012:role/batch-job-a"),
+					},
+				}},
+				NextToken: awsv2.String("job-page-2"),
+			},
+			{
+				JobDefinitions: []batchtypes.JobDefinition{{
+					JobDefinitionArn:  awsv2.String("arn:aws:batch:us-east-1:123456789012:job-definition/import-b:1"),
+					JobDefinitionName: awsv2.String("import-b"),
+					ContainerProperties: &batchtypes.ContainerProperties{
+						ExecutionRoleArn: awsv2.String("arn:aws:iam::123456789012:role/batch-execution-b"),
+					},
+				}},
+			},
+		},
+	}
+	api := &SDKManagedComputeRoleAPI{batchClient: client, accountID: "123456789012", region: "us-east-1"}
+	records, diagnostics, err := api.listBatchRoles(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("list batch roles: %v", err)
+	}
+	if len(diagnostics) != 0 || len(records) != 4 {
+		t.Fatalf("expected four role records and no diagnostics, records=%+v diagnostics=%+v", records, diagnostics)
+	}
+	if got, want := strings.Join(client.envTokens, ","), ",env-page-2"; got != want {
+		t.Fatalf("expected compute environment tokens %q, got %q", want, got)
+	}
+	if got, want := strings.Join(client.jobTokens, ","), ",job-page-2"; got != want {
+		t.Fatalf("expected job definition tokens %q, got %q", want, got)
+	}
+}
+
 func managedComputeTestRecord(service string, workloadType string, workloadARN string, roleARN string, roleKind string) ManagedComputeRole {
 	return ManagedComputeRole{
 		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
@@ -228,4 +346,44 @@ func managedComputeTestRecord(service string, workloadType string, workloadARN s
 		CoverageStatus: "covered",
 		Active:         true,
 	}
+}
+
+type fakeAppRunnerSDKClient struct {
+	listInputs []*apprunner.ListServicesInput
+}
+
+func (f *fakeAppRunnerSDKClient) ListServices(ctx context.Context, params *apprunner.ListServicesInput, optFns ...func(*apprunner.Options)) (*apprunner.ListServicesOutput, error) {
+	f.listInputs = append(f.listInputs, params)
+	return &apprunner.ListServicesOutput{}, nil
+}
+
+func (f *fakeAppRunnerSDKClient) DescribeService(ctx context.Context, params *apprunner.DescribeServiceInput, optFns ...func(*apprunner.Options)) (*apprunner.DescribeServiceOutput, error) {
+	return &apprunner.DescribeServiceOutput{}, nil
+}
+
+type fakeBatchSDKClient struct {
+	envOutputs []*batch.DescribeComputeEnvironmentsOutput
+	jobOutputs []*batch.DescribeJobDefinitionsOutput
+	envTokens  []string
+	jobTokens  []string
+}
+
+func (f *fakeBatchSDKClient) DescribeComputeEnvironments(ctx context.Context, params *batch.DescribeComputeEnvironmentsInput, optFns ...func(*batch.Options)) (*batch.DescribeComputeEnvironmentsOutput, error) {
+	f.envTokens = append(f.envTokens, awsv2.ToString(params.NextToken))
+	if len(f.envOutputs) == 0 {
+		return &batch.DescribeComputeEnvironmentsOutput{}, nil
+	}
+	output := f.envOutputs[0]
+	f.envOutputs = f.envOutputs[1:]
+	return output, nil
+}
+
+func (f *fakeBatchSDKClient) DescribeJobDefinitions(ctx context.Context, params *batch.DescribeJobDefinitionsInput, optFns ...func(*batch.Options)) (*batch.DescribeJobDefinitionsOutput, error) {
+	f.jobTokens = append(f.jobTokens, awsv2.ToString(params.NextToken))
+	if len(f.jobOutputs) == 0 {
+		return &batch.DescribeJobDefinitionsOutput{}, nil
+	}
+	output := f.jobOutputs[0]
+	f.jobOutputs = f.jobOutputs[1:]
+	return output, nil
 }

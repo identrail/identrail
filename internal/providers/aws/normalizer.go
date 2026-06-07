@@ -979,6 +979,8 @@ func normalizeManagedComputeRoleAsset(asset providers.RawAsset, index int, bundl
 		if _, exists := resourceSeen[resourceID]; !exists {
 			resourceSeen[resourceID] = struct{}{}
 			bundle.Resources = append(bundle.Resources, managedComputeResourceFromRecord(record, asset.SourceID, workloadID, roleARN))
+		} else {
+			mergeManagedComputeResourceRoleMetadata(bundle, resourceID, record, roleARN)
 		}
 	}
 
@@ -1011,9 +1013,43 @@ func managedComputeResourceFromRecord(record ManagedComputeRole, rawRef string, 
 			"unsupported_service": strings.TrimSpace(record.UnsupportedService),
 			"active":              record.Active,
 			"disabled":            record.Disabled,
+			"roles":               []map[string]any{managedComputeResourceRoleMetadata(record, roleARN)},
 		},
 		RawRef:         rawRef,
 		SourceEntityID: workloadID,
+	}
+}
+
+func mergeManagedComputeResourceRoleMetadata(bundle *providers.NormalizedBundle, resourceID string, record ManagedComputeRole, roleARN string) {
+	role := managedComputeResourceRoleMetadata(record, roleARN)
+	if strings.TrimSpace(roleARN) == "" {
+		return
+	}
+	for idx := range bundle.Resources {
+		if bundle.Resources[idx].ID != resourceID {
+			continue
+		}
+		if bundle.Resources[idx].Metadata == nil {
+			bundle.Resources[idx].Metadata = map[string]any{}
+		}
+		roles, _ := bundle.Resources[idx].Metadata["roles"].([]map[string]any)
+		for _, existing := range roles {
+			if existingARN, _ := existing["role_arn"].(string); strings.TrimSpace(existingARN) == roleARN {
+				return
+			}
+		}
+		bundle.Resources[idx].Metadata["roles"] = append(roles, role)
+		return
+	}
+}
+
+func managedComputeResourceRoleMetadata(record ManagedComputeRole, roleARN string) map[string]any {
+	return map[string]any{
+		"role_arn":        strings.TrimSpace(roleARN),
+		"role_name":       strings.TrimSpace(firstNonEmptyAWSValue(record.RoleName, roleNameFromARN(roleARN))),
+		"role_kind":       strings.TrimSpace(record.RoleKind),
+		"role_account_id": strings.TrimSpace(record.RoleAccountID),
+		"confidence":      record.Confidence,
 	}
 }
 
@@ -1377,7 +1413,21 @@ func managedComputeRoleWorkloadType(record ManagedComputeRole) string {
 }
 
 func managedComputeRoleWorkloadName(record ManagedComputeRole) string {
-	return firstNonEmptyAWSValue(record.WorkloadName, eventDrivenNameFromARN(firstNonEmptyAWSValue(record.WorkloadARN, record.ResourceARN)), "managed compute workload")
+	return firstNonEmptyAWSValue(record.WorkloadName, managedComputeNameFromARN(firstNonEmptyAWSValue(record.WorkloadARN, record.ResourceARN)), "managed compute workload")
+}
+
+func managedComputeNameFromARN(arn string) string {
+	trimmed := strings.TrimSpace(arn)
+	if trimmed == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(trimmed, "/"); idx >= 0 && idx < len(trimmed)-1 {
+		return trimmed[idx+1:]
+	}
+	if idx := strings.LastIndex(trimmed, ":"); idx >= 0 && idx < len(trimmed)-1 {
+		return trimmed[idx+1:]
+	}
+	return trimmed
 }
 
 func managedComputeResourceType(record ManagedComputeRole) domain.ResourceType {

@@ -158,8 +158,9 @@ func (a *SDKManagedComputeRoleAPI) listAppRunnerRoles(ctx context.Context, pageS
 	records := []ManagedComputeRole{}
 	diagnostics := []providers.SourceError{}
 	token := ""
+	maxResults := managedComputeSDKPageSize(pageSize, 20)
 	for {
-		output, err := a.appRunnerClient.ListServices(ctx, &apprunner.ListServicesInput{MaxResults: awsv2.Int32(pageSize), NextToken: stringPtrOrNil(token)})
+		output, err := a.appRunnerClient.ListServices(ctx, &apprunner.ListServicesInput{MaxResults: awsv2.Int32(maxResults), NextToken: stringPtrOrNil(token)})
 		if err != nil {
 			return records, diagnostics, err
 		}
@@ -219,11 +220,15 @@ func (a *SDKManagedComputeRoleAPI) recordsFromAppRunnerService(service *apprunne
 func (a *SDKManagedComputeRoleAPI) listBatchRoles(ctx context.Context, pageSize int32) ([]ManagedComputeRole, []providers.SourceError, error) {
 	records := []ManagedComputeRole{}
 	diagnostics := []providers.SourceError{}
-	envs, err := a.batchClient.DescribeComputeEnvironments(ctx, &batch.DescribeComputeEnvironmentsInput{MaxResults: awsv2.Int32(pageSize)})
-	if err != nil {
-		return records, diagnostics, err
-	}
-	if envs != nil {
+	envToken := ""
+	for {
+		envs, err := a.batchClient.DescribeComputeEnvironments(ctx, &batch.DescribeComputeEnvironmentsInput{MaxResults: awsv2.Int32(pageSize), NextToken: stringPtrOrNil(envToken)})
+		if err != nil {
+			return records, diagnostics, err
+		}
+		if envs == nil {
+			break
+		}
 		for _, env := range envs.ComputeEnvironments {
 			arn := strings.TrimSpace(awsv2.ToString(env.ComputeEnvironmentArn))
 			name := strings.TrimSpace(awsv2.ToString(env.ComputeEnvironmentName))
@@ -246,15 +251,27 @@ func (a *SDKManagedComputeRoleAPI) listBatchRoles(ctx context.Context, pageSize 
 			}
 			records = append(records, next...)
 		}
+		envToken = strings.TrimSpace(awsv2.ToString(envs.NextToken))
+		if envToken == "" {
+			break
+		}
 	}
-	jobs, err := a.batchClient.DescribeJobDefinitions(ctx, &batch.DescribeJobDefinitionsInput{MaxResults: awsv2.Int32(pageSize), Status: awsv2.String("ACTIVE")})
-	if err != nil {
-		diagnostics = append(diagnostics, managedComputeDiagnostic("batch_job_definitions_failed", "describejobdefinitions", fmt.Sprintf("Batch job definitions could not be described: %v", err), true))
-		return records, diagnostics, nil
-	}
-	if jobs != nil {
+	jobToken := ""
+	for {
+		jobs, err := a.batchClient.DescribeJobDefinitions(ctx, &batch.DescribeJobDefinitionsInput{MaxResults: awsv2.Int32(pageSize), NextToken: stringPtrOrNil(jobToken), Status: awsv2.String("ACTIVE")})
+		if err != nil {
+			diagnostics = append(diagnostics, managedComputeDiagnostic("batch_job_definitions_failed", "describejobdefinitions", fmt.Sprintf("Batch job definitions could not be described: %v", err), true))
+			return records, diagnostics, nil
+		}
+		if jobs == nil {
+			break
+		}
 		for _, job := range jobs.JobDefinitions {
 			records = append(records, a.recordsFromBatchJobDefinition(job)...)
+		}
+		jobToken = strings.TrimSpace(awsv2.ToString(jobs.NextToken))
+		if jobToken == "" {
+			break
 		}
 	}
 	return records, diagnostics, nil
@@ -451,6 +468,16 @@ func glueResourceARN(region string, accountID string, kind string, name string) 
 		return ""
 	}
 	return fmt.Sprintf("arn:aws:glue:%s:%s:%s/%s", normalizeName(region), normalizeName(accountID), normalizeName(kind), strings.TrimSpace(name))
+}
+
+func managedComputeSDKPageSize(pageSize int32, max int32) int32 {
+	if pageSize <= 0 {
+		pageSize = defaultPageSize
+	}
+	if max > 0 && pageSize > max {
+		return max
+	}
+	return pageSize
 }
 
 var _ = gluetypes.Job{}

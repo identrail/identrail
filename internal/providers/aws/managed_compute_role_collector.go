@@ -260,6 +260,9 @@ func normalizeManagedComputeRoleScope(scope AWSCollectorScope, record ManagedCom
 	normalized.JobDefinitionARN = strings.TrimSpace(record.JobDefinitionARN)
 	normalized.UnsupportedService = strings.TrimSpace(record.UnsupportedService)
 	normalized.CoverageStatus = firstNonEmptyAWSValue(record.CoverageStatus, "covered")
+	if normalized.UnsupportedService != "" && strings.TrimSpace(record.CoverageStatus) == "" {
+		normalized.CoverageStatus = "unsupported"
+	}
 	normalized.CoverageReason = strings.TrimSpace(record.CoverageReason)
 	normalized.Tags = copyTags(record.Tags)
 	normalized.CollectedAt = collectedAt
