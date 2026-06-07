@@ -539,6 +539,56 @@ func TestManagedComputeSDKContinuesToBatchJobDefinitionsAfterEnvironmentFailure(
 	}
 }
 
+func TestManagedComputeSDKPreservesGlueAndEMRPartitionForBareRoleNames(t *testing.T) {
+	glueClient := &fakeGlueSDKClient{
+		jobOutputs: []*glue.GetJobsOutput{{
+			Jobs: []gluetypes.Job{{
+				Name: awsv2.String("customer-import"),
+				Role: awsv2.String("GlueServiceRole"),
+			}},
+		}},
+		crawlerOutputs: []*glue.GetCrawlersOutput{{
+			Crawlers: []gluetypes.Crawler{{
+				Name: awsv2.String("customer-crawler"),
+				Role: awsv2.String("GlueCrawlerRole"),
+			}},
+		}},
+	}
+	glueAPI := &SDKManagedComputeRoleAPI{glueClient: glueClient, accountID: "123456789012", region: "us-gov-west-1"}
+	glueRecords, _, err := glueAPI.listGlueRoles(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("list glue roles: %v", err)
+	}
+	if len(glueRecords) != 2 {
+		t.Fatalf("expected Glue job and crawler records, got %+v", glueRecords)
+	}
+	for _, record := range glueRecords {
+		if !strings.HasPrefix(record.WorkloadARN, "arn:aws-us-gov:glue:") {
+			t.Fatalf("expected GovCloud Glue workload ARN, got %q", record.WorkloadARN)
+		}
+		if !strings.HasPrefix(record.RoleARN, "arn:aws-us-gov:iam::") {
+			t.Fatalf("expected GovCloud Glue role ARN, got %q", record.RoleARN)
+		}
+	}
+
+	emrAPI := &SDKManagedComputeRoleAPI{accountID: "123456789012", region: "cn-northwest-1"}
+	emrRecords := emrAPI.recordsFromEMRCluster(&emrtypes.Cluster{
+		Id:          awsv2.String("j-1234"),
+		Name:        awsv2.String("analytics"),
+		ServiceRole: awsv2.String("EMR_DefaultRole"),
+		Status:      &emrtypes.ClusterStatus{State: emrtypes.ClusterStateRunning},
+	})
+	if len(emrRecords) == 0 {
+		t.Fatalf("expected EMR record for bare role name, got none")
+	}
+	if !strings.HasPrefix(emrRecords[0].WorkloadARN, "arn:aws-cn:elasticmapreduce:") {
+		t.Fatalf("expected China EMR workload ARN, got %q", emrRecords[0].WorkloadARN)
+	}
+	if !strings.HasPrefix(emrRecords[0].RoleARN, "arn:aws-cn:iam::") {
+		t.Fatalf("expected China EMR role ARN, got %q", emrRecords[0].RoleARN)
+	}
+}
+
 func TestManagedComputeSDKContinuesToGlueCrawlersAfterJobsFailure(t *testing.T) {
 	client := &fakeGlueSDKClient{
 		jobErr: errors.New("throttled by Glue"),

@@ -429,7 +429,7 @@ func (a *SDKManagedComputeRoleAPI) recordsFromEMRCluster(cluster *emrtypes.Clust
 	}
 	arn := strings.TrimSpace(awsv2.ToString(cluster.ClusterArn))
 	if arn == "" {
-		arn = fmt.Sprintf("arn:aws:elasticmapreduce:%s:%s:cluster/%s", a.region, a.accountID, awsv2.ToString(cluster.Id))
+		arn = fmt.Sprintf("arn:%s:elasticmapreduce:%s:%s:cluster/%s", awsPartitionForRegion(a.region), a.region, a.accountID, awsv2.ToString(cluster.Id))
 	}
 	status := ""
 	if cluster.Status != nil {
@@ -506,7 +506,19 @@ func glueResourceARN(region string, accountID string, kind string, name string) 
 	if strings.TrimSpace(name) == "" {
 		return ""
 	}
-	return fmt.Sprintf("arn:aws:glue:%s:%s:%s/%s", normalizeName(region), normalizeName(accountID), normalizeName(kind), strings.TrimSpace(name))
+	return fmt.Sprintf("arn:%s:glue:%s:%s:%s/%s", awsPartitionForRegion(region), normalizeName(region), normalizeName(accountID), normalizeName(kind), strings.TrimSpace(name))
+}
+
+func awsPartitionForRegion(region string) string {
+	trimmed := strings.TrimSpace(region)
+	switch {
+	case strings.HasPrefix(trimmed, "us-gov-"):
+		return "aws-us-gov"
+	case strings.HasPrefix(trimmed, "cn-"):
+		return "aws-cn"
+	default:
+		return "aws"
+	}
 }
 
 func managedComputeAccountID(ctx context.Context, cfg awsv2.Config, accountID string) (string, error) {
