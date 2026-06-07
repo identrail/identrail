@@ -512,6 +512,57 @@ func TestManagedComputeSDKPaginatesBatchRoles(t *testing.T) {
 	}
 }
 
+func TestManagedComputeSDKContinuesToBatchJobDefinitionsAfterEnvironmentFailure(t *testing.T) {
+	client := &fakeBatchSDKClient{
+		envErr: errors.New("throttled by Batch"),
+		jobOutputs: []*batch.DescribeJobDefinitionsOutput{{
+			JobDefinitions: []batchtypes.JobDefinition{{
+				JobDefinitionArn:  awsv2.String("arn:aws:batch:us-east-1:123456789012:job-definition/import:1"),
+				JobDefinitionName: awsv2.String("import"),
+				ContainerProperties: &batchtypes.ContainerProperties{
+					JobRoleArn: awsv2.String("arn:aws:iam::123456789012:role/batch-job"),
+				},
+			}},
+		}},
+	}
+	api := &SDKManagedComputeRoleAPI{batchClient: client, accountID: "123456789012", region: "us-east-1"}
+
+	records, diagnostics, err := api.listBatchRoles(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("list batch roles: %v", err)
+	}
+	if len(records) != 1 || records[0].RoleKind != "batch_job_role" {
+		t.Fatalf("expected Batch job definition record after compute environment failure, got %+v", records)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Code != "batch_compute_environments_failed" || !diagnostics[0].Retryable {
+		t.Fatalf("expected retryable compute environment diagnostic, got %+v", diagnostics)
+	}
+}
+
+func TestManagedComputeSDKContinuesToGlueCrawlersAfterJobsFailure(t *testing.T) {
+	client := &fakeGlueSDKClient{
+		jobErr: errors.New("throttled by Glue"),
+		crawlerOutputs: []*glue.GetCrawlersOutput{{
+			Crawlers: []gluetypes.Crawler{{
+				Name: awsv2.String("customer-crawler"),
+				Role: awsv2.String("arn:aws:iam::123456789012:role/glue-crawler"),
+			}},
+		}},
+	}
+	api := &SDKManagedComputeRoleAPI{glueClient: client, accountID: "123456789012", region: "us-east-1"}
+
+	records, diagnostics, err := api.listGlueRoles(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("list glue roles: %v", err)
+	}
+	if len(records) != 1 || records[0].RoleKind != "glue_crawler_role" {
+		t.Fatalf("expected Glue crawler record after GetJobs failure, got %+v", records)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Code != "glue_jobs_failed" || !diagnostics[0].Retryable {
+		t.Fatalf("expected retryable Glue jobs diagnostic, got %+v", diagnostics)
+	}
+}
+
 func managedComputeTestRecord(service string, workloadType string, workloadARN string, roleARN string, roleKind string) ManagedComputeRole {
 	return ManagedComputeRole{
 		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
@@ -557,10 +608,15 @@ type fakeBatchSDKClient struct {
 	jobOutputs []*batch.DescribeJobDefinitionsOutput
 	envTokens  []string
 	jobTokens  []string
+	envErr     error
+	jobErr     error
 }
 
 func (f *fakeBatchSDKClient) DescribeComputeEnvironments(ctx context.Context, params *batch.DescribeComputeEnvironmentsInput, optFns ...func(*batch.Options)) (*batch.DescribeComputeEnvironmentsOutput, error) {
 	f.envTokens = append(f.envTokens, awsv2.ToString(params.NextToken))
+	if f.envErr != nil {
+		return nil, f.envErr
+	}
 	if len(f.envOutputs) == 0 {
 		return &batch.DescribeComputeEnvironmentsOutput{}, nil
 	}
@@ -571,6 +627,9 @@ func (f *fakeBatchSDKClient) DescribeComputeEnvironments(ctx context.Context, pa
 
 func (f *fakeBatchSDKClient) DescribeJobDefinitions(ctx context.Context, params *batch.DescribeJobDefinitionsInput, optFns ...func(*batch.Options)) (*batch.DescribeJobDefinitionsOutput, error) {
 	f.jobTokens = append(f.jobTokens, awsv2.ToString(params.NextToken))
+	if f.jobErr != nil {
+		return nil, f.jobErr
+	}
 	if len(f.jobOutputs) == 0 {
 		return &batch.DescribeJobDefinitionsOutput{}, nil
 	}
@@ -582,9 +641,13 @@ func (f *fakeBatchSDKClient) DescribeJobDefinitions(ctx context.Context, params 
 type fakeGlueSDKClient struct {
 	jobOutputs     []*glue.GetJobsOutput
 	crawlerOutputs []*glue.GetCrawlersOutput
+	jobErr         error
 }
 
 func (f *fakeGlueSDKClient) GetJobs(ctx context.Context, params *glue.GetJobsInput, optFns ...func(*glue.Options)) (*glue.GetJobsOutput, error) {
+	if f.jobErr != nil {
+		return nil, f.jobErr
+	}
 	if len(f.jobOutputs) == 0 {
 		return &glue.GetJobsOutput{}, nil
 	}

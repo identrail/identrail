@@ -233,7 +233,11 @@ func (a *SDKManagedComputeRoleAPI) listBatchRoles(ctx context.Context, pageSize 
 	for {
 		envs, err := a.batchClient.DescribeComputeEnvironments(ctx, &batch.DescribeComputeEnvironmentsInput{MaxResults: awsv2.Int32(pageSize), NextToken: stringPtrOrNil(envToken)})
 		if err != nil {
-			return records, diagnostics, err
+			if managedComputeShouldReturnError(err) {
+				return records, diagnostics, err
+			}
+			diagnostics = append(diagnostics, managedComputeDiagnostic("batch_compute_environments_failed", "describecomputeenvironments", fmt.Sprintf("Batch compute environments could not be described: %v", err), true))
+			break
 		}
 		if envs == nil {
 			break
@@ -332,7 +336,11 @@ func (a *SDKManagedComputeRoleAPI) listGlueRoles(ctx context.Context, pageSize i
 	for {
 		output, err := a.glueClient.GetJobs(ctx, &glue.GetJobsInput{MaxResults: awsv2.Int32(pageSize), NextToken: stringPtrOrNil(token)})
 		if err != nil {
-			return records, diagnostics, err
+			if managedComputeShouldReturnError(err) {
+				return records, diagnostics, err
+			}
+			diagnostics = append(diagnostics, managedComputeDiagnostic("glue_jobs_failed", "getjobs", fmt.Sprintf("Glue jobs could not be listed: %v", err), true))
+			break
 		}
 		if output == nil {
 			break
