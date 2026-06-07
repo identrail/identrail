@@ -41,14 +41,23 @@ func TestGetAWSManagedComputeRoleInventoryBuildsScopedRecords(t *testing.T) {
 		t.Fatalf("expected unsupported MWAA coverage gap, got %+v", result.CoverageGaps)
 	}
 	var batchExecution *AWSManagedComputeRoleRecord
+	var appRunnerAccess *AWSManagedComputeRoleRecord
 	for i := range result.Records {
-		if result.Records[i].RoleKind == "batch_execution_role" {
+		switch result.Records[i].RoleKind {
+		case "batch_execution_role":
 			batchExecution = &result.Records[i]
-			break
+		case "apprunner_access_role":
+			appRunnerAccess = &result.Records[i]
 		}
 	}
-	if batchExecution == nil || batchExecution.JobDefinitionARN == "" || batchExecution.Revision != 5 {
+	if batchExecution == nil || batchExecution.JobDefinitionARN == "" || batchExecution.Revision != 5 || batchExecution.RelationshipType != "attached_to" {
 		t.Fatalf("expected Batch execution role drilldown metadata, got %+v", result.Records)
+	}
+	if appRunnerAccess == nil || appRunnerAccess.RelationshipType != "attached_to" {
+		t.Fatalf("expected App Runner access role to be attached_to, got %+v", result.Records)
+	}
+	if !hasAWSManagedComputeRoleRelationship(result.Relationships, "runs_as") || !hasAWSManagedComputeRoleRelationship(result.Relationships, "attached_to") {
+		t.Fatalf("expected runtime and support role relationships, got %+v", result.Relationships)
 	}
 	if strings.Contains(strings.ToLower(result.Records[0].EvidenceRef), "payload") || strings.Contains(strings.ToLower(result.Records[0].EvidenceRef), "secret") {
 		t.Fatalf("expected metadata-only evidence, got %+v", result.Records[0])
@@ -56,6 +65,15 @@ func TestGetAWSManagedComputeRoleInventoryBuildsScopedRecords(t *testing.T) {
 	if result.GeneratedAt != now || result.UpdatedAt != now {
 		t.Fatalf("expected deterministic timestamps %v, got %v/%v", now, result.GeneratedAt, result.UpdatedAt)
 	}
+}
+
+func hasAWSManagedComputeRoleRelationship(relationships []AWSManagedComputeRoleRelationship, relationshipType string) bool {
+	for _, relationship := range relationships {
+		if relationship.Type == relationshipType {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRouterAWSManagedComputeRoleInventoryPartialFailure(t *testing.T) {

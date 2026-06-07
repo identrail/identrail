@@ -304,10 +304,20 @@ func awsManagedComputeRoleFixtureRecord(accountID string, region string, service
 		EvidenceRef:      workloadARN,
 		FromNodeID:       awsManagedComputeNodeID(accountID, region, workloadType, workloadARN, roleKind),
 		ToNodeID:         awsIdentityNodeIDForAPI(roleARN),
-		RelationshipType: "runs_as",
+		RelationshipType: awsManagedComputeRoleRelationshipType(roleKind),
 		Confidence:       0.93,
 		CollectedAt:      checkedAt,
 		Status:           "ready",
+	}
+}
+
+func awsManagedComputeRoleRelationshipType(roleKind string) string {
+	normalized := strings.ToLower(strings.TrimSpace(roleKind))
+	switch {
+	case strings.Contains(normalized, "execution_role"), strings.Contains(normalized, "access_role"):
+		return "attached_to"
+	default:
+		return "runs_as"
 	}
 }
 
