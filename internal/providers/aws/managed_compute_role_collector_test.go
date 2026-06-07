@@ -295,6 +295,26 @@ func TestManagedComputeSDKRecordHelpersRetainSafeMetadata(t *testing.T) {
 	if emrRecords[0].RoleARN != "arn:aws:iam::123456789012:role/EMR_DefaultRole" || emrRecords[1].RoleARN != "arn:aws:iam::123456789012:role/EMR_AutoScaling_DefaultRole" {
 		t.Fatalf("expected EMR role names expanded to IAM role ARNs, got %+v", emrRecords)
 	}
+
+	apiWithoutAccount := &SDKManagedComputeRoleAPI{region: "us-east-1"}
+	derivedAccountRecords := apiWithoutAccount.recordsFromBatchJobDefinition(batchtypes.JobDefinition{
+		JobDefinitionArn:  awsv2.String("arn:aws:batch:us-east-1:210987654321:job-definition/account-derived:3"),
+		JobDefinitionName: awsv2.String("account-derived"),
+		Revision:          awsv2.Int32(3),
+		ContainerProperties: &batchtypes.ContainerProperties{
+			JobRoleArn: awsv2.String("batch-derived-role"),
+		},
+	})
+	if len(derivedAccountRecords) != 1 || derivedAccountRecords[0].RoleARN != "arn:aws:iam::210987654321:role/batch-derived-role" {
+		t.Fatalf("expected Batch role name expanded from workload ARN account, got %+v", derivedAccountRecords)
+	}
+	unknownAccountRecords := apiWithoutAccount.recordsForRoles("glue", "glue_job", "customer-import", "", "", "", "", []struct {
+		arn  string
+		kind string
+	}{{arn: apiWithoutAccount.iamRoleARNFromNameOrARN("Glue_DefaultRole", ""), kind: "glue_job_role"}}, nil)
+	if len(unknownAccountRecords) != 0 {
+		t.Fatalf("expected bare role name without account context to be skipped, got %+v", unknownAccountRecords)
+	}
 }
 
 func TestManagedComputeSDKExpandsGlueJobRoleNames(t *testing.T) {

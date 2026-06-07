@@ -64,7 +64,11 @@ func NewSDKManagedComputeRoleAPIWithContext(ctx context.Context, region string, 
 	if err != nil {
 		return nil, err
 	}
-	return NewSDKManagedComputeRoleAPIFromClients(apprunner.NewFromConfig(cfg), batch.NewFromConfig(cfg), glue.NewFromConfig(cfg), emr.NewFromConfig(cfg), accountID, region), nil
+	resolvedAccountID, err := managedComputeAccountID(ctx, cfg, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return NewSDKManagedComputeRoleAPIFromClients(apprunner.NewFromConfig(cfg), batch.NewFromConfig(cfg), glue.NewFromConfig(cfg), emr.NewFromConfig(cfg), resolvedAccountID, region), nil
 }
 
 func NewSDKManagedComputeRoleAPIFromAssumeRole(ctx context.Context, region string, profile string, roleARN string, externalID string, sessionName string, accountID string) (ManagedComputeRoleAPI, error) {
@@ -87,7 +91,11 @@ func NewSDKManagedComputeRoleAPIFromAssumeRole(ctx context.Context, region strin
 		})
 	}
 	cfg.Credentials = awsv2.NewCredentialsCache(stscreds.NewAssumeRoleProvider(sts.NewFromConfig(cfg), trimmedRoleARN, options...))
-	return NewSDKManagedComputeRoleAPIFromClients(apprunner.NewFromConfig(cfg), batch.NewFromConfig(cfg), glue.NewFromConfig(cfg), emr.NewFromConfig(cfg), accountID, region), nil
+	resolvedAccountID, err := managedComputeAccountID(ctx, cfg, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return NewSDKManagedComputeRoleAPIFromClients(apprunner.NewFromConfig(cfg), batch.NewFromConfig(cfg), glue.NewFromConfig(cfg), emr.NewFromConfig(cfg), resolvedAccountID, region), nil
 }
 
 func NewSDKManagedComputeRoleAPIFromClients(appRunnerClient AppRunnerSDKClient, batchClient BatchSDKClient, glueClient GlueSDKClient, emrClient EMRSDKClient, accountID string, region string) ManagedComputeRoleAPI {
@@ -286,15 +294,15 @@ func (a *SDKManagedComputeRoleAPI) recordsFromBatchJobDefinition(job batchtypes.
 	}{}
 	if job.ContainerProperties != nil {
 		roles = append(roles,
-			struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(job.ContainerProperties.JobRoleArn)), kind: "batch_job_role"},
-			struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(job.ContainerProperties.ExecutionRoleArn)), kind: "batch_execution_role"},
+			struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(job.ContainerProperties.JobRoleArn), arn), kind: "batch_job_role"},
+			struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(job.ContainerProperties.ExecutionRoleArn), arn), kind: "batch_execution_role"},
 		)
 	}
 	if job.EcsProperties != nil {
 		for _, task := range job.EcsProperties.TaskProperties {
 			roles = append(roles,
-				struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(task.TaskRoleArn)), kind: "batch_job_role"},
-				struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(task.ExecutionRoleArn)), kind: "batch_execution_role"},
+				struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(task.TaskRoleArn), arn), kind: "batch_job_role"},
+				struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(task.ExecutionRoleArn), arn), kind: "batch_execution_role"},
 			)
 		}
 	}
@@ -304,8 +312,8 @@ func (a *SDKManagedComputeRoleAPI) recordsFromBatchJobDefinition(job batchtypes.
 				continue
 			}
 			roles = append(roles,
-				struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(nodeRange.Container.JobRoleArn)), kind: "batch_job_role"},
-				struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(nodeRange.Container.ExecutionRoleArn)), kind: "batch_execution_role"},
+				struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(nodeRange.Container.JobRoleArn), arn), kind: "batch_job_role"},
+				struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(nodeRange.Container.ExecutionRoleArn), arn), kind: "batch_execution_role"},
 			)
 		}
 	}
@@ -338,7 +346,7 @@ func (a *SDKManagedComputeRoleAPI) listGlueRoles(ctx context.Context, pageSize i
 			records = append(records, a.recordsForRoles("glue", "glue_job", awsv2.ToString(job.Name), arn, "", engine, "", []struct {
 				arn  string
 				kind string
-			}{{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(job.Role)), kind: "glue_job_role"}}, nil)...)
+			}{{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(job.Role), arn), kind: "glue_job_role"}}, nil)...)
 		}
 		token = strings.TrimSpace(awsv2.ToString(output.NextToken))
 		if token == "" {
@@ -423,8 +431,8 @@ func (a *SDKManagedComputeRoleAPI) recordsFromEMRCluster(cluster *emrtypes.Clust
 		arn  string
 		kind string
 	}{
-		{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(cluster.ServiceRole)), kind: "emr_service_role"},
-		{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(cluster.AutoScalingRole)), kind: "emr_autoscaling_role"},
+		{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(cluster.ServiceRole), arn), kind: "emr_service_role"},
+		{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(cluster.AutoScalingRole), arn), kind: "emr_autoscaling_role"},
 	}, nil)
 }
 
@@ -493,7 +501,23 @@ func glueResourceARN(region string, accountID string, kind string, name string) 
 	return fmt.Sprintf("arn:aws:glue:%s:%s:%s/%s", normalizeName(region), normalizeName(accountID), normalizeName(kind), strings.TrimSpace(name))
 }
 
-func (a *SDKManagedComputeRoleAPI) iamRoleARNFromNameOrARN(value string) string {
+func managedComputeAccountID(ctx context.Context, cfg awsv2.Config, accountID string) (string, error) {
+	trimmed := strings.TrimSpace(accountID)
+	if trimmed != "" {
+		return trimmed, nil
+	}
+	identity, err := sts.NewFromConfig(cfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		return "", fmt.Errorf("read AWS caller identity for managed compute account id: %w", err)
+	}
+	resolved := strings.TrimSpace(awsv2.ToString(identity.Account))
+	if resolved == "" {
+		return "", fmt.Errorf("read AWS caller identity for managed compute account id: empty account id")
+	}
+	return resolved, nil
+}
+
+func (a *SDKManagedComputeRoleAPI) iamRoleARNFromNameOrARN(value string, workloadARN string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return ""
@@ -503,7 +527,10 @@ func (a *SDKManagedComputeRoleAPI) iamRoleARNFromNameOrARN(value string) string 
 	}
 	accountID := strings.TrimSpace(a.accountID)
 	if accountID == "" {
-		return trimmed
+		accountID = accountIDFromARN(workloadARN)
+	}
+	if accountID == "" {
+		return ""
 	}
 	return fmt.Sprintf("arn:aws:iam::%s:role/%s", accountID, strings.TrimPrefix(trimmed, "/"))
 }
