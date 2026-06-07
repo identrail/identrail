@@ -759,3 +759,81 @@ func TestSageMakerWorkloadRoleSourceIDDistinguishesEndpointModels(t *testing.T) 
 		t.Fatalf("non-endpoint records must keep deterministic source ids regardless of ModelARN")
 	}
 }
+
+func TestSageMakerNormalizerMergesAdditionalEndpointModelEvidence(t *testing.T) {
+	collectedAt := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	roleARN := "arn:aws:iam::123456789012:role/shared-execution"
+	endpointARN := "arn:aws:sagemaker:us-east-1:123456789012:endpoint/payments"
+	modelA := "arn:aws:sagemaker:us-east-1:123456789012:model/payments-a"
+	modelB := "arn:aws:sagemaker:us-east-1:123456789012:model/payments-b"
+	baseline := SageMakerWorkloadRole{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID:    "123456789012",
+			Region:       "us-east-1",
+			Service:      "sagemaker",
+			WorkloadID:   endpointARN,
+			WorkloadName: "payments",
+			WorkloadType: "sagemaker_endpoint",
+			RoleARN:      roleARN,
+		},
+		RoleKind:       "sagemaker_endpoint_execution_role",
+		WorkloadARN:    endpointARN,
+		ResourceType:   "sagemaker_endpoint",
+		ResourceStatus: "InService",
+		Active:         true,
+	}
+	first := baseline
+	first.ModelARN = modelA
+	first.ImageURIs = []string{"123456789012.dkr.ecr.us-east-1.amazonaws.com/payments-a:1"}
+	first.S3References = []string{"s3://payments-a/"}
+	first.KMSKeyARNs = []string{"arn:aws:kms:us-east-1:123456789012:key/payments-a"}
+	second := baseline
+	second.ModelARN = modelB
+	second.ImageURIs = []string{"123456789012.dkr.ecr.us-east-1.amazonaws.com/payments-b:1"}
+	second.S3References = []string{"s3://payments-b/"}
+	second.KMSKeyARNs = []string{"arn:aws:kms:us-east-1:123456789012:key/payments-b"}
+
+	bundle := providers.NormalizedBundle{}
+	identitySeen := map[string]struct{}{}
+	workloadSeen := map[string]struct{}{}
+	resourceSeen := map[string]struct{}{}
+	for i, record := range []SageMakerWorkloadRole{first, second} {
+		payload, err := json.Marshal(record)
+		if err != nil {
+			t.Fatalf("marshal %d: %v", i, err)
+		}
+		asset := providers.RawAsset{
+			Kind:      rawKindSageMakerWorkloadRole,
+			SourceID:  sageMakerWorkloadRoleSourceID(record),
+			Payload:   payload,
+			Collected: collectedAt.Format(time.RFC3339Nano),
+		}
+		if err := normalizeSageMakerWorkloadRoleAsset(asset, i, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+			t.Fatalf("normalize %d: %v", i, err)
+		}
+	}
+	if len(bundle.Resources) != 1 {
+		t.Fatalf("expected one endpoint resource, got %d", len(bundle.Resources))
+	}
+	meta := bundle.Resources[0].Metadata
+	models, _ := meta["model_arns"].([]string)
+	if len(models) != 2 || models[0] != modelA || models[1] != modelB {
+		t.Fatalf("expected both backing models on the endpoint resource, got %v", models)
+	}
+	images, _ := meta["image_uris"].([]string)
+	if len(images) != 2 {
+		t.Fatalf("expected both backing model image uris, got %v", images)
+	}
+	s3refs, _ := meta["s3_references"].([]string)
+	if len(s3refs) != 2 {
+		t.Fatalf("expected both backing model s3 references, got %v", s3refs)
+	}
+	kms, _ := meta["kms_key_arns"].([]string)
+	if len(kms) != 2 {
+		t.Fatalf("expected both backing model kms key arns, got %v", kms)
+	}
+	roles, _ := meta["roles"].([]map[string]any)
+	if len(roles) != 1 {
+		t.Fatalf("expected one role entry when both models share the execution role, got %d", len(roles))
+	}
+}

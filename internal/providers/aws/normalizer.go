@@ -1578,6 +1578,11 @@ func normalizeSageMakerWorkloadRoleAsset(asset providers.RawAsset, index int, bu
 }
 
 func sageMakerResourceFromRecord(record SageMakerWorkloadRole, rawRef string, workloadID string, roleARN string) domain.Resource {
+	// model_arns is a slice so endpoints with multiple backing models keep
+	// every model's evidence even when several variants share the same
+	// execution role (the collector emits one record per backing model and
+	// merge unions the remaining records' evidence into this resource).
+	modelARNs := sageMakerInitialModelARNs(record.ModelARN)
 	return domain.Resource{
 		ID:        sageMakerResourceID(record),
 		Provider:  domain.ProviderAWS,
@@ -1596,7 +1601,7 @@ func sageMakerResourceFromRecord(record SageMakerWorkloadRole, rawRef string, wo
 			"domain_id":       strings.TrimSpace(record.DomainID),
 			"domain_arn":      strings.TrimSpace(record.DomainARN),
 			"pipeline_arn":    strings.TrimSpace(record.PipelineARN),
-			"model_arn":       strings.TrimSpace(record.ModelARN),
+			"model_arns":      modelARNs,
 			"endpoint_config": strings.TrimSpace(record.EndpointConfig),
 			"network_mode":    strings.TrimSpace(record.NetworkMode),
 			"image_uris":      append([]string(nil), record.ImageURIs...),
@@ -1613,11 +1618,21 @@ func sageMakerResourceFromRecord(record SageMakerWorkloadRole, rawRef string, wo
 	}
 }
 
-func mergeSageMakerResourceRoleMetadata(bundle *providers.NormalizedBundle, resourceID string, record SageMakerWorkloadRole, roleARN string) {
-	if strings.TrimSpace(roleARN) == "" {
-		return
+func sageMakerInitialModelARNs(modelARN string) []string {
+	trimmed := strings.TrimSpace(modelARN)
+	if trimmed == "" {
+		return []string{}
 	}
-	role := sageMakerResourceRoleMetadata(record, roleARN)
+	return []string{trimmed}
+}
+
+// mergeSageMakerResourceRoleMetadata folds a follow-up record into an
+// already-emitted resource. It always unions the per-record model ARN, image
+// URI, S3 reference, and KMS key evidence onto the resource, so additional
+// records for the same endpoint surface every backing model's evidence even
+// when several variants share the same execution role. Roles are appended if
+// the role ARN is not already present on the resource.
+func mergeSageMakerResourceRoleMetadata(bundle *providers.NormalizedBundle, resourceID string, record SageMakerWorkloadRole, roleARN string) {
 	for idx := range bundle.Resources {
 		if bundle.Resources[idx].ID != resourceID {
 			continue
@@ -1625,15 +1640,59 @@ func mergeSageMakerResourceRoleMetadata(bundle *providers.NormalizedBundle, reso
 		if bundle.Resources[idx].Metadata == nil {
 			bundle.Resources[idx].Metadata = map[string]any{}
 		}
-		roles, _ := bundle.Resources[idx].Metadata["roles"].([]map[string]any)
-		for _, existing := range roles {
-			if existingARN, _ := existing["role_arn"].(string); strings.TrimSpace(existingARN) == roleARN {
-				return
+		meta := bundle.Resources[idx].Metadata
+		meta["model_arns"] = sageMakerUnionStringEvidence(meta["model_arns"], []string{strings.TrimSpace(record.ModelARN)})
+		meta["image_uris"] = sageMakerUnionStringEvidence(meta["image_uris"], record.ImageURIs)
+		meta["s3_references"] = sageMakerUnionStringEvidence(meta["s3_references"], record.S3References)
+		meta["kms_key_arns"] = sageMakerUnionStringEvidence(meta["kms_key_arns"], record.KMSKeyARNs)
+		if trimmedRole := strings.TrimSpace(roleARN); trimmedRole != "" {
+			roles, _ := meta["roles"].([]map[string]any)
+			alreadyPresent := false
+			for _, existing := range roles {
+				if existingARN, _ := existing["role_arn"].(string); strings.TrimSpace(existingARN) == trimmedRole {
+					alreadyPresent = true
+					break
+				}
+			}
+			if !alreadyPresent {
+				meta["roles"] = append(roles, sageMakerResourceRoleMetadata(record, trimmedRole))
 			}
 		}
-		bundle.Resources[idx].Metadata["roles"] = append(roles, role)
 		return
 	}
+}
+
+// sageMakerUnionStringEvidence appends trimmed, deduplicated values to an
+// existing metadata slice, preserving insertion order so the first record's
+// evidence stays at the front of the slice.
+func sageMakerUnionStringEvidence(existing any, additions []string) []string {
+	out := []string{}
+	seen := map[string]struct{}{}
+	if cur, ok := existing.([]string); ok {
+		for _, value := range cur {
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				continue
+			}
+			if _, exists := seen[trimmed]; exists {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			out = append(out, trimmed)
+		}
+	}
+	for _, value := range additions {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
 }
 
 func sageMakerResourceRoleMetadata(record SageMakerWorkloadRole, roleARN string) map[string]any {
