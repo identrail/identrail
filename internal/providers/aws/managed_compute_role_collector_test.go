@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -298,6 +299,37 @@ func TestManagedComputeSDKExpandsGlueJobRoleNames(t *testing.T) {
 	}
 }
 
+func TestManagedComputeSDKContinuesAfterRetryableSubserviceFailure(t *testing.T) {
+	appRunnerClient := &fakeAppRunnerSDKClient{listErr: errors.New("throttled by App Runner")}
+	batchClient := &fakeBatchSDKClient{
+		envOutputs: []*batch.DescribeComputeEnvironmentsOutput{{
+			ComputeEnvironments: []batchtypes.ComputeEnvironmentDetail{{
+				ComputeEnvironmentArn:  awsv2.String("arn:aws:batch:us-east-1:123456789012:compute-environment/env-a"),
+				ComputeEnvironmentName: awsv2.String("env-a"),
+				ServiceRole:            awsv2.String("arn:aws:iam::123456789012:role/batch-service-a"),
+				State:                  batchtypes.CEStateEnabled,
+			}},
+		}},
+	}
+	api := &SDKManagedComputeRoleAPI{
+		appRunnerClient: appRunnerClient,
+		batchClient:     batchClient,
+		accountID:       "123456789012",
+		region:          "us-east-1",
+	}
+
+	page, err := api.ListServiceRoles(context.Background(), "", 100)
+	if err != nil {
+		t.Fatalf("managed compute sub-service failure should degrade instead of failing page: %v", err)
+	}
+	if len(page.Records) != 1 || page.Records[0].RoleKind != "batch_service_role" {
+		t.Fatalf("expected Batch roles to be retained after App Runner throttling, got %+v", page.Records)
+	}
+	if len(page.Diagnostics) == 0 || page.Diagnostics[0].Code != "apprunner_services_failed" || !page.Diagnostics[0].Retryable {
+		t.Fatalf("expected retryable App Runner diagnostic, got %+v", page.Diagnostics)
+	}
+}
+
 func TestManagedComputeSDKClampsAppRunnerPageSize(t *testing.T) {
 	client := &fakeAppRunnerSDKClient{}
 	api := &SDKManagedComputeRoleAPI{appRunnerClient: client, accountID: "123456789012", region: "us-east-1"}
@@ -401,10 +433,14 @@ func managedComputeTestRecord(service string, workloadType string, workloadARN s
 
 type fakeAppRunnerSDKClient struct {
 	listInputs []*apprunner.ListServicesInput
+	listErr    error
 }
 
 func (f *fakeAppRunnerSDKClient) ListServices(ctx context.Context, params *apprunner.ListServicesInput, optFns ...func(*apprunner.Options)) (*apprunner.ListServicesOutput, error) {
 	f.listInputs = append(f.listInputs, params)
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	return &apprunner.ListServicesOutput{}, nil
 }
 

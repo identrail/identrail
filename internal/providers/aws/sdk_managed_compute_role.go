@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -106,7 +107,7 @@ func (a *SDKManagedComputeRoleAPI) ListServiceRoles(ctx context.Context, _ strin
 	if a.appRunnerClient != nil {
 		next, issues, err := a.listAppRunnerRoles(ctx, pageSize)
 		if err != nil {
-			if isRetryable(err) {
+			if managedComputeShouldReturnError(err) {
 				return ManagedComputeRolePage{}, err
 			}
 			diagnostics = append(diagnostics, managedComputeDiagnostic("apprunner_services_failed", "apprunner", fmt.Sprintf("App Runner services could not be listed: %v", err), true))
@@ -117,7 +118,7 @@ func (a *SDKManagedComputeRoleAPI) ListServiceRoles(ctx context.Context, _ strin
 	if a.batchClient != nil {
 		next, issues, err := a.listBatchRoles(ctx, pageSize)
 		if err != nil {
-			if isRetryable(err) {
+			if managedComputeShouldReturnError(err) {
 				return ManagedComputeRolePage{}, err
 			}
 			diagnostics = append(diagnostics, managedComputeDiagnostic("batch_failed", "batch", fmt.Sprintf("Batch metadata could not be listed: %v", err), true))
@@ -128,7 +129,7 @@ func (a *SDKManagedComputeRoleAPI) ListServiceRoles(ctx context.Context, _ strin
 	if a.glueClient != nil {
 		next, issues, err := a.listGlueRoles(ctx, pageSize)
 		if err != nil {
-			if isRetryable(err) {
+			if managedComputeShouldReturnError(err) {
 				return ManagedComputeRolePage{}, err
 			}
 			diagnostics = append(diagnostics, managedComputeDiagnostic("glue_failed", "glue", fmt.Sprintf("Glue metadata could not be listed: %v", err), true))
@@ -139,7 +140,7 @@ func (a *SDKManagedComputeRoleAPI) ListServiceRoles(ctx context.Context, _ strin
 	if a.emrClient != nil {
 		next, issues, err := a.listEMRRoles(ctx, pageSize)
 		if err != nil {
-			if isRetryable(err) {
+			if managedComputeShouldReturnError(err) {
 				return ManagedComputeRolePage{}, err
 			}
 			diagnostics = append(diagnostics, managedComputeDiagnostic("emr_failed", "emr", fmt.Sprintf("EMR metadata could not be listed: %v", err), true))
@@ -468,6 +469,10 @@ func managedComputeDiagnostic(code string, sourceID string, message string, retr
 		Message:   strings.TrimSpace(message),
 		Retryable: retryable,
 	}
+}
+
+func managedComputeShouldReturnError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func glueResourceARN(region string, accountID string, kind string, name string) string {
