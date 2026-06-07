@@ -368,7 +368,7 @@ func (a *SDKManagedComputeRoleAPI) listGlueRoles(ctx context.Context, pageSize i
 			records = append(records, a.recordsForRoles("glue", "glue_crawler", awsv2.ToString(crawler.Name), arn, string(crawler.State), "", "", []struct {
 				arn  string
 				kind string
-			}{{arn: awsv2.ToString(crawler.Role), kind: "glue_crawler_role"}}, nil)...)
+			}{{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(crawler.Role), arn), kind: "glue_crawler_role"}}, nil)...)
 		}
 		token = strings.TrimSpace(awsv2.ToString(output.NextToken))
 		if token == "" {

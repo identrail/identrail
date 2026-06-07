@@ -325,6 +325,12 @@ func TestManagedComputeSDKExpandsGlueJobRoleNames(t *testing.T) {
 				Role: awsv2.String("Glue_DefaultRole"),
 			}},
 		}},
+		crawlerOutputs: []*glue.GetCrawlersOutput{{
+			Crawlers: []gluetypes.Crawler{{
+				Name: awsv2.String("customer-crawler"),
+				Role: awsv2.String("GlueCrawlerRole"),
+			}},
+		}},
 	}
 	api := &SDKManagedComputeRoleAPI{glueClient: client, accountID: "123456789012", region: "us-east-1"}
 
@@ -332,11 +338,14 @@ func TestManagedComputeSDKExpandsGlueJobRoleNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list glue roles: %v", err)
 	}
-	if len(diagnostics) != 0 || len(records) != 1 {
-		t.Fatalf("expected one Glue job role and no diagnostics, records=%+v diagnostics=%+v", records, diagnostics)
+	if len(diagnostics) != 0 || len(records) != 2 {
+		t.Fatalf("expected Glue job and crawler roles with no diagnostics, records=%+v diagnostics=%+v", records, diagnostics)
 	}
 	if records[0].RoleARN != "arn:aws:iam::123456789012:role/Glue_DefaultRole" {
 		t.Fatalf("expected Glue role name expanded to IAM role ARN, got %+v", records[0])
+	}
+	if records[1].RoleARN != "arn:aws:iam::123456789012:role/GlueCrawlerRole" || records[1].RoleKind != "glue_crawler_role" {
+		t.Fatalf("expected Glue crawler role name expanded to IAM role ARN, got %+v", records[1])
 	}
 }
 
