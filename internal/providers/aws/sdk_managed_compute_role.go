@@ -532,7 +532,15 @@ func (a *SDKManagedComputeRoleAPI) iamRoleARNFromNameOrARN(value string, workloa
 	if accountID == "" {
 		return ""
 	}
-	return fmt.Sprintf("arn:aws:iam::%s:role/%s", accountID, strings.TrimPrefix(trimmed, "/"))
+	return fmt.Sprintf("arn:%s:iam::%s:role/%s", arnPartitionFromARN(workloadARN), accountID, strings.TrimPrefix(trimmed, "/"))
+}
+
+func arnPartitionFromARN(arn string) string {
+	parts := strings.Split(strings.TrimSpace(arn), ":")
+	if len(parts) >= 2 && parts[0] == "arn" && strings.TrimSpace(parts[1]) != "" {
+		return strings.TrimSpace(parts[1])
+	}
+	return "aws"
 }
 
 func managedComputeSDKPageSize(pageSize int32, max int32) int32 {

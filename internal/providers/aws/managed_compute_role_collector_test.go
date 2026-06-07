@@ -308,6 +308,17 @@ func TestManagedComputeSDKRecordHelpersRetainSafeMetadata(t *testing.T) {
 	if len(derivedAccountRecords) != 1 || derivedAccountRecords[0].RoleARN != "arn:aws:iam::210987654321:role/batch-derived-role" {
 		t.Fatalf("expected Batch role name expanded from workload ARN account, got %+v", derivedAccountRecords)
 	}
+	govPartitionRecords := apiWithoutAccount.recordsFromBatchJobDefinition(batchtypes.JobDefinition{
+		JobDefinitionArn:  awsv2.String("arn:aws-us-gov:batch:us-gov-west-1:210987654321:job-definition/gov-derived:3"),
+		JobDefinitionName: awsv2.String("gov-derived"),
+		Revision:          awsv2.Int32(3),
+		ContainerProperties: &batchtypes.ContainerProperties{
+			JobRoleArn: awsv2.String("batch-gov-role"),
+		},
+	})
+	if len(govPartitionRecords) != 1 || govPartitionRecords[0].RoleARN != "arn:aws-us-gov:iam::210987654321:role/batch-gov-role" {
+		t.Fatalf("expected Batch role name expanded with workload ARN partition, got %+v", govPartitionRecords)
+	}
 	unknownAccountRecords := apiWithoutAccount.recordsForRoles("glue", "glue_job", "customer-import", "", "", "", "", []struct {
 		arn  string
 		kind string
