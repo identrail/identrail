@@ -1706,11 +1706,24 @@ func sageMakerResourceRoleMetadata(record SageMakerWorkloadRole, roleARN string)
 }
 
 func sageMakerRecordWorkloadID(record SageMakerWorkloadRole) string {
+	workloadRef := firstNonEmptyAWSValue(record.WorkloadID, record.WorkloadARN, record.ResourceARN, record.WorkloadName)
+	// Endpoints inherit one execution role per backing model, so the role
+	// kind alone cannot discriminate variants whose models use different
+	// roles. Without a model discriminator on the workload key, the second
+	// record's workload entry is dropped by workloadSeen and the
+	// relationship builder skips its workload→role edge. Embed the model
+	// identity in the workload ref so each backing model produces its own
+	// workload entry and downstream graph edge.
+	if strings.EqualFold(strings.TrimSpace(record.WorkloadType), "sagemaker_endpoint") || strings.EqualFold(strings.TrimSpace(record.ResourceType), "sagemaker_endpoint") {
+		if modelARN := strings.TrimSpace(record.ModelARN); modelARN != "" {
+			workloadRef = workloadRef + "::" + modelARN
+		}
+	}
 	return sageMakerWorkloadID(
 		record.AccountID,
 		record.Region,
 		sageMakerBaseWorkloadType(record),
-		firstNonEmptyAWSValue(record.WorkloadID, record.WorkloadARN, record.ResourceARN, record.WorkloadName),
+		workloadRef,
 		record.RoleKind,
 	)
 }

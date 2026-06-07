@@ -837,3 +837,67 @@ func TestSageMakerNormalizerMergesAdditionalEndpointModelEvidence(t *testing.T) 
 		t.Fatalf("expected one role entry when both models share the execution role, got %d", len(roles))
 	}
 }
+
+func TestSageMakerNormalizerEmitsWorkloadPerEndpointModelRole(t *testing.T) {
+	collectedAt := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	endpointARN := "arn:aws:sagemaker:us-east-1:123456789012:endpoint/payments"
+	modelA := "arn:aws:sagemaker:us-east-1:123456789012:model/payments-a"
+	modelB := "arn:aws:sagemaker:us-east-1:123456789012:model/payments-b"
+	baseline := SageMakerWorkloadRole{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID:    "123456789012",
+			Region:       "us-east-1",
+			Service:      "sagemaker",
+			WorkloadID:   endpointARN,
+			WorkloadName: "payments",
+			WorkloadType: "sagemaker_endpoint",
+		},
+		RoleKind:       "sagemaker_endpoint_execution_role",
+		WorkloadARN:    endpointARN,
+		ResourceType:   "sagemaker_endpoint",
+		ResourceStatus: "InService",
+		Active:         true,
+	}
+	first := baseline
+	first.ModelARN = modelA
+	first.RoleARN = "arn:aws:iam::123456789012:role/model-a"
+	second := baseline
+	second.ModelARN = modelB
+	second.RoleARN = "arn:aws:iam::123456789012:role/model-b"
+
+	bundle := providers.NormalizedBundle{}
+	identitySeen := map[string]struct{}{}
+	workloadSeen := map[string]struct{}{}
+	resourceSeen := map[string]struct{}{}
+	for i, record := range []SageMakerWorkloadRole{first, second} {
+		payload, err := json.Marshal(record)
+		if err != nil {
+			t.Fatalf("marshal %d: %v", i, err)
+		}
+		asset := providers.RawAsset{
+			Kind:      rawKindSageMakerWorkloadRole,
+			SourceID:  sageMakerWorkloadRoleSourceID(record),
+			Payload:   payload,
+			Collected: collectedAt.Format(time.RFC3339Nano),
+		}
+		if err := normalizeSageMakerWorkloadRoleAsset(asset, i, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+			t.Fatalf("normalize %d: %v", i, err)
+		}
+	}
+	if len(bundle.Identities) != 2 {
+		t.Fatalf("expected an identity per execution role, got %d", len(bundle.Identities))
+	}
+	if len(bundle.Workloads) != 2 {
+		t.Fatalf("expected a workload entry per backing model role, got %d", len(bundle.Workloads))
+	}
+	seenRefs := map[string]struct{}{}
+	for _, workload := range bundle.Workloads {
+		if workload.Type != "sagemaker_endpoint_execution_role" {
+			t.Fatalf("expected endpoint execution role workload type, got %q", workload.Type)
+		}
+		seenRefs[workload.RawRef] = struct{}{}
+	}
+	if len(seenRefs) != 2 {
+		t.Fatalf("expected distinct RawRef (identity) on each workload, got %v", seenRefs)
+	}
+}
