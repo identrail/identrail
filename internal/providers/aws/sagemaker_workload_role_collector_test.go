@@ -962,3 +962,100 @@ func TestSDKSageMakerTransformJobPullsModelEvidence(t *testing.T) {
 		t.Fatalf("expected model artifact S3 prefix, got %v", record.S3References)
 	}
 }
+
+func TestIsActiveSageMakerStatus(t *testing.T) {
+	cases := map[string]bool{
+		"InService":    true,
+		"InProgress":   true,
+		"Active":       true,
+		"RUNNING":      true,
+		"Running":      true,
+		"Completed":    false,
+		"Failed":       false,
+		"Stopping":     false,
+		"Stopped":      false,
+		"Deleting":     false,
+		"Updating":     false,
+		"OutOfService": false,
+		"":             false,
+	}
+	for status, want := range cases {
+		if got := isActiveSageMakerStatus(status); got != want {
+			t.Fatalf("status %q: got Active=%v, want Active=%v", status, got, want)
+		}
+	}
+}
+
+func TestSDKSageMakerEndpointCopiesModelEvidence(t *testing.T) {
+	region := "us-east-1"
+	account := "123456789012"
+	endpointARN := "arn:aws:sagemaker:us-east-1:123456789012:endpoint/payments"
+	client := &fullSageMakerSDKClient{
+		endpoints: []sagemakertypes.EndpointSummary{{EndpointName: awsv2.String("payments")}},
+		endpoint: &sagemaker.DescribeEndpointOutput{
+			EndpointArn:        awsv2.String(endpointARN),
+			EndpointStatus:     sagemakertypes.EndpointStatusInService,
+			EndpointConfigName: awsv2.String("payments-config"),
+		},
+		endpointConfig: &sagemaker.DescribeEndpointConfigOutput{
+			ProductionVariants: []sagemakertypes.ProductionVariant{{ModelName: awsv2.String("payments")}},
+		},
+		endpointModel: &sagemaker.DescribeModelOutput{
+			ModelName:        awsv2.String("payments"),
+			ModelArn:         awsv2.String("arn:aws:sagemaker:us-east-1:123456789012:model/payments"),
+			ExecutionRoleArn: awsv2.String("arn:aws:iam::" + account + ":role/payments-model"),
+			PrimaryContainer: &sagemakertypes.ContainerDefinition{
+				Image:        awsv2.String(account + ".dkr.ecr." + region + ".amazonaws.com/payments-model:1"),
+				ModelDataUrl: awsv2.String("s3://payments-models/payments/"),
+			},
+			VpcConfig: &sagemakertypes.VpcConfig{},
+		},
+	}
+	api := &SDKSageMakerWorkloadRoleAPI{client: client, accountID: account, region: region}
+	records, _, err := api.listEndpoints(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("list endpoints: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected one endpoint record, got %d", len(records))
+	}
+	record := records[0]
+	if record.NetworkMode != "vpc" {
+		t.Fatalf("expected vpc network mode from model vpc config, got %q", record.NetworkMode)
+	}
+	hasImage := false
+	for _, image := range record.ImageURIs {
+		if image == account+".dkr.ecr."+region+".amazonaws.com/payments-model:1" {
+			hasImage = true
+		}
+	}
+	if !hasImage {
+		t.Fatalf("expected endpoint model image URI, got %v", record.ImageURIs)
+	}
+	hasArtifact := false
+	for _, ref := range record.S3References {
+		if ref == "s3://payments-models/payments/" {
+			hasArtifact = true
+		}
+	}
+	if !hasArtifact {
+		t.Fatalf("expected endpoint model artifact S3 prefix, got %v", record.S3References)
+	}
+}
+
+func TestSDKSageMakerCompletedJobIsNotActive(t *testing.T) {
+	api := &SDKSageMakerWorkloadRoleAPI{accountID: "123456789012", region: "us-east-1"}
+	record := api.recordForRole(
+		"sagemaker_training_job",
+		"completed-job",
+		"arn:aws:sagemaker:us-east-1:123456789012:training-job/completed-job",
+		"Completed",
+		"arn:aws:iam::123456789012:role/training",
+		"sagemaker_training_execution_role",
+		sageMakerRecordOptions{},
+		nil,
+	)
+	if record.Active {
+		t.Fatalf("expected a Completed training job to be inactive, got Active=true")
+	}
+}

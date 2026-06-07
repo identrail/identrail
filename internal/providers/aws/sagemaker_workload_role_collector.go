@@ -389,25 +389,14 @@ func sageMakerWorkloadRoleSourceID(record SageMakerWorkloadRole) string {
 	}), "|")
 }
 
-// dedupeStringSlice trims and deduplicates strings while preserving order. It
-// is a small helper used by the SageMaker normalizer to keep image, S3, and
-// KMS evidence stable across page boundaries.
+// dedupeStringSlice trims and deduplicates strings via the shared
+// normalizeStringList helper, then sorts the result lexicographically so the
+// SageMaker collector emits image, S3, and KMS evidence in a deterministic
+// order across page boundaries.
 func dedupeStringSlice(values []string) []string {
-	if len(values) == 0 {
+	out := normalizeStringList(values)
+	if len(out) == 0 {
 		return nil
-	}
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		trimmed := strings.TrimSpace(value)
-		if trimmed == "" {
-			continue
-		}
-		if _, exists := seen[trimmed]; exists {
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		out = append(out, trimmed)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i] < out[j] })
 	return out

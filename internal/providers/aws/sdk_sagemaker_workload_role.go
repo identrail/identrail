@@ -551,6 +551,22 @@ func (a *SDKSageMakerWorkloadRoleAPI) listEndpoints(ctx context.Context, pageSiz
 				}
 				modelOpts := opts
 				modelOpts.ModelARN = strings.TrimSpace(awsv2.ToString(modelDescribe.ModelArn))
+				// DescribeEndpoint/DescribeEndpointConfig do not expose the
+				// model's container image or model artifact S3 URI, so fold
+				// the model describe payload onto the endpoint record before
+				// emitting it. This keeps the endpoint execution role's
+				// S3/ECR reach visible for blast-radius reasoning.
+				if modelDescribe.PrimaryContainer != nil {
+					modelOpts.ImageURIs = append(modelOpts.ImageURIs, strings.TrimSpace(awsv2.ToString(modelDescribe.PrimaryContainer.Image)))
+					modelOpts.S3References = append(modelOpts.S3References, strings.TrimSpace(awsv2.ToString(modelDescribe.PrimaryContainer.ModelDataUrl)))
+				}
+				for _, container := range modelDescribe.Containers {
+					modelOpts.ImageURIs = append(modelOpts.ImageURIs, strings.TrimSpace(awsv2.ToString(container.Image)))
+					modelOpts.S3References = append(modelOpts.S3References, strings.TrimSpace(awsv2.ToString(container.ModelDataUrl)))
+				}
+				if modelDescribe.VpcConfig != nil {
+					modelOpts.NetworkMode = "vpc"
+				}
 				records = append(records, a.recordForRole(
 					"sagemaker_endpoint", name, arn, string(describe.EndpointStatus),
 					strings.TrimSpace(awsv2.ToString(modelDescribe.ExecutionRoleArn)),
@@ -715,7 +731,7 @@ func (a *SDKSageMakerWorkloadRoleAPI) recordForRole(workloadType string, workloa
 		S3References:   dedupeStringSlice(opts.S3References),
 		KMSKeyARNs:     dedupeStringSlice(opts.KMSKeyARNs),
 		CoverageStatus: "covered",
-		Active:         !strings.EqualFold(status, "Stopped") && !strings.EqualFold(status, "Failed") && !strings.EqualFold(status, "Deleting") && !strings.EqualFold(status, "Disabled"),
+		Active:         isActiveSageMakerStatus(status),
 		Disabled:       strings.EqualFold(status, "Disabled") || strings.EqualFold(status, "Stopped"),
 		Tags:           copyTags(tags),
 	}
@@ -753,6 +769,21 @@ func sageMakerDiagnostic(code string, sourceID string, message string, retryable
 
 func sageMakerShouldReturnError(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// isActiveSageMakerStatus returns true only for statuses AWS uses to mark a
+// SageMaker workload as currently running. SageMaker job statuses
+// (Completed, Failed, Stopping, Stopped) and endpoint/domain failure modes
+// (OutOfService, Failed, Updating, Deleting) must not be reported as
+// active so downstream consumers do not treat finished or failed workloads
+// as live evidence.
+func isActiveSageMakerStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "InService", "InProgress", "Active", "RUNNING", "Running":
+		return true
+	default:
+		return false
+	}
 }
 
 func sageMakerSDKPageSize(pageSize int32, max int32) int32 {
