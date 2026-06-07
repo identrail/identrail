@@ -141,7 +141,7 @@ func workloadRelationshipType(workloadType string) domain.RelationshipType {
 	switch {
 	case normalized == "ec2_launch_template":
 		return domain.RelationshipAttachedTo
-	case strings.Contains(normalized, "execution_role"):
+	case strings.Contains(normalized, "execution_role"), strings.Contains(normalized, "access_role"):
 		return domain.RelationshipAttachedTo
 	default:
 		return domain.RelationshipRunsAs

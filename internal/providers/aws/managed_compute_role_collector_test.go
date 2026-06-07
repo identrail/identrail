@@ -213,6 +213,49 @@ func TestManagedComputeRoleNormalizerMergesResourceRoleMetadata(t *testing.T) {
 	}
 }
 
+func TestManagedComputeRoleNormalizerPreservesSupportRoleRelationships(t *testing.T) {
+	batchJobARN := "arn:aws:batch:us-east-1:123456789012:job-definition/customer-import:5"
+	appRunnerARN := "arn:aws:apprunner:us-east-1:123456789012:service/payments-api/1"
+	records := []ManagedComputeRole{
+		managedComputeTestRecord("batch", "batch_job_definition", batchJobARN, "arn:aws:iam::123456789012:role/batch-job", "batch_job_role"),
+		managedComputeTestRecord("batch", "batch_job_definition", batchJobARN, "arn:aws:iam::123456789012:role/batch-execution", "batch_execution_role"),
+		managedComputeTestRecord("apprunner", "apprunner_service", appRunnerARN, "arn:aws:iam::123456789012:role/apprunner-access", "apprunner_access_role"),
+	}
+	raw := make([]providers.RawAsset, 0, len(records))
+	for _, record := range records {
+		payload, err := json.Marshal(record)
+		if err != nil {
+			t.Fatalf("marshal record: %v", err)
+		}
+		raw = append(raw, providers.RawAsset{Kind: rawKindManagedComputeRole, SourceID: managedComputeRoleSourceID(record), Payload: payload})
+	}
+	bundle, err := NewRoleNormalizer().Normalize(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+
+	workloadTypes := map[string]bool{}
+	for _, workload := range bundle.Workloads {
+		workloadTypes[workload.Type] = true
+	}
+	for _, expectedType := range []string{"batch_job_definition", "batch_job_definition_execution_role", "apprunner_service_access_role"} {
+		if !workloadTypes[expectedType] {
+			t.Fatalf("expected workload type %q in %+v", expectedType, bundle.Workloads)
+		}
+	}
+
+	relationships, err := NewRelationshipBuilder().ResolveRelationships(context.Background(), bundle, nil)
+	if err != nil {
+		t.Fatalf("relationships: %v", err)
+	}
+	if !hasRelationshipType(relationships, domain.RelationshipRunsAs) {
+		t.Fatalf("expected job role to remain runs_as, got %+v", relationships)
+	}
+	if !hasRelationshipType(relationships, domain.RelationshipAttachedTo) {
+		t.Fatalf("expected support roles to use attached_to, got %+v", relationships)
+	}
+}
+
 func TestManagedComputeSDKRecordHelpersRetainSafeMetadata(t *testing.T) {
 	api := &SDKManagedComputeRoleAPI{accountID: "123456789012", region: "us-east-1"}
 	appRunnerRecords := api.recordsFromAppRunnerService(&apprunnertypes.Service{

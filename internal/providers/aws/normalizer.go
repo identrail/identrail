@@ -1396,13 +1396,13 @@ func managedComputeRoleWorkloadID(record ManagedComputeRole) string {
 	return managedComputeWorkloadID(
 		record.AccountID,
 		record.Region,
-		managedComputeRoleWorkloadType(record),
+		managedComputeRoleBaseWorkloadType(record),
 		firstNonEmptyAWSValue(record.WorkloadID, record.WorkloadARN, record.ResourceARN, record.WorkloadName),
 		record.RoleKind,
 	)
 }
 
-func managedComputeRoleWorkloadType(record ManagedComputeRole) string {
+func managedComputeRoleBaseWorkloadType(record ManagedComputeRole) string {
 	if workloadType := strings.TrimSpace(record.WorkloadType); workloadType != "" {
 		return workloadType
 	}
@@ -1410,6 +1410,19 @@ func managedComputeRoleWorkloadType(record ManagedComputeRole) string {
 		return resourceType
 	}
 	return managedComputeDefaultWorkloadType(record)
+}
+
+func managedComputeRoleWorkloadType(record ManagedComputeRole) string {
+	baseType := managedComputeRoleBaseWorkloadType(record)
+	roleKind := strings.ToLower(strings.TrimSpace(record.RoleKind))
+	switch {
+	case strings.Contains(roleKind, "execution_role"):
+		return baseType + "_execution_role"
+	case strings.Contains(roleKind, "access_role"):
+		return baseType + "_access_role"
+	default:
+		return baseType
+	}
 }
 
 func managedComputeRoleWorkloadName(record ManagedComputeRole) string {
@@ -1431,7 +1444,7 @@ func managedComputeNameFromARN(arn string) string {
 }
 
 func managedComputeResourceType(record ManagedComputeRole) domain.ResourceType {
-	switch managedComputeRoleWorkloadType(record) {
+	switch managedComputeRoleBaseWorkloadType(record) {
 	case "apprunner_service":
 		return domain.ResourceTypeAppRunnerService
 	case "batch_compute_environment":
