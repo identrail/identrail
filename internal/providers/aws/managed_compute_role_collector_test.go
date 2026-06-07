@@ -13,6 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/batch"
 	batchtypes "github.com/aws/aws-sdk-go-v2/service/batch/types"
 	emrtypes "github.com/aws/aws-sdk-go-v2/service/emr/types"
+	"github.com/aws/aws-sdk-go-v2/service/glue"
+	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/providers"
 	"github.com/identrail/identrail/internal/providers/awscontract"
@@ -242,6 +244,21 @@ func TestManagedComputeSDKRecordHelpersRetainSafeMetadata(t *testing.T) {
 		t.Fatalf("expected Batch job/execution records, got %+v", batchRecords)
 	}
 
+	ecsBatchRecords := api.recordsFromBatchJobDefinition(batchtypes.JobDefinition{
+		JobDefinitionArn:  awsv2.String("arn:aws:batch:us-east-1:123456789012:job-definition/ecs-importer:7"),
+		JobDefinitionName: awsv2.String("ecs-importer"),
+		Revision:          awsv2.Int32(7),
+		EcsProperties: &batchtypes.EcsProperties{
+			TaskProperties: []batchtypes.EcsTaskProperties{{
+				TaskRoleArn:      awsv2.String("batch-ecs-task"),
+				ExecutionRoleArn: awsv2.String("arn:aws:iam::123456789012:role/batch-ecs-execution"),
+			}},
+		},
+	})
+	if len(ecsBatchRecords) != 2 || ecsBatchRecords[0].RoleARN != "arn:aws:iam::123456789012:role/batch-ecs-task" || ecsBatchRecords[1].RoleKind != "batch_execution_role" {
+		t.Fatalf("expected Batch ECS task/execution records, got %+v", ecsBatchRecords)
+	}
+
 	emrRecords := api.recordsFromEMRCluster(&emrtypes.Cluster{
 		Id:              awsv2.String("j-2AXXXXXXGAPLF"),
 		Name:            awsv2.String("analytics"),
@@ -255,6 +272,29 @@ func TestManagedComputeSDKRecordHelpersRetainSafeMetadata(t *testing.T) {
 	}
 	if emrRecords[0].RoleARN != "arn:aws:iam::123456789012:role/EMR_DefaultRole" || emrRecords[1].RoleARN != "arn:aws:iam::123456789012:role/EMR_AutoScaling_DefaultRole" {
 		t.Fatalf("expected EMR role names expanded to IAM role ARNs, got %+v", emrRecords)
+	}
+}
+
+func TestManagedComputeSDKExpandsGlueJobRoleNames(t *testing.T) {
+	client := &fakeGlueSDKClient{
+		jobOutputs: []*glue.GetJobsOutput{{
+			Jobs: []gluetypes.Job{{
+				Name: awsv2.String("customer-import"),
+				Role: awsv2.String("Glue_DefaultRole"),
+			}},
+		}},
+	}
+	api := &SDKManagedComputeRoleAPI{glueClient: client, accountID: "123456789012", region: "us-east-1"}
+
+	records, diagnostics, err := api.listGlueRoles(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("list glue roles: %v", err)
+	}
+	if len(diagnostics) != 0 || len(records) != 1 {
+		t.Fatalf("expected one Glue job role and no diagnostics, records=%+v diagnostics=%+v", records, diagnostics)
+	}
+	if records[0].RoleARN != "arn:aws:iam::123456789012:role/Glue_DefaultRole" {
+		t.Fatalf("expected Glue role name expanded to IAM role ARN, got %+v", records[0])
 	}
 }
 
@@ -396,5 +436,28 @@ func (f *fakeBatchSDKClient) DescribeJobDefinitions(ctx context.Context, params 
 	}
 	output := f.jobOutputs[0]
 	f.jobOutputs = f.jobOutputs[1:]
+	return output, nil
+}
+
+type fakeGlueSDKClient struct {
+	jobOutputs     []*glue.GetJobsOutput
+	crawlerOutputs []*glue.GetCrawlersOutput
+}
+
+func (f *fakeGlueSDKClient) GetJobs(ctx context.Context, params *glue.GetJobsInput, optFns ...func(*glue.Options)) (*glue.GetJobsOutput, error) {
+	if len(f.jobOutputs) == 0 {
+		return &glue.GetJobsOutput{}, nil
+	}
+	output := f.jobOutputs[0]
+	f.jobOutputs = f.jobOutputs[1:]
+	return output, nil
+}
+
+func (f *fakeGlueSDKClient) GetCrawlers(ctx context.Context, params *glue.GetCrawlersInput, optFns ...func(*glue.Options)) (*glue.GetCrawlersOutput, error) {
+	if len(f.crawlerOutputs) == 0 {
+		return &glue.GetCrawlersOutput{}, nil
+	}
+	output := f.crawlerOutputs[0]
+	f.crawlerOutputs = f.crawlerOutputs[1:]
 	return output, nil
 }

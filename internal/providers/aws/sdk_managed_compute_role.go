@@ -285,9 +285,17 @@ func (a *SDKManagedComputeRoleAPI) recordsFromBatchJobDefinition(job batchtypes.
 	}{}
 	if job.ContainerProperties != nil {
 		roles = append(roles,
-			struct{ arn, kind string }{arn: awsv2.ToString(job.ContainerProperties.JobRoleArn), kind: "batch_job_role"},
-			struct{ arn, kind string }{arn: awsv2.ToString(job.ContainerProperties.ExecutionRoleArn), kind: "batch_execution_role"},
+			struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(job.ContainerProperties.JobRoleArn)), kind: "batch_job_role"},
+			struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(job.ContainerProperties.ExecutionRoleArn)), kind: "batch_execution_role"},
 		)
+	}
+	if job.EcsProperties != nil {
+		for _, task := range job.EcsProperties.TaskProperties {
+			roles = append(roles,
+				struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(task.TaskRoleArn)), kind: "batch_job_role"},
+				struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(task.ExecutionRoleArn)), kind: "batch_execution_role"},
+			)
+		}
 	}
 	next := a.recordsForRoles("batch", "batch_job_definition", name, arn, "ACTIVE", string(job.ContainerOrchestrationType), "", roles, nil)
 	for idx := range next {
@@ -318,7 +326,7 @@ func (a *SDKManagedComputeRoleAPI) listGlueRoles(ctx context.Context, pageSize i
 			records = append(records, a.recordsForRoles("glue", "glue_job", awsv2.ToString(job.Name), arn, "", engine, "", []struct {
 				arn  string
 				kind string
-			}{{arn: awsv2.ToString(job.Role), kind: "glue_job_role"}}, nil)...)
+			}{{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(job.Role)), kind: "glue_job_role"}}, nil)...)
 		}
 		token = strings.TrimSpace(awsv2.ToString(output.NextToken))
 		if token == "" {
