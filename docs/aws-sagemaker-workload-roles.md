@@ -99,13 +99,16 @@ permission grant.
 When running against a real AWS account, exercise each fixture state via the
 endpoint, then run the SDK collector against the authorized test account:
 
+The CLI reads AWS connection settings from environment variables (or the
+config file), not flags. Configure them and then run a scan:
+
 ```bash
+export IDENTRAIL_AWS_SOURCE=sdk
+export IDENTRAIL_AWS_REGION="<region>"
+export IDENTRAIL_AWS_ACCOUNT_ID="<account_id>"
+
 state_file="/tmp/identrail-sagemaker-state.json"
-go run ./cmd/cli --state-file "${state_file}" scan \
-  --aws-source live \
-  --aws-account "<account_id>" \
-  --aws-region "<region>" \
-  --output table
+go run ./cmd/cli --state-file "${state_file}" scan --output table
 ```
 
 Verify that:

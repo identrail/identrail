@@ -189,7 +189,11 @@ func sageMakerResourceID(record SageMakerWorkloadRole) string {
 }
 
 func sageMakerResourceType(record SageMakerWorkloadRole) domain.ResourceType {
-	switch strings.TrimSpace(record.ResourceType) {
+	// Fall back to WorkloadType so collectors that only set the workload
+	// shape still classify into the matching domain.ResourceType instead of
+	// the generic sagemaker_workload bucket.
+	resourceType := firstNonEmptyAWSValue(record.ResourceType, record.WorkloadType)
+	switch strings.TrimSpace(resourceType) {
 	case "sagemaker_notebook_instance":
 		return domain.ResourceTypeSageMakerNotebook
 	case "sagemaker_training_job":

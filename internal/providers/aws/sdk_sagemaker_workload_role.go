@@ -182,6 +182,9 @@ func (a *SDKSageMakerWorkloadRoleAPI) listNotebookInstances(ctx context.Context,
 			}
 			describe, err := a.client.DescribeNotebookInstance(ctx, &sagemaker.DescribeNotebookInstanceInput{NotebookInstanceName: awsv2.String(name)})
 			if err != nil {
+				if sageMakerShouldReturnError(err) {
+					return records, diagnostics, err
+				}
 				diagnostics = append(diagnostics, sageMakerDiagnostic("sagemaker_notebook_describe_failed", firstNonEmptyAWSValue(arn, name), fmt.Sprintf("SageMaker notebook %q could not be described: %v", name, err), true))
 				continue
 			}
@@ -230,6 +233,9 @@ func (a *SDKSageMakerWorkloadRoleAPI) listTrainingJobs(ctx context.Context, page
 			}
 			describe, err := a.client.DescribeTrainingJob(ctx, &sagemaker.DescribeTrainingJobInput{TrainingJobName: awsv2.String(name)})
 			if err != nil {
+				if sageMakerShouldReturnError(err) {
+					return records, diagnostics, err
+				}
 				diagnostics = append(diagnostics, sageMakerDiagnostic("sagemaker_training_job_describe_failed", name, fmt.Sprintf("SageMaker training job %q could not be described: %v", name, err), true))
 				continue
 			}
@@ -295,6 +301,9 @@ func (a *SDKSageMakerWorkloadRoleAPI) listProcessingJobs(ctx context.Context, pa
 			}
 			describe, err := a.client.DescribeProcessingJob(ctx, &sagemaker.DescribeProcessingJobInput{ProcessingJobName: awsv2.String(name)})
 			if err != nil {
+				if sageMakerShouldReturnError(err) {
+					return records, diagnostics, err
+				}
 				diagnostics = append(diagnostics, sageMakerDiagnostic("sagemaker_processing_job_describe_failed", name, fmt.Sprintf("SageMaker processing job %q could not be described: %v", name, err), true))
 				continue
 			}
@@ -364,6 +373,9 @@ func (a *SDKSageMakerWorkloadRoleAPI) listTransformJobs(ctx context.Context, pag
 			}
 			describe, err := a.client.DescribeTransformJob(ctx, &sagemaker.DescribeTransformJobInput{TransformJobName: awsv2.String(name)})
 			if err != nil {
+				if sageMakerShouldReturnError(err) {
+					return records, diagnostics, err
+				}
 				diagnostics = append(diagnostics, sageMakerDiagnostic("sagemaker_transform_job_describe_failed", name, fmt.Sprintf("SageMaker transform job %q could not be described: %v", name, err), true))
 				continue
 			}
@@ -397,6 +409,9 @@ func (a *SDKSageMakerWorkloadRoleAPI) listTransformJobs(ctx context.Context, pag
 						opts.NetworkMode = "vpc"
 					}
 				} else if modelErr != nil {
+					if sageMakerShouldReturnError(modelErr) {
+						return records, diagnostics, modelErr
+					}
 					diagnostics = append(diagnostics, sageMakerDiagnostic("sagemaker_transform_model_describe_failed", modelName, fmt.Sprintf("SageMaker transform job %q model %q could not be described: %v", name, modelName, modelErr), true))
 				}
 			}
@@ -448,6 +463,9 @@ func (a *SDKSageMakerWorkloadRoleAPI) listModels(ctx context.Context, pageSize i
 			}
 			describe, err := a.client.DescribeModel(ctx, &sagemaker.DescribeModelInput{ModelName: awsv2.String(name)})
 			if err != nil {
+				if sageMakerShouldReturnError(err) {
+					return records, diagnostics, err
+				}
 				diagnostics = append(diagnostics, sageMakerDiagnostic("sagemaker_model_describe_failed", name, fmt.Sprintf("SageMaker model %q could not be described: %v", name, err), true))
 				continue
 			}
@@ -467,8 +485,12 @@ func (a *SDKSageMakerWorkloadRoleAPI) listModels(ctx context.Context, pageSize i
 			if describe.VpcConfig != nil {
 				opts.NetworkMode = "vpc"
 			}
+			// SageMaker models are registry entries — DescribeModel does not
+			// return a lifecycle status, so we emit the record without a
+			// status string instead of hardcoding "InService" (which would
+			// otherwise always mark every model as active).
 			records = append(records, a.recordForRole(
-				"sagemaker_model", name, arn, "InService",
+				"sagemaker_model", name, arn, "",
 				strings.TrimSpace(awsv2.ToString(describe.ExecutionRoleArn)),
 				"sagemaker_model_execution_role",
 				opts, nil,
@@ -505,6 +527,9 @@ func (a *SDKSageMakerWorkloadRoleAPI) listEndpoints(ctx context.Context, pageSiz
 			}
 			describe, err := a.client.DescribeEndpoint(ctx, &sagemaker.DescribeEndpointInput{EndpointName: awsv2.String(name)})
 			if err != nil {
+				if sageMakerShouldReturnError(err) {
+					return records, diagnostics, err
+				}
 				diagnostics = append(diagnostics, sageMakerDiagnostic("sagemaker_endpoint_describe_failed", name, fmt.Sprintf("SageMaker endpoint %q could not be described: %v", name, err), true))
 				continue
 			}
@@ -519,6 +544,9 @@ func (a *SDKSageMakerWorkloadRoleAPI) listEndpoints(ctx context.Context, pageSiz
 			if configName != "" {
 				configDescribe, configErr := a.client.DescribeEndpointConfig(ctx, &sagemaker.DescribeEndpointConfigInput{EndpointConfigName: awsv2.String(configName)})
 				if configErr != nil {
+					if sageMakerShouldReturnError(configErr) {
+						return records, diagnostics, configErr
+					}
 					diagnostics = append(diagnostics, sageMakerDiagnostic("sagemaker_endpoint_config_describe_failed", configName, fmt.Sprintf("SageMaker endpoint config %q could not be described: %v", configName, configErr), true))
 				} else if configDescribe != nil {
 					opts.KMSKeyARNs = append(opts.KMSKeyARNs, strings.TrimSpace(awsv2.ToString(configDescribe.KmsKeyId)))
@@ -543,6 +571,9 @@ func (a *SDKSageMakerWorkloadRoleAPI) listEndpoints(ctx context.Context, pageSiz
 			for _, modelName := range modelNames {
 				modelDescribe, modelErr := a.client.DescribeModel(ctx, &sagemaker.DescribeModelInput{ModelName: awsv2.String(modelName)})
 				if modelErr != nil {
+					if sageMakerShouldReturnError(modelErr) {
+						return records, diagnostics, modelErr
+					}
 					diagnostics = append(diagnostics, sageMakerDiagnostic("sagemaker_endpoint_model_describe_failed", modelName, fmt.Sprintf("SageMaker endpoint %q model %q could not be described: %v", name, modelName, modelErr), true))
 					continue
 				}
@@ -607,6 +638,9 @@ func (a *SDKSageMakerWorkloadRoleAPI) listPipelines(ctx context.Context, pageSiz
 			}
 			describe, err := a.client.DescribePipeline(ctx, &sagemaker.DescribePipelineInput{PipelineName: awsv2.String(name)})
 			if err != nil {
+				if sageMakerShouldReturnError(err) {
+					return records, diagnostics, err
+				}
 				diagnostics = append(diagnostics, sageMakerDiagnostic("sagemaker_pipeline_describe_failed", firstNonEmptyAWSValue(arn, name), fmt.Sprintf("SageMaker pipeline %q could not be described: %v", name, err), true))
 				continue
 			}
@@ -653,6 +687,9 @@ func (a *SDKSageMakerWorkloadRoleAPI) listDomains(ctx context.Context, pageSize 
 			}
 			describe, err := a.client.DescribeDomain(ctx, &sagemaker.DescribeDomainInput{DomainId: awsv2.String(domainID)})
 			if err != nil {
+				if sageMakerShouldReturnError(err) {
+					return records, diagnostics, err
+				}
 				diagnostics = append(diagnostics, sageMakerDiagnostic("sagemaker_domain_describe_failed", domainID, fmt.Sprintf("SageMaker domain %q could not be described: %v", domainID, err), true))
 				continue
 			}

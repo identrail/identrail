@@ -1059,3 +1059,77 @@ func TestSDKSageMakerCompletedJobIsNotActive(t *testing.T) {
 		t.Fatalf("expected a Completed training job to be inactive, got Active=true")
 	}
 }
+
+func TestSDKSageMakerPropagatesContextCancellation(t *testing.T) {
+	client := &fakeSageMakerSDKClient{
+		notebooks: []sagemakertypes.NotebookInstanceSummary{{
+			NotebookInstanceName: awsv2.String("payments-eval"),
+		}},
+		notebook: nil,
+	}
+	// Wrap the SDK client so DescribeNotebookInstance returns context.Canceled.
+	cancelClient := &cancelDescribeNotebookClient{SageMakerSDKClient: client}
+	api := &SDKSageMakerWorkloadRoleAPI{client: cancelClient, accountID: "123456789012", region: "us-east-1"}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := api.ListServiceRoles(ctx, "", 100)
+	if err == nil {
+		t.Fatalf("expected canceled context to propagate from describe call, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+type cancelDescribeNotebookClient struct {
+	SageMakerSDKClient
+}
+
+func (c *cancelDescribeNotebookClient) DescribeNotebookInstance(ctx context.Context, params *sagemaker.DescribeNotebookInstanceInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeNotebookInstanceOutput, error) {
+	return nil, context.Canceled
+}
+
+func TestSDKSageMakerModelStatusIsNotForcedActive(t *testing.T) {
+	region := "us-east-1"
+	account := "123456789012"
+	client := &fullSageMakerSDKClient{
+		models: []sagemakertypes.ModelSummary{{ModelName: awsv2.String("payments")}},
+		model: &sagemaker.DescribeModelOutput{
+			ModelName:        awsv2.String("payments"),
+			ModelArn:         awsv2.String("arn:aws:sagemaker:" + region + ":" + account + ":model/payments"),
+			ExecutionRoleArn: awsv2.String("arn:aws:iam::" + account + ":role/model"),
+		},
+	}
+	api := &SDKSageMakerWorkloadRoleAPI{client: client, accountID: account, region: region}
+	records, _, err := api.listModels(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("list models: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected one model record, got %d", len(records))
+	}
+	if records[0].Active {
+		t.Fatalf("expected model record to not be force-active since DescribeModel has no status, got Active=true")
+	}
+}
+
+func TestSageMakerResourceTypeFallsBackToWorkloadType(t *testing.T) {
+	cases := map[string]domain.ResourceType{
+		"sagemaker_notebook_instance": domain.ResourceTypeSageMakerNotebook,
+		"sagemaker_training_job":      domain.ResourceTypeSageMakerTraining,
+		"sagemaker_processing_job":    domain.ResourceTypeSageMakerProcessing,
+		"sagemaker_transform_job":     domain.ResourceTypeSageMakerTransform,
+		"sagemaker_model":             domain.ResourceTypeSageMakerModel,
+		"sagemaker_endpoint":          domain.ResourceTypeSageMakerEndpoint,
+		"sagemaker_pipeline":          domain.ResourceTypeSageMakerPipeline,
+		"sagemaker_domain":            domain.ResourceTypeSageMakerDomain,
+	}
+	for workloadType, want := range cases {
+		got := sageMakerResourceType(SageMakerWorkloadRole{
+			ServiceCollectorRecord: awscontract.ServiceCollectorRecord{WorkloadType: workloadType},
+		})
+		if got != want {
+			t.Fatalf("workload-type fallback %q: got %q, want %q", workloadType, got, want)
+		}
+	}
+}

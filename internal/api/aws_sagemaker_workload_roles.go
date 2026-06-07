@@ -257,12 +257,17 @@ func buildAWSSageMakerWorkloadRoleInventory(scope db.Scope, project db.TenancyPr
 
 func normalizeAWSSageMakerWorkloadRoleFixtureState(requested string, connection AWSConnectionStatus, hasConnection bool) string {
 	switch strings.ToLower(strings.TrimSpace(requested)) {
-	case "", "success":
+	case "":
+		// No explicit override — fall back to the connector state so an
+		// unconnected connector surfaces a permission_denied preview.
 		if hasConnection && !connection.Connected {
 			return "permission_denied"
 		}
 		return "success"
-	case "empty", "degraded", "partial_failure", "permission_denied":
+	case "success", "empty", "degraded", "partial_failure", "permission_denied":
+		// Explicit fixture_state values always win so operators can preview
+		// every documented state regardless of the connector's current
+		// health.
 		return strings.ToLower(strings.TrimSpace(requested))
 	default:
 		return ""
@@ -346,11 +351,16 @@ func awsSageMakerWorkloadRoleFixtureRecords(accountID string, region string, fix
 			Retryable: false,
 		}}, gaps
 	case "partial_failure":
-		return records[:6], []providers.SourceError{{
+		// The seeded records are ordered notebook, training, processing,
+		// transform, model, endpoint, pipeline, domain. Only the pipeline
+		// listing fails in this fixture, so drop just that record and keep
+		// the domain (and every other workload type) visible.
+		surviving := append(append([]AWSSageMakerWorkloadRoleRecord{}, records[:6]...), records[7:]...)
+		return surviving, []providers.SourceError{{
 			Collector: "aws_sagemaker/sagemaker_workload_role",
 			SourceID:  fmt.Sprintf("service=sagemaker|account=%s|region=%s|source=listpipelines", accountID, region),
 			Code:      "sagemaker_pipelines_failed",
-			Message:   "SageMaker pipelines could not be listed; notebook, training, processing, transform, model, and endpoint role evidence remains visible",
+			Message:   "SageMaker pipelines could not be listed; notebook, training, processing, transform, model, endpoint, and domain role evidence remains visible",
 			Retryable: true,
 		}}, gaps
 	case "permission_denied":

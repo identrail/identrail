@@ -118,8 +118,14 @@ func TestRouterAWSSageMakerWorkloadRoleInventoryPartialFailure(t *testing.T) {
 	if body.Inventory.Status != awsPlatformDependencyStatusDegraded || body.Inventory.FixtureState != "partial_failure" {
 		t.Fatalf("expected degraded partial_failure, got status=%q fixture=%q", body.Inventory.Status, body.Inventory.FixtureState)
 	}
-	if body.Inventory.RecordCount != 6 {
-		t.Fatalf("expected partial failure to retain the first 6 records, got %d", body.Inventory.RecordCount)
+	if body.Inventory.RecordCount != 7 {
+		t.Fatalf("expected partial failure to retain seven records (every workload type except pipeline), got %d", body.Inventory.RecordCount)
+	}
+	if body.Inventory.PipelineCount != 0 {
+		t.Fatalf("expected pipeline records to be dropped, got %d", body.Inventory.PipelineCount)
+	}
+	if body.Inventory.DomainCount != 1 {
+		t.Fatalf("expected the domain record to survive a pipelines-failure partial failure, got %d", body.Inventory.DomainCount)
 	}
 	foundPipelineDiag := false
 	for _, diag := range body.Inventory.Diagnostics {
@@ -185,5 +191,21 @@ func TestRouterAWSSageMakerWorkloadRoleInventoryInvalidFixtureState(t *testing.T
 	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-3/aws/sagemaker-workload-roles?connector_id=aws-prod&fixture_state=invalid_state", "")
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid fixture state, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestNormalizeAWSSageMakerFixtureStateHonorsExplicitSuccess(t *testing.T) {
+	disconnected := AWSConnectionStatus{Connected: false}
+	if got := normalizeAWSSageMakerWorkloadRoleFixtureState("success", disconnected, true); got != "success" {
+		t.Fatalf("explicit success must not downgrade to permission_denied, got %q", got)
+	}
+	if got := normalizeAWSSageMakerWorkloadRoleFixtureState("", disconnected, true); got != "permission_denied" {
+		t.Fatalf("blank fixture_state with disconnected connector should default to permission_denied, got %q", got)
+	}
+	if got := normalizeAWSSageMakerWorkloadRoleFixtureState("permission_denied", AWSConnectionStatus{Connected: true}, true); got != "permission_denied" {
+		t.Fatalf("explicit permission_denied should be respected even when connector is connected, got %q", got)
+	}
+	if got := normalizeAWSSageMakerWorkloadRoleFixtureState("invalid", disconnected, true); got != "" {
+		t.Fatalf("invalid fixture_state should return empty, got %q", got)
 	}
 }
