@@ -260,6 +260,27 @@ func TestManagedComputeSDKRecordHelpersRetainSafeMetadata(t *testing.T) {
 		t.Fatalf("expected Batch ECS task/execution records, got %+v", ecsBatchRecords)
 	}
 
+	multiNodeBatchRecords := api.recordsFromBatchJobDefinition(batchtypes.JobDefinition{
+		JobDefinitionArn:  awsv2.String("arn:aws:batch:us-east-1:123456789012:job-definition/multinode-importer:9"),
+		JobDefinitionName: awsv2.String("multinode-importer"),
+		Revision:          awsv2.Int32(9),
+		NodeProperties: &batchtypes.NodeProperties{
+			NodeRangeProperties: []batchtypes.NodeRangeProperty{{
+				Container: &batchtypes.ContainerProperties{
+					JobRoleArn:       awsv2.String("batch-main-node"),
+					ExecutionRoleArn: awsv2.String("arn:aws:iam::123456789012:role/batch-main-execution"),
+				},
+			}, {
+				Container: &batchtypes.ContainerProperties{
+					JobRoleArn: awsv2.String("arn:aws:iam::123456789012:role/batch-worker-node"),
+				},
+			}},
+		},
+	})
+	if len(multiNodeBatchRecords) != 3 || multiNodeBatchRecords[0].RoleARN != "arn:aws:iam::123456789012:role/batch-main-node" || multiNodeBatchRecords[1].RoleKind != "batch_execution_role" {
+		t.Fatalf("expected Batch multi-node job/execution records, got %+v", multiNodeBatchRecords)
+	}
+
 	emrRecords := api.recordsFromEMRCluster(&emrtypes.Cluster{
 		Id:              awsv2.String("j-2AXXXXXXGAPLF"),
 		Name:            awsv2.String("analytics"),

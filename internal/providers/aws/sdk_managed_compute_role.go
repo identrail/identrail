@@ -298,6 +298,17 @@ func (a *SDKManagedComputeRoleAPI) recordsFromBatchJobDefinition(job batchtypes.
 			)
 		}
 	}
+	if job.NodeProperties != nil {
+		for _, nodeRange := range job.NodeProperties.NodeRangeProperties {
+			if nodeRange.Container == nil {
+				continue
+			}
+			roles = append(roles,
+				struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(nodeRange.Container.JobRoleArn)), kind: "batch_job_role"},
+				struct{ arn, kind string }{arn: a.iamRoleARNFromNameOrARN(awsv2.ToString(nodeRange.Container.ExecutionRoleArn)), kind: "batch_execution_role"},
+			)
+		}
+	}
 	next := a.recordsForRoles("batch", "batch_job_definition", name, arn, "ACTIVE", string(job.ContainerOrchestrationType), "", roles, nil)
 	for idx := range next {
 		next[idx].JobDefinitionARN = arn
