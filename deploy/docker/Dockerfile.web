@@ -25,7 +25,7 @@ ENV VITE_FEATURE_ONBOARDING_WIZARD=${VITE_FEATURE_ONBOARDING_WIZARD}
 
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:02c985e54bee40c14c6de677226f394d96c661944185d407e77ca73602f15e1b
+FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:85bcbc6b2edd325462560c597d784ecee415024f1c6a004e53ac5f202b8ca561
 ARG NGINX_CONF=default.conf
 COPY deploy/docker/nginx/${NGINX_CONF} /etc/nginx/conf.d/default.conf
 COPY --from=builder /web/dist /usr/share/nginx/html
