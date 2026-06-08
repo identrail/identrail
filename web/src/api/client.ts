@@ -1967,7 +1967,7 @@ export type AWSIAMPassRoleRelationshipRecord = {
   source_role_name?: string;
   source_role_path?: string;
   target_resource: string;
-  target_wildcard_kind: 'specific' | 'path_wildcard' | 'account_wildcard' | 'all';
+  target_wildcard_kind: 'specific' | 'path_wildcard' | 'account_wildcard' | 'all' | 'malformed';
   policy_name?: string;
   statement_sid?: string;
   action_expression: 'iam:PassRole' | 'iam:*' | '*' | string;

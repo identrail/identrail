@@ -511,13 +511,19 @@ func awsIAMPassRoleRelationshipDiagnosticRemediation(code string) string {
 	}
 }
 
+// awsIAMPassRoleWildcardKind classifies a PassRole target into one of
+// specific (a concrete role ARN), path_wildcard, account_wildcard, all (a
+// bare "*"), or malformed (anything else — e.g. a typo'd resource that is
+// neither an ARN nor "*"). Malformed targets are treated as unresolved by
+// the rest of the inventory so they never produce spurious graph edges to
+// fake role nodes.
 func awsIAMPassRoleWildcardKind(target string) string {
 	trimmed := strings.TrimSpace(target)
 	if trimmed == "*" {
 		return "all"
 	}
 	if !strings.HasPrefix(trimmed, "arn:") {
-		return "specific"
+		return "malformed"
 	}
 	if !strings.Contains(trimmed, "*") {
 		return "specific"
@@ -537,6 +543,8 @@ func awsIAMPassRoleConfidenceFor(wildcardKind string) float64 {
 		return 0.78
 	case "account_wildcard":
 		return 0.7
+	case "malformed":
+		return 0.3
 	default:
 		return 0.55
 	}

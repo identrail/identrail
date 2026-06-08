@@ -45,7 +45,7 @@ func TestGetAWSIAMPassRoleRelationshipInventoryBuildsScopedRecords(t *testing.T)
 			t.Fatalf("expected metadata-only evidence, got %+v", record)
 		}
 		switch record.TargetWildcardKind {
-		case "specific", "path_wildcard", "account_wildcard", "all":
+		case "specific", "path_wildcard", "account_wildcard", "all", "malformed":
 		default:
 			t.Fatalf("unexpected wildcard kind %q on %+v", record.TargetWildcardKind, record)
 		}
@@ -222,5 +222,31 @@ func TestRouterAWSIAMPassRoleRelationshipNilLoggerDoesNotPanic(t *testing.T) {
 	// against logger.Error panicking when logger is nil.
 	if resp == nil {
 		t.Fatalf("expected a response, got nil")
+	}
+}
+
+func TestAWSIAMPassRoleWildcardKindClassifiesMalformedTargets(t *testing.T) {
+	cases := map[string]string{
+		"arn:aws:iam::123456789012:role/payments":   "specific",
+		"arn:aws:iam::123456789012:role/payments-*": "path_wildcard",
+		"arn:aws:iam::*:role/payments":              "account_wildcard",
+		"*":                                         "all",
+		"not-an-arn":                                "malformed",
+		"role/payments":                             "malformed",
+		"":                                          "malformed",
+	}
+	for input, want := range cases {
+		if got := awsIAMPassRoleWildcardKind(input); got != want {
+			t.Fatalf("awsIAMPassRoleWildcardKind(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestAWSIAMPassRoleConfidenceForMalformedIsLowest(t *testing.T) {
+	specific := awsIAMPassRoleConfidenceFor("specific")
+	malformed := awsIAMPassRoleConfidenceFor("malformed")
+	all := awsIAMPassRoleConfidenceFor("all")
+	if !(malformed < all && malformed < specific) {
+		t.Fatalf("expected malformed confidence < all < specific, got malformed=%v all=%v specific=%v", malformed, all, specific)
 	}
 }

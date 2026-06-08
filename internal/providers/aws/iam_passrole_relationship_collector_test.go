@@ -534,3 +534,21 @@ func TestIAMPassRoleNormalizerRejectsNonRoleARNs(t *testing.T) {
 		t.Fatalf("expected source identity, got %+v", bundle.Identities[0])
 	}
 }
+
+func TestPassRoleGrantWildcardKindMalformedClassification(t *testing.T) {
+	cases := map[string]string{
+		"arn:aws:iam::123456789012:role/payments": "specific",
+		"*":             "all",
+		"not-an-arn":    "malformed",
+		"role/payments": "malformed",
+	}
+	for input, want := range cases {
+		if got := passRoleGrantWildcardKind(input); got != want {
+			t.Fatalf("passRoleGrantWildcardKind(%q) = %q, want %q", input, got, want)
+		}
+		conf := passRoleGrantConfidence(passRoleGrant{TargetResource: input})
+		if conf <= 0 || conf > 1 {
+			t.Fatalf("confidence for %q out of bounds: %v", input, conf)
+		}
+	}
+}

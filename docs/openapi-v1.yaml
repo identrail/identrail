@@ -9098,7 +9098,7 @@ components:
         target_resource: { type: string }
         target_wildcard_kind:
           type: string
-          enum: [specific, path_wildcard, account_wildcard, all]
+          enum: [specific, path_wildcard, account_wildcard, all, malformed]
         policy_name: { type: string }
         statement_sid: { type: string }
         action_expression:

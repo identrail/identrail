@@ -304,10 +304,12 @@ func extractPassedToServiceCondition(condition map[string]any) ([]serviceConditi
 }
 
 // passRoleGrantConfidence returns a confidence score in [0, 1] for a single
-// grant. Specific role ARNs get the highest score; path-scoped wildcards get a
-// middle score; "*" gets the lowest. Deny statements and NotAction/NotResource
-// forms are reported with full confidence because we can prove the grant
-// shape, even though their downstream effect is conditional.
+// grant. Specific role ARNs get the highest score; path-scoped wildcards get
+// a middle score; "*" gets a lower score; malformed (non-ARN, non-"*")
+// targets get the lowest because we cannot reason about what they point at.
+// Deny statements and NotAction/NotResource forms keep the same scoring
+// because we can still prove the grant shape, even though their downstream
+// effect is conditional.
 func passRoleGrantConfidence(grant passRoleGrant) float64 {
 	target := strings.TrimSpace(grant.TargetResource)
 	switch {
@@ -318,20 +320,25 @@ func passRoleGrantConfidence(grant passRoleGrant) float64 {
 	case strings.HasPrefix(target, "arn:") && !strings.Contains(target, "*"):
 		return 0.95
 	default:
-		return 0.6
+		// Non-ARN, non-"*" target — malformed or unsupported shape. Mark it
+		// low-confidence so downstream consumers know not to act on it.
+		return 0.3
 	}
 }
 
 // passRoleGrantWildcardKind classifies a grant's target shape so the API can
 // surface "this is a wildcard" without consumers re-parsing the ARN. Returns
-// one of "specific", "path_wildcard", "account_wildcard", or "all".
+// "specific" (concrete role ARN), "path_wildcard", "account_wildcard", "all"
+// (bare "*"), or "malformed" for anything else (a typo'd resource, a non-ARN
+// string). Malformed targets are treated as unresolved by the normalizer and
+// API so they never produce spurious edges in the graph.
 func passRoleGrantWildcardKind(target string) string {
 	trimmed := strings.TrimSpace(target)
 	if trimmed == "*" {
 		return "all"
 	}
 	if !strings.HasPrefix(trimmed, "arn:") {
-		return "specific"
+		return "malformed"
 	}
 	if !strings.Contains(trimmed, "*") {
 		return "specific"
