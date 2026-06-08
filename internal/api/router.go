@@ -2752,6 +2752,11 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			case errors.Is(err, ErrInvalidAWSConnectionRequest):
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws sagemaker workload role request"})
 			default:
+				logger.Error("get aws sagemaker workload role inventory",
+					zap.String("workspace_id", c.Param("workspace_id")),
+					zap.String("project_id", c.Param("project_id")),
+					telemetry.ZapError(err),
+				)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws sagemaker workload role inventory"})
 			}
 			return

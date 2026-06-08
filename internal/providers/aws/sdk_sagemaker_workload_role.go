@@ -10,6 +10,7 @@ import (
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	sagemakertypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 
 	"github.com/identrail/identrail/internal/providers"
@@ -549,16 +550,30 @@ func (a *SDKSageMakerWorkloadRoleAPI) listEndpoints(ctx context.Context, pageSiz
 					diagnostics = append(diagnostics, sageMakerDiagnostic("sagemaker_endpoint_config_describe_failed", configName, fmt.Sprintf("SageMaker endpoint config %q could not be described: %v", configName, configErr), true))
 				} else if configDescribe != nil {
 					opts.KMSKeyARNs = append(opts.KMSKeyARNs, strings.TrimSpace(awsv2.ToString(configDescribe.KmsKeyId)))
-					for _, variant := range configDescribe.ProductionVariants {
+					// SageMaker endpoints can route a fraction of inference
+					// traffic to ShadowProductionVariants in addition to the
+					// primary ProductionVariants (used for A/B testing and
+					// shadow testing of new model versions). Both variant
+					// lists can reference distinct models with distinct
+					// execution roles, so the collector must enumerate both
+					// or it would silently undercount the endpoint's
+					// role/S3/ECR/KMS reach.
+					collectVariantModel := func(variant sagemakertypes.ProductionVariant) {
 						modelName := strings.TrimSpace(awsv2.ToString(variant.ModelName))
 						if modelName == "" {
-							continue
+							return
 						}
 						if _, exists := seenModel[modelName]; exists {
-							continue
+							return
 						}
 						seenModel[modelName] = struct{}{}
 						modelNames = append(modelNames, modelName)
+					}
+					for _, variant := range configDescribe.ProductionVariants {
+						collectVariantModel(variant)
+					}
+					for _, variant := range configDescribe.ShadowProductionVariants {
+						collectVariantModel(variant)
 					}
 				}
 			}

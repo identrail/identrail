@@ -1054,7 +1054,14 @@ type cancelDescribeNotebookClient struct {
 }
 
 func (c *cancelDescribeNotebookClient) DescribeNotebookInstance(ctx context.Context, params *sagemaker.DescribeNotebookInstanceInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeNotebookInstanceOutput, error) {
-	return nil, context.Canceled
+	// Honour the context so the test fails if the collector ever stops
+	// threading the caller's context through the describe call. Returning
+	// context.Canceled unconditionally would let a broken implementation
+	// (e.g. one that swapped in context.Background) pass.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return &sagemaker.DescribeNotebookInstanceOutput{}, nil
 }
 
 func TestSDKSageMakerModelStatusIsNotForcedActive(t *testing.T) {
@@ -1264,4 +1271,86 @@ func TestFixtureClassifierResolvesSageMakerBeforeManagedCompute(t *testing.T) {
 	if sourceID == "" {
 		t.Fatalf("expected a non-empty source ID for the classified SageMaker fixture")
 	}
+}
+
+func TestSDKSageMakerEndpointCollectsShadowProductionVariants(t *testing.T) {
+	region := "us-east-1"
+	account := "123456789012"
+	endpointARN := "arn:aws:sagemaker:us-east-1:123456789012:endpoint/payments"
+	primaryModel := "arn:aws:sagemaker:us-east-1:123456789012:model/payments-primary"
+	shadowModel := "arn:aws:sagemaker:us-east-1:123456789012:model/payments-shadow"
+	primaryDescribe := &sagemaker.DescribeModelOutput{
+		ModelName:        awsv2.String("payments-primary"),
+		ModelArn:         awsv2.String(primaryModel),
+		ExecutionRoleArn: awsv2.String("arn:aws:iam::" + account + ":role/payments-primary"),
+	}
+	shadowDescribe := &sagemaker.DescribeModelOutput{
+		ModelName:        awsv2.String("payments-shadow"),
+		ModelArn:         awsv2.String(shadowModel),
+		ExecutionRoleArn: awsv2.String("arn:aws:iam::" + account + ":role/payments-shadow"),
+	}
+	client := &shadowEndpointSDKClient{
+		fullSageMakerSDKClient: fullSageMakerSDKClient{
+			endpoints: []sagemakertypes.EndpointSummary{{EndpointName: awsv2.String("payments")}},
+			endpoint: &sagemaker.DescribeEndpointOutput{
+				EndpointArn:        awsv2.String(endpointARN),
+				EndpointStatus:     sagemakertypes.EndpointStatusInService,
+				EndpointConfigName: awsv2.String("payments-config"),
+			},
+			endpointConfig: &sagemaker.DescribeEndpointConfigOutput{
+				ProductionVariants: []sagemakertypes.ProductionVariant{
+					{ModelName: awsv2.String("payments-primary")},
+				},
+				ShadowProductionVariants: []sagemakertypes.ProductionVariant{
+					{ModelName: awsv2.String("payments-shadow")},
+					// Duplicate shadow variant must dedupe with the same
+					// model-name guard as the primary variants.
+					{ModelName: awsv2.String("payments-shadow")},
+					{ModelName: awsv2.String("")},
+				},
+			},
+		},
+		primaryDescribe: primaryDescribe,
+		shadowDescribe:  shadowDescribe,
+	}
+	api := &SDKSageMakerWorkloadRoleAPI{client: client, accountID: account, region: region}
+	records, _, err := api.listEndpoints(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("list endpoints: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("expected one record per backing model (primary + shadow), got %d", len(records))
+	}
+	hasPrimary, hasShadow := false, false
+	for _, record := range records {
+		switch record.ModelARN {
+		case primaryModel:
+			hasPrimary = true
+		case shadowModel:
+			hasShadow = true
+		}
+	}
+	if !hasPrimary || !hasShadow {
+		t.Fatalf("expected both ProductionVariants and ShadowProductionVariants models to surface, got %+v", records)
+	}
+}
+
+// shadowEndpointSDKClient routes DescribeModel back to the configured
+// primary/shadow describe outputs based on the model name, so the endpoint
+// test can assert both variants surface.
+type shadowEndpointSDKClient struct {
+	fullSageMakerSDKClient
+	primaryDescribe *sagemaker.DescribeModelOutput
+	shadowDescribe  *sagemaker.DescribeModelOutput
+}
+
+func (s *shadowEndpointSDKClient) DescribeModel(ctx context.Context, params *sagemaker.DescribeModelInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeModelOutput, error) {
+	name := awsv2.ToString(params.ModelName)
+	if s.primaryDescribe != nil && name == awsv2.ToString(s.primaryDescribe.ModelName) {
+		return s.primaryDescribe, nil
+	}
+	if s.shadowDescribe != nil && name == awsv2.ToString(s.shadowDescribe.ModelName) {
+		return s.shadowDescribe, nil
+	}
+	return &sagemaker.DescribeModelOutput{}, nil
 }
