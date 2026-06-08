@@ -249,3 +249,20 @@ func TestAWSSageMakerFixtureUsesChinaPartitionForECR(t *testing.T) {
 		t.Fatalf("expected at least one ECR image URI on a fixture record")
 	}
 }
+
+func TestAWSSageMakerPartitionForRegionIsCaseInsensitive(t *testing.T) {
+	cases := map[string]string{
+		"us-gov-west-1":  "aws-us-gov",
+		"US-GOV-WEST-1":  "aws-us-gov",
+		"Us-Gov-West-1":  "aws-us-gov",
+		"cn-northwest-1": "aws-cn",
+		"CN-NORTHWEST-1": "aws-cn",
+		"us-east-1":      "aws",
+		"  us-east-1  ":  "aws",
+	}
+	for region, want := range cases {
+		if got := awsSageMakerPartitionForRegion(region); got != want {
+			t.Fatalf("partition for region %q: got %q, want %q", region, got, want)
+		}
+	}
+}

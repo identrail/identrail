@@ -8802,7 +8802,9 @@ components:
       type: object
       properties:
         workload_type: { type: string }
-        status: { type: string }
+        status:
+          type: string
+          enum: [unsupported]
         reason: { type: string }
         remediation: { type: string }
     AWSSageMakerWorkloadRoleRecord:
@@ -8829,7 +8831,18 @@ components:
         workload_name: { type: string }
         role_arn: { type: string }
         role_name: { type: string }
-        role_kind: { type: string }
+        role_kind:
+          type: string
+          enum:
+            - sagemaker_execution_role
+            - sagemaker_notebook_execution_role
+            - sagemaker_training_execution_role
+            - sagemaker_processing_execution_role
+            - sagemaker_batch_transform_execution_role
+            - sagemaker_model_execution_role
+            - sagemaker_endpoint_execution_role
+            - sagemaker_pipeline_execution_role
+            - sagemaker_domain_execution_role
         role_account_id: { type: string }
         workload_arn: { type: string }
         resource_arn: { type: string }

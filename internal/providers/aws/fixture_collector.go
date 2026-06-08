@@ -355,11 +355,12 @@ func isSageMakerARN(arn string) bool {
 	}
 	// Parse the ARN service segment instead of substring matching so a
 	// resource ARN containing ":sagemaker:" as part of an unrelated component
-	// can't false-positive (e.g. tag values, resource paths). Format is
-	// arn:partition:service:region:account-id:resource…, so parts[2] is the
-	// service.
+	// can't false-positive (e.g. tag values, resource paths). Require the
+	// full ARN shape (arn:partition:service:region:account:resource) so
+	// malformed strings like ":a:sagemaker:..." or "foo:bar:sagemaker:..."
+	// also reject.
 	parts := strings.SplitN(trimmed, ":", 6)
-	return len(parts) >= 3 && strings.EqualFold(parts[2], "sagemaker")
+	return len(parts) == 6 && strings.EqualFold(parts[0], "arn") && strings.EqualFold(parts[2], "sagemaker")
 }
 
 func isEKSWorkloadIdentityFixture(record EKSWorkloadIdentity) bool {

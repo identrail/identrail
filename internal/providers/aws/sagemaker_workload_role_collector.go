@@ -79,7 +79,6 @@ type SageMakerWorkloadRoleCollector struct {
 	sleep    Sleeper
 	randFn   func() float64
 	now      func() time.Time
-	issues   []providers.SourceError
 }
 
 // SageMakerWorkloadRoleOption tunes a SageMakerWorkloadRoleCollector.
@@ -177,16 +176,24 @@ func (c *SageMakerWorkloadRoleCollector) Collect(ctx context.Context) ([]provide
 }
 
 // CollectWithDiagnostics performs the page-by-page collection, retries, and
-// normalization, returning raw assets plus structured diagnostics.
+// normalization, returning raw assets plus structured diagnostics. The
+// per-call state is kept in local variables so concurrent invocations on the
+// same collector do not race on a shared issues slice.
 func (c *SageMakerWorkloadRoleCollector) CollectWithDiagnostics(ctx context.Context, scope AWSCollectorScope) ([]providers.RawAsset, []providers.SourceError, error) {
 	if c.client == nil {
 		return nil, nil, errors.New("sagemaker workload role collector requires client")
 	}
-	c.issues = c.issues[:0]
 	if strings.TrimSpace(scope.Service) == "" {
 		scope.Service = c.ServiceName()
 	}
 	assets := []providers.RawAsset{}
+	issues := []providers.SourceError{}
+	addIssue := func(issue providers.SourceError) {
+		if strings.TrimSpace(issue.Code) == "" || strings.TrimSpace(issue.Message) == "" {
+			return
+		}
+		issues = append(issues, issue)
+	}
 	seen := map[string]struct{}{}
 	nextToken := ""
 	collectedAt := c.now().UTC()
@@ -195,40 +202,40 @@ func (c *SageMakerWorkloadRoleCollector) CollectWithDiagnostics(ctx context.Cont
 			// Return whatever assets and diagnostics we already collected so
 			// the partial scan is still visible to downstream consumers; the
 			// error itself preserves the overflow signal.
-			c.addIssue(providers.SourceError{
+			addIssue(providers.SourceError{
 				Collector: sageMakerWorkloadRoleCollectorName,
 				SourceID:  firstNonEmptyAWSValue(nextToken, "page"),
 				Code:      "sagemaker_workload_role_page_limit_exceeded",
 				Message:   fmt.Sprintf("sagemaker workload role collection exceeded max pages (%d)", c.maxPages),
 				Retryable: false,
 			})
-			return assets, append([]providers.SourceError(nil), c.issues...), fmt.Errorf("sagemaker workload role collection exceeded max pages (%d)", c.maxPages)
+			return assets, append([]providers.SourceError(nil), issues...), fmt.Errorf("sagemaker workload role collection exceeded max pages (%d)", c.maxPages)
 		}
 		response, err := retryAWSPage(ctx, c.retry, c.jitter, c.randFn, c.sleep, func(callCtx context.Context) (SageMakerWorkloadRolePage, error) {
 			return c.client.ListServiceRoles(callCtx, nextToken, c.pageSize)
 		})
 		if err != nil {
 			wrapped := fmt.Errorf("list sagemaker workload roles page %d: %w", page, err)
-			c.addIssue(providers.SourceError{
+			addIssue(providers.SourceError{
 				Collector: sageMakerWorkloadRoleCollectorName,
 				SourceID:  firstNonEmptyAWSValue(nextToken, "page"),
 				Code:      "sagemaker_workload_role_page_failed",
 				Message:   wrapped.Error(),
 				Retryable: isRetryable(err),
 			})
-			issues := append([]providers.SourceError(nil), c.issues...)
+			snapshot := append([]providers.SourceError(nil), issues...)
 			if len(assets) > 0 {
-				return assets, issues, wrapped
+				return assets, snapshot, wrapped
 			}
-			return nil, issues, wrapped
+			return nil, snapshot, wrapped
 		}
 		for _, diagnostic := range response.Diagnostics {
-			c.addIssue(diagnostic)
+			addIssue(diagnostic)
 		}
 		for _, record := range response.Records {
 			normalized := normalizeSageMakerWorkloadRoleScope(scope, record, collectedAt)
 			if strings.TrimSpace(normalized.WorkloadID) == "" || strings.TrimSpace(normalized.WorkloadARN) == "" {
-				c.addIssue(providers.SourceError{
+				addIssue(providers.SourceError{
 					Collector: sageMakerWorkloadRoleCollectorName,
 					Code:      "malformed_sagemaker_record",
 					Message:   "skipped sagemaker record without workload identity",
@@ -237,7 +244,7 @@ func (c *SageMakerWorkloadRoleCollector) CollectWithDiagnostics(ctx context.Cont
 				continue
 			}
 			if strings.TrimSpace(normalized.RoleARN) == "" {
-				c.addIssue(providers.SourceError{
+				addIssue(providers.SourceError{
 					Collector: sageMakerWorkloadRoleCollectorName,
 					SourceID:  firstNonEmptyAWSValue(normalized.WorkloadARN, normalized.WorkloadName, normalized.WorkloadID),
 					Code:      "missing_sagemaker_role",
@@ -267,14 +274,7 @@ func (c *SageMakerWorkloadRoleCollector) CollectWithDiagnostics(ctx context.Cont
 		}
 		nextToken = strings.TrimSpace(response.NextToken)
 	}
-	return assets, append([]providers.SourceError(nil), c.issues...), nil
-}
-
-func (c *SageMakerWorkloadRoleCollector) addIssue(issue providers.SourceError) {
-	if strings.TrimSpace(issue.Code) == "" || strings.TrimSpace(issue.Message) == "" {
-		return
-	}
-	c.issues = append(c.issues, issue)
+	return assets, append([]providers.SourceError(nil), issues...), nil
 }
 
 func normalizeSageMakerWorkloadRoleScope(scope AWSCollectorScope, record SageMakerWorkloadRole, collectedAt time.Time) SageMakerWorkloadRole {

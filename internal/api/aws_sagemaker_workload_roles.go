@@ -577,11 +577,14 @@ func awsSageMakerNodeID(accountID string, region string, workloadType string, wo
 // aws-us-gov, aws-cn) for the supplied AWS region so synthesized fixture
 // ARNs match the partition the operator's connector points at.
 func awsSageMakerPartitionForRegion(region string) string {
-	trimmed := strings.TrimSpace(region)
+	// Lower-case the input so mixed/upper-case region values still resolve to
+	// the right partition (the AWS SDK accepts "US-GOV-WEST-1" but the
+	// partition mapping is case-sensitive).
+	normalized := strings.ToLower(strings.TrimSpace(region))
 	switch {
-	case strings.HasPrefix(trimmed, "us-gov-"):
+	case strings.HasPrefix(normalized, "us-gov-"):
 		return "aws-us-gov"
-	case strings.HasPrefix(trimmed, "cn-"):
+	case strings.HasPrefix(normalized, "cn-"):
 		return "aws-cn"
 	default:
 		return "aws"

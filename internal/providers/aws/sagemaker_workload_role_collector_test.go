@@ -1186,3 +1186,52 @@ func TestIsSageMakerARNHonorsServiceSegment(t *testing.T) {
 		t.Fatalf("empty/malformed input must not match")
 	}
 }
+
+func TestSageMakerCollectorIsSafeForConcurrentCollect(t *testing.T) {
+	collectedAt := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	roleARN := "arn:aws:iam::123456789012:role/sagemaker-payments-training"
+	workloadARN := "arn:aws:sagemaker:us-east-1:123456789012:training-job/payments-train"
+	build := func() *fakeSageMakerWorkloadRoleAPI {
+		return &fakeSageMakerWorkloadRoleAPI{pages: []SageMakerWorkloadRolePage{{
+			Records: []SageMakerWorkloadRole{{
+				ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+					AccountID: "123456789012", Region: "us-east-1", Service: "sagemaker",
+					WorkloadID: workloadARN, WorkloadName: "payments-train",
+					WorkloadType: "sagemaker_training_job", RoleARN: roleARN,
+				},
+				RoleKind: "sagemaker_training_execution_role", WorkloadARN: workloadARN,
+			}},
+			Diagnostics: []providers.SourceError{{
+				Collector: sageMakerWorkloadRoleCollectorName,
+				Code:      "sagemaker_pipelines_failed",
+				Message:   "concurrent pipeline diagnostic",
+				Retryable: true,
+			}},
+		}}}
+	}
+	// Two collectors sharing nothing but the same definition pattern, run
+	// concurrently. Diagnostics from one call must not bleed into the other.
+	collectorA := NewSageMakerWorkloadRoleCollector(build(), WithSageMakerWorkloadRoleClock(func() time.Time { return collectedAt }))
+	collectorB := NewSageMakerWorkloadRoleCollector(build(), WithSageMakerWorkloadRoleClock(func() time.Time { return collectedAt }))
+	scope := AWSCollectorScope{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-a", ConnectorID: "aws-prod", ScanID: "scan-1"}
+	type result struct {
+		diagnostics []providers.SourceError
+		err         error
+	}
+	done := make(chan result, 2)
+	for _, collector := range []*SageMakerWorkloadRoleCollector{collectorA, collectorB} {
+		go func(c *SageMakerWorkloadRoleCollector) {
+			_, diags, err := c.CollectWithDiagnostics(context.Background(), scope)
+			done <- result{diags, err}
+		}(collector)
+	}
+	for i := 0; i < 2; i++ {
+		res := <-done
+		if res.err != nil {
+			t.Fatalf("concurrent collect failed: %v", res.err)
+		}
+		if len(res.diagnostics) != 1 || res.diagnostics[0].Code != "sagemaker_pipelines_failed" {
+			t.Fatalf("expected exactly one diagnostic per collector, got %+v", res.diagnostics)
+		}
+	}
+}
