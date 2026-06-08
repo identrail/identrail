@@ -114,7 +114,6 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 		"sagemaker:DescribePipeline",
 		"sagemaker:ListDomains",
 		"sagemaker:DescribeDomain",
-		"sagemaker:ListTags",
 	} {
 		// Quote-wrap so DescribeEndpoint does not falsely match
 		// DescribeEndpointConfig (and similar prefix overlaps).

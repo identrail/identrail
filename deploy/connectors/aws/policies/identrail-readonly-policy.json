@@ -68,7 +68,6 @@
         "sagemaker:ListNotebookInstances",
         "sagemaker:ListPipelines",
         "sagemaker:ListProcessingJobs",
-        "sagemaker:ListTags",
         "sagemaker:ListTrainingJobs",
         "sagemaker:ListTransformJobs"
       ],

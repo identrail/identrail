@@ -157,7 +157,6 @@ func AWSServiceCollectorContract() ServiceCollectorContract {
 			"sagemaker:DescribePipeline",
 			"sagemaker:ListDomains",
 			"sagemaker:DescribeDomain",
-			"sagemaker:ListTags",
 		},
 		ReadOnlyBoundaries: []string{
 			"collect metadata and policy documents only; never collect secret values, customer payloads, prompts, completions, object contents, or database rows",

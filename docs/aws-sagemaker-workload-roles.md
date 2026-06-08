@@ -61,7 +61,6 @@ The live SDK collector uses read-only SageMaker APIs only:
   `sagemaker:DescribeEndpointConfig`
 - `sagemaker:ListPipelines`, `sagemaker:DescribePipeline`
 - `sagemaker:ListDomains`, `sagemaker:DescribeDomain`
-- `sagemaker:ListTags`
 
 These permissions are enough to enumerate role and workload metadata. They
 do not, and must not, include `sagemaker:CreatePresignedNotebookInstanceUrl`,

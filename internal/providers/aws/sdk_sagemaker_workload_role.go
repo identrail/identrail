@@ -39,7 +39,6 @@ type SageMakerSDKClient interface {
 	DescribePipeline(ctx context.Context, params *sagemaker.DescribePipelineInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribePipelineOutput, error)
 	ListDomains(ctx context.Context, params *sagemaker.ListDomainsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListDomainsOutput, error)
 	DescribeDomain(ctx context.Context, params *sagemaker.DescribeDomainInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeDomainOutput, error)
-	ListTags(ctx context.Context, params *sagemaker.ListTagsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListTagsOutput, error)
 }
 
 // SDKSageMakerWorkloadRoleAPI is the SDK-backed implementation of the

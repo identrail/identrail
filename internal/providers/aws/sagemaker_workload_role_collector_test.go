@@ -386,9 +386,6 @@ func (f *fullSageMakerSDKClient) DescribeDomain(ctx context.Context, params *sag
 	}
 	return &sagemaker.DescribeDomainOutput{}, nil
 }
-func (f *fullSageMakerSDKClient) ListTags(ctx context.Context, params *sagemaker.ListTagsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListTagsOutput, error) {
-	return &sagemaker.ListTagsOutput{}, nil
-}
 
 func TestSDKSageMakerWorkloadRoleEnumeratesEveryWorkloadType(t *testing.T) {
 	region := "us-east-1"

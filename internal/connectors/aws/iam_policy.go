@@ -95,7 +95,6 @@ const readOnlyPolicyJSON = `{
         "sagemaker:ListNotebookInstances",
         "sagemaker:ListPipelines",
         "sagemaker:ListProcessingJobs",
-        "sagemaker:ListTags",
         "sagemaker:ListTrainingJobs",
         "sagemaker:ListTransformJobs"
       ],
@@ -254,7 +253,6 @@ func PermissionPreview() []PermissionPreviewItem {
 				"sagemaker:DescribePipeline",
 				"sagemaker:ListDomains",
 				"sagemaker:DescribeDomain",
-				"sagemaker:ListTags",
 			},
 			Resources: []string{"*"},
 			Reason:    "Maps SageMaker notebook, training, processing, transform, model, endpoint, pipeline, and Studio domain workloads back to their execution roles plus the S3 prefix, ECR image, and KMS key references those roles can reach. Metadata-only — no presigned notebook URLs, payload reads, model artifact reads, or endpoint invocations.",
