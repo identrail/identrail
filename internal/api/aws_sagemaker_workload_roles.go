@@ -340,11 +340,20 @@ func awsSageMakerWorkloadRoleFixtureRecords(accountID string, region string, fix
 	case "empty":
 		return nil, nil, gaps
 	case "degraded":
-		records[0].Status = "stopped"
-		records[0].Active = false
-		records[0].Disabled = true
-		records[0].Confidence = 0.72
-		records[0].ResourceStatus = "Stopped"
+		// Mark the notebook by workload type instead of by index so a future
+		// fixture reorder cannot silently flip the wrong workload to the
+		// stopped/disabled state.
+		for i := range records {
+			if records[i].WorkloadType != "sagemaker_notebook_instance" {
+				continue
+			}
+			records[i].Status = "stopped"
+			records[i].Active = false
+			records[i].Disabled = true
+			records[i].Confidence = 0.72
+			records[i].ResourceStatus = "Stopped"
+			break
+		}
 		return records, []providers.SourceError{{
 			Collector: "aws_sagemaker/sagemaker_workload_role",
 			SourceID:  notebookARN,

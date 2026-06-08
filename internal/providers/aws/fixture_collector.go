@@ -353,7 +353,13 @@ func isSageMakerARN(arn string) bool {
 	if trimmed == "" {
 		return false
 	}
-	return strings.Contains(trimmed, ":sagemaker:")
+	// Parse the ARN service segment instead of substring matching so a
+	// resource ARN containing ":sagemaker:" as part of an unrelated component
+	// can't false-positive (e.g. tag values, resource paths). Format is
+	// arn:partition:service:region:account-id:resource…, so parts[2] is the
+	// service.
+	parts := strings.SplitN(trimmed, ":", 6)
+	return len(parts) >= 3 && strings.EqualFold(parts[2], "sagemaker")
 }
 
 func isEKSWorkloadIdentityFixture(record EKSWorkloadIdentity) bool {

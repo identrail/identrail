@@ -384,7 +384,7 @@ func (a *SDKSageMakerWorkloadRoleAPI) listTransformJobs(ctx context.Context, pag
 			}
 			arn := strings.TrimSpace(awsv2.ToString(describe.TransformJobArn))
 			modelName := strings.TrimSpace(awsv2.ToString(describe.ModelName))
-			opts := sageMakerRecordOptions{ModelName: modelName}
+			opts := sageMakerRecordOptions{}
 			roleARN := ""
 			if modelName != "" {
 				if modelDescribe, modelErr := a.client.DescribeModel(ctx, &sagemaker.DescribeModelInput{ModelName: awsv2.String(modelName)}); modelErr == nil && modelDescribe != nil {
@@ -725,7 +725,6 @@ type sageMakerRecordOptions struct {
 	SpaceName      string
 	PipelineARN    string
 	ModelARN       string
-	ModelName      string
 	EndpointConfig string
 	NetworkMode    string
 	ImageURIs      []string

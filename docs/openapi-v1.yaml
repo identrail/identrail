@@ -8892,6 +8892,7 @@ components:
           type: string
           enum:
             - sagemaker_workload_role_page_failed
+            - sagemaker_workload_role_page_limit_exceeded
             - sagemaker_workload_disabled
             - malformed_sagemaker_record
             - missing_sagemaker_role

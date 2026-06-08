@@ -293,29 +293,46 @@ type fullSageMakerSDKClient struct {
 	domain         *sagemaker.DescribeDomainOutput
 }
 
+// All Describe* methods follow the same empty-output contract: when the
+// matching configured field is nil we return a zero-valued non-nil output
+// rather than nil. This matches what the real SDK returns for "no item" and
+// keeps the collector free of brittle nil-pointer guards.
+
 func (f *fullSageMakerSDKClient) ListNotebookInstances(ctx context.Context, params *sagemaker.ListNotebookInstancesInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListNotebookInstancesOutput, error) {
 	return &sagemaker.ListNotebookInstancesOutput{NotebookInstances: f.notebooks}, nil
 }
 func (f *fullSageMakerSDKClient) DescribeNotebookInstance(ctx context.Context, params *sagemaker.DescribeNotebookInstanceInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeNotebookInstanceOutput, error) {
-	return f.notebook, nil
+	if f.notebook != nil {
+		return f.notebook, nil
+	}
+	return &sagemaker.DescribeNotebookInstanceOutput{}, nil
 }
 func (f *fullSageMakerSDKClient) ListTrainingJobs(ctx context.Context, params *sagemaker.ListTrainingJobsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListTrainingJobsOutput, error) {
 	return &sagemaker.ListTrainingJobsOutput{TrainingJobSummaries: f.trainings}, nil
 }
 func (f *fullSageMakerSDKClient) DescribeTrainingJob(ctx context.Context, params *sagemaker.DescribeTrainingJobInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeTrainingJobOutput, error) {
-	return f.training, nil
+	if f.training != nil {
+		return f.training, nil
+	}
+	return &sagemaker.DescribeTrainingJobOutput{}, nil
 }
 func (f *fullSageMakerSDKClient) ListProcessingJobs(ctx context.Context, params *sagemaker.ListProcessingJobsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListProcessingJobsOutput, error) {
 	return &sagemaker.ListProcessingJobsOutput{ProcessingJobSummaries: f.processings}, nil
 }
 func (f *fullSageMakerSDKClient) DescribeProcessingJob(ctx context.Context, params *sagemaker.DescribeProcessingJobInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeProcessingJobOutput, error) {
-	return f.processing, nil
+	if f.processing != nil {
+		return f.processing, nil
+	}
+	return &sagemaker.DescribeProcessingJobOutput{}, nil
 }
 func (f *fullSageMakerSDKClient) ListTransformJobs(ctx context.Context, params *sagemaker.ListTransformJobsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListTransformJobsOutput, error) {
 	return &sagemaker.ListTransformJobsOutput{TransformJobSummaries: f.transforms}, nil
 }
 func (f *fullSageMakerSDKClient) DescribeTransformJob(ctx context.Context, params *sagemaker.DescribeTransformJobInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeTransformJobOutput, error) {
-	return f.transform, nil
+	if f.transform != nil {
+		return f.transform, nil
+	}
+	return &sagemaker.DescribeTransformJobOutput{}, nil
 }
 func (f *fullSageMakerSDKClient) ListModels(ctx context.Context, params *sagemaker.ListModelsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListModelsOutput, error) {
 	return &sagemaker.ListModelsOutput{Models: f.models}, nil
@@ -328,16 +345,25 @@ func (f *fullSageMakerSDKClient) DescribeModel(ctx context.Context, params *sage
 	if f.transform != nil && f.transformModel != nil && name == awsv2.ToString(f.transformModel.ModelName) {
 		return f.transformModel, nil
 	}
-	return f.model, nil
+	if f.model != nil {
+		return f.model, nil
+	}
+	return &sagemaker.DescribeModelOutput{}, nil
 }
 func (f *fullSageMakerSDKClient) ListEndpoints(ctx context.Context, params *sagemaker.ListEndpointsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListEndpointsOutput, error) {
 	return &sagemaker.ListEndpointsOutput{Endpoints: f.endpoints}, nil
 }
 func (f *fullSageMakerSDKClient) DescribeEndpoint(ctx context.Context, params *sagemaker.DescribeEndpointInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeEndpointOutput, error) {
-	return f.endpoint, nil
+	if f.endpoint != nil {
+		return f.endpoint, nil
+	}
+	return &sagemaker.DescribeEndpointOutput{}, nil
 }
 func (f *fullSageMakerSDKClient) DescribeEndpointConfig(ctx context.Context, params *sagemaker.DescribeEndpointConfigInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeEndpointConfigOutput, error) {
-	return f.endpointConfig, nil
+	if f.endpointConfig != nil {
+		return f.endpointConfig, nil
+	}
+	return &sagemaker.DescribeEndpointConfigOutput{}, nil
 }
 func (f *fullSageMakerSDKClient) ListPipelines(ctx context.Context, params *sagemaker.ListPipelinesInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListPipelinesOutput, error) {
 	if f.pipelineErr != nil {
@@ -346,13 +372,19 @@ func (f *fullSageMakerSDKClient) ListPipelines(ctx context.Context, params *sage
 	return &sagemaker.ListPipelinesOutput{PipelineSummaries: f.pipelines}, nil
 }
 func (f *fullSageMakerSDKClient) DescribePipeline(ctx context.Context, params *sagemaker.DescribePipelineInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribePipelineOutput, error) {
-	return f.pipeline, nil
+	if f.pipeline != nil {
+		return f.pipeline, nil
+	}
+	return &sagemaker.DescribePipelineOutput{}, nil
 }
 func (f *fullSageMakerSDKClient) ListDomains(ctx context.Context, params *sagemaker.ListDomainsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListDomainsOutput, error) {
 	return &sagemaker.ListDomainsOutput{Domains: f.domains}, nil
 }
 func (f *fullSageMakerSDKClient) DescribeDomain(ctx context.Context, params *sagemaker.DescribeDomainInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeDomainOutput, error) {
-	return f.domain, nil
+	if f.domain != nil {
+		return f.domain, nil
+	}
+	return &sagemaker.DescribeDomainOutput{}, nil
 }
 func (f *fullSageMakerSDKClient) ListTags(ctx context.Context, params *sagemaker.ListTagsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListTagsOutput, error) {
 	return &sagemaker.ListTagsOutput{}, nil
@@ -1122,5 +1154,35 @@ func TestSageMakerCollectorReturnsPartialAssetsOnMaxPagesExceeded(t *testing.T) 
 	}
 	if !foundOverflowDiag {
 		t.Fatalf("expected page-limit diagnostic among returned diagnostics, got %+v", diagnostics)
+	}
+}
+
+func TestSageMakerResourceTypeIsCaseInsensitive(t *testing.T) {
+	for _, raw := range []string{"sagemaker_endpoint", "SAGEMAKER_ENDPOINT", "SageMaker_Endpoint", "  sagemaker_endpoint  "} {
+		got := sageMakerResourceType(SageMakerWorkloadRole{
+			ServiceCollectorRecord: awscontract.ServiceCollectorRecord{WorkloadType: raw},
+		})
+		if got != domain.ResourceTypeSageMakerEndpoint {
+			t.Fatalf("workload_type %q should classify as endpoint regardless of case, got %q", raw, got)
+		}
+	}
+}
+
+func TestIsSageMakerARNHonorsServiceSegment(t *testing.T) {
+	// Genuine SageMaker ARN — must match.
+	if !isSageMakerARN("arn:aws:sagemaker:us-east-1:123456789012:endpoint/payments") {
+		t.Fatalf("expected real SageMaker ARN to match")
+	}
+	// Tag value or unrelated resource path that mentions ":sagemaker:" — must
+	// not false-positive.
+	if isSageMakerARN("arn:aws:s3:::audit-bucket/path:sagemaker:notes/object") {
+		t.Fatalf("unrelated ARN containing :sagemaker: in the resource path must not match")
+	}
+	if isSageMakerARN("arn:aws:codepipeline:us-east-1:123456789012:pipeline/myapp") {
+		t.Fatalf("CodePipeline ARN must not match")
+	}
+	// Empty / malformed inputs return false.
+	if isSageMakerARN("") || isSageMakerARN("not-an-arn") {
+		t.Fatalf("empty/malformed input must not match")
 	}
 }
