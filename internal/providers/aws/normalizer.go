@@ -1799,7 +1799,13 @@ func normalizeIAMPassRoleRelationshipAsset(asset providers.RawAsset, index int, 
 		return nil
 	}
 	targetARN := strings.TrimSpace(record.TargetResource)
-	if targetARN == "" || !strings.HasPrefix(targetARN, "arn:") {
+	if !isIAMRoleARN(targetARN) {
+		// PassRole targets must be IAM role ARNs (arn:PARTITION:iam::ACCOUNT:
+		// role/...). Any other shape — an S3 bucket ARN, a Lambda function
+		// ARN, a malformed string — would synthesize a bogus role identity in
+		// the graph, so we drop those edges silently. The raw asset still
+		// carries the original target string for audit; the API exposes it
+		// even when no identity is created.
 		return nil
 	}
 	targetID := identityIDFromARN(targetARN)
@@ -1815,4 +1821,33 @@ func normalizeIAMPassRoleRelationshipAsset(asset providers.RawAsset, index int, 
 		})
 	}
 	return nil
+}
+
+// isIAMRoleARN reports whether the supplied string is a fully-qualified IAM
+// role ARN of the form arn:PARTITION:iam::ACCOUNT:role/PATH. It guards the
+// PassRole normalizer from synthesizing identity nodes from non-IAM-role ARNs
+// that happen to share the arn: prefix.
+func isIAMRoleARN(arn string) bool {
+	trimmed := strings.TrimSpace(arn)
+	if trimmed == "" {
+		return false
+	}
+	// AWS ARN format: arn:partition:service:region:account:resource.
+	// We need 6 segments, partition starting with "aws", service exactly
+	// "iam", region empty (IAM is global), and resource beginning with
+	// "role/".
+	parts := strings.SplitN(trimmed, ":", 6)
+	if len(parts) != 6 {
+		return false
+	}
+	if !strings.EqualFold(parts[0], "arn") {
+		return false
+	}
+	if !strings.HasPrefix(strings.ToLower(parts[1]), "aws") {
+		return false
+	}
+	if !strings.EqualFold(parts[2], "iam") {
+		return false
+	}
+	return strings.HasPrefix(parts[5], "role/")
 }

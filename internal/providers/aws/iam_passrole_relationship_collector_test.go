@@ -12,13 +12,17 @@ import (
 )
 
 type fakeIAMRolesAPI struct {
-	pages []ListRolesPage
-	calls int
-	err   error
+	pages     []ListRolesPage
+	calls     int
+	err       error
+	tokens    []string
+	pageSizes []int32
 }
 
 func (f *fakeIAMRolesAPI) ListRoles(ctx context.Context, nextToken string, pageSize int32) (ListRolesPage, error) {
 	f.calls++
+	f.tokens = append(f.tokens, nextToken)
+	f.pageSizes = append(f.pageSizes, pageSize)
 	if f.err != nil {
 		return ListRolesPage{}, f.err
 	}
@@ -89,12 +93,34 @@ func TestExtractPassRoleGrants_ExpandsResourcesAndConditions(t *testing.T) {
 	}
 }
 
-func TestExtractPassRoleGrants_NotActionAndNotResource(t *testing.T) {
+func TestExtractPassRoleGrants_NotActionListingPassRoleSuppressesGrant(t *testing.T) {
+	// NotAction containing iam:PassRole means PassRole is excluded — no grant
+	// should be emitted.
 	doc, err := parsePassRolePolicyDocument(`{
 		"Version": "2012-10-17",
 		"Statement": {
 			"Effect": "Allow",
 			"NotAction": "iam:PassRole",
+			"Resource": "*"
+		}
+	}`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if grants := extractPassRoleGrants(doc); len(grants) != 0 {
+		t.Fatalf("expected zero grants when NotAction lists iam:PassRole, got %+v", grants)
+	}
+}
+
+func TestExtractPassRoleGrants_NotActionOmittingPassRoleEmitsInverseGrant(t *testing.T) {
+	// NotAction containing only an unrelated action means PassRole IS in the
+	// implicit "everything else" set the statement applies to. The grant is
+	// emitted with NotAction=true so consumers can mark it as inverse.
+	doc, err := parsePassRolePolicyDocument(`{
+		"Version": "2012-10-17",
+		"Statement": {
+			"Effect": "Allow",
+			"NotAction": "s3:GetObject",
 			"NotResource": "arn:aws:iam::123456789012:role/break-glass"
 		}
 	}`)
@@ -103,10 +129,27 @@ func TestExtractPassRoleGrants_NotActionAndNotResource(t *testing.T) {
 	}
 	grants := extractPassRoleGrants(doc)
 	if len(grants) != 1 {
-		t.Fatalf("expected one grant, got %d", len(grants))
+		t.Fatalf("expected one inverse grant, got %d (%+v)", len(grants), grants)
 	}
 	if !grants[0].NotAction || !grants[0].NotResource {
 		t.Fatalf("expected NotAction + NotResource flags, got %+v", grants[0])
+	}
+}
+
+func TestExtractPassRoleGrants_NotActionWildcardExcludesPassRole(t *testing.T) {
+	// NotAction iam:Pass* also explicitly excludes iam:PassRole — no grant.
+	doc, err := parsePassRolePolicyDocument(`{
+		"Statement": {
+			"Effect": "Allow",
+			"NotAction": "iam:Pass*",
+			"Resource": "*"
+		}
+	}`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if grants := extractPassRoleGrants(doc); len(grants) != 0 {
+		t.Fatalf("expected zero grants when NotAction wildcard matches iam:PassRole, got %+v", grants)
 	}
 }
 
@@ -418,5 +461,76 @@ func TestIAMActionPatternMatches(t *testing.T) {
 		if got := iamActionPatternMatches(tc.pattern, tc.target); got != tc.want {
 			t.Fatalf("pattern %q vs %q: got %v, want %v", tc.pattern, tc.target, got, tc.want)
 		}
+	}
+}
+
+func TestIAMPassRoleCollectorPropagatesPageToken(t *testing.T) {
+	collectedAt := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	role := IAMRole{
+		ARN:  "arn:aws:iam::123456789012:role/source",
+		Name: "source",
+		PermissionPolicies: []IAMPermissionPolicy{{
+			Name:     "passrole",
+			Document: `{"Statement":[{"Effect":"Allow","Action":"iam:PassRole","Resource":"arn:aws:iam::123456789012:role/target"}]}`,
+		}},
+	}
+	api := &fakeIAMRolesAPI{pages: []ListRolesPage{
+		{Roles: []IAMRole{role}, NextToken: "page-2"},
+		{Roles: []IAMRole{role}},
+	}}
+	collector := NewIAMPassRoleRelationshipCollector(api, WithIAMPassRoleRelationshipClock(func() time.Time { return collectedAt }))
+	if _, _, err := collector.CollectWithDiagnostics(context.Background(), AWSCollectorScope{}); err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	if got, want := strings.Join(api.tokens, ","), ",page-2"; got != want {
+		t.Fatalf("expected tokens %q, got %q", want, got)
+	}
+}
+
+func TestIsIAMRoleARN(t *testing.T) {
+	cases := map[string]bool{
+		"arn:aws:iam::123456789012:role/payments":                 true,
+		"arn:aws:iam::123456789012:role/path/payments":            true,
+		"arn:aws-us-gov:iam::123456789012:role/payments":          true,
+		"arn:aws-cn:iam::123456789012:role/payments":              true,
+		"arn:aws:iam::123456789012:user/dev":                      false,
+		"arn:aws:iam::123456789012:policy/Admin":                  false,
+		"arn:aws:s3:::bucket":                                     false,
+		"arn:aws:lambda:us-east-1:123456789012:function:payments": false,
+		"*":          false,
+		"":           false,
+		"not-an-arn": false,
+	}
+	for input, want := range cases {
+		if got := isIAMRoleARN(input); got != want {
+			t.Fatalf("isIAMRoleARN(%q) = %v, want %v", input, got, want)
+		}
+	}
+}
+
+func TestIAMPassRoleNormalizerRejectsNonRoleARNs(t *testing.T) {
+	record := IAMPassRoleRelationship{
+		SourceRoleARN:      "arn:aws:iam::123456789012:role/source",
+		SourceRoleName:     "source",
+		TargetResource:     "arn:aws:s3:::audit-bucket", // NOT an IAM role
+		TargetWildcardKind: "specific",
+	}
+	payload, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	asset := providers.RawAsset{Kind: rawKindIAMPassRoleRelationship, SourceID: "src", Payload: payload}
+	bundle := providers.NormalizedBundle{}
+	seen := map[string]struct{}{}
+	if err := normalizeIAMPassRoleRelationshipAsset(asset, 0, &bundle, seen); err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	// Source role still projected; non-role target ARN must NOT become an
+	// identity in the graph.
+	if len(bundle.Identities) != 1 {
+		t.Fatalf("expected only source identity for non-role target, got %d (%+v)", len(bundle.Identities), bundle.Identities)
+	}
+	if bundle.Identities[0].ARN != record.SourceRoleARN {
+		t.Fatalf("expected source identity, got %+v", bundle.Identities[0])
 	}
 }

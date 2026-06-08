@@ -135,17 +135,37 @@ func extractPassRoleGrants(doc passRolePolicyDocument) []passRoleGrant {
 	return grants
 }
 
-// passRoleActionMatch returns the matched action expression (canonicalized to
-// lower-case) and whether the match came from NotAction. The empty string
-// means the statement does not bear on PassRole.
+// passRoleActionMatch returns the matched action expression and whether the
+// matching statement used NotAction (inverse) form. The empty string means
+// the statement does not bear on PassRole.
+//
+// IAM NotAction semantics: when a statement uses NotAction, it applies to
+// every action *except* those listed. So a PassRole grant exists when:
+//
+//   - Action explicitly lists iam:PassRole (or a wildcard that matches it), or
+//   - NotAction is present and does *not* list iam:PassRole — in that case
+//     iam:PassRole is one of the implicit "all other actions" the statement
+//     applies to. We flag the result so downstream consumers can mark these
+//     grants as inverse and reason about the implicit-everything-else set.
+//
+// Conversely, NotAction listing iam:PassRole means iam:PassRole is explicitly
+// excluded, so the statement does not grant PassRole at all and we return "".
 func passRoleActionMatch(action, notAction any) (string, bool) {
 	if match := passRoleActionInList(action); match != "" {
 		return match, false
 	}
-	if match := passRoleActionInList(notAction); match != "" {
-		return match, true
+	notActionValues := parseStringList(notAction)
+	if len(notActionValues) == 0 {
+		return "", false
 	}
-	return "", false
+	if passRoleActionInList(notAction) != "" {
+		// NotAction explicitly excludes iam:PassRole (directly or via a
+		// matching wildcard) — the statement does not grant PassRole.
+		return "", false
+	}
+	// NotAction is present but does not exclude iam:PassRole; iam:PassRole is
+	// in the implicit "everything else" set this statement applies to.
+	return "iam:PassRole", true
 }
 
 // passRoleActionInList returns the matched action expression. It covers the
