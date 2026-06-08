@@ -2,6 +2,7 @@ package aws
 
 import (
 	"encoding/json"
+	"errors"
 	"net/url"
 	"strings"
 )
@@ -28,7 +29,9 @@ type passRolePolicyStatement struct {
 }
 
 // UnmarshalJSON lets statements arrive as a single object or an array, matching
-// IAM's permissive grammar.
+// IAM's permissive grammar. Genuinely malformed shapes (neither a statement
+// object nor an array) propagate as an error so the collector can record a
+// parse-failure diagnostic instead of silently treating the policy as empty.
 func (s *passRolePolicyStatementsT) UnmarshalJSON(data []byte) error {
 	if len(data) == 0 || string(data) == "null" {
 		*s = nil
@@ -44,8 +47,7 @@ func (s *passRolePolicyStatementsT) UnmarshalJSON(data []byte) error {
 		*s = many
 		return nil
 	}
-	*s = nil
-	return nil
+	return errors.New("invalid passrole policy statement shape")
 }
 
 // parsePassRolePolicyDocument decodes a possibly URL-encoded IAM policy
@@ -146,9 +148,15 @@ func passRoleActionMatch(action, notAction any) (string, bool) {
 	return "", false
 }
 
+// passRoleActionInList returns the matched action expression. It covers the
+// exact spelling (iam:PassRole), AWS-style action wildcards that contain
+// PassRole (e.g. iam:Pass*, iam:P*, iam:Pa?sRole), and the broad wildcards
+// (iam:*, *). Each accepted expression is returned in its canonical original
+// casing so downstream code can surface the grant's policy text verbatim.
 func passRoleActionInList(value any) string {
 	for _, action := range parseStringList(value) {
-		switch strings.ToLower(strings.TrimSpace(action)) {
+		trimmed := strings.TrimSpace(action)
+		switch strings.ToLower(trimmed) {
 		case "iam:passrole":
 			return "iam:PassRole"
 		case "iam:*":
@@ -156,8 +164,60 @@ func passRoleActionInList(value any) string {
 		case "*":
 			return "*"
 		}
+		if iamActionWildcardMatchesPassRole(trimmed) {
+			return trimmed
+		}
 	}
 	return ""
+}
+
+// iamActionWildcardMatchesPassRole reports whether the supplied IAM action
+// expression — using the AWS wildcard syntax — could match iam:PassRole. The
+// AWS docs describe two wildcards: * matches any sequence of characters and ?
+// matches a single character. We treat any wildcarded iam: action whose
+// pattern accepts the literal "PassRole" as a PassRole grant so policies that
+// use iam:Pass*, iam:Pa?sRole, or iam:Pass??le are not silently missed.
+func iamActionWildcardMatchesPassRole(expr string) bool {
+	lowered := strings.ToLower(expr)
+	if !strings.HasPrefix(lowered, "iam:") {
+		return false
+	}
+	pattern := lowered[len("iam:"):]
+	if !strings.ContainsAny(pattern, "*?") {
+		// No wildcard — exact match already handled by the caller's switch.
+		return false
+	}
+	return iamActionPatternMatches(pattern, "passrole")
+}
+
+// iamActionPatternMatches reports whether the AWS-style pattern (with * and ?
+// wildcards) matches the target string. It uses an iterative back-tracking
+// matcher rather than translating to a regular expression so it never panics
+// or hits regex-engine limits on adversarial inputs.
+func iamActionPatternMatches(pattern, target string) bool {
+	pi, ti := 0, 0
+	starPi, starTi := -1, 0
+	for ti < len(target) {
+		switch {
+		case pi < len(pattern) && (pattern[pi] == '?' || pattern[pi] == target[ti]):
+			pi++
+			ti++
+		case pi < len(pattern) && pattern[pi] == '*':
+			starPi = pi
+			starTi = ti
+			pi++
+		case starPi != -1:
+			pi = starPi + 1
+			starTi++
+			ti = starTi
+		default:
+			return false
+		}
+	}
+	for pi < len(pattern) && pattern[pi] == '*' {
+		pi++
+	}
+	return pi == len(pattern)
 }
 
 // passRoleResourceTargets returns the deduplicated, trimmed resource list and

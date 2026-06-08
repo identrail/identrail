@@ -332,3 +332,91 @@ func TestIsIAMPassRoleRelationshipFixture_Strict(t *testing.T) {
 		t.Fatalf("empty record must not match")
 	}
 }
+
+func TestExtractPassRoleGrants_WildcardActionPatternMatches(t *testing.T) {
+	cases := map[string]bool{
+		"iam:Pass*":      true,
+		"iam:P*":         true,
+		"iam:Pa?sRole":   true,
+		"iam:pass*":      true, // case-insensitive
+		"iam:Get*":       false,
+		"iam:List*":      false,
+		"sts:AssumeRole": false,
+	}
+	for action, want := range cases {
+		doc, err := parsePassRolePolicyDocument(`{"Statement":[{"Effect":"Allow","Action":"` + action + `","Resource":"arn:aws:iam::123456789012:role/payments"}]}`)
+		if err != nil {
+			t.Fatalf("parse %q: %v", action, err)
+		}
+		grants := extractPassRoleGrants(doc)
+		got := len(grants) == 1
+		if got != want {
+			t.Fatalf("action %q: got match=%v, want %v (grants=%+v)", action, got, want, grants)
+		}
+	}
+}
+
+func TestParsePassRolePolicyDocument_InvalidStatementShape(t *testing.T) {
+	// A scalar string is neither a statement object nor an array — must error.
+	_, err := parsePassRolePolicyDocument(`{"Statement": "not a statement"}`)
+	if err == nil {
+		t.Fatalf("expected parse error for invalid statement shape")
+	}
+}
+
+func TestParsePassRolePolicyDocument_TolerantInputs(t *testing.T) {
+	cases := []string{
+		"",
+		`{}`,
+		`{"Statement": null}`,
+		`{"Statement": []}`,
+	}
+	for _, raw := range cases {
+		if _, err := parsePassRolePolicyDocument(raw); err != nil {
+			t.Fatalf("input %q: unexpected error %v", raw, err)
+		}
+	}
+}
+
+func TestIAMPassRoleCollectorRecordsBadStatementShape(t *testing.T) {
+	api := &fakeIAMRolesAPI{pages: []ListRolesPage{{
+		Roles: []IAMRole{{
+			ARN:  "arn:aws:iam::123456789012:role/bad-statement",
+			Name: "bad-statement",
+			PermissionPolicies: []IAMPermissionPolicy{{
+				Name:     "broken",
+				Document: `{"Statement": "not a statement"}`,
+			}},
+		}},
+	}}}
+	collector := NewIAMPassRoleRelationshipCollector(api)
+	_, diagnostics, err := collector.CollectWithDiagnostics(context.Background(), AWSCollectorScope{})
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Code != "iam_passrole_policy_parse_failed" {
+		t.Fatalf("expected parse_failed diagnostic for bad statement shape, got %+v", diagnostics)
+	}
+}
+
+func TestIAMActionPatternMatches(t *testing.T) {
+	cases := []struct {
+		pattern string
+		target  string
+		want    bool
+	}{
+		{"pass*", "passrole", true},
+		{"*role", "passrole", true},
+		{"pa?srole", "passrole", true},
+		{"pa??role", "passrole", true},
+		{"get*", "passrole", false},
+		{"passrole", "passrole", true},
+		{"passrole*", "passrole", true},
+		{"passroles", "passrole", false},
+	}
+	for _, tc := range cases {
+		if got := iamActionPatternMatches(tc.pattern, tc.target); got != tc.want {
+			t.Fatalf("pattern %q vs %q: got %v, want %v", tc.pattern, tc.target, got, tc.want)
+		}
+	}
+}

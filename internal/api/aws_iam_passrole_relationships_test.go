@@ -166,3 +166,61 @@ func TestNormalizeAWSIAMPassRoleFixtureStateHonorsExplicitOverride(t *testing.T)
 		t.Fatalf("invalid should return empty, got %q", got)
 	}
 }
+
+func TestAWSIAMPassRoleRelationshipEdgesExcludeUnresolvedAndDeny(t *testing.T) {
+	records := []AWSIAMPassRoleRelationshipRecord{
+		{
+			FromNodeID:         "aws:identity:arn:aws:iam::123:role/source",
+			ToNodeID:           "aws:identity:arn:aws:iam::123:role/target",
+			RelationshipType:   "can_pass_role",
+			Effect:             "Allow",
+			UnresolvedTarget:   false,
+			EvidenceRef:        "evidence-1",
+			TargetWildcardKind: "specific",
+		},
+		{
+			FromNodeID:         "aws:identity:arn:aws:iam::123:role/source",
+			ToNodeID:           "",
+			RelationshipType:   "can_pass_role",
+			Effect:             "Allow",
+			UnresolvedTarget:   true,
+			TargetWildcardKind: "all",
+		},
+		{
+			FromNodeID:         "aws:identity:arn:aws:iam::123:role/source",
+			ToNodeID:           "aws:identity:arn:aws:iam::123:role/break-glass",
+			RelationshipType:   "can_pass_role",
+			Effect:             "Deny",
+			UnresolvedTarget:   false,
+			TargetWildcardKind: "specific",
+		},
+	}
+	edges := awsIAMPassRoleRelationshipEdges(records)
+	if len(edges) != 1 {
+		t.Fatalf("expected only the Allow+resolved record to produce an edge, got %d (%+v)", len(edges), edges)
+	}
+	if edges[0].EvidenceRef != "evidence-1" {
+		t.Fatalf("unexpected edge: %+v", edges[0])
+	}
+}
+
+func TestRouterAWSIAMPassRoleRelationshipNilLoggerDoesNotPanic(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-nil-logger")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-nil-logger", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	// Use a nil zap logger to prove the 500 path does not panic when logging
+	// is absent (matches the production code's defensive guard).
+	r := NewRouter(nil, telemetry.NewMetrics(), svc, RouterOptions{})
+
+	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-nil-logger/aws/iam-passrole-relationships?connector_id=aws-prod&fixture_state=success", "")
+	// Any non-panicking response is fine for this test; we are guarding
+	// against logger.Error panicking when logger is nil.
+	if resp == nil {
+		t.Fatalf("expected a response, got nil")
+	}
+}

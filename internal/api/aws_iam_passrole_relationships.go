@@ -357,10 +357,24 @@ func awsIAMPassRoleFixtureRecord(accountID, region, sourceARN, sourceName, targe
 	return record
 }
 
+// awsIAMPassRoleRelationshipEdges projects records into graph edges. Only
+// concrete (target_wildcard_kind=specific), allow-effect grants with both
+// endpoints resolved are emitted. Wildcard targets stay as record metadata
+// because synthesizing edges to "*" or "arn:aws:iam::*:role/*" would create
+// non-actionable fan-out in downstream graph queries. Deny statements are
+// equally suppressed here — they are documented evidence, not capabilities
+// — and downstream net-effect computation reads them from the record list,
+// not the edge list.
 func awsIAMPassRoleRelationshipEdges(records []AWSIAMPassRoleRelationshipRecord) []AWSIAMPassRoleRelationshipEdge {
 	result := make([]AWSIAMPassRoleRelationshipEdge, 0, len(records))
 	for _, record := range records {
-		if strings.TrimSpace(record.FromNodeID) == "" {
+		if strings.TrimSpace(record.FromNodeID) == "" || strings.TrimSpace(record.ToNodeID) == "" {
+			continue
+		}
+		if record.UnresolvedTarget {
+			continue
+		}
+		if !strings.EqualFold(record.Effect, "Allow") {
 			continue
 		}
 		result = append(result, AWSIAMPassRoleRelationshipEdge{
