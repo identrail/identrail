@@ -109,19 +109,28 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
-	var managedComputeRole ManagedComputeRole
-	if err := json.Unmarshal(payload, &managedComputeRole); err == nil {
-		sourceID := managedComputeRoleSourceID(managedComputeRole)
-		if isManagedComputeRoleFixture(managedComputeRole) {
-			return rawKindManagedComputeRole, sourceID
-		}
-	}
-
+	// SageMaker must be checked before ManagedComputeRole. The latter returns
+	// true on any record with a non-empty ResourceARN (because every managed-
+	// compute service synthesizes one), so a SageMaker fixture whose
+	// ResourceARN is set would otherwise unmarshal into ManagedComputeRole
+	// successfully and short-circuit before reaching the SageMaker matcher.
+	// The SageMaker matcher itself is strict (sagemaker_* service/collector,
+	// sagemaker_* workload type, sagemaker_* role kind, or an ARN whose
+	// service segment is literally "sagemaker") so it only claims real
+	// SageMaker fixtures.
 	var sageMakerRole SageMakerWorkloadRole
 	if err := json.Unmarshal(payload, &sageMakerRole); err == nil {
 		sourceID := sageMakerWorkloadRoleSourceID(sageMakerRole)
 		if isSageMakerWorkloadRoleFixture(sageMakerRole) {
 			return rawKindSageMakerWorkloadRole, sourceID
+		}
+	}
+
+	var managedComputeRole ManagedComputeRole
+	if err := json.Unmarshal(payload, &managedComputeRole); err == nil {
+		sourceID := managedComputeRoleSourceID(managedComputeRole)
+		if isManagedComputeRoleFixture(managedComputeRole) {
+			return rawKindManagedComputeRole, sourceID
 		}
 	}
 

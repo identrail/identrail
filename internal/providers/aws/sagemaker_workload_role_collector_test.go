@@ -1235,3 +1235,36 @@ func TestSageMakerCollectorIsSafeForConcurrentCollect(t *testing.T) {
 		}
 	}
 }
+
+func TestFixtureClassifierResolvesSageMakerBeforeManagedCompute(t *testing.T) {
+	// A SageMaker fixture record carries a SageMaker workload ARN under
+	// ResourceARN. ManagedComputeRole's matcher would also claim a record
+	// with a non-empty ResourceARN, so the classifier must check SageMaker
+	// first. Without that ordering the fixture would be misrouted into the
+	// managed-compute raw asset kind and never normalized.
+	record := SageMakerWorkloadRole{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID:    "123456789012",
+			Region:       "us-east-1",
+			Service:      "sagemaker",
+			WorkloadID:   "arn:aws:sagemaker:us-east-1:123456789012:endpoint/payments",
+			WorkloadName: "payments",
+			WorkloadType: "sagemaker_endpoint",
+			RoleARN:      "arn:aws:iam::123456789012:role/sagemaker-payments-model",
+		},
+		RoleKind:    "sagemaker_endpoint_execution_role",
+		WorkloadARN: "arn:aws:sagemaker:us-east-1:123456789012:endpoint/payments",
+		ResourceARN: "arn:aws:sagemaker:us-east-1:123456789012:endpoint/payments",
+	}
+	payload, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	kind, sourceID := fixtureAssetKindAndSourceID(payload)
+	if kind != rawKindSageMakerWorkloadRole {
+		t.Fatalf("expected SageMaker classification, got %q", kind)
+	}
+	if sourceID == "" {
+		t.Fatalf("expected a non-empty source ID for the classified SageMaker fixture")
+	}
+}
