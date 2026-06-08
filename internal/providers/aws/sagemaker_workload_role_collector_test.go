@@ -183,76 +183,8 @@ func TestSageMakerWorkloadRoleSourceIDDedupesAcrossPages(t *testing.T) {
 	}
 }
 
-type fakeSageMakerSDKClient struct {
-	notebooks   []sagemakertypes.NotebookInstanceSummary
-	notebook    *sagemaker.DescribeNotebookInstanceOutput
-	pipelines   []sagemakertypes.PipelineSummary
-	pipeline    *sagemaker.DescribePipelineOutput
-	pipelineErr error
-}
-
-func (f *fakeSageMakerSDKClient) ListNotebookInstances(ctx context.Context, params *sagemaker.ListNotebookInstancesInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListNotebookInstancesOutput, error) {
-	return &sagemaker.ListNotebookInstancesOutput{NotebookInstances: f.notebooks}, nil
-}
-
-func (f *fakeSageMakerSDKClient) DescribeNotebookInstance(ctx context.Context, params *sagemaker.DescribeNotebookInstanceInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeNotebookInstanceOutput, error) {
-	return f.notebook, nil
-}
-
-func (f *fakeSageMakerSDKClient) ListTrainingJobs(ctx context.Context, params *sagemaker.ListTrainingJobsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListTrainingJobsOutput, error) {
-	return &sagemaker.ListTrainingJobsOutput{}, nil
-}
-func (f *fakeSageMakerSDKClient) DescribeTrainingJob(ctx context.Context, params *sagemaker.DescribeTrainingJobInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeTrainingJobOutput, error) {
-	return nil, nil
-}
-func (f *fakeSageMakerSDKClient) ListProcessingJobs(ctx context.Context, params *sagemaker.ListProcessingJobsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListProcessingJobsOutput, error) {
-	return &sagemaker.ListProcessingJobsOutput{}, nil
-}
-func (f *fakeSageMakerSDKClient) DescribeProcessingJob(ctx context.Context, params *sagemaker.DescribeProcessingJobInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeProcessingJobOutput, error) {
-	return nil, nil
-}
-func (f *fakeSageMakerSDKClient) ListTransformJobs(ctx context.Context, params *sagemaker.ListTransformJobsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListTransformJobsOutput, error) {
-	return &sagemaker.ListTransformJobsOutput{}, nil
-}
-func (f *fakeSageMakerSDKClient) DescribeTransformJob(ctx context.Context, params *sagemaker.DescribeTransformJobInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeTransformJobOutput, error) {
-	return nil, nil
-}
-func (f *fakeSageMakerSDKClient) ListModels(ctx context.Context, params *sagemaker.ListModelsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListModelsOutput, error) {
-	return &sagemaker.ListModelsOutput{}, nil
-}
-func (f *fakeSageMakerSDKClient) DescribeModel(ctx context.Context, params *sagemaker.DescribeModelInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeModelOutput, error) {
-	return nil, nil
-}
-func (f *fakeSageMakerSDKClient) ListEndpoints(ctx context.Context, params *sagemaker.ListEndpointsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListEndpointsOutput, error) {
-	return &sagemaker.ListEndpointsOutput{}, nil
-}
-func (f *fakeSageMakerSDKClient) DescribeEndpoint(ctx context.Context, params *sagemaker.DescribeEndpointInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeEndpointOutput, error) {
-	return nil, nil
-}
-func (f *fakeSageMakerSDKClient) DescribeEndpointConfig(ctx context.Context, params *sagemaker.DescribeEndpointConfigInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeEndpointConfigOutput, error) {
-	return nil, nil
-}
-func (f *fakeSageMakerSDKClient) ListPipelines(ctx context.Context, params *sagemaker.ListPipelinesInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListPipelinesOutput, error) {
-	if f.pipelineErr != nil {
-		return nil, f.pipelineErr
-	}
-	return &sagemaker.ListPipelinesOutput{PipelineSummaries: f.pipelines}, nil
-}
-func (f *fakeSageMakerSDKClient) DescribePipeline(ctx context.Context, params *sagemaker.DescribePipelineInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribePipelineOutput, error) {
-	return f.pipeline, nil
-}
-func (f *fakeSageMakerSDKClient) ListDomains(ctx context.Context, params *sagemaker.ListDomainsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListDomainsOutput, error) {
-	return &sagemaker.ListDomainsOutput{}, nil
-}
-func (f *fakeSageMakerSDKClient) DescribeDomain(ctx context.Context, params *sagemaker.DescribeDomainInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeDomainOutput, error) {
-	return nil, nil
-}
-func (f *fakeSageMakerSDKClient) ListTags(ctx context.Context, params *sagemaker.ListTagsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListTagsOutput, error) {
-	return &sagemaker.ListTagsOutput{}, nil
-}
-
 func TestSDKSageMakerWorkloadRoleEmitsNotebookAndPipelineRecords(t *testing.T) {
-	client := &fakeSageMakerSDKClient{
+	client := &fullSageMakerSDKClient{
 		notebooks: []sagemakertypes.NotebookInstanceSummary{{
 			NotebookInstanceName: awsv2.String("payments-eval"),
 			NotebookInstanceArn:  awsv2.String("arn:aws:sagemaker:us-east-1:123456789012:notebook-instance/payments-eval"),
@@ -294,7 +226,7 @@ func TestSDKSageMakerWorkloadRoleEmitsNotebookAndPipelineRecords(t *testing.T) {
 }
 
 func TestSDKSageMakerWorkloadRoleDegradesOnSubListingFailure(t *testing.T) {
-	client := &fakeSageMakerSDKClient{
+	client := &fullSageMakerSDKClient{
 		notebooks: []sagemakertypes.NotebookInstanceSummary{{
 			NotebookInstanceName: awsv2.String("payments-eval"),
 			NotebookInstanceArn:  awsv2.String("arn:aws:sagemaker:us-east-1:123456789012:notebook-instance/payments-eval"),
@@ -334,10 +266,13 @@ func TestSDKSageMakerIAMRoleARNUsesRegionPartition(t *testing.T) {
 	}
 }
 
-// fullSageMakerSDKClient is a richer fake covering every SageMaker workload
-// type so the SDK collector's training, processing, transform, model, endpoint,
-// and domain branches are exercised end-to-end.
+// fullSageMakerSDKClient is the canonical SageMaker SDK fake for collector
+// tests. Tests populate only the fields they care about; every other List/
+// Describe call returns an empty output. Set pipelineErr to simulate a
+// retryable sub-listing failure.
 type fullSageMakerSDKClient struct {
+	notebooks      []sagemakertypes.NotebookInstanceSummary
+	notebook       *sagemaker.DescribeNotebookInstanceOutput
 	trainings      []sagemakertypes.TrainingJobSummary
 	training       *sagemaker.DescribeTrainingJobOutput
 	processings    []sagemakertypes.ProcessingJobSummary
@@ -353,15 +288,16 @@ type fullSageMakerSDKClient struct {
 	endpointModel  *sagemaker.DescribeModelOutput
 	pipelines      []sagemakertypes.PipelineSummary
 	pipeline       *sagemaker.DescribePipelineOutput
+	pipelineErr    error
 	domains        []sagemakertypes.DomainDetails
 	domain         *sagemaker.DescribeDomainOutput
 }
 
 func (f *fullSageMakerSDKClient) ListNotebookInstances(ctx context.Context, params *sagemaker.ListNotebookInstancesInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListNotebookInstancesOutput, error) {
-	return &sagemaker.ListNotebookInstancesOutput{}, nil
+	return &sagemaker.ListNotebookInstancesOutput{NotebookInstances: f.notebooks}, nil
 }
 func (f *fullSageMakerSDKClient) DescribeNotebookInstance(ctx context.Context, params *sagemaker.DescribeNotebookInstanceInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribeNotebookInstanceOutput, error) {
-	return nil, nil
+	return f.notebook, nil
 }
 func (f *fullSageMakerSDKClient) ListTrainingJobs(ctx context.Context, params *sagemaker.ListTrainingJobsInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListTrainingJobsOutput, error) {
 	return &sagemaker.ListTrainingJobsOutput{TrainingJobSummaries: f.trainings}, nil
@@ -404,6 +340,9 @@ func (f *fullSageMakerSDKClient) DescribeEndpointConfig(ctx context.Context, par
 	return f.endpointConfig, nil
 }
 func (f *fullSageMakerSDKClient) ListPipelines(ctx context.Context, params *sagemaker.ListPipelinesInput, optFns ...func(*sagemaker.Options)) (*sagemaker.ListPipelinesOutput, error) {
+	if f.pipelineErr != nil {
+		return nil, f.pipelineErr
+	}
 	return &sagemaker.ListPipelinesOutput{PipelineSummaries: f.pipelines}, nil
 }
 func (f *fullSageMakerSDKClient) DescribePipeline(ctx context.Context, params *sagemaker.DescribePipelineInput, optFns ...func(*sagemaker.Options)) (*sagemaker.DescribePipelineOutput, error) {
@@ -657,8 +596,9 @@ func TestSageMakerNormalizerProjectsAssetIntoBundle(t *testing.T) {
 		t.Fatalf("expected image uris carried into resource metadata, got %v", images)
 	}
 
-	// Second asset with the same workload but a different role kind should
-	// merge into the existing resource's role list, not create a duplicate.
+	// Second asset with the same workload but a different role ARN should
+	// merge into the existing resource's role list, not create a duplicate
+	// resource entry.
 	second := record
 	second.RoleARN = "arn:aws:iam::123456789012:role/sagemaker-payments-other"
 	second.RoleKind = "sagemaker_training_execution_role"
@@ -1061,11 +1001,10 @@ func TestSDKSageMakerCompletedJobIsNotActive(t *testing.T) {
 }
 
 func TestSDKSageMakerPropagatesContextCancellation(t *testing.T) {
-	client := &fakeSageMakerSDKClient{
+	client := &fullSageMakerSDKClient{
 		notebooks: []sagemakertypes.NotebookInstanceSummary{{
 			NotebookInstanceName: awsv2.String("payments-eval"),
 		}},
-		notebook: nil,
 	}
 	// Wrap the SDK client so DescribeNotebookInstance returns context.Canceled.
 	cancelClient := &cancelDescribeNotebookClient{SageMakerSDKClient: client}
@@ -1131,5 +1070,57 @@ func TestSageMakerResourceTypeFallsBackToWorkloadType(t *testing.T) {
 		if got != want {
 			t.Fatalf("workload-type fallback %q: got %q, want %q", workloadType, got, want)
 		}
+	}
+}
+
+func TestSageMakerCollectorReturnsPartialAssetsOnMaxPagesExceeded(t *testing.T) {
+	collectedAt := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	roleARN := "arn:aws:iam::123456789012:role/sagemaker-payments-training"
+	workloadARN := "arn:aws:sagemaker:us-east-1:123456789012:training-job/payments-train-2026"
+	// Two pages: first returns a record (so an asset exists), then both pages
+	// keep advancing NextToken so the collector hits the max-pages guard.
+	record := SageMakerWorkloadRole{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID:    "123456789012",
+			Region:       "us-east-1",
+			Service:      "sagemaker",
+			WorkloadID:   workloadARN,
+			WorkloadName: "payments-train-2026",
+			WorkloadType: "sagemaker_training_job",
+			RoleARN:      roleARN,
+		},
+		RoleKind:    "sagemaker_training_execution_role",
+		WorkloadARN: workloadARN,
+	}
+	api := &fakeSageMakerWorkloadRoleAPI{pages: []SageMakerWorkloadRolePage{
+		{Records: []SageMakerWorkloadRole{record}, NextToken: "page-2"},
+		{Records: []SageMakerWorkloadRole{record}, NextToken: "page-3"},
+		{Records: []SageMakerWorkloadRole{record}, NextToken: "page-4"},
+	}}
+	collector := NewSageMakerWorkloadRoleCollector(api,
+		WithSageMakerWorkloadRoleMaxPages(2),
+		WithSageMakerWorkloadRoleClock(func() time.Time { return collectedAt }),
+	)
+	assets, diagnostics, err := collector.CollectWithDiagnostics(context.Background(), AWSCollectorScope{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-a",
+		ConnectorID: "aws-prod",
+		ScanID:      "scan-1",
+	})
+	if err == nil {
+		t.Fatalf("expected max-pages error, got nil")
+	}
+	if len(assets) == 0 {
+		t.Fatalf("expected partial assets returned with the overflow error, got none")
+	}
+	foundOverflowDiag := false
+	for _, diag := range diagnostics {
+		if diag.Code == "sagemaker_workload_role_page_limit_exceeded" {
+			foundOverflowDiag = true
+		}
+	}
+	if !foundOverflowDiag {
+		t.Fatalf("expected page-limit diagnostic among returned diagnostics, got %+v", diagnostics)
 	}
 }

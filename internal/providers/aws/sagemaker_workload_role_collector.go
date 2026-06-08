@@ -192,7 +192,17 @@ func (c *SageMakerWorkloadRoleCollector) CollectWithDiagnostics(ctx context.Cont
 	collectedAt := c.now().UTC()
 	for page := 1; ; page++ {
 		if page > c.maxPages {
-			return nil, nil, fmt.Errorf("sagemaker workload role collection exceeded max pages (%d)", c.maxPages)
+			// Return whatever assets and diagnostics we already collected so
+			// the partial scan is still visible to downstream consumers; the
+			// error itself preserves the overflow signal.
+			c.addIssue(providers.SourceError{
+				Collector: sageMakerWorkloadRoleCollectorName,
+				SourceID:  firstNonEmptyAWSValue(nextToken, "page"),
+				Code:      "sagemaker_workload_role_page_limit_exceeded",
+				Message:   fmt.Sprintf("sagemaker workload role collection exceeded max pages (%d)", c.maxPages),
+				Retryable: false,
+			})
+			return assets, append([]providers.SourceError(nil), c.issues...), fmt.Errorf("sagemaker workload role collection exceeded max pages (%d)", c.maxPages)
 		}
 		response, err := retryAWSPage(ctx, c.retry, c.jitter, c.randFn, c.sleep, func(callCtx context.Context) (SageMakerWorkloadRolePage, error) {
 			return c.client.ListServiceRoles(callCtx, nextToken, c.pageSize)

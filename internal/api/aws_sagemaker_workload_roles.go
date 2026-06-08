@@ -286,52 +286,54 @@ func awsSageMakerWorkloadRoleFixtureRecords(accountID string, region string, fix
 		Reason:       "SageMaker Studio shared spaces are not enumerated in this wave to keep the surface metadata-only and avoid reading notebook contents.",
 		Remediation:  "Track shared-space role coverage in a follow-up issue; do not enable list/describe on shared-space notebooks here.",
 	}}
-	notebookARN := fmt.Sprintf("arn:aws:sagemaker:%s:%s:notebook-instance/payments-eval", region, accountID)
-	trainingARN := fmt.Sprintf("arn:aws:sagemaker:%s:%s:training-job/payments-train-2026", region, accountID)
-	processingARN := fmt.Sprintf("arn:aws:sagemaker:%s:%s:processing-job/payments-features-2026", region, accountID)
-	transformARN := fmt.Sprintf("arn:aws:sagemaker:%s:%s:transform-job/payments-score-2026", region, accountID)
-	modelARN := fmt.Sprintf("arn:aws:sagemaker:%s:%s:model/payments-risk-classifier", region, accountID)
-	endpointARN := fmt.Sprintf("arn:aws:sagemaker:%s:%s:endpoint/payments-risk-classifier", region, accountID)
-	pipelineARN := fmt.Sprintf("arn:aws:sagemaker:%s:%s:pipeline/payments-mlops", region, accountID)
-	domainARN := fmt.Sprintf("arn:aws:sagemaker:%s:%s:domain/d-payments", region, accountID)
+	partition := awsSageMakerPartitionForRegion(region)
+	ecrHost := awsSageMakerECRRegistryHost(accountID, region, partition)
+	notebookARN := fmt.Sprintf("arn:%s:sagemaker:%s:%s:notebook-instance/payments-eval", partition, region, accountID)
+	trainingARN := fmt.Sprintf("arn:%s:sagemaker:%s:%s:training-job/payments-train-2026", partition, region, accountID)
+	processingARN := fmt.Sprintf("arn:%s:sagemaker:%s:%s:processing-job/payments-features-2026", partition, region, accountID)
+	transformARN := fmt.Sprintf("arn:%s:sagemaker:%s:%s:transform-job/payments-score-2026", partition, region, accountID)
+	modelARN := fmt.Sprintf("arn:%s:sagemaker:%s:%s:model/payments-risk-classifier", partition, region, accountID)
+	endpointARN := fmt.Sprintf("arn:%s:sagemaker:%s:%s:endpoint/payments-risk-classifier", partition, region, accountID)
+	pipelineARN := fmt.Sprintf("arn:%s:sagemaker:%s:%s:pipeline/payments-mlops", partition, region, accountID)
+	domainARN := fmt.Sprintf("arn:%s:sagemaker:%s:%s:domain/d-payments", partition, region, accountID)
 	records := []AWSSageMakerWorkloadRoleRecord{
-		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_notebook_instance", "payments-eval", notebookARN, fmt.Sprintf("arn:aws:iam::%s:role/sagemaker-payments-notebook", accountID), "sagemaker_notebook_execution_role", "InService", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
-			r.KMSKeyARNs = []string{fmt.Sprintf("arn:aws:kms:%s:%s:key/payments-notebook", region, accountID)}
+		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_notebook_instance", "payments-eval", notebookARN, fmt.Sprintf("arn:%s:iam::%s:role/sagemaker-payments-notebook", partition, accountID), "sagemaker_notebook_execution_role", "InService", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
+			r.KMSKeyARNs = []string{fmt.Sprintf("arn:%s:kms:%s:%s:key/payments-notebook", partition, region, accountID)}
 		}),
-		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_training_job", "payments-train-2026", trainingARN, fmt.Sprintf("arn:aws:iam::%s:role/sagemaker-payments-training", accountID), "sagemaker_training_execution_role", "InProgress", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
-			r.ImageURIs = []string{fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com/payments-training:2026-04", accountID, region)}
+		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_training_job", "payments-train-2026", trainingARN, fmt.Sprintf("arn:%s:iam::%s:role/sagemaker-payments-training", partition, accountID), "sagemaker_training_execution_role", "InProgress", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
+			r.ImageURIs = []string{ecrHost + "/payments-training:2026-04"}
 			r.S3References = []string{fmt.Sprintf("s3://payments-feature-store/train/%s/", accountID), fmt.Sprintf("s3://payments-models/train-out/%s/", accountID)}
-			r.KMSKeyARNs = []string{fmt.Sprintf("arn:aws:kms:%s:%s:key/payments-train-out", region, accountID), fmt.Sprintf("arn:aws:kms:%s:%s:key/payments-train-volume", region, accountID)}
+			r.KMSKeyARNs = []string{fmt.Sprintf("arn:%s:kms:%s:%s:key/payments-train-out", partition, region, accountID), fmt.Sprintf("arn:%s:kms:%s:%s:key/payments-train-volume", partition, region, accountID)}
 			r.NetworkMode = "vpc"
 		}),
-		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_processing_job", "payments-features-2026", processingARN, fmt.Sprintf("arn:aws:iam::%s:role/sagemaker-payments-processing", accountID), "sagemaker_processing_execution_role", "InProgress", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
-			r.ImageURIs = []string{fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com/payments-features:2026-04", accountID, region)}
+		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_processing_job", "payments-features-2026", processingARN, fmt.Sprintf("arn:%s:iam::%s:role/sagemaker-payments-processing", partition, accountID), "sagemaker_processing_execution_role", "InProgress", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
+			r.ImageURIs = []string{ecrHost + "/payments-features:2026-04"}
 			r.S3References = []string{fmt.Sprintf("s3://payments-feature-store/raw/%s/", accountID), fmt.Sprintf("s3://payments-feature-store/processed/%s/", accountID)}
-			r.KMSKeyARNs = []string{fmt.Sprintf("arn:aws:kms:%s:%s:key/payments-features-volume", region, accountID), fmt.Sprintf("arn:aws:kms:%s:%s:key/payments-features-out", region, accountID)}
+			r.KMSKeyARNs = []string{fmt.Sprintf("arn:%s:kms:%s:%s:key/payments-features-volume", partition, region, accountID), fmt.Sprintf("arn:%s:kms:%s:%s:key/payments-features-out", partition, region, accountID)}
 		}),
-		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_transform_job", "payments-score-2026", transformARN, fmt.Sprintf("arn:aws:iam::%s:role/sagemaker-payments-model", accountID), "sagemaker_batch_transform_execution_role", "InProgress", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
+		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_transform_job", "payments-score-2026", transformARN, fmt.Sprintf("arn:%s:iam::%s:role/sagemaker-payments-model", partition, accountID), "sagemaker_batch_transform_execution_role", "InProgress", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
 			r.S3References = []string{fmt.Sprintf("s3://payments-feature-store/score/in/%s/", accountID), fmt.Sprintf("s3://payments-feature-store/score/out/%s/", accountID)}
-			r.KMSKeyARNs = []string{fmt.Sprintf("arn:aws:kms:%s:%s:key/payments-score-out", region, accountID)}
+			r.KMSKeyARNs = []string{fmt.Sprintf("arn:%s:kms:%s:%s:key/payments-score-out", partition, region, accountID)}
 			r.ModelARN = modelARN
 		}),
-		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_model", "payments-risk-classifier", modelARN, fmt.Sprintf("arn:aws:iam::%s:role/sagemaker-payments-model", accountID), "sagemaker_model_execution_role", "InService", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
-			r.ImageURIs = []string{fmt.Sprintf("%s.dkr.ecr.%s.amazonaws.com/payments-classifier:2026-04", accountID, region)}
+		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_model", "payments-risk-classifier", modelARN, fmt.Sprintf("arn:%s:iam::%s:role/sagemaker-payments-model", partition, accountID), "sagemaker_model_execution_role", "InService", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
+			r.ImageURIs = []string{ecrHost + "/payments-classifier:2026-04"}
 			r.S3References = []string{"s3://payments-models/payments-risk-classifier/"}
 			r.ModelARN = modelARN
 			r.NetworkMode = "vpc"
 		}),
-		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_endpoint", "payments-risk-classifier", endpointARN, fmt.Sprintf("arn:aws:iam::%s:role/sagemaker-payments-model", accountID), "sagemaker_endpoint_execution_role", "InService", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
+		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_endpoint", "payments-risk-classifier", endpointARN, fmt.Sprintf("arn:%s:iam::%s:role/sagemaker-payments-model", partition, accountID), "sagemaker_endpoint_execution_role", "InService", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
 			r.EndpointConfig = "payments-risk-classifier-config"
 			r.ModelARN = modelARN
-			r.KMSKeyARNs = []string{fmt.Sprintf("arn:aws:kms:%s:%s:key/payments-endpoint", region, accountID)}
+			r.KMSKeyARNs = []string{fmt.Sprintf("arn:%s:kms:%s:%s:key/payments-endpoint", partition, region, accountID)}
 		}),
-		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_pipeline", "payments-mlops", pipelineARN, fmt.Sprintf("arn:aws:iam::%s:role/sagemaker-payments-pipeline", accountID), "sagemaker_pipeline_execution_role", "Active", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
+		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_pipeline", "payments-mlops", pipelineARN, fmt.Sprintf("arn:%s:iam::%s:role/sagemaker-payments-pipeline", partition, accountID), "sagemaker_pipeline_execution_role", "Active", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
 			r.PipelineARN = pipelineARN
 		}),
-		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_domain", "d-payments", domainARN, fmt.Sprintf("arn:aws:iam::%s:role/sagemaker-payments-domain-default", accountID), "sagemaker_domain_execution_role", "InService", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
+		awsSageMakerWorkloadRoleFixtureRecord(accountID, region, "sagemaker_domain", "d-payments", domainARN, fmt.Sprintf("arn:%s:iam::%s:role/sagemaker-payments-domain-default", partition, accountID), "sagemaker_domain_execution_role", "InService", checkedAt, func(r *AWSSageMakerWorkloadRoleRecord) {
 			r.DomainID = "d-payments"
 			r.DomainARN = domainARN
-			r.KMSKeyARNs = []string{fmt.Sprintf("arn:aws:kms:%s:%s:key/payments-domain", region, accountID)}
+			r.KMSKeyARNs = []string{fmt.Sprintf("arn:%s:kms:%s:%s:key/payments-domain", partition, region, accountID)}
 		}),
 	}
 	switch fixtureState {
@@ -560,4 +562,30 @@ func awsSageMakerNodeID(accountID string, region string, workloadType string, wo
 		firstNonEmptyAWSValue(workloadRef, "sagemaker"),
 		firstNonEmptyAWSValue(roleKind, "role"),
 	)
+}
+
+// awsSageMakerPartitionForRegion returns the ARN partition (aws,
+// aws-us-gov, aws-cn) for the supplied AWS region so synthesized fixture
+// ARNs match the partition the operator's connector points at.
+func awsSageMakerPartitionForRegion(region string) string {
+	trimmed := strings.TrimSpace(region)
+	switch {
+	case strings.HasPrefix(trimmed, "us-gov-"):
+		return "aws-us-gov"
+	case strings.HasPrefix(trimmed, "cn-"):
+		return "aws-cn"
+	default:
+		return "aws"
+	}
+}
+
+// awsSageMakerECRRegistryHost returns the public ECR registry host for the
+// supplied region. China uses the .com.cn suffix while every other partition
+// uses .amazonaws.com.
+func awsSageMakerECRRegistryHost(accountID string, region string, partition string) string {
+	suffix := "amazonaws.com"
+	if partition == "aws-cn" {
+		suffix = "amazonaws.com.cn"
+	}
+	return fmt.Sprintf("%s.dkr.ecr.%s.%s", accountID, region, suffix)
 }

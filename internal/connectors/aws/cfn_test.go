@@ -116,7 +116,9 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 		"sagemaker:DescribeDomain",
 		"sagemaker:ListTags",
 	} {
-		if !strings.Contains(string(policy), action) {
+		// Quote-wrap so DescribeEndpoint does not falsely match
+		// DescribeEndpointConfig (and similar prefix overlaps).
+		if !strings.Contains(string(policy), "\""+action+"\"") {
 			t.Fatalf("expected SageMaker workload-role read action %q in policy", action)
 		}
 	}
@@ -125,7 +127,7 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 		"sagemaker:CreatePresignedDomainUrl",
 		"sagemaker:InvokeEndpoint",
 	} {
-		if strings.Contains(string(policy), mutating) {
+		if strings.Contains(string(policy), "\""+mutating+"\"") {
 			t.Fatalf("connector policy must not include sensitive SageMaker action %q", mutating)
 		}
 	}

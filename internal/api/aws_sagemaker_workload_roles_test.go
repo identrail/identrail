@@ -209,3 +209,43 @@ func TestNormalizeAWSSageMakerFixtureStateHonorsExplicitSuccess(t *testing.T) {
 		t.Fatalf("invalid fixture_state should return empty, got %q", got)
 	}
 }
+
+func TestAWSSageMakerFixtureUsesGovCloudPartition(t *testing.T) {
+	records, _, _ := awsSageMakerWorkloadRoleFixtureRecords("123456789012", "us-gov-west-1", "success", time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC))
+	if len(records) == 0 {
+		t.Fatalf("expected fixture records, got 0")
+	}
+	for _, record := range records {
+		if !strings.HasPrefix(record.WorkloadARN, "arn:aws-us-gov:sagemaker:") {
+			t.Fatalf("expected GovCloud workload ARN, got %q", record.WorkloadARN)
+		}
+		if !strings.HasPrefix(record.RoleARN, "arn:aws-us-gov:iam::") {
+			t.Fatalf("expected GovCloud role ARN, got %q", record.RoleARN)
+		}
+		for _, kms := range record.KMSKeyARNs {
+			if !strings.HasPrefix(kms, "arn:aws-us-gov:kms:") {
+				t.Fatalf("expected GovCloud KMS ARN, got %q", kms)
+			}
+		}
+	}
+}
+
+func TestAWSSageMakerFixtureUsesChinaPartitionForECR(t *testing.T) {
+	records, _, _ := awsSageMakerWorkloadRoleFixtureRecords("123456789012", "cn-northwest-1", "success", time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC))
+	if len(records) == 0 {
+		t.Fatalf("expected fixture records, got 0")
+	}
+	sawCNECR := false
+	for _, record := range records {
+		for _, image := range record.ImageURIs {
+			if strings.Contains(image, ".amazonaws.com.cn/") {
+				sawCNECR = true
+			} else if strings.Contains(image, ".dkr.ecr.") && !strings.Contains(image, ".amazonaws.com.cn/") {
+				t.Fatalf("expected China ECR registry suffix .amazonaws.com.cn, got %q", image)
+			}
+		}
+	}
+	if !sawCNECR {
+		t.Fatalf("expected at least one ECR image URI on a fixture record")
+	}
+}
