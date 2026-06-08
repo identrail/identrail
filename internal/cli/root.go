@@ -644,6 +644,7 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 				awsprovider.NewEventDrivenRoleCollector(eventDrivenAPI),
 				awsprovider.NewManagedComputeRoleCollector(managedComputeAPI),
 				awsprovider.NewSageMakerWorkloadRoleCollector(sageMakerAPI),
+				awsprovider.NewIAMPassRoleRelationshipCollector(iamAPI),
 				awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 			}, awsprovider.NewRuleSet(
 				awsprovider.WithStaleAfter(time.Duration(staleAfterDays)*24*time.Hour),

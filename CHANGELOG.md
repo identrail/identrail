@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- Add **IAM PassRole static relationship mapper** (#1487). Parses every IAM
+  role's permission policies for `iam:PassRole` statements and emits one
+  normalized record per (source, target, condition, effect) tuple with
+  explicit confidence tiers for specific ARNs, path-scoped wildcards,
+  account-position wildcards, and `*`. Surfaces Deny statements,
+  `iam:PassedToService` conditions, and inverse (NotAction/NotResource)
+  forms rather than silently expanding them. Adds the
+  `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/iam-passrole-relationships`
+  endpoint with `success`, `empty`, `degraded`, `partial_failure`, and
+  `permission_denied` fixture states, OpenAPI schema, web API client types,
+  runtime/CLI wiring, and operator docs. The collector reuses the existing
+  IAM read-only permissions and never makes write or decrypt calls.
 - Add **SageMaker workload identity collector** (#1486). Read-only inventory
   of notebook, training, processing, transform, model, endpoint, pipeline,
   and Studio domain execution roles, with S3 prefix, ECR image, and KMS key

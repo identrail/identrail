@@ -175,6 +175,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		}
 	}
 
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != rawKindIAMPassRoleRelationship {
+			continue
+		}
+		if err := normalizeIAMPassRoleRelationshipAsset(asset, i, &bundle, identitySeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
 	return bundle, nil
 }
 
@@ -1749,4 +1761,58 @@ func sageMakerWorkloadType(record SageMakerWorkloadRole) string {
 
 func sageMakerWorkloadName(record SageMakerWorkloadRole) string {
 	return firstNonEmptyAWSValue(record.WorkloadName, managedComputeNameFromARN(firstNonEmptyAWSValue(record.WorkloadARN, record.ResourceARN)), "sagemaker workload")
+}
+
+func normalizeIAMPassRoleRelationshipAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}) error {
+	var record IAMPassRoleRelationship
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode iam passrole relationship asset[%d]: %w", index, err)
+	}
+
+	// Register the source identity (the role whose policy contains the
+	// PassRole grant) so the graph has a well-formed "from" endpoint. The
+	// dedupe map short-circuits if the IAM collector has already emitted it.
+	sourceRoleARN := strings.TrimSpace(record.SourceRoleARN)
+	if sourceRoleARN == "" {
+		return nil
+	}
+	sourceID := identityIDFromARN(sourceRoleARN)
+	if _, exists := identitySeen[sourceID]; !exists {
+		identitySeen[sourceID] = struct{}{}
+		bundle.Identities = append(bundle.Identities, domain.Identity{
+			ID:        sourceID,
+			Provider:  domain.ProviderAWS,
+			Type:      domain.IdentityTypeRole,
+			Name:      firstNonEmptyAWSValue(record.SourceRoleName, roleNameFromARN(sourceRoleARN)),
+			ARN:       sourceRoleARN,
+			OwnerHint: ownerHintFromTags(record.Tags),
+			Tags:      copyTags(record.Tags),
+			RawRef:    asset.SourceID,
+		})
+	}
+
+	// Target identities are only projected for concrete role ARNs. Wildcard
+	// targets stay as raw-asset/API metadata — synthesizing an "arn:aws:iam::
+	// *:role/*" identity would pollute every downstream traversal and create
+	// fake nodes the graph cannot reason about.
+	if record.UnresolvedTarget {
+		return nil
+	}
+	targetARN := strings.TrimSpace(record.TargetResource)
+	if targetARN == "" || !strings.HasPrefix(targetARN, "arn:") {
+		return nil
+	}
+	targetID := identityIDFromARN(targetARN)
+	if _, exists := identitySeen[targetID]; !exists {
+		identitySeen[targetID] = struct{}{}
+		bundle.Identities = append(bundle.Identities, domain.Identity{
+			ID:       targetID,
+			Provider: domain.ProviderAWS,
+			Type:     domain.IdentityTypeRole,
+			Name:     roleNameFromARN(targetARN),
+			ARN:      targetARN,
+			RawRef:   asset.SourceID,
+		})
+	}
+	return nil
 }

@@ -1941,6 +1941,106 @@ export type AWSSageMakerWorkloadRoleInventoryResult = {
   updated_at: string;
 };
 
+export type AWSIAMPassRoleRelationshipInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSIAMPassRoleRelationshipFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+
+export type AWSIAMPassRoleCoverageGap = {
+  capability: string;
+  status: 'unsupported';
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSIAMPassRoleRelationshipRecord = {
+  account_id: string;
+  region?: string;
+  service: 'iam-passrole';
+  workload_id: string;
+  workload_type: 'iam_passrole_relationship' | string;
+  workload_name: string;
+  source_role_arn: string;
+  source_role_name?: string;
+  source_role_path?: string;
+  target_resource: string;
+  target_wildcard_kind: 'specific' | 'path_wildcard' | 'account_wildcard' | 'all';
+  policy_name?: string;
+  statement_sid?: string;
+  action_expression: 'iam:PassRole' | 'iam:*' | '*' | string;
+  effect: 'Allow' | 'Deny';
+  passed_to_service?: string;
+  condition_operator?: string;
+  not_action?: boolean;
+  not_resource?: boolean;
+  other_condition_keys?: string[];
+  unresolved_target: boolean;
+  tags?: Record<string, string>;
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  to_node_id?: string;
+  relationship_type: 'can_pass_role' | string;
+  confidence: number;
+  collected_at: string;
+  status: string;
+};
+
+export type AWSIAMPassRoleRelationshipEdge = {
+  type: 'can_pass_role' | string;
+  from_node_id: string;
+  to_node_id?: string;
+  evidence_ref: string;
+  effect: 'Allow' | 'Deny';
+  passed_to_service?: string;
+};
+
+export type AWSIAMPassRoleRelationshipDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSIAMPassRoleRelationshipInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSIAMPassRoleRelationshipInventoryStatus;
+  fixture_state: AWSIAMPassRoleRelationshipFixtureState;
+  confidence: number;
+  record_count: number;
+  source_role_count: number;
+  target_role_count: number;
+  wildcard_target_count: number;
+  deny_statement_count: number;
+  service_scoped_count: number;
+  unscoped_count: number;
+  relationship_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSIAMPassRoleCoverageGap[];
+  records: AWSIAMPassRoleRelationshipRecord[];
+  relationships: AWSIAMPassRoleRelationshipEdge[];
+  diagnostics: AWSIAMPassRoleRelationshipDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSEKSWorkloadIdentityInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSEKSWorkloadIdentityFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 
@@ -3137,6 +3237,21 @@ export const apiClient = {
   ) {
     return request<{ inventory: AWSSageMakerWorkloadRoleInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/sagemaker-workload-roles${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectIAMPassRoleRelationships(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSIAMPassRoleRelationshipFixtureState,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSIAMPassRoleRelationshipInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/iam-passrole-relationships${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
       })}`,

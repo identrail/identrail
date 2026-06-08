@@ -136,6 +136,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				awsprovider.NewEventDrivenRoleCollector(eventDrivenAPI),
 				awsprovider.NewManagedComputeRoleCollector(managedComputeAPI),
 				awsprovider.NewSageMakerWorkloadRoleCollector(sageMakerAPI),
+				awsprovider.NewIAMPassRoleRelationshipCollector(iamAPI),
 				awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 			)
 		default:
@@ -278,6 +279,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 			awsprovider.NewEventDrivenRoleCollector(eventDrivenAPI),
 			awsprovider.NewManagedComputeRoleCollector(managedComputeAPI),
 			awsprovider.NewSageMakerWorkloadRoleCollector(sageMakerAPI),
+			awsprovider.NewIAMPassRoleRelationshipCollector(iamAPI),
 			awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 		)
 		return scanner, nil

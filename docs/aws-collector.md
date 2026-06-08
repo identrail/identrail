@@ -241,3 +241,10 @@ ordered by `kind`, then `source_id`.
   records execution roles, S3 prefix references, ECR image URIs, and KMS key
   ARNs without reading notebook contents, training payloads, or model
   artifacts.
+- IAM PassRole static relationships are exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/iam-passrole-relationships`
+  and the AWS machine identities page. The collector parses already-collected
+  IAM role permission policies for `iam:PassRole` statements, classifies
+  targets as specific/path-wildcard/account-wildcard/all with explicit
+  confidence tiers, and surfaces Deny statements plus
+  `iam:PassedToService` conditions. No AWS write or mutation APIs are used.

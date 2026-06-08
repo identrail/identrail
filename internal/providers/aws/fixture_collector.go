@@ -126,6 +126,16 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	// IAM PassRole relationships carry a distinctive workload type
+	// (iam_passrole_relationship) plus PassRole-specific fields that no other
+	// classifier emits, so this matcher is unambiguous and order-insensitive.
+	var passRoleRel IAMPassRoleRelationship
+	if err := json.Unmarshal(payload, &passRoleRel); err == nil {
+		if isIAMPassRoleRelationshipFixture(passRoleRel) {
+			return rawKindIAMPassRoleRelationship, iamPassRoleRecordSourceID(passRoleRel)
+		}
+	}
+
 	var managedComputeRole ManagedComputeRole
 	if err := json.Unmarshal(payload, &managedComputeRole); err == nil {
 		sourceID := managedComputeRoleSourceID(managedComputeRole)
@@ -355,6 +365,23 @@ func isSageMakerWorkloadRoleFixture(record SageMakerWorkloadRole) bool {
 	}
 	// DomainID and EndpointConfig are SageMaker-only operator-facing fields.
 	return strings.TrimSpace(record.DomainID) != "" || strings.TrimSpace(record.EndpointConfig) != ""
+}
+
+// isIAMPassRoleRelationshipFixture identifies records that look like PassRole
+// edges. The matcher is strict (service or collector name match, or the
+// dedicated workload type), so it never claims unrelated records that happen
+// to embed similar field names.
+func isIAMPassRoleRelationshipFixture(record IAMPassRoleRelationship) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), iamPassRoleServiceName) {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(record.CollectorName), iamPassRoleRelationshipCollectorName) {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(record.WorkloadType), "iam_passrole_relationship") {
+		return true
+	}
+	return false
 }
 
 func isSageMakerARN(arn string) bool {

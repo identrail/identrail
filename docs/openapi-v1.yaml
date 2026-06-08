@@ -534,6 +534,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/iam-passrole-relationships
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/eks-workload-identities
     action: tenancy.read
     resource_type: project
@@ -4253,6 +4258,56 @@ paths:
                     $ref: "#/components/schemas/AWSSageMakerWorkloadRoleInventoryResult"
         "400":
           description: Invalid AWS SageMaker workload role inventory request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/iam-passrole-relationships:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS IAM PassRole static relationship inventory
+      operationId: getAWSProjectIAMPassRoleRelationships
+      description: Returns scoped IAM PassRole grants extracted from collected role permission policies, with explicit confidence tiers for wildcards, deny statements, and inverse (NotAction/NotResource) forms. Read-only and metadata-only — the collector consumes already-collected IAM policy documents and never reads policy values that are not part of the document text.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope the account, region, and read-only IAM PassRole inventory evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+      responses:
+        "200":
+          description: AWS IAM PassRole relationship inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inventory:
+                    $ref: "#/components/schemas/AWSIAMPassRoleRelationshipInventoryResult"
+        "400":
+          description: Invalid AWS IAM PassRole relationship inventory request
           content:
             application/json:
               schema:
@@ -9009,6 +9064,164 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSSageMakerWorkloadRoleDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSIAMPassRoleCoverageGap:
+      type: object
+      properties:
+        capability: { type: string }
+        status:
+          type: string
+          enum: [unsupported]
+        reason: { type: string }
+        remediation: { type: string }
+    AWSIAMPassRoleRelationshipRecord:
+      type: object
+      properties:
+        account_id: { type: string }
+        region: { type: string }
+        service:
+          type: string
+          enum: [iam-passrole]
+        workload_id: { type: string }
+        workload_type:
+          type: string
+          enum: [iam_passrole_relationship]
+        workload_name: { type: string }
+        source_role_arn: { type: string }
+        source_role_name: { type: string }
+        source_role_path: { type: string }
+        target_resource: { type: string }
+        target_wildcard_kind:
+          type: string
+          enum: [specific, path_wildcard, account_wildcard, all]
+        policy_name: { type: string }
+        statement_sid: { type: string }
+        action_expression:
+          type: string
+          enum: ["iam:PassRole", "iam:*", "*"]
+        effect:
+          type: string
+          enum: [Allow, Deny]
+        passed_to_service: { type: string }
+        condition_operator: { type: string }
+        not_action: { type: boolean }
+        not_resource: { type: boolean }
+        other_condition_keys:
+          type: array
+          items: { type: string }
+        unresolved_target: { type: boolean }
+        tags:
+          type: object
+          additionalProperties: { type: string }
+        source: { type: string }
+        evidence_ref: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        relationship_type:
+          type: string
+          enum: [can_pass_role]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        collected_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [ready, degraded, deny]
+    AWSIAMPassRoleRelationshipEdge:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [can_pass_role]
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+        effect:
+          type: string
+          enum: [Allow, Deny]
+        passed_to_service: { type: string }
+    AWSIAMPassRoleRelationshipDiagnostic:
+      type: object
+      properties:
+        collector: { type: string }
+        source_id: { type: string }
+        code:
+          type: string
+          enum:
+            - iam_passrole_page_failed
+            - iam_passrole_page_limit_exceeded
+            - iam_passrole_policy_parse_failed
+            - iam_passrole_wildcard_target
+            - malformed_iam_passrole_record
+            - permission_denied
+        message: { type: string }
+        remediation: { type: string }
+        retryable: { type: boolean }
+    AWSIAMPassRoleRelationshipInventoryResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        record_count: { type: integer }
+        source_role_count: { type: integer }
+        target_role_count: { type: integer }
+        wildcard_target_count: { type: integer }
+        deny_statement_count: { type: integer }
+        service_scoped_count: { type: integer }
+        unscoped_count: { type: integer }
+        relationship_count: { type: integer }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIAMPassRoleCoverageGap"
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIAMPassRoleRelationshipRecord"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIAMPassRoleRelationshipEdge"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIAMPassRoleRelationshipDiagnostic"
         generated_at:
           type: string
           format: date-time
