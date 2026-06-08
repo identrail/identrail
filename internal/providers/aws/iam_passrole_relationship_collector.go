@@ -322,6 +322,9 @@ func iamPassRoleRecordSourceID(record IAMPassRoleRelationship) string {
 		record.Effect,
 		record.TargetResource,
 		record.PassedToService,
+		record.ConditionOperator,
+		fmt.Sprintf("not_action=%t", record.NotAction),
+		fmt.Sprintf("not_resource=%t", record.NotResource),
 	}), "|")
 }
 
