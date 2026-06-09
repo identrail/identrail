@@ -1824,18 +1824,20 @@ func normalizeIAMPassRoleRelationshipAsset(asset providers.RawAsset, index int, 
 }
 
 // isIAMRoleARN reports whether the supplied string is a fully-qualified IAM
-// role ARN of the form arn:PARTITION:iam::ACCOUNT:role/PATH. It guards the
+// role ARN of the form arn:PARTITION:iam::ACCOUNT:role/NAME. It guards the
 // PassRole normalizer from synthesizing identity nodes from non-IAM-role ARNs
 // that happen to share the arn: prefix.
+//
+// Every segment is validated: the literal "arn" prefix, an aws-family
+// partition, the service "iam", an empty region (IAM is global), a 12-digit
+// numeric account ID, and a resource of the form "role/NAME" where NAME is
+// non-empty. Anything else — wrong service, missing account, region present,
+// dangling "role/" with no name — rejects.
 func isIAMRoleARN(arn string) bool {
 	trimmed := strings.TrimSpace(arn)
 	if trimmed == "" {
 		return false
 	}
-	// AWS ARN format: arn:partition:service:region:account:resource.
-	// We need 6 segments, partition starting with "aws", service exactly
-	// "iam", region empty (IAM is global), and resource beginning with
-	// "role/".
 	parts := strings.SplitN(trimmed, ":", 6)
 	if len(parts) != 6 {
 		return false
@@ -1849,5 +1851,22 @@ func isIAMRoleARN(arn string) bool {
 	if !strings.EqualFold(parts[2], "iam") {
 		return false
 	}
-	return strings.HasPrefix(parts[5], "role/")
+	// IAM is a global service; the region segment must be empty.
+	if parts[3] != "" {
+		return false
+	}
+	account := strings.TrimSpace(parts[4])
+	if len(account) != 12 {
+		return false
+	}
+	for _, ch := range account {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	resource := strings.TrimSpace(parts[5])
+	if !strings.HasPrefix(resource, "role/") {
+		return false
+	}
+	return len(strings.TrimPrefix(resource, "role/")) > 0
 }

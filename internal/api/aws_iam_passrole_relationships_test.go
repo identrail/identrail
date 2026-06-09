@@ -204,36 +204,33 @@ func TestAWSIAMPassRoleRelationshipEdgesExcludeUnresolvedAndDeny(t *testing.T) {
 	}
 }
 
-func TestRouterAWSIAMPassRoleRelationshipNilLoggerDoesNotPanic(t *testing.T) {
-	store := db.NewMemoryStore()
-	ctx := defaultScopeContext()
-	now := time.Date(2026, 6, 8, 17, 0, 0, 0, time.UTC)
-	seedDefaultProject(t, store, ctx, "project-nil-logger")
-	seedAWSConnectorForScanTest(t, store, ctx, "project-nil-logger", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
-
-	svc := NewService(store, fakeScanner{}, "aws")
-	svc.Now = func() time.Time { return now }
-	// Use a nil zap logger to prove the 500 path does not panic when logging
-	// is absent (matches the production code's defensive guard).
-	r := NewRouter(nil, telemetry.NewMetrics(), svc, RouterOptions{})
-
-	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-nil-logger/aws/iam-passrole-relationships?connector_id=aws-prod&fixture_state=success", "")
-	// Any non-panicking response is fine for this test; we are guarding
-	// against logger.Error panicking when logger is nil.
-	if resp == nil {
-		t.Fatalf("expected a response, got nil")
-	}
-}
+// Note: the route's nil-logger guard is small and obvious. Exercising the
+// default 500 branch with a nil logger requires forcing
+// GetAWSIAMPassRoleRelationshipInventory to return a non-ErrNotFound, non-
+// ErrInvalidAWSConnectionRequest error from inside the service. The Service
+// type is concrete and has no error-injection hooks, so the previous
+// "fixture_state=success" assertion never actually reached the logger.Error
+// call and was deleted rather than left as false coverage. The production
+// guard remains; reintroduce a real test once Service grows a seam for
+// mocking error returns.
 
 func TestAWSIAMPassRoleWildcardKindClassifiesMalformedTargets(t *testing.T) {
 	cases := map[string]string{
-		"arn:aws:iam::123456789012:role/payments":   "specific",
-		"arn:aws:iam::123456789012:role/payments-*": "path_wildcard",
-		"arn:aws:iam::*:role/payments":              "account_wildcard",
-		"*":                                         "all",
-		"not-an-arn":                                "malformed",
-		"role/payments":                             "malformed",
-		"":                                          "malformed",
+		// Valid IAM role ARNs.
+		"arn:aws:iam::123456789012:role/payments":        "specific",
+		"arn:aws-us-gov:iam::123456789012:role/payments": "specific",
+		"arn:aws:iam::123456789012:role/payments-*":      "path_wildcard",
+		"arn:aws:iam::*:role/payments":                   "account_wildcard",
+		"*":                                              "all",
+		// Non-IAM ARNs must reject — otherwise edges would point at non-role
+		// resources.
+		"arn:aws:s3:::bucket": "malformed",
+		"arn:aws:lambda:us-east-1:123456789012:function:payments": "malformed",
+		"arn:aws:iam::123456789012:user/dev":                      "malformed",
+		// Non-ARN inputs.
+		"not-an-arn":    "malformed",
+		"role/payments": "malformed",
+		"":              "malformed",
 	}
 	for input, want := range cases {
 		if got := awsIAMPassRoleWildcardKind(input); got != want {

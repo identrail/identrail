@@ -489,14 +489,27 @@ func TestIAMPassRoleCollectorPropagatesPageToken(t *testing.T) {
 
 func TestIsIAMRoleARN(t *testing.T) {
 	cases := map[string]bool{
-		"arn:aws:iam::123456789012:role/payments":                 true,
-		"arn:aws:iam::123456789012:role/path/payments":            true,
-		"arn:aws-us-gov:iam::123456789012:role/payments":          true,
-		"arn:aws-cn:iam::123456789012:role/payments":              true,
-		"arn:aws:iam::123456789012:user/dev":                      false,
-		"arn:aws:iam::123456789012:policy/Admin":                  false,
-		"arn:aws:s3:::bucket":                                     false,
+		// Valid IAM role ARNs in commercial, GovCloud, and China partitions.
+		"arn:aws:iam::123456789012:role/payments":        true,
+		"arn:aws:iam::123456789012:role/path/payments":   true,
+		"arn:aws-us-gov:iam::123456789012:role/payments": true,
+		"arn:aws-cn:iam::123456789012:role/payments":     true,
+		// Wrong IAM resource kinds.
+		"arn:aws:iam::123456789012:user/dev":     false,
+		"arn:aws:iam::123456789012:policy/Admin": false,
+		// Trailing "role/" with no name.
+		"arn:aws:iam::123456789012:role/": false,
+		// Region segment populated — IAM is global.
+		"arn:aws:iam:us-east-1:123456789012:role/payments": false,
+		// Account ID must be exactly 12 digits.
+		"arn:aws:iam::12345:role/payments":         false,
+		"arn:aws:iam::1234567890123:role/payments": false,
+		"arn:aws:iam::abc123456789:role/payments":  false,
+		"arn:aws:iam:::role/payments":              false,
+		// Non-IAM services.
+		"arn:aws:s3:::bucket": false,
 		"arn:aws:lambda:us-east-1:123456789012:function:payments": false,
+		// Non-ARN inputs.
 		"*":          false,
 		"":           false,
 		"not-an-arn": false,
@@ -537,8 +550,19 @@ func TestIAMPassRoleNormalizerRejectsNonRoleARNs(t *testing.T) {
 
 func TestPassRoleGrantWildcardKindMalformedClassification(t *testing.T) {
 	cases := map[string]string{
-		"arn:aws:iam::123456789012:role/payments": "specific",
-		"*":             "all",
+		// Valid IAM role ARNs.
+		"arn:aws:iam::123456789012:role/payments":        "specific",
+		"arn:aws-us-gov:iam::123456789012:role/payments": "specific",
+		"arn:aws:iam::123456789012:role/payments-*":      "path_wildcard",
+		"arn:aws:iam::*:role/payments":                   "account_wildcard",
+		"*":                                              "all",
+		// Non-IAM ARNs must classify as malformed so the API does not emit
+		// PassRole edges to non-role resources.
+		"arn:aws:s3:::bucket": "malformed",
+		"arn:aws:lambda:us-east-1:123456789012:function:payments": "malformed",
+		"arn:aws:iam::123456789012:user/dev":                      "malformed",
+		"arn:aws:iam::123456789012:policy/Admin":                  "malformed",
+		// Pure non-ARN inputs.
 		"not-an-arn":    "malformed",
 		"role/payments": "malformed",
 	}

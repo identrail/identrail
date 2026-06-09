@@ -328,10 +328,12 @@ func passRoleGrantConfidence(grant passRoleGrant) float64 {
 
 // passRoleGrantWildcardKind classifies a grant's target shape so the API can
 // surface "this is a wildcard" without consumers re-parsing the ARN. Returns
-// "specific" (concrete role ARN), "path_wildcard", "account_wildcard", "all"
-// (bare "*"), or "malformed" for anything else (a typo'd resource, a non-ARN
-// string). Malformed targets are treated as unresolved by the normalizer and
-// API so they never produce spurious edges in the graph.
+// "specific" (concrete IAM role ARN), "path_wildcard", "account_wildcard",
+// "all" (bare "*"), or "malformed" for anything else — a typo'd resource, a
+// non-ARN string, or a valid ARN of a different service (S3 bucket, Lambda
+// function). Only IAM role ARNs resolve to "specific"/"path_wildcard"/
+// "account_wildcard" so the graph never gets a PassRole edge pointing at a
+// non-role resource.
 func passRoleGrantWildcardKind(target string) string {
 	trimmed := strings.TrimSpace(target)
 	if trimmed == "*" {
@@ -340,12 +342,20 @@ func passRoleGrantWildcardKind(target string) string {
 	if !strings.HasPrefix(trimmed, "arn:") {
 		return "malformed"
 	}
+	parts := strings.SplitN(trimmed, ":", 6)
+	if len(parts) != 6 {
+		return "malformed"
+	}
+	if !strings.EqualFold(parts[2], "iam") {
+		return "malformed"
+	}
+	if !strings.HasPrefix(parts[5], "role/") {
+		return "malformed"
+	}
 	if !strings.Contains(trimmed, "*") {
 		return "specific"
 	}
-	// arn:aws:iam::*:role/... — account-position wildcard
-	parts := strings.SplitN(trimmed, ":", 6)
-	if len(parts) >= 5 && parts[4] == "*" {
+	if parts[4] == "*" {
 		return "account_wildcard"
 	}
 	return "path_wildcard"

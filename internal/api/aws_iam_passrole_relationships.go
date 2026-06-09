@@ -512,11 +512,11 @@ func awsIAMPassRoleRelationshipDiagnosticRemediation(code string) string {
 }
 
 // awsIAMPassRoleWildcardKind classifies a PassRole target into one of
-// specific (a concrete role ARN), path_wildcard, account_wildcard, all (a
-// bare "*"), or malformed (anything else — e.g. a typo'd resource that is
-// neither an ARN nor "*"). Malformed targets are treated as unresolved by
-// the rest of the inventory so they never produce spurious graph edges to
-// fake role nodes.
+// specific (a concrete IAM role ARN), path_wildcard, account_wildcard, all (a
+// bare "*"), or malformed (anything else — e.g. a typo'd resource, a
+// non-IAM ARN such as an S3 bucket or Lambda function). Only IAM role ARNs
+// resolve as "specific" so the API never emits a graph edge to a non-role
+// resource that happens to be a valid ARN of another service.
 func awsIAMPassRoleWildcardKind(target string) string {
 	trimmed := strings.TrimSpace(target)
 	if trimmed == "*" {
@@ -525,11 +525,21 @@ func awsIAMPassRoleWildcardKind(target string) string {
 	if !strings.HasPrefix(trimmed, "arn:") {
 		return "malformed"
 	}
+	parts := strings.SplitN(trimmed, ":", 6)
+	if len(parts) != 6 {
+		return "malformed"
+	}
+	if !strings.EqualFold(parts[2], "iam") {
+		return "malformed"
+	}
+	resource := parts[5]
+	if !strings.HasPrefix(resource, "role/") {
+		return "malformed"
+	}
 	if !strings.Contains(trimmed, "*") {
 		return "specific"
 	}
-	parts := strings.SplitN(trimmed, ":", 6)
-	if len(parts) >= 5 && parts[4] == "*" {
+	if parts[4] == "*" {
 		return "account_wildcard"
 	}
 	return "path_wildcard"
