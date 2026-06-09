@@ -26,7 +26,7 @@
   <a href="https://github.com/identrail/identrail/issues">Issues</a>
 </p>
 
-## Who This Is For
+## Who is this for?
 
 Identrail is for security and platform teams that need fast answers to practical machine identity questions:
 
