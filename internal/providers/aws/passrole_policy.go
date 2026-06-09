@@ -304,24 +304,25 @@ func extractPassedToServiceCondition(condition map[string]any) ([]serviceConditi
 }
 
 // passRoleGrantConfidence returns a confidence score in [0, 1] for a single
-// grant. Specific role ARNs get the highest score; path-scoped wildcards get
-// a middle score; "*" gets a lower score; malformed (non-ARN, non-"*")
-// targets get the lowest because we cannot reason about what they point at.
-// Deny statements and NotAction/NotResource forms keep the same scoring
-// because we can still prove the grant shape, even though their downstream
-// effect is conditional.
+// grant. The score is keyed off the wildcard-kind classification so the two
+// stay consistent: a target classified as malformed (e.g. a non-IAM ARN like
+// arn:aws:s3:::bucket) never gets a high confidence score just because it
+// has the arn: prefix. Specific IAM role ARNs get the highest score;
+// path-scoped wildcards a middle score; account-position wildcards slightly
+// lower; "*" lower still; malformed lowest.
 func passRoleGrantConfidence(grant passRoleGrant) float64 {
-	target := strings.TrimSpace(grant.TargetResource)
-	switch {
-	case target == "*":
-		return 0.55
-	case strings.Contains(target, "*") && strings.HasPrefix(target, "arn:"):
-		return 0.78
-	case strings.HasPrefix(target, "arn:") && !strings.Contains(target, "*"):
+	switch passRoleGrantWildcardKind(grant.TargetResource) {
+	case "specific":
 		return 0.95
+	case "path_wildcard":
+		return 0.78
+	case "account_wildcard":
+		return 0.7
+	case "all":
+		return 0.55
 	default:
-		// Non-ARN, non-"*" target — malformed or unsupported shape. Mark it
-		// low-confidence so downstream consumers know not to act on it.
+		// malformed (or any future unknown kind) — low-confidence so
+		// downstream consumers know not to act on it.
 		return 0.3
 	}
 }

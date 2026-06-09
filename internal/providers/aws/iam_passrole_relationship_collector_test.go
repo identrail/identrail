@@ -576,3 +576,29 @@ func TestPassRoleGrantWildcardKindMalformedClassification(t *testing.T) {
 		}
 	}
 }
+
+func TestPassRoleGrantConfidenceMatchesWildcardKind(t *testing.T) {
+	// Any non-IAM ARN that classifies as malformed must receive the lowest
+	// confidence — otherwise the API ships records whose kind says
+	// "malformed" but whose confidence claims high trust.
+	malformedInputs := []string{
+		"arn:aws:s3:::audit-bucket",
+		"arn:aws:lambda:us-east-1:123456789012:function:payments",
+		"arn:aws:iam::123456789012:user/dev",
+		"arn:aws:iam::123456789012:policy/Admin",
+		"not-an-arn",
+	}
+	for _, target := range malformedInputs {
+		if kind := passRoleGrantWildcardKind(target); kind != "malformed" {
+			t.Fatalf("expected %q to classify as malformed, got %q", target, kind)
+		}
+		conf := passRoleGrantConfidence(passRoleGrant{TargetResource: target})
+		if conf > 0.4 {
+			t.Fatalf("malformed target %q got confidence %v; expected low confidence (<= 0.4)", target, conf)
+		}
+	}
+	// Specific IAM role ARN still gets the highest score for parity.
+	if conf := passRoleGrantConfidence(passRoleGrant{TargetResource: "arn:aws:iam::123456789012:role/payments"}); conf < 0.9 {
+		t.Fatalf("specific IAM role ARN got confidence %v; expected >= 0.9", conf)
+	}
+}
