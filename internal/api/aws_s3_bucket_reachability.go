@@ -469,7 +469,11 @@ func awsS3BucketReachabilityEdges(records []AWSS3BucketReachabilityRecord) []AWS
 			if grant.WildcardPrincipal || grant.PrincipalARN == "*" || grant.PrincipalARN == "" {
 				continue
 			}
-			if !strings.HasPrefix(grant.PrincipalARN, "arn:") {
+			// Only emit edges for IAM principal ARNs (roles or users). Service
+			// principals (e.g. lambda.amazonaws.com), federated principals, and
+			// any non-IAM ARNs do not have an identity node in the graph yet,
+			// so an edge to them would be a dangling reference.
+			if !isIAMPrincipalARNForS3Edge(grant.PrincipalARN) {
 				continue
 			}
 			result = append(result, AWSS3BucketReachabilityEdge{
@@ -585,25 +589,29 @@ func countGrants(records []AWSS3BucketReachabilityRecord, pred func(AWSS3Identit
 // validateS3BucketReachabilityRecord enforces the scope-and-evidence subset of
 // the service collector contract that is meaningful for resource records (S3
 // buckets carry no role of their own; the workload-with-role validation is the
-// wrong contract for this surface).
+// wrong contract for this surface). The required fields are checked in a
+// deterministic order so callers always see the same error for the same input.
 func validateS3BucketReachabilityRecord(scope db.Scope, project db.TenancyProject, connectorID string, record AWSS3BucketReachabilityRecord) error {
-	required := map[string]string{
-		"tenant_id":               scope.TenantID,
-		"workspace_id":            project.WorkspaceID,
-		"project_id":              project.ProjectID,
-		"connector_id":            connectorID,
-		"account_id":              record.AccountID,
-		"region":                  record.Region,
-		"service":                 record.Service,
-		"bucket_arn":              record.BucketARN,
-		"bucket_name":             record.BucketName,
-		"source":                  record.Source,
-		"evidence_ref":            record.EvidenceRef,
-		"exposure_classification": record.ExposureClassification,
+	required := []struct {
+		name  string
+		value string
+	}{
+		{"tenant_id", scope.TenantID},
+		{"workspace_id", project.WorkspaceID},
+		{"project_id", project.ProjectID},
+		{"connector_id", connectorID},
+		{"account_id", record.AccountID},
+		{"region", record.Region},
+		{"service", record.Service},
+		{"bucket_arn", record.BucketARN},
+		{"bucket_name", record.BucketName},
+		{"source", record.Source},
+		{"evidence_ref", record.EvidenceRef},
+		{"exposure_classification", record.ExposureClassification},
 	}
-	for field, value := range required {
-		if strings.TrimSpace(value) == "" {
-			return fmt.Errorf("%s is required", field)
+	for _, field := range required {
+		if strings.TrimSpace(field.value) == "" {
+			return fmt.Errorf("%s is required", field.name)
 		}
 	}
 	if record.Confidence <= 0 || record.Confidence > 1 {
@@ -613,6 +621,53 @@ func validateS3BucketReachabilityRecord(scope db.Scope, project db.TenancyProjec
 		return fmt.Errorf("collected_at is required")
 	}
 	return nil
+}
+
+// isIAMPrincipalARNForS3Edge reports whether the supplied principal looks
+// like a real IAM role or user ARN. We only emit graph edges for principals
+// that have an identity node in the graph; service principals, federated
+// principals, canonical user IDs, and non-IAM ARNs would produce dangling
+// references and are intentionally excluded here.
+func isIAMPrincipalARNForS3Edge(principal string) bool {
+	trimmed := strings.TrimSpace(principal)
+	if trimmed == "" {
+		return false
+	}
+	parts := strings.SplitN(trimmed, ":", 6)
+	if len(parts) != 6 {
+		return false
+	}
+	if parts[0] != "arn" {
+		return false
+	}
+	switch parts[1] {
+	case "aws", "aws-us-gov", "aws-cn":
+	default:
+		return false
+	}
+	if parts[2] != "iam" {
+		return false
+	}
+	// IAM ARNs have an empty region segment.
+	if parts[3] != "" {
+		return false
+	}
+	if len(parts[4]) != 12 {
+		return false
+	}
+	for _, r := range parts[4] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	resource := parts[5]
+	if strings.HasPrefix(resource, "role/") && len(resource) > len("role/") {
+		return true
+	}
+	if strings.HasPrefix(resource, "user/") && len(resource) > len("user/") {
+		return true
+	}
+	return false
 }
 
 // awsS3PartitionForRegion is a small partition helper local to this file so

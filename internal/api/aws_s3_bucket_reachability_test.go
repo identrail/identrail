@@ -181,18 +181,59 @@ func TestAWSS3BucketReachabilityEdgesExcludeWildcardsAndDenies(t *testing.T) {
 			{Effect: "Allow", PrincipalARN: "*", WildcardPrincipal: true},
 			{Effect: "Deny", PrincipalARN: "arn:aws:iam::123456789012:role/blocked"},
 			{Effect: "Allow", PrincipalARN: "arn:aws:iam::123456789012:role/allowed", PrincipalType: "aws"},
+			{Effect: "Allow", PrincipalARN: "arn:aws:iam::123456789012:user/alice", PrincipalType: "aws"},
+			// Non-IAM ARN — should be excluded from edges (cubic P2).
+			{Effect: "Allow", PrincipalARN: "arn:aws:sns:us-east-1:123456789012:topic/x", PrincipalType: "aws"},
 			{Effect: "Allow", PrincipalARN: "lambda.amazonaws.com", PrincipalType: "service"}, // non-ARN
 		},
 	}}
 	edges := awsS3BucketReachabilityEdges(records)
-	if len(edges) != 1 {
-		t.Fatalf("expected 1 edge (only resolved IAM-arn allow), got %d: %+v", len(edges), edges)
+	if len(edges) != 2 {
+		t.Fatalf("expected 2 edges (IAM role + IAM user), got %d: %+v", len(edges), edges)
 	}
-	if !strings.Contains(edges[0].FromNodeID, "role/allowed") {
-		t.Fatalf("expected allowed role edge, got %+v", edges[0])
+	want := map[string]bool{"role/allowed": false, "user/alice": false}
+	for _, e := range edges {
+		for k := range want {
+			if strings.Contains(e.FromNodeID, k) {
+				want[k] = true
+			}
+		}
+		if e.Type != "can_access" {
+			t.Fatalf("expected can_access type, got %q", e.Type)
+		}
 	}
-	if edges[0].Type != "can_access" {
-		t.Fatalf("expected can_access type, got %q", edges[0].Type)
+	for k, ok := range want {
+		if !ok {
+			t.Fatalf("expected edge for %s, got %+v", k, edges)
+		}
+	}
+}
+
+func TestIsIAMPrincipalARNForS3Edge(t *testing.T) {
+	cases := []struct {
+		arn  string
+		want bool
+	}{
+		{"arn:aws:iam::123456789012:role/payments", true},
+		{"arn:aws:iam::123456789012:user/alice", true},
+		{"arn:aws-us-gov:iam::123456789012:role/gov", true},
+		{"arn:aws-cn:iam::123456789012:role/cn", true},
+		{"arn:aws:sns:us-east-1:123456789012:topic/x", false},
+		{"arn:aws:iam::123456789012:group/devs", false},
+		{"arn:aws:iam:us-east-1:123456789012:role/r", false}, // IAM ARNs have empty region
+		{"arn:aws:iam::abc:role/r", false},                   // non-numeric account
+		{"arn:aws:iam::12345:role/r", false},                 // short account
+		{"arn:aws:iam::123456789012:role/", false},           // empty role name
+		{"arn:aws:iam::123456789012:user/", false},           // empty user name
+		{"lambda.amazonaws.com", false},
+		{"", false},
+		{"*", false},
+		{"arn:foo:iam::123456789012:role/x", false},
+	}
+	for _, tc := range cases {
+		if got := isIAMPrincipalARNForS3Edge(tc.arn); got != tc.want {
+			t.Fatalf("isIAMPrincipalARNForS3Edge(%q) = %v, want %v", tc.arn, got, tc.want)
+		}
 	}
 }
 

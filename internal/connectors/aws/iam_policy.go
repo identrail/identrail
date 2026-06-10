@@ -104,7 +104,6 @@ const readOnlyPolicyJSON = `{
       "Sid": "IdentityTrustGraphReadOnlyStorage",
       "Effect": "Allow",
       "Action": [
-        "s3:GetAccessPoint",
         "s3:GetBucketAcl",
         "s3:GetBucketLocation",
         "s3:GetBucketOwnershipControls",
@@ -275,7 +274,6 @@ func PermissionPreview() []PermissionPreviewItem {
 				"s3:GetEncryptionConfiguration",
 				"s3:GetBucketTagging",
 				"s3:ListAccessPoints",
-				"s3:GetAccessPoint",
 			},
 			Resources: []string{"*"},
 			Reason:    "Reads bucket-level metadata (location, policy, public-access block, ownership controls, default encryption, tags) plus account-scoped access-point metadata to classify identity-to-bucket reachability. Never reads object contents, presigned URLs, or per-object ACLs.",

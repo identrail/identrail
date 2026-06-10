@@ -75,7 +75,15 @@ func parseS3BucketPolicyGrants(raw string) ([]S3IdentityGrant, int, error) {
 		if effect == "" {
 			continue
 		}
-		principals, principalType, wildcardPrincipal, notPrincipal := s3ExtractPrincipals(statement.Principal, statement.NotPrincipal)
+		// NotPrincipal has inverse semantics — a statement with NotPrincipal
+		// applies to every principal *except* the one(s) listed. Treating the
+		// listed principals as regular grants would invert the meaning, so we
+		// skip the statement entirely. Surface as a coverage gap rather than
+		// silently producing a wrong edge.
+		if statement.Principal == nil && statement.NotPrincipal != nil {
+			continue
+		}
+		principals, principalType, wildcardPrincipal := s3ExtractPrincipals(statement.Principal)
 		if len(principals) == 0 {
 			continue
 		}
@@ -97,7 +105,6 @@ func parseS3BucketPolicyGrants(raw string) ([]S3IdentityGrant, int, error) {
 				// against the bucket-owning account; we leave them false here
 				// and let the normalizer compute them with full context.
 			})
-			_ = notPrincipal
 		}
 	}
 	return grants, len(doc.Statement), nil
@@ -105,20 +112,12 @@ func parseS3BucketPolicyGrants(raw string) ([]S3IdentityGrant, int, error) {
 
 // s3ExtractPrincipals returns the principal ARN list along with the
 // principal type (aws, service, federated, canonical_user, *) and whether a
-// wildcard principal is present. The notPrincipal return value is reserved
-// for future expansion; current callers do not emit grants for NotPrincipal
-// because its inverse semantics require richer modeling than this wave
-// targets.
-func s3ExtractPrincipals(principal, notPrincipal any) (principals []string, principalType string, wildcardPrincipal bool, notPrincipalUsed bool) {
-	if principal != nil {
-		ps, pt, wc := s3PrincipalsFromAny(principal)
-		return ps, pt, wc, false
+// wildcard principal is present.
+func s3ExtractPrincipals(principal any) (principals []string, principalType string, wildcardPrincipal bool) {
+	if principal == nil {
+		return nil, "", false
 	}
-	if notPrincipal != nil {
-		ps, pt, wc := s3PrincipalsFromAny(notPrincipal)
-		return ps, pt, wc, true
-	}
-	return nil, "", false, false
+	return s3PrincipalsFromAny(principal)
 }
 
 func s3PrincipalsFromAny(value any) ([]string, string, bool) {

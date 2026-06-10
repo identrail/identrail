@@ -32,7 +32,6 @@
       "Sid": "IdentityTrustGraphReadOnlyStorage",
       "Effect": "Allow",
       "Action": [
-        "s3:GetAccessPoint",
         "s3:GetBucketAcl",
         "s3:GetBucketLocation",
         "s3:GetBucketOwnershipControls",

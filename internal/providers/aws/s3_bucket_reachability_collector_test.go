@@ -113,7 +113,10 @@ func TestParseS3BucketPolicyGrants_DenyAndConditions(t *testing.T) {
 	}
 }
 
-func TestParseS3BucketPolicyGrants_NotPrincipalDoesNotEmitAllowEdge(t *testing.T) {
+func TestParseS3BucketPolicyGrants_NotPrincipalIsSkipped(t *testing.T) {
+	// NotPrincipal has inverse semantics, so the listed principal is the one
+	// the statement *excludes*. The parser must skip the entire statement
+	// rather than emit a grant that would be interpreted as inclusion.
 	grants, _, err := parseS3BucketPolicyGrants(`{
 		"Version": "2012-10-17",
 		"Statement": [{
@@ -127,16 +130,8 @@ func TestParseS3BucketPolicyGrants_NotPrincipalDoesNotEmitAllowEdge(t *testing.T
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	for _, g := range grants {
-		if g.Effect == "Allow" && !g.WildcardPrincipal && g.PrincipalARN != "*" {
-			// NotPrincipal expansion is intentionally surfaced as a single grant
-			// for visibility, but the normalizer is responsible for not turning
-			// it into a directed edge — we only verify here that the grant
-			// records the principal it referenced.
-			if !strings.Contains(g.PrincipalARN, "111111111111") {
-				t.Fatalf("expected NotPrincipal arn carried through, got %q", g.PrincipalARN)
-			}
-		}
+	if len(grants) != 0 {
+		t.Fatalf("expected NotPrincipal to be skipped, got %+v", grants)
 	}
 }
 
@@ -431,6 +426,133 @@ func TestIsIAMUserARN(t *testing.T) {
 	for arn, want := range cases {
 		if got := isIAMUserARN(arn); got != want {
 			t.Fatalf("isIAMUserARN(%q) = %v, want %v", arn, got, want)
+		}
+	}
+}
+
+func TestClassifyS3BucketExposure_DenyAllShadowsPublic(t *testing.T) {
+	// Cubic review P1: deny-all with no condition must shadow an unconditional
+	// public Allow rather than be hidden behind the public branch.
+	got, _ := classifyS3BucketExposure(S3BucketReachability{
+		HasBucketPolicy: true,
+		IdentityGrants: []S3IdentityGrant{
+			{Effect: "Allow", IsPublic: true, WildcardPrincipal: true},
+			{Effect: "Deny", WildcardPrincipal: true, PrincipalARN: "*"},
+		},
+	})
+	if got != "restricted" {
+		t.Fatalf("expected restricted (deny-all shadows public), got %q", got)
+	}
+}
+
+func TestClassifyS3BucketExposure_DenyAllShadowsCrossAccount(t *testing.T) {
+	got, _ := classifyS3BucketExposure(S3BucketReachability{
+		HasBucketPolicy: true,
+		IdentityGrants: []S3IdentityGrant{
+			{Effect: "Allow", IsCrossAccount: true, PrincipalARN: "arn:aws:iam::999999999999:role/x"},
+			{Effect: "Deny", WildcardPrincipal: true, PrincipalARN: "*"},
+		},
+	})
+	if got != "restricted" {
+		t.Fatalf("expected restricted (deny-all shadows cross_account), got %q", got)
+	}
+}
+
+func TestNormalizeS3BucketReachabilityScope_PrefersBucketRegion(t *testing.T) {
+	scope := AWSCollectorScope{Service: "s3", AccountID: "123456789012", Region: "us-east-1"}
+	record := S3BucketReachability{
+		BucketName:   "cross-region-bucket",
+		BucketRegion: "eu-west-1",
+	}
+	normalized := normalizeS3BucketReachabilityScope(scope, record, time.Now().UTC())
+	if normalized.Region != "eu-west-1" {
+		t.Fatalf("expected normalized Region to follow the bucket region (eu-west-1), got %q", normalized.Region)
+	}
+	if normalized.BucketRegion != "eu-west-1" {
+		t.Fatalf("expected BucketRegion preserved, got %q", normalized.BucketRegion)
+	}
+}
+
+func TestS3ExtractPrincipals_NilReturnsNothing(t *testing.T) {
+	principals, principalType, wildcard := s3ExtractPrincipals(nil)
+	if len(principals) != 0 || principalType != "" || wildcard {
+		t.Fatalf("expected zero values for nil principal, got %v %q %v", principals, principalType, wildcard)
+	}
+}
+
+func TestS3PrincipalsFromAny_VariantsAndUnknownShape(t *testing.T) {
+	ps, pt, wc := s3PrincipalsFromAny("*")
+	if len(ps) != 1 || ps[0] != "*" || pt != "*" || !wc {
+		t.Fatalf("wildcard string: got %v %q %v", ps, pt, wc)
+	}
+	ps, pt, wc = s3PrincipalsFromAny("arn:aws:iam::123456789012:role/x")
+	if len(ps) != 1 || pt != "aws" || wc {
+		t.Fatalf("plain string: got %v %q %v", ps, pt, wc)
+	}
+	ps, pt, wc = s3PrincipalsFromAny(map[string]any{"Service": "lambda.amazonaws.com"})
+	if len(ps) != 1 || pt != "service" || wc {
+		t.Fatalf("service map: got %v %q %v", ps, pt, wc)
+	}
+	ps, pt, wc = s3PrincipalsFromAny(map[string]any{"AWS": []any{"arn:aws:iam::123456789012:role/r", "*"}})
+	if len(ps) != 2 || pt != "aws" || !wc {
+		t.Fatalf("aws list with wildcard: got %v %q %v", ps, pt, wc)
+	}
+	ps, pt, wc = s3PrincipalsFromAny(123)
+	if len(ps) != 0 || pt != "" || wc {
+		t.Fatalf("unknown shape: got %v %q %v", ps, pt, wc)
+	}
+}
+
+func TestParseS3BucketPolicyGrants_BlankAndInvalid(t *testing.T) {
+	grants, count, err := parseS3BucketPolicyGrants("   ")
+	if err != nil || count != 0 || len(grants) != 0 {
+		t.Fatalf("blank policy: got grants=%v count=%d err=%v", grants, count, err)
+	}
+	if _, _, err := parseS3BucketPolicyGrants("not json"); err == nil {
+		t.Fatalf("expected error on invalid json")
+	}
+	// URL-encoded policy body must be tolerated.
+	grants, _, err = parseS3BucketPolicyGrants("%7B%22Statement%22%3A%5B%5D%7D")
+	if err != nil || len(grants) != 0 {
+		t.Fatalf("url-encoded empty policy: got grants=%v err=%v", grants, err)
+	}
+}
+
+func TestS3IsNoSuchBucketPolicy_DoesNotSwallowNoSuchBucket(t *testing.T) {
+	// Cubic review P1: NoSuchBucket (bucket doesn't exist) must NOT be
+	// classified as "no bucket policy" — that would hide real errors.
+	if s3IsNoSuchBucketPolicy(errors.New("NoSuchBucket: The specified bucket does not exist")) {
+		t.Fatalf("NoSuchBucket must not be treated as NoSuchBucketPolicy")
+	}
+	if !s3IsNoSuchBucketPolicy(errors.New("NoSuchBucketPolicy: The bucket policy does not exist")) {
+		t.Fatalf("NoSuchBucketPolicy should be recognised")
+	}
+	if s3IsNoSuchBucketPolicy(nil) {
+		t.Fatalf("nil error should return false")
+	}
+}
+
+func TestS3IsNoSuchSentinels(t *testing.T) {
+	if !s3IsNoSuchPublicAccessBlockConfiguration(errors.New("NoSuchPublicAccessBlockConfiguration")) {
+		t.Fatalf("expected PAB sentinel match")
+	}
+	if !s3IsNoSuchOwnershipControls(errors.New("OwnershipControlsNotFoundError")) {
+		t.Fatalf("expected ownership sentinel match")
+	}
+	if !s3IsNoSuchEncryption(errors.New("ServerSideEncryptionConfigurationNotFoundError")) {
+		t.Fatalf("expected encryption sentinel match")
+	}
+	if !s3IsNoSuchTagSet(errors.New("NoSuchTagSet")) {
+		t.Fatalf("expected tag sentinel match")
+	}
+	for _, fn := range []func(error) bool{
+		s3IsNoSuchPublicAccessBlockConfiguration,
+		s3IsNoSuchOwnershipControls,
+		s3IsNoSuchEncryption,
+		s3IsNoSuchTagSet,
+	} {
+		if fn(nil) {
+			t.Fatalf("sentinel should return false for nil error")
 		}
 	}
 }

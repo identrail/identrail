@@ -9,7 +9,6 @@ import (
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3control"
 	s3controltypes "github.com/aws/aws-sdk-go-v2/service/s3control/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -173,6 +172,10 @@ func (a *SDKS3BucketReachabilityAPI) bucketRegion(ctx context.Context, name stri
 	case "":
 		// us-east-1 has empty LocationConstraint
 		return "us-east-1"
+	case "EU":
+		// Legacy LocationConstraint returned for buckets created in the
+		// original EU region — aliases to eu-west-1.
+		return "eu-west-1"
 	default:
 		return region
 	}
@@ -366,12 +369,15 @@ func s3BucketReachabilityAccountID(ctx context.Context, cfg awsv2.Config, accoun
 // PAB" / "no encryption" / "no tags" which we treat as "absent" rather than
 // failure diagnostics.
 
+// s3IsNoSuchBucketPolicy returns true only for the "no bucket policy
+// configured" case. AWS's NoSuchBucket (the bucket itself does not exist)
+// is a real error and must not be swallowed — we deliberately do not match
+// the parent typed error here.
 func s3IsNoSuchBucketPolicy(err error) bool {
 	if err == nil {
 		return false
 	}
-	var sentinel *s3types.NoSuchBucket
-	return errors.As(err, &sentinel) || strings.Contains(strings.ToLower(err.Error()), "nosuchbucketpolicy")
+	return strings.Contains(strings.ToLower(err.Error()), "nosuchbucketpolicy")
 }
 
 func s3IsNoSuchPublicAccessBlockConfiguration(err error) bool {

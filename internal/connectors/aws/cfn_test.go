@@ -139,7 +139,6 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 		"s3:GetEncryptionConfiguration",
 		"s3:GetBucketTagging",
 		"s3:ListAccessPoints",
-		"s3:GetAccessPoint",
 	} {
 		if !strings.Contains(string(policy), "\""+action+"\"") {
 			t.Fatalf("expected S3 reachability read action %q in policy", action)

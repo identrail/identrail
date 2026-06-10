@@ -308,8 +308,11 @@ func (c *S3BucketReachabilityCollector) CollectWithDiagnostics(ctx context.Conte
 func normalizeS3BucketReachabilityScope(scope AWSCollectorScope, record S3BucketReachability, collectedAt time.Time) S3BucketReachability {
 	normalized := record
 	normalized.AccountID = firstNonEmptyAWSValue(record.AccountID, scope.AccountID, accountIDFromARN(record.BucketARN))
-	normalized.Region = firstNonEmptyAWSValue(record.Region, scope.Region, record.BucketRegion)
+	// Prefer the bucket's actual region (from GetBucketLocation) over the
+	// scope region — S3 buckets are global resources whose home region may
+	// differ from the scanner's connector region.
 	normalized.BucketRegion = firstNonEmptyAWSValue(record.BucketRegion, scope.Region)
+	normalized.Region = firstNonEmptyAWSValue(record.BucketRegion, record.Region, scope.Region)
 	normalized.Service = firstNonEmptyAWSValue(record.Service, s3ServiceName)
 	normalized.BucketName = strings.TrimSpace(record.BucketName)
 	normalized.BucketARN = firstNonEmptyAWSValue(record.BucketARN, s3BucketARNFromName(normalized.BucketName, normalized.AccountID, normalized.Region))
@@ -402,13 +405,18 @@ func classifyS3BucketExposure(record S3BucketReachability) (string, []string) {
 		// PAB clamps policy-driven public exposure.
 		public = false
 	}
+	// IAM semantics: an explicit Deny to all principals with no conditions
+	// shadows any Allow regardless of the Allow's principals. Classify denyAll
+	// first so a bucket with both an unconditional wildcard Deny and an
+	// unconditional public/cross-account Allow is reported as restricted, not
+	// public or cross_account.
 	switch {
+	case denyAll:
+		return "restricted", dedupeStrings(reasons)
 	case public:
 		return "public", dedupeStrings(reasons)
 	case crossAccount:
 		return "cross_account", dedupeStrings(reasons)
-	case denyAll:
-		return "restricted", dedupeStrings(reasons)
 	case record.HasBucketPolicy:
 		return "private_with_grants", dedupeStrings(reasons)
 	default:

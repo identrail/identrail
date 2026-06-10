@@ -76,7 +76,6 @@ following read-only S3 actions:
 - `s3:GetEncryptionConfiguration`
 - `s3:GetBucketTagging`
 - `s3:ListAccessPoints`
-- `s3:GetAccessPoint`
 
 These are metadata-only calls. The connector role is forbidden from holding
 `s3:GetObject*`, `s3:ListBucket`, or any write/delete actions.
