@@ -147,15 +147,15 @@ func (a *SDKSecretsManagerMetadataAPI) enrichSecretMetadata(ctx context.Context,
 
 func secretMetadataFromListEntry(entry smtypes.SecretListEntry, accountID string, region string) SecretsManagerSecretMetadata {
 	record := SecretsManagerSecretMetadata{
-		SecretARN:         strings.TrimSpace(awsv2.ToString(entry.ARN)),
-		SecretName:        strings.TrimSpace(awsv2.ToString(entry.Name)),
-		Description:       strings.TrimSpace(awsv2.ToString(entry.Description)),
-		KMSKeyID:          strings.TrimSpace(awsv2.ToString(entry.KmsKeyId)),
-		RotationEnabled:   awsv2.ToBool(entry.RotationEnabled),
-		RotationLambdaARN: strings.TrimSpace(awsv2.ToString(entry.RotationLambdaARN)),
-		OwningService:     strings.TrimSpace(awsv2.ToString(entry.OwningService)),
-		PrimaryRegion:     strings.TrimSpace(awsv2.ToString(entry.PrimaryRegion)),
-		Tags:              secretsManagerTags(entry.Tags),
+		SecretARN:          strings.TrimSpace(awsv2.ToString(entry.ARN)),
+		SecretName:         strings.TrimSpace(awsv2.ToString(entry.Name)),
+		DescriptionPresent: strings.TrimSpace(awsv2.ToString(entry.Description)) != "",
+		KMSKeyID:           strings.TrimSpace(awsv2.ToString(entry.KmsKeyId)),
+		RotationEnabled:    awsv2.ToBool(entry.RotationEnabled),
+		RotationLambdaARN:  strings.TrimSpace(awsv2.ToString(entry.RotationLambdaARN)),
+		OwningService:      strings.TrimSpace(awsv2.ToString(entry.OwningService)),
+		PrimaryRegion:      strings.TrimSpace(awsv2.ToString(entry.PrimaryRegion)),
+		Tags:               secretsManagerTags(entry.Tags),
 		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
 			AccountID: strings.TrimSpace(accountID),
 			Region:    strings.TrimSpace(region),
@@ -183,7 +183,7 @@ func secretMetadataFromListEntry(entry smtypes.SecretListEntry, accountID string
 func mergeSecretDescribe(record *SecretsManagerSecretMetadata, describe *secretsmanager.DescribeSecretOutput, accountID string, region string) {
 	record.SecretARN = firstNonEmptyAWSValue(awsv2.ToString(describe.ARN), record.SecretARN)
 	record.SecretName = firstNonEmptyAWSValue(awsv2.ToString(describe.Name), record.SecretName)
-	record.Description = firstNonEmptyAWSValue(awsv2.ToString(describe.Description), record.Description)
+	record.DescriptionPresent = record.DescriptionPresent || strings.TrimSpace(awsv2.ToString(describe.Description)) != ""
 	record.KMSKeyID = firstNonEmptyAWSValue(awsv2.ToString(describe.KmsKeyId), record.KMSKeyID)
 	record.RotationEnabled = awsv2.ToBool(describe.RotationEnabled)
 	record.RotationLambdaARN = firstNonEmptyAWSValue(awsv2.ToString(describe.RotationLambdaARN), record.RotationLambdaARN)

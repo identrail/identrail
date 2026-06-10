@@ -302,7 +302,7 @@ func normalizeSecretsManagerMetadataAsset(asset providers.RawAsset, index int, b
 		AccountID: strings.TrimSpace(record.AccountID),
 		Labels:    copyTags(record.Tags),
 		Metadata: map[string]any{
-			"description_present":             strings.TrimSpace(record.Description) != "",
+			"description_present":             record.DescriptionPresent,
 			"kms_key_id":                      strings.TrimSpace(record.KMSKeyID),
 			"kms_key_arn":                     strings.TrimSpace(record.KMSKeyARN),
 			"owning_service":                  strings.TrimSpace(record.OwningService),

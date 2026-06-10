@@ -27,14 +27,14 @@ const (
 type SecretsManagerSecretMetadata struct {
 	awscontract.ServiceCollectorRecord
 
-	SecretARN     string `json:"secret_arn,omitempty"`
-	SecretName    string `json:"secret_name,omitempty"`
-	Description   string `json:"description,omitempty"`
-	KMSKeyID      string `json:"kms_key_id,omitempty"`
-	KMSKeyARN     string `json:"kms_key_arn,omitempty"`
-	OwningService string `json:"owning_service,omitempty"`
-	PrimaryRegion string `json:"primary_region,omitempty"`
-	SecretStatus  string `json:"secret_status,omitempty"`
+	SecretARN          string `json:"secret_arn,omitempty"`
+	SecretName         string `json:"secret_name,omitempty"`
+	DescriptionPresent bool   `json:"description_present,omitempty"`
+	KMSKeyID           string `json:"kms_key_id,omitempty"`
+	KMSKeyARN          string `json:"kms_key_arn,omitempty"`
+	OwningService      string `json:"owning_service,omitempty"`
+	PrimaryRegion      string `json:"primary_region,omitempty"`
+	SecretStatus       string `json:"secret_status,omitempty"`
 
 	RotationEnabled        bool   `json:"rotation_enabled,omitempty"`
 	RotationLambdaARN      string `json:"rotation_lambda_arn,omitempty"`
@@ -265,7 +265,7 @@ func normalizeSecretsManagerMetadataScope(scope AWSCollectorScope, record Secret
 	normalized.TenantID = firstNonEmptyAWSValue(record.TenantID, scope.TenantID, "tenant")
 	normalized.WorkspaceID = firstNonEmptyAWSValue(record.WorkspaceID, scope.WorkspaceID, "workspace")
 	normalized.ProjectID = firstNonEmptyAWSValue(record.ProjectID, scope.ProjectID, "project")
-	normalized.Description = strings.TrimSpace(record.Description)
+	normalized.DescriptionPresent = record.DescriptionPresent
 	normalized.KMSKeyID = strings.TrimSpace(record.KMSKeyID)
 	normalized.KMSKeyARN = firstNonEmptyAWSValue(record.KMSKeyARN, kmsKeyARNFromID(record.KMSKeyID, normalized.Region, normalized.AccountID))
 	normalized.OwningService = strings.TrimSpace(record.OwningService)

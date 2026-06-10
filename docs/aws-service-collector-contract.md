@@ -90,7 +90,11 @@ The response envelope is:
       "eks:ListNodegroups",
       "eks:DescribeNodegroup",
       "eks:ListFargateProfiles",
-      "eks:DescribeFargateProfile"
+      "eks:DescribeFargateProfile",
+      "secretsmanager:ListSecrets",
+      "secretsmanager:DescribeSecret",
+      "secretsmanager:GetResourcePolicy",
+      "secretsmanager:ListSecretVersionIds"
     ],
     "read_only_boundaries": [
       "collect metadata and policy documents only; never collect secret values, customer payloads, prompts, completions, object contents, or database rows"

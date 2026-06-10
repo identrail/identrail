@@ -2,7 +2,9 @@ package aws
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,6 +63,7 @@ func TestSDKSecretsManagerMetadataAPI_ListSecretMetadataEnrichesRecord(t *testin
 			SecretList: []smtypes.SecretListEntry{{
 				ARN:             awsv2.String(arn),
 				Name:            awsv2.String("payments/db"),
+				Description:     awsv2.String("sensitive operator note do not persist"),
 				RotationEnabled: awsv2.Bool(true),
 				KmsKeyId:        awsv2.String("alias/payments"),
 				Tags:            []smtypes.Tag{{Key: awsv2.String("owner"), Value: awsv2.String("payments")}},
@@ -70,6 +73,7 @@ func TestSDKSecretsManagerMetadataAPI_ListSecretMetadataEnrichesRecord(t *testin
 			arn: {
 				ARN:             awsv2.String(arn),
 				Name:            awsv2.String("payments/db"),
+				Description:     awsv2.String("another sensitive note"),
 				RotationEnabled: awsv2.Bool(true),
 				RotationRules:   &smtypes.RotationRulesType{AutomaticallyAfterDays: awsv2.Int64(30)},
 				CreatedDate:     &now,
@@ -99,6 +103,16 @@ func TestSDKSecretsManagerMetadataAPI_ListSecretMetadataEnrichesRecord(t *testin
 	record := page.Records[0]
 	if !record.RotationEnabled || record.RotationInterval != 30 {
 		t.Fatalf("rotation metadata not enriched: %+v", record)
+	}
+	if !record.DescriptionPresent {
+		t.Fatalf("expected description presence flag")
+	}
+	payload, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal record: %v", err)
+	}
+	if strings.Contains(string(payload), "sensitive operator note") || strings.Contains(string(payload), "another sensitive note") {
+		t.Fatalf("description text leaked into metadata payload: %s", payload)
 	}
 	if len(record.IdentityGrants) != 1 || !record.IdentityGrants[0].IsCrossAccount {
 		t.Fatalf("expected cross-account resource policy grant, got %+v", record.IdentityGrants)
