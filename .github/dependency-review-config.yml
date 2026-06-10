@@ -4,6 +4,7 @@ fail-on-severity: high
 license-check: true
 allow-dependencies-licenses:
   - pkg:golang/github.com/apparentlymart/go-textseg/v15
+  - pkg:golang/github.com/aws/aws-sdk-go-v2/service/kms
   - pkg:golang/golang.org/x/mod
   - pkg:golang/golang.org/x/sync
   - pkg:golang/golang.org/x/text
