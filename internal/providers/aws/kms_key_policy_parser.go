@@ -84,7 +84,7 @@ func parseKMSKeyPolicyGrants(raw string, ownerAccountID string) ([]KMSIdentityGr
 		if statement.Principal == nil && statement.NotPrincipal != nil {
 			continue
 		}
-		principals, principalType, wildcardPrincipal := kmsExtractPrincipals(statement.Principal)
+		principals := kmsExtractPrincipals(statement.Principal)
 		if len(principals) == 0 {
 			continue
 		}
@@ -96,15 +96,15 @@ func parseKMSKeyPolicyGrants(raw string, ownerAccountID string) ([]KMSIdentityGr
 		hasCondition := len(conditionKeys) > 0
 		for _, principal := range principals {
 			grant := KMSIdentityGrant{
-				PrincipalARN:      principal,
-				PrincipalType:     principalType,
+				PrincipalARN:      principal.Value,
+				PrincipalType:     principal.Type,
 				Effect:            effect,
 				Actions:           actions,
 				NotAction:         notAction,
 				ConditionKeys:     conditionKeys,
 				HasCondition:      hasCondition,
 				StatementSid:      strings.TrimSpace(statement.Sid),
-				WildcardPrincipal: wildcardPrincipal || principal == "*",
+				WildcardPrincipal: principal.Wildcard,
 			}
 			if isIAMDelegationGrant(grant, ownerAccountID) {
 				iamDelegation = true
@@ -115,61 +115,62 @@ func parseKMSKeyPolicyGrants(raw string, ownerAccountID string) ([]KMSIdentityGr
 	return grants, len(doc.Statement), iamDelegation, nil
 }
 
-// kmsExtractPrincipals returns the principal ARN list along with the
-// principal type and whether a wildcard principal is present.
-func kmsExtractPrincipals(principal any) (principals []string, principalType string, wildcardPrincipal bool) {
+type kmsParsedPrincipal struct {
+	Value    string
+	Type     string
+	Wildcard bool
+}
+
+func kmsExtractPrincipals(principal any) []kmsParsedPrincipal {
 	if principal == nil {
-		return nil, "", false
+		return nil
 	}
 	return kmsPrincipalsFromAny(principal)
 }
 
-func kmsPrincipalsFromAny(value any) ([]string, string, bool) {
+func kmsPrincipalsFromAny(value any) []kmsParsedPrincipal {
 	switch typed := value.(type) {
 	case string:
 		if typed == "*" {
-			return []string{"*"}, "*", true
+			return []kmsParsedPrincipal{{Value: "*", Type: "*", Wildcard: true}}
 		}
-		return []string{typed}, "aws", false
+		return []kmsParsedPrincipal{{Value: typed, Type: "aws"}}
 	case map[string]any:
 		// KMS key policies use {"AWS": ARN[]}, {"Service": "ec2.amazonaws.com"},
 		// {"Federated": "..."}, {"CanonicalUser": "..."}.
-		out := []string{}
-		principalType := ""
-		wildcard := false
+		out := []kmsParsedPrincipal{}
 		for _, key := range []string{"AWS", "Service", "Federated", "CanonicalUser"} {
 			if raw, ok := typed[key]; ok {
+				principalType := strings.ToLower(key)
 				values := parseStringList(raw)
 				for _, value := range values {
-					if value == "*" {
-						wildcard = true
-					}
-				}
-				if len(values) > 0 {
-					out = append(out, values...)
-					keyType := strings.ToLower(key)
-					if principalType == "" {
-						principalType = keyType
-					} else if principalType != keyType {
-						principalType = "mixed"
-					}
+					out = append(out, kmsParsedPrincipal{
+						Value:    value,
+						Type:     principalType,
+						Wildcard: value == "*",
+					})
 				}
 			}
 		}
 		if len(out) > 0 {
-			sort.Strings(out)
-			return out, principalType, wildcard
+			sort.Slice(out, func(i, j int) bool {
+				if out[i].Value == out[j].Value {
+					return out[i].Type < out[j].Type
+				}
+				return out[i].Value < out[j].Value
+			})
+			return out
 		}
 		if raw, ok := typed["*"]; ok {
 			values := parseStringList(raw)
 			for _, value := range values {
 				if value == "*" {
-					return []string{"*"}, "*", true
+					return []kmsParsedPrincipal{{Value: "*", Type: "*", Wildcard: true}}
 				}
 			}
 		}
 	}
-	return nil, "", false
+	return nil
 }
 
 func kmsExtractActions(action, notAction any) ([]string, bool) {

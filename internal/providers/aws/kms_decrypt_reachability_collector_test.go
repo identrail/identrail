@@ -139,20 +139,23 @@ func TestParseKMSKeyPolicyGrants_PreservesAllPrincipalEntries(t *testing.T) {
 	if len(grants) != 3 {
 		t.Fatalf("expected all principal entries, got %+v", grants)
 	}
-	want := map[string]bool{
-		"arn:aws:iam::123456789012:role/app":   false,
-		"arn:aws:iam::123456789012:user/alice": false,
-		"lambda.amazonaws.com":                 false,
+	want := map[string]string{
+		"arn:aws:iam::123456789012:role/app":   "aws",
+		"arn:aws:iam::123456789012:user/alice": "aws",
+		"lambda.amazonaws.com":                 "service",
 	}
 	for _, grant := range grants {
-		if _, ok := want[grant.PrincipalARN]; ok {
-			want[grant.PrincipalARN] = true
+		wantType, ok := want[grant.PrincipalARN]
+		if !ok {
+			t.Fatalf("unexpected principal %q in %+v", grant.PrincipalARN, grants)
 		}
+		if grant.PrincipalType != wantType {
+			t.Fatalf("expected principal %q type %q, got %q", grant.PrincipalARN, wantType, grant.PrincipalType)
+		}
+		delete(want, grant.PrincipalARN)
 	}
-	for principal, found := range want {
-		if !found {
-			t.Fatalf("expected principal %q in %+v", principal, grants)
-		}
+	for principal := range want {
+		t.Fatalf("expected principal %q in %+v", principal, grants)
 	}
 }
 
