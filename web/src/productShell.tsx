@@ -51,6 +51,8 @@ import {
   type AWSPlatformDependencyIndexResult,
   type AWSPlatformValidationHarnessResult,
   type AWSServiceCollectorContractResult,
+  type AWSSecretsManagerMetadataInventoryResult,
+  type AWSSecretsManagerMetadataRecord,
   type AWSPermissionPreviewItem,
   type CurrentUserContext,
   type ExecutiveReport,
@@ -3619,6 +3621,13 @@ type AWSInventoryEKSState = {
   onRetry: () => void;
 };
 
+type AWSInventorySecretsManagerState = {
+  inventory: AWSSecretsManagerMetadataInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryCoverageRow = AWSInventoryFilterable & {
   id: string;
   category: string;
@@ -5863,25 +5872,19 @@ function AWSAgentIdentitiesContent({
 
 function AWSResourcesInventoryContent({
   connection,
+  secretsManagerState,
   filters,
   onFiltersChange
 }: {
   connection: AWSConnectionStatus | null;
+  secretsManagerState: AWSInventorySecretsManagerState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
+  const secretsInventory = secretsManagerState.inventory;
+  const secretsRows = buildAWSSecretsManagerMetadataRows(secretsInventory, secretsManagerState.loading, connection);
   const rows: AWSInventoryTableRow[] = [
-    {
-      id: 'secrets-manager',
-      name: 'Secrets Manager metadata',
-      category: 'Secret-bearing',
-      scope: connection?.account_id ? `Account ${connection.account_id}` : 'Account pending',
-      status: 'coming',
-      stage: 'coming',
-      detail: 'Name, tags, rotation, policy, and reference metadata only. Secret values are out of scope.',
-      filters: { category: 'secrets-manager', sensitivity: 'secret-bearing', readPosture: 'metadata-only', search: '' },
-      searchText: inventorySearchText(['secrets manager', 'secret', 'metadata', 'category'])
-    },
+    ...secretsRows,
     {
       id: 'ssm-parameters',
       name: 'SSM Parameter metadata',
@@ -5933,10 +5936,23 @@ function AWSResourcesInventoryContent({
     <>
       <AWSInventoryFilterSet routeID="resources" filters={filters} onChange={onFiltersChange} />
       <section className="idt-aws-resource-coverage-grid" aria-label="AWS resource category coverage">
-        <DomainCoverageCard label="Secrets metadata" scanned={0} total={1} detail="Coming wave" />
+        <DomainCoverageCard
+          label="Secrets metadata"
+          scanned={secretsInventory && secretsInventory.status !== 'blocked' ? 1 : 0}
+          total={1}
+          detail={secretsManagerState.loading ? 'Loading' : secretsInventory ? formatTokenLabel(secretsInventory.status) : 'Pending'}
+        />
         <DomainCoverageCard label="KMS reachability" scanned={0} total={1} detail="Coming wave" />
         <DomainCoverageCard label="S3 sensitivity" scanned={0} total={1} detail="Coming wave" />
       </section>
+      {secretsManagerState.loading ? <DomainLoadingState label="Loading Secrets Manager metadata" /> : null}
+      {secretsManagerState.error ? (
+        <DomainErrorState
+          title="Secrets Manager metadata could not load"
+          body={secretsManagerState.error}
+          retryAction={{ label: 'Retry Secrets Manager metadata', onClick: secretsManagerState.onRetry }}
+        />
+      ) : null}
       <DomainStatusPanel eyebrow="Safety posture" title="No secret value reads" status="Metadata only" tone="success">
         <p>
           Resource inventory is designed around reachability and metadata. Secrets Manager, SSM Parameter, and external AI
@@ -5957,6 +5973,111 @@ function AWSResourcesInventoryContent({
       />
     </>
   );
+}
+
+function buildAWSSecretsManagerMetadataRows(
+  inventory: AWSSecretsManagerMetadataInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsSecretsManagerMetadataRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'secrets-manager-blocked',
+        name: 'Secrets Manager metadata unavailable',
+        category: 'Secret-bearing',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'Secrets Manager metadata collection is blocked.',
+        filters: { category: 'secrets-manager', sensitivity: 'secret-bearing', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['secrets manager', 'blocked', inventory.account_id, inventory.region])
+      }
+    ];
+  }
+  if (inventory) {
+    const degraded = inventory.status === 'degraded' || inventory.diagnostics.length > 0 || inventory.failure_reasons.length > 0;
+    return [
+      {
+        id: 'secrets-manager-empty',
+        name: degraded ? 'Secrets Manager metadata incomplete' : 'No Secrets Manager secrets found',
+        category: 'Secret-bearing',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: degraded ? 'degraded' : 'wired now',
+        stage: 'wired',
+        detail: degraded ? (inventory.failure_reasons[0] ?? 'Secrets Manager metadata collection completed with degraded evidence and no retained records.') : 'The collector completed without Secrets Manager records in this account and region.',
+        filters: { category: 'secrets-manager', sensitivity: 'secret-bearing', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['secrets manager', inventory.account_id, inventory.region, degraded ? 'degraded empty' : 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'secrets-manager-loading',
+        name: 'Secrets Manager metadata',
+        category: 'Secret-bearing',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading secret metadata, rotation state, resource-policy grants, KMS references, and workload references.',
+        filters: { category: 'secrets-manager', sensitivity: 'secret-bearing', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['secrets manager', 'metadata', 'loading'])
+      }
+    ];
+  }
+  return [
+    {
+      id: 'secrets-manager',
+      name: 'Secrets Manager metadata',
+      category: 'Secret-bearing',
+      scope: connection?.account_id ? `Account ${connection.account_id}` : 'Account pending',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Name, tags, rotation, policy, and reference metadata only. Secret values are out of scope.',
+      filters: { category: 'secrets-manager', sensitivity: 'secret-bearing', readPosture: 'metadata-only', search: '' },
+      searchText: inventorySearchText(['secrets manager', 'secret', 'metadata', 'category'])
+    }
+  ];
+}
+
+function awsSecretsManagerMetadataRow(record: AWSSecretsManagerMetadataRecord): AWSInventoryTableRow {
+  const degraded = record.status !== 'ready' || record.exposure_classification === 'public' || record.exposure_classification === 'cross_account' || !record.rotation_enabled;
+  const status = degraded ? 'degraded' : 'wired now';
+  const referenceLabel = record.referenced_by?.length ? `${record.referenced_by.length} workload references` : 'no resolved workload references';
+  const policyLabel = record.has_resource_policy ? `${record.resource_policy_statement_count} policy statements` : 'no resource policy';
+  const rotationLabel = record.rotation_enabled ? `rotation enabled${record.rotation_interval_days ? ` every ${record.rotation_interval_days} days` : ''}` : 'rotation not enabled';
+  const kmsLabel = record.kms_key_arn || record.kms_key_id ? 'KMS referenced' : 'default encryption metadata';
+  return {
+    id: `secrets-manager-${record.secret_arn}`,
+    name: record.secret_name || record.secret_arn,
+    category: 'Secret-bearing',
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage: 'wired',
+    detail: `${rotationLabel}; ${policyLabel}; ${referenceLabel}; ${kmsLabel}. Values hidden.`,
+    filters: {
+      category: 'secrets-manager',
+      sensitivity: record.referenced_by?.length ? 'credential-reference' : 'secret-bearing',
+      readPosture: 'metadata-only',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.secret_arn,
+      record.secret_name,
+      record.account_id,
+      record.region,
+      record.secret_status,
+      record.exposure_classification,
+      ...(record.exposure_reasons ?? []),
+      ...(record.referenced_by ?? []).map((ref) => `${ref.source_service ?? ''} ${ref.workload_name ?? ''} ${ref.reference}`),
+      ...(record.unresolved_references ?? []).map((ref) => `${ref.source_service ?? ''} ${ref.workload_name ?? ''} ${ref.reference}`),
+      'secrets manager metadata rotation policy kms references values hidden'
+    ])
+  };
 }
 
 function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) {
@@ -6002,6 +6123,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [eksInventoryLoading, setEKSInventoryLoading] = useState(false);
   const [eksInventoryError, setEKSInventoryError] = useState('');
   const eksInventoryRequestRef = useRef(0);
+  const [secretsManagerInventory, setSecretsManagerInventory] = useState<AWSSecretsManagerMetadataInventoryResult | null>(null);
+  const [secretsManagerInventoryLoading, setSecretsManagerInventoryLoading] = useState(false);
+  const [secretsManagerInventoryError, setSecretsManagerInventoryError] = useState('');
+  const secretsManagerInventoryRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -6371,6 +6496,46 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadEKSInventory]);
 
+  const loadSecretsManagerInventory = useCallback(async () => {
+    const requestID = ++secretsManagerInventoryRequestRef.current;
+    setSecretsManagerInventory(null);
+    setSecretsManagerInventoryError('');
+    if (routeID !== 'resources' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setSecretsManagerInventoryLoading(false);
+      return;
+    }
+    setSecretsManagerInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectSecretsManagerMetadata(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== secretsManagerInventoryRequestRef.current) {
+        return;
+      }
+      setSecretsManagerInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== secretsManagerInventoryRequestRef.current) {
+        return;
+      }
+      setSecretsManagerInventoryError(formatAPIError(error, 'Unable to load Secrets Manager metadata.'));
+    } finally {
+      if (requestID === secretsManagerInventoryRequestRef.current) {
+        setSecretsManagerInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadSecretsManagerInventory();
+    return () => {
+      secretsManagerInventoryRequestRef.current += 1;
+    };
+  }, [loadSecretsManagerInventory]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -6505,7 +6670,17 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
         <AWSAgentIdentitiesContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
       ) : null}
       {routeID === 'resources' ? (
-        <AWSResourcesInventoryContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
+        <AWSResourcesInventoryContent
+          connection={connection}
+          secretsManagerState={{
+            inventory: secretsManagerInventory,
+            loading: secretsManagerInventoryLoading,
+            error: secretsManagerInventoryError,
+            onRetry: () => void loadSecretsManagerInventory()
+          }}
+          filters={activeFilters}
+          onFiltersChange={onFiltersChange}
+        />
       ) : null}
     </DomainPageShell>
   );

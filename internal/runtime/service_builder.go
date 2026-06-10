@@ -133,6 +133,11 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws kms decrypt reachability collector: %w", kmsErr)
 			}
+			secretsAPI, secretsErr := awsprovider.NewSDKSecretsManagerMetadataAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if secretsErr != nil {
+				_ = store.Close()
+				return nil, nil, fmt.Errorf("initialize aws secrets manager metadata collector: %w", secretsErr)
+			}
 			scanner = newAWSScanner(
 				iamAPI,
 				cfg.AWSAccountID,
@@ -150,6 +155,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 				awsprovider.NewS3BucketReachabilityCollector(s3API),
 				awsprovider.NewKMSDecryptReachabilityCollector(kmsAPI),
+				awsprovider.NewSecretsManagerMetadataCollector(secretsAPI),
 			)
 		default:
 			_ = store.Close()
@@ -286,6 +292,10 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		if kmsErr != nil {
 			return nil, kmsErr
 		}
+		secretsAPI, secretsErr := awsprovider.NewSDKSecretsManagerMetadataAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
+		if secretsErr != nil {
+			return nil, secretsErr
+		}
 		scanner := newAWSScanner(
 			iamAPI,
 			connection.AccountID,
@@ -303,6 +313,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 			awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 			awsprovider.NewS3BucketReachabilityCollector(s3API),
 			awsprovider.NewKMSDecryptReachabilityCollector(kmsAPI),
+			awsprovider.NewSecretsManagerMetadataCollector(secretsAPI),
 		)
 		return scanner, nil
 	}

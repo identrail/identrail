@@ -47,6 +47,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		if err := ctx.Err(); err != nil {
 			return providers.NormalizedBundle{}, err
 		}
+		if asset.Kind != rawKindSecretsManagerMetadata {
+			continue
+		}
+		if err := normalizeSecretsManagerMetadataAsset(asset, i, &bundle, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
 		if asset.Kind != "iam_role" {
 			continue
 		}
@@ -263,6 +275,62 @@ func normalizeIAMRoleAsset(asset providers.RawAsset, index int, bundle *provider
 			bundle.Policies = append(bundle.Policies, *trustPolicy)
 		}
 	}
+	return nil
+}
+
+func normalizeSecretsManagerMetadataAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, resourceSeen map[string]struct{}) error {
+	var record SecretsManagerSecretMetadata
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode secrets manager metadata asset[%d]: %w", index, err)
+	}
+	secretARN := strings.TrimSpace(record.SecretARN)
+	if secretARN == "" {
+		return nil
+	}
+	resourceID := secretsManagerSecretResourceID(secretARN)
+	if _, exists := resourceSeen[resourceID]; exists {
+		return nil
+	}
+	resourceSeen[resourceID] = struct{}{}
+	bundle.Resources = append(bundle.Resources, domain.Resource{
+		ID:        resourceID,
+		Provider:  domain.ProviderAWS,
+		Type:      domain.ResourceTypeSecretsManager,
+		Name:      firstNonEmptyAWSValue(record.SecretName, secretNameFromARN(secretARN), secretARN),
+		ARN:       secretARN,
+		Region:    strings.TrimSpace(record.Region),
+		AccountID: strings.TrimSpace(record.AccountID),
+		Labels:    copyTags(record.Tags),
+		Metadata: map[string]any{
+			"description_present":             strings.TrimSpace(record.Description) != "",
+			"kms_key_id":                      strings.TrimSpace(record.KMSKeyID),
+			"kms_key_arn":                     strings.TrimSpace(record.KMSKeyARN),
+			"owning_service":                  strings.TrimSpace(record.OwningService),
+			"primary_region":                  strings.TrimSpace(record.PrimaryRegion),
+			"secret_status":                   strings.TrimSpace(record.SecretStatus),
+			"rotation_enabled":                record.RotationEnabled,
+			"rotation_lambda_arn":             strings.TrimSpace(record.RotationLambdaARN),
+			"rotation_interval_days":          record.RotationInterval,
+			"created_at":                      strings.TrimSpace(record.CreatedAt),
+			"last_changed_at":                 strings.TrimSpace(record.LastChangedAt),
+			"last_accessed_at":                strings.TrimSpace(record.LastAccessedAt),
+			"last_rotated_at":                 strings.TrimSpace(record.LastRotatedAt),
+			"deleted_at":                      strings.TrimSpace(record.DeletedAt),
+			"has_resource_policy":             record.HasResourcePolicy,
+			"resource_policy_statement_count": record.ResourcePolicyStatementCount,
+			"version_stage_count":             len(record.VersionStages),
+			"replica_region_count":            len(record.ReplicaRegions),
+			"exposure_classification":         record.ExposureClassification,
+			"exposure_reasons":                append([]string(nil), record.ExposureReasons...),
+			"identity_grant_count":            len(record.IdentityGrants),
+			"public_grant_count":              secretsManagerPublicGrantCount(record.IdentityGrants),
+			"cross_account_grant_count":       secretsManagerCrossAccountGrantCount(record.IdentityGrants),
+			"reference_count":                 len(record.ReferencedBy),
+			"referenced_by":                   secretReferenceMetadata(record.ReferencedBy),
+			"unresolved_references":           secretReferenceMetadata(record.UnresolvedReferences),
+		},
+		RawRef: asset.SourceID,
+	})
 	return nil
 }
 
@@ -2163,4 +2231,45 @@ func kmsCrossAccountLiveGrantCount(grants []KMSGrant) int {
 		}
 	}
 	return count
+}
+
+func secretsManagerPublicGrantCount(grants []SecretsManagerIdentityGrant) int {
+	count := 0
+	for _, grant := range grants {
+		if grant.IsPublic {
+			count++
+		}
+	}
+	return count
+}
+
+func secretsManagerCrossAccountGrantCount(grants []SecretsManagerIdentityGrant) int {
+	count := 0
+	for _, grant := range grants {
+		if grant.IsCrossAccount {
+			count++
+		}
+	}
+	return count
+}
+
+func secretReferenceMetadata(refs []SecretWorkloadReference) []map[string]any {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, map[string]any{
+			"source_service": strings.TrimSpace(ref.SourceService),
+			"workload_id":    strings.TrimSpace(ref.WorkloadID),
+			"workload_type":  strings.TrimSpace(ref.WorkloadType),
+			"workload_name":  strings.TrimSpace(ref.WorkloadName),
+			"resource_arn":   strings.TrimSpace(ref.ResourceARN),
+			"resource_id":    strings.TrimSpace(ref.ResourceID),
+			"reference":      strings.TrimSpace(ref.Reference),
+			"reference_kind": strings.TrimSpace(ref.ReferenceKind),
+			"confidence":     ref.Confidence,
+		})
+	}
+	return out
 }

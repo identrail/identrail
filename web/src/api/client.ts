@@ -2338,6 +2338,156 @@ export type AWSKMSDecryptReachabilityInventoryResult = {
   updated_at: string;
 };
 
+export type AWSSecretsManagerMetadataInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSSecretsManagerMetadataFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+
+export type AWSSecretsManagerCoverageGap = {
+  capability: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSSecretsManagerIdentityGrant = {
+  principal_arn?: string;
+  principal_type?: string;
+  effect: string;
+  actions?: string[];
+  condition_keys?: string[];
+  is_public?: boolean;
+  is_cross_account?: boolean;
+  has_condition?: boolean;
+  statement_sid?: string;
+  wildcard_principal?: boolean;
+};
+
+export type AWSSecretsManagerVersionStage = {
+  version_id?: string;
+  stages?: string[];
+  created_at?: string;
+  last_accessed_at?: string;
+  kms_key_ids?: string[];
+};
+
+export type AWSSecretsManagerReplicaRegion = {
+  region?: string;
+  kms_key_id?: string;
+  status?: string;
+  status_message?: string;
+  last_accessed_at?: string;
+};
+
+export type AWSSecretsManagerWorkloadReference = {
+  source_service?: string;
+  workload_id?: string;
+  workload_type?: string;
+  workload_name?: string;
+  resource_arn?: string;
+  resource_id?: string;
+  reference: string;
+  reference_kind: string;
+  confidence: number;
+};
+
+export type AWSSecretsManagerMetadataRecord = {
+  account_id: string;
+  region: string;
+  service: 'secretsmanager';
+  secret_arn: string;
+  secret_name: string;
+  description_present: boolean;
+  kms_key_id?: string;
+  kms_key_arn?: string;
+  owning_service?: string;
+  primary_region?: string;
+  secret_status: string;
+  rotation_enabled: boolean;
+  rotation_lambda_arn?: string;
+  rotation_interval_days?: number;
+  created_at?: string;
+  last_changed_at?: string;
+  last_accessed_at?: string;
+  last_rotated_at?: string;
+  deleted_at?: string;
+  has_resource_policy: boolean;
+  resource_policy_statement_count: number;
+  identity_grants?: AWSSecretsManagerIdentityGrant[];
+  version_stages?: AWSSecretsManagerVersionStage[];
+  replica_regions?: AWSSecretsManagerReplicaRegion[];
+  tags?: Record<string, string>;
+  exposure_classification: string;
+  exposure_reasons?: string[];
+  referenced_by?: AWSSecretsManagerWorkloadReference[];
+  unresolved_references?: AWSSecretsManagerWorkloadReference[];
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  relationship_type: string;
+  confidence: number;
+  collected_at: string;
+  status: string;
+};
+
+export type AWSSecretsManagerReferenceEdge = {
+  type: 'uses_secret';
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+  source: string;
+  confidence: number;
+};
+
+export type AWSSecretsManagerMetadataDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSSecretsManagerMetadataInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSSecretsManagerMetadataInventoryStatus;
+  fixture_state: AWSSecretsManagerMetadataFixtureState;
+  confidence: number;
+  secret_count: number;
+  referenced_secret_count: number;
+  unreferenced_secret_count: number;
+  rotation_enabled_count: number;
+  missing_rotation_count: number;
+  resource_policy_count: number;
+  public_secret_count: number;
+  cross_account_secret_count: number;
+  kms_referenced_count: number;
+  relationship_count: number;
+  unresolved_reference_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSSecretsManagerCoverageGap[];
+  records: AWSSecretsManagerMetadataRecord[];
+  relationships: AWSSecretsManagerReferenceEdge[];
+  diagnostics: AWSSecretsManagerMetadataDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSEKSWorkloadIdentityInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSEKSWorkloadIdentityFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 
@@ -3579,6 +3729,21 @@ export const apiClient = {
   ) {
     return request<{ inventory: AWSKMSDecryptReachabilityInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/kms-decrypt-reachability${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectSecretsManagerMetadata(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSSecretsManagerMetadataFixtureState,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSSecretsManagerMetadataInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/secrets-manager-metadata${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
       })}`,

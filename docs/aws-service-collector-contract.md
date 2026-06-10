@@ -175,6 +175,12 @@ workload identity collector adds metadata-only reads: `eks:ListClusters`, `eks:D
 `eks:ListNodegroups`, `eks:DescribeNodegroup`, `eks:ListFargateProfiles`, and
 `eks:DescribeFargateProfile`.
 
+The Secrets Manager metadata collector adds metadata-only reads:
+`secretsmanager:ListSecrets`, `secretsmanager:DescribeSecret`,
+`secretsmanager:GetResourcePolicy`, and
+`secretsmanager:ListSecretVersionIds`. It must not add
+`secretsmanager:GetSecretValue`.
+
 Future service collectors may add service-specific read-only metadata
 permissions, but must not add actions that read secret values, object contents,
 prompts, completions, browser pages, code-interpreter output, database rows, or
@@ -188,6 +194,12 @@ For CodeBuild, `secret_refs` are only Parameter Store or Secrets Manager source
 references and `environment_keys` are only variable names. Build logs, source
 contents, artifact contents, plaintext environment values, and secret values are
 intentionally outside the collector contract.
+
+For Secrets Manager, records contain secret metadata, policy-grant summaries,
+KMS references, tags, version stages, replica status, and resolved workload
+reference edges only. `SecretString`, `SecretBinary`, secret descriptions as
+operator evidence, and `GetSecretValue` outputs are intentionally outside the
+collector contract.
 
 For CodePipeline, `configuration_keys` are action configuration key names only.
 Configuration values, source contents, action outputs, artifact contents,

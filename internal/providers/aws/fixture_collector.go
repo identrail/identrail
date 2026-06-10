@@ -152,6 +152,13 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	var secretsManagerMetadata SecretsManagerSecretMetadata
+	if err := json.Unmarshal(payload, &secretsManagerMetadata); err == nil {
+		if isSecretsManagerMetadataFixture(secretsManagerMetadata) {
+			return rawKindSecretsManagerMetadata, secretsManagerMetadataSourceID(secretsManagerMetadata)
+		}
+	}
+
 	var managedComputeRole ManagedComputeRole
 	if err := json.Unmarshal(payload, &managedComputeRole); err == nil {
 		sourceID := managedComputeRoleSourceID(managedComputeRole)
@@ -528,4 +535,21 @@ func isKMSDecryptReachabilityFixture(record KMSDecryptReachability) bool {
 		return true
 	}
 	return false
+}
+
+// isSecretsManagerMetadataFixture identifies metadata-only Secrets Manager
+// fixtures without treating arbitrary workload records as secret records.
+func isSecretsManagerMetadataFixture(record SecretsManagerSecretMetadata) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), secretsManagerServiceName) {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(record.CollectorName), secretsManagerMetadataCollectorName) {
+		return true
+	}
+	return strings.TrimSpace(record.SecretARN) != "" ||
+		strings.TrimSpace(record.SecretName) != "" ||
+		strings.TrimSpace(record.KMSKeyID) != "" ||
+		strings.TrimSpace(record.KMSKeyARN) != "" ||
+		len(record.ReferencedBy) > 0 ||
+		len(record.UnresolvedReferences) > 0
 }

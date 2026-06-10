@@ -172,6 +172,10 @@ func AWSServiceCollectorContract() ServiceCollectorContract {
 			"kms:ListAliases",
 			"kms:ListGrants",
 			"kms:ListResourceTags",
+			"secretsmanager:ListSecrets",
+			"secretsmanager:DescribeSecret",
+			"secretsmanager:GetResourcePolicy",
+			"secretsmanager:ListSecretVersionIds",
 		},
 		ReadOnlyBoundaries: []string{
 			"collect metadata and policy documents only; never collect secret values, customer payloads, prompts, completions, object contents, or database rows",

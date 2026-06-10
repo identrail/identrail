@@ -73,6 +73,33 @@ func (b *RelationshipBuilder) ResolveRelationships(ctx context.Context, bundle p
 		appendRelationship(&relationships, seen, relationship)
 	}
 
+	secretIndex := secretsManagerResourceIndex(bundle.Resources)
+	for _, resource := range bundle.Resources {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		refs := parseStringList(resource.Metadata["secret_refs"])
+		for _, ref := range refs {
+			secretID := matchSecretsManagerReference(ref, secretIndex)
+			if secretID == "" {
+				continue
+			}
+			fromNodeID := strings.TrimSpace(resource.SourceEntityID)
+			if fromNodeID == "" {
+				fromNodeID = resource.ID
+			}
+			relationship := domain.Relationship{
+				ID:           relationshipID(domain.RelationshipUsesSecret, fromNodeID, secretID),
+				Type:         domain.RelationshipUsesSecret,
+				FromNodeID:   fromNodeID,
+				ToNodeID:     secretID,
+				EvidenceRef:  strings.TrimSpace(ref),
+				DiscoveredAt: timestamp,
+			}
+			appendRelationship(&relationships, seen, relationship)
+		}
+	}
+
 	for _, policy := range bundle.Policies {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -134,6 +161,28 @@ func (b *RelationshipBuilder) ResolveRelationships(ctx context.Context, bundle p
 	}
 
 	return relationships, nil
+}
+
+func secretsManagerResourceIndex(resources []domain.Resource) map[string]string {
+	index := map[string]string{}
+	for _, resource := range resources {
+		if resource.Type != domain.ResourceTypeSecretsManager {
+			continue
+		}
+		for _, key := range secretsManagerReferenceKeys(resource.ARN, resource.Name) {
+			index[strings.ToLower(key)] = resource.ID
+		}
+	}
+	return index
+}
+
+func matchSecretsManagerReference(ref string, index map[string]string) string {
+	for _, key := range secretsManagerReferenceKeysFromRef(ref) {
+		if id := index[strings.ToLower(key)]; id != "" {
+			return id
+		}
+	}
+	return ""
 }
 
 func workloadRelationshipType(workloadType string) domain.RelationshipType {

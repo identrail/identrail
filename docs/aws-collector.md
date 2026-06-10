@@ -270,3 +270,11 @@ ordered by `kind`, then `source_id`.
   collector never decrypts, encrypts, signs, verifies, or generates data
   keys; never reads ciphertext or plaintext; and never surfaces
   encryption-context *values*.
+- Secrets Manager metadata and workload references are exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/secrets-manager-metadata`.
+  The collector records secret metadata, rotation state, resource-policy grant
+  summaries, KMS key references, tags, version-stage metadata, replica-region
+  metadata, and graph-ready `uses_secret` edges for resolved compute
+  `secret_refs`. It never calls `secretsmanager:GetSecretValue`, never reads
+  `SecretString` or `SecretBinary`, and uses `description_present` instead of
+  surfacing description text in operator evidence.
