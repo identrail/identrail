@@ -186,11 +186,13 @@ func TestAWSKMSDecryptReachabilityEdgesExcludeWildcardsAndDenies(t *testing.T) {
 			{Effect: "Allow", PrincipalARN: "*", WildcardPrincipal: true},
 			{Effect: "Deny", PrincipalARN: "arn:aws:iam::123456789012:role/blocked"},
 			{Effect: "Allow", PrincipalARN: "arn:aws:iam::123456789012:role/allowed", PrincipalType: "aws", Capabilities: []string{"decrypt"}},
+			{Effect: "Allow", PrincipalARN: "arn:aws:iam::123456789012:role/encrypt-only", PrincipalType: "aws", Capabilities: []string{"encrypt"}},
 			{Effect: "Allow", PrincipalARN: "arn:aws:sns:us-east-1:123456789012:topic/x", PrincipalType: "aws"},
 			{Effect: "Allow", PrincipalARN: "lambda.amazonaws.com", PrincipalType: "service"},
 		},
 		Grants: []AWSKMSGrant{
 			{GranteePrincipal: "arn:aws:iam::123456789012:role/lambda-decrypt", GranteePrincipalType: "aws", Capabilities: []string{"decrypt"}},
+			{GranteePrincipal: "arn:aws:iam::123456789012:role/lambda-encrypt", GranteePrincipalType: "aws", Capabilities: []string{"encrypt"}},
 			{GranteePrincipal: "ec2.amazonaws.com", GranteePrincipalType: "service"},
 		},
 	}}

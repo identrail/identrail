@@ -514,6 +514,9 @@ func awsKMSDecryptReachabilityEdges(records []AWSKMSDecryptReachabilityRecord) [
 			if !isIAMPrincipalARNForKMSEdge(grant.PrincipalARN) {
 				continue
 			}
+			if !kmsCapabilitiesIncludeDecrypt(grant.Capabilities) {
+				continue
+			}
 			result = append(result, AWSKMSDecryptReachabilityEdge{
 				Type:          "can_decrypt",
 				FromNodeID:    awsIdentityNodeIDForAPI(grant.PrincipalARN),
@@ -533,6 +536,9 @@ func awsKMSDecryptReachabilityEdges(records []AWSKMSDecryptReachabilityRecord) [
 			if !isIAMPrincipalARNForKMSEdge(grant.GranteePrincipal) {
 				continue
 			}
+			if !kmsCapabilitiesIncludeDecrypt(grant.Capabilities) {
+				continue
+			}
 			result = append(result, AWSKMSDecryptReachabilityEdge{
 				Type:          "can_decrypt",
 				FromNodeID:    awsIdentityNodeIDForAPI(grant.GranteePrincipal),
@@ -547,6 +553,15 @@ func awsKMSDecryptReachabilityEdges(records []AWSKMSDecryptReachabilityRecord) [
 		}
 	}
 	return result
+}
+
+func kmsCapabilitiesIncludeDecrypt(capabilities []string) bool {
+	for _, capability := range capabilities {
+		if strings.EqualFold(strings.TrimSpace(capability), "decrypt") {
+			return true
+		}
+	}
+	return false
 }
 
 func summarizeAWSKMSDecryptReachabilityInventory(fixtureState string, diagnostics []providers.SourceError, records []AWSKMSDecryptReachabilityRecord) (string, float64, []string, []string) {

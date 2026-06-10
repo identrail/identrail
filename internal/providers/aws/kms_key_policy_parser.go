@@ -89,6 +89,9 @@ func parseKMSKeyPolicyGrants(raw string, ownerAccountID string) ([]KMSIdentityGr
 			continue
 		}
 		actions, notAction := kmsExtractActions(statement.Action, statement.NotAction)
+		if notAction {
+			continue
+		}
 		conditionKeys := kmsCollectConditionKeys(statement.Condition)
 		hasCondition := len(conditionKeys) > 0
 		for _, principal := range principals {
@@ -131,17 +134,38 @@ func kmsPrincipalsFromAny(value any) ([]string, string, bool) {
 	case map[string]any:
 		// KMS key policies use {"AWS": ARN[]}, {"Service": "ec2.amazonaws.com"},
 		// {"Federated": "..."}, {"CanonicalUser": "..."}.
+		out := []string{}
+		principalType := ""
+		wildcard := false
 		for _, key := range []string{"AWS", "Service", "Federated", "CanonicalUser"} {
 			if raw, ok := typed[key]; ok {
 				values := parseStringList(raw)
-				wildcard := false
 				for _, value := range values {
 					if value == "*" {
 						wildcard = true
-						break
 					}
 				}
-				return values, strings.ToLower(key), wildcard
+				if len(values) > 0 {
+					out = append(out, values...)
+					keyType := strings.ToLower(key)
+					if principalType == "" {
+						principalType = keyType
+					} else if principalType != keyType {
+						principalType = "mixed"
+					}
+				}
+			}
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out, principalType, wildcard
+		}
+		if raw, ok := typed["*"]; ok {
+			values := parseStringList(raw)
+			for _, value := range values {
+				if value == "*" {
+					return []string{"*"}, "*", true
+				}
 			}
 		}
 	}

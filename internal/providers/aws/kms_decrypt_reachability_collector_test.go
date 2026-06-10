@@ -104,6 +104,58 @@ func TestParseKMSKeyPolicyGrants_NotPrincipalIsSkipped(t *testing.T) {
 	}
 }
 
+func TestParseKMSKeyPolicyGrants_NotActionIsSkipped(t *testing.T) {
+	grants, _, _, err := parseKMSKeyPolicyGrants(`{
+		"Statement": [{
+			"Effect": "Allow",
+			"Principal": {"AWS": "arn:aws:iam::123456789012:role/app"},
+			"NotAction": "kms:Encrypt",
+			"Resource": "*"
+		}]
+	}`, "123456789012")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(grants) != 0 {
+		t.Fatalf("expected NotAction to be skipped, got %+v", grants)
+	}
+}
+
+func TestParseKMSKeyPolicyGrants_PreservesAllPrincipalEntries(t *testing.T) {
+	grants, _, _, err := parseKMSKeyPolicyGrants(`{
+		"Statement": [{
+			"Effect": "Allow",
+			"Principal": {
+				"AWS": ["arn:aws:iam::123456789012:role/app", "arn:aws:iam::123456789012:user/alice"],
+				"Service": "lambda.amazonaws.com"
+			},
+			"Action": "kms:Decrypt",
+			"Resource": "*"
+		}]
+	}`, "123456789012")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(grants) != 3 {
+		t.Fatalf("expected all principal entries, got %+v", grants)
+	}
+	want := map[string]bool{
+		"arn:aws:iam::123456789012:role/app":   false,
+		"arn:aws:iam::123456789012:user/alice": false,
+		"lambda.amazonaws.com":                 false,
+	}
+	for _, grant := range grants {
+		if _, ok := want[grant.PrincipalARN]; ok {
+			want[grant.PrincipalARN] = true
+		}
+	}
+	for principal, found := range want {
+		if !found {
+			t.Fatalf("expected principal %q in %+v", principal, grants)
+		}
+	}
+}
+
 func TestParseKMSKeyPolicyGrants_MalformedShape(t *testing.T) {
 	if _, _, _, err := parseKMSKeyPolicyGrants(`{"Statement": 42}`, ""); err == nil {
 		t.Fatalf("expected error on malformed statement shape")

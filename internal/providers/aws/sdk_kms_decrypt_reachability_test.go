@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -126,12 +127,14 @@ func TestSDKKMSDecryptReachabilityAPI_FullEnrichment(t *testing.T) {
 	cmkID := "aaaa1111-2222-3333-4444-555566667777"
 	awsManagedID := "bbbb1111-2222-3333-4444-555566667777"
 	asymmetricID := "cccc1111-2222-3333-4444-555566667777"
+	externalID := "dddd1111-2222-3333-4444-555566667777"
 	fake := &fakeKMSSDKClient{
 		listKeys: []*kms.ListKeysOutput{{
 			Keys: []kmstypes.KeyListEntry{
 				{KeyId: awsv2.String(cmkID), KeyArn: awsv2.String("arn:aws:kms:us-east-1:123456789012:key/" + cmkID)},
 				{KeyId: awsv2.String(awsManagedID), KeyArn: awsv2.String("arn:aws:kms:us-east-1:123456789012:key/" + awsManagedID)},
 				{KeyId: awsv2.String(asymmetricID), KeyArn: awsv2.String("arn:aws:kms:us-east-1:123456789012:key/" + asymmetricID)},
+				{KeyId: awsv2.String(externalID), KeyArn: awsv2.String("arn:aws:kms:us-east-1:123456789012:key/" + externalID)},
 				{KeyId: awsv2.String(""), KeyArn: awsv2.String("")},
 			},
 		}},
@@ -169,6 +172,15 @@ func TestSDKKMSDecryptReachabilityAPI_FullEnrichment(t *testing.T) {
 				KeySpec:    kmstypes.KeySpec("RSA_4096"),
 				Origin:     kmstypes.OriginTypeAwsKms,
 			}},
+			externalID: {KeyMetadata: &kmstypes.KeyMetadata{
+				KeyId:      awsv2.String(externalID),
+				Arn:        awsv2.String("arn:aws:kms:us-east-1:123456789012:key/" + externalID),
+				KeyManager: kmstypes.KeyManagerTypeCustomer,
+				KeyState:   kmstypes.KeyStateEnabled,
+				KeyUsage:   kmstypes.KeyUsageTypeEncryptDecrypt,
+				KeySpec:    kmstypes.KeySpecSymmetricDefault,
+				Origin:     kmstypes.OriginTypeExternal,
+			}},
 		},
 		policy: map[string]*kms.GetKeyPolicyOutput{
 			cmkID: {Policy: awsv2.String(`{"Statement":[{"Sid":"EnableIAMUserPermissions","Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"kms:*","Resource":"*"}]}`)},
@@ -196,7 +208,14 @@ func TestSDKKMSDecryptReachabilityAPI_FullEnrichment(t *testing.T) {
 				GranteePrincipal: awsv2.String("arn:aws:iam::123456789012:role/lambda-decrypt"),
 				Operations:       []kmstypes.GrantOperation{kmstypes.GrantOperationDecrypt},
 				Constraints: &kmstypes.GrantConstraints{
-					EncryptionContextEquals: map[string]string{"tenant_id": "secret-value-we-dont-keep"},
+					EncryptionContextEquals: map[string]string{
+						"tenant_id": "secret-value-we-dont-keep",
+						"app":       "billing",
+					},
+					EncryptionContextSubset: map[string]string{
+						"region": "us-east-1",
+						"env":    "prod",
+					},
 				},
 				CreationDate: &created,
 			}}},
@@ -214,8 +233,8 @@ func TestSDKKMSDecryptReachabilityAPI_FullEnrichment(t *testing.T) {
 	for _, r := range page.Records {
 		byID[r.KeyID] = r
 	}
-	if len(byID) != 3 {
-		t.Fatalf("expected 3 named records, got %d", len(byID))
+	if len(byID) != 4 {
+		t.Fatalf("expected 4 named records, got %d", len(byID))
 	}
 	cmk := byID[cmkID]
 	if cmk.KeyManager != string(kmstypes.KeyManagerTypeCustomer) {
@@ -237,8 +256,11 @@ func TestSDKKMSDecryptReachabilityAPI_FullEnrichment(t *testing.T) {
 		t.Fatalf("expected one live grant, got %+v", cmk.Grants)
 	}
 	// Encryption context VALUES must never reach the record.
-	if len(cmk.Grants[0].EncryptionContextKeys) != 1 || cmk.Grants[0].EncryptionContextKeys[0] != "tenant_id" {
-		t.Fatalf("expected only encryption-context key 'tenant_id', got %+v", cmk.Grants[0].EncryptionContextKeys)
+	if got, want := cmk.Grants[0].EncryptionContextKeys, []string{"app", "tenant_id"}; !slices.Equal(got, want) {
+		t.Fatalf("expected sorted encryption-context keys %+v, got %+v", want, got)
+	}
+	if got, want := cmk.Grants[0].EncryptionContextSubsetKeys, []string{"env", "region"}; !slices.Equal(got, want) {
+		t.Fatalf("expected sorted encryption-context subset keys %+v, got %+v", want, got)
 	}
 	for _, key := range cmk.Grants[0].EncryptionContextKeys {
 		if key == "secret-value-we-dont-keep" {
@@ -257,6 +279,10 @@ func TestSDKKMSDecryptReachabilityAPI_FullEnrichment(t *testing.T) {
 	asym := byID[asymmetricID]
 	if asym.RotationSupported {
 		t.Fatalf("asymmetric keys must not be rotation-supported, got %+v", asym)
+	}
+	external := byID[externalID]
+	if external.RotationSupported {
+		t.Fatalf("external-origin imported keys must not be rotation-supported, got %+v", external)
 	}
 	// UnsupportedOperationException must NOT produce a rotation diagnostic.
 	codes := map[string]int{}

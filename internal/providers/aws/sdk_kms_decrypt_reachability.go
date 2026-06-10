@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
@@ -203,11 +204,12 @@ func (a *SDKKMSDecryptReachabilityAPI) enrichDescribeKey(ctx context.Context, ke
 			}
 		}
 	}
-	// Symmetric customer-managed keys with AWS_KMS or EXTERNAL origin support
-	// rotation; everything else does not.
+	// Symmetric customer-managed keys with AWS_KMS origin support automatic
+	// rotation. Imported EXTERNAL-origin key material is not automatically
+	// rotation-capable.
 	if strings.EqualFold(string(meta.KeyManager), "CUSTOMER") &&
 		strings.EqualFold(string(meta.KeySpec), "SYMMETRIC_DEFAULT") &&
-		(strings.EqualFold(string(meta.Origin), "AWS_KMS") || strings.EqualFold(string(meta.Origin), "EXTERNAL")) {
+		strings.EqualFold(string(meta.Origin), "AWS_KMS") {
 		record.RotationSupported = true
 	}
 }
@@ -388,6 +390,8 @@ func kmsGrantFromSDK(entry kmstypes.GrantListEntry) KMSGrant {
 		for k := range entry.Constraints.EncryptionContextSubset {
 			g.EncryptionContextSubsetKeys = append(g.EncryptionContextSubsetKeys, k)
 		}
+		sort.Strings(g.EncryptionContextKeys)
+		sort.Strings(g.EncryptionContextSubsetKeys)
 	}
 	if entry.CreationDate != nil {
 		g.CreatedAt = entry.CreationDate.UTC().Format("2006-01-02T15:04:05Z")

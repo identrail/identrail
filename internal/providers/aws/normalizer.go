@@ -1948,30 +1948,7 @@ func normalizeS3BucketReachabilityAsset(asset providers.RawAsset, index int, bun
 	// Project each concrete IAM principal as an Identity so the graph
 	// surfaces principal→bucket reachability for downstream traversals.
 	for _, grant := range record.IdentityGrants {
-		principal := strings.TrimSpace(grant.PrincipalARN)
-		if principal == "" || principal == "*" {
-			continue
-		}
-		if !isIAMRoleARN(principal) && !isIAMUserARN(principal) {
-			continue
-		}
-		identityID := identityIDFromARN(principal)
-		if _, exists := identitySeen[identityID]; exists {
-			continue
-		}
-		identitySeen[identityID] = struct{}{}
-		identityType := domain.IdentityTypeRole
-		if isIAMUserARN(principal) {
-			identityType = domain.IdentityTypeUser
-		}
-		bundle.Identities = append(bundle.Identities, domain.Identity{
-			ID:       identityID,
-			Provider: domain.ProviderAWS,
-			Type:     identityType,
-			Name:     roleNameFromARN(principal),
-			ARN:      principal,
-			RawRef:   asset.SourceID,
-		})
+		projectAWSIAMPrincipalIdentity(bundle, identitySeen, grant.PrincipalARN, asset.SourceID)
 	}
 	return nil
 }
@@ -2108,39 +2085,40 @@ func normalizeKMSDecryptReachabilityAsset(asset providers.RawAsset, index int, b
 	}
 
 	// Project each concrete IAM principal as an Identity for the graph.
-	project := func(principal string) {
-		principal = strings.TrimSpace(principal)
-		if principal == "" || principal == "*" {
-			return
-		}
-		if !isIAMRoleARN(principal) && !isIAMUserARN(principal) {
-			return
-		}
-		identityID := identityIDFromARN(principal)
-		if _, exists := identitySeen[identityID]; exists {
-			return
-		}
-		identitySeen[identityID] = struct{}{}
-		identityType := domain.IdentityTypeRole
-		if isIAMUserARN(principal) {
-			identityType = domain.IdentityTypeUser
-		}
-		bundle.Identities = append(bundle.Identities, domain.Identity{
-			ID:       identityID,
-			Provider: domain.ProviderAWS,
-			Type:     identityType,
-			Name:     roleNameFromARN(principal),
-			ARN:      principal,
-			RawRef:   asset.SourceID,
-		})
-	}
 	for _, grant := range record.IdentityGrants {
-		project(grant.PrincipalARN)
+		projectAWSIAMPrincipalIdentity(bundle, identitySeen, grant.PrincipalARN, asset.SourceID)
 	}
 	for _, grant := range record.Grants {
-		project(grant.GranteePrincipal)
+		projectAWSIAMPrincipalIdentity(bundle, identitySeen, grant.GranteePrincipal, asset.SourceID)
 	}
 	return nil
+}
+
+func projectAWSIAMPrincipalIdentity(bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, principal string, rawRef string) {
+	principal = strings.TrimSpace(principal)
+	if principal == "" || principal == "*" {
+		return
+	}
+	if !isIAMRoleARN(principal) && !isIAMUserARN(principal) {
+		return
+	}
+	identityID := identityIDFromARN(principal)
+	if _, exists := identitySeen[identityID]; exists {
+		return
+	}
+	identitySeen[identityID] = struct{}{}
+	identityType := domain.IdentityTypeRole
+	if isIAMUserARN(principal) {
+		identityType = domain.IdentityTypeUser
+	}
+	bundle.Identities = append(bundle.Identities, domain.Identity{
+		ID:       identityID,
+		Provider: domain.ProviderAWS,
+		Type:     identityType,
+		Name:     roleNameFromARN(principal),
+		ARN:      principal,
+		RawRef:   rawRef,
+	})
 }
 
 func kmsKeyResourceID(keyARN string) string {
