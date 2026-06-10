@@ -64,7 +64,7 @@ func TestSecretsManagerMetadataCollectorCollectsMetadataOnly(t *testing.T) {
 	if record.ConnectorID != "aws-prod" || record.AccountID != "123456789012" || record.Region != "us-east-1" {
 		t.Fatalf("scope not applied: %+v", record.ServiceCollectorRecord)
 	}
-	if record.KMSKeyARN != "arn:aws:kms:us-east-1:123456789012:key/alias/payments" {
+	if record.KMSKeyARN != "arn:aws:kms:us-east-1:123456789012:alias/payments" {
 		t.Fatalf("unexpected KMS key ARN: %s", record.KMSKeyARN)
 	}
 	payload := strings.ToLower(string(assets[0].Payload))
@@ -103,20 +103,48 @@ func TestParseSecretsManagerResourcePolicyGrantsPublicAndCrossAccount(t *testing
 	grants, count, err := parseSecretsManagerResourcePolicyGrants(`{
 		"Statement": [
 			{"Sid":"PublicDescribe","Effect":"Allow","Principal":"*","Action":"secretsmanager:DescribeSecret","Resource":"*"},
-			{"Sid":"Partner","Effect":"Allow","Principal":{"AWS":"arn:aws:iam::999999999999:role/partner"},"Action":["secretsmanager:GetResourcePolicy"],"Resource":"*"}
+			{"Sid":"Partner","Effect":"Allow","Principal":{"AWS":"arn:aws:iam::999999999999:role/partner"},"Action":["secretsmanager:GetResourcePolicy"],"Resource":"*"},
+			{"Sid":"PartnerAccount","Effect":"Allow","Principal":{"AWS":"999999999999"},"Action":["secretsmanager:DescribeSecret"],"Resource":"*"},
+			{"Sid":"SameAccount","Effect":"Allow","Principal":{"AWS":"123456789012"},"Action":["secretsmanager:DescribeSecret"],"Resource":"*"}
 		]
 	}`, "123456789012")
 	if err != nil {
 		t.Fatalf("parse policy: %v", err)
 	}
-	if count != 2 || len(grants) != 2 {
-		t.Fatalf("expected two grants, count=%d grants=%+v", count, grants)
+	if count != 4 || len(grants) != 4 {
+		t.Fatalf("expected four grants, count=%d grants=%+v", count, grants)
 	}
 	if !grants[0].IsPublic || !grants[0].WildcardPrincipal {
 		t.Fatalf("expected public wildcard grant, got %+v", grants[0])
 	}
 	if !grants[1].IsCrossAccount {
 		t.Fatalf("expected cross-account grant, got %+v", grants[1])
+	}
+	if !grants[2].IsCrossAccount {
+		t.Fatalf("expected bare account-id principal to be cross-account, got %+v", grants[2])
+	}
+	if grants[3].IsCrossAccount {
+		t.Fatalf("expected same-account bare principal to stay in-account, got %+v", grants[3])
+	}
+}
+
+func TestSecretsManagerKMSKeyARN(t *testing.T) {
+	tests := []struct {
+		name  string
+		keyID string
+		want  string
+	}{
+		{name: "empty", keyID: "", want: ""},
+		{name: "bare key id", keyID: "key123", want: "arn:aws:kms:us-east-1:123456789012:key/key123"},
+		{name: "alias", keyID: "alias/payments", want: "arn:aws:kms:us-east-1:123456789012:alias/payments"},
+		{name: "full arn passthrough", keyID: "arn:aws:kms:eu-west-1:999999999999:key/key123", want: "arn:aws:kms:eu-west-1:999999999999:key/key123"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := secretsManagerKMSKeyARN(tc.keyID, "123456789012", "us-east-1"); got != tc.want {
+				t.Fatalf("secretsManagerKMSKeyARN(%q) = %q, want %q", tc.keyID, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -148,11 +176,11 @@ func TestSecretsManagerMetadataNormalizeAndGraphUsesSecret(t *testing.T) {
 			"service_arn":"arn:aws:ecs:us-east-1:123456789012:service/prod/payments",
 			"workload_id":"arn:aws:ecs:us-east-1:123456789012:service/prod/payments",
 			"workload_type":"ecs_service",
-				"workload_name":"payments",
-				"task_definition_arn":"arn:aws:ecs:us-east-1:123456789012:task-definition/payments:4",
-				"role_arn":"arn:aws:iam::123456789012:role/payments-task",
-				"secret_refs":["DATABASE_PASSWORD=arn:aws:secretsmanager:us-east-1:123456789012:secret:payments/db-AbCdEf:password"]
-			}`),
+			"workload_name":"payments",
+			"task_definition_arn":"arn:aws:ecs:us-east-1:123456789012:task-definition/payments:4",
+			"role_arn":"arn:aws:iam::123456789012:role/payments-task",
+			"secret_refs":["DATABASE_PASSWORD=arn:aws:secretsmanager:us-east-1:123456789012:secret:payments/db-AbCdEf:password"]
+		}`),
 	}})
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
@@ -180,6 +208,7 @@ func TestSecretsManagerReferenceKeysFromRefStripsValueSuffixes(t *testing.T) {
 		name string
 		ref  string
 		want []string
+		not  []string
 	}{
 		{
 			name: "arn json key suffix",
@@ -200,6 +229,22 @@ func TestSecretsManagerReferenceKeysFromRefStripsValueSuffixes(t *testing.T) {
 				"payments/db",
 			},
 		},
+		{
+			name: "prefixed ref is not stripped before prefix removal",
+			ref:  "SECRETS_MANAGER:payments:password",
+			want: []string{
+				"SECRETS_MANAGER:payments:password",
+				"payments:password",
+				"payments",
+			},
+			not: []string{"SECRETS_MANAGER"},
+		},
+		{
+			name: "arbitrary colon ref is not stripped",
+			ref:  "not-a-secret:maybe",
+			want: []string{"not-a-secret:maybe"},
+			not:  []string{"not-a-secret"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -208,6 +253,11 @@ func TestSecretsManagerReferenceKeysFromRefStripsValueSuffixes(t *testing.T) {
 			for _, want := range tc.want {
 				if !containsString(keys, want) {
 					t.Fatalf("expected key %q in %+v", want, keys)
+				}
+			}
+			for _, not := range tc.not {
+				if containsString(keys, not) {
+					t.Fatalf("did not expect key %q in %+v", not, keys)
 				}
 			}
 		})

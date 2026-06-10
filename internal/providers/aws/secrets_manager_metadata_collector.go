@@ -267,7 +267,7 @@ func normalizeSecretsManagerMetadataScope(scope AWSCollectorScope, record Secret
 	normalized.ProjectID = firstNonEmptyAWSValue(record.ProjectID, scope.ProjectID, "project")
 	normalized.DescriptionPresent = record.DescriptionPresent
 	normalized.KMSKeyID = strings.TrimSpace(record.KMSKeyID)
-	normalized.KMSKeyARN = firstNonEmptyAWSValue(record.KMSKeyARN, kmsKeyARNFromID(record.KMSKeyID, normalized.AccountID, normalized.Region))
+	normalized.KMSKeyARN = firstNonEmptyAWSValue(record.KMSKeyARN, secretsManagerKMSKeyARN(record.KMSKeyID, normalized.AccountID, normalized.Region))
 	normalized.OwningService = strings.TrimSpace(record.OwningService)
 	normalized.PrimaryRegion = strings.TrimSpace(record.PrimaryRegion)
 	normalized.SecretStatus = firstNonEmptyAWSValue(record.SecretStatus, secretsManagerSecretStatus(record))
@@ -286,6 +286,42 @@ func normalizeSecretsManagerMetadataScope(scope AWSCollectorScope, record Secret
 	return normalized
 }
 
+// secretsManagerKMSKeyARN resolves a Secrets Manager KmsKeyId value to a key
+// ARN. The field can carry a full ARN, an alias (`alias/...`), or a bare key
+// id; only the bare id needs a synthesized key ARN.
+func secretsManagerKMSKeyARN(keyID, accountID, region string) string {
+	trimmed := strings.TrimSpace(keyID)
+	switch {
+	case trimmed == "":
+		return ""
+	case strings.HasPrefix(trimmed, "arn:"):
+		return trimmed
+	case strings.HasPrefix(trimmed, "alias/"):
+		if strings.TrimSpace(accountID) == "" || strings.TrimSpace(region) == "" {
+			return ""
+		}
+		return fmt.Sprintf("arn:%s:kms:%s:%s:%s", awsPartitionForRegion(region), region, accountID, trimmed)
+	default:
+		return kmsKeyARNFromID(trimmed, accountID, region)
+	}
+}
+
+// secretsManagerPrincipalAccountID extracts the owning account from a policy
+// principal. Bare 12-digit account ids are valid AWS principals alongside
+// full ARNs.
+func secretsManagerPrincipalAccountID(principal string) string {
+	trimmed := strings.TrimSpace(principal)
+	if len(trimmed) == 12 {
+		for _, r := range trimmed {
+			if r < '0' || r > '9' {
+				return accountIDFromARN(trimmed)
+			}
+		}
+		return trimmed
+	}
+	return accountIDFromARN(trimmed)
+}
+
 func annotateSecretsManagerGrants(grants []SecretsManagerIdentityGrant, accountID string) []SecretsManagerIdentityGrant {
 	if len(grants) == 0 {
 		return nil
@@ -300,7 +336,7 @@ func annotateSecretsManagerGrants(grants []SecretsManagerIdentityGrant, accountI
 		grant.WildcardPrincipal = grant.WildcardPrincipal || grant.PrincipalARN == "*"
 		grant.IsPublic = grant.IsPublic || grant.WildcardPrincipal
 		if !grant.IsCrossAccount && accountID != "" && grant.PrincipalARN != "" && grant.PrincipalARN != "*" {
-			grantAccount := accountIDFromARN(grant.PrincipalARN)
+			grantAccount := secretsManagerPrincipalAccountID(grant.PrincipalARN)
 			if grantAccount != "" && grantAccount != accountID {
 				grant.IsCrossAccount = true
 			}
@@ -464,36 +500,46 @@ func secretsManagerReferenceKeysFromRef(ref string) []string {
 	if trimmed == "" {
 		return nil
 	}
-	candidates := []string{trimmed}
+	type referenceCandidate struct {
+		value         string
+		allowNameBase bool
+	}
+	candidates := []referenceCandidate{{value: trimmed}}
 	if idx := strings.LastIndex(trimmed, "="); idx >= 0 && idx < len(trimmed)-1 {
-		candidates = append(candidates, strings.TrimSpace(trimmed[idx+1:]))
+		candidates = append(candidates, referenceCandidate{
+			value:         strings.TrimSpace(trimmed[idx+1:]),
+			allowNameBase: true,
+		})
 	}
 	for _, prefix := range []string{"SECRETS_MANAGER:", "secretsmanager:", "SecretsManager:"} {
-		for _, candidate := range append([]string(nil), candidates...) {
-			if strings.HasPrefix(candidate, prefix) {
-				candidates = append(candidates, strings.TrimSpace(strings.TrimPrefix(candidate, prefix)))
+		for _, candidate := range append([]referenceCandidate(nil), candidates...) {
+			if strings.HasPrefix(candidate.value, prefix) {
+				candidates = append(candidates, referenceCandidate{
+					value:         strings.TrimSpace(strings.TrimPrefix(candidate.value, prefix)),
+					allowNameBase: true,
+				})
 			}
 		}
 	}
 	out := []string{}
 	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" {
+		value := strings.TrimSpace(candidate.value)
+		if value == "" {
 			continue
 		}
-		out = append(out, candidate)
-		if base := secretsManagerReferenceBase(candidate); base != "" && base != candidate {
+		out = append(out, value)
+		if base := secretsManagerReferenceBase(value, candidate.allowNameBase); base != "" && base != value {
 			out = append(out, base)
-			candidate = base
+			value = base
 		}
-		if strings.Contains(candidate, ":secretsmanager:") {
-			out = append(out, secretNameFromARN(candidate))
+		if strings.Contains(value, ":secretsmanager:") {
+			out = append(out, secretNameFromARN(value))
 		}
 	}
 	return dedupeStrings(out)
 }
 
-func secretsManagerReferenceBase(ref string) string {
+func secretsManagerReferenceBase(ref string, allowNameBase bool) string {
 	trimmed := strings.TrimSpace(ref)
 	if trimmed == "" {
 		return ""
@@ -509,8 +555,10 @@ func secretsManagerReferenceBase(ref string) string {
 		}
 		return parts[0] + ":secret:" + resource
 	}
-	if idx := strings.Index(trimmed, ":"); idx > 0 {
-		return strings.TrimSpace(trimmed[:idx])
+	if allowNameBase {
+		if idx := strings.Index(trimmed, ":"); idx > 0 {
+			return strings.TrimSpace(trimmed[:idx])
+		}
 	}
 	return trimmed
 }
@@ -627,7 +675,7 @@ func parseSecretsManagerResourcePolicyGrants(raw string, ownerAccountID string) 
 				grant.IsPublic = true
 			}
 			if ownerAccountID != "" && grant.PrincipalARN != "" && grant.PrincipalARN != "*" {
-				grantAccount := accountIDFromARN(grant.PrincipalARN)
+				grantAccount := secretsManagerPrincipalAccountID(grant.PrincipalARN)
 				grant.IsCrossAccount = grantAccount != "" && grantAccount != ownerAccountID
 			}
 			grants = append(grants, grant)
