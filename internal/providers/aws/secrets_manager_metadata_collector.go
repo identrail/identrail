@@ -267,7 +267,7 @@ func normalizeSecretsManagerMetadataScope(scope AWSCollectorScope, record Secret
 	normalized.ProjectID = firstNonEmptyAWSValue(record.ProjectID, scope.ProjectID, "project")
 	normalized.DescriptionPresent = record.DescriptionPresent
 	normalized.KMSKeyID = strings.TrimSpace(record.KMSKeyID)
-	normalized.KMSKeyARN = firstNonEmptyAWSValue(record.KMSKeyARN, kmsKeyARNFromID(record.KMSKeyID, normalized.Region, normalized.AccountID))
+	normalized.KMSKeyARN = firstNonEmptyAWSValue(record.KMSKeyARN, kmsKeyARNFromID(record.KMSKeyID, normalized.AccountID, normalized.Region))
 	normalized.OwningService = strings.TrimSpace(record.OwningService)
 	normalized.PrimaryRegion = strings.TrimSpace(record.PrimaryRegion)
 	normalized.SecretStatus = firstNonEmptyAWSValue(record.SecretStatus, secretsManagerSecretStatus(record))
@@ -482,11 +482,37 @@ func secretsManagerReferenceKeysFromRef(ref string) []string {
 			continue
 		}
 		out = append(out, candidate)
+		if base := secretsManagerReferenceBase(candidate); base != "" && base != candidate {
+			out = append(out, base)
+			candidate = base
+		}
 		if strings.Contains(candidate, ":secretsmanager:") {
 			out = append(out, secretNameFromARN(candidate))
 		}
 	}
 	return dedupeStrings(out)
+}
+
+func secretsManagerReferenceBase(ref string) string {
+	trimmed := strings.TrimSpace(ref)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.Contains(trimmed, ":secretsmanager:") && strings.Contains(trimmed, ":secret:") {
+		parts := strings.SplitN(trimmed, ":secret:", 2)
+		if len(parts) != 2 {
+			return trimmed
+		}
+		resource := strings.TrimSpace(parts[1])
+		if idx := strings.Index(resource, ":"); idx > 0 {
+			resource = resource[:idx]
+		}
+		return parts[0] + ":secret:" + resource
+	}
+	if idx := strings.Index(trimmed, ":"); idx > 0 {
+		return strings.TrimSpace(trimmed[:idx])
+	}
+	return trimmed
 }
 
 func secretNameFromARN(arn string) string {
@@ -495,6 +521,9 @@ func secretNameFromARN(arn string) string {
 		return ""
 	}
 	resource := strings.TrimPrefix(parts[6], "secret:")
+	if idx := strings.Index(resource, ":"); idx > 0 {
+		resource = resource[:idx]
+	}
 	if idx := strings.LastIndex(resource, "-"); idx > 0 && len(resource)-idx == 7 {
 		return resource[:idx]
 	}

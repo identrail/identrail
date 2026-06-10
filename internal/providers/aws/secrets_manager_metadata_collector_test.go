@@ -64,6 +64,9 @@ func TestSecretsManagerMetadataCollectorCollectsMetadataOnly(t *testing.T) {
 	if record.ConnectorID != "aws-prod" || record.AccountID != "123456789012" || record.Region != "us-east-1" {
 		t.Fatalf("scope not applied: %+v", record.ServiceCollectorRecord)
 	}
+	if record.KMSKeyARN != "arn:aws:kms:us-east-1:123456789012:key/alias/payments" {
+		t.Fatalf("unexpected KMS key ARN: %s", record.KMSKeyARN)
+	}
 	payload := strings.ToLower(string(assets[0].Payload))
 	if strings.Contains(payload, "secretstring") || strings.Contains(payload, "secretbinary") || strings.Contains(payload, "getsecretvalue") {
 		t.Fatalf("secret value material leaked into collector payload: %s", payload)
@@ -145,11 +148,11 @@ func TestSecretsManagerMetadataNormalizeAndGraphUsesSecret(t *testing.T) {
 			"service_arn":"arn:aws:ecs:us-east-1:123456789012:service/prod/payments",
 			"workload_id":"arn:aws:ecs:us-east-1:123456789012:service/prod/payments",
 			"workload_type":"ecs_service",
-			"workload_name":"payments",
-			"task_definition_arn":"arn:aws:ecs:us-east-1:123456789012:task-definition/payments:4",
-			"role_arn":"arn:aws:iam::123456789012:role/payments-task",
-			"secret_refs":["DATABASE_PASSWORD=arn:aws:secretsmanager:us-east-1:123456789012:secret:payments/db-AbCdEf"]
-		}`),
+				"workload_name":"payments",
+				"task_definition_arn":"arn:aws:ecs:us-east-1:123456789012:task-definition/payments:4",
+				"role_arn":"arn:aws:iam::123456789012:role/payments-task",
+				"secret_refs":["DATABASE_PASSWORD=arn:aws:secretsmanager:us-east-1:123456789012:secret:payments/db-AbCdEf:password"]
+			}`),
 	}})
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
@@ -170,4 +173,52 @@ func TestSecretsManagerMetadataNormalizeAndGraphUsesSecret(t *testing.T) {
 		}
 	}
 	t.Fatalf("expected uses_secret relationship, got %+v", relationships)
+}
+
+func TestSecretsManagerReferenceKeysFromRefStripsValueSuffixes(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  string
+		want []string
+	}{
+		{
+			name: "arn json key suffix",
+			ref:  "DATABASE_PASSWORD=arn:aws:secretsmanager:us-east-1:123456789012:secret:payments/db-AbCdEf:password",
+			want: []string{
+				"DATABASE_PASSWORD=arn:aws:secretsmanager:us-east-1:123456789012:secret:payments/db-AbCdEf:password",
+				"arn:aws:secretsmanager:us-east-1:123456789012:secret:payments/db-AbCdEf:password",
+				"arn:aws:secretsmanager:us-east-1:123456789012:secret:payments/db-AbCdEf",
+				"payments/db",
+			},
+		},
+		{
+			name: "name json key suffix",
+			ref:  "SECRETS_MANAGER:payments/db:password",
+			want: []string{
+				"SECRETS_MANAGER:payments/db:password",
+				"payments/db:password",
+				"payments/db",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			keys := secretsManagerReferenceKeysFromRef(tc.ref)
+			for _, want := range tc.want {
+				if !containsString(keys, want) {
+					t.Fatalf("expected key %q in %+v", want, keys)
+				}
+			}
+		})
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
