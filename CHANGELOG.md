@@ -1,6 +1,23 @@
 # Changelog
 
 ## Unreleased
+- Add **KMS key policy and decrypt reachability collector** (#1489).
+  Read-only, metadata-only inventory of every KMS key in scope, capturing
+  manager (customer vs AWS), state, spec, multi-region linkage, rotation
+  status, aliases, tags, the parsed key-policy grants, and the live KMS
+  grants from `ListGrants`. Classifies each key as `public`,
+  `cross_account`, `restricted`, `managed_by_iam`, `managed_by_aws`,
+  `private_with_grants`, or `private`, and emits `can_decrypt` graph
+  edges only for resolved Allow grants to IAM principal ARNs — tagged
+  with the source (`key_policy` vs `kms_grant`) and capability bucket
+  (`decrypt`, `encrypt`, `admin`, `grant`, `sign`). Adds the
+  `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/kms-decrypt-reachability`
+  endpoint with `success`, `empty`, `degraded`, `partial_failure`, and
+  `permission_denied` fixture states, OpenAPI schema, web API client
+  types, runtime/CLI wiring, and operator docs. The collector never
+  decrypts, encrypts, signs, verifies, or generates data keys; never
+  reads ciphertext or plaintext; and never surfaces encryption-context
+  values (only the constraint keys).
 - Add **S3 resource and bucket-policy reachability collector** (#1488).
   Read-only, metadata-only inventory of S3 buckets, public-access-block
   state, ownership controls, default encryption, access points, tags, and

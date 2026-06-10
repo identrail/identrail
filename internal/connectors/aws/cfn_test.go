@@ -154,6 +154,35 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 			t.Fatalf("connector policy must not include object-level S3 action %q", sensitive)
 		}
 	}
+	for _, action := range []string{
+		"kms:ListKeys",
+		"kms:DescribeKey",
+		"kms:GetKeyPolicy",
+		"kms:GetKeyRotationStatus",
+		"kms:ListAliases",
+		"kms:ListGrants",
+		"kms:ListResourceTags",
+	} {
+		if !strings.Contains(string(policy), "\""+action+"\"") {
+			t.Fatalf("expected KMS reachability read action %q in policy", action)
+		}
+	}
+	for _, sensitive := range []string{
+		"kms:Decrypt",
+		"kms:Encrypt",
+		"kms:GenerateDataKey",
+		"kms:ReEncryptFrom",
+		"kms:ReEncryptTo",
+		"kms:Sign",
+		"kms:Verify",
+		"kms:CreateGrant",
+		"kms:PutKeyPolicy",
+		"kms:ScheduleKeyDeletion",
+	} {
+		if strings.Contains(string(policy), "\""+sensitive+"\"") {
+			t.Fatalf("connector policy must not include cryptographic or mutating KMS action %q", sensitive)
+		}
+	}
 	hash, err := ReadOnlyPolicyHash()
 	if err != nil {
 		t.Fatalf("hash policy: %v", err)

@@ -544,6 +544,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/kms-decrypt-reachability
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/eks-workload-identities
     action: tenancy.read
     resource_type: project
@@ -4363,6 +4368,56 @@ paths:
                     $ref: "#/components/schemas/AWSS3BucketReachabilityInventoryResult"
         "400":
           description: Invalid AWS S3 bucket reachability inventory request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/kms-decrypt-reachability:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS KMS decrypt reachability inventory
+      operationId: getAWSProjectKMSDecryptReachability
+      description: Returns scoped KMS key metadata, key-policy grants, live KMS grants, rotation state, alias and multi-region context, and exposure classification. Metadata-only — never reads plaintext, ciphertext, or CloudTrail event bodies.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope the account, region, and read-only KMS reachability evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+      responses:
+        "200":
+          description: AWS KMS decrypt reachability inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inventory:
+                    $ref: "#/components/schemas/AWSKMSDecryptReachabilityInventoryResult"
+        "400":
+          description: Invalid AWS KMS decrypt reachability inventory request
           content:
             application/json:
               schema:
@@ -9119,6 +9174,249 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSSageMakerWorkloadRoleDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSKMSCoverageGap:
+      type: object
+      properties:
+        capability: { type: string }
+        status:
+          type: string
+          enum: [unsupported]
+        reason: { type: string }
+        remediation: { type: string }
+    AWSKMSIdentityGrant:
+      type: object
+      properties:
+        principal_arn: { type: string }
+        principal_type: { type: string }
+        effect:
+          type: string
+          enum: [Allow, Deny]
+        actions:
+          type: array
+          items: { type: string }
+        not_action: { type: boolean }
+        capabilities:
+          type: array
+          items: { type: string }
+        condition_keys:
+          type: array
+          items: { type: string }
+        is_public: { type: boolean }
+        is_cross_account: { type: boolean }
+        has_condition: { type: boolean }
+        statement_sid: { type: string }
+        wildcard_principal: { type: boolean }
+    AWSKMSGrant:
+      type: object
+      properties:
+        grant_id: { type: string }
+        name: { type: string }
+        grantee_principal: { type: string }
+        grantee_principal_type: { type: string }
+        retiring_principal: { type: string }
+        issuing_account: { type: string }
+        operations:
+          type: array
+          items: { type: string }
+        capabilities:
+          type: array
+          items: { type: string }
+        encryption_context_keys:
+          type: array
+          items: { type: string }
+        encryption_context_subset_keys:
+          type: array
+          items: { type: string }
+        has_constraints: { type: boolean }
+        is_cross_account: { type: boolean }
+        created_at: { type: string }
+    AWSKMSDecryptReachabilityRecord:
+      type: object
+      properties:
+        account_id: { type: string }
+        region: { type: string }
+        service:
+          type: string
+          enum: [kms]
+        key_arn: { type: string }
+        key_id: { type: string }
+        key_manager:
+          type: string
+          enum: [CUSTOMER, AWS, ""]
+        key_state: { type: string }
+        key_usage: { type: string }
+        key_spec: { type: string }
+        origin: { type: string }
+        description: { type: string }
+        enabled: { type: boolean }
+        created_at: { type: string }
+        deletion_date: { type: string }
+        multi_region: { type: boolean }
+        multi_region_primary: { type: boolean }
+        primary_key_arn: { type: string }
+        replica_key_arns:
+          type: array
+          items: { type: string }
+        rotation_enabled: { type: boolean }
+        rotation_supported: { type: boolean }
+        aliases:
+          type: array
+          items: { type: string }
+        has_key_policy: { type: boolean }
+        key_policy_statement_count: { type: integer }
+        iam_delegation_enabled: { type: boolean }
+        identity_grants:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSKMSIdentityGrant"
+        grants:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSKMSGrant"
+        exposure_classification:
+          type: string
+          enum: [public, cross_account, restricted, managed_by_iam, managed_by_aws, private_with_grants, private, unknown]
+        exposure_reasons:
+          type: array
+          items: { type: string }
+        tags:
+          type: object
+          additionalProperties: { type: string }
+        source: { type: string }
+        evidence_ref: { type: string }
+        from_node_id: { type: string }
+        relationship_type:
+          type: string
+          enum: [can_decrypt]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        collected_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [ready, degraded]
+    AWSKMSDecryptReachabilityEdge:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [can_decrypt]
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+        effect:
+          type: string
+          enum: [Allow]
+        source:
+          type: string
+          enum: [key_policy, kms_grant]
+        principal_type: { type: string }
+        capabilities:
+          type: array
+          items: { type: string }
+        has_condition: { type: boolean }
+    AWSKMSDecryptReachabilityDiagnostic:
+      type: object
+      properties:
+        collector: { type: string }
+        source_id: { type: string }
+        code:
+          type: string
+          enum:
+            - kms_decrypt_reachability_page_failed
+            - kms_decrypt_reachability_page_limit_exceeded
+            - kms_describe_key_failed
+            - kms_key_policy_failed
+            - kms_key_policy_parse_failed
+            - kms_key_rotation_failed
+            - kms_list_grants_failed
+            - kms_list_grants_page_limit_exceeded
+            - kms_list_aliases_failed
+            - kms_list_aliases_page_limit_exceeded
+            - kms_list_tags_failed
+            - kms_list_tags_page_limit_exceeded
+            - kms_rotation_disabled
+            - kms_key_id_missing
+            - permission_denied
+            - malformed_kms_decrypt_reachability_record
+        message: { type: string }
+        remediation: { type: string }
+        retryable: { type: boolean }
+    AWSKMSDecryptReachabilityInventoryResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        key_count: { type: integer }
+        customer_managed_key_count: { type: integer }
+        aws_managed_key_count: { type: integer }
+        public_key_count: { type: integer }
+        cross_account_key_count: { type: integer }
+        restricted_key_count: { type: integer }
+        keys_with_rotation_count: { type: integer }
+        keys_missing_rotation_count: { type: integer }
+        keys_pending_deletion_count: { type: integer }
+        multi_region_key_count: { type: integer }
+        identity_grant_count: { type: integer }
+        public_grant_count: { type: integer }
+        cross_account_grant_count: { type: integer }
+        deny_grant_count: { type: integer }
+        live_grant_count: { type: integer }
+        cross_account_live_grant_count: { type: integer }
+        relationship_count: { type: integer }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSKMSCoverageGap"
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSKMSDecryptReachabilityRecord"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSKMSDecryptReachabilityEdge"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSKMSDecryptReachabilityDiagnostic"
         generated_at:
           type: string
           format: date-time

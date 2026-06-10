@@ -638,6 +638,10 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 			if err != nil {
 				return app.Scanner{}, fmt.Errorf("initialize aws s3 bucket reachability collector: %w", err)
 			}
+			kmsAPI, err := awsprovider.NewSDKKMSDecryptReachabilityAPI(cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if err != nil {
+				return app.Scanner{}, fmt.Errorf("initialize aws kms decrypt reachability collector: %w", err)
+			}
 			return awsprovider.NewAWSScannerWithServices(iamAPI, cfg.AWSAccountID, cfg.AWSRegion, []awsprovider.AWSServiceCollector{
 				awsprovider.NewEC2InstanceProfileCollector(ec2API),
 				awsprovider.NewECSTaskRoleCollector(ecsAPI),
@@ -651,6 +655,7 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 				awsprovider.NewIAMPassRoleRelationshipCollector(iamAPI),
 				awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 				awsprovider.NewS3BucketReachabilityCollector(s3API),
+				awsprovider.NewKMSDecryptReachabilityCollector(kmsAPI),
 			}, awsprovider.NewRuleSet(
 				awsprovider.WithStaleAfter(time.Duration(staleAfterDays)*24*time.Hour),
 			)), nil

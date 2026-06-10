@@ -122,7 +122,11 @@ const readOnlyPolicyJSON = `{
       "Action": [
         "kms:DescribeKey",
         "kms:GetKeyPolicy",
-        "kms:ListKeys"
+        "kms:GetKeyRotationStatus",
+        "kms:ListAliases",
+        "kms:ListGrants",
+        "kms:ListKeys",
+        "kms:ListResourceTags"
       ],
       "Resource": "*"
     },
@@ -279,10 +283,18 @@ func PermissionPreview() []PermissionPreviewItem {
 			Reason:    "Reads bucket-level metadata (location, policy, public-access block, ownership controls, default encryption, tags) plus account-scoped access-point metadata to classify identity-to-bucket reachability. Never reads object contents, presigned URLs, or per-object ACLs.",
 		},
 		{
-			Service:   "KMS",
-			Actions:   []string{"kms:DescribeKey", "kms:GetKeyPolicy", "kms:ListKeys"},
+			Service: "KMS",
+			Actions: []string{
+				"kms:ListKeys",
+				"kms:DescribeKey",
+				"kms:GetKeyPolicy",
+				"kms:GetKeyRotationStatus",
+				"kms:ListAliases",
+				"kms:ListGrants",
+				"kms:ListResourceTags",
+			},
 			Resources: []string{"*"},
-			Reason:    "Reads key policies that can grant sensitive machine identities decrypt or administration paths.",
+			Reason:    "Reads key metadata, key policies, rotation status, aliases, live grants, and tags so Identrail can map which IAM principals can decrypt or administer customer-managed keys. Metadata-only — no Encrypt, Decrypt, Sign, Verify, GenerateDataKey, or grant-creation calls are made.",
 		},
 	}
 }

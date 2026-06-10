@@ -199,6 +199,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		}
 	}
 
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != rawKindKMSDecryptReachability {
+			continue
+		}
+		if err := normalizeKMSDecryptReachabilityAsset(asset, i, &bundle, identitySeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
 	return bundle, nil
 }
 
@@ -2031,6 +2043,144 @@ func s3DenyGrantCount(grants []S3IdentityGrant) int {
 	count := 0
 	for _, grant := range grants {
 		if strings.EqualFold(grant.Effect, "Deny") {
+			count++
+		}
+	}
+	return count
+}
+
+// normalizeKMSDecryptReachabilityAsset registers the KMS key as a Resource
+// (with exposure + rotation metadata) and projects concrete IAM-principal
+// grants — both key-policy and live KMS grants — as Identity nodes so the
+// graph can render principal→key reachability. Wildcard ("*"), service,
+// federated, and canonical-user principals stay as resource metadata only;
+// the graph does not synthesize a fake identity for "*" or a service-name
+// string.
+func normalizeKMSDecryptReachabilityAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record KMSDecryptReachability
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode kms decrypt reachability asset[%d]: %w", index, err)
+	}
+	keyARN := strings.TrimSpace(record.KeyARN)
+	if keyARN == "" {
+		return nil
+	}
+	resourceID := kmsKeyResourceID(keyARN)
+	if _, exists := resourceSeen[resourceID]; !exists {
+		resourceSeen[resourceID] = struct{}{}
+		bundle.Resources = append(bundle.Resources, domain.Resource{
+			ID:        resourceID,
+			Provider:  domain.ProviderAWS,
+			Type:      domain.ResourceTypeKMSKey,
+			Name:      firstNonEmptyAWSValue(record.KeyID, keyARN),
+			ARN:       keyARN,
+			Region:    strings.TrimSpace(record.Region),
+			AccountID: strings.TrimSpace(record.AccountID),
+			Labels:    copyTags(record.Tags),
+			Metadata: map[string]any{
+				"key_manager":                    record.KeyManager,
+				"key_state":                      record.KeyState,
+				"key_usage":                      record.KeyUsage,
+				"key_spec":                       record.KeySpec,
+				"origin":                         record.Origin,
+				"enabled":                        record.Enabled,
+				"multi_region":                   record.MultiRegion,
+				"multi_region_primary":           record.MultiRegionPrimary,
+				"replica_key_count":              len(record.ReplicaKeyARNs),
+				"primary_key_arn":                record.PrimaryKeyARN,
+				"rotation_supported":             record.RotationSupported,
+				"rotation_enabled":               record.RotationEnabled,
+				"aliases":                        append([]string(nil), record.Aliases...),
+				"has_key_policy":                 record.HasKeyPolicy,
+				"key_policy_statement_count":     record.KeyPolicyStatementCount,
+				"iam_delegation_enabled":         record.IAMDelegationEnabled,
+				"exposure_classification":        record.ExposureClassification,
+				"exposure_reasons":               append([]string(nil), record.ExposureReasons...),
+				"identity_grant_count":           len(record.IdentityGrants),
+				"public_grant_count":             kmsPublicGrantCount(record.IdentityGrants),
+				"cross_account_grant_count":      kmsCrossAccountGrantCount(record.IdentityGrants),
+				"deny_grant_count":               kmsDenyGrantCount(record.IdentityGrants),
+				"live_grant_count":               len(record.Grants),
+				"cross_account_live_grant_count": kmsCrossAccountLiveGrantCount(record.Grants),
+			},
+			RawRef: asset.SourceID,
+		})
+	}
+
+	// Project each concrete IAM principal as an Identity for the graph.
+	project := func(principal string) {
+		principal = strings.TrimSpace(principal)
+		if principal == "" || principal == "*" {
+			return
+		}
+		if !isIAMRoleARN(principal) && !isIAMUserARN(principal) {
+			return
+		}
+		identityID := identityIDFromARN(principal)
+		if _, exists := identitySeen[identityID]; exists {
+			return
+		}
+		identitySeen[identityID] = struct{}{}
+		identityType := domain.IdentityTypeRole
+		if isIAMUserARN(principal) {
+			identityType = domain.IdentityTypeUser
+		}
+		bundle.Identities = append(bundle.Identities, domain.Identity{
+			ID:       identityID,
+			Provider: domain.ProviderAWS,
+			Type:     identityType,
+			Name:     roleNameFromARN(principal),
+			ARN:      principal,
+			RawRef:   asset.SourceID,
+		})
+	}
+	for _, grant := range record.IdentityGrants {
+		project(grant.PrincipalARN)
+	}
+	for _, grant := range record.Grants {
+		project(grant.GranteePrincipal)
+	}
+	return nil
+}
+
+func kmsKeyResourceID(keyARN string) string {
+	return "aws:resource:kms-key:" + strings.TrimSpace(keyARN)
+}
+
+func kmsPublicGrantCount(grants []KMSIdentityGrant) int {
+	count := 0
+	for _, grant := range grants {
+		if grant.IsPublic {
+			count++
+		}
+	}
+	return count
+}
+
+func kmsCrossAccountGrantCount(grants []KMSIdentityGrant) int {
+	count := 0
+	for _, grant := range grants {
+		if grant.IsCrossAccount {
+			count++
+		}
+	}
+	return count
+}
+
+func kmsDenyGrantCount(grants []KMSIdentityGrant) int {
+	count := 0
+	for _, grant := range grants {
+		if strings.EqualFold(grant.Effect, "Deny") {
+			count++
+		}
+	}
+	return count
+}
+
+func kmsCrossAccountLiveGrantCount(grants []KMSGrant) int {
+	count := 0
+	for _, grant := range grants {
+		if grant.IsCrossAccount {
 			count++
 		}
 	}

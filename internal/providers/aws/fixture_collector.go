@@ -144,6 +144,14 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	// KMS reachability records carry kms service and kms_key workload type.
+	var kmsReach KMSDecryptReachability
+	if err := json.Unmarshal(payload, &kmsReach); err == nil {
+		if isKMSDecryptReachabilityFixture(kmsReach) {
+			return rawKindKMSDecryptReachability, kmsDecryptReachabilitySourceID(kmsReach)
+		}
+	}
+
 	var managedComputeRole ManagedComputeRole
 	if err := json.Unmarshal(payload, &managedComputeRole); err == nil {
 		sourceID := managedComputeRoleSourceID(managedComputeRole)
@@ -501,6 +509,22 @@ func isS3BucketReachabilityFixture(record S3BucketReachability) bool {
 		return true
 	}
 	if strings.EqualFold(strings.TrimSpace(record.WorkloadType), "s3_bucket") {
+		return true
+	}
+	return false
+}
+
+// isKMSDecryptReachabilityFixture identifies a record that looks like a KMS
+// decrypt reachability fixture. Strict match on service (kms), collector
+// name, or workload type (kms_key) so it never claims unrelated assets.
+func isKMSDecryptReachabilityFixture(record KMSDecryptReachability) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), kmsServiceName) {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(record.CollectorName), kmsDecryptReachabilityCollectorName) {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(record.WorkloadType), "kms_key") {
 		return true
 	}
 	return false

@@ -2181,6 +2181,163 @@ export type AWSS3BucketReachabilityInventoryResult = {
   updated_at: string;
 };
 
+export type AWSKMSDecryptReachabilityInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSKMSDecryptReachabilityFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+
+export type AWSKMSCoverageGap = {
+  capability: string;
+  status: 'unsupported';
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSKMSIdentityGrant = {
+  principal_arn?: string;
+  principal_type?: string;
+  effect: 'Allow' | 'Deny';
+  actions?: string[];
+  not_action?: boolean;
+  capabilities?: string[];
+  condition_keys?: string[];
+  is_public?: boolean;
+  is_cross_account?: boolean;
+  has_condition?: boolean;
+  statement_sid?: string;
+  wildcard_principal?: boolean;
+};
+
+export type AWSKMSGrant = {
+  grant_id?: string;
+  name?: string;
+  grantee_principal?: string;
+  grantee_principal_type?: string;
+  retiring_principal?: string;
+  issuing_account?: string;
+  operations?: string[];
+  capabilities?: string[];
+  encryption_context_keys?: string[];
+  encryption_context_subset_keys?: string[];
+  has_constraints?: boolean;
+  is_cross_account?: boolean;
+  created_at?: string;
+};
+
+export type AWSKMSDecryptReachabilityRecord = {
+  account_id: string;
+  region: string;
+  service: 'kms';
+  key_arn: string;
+  key_id: string;
+  key_manager?: 'CUSTOMER' | 'AWS' | '';
+  key_state?: string;
+  key_usage?: string;
+  key_spec?: string;
+  origin?: string;
+  description?: string;
+  enabled: boolean;
+  created_at?: string;
+  deletion_date?: string;
+  multi_region?: boolean;
+  multi_region_primary?: boolean;
+  primary_key_arn?: string;
+  replica_key_arns?: string[];
+  rotation_enabled: boolean;
+  rotation_supported: boolean;
+  aliases?: string[];
+  has_key_policy: boolean;
+  key_policy_statement_count: number;
+  iam_delegation_enabled: boolean;
+  identity_grants?: AWSKMSIdentityGrant[];
+  grants?: AWSKMSGrant[];
+  exposure_classification:
+    | 'public'
+    | 'cross_account'
+    | 'restricted'
+    | 'managed_by_iam'
+    | 'managed_by_aws'
+    | 'private_with_grants'
+    | 'private'
+    | 'unknown';
+  exposure_reasons?: string[];
+  tags?: Record<string, string>;
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  relationship_type: 'can_decrypt';
+  confidence: number;
+  collected_at: string;
+  status: 'ready' | 'degraded';
+};
+
+export type AWSKMSDecryptReachabilityEdge = {
+  type: 'can_decrypt';
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+  effect: 'Allow';
+  source: 'key_policy' | 'kms_grant';
+  principal_type: string;
+  capabilities?: string[];
+  has_condition?: boolean;
+};
+
+export type AWSKMSDecryptReachabilityDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSKMSDecryptReachabilityInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSKMSDecryptReachabilityInventoryStatus;
+  fixture_state: AWSKMSDecryptReachabilityFixtureState;
+  confidence: number;
+  key_count: number;
+  customer_managed_key_count: number;
+  aws_managed_key_count: number;
+  public_key_count: number;
+  cross_account_key_count: number;
+  restricted_key_count: number;
+  keys_with_rotation_count: number;
+  keys_missing_rotation_count: number;
+  keys_pending_deletion_count: number;
+  multi_region_key_count: number;
+  identity_grant_count: number;
+  public_grant_count: number;
+  cross_account_grant_count: number;
+  deny_grant_count: number;
+  live_grant_count: number;
+  cross_account_live_grant_count: number;
+  relationship_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSKMSCoverageGap[];
+  records: AWSKMSDecryptReachabilityRecord[];
+  relationships: AWSKMSDecryptReachabilityEdge[];
+  diagnostics: AWSKMSDecryptReachabilityDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSEKSWorkloadIdentityInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSEKSWorkloadIdentityFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 
@@ -3407,6 +3564,21 @@ export const apiClient = {
   ) {
     return request<{ inventory: AWSS3BucketReachabilityInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/s3-bucket-reachability${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectKMSDecryptReachability(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSKMSDecryptReachabilityFixtureState,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSKMSDecryptReachabilityInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/kms-decrypt-reachability${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
       })}`,

@@ -257,3 +257,16 @@ ordered by `kind`, then `source_id`.
   Allow grants to IAM principal ARNs. The collector never reads object
   contents, never lists bucket objects, never issues presigned URLs, and
   never inspects per-object ACL grants.
+- KMS key policy and decrypt reachability is exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/kms-decrypt-reachability`
+  and the AWS machine identities page. The collector records key metadata
+  (manager, state, spec, multi-region linkage, rotation status, aliases,
+  tags), the identity grants inferred from the key policy, and the live
+  KMS grants from `ListGrants`. It classifies each key's exposure
+  (public / cross-account / restricted / managed_by_iam / managed_by_aws
+  / private_with_grants / private) and emits `can_decrypt` edges only for
+  resolved Allow grants to IAM principal ARNs, tagging each edge with
+  its source (`key_policy` or `kms_grant`) and capability bucket. The
+  collector never decrypts, encrypts, signs, verifies, or generates data
+  keys; never reads ciphertext or plaintext; and never surfaces
+  encryption-context *values*.

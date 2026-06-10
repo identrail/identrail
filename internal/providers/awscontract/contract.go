@@ -165,6 +165,13 @@ func AWSServiceCollectorContract() ServiceCollectorContract {
 			"s3:GetEncryptionConfiguration",
 			"s3:GetBucketTagging",
 			"s3:ListAccessPoints",
+			"kms:ListKeys",
+			"kms:DescribeKey",
+			"kms:GetKeyPolicy",
+			"kms:GetKeyRotationStatus",
+			"kms:ListAliases",
+			"kms:ListGrants",
+			"kms:ListResourceTags",
 		},
 		ReadOnlyBoundaries: []string{
 			"collect metadata and policy documents only; never collect secret values, customer payloads, prompts, completions, object contents, or database rows",

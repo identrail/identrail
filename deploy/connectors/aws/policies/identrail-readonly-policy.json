@@ -50,7 +50,11 @@
       "Action": [
         "kms:DescribeKey",
         "kms:GetKeyPolicy",
-        "kms:ListKeys"
+        "kms:GetKeyRotationStatus",
+        "kms:ListAliases",
+        "kms:ListGrants",
+        "kms:ListKeys",
+        "kms:ListResourceTags"
       ],
       "Resource": "*"
     },
