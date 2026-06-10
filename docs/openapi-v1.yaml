@@ -539,6 +539,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/s3-bucket-reachability
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/eks-workload-identities
     action: tenancy.read
     resource_type: project
@@ -4308,6 +4313,56 @@ paths:
                     $ref: "#/components/schemas/AWSIAMPassRoleRelationshipInventoryResult"
         "400":
           description: Invalid AWS IAM PassRole relationship inventory request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/s3-bucket-reachability:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS S3 bucket reachability inventory
+      operationId: getAWSProjectS3BucketReachability
+      description: Returns scoped S3 bucket metadata, bucket-policy grants, public access block state, ownership controls, default encryption, access points, and exposure classification. Metadata-only — never reads object contents.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope the account, region, and read-only S3 reachability evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+      responses:
+        "200":
+          description: AWS S3 bucket reachability inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inventory:
+                    $ref: "#/components/schemas/AWSS3BucketReachabilityInventoryResult"
+        "400":
+          description: Invalid AWS S3 bucket reachability inventory request
           content:
             application/json:
               schema:
@@ -9064,6 +9119,205 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSSageMakerWorkloadRoleDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSS3CoverageGap:
+      type: object
+      properties:
+        capability: { type: string }
+        status:
+          type: string
+          enum: [unsupported]
+        reason: { type: string }
+        remediation: { type: string }
+    AWSS3PublicAccessBlock:
+      type: object
+      properties:
+        block_public_acls: { type: boolean }
+        ignore_public_acls: { type: boolean }
+        block_public_policy: { type: boolean }
+        restrict_public_buckets: { type: boolean }
+    AWSS3AccessPointReference:
+      type: object
+      properties:
+        name: { type: string }
+        arn: { type: string }
+        network_origin: { type: string }
+        vpc_id: { type: string }
+    AWSS3IdentityGrant:
+      type: object
+      properties:
+        principal_arn: { type: string }
+        principal_type: { type: string }
+        effect:
+          type: string
+          enum: [Allow, Deny]
+        actions:
+          type: array
+          items: { type: string }
+        not_action: { type: boolean }
+        condition_keys:
+          type: array
+          items: { type: string }
+        is_public: { type: boolean }
+        is_cross_account: { type: boolean }
+        has_condition: { type: boolean }
+        statement_sid: { type: string }
+        wildcard_principal: { type: boolean }
+    AWSS3BucketReachabilityRecord:
+      type: object
+      properties:
+        account_id: { type: string }
+        region: { type: string }
+        service:
+          type: string
+          enum: [s3]
+        bucket_arn: { type: string }
+        bucket_name: { type: string }
+        bucket_region: { type: string }
+        created_at: { type: string, format: date-time }
+        has_bucket_policy: { type: boolean }
+        bucket_policy_statement_count: { type: integer }
+        public_access_block:
+          $ref: "#/components/schemas/AWSS3PublicAccessBlock"
+        ownership_controls: { type: string }
+        block_public_acls: { type: boolean }
+        block_public_policy: { type: boolean }
+        ignore_public_acls: { type: boolean }
+        restrict_public_buckets: { type: boolean }
+        default_encryption_algorithm: { type: string }
+        default_encryption_kms_key_arn: { type: string }
+        bucket_key_enabled: { type: boolean }
+        access_points:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSS3AccessPointReference"
+        identity_grants:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSS3IdentityGrant"
+        exposure_classification:
+          type: string
+          enum: [public, cross_account, restricted, private_with_grants, private, unknown]
+        exposure_reasons:
+          type: array
+          items: { type: string }
+        tags:
+          type: object
+          additionalProperties: { type: string }
+        source: { type: string }
+        evidence_ref: { type: string }
+        from_node_id: { type: string }
+        relationship_type:
+          type: string
+          enum: [can_access]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        collected_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [ready, degraded]
+    AWSS3BucketReachabilityEdge:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [can_access]
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+        effect:
+          type: string
+          enum: [Allow]
+        principal_type: { type: string }
+        has_condition: { type: boolean }
+    AWSS3BucketReachabilityDiagnostic:
+      type: object
+      properties:
+        collector: { type: string }
+        source_id: { type: string }
+        code:
+          type: string
+          enum:
+            - s3_bucket_reachability_page_failed
+            - s3_bucket_reachability_page_limit_exceeded
+            - s3_bucket_policy_parse_failed
+            - s3_bucket_partial_failure
+            - permission_denied
+            - malformed_s3_bucket_reachability_record
+        message: { type: string }
+        remediation: { type: string }
+        retryable: { type: boolean }
+    AWSS3BucketReachabilityInventoryResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        bucket_count: { type: integer }
+        public_bucket_count: { type: integer }
+        cross_account_bucket_count: { type: integer }
+        restricted_bucket_count: { type: integer }
+        buckets_with_policy_count: { type: integer }
+        buckets_without_pab_count: { type: integer }
+        buckets_with_kms_count: { type: integer }
+        access_point_count: { type: integer }
+        identity_grant_count: { type: integer }
+        public_grant_count: { type: integer }
+        cross_account_grant_count: { type: integer }
+        deny_grant_count: { type: integer }
+        relationship_count: { type: integer }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSS3CoverageGap"
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSS3BucketReachabilityRecord"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSS3BucketReachabilityEdge"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSS3BucketReachabilityDiagnostic"
         generated_at:
           type: string
           format: date-time

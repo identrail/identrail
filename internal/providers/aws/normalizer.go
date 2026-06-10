@@ -187,6 +187,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		}
 	}
 
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != rawKindS3BucketReachability {
+			continue
+		}
+		if err := normalizeS3BucketReachabilityAsset(asset, i, &bundle, identitySeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
 	return bundle, nil
 }
 
@@ -1869,4 +1881,158 @@ func isIAMRoleARN(arn string) bool {
 		return false
 	}
 	return len(strings.TrimPrefix(resource, "role/")) > 0
+}
+
+// normalizeS3BucketReachabilityAsset registers the bucket as a Resource (with
+// exposure metadata) and projects any concrete IAM-principal grants as
+// Identity nodes so the graph can render principal→bucket reachability.
+// Wildcard ("*"), service, federated, and canonical-user principals stay as
+// resource metadata only — the graph does not synthesize a fake identity for
+// "*" or a service-name string.
+func normalizeS3BucketReachabilityAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record S3BucketReachability
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode s3 bucket reachability asset[%d]: %w", index, err)
+	}
+	bucketARN := strings.TrimSpace(record.BucketARN)
+	if bucketARN == "" {
+		return nil
+	}
+	resourceID := s3BucketResourceID(bucketARN)
+	if _, exists := resourceSeen[resourceID]; !exists {
+		resourceSeen[resourceID] = struct{}{}
+		bundle.Resources = append(bundle.Resources, domain.Resource{
+			ID:        resourceID,
+			Provider:  domain.ProviderAWS,
+			Type:      domain.ResourceTypeS3Bucket,
+			Name:      firstNonEmptyAWSValue(record.BucketName, bucketARN),
+			ARN:       bucketARN,
+			Region:    strings.TrimSpace(record.BucketRegion),
+			AccountID: strings.TrimSpace(record.AccountID),
+			Labels:    copyTags(record.Tags),
+			Metadata: map[string]any{
+				"has_bucket_policy":              record.HasBucketPolicy,
+				"bucket_policy_statement_count":  record.BucketPolicyStatementCount,
+				"ownership_controls":             record.OwnershipControls,
+				"block_public_acls":              record.BlockPublicACLs,
+				"block_public_policy":            record.BlockPublicPolicy,
+				"ignore_public_acls":             record.IgnorePublicACLs,
+				"restrict_public_buckets":        record.RestrictPublicBuckets,
+				"default_encryption_algorithm":   record.DefaultEncryptionAlgorithm,
+				"default_encryption_kms_key_arn": record.DefaultEncryptionKMSKeyARN,
+				"bucket_key_enabled":             record.BucketKeyEnabled,
+				"access_point_count":             len(record.AccessPoints),
+				"exposure_classification":        record.ExposureClassification,
+				"exposure_reasons":               append([]string(nil), record.ExposureReasons...),
+				"identity_grant_count":           len(record.IdentityGrants),
+				"public_grant_count":             s3PublicGrantCount(record.IdentityGrants),
+				"cross_account_grant_count":      s3CrossAccountGrantCount(record.IdentityGrants),
+				"deny_grant_count":               s3DenyGrantCount(record.IdentityGrants),
+			},
+			RawRef: asset.SourceID,
+		})
+	}
+
+	// Project each concrete IAM principal as an Identity so the graph
+	// surfaces principal→bucket reachability for downstream traversals.
+	for _, grant := range record.IdentityGrants {
+		principal := strings.TrimSpace(grant.PrincipalARN)
+		if principal == "" || principal == "*" {
+			continue
+		}
+		if !isIAMRoleARN(principal) && !isIAMUserARN(principal) {
+			continue
+		}
+		identityID := identityIDFromARN(principal)
+		if _, exists := identitySeen[identityID]; exists {
+			continue
+		}
+		identitySeen[identityID] = struct{}{}
+		identityType := domain.IdentityTypeRole
+		if isIAMUserARN(principal) {
+			identityType = domain.IdentityTypeUser
+		}
+		bundle.Identities = append(bundle.Identities, domain.Identity{
+			ID:       identityID,
+			Provider: domain.ProviderAWS,
+			Type:     identityType,
+			Name:     roleNameFromARN(principal),
+			ARN:      principal,
+			RawRef:   asset.SourceID,
+		})
+	}
+	return nil
+}
+
+// isIAMUserARN reports whether the supplied string is a fully-qualified IAM
+// user ARN of the form arn:PARTITION:iam::ACCOUNT:user/NAME. Mirrors the
+// stricter isIAMRoleARN check used by the PassRole collector.
+func isIAMUserARN(arn string) bool {
+	trimmed := strings.TrimSpace(arn)
+	if trimmed == "" {
+		return false
+	}
+	parts := strings.SplitN(trimmed, ":", 6)
+	if len(parts) != 6 {
+		return false
+	}
+	if !strings.EqualFold(parts[0], "arn") {
+		return false
+	}
+	if !strings.HasPrefix(strings.ToLower(parts[1]), "aws") {
+		return false
+	}
+	if !strings.EqualFold(parts[2], "iam") {
+		return false
+	}
+	if parts[3] != "" {
+		return false
+	}
+	if len(parts[4]) != 12 {
+		return false
+	}
+	for _, ch := range parts[4] {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	resource := strings.TrimSpace(parts[5])
+	if !strings.HasPrefix(resource, "user/") {
+		return false
+	}
+	return len(strings.TrimPrefix(resource, "user/")) > 0
+}
+
+func s3BucketResourceID(bucketARN string) string {
+	return "aws:resource:s3-bucket:" + strings.TrimSpace(bucketARN)
+}
+
+func s3PublicGrantCount(grants []S3IdentityGrant) int {
+	count := 0
+	for _, grant := range grants {
+		if grant.IsPublic {
+			count++
+		}
+	}
+	return count
+}
+
+func s3CrossAccountGrantCount(grants []S3IdentityGrant) int {
+	count := 0
+	for _, grant := range grants {
+		if grant.IsCrossAccount {
+			count++
+		}
+	}
+	return count
+}
+
+func s3DenyGrantCount(grants []S3IdentityGrant) int {
+	count := 0
+	for _, grant := range grants {
+		if strings.EqualFold(grant.Effect, "Deny") {
+			count++
+		}
+	}
+	return count
 }

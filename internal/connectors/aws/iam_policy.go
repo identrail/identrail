@@ -104,9 +104,15 @@ const readOnlyPolicyJSON = `{
       "Sid": "IdentityTrustGraphReadOnlyStorage",
       "Effect": "Allow",
       "Action": [
+        "s3:GetAccessPoint",
         "s3:GetBucketAcl",
+        "s3:GetBucketLocation",
+        "s3:GetBucketOwnershipControls",
         "s3:GetBucketPolicy",
         "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketTagging",
+        "s3:GetEncryptionConfiguration",
+        "s3:ListAccessPoints",
         "s3:ListAllMyBuckets"
       ],
       "Resource": "*"
@@ -258,10 +264,21 @@ func PermissionPreview() []PermissionPreviewItem {
 			Reason:    "Maps SageMaker notebook, training, processing, transform, model, endpoint, pipeline, and Studio domain workloads back to their execution roles plus the S3 prefix, ECR image, and KMS key references those roles can reach. Metadata-only — no presigned notebook URLs, payload reads, model artifact reads, or endpoint invocations.",
 		},
 		{
-			Service:   "S3",
-			Actions:   []string{"s3:GetBucketAcl", "s3:GetBucketPolicy", "s3:GetBucketPublicAccessBlock", "s3:ListAllMyBuckets"},
+			Service: "S3",
+			Actions: []string{
+				"s3:ListAllMyBuckets",
+				"s3:GetBucketLocation",
+				"s3:GetBucketAcl",
+				"s3:GetBucketPolicy",
+				"s3:GetBucketPublicAccessBlock",
+				"s3:GetBucketOwnershipControls",
+				"s3:GetEncryptionConfiguration",
+				"s3:GetBucketTagging",
+				"s3:ListAccessPoints",
+				"s3:GetAccessPoint",
+			},
 			Resources: []string{"*"},
-			Reason:    "Checks bucket access policies that can expose or constrain machine identities.",
+			Reason:    "Reads bucket-level metadata (location, policy, public-access block, ownership controls, default encryption, tags) plus account-scoped access-point metadata to classify identity-to-bucket reachability. Never reads object contents, presigned URLs, or per-object ACLs.",
 		},
 		{
 			Service:   "KMS",

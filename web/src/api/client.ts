@@ -2041,6 +2041,146 @@ export type AWSIAMPassRoleRelationshipInventoryResult = {
   updated_at: string;
 };
 
+export type AWSS3BucketReachabilityInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSS3BucketReachabilityFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+
+export type AWSS3CoverageGap = {
+  capability: string;
+  status: 'unsupported';
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSS3PublicAccessBlock = {
+  block_public_acls: boolean;
+  ignore_public_acls: boolean;
+  block_public_policy: boolean;
+  restrict_public_buckets: boolean;
+};
+
+export type AWSS3AccessPointReference = {
+  name: string;
+  arn?: string;
+  network_origin?: string;
+  vpc_id?: string;
+};
+
+export type AWSS3IdentityGrant = {
+  principal_arn?: string;
+  principal_type?: string;
+  effect: 'Allow' | 'Deny';
+  actions?: string[];
+  not_action?: boolean;
+  condition_keys?: string[];
+  is_public?: boolean;
+  is_cross_account?: boolean;
+  has_condition?: boolean;
+  statement_sid?: string;
+  wildcard_principal?: boolean;
+};
+
+export type AWSS3BucketReachabilityRecord = {
+  account_id: string;
+  region: string;
+  service: 's3';
+  bucket_arn: string;
+  bucket_name: string;
+  bucket_region?: string;
+  created_at?: string;
+  has_bucket_policy: boolean;
+  bucket_policy_statement_count: number;
+  public_access_block?: AWSS3PublicAccessBlock;
+  ownership_controls?: string;
+  block_public_acls: boolean;
+  block_public_policy: boolean;
+  ignore_public_acls: boolean;
+  restrict_public_buckets: boolean;
+  default_encryption_algorithm?: string;
+  default_encryption_kms_key_arn?: string;
+  bucket_key_enabled: boolean;
+  access_points?: AWSS3AccessPointReference[];
+  identity_grants?: AWSS3IdentityGrant[];
+  exposure_classification:
+    | 'public'
+    | 'cross_account'
+    | 'restricted'
+    | 'private_with_grants'
+    | 'private'
+    | 'unknown';
+  exposure_reasons?: string[];
+  tags?: Record<string, string>;
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  relationship_type: 'can_access';
+  confidence: number;
+  collected_at: string;
+  status: 'ready' | 'degraded';
+};
+
+export type AWSS3BucketReachabilityEdge = {
+  type: 'can_access';
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+  effect: 'Allow';
+  principal_type: string;
+  has_condition?: boolean;
+};
+
+export type AWSS3BucketReachabilityDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSS3BucketReachabilityInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSS3BucketReachabilityInventoryStatus;
+  fixture_state: AWSS3BucketReachabilityFixtureState;
+  confidence: number;
+  bucket_count: number;
+  public_bucket_count: number;
+  cross_account_bucket_count: number;
+  restricted_bucket_count: number;
+  buckets_with_policy_count: number;
+  buckets_without_pab_count: number;
+  buckets_with_kms_count: number;
+  access_point_count: number;
+  identity_grant_count: number;
+  public_grant_count: number;
+  cross_account_grant_count: number;
+  deny_grant_count: number;
+  relationship_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSS3CoverageGap[];
+  records: AWSS3BucketReachabilityRecord[];
+  relationships: AWSS3BucketReachabilityEdge[];
+  diagnostics: AWSS3BucketReachabilityDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSEKSWorkloadIdentityInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSEKSWorkloadIdentityFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 
@@ -3252,6 +3392,21 @@ export const apiClient = {
   ) {
     return request<{ inventory: AWSIAMPassRoleRelationshipInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/iam-passrole-relationships${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectS3BucketReachability(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSS3BucketReachabilityFixtureState,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSS3BucketReachabilityInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/s3-bucket-reachability${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
       })}`,

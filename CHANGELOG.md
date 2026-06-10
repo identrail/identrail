@@ -1,6 +1,19 @@
 # Changelog
 
 ## Unreleased
+- Add **S3 resource and bucket-policy reachability collector** (#1488).
+  Read-only, metadata-only inventory of S3 buckets, public-access-block
+  state, ownership controls, default encryption, access points, tags, and
+  the identity grants inferred from bucket policies. Classifies each bucket
+  as `public`, `cross_account`, `restricted`, `private_with_grants`, or
+  `private`, and emits `can_access` graph edges only for resolved Allow
+  grants to IAM principal ARNs. Adds the
+  `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/s3-bucket-reachability`
+  endpoint with `success`, `empty`, `degraded`, `partial_failure`, and
+  `permission_denied` fixture states, OpenAPI schema, web API client types,
+  runtime/CLI wiring, and operator docs. The collector never reads object
+  contents, never lists bucket objects, never issues presigned URLs, and
+  never inspects per-object ACL grants.
 - Add **IAM PassRole static relationship mapper** (#1487). Parses every IAM
   role's permission policies for `iam:PassRole` statements and emits one
   normalized record per (source, target, condition, effect) tuple with

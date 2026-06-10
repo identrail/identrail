@@ -130,6 +130,31 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 			t.Fatalf("connector policy must not include sensitive SageMaker action %q", mutating)
 		}
 	}
+	for _, action := range []string{
+		"s3:ListAllMyBuckets",
+		"s3:GetBucketLocation",
+		"s3:GetBucketPolicy",
+		"s3:GetBucketPublicAccessBlock",
+		"s3:GetBucketOwnershipControls",
+		"s3:GetEncryptionConfiguration",
+		"s3:GetBucketTagging",
+		"s3:ListAccessPoints",
+		"s3:GetAccessPoint",
+	} {
+		if !strings.Contains(string(policy), "\""+action+"\"") {
+			t.Fatalf("expected S3 reachability read action %q in policy", action)
+		}
+	}
+	for _, sensitive := range []string{
+		"s3:GetObject",
+		"s3:GetObjectAcl",
+		"s3:GetObjectVersion",
+		"s3:ListBucket",
+	} {
+		if strings.Contains(string(policy), "\""+sensitive+"\"") {
+			t.Fatalf("connector policy must not include object-level S3 action %q", sensitive)
+		}
+	}
 	hash, err := ReadOnlyPolicyHash()
 	if err != nil {
 		t.Fatalf("hash policy: %v", err)
@@ -148,6 +173,9 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 	}
 	if !permissionPreviewContainsService(PermissionPreview(), "SageMaker") {
 		t.Fatalf("expected SageMaker permission preview entry")
+	}
+	if !permissionPreviewContainsService(PermissionPreview(), "S3") {
+		t.Fatalf("expected S3 permission preview entry")
 	}
 }
 

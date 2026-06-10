@@ -248,3 +248,12 @@ ordered by `kind`, then `source_id`.
   targets as specific/path-wildcard/account-wildcard/all with explicit
   confidence tiers, and surfaces Deny statements plus
   `iam:PassedToService` conditions. No AWS write or mutation APIs are used.
+- S3 resource and bucket-policy reachability is exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/s3-bucket-reachability`
+  and the AWS machine identities page. The collector records bucket metadata
+  (PublicAccessBlock, ownership controls, default encryption, access points,
+  tags) and the identity grants inferred from bucket policies, classifies
+  each bucket's exposure, and emits `can_access` edges only for resolved
+  Allow grants to IAM principal ARNs. The collector never reads object
+  contents, never lists bucket objects, never issues presigned URLs, and
+  never inspects per-object ACL grants.

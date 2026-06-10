@@ -123,6 +123,11 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws eks workload identity collector: %w", eksErr)
 			}
+			s3API, s3Err := awsprovider.NewSDKS3BucketReachabilityAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if s3Err != nil {
+				_ = store.Close()
+				return nil, nil, fmt.Errorf("initialize aws s3 bucket reachability collector: %w", s3Err)
+			}
 			scanner = newAWSScanner(
 				iamAPI,
 				cfg.AWSAccountID,
@@ -138,6 +143,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				awsprovider.NewSageMakerWorkloadRoleCollector(sageMakerAPI),
 				awsprovider.NewIAMPassRoleRelationshipCollector(iamAPI),
 				awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
+				awsprovider.NewS3BucketReachabilityCollector(s3API),
 			)
 		default:
 			_ = store.Close()
@@ -266,6 +272,10 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		if eksErr != nil {
 			return nil, eksErr
 		}
+		s3API, s3Err := awsprovider.NewSDKS3BucketReachabilityAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
+		if s3Err != nil {
+			return nil, s3Err
+		}
 		scanner := newAWSScanner(
 			iamAPI,
 			connection.AccountID,
@@ -281,6 +291,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 			awsprovider.NewSageMakerWorkloadRoleCollector(sageMakerAPI),
 			awsprovider.NewIAMPassRoleRelationshipCollector(iamAPI),
 			awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
+			awsprovider.NewS3BucketReachabilityCollector(s3API),
 		)
 		return scanner, nil
 	}

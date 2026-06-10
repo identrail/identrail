@@ -136,6 +136,14 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	// S3 reachability records carry s3 service and s3_bucket workload type.
+	var s3Reach S3BucketReachability
+	if err := json.Unmarshal(payload, &s3Reach); err == nil {
+		if isS3BucketReachabilityFixture(s3Reach) {
+			return rawKindS3BucketReachability, s3BucketReachabilitySourceID(s3Reach)
+		}
+	}
+
 	var managedComputeRole ManagedComputeRole
 	if err := json.Unmarshal(payload, &managedComputeRole); err == nil {
 		sourceID := managedComputeRoleSourceID(managedComputeRole)
@@ -480,4 +488,20 @@ func expandFixturePaths(inputs []string) ([]string, error) {
 		return nil, fmt.Errorf("no fixture files found")
 	}
 	return expanded, nil
+}
+
+// isS3BucketReachabilityFixture identifies a record that looks like an S3
+// bucket reachability fixture. Strict match on service (s3) or workload type
+// (s3_bucket) so it never claims unrelated assets.
+func isS3BucketReachabilityFixture(record S3BucketReachability) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), s3ServiceName) {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(record.CollectorName), s3BucketReachabilityCollectorName) {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(record.WorkloadType), "s3_bucket") {
+		return true
+	}
+	return false
 }
