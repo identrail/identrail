@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
@@ -36,6 +37,8 @@ type SDKECRRepositoryMetadataAPI struct {
 	accountID string
 	region    string
 }
+
+var ecrRepositoryScanningFilterRegexes sync.Map
 
 func NewSDKECRRepositoryMetadataAPI(region string, profile string, accountID string) (ECRRepositoryMetadataAPI, error) {
 	return NewSDKECRRepositoryMetadataAPIWithContext(context.Background(), region, profile, accountID)
@@ -234,8 +237,22 @@ func ecrRepositoryScanningFilterMatchesAWS(pattern, repositoryName string) bool 
 
 	patternRe := regexp.QuoteMeta(filter)
 	patternRe = strings.ReplaceAll(patternRe, "\\*", ".*")
-	matched, err := regexp.MatchString("^"+patternRe+"$", repo)
-	return err == nil && matched
+	if cached, ok := ecrRepositoryScanningFilterRegexes.Load(patternRe); ok {
+		if compiled, ok := cached.(*regexp.Regexp); ok {
+			return compiled.MatchString(repo)
+		}
+	}
+	compiled, err := regexp.Compile("^" + patternRe + "$")
+	if err != nil {
+		return false
+	}
+	cached, loaded := ecrRepositoryScanningFilterRegexes.LoadOrStore(patternRe, compiled)
+	if loaded {
+		if compiledCached, ok := cached.(*regexp.Regexp); ok {
+			return compiledCached.MatchString(repo)
+		}
+	}
+	return compiled.MatchString(repo)
 }
 
 func ecrRepositoryMetadataFromRepository(repository ecrtypes.Repository, accountID string, region string) ECRRepositoryMetadata {

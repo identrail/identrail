@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -215,6 +216,28 @@ func TestECRRepositoryEnhancedScanningFilterMatchesWildcardAcrossSlash(t *testin
 	}
 	if !page.Records[0].EnhancedScanningEnabled {
 		t.Fatalf("expected wildcard filter to match repository with slash path, got %+v", page.Records[0])
+	}
+}
+
+func TestECRRepositoryEnhancedScanningFilterRegexesAreCached(t *testing.T) {
+	ecrRepositoryScanningFilterRegexes = sync.Map{}
+
+	if !ecrRepositoryScanningFilterMatchesAWS("prod*", "prod-api") {
+		t.Fatalf("expected wildcard filter to match repository with prefix")
+	}
+	cached, ok := ecrRepositoryScanningFilterRegexes.Load("prod.*")
+	if !ok {
+		t.Fatalf("expected compiled regex cached for prod* pattern")
+	}
+	if !ecrRepositoryScanningFilterMatchesAWS("prod*", "prod-service") {
+		t.Fatalf("expected wildcard filter to match repository with same prefix")
+	}
+	cachedTwice, ok := ecrRepositoryScanningFilterRegexes.Load("prod.*")
+	if !ok {
+		t.Fatalf("expected compiled regex still cached on repeated calls")
+	}
+	if cached != cachedTwice {
+		t.Fatalf("expected regex cache to be reused for identical pattern")
 	}
 }
 
