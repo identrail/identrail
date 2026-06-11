@@ -226,6 +226,36 @@ func TestSDKDynamoDBRDSReachabilityRetainsDynamoDBOnRDSFailure(t *testing.T) {
 	}
 }
 
+func TestSDKDynamoDBRDSReachabilitySkipsDisabledDynamoDBStreamRecords(t *testing.T) {
+	dbClient := &fakeSDKDynamoDBClient{
+		dispatchListTablesError: nil,
+		listTablesOutput:        &dynamodb.ListTablesOutput{TableNames: []string{"payments-ledger"}},
+		describeTableOutput: &dynamodb.DescribeTableOutput{Table: &ddbtypes.TableDescription{
+			TableArn:            awsv2.String("arn:aws:dynamodb:us-east-1:123456789012:table/payments-ledger"),
+			TableName:           awsv2.String("payments-ledger"),
+			TableStatus:         ddbtypes.TableStatusActive,
+			LatestStreamArn:     awsv2.String("arn:aws:dynamodb:us-east-1:123456789012:table/payments-ledger/stream/2026"),
+			StreamSpecification: &ddbtypes.StreamSpecification{StreamEnabled: awsv2.Bool(false)},
+			BillingModeSummary:  &ddbtypes.BillingModeSummary{BillingMode: ddbtypes.BillingModePayPerRequest},
+			CreationDateTime:    awsv2.Time(time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)),
+		}},
+		listTagsOutput: &dynamodb.ListTagsOfResourceOutput{Tags: []ddbtypes.Tag{{Key: awsv2.String("environment"), Value: awsv2.String("staging")}}},
+	}
+	rdsClient := &fakeSDKRDSClient{}
+
+	api := NewSDKDynamoDBRDSReachabilityAPIFromClients(dbClient, rdsClient, "123456789012", "us-east-1")
+	page, err := api.ListDynamoDBRDSReachability(context.Background(), "", 5)
+	if err != nil {
+		t.Fatalf("ListDynamoDBRDSReachability: %v", err)
+	}
+	if len(page.Records) != 1 {
+		t.Fatalf("expected only table record when stream is disabled, got %d records", len(page.Records))
+	}
+	if page.Records[0].ResourceType != "dynamodb_table" {
+		t.Fatalf("expected table record, got %q", page.Records[0].ResourceType)
+	}
+}
+
 func TestSDKDynamoDBRDSReachabilityContinuesToRDSOnDynamoDBFailure(t *testing.T) {
 	dbClient := &fakeSDKDynamoDBClient{
 		dispatchListTablesError: errors.New("list tables throttled"),

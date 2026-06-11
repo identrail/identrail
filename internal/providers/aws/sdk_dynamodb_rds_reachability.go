@@ -196,7 +196,7 @@ func (a *SDKDynamoDBRDSReachabilityAPI) listDynamoDBTablesPage(ctx context.Conte
 		a.enrichDynamoDBResourcePolicy(ctx, &record, &diagnostics, "table_resource_policy")
 		a.enrichDynamoDBTags(ctx, &record, &diagnostics)
 		records = append(records, record)
-		if strings.TrimSpace(record.StreamARN) != "" {
+		if record.StreamEnabled && strings.TrimSpace(record.StreamARN) != "" {
 			streamRecord := DynamoDBRDSReachability{
 				ServiceCollectorRecord: awscontract.ServiceCollectorRecord{Service: dynamoDBServiceName, AccountID: record.AccountID, Region: record.Region, Source: "dynamodb_metadata", EvidenceRef: record.StreamARN},
 				ResourceARN:            record.StreamARN,
