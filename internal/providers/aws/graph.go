@@ -74,6 +74,7 @@ func (b *RelationshipBuilder) ResolveRelationships(ctx context.Context, bundle p
 	}
 
 	secretIndex := secretsManagerResourceIndex(bundle.Resources)
+	parameterIndex := ssmParameterResourceIndex(bundle.Resources)
 	for _, resource := range bundle.Resources {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -81,6 +82,9 @@ func (b *RelationshipBuilder) ResolveRelationships(ctx context.Context, bundle p
 		refs := parseStringList(resource.Metadata["secret_refs"])
 		for _, ref := range refs {
 			secretID := matchSecretsManagerReference(ref, secretIndex)
+			if secretID == "" {
+				secretID = matchSSMParameterReference(ref, parameterIndex)
+			}
 			if secretID == "" {
 				continue
 			}
@@ -178,6 +182,28 @@ func secretsManagerResourceIndex(resources []domain.Resource) map[string]string 
 
 func matchSecretsManagerReference(ref string, index map[string]string) string {
 	for _, key := range secretsManagerReferenceKeysFromRef(ref) {
+		if id := index[strings.ToLower(key)]; id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+func ssmParameterResourceIndex(resources []domain.Resource) map[string]string {
+	index := map[string]string{}
+	for _, resource := range resources {
+		if resource.Type != domain.ResourceTypeSSMParameter {
+			continue
+		}
+		for _, key := range ssmParameterReferenceKeys(resource.ARN, resource.Name) {
+			index[strings.ToLower(key)] = resource.ID
+		}
+	}
+	return index
+}
+
+func matchSSMParameterReference(ref string, index map[string]string) string {
+	for _, key := range ssmParameterReferenceKeysFromRef(ref) {
 		if id := index[strings.ToLower(key)]; id != "" {
 			return id
 		}

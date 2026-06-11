@@ -53,6 +53,8 @@ import {
   type AWSServiceCollectorContractResult,
   type AWSSecretsManagerMetadataInventoryResult,
   type AWSSecretsManagerMetadataRecord,
+  type AWSSSMParameterMetadataInventoryResult,
+  type AWSSSMParameterMetadataRecord,
   type AWSPermissionPreviewItem,
   type CurrentUserContext,
   type ExecutiveReport,
@@ -3628,6 +3630,13 @@ type AWSInventorySecretsManagerState = {
   onRetry: () => void;
 };
 
+type AWSInventorySSMParameterState = {
+  inventory: AWSSSMParameterMetadataInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryCoverageRow = AWSInventoryFilterable & {
   id: string;
   category: string;
@@ -5873,29 +5882,23 @@ function AWSAgentIdentitiesContent({
 function AWSResourcesInventoryContent({
   connection,
   secretsManagerState,
+  ssmParameterState,
   filters,
   onFiltersChange
 }: {
   connection: AWSConnectionStatus | null;
   secretsManagerState: AWSInventorySecretsManagerState;
+  ssmParameterState: AWSInventorySSMParameterState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
   const secretsInventory = secretsManagerState.inventory;
   const secretsRows = buildAWSSecretsManagerMetadataRows(secretsInventory, secretsManagerState.loading, connection);
+  const ssmInventory = ssmParameterState.inventory;
+  const ssmRows = buildAWSSSMParameterMetadataRows(ssmInventory, ssmParameterState.loading, connection);
   const rows: AWSInventoryTableRow[] = [
     ...secretsRows,
-    {
-      id: 'ssm-parameters',
-      name: 'SSM Parameter metadata',
-      category: 'Credential reference',
-      scope: connection?.region ?? 'Region pending',
-      status: 'coming',
-      stage: 'coming',
-      detail: 'Parameter paths, tags, encryption metadata, and reachability hints without value reads.',
-      filters: { category: 'ssm-parameter', sensitivity: 'credential-reference', readPosture: 'metadata-only', search: '' },
-      searchText: inventorySearchText(['ssm parameter', 'reference', 'tags', 'encryption'])
-    },
+    ...ssmRows,
     {
       id: 'kms',
       name: 'KMS key reachability',
@@ -5942,6 +5945,12 @@ function AWSResourcesInventoryContent({
           total={1}
           detail={secretsManagerState.loading ? 'Loading' : secretsInventory ? formatTokenLabel(secretsInventory.status) : 'Pending'}
         />
+        <DomainCoverageCard
+          label="SSM parameters"
+          scanned={ssmInventory && ssmInventory.status !== 'blocked' ? 1 : 0}
+          total={1}
+          detail={ssmParameterState.loading ? 'Loading' : ssmInventory ? formatTokenLabel(ssmInventory.status) : 'Pending'}
+        />
         <DomainCoverageCard label="KMS reachability" scanned={0} total={1} detail="Coming wave" />
         <DomainCoverageCard label="S3 sensitivity" scanned={0} total={1} detail="Coming wave" />
       </section>
@@ -5951,6 +5960,14 @@ function AWSResourcesInventoryContent({
           title="Secrets Manager metadata could not load"
           body={secretsManagerState.error}
           retryAction={{ label: 'Retry Secrets Manager metadata', onClick: secretsManagerState.onRetry }}
+        />
+      ) : null}
+      {ssmParameterState.loading ? <DomainLoadingState label="Loading SSM Parameter metadata" /> : null}
+      {ssmParameterState.error ? (
+        <DomainErrorState
+          title="SSM Parameter metadata could not load"
+          body={ssmParameterState.error}
+          retryAction={{ label: 'Retry SSM Parameter metadata', onClick: ssmParameterState.onRetry }}
         />
       ) : null}
       <DomainStatusPanel eyebrow="Safety posture" title="No secret value reads" status="Metadata only" tone="success">
@@ -6080,6 +6097,117 @@ function awsSecretsManagerMetadataRow(record: AWSSecretsManagerMetadataRecord): 
   };
 }
 
+function buildAWSSSMParameterMetadataRows(
+  inventory: AWSSSMParameterMetadataInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsSSMParameterMetadataRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'ssm-parameters-blocked',
+        name: 'SSM Parameter metadata unavailable',
+        category: 'Credential reference',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'SSM parameter metadata collection is blocked.',
+        filters: { category: 'ssm-parameter', sensitivity: 'credential-reference', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['ssm parameter', 'blocked', inventory.account_id, inventory.region])
+      }
+    ];
+  }
+  if (inventory) {
+    const degraded = inventory.status === 'degraded' || inventory.diagnostics.length > 0 || inventory.failure_reasons.length > 0;
+    return [
+      {
+        id: 'ssm-parameters-empty',
+        name: degraded ? 'SSM Parameter metadata incomplete' : 'No SSM parameters found',
+        category: 'Credential reference',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: degraded ? 'degraded' : 'wired now',
+        stage: 'wired',
+        detail: degraded ? (inventory.failure_reasons[0] ?? 'SSM parameter metadata collection completed with degraded evidence and no retained records.') : 'The collector completed without SSM parameters in this account and region.',
+        filters: { category: 'ssm-parameter', sensitivity: 'credential-reference', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['ssm parameter', inventory.account_id, inventory.region, degraded ? 'degraded empty' : 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'ssm-parameters-loading',
+        name: 'SSM Parameter metadata',
+        category: 'Credential reference',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading parameter type, tier, path, KMS references, policies, and workload references.',
+        filters: { category: 'ssm-parameter', sensitivity: 'credential-reference', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['ssm parameter', 'metadata', 'loading'])
+      }
+    ];
+  }
+  return [
+    {
+      id: 'ssm-parameters',
+      name: 'SSM Parameter metadata',
+      category: 'Credential reference',
+      scope: connection?.region ?? 'Region pending',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Parameter paths, tags, encryption metadata, and reachability hints without value reads.',
+      filters: { category: 'ssm-parameter', sensitivity: 'credential-reference', readPosture: 'metadata-only', search: '' },
+      searchText: inventorySearchText(['ssm parameter', 'reference', 'tags', 'encryption'])
+    }
+  ];
+}
+
+function awsSSMParameterMetadataRow(record: AWSSSMParameterMetadataRecord): AWSInventoryTableRow {
+  const plainTextReferenced = (record.referenced_by?.length ?? 0) > 0 && record.parameter_type !== 'secure_string';
+  const degraded = record.status !== 'ready' || plainTextReferenced;
+  const status = degraded ? 'degraded' : 'wired now';
+  const typeLabel = record.parameter_type === 'secure_string' ? `SecureString (${record.sensitivity_classification === 'secure_string_customer_kms' ? 'customer KMS' : 'AWS-managed KMS'})` : record.parameter_type;
+  const referenceLabel = record.referenced_by?.length ? `${record.referenced_by.length} workload references` : 'no resolved workload references';
+  const expirationPolicy = (record.parameter_policies ?? []).find((policy) => (policy.policy_type ?? '').toLowerCase() === 'expiration');
+  const lifecycleLabel = expirationPolicy ? `expires ${expirationPolicy.expires_at ?? 'per policy'}` : 'no expiration policy';
+  const modifiedLabel = record.last_modified_by ? `last modified by ${record.last_modified_by.split('/').pop() ?? record.last_modified_by}` : 'modifier unknown';
+  return {
+    id: `ssm-parameter-${record.parameter_arn}`,
+    name: record.parameter_name || record.parameter_arn,
+    category: record.sensitive ? 'Secret-bearing' : 'Credential reference',
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage: 'wired',
+    detail: `${typeLabel}, ${record.tier} tier; ${referenceLabel}; ${lifecycleLabel}; ${modifiedLabel}. Values hidden.`,
+    filters: {
+      category: 'ssm-parameter',
+      sensitivity: record.sensitive ? 'secret-bearing' : 'credential-reference',
+      readPosture: 'metadata-only',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.parameter_arn,
+      record.parameter_name,
+      record.parameter_path ?? '',
+      record.account_id,
+      record.region,
+      record.parameter_type,
+      record.tier,
+      record.sensitivity_classification,
+      record.exposure_classification,
+      record.last_modified_by ?? '',
+      ...(record.exposure_reasons ?? []),
+      ...(record.referenced_by ?? []).map((ref) => `${ref.source_service ?? ''} ${ref.workload_name ?? ''} ${ref.reference}`),
+      ...(record.unresolved_references ?? []).map((ref) => `${ref.source_service ?? ''} ${ref.workload_name ?? ''} ${ref.reference}`),
+      'ssm parameter metadata type tier path kms references values hidden'
+    ])
+  };
+}
+
 function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) {
   const data = useAWSInventoryData();
   const { scope, environmentScope, selectedEnvironmentID, connection, connectionLoading, connectionError } = data;
@@ -6127,6 +6255,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [secretsManagerInventoryLoading, setSecretsManagerInventoryLoading] = useState(false);
   const [secretsManagerInventoryError, setSecretsManagerInventoryError] = useState('');
   const secretsManagerInventoryRequestRef = useRef(0);
+  const [ssmParameterInventory, setSSMParameterInventory] = useState<AWSSSMParameterMetadataInventoryResult | null>(null);
+  const [ssmParameterInventoryLoading, setSSMParameterInventoryLoading] = useState(false);
+  const [ssmParameterInventoryError, setSSMParameterInventoryError] = useState('');
+  const ssmParameterInventoryRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -6536,6 +6668,47 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadSecretsManagerInventory]);
 
+  const loadSSMParameterInventory = useCallback(async () => {
+    const requestID = ++ssmParameterInventoryRequestRef.current;
+    setSSMParameterInventory(null);
+    setSSMParameterInventoryError('');
+    if (routeID !== 'resources' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setSSMParameterInventoryLoading(false);
+      return;
+    }
+    setSSMParameterInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectSSMParameterMetadata(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== ssmParameterInventoryRequestRef.current) {
+        return;
+      }
+      setSSMParameterInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== ssmParameterInventoryRequestRef.current) {
+        return;
+      }
+      setSSMParameterInventoryError(formatAPIError(error, 'Unable to load SSM Parameter metadata.'));
+    } finally {
+      if (requestID === ssmParameterInventoryRequestRef.current) {
+        setSSMParameterInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadSSMParameterInventory();
+    return () => {
+      ssmParameterInventoryRequestRef.current += 1;
+    };
+  }, [loadSSMParameterInventory]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -6677,6 +6850,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: secretsManagerInventoryLoading,
             error: secretsManagerInventoryError,
             onRetry: () => void loadSecretsManagerInventory()
+          }}
+          ssmParameterState={{
+            inventory: ssmParameterInventory,
+            loading: ssmParameterInventoryLoading,
+            error: ssmParameterInventoryError,
+            onRetry: () => void loadSSMParameterInventory()
           }}
           filters={activeFilters}
           onFiltersChange={onFiltersChange}

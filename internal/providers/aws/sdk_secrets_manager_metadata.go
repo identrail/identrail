@@ -39,7 +39,7 @@ func NewSDKSecretsManagerMetadataAPIWithContext(ctx context.Context, region stri
 	if err != nil {
 		return nil, err
 	}
-	resolvedAccountID, err := secretsManagerMetadataAccountID(ctx, cfg, accountID)
+	resolvedAccountID, err := awsCallerAccountID(ctx, cfg, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func NewSDKSecretsManagerMetadataAPIFromAssumeRole(ctx context.Context, region s
 		})
 	}
 	cfg.Credentials = awsv2.NewCredentialsCache(stscreds.NewAssumeRoleProvider(sts.NewFromConfig(cfg), trimmedRoleARN, options...))
-	resolvedAccountID, err := secretsManagerMetadataAccountID(ctx, cfg, accountID)
+	resolvedAccountID, err := awsCallerAccountID(ctx, cfg, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -297,18 +297,20 @@ func secretsManagerNoResourcePolicy(err error) bool {
 	return strings.Contains(msg, "resourcenotfoundexception") || strings.Contains(msg, "resource policy") && strings.Contains(msg, "not found")
 }
 
-func secretsManagerMetadataAccountID(ctx context.Context, cfg awsv2.Config, accountID string) (string, error) {
+// awsCallerAccountID resolves the effective AWS account id, preferring the
+// configured value and falling back to STS GetCallerIdentity.
+func awsCallerAccountID(ctx context.Context, cfg awsv2.Config, accountID string) (string, error) {
 	trimmed := strings.TrimSpace(accountID)
 	if trimmed != "" {
 		return trimmed, nil
 	}
 	identity, err := sts.NewFromConfig(cfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	if err != nil {
-		return "", fmt.Errorf("read AWS caller identity for secrets manager account id: %w", err)
+		return "", fmt.Errorf("read AWS caller identity for account id: %w", err)
 	}
 	resolved := strings.TrimSpace(awsv2.ToString(identity.Account))
 	if resolved == "" {
-		return "", fmt.Errorf("read AWS caller identity for secrets manager account id: empty account id")
+		return "", fmt.Errorf("read AWS caller identity for account id: empty account id")
 	}
 	return resolved, nil
 }

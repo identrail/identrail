@@ -278,3 +278,13 @@ ordered by `kind`, then `source_id`.
   `secret_refs`. It never calls `secretsmanager:GetSecretValue`, never reads
   `SecretString` or `SecretBinary`, and uses `description_present` instead of
   surfacing description text in operator evidence.
+- SSM Parameter Store metadata and workload references are exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/ssm-parameter-metadata`.
+  The collector records parameter metadata (type, tier, path context, version,
+  data type), KMS key references for SecureString parameters, parameter-policy
+  summaries, tags, the last-modified IAM principal, and graph-ready
+  `uses_secret` edges for resolved compute `secret_refs` (ECS `valueFrom` and
+  CodeBuild `PARAMETER_STORE` sources). It never calls any `ssm:GetParameter*`
+  action, never reads parameter values, treats SecureString parameters as
+  sensitive metadata only, and uses `description_present` and
+  `allowed_pattern_present` instead of surfacing text in operator evidence.

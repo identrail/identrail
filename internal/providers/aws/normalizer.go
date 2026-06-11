@@ -59,6 +59,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		if err := ctx.Err(); err != nil {
 			return providers.NormalizedBundle{}, err
 		}
+		if asset.Kind != rawKindSSMParameterMetadata {
+			continue
+		}
+		if err := normalizeSSMParameterMetadataAsset(asset, i, &bundle, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
 		if asset.Kind != "iam_role" {
 			continue
 		}
@@ -328,6 +340,56 @@ func normalizeSecretsManagerMetadataAsset(asset providers.RawAsset, index int, b
 			"reference_count":                 len(record.ReferencedBy),
 			"referenced_by":                   secretReferenceMetadata(record.ReferencedBy),
 			"unresolved_references":           secretReferenceMetadata(record.UnresolvedReferences),
+		},
+		RawRef: asset.SourceID,
+	})
+	return nil
+}
+
+func normalizeSSMParameterMetadataAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, resourceSeen map[string]struct{}) error {
+	var record SSMParameterMetadata
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode ssm parameter metadata asset[%d]: %w", index, err)
+	}
+	parameterARN := strings.TrimSpace(record.ParameterARN)
+	if parameterARN == "" {
+		return nil
+	}
+	resourceID := ssmParameterResourceID(parameterARN)
+	if _, exists := resourceSeen[resourceID]; exists {
+		return nil
+	}
+	resourceSeen[resourceID] = struct{}{}
+	bundle.Resources = append(bundle.Resources, domain.Resource{
+		ID:        resourceID,
+		Provider:  domain.ProviderAWS,
+		Type:      domain.ResourceTypeSSMParameter,
+		Name:      firstNonEmptyAWSValue(record.ParameterName, ssmParameterNameFromARN(parameterARN), parameterARN),
+		ARN:       parameterARN,
+		Region:    strings.TrimSpace(record.Region),
+		AccountID: strings.TrimSpace(record.AccountID),
+		Labels:    copyTags(record.Tags),
+		Metadata: map[string]any{
+			"parameter_path":             strings.TrimSpace(record.ParameterPath),
+			"path_depth":                 record.PathDepth,
+			"parameter_type":             strings.TrimSpace(record.ParameterType),
+			"tier":                       strings.TrimSpace(record.Tier),
+			"data_type":                  strings.TrimSpace(record.DataType),
+			"version":                    record.Version,
+			"description_present":        record.DescriptionPresent,
+			"allowed_pattern_present":    record.AllowedPatternPresent,
+			"kms_key_id":                 strings.TrimSpace(record.KMSKeyID),
+			"kms_key_arn":                strings.TrimSpace(record.KMSKeyARN),
+			"last_modified_at":           strings.TrimSpace(record.LastModifiedAt),
+			"last_modified_by":           strings.TrimSpace(record.LastModifiedBy),
+			"parameter_policy_count":     len(record.Policies),
+			"sensitive":                  record.Sensitive,
+			"sensitivity_classification": record.SensitivityClassification,
+			"exposure_classification":    record.ExposureClassification,
+			"exposure_reasons":           append([]string(nil), record.ExposureReasons...),
+			"reference_count":            len(record.ReferencedBy),
+			"referenced_by":              secretReferenceMetadata(record.ReferencedBy),
+			"unresolved_references":      secretReferenceMetadata(record.UnresolvedReferences),
 		},
 		RawRef: asset.SourceID,
 	})

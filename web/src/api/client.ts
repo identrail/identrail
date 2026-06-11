@@ -2488,6 +2488,129 @@ export type AWSSecretsManagerMetadataInventoryResult = {
   updated_at: string;
 };
 
+export type AWSSSMParameterMetadataInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSSSMParameterMetadataFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+export type AWSSSMParameterTypeFilter = 'string' | 'string_list' | 'secure_string';
+
+export type AWSSSMParameterCoverageGap = {
+  capability: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSSSMParameterPolicy = {
+  policy_type?: string;
+  policy_status?: string;
+  expires_at?: string;
+};
+
+export type AWSSSMParameterWorkloadReference = {
+  source_service?: string;
+  workload_id?: string;
+  workload_type?: string;
+  workload_name?: string;
+  resource_arn?: string;
+  resource_id?: string;
+  reference: string;
+  reference_kind: string;
+  confidence: number;
+};
+
+export type AWSSSMParameterMetadataRecord = {
+  account_id: string;
+  region: string;
+  service: 'ssm';
+  parameter_arn: string;
+  parameter_name: string;
+  parameter_path?: string;
+  path_depth?: number;
+  parameter_type: string;
+  tier: string;
+  data_type?: string;
+  version?: number;
+  description_present: boolean;
+  allowed_pattern_present: boolean;
+  kms_key_id?: string;
+  kms_key_arn?: string;
+  last_modified_at?: string;
+  last_modified_by?: string;
+  parameter_policies?: AWSSSMParameterPolicy[];
+  tags?: Record<string, string>;
+  sensitive: boolean;
+  sensitivity_classification: string;
+  exposure_classification: string;
+  exposure_reasons?: string[];
+  referenced_by?: AWSSSMParameterWorkloadReference[];
+  unresolved_references?: AWSSSMParameterWorkloadReference[];
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  relationship_type: string;
+  confidence: number;
+  collected_at: string;
+  status: string;
+};
+
+export type AWSSSMParameterReferenceEdge = {
+  type: 'uses_secret';
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+  source: string;
+  confidence: number;
+};
+
+export type AWSSSMParameterMetadataDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSSSMParameterMetadataInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSSSMParameterMetadataInventoryStatus;
+  fixture_state: AWSSSMParameterMetadataFixtureState;
+  confidence: number;
+  parameter_count: number;
+  secure_string_count: number;
+  customer_kms_count: number;
+  referenced_parameter_count: number;
+  unreferenced_parameter_count: number;
+  plain_text_referenced_count: number;
+  expiring_parameter_count: number;
+  advanced_tier_count: number;
+  relationship_count: number;
+  unresolved_reference_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSSSMParameterCoverageGap[];
+  records: AWSSSMParameterMetadataRecord[];
+  relationships: AWSSSMParameterReferenceEdge[];
+  diagnostics: AWSSSMParameterMetadataDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSEKSWorkloadIdentityInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSEKSWorkloadIdentityFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 
@@ -3746,6 +3869,24 @@ export const apiClient = {
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/secrets-manager-metadata${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectSSMParameterMetadata(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSSSMParameterMetadataFixtureState,
+    filters?: { parameterType?: AWSSSMParameterTypeFilter; identity?: string },
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSSSMParameterMetadataInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/ssm-parameter-metadata${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState,
+        parameter_type: filters?.parameterType,
+        identity: filters?.identity
       })}`,
       auth
     );

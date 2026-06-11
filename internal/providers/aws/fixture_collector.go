@@ -152,6 +152,19 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	// SSM parameter metadata must be checked before Secrets Manager metadata.
+	// Both record shapes share the kms_key_id and referenced_by JSON keys, and
+	// the Secrets Manager matcher treats either as a secret signal, so an SSM
+	// fixture would be misclassified if the secrets matcher ran first. The SSM
+	// matcher itself only claims records with ssm service/collector markers or
+	// parameter identifiers.
+	var ssmParameterMetadata SSMParameterMetadata
+	if err := json.Unmarshal(payload, &ssmParameterMetadata); err == nil {
+		if isSSMParameterMetadataFixture(ssmParameterMetadata) {
+			return rawKindSSMParameterMetadata, ssmParameterMetadataSourceID(ssmParameterMetadata)
+		}
+	}
+
 	var secretsManagerMetadata SecretsManagerSecretMetadata
 	if err := json.Unmarshal(payload, &secretsManagerMetadata); err == nil {
 		if isSecretsManagerMetadataFixture(secretsManagerMetadata) {
@@ -535,6 +548,21 @@ func isKMSDecryptReachabilityFixture(record KMSDecryptReachability) bool {
 		return true
 	}
 	return false
+}
+
+// isSSMParameterMetadataFixture identifies metadata-only SSM Parameter Store
+// fixtures. It is intentionally strict — only ssm service/collector markers or
+// parameter identifiers count — so records from other collectors that share
+// field names (kms_key_id, referenced_by) are never claimed.
+func isSSMParameterMetadataFixture(record SSMParameterMetadata) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), ssmServiceName) {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(record.CollectorName), ssmParameterMetadataCollectorName) {
+		return true
+	}
+	return strings.TrimSpace(record.ParameterARN) != "" ||
+		strings.TrimSpace(record.ParameterName) != ""
 }
 
 // isSecretsManagerMetadataFixture identifies metadata-only Secrets Manager

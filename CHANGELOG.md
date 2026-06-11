@@ -1,6 +1,27 @@
 # Changelog
 
 ## Unreleased
+- Add **SSM Parameter Store metadata and reference collector** (#1491).
+  Read-only, metadata-only inventory of SSM parameters capturing name, ARN,
+  hierarchy path context, type (`string`, `string_list`, `secure_string`),
+  tier, data type, version, KMS key references for SecureString parameters,
+  parameter-policy summaries (type, status, expiration timestamp), tags, and
+  the last-modified IAM principal. Classifies sensitivity
+  (`secure_string_customer_kms`, `secure_string_aws_managed_kms`,
+  `string_list`, `plain_text`) and exposure (`referenced_by_workload`,
+  `scheduled_expiration`, `private`), flags plaintext parameters injected
+  through secret channels, and emits `uses_secret` graph edges for resolved
+  workload `secret_refs` (ECS `valueFrom` and CodeBuild `PARAMETER_STORE`
+  sources, including version/label suffixes). Adds the
+  `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/ssm-parameter-metadata`
+  endpoint with `success`, `empty`, `degraded`, `partial_failure`, and
+  `permission_denied` fixture states plus `parameter_type` and `identity`
+  record filters, OpenAPI schema, web API client types, the AWS resources
+  inventory surface, runtime/CLI wiring, and operator docs. The collector
+  never calls `ssm:GetParameter`, `ssm:GetParameters`,
+  `ssm:GetParametersByPath`, or `ssm:GetParameterHistory`; never reads
+  parameter values; and treats SecureString parameters as sensitive metadata
+  only.
 - Add **KMS key policy and decrypt reachability collector** (#1489).
   Read-only, metadata-only inventory of every KMS key in scope, capturing
   manager (customer vs AWS), state, spec, multi-region linkage, rotation

@@ -112,6 +112,51 @@ func TestFixtureCollectorClassifiesECSTaskRoleWithWorkloadIDAsECS(t *testing.T) 
 	}
 }
 
+func TestFixtureCollectorClassifiesSSMParameterMetadataBeforeSecretsManager(t *testing.T) {
+	// kms_key_id and referenced_by are shared field names with the Secrets
+	// Manager record shape; an SSM fixture carrying them must still classify
+	// as SSM parameter metadata.
+	payload := []byte(`{
+		"service":"ssm",
+		"collector_name":"ssm_parameter_metadata",
+		"account_id":"123456789012",
+		"region":"us-east-1",
+		"parameter_arn":"arn:aws:ssm:us-east-1:123456789012:parameter/payments/db/password",
+		"parameter_name":"/payments/db/password",
+		"parameter_type":"secure_string",
+		"kms_key_id":"alias/payments-parameters",
+		"referenced_by":[{"reference":"DATABASE_PASSWORD=arn:aws:ssm:us-east-1:123456789012:parameter/payments/db/password","reference_kind":"arn","confidence":0.9}]
+	}`)
+
+	kind, sourceID := fixtureAssetKindAndSourceID(payload)
+	if kind != rawKindSSMParameterMetadata {
+		t.Fatalf("expected SSM parameter metadata fixture, got kind=%q sourceID=%q", kind, sourceID)
+	}
+	if sourceID == "" {
+		t.Fatal("expected SSM parameter source ID")
+	}
+}
+
+func TestFixtureCollectorStillClassifiesSecretsManagerAfterSSMMatcher(t *testing.T) {
+	payload := []byte(`{
+		"service":"secretsmanager",
+		"collector_name":"secrets_manager_metadata",
+		"account_id":"123456789012",
+		"region":"us-east-1",
+		"secret_arn":"arn:aws:secretsmanager:us-east-1:123456789012:secret:payments/db-AbCdEf",
+		"secret_name":"payments/db",
+		"kms_key_id":"alias/payments"
+	}`)
+
+	kind, sourceID := fixtureAssetKindAndSourceID(payload)
+	if kind != rawKindSecretsManagerMetadata {
+		t.Fatalf("expected Secrets Manager metadata fixture, got kind=%q sourceID=%q", kind, sourceID)
+	}
+	if sourceID == "" {
+		t.Fatal("expected Secrets Manager source ID")
+	}
+}
+
 func TestFixtureCollectorDoesNotClassifyECSClusterARNAsEKS(t *testing.T) {
 	payload := []byte(`{
 		"account_id":"123456789012",

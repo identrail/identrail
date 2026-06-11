@@ -626,6 +626,26 @@ func kmsDecryptReachabilitySourceID(record KMSDecryptReachability) string {
 	}), "|")
 }
 
+// resolveKMSKeyARN resolves a KMS key reference as AWS services report it.
+// The value can carry a full ARN, an alias (`alias/...`), or a bare key id;
+// only the bare id needs a synthesized key ARN.
+func resolveKMSKeyARN(keyID, accountID, region string) string {
+	trimmed := strings.TrimSpace(keyID)
+	switch {
+	case trimmed == "":
+		return ""
+	case strings.HasPrefix(trimmed, "arn:"):
+		return trimmed
+	case strings.HasPrefix(trimmed, "alias/"):
+		if strings.TrimSpace(accountID) == "" || strings.TrimSpace(region) == "" {
+			return ""
+		}
+		return fmt.Sprintf("arn:%s:kms:%s:%s:%s", awsPartitionForRegion(region), region, accountID, trimmed)
+	default:
+		return kmsKeyARNFromID(trimmed, accountID, region)
+	}
+}
+
 // kmsKeyARNFromID synthesizes a KMS key ARN from the supplied id, region,
 // and account. KMS key ARNs are partition + region + account scoped so we
 // must have all three.

@@ -290,20 +290,7 @@ func normalizeSecretsManagerMetadataScope(scope AWSCollectorScope, record Secret
 // ARN. The field can carry a full ARN, an alias (`alias/...`), or a bare key
 // id; only the bare id needs a synthesized key ARN.
 func secretsManagerKMSKeyARN(keyID, accountID, region string) string {
-	trimmed := strings.TrimSpace(keyID)
-	switch {
-	case trimmed == "":
-		return ""
-	case strings.HasPrefix(trimmed, "arn:"):
-		return trimmed
-	case strings.HasPrefix(trimmed, "alias/"):
-		if strings.TrimSpace(accountID) == "" || strings.TrimSpace(region) == "" {
-			return ""
-		}
-		return fmt.Sprintf("arn:%s:kms:%s:%s:%s", awsPartitionForRegion(region), region, accountID, trimmed)
-	default:
-		return kmsKeyARNFromID(trimmed, accountID, region)
-	}
+	return resolveKMSKeyARN(keyID, accountID, region)
 }
 
 // secretsManagerPrincipalAccountID extracts the owning account from a policy
