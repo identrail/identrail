@@ -100,11 +100,11 @@ const readOnlyPolicyJSON = `{
       ],
       "Resource": "*"
     },
-    {
-      "Sid": "IdentityTrustGraphReadOnlyStorage",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetBucketAcl",
+	    {
+	      "Sid": "IdentityTrustGraphReadOnlyStorage",
+	      "Effect": "Allow",
+	      "Action": [
+	        "s3:GetBucketAcl",
         "s3:GetBucketLocation",
         "s3:GetBucketOwnershipControls",
         "s3:GetBucketPolicy",
@@ -113,9 +113,22 @@ const readOnlyPolicyJSON = `{
         "s3:GetEncryptionConfiguration",
         "s3:ListAccessPoints",
         "s3:ListAllMyBuckets"
-      ],
-      "Resource": "*"
-    },
+	      ],
+	      "Resource": "*"
+	    },
+	    {
+	      "Sid": "IdentityTrustGraphReadOnlyECR",
+	      "Effect": "Allow",
+	      "Action": [
+	        "ecr:DescribeImages",
+	        "ecr:DescribeRepositories",
+	        "ecr:GetLifecyclePolicy",
+	        "ecr:GetPolicy",
+	        "ecr:GetRegistryScanningConfiguration",
+	        "ecr:ListTagsForResource"
+	      ],
+	      "Resource": "*"
+	    },
     {
       "Sid": "IdentityTrustGraphReadOnlyKMS",
       "Effect": "Allow",
@@ -295,6 +308,19 @@ func PermissionPreview() []PermissionPreviewItem {
 			},
 			Resources: []string{"*"},
 			Reason:    "Reads key metadata, key policies, rotation status, aliases, live grants, and tags so Identrail can map which IAM principals can decrypt or administer customer-managed keys. Metadata-only — no Encrypt, Decrypt, Sign, Verify, GenerateDataKey, or grant-creation calls are made.",
+		},
+		{
+			Service: "ECR",
+			Actions: []string{
+				"ecr:DescribeImages",
+				"ecr:DescribeRepositories",
+				"ecr:GetLifecyclePolicy",
+				"ecr:GetPolicy",
+				"ecr:GetRegistryScanningConfiguration",
+				"ecr:ListTagsForResource",
+			},
+			Resources: []string{"*"},
+			Reason:    "Reads repository metadata for container image inventories, policy and lifecycle configuration, scanning settings, and repository tags, without reading image manifests, layers, or vulnerabilities.",
 		},
 	}
 }
