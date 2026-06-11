@@ -249,13 +249,21 @@ func ecrRepositoryReferenceKeysFromRef(ref string) []string {
 		withoutDigest = withoutDigest[:idx]
 	}
 	withoutTag := withoutDigest
-	if slash := strings.LastIndex(withoutTag, "/"); slash >= 0 {
-		if colon := strings.LastIndex(withoutTag, ":"); colon > slash {
+	if colon := strings.LastIndex(withoutTag, ":"); colon >= 0 {
+		slash := strings.LastIndex(withoutTag, "/")
+		if slash == -1 || colon > slash {
 			withoutTag = withoutTag[:colon]
 		}
 	}
-	name := ecrRepositoryNameFromURI(withoutTag)
-	return dedupeStrings([]string{trimmed, withoutDigest, withoutTag, name})
+	name := ""
+	if strings.Contains(withoutTag, ".dkr.ecr.") && strings.Contains(withoutTag, ".amazonaws.com") {
+		name = ecrRepositoryNameFromURI(withoutTag)
+	}
+	keys := dedupeStrings([]string{trimmed, withoutDigest, withoutTag})
+	if name != "" {
+		keys = append(keys, name)
+	}
+	return dedupeStrings(keys)
 }
 
 func secretsManagerResourceIndex(resources []domain.Resource) map[string]string {

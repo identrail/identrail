@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -135,35 +136,62 @@ func (a *SDKECRRepositoryMetadataAPI) enrichRepository(ctx context.Context, reco
 	if output, err := a.client.GetRepositoryPolicy(ctx, &ecr.GetRepositoryPolicyInput{RepositoryName: awsv2.String(name)}); err == nil && output != nil {
 		record.HasRepositoryPolicy = strings.TrimSpace(awsv2.ToString(output.PolicyText)) != ""
 		record.RepositoryPolicyStatement = countJSONPolicyStatements(awsv2.ToString(output.PolicyText))
-	} else if err != nil {
+	} else if err != nil && !isRepositoryPolicyNotFound(err) {
 		*diagnostics = append(*diagnostics, ecrRepositoryMetadataDiagnostic("ecr_repository_policy_failed", name, fmt.Sprintf("GetRepositoryPolicy failed: %v", err), true))
 	}
 	if output, err := a.client.GetLifecyclePolicy(ctx, &ecr.GetLifecyclePolicyInput{RepositoryName: awsv2.String(name)}); err == nil && output != nil {
 		record.HasLifecyclePolicy = strings.TrimSpace(awsv2.ToString(output.LifecyclePolicyText)) != ""
 		record.LifecycleRuleCount = countECRLifecycleRules(awsv2.ToString(output.LifecyclePolicyText))
-	} else if err != nil {
+	} else if err != nil && !isLifecyclePolicyNotFound(err) {
 		*diagnostics = append(*diagnostics, ecrRepositoryMetadataDiagnostic("ecr_lifecycle_policy_failed", name, fmt.Sprintf("GetLifecyclePolicy failed: %v", err), true))
 	}
-	if output, err := a.client.DescribeImages(ctx, &ecr.DescribeImagesInput{RepositoryName: awsv2.String(name), MaxResults: awsv2.Int32(100)}); err == nil && output != nil {
-		for _, detail := range output.ImageDetails {
-			record.ImageCount++
-			if len(detail.ImageTags) > 0 {
-				record.TaggedImageCount++
-			} else {
-				record.UntaggedImageCount++
+	nextToken := ""
+	for {
+		output, err := a.client.DescribeImages(ctx, &ecr.DescribeImagesInput{
+			RepositoryName: awsv2.String(name),
+			MaxResults:     awsv2.Int32(100),
+			NextToken:      stringPtrOrNil(nextToken),
+		})
+		if err != nil {
+			*diagnostics = append(*diagnostics, ecrRepositoryMetadataDiagnostic("ecr_describe_images_failed", name, fmt.Sprintf("DescribeImages failed: %v", err), true))
+			break
+		}
+		if output != nil {
+			for _, detail := range output.ImageDetails {
+				record.ImageCount++
+				if len(detail.ImageTags) > 0 {
+					record.TaggedImageCount++
+				} else {
+					record.UntaggedImageCount++
+				}
+				if pushed := awsTimeString(detail.ImagePushedAt); pushed > record.LastPushedAt {
+					record.LastPushedAt = pushed
+				}
 			}
-			if pushed := awsTimeString(detail.ImagePushedAt); pushed > record.LastPushedAt {
-				record.LastPushedAt = pushed
+			nextToken = strings.TrimSpace(awsv2.ToString(output.NextToken))
+			if nextToken == "" {
+				break
 			}
 		}
-	} else if err != nil {
-		*diagnostics = append(*diagnostics, ecrRepositoryMetadataDiagnostic("ecr_describe_images_failed", name, fmt.Sprintf("DescribeImages failed: %v", err), true))
+		if output == nil {
+			break
+		}
 	}
 	if output, err := a.client.ListTagsForResource(ctx, &ecr.ListTagsForResourceInput{ResourceArn: awsv2.String(record.RepositoryARN)}); err == nil && output != nil {
 		record.Tags = ecrTags(output.Tags)
 	} else if err != nil {
 		*diagnostics = append(*diagnostics, ecrRepositoryMetadataDiagnostic("ecr_tags_failed", name, fmt.Sprintf("ListTagsForResource failed: %v", err), true))
 	}
+}
+
+func isRepositoryPolicyNotFound(err error) bool {
+	var policyErr *ecrtypes.RepositoryPolicyNotFoundException
+	return errors.As(err, &policyErr)
+}
+
+func isLifecyclePolicyNotFound(err error) bool {
+	var lifecycleErr *ecrtypes.LifecyclePolicyNotFoundException
+	return errors.As(err, &lifecycleErr)
 }
 
 func ecrRepositoryMetadataFromRepository(repository ecrtypes.Repository, accountID string, region string) ECRRepositoryMetadata {

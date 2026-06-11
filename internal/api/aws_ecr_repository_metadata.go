@@ -234,7 +234,7 @@ func filterAWSECRRepositoryRecords(records []AWSECRRepositoryMetadataRecord, rep
 func ecrRepositoryRecordMatchesIdentity(record AWSECRRepositoryMetadataRecord, identity string) bool {
 	for _, refs := range [][]AWSECRImageWorkloadReference{record.ReferencedBy, record.UnresolvedReferences} {
 		for _, ref := range refs {
-			haystack := strings.ToLower(strings.Join([]string{ref.SourceService, ref.WorkloadID, ref.WorkloadName, ref.ResourceARN, ref.ImageURI}, " "))
+			haystack := strings.ToLower(strings.Join([]string{ref.SourceService, ref.WorkloadID, ref.WorkloadName, ref.ResourceARN, ref.ResourceID, ref.ImageURI}, " "))
 			if strings.Contains(haystack, identity) {
 				return true
 			}
