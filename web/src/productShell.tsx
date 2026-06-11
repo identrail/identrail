@@ -53,6 +53,8 @@ import {
   type AWSServiceCollectorContractResult,
   type AWSECRRepositoryMetadataInventoryResult,
   type AWSECRRepositoryMetadataRecord,
+  type AWSDynamoDBRDSReachabilityInventoryResult,
+  type AWSDynamoDBRDSReachabilityRecord,
   type AWSSecretsManagerMetadataInventoryResult,
   type AWSSecretsManagerMetadataRecord,
   type AWSSQSSNSReachabilityInventoryResult,
@@ -3655,6 +3657,13 @@ type AWSInventorySQSSNSState = {
   onRetry: () => void;
 };
 
+type AWSInventoryDynamoDBRDSState = {
+  inventory: AWSDynamoDBRDSReachabilityInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryCoverageRow = AWSInventoryFilterable & {
   id: string;
   category: string;
@@ -3767,7 +3776,13 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'Control plane', value: 'control-plane' },
         { label: 'SQS/SNS', value: 'sqs-sns' },
         { label: 'SQS queue', value: 'sqs-queue' },
-        { label: 'SNS topic', value: 'sns-topic' }
+        { label: 'SNS topic', value: 'sns-topic' },
+        { label: 'DynamoDB/RDS', value: 'dynamodb-rds' },
+        { label: 'DynamoDB table', value: 'dynamodb_table' },
+        { label: 'DynamoDB stream', value: 'dynamodb_stream' },
+        { label: 'RDS instance', value: 'rds_instance' },
+        { label: 'RDS cluster', value: 'rds_cluster' },
+        { label: 'RDS proxy', value: 'rds_proxy' }
       ]
     },
     {
@@ -3783,7 +3798,9 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'KMS-admin', value: 'kms-admin' },
         { label: 'Control-plane', value: 'control-plane' },
         { label: 'Messaging resource', value: 'messaging-resource' },
-        { label: 'Messaging exposure', value: 'messaging-exposure' }
+        { label: 'Messaging exposure', value: 'messaging-exposure' },
+        { label: 'Database resource', value: 'database-resource' },
+        { label: 'Database exposure', value: 'database-exposure' }
       ]
     },
     {
@@ -5911,6 +5928,7 @@ function AWSResourcesInventoryContent({
   ssmParameterState,
   ecrRepositoryState,
   sqsSNSState,
+  dynamoDBRDSState,
   filters,
   onFiltersChange
 }: {
@@ -5919,6 +5937,7 @@ function AWSResourcesInventoryContent({
   ssmParameterState: AWSInventorySSMParameterState;
   ecrRepositoryState: AWSInventoryECRRepositoryState;
   sqsSNSState: AWSInventorySQSSNSState;
+  dynamoDBRDSState: AWSInventoryDynamoDBRDSState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
@@ -5930,11 +5949,14 @@ function AWSResourcesInventoryContent({
   const ecrRows = buildAWSECRRepositoryMetadataRows(ecrInventory, ecrRepositoryState.loading, connection);
   const sqsSNSInventory = sqsSNSState.inventory;
   const sqsSNSRows = buildAWSSQSSNSReachabilityRows(sqsSNSInventory, sqsSNSState.loading, connection);
+  const dynamoDBRDSInventory = dynamoDBRDSState.inventory;
+  const dynamoDBRDSRows = buildAWSDynamoDBRDSReachabilityRows(dynamoDBRDSInventory, dynamoDBRDSState.loading, connection);
   const rows: AWSInventoryTableRow[] = [
     ...secretsRows,
     ...ssmRows,
     ...ecrRows,
     ...sqsSNSRows,
+    ...dynamoDBRDSRows,
     {
       id: 'kms',
       name: 'KMS key reachability',
@@ -5999,6 +6021,12 @@ function AWSResourcesInventoryContent({
           total={1}
           detail={sqsSNSState.loading ? 'Loading' : sqsSNSInventory ? formatTokenLabel(sqsSNSInventory.status) : 'Pending'}
         />
+        <DomainCoverageCard
+          label="DynamoDB/RDS reachability"
+          scanned={dynamoDBRDSInventory && dynamoDBRDSInventory.status !== 'blocked' ? 1 : 0}
+          total={1}
+          detail={dynamoDBRDSState.loading ? 'Loading' : dynamoDBRDSInventory ? formatTokenLabel(dynamoDBRDSInventory.status) : 'Pending'}
+        />
         <DomainCoverageCard label="KMS reachability" scanned={0} total={1} detail="Coming wave" />
         <DomainCoverageCard label="S3 sensitivity" scanned={0} total={1} detail="Coming wave" />
       </section>
@@ -6034,11 +6062,20 @@ function AWSResourcesInventoryContent({
           retryAction={{ label: 'Retry SQS/SNS reachability', onClick: sqsSNSState.onRetry }}
         />
       ) : null}
+      {dynamoDBRDSState.loading ? <DomainLoadingState label="Loading DynamoDB and RDS reachability" /> : null}
+      {dynamoDBRDSState.error ? (
+        <DomainErrorState
+          title="DynamoDB/RDS reachability could not load"
+          body={dynamoDBRDSState.error}
+          retryAction={{ label: 'Retry DynamoDB/RDS reachability', onClick: dynamoDBRDSState.onRetry }}
+        />
+      ) : null}
       <DomainStatusPanel eyebrow="Safety posture" title="No secret value reads" status="Metadata only" tone="success">
         <p>
           Resource inventory is designed around reachability and metadata. Secrets Manager, SSM Parameter, ECR image
-          repository, SQS queues, SNS topics, and external AI provider key mapping must use safe metadata and credential
-          references, not credential values, message bodies, notification payloads, or image payloads.
+          repository, SQS queues, SNS topics, DynamoDB tables, and RDS resources must use safe metadata and credential
+          references, not credential values, message bodies, notification payloads, database rows, query text, snapshots,
+          or image payloads.
         </p>
       </DomainStatusPanel>
       <DomainDataTable
@@ -6453,6 +6490,115 @@ function buildAWSSQSSNSReachabilityRows(
   ];
 }
 
+function buildAWSDynamoDBRDSReachabilityRows(
+  inventory: AWSDynamoDBRDSReachabilityInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsDynamoDBRDSReachabilityRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'dynamodb-rds-blocked',
+        name: 'DynamoDB/RDS reachability unavailable',
+        category: 'Database resource',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'DynamoDB/RDS reachability collection is blocked.',
+        filters: { category: 'dynamodb-rds', sensitivity: 'database-resource', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['dynamodb rds database blocked', inventory.account_id, inventory.region])
+      }
+    ];
+  }
+  if (inventory) {
+    const degraded = inventory.status === 'degraded' || inventory.diagnostics.length > 0 || inventory.failure_reasons.length > 0;
+    return [
+      {
+        id: 'dynamodb-rds-empty',
+        name: degraded ? 'DynamoDB/RDS reachability incomplete' : 'No DynamoDB or RDS resources found',
+        category: 'Database resource',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: degraded ? 'degraded' : 'wired now',
+        stage: 'wired',
+        detail: degraded ? (inventory.failure_reasons[0] ?? 'DynamoDB/RDS collection completed with degraded evidence and no retained records.') : 'The collector completed without DynamoDB or RDS resources in this account and region.',
+        filters: { category: 'dynamodb-rds', sensitivity: 'database-resource', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['dynamodb rds database', inventory.account_id, inventory.region, degraded ? 'degraded empty' : 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'dynamodb-rds-loading',
+        name: 'DynamoDB/RDS reachability',
+        category: 'Database resource',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading table, stream, cluster, instance, proxy, encryption, IAM-auth, and policy metadata.',
+        filters: { category: 'dynamodb-rds', sensitivity: 'database-resource', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['dynamodb rds database loading'])
+      }
+    ];
+  }
+  return [
+    {
+      id: 'dynamodb-rds',
+      name: 'DynamoDB/RDS reachability',
+      category: 'Database resource',
+      scope: connection?.region ?? 'Region pending',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'DynamoDB table/stream and RDS cluster/instance/proxy metadata without rows, queries, snapshots, or database contents.',
+      filters: { category: 'dynamodb-rds', sensitivity: 'database-resource', readPosture: 'metadata-only', search: '' },
+      searchText: inventorySearchText(['dynamodb', 'rds', 'database', 'reachability'])
+    }
+  ];
+}
+
+function awsDynamoDBRDSReachabilityRow(record: AWSDynamoDBRDSReachabilityRecord): AWSInventoryTableRow {
+  const publicOrCross = record.exposure_classification === 'public' || record.exposure_classification === 'cross_account';
+  const status = record.status !== 'ready' || publicOrCross ? 'degraded' : 'wired now';
+  const policyLabel = record.has_resource_policy ? `${record.resource_policy_statement_count} policy statements` : 'no resource policy';
+  const grantLabel = record.identity_grants?.length ? `${record.identity_grants.length} policy grants` : 'no policy grants';
+  const roleLabel = record.associated_role_arns?.length ? `${record.associated_role_arns.length} associated roles` : 'no associated roles';
+  const encryptionLabel = record.kms_key_id || record.storage_encrypted ? 'encryption configured' : 'encryption metadata default';
+  const authLabel = record.iam_database_authentication_enabled ? 'IAM auth enabled' : record.publicly_accessible ? 'public endpoint flag' : 'private metadata';
+  return {
+    id: `dynamodb-rds-${record.resource_arn}`,
+    name: record.resource_name || record.resource_arn,
+    category: formatTokenLabel(record.resource_type),
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage: 'wired',
+    detail: `${formatTokenLabel(record.exposure_classification)}; ${policyLabel}; ${grantLabel}; ${roleLabel}; ${encryptionLabel}; ${authLabel}. Contents hidden.`,
+    filters: {
+      category: record.resource_type,
+      sensitivity: publicOrCross ? 'database-exposure' : 'database-resource',
+      readPosture: 'metadata-only',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.resource_arn,
+      record.resource_name,
+      record.resource_type,
+      record.service,
+      record.account_id,
+      record.region,
+      record.engine,
+      record.engine_version,
+      record.exposure_classification,
+      ...(record.exposure_reasons ?? []),
+      ...(record.associated_role_arns ?? []),
+      ...(record.identity_grants ?? []).map((grant) => `${grant.principal_arn ?? ''} ${(grant.actions ?? []).join(' ')} ${(grant.capabilities ?? []).join(' ')}`),
+      'dynamodb rds database reachability rows queries snapshots hidden'
+    ])
+  };
+}
+
 function awsSQSSNSReachabilityRow(record: AWSSQSSNSReachabilityRecord): AWSInventoryTableRow {
   const publicOrCross = record.exposure_classification === 'public' || record.exposure_classification === 'cross_account';
   const degraded = record.status !== 'ready' || publicOrCross;
@@ -6554,6 +6700,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [sqsSNSInventoryLoading, setSQSSNSInventoryLoading] = useState(false);
   const [sqsSNSInventoryError, setSQSSNSInventoryError] = useState('');
   const sqsSNSInventoryRequestRef = useRef(0);
+  const [dynamoDBRDSInventory, setDynamoDBRDSInventory] = useState<AWSDynamoDBRDSReachabilityInventoryResult | null>(null);
+  const [dynamoDBRDSInventoryLoading, setDynamoDBRDSInventoryLoading] = useState(false);
+  const [dynamoDBRDSInventoryError, setDynamoDBRDSInventoryError] = useState('');
+  const dynamoDBRDSInventoryRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -7085,6 +7235,46 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadSQSSNSInventory]);
 
+  const loadDynamoDBRDSInventory = useCallback(async () => {
+    const requestID = ++dynamoDBRDSInventoryRequestRef.current;
+    setDynamoDBRDSInventory(null);
+    setDynamoDBRDSInventoryError('');
+    if (routeID !== 'resources' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setDynamoDBRDSInventoryLoading(false);
+      return;
+    }
+    setDynamoDBRDSInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectDynamoDBRDSReachability(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== dynamoDBRDSInventoryRequestRef.current) {
+        return;
+      }
+      setDynamoDBRDSInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== dynamoDBRDSInventoryRequestRef.current) {
+        return;
+      }
+      setDynamoDBRDSInventoryError(formatAPIError(error, 'Unable to load DynamoDB/RDS reachability.'));
+    } finally {
+      if (requestID === dynamoDBRDSInventoryRequestRef.current) {
+        setDynamoDBRDSInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadDynamoDBRDSInventory();
+    return () => {
+      dynamoDBRDSInventoryRequestRef.current += 1;
+    };
+  }, [loadDynamoDBRDSInventory]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -7244,6 +7434,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: sqsSNSInventoryLoading,
             error: sqsSNSInventoryError,
             onRetry: () => void loadSQSSNSInventory()
+          }}
+          dynamoDBRDSState={{
+            inventory: dynamoDBRDSInventory,
+            loading: dynamoDBRDSInventoryLoading,
+            error: dynamoDBRDSInventoryError,
+            onRetry: () => void loadDynamoDBRDSInventory()
           }}
           filters={activeFilters}
           onFiltersChange={onFiltersChange}

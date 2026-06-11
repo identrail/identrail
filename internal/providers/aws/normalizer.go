@@ -259,6 +259,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		}
 	}
 
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != rawKindDynamoDBRDSReachability {
+			continue
+		}
+		if err := normalizeDynamoDBRDSReachabilityAsset(asset, i, &bundle, identitySeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
 	return bundle, nil
 }
 
@@ -2252,6 +2264,98 @@ func s3DenyGrantCount(grants []S3IdentityGrant) int {
 		}
 	}
 	return count
+}
+
+func normalizeDynamoDBRDSReachabilityAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record DynamoDBRDSReachability
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode dynamodb/rds reachability asset[%d]: %w", index, err)
+	}
+	resourceARN := strings.TrimSpace(record.ResourceARN)
+	if resourceARN == "" {
+		return nil
+	}
+	resourceID := dynamoDBRDSResourceID(record)
+	if _, exists := resourceSeen[resourceID]; !exists {
+		resourceSeen[resourceID] = struct{}{}
+		bundle.Resources = append(bundle.Resources, domain.Resource{
+			ID:        resourceID,
+			Provider:  domain.ProviderAWS,
+			Type:      dynamoDBRDSDomainResourceType(record),
+			Name:      firstNonEmptyAWSValue(record.ResourceName, dynamoDBRDSNameFromARN(resourceARN), resourceARN),
+			ARN:       resourceARN,
+			Region:    strings.TrimSpace(record.Region),
+			AccountID: strings.TrimSpace(record.AccountID),
+			Labels:    copyTags(record.Tags),
+			Metadata: map[string]any{
+				"service":                             record.Service,
+				"resource_type":                       record.ResourceType,
+				"resource_id":                         record.ResourceID,
+				"engine":                              record.Engine,
+				"engine_version":                      record.EngineVersion,
+				"resource_status":                     record.ResourceStatus,
+				"endpoint_present":                    strings.TrimSpace(record.Endpoint) != "",
+				"kms_key_id":                          record.KMSKeyID,
+				"storage_encrypted":                   record.StorageEncrypted,
+				"iam_database_authentication_enabled": record.IAMDatabaseAuthenticationEnabled,
+				"publicly_accessible":                 record.PubliclyAccessible,
+				"deletion_protection_enabled":         record.DeletionProtectionEnabled,
+				"performance_insights_enabled":        record.PerformanceInsightsEnabled,
+				"stream_enabled":                      record.StreamEnabled,
+				"stream_arn":                          record.StreamARN,
+				"billing_mode":                        record.BillingMode,
+				"associated_role_count":               len(record.AssociatedRoleARNs),
+				"has_resource_policy":                 record.HasResourcePolicy,
+				"resource_policy_statement_count":     record.ResourcePolicyStatementCount,
+				"resource_policy_source":              record.ResourcePolicySource,
+				"exposure_classification":             record.ExposureClassification,
+				"exposure_reasons":                    append([]string(nil), record.ExposureReasons...),
+				"identity_grant_count":                len(record.IdentityGrants),
+			},
+			RawRef: asset.SourceID,
+		})
+	}
+	for _, roleARN := range record.AssociatedRoleARNs {
+		projectAWSIAMPrincipalIdentity(bundle, identitySeen, roleARN, asset.SourceID)
+	}
+	for _, grant := range record.IdentityGrants {
+		projectAWSIAMPrincipalIdentity(bundle, identitySeen, grant.PrincipalARN, asset.SourceID)
+	}
+	return nil
+}
+
+func dynamoDBRDSResourceID(record DynamoDBRDSReachability) string {
+	switch strings.ToLower(strings.TrimSpace(record.ResourceType)) {
+	case "dynamodb_table":
+		return "aws:resource:dynamodb-table:" + strings.TrimSpace(record.ResourceARN)
+	case "dynamodb_stream":
+		return "aws:resource:dynamodb-stream:" + strings.TrimSpace(record.ResourceARN)
+	case "rds_instance":
+		return "aws:resource:rds-instance:" + strings.TrimSpace(record.ResourceARN)
+	case "rds_cluster":
+		return "aws:resource:rds-cluster:" + strings.TrimSpace(record.ResourceARN)
+	case "rds_proxy":
+		return "aws:resource:rds-proxy:" + strings.TrimSpace(record.ResourceARN)
+	default:
+		return "aws:resource:dynamodb-rds:" + strings.TrimSpace(record.ResourceARN)
+	}
+}
+
+func dynamoDBRDSDomainResourceType(record DynamoDBRDSReachability) domain.ResourceType {
+	switch strings.ToLower(strings.TrimSpace(record.ResourceType)) {
+	case "dynamodb_table":
+		return domain.ResourceTypeDynamoDBTable
+	case "dynamodb_stream":
+		return domain.ResourceTypeDynamoDBStream
+	case "rds_instance":
+		return domain.ResourceTypeRDSInstance
+	case "rds_cluster":
+		return domain.ResourceTypeRDSCluster
+	case "rds_proxy":
+		return domain.ResourceTypeRDSProxy
+	default:
+		return domain.ResourceTypeUnknown
+	}
 }
 
 // normalizeSQSSNSReachabilityAsset registers queues and topics as first-class

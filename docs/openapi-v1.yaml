@@ -554,6 +554,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/dynamodb-rds-reachability
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/secrets-manager-metadata
     action: tenancy.read
     resource_type: project
@@ -4498,6 +4503,66 @@ paths:
                     $ref: "#/components/schemas/AWSSQSSNSReachabilityInventoryResult"
         "400":
           description: Invalid AWS SQS/SNS reachability inventory request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/dynamodb-rds-reachability:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS DynamoDB and RDS reachability inventory
+      operationId: getAWSProjectDynamoDBRDSReachability
+      description: Returns scoped DynamoDB table/stream and RDS cluster/instance/proxy metadata, policy grants, associated IAM roles, encryption, IAM-auth, public-access, and exposure classification. Metadata-only - never reads rows, queries, snapshots, backups, logs, items, or database contents.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope the account, region, and read-only DynamoDB/RDS evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: resource_type
+          schema:
+            type: string
+            enum: [dynamodb_table, dynamodb_stream, rds_instance, rds_cluster, rds_proxy, dynamodb, rds]
+          description: Optional resource type or service filter.
+        - in: query
+          name: identity
+          schema: { type: string }
+          description: Optional case-insensitive filter over policy principals, associated role ARNs, actions, and inferred capabilities.
+      responses:
+        "200":
+          description: AWS DynamoDB/RDS reachability inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inventory:
+                    $ref: "#/components/schemas/AWSDynamoDBRDSReachabilityInventoryResult"
+        "400":
+          description: Invalid AWS DynamoDB/RDS reachability inventory request
           content:
             application/json:
               schema:
@@ -9891,6 +9956,211 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSSQSSNSReachabilityDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSDynamoDBRDSCoverageGap:
+      type: object
+      properties:
+        capability: { type: string }
+        status:
+          type: string
+          enum: [unsupported, partial]
+        reason: { type: string }
+        remediation: { type: string }
+    AWSDynamoDBRDSIdentityGrant:
+      type: object
+      properties:
+        principal_arn: { type: string }
+        principal_type: { type: string }
+        effect:
+          type: string
+          enum: [Allow, Deny]
+        actions:
+          type: array
+          items: { type: string }
+        not_action: { type: boolean }
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum: [read, write, manage, service_association, unknown]
+        condition_keys:
+          type: array
+          items: { type: string }
+        is_public: { type: boolean }
+        is_cross_account: { type: boolean }
+        has_condition: { type: boolean }
+        statement_sid: { type: string }
+        wildcard_principal: { type: boolean }
+    AWSDynamoDBRDSReachabilityRecord:
+      type: object
+      properties:
+        account_id: { type: string }
+        region: { type: string }
+        service:
+          type: string
+          enum: [dynamodb, rds]
+        resource_arn: { type: string }
+        resource_name: { type: string }
+        resource_type:
+          type: string
+          enum: [dynamodb_table, dynamodb_stream, rds_instance, rds_cluster, rds_proxy]
+        resource_id: { type: string }
+        engine: { type: string }
+        engine_version: { type: string }
+        resource_status: { type: string }
+        endpoint:
+          type: string
+          description: Endpoint metadata only; database credentials and query contents are never returned.
+        kms_key_id: { type: string }
+        storage_encrypted: { type: boolean }
+        iam_database_authentication_enabled: { type: boolean }
+        publicly_accessible: { type: boolean }
+        deletion_protection_enabled: { type: boolean }
+        performance_insights_enabled: { type: boolean }
+        stream_enabled: { type: boolean }
+        stream_arn: { type: string }
+        billing_mode: { type: string }
+        associated_role_arns:
+          type: array
+          items: { type: string }
+        identity_grants:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSDynamoDBRDSIdentityGrant"
+        has_resource_policy: { type: boolean }
+        resource_policy_statement_count: { type: integer }
+        resource_policy_source: { type: string }
+        exposure_classification:
+          type: string
+          enum: [public, cross_account, private_with_grants, private, unknown]
+        exposure_reasons:
+          type: array
+          items: { type: string }
+        tags:
+          type: object
+          additionalProperties: { type: string }
+        source: { type: string }
+        evidence_ref: { type: string }
+        from_node_id: { type: string }
+        relationship_type:
+          type: string
+          enum: [can_access]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        collected_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [ready, degraded]
+    AWSDynamoDBRDSReachabilityRelationship:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [can_access]
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+        effect:
+          type: string
+          enum: [Allow]
+        principal_type: { type: string }
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum: [read, write, manage, service_association, unknown]
+        has_condition: { type: boolean }
+    AWSDynamoDBRDSReachabilityDiagnostic:
+      type: object
+      properties:
+        collector: { type: string }
+        source_id: { type: string }
+        code:
+          type: string
+          enum:
+            - dynamodb_rds_reachability_page_failed
+            - dynamodb_rds_reachability_page_limit_exceeded
+            - dynamodb_table_describe_failed
+            - dynamodb_table_tags_failed
+            - dynamodb_resource_policy_failed
+            - dynamodb_resource_policy_parse_failed
+            - rds_resource_tags_failed
+            - permission_denied
+            - malformed_dynamodb_rds_reachability_record
+        message: { type: string }
+        remediation: { type: string }
+        retryable: { type: boolean }
+    AWSDynamoDBRDSReachabilityInventoryResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        resource_count: { type: integer }
+        dynamodb_table_count: { type: integer }
+        dynamodb_stream_count: { type: integer }
+        rds_instance_count: { type: integer }
+        rds_cluster_count: { type: integer }
+        rds_proxy_count: { type: integer }
+        public_resource_count: { type: integer }
+        cross_account_resource_count: { type: integer }
+        encrypted_resource_count: { type: integer }
+        iam_auth_resource_count: { type: integer }
+        identity_grant_count: { type: integer }
+        associated_role_count: { type: integer }
+        relationship_count: { type: integer }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSDynamoDBRDSCoverageGap"
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSDynamoDBRDSReachabilityRecord"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSDynamoDBRDSReachabilityRelationship"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSDynamoDBRDSReachabilityDiagnostic"
         generated_at:
           type: string
           format: date-time

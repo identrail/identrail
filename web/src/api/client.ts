@@ -2485,6 +2485,133 @@ export type AWSSQSSNSReachabilityInventoryResult = {
   updated_at: string;
 };
 
+export type AWSDynamoDBRDSReachabilityInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSDynamoDBRDSReachabilityFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+
+export type AWSDynamoDBRDSCoverageGap = {
+  capability: string;
+  status: 'unsupported' | 'partial';
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSDynamoDBRDSIdentityGrant = {
+  principal_arn?: string;
+  principal_type?: string;
+  effect: 'Allow' | 'Deny';
+  actions?: string[];
+  not_action?: boolean;
+  capabilities?: string[];
+  condition_keys?: string[];
+  is_public?: boolean;
+  is_cross_account?: boolean;
+  has_condition?: boolean;
+  statement_sid?: string;
+  wildcard_principal?: boolean;
+};
+
+export type AWSDynamoDBRDSReachabilityRecord = {
+  account_id: string;
+  region: string;
+  service: 'dynamodb' | 'rds';
+  resource_arn: string;
+  resource_name: string;
+  resource_type: 'dynamodb_table' | 'dynamodb_stream' | 'rds_instance' | 'rds_cluster' | 'rds_proxy';
+  resource_id?: string;
+  engine?: string;
+  engine_version?: string;
+  resource_status?: string;
+  endpoint?: string;
+  kms_key_id?: string;
+  storage_encrypted: boolean;
+  iam_database_authentication_enabled: boolean;
+  publicly_accessible: boolean;
+  deletion_protection_enabled: boolean;
+  performance_insights_enabled: boolean;
+  stream_enabled: boolean;
+  stream_arn?: string;
+  billing_mode?: string;
+  associated_role_arns?: string[];
+  identity_grants?: AWSDynamoDBRDSIdentityGrant[];
+  has_resource_policy: boolean;
+  resource_policy_statement_count: number;
+  resource_policy_source?: string;
+  exposure_classification: 'public' | 'cross_account' | 'private_with_grants' | 'private' | 'unknown';
+  exposure_reasons?: string[];
+  tags?: Record<string, string>;
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  relationship_type: 'can_access';
+  confidence: number;
+  collected_at: string;
+  status: 'ready' | 'degraded';
+};
+
+export type AWSDynamoDBRDSReachabilityRelationship = {
+  type: 'can_access';
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+  effect: 'Allow';
+  principal_type: string;
+  capabilities?: string[];
+  has_condition?: boolean;
+};
+
+export type AWSDynamoDBRDSReachabilityDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSDynamoDBRDSReachabilityInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSDynamoDBRDSReachabilityInventoryStatus;
+  fixture_state: AWSDynamoDBRDSReachabilityFixtureState;
+  confidence: number;
+  resource_count: number;
+  dynamodb_table_count: number;
+  dynamodb_stream_count: number;
+  rds_instance_count: number;
+  rds_cluster_count: number;
+  rds_proxy_count: number;
+  public_resource_count: number;
+  cross_account_resource_count: number;
+  encrypted_resource_count: number;
+  iam_auth_resource_count: number;
+  identity_grant_count: number;
+  associated_role_count: number;
+  relationship_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSDynamoDBRDSCoverageGap[];
+  records: AWSDynamoDBRDSReachabilityRecord[];
+  relationships: AWSDynamoDBRDSReachabilityRelationship[];
+  diagnostics: AWSDynamoDBRDSReachabilityDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSSecretsManagerMetadataInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSSecretsManagerMetadataFixtureState =
   | 'success'
@@ -4134,6 +4261,25 @@ export const apiClient = {
   ) {
     return request<{ inventory: AWSSQSSNSReachabilityInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/sqs-sns-reachability${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState,
+        resource_type: resourceType,
+        identity
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectDynamoDBRDSReachability(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSDynamoDBRDSReachabilityFixtureState,
+    auth?: RequestAuthContext,
+    resourceType?: AWSDynamoDBRDSReachabilityRecord['resource_type'],
+    identity?: string
+  ) {
+    return request<{ inventory: AWSDynamoDBRDSReachabilityInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/dynamodb-rds-reachability${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState,
         resource_type: resourceType,

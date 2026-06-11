@@ -138,6 +138,11 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws sqs/sns reachability collector: %w", sqsSNSErr)
 			}
+			dynamoDBRDSAPI, dynamoDBRDSErr := awsprovider.NewSDKDynamoDBRDSReachabilityAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if dynamoDBRDSErr != nil {
+				_ = store.Close()
+				return nil, nil, fmt.Errorf("initialize aws dynamodb/rds reachability collector: %w", dynamoDBRDSErr)
+			}
 			secretsAPI, secretsErr := awsprovider.NewSDKSecretsManagerMetadataAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
 			if secretsErr != nil {
 				_ = store.Close()
@@ -171,6 +176,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				awsprovider.NewS3BucketReachabilityCollector(s3API),
 				awsprovider.NewKMSDecryptReachabilityCollector(kmsAPI),
 				awsprovider.NewSQSSNSReachabilityCollector(sqsSNSAPI),
+				awsprovider.NewDynamoDBRDSReachabilityCollector(dynamoDBRDSAPI),
 				awsprovider.NewSecretsManagerMetadataCollector(secretsAPI),
 				awsprovider.NewSSMParameterMetadataCollector(ssmAPI),
 				awsprovider.NewECRRepositoryMetadataCollector(ecrAPI),
@@ -314,6 +320,10 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		if sqsSNSErr != nil {
 			return nil, sqsSNSErr
 		}
+		dynamoDBRDSAPI, dynamoDBRDSErr := awsprovider.NewSDKDynamoDBRDSReachabilityAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
+		if dynamoDBRDSErr != nil {
+			return nil, dynamoDBRDSErr
+		}
 		secretsAPI, secretsErr := awsprovider.NewSDKSecretsManagerMetadataAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
 		if secretsErr != nil {
 			return nil, secretsErr
@@ -344,6 +354,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 			awsprovider.NewS3BucketReachabilityCollector(s3API),
 			awsprovider.NewKMSDecryptReachabilityCollector(kmsAPI),
 			awsprovider.NewSQSSNSReachabilityCollector(sqsSNSAPI),
+			awsprovider.NewDynamoDBRDSReachabilityCollector(dynamoDBRDSAPI),
 			awsprovider.NewSecretsManagerMetadataCollector(secretsAPI),
 			awsprovider.NewSSMParameterMetadataCollector(ssmAPI),
 			awsprovider.NewECRRepositoryMetadataCollector(ecrAPI),

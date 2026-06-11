@@ -280,6 +280,14 @@ ordered by `kind`, then `source_id`.
   The collector never reads SQS message bodies, SNS notification payloads, or
   raw non-ARN subscription endpoint values, and never calls publish, receive,
   delete, subscribe, or mutation APIs.
+- DynamoDB and RDS reachability is exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/dynamodb-rds-reachability`
+  and the AWS resources page. The collector records DynamoDB table/stream and
+  RDS cluster/instance/proxy metadata, encryption, IAM-auth, public-access,
+  resource-policy, and associated-role evidence, then emits `can_access` edges
+  for concrete IAM principals or service-associated IAM roles. It never reads
+  DynamoDB items, SQL rows, query text, snapshots, backups, database logs, or
+  database contents, and never calls mutation APIs.
 - Secrets Manager metadata and workload references are exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/secrets-manager-metadata`.
   The collector records secret metadata, rotation state, resource-policy grant
