@@ -409,9 +409,14 @@ func ssmParameterMetadataConfidence(record SSMParameterMetadata) float64 {
 }
 
 func ssmParameterMetadataSourceID(record SSMParameterMetadata) string {
+	// ParameterName is included alongside the ARN because name-only records
+	// (fixtures, or records collected before an ARN is synthesized) would
+	// otherwise collapse to `ssm||region` and deduplicate distinct
+	// parameters away.
 	return strings.Join(normalizeStringList([]string{
 		record.Service,
 		record.ParameterARN,
+		record.ParameterName,
 		record.Region,
 	}), "|")
 }

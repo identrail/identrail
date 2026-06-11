@@ -84,16 +84,25 @@ func NewSDKSSMParameterMetadataAPIFromClient(client SSMSDKClient, accountID stri
 	}
 }
 
+// ssmDescribeParametersMaxResults is the hard ceiling AWS enforces on
+// DescribeParameters MaxResults. The shared scanner default page size (100)
+// exceeds it, so requests must be clamped or AWS rejects them with a
+// ValidationException before any parameters are inventoried.
+const ssmDescribeParametersMaxResults int32 = 50
+
 func (a *SDKSSMParameterMetadataAPI) ListParameterMetadata(ctx context.Context, nextToken string, pageSize int32) (SSMParameterMetadataPage, error) {
 	if a.client == nil {
 		return SSMParameterMetadataPage{}, fmt.Errorf("ssm parameter metadata api requires client")
 	}
+	if pageSize <= 0 {
+		pageSize = defaultPageSize
+	}
+	if pageSize > ssmDescribeParametersMaxResults {
+		pageSize = ssmDescribeParametersMaxResults
+	}
 	input := &ssm.DescribeParametersInput{
 		NextToken:  stringPtrOrNil(nextToken),
 		MaxResults: awsv2.Int32(pageSize),
-	}
-	if pageSize <= 0 {
-		input.MaxResults = awsv2.Int32(defaultPageSize)
 	}
 	output, err := a.client.DescribeParameters(ctx, input)
 	if err != nil {

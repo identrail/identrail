@@ -225,6 +225,17 @@ func TestSSMParameterNameFromARN(t *testing.T) {
 	}
 }
 
+func TestSSMParameterMetadataSourceIDDistinguishesNameOnlyRecords(t *testing.T) {
+	first := ssmParameterMetadataSourceID(SSMParameterMetadata{ParameterName: "/payments/db/password"})
+	second := ssmParameterMetadataSourceID(SSMParameterMetadata{ParameterName: "/payments/db/host"})
+	if first == second {
+		t.Fatalf("expected distinct source IDs for name-only records, both were %q", first)
+	}
+	if !strings.Contains(first, "/payments/db/password") {
+		t.Fatalf("expected parameter name in source ID, got %q", first)
+	}
+}
+
 func TestSSMParameterReferenceKeysFromRefStripsPrefixesAndSuffixes(t *testing.T) {
 	tests := []struct {
 		name string

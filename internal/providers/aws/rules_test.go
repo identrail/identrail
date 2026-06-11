@@ -250,6 +250,28 @@ func TestAccountIDFromARN(t *testing.T) {
 	}
 }
 
+func TestAccountIDFromPrincipal(t *testing.T) {
+	tests := []struct {
+		name      string
+		principal string
+		want      string
+	}{
+		{name: "full arn", principal: "arn:aws:iam::123456789012:role/demo", want: "123456789012"},
+		{name: "bare account id", principal: "999999999999", want: "999999999999"},
+		{name: "padded bare account id", principal: " 999999999999 ", want: "999999999999"},
+		{name: "non-numeric 12 chars falls back to arn", principal: "abcdefghijkl", want: ""},
+		{name: "wildcard", principal: "*", want: ""},
+		{name: "empty", principal: "", want: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := accountIDFromPrincipal(tc.principal); got != tc.want {
+				t.Fatalf("accountIDFromPrincipal(%q) = %q, want %q", tc.principal, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSeveritySortOrder(t *testing.T) {
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
 	identity := domain.Identity{

@@ -374,7 +374,7 @@ func annotateKMSGrants(grants []KMSIdentityGrant, accountID string) []KMSIdentit
 		grant.WildcardPrincipal = grant.WildcardPrincipal || grant.PrincipalARN == "*"
 		grant.IsPublic = grant.IsPublic || grant.WildcardPrincipal
 		if !grant.IsCrossAccount && accountID != "" && grant.PrincipalARN != "" && grant.PrincipalARN != "*" {
-			grantAccount := accountIDFromARN(grant.PrincipalARN)
+			grantAccount := accountIDFromPrincipal(grant.PrincipalARN)
 			if grantAccount != "" && grantAccount != accountID {
 				grant.IsCrossAccount = true
 			}
@@ -404,7 +404,7 @@ func annotateKMSLiveGrants(grants []KMSGrant, accountID string) []KMSGrant {
 		grant.HasConstraints = grant.HasConstraints || len(grant.EncryptionContextKeys) > 0 || len(grant.EncryptionContextSubsetKeys) > 0
 		grant.Capabilities = kmsCapabilitiesForActions(grant.Operations)
 		if !grant.IsCrossAccount && accountID != "" && grant.GranteePrincipal != "" {
-			granteeAccount := accountIDFromARN(grant.GranteePrincipal)
+			granteeAccount := accountIDFromPrincipal(grant.GranteePrincipal)
 			if granteeAccount != "" && granteeAccount != accountID {
 				grant.IsCrossAccount = true
 			}

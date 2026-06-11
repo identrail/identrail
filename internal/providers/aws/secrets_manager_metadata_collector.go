@@ -293,22 +293,6 @@ func secretsManagerKMSKeyARN(keyID, accountID, region string) string {
 	return resolveKMSKeyARN(keyID, accountID, region)
 }
 
-// secretsManagerPrincipalAccountID extracts the owning account from a policy
-// principal. Bare 12-digit account ids are valid AWS principals alongside
-// full ARNs.
-func secretsManagerPrincipalAccountID(principal string) string {
-	trimmed := strings.TrimSpace(principal)
-	if len(trimmed) == 12 {
-		for _, r := range trimmed {
-			if r < '0' || r > '9' {
-				return accountIDFromARN(trimmed)
-			}
-		}
-		return trimmed
-	}
-	return accountIDFromARN(trimmed)
-}
-
 func annotateSecretsManagerGrants(grants []SecretsManagerIdentityGrant, accountID string) []SecretsManagerIdentityGrant {
 	if len(grants) == 0 {
 		return nil
@@ -323,7 +307,7 @@ func annotateSecretsManagerGrants(grants []SecretsManagerIdentityGrant, accountI
 		grant.WildcardPrincipal = grant.WildcardPrincipal || grant.PrincipalARN == "*"
 		grant.IsPublic = grant.IsPublic || grant.WildcardPrincipal
 		if !grant.IsCrossAccount && accountID != "" && grant.PrincipalARN != "" && grant.PrincipalARN != "*" {
-			grantAccount := secretsManagerPrincipalAccountID(grant.PrincipalARN)
+			grantAccount := accountIDFromPrincipal(grant.PrincipalARN)
 			if grantAccount != "" && grantAccount != accountID {
 				grant.IsCrossAccount = true
 			}
@@ -662,7 +646,7 @@ func parseSecretsManagerResourcePolicyGrants(raw string, ownerAccountID string) 
 				grant.IsPublic = true
 			}
 			if ownerAccountID != "" && grant.PrincipalARN != "" && grant.PrincipalARN != "*" {
-				grantAccount := secretsManagerPrincipalAccountID(grant.PrincipalARN)
+				grantAccount := accountIDFromPrincipal(grant.PrincipalARN)
 				grant.IsCrossAccount = grantAccount != "" && grantAccount != ownerAccountID
 			}
 			grants = append(grants, grant)

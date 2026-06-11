@@ -16,11 +16,15 @@ import (
 type fakeSSMSDKClient struct {
 	describeParameters    *ssm.DescribeParametersOutput
 	describeParametersErr error
+	lastMaxResults        int32
 	tags                  map[string]*ssm.ListTagsForResourceOutput
 	tagsErr               map[string]error
 }
 
 func (f *fakeSSMSDKClient) DescribeParameters(ctx context.Context, input *ssm.DescribeParametersInput, _ ...func(*ssm.Options)) (*ssm.DescribeParametersOutput, error) {
+	if input != nil && input.MaxResults != nil {
+		f.lastMaxResults = *input.MaxResults
+	}
 	if f.describeParametersErr != nil {
 		return nil, f.describeParametersErr
 	}
@@ -130,6 +134,34 @@ func TestSDKSSMParameterMetadataAPI_DescribeParametersError(t *testing.T) {
 	api := NewSDKSSMParameterMetadataAPIFromClient(&fakeSSMSDKClient{describeParametersErr: errors.New("denied")}, "123456789012", "us-east-1")
 	if _, err := api.ListParameterMetadata(context.Background(), "", 25); err == nil {
 		t.Fatalf("expected DescribeParameters error")
+	}
+}
+
+func TestSDKSSMParameterMetadataAPI_ClampsMaxResultsToAPILimit(t *testing.T) {
+	tests := []struct {
+		name     string
+		pageSize int32
+		want     int32
+	}{
+		{name: "scanner default exceeds api limit", pageSize: defaultPageSize, want: ssmDescribeParametersMaxResults},
+		{name: "non-positive falls back then clamps", pageSize: 0, want: ssmDescribeParametersMaxResults},
+		{name: "within limit is preserved", pageSize: 25, want: 25},
+		{name: "exactly at limit is preserved", pageSize: ssmDescribeParametersMaxResults, want: ssmDescribeParametersMaxResults},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeSSMSDKClient{describeParameters: &ssm.DescribeParametersOutput{}}
+			api := NewSDKSSMParameterMetadataAPIFromClient(fake, "123456789012", "us-east-1")
+			if _, err := api.ListParameterMetadata(context.Background(), "", tc.pageSize); err != nil {
+				t.Fatalf("list metadata: %v", err)
+			}
+			if fake.lastMaxResults != tc.want {
+				t.Fatalf("MaxResults = %d, want %d", fake.lastMaxResults, tc.want)
+			}
+			if fake.lastMaxResults > ssmDescribeParametersMaxResults {
+				t.Fatalf("MaxResults %d exceeds AWS DescribeParameters limit %d", fake.lastMaxResults, ssmDescribeParametersMaxResults)
+			}
+		})
 	}
 }
 
