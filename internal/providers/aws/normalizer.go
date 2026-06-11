@@ -272,6 +272,7 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 	}
 
 	applyRuntimeSecretReferenceSensitivity(&bundle)
+	appendCredentialReferenceNodes(&bundle, resourceSeen)
 	return bundle, nil
 }
 

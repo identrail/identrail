@@ -199,7 +199,8 @@ func TestRoleNormalizerAddsECSTaskAndExecutionRoleEdges(t *testing.T) {
 	if len(bundle.Identities) != 2 || len(bundle.Workloads) != 2 {
 		t.Fatalf("expected task and execution role identities/workloads, got identities=%+v workloads=%+v", bundle.Identities, bundle.Workloads)
 	}
-	if len(bundle.Resources) != 2 {
+	workloadResources := append(resourcesByType(bundle.Resources, domain.ResourceTypeECSService), resourcesByType(bundle.Resources, domain.ResourceTypeECSTask)...)
+	if len(workloadResources) != 2 {
 		t.Fatalf("expected service and task definition resources, got %+v", bundle.Resources)
 	}
 	for _, resource := range bundle.Resources {

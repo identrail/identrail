@@ -1,6 +1,26 @@
 # Changelog
 
 ## Unreleased
+- Add **credential and secret reference mapper across AWS workloads** (#1496).
+  A metadata-only derivation over the normalized scan graph (no AWS calls, no
+  added permissions) that extracts the `secret_refs` and credential-suggestive
+  `environment_keys` already emitted by workload collectors (ECS, Lambda,
+  CodeBuild today; any future workload collector automatically) and classifies
+  each reference by provider (`openai`, `anthropic`, `bedrock`, `github`,
+  `slack`, `database`, `webhook`, `aws_secrets_manager`, `aws_ssm`, `generic`),
+  reference kind (`secrets_manager`, `ssm_parameter`, `repository_credentials`,
+  `environment_variable`), and sensitivity. Resolved references reuse
+  `uses_secret` edges to collected secret/parameter nodes; unresolved external
+  provider keys synthesize a `credential_reference` graph node and edge so
+  operators can see a workload uses, for example, an OpenAI or database
+  credential even when it is not an AWS-managed secret. Adds the
+  `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/credential-references`
+  endpoint with `success`, `empty`, `degraded`, `partial_failure`, and
+  `permission_denied` fixture states plus `resource_type`, `identity`, and
+  `provider` filters, a provider breakdown and resolved/unresolved counts,
+  OpenAPI schema, web API client types, the AWS resources inventory surface,
+  and operator docs. The mapper reads reference names, ARNs, and source markers
+  only; it never reads secret, parameter, or environment values.
 - Add **SSM Parameter Store metadata and reference collector** (#1491).
   Read-only, metadata-only inventory of SSM parameters capturing name, ARN,
   hierarchy path context, type (`string`, `string_list`, `secure_string`),

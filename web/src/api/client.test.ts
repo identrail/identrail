@@ -1009,6 +1009,37 @@ describe('apiClient', () => {
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 
+  it('gets AWS credential references inventory with scoped headers, fixture state, and filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ inventory: { status: 'ready', reference_count: 5, records: [] } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectCredentialReferences(
+      'workspace/a',
+      'project 1',
+      'aws-prod',
+      'partial_failure',
+      { resourceType: 'lambda_function', identity: 'summarizer', provider: 'openai' },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(
+      '/v1/workspaces/workspace%2Fa/projects/project%201/aws/credential-references?connector_id=aws-prod&fixture_state=partial_failure&resource_type=lambda_function&identity=summarizer&provider=openai'
+    );
+    expect(options.method ?? 'GET').toBe('GET');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
+
   it('gets AWS Secrets Manager metadata inventory with scoped headers and fixture state', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

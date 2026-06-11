@@ -231,6 +231,14 @@ values, parameter history, description and allowed-pattern text as operator
 evidence, and every `ssm:GetParameter*` output are intentionally outside the
 collector contract. SecureString parameters are sensitive metadata only.
 
+The credential and secret reference mapper is a derivation over the normalized
+graph rather than a service collector: it adds no AWS permissions and makes no
+AWS calls. It classifies the `secret_refs` and credential-suggestive
+`environment_keys` already emitted by workload collectors into provider, kind,
+and sensitivity, and emits identity-to-reference edges. It reads reference
+names, ARNs, and source markers only; secret, parameter, and environment values
+are intentionally outside its boundary.
+
 For ECR repositories, records contain repository metadata, tag mutability,
 encryption configuration, scan configuration, repository-policy and
 lifecycle-policy summaries, image counts, tags, and resolved workload

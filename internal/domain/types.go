@@ -100,6 +100,7 @@ const (
 	ResourceTypeSageMakerDomain     ResourceType = "sagemaker_domain"
 	ResourceTypeSageMakerWorkload   ResourceType = "sagemaker_workload"
 	ResourceTypeBedrockAgentCore    ResourceType = "bedrock_agentcore"
+	ResourceTypeCredentialReference ResourceType = "credential_reference"
 	ResourceTypeTool                ResourceType = "tool"
 	ResourceTypeAccessNode          ResourceType = "access_node"
 	ResourceTypeRuntimeSession      ResourceType = "runtime_session"

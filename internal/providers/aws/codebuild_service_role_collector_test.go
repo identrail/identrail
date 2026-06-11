@@ -179,14 +179,12 @@ func TestRoleNormalizerAddsCodeBuildServiceRoleRunAsEdge(t *testing.T) {
 	if err := providers.ValidateNormalizedBundle(bundle); err != nil {
 		t.Fatalf("normalized bundle invalid: %v", err)
 	}
-	if len(bundle.Identities) != 1 || len(bundle.Workloads) != 1 || len(bundle.Resources) != 1 {
+	codeBuildResources := resourcesByType(bundle.Resources, domain.ResourceTypeCodeBuildProject)
+	if len(bundle.Identities) != 1 || len(bundle.Workloads) != 1 || len(codeBuildResources) != 1 {
 		t.Fatalf("expected codebuild identity/workload/resource, got identities=%+v workloads=%+v resources=%+v", bundle.Identities, bundle.Workloads, bundle.Resources)
 	}
-	if bundle.Resources[0].Type != domain.ResourceTypeCodeBuildProject {
-		t.Fatalf("expected codebuild project resource, got %+v", bundle.Resources[0])
-	}
-	if strings.Contains(fmtAny(bundle.Resources[0].Metadata["environment_keys"]), "DATABASE_PASSWORD=value") {
-		t.Fatalf("environment values must not be normalized, got %+v", bundle.Resources[0].Metadata)
+	if strings.Contains(fmtAny(codeBuildResources[0].Metadata["environment_keys"]), "DATABASE_PASSWORD=value") {
+		t.Fatalf("environment values must not be normalized, got %+v", codeBuildResources[0].Metadata)
 	}
 
 	relationships, err := NewRelationshipBuilder().ResolveRelationships(context.Background(), bundle, nil)

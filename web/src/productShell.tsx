@@ -55,6 +55,8 @@ import {
   type AWSECRRepositoryMetadataRecord,
   type AWSDynamoDBRDSReachabilityInventoryResult,
   type AWSDynamoDBRDSReachabilityRecord,
+  type AWSCredentialReferencesInventoryResult,
+  type AWSCredentialReferenceRecord,
   type AWSSecretsManagerMetadataInventoryResult,
   type AWSSecretsManagerMetadataRecord,
   type AWSSQSSNSReachabilityInventoryResult,
@@ -3664,6 +3666,13 @@ type AWSInventoryDynamoDBRDSState = {
   onRetry: () => void;
 };
 
+type AWSInventoryCredentialReferencesState = {
+  inventory: AWSCredentialReferencesInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryCoverageRow = AWSInventoryFilterable & {
   id: string;
   category: string;
@@ -5929,6 +5938,7 @@ function AWSResourcesInventoryContent({
   ecrRepositoryState,
   sqsSNSState,
   dynamoDBRDSState,
+  credentialReferencesState,
   filters,
   onFiltersChange
 }: {
@@ -5938,6 +5948,7 @@ function AWSResourcesInventoryContent({
   ecrRepositoryState: AWSInventoryECRRepositoryState;
   sqsSNSState: AWSInventorySQSSNSState;
   dynamoDBRDSState: AWSInventoryDynamoDBRDSState;
+  credentialReferencesState: AWSInventoryCredentialReferencesState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
@@ -5951,9 +5962,12 @@ function AWSResourcesInventoryContent({
   const sqsSNSRows = buildAWSSQSSNSReachabilityRows(sqsSNSInventory, sqsSNSState.loading, connection);
   const dynamoDBRDSInventory = dynamoDBRDSState.inventory;
   const dynamoDBRDSRows = buildAWSDynamoDBRDSReachabilityRows(dynamoDBRDSInventory, dynamoDBRDSState.loading, connection);
+  const credentialReferencesInventory = credentialReferencesState.inventory;
+  const credentialReferencesRows = buildAWSCredentialReferenceRows(credentialReferencesInventory, credentialReferencesState.loading, connection);
   const rows: AWSInventoryTableRow[] = [
     ...secretsRows,
     ...ssmRows,
+    ...credentialReferencesRows,
     ...ecrRows,
     ...sqsSNSRows,
     ...dynamoDBRDSRows,
@@ -6027,6 +6041,12 @@ function AWSResourcesInventoryContent({
           total={1}
           detail={dynamoDBRDSState.loading ? 'Loading' : dynamoDBRDSInventory ? formatTokenLabel(dynamoDBRDSInventory.status) : 'Pending'}
         />
+        <DomainCoverageCard
+          label="Credential references"
+          scanned={credentialReferencesInventory && credentialReferencesInventory.status !== 'blocked' ? 1 : 0}
+          total={1}
+          detail={credentialReferencesState.loading ? 'Loading' : credentialReferencesInventory ? formatTokenLabel(credentialReferencesInventory.status) : 'Pending'}
+        />
         <DomainCoverageCard label="KMS reachability" scanned={0} total={1} detail="Coming wave" />
         <DomainCoverageCard label="S3 sensitivity" scanned={0} total={1} detail="Coming wave" />
       </section>
@@ -6068,6 +6088,14 @@ function AWSResourcesInventoryContent({
           title="DynamoDB/RDS reachability could not load"
           body={dynamoDBRDSState.error}
           retryAction={{ label: 'Retry DynamoDB/RDS reachability', onClick: dynamoDBRDSState.onRetry }}
+        />
+      ) : null}
+      {credentialReferencesState.loading ? <DomainLoadingState label="Loading credential and secret references" /> : null}
+      {credentialReferencesState.error ? (
+        <DomainErrorState
+          title="Credential references could not load"
+          body={credentialReferencesState.error}
+          retryAction={{ label: 'Retry credential references', onClick: credentialReferencesState.onRetry }}
         />
       ) : null}
       <DomainStatusPanel eyebrow="Safety posture" title="No secret value reads" status="Metadata only" tone="success">
@@ -6496,6 +6524,113 @@ function buildAWSSQSSNSReachabilityRows(
   ];
 }
 
+function buildAWSCredentialReferenceRows(
+  inventory: AWSCredentialReferencesInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsCredentialReferenceRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'credential-references-blocked',
+        name: 'Credential references unavailable',
+        category: 'Credential reference',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'Credential reference mapping is blocked by workload inventory permissions.',
+        filters: { category: 'credential-reference', sensitivity: 'credential-reference', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['credential reference blocked', inventory.account_id, inventory.region])
+      }
+    ];
+  }
+  if (inventory) {
+    const degraded = inventory.status === 'degraded' || inventory.diagnostics.length > 0 || inventory.failure_reasons.length > 0;
+    return [
+      {
+        id: 'credential-references-empty',
+        name: degraded ? 'Credential references incomplete' : 'No credential or secret references found',
+        category: 'Credential reference',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: degraded ? 'degraded' : 'wired now',
+        stage: 'wired',
+        detail: degraded ? (inventory.failure_reasons[0] ?? 'Reference mapping completed with degraded evidence and no retained records.') : 'No workload referenced a secret, parameter, or provider key in this account and region.',
+        filters: { category: 'credential-reference', sensitivity: 'credential-reference', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['credential reference', inventory.account_id, inventory.region, degraded ? 'degraded empty' : 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'credential-references-loading',
+        name: 'Credential and secret references',
+        category: 'Credential reference',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading provider, kind, sensitivity, and resolved status for workload credential references.',
+        filters: { category: 'credential-reference', sensitivity: 'credential-reference', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['credential reference loading'])
+      }
+    ];
+  }
+  return [
+    {
+      id: 'credential-references',
+      name: 'Credential and secret references',
+      category: 'Credential reference',
+      scope: connection?.region ?? 'Region pending',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Provider-classified credential references (AI, source control, database, webhook, AWS secret stores) across workloads. Names and ARNs only, never values.',
+      filters: { category: 'credential-reference', sensitivity: 'credential-reference', readPosture: 'metadata-only', search: '' },
+      searchText: inventorySearchText(['credential', 'secret', 'reference', 'provider key', 'openai', 'github'])
+    }
+  ];
+}
+
+function awsCredentialReferenceRow(record: AWSCredentialReferenceRecord): AWSInventoryTableRow {
+  const external = record.provider !== 'aws_secrets_manager' && record.provider !== 'aws_ssm' && record.provider !== 'generic';
+  const degraded = record.status !== 'ready' || (record.unresolved && external);
+  const status = degraded ? 'degraded' : 'wired now';
+  const resolutionLabel = record.resolved ? 'resolved to collected secret' : 'unresolved reference';
+  const providerLabel = formatTokenLabel(record.provider);
+  return {
+    id: `credential-reference-${record.workload_id}-${record.reference}`,
+    name: record.reference_name || record.reference,
+    category: record.sensitivity === 'ai_provider_api_key' || external ? 'Provider key' : 'Credential reference',
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage: 'wired',
+    detail: `${providerLabel} ${formatTokenLabel(record.reference_kind)} on ${record.workload_name || record.workload_id}; ${formatTokenLabel(record.sensitivity)}; ${resolutionLabel}. Values hidden.`,
+    filters: {
+      category: 'credential-reference',
+      sensitivity: external ? 'credential-reference' : 'secret-bearing',
+      readPosture: 'metadata-only',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.reference,
+      record.reference_name ?? '',
+      record.provider,
+      record.sensitivity,
+      record.reference_kind,
+      record.workload_id,
+      record.workload_name,
+      record.resource_type,
+      record.source_service,
+      record.account_id,
+      record.region,
+      record.resolved ? 'resolved' : 'unresolved',
+      'credential secret reference provider key values hidden'
+    ])
+  };
+}
+
 function buildAWSDynamoDBRDSReachabilityRows(
   inventory: AWSDynamoDBRDSReachabilityInventoryResult | null,
   loading: boolean,
@@ -6710,6 +6845,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [dynamoDBRDSInventoryLoading, setDynamoDBRDSInventoryLoading] = useState(false);
   const [dynamoDBRDSInventoryError, setDynamoDBRDSInventoryError] = useState('');
   const dynamoDBRDSInventoryRequestRef = useRef(0);
+  const [credentialReferencesInventory, setCredentialReferencesInventory] = useState<AWSCredentialReferencesInventoryResult | null>(null);
+  const [credentialReferencesInventoryLoading, setCredentialReferencesInventoryLoading] = useState(false);
+  const [credentialReferencesInventoryError, setCredentialReferencesInventoryError] = useState('');
+  const credentialReferencesInventoryRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -7281,6 +7420,47 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadDynamoDBRDSInventory]);
 
+  const loadCredentialReferencesInventory = useCallback(async () => {
+    const requestID = ++credentialReferencesInventoryRequestRef.current;
+    setCredentialReferencesInventory(null);
+    setCredentialReferencesInventoryError('');
+    if (routeID !== 'resources' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setCredentialReferencesInventoryLoading(false);
+      return;
+    }
+    setCredentialReferencesInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectCredentialReferences(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== credentialReferencesInventoryRequestRef.current) {
+        return;
+      }
+      setCredentialReferencesInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== credentialReferencesInventoryRequestRef.current) {
+        return;
+      }
+      setCredentialReferencesInventoryError(formatAPIError(error, 'Unable to load credential references.'));
+    } finally {
+      if (requestID === credentialReferencesInventoryRequestRef.current) {
+        setCredentialReferencesInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadCredentialReferencesInventory();
+    return () => {
+      credentialReferencesInventoryRequestRef.current += 1;
+    };
+  }, [loadCredentialReferencesInventory]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -7446,6 +7626,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: dynamoDBRDSInventoryLoading,
             error: dynamoDBRDSInventoryError,
             onRetry: () => void loadDynamoDBRDSInventory()
+          }}
+          credentialReferencesState={{
+            inventory: credentialReferencesInventory,
+            loading: credentialReferencesInventoryLoading,
+            error: credentialReferencesInventoryError,
+            onRetry: () => void loadCredentialReferencesInventory()
           }}
           filters={activeFilters}
           onFiltersChange={onFiltersChange}

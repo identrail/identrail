@@ -317,3 +317,15 @@ ordered by `kind`, then `source_id`.
   or scan-finding detail APIs, and it never stores image layers, manifests,
   SBOMs, customer payloads, prompts, completions, object contents, or database
   rows.
+- Credential and secret references across workloads are exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/credential-references`.
+  This is a derivation over the normalized graph (no AWS calls, no added
+  permissions): it classifies the `secret_refs` and credential-suggestive
+  `environment_keys` already emitted by ECS, Lambda, and CodeBuild collectors
+  (and any future workload collector that surfaces them) by provider (OpenAI,
+  Anthropic, Bedrock, GitHub, Slack, database, webhook, AWS Secrets Manager,
+  AWS SSM, or generic), reference kind, and sensitivity, with resolved/
+  unresolved status. Resolved references reuse `uses_secret` edges to collected
+  secret/parameter nodes; unresolved external provider keys synthesize a
+  `credential_reference` node and edge. It reads reference names, ARNs, and
+  source markers only — never secret, parameter, or environment values.

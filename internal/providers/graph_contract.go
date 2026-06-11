@@ -123,7 +123,8 @@ func validateRelationshipEndpoints(
 			strings.HasPrefix(id, "aws:secret:") ||
 			strings.HasPrefix(id, "k8s:secret:") ||
 			hasResourceType(id, domain.ResourceTypeSSMParameter) ||
-			hasResourceType(id, domain.ResourceTypeSecretsManager)
+			hasResourceType(id, domain.ResourceTypeSecretsManager) ||
+			hasResourceType(id, domain.ResourceTypeCredentialReference)
 	}
 	hasKMSKeyNode := func(id string) bool {
 		return strings.HasPrefix(id, "kms:") ||

@@ -2573,6 +2573,119 @@ export type AWSDynamoDBRDSReachabilityDiagnostic = {
   retryable: boolean;
 };
 
+export type AWSCredentialReferencesInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSCredentialReferencesFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+export type AWSCredentialProvider =
+  | 'openai'
+  | 'anthropic'
+  | 'bedrock'
+  | 'github'
+  | 'slack'
+  | 'database'
+  | 'webhook'
+  | 'aws_secrets_manager'
+  | 'aws_ssm'
+  | 'generic';
+
+export type AWSCredentialReferenceCoverageGap = {
+  capability: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSCredentialReferenceRecord = {
+  account_id: string;
+  region: string;
+  workload_id: string;
+  workload_type: string;
+  workload_name: string;
+  resource_id?: string;
+  resource_type: string;
+  source_service: string;
+  reference: string;
+  reference_name?: string;
+  reference_kind: 'secrets_manager' | 'ssm_parameter' | 'repository_credentials' | 'environment_variable';
+  provider: AWSCredentialProvider;
+  provider_confidence: number;
+  sensitivity:
+    | 'ai_provider_api_key'
+    | 'source_control_token'
+    | 'messaging_token'
+    | 'database_credential'
+    | 'webhook_url'
+    | 'aws_managed_secret'
+    | 'generic_secret';
+  resolved: boolean;
+  unresolved: boolean;
+  target_node_id?: string;
+  source: string;
+  evidence_ref: string;
+  confidence: number;
+  collected_at: string;
+  status: string;
+};
+
+export type AWSCredentialReferenceEdge = {
+  type: 'uses_secret';
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+  source: string;
+  resolved: boolean;
+  confidence: number;
+};
+
+export type AWSCredentialReferenceDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSCredentialReferencesInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSCredentialReferencesInventoryStatus;
+  fixture_state: AWSCredentialReferencesFixtureState;
+  confidence: number;
+  reference_count: number;
+  resolved_reference_count: number;
+  unresolved_reference_count: number;
+  external_provider_key_count: number;
+  ai_provider_key_count: number;
+  database_credential_count: number;
+  distinct_workload_count: number;
+  distinct_provider_count: number;
+  relationship_count: number;
+  provider_breakdown: Record<string, number>;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSCredentialReferenceCoverageGap[];
+  records: AWSCredentialReferenceRecord[];
+  relationships: AWSCredentialReferenceEdge[];
+  diagnostics: AWSCredentialReferenceDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSDynamoDBRDSReachabilityInventoryResult = {
   tenant_id: string;
   workspace_id: string;
@@ -4288,6 +4401,25 @@ export const apiClient = {
         fixture_state: fixtureState,
         resource_type: resourceType,
         identity
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectCredentialReferences(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSCredentialReferencesFixtureState,
+    filters?: { resourceType?: string; identity?: string; provider?: AWSCredentialProvider },
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSCredentialReferencesInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/credential-references${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState,
+        resource_type: filters?.resourceType,
+        identity: filters?.identity,
+        provider: filters?.provider
       })}`,
       auth
     );

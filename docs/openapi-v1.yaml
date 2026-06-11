@@ -559,6 +559,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/credential-references
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/secrets-manager-metadata
     action: tenancy.read
     resource_type: project
@@ -4503,6 +4508,70 @@ paths:
                     $ref: "#/components/schemas/AWSSQSSNSReachabilityInventoryResult"
         "400":
           description: Invalid AWS SQS/SNS reachability inventory request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/credential-references:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS credential and secret references across workloads
+      operationId: getAWSProjectCredentialReferences
+      description: Returns scoped credential and secret references extracted from AWS workloads (ECS, Lambda, CodeBuild, and any workload that exposes secret/source references), classified by provider (OpenAI, Anthropic, Bedrock, GitHub, Slack, database, webhook, AWS Secrets Manager, AWS SSM), reference kind, and sensitivity, with resolved/unresolved status and identity-to-reference edges. Metadata-only - reads reference names, ARNs, and source markers; never reads secret, parameter, or environment values.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope the account, region, and read-only reference evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: resource_type
+          schema: { type: string }
+          description: Optional workload resource type filter (for example ecs_service, lambda_function, codebuild_project).
+        - in: query
+          name: identity
+          schema: { type: string }
+          description: Optional case-insensitive substring filter over the workload identifier and name.
+        - in: query
+          name: provider
+          schema:
+            type: string
+            enum: [openai, anthropic, bedrock, github, slack, database, webhook, aws_secrets_manager, aws_ssm, generic]
+          description: Optional credential provider classification filter.
+      responses:
+        "200":
+          description: AWS credential references inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inventory:
+                    $ref: "#/components/schemas/AWSCredentialReferencesInventoryResult"
+        "400":
+          description: Invalid AWS credential references request
           content:
             application/json:
               schema:
@@ -10099,6 +10168,145 @@ components:
         message: { type: string }
         remediation: { type: string }
         retryable: { type: boolean }
+    AWSCredentialReferenceCoverageGap:
+      type: object
+      properties:
+        capability: { type: string }
+        status: { type: string }
+        reason: { type: string }
+        remediation: { type: string }
+    AWSCredentialReferenceRecord:
+      type: object
+      properties:
+        account_id: { type: string }
+        region: { type: string }
+        workload_id: { type: string }
+        workload_type: { type: string }
+        workload_name: { type: string }
+        resource_id: { type: string }
+        resource_type: { type: string }
+        source_service: { type: string }
+        reference: { type: string }
+        reference_name: { type: string }
+        reference_kind:
+          type: string
+          enum: [secrets_manager, ssm_parameter, repository_credentials, environment_variable]
+        provider:
+          type: string
+          enum: [openai, anthropic, bedrock, github, slack, database, webhook, aws_secrets_manager, aws_ssm, generic]
+        provider_confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        sensitivity:
+          type: string
+          enum: [ai_provider_api_key, source_control_token, messaging_token, database_credential, webhook_url, aws_managed_secret, generic_secret]
+        resolved: { type: boolean }
+        unresolved: { type: boolean }
+        target_node_id: { type: string }
+        source: { type: string }
+        evidence_ref: { type: string }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        collected_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [ready, degraded]
+    AWSCredentialReferenceEdge:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [uses_secret]
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+        source: { type: string }
+        resolved: { type: boolean }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+    AWSCredentialReferenceDiagnostic:
+      type: object
+      properties:
+        collector: { type: string }
+        source_id: { type: string }
+        code: { type: string }
+        message: { type: string }
+        remediation: { type: string }
+        retryable: { type: boolean }
+    AWSCredentialReferencesInventoryResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        reference_count: { type: integer }
+        resolved_reference_count: { type: integer }
+        unresolved_reference_count: { type: integer }
+        external_provider_key_count: { type: integer }
+        ai_provider_key_count: { type: integer }
+        database_credential_count: { type: integer }
+        distinct_workload_count: { type: integer }
+        distinct_provider_count: { type: integer }
+        relationship_count: { type: integer }
+        provider_breakdown:
+          type: object
+          additionalProperties: { type: integer }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSCredentialReferenceCoverageGap"
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSCredentialReferenceRecord"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSCredentialReferenceEdge"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSCredentialReferenceDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     AWSDynamoDBRDSReachabilityInventoryResult:
       type: object
       properties:

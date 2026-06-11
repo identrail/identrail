@@ -188,14 +188,12 @@ func TestRoleNormalizerAddsLambdaExecutionRoleRunAsEdge(t *testing.T) {
 	if err := providers.ValidateNormalizedBundle(bundle); err != nil {
 		t.Fatalf("normalized bundle invalid: %v", err)
 	}
-	if len(bundle.Identities) != 1 || len(bundle.Workloads) != 1 || len(bundle.Resources) != 1 {
+	lambdaResources := resourcesByType(bundle.Resources, domain.ResourceTypeLambdaFunction)
+	if len(bundle.Identities) != 1 || len(bundle.Workloads) != 1 || len(lambdaResources) != 1 {
 		t.Fatalf("expected lambda identity/workload/resource, got identities=%+v workloads=%+v resources=%+v", bundle.Identities, bundle.Workloads, bundle.Resources)
 	}
-	if bundle.Resources[0].Type != domain.ResourceTypeLambdaFunction {
-		t.Fatalf("expected lambda function resource, got %+v", bundle.Resources[0])
-	}
-	if strings.Contains(fmtAny(bundle.Resources[0].Metadata["environment_keys"]), "DATABASE_PASSWORD=value") {
-		t.Fatalf("environment values must not be normalized, got %+v", bundle.Resources[0].Metadata)
+	if strings.Contains(fmtAny(lambdaResources[0].Metadata["environment_keys"]), "DATABASE_PASSWORD=value") {
+		t.Fatalf("environment values must not be normalized, got %+v", lambdaResources[0].Metadata)
 	}
 
 	relationships, err := NewRelationshipBuilder().ResolveRelationships(context.Background(), bundle, nil)
