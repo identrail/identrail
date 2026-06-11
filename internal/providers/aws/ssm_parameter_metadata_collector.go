@@ -18,6 +18,14 @@ const (
 	rawKindSSMParameterMetadata       = "ssm_parameter_metadata"
 	ssmParameterMetadataCollectorName = "ssm_parameter_metadata"
 	ssmServiceName                    = "ssm"
+
+	// ssmParameterMetadataMaxPages bounds pagination for the SSM collector.
+	// DescribeParameters caps page size at 50 items (ssmDescribeParametersMaxResults),
+	// and an Advanced-tier account can hold up to 100,000 parameters, so the
+	// budget must cover 100,000 / 50 = 2,000 pages — the shared 500-page
+	// default would otherwise abort large accounts after only 25,000
+	// parameters.
+	ssmParameterMetadataMaxPages = 2000
 )
 
 // SSMParameterMetadata is the metadata-only view of one AWS Systems Manager
@@ -119,7 +127,7 @@ func NewSSMParameterMetadataCollector(client SSMParameterMetadataAPI, opts ...SS
 	c := &SSMParameterMetadataCollector{
 		client:   client,
 		pageSize: defaultPageSize,
-		maxPages: defaultMaxPages,
+		maxPages: ssmParameterMetadataMaxPages,
 		retry: RetryPolicy{
 			MaxRetries: defaultRetryCount,
 			BaseDelay:  defaultBaseDelay,

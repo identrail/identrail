@@ -86,6 +86,17 @@ func TestSSMParameterMetadataCollectorCollectsMetadataOnly(t *testing.T) {
 	}
 }
 
+func TestSSMParameterMetadataCollectorPageBudgetCoversAdvancedTierCeiling(t *testing.T) {
+	// DescribeParameters returns at most 50 items per page and an Advanced-tier
+	// account can hold up to 100,000 parameters, so the default page budget must
+	// be able to reach the full inventory rather than aborting at 25,000.
+	collector := NewSSMParameterMetadataCollector(&fakeSSMParameterMetadataAPI{})
+	const advancedTierCeiling = 100_000
+	if got := int64(collector.maxPages) * int64(ssmDescribeParametersMaxResults); got < advancedTierCeiling {
+		t.Fatalf("page budget covers %d parameters, want >= %d (maxPages=%d, pageSize=%d)", got, advancedTierCeiling, collector.maxPages, ssmDescribeParametersMaxResults)
+	}
+}
+
 func TestSSMParameterMetadataCollectorPartialFailureReturnsDiagnostics(t *testing.T) {
 	api := &fakeSSMParameterMetadataAPI{
 		pages: []SSMParameterMetadataPage{{
