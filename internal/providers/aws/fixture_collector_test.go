@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"github.com/identrail/identrail/internal/providers/awscontract"
 	"os"
 	"path/filepath"
 	"testing"
@@ -220,5 +221,21 @@ func TestFixtureCollectorDoesNotClassifyGenericEnvironmentKeysAsLambda(t *testin
 	kind, sourceID = fixtureAssetKindAndSourceID(lambdaPayload)
 	if kind != rawKindLambdaExecutionRole || sourceID == "" {
 		t.Fatalf("expected explicit Lambda fixture to classify, got kind=%q sourceID=%q", kind, sourceID)
+	}
+}
+
+func TestIsSQSSNSReachabilityFixture(t *testing.T) {
+	if isSQSSNSReachabilityFixture(SQSSNSReachability{ServiceCollectorRecord: awscontract.ServiceCollectorRecord{Service: sqsServiceName}}) {
+		t.Fatal("expected service-only sqs fixture without resource hints to remain unclassified")
+	}
+	if !isSQSSNSReachabilityFixture(SQSSNSReachability{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{Service: sqsServiceName},
+		ResourceType:           "sqs_queue",
+		ResourceName:           "payments",
+	}) {
+		t.Fatal("expected sqs_queue resource type to classify as sqs/sns reachability")
+	}
+	if !isSQSSNSReachabilityFixture(SQSSNSReachability{ResourceARN: "arn:aws:sqs:us-east-1:123456789012:payments"}) {
+		t.Fatal("expected resource arn to classify as sqs/sns reachability")
 	}
 }

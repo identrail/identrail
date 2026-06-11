@@ -115,6 +115,10 @@ func sqsSNSExtractPrincipals(principal any) []sqsSNSParsedPrincipal {
 	case map[string]any:
 		out := []sqsSNSParsedPrincipal{}
 		for _, key := range []string{"AWS", "Service", "Federated", "CanonicalUser"} {
+			principalType := strings.ToLower(key)
+			if key == "CanonicalUser" {
+				principalType = "canonical_user"
+			}
 			for _, value := range parseStringList(typed[key]) {
 				value = strings.TrimSpace(value)
 				if value == "" {
@@ -122,7 +126,7 @@ func sqsSNSExtractPrincipals(principal any) []sqsSNSParsedPrincipal {
 				}
 				out = append(out, sqsSNSParsedPrincipal{
 					Value:    value,
-					Type:     strings.ToLower(key),
+					Type:     principalType,
 					Wildcard: value == "*",
 				})
 			}

@@ -23,8 +23,10 @@ import (
 )
 
 const (
-	sqsSNSPageTokenSQS = "sqs:"
-	sqsSNSPageTokenSNS = "sns:"
+	sqsSNSPageTokenSQS       = "sqs:"
+	sqsSNSPageTokenSNS       = "sns:"
+	minSQSListQueuesPageSize = 1
+	maxSQSListQueuesPageSize = 1000
 )
 
 // SQSSDKClient is the metadata-only SDK seam for SQS.
@@ -152,7 +154,7 @@ func (a *SDKSQSSNSReachabilityAPI) ListSQSSNSReachability(ctx context.Context, n
 
 func (a *SDKSQSSNSReachabilityAPI) listSQSReachabilityPage(ctx context.Context, nextToken string, pageSize int32) ([]SQSSNSReachability, string, []providers.SourceError, error) {
 	output, err := a.sqsClient.ListQueues(ctx, &sqs.ListQueuesInput{
-		MaxResults: awsv2.Int32(pageSize),
+		MaxResults: awsv2.Int32(sqsListQueuesPageSize(pageSize)),
 		NextToken:  stringPtrOrNil(nextToken),
 	})
 	if err != nil {
@@ -355,7 +357,7 @@ func (a *SDKSQSSNSReachabilityAPI) enrichSNSTopicSubscriptions(ctx context.Conte
 }
 
 func (a *SDKSQSSNSReachabilityAPI) enrichSNSSubscriptionAttributes(ctx context.Context, ref *SNSTopicSubscription, diagnostics *[]providers.SourceError) {
-	if ref == nil || ref.SubscriptionARN == "" || strings.EqualFold(ref.SubscriptionARN, "PendingConfirmation") {
+	if ref == nil || ref.SubscriptionARN == "" || strings.EqualFold(ref.SubscriptionARN, "PendingConfirmation") || strings.EqualFold(ref.SubscriptionARN, "Deleted") {
 		if ref != nil {
 			ref.PendingConfirmation = true
 		}
@@ -374,6 +376,16 @@ func (a *SDKSQSSNSReachabilityAPI) enrichSNSSubscriptionAttributes(ctx context.C
 	ref.FilterPolicyPresent = strings.TrimSpace(attrs["FilterPolicy"]) != ""
 	ref.PendingConfirmation = boolFromAWSString(attrs["PendingConfirmation"])
 	ref.DLQARN = firstNonEmptyAWSValue(ref.DLQARN, deadLetterARNFromPolicy(attrs["RedrivePolicy"]))
+}
+
+func sqsListQueuesPageSize(value int32) int32 {
+	if value < minSQSListQueuesPageSize {
+		return minSQSListQueuesPageSize
+	}
+	if value > maxSQSListQueuesPageSize {
+		return maxSQSListQueuesPageSize
+	}
+	return value
 }
 
 func (a *SDKSQSSNSReachabilityAPI) enrichSNSTopicTags(ctx context.Context, topicARN string, record *SQSSNSReachability, diagnostics *[]providers.SourceError) {

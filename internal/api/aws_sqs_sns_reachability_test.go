@@ -146,8 +146,33 @@ func TestRouterAWSSQSSNSReachabilityFilters(t *testing.T) {
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if body.Inventory.ResourceCount != 1 || body.Inventory.Records[0].ResourceName != "partner-ingest" {
+	if body.Inventory.ResourceCount != 1 || len(body.Inventory.Records) == 0 || body.Inventory.Records[0].ResourceName != "partner-ingest" {
 		t.Fatalf("expected filtered partner-ingest queue, got %+v", body.Inventory.Records)
+	}
+}
+
+func TestAWSQSSNSReachabilityInventoryHasChinaQueueURLsForChinaPartition(t *testing.T) {
+	scope := db.Scope{TenantID: "default", WorkspaceID: "default"}
+	project := db.TenancyProject{WorkspaceID: "default", ProjectID: "project-cn"}
+	connection := AWSConnectionStatus{
+		ConnectorID: "aws-cn",
+		AccountID:   "123456789012",
+		Region:      "cn-north-1",
+		Connected:   true,
+	}
+	checkedAt := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
+
+	result, err := buildAWSSQSSNSReachabilityInventory(scope, project, connection, true, AWSSQSSNSReachabilityInventoryRequest{}, checkedAt)
+	if err != nil {
+		t.Fatalf("build china partition inventory: %v", err)
+	}
+	for _, record := range result.Records {
+		if record.ResourceType != "sqs_queue" {
+			continue
+		}
+		if !strings.Contains(record.QueueURL, ".amazonaws.com.cn/") {
+			t.Fatalf("expected China queue URL to use .amazonaws.com.cn, got %q", record.QueueURL)
+		}
 	}
 }
 

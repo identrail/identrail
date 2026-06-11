@@ -352,7 +352,7 @@ func annotateSQSSNSGrants(grants []SQSSNSIdentityGrant, accountID string) []SQSS
 		grant.WildcardPrincipal = grant.WildcardPrincipal || grant.PrincipalARN == "*"
 		grant.IsPublic = grant.IsPublic || grant.WildcardPrincipal
 		if !grant.IsCrossAccount && accountID != "" && grant.PrincipalARN != "" && grant.PrincipalARN != "*" {
-			grantAccount := accountIDFromARN(grant.PrincipalARN)
+			grantAccount := accountIDFromPrincipal(grant.PrincipalARN)
 			if grantAccount != "" && grantAccount != accountID {
 				grant.IsCrossAccount = true
 			}
@@ -450,7 +450,7 @@ func sqsSNSReachabilityConfidence(record SQSSNSReachability) float64 {
 func sqsSNSReachabilitySourceID(record SQSSNSReachability) string {
 	return strings.Join(normalizeStringList([]string{
 		record.Service,
-		record.ResourceARN,
+		firstNonEmptyAWSValue(record.ResourceARN, record.ResourceName),
 		record.Region,
 	}), "|")
 }

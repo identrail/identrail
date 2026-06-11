@@ -3764,7 +3764,10 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'ECR repository', value: 'ecr-repository' },
         { label: 'KMS', value: 'kms' },
         { label: 'S3', value: 's3' },
-        { label: 'Control plane', value: 'control-plane' }
+        { label: 'Control plane', value: 'control-plane' },
+        { label: 'SQS/SNS', value: 'sqs-sns' },
+        { label: 'SQS queue', value: 'sqs-queue' },
+        { label: 'SNS topic', value: 'sns-topic' }
       ]
     },
     {
@@ -3778,7 +3781,9 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'Customer data', value: 'customer-data' },
         { label: 'Secret-bearing', value: 'secret-bearing' },
         { label: 'KMS-admin', value: 'kms-admin' },
-        { label: 'Control-plane', value: 'control-plane' }
+        { label: 'Control-plane', value: 'control-plane' },
+        { label: 'Messaging resource', value: 'messaging-resource' },
+        { label: 'Messaging exposure', value: 'messaging-exposure' }
       ]
     },
     {

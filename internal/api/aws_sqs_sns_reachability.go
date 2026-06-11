@@ -286,6 +286,10 @@ func awsSQSSNSReachabilityFixtureRecords(accountID, region, fixtureState string,
 	crossAccountQueueARN := fmt.Sprintf("arn:%s:sqs:%s:%s:partner-ingest", partition, region, accountID)
 	internalQueueARN := fmt.Sprintf("arn:%s:sqs:%s:%s:payments-worker", partition, region, accountID)
 	restrictedTopicARN := fmt.Sprintf("arn:%s:sns:%s:%s:security-alerts.fifo", partition, region, accountID)
+	queueURLSuffix := "amazonaws.com"
+	if partition == "aws-cn" {
+		queueURLSuffix = "amazonaws.com.cn"
+	}
 	records := []AWSSQSSNSReachabilityRecord{
 		awsSQSSNSReachabilityFixtureRecord(accountID, region, "sns", "sns_topic", "billing-events", publicTopicARN, "public", checkedAt, func(r *AWSSQSSNSReachabilityRecord) {
 			r.TopicARN = publicTopicARN
@@ -319,7 +323,7 @@ func awsSQSSNSReachabilityFixtureRecords(accountID, region, fixtureState string,
 			r.ExposureReasons = []string{"sns_policy_allow_to_wildcard_principal"}
 		}),
 		awsSQSSNSReachabilityFixtureRecord(accountID, region, "sqs", "sqs_queue", "partner-ingest", crossAccountQueueARN, "cross_account", checkedAt, func(r *AWSSQSSNSReachabilityRecord) {
-			r.QueueURL = fmt.Sprintf("https://sqs.%s.amazonaws.com/%s/partner-ingest", region, accountID)
+			r.QueueURL = fmt.Sprintf("https://sqs.%s.%s/%s/partner-ingest", region, queueURLSuffix, accountID)
 			r.ResourceURL = r.QueueURL
 			r.KMSKeyID = fmt.Sprintf("arn:%s:kms:%s:%s:key/partner-ingest", partition, region, accountID)
 			r.DLQARNs = []string{fmt.Sprintf("arn:%s:sqs:%s:%s:partner-ingest-dlq", partition, region, accountID)}
@@ -340,7 +344,7 @@ func awsSQSSNSReachabilityFixtureRecords(accountID, region, fixtureState string,
 			r.ExposureReasons = []string{"sqs_policy_allow_to_cross_account_principal", "sqs_encryption_key_configured", "sqs_dead_letter_queue_configured"}
 		}),
 		awsSQSSNSReachabilityFixtureRecord(accountID, region, "sqs", "sqs_queue", "payments-worker", internalQueueARN, "private_with_grants", checkedAt, func(r *AWSSQSSNSReachabilityRecord) {
-			r.QueueURL = fmt.Sprintf("https://sqs.%s.amazonaws.com/%s/payments-worker", region, accountID)
+			r.QueueURL = fmt.Sprintf("https://sqs.%s.%s/%s/payments-worker", region, queueURLSuffix, accountID)
 			r.ResourceURL = r.QueueURL
 			r.SQSManagedSSE = true
 			r.VisibilityTimeoutSeconds = 45

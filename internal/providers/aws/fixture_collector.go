@@ -581,12 +581,24 @@ func isKMSDecryptReachabilityFixture(record KMSDecryptReachability) bool {
 // isSQSSNSReachabilityFixture identifies queue/topic reachability records
 // without claiming unrelated AWS service collector payloads.
 func isSQSSNSReachabilityFixture(record SQSSNSReachability) bool {
-	service := strings.ToLower(strings.TrimSpace(record.Service))
-	if service == sqsServiceName || service == snsServiceName || service == sqsSNSServiceName {
-		return true
-	}
 	if strings.EqualFold(strings.TrimSpace(record.CollectorName), sqsSNSReachabilityCollectorName) {
 		return true
+	}
+	service := strings.ToLower(strings.TrimSpace(record.Service))
+	sqssnsResourceHint := firstNonEmptyAWSValue(
+		record.ResourceARN,
+		record.ResourceName,
+		record.ResourceURL,
+		record.QueueURL,
+		record.TopicARN,
+	)
+	if sqssnsResourceHint != "" {
+		if service == sqsServiceName || service == snsServiceName || service == sqsSNSServiceName {
+			return true
+		}
+		if isSQSSNSReachabilityResourceHint(sqssnsResourceHint, record.TopicARN, record.QueueURL, record.ResourceURL) {
+			return true
+		}
 	}
 	switch strings.ToLower(strings.TrimSpace(record.ResourceType)) {
 	case "sqs_queue", "sns_topic":
@@ -594,6 +606,25 @@ func isSQSSNSReachabilityFixture(record SQSSNSReachability) bool {
 	default:
 		return false
 	}
+}
+
+func isSQSSNSReachabilityResourceHint(resourceArn string, topicARN string, queueURL string, resourceURL string) bool {
+	arn := strings.TrimSpace(resourceArn)
+	if arn == "" {
+		return false
+	}
+	normalizedArn := strings.ToLower(arn)
+	if strings.Contains(normalizedArn, ":sqs:") || strings.Contains(normalizedArn, ":sns:") {
+		return true
+	}
+	if arn == "" && strings.TrimSpace(topicARN) == "" && strings.TrimSpace(queueURL) == "" && strings.TrimSpace(resourceURL) == "" {
+		return false
+	}
+	if candidate := strings.TrimSpace(firstNonEmptyAWSValue(queueURL, resourceURL, topicARN)); candidate != "" {
+		lower := strings.ToLower(candidate)
+		return strings.Contains(lower, ":sqs:") || strings.Contains(lower, ":sns:") || strings.Contains(lower, "sqs.amazonaws")
+	}
+	return false
 }
 
 // isSSMParameterMetadataFixture identifies metadata-only SSM Parameter Store
