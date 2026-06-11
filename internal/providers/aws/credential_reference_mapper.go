@@ -101,10 +101,7 @@ func MapBundleCredentialReferences(bundle providers.NormalizedBundle) ([]Credent
 			continue
 		}
 		sourceService := credentialSourceService(resource.Type)
-		fromNodeID := strings.TrimSpace(resource.SourceEntityID)
-		if fromNodeID == "" {
-			fromNodeID = resource.ID
-		}
+		fromNodeID := credentialWorkloadNodeID(resource)
 		workloadName := strings.TrimSpace(resource.Name)
 		for _, raw := range candidates {
 			ref := classifyCredentialReference(raw, resource, sourceService, secretIndex, parameterIndex)
@@ -295,7 +292,7 @@ func classifyCredentialReference(raw string, resource domain.Resource, sourceSer
 		// so the graph gains a node for the emitted edge. AWS-native kinds that
 		// simply were not collected stay edge-less to avoid dangling nodes.
 		if credentialProviderIsExternal(provider) {
-			ref.TargetNodeID = credentialReferenceNodeID(provider, name, source)
+			ref.TargetNodeID = credentialReferenceNodeID(credentialWorkloadNodeID(resource), provider, name, source)
 		}
 	}
 	return ref
@@ -418,8 +415,23 @@ func credentialReferenceConfidence(ref CredentialReference) float64 {
 	}
 }
 
-func credentialReferenceNodeID(provider, name, source string) string {
+// credentialWorkloadNodeID resolves the workload graph node a reference is
+// anchored to: the workload's source entity, falling back to the resource ID.
+func credentialWorkloadNodeID(resource domain.Resource) string {
+	if id := strings.TrimSpace(resource.SourceEntityID); id != "" {
+		return id
+	}
+	return strings.TrimSpace(resource.ID)
+}
+
+// credentialReferenceNodeID builds the synthesized node ID for an unresolved
+// external provider key. It is scoped per workload: an unresolved reference is
+// not evidence that two workloads share one credential, so distinct workloads
+// (and accounts/regions, which the workload ID already encodes) get distinct
+// nodes rather than collapsing onto a shared, mislabeled node.
+func credentialReferenceNodeID(workloadID, provider, name, source string) string {
 	return credentialReferenceNodePrefix + strings.Join(normalizeStringList([]string{
+		strings.ToLower(strings.TrimSpace(workloadID)),
 		provider,
 		strings.ToLower(strings.TrimSpace(name)),
 		strings.ToLower(strings.TrimSpace(source)),

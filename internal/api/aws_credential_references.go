@@ -305,7 +305,7 @@ func awsCredentialReferencesFixtureRecords(accountID, region, fixtureState strin
 			r.ProviderConfidence = 0.9
 			r.Sensitivity = "ai_provider_api_key"
 			r.Unresolved = true
-			r.TargetNodeID = "aws:resource:credential-reference:anthropic|anthropic_api_key"
+			r.TargetNodeID = "aws:resource:credential-reference:" + strings.ToLower(ecsWorkload) + "|anthropic|anthropic_api_key"
 			r.Confidence = 0.9
 		}),
 		awsCredentialReferenceFixtureRecord(accountID, region, lambdaWorkload, "summarizer", "lambda_function", "lambda", checkedAt, func(r *AWSCredentialReferenceRecord) {
@@ -316,7 +316,7 @@ func awsCredentialReferencesFixtureRecords(accountID, region, fixtureState strin
 			r.ProviderConfidence = 0.8
 			r.Sensitivity = "database_credential"
 			r.Unresolved = true
-			r.TargetNodeID = "aws:resource:credential-reference:database|database_url"
+			r.TargetNodeID = "aws:resource:credential-reference:" + strings.ToLower(lambdaWorkload) + "|database|database_url"
 			r.Confidence = 0.8
 		}),
 		awsCredentialReferenceFixtureRecord(accountID, region, codeBuildWorkload, "release", "codebuild_project", "codebuild", checkedAt, func(r *AWSCredentialReferenceRecord) {
@@ -337,7 +337,7 @@ func awsCredentialReferencesFixtureRecords(accountID, region, fixtureState strin
 			r.ProviderConfidence = 0.85
 			r.Sensitivity = "messaging_token"
 			r.Unresolved = true
-			r.TargetNodeID = "aws:resource:credential-reference:slack|slack_webhook_url"
+			r.TargetNodeID = "aws:resource:credential-reference:" + strings.ToLower(codeBuildWorkload) + "|slack|slack_webhook_url"
 			r.Confidence = 0.85
 		}),
 	}

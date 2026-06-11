@@ -204,6 +204,49 @@ func TestMapBundleCredentialReferencesSynthesizesUnresolvedProviderNodes(t *test
 	}
 }
 
+func TestMapBundleCredentialReferencesScopesSynthesizedNodesPerWorkload(t *testing.T) {
+	// Two workloads in different accounts both expose an unresolved OPENAI_API_KEY.
+	// An unresolved reference is not evidence they share one credential, so each
+	// must get its own credential-reference node with its own account/region.
+	bundle := providers.NormalizedBundle{
+		Resources: []domain.Resource{
+			func() domain.Resource {
+				r := workloadResource("arn:aws:lambda:us-east-1:111111111111:function:a", "a", domain.ResourceTypeLambdaFunction, nil, []string{"OPENAI_API_KEY"})
+				r.AccountID = "111111111111"
+				return r
+			}(),
+			func() domain.Resource {
+				r := workloadResource("arn:aws:lambda:us-west-2:222222222222:function:b", "b", domain.ResourceTypeLambdaFunction, nil, []string{"OPENAI_API_KEY"})
+				r.AccountID = "222222222222"
+				r.Region = "us-west-2"
+				return r
+			}(),
+		},
+	}
+
+	refs, relationships := MapBundleCredentialReferences(bundle)
+	nodes := credentialReferenceNodes(refs)
+	if len(nodes) != 2 {
+		t.Fatalf("expected one node per workload, got %+v", nodes)
+	}
+	if nodes[0].ID == nodes[1].ID {
+		t.Fatalf("distinct workloads must not share a credential-reference node id: %q", nodes[0].ID)
+	}
+	accounts := map[string]struct{}{nodes[0].AccountID: {}, nodes[1].AccountID: {}}
+	if _, ok := accounts["111111111111"]; !ok {
+		t.Fatalf("expected per-workload account metadata, got %+v", nodes)
+	}
+	if _, ok := accounts["222222222222"]; !ok {
+		t.Fatalf("expected per-workload account metadata, got %+v", nodes)
+	}
+	if len(relationships) != 2 {
+		t.Fatalf("expected one edge per workload, got %+v", relationships)
+	}
+	if relationships[0].ToNodeID == relationships[1].ToNodeID {
+		t.Fatalf("distinct workloads must not point at the same node: %+v", relationships)
+	}
+}
+
 func TestMapBundleCredentialReferencesGenericAWSSecretStaysEdgeless(t *testing.T) {
 	// A Secrets Manager reference with no provider hint that does not resolve to
 	// a collected secret should be recorded but must not synthesize a node.
