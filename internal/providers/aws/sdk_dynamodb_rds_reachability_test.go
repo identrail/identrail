@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -13,6 +14,11 @@ import (
 )
 
 type fakeSDKDynamoDBClient struct {
+	dispatchListTablesError   error
+	dispatchDescribeTableErr  error
+	dispatchListTagsErr       error
+	dispatchResourcePolicyErr error
+
 	listTablesOutput        *dynamodb.ListTablesOutput
 	describeTableOutput     *dynamodb.DescribeTableOutput
 	listTagsOutput          *dynamodb.ListTagsOfResourceOutput
@@ -20,22 +26,39 @@ type fakeSDKDynamoDBClient struct {
 }
 
 func (f *fakeSDKDynamoDBClient) ListTables(context.Context, *dynamodb.ListTablesInput, ...func(*dynamodb.Options)) (*dynamodb.ListTablesOutput, error) {
+	if f.dispatchListTablesError != nil {
+		return nil, f.dispatchListTablesError
+	}
 	return f.listTablesOutput, nil
 }
 
 func (f *fakeSDKDynamoDBClient) DescribeTable(context.Context, *dynamodb.DescribeTableInput, ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error) {
+	if f.dispatchDescribeTableErr != nil {
+		return nil, f.dispatchDescribeTableErr
+	}
 	return f.describeTableOutput, nil
 }
 
 func (f *fakeSDKDynamoDBClient) ListTagsOfResource(context.Context, *dynamodb.ListTagsOfResourceInput, ...func(*dynamodb.Options)) (*dynamodb.ListTagsOfResourceOutput, error) {
+	if f.dispatchListTagsErr != nil {
+		return nil, f.dispatchListTagsErr
+	}
 	return f.listTagsOutput, nil
 }
 
 func (f *fakeSDKDynamoDBClient) GetResourcePolicy(context.Context, *dynamodb.GetResourcePolicyInput, ...func(*dynamodb.Options)) (*dynamodb.GetResourcePolicyOutput, error) {
+	if f.dispatchResourcePolicyErr != nil {
+		return nil, f.dispatchResourcePolicyErr
+	}
 	return f.getResourcePolicyOutput, nil
 }
 
 type fakeSDKRDSClient struct {
+	dispatchInstancesErr error
+	dispatchClustersErr  error
+	dispatchProxiesErr   error
+	dispatchTagsErr      error
+
 	instancesOutput *rds.DescribeDBInstancesOutput
 	clustersOutput  *rds.DescribeDBClustersOutput
 	proxiesOutput   *rds.DescribeDBProxiesOutput
@@ -43,18 +66,30 @@ type fakeSDKRDSClient struct {
 }
 
 func (f *fakeSDKRDSClient) DescribeDBInstances(context.Context, *rds.DescribeDBInstancesInput, ...func(*rds.Options)) (*rds.DescribeDBInstancesOutput, error) {
+	if f.dispatchInstancesErr != nil {
+		return nil, f.dispatchInstancesErr
+	}
 	return f.instancesOutput, nil
 }
 
 func (f *fakeSDKRDSClient) DescribeDBClusters(context.Context, *rds.DescribeDBClustersInput, ...func(*rds.Options)) (*rds.DescribeDBClustersOutput, error) {
+	if f.dispatchClustersErr != nil {
+		return nil, f.dispatchClustersErr
+	}
 	return f.clustersOutput, nil
 }
 
 func (f *fakeSDKRDSClient) DescribeDBProxies(context.Context, *rds.DescribeDBProxiesInput, ...func(*rds.Options)) (*rds.DescribeDBProxiesOutput, error) {
+	if f.dispatchProxiesErr != nil {
+		return nil, f.dispatchProxiesErr
+	}
 	return f.proxiesOutput, nil
 }
 
 func (f *fakeSDKRDSClient) ListTagsForResource(context.Context, *rds.ListTagsForResourceInput, ...func(*rds.Options)) (*rds.ListTagsForResourceOutput, error) {
+	if f.dispatchTagsErr != nil {
+		return nil, f.dispatchTagsErr
+	}
 	return f.tagsOutput, nil
 }
 
@@ -156,5 +191,35 @@ func TestSDKDynamoDBRDSReachabilityHelpers(t *testing.T) {
 	}
 	if _, err := NewSDKDynamoDBRDSReachabilityAPIFromAssumeRole(context.Background(), "us-east-1", "", "", "", "", "123456789012"); err == nil {
 		t.Fatalf("expected empty role arn error")
+	}
+}
+
+func TestSDKDynamoDBRDSReachabilityRetainsDynamoDBOnRDSFailure(t *testing.T) {
+	dbClient := &fakeSDKDynamoDBClient{
+		listTablesOutput: &dynamodb.ListTablesOutput{TableNames: []string{"payments-ledger"}},
+		describeTableOutput: &dynamodb.DescribeTableOutput{Table: &ddbtypes.TableDescription{
+			TableArn:            awsv2.String("arn:aws:dynamodb:us-east-1:123456789012:table/payments-ledger"),
+			TableName:           awsv2.String("payments-ledger"),
+			TableStatus:         ddbtypes.TableStatusActive,
+			LatestStreamArn:     awsv2.String("arn:aws:dynamodb:us-east-1:123456789012:table/payments-ledger/stream/2026-06-11T00:00:00.000"),
+			StreamSpecification: &ddbtypes.StreamSpecification{StreamEnabled: awsv2.Bool(true)},
+			CreationDateTime:    awsv2.Time(time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)),
+		}},
+		listTagsOutput: &dynamodb.ListTagsOfResourceOutput{Tags: []ddbtypes.Tag{}},
+	}
+	rdsClient := &fakeSDKRDSClient{
+		dispatchInstancesErr: errors.New("rds instances temporarily unavailable"),
+	}
+
+	api := NewSDKDynamoDBRDSReachabilityAPIFromClients(dbClient, rdsClient, "123456789012", "us-east-1")
+	page, err := api.ListDynamoDBRDSReachability(context.Background(), "", 5)
+	if err == nil {
+		t.Fatalf("expected error when rds instances fail")
+	}
+	if len(page.Records) != 2 {
+		t.Fatalf("expected dynamodb table and stream to be retained, got %d records", len(page.Records))
+	}
+	if len(page.Diagnostics) != 0 {
+		t.Fatalf("expected no diagnostics before rds failure in partial path, got %d", len(page.Diagnostics))
 	}
 }

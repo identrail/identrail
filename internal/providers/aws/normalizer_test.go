@@ -305,3 +305,64 @@ func TestRoleNormalizerPreservesDynamoDBRDSReachabilityRelationships(t *testing.
 		}
 	}
 }
+
+func TestRoleNormalizerSkipsNonIAMPrincipalsInDynamoDBRDSReachability(t *testing.T) {
+	record := DynamoDBRDSReachability{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{Service: dynamoDBServiceName, AccountID: "123456789012", Region: "us-east-1"},
+		ResourceType:           "dynamodb_table",
+		ResourceARN:            "arn:aws:dynamodb:us-east-1:123456789012:table/payments",
+		ResourceName:           "payments",
+		IdentityGrants: []DynamoDBRDSIdentityGrant{
+			{
+				PrincipalARN: "*",
+				Effect:       "Allow",
+				Actions:      []string{"dynamodb:ListTables"},
+			},
+			{
+				PrincipalARN: "arn:aws:iam::123456789012:role/reader",
+				Effect:       "Allow",
+				Actions:      []string{"dynamodb:GetItem"},
+			},
+			{
+				PrincipalARN: "svc-ops.amazonaws.com",
+				Effect:       "Allow",
+				Actions:      []string{"dynamodb:UpdateItem"},
+			},
+			{
+				PrincipalARN: "arn:aws:iam::999999999999:user/analyzer",
+				Effect:       "Allow",
+				Actions:      []string{"dynamodb:GetItem"},
+			},
+		},
+		AssociatedRoleARNs: []string{
+			"arn:aws:iam::123456789012:role/associated",
+		},
+	}
+	recordPayload, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	normalizer := NewRoleNormalizer()
+	bundle, err := normalizer.Normalize(context.Background(), []providers.RawAsset{{
+		Kind:     rawKindDynamoDBRDSReachability,
+		SourceID: "ddb|payments",
+		Payload:  recordPayload,
+	}})
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+
+	if len(bundle.Identities) != 3 {
+		t.Fatalf("expected 3 identities (1 IAM user, 1 IAM role grant, 1 associated role), got %d", len(bundle.Identities))
+	}
+	if len(bundle.Policies) != 3 {
+		t.Fatalf("expected 3 generated policies, got %d", len(bundle.Policies))
+	}
+	for _, identity := range bundle.Identities {
+		switch identity.ID {
+		case "*", "svc-ops.amazonaws.com":
+			t.Fatalf("non-IAM principal should be skipped, got %q", identity.ID)
+		}
+	}
+}

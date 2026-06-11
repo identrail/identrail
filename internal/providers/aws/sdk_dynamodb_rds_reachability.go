@@ -129,7 +129,7 @@ func (a *SDKDynamoDBRDSReachabilityAPI) ListDynamoDBRDSReachability(ctx context.
 	if phase == "" || phase == dynamoDBServiceName || phase == "rds-instances" {
 		instanceRecords, instanceNext, instanceDiagnostics, err := a.listRDSInstancesPage(ctx, token, pageSize)
 		if err != nil {
-			return DynamoDBRDSReachabilityPage{}, err
+			return DynamoDBRDSReachabilityPage{Records: records, Diagnostics: append(diagnostics, instanceDiagnostics...)}, err
 		}
 		records = append(records, instanceRecords...)
 		diagnostics = append(diagnostics, instanceDiagnostics...)
@@ -141,7 +141,7 @@ func (a *SDKDynamoDBRDSReachabilityAPI) ListDynamoDBRDSReachability(ctx context.
 	if phase == "" || phase == dynamoDBServiceName || phase == "rds-instances" || phase == "rds-clusters" {
 		clusterRecords, clusterNext, clusterDiagnostics, err := a.listRDSClustersPage(ctx, token, pageSize)
 		if err != nil {
-			return DynamoDBRDSReachabilityPage{}, err
+			return DynamoDBRDSReachabilityPage{Records: records, Diagnostics: append(diagnostics, clusterDiagnostics...)}, err
 		}
 		records = append(records, clusterRecords...)
 		diagnostics = append(diagnostics, clusterDiagnostics...)
@@ -153,7 +153,7 @@ func (a *SDKDynamoDBRDSReachabilityAPI) ListDynamoDBRDSReachability(ctx context.
 	if phase == "" || phase == dynamoDBServiceName || phase == "rds-instances" || phase == "rds-clusters" || phase == "rds-proxies" {
 		proxyRecords, proxyNext, proxyDiagnostics, err := a.listRDSProxiesPage(ctx, token, pageSize)
 		if err != nil {
-			return DynamoDBRDSReachabilityPage{}, err
+			return DynamoDBRDSReachabilityPage{Records: records, Diagnostics: append(diagnostics, proxyDiagnostics...)}, err
 		}
 		records = append(records, proxyRecords...)
 		diagnostics = append(diagnostics, proxyDiagnostics...)

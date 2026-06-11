@@ -2366,6 +2366,9 @@ func dynamoDBRDSReachabilityPolicyStatements(record DynamoDBRDSReachability, res
 		if grant.NotAction {
 			continue
 		}
+		if !isIAMRoleARN(grant.PrincipalARN) && !isIAMUserARN(grant.PrincipalARN) {
+			continue
+		}
 		actions := parseStringList(grant.Actions)
 		if len(actions) == 0 {
 			continue
@@ -2389,6 +2392,9 @@ func dynamoDBRDSReachabilityPolicyStatements(record DynamoDBRDSReachability, res
 		associatedAction = "*"
 	}
 	for _, roleARN := range record.AssociatedRoleARNs {
+		if !isIAMRoleARN(roleARN) {
+			continue
+		}
 		identityID := identityIDFromARN(roleARN)
 		if identityID == "" {
 			continue
