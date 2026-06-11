@@ -291,7 +291,7 @@ func classifyECRRepositoryExposure(record ECRRepositoryMetadata) (string, []stri
 		reasons = append(reasons, "referenced_by_workloads")
 	}
 	switch {
-	case !record.ScanOnPush && record.ImageTagMutability != "immutable":
+	case !record.ScanOnPush && !record.EnhancedScanningEnabled && record.ImageTagMutability != "immutable":
 		return "mutable_unscanned", reasons
 	case record.ReferenceCount > 0 && record.HasRepositoryPolicy:
 		return "referenced_policy_controlled", reasons

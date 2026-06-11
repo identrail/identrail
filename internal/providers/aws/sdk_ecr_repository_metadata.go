@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path"
+	"regexp"
 	"strings"
 
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
@@ -214,13 +214,28 @@ func ecrRepositoryEnhancedScanningEnabled(repositoryName string, scanningEnabled
 			if pattern == "" {
 				continue
 			}
-			matches, err := path.Match(pattern, repoName)
-			if err == nil && matches {
+			if ecrRepositoryScanningFilterMatchesAWS(pattern, repoName) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func ecrRepositoryScanningFilterMatchesAWS(pattern, repositoryName string) bool {
+	filter := strings.TrimSpace(strings.ToLower(pattern))
+	repo := strings.TrimSpace(strings.ToLower(repositoryName))
+	if filter == "" || repo == "" {
+		return false
+	}
+	if !strings.Contains(filter, "*") {
+		return strings.Contains(repo, filter)
+	}
+
+	patternRe := regexp.QuoteMeta(filter)
+	patternRe = strings.ReplaceAll(patternRe, "\\*", ".*")
+	matched, err := regexp.MatchString("^"+patternRe+"$", repo)
+	return err == nil && matched
 }
 
 func ecrRepositoryMetadataFromRepository(repository ecrtypes.Repository, accountID string, region string) ECRRepositoryMetadata {

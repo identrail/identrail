@@ -87,6 +87,52 @@ func TestECRRepositoryMetadataCollectorCollectsMetadataOnly(t *testing.T) {
 	}
 }
 
+func TestECRRepositoryMetadataCollectorClassifiesMutableReferencedRepoWithEnhancedScanning(t *testing.T) {
+	now := time.Date(2026, 6, 11, 18, 0, 0, 0, time.UTC)
+	api := &fakeECRRepositoryMetadataAPI{pages: []ECRRepositoryMetadataPage{{
+		Records: []ECRRepositoryMetadata{{
+			RepositoryName:          "payments/api",
+			RepositoryURI:           "123456789012.dkr.ecr.us-east-1.amazonaws.com/payments/api",
+			ImageTagMutability:      "MUTABLE",
+			EncryptionType:          "KMS",
+			KMSKeyID:                "alias/payments-images",
+			ScanOnPush:              false,
+			EnhancedScanningEnabled: true,
+			ReferencedBy: []ImageWorkloadReference{{
+				SourceService: "ecs",
+				WorkloadID:    "arn:aws:ecs:us-east-1:123456789012:service/prod/payments",
+				WorkloadType:  "ecs_service",
+				WorkloadName:  "payments",
+				ImageURI:      "123456789012.dkr.ecr.us-east-1.amazonaws.com/payments/api:prod",
+				ReferenceKind: "container_image",
+			}},
+		}},
+	}}}
+	collector := NewECRRepositoryMetadataCollector(api, WithECRRepositoryMetadataClock(func() time.Time { return now }))
+
+	assets, diagnostics, err := collector.CollectWithDiagnostics(context.Background(), AWSCollectorScope{
+		ConnectorID: "aws-prod",
+		AccountID:   "123456789012",
+		Region:      "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	if len(diagnostics) != 0 || len(assets) != 1 {
+		t.Fatalf("expected one clean asset, assets=%d diagnostics=%+v", len(assets), diagnostics)
+	}
+	var record ECRRepositoryMetadata
+	if err := json.Unmarshal(assets[0].Payload, &record); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if record.EnhancedScanningEnabled != true {
+		t.Fatalf("expected enhanced scanning enabled, got %+v", record)
+	}
+	if record.ExposureClassification != "referenced" {
+		t.Fatalf("expected referenced exposure when enhanced scanning is enabled, got %+v", record)
+	}
+}
+
 func TestECRRepositoryMetadataCollectorPartialFailureReturnsDiagnostics(t *testing.T) {
 	api := &fakeECRRepositoryMetadataAPI{
 		pages: []ECRRepositoryMetadataPage{{
