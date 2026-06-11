@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- Fix **KMS cross-account grant detection for bare account-id principals**.
+  Key-policy and live KMS grants whose principal is a bare 12-digit account
+  id (e.g. `"Principal":{"AWS":"999999999999"}`) rather than a full ARN are
+  now flagged `is_cross_account`, so such keys are no longer undercounted in
+  the `cross_account` exposure classification. Adds a shared
+  `accountIDFromPrincipal` helper used by the KMS decrypt reachability
+  collector.
 - Add **KMS key policy and decrypt reachability collector** (#1489).
   Read-only, metadata-only inventory of every KMS key in scope, capturing
   manager (customer vs AWS), state, spec, multi-region linkage, rotation

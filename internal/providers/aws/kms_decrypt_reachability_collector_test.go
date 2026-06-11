@@ -348,6 +348,27 @@ func TestAnnotateKMSGrants_CrossAccountAndCapabilities(t *testing.T) {
 	}
 }
 
+func TestAnnotateKMSGrants_BareAccountIDPrincipal(t *testing.T) {
+	out := annotateKMSGrants([]KMSIdentityGrant{{
+		PrincipalARN: "999999999999",
+		Effect:       "Allow",
+		Actions:      []string{"kms:Decrypt"},
+	}, {
+		PrincipalARN: "123456789012",
+		Effect:       "Allow",
+		Actions:      []string{"kms:Decrypt"},
+	}}, "123456789012")
+	if len(out) != 2 {
+		t.Fatalf("expected two grants, got %+v", out)
+	}
+	if !out[0].IsCrossAccount {
+		t.Fatalf("expected bare external account id to be cross-account, got %+v", out[0])
+	}
+	if out[1].IsCrossAccount {
+		t.Fatalf("expected bare owner account id to stay in-account, got %+v", out[1])
+	}
+}
+
 func TestAnnotateKMSLiveGrants_CrossAccount(t *testing.T) {
 	out := annotateKMSLiveGrants([]KMSGrant{{
 		GranteePrincipal: "arn:aws:iam::999999999999:role/partner",
@@ -358,6 +379,25 @@ func TestAnnotateKMSLiveGrants_CrossAccount(t *testing.T) {
 	}
 	if len(out[0].Capabilities) != 1 || out[0].Capabilities[0] != "decrypt" {
 		t.Fatalf("expected decrypt capability, got %+v", out[0].Capabilities)
+	}
+}
+
+func TestAnnotateKMSLiveGrants_BareAccountIDPrincipal(t *testing.T) {
+	out := annotateKMSLiveGrants([]KMSGrant{{
+		GranteePrincipal: "999999999999",
+		Operations:       []string{"Decrypt"},
+	}, {
+		GranteePrincipal: "123456789012",
+		Operations:       []string{"Decrypt"},
+	}}, "123456789012")
+	if len(out) != 2 {
+		t.Fatalf("expected two grants, got %+v", out)
+	}
+	if !out[0].IsCrossAccount {
+		t.Fatalf("expected bare external account id to be cross-account, got %+v", out[0])
+	}
+	if out[1].IsCrossAccount {
+		t.Fatalf("expected bare owner account id to stay in-account, got %+v", out[1])
 	}
 }
 

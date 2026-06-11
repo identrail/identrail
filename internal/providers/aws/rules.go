@@ -325,6 +325,27 @@ func accountIDFromARN(arn string) string {
 	return accountID
 }
 
+// accountIDFromPrincipal resolves the owning account for an IAM policy
+// principal. A principal may be a full ARN or a bare 12-digit account id
+// (a valid AWS principal used for account-wide sharing), so check for the
+// bare form before falling back to ARN parsing.
+func accountIDFromPrincipal(principal string) string {
+	trimmed := strings.TrimSpace(principal)
+	if len(trimmed) == 12 {
+		bare := true
+		for _, r := range trimmed {
+			if r < '0' || r > '9' {
+				bare = false
+				break
+			}
+		}
+		if bare {
+			return trimmed
+		}
+	}
+	return accountIDFromARN(trimmed)
+}
+
 func overprivilegedFinding(identity domain.Identity, risks []accessRisk, now time.Time) domain.Finding {
 	evidence := make([]map[string]string, 0, len(risks))
 	path := make([]string, 0, len(risks)+1)
