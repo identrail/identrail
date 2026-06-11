@@ -13,11 +13,13 @@ import (
 
 type fakeECRSDKClient struct {
 	repositoriesErr error
+	repositories    []ecrtypes.Repository
 	policyErr       error
 	lifecycleErr    error
 	imagesErr       error
 	tagsErr         error
 	scanningErr     error
+	scanningConfig  *ecrtypes.RegistryScanningConfiguration
 }
 
 func (f fakeECRSDKClient) DescribeRepositories(ctx context.Context, params *ecr.DescribeRepositoriesInput, optFns ...func(*ecr.Options)) (*ecr.DescribeRepositoriesOutput, error) {
@@ -25,9 +27,9 @@ func (f fakeECRSDKClient) DescribeRepositories(ctx context.Context, params *ecr.
 		return nil, f.repositoriesErr
 	}
 	createdAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
-	return &ecr.DescribeRepositoriesOutput{
-		NextToken: awsv2.String("next-page"),
-		Repositories: []ecrtypes.Repository{{
+	repositories := f.repositories
+	if repositories == nil {
+		repositories = []ecrtypes.Repository{{
 			RepositoryArn:      awsv2.String("arn:aws:ecr:us-east-1:123456789012:repository/payments/api"),
 			RepositoryName:     awsv2.String("payments/api"),
 			RepositoryUri:      awsv2.String("123456789012.dkr.ecr.us-east-1.amazonaws.com/payments/api"),
@@ -39,7 +41,11 @@ func (f fakeECRSDKClient) DescribeRepositories(ctx context.Context, params *ecr.
 			},
 			ImageScanningConfiguration: &ecrtypes.ImageScanningConfiguration{ScanOnPush: true},
 			CreatedAt:                  &createdAt,
-		}},
+		}}
+	}
+	return &ecr.DescribeRepositoriesOutput{
+		NextToken:    awsv2.String("next-page"),
+		Repositories: repositories,
 	}, nil
 }
 
@@ -73,7 +79,99 @@ func (f fakeECRSDKClient) GetRegistryScanningConfiguration(ctx context.Context, 
 	if f.scanningErr != nil {
 		return nil, f.scanningErr
 	}
+	if f.scanningConfig != nil {
+		return &ecr.GetRegistryScanningConfigurationOutput{ScanningConfiguration: f.scanningConfig}, nil
+	}
 	return &ecr.GetRegistryScanningConfigurationOutput{ScanningConfiguration: &ecrtypes.RegistryScanningConfiguration{ScanType: ecrtypes.ScanTypeEnhanced}}, nil
+}
+
+func TestECRRepositoryEnhancedScanningFiltersOnlyMatchedRepositories(t *testing.T) {
+	repositories := []ecrtypes.Repository{
+		{
+			RepositoryName: awsv2.String("prod-app"),
+			RepositoryArn:  awsv2.String("arn:aws:ecr:us-east-1:123456789012:repository/prod-app"),
+			RepositoryUri:  awsv2.String("123456789012.dkr.ecr.us-east-1.amazonaws.com/prod-app"),
+			RegistryId:     awsv2.String("123456789012"),
+			CreatedAt:      &time.Time{},
+		},
+		{
+			RepositoryName: awsv2.String("legacy-app"),
+			RepositoryArn:  awsv2.String("arn:aws:ecr:us-east-1:123456789012:repository/legacy-app"),
+			RepositoryUri:  awsv2.String("123456789012.dkr.ecr.us-east-1.amazonaws.com/legacy-app"),
+			RegistryId:     awsv2.String("123456789012"),
+			CreatedAt:      &time.Time{},
+		},
+	}
+	api := NewSDKECRRepositoryMetadataAPIFromClient(fakeECRSDKClient{
+		repositories: repositories,
+		scanningConfig: &ecrtypes.RegistryScanningConfiguration{
+			ScanType: ecrtypes.ScanTypeEnhanced,
+			Rules: []ecrtypes.RegistryScanningRule{{
+				RepositoryFilters: []ecrtypes.ScanningRepositoryFilter{{
+					FilterType: ecrtypes.ScanningRepositoryFilterTypeWildcard,
+					Filter:     awsv2.String("prod-*"),
+				}},
+			}},
+		},
+	}, "123456789012", "us-east-1")
+
+	page, err := api.ListRepositoryMetadata(context.Background(), "", 50)
+	if err != nil {
+		t.Fatalf("list repository metadata: %v", err)
+	}
+	if len(page.Records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(page.Records))
+	}
+	if !page.Records[0].EnhancedScanningEnabled || !page.Records[0].EnhancedScanningKnown {
+		t.Fatalf("expected enhanced scanning enabled and known for matched repo, got %+v", page.Records[0])
+	}
+	if page.Records[1].EnhancedScanningEnabled || !page.Records[1].EnhancedScanningKnown {
+		t.Fatalf("expected enhanced scanning disabled for non-matched repo, got %+v", page.Records[1])
+	}
+}
+
+func TestECRRepositoryEnhancedScanningEnabledForAllWithoutRules(t *testing.T) {
+	api := NewSDKECRRepositoryMetadataAPIFromClient(fakeECRSDKClient{
+		scanningConfig: &ecrtypes.RegistryScanningConfiguration{
+			ScanType: ecrtypes.ScanTypeEnhanced,
+		},
+	}, "123456789012", "us-east-1")
+
+	page, err := api.ListRepositoryMetadata(context.Background(), "", 50)
+	if err != nil {
+		t.Fatalf("list repository metadata: %v", err)
+	}
+	if len(page.Records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(page.Records))
+	}
+	if !page.Records[0].EnhancedScanningEnabled || !page.Records[0].EnhancedScanningKnown {
+		t.Fatalf("expected enhanced scanning enabled and known when enhanced type configured without filters, got %+v", page.Records[0])
+	}
+}
+
+func TestECRRepositoryEnhancedScanningDisabledWhenScanTypeBasic(t *testing.T) {
+	api := NewSDKECRRepositoryMetadataAPIFromClient(fakeECRSDKClient{
+		scanningConfig: &ecrtypes.RegistryScanningConfiguration{
+			ScanType: ecrtypes.ScanTypeBasic,
+			Rules: []ecrtypes.RegistryScanningRule{{
+				RepositoryFilters: []ecrtypes.ScanningRepositoryFilter{{
+					FilterType: ecrtypes.ScanningRepositoryFilterTypeWildcard,
+					Filter:     awsv2.String("*"),
+				}},
+			}},
+		},
+	}, "123456789012", "us-east-1")
+
+	page, err := api.ListRepositoryMetadata(context.Background(), "", 50)
+	if err != nil {
+		t.Fatalf("list repository metadata: %v", err)
+	}
+	if len(page.Records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(page.Records))
+	}
+	if page.Records[0].EnhancedScanningEnabled {
+		t.Fatalf("expected enhanced scanning disabled for basic scan type, got %+v", page.Records[0])
+	}
 }
 
 func (f fakeECRSDKClient) ListTagsForResource(ctx context.Context, params *ecr.ListTagsForResourceInput, optFns ...func(*ecr.Options)) (*ecr.ListTagsForResourceOutput, error) {

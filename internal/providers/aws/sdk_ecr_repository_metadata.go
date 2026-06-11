@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
@@ -112,16 +113,18 @@ func (a *SDKECRRepositoryMetadataAPI) ListRepositoryMetadata(ctx context.Context
 	}
 	scanningEnabled := false
 	scanningKnown := false
+	var scanningRules []ecrtypes.RegistryScanningRule
 	if scan, scanErr := a.client.GetRegistryScanningConfiguration(ctx, &ecr.GetRegistryScanningConfigurationInput{}); scanErr == nil && scan != nil && scan.ScanningConfiguration != nil {
 		scanningKnown = true
 		scanningEnabled = scan.ScanningConfiguration.ScanType == ecrtypes.ScanTypeEnhanced
+		scanningRules = scan.ScanningConfiguration.Rules
 	} else if scanErr != nil {
 		page.Diagnostics = append(page.Diagnostics, ecrRepositoryMetadataDiagnostic("ecr_registry_scanning_failed", "registry", fmt.Sprintf("GetRegistryScanningConfiguration failed: %v", scanErr), true))
 	}
 	for _, repository := range output.Repositories {
 		record := ecrRepositoryMetadataFromRepository(repository, a.accountID, a.region)
 		record.EnhancedScanningKnown = scanningKnown
-		record.EnhancedScanningEnabled = scanningEnabled
+		record.EnhancedScanningEnabled = ecrRepositoryEnhancedScanningEnabled(record.RepositoryName, scanningEnabled, scanningRules)
 		a.enrichRepository(ctx, &record, &page.Diagnostics)
 		page.Records = append(page.Records, record)
 	}
@@ -192,6 +195,32 @@ func isRepositoryPolicyNotFound(err error) bool {
 func isLifecyclePolicyNotFound(err error) bool {
 	var lifecycleErr *ecrtypes.LifecyclePolicyNotFoundException
 	return errors.As(err, &lifecycleErr)
+}
+
+func ecrRepositoryEnhancedScanningEnabled(repositoryName string, scanningEnabled bool, scanningRules []ecrtypes.RegistryScanningRule) bool {
+	if !scanningEnabled || strings.TrimSpace(repositoryName) == "" {
+		return false
+	}
+	repoName := strings.TrimSpace(repositoryName)
+	if len(scanningRules) == 0 {
+		return true
+	}
+	for _, rule := range scanningRules {
+		for _, filter := range rule.RepositoryFilters {
+			if filter.FilterType != ecrtypes.ScanningRepositoryFilterTypeWildcard {
+				continue
+			}
+			pattern := strings.TrimSpace(awsv2.ToString(filter.Filter))
+			if pattern == "" {
+				continue
+			}
+			matches, err := path.Match(pattern, repoName)
+			if err == nil && matches {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func ecrRepositoryMetadataFromRepository(repository ecrtypes.Repository, accountID string, region string) ECRRepositoryMetadata {
