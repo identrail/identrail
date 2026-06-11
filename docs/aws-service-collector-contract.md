@@ -96,7 +96,13 @@ The response envelope is:
       "secretsmanager:GetResourcePolicy",
       "secretsmanager:ListSecretVersionIds",
       "ssm:DescribeParameters",
-      "ssm:ListTagsForResource"
+      "ssm:ListTagsForResource",
+      "ecr:DescribeRepositories",
+      "ecr:DescribeImages",
+      "ecr:GetRepositoryPolicy",
+      "ecr:GetLifecyclePolicy",
+      "ecr:GetRegistryScanningConfiguration",
+      "ecr:ListTagsForResource"
     ],
     "read_only_boundaries": [
       "collect metadata and policy documents only; never collect secret values, customer payloads, prompts, completions, object contents, or database rows"
@@ -192,6 +198,12 @@ The SSM Parameter Store metadata collector adds metadata-only reads:
 `ssm:GetParameter`, `ssm:GetParameters`, `ssm:GetParametersByPath`, or
 `ssm:GetParameterHistory`.
 
+The ECR repository metadata collector adds metadata-only reads:
+`ecr:DescribeRepositories`, `ecr:DescribeImages`, `ecr:GetRepositoryPolicy`,
+`ecr:GetLifecyclePolicy`, `ecr:GetRegistryScanningConfiguration`, and
+`ecr:ListTagsForResource`. It must not add `ecr:BatchGetImage`,
+`ecr:GetDownloadUrlForLayer`, image manifest APIs, or scan-finding detail APIs.
+
 Future service collectors may add service-specific read-only metadata
 permissions, but must not add actions that read secret values, object contents,
 prompts, completions, browser pages, code-interpreter output, database rows, or
@@ -218,6 +230,13 @@ identity context, and resolved workload reference edges only. Parameter
 values, parameter history, description and allowed-pattern text as operator
 evidence, and every `ssm:GetParameter*` output are intentionally outside the
 collector contract. SecureString parameters are sensitive metadata only.
+
+For ECR repositories, records contain repository metadata, tag mutability,
+encryption configuration, scan configuration, repository-policy and
+lifecycle-policy summaries, image counts, tags, and resolved workload
+`uses_image` edges only. Image layers, manifests, SBOM contents, vulnerability
+finding details, and image payloads are intentionally outside the collector
+contract.
 
 For CodePipeline, `configuration_keys` are action configuration key names only.
 Configuration values, source contents, action outputs, artifact contents,

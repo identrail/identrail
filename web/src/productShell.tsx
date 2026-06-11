@@ -51,6 +51,8 @@ import {
   type AWSPlatformDependencyIndexResult,
   type AWSPlatformValidationHarnessResult,
   type AWSServiceCollectorContractResult,
+  type AWSECRRepositoryMetadataInventoryResult,
+  type AWSECRRepositoryMetadataRecord,
   type AWSSecretsManagerMetadataInventoryResult,
   type AWSSecretsManagerMetadataRecord,
   type AWSSSMParameterMetadataInventoryResult,
@@ -3637,6 +3639,13 @@ type AWSInventorySSMParameterState = {
   onRetry: () => void;
 };
 
+type AWSInventoryECRRepositoryState = {
+  inventory: AWSECRRepositoryMetadataInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryCoverageRow = AWSInventoryFilterable & {
   id: string;
   category: string;
@@ -3743,6 +3752,7 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'All categories', value: 'all' },
         { label: 'Secrets Manager', value: 'secrets-manager' },
         { label: 'SSM Parameter', value: 'ssm-parameter' },
+        { label: 'ECR repository', value: 'ecr-repository' },
         { label: 'KMS', value: 'kms' },
         { label: 'S3', value: 's3' },
         { label: 'Control plane', value: 'control-plane' }
@@ -3754,6 +3764,8 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
       options: [
         { label: 'All sensitivity', value: 'all' },
         { label: 'Credential reference', value: 'credential-reference' },
+        { label: 'Container image', value: 'container-image' },
+        { label: 'Runtime image', value: 'runtime-image' },
         { label: 'Customer data', value: 'customer-data' },
         { label: 'Secret-bearing', value: 'secret-bearing' },
         { label: 'KMS-admin', value: 'kms-admin' },
@@ -5883,12 +5895,14 @@ function AWSResourcesInventoryContent({
   connection,
   secretsManagerState,
   ssmParameterState,
+  ecrRepositoryState,
   filters,
   onFiltersChange
 }: {
   connection: AWSConnectionStatus | null;
   secretsManagerState: AWSInventorySecretsManagerState;
   ssmParameterState: AWSInventorySSMParameterState;
+  ecrRepositoryState: AWSInventoryECRRepositoryState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
@@ -5896,9 +5910,12 @@ function AWSResourcesInventoryContent({
   const secretsRows = buildAWSSecretsManagerMetadataRows(secretsInventory, secretsManagerState.loading, connection);
   const ssmInventory = ssmParameterState.inventory;
   const ssmRows = buildAWSSSMParameterMetadataRows(ssmInventory, ssmParameterState.loading, connection);
+  const ecrInventory = ecrRepositoryState.inventory;
+  const ecrRows = buildAWSECRRepositoryMetadataRows(ecrInventory, ecrRepositoryState.loading, connection);
   const rows: AWSInventoryTableRow[] = [
     ...secretsRows,
     ...ssmRows,
+    ...ecrRows,
     {
       id: 'kms',
       name: 'KMS key reachability',
@@ -5951,6 +5968,12 @@ function AWSResourcesInventoryContent({
           total={1}
           detail={ssmParameterState.loading ? 'Loading' : ssmInventory ? formatTokenLabel(ssmInventory.status) : 'Pending'}
         />
+        <DomainCoverageCard
+          label="ECR repositories"
+          scanned={ecrInventory && ecrInventory.status !== 'blocked' ? 1 : 0}
+          total={1}
+          detail={ecrRepositoryState.loading ? 'Loading' : ecrInventory ? formatTokenLabel(ecrInventory.status) : 'Pending'}
+        />
         <DomainCoverageCard label="KMS reachability" scanned={0} total={1} detail="Coming wave" />
         <DomainCoverageCard label="S3 sensitivity" scanned={0} total={1} detail="Coming wave" />
       </section>
@@ -5970,10 +5993,19 @@ function AWSResourcesInventoryContent({
           retryAction={{ label: 'Retry SSM Parameter metadata', onClick: ssmParameterState.onRetry }}
         />
       ) : null}
+      {ecrRepositoryState.loading ? <DomainLoadingState label="Loading ECR repository metadata" /> : null}
+      {ecrRepositoryState.error ? (
+        <DomainErrorState
+          title="ECR repository metadata could not load"
+          body={ecrRepositoryState.error}
+          retryAction={{ label: 'Retry ECR repository metadata', onClick: ecrRepositoryState.onRetry }}
+        />
+      ) : null}
       <DomainStatusPanel eyebrow="Safety posture" title="No secret value reads" status="Metadata only" tone="success">
         <p>
-          Resource inventory is designed around reachability and metadata. Secrets Manager, SSM Parameter, and external AI
-          provider key mapping must use safe metadata and credential references, not credential values.
+          Resource inventory is designed around reachability and metadata. Secrets Manager, SSM Parameter, ECR image
+          repository, and external AI provider key mapping must use safe metadata and credential references, not
+          credential values or image payloads.
         </p>
       </DomainStatusPanel>
       <DomainDataTable
@@ -6208,6 +6240,117 @@ function awsSSMParameterMetadataRow(record: AWSSSMParameterMetadataRecord): AWSI
   };
 }
 
+function buildAWSECRRepositoryMetadataRows(
+  inventory: AWSECRRepositoryMetadataInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsECRRepositoryMetadataRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'ecr-repositories-blocked',
+        name: 'ECR repository metadata unavailable',
+        category: 'Container image',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'ECR repository metadata collection is blocked.',
+        filters: { category: 'ecr-repository', sensitivity: 'container-image', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['ecr repository', 'blocked', inventory.account_id, inventory.region])
+      }
+    ];
+  }
+  if (inventory) {
+    const degraded = inventory.status === 'degraded' || inventory.diagnostics.length > 0 || inventory.failure_reasons.length > 0;
+    return [
+      {
+        id: 'ecr-repositories-empty',
+        name: degraded ? 'ECR repository metadata incomplete' : 'No ECR repositories found',
+        category: 'Container image',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: degraded ? 'degraded' : 'wired now',
+        stage: 'wired',
+        detail: degraded ? (inventory.failure_reasons[0] ?? 'ECR repository metadata collection completed with degraded evidence and no retained records.') : 'The collector completed without ECR repositories in this account and region.',
+        filters: { category: 'ecr-repository', sensitivity: 'container-image', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['ecr repository', inventory.account_id, inventory.region, degraded ? 'degraded empty' : 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'ecr-repositories-loading',
+        name: 'ECR repository metadata',
+        category: 'Container image',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading repository metadata, tags, scan settings, lifecycle policies, and workload image references.',
+        filters: { category: 'ecr-repository', sensitivity: 'container-image', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['ecr repository', 'metadata', 'loading'])
+      }
+    ];
+  }
+  return [
+    {
+      id: 'ecr-repositories',
+      name: 'ECR repository metadata',
+      category: 'Container image',
+      scope: connection?.region ?? 'Region pending',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Repository, tag, scan, encryption, policy, lifecycle, and workload image-reference metadata only.',
+      filters: { category: 'ecr-repository', sensitivity: 'container-image', readPosture: 'metadata-only', search: '' },
+      searchText: inventorySearchText(['ecr repository', 'container image', 'metadata', 'scan'])
+    }
+  ];
+}
+
+function awsECRRepositoryMetadataRow(record: AWSECRRepositoryMetadataRecord): AWSInventoryTableRow {
+  const unscanned = !record.scan_on_push && !record.enhanced_scanning_enabled;
+  const mutable = record.image_tag_mutability !== 'immutable';
+  const degraded = record.status !== 'ready' || unscanned || mutable;
+  const status = degraded ? 'degraded' : 'wired now';
+  const referenceLabel = record.referenced_by?.length ? `${record.referenced_by.length} workload image references` : 'no resolved workload references';
+  const scanLabel = record.enhanced_scanning_enabled ? 'enhanced scanning enabled' : record.scan_on_push ? 'scan on push enabled' : 'scan metadata disabled';
+  const policyLabel = record.has_repository_policy ? `${record.repository_policy_statement_count} policy statements` : 'no repository policy';
+  const lifecycleLabel = record.has_lifecycle_policy ? `${record.lifecycle_rule_count} lifecycle rules` : 'no lifecycle policy';
+  return {
+    id: `ecr-repository-${record.repository_arn}`,
+    name: record.repository_name || record.repository_uri,
+    category: 'Container image',
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage: 'wired',
+    detail: `${record.image_tag_mutability} tags; ${scanLabel}; ${policyLabel}; ${lifecycleLabel}; ${referenceLabel}. Image payloads hidden.`,
+    filters: {
+      category: 'ecr-repository',
+      sensitivity: record.referenced_by?.length ? 'runtime-image' : 'container-image',
+      readPosture: 'metadata-only',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.repository_arn,
+      record.repository_name,
+      record.repository_uri,
+      record.account_id,
+      record.region,
+      record.image_tag_mutability,
+      record.encryption_type ?? '',
+      record.kms_key_id ?? '',
+      record.sensitivity_classification,
+      record.exposure_classification,
+      ...(record.exposure_reasons ?? []),
+      ...(record.referenced_by ?? []).map((ref) => `${ref.source_service ?? ''} ${ref.workload_name ?? ''} ${ref.image_uri}`),
+      ...(record.unresolved_references ?? []).map((ref) => `${ref.source_service ?? ''} ${ref.workload_name ?? ''} ${ref.image_uri}`),
+      'ecr repository metadata container image scan lifecycle policy payloads hidden'
+    ])
+  };
+}
+
 function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) {
   const data = useAWSInventoryData();
   const { scope, environmentScope, selectedEnvironmentID, connection, connectionLoading, connectionError } = data;
@@ -6259,6 +6402,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [ssmParameterInventoryLoading, setSSMParameterInventoryLoading] = useState(false);
   const [ssmParameterInventoryError, setSSMParameterInventoryError] = useState('');
   const ssmParameterInventoryRequestRef = useRef(0);
+  const [ecrRepositoryInventory, setECRRepositoryInventory] = useState<AWSECRRepositoryMetadataInventoryResult | null>(null);
+  const [ecrRepositoryInventoryLoading, setECRRepositoryInventoryLoading] = useState(false);
+  const [ecrRepositoryInventoryError, setECRRepositoryInventoryError] = useState('');
+  const ecrRepositoryInventoryRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -6709,6 +6856,47 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadSSMParameterInventory]);
 
+  const loadECRRepositoryInventory = useCallback(async () => {
+    const requestID = ++ecrRepositoryInventoryRequestRef.current;
+    setECRRepositoryInventory(null);
+    setECRRepositoryInventoryError('');
+    if (routeID !== 'resources' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setECRRepositoryInventoryLoading(false);
+      return;
+    }
+    setECRRepositoryInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectECRRepositoryMetadata(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== ecrRepositoryInventoryRequestRef.current) {
+        return;
+      }
+      setECRRepositoryInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== ecrRepositoryInventoryRequestRef.current) {
+        return;
+      }
+      setECRRepositoryInventoryError(formatAPIError(error, 'Unable to load ECR repository metadata.'));
+    } finally {
+      if (requestID === ecrRepositoryInventoryRequestRef.current) {
+        setECRRepositoryInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadECRRepositoryInventory();
+    return () => {
+      ecrRepositoryInventoryRequestRef.current += 1;
+    };
+  }, [loadECRRepositoryInventory]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -6856,6 +7044,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: ssmParameterInventoryLoading,
             error: ssmParameterInventoryError,
             onRetry: () => void loadSSMParameterInventory()
+          }}
+          ecrRepositoryState={{
+            inventory: ecrRepositoryInventory,
+            loading: ecrRepositoryInventoryLoading,
+            error: ecrRepositoryInventoryError,
+            onRetry: () => void loadECRRepositoryInventory()
           }}
           filters={activeFilters}
           onFiltersChange={onFiltersChange}

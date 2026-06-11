@@ -1,0 +1,150 @@
+package aws
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
+	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
+)
+
+type fakeECRSDKClient struct {
+	repositoriesErr error
+	policyErr       error
+	lifecycleErr    error
+	imagesErr       error
+	tagsErr         error
+	scanningErr     error
+}
+
+func (f fakeECRSDKClient) DescribeRepositories(ctx context.Context, params *ecr.DescribeRepositoriesInput, optFns ...func(*ecr.Options)) (*ecr.DescribeRepositoriesOutput, error) {
+	if f.repositoriesErr != nil {
+		return nil, f.repositoriesErr
+	}
+	createdAt := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	return &ecr.DescribeRepositoriesOutput{
+		NextToken: awsv2.String("next-page"),
+		Repositories: []ecrtypes.Repository{{
+			RepositoryArn:      awsv2.String("arn:aws:ecr:us-east-1:123456789012:repository/payments/api"),
+			RepositoryName:     awsv2.String("payments/api"),
+			RepositoryUri:      awsv2.String("123456789012.dkr.ecr.us-east-1.amazonaws.com/payments/api"),
+			RegistryId:         awsv2.String("123456789012"),
+			ImageTagMutability: ecrtypes.ImageTagMutabilityMutable,
+			EncryptionConfiguration: &ecrtypes.EncryptionConfiguration{
+				EncryptionType: ecrtypes.EncryptionTypeKms,
+				KmsKey:         awsv2.String("alias/payments-images"),
+			},
+			ImageScanningConfiguration: &ecrtypes.ImageScanningConfiguration{ScanOnPush: true},
+			CreatedAt:                  &createdAt,
+		}},
+	}, nil
+}
+
+func (f fakeECRSDKClient) DescribeImages(ctx context.Context, params *ecr.DescribeImagesInput, optFns ...func(*ecr.Options)) (*ecr.DescribeImagesOutput, error) {
+	if f.imagesErr != nil {
+		return nil, f.imagesErr
+	}
+	first := time.Date(2026, 6, 10, 14, 0, 0, 0, time.UTC)
+	second := time.Date(2026, 6, 11, 14, 0, 0, 0, time.UTC)
+	return &ecr.DescribeImagesOutput{ImageDetails: []ecrtypes.ImageDetail{
+		{ImageTags: []string{"prod"}, ImagePushedAt: &first},
+		{ImagePushedAt: &second},
+	}}, nil
+}
+
+func (f fakeECRSDKClient) GetRepositoryPolicy(ctx context.Context, params *ecr.GetRepositoryPolicyInput, optFns ...func(*ecr.Options)) (*ecr.GetRepositoryPolicyOutput, error) {
+	if f.policyErr != nil {
+		return nil, f.policyErr
+	}
+	return &ecr.GetRepositoryPolicyOutput{PolicyText: awsv2.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow"},{"Effect":"Deny"}]}`)}, nil
+}
+
+func (f fakeECRSDKClient) GetLifecyclePolicy(ctx context.Context, params *ecr.GetLifecyclePolicyInput, optFns ...func(*ecr.Options)) (*ecr.GetLifecyclePolicyOutput, error) {
+	if f.lifecycleErr != nil {
+		return nil, f.lifecycleErr
+	}
+	return &ecr.GetLifecyclePolicyOutput{LifecyclePolicyText: awsv2.String(`{"rules":[{"rulePriority":1},{"rulePriority":2}]}`)}, nil
+}
+
+func (f fakeECRSDKClient) GetRegistryScanningConfiguration(ctx context.Context, params *ecr.GetRegistryScanningConfigurationInput, optFns ...func(*ecr.Options)) (*ecr.GetRegistryScanningConfigurationOutput, error) {
+	if f.scanningErr != nil {
+		return nil, f.scanningErr
+	}
+	return &ecr.GetRegistryScanningConfigurationOutput{ScanningConfiguration: &ecrtypes.RegistryScanningConfiguration{ScanType: ecrtypes.ScanTypeEnhanced}}, nil
+}
+
+func (f fakeECRSDKClient) ListTagsForResource(ctx context.Context, params *ecr.ListTagsForResourceInput, optFns ...func(*ecr.Options)) (*ecr.ListTagsForResourceOutput, error) {
+	if f.tagsErr != nil {
+		return nil, f.tagsErr
+	}
+	return &ecr.ListTagsForResourceOutput{Tags: []ecrtypes.Tag{{Key: awsv2.String("owner"), Value: awsv2.String("payments")}}}, nil
+}
+
+func TestSDKECRRepositoryMetadataAPIListRepositoryMetadata(t *testing.T) {
+	api := NewSDKECRRepositoryMetadataAPIFromClient(fakeECRSDKClient{}, "123456789012", "us-east-1")
+
+	page, err := api.ListRepositoryMetadata(context.Background(), "", 50)
+	if err != nil {
+		t.Fatalf("list repository metadata: %v", err)
+	}
+	if page.NextToken != "next-page" || len(page.Diagnostics) != 0 || len(page.Records) != 1 {
+		t.Fatalf("unexpected page: %+v", page)
+	}
+	record := page.Records[0]
+	if record.RepositoryName != "payments/api" || record.ImageCount != 2 || record.TaggedImageCount != 1 || record.UntaggedImageCount != 1 {
+		t.Fatalf("unexpected repository/image summary: %+v", record)
+	}
+	if !record.HasRepositoryPolicy || record.RepositoryPolicyStatement != 2 || !record.HasLifecyclePolicy || record.LifecycleRuleCount != 2 {
+		t.Fatalf("expected policy and lifecycle summaries, got %+v", record)
+	}
+	if !record.EnhancedScanningKnown || !record.EnhancedScanningEnabled || !record.ScanOnPush {
+		t.Fatalf("expected scan metadata, got %+v", record)
+	}
+	if record.Tags["owner"] != "payments" || record.LastPushedAt != "2026-06-11T14:00:00Z" {
+		t.Fatalf("unexpected tags or push time: %+v", record)
+	}
+}
+
+func TestSDKECRRepositoryMetadataAPIDiagnosticsForOptionalMetadata(t *testing.T) {
+	api := NewSDKECRRepositoryMetadataAPIFromClient(fakeECRSDKClient{
+		policyErr:    errors.New("access denied policy"),
+		lifecycleErr: errors.New("access denied lifecycle"),
+		imagesErr:    errors.New("throttled images"),
+		tagsErr:      errors.New("access denied tags"),
+		scanningErr:  errors.New("access denied scanning"),
+	}, "123456789012", "us-east-1")
+
+	page, err := api.ListRepositoryMetadata(context.Background(), "", 50)
+	if err != nil {
+		t.Fatalf("list repository metadata: %v", err)
+	}
+	if len(page.Records) != 1 || len(page.Diagnostics) != 5 {
+		t.Fatalf("expected record plus optional metadata diagnostics, got %+v", page)
+	}
+}
+
+func TestSDKECRRepositoryMetadataAPIErrors(t *testing.T) {
+	nilAPI := NewSDKECRRepositoryMetadataAPIFromClient(nil, "123456789012", "us-east-1")
+	if _, err := nilAPI.ListRepositoryMetadata(context.Background(), "", 50); err == nil {
+		t.Fatalf("expected nil client error")
+	}
+	api := NewSDKECRRepositoryMetadataAPIFromClient(fakeECRSDKClient{repositoriesErr: errors.New("describe failed")}, "123456789012", "us-east-1")
+	if _, err := api.ListRepositoryMetadata(context.Background(), "", 50); err == nil {
+		t.Fatalf("expected describe repositories error")
+	}
+}
+
+func TestCountJSONPolicyStatements(t *testing.T) {
+	if got := countJSONPolicyStatements(`{"Statement":{"Effect":"Allow"}}`); got != 1 {
+		t.Fatalf("single statement count = %d, want 1", got)
+	}
+	if got := countJSONPolicyStatements(`{"Statement":[{"Effect":"Allow"},{"Effect":"Deny"}]}`); got != 2 {
+		t.Fatalf("array statement count = %d, want 2", got)
+	}
+	if got := countJSONPolicyStatements(`{"Statement":"bogus"}`); got != 0 {
+		t.Fatalf("invalid statement count = %d, want 0", got)
+	}
+}

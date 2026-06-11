@@ -288,3 +288,14 @@ ordered by `kind`, then `source_id`.
   action, never reads parameter values, treats SecureString parameters as
   sensitive metadata only, and uses `description_present` and
   `allowed_pattern_present` instead of surfacing text in operator evidence.
+- ECR repository metadata and workload image references are exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/ecr-repository-metadata`.
+  The collector records repository ARN/name/URI, tag mutability, encryption
+  configuration, scan settings, repository-policy and lifecycle-policy counts,
+  image summary counts, tags, and graph-ready `uses_image` edges for resolved
+  workload image references from ECS task definitions, CodeBuild build images,
+  SageMaker image fields, and any normalized workload image metadata. It never
+  calls `ecr:BatchGetImage`, `ecr:GetDownloadUrlForLayer`, image manifest APIs,
+  or scan-finding detail APIs, and it never stores image layers, manifests,
+  SBOMs, customer payloads, prompts, completions, object contents, or database
+  rows.

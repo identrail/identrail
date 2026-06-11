@@ -12,6 +12,7 @@ const (
 	RelationshipEndpointPolicy               RelationshipEndpointKind = "policy"
 	RelationshipEndpointAccess               RelationshipEndpointKind = "access"
 	RelationshipEndpointSecret               RelationshipEndpointKind = "secret"
+	RelationshipEndpointImageRepository      RelationshipEndpointKind = "image_repository"
 	RelationshipEndpointKMSKey               RelationshipEndpointKind = "kms_key"
 	RelationshipEndpointRoleIdentity         RelationshipEndpointKind = "role_identity"
 	RelationshipEndpointActor                RelationshipEndpointKind = "identity_workload_or_agent"
@@ -89,6 +90,13 @@ var relationshipContracts = map[RelationshipType]RelationshipContract{
 		To:          RelationshipEndpointSecret,
 		Evidence:    "secret reference, environment mount, runtime configuration, or observed secret fetch",
 		Description: "An actor uses a secret material source.",
+	},
+	RelationshipUsesImage: {
+		Type:        RelationshipUsesImage,
+		From:        RelationshipEndpointActor,
+		To:          RelationshipEndpointImageRepository,
+		Evidence:    "container image URI, workload image configuration, or build environment image reference",
+		Description: "An actor uses a container image repository.",
 	},
 	RelationshipCanDecrypt: {
 		Type:        RelationshipCanDecrypt,

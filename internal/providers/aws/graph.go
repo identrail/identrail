@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -75,6 +76,7 @@ func (b *RelationshipBuilder) ResolveRelationships(ctx context.Context, bundle p
 
 	secretIndex := secretsManagerResourceIndex(bundle.Resources)
 	parameterIndex := ssmParameterResourceIndex(bundle.Resources)
+	imageIndex := ecrRepositoryResourceIndex(bundle.Resources)
 	for _, resource := range bundle.Resources {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -97,6 +99,25 @@ func (b *RelationshipBuilder) ResolveRelationships(ctx context.Context, bundle p
 				Type:         domain.RelationshipUsesSecret,
 				FromNodeID:   fromNodeID,
 				ToNodeID:     secretID,
+				EvidenceRef:  strings.TrimSpace(ref),
+				DiscoveredAt: timestamp,
+			}
+			appendRelationship(&relationships, seen, relationship)
+		}
+		for _, ref := range imageRefsFromResource(resource) {
+			repositoryID := matchECRImageReference(ref, imageIndex)
+			if repositoryID == "" {
+				continue
+			}
+			fromNodeID := strings.TrimSpace(resource.SourceEntityID)
+			if fromNodeID == "" {
+				fromNodeID = resource.ID
+			}
+			relationship := domain.Relationship{
+				ID:           relationshipID(domain.RelationshipUsesImage, fromNodeID, repositoryID),
+				Type:         domain.RelationshipUsesImage,
+				FromNodeID:   fromNodeID,
+				ToNodeID:     repositoryID,
 				EvidenceRef:  strings.TrimSpace(ref),
 				DiscoveredAt: timestamp,
 			}
@@ -165,6 +186,76 @@ func (b *RelationshipBuilder) ResolveRelationships(ctx context.Context, bundle p
 	}
 
 	return relationships, nil
+}
+
+func ecrRepositoryResourceIndex(resources []domain.Resource) map[string]string {
+	index := map[string]string{}
+	for _, resource := range resources {
+		if resource.Type != domain.ResourceTypeECRRepository {
+			continue
+		}
+		for _, key := range ecrRepositoryReferenceKeys(resource.ARN, resource.Name, resource.Metadata["repository_uri"]) {
+			index[strings.ToLower(key)] = resource.ID
+		}
+	}
+	return index
+}
+
+func matchECRImageReference(ref string, index map[string]string) string {
+	for _, key := range ecrRepositoryReferenceKeysFromRef(ref) {
+		if id := index[strings.ToLower(key)]; id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+func imageRefsFromResource(resource domain.Resource) []string {
+	refs := []string{}
+	refs = append(refs, parseStringList(resource.Metadata["container_images"])...)
+	refs = append(refs, parseStringList(resource.Metadata["image_uris"])...)
+	if image := strings.TrimSpace(fmt.Sprint(resource.Metadata["image"])); image != "" && image != "<nil>" {
+		refs = append(refs, image)
+	}
+	return dedupeStrings(refs)
+}
+
+func ecrRepositoryReferenceKeys(repositoryARN string, repositoryName string, repositoryURI any) []string {
+	keys := []string{}
+	if arn := strings.TrimSpace(repositoryARN); arn != "" {
+		keys = append(keys, arn)
+		keys = append(keys, ecrRepositoryNameFromARN(arn))
+	}
+	if name := strings.TrimSpace(repositoryName); name != "" {
+		keys = append(keys, name)
+	}
+	if uri := strings.TrimSpace(fmt.Sprint(repositoryURI)); uri != "" && uri != "<nil>" {
+		keys = append(keys, uri)
+		keys = append(keys, ecrRepositoryNameFromURI(uri))
+	}
+	return dedupeStrings(keys)
+}
+
+func ecrRepositoryReferenceKeysFromRef(ref string) []string {
+	trimmed := strings.TrimSpace(ref)
+	if trimmed == "" {
+		return nil
+	}
+	if idx := strings.Index(trimmed, "="); idx >= 0 {
+		trimmed = strings.TrimSpace(trimmed[idx+1:])
+	}
+	withoutDigest := trimmed
+	if idx := strings.Index(withoutDigest, "@"); idx > 0 {
+		withoutDigest = withoutDigest[:idx]
+	}
+	withoutTag := withoutDigest
+	if slash := strings.LastIndex(withoutTag, "/"); slash >= 0 {
+		if colon := strings.LastIndex(withoutTag, ":"); colon > slash {
+			withoutTag = withoutTag[:colon]
+		}
+	}
+	name := ecrRepositoryNameFromURI(withoutTag)
+	return dedupeStrings([]string{trimmed, withoutDigest, withoutTag, name})
 }
 
 func secretsManagerResourceIndex(resources []domain.Resource) map[string]string {

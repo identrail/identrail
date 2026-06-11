@@ -165,6 +165,13 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	var ecrRepositoryMetadata ECRRepositoryMetadata
+	if err := json.Unmarshal(payload, &ecrRepositoryMetadata); err == nil {
+		if isECRRepositoryMetadataFixture(ecrRepositoryMetadata) {
+			return rawKindECRRepositoryMetadata, ecrRepositoryMetadataSourceID(ecrRepositoryMetadata)
+		}
+	}
+
 	var secretsManagerMetadata SecretsManagerSecretMetadata
 	if err := json.Unmarshal(payload, &secretsManagerMetadata); err == nil {
 		if isSecretsManagerMetadataFixture(secretsManagerMetadata) {
@@ -237,6 +244,18 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 	}
 
 	return "", ""
+}
+
+func isECRRepositoryMetadataFixture(record ECRRepositoryMetadata) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), ecrServiceName) {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(record.CollectorName), ecrRepositoryMetadataCollectorName) {
+		return true
+	}
+	return strings.TrimSpace(record.RepositoryARN) != "" ||
+		strings.TrimSpace(record.RepositoryURI) != "" ||
+		strings.TrimSpace(record.RepositoryName) != ""
 }
 
 func isECSTaskRoleFixture(record ECSTaskRole) bool {

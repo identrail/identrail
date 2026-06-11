@@ -650,6 +650,10 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 			if err != nil {
 				return app.Scanner{}, fmt.Errorf("initialize aws ssm parameter metadata collector: %w", err)
 			}
+			ecrAPI, err := awsprovider.NewSDKECRRepositoryMetadataAPI(cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if err != nil {
+				return app.Scanner{}, fmt.Errorf("initialize aws ecr repository metadata collector: %w", err)
+			}
 			return awsprovider.NewAWSScannerWithServices(iamAPI, cfg.AWSAccountID, cfg.AWSRegion, []awsprovider.AWSServiceCollector{
 				awsprovider.NewEC2InstanceProfileCollector(ec2API),
 				awsprovider.NewECSTaskRoleCollector(ecsAPI),
@@ -666,6 +670,7 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 				awsprovider.NewKMSDecryptReachabilityCollector(kmsAPI),
 				awsprovider.NewSecretsManagerMetadataCollector(secretsAPI),
 				awsprovider.NewSSMParameterMetadataCollector(ssmAPI),
+				awsprovider.NewECRRepositoryMetadataCollector(ecrAPI),
 			}, awsprovider.NewRuleSet(
 				awsprovider.WithStaleAfter(time.Duration(staleAfterDays)*24*time.Hour),
 			)), nil

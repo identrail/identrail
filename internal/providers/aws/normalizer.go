@@ -47,6 +47,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		if err := ctx.Err(); err != nil {
 			return providers.NormalizedBundle{}, err
 		}
+		if asset.Kind != rawKindECRRepositoryMetadata {
+			continue
+		}
+		if err := normalizeECRRepositoryMetadataAsset(asset, i, &bundle, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
 		if asset.Kind != rawKindSecretsManagerMetadata {
 			continue
 		}
@@ -290,6 +302,59 @@ func normalizeIAMRoleAsset(asset providers.RawAsset, index int, bundle *provider
 	return nil
 }
 
+func normalizeECRRepositoryMetadataAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, resourceSeen map[string]struct{}) error {
+	var record ECRRepositoryMetadata
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode ecr repository metadata asset[%d]: %w", index, err)
+	}
+	repositoryARN := strings.TrimSpace(record.RepositoryARN)
+	if repositoryARN == "" {
+		return nil
+	}
+	resourceID := ecrRepositoryResourceID(repositoryARN)
+	if _, exists := resourceSeen[resourceID]; exists {
+		return nil
+	}
+	resourceSeen[resourceID] = struct{}{}
+	bundle.Resources = append(bundle.Resources, domain.Resource{
+		ID:        resourceID,
+		Provider:  domain.ProviderAWS,
+		Type:      domain.ResourceTypeECRRepository,
+		Name:      firstNonEmptyAWSValue(record.RepositoryName, ecrRepositoryNameFromARN(repositoryARN), repositoryARN),
+		ARN:       repositoryARN,
+		Region:    strings.TrimSpace(record.Region),
+		AccountID: strings.TrimSpace(record.AccountID),
+		Labels:    copyTags(record.Tags),
+		Metadata: map[string]any{
+			"registry_id":                       strings.TrimSpace(record.RegistryID),
+			"repository_uri":                    strings.TrimSpace(record.RepositoryURI),
+			"image_tag_mutability":              strings.TrimSpace(record.ImageTagMutability),
+			"encryption_type":                   strings.TrimSpace(record.EncryptionType),
+			"kms_key_id":                        strings.TrimSpace(record.KMSKeyID),
+			"scan_on_push":                      record.ScanOnPush,
+			"enhanced_scanning_known":           record.EnhancedScanningKnown,
+			"enhanced_scanning_enabled":         record.EnhancedScanningEnabled,
+			"has_repository_policy":             record.HasRepositoryPolicy,
+			"repository_policy_statement_count": record.RepositoryPolicyStatement,
+			"has_lifecycle_policy":              record.HasLifecyclePolicy,
+			"lifecycle_rule_count":              record.LifecycleRuleCount,
+			"image_count":                       record.ImageCount,
+			"tagged_image_count":                record.TaggedImageCount,
+			"untagged_image_count":              record.UntaggedImageCount,
+			"last_pushed_at":                    strings.TrimSpace(record.LastPushedAt),
+			"created_at":                        strings.TrimSpace(record.CreatedAt),
+			"sensitivity_classification":        record.SensitivityClassification,
+			"exposure_classification":           record.ExposureClassification,
+			"exposure_reasons":                  append([]string(nil), record.ExposureReasons...),
+			"reference_count":                   len(record.ReferencedBy),
+			"referenced_by":                     imageReferenceMetadata(record.ReferencedBy),
+			"unresolved_references":             imageReferenceMetadata(record.UnresolvedReferences),
+		},
+		RawRef: asset.SourceID,
+	})
+	return nil
+}
+
 func normalizeSecretsManagerMetadataAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, resourceSeen map[string]struct{}) error {
 	var record SecretsManagerSecretMetadata
 	if err := json.Unmarshal(asset.Payload, &record); err != nil {
@@ -344,6 +409,27 @@ func normalizeSecretsManagerMetadataAsset(asset providers.RawAsset, index int, b
 		RawRef: asset.SourceID,
 	})
 	return nil
+}
+
+func imageReferenceMetadata(refs []ImageWorkloadReference) []map[string]any {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, map[string]any{
+			"source_service": strings.TrimSpace(ref.SourceService),
+			"workload_id":    strings.TrimSpace(ref.WorkloadID),
+			"workload_type":  strings.TrimSpace(ref.WorkloadType),
+			"workload_name":  strings.TrimSpace(ref.WorkloadName),
+			"resource_arn":   strings.TrimSpace(ref.ResourceARN),
+			"resource_id":    strings.TrimSpace(ref.ResourceID),
+			"image_uri":      strings.TrimSpace(ref.ImageURI),
+			"reference_kind": strings.TrimSpace(ref.ReferenceKind),
+			"confidence":     ref.Confidence,
+		})
+	}
+	return out
 }
 
 func normalizeSSMParameterMetadataAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, resourceSeen map[string]struct{}) error {

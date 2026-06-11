@@ -12,19 +12,23 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.69.3
 	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.47.3
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.305.2
+	github.com/aws/aws-sdk-go-v2/service/ecr v1.58.4
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.82.3
 	github.com/aws/aws-sdk-go-v2/service/eks v1.84.5
 	github.com/aws/aws-sdk-go-v2/service/emr v1.61.0
 	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.46.5
 	github.com/aws/aws-sdk-go-v2/service/glue v1.143.0
 	github.com/aws/aws-sdk-go-v2/service/iam v1.54.3
+	github.com/aws/aws-sdk-go-v2/service/kms v1.53.4
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.92.2
 	github.com/aws/aws-sdk-go-v2/service/pipes v1.24.5
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.103.2
 	github.com/aws/aws-sdk-go-v2/service/s3control v1.71.5
 	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.253.0
 	github.com/aws/aws-sdk-go-v2/service/scheduler v1.18.6
+	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.39.2
 	github.com/aws/aws-sdk-go-v2/service/sfn v1.42.2
+	github.com/aws/aws-sdk-go-v2/service/ssm v1.69.3
 	github.com/aws/aws-sdk-go-v2/service/sts v1.43.2
 	github.com/aws/smithy-go v1.27.2
 	github.com/beevik/etree v1.6.0
@@ -61,10 +65,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.21 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.28 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.29 // indirect
-	github.com/aws/aws-sdk-go-v2/service/kms v1.53.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.39.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.1.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssm v1.69.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.31.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.36.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect

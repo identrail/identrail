@@ -2611,6 +2611,124 @@ export type AWSSSMParameterMetadataInventoryResult = {
   updated_at: string;
 };
 
+export type AWSECRRepositoryMetadataInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSECRRepositoryMetadataFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+
+export type AWSECRRepositoryCoverageGap = {
+  capability: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSECRImageWorkloadReference = {
+  source_service?: string;
+  workload_id?: string;
+  workload_type?: string;
+  workload_name?: string;
+  resource_arn?: string;
+  resource_id?: string;
+  image_uri: string;
+  reference_kind: string;
+  confidence: number;
+};
+
+export type AWSECRRepositoryMetadataRecord = {
+  account_id: string;
+  region: string;
+  service: 'ecr';
+  repository_arn: string;
+  repository_name: string;
+  registry_id?: string;
+  repository_uri: string;
+  image_tag_mutability: string;
+  encryption_type?: string;
+  kms_key_id?: string;
+  scan_on_push: boolean;
+  enhanced_scanning_known: boolean;
+  enhanced_scanning_enabled: boolean;
+  has_repository_policy: boolean;
+  repository_policy_statement_count: number;
+  has_lifecycle_policy: boolean;
+  lifecycle_rule_count: number;
+  image_count: number;
+  tagged_image_count: number;
+  untagged_image_count: number;
+  last_pushed_at?: string;
+  created_at?: string;
+  tags?: Record<string, string>;
+  sensitivity_classification: string;
+  exposure_classification: string;
+  exposure_reasons?: string[];
+  referenced_by?: AWSECRImageWorkloadReference[];
+  unresolved_references?: AWSECRImageWorkloadReference[];
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  relationship_type: string;
+  confidence: number;
+  collected_at: string;
+  status: string;
+};
+
+export type AWSECRRepositoryReferenceEdge = {
+  type: 'uses_image';
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+  source: string;
+  confidence: number;
+};
+
+export type AWSECRRepositoryMetadataDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSECRRepositoryMetadataInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSECRRepositoryMetadataInventoryStatus;
+  fixture_state: AWSECRRepositoryMetadataFixtureState;
+  confidence: number;
+  repository_count: number;
+  referenced_repository_count: number;
+  unreferenced_repository_count: number;
+  mutable_repository_count: number;
+  unscanned_repository_count: number;
+  repository_policy_count: number;
+  lifecycle_policy_count: number;
+  relationship_count: number;
+  unresolved_reference_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSECRRepositoryCoverageGap[];
+  records: AWSECRRepositoryMetadataRecord[];
+  relationships: AWSECRRepositoryReferenceEdge[];
+  diagnostics: AWSECRRepositoryMetadataDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSEKSWorkloadIdentityInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSEKSWorkloadIdentityFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 
@@ -3886,6 +4004,24 @@ export const apiClient = {
         connector_id: connectorID,
         fixture_state: fixtureState,
         parameter_type: filters?.parameterType,
+        identity: filters?.identity
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectECRRepositoryMetadata(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSECRRepositoryMetadataFixtureState,
+    filters?: { repositoryName?: string; identity?: string },
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSECRRepositoryMetadataInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/ecr-repository-metadata${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState,
+        repository_name: filters?.repositoryName,
         identity: filters?.identity
       })}`,
       auth

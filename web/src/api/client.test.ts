@@ -1064,6 +1064,37 @@ describe('apiClient', () => {
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 
+  it('gets AWS ECR repository metadata inventory with scoped headers, fixture state, and filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ inventory: { status: 'ready', repository_count: 3, records: [] } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectECRRepositoryMetadata(
+      'workspace/a',
+      'project 1',
+      'aws-prod',
+      'partial_failure',
+      { repositoryName: 'payments/api', identity: 'payments-service' },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(
+      '/v1/workspaces/workspace%2Fa/projects/project%201/aws/ecr-repository-metadata?connector_id=aws-prod&fixture_state=partial_failure&repository_name=payments%2Fapi&identity=payments-service'
+    );
+    expect(options.method ?? 'GET').toBe('GET');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
+
   it('gets AWS EKS workload identity inventory with scoped headers and fixture state', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
