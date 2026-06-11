@@ -111,13 +111,14 @@ func (a *SDKDynamoDBRDSReachabilityAPI) ListDynamoDBRDSReachability(ctx context.
 	if phase == "" || phase == dynamoDBServiceName {
 		if a.dynamoDBClient != nil {
 			ddbRecords, ddbNext, ddbDiagnostics, err := a.listDynamoDBTablesPage(ctx, token, pageSize)
-			if err != nil {
-				return DynamoDBRDSReachabilityPage{}, err
-			}
-			records = append(records, ddbRecords...)
 			diagnostics = append(diagnostics, ddbDiagnostics...)
-			if ddbNext != "" {
-				return DynamoDBRDSReachabilityPage{Records: records, NextToken: dynamoDBRDSPageTokenDynamoDB + ddbNext, Diagnostics: diagnostics}, nil
+			if err != nil {
+				diagnostics = append(diagnostics, dynamoDBRDSReachabilityDiagnostic("dynamodb_table_list_failed", firstNonEmptyAWSValue(token, dynamoDBServiceName), fmt.Sprintf("ListTables failed: %v", err), isRetryable(err)))
+			} else {
+				records = append(records, ddbRecords...)
+				if ddbNext != "" {
+					return DynamoDBRDSReachabilityPage{Records: records, NextToken: dynamoDBRDSPageTokenDynamoDB + ddbNext, Diagnostics: diagnostics}, nil
+				}
 			}
 		}
 		token = ""

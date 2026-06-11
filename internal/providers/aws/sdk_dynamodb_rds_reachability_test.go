@@ -225,3 +225,44 @@ func TestSDKDynamoDBRDSReachabilityRetainsDynamoDBOnRDSFailure(t *testing.T) {
 		t.Fatalf("expected no diagnostics before rds failure in partial path, got %d", len(page.Diagnostics))
 	}
 }
+
+func TestSDKDynamoDBRDSReachabilityContinuesToRDSOnDynamoDBFailure(t *testing.T) {
+	dbClient := &fakeSDKDynamoDBClient{
+		dispatchListTablesError: errors.New("list tables throttled"),
+	}
+	rdsClient := &fakeSDKRDSClient{
+		instancesOutput: &rds.DescribeDBInstancesOutput{DBInstances: []rdstypes.DBInstance{{
+			DBInstanceArn:                    awsv2.String("arn:aws:rds:us-east-1:123456789012:db:customer-export"),
+			DBInstanceIdentifier:             awsv2.String("customer-export"),
+			DBInstanceStatus:                 awsv2.String("available"),
+			Engine:                           awsv2.String("postgres"),
+			EngineVersion:                    awsv2.String("15.5"),
+			Endpoint:                         &rdstypes.Endpoint{Address: awsv2.String("customer-export.rds.amazonaws.com")},
+			KmsKeyId:                         awsv2.String("arn:aws:kms:us-east-1:123456789012:key/rds"),
+			StorageEncrypted:                 awsv2.Bool(true),
+			IAMDatabaseAuthenticationEnabled: awsv2.Bool(false),
+			PubliclyAccessible:               awsv2.Bool(false),
+			DeletionProtection:               awsv2.Bool(false),
+			PerformanceInsightsEnabled:       awsv2.Bool(false),
+		}}},
+		tagsOutput: &rds.ListTagsForResourceOutput{},
+	}
+
+	api := NewSDKDynamoDBRDSReachabilityAPIFromClients(dbClient, rdsClient, "123456789012", "us-east-1")
+	page, err := api.ListDynamoDBRDSReachability(context.Background(), "", 5)
+	if err != nil {
+		t.Fatalf("ListDynamoDBRDSReachability: %v", err)
+	}
+	if len(page.Records) != 1 {
+		t.Fatalf("expected one rds record when dynamodb listing fails, got %d", len(page.Records))
+	}
+	if page.Records[0].ResourceType != "rds_instance" {
+		t.Fatalf("expected rds instance record, got %q", page.Records[0].ResourceType)
+	}
+	if len(page.Diagnostics) != 1 {
+		t.Fatalf("expected one diagnostic from dynamodb list failure, got %+v", page.Diagnostics)
+	}
+	if page.Diagnostics[0].Code != "dynamodb_table_list_failed" {
+		t.Fatalf("expected dynamodb_table_list_failed diagnostic, got %+v", page.Diagnostics[0].Code)
+	}
+}
