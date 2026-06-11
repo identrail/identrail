@@ -388,6 +388,17 @@ func normalizeSecretsManagerMetadataAsset(asset providers.RawAsset, index int, b
 	if secretARN == "" {
 		return nil
 	}
+	record.Sensitive = true
+	classification, source, override := classifySecretsManagerSensitivity(record)
+	if strings.TrimSpace(record.SensitivityClassification) == "" {
+		record.SensitivityClassification = classification
+	}
+	if strings.TrimSpace(record.SensitivityClassificationSource) == "" {
+		record.SensitivityClassificationSource = source
+	}
+	if strings.TrimSpace(record.SensitivityClassificationOverride) == "" {
+		record.SensitivityClassificationOverride = override
+	}
 	resourceID := secretsManagerSecretResourceID(secretARN)
 	if _, exists := resourceSeen[resourceID]; exists {
 		return nil

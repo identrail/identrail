@@ -197,6 +197,16 @@ func TestSecretsManagerMetadataNormalizeAndGraphUsesSecret(t *testing.T) {
 	if len(bundle.Resources) == 0 {
 		t.Fatalf("expected normalized resources")
 	}
+	resource := bundle.Resources[0]
+	if resource.Metadata["sensitive"] != true {
+		t.Fatalf("expected legacy secrets manager asset to default sensitive=true, got %v", resource.Metadata["sensitive"])
+	}
+	if resource.Metadata["sensitivity_classification"] != "secret_bearing" {
+		t.Fatalf("expected default secret-bearing classification, got %v", resource.Metadata["sensitivity_classification"])
+	}
+	if resource.Metadata["sensitivity_classification_source"] != sensitivityClassificationSourceAuto {
+		t.Fatalf("expected auto classification source, got %v", resource.Metadata["sensitivity_classification_source"])
+	}
 	relationships, err := NewRelationshipBuilder().ResolveRelationships(context.Background(), bundle, nil)
 	if err != nil {
 		t.Fatalf("relationships: %v", err)

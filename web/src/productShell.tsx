@@ -6182,7 +6182,7 @@ function awsSecretsManagerMetadataRow(record: AWSSecretsManagerMetadataRecord): 
     detail: `${rotationLabel}; ${policyLabel}; ${referenceLabel}; ${kmsLabel}. Values hidden.`,
     filters: {
       category: 'secrets-manager',
-      sensitivity: record.sensitivity_classification === 'runtime_secret_reference' ? 'credential-reference' : 'secret-bearing',
+      sensitivity: 'secret-bearing',
       readPosture: 'metadata-only',
       search: ''
     },
