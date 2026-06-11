@@ -47,6 +47,12 @@ func TestGetAWSSecretsManagerMetadataInventoryBuildsScopedRecords(t *testing.T) 
 		if record.DescriptionPresent != true {
 			t.Fatalf("expected description presence flag, got %+v", record)
 		}
+		if !record.Sensitive {
+			t.Fatalf("expected secret records to be sensitive: %+v", record)
+		}
+		if record.SensitivityClassification == "" {
+			t.Fatalf("expected sensitivity classification: %+v", record)
+		}
 	}
 }
 
@@ -126,5 +132,60 @@ func TestRouterAWSSecretsManagerMetadataInvalidFixtureState(t *testing.T) {
 	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-2/aws/secrets-manager-metadata?connector_id=aws-prod&fixture_state=bogus", "")
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestAWSSecretsManagerMetadataFixtureSensitivityClassifications(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 10, 17, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-3")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-3", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	r := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{})
+
+	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-3/aws/secrets-manager-metadata?connector_id=aws-prod", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		Inventory AWSSecretsManagerMetadataInventoryResult `json:"inventory"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	expect := map[string]struct {
+		classification string
+		source         string
+	}{
+		"payments/db": {
+			classification: "runtime_secret_reference",
+			source:         "auto_rules",
+		},
+		"shared/api-token": {
+			classification: "customer_kms_secret",
+			source:         "operator_override",
+		},
+		"partner/webhook": {
+			classification: "secret_bearing",
+			source:         "auto_rules",
+		},
+	}
+	for _, record := range body.Inventory.Records {
+		expected, ok := expect[record.SecretName]
+		if !ok {
+			continue
+		}
+		if record.SensitivityClassification != expected.classification {
+			t.Fatalf("secret %s sensitivity_classification = %s, want %s", record.SecretName, record.SensitivityClassification, expected.classification)
+		}
+		if record.SensitivityClassificationSource != expected.source {
+			t.Fatalf("secret %s sensitivity_classification_source = %s, want %s", record.SecretName, record.SensitivityClassificationSource, expected.source)
+		}
+		if record.SensitivityClassificationOverride != "" && record.SensitivityClassificationSource != "operator_override" {
+			t.Fatalf("override value should only be present for operator override: %+v", record)
+		}
 	}
 }

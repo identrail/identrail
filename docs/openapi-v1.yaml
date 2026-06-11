@@ -10272,6 +10272,15 @@ components:
         tags:
           type: object
           additionalProperties: { type: string }
+        sensitive:
+          type: boolean
+        sensitivity_classification:
+          type: string
+        sensitivity_classification_source:
+          type: string
+          enum: [auto_rules, operator_override]
+        sensitivity_classification_override:
+          type: string
         exposure_classification: { type: string }
         exposure_reasons:
           type: array

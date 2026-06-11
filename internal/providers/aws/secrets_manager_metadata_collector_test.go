@@ -71,6 +71,15 @@ func TestSecretsManagerMetadataCollectorCollectsMetadataOnly(t *testing.T) {
 	if strings.Contains(payload, "secretstring") || strings.Contains(payload, "secretbinary") || strings.Contains(payload, "getsecretvalue") {
 		t.Fatalf("secret value material leaked into collector payload: %s", payload)
 	}
+	if !record.Sensitive {
+		t.Fatalf("expected normalized secret metadata to be marked sensitive: %+v", record)
+	}
+	if record.SensitivityClassification != "customer_kms_secret" {
+		t.Fatalf("expected customer-kms secret classification, got %q", record.SensitivityClassification)
+	}
+	if record.SensitivityClassificationSource != sensitivityClassificationSourceAuto {
+		t.Fatalf("expected auto sensitivity source, got %q", record.SensitivityClassificationSource)
+	}
 }
 
 func TestSecretsManagerMetadataCollectorPartialFailureReturnsDiagnostics(t *testing.T) {
@@ -262,6 +271,52 @@ func TestSecretsManagerReferenceKeysFromRefStripsValueSuffixes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClassifySecretsManagerSensitivity(t *testing.T) {
+	t.Run("operator_override_tag_precedence", func(t *testing.T) {
+		secret := SecretsManagerSecretMetadata{
+			ReferencedBy: []SecretWorkloadReference{{
+				Reference: "DATABASE_PASSWORD=arn:aws:secretsmanager:us-east-1:123456789012:secret:payments/db",
+			}},
+			KMSKeyID: "alias/aws/secretsmanager",
+			Tags: map[string]string{
+				"IDENTRAIL:sensitivity_classification": "customer_kms_secret",
+			},
+		}
+		classification, source, override := classifySecretsManagerSensitivity(secret)
+		if classification != "customer_kms_secret" || source != sensitivityClassificationSourceOverride || override != "customer_kms_secret" {
+			t.Fatalf("expected operator override classification from tag, got %q %q %q", classification, source, override)
+		}
+	})
+
+	t.Run("customer_kms_classification", func(t *testing.T) {
+		classification, source, _ := classifySecretsManagerSensitivity(SecretsManagerSecretMetadata{
+			ReferencedBy: []SecretWorkloadReference{},
+			KMSKeyID:     "alias/payments",
+		})
+		if classification != "customer_kms_secret" || source != sensitivityClassificationSourceAuto {
+			t.Fatalf("expected auto customer-kms classification, got %q %q", classification, source)
+		}
+	})
+
+	t.Run("default_bearing_classification", func(t *testing.T) {
+		classification, source, _ := classifySecretsManagerSensitivity(SecretsManagerSecretMetadata{
+			Tags: map[string]string{"environment": "prod"},
+		})
+		if classification != "secret_bearing" || source != sensitivityClassificationSourceAuto {
+			t.Fatalf("expected auto default bearing classification, got %q %q", classification, source)
+		}
+	})
+
+	t.Run("runtime_reference_classification", func(t *testing.T) {
+		classification, source, _ := classifySecretsManagerSensitivity(SecretsManagerSecretMetadata{
+			ReferencedBy: []SecretWorkloadReference{{Reference: "PAYMENT_PASSWORD=foo"}},
+		})
+		if classification != "runtime_secret_reference" || source != sensitivityClassificationSourceAuto {
+			t.Fatalf("expected auto runtime-reference classification, got %q %q", classification, source)
+		}
+	})
 }
 
 func containsString(values []string, want string) bool {

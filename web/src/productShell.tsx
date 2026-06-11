@@ -6170,6 +6170,8 @@ function awsSecretsManagerMetadataRow(record: AWSSecretsManagerMetadataRecord): 
   const policyLabel = record.has_resource_policy ? `${record.resource_policy_statement_count} policy statements` : 'no resource policy';
   const rotationLabel = record.rotation_enabled ? `rotation enabled${record.rotation_interval_days ? ` every ${record.rotation_interval_days} days` : ''}` : 'rotation not enabled';
   const kmsLabel = record.kms_key_arn || record.kms_key_id ? 'KMS referenced' : 'default encryption metadata';
+  const sensitivityLabel = record.sensitive ? (record.sensitivity_classification === 'runtime_secret_reference' ? 'runtime-secret-reference' : 'secret-bearing') : 'non-secret';
+  const sourceLabel = record.sensitivity_classification_source === 'operator_override' ? `override: ${record.sensitivity_classification}` : `classified by ${record.sensitivity_classification_source}`;
   return {
     id: `secrets-manager-${record.secret_arn}`,
     name: record.secret_name || record.secret_arn,
@@ -6180,7 +6182,7 @@ function awsSecretsManagerMetadataRow(record: AWSSecretsManagerMetadataRecord): 
     detail: `${rotationLabel}; ${policyLabel}; ${referenceLabel}; ${kmsLabel}. Values hidden.`,
     filters: {
       category: 'secrets-manager',
-      sensitivity: record.referenced_by?.length ? 'credential-reference' : 'secret-bearing',
+      sensitivity: record.sensitivity_classification === 'runtime_secret_reference' ? 'credential-reference' : 'secret-bearing',
       readPosture: 'metadata-only',
       search: ''
     },
@@ -6190,10 +6192,14 @@ function awsSecretsManagerMetadataRow(record: AWSSecretsManagerMetadataRecord): 
       record.account_id,
       record.region,
       record.secret_status,
+      record.sensitivity_classification,
+      record.sensitivity_classification_source,
+      record.sensitivity_classification_override ?? '',
       record.exposure_classification,
       ...(record.exposure_reasons ?? []),
       ...(record.referenced_by ?? []).map((ref) => `${ref.source_service ?? ''} ${ref.workload_name ?? ''} ${ref.reference}`),
       ...(record.unresolved_references ?? []).map((ref) => `${ref.source_service ?? ''} ${ref.workload_name ?? ''} ${ref.reference}`),
+      `sensitivity ${sensitivityLabel}; ${sourceLabel}`,
       'secrets manager metadata rotation policy kms references values hidden'
     ])
   };

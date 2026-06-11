@@ -2675,6 +2675,10 @@ export type AWSSecretsManagerMetadataRecord = {
   secret_arn: string;
   secret_name: string;
   description_present: boolean;
+  sensitive: boolean;
+  sensitivity_classification: string;
+  sensitivity_classification_source: string;
+  sensitivity_classification_override?: string;
   kms_key_id?: string;
   kms_key_arn?: string;
   owning_service?: string;

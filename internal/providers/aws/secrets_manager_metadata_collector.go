@@ -59,6 +59,11 @@ type SecretsManagerSecretMetadata struct {
 	ReferenceCount         int                       `json:"reference_count,omitempty"`
 	ReferencedBy           []SecretWorkloadReference `json:"referenced_by,omitempty"`
 	UnresolvedReferences   []SecretWorkloadReference `json:"unresolved_references,omitempty"`
+
+	Sensitive                         bool   `json:"sensitive,omitempty"`
+	SensitivityClassification         string `json:"sensitivity_classification,omitempty"`
+	SensitivityClassificationSource   string `json:"sensitivity_classification_source,omitempty"`
+	SensitivityClassificationOverride string `json:"sensitivity_classification_override,omitempty"`
 }
 
 type SecretsManagerIdentityGrant struct {
@@ -278,6 +283,8 @@ func normalizeSecretsManagerMetadataScope(scope AWSCollectorScope, record Secret
 	normalized.ReferencedBy = normalizeSecretWorkloadReferences(record.ReferencedBy)
 	normalized.UnresolvedReferences = normalizeSecretWorkloadReferences(record.UnresolvedReferences)
 	normalized.ReferenceCount = len(normalized.ReferencedBy)
+	normalized.Sensitive = true
+	normalized.SensitivityClassification, normalized.SensitivityClassificationSource, normalized.SensitivityClassificationOverride = classifySecretsManagerSensitivity(normalized)
 	normalized.ExposureClassification, normalized.ExposureReasons = classifySecretsManagerExposure(normalized)
 	normalized.CollectedAt = collectedAt
 	if normalized.Confidence <= 0 {

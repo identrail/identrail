@@ -65,42 +65,46 @@ type AWSSecretsManagerMetadataInventoryResult struct {
 }
 
 type AWSSecretsManagerMetadataRecord struct {
-	AccountID                    string                               `json:"account_id"`
-	Region                       string                               `json:"region"`
-	Service                      string                               `json:"service"`
-	SecretARN                    string                               `json:"secret_arn"`
-	SecretName                   string                               `json:"secret_name"`
-	DescriptionPresent           bool                                 `json:"description_present"`
-	KMSKeyID                     string                               `json:"kms_key_id,omitempty"`
-	KMSKeyARN                    string                               `json:"kms_key_arn,omitempty"`
-	OwningService                string                               `json:"owning_service,omitempty"`
-	PrimaryRegion                string                               `json:"primary_region,omitempty"`
-	SecretStatus                 string                               `json:"secret_status"`
-	RotationEnabled              bool                                 `json:"rotation_enabled"`
-	RotationLambdaARN            string                               `json:"rotation_lambda_arn,omitempty"`
-	RotationInterval             int64                                `json:"rotation_interval_days,omitempty"`
-	CreatedAt                    string                               `json:"created_at,omitempty"`
-	LastChangedAt                string                               `json:"last_changed_at,omitempty"`
-	LastAccessedAt               string                               `json:"last_accessed_at,omitempty"`
-	LastRotatedAt                string                               `json:"last_rotated_at,omitempty"`
-	DeletedAt                    string                               `json:"deleted_at,omitempty"`
-	HasResourcePolicy            bool                                 `json:"has_resource_policy"`
-	ResourcePolicyStatementCount int                                  `json:"resource_policy_statement_count"`
-	IdentityGrants               []AWSSecretsManagerIdentityGrant     `json:"identity_grants,omitempty"`
-	VersionStages                []AWSSecretsManagerVersionStage      `json:"version_stages,omitempty"`
-	ReplicaRegions               []AWSSecretsManagerReplicaRegion     `json:"replica_regions,omitempty"`
-	Tags                         map[string]string                    `json:"tags,omitempty"`
-	ExposureClassification       string                               `json:"exposure_classification"`
-	ExposureReasons              []string                             `json:"exposure_reasons,omitempty"`
-	ReferencedBy                 []AWSSecretsManagerWorkloadReference `json:"referenced_by,omitempty"`
-	UnresolvedReferences         []AWSSecretsManagerWorkloadReference `json:"unresolved_references,omitempty"`
-	Source                       string                               `json:"source"`
-	EvidenceRef                  string                               `json:"evidence_ref"`
-	FromNodeID                   string                               `json:"from_node_id"`
-	RelationshipType             string                               `json:"relationship_type"`
-	Confidence                   float64                              `json:"confidence"`
-	CollectedAt                  time.Time                            `json:"collected_at"`
-	Status                       string                               `json:"status"`
+	AccountID                         string                               `json:"account_id"`
+	Region                            string                               `json:"region"`
+	Service                           string                               `json:"service"`
+	SecretARN                         string                               `json:"secret_arn"`
+	SecretName                        string                               `json:"secret_name"`
+	DescriptionPresent                bool                                 `json:"description_present"`
+	KMSKeyID                          string                               `json:"kms_key_id,omitempty"`
+	KMSKeyARN                         string                               `json:"kms_key_arn,omitempty"`
+	OwningService                     string                               `json:"owning_service,omitempty"`
+	PrimaryRegion                     string                               `json:"primary_region,omitempty"`
+	SecretStatus                      string                               `json:"secret_status"`
+	RotationEnabled                   bool                                 `json:"rotation_enabled"`
+	RotationLambdaARN                 string                               `json:"rotation_lambda_arn,omitempty"`
+	RotationInterval                  int64                                `json:"rotation_interval_days,omitempty"`
+	CreatedAt                         string                               `json:"created_at,omitempty"`
+	LastChangedAt                     string                               `json:"last_changed_at,omitempty"`
+	LastAccessedAt                    string                               `json:"last_accessed_at,omitempty"`
+	LastRotatedAt                     string                               `json:"last_rotated_at,omitempty"`
+	DeletedAt                         string                               `json:"deleted_at,omitempty"`
+	HasResourcePolicy                 bool                                 `json:"has_resource_policy"`
+	ResourcePolicyStatementCount      int                                  `json:"resource_policy_statement_count"`
+	IdentityGrants                    []AWSSecretsManagerIdentityGrant     `json:"identity_grants,omitempty"`
+	VersionStages                     []AWSSecretsManagerVersionStage      `json:"version_stages,omitempty"`
+	ReplicaRegions                    []AWSSecretsManagerReplicaRegion     `json:"replica_regions,omitempty"`
+	Tags                              map[string]string                    `json:"tags,omitempty"`
+	Sensitive                         bool                                 `json:"sensitive"`
+	SensitivityClassification         string                               `json:"sensitivity_classification"`
+	SensitivityClassificationSource   string                               `json:"sensitivity_classification_source"`
+	SensitivityClassificationOverride string                               `json:"sensitivity_classification_override,omitempty"`
+	ExposureClassification            string                               `json:"exposure_classification"`
+	ExposureReasons                   []string                             `json:"exposure_reasons,omitempty"`
+	ReferencedBy                      []AWSSecretsManagerWorkloadReference `json:"referenced_by,omitempty"`
+	UnresolvedReferences              []AWSSecretsManagerWorkloadReference `json:"unresolved_references,omitempty"`
+	Source                            string                               `json:"source"`
+	EvidenceRef                       string                               `json:"evidence_ref"`
+	FromNodeID                        string                               `json:"from_node_id"`
+	RelationshipType                  string                               `json:"relationship_type"`
+	Confidence                        float64                              `json:"confidence"`
+	CollectedAt                       time.Time                            `json:"collected_at"`
+	Status                            string                               `json:"status"`
 }
 
 type AWSSecretsManagerIdentityGrant struct {
@@ -293,6 +297,7 @@ func awsSecretsManagerMetadataFixtureRecords(accountID, region, fixtureState str
 			}}
 			r.ExposureClassification = "referenced_by_workload"
 			r.ExposureReasons = []string{"workload_references_secret", "rotation_enabled", "customer_kms_key_referenced"}
+			r.SensitivityClassification = "runtime_secret_reference"
 		}),
 		awsSecretsManagerMetadataFixtureRecord(accountID, region, "shared/api-token", apiARN, checkedAt, func(r *AWSSecretsManagerMetadataRecord) {
 			r.HasResourcePolicy = true
@@ -300,6 +305,12 @@ func awsSecretsManagerMetadataFixtureRecords(accountID, region, fixtureState str
 			r.IdentityGrants = []AWSSecretsManagerIdentityGrant{{PrincipalARN: "*", PrincipalType: "*", Effect: "Allow", Actions: []string{"secretsmanager:DescribeSecret"}, IsPublic: true, WildcardPrincipal: true}}
 			r.ExposureClassification = "public"
 			r.ExposureReasons = []string{"resource_policy_allow_to_wildcard_principal"}
+			r.Tags = map[string]string{
+				"identrail:sensitivity_classification": "customer_kms_secret",
+			}
+			r.SensitivityClassification = "customer_kms_secret"
+			r.SensitivityClassificationSource = "operator_override"
+			r.SensitivityClassificationOverride = "customer_kms_secret"
 		}),
 		awsSecretsManagerMetadataFixtureRecord(accountID, region, "partner/webhook", partnerARN, checkedAt, func(r *AWSSecretsManagerMetadataRecord) {
 			r.HasResourcePolicy = true
@@ -326,27 +337,30 @@ func awsSecretsManagerMetadataFixtureRecords(accountID, region, fixtureState str
 
 func awsSecretsManagerMetadataFixtureRecord(accountID, region, name, arn string, checkedAt time.Time, mutate func(*AWSSecretsManagerMetadataRecord)) AWSSecretsManagerMetadataRecord {
 	record := AWSSecretsManagerMetadataRecord{
-		AccountID:              accountID,
-		Region:                 region,
-		Service:                "secretsmanager",
-		SecretARN:              arn,
-		SecretName:             name,
-		DescriptionPresent:     true,
-		SecretStatus:           "active",
-		CreatedAt:              "2026-06-01T12:00:00Z",
-		LastChangedAt:          "2026-06-08T12:00:00Z",
-		LastAccessedAt:         "2026-06-09",
-		VersionStages:          []AWSSecretsManagerVersionStage{{VersionID: "version-current", Stages: []string{"AWSCURRENT"}, CreatedAt: "2026-06-08T12:00:00Z"}},
-		Tags:                   map[string]string{"owner": "payments"},
-		ExposureClassification: "private",
-		ExposureReasons:        []string{},
-		Source:                 "secrets_manager_metadata",
-		EvidenceRef:            arn,
-		FromNodeID:             "aws:resource:secrets-manager-secret:" + arn,
-		RelationshipType:       "metadata",
-		Confidence:             0.86,
-		CollectedAt:            checkedAt,
-		Status:                 "ready",
+		AccountID:                       accountID,
+		Region:                          region,
+		Service:                         "secretsmanager",
+		SecretARN:                       arn,
+		SecretName:                      name,
+		Sensitive:                       true,
+		SensitivityClassification:       "secret_bearing",
+		SensitivityClassificationSource: "auto_rules",
+		DescriptionPresent:              true,
+		SecretStatus:                    "active",
+		CreatedAt:                       "2026-06-01T12:00:00Z",
+		LastChangedAt:                   "2026-06-08T12:00:00Z",
+		LastAccessedAt:                  "2026-06-09",
+		VersionStages:                   []AWSSecretsManagerVersionStage{{VersionID: "version-current", Stages: []string{"AWSCURRENT"}, CreatedAt: "2026-06-08T12:00:00Z"}},
+		Tags:                            map[string]string{"owner": "payments"},
+		ExposureClassification:          "private",
+		ExposureReasons:                 []string{},
+		Source:                          "secrets_manager_metadata",
+		EvidenceRef:                     arn,
+		FromNodeID:                      "aws:resource:secrets-manager-secret:" + arn,
+		RelationshipType:                "metadata",
+		Confidence:                      0.86,
+		CollectedAt:                     checkedAt,
+		Status:                          "ready",
 	}
 	if mutate != nil {
 		mutate(&record)
