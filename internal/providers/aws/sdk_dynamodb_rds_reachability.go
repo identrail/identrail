@@ -192,11 +192,11 @@ func (a *SDKDynamoDBRDSReachabilityAPI) listDynamoDBTablesPage(ctx context.Conte
 			continue
 		}
 		record := a.recordFromDynamoDBTable(*describe.Table)
-		a.enrichDynamoDBResourcePolicy(ctx, &record, &diagnostics)
+		a.enrichDynamoDBResourcePolicy(ctx, &record, &diagnostics, "table_resource_policy")
 		a.enrichDynamoDBTags(ctx, &record, &diagnostics)
 		records = append(records, record)
 		if strings.TrimSpace(record.StreamARN) != "" {
-			records = append(records, DynamoDBRDSReachability{
+			streamRecord := DynamoDBRDSReachability{
 				ServiceCollectorRecord: awscontract.ServiceCollectorRecord{Service: dynamoDBServiceName, AccountID: record.AccountID, Region: record.Region, Source: "dynamodb_metadata", EvidenceRef: record.StreamARN},
 				ResourceARN:            record.StreamARN,
 				ResourceName:           record.ResourceName + "-stream",
@@ -204,7 +204,9 @@ func (a *SDKDynamoDBRDSReachabilityAPI) listDynamoDBTablesPage(ctx context.Conte
 				ResourceStatus:         "ENABLED",
 				StreamEnabled:          true,
 				Tags:                   copyTags(record.Tags),
-			})
+			}
+			a.enrichDynamoDBResourcePolicy(ctx, &streamRecord, &diagnostics, "stream_resource_policy")
+			records = append(records, streamRecord)
 		}
 	}
 	return records, strings.TrimSpace(awsv2.ToString(output.LastEvaluatedTableName)), diagnostics, nil
@@ -232,7 +234,7 @@ func (a *SDKDynamoDBRDSReachabilityAPI) recordFromDynamoDBTable(table ddbtypes.T
 	return record
 }
 
-func (a *SDKDynamoDBRDSReachabilityAPI) enrichDynamoDBResourcePolicy(ctx context.Context, record *DynamoDBRDSReachability, diagnostics *[]providers.SourceError) {
+func (a *SDKDynamoDBRDSReachabilityAPI) enrichDynamoDBResourcePolicy(ctx context.Context, record *DynamoDBRDSReachability, diagnostics *[]providers.SourceError, policySource string) {
 	if strings.TrimSpace(record.ResourceARN) == "" {
 		return
 	}
@@ -254,7 +256,7 @@ func (a *SDKDynamoDBRDSReachabilityAPI) enrichDynamoDBResourcePolicy(ctx context
 		return
 	}
 	record.HasResourcePolicy = true
-	record.ResourcePolicySource = "table_resource_policy"
+	record.ResourcePolicySource = policySource
 	record.ResourcePolicyStatementCount = count
 	record.IdentityGrants = grants
 }

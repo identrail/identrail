@@ -2358,9 +2358,6 @@ func dynamoDBRDSReachabilityPolicyStatements(record DynamoDBRDSReachability, res
 		service = strings.TrimSpace(dynamoDBRDSServiceForResourceType(record.ResourceType))
 	}
 	policyStatementsByIdentity := map[string][]map[string]any{}
-	if service == "" {
-		service = "aws"
-	}
 
 	for _, grant := range record.IdentityGrants {
 		if grant.NotAction {
@@ -2387,9 +2384,9 @@ func dynamoDBRDSReachabilityPolicyStatements(record DynamoDBRDSReachability, res
 		policyStatementsByIdentity[identityID] = append(policyStatementsByIdentity[identityID], statement)
 	}
 
-	associatedAction := service + ":*"
-	if service == "" || service == "*" {
-		associatedAction = "*"
+	associatedAction := "*"
+	if service != "" && service != "*" {
+		associatedAction = service + ":*"
 	}
 	for _, roleARN := range record.AssociatedRoleARNs {
 		if !isIAMRoleARN(roleARN) {

@@ -159,19 +159,21 @@ func TestSDKDynamoDBRDSReachabilityAPIListEnrichesAllResourceTypes(t *testing.T)
 	if len(page.Records) != 5 {
 		t.Fatalf("expected table, stream, instance, cluster, proxy records, got %+v", page.Records)
 	}
-	var table, instance, proxy bool
+	var table, stream, instance, proxy bool
 	for _, record := range page.Records {
 		switch record.ResourceType {
 		case "dynamodb_table":
 			table = record.HasResourcePolicy && len(record.IdentityGrants) == 1 && record.StorageEncrypted && record.StreamEnabled && record.Tags["owner"] == "payments"
+		case "dynamodb_stream":
+			stream = record.HasResourcePolicy && record.ResourcePolicySource == "stream_resource_policy" && len(record.IdentityGrants) == 1
 		case "rds_instance":
 			instance = record.PubliclyAccessible && record.IAMDatabaseAuthenticationEnabled && len(record.AssociatedRoleARNs) == 1 && record.Endpoint != ""
 		case "rds_proxy":
 			proxy = record.IAMDatabaseAuthenticationEnabled && len(record.AssociatedRoleARNs) == 1
 		}
 	}
-	if !table || !instance || !proxy {
-		t.Fatalf("expected enriched table/instance/proxy records, got %+v", page.Records)
+	if !table || !stream || !instance || !proxy {
+		t.Fatalf("expected enriched table/stream/instance/proxy records, got %+v", page.Records)
 	}
 }
 
