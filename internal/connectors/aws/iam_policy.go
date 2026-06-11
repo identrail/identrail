@@ -159,6 +159,21 @@ const readOnlyPolicyJSON = `{
       "Resource": "*"
     },
     {
+      "Sid": "IdentityTrustGraphReadOnlyDynamoDBRDS",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:ListTables",
+        "dynamodb:DescribeTable",
+        "dynamodb:ListTagsOfResource",
+        "dynamodb:GetResourcePolicy",
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBClusters",
+        "rds:DescribeDBProxies",
+        "rds:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "IdentityTrustGraphCallerIdentity",
       "Effect": "Allow",
       "Action": "sts:GetCallerIdentity",
@@ -338,6 +353,21 @@ func PermissionPreview() []PermissionPreviewItem {
 			},
 			Resources: []string{"*"},
 			Reason:    "Reads queue and topic metadata, resource policies, encryption references, DLQs, tags, and endpoint-redacted subscription metadata. Never sends, receives, deletes, publishes, or subscribes messages.",
+		},
+		{
+			Service: "DynamoDB/RDS",
+			Actions: []string{
+				"dynamodb:ListTables",
+				"dynamodb:DescribeTable",
+				"dynamodb:ListTagsOfResource",
+				"dynamodb:GetResourcePolicy",
+				"rds:DescribeDBInstances",
+				"rds:DescribeDBClusters",
+				"rds:DescribeDBProxies",
+				"rds:ListTagsForResource",
+			},
+			Resources: []string{"*"},
+			Reason:    "Reads table and cluster/proxy metadata, resource policies, tags, and associated role bindings required to reconstruct data-plane reachability for DynamoDB and RDS without modifying workload state.",
 		},
 		{
 			Service: "ECR",

@@ -210,6 +210,23 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 			t.Fatalf("connector policy must not include message or subscription action %q", sensitive)
 		}
 	}
+	for _, action := range []string{
+		"dynamodb:ListTables",
+		"dynamodb:DescribeTable",
+		"dynamodb:ListTagsOfResource",
+		"dynamodb:GetResourcePolicy",
+		"rds:DescribeDBInstances",
+		"rds:DescribeDBClusters",
+		"rds:DescribeDBProxies",
+		"rds:ListTagsForResource",
+	} {
+		if !strings.Contains(string(policy), "\""+action+"\"") {
+			t.Fatalf("expected DynamoDB/RDS reachability action %q in policy", action)
+		}
+	}
+	if !permissionPreviewContainsService(PermissionPreview(), "DynamoDB/RDS") {
+		t.Fatalf("expected DynamoDB/RDS permission preview entry")
+	}
 	hash, err := ReadOnlyPolicyHash()
 	if err != nil {
 		t.Fatalf("hash policy: %v", err)
