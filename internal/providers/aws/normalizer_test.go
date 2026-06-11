@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/providers"
 	"github.com/identrail/identrail/internal/providers/awscontract"
 )
@@ -236,5 +237,71 @@ func TestRoleNormalizerSkipsPermissionPolicyWhenNoValidEffectsRemain(t *testing.
 	}
 	if len(bundle.Policies) != 0 {
 		t.Fatalf("expected no normalized policies when no valid effects exist, got %d", len(bundle.Policies))
+	}
+}
+
+func TestRoleNormalizerPreservesDynamoDBRDSReachabilityRelationships(t *testing.T) {
+	record := DynamoDBRDSReachability{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{Service: dynamoDBServiceName, AccountID: "123456789012", Region: "us-east-1"},
+		ResourceType:           "dynamodb_table",
+		ResourceARN:            "arn:aws:dynamodb:us-east-1:123456789012:table/payments",
+		ResourceName:           "payments",
+		IdentityGrants: []DynamoDBRDSIdentityGrant{{
+			PrincipalARN: "arn:aws:iam::123456789012:role/reader",
+			Effect:       "Allow",
+			Actions:      []string{"dynamodb:GetItem", "dynamodb:Query"},
+		}},
+		AssociatedRoleARNs: []string{"arn:aws:iam::123456789012:role/associated"},
+	}
+	recordPayload, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	normalizer := NewRoleNormalizer()
+	bundle, err := normalizer.Normalize(context.Background(), []providers.RawAsset{{
+		Kind:     rawKindDynamoDBRDSReachability,
+		SourceID: "ddb|payments",
+		Payload:  recordPayload,
+	}})
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+
+	if len(bundle.Resources) != 1 {
+		t.Fatalf("expected 1 resource, got %d", len(bundle.Resources))
+	}
+	if len(bundle.Identities) != 2 {
+		t.Fatalf("expected 2 identities, got %d", len(bundle.Identities))
+	}
+	if len(bundle.Policies) != 2 {
+		t.Fatalf("expected 2 generated policies, got %d", len(bundle.Policies))
+	}
+
+	permissions, err := NewPolicyPermissionResolver().ResolvePermissions(context.Background(), bundle)
+	if err != nil {
+		t.Fatalf("resolve permissions failed: %v", err)
+	}
+	relationships, err := NewRelationshipBuilder().ResolveRelationships(context.Background(), bundle, permissions)
+	if err != nil {
+		t.Fatalf("resolve relationships failed: %v", err)
+	}
+
+	resourceID := bundle.Resources[0].ARN
+	expect := map[string]bool{
+		accessNodeID("dynamodb:GetItem", resourceID): false,
+		accessNodeID("dynamodb:Query", resourceID):   false,
+		accessNodeID("dynamodb:*", resourceID):       false,
+	}
+	for _, relationship := range relationships {
+		if relationship.Type != domain.RelationshipCanAccess {
+			continue
+		}
+		expect[relationship.ToNodeID] = true
+	}
+	for toNodeID, found := range expect {
+		if !found {
+			t.Fatalf("missing can_access relationship to %q", toNodeID)
+		}
 	}
 }

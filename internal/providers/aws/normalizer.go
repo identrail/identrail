@@ -266,7 +266,7 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		if asset.Kind != rawKindDynamoDBRDSReachability {
 			continue
 		}
-		if err := normalizeDynamoDBRDSReachabilityAsset(asset, i, &bundle, identitySeen, resourceSeen); err != nil {
+		if err := normalizeDynamoDBRDSReachabilityAsset(asset, i, &bundle, identitySeen, resourceSeen, policySeen); err != nil {
 			return providers.NormalizedBundle{}, err
 		}
 	}
@@ -2266,7 +2266,7 @@ func s3DenyGrantCount(grants []S3IdentityGrant) int {
 	return count
 }
 
-func normalizeDynamoDBRDSReachabilityAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+func normalizeDynamoDBRDSReachabilityAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, resourceSeen, policySeen map[string]struct{}) error {
 	var record DynamoDBRDSReachability
 	if err := json.Unmarshal(asset.Payload, &record); err != nil {
 		return fmt.Errorf("decode dynamodb/rds reachability asset[%d]: %w", index, err)
@@ -2321,7 +2321,106 @@ func normalizeDynamoDBRDSReachabilityAsset(asset providers.RawAsset, index int, 
 	for _, grant := range record.IdentityGrants {
 		projectAWSIAMPrincipalIdentity(bundle, identitySeen, grant.PrincipalARN, asset.SourceID)
 	}
+
+	service, policyStatementsByIdentity := dynamoDBRDSReachabilityPolicyStatements(record, resourceARN)
+	for identityID, statements := range policyStatementsByIdentity {
+		policySeenKey := identityID + "|" + service + "|" + resourceARN
+		if _, exists := policySeen[policySeenKey]; exists {
+			continue
+		}
+		policySeen[policySeenKey] = struct{}{}
+		policyID := ""
+		if normalizeName(service) == "" {
+			policyID = identityID + ":policy:dynamodb-rds-reachability"
+		} else {
+			policyID = identityID + ":policy:dynamodb-rds-reachability:" + normalizeName(service)
+		}
+		policyID = policyID + ":" + normalizeName(resourceARN)
+		bundle.Policies = append(bundle.Policies, domain.Policy{
+			ID:       policyID,
+			Provider: domain.ProviderAWS,
+			Name:     service + " reachability",
+			Document: []byte(`{"Version":"2012-10-17","Statement":[]}`),
+			Normalized: map[string]any{
+				policyTypeKey: policyTypePerm,
+				identityIDKey: identityID,
+				statementsKey: statements,
+			},
+			RawRef: asset.SourceID,
+		})
+	}
 	return nil
+}
+
+func dynamoDBRDSReachabilityPolicyStatements(record DynamoDBRDSReachability, resourceARN string) (string, map[string][]map[string]any) {
+	service := strings.ToLower(strings.TrimSpace(record.Service))
+	if service == "" {
+		service = strings.TrimSpace(dynamoDBRDSServiceForResourceType(record.ResourceType))
+	}
+	policyStatementsByIdentity := map[string][]map[string]any{}
+	if service == "" {
+		service = "aws"
+	}
+
+	for _, grant := range record.IdentityGrants {
+		if grant.NotAction {
+			continue
+		}
+		actions := parseStringList(grant.Actions)
+		if len(actions) == 0 {
+			continue
+		}
+		if strings.EqualFold(grant.Effect, "") {
+			grant.Effect = "Allow"
+		}
+		statement, ok := normalizedStatement(grant.Effect, actions, []string{resourceARN})
+		if !ok {
+			continue
+		}
+		identityID := identityIDFromARN(grant.PrincipalARN)
+		if identityID == "" {
+			continue
+		}
+		policyStatementsByIdentity[identityID] = append(policyStatementsByIdentity[identityID], statement)
+	}
+
+	associatedAction := service + ":*"
+	if service == "" || service == "*" {
+		associatedAction = "*"
+	}
+	for _, roleARN := range record.AssociatedRoleARNs {
+		identityID := identityIDFromARN(roleARN)
+		if identityID == "" {
+			continue
+		}
+		statement, ok := normalizedStatement("Allow", []string{associatedAction}, []string{resourceARN})
+		if !ok {
+			continue
+		}
+		policyStatementsByIdentity[identityID] = append(policyStatementsByIdentity[identityID], statement)
+	}
+
+	if len(policyStatementsByIdentity) == 0 {
+		return service, nil
+	}
+
+	for identityID, statements := range policyStatementsByIdentity {
+		deduped := make([]map[string]any, 0, len(statements))
+		seen := map[string]struct{}{}
+		for _, statement := range statements {
+			action := strings.Join(parseStringList(statement["actions"]), ",")
+			resource := strings.Join(parseStringList(statement["resources"]), ",")
+			key := action + "|" + resource + "|" + fmt.Sprint(statement["effect"])
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			deduped = append(deduped, statement)
+		}
+		policyStatementsByIdentity[identityID] = deduped
+	}
+
+	return service, policyStatementsByIdentity
 }
 
 func dynamoDBRDSResourceID(record DynamoDBRDSReachability) string {
