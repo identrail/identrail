@@ -129,6 +129,9 @@ func (b *RelationshipBuilder) ResolveRelationships(ctx context.Context, bundle p
 	// reuse the same uses_secret edge IDs as the secret/parameter matching above
 	// (deduped by appendRelationship); unresolved external provider keys add
 	// edges to the synthesized credential-reference nodes from the normalizer.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	_, credentialEdges := MapBundleCredentialReferences(bundle)
 	for _, edge := range credentialEdges {
 		if err := ctx.Err(); err != nil {

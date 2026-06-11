@@ -3779,6 +3779,7 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'All categories', value: 'all' },
         { label: 'Secrets Manager', value: 'secrets-manager' },
         { label: 'SSM Parameter', value: 'ssm-parameter' },
+        { label: 'Credential reference', value: 'credential-reference' },
         { label: 'ECR repository', value: 'ecr-repository' },
         { label: 'KMS', value: 'kms' },
         { label: 'S3', value: 's3' },

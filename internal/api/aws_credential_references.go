@@ -327,6 +327,7 @@ func awsCredentialReferencesFixtureRecords(accountID, region, fixtureState strin
 			r.ProviderConfidence = 0.88
 			r.Sensitivity = "source_control_token"
 			r.Unresolved = true
+			r.TargetNodeID = "aws:resource:credential-reference:" + strings.ToLower(codeBuildWorkload) + "|github|github_token"
 			r.Confidence = 0.88
 		}),
 		awsCredentialReferenceFixtureRecord(accountID, region, codeBuildWorkload, "release", "codebuild_project", "codebuild", checkedAt, func(r *AWSCredentialReferenceRecord) {
@@ -380,10 +381,16 @@ func awsCredentialReferenceFixtureRecord(accountID, region, workloadID, workload
 
 func awsCredentialReferenceEdges(records []AWSCredentialReferenceRecord) []AWSCredentialReferenceEdge {
 	edges := []AWSCredentialReferenceEdge{}
+	seen := map[string]struct{}{}
 	for _, record := range records {
 		if strings.TrimSpace(record.TargetNodeID) == "" {
 			continue
 		}
+		edgeKey := record.WorkloadID + "|" + record.TargetNodeID
+		if _, exists := seen[edgeKey]; exists {
+			continue
+		}
+		seen[edgeKey] = struct{}{}
 		edges = append(edges, AWSCredentialReferenceEdge{
 			Type:        "uses_secret",
 			FromNodeID:  record.WorkloadID,
