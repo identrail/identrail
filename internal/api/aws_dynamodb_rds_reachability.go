@@ -55,6 +55,7 @@ type AWSDynamoDBRDSReachabilityInventoryResult struct {
 	EncryptedResourceCount    int                                      `json:"encrypted_resource_count"`
 	IAMAuthResourceCount      int                                      `json:"iam_auth_resource_count"`
 	IdentityGrantCount        int                                      `json:"identity_grant_count"`
+	DenyGrantCount            int                                      `json:"deny_grant_count"`
 	AssociatedRoleCount       int                                      `json:"associated_role_count"`
 	RelationshipCount         int                                      `json:"relationship_count"`
 	FailureReasons            []string                                 `json:"failure_reasons"`
@@ -196,6 +197,7 @@ func buildAWSDynamoDBRDSReachabilityInventory(scope db.Scope, project db.Tenancy
 		EncryptedResourceCount:    countDynamoDBRDSRecordsWith(records, func(r AWSDynamoDBRDSReachabilityRecord) bool { return r.StorageEncrypted || r.KMSKeyID != "" }),
 		IAMAuthResourceCount:      countDynamoDBRDSRecordsWith(records, func(r AWSDynamoDBRDSReachabilityRecord) bool { return r.IAMDatabaseAuthenticationEnabled }),
 		IdentityGrantCount:        countDynamoDBRDSGrants(records),
+		DenyGrantCount:            countDynamoDBRDSGrantsWith(records, func(g AWSDynamoDBRDSIdentityGrant) bool { return strings.EqualFold(g.Effect, "Deny") }),
 		AssociatedRoleCount:       countDynamoDBRDSAssociatedRoles(records),
 		RelationshipCount:         len(relationships),
 		FailureReasons:            failures,
@@ -472,6 +474,18 @@ func countDynamoDBRDSGrants(records []AWSDynamoDBRDSReachabilityRecord) int {
 	return count
 }
 
+func countDynamoDBRDSGrantsWith(records []AWSDynamoDBRDSReachabilityRecord, pred func(AWSDynamoDBRDSIdentityGrant) bool) int {
+	count := 0
+	for _, record := range records {
+		for _, grant := range record.IdentityGrants {
+			if pred(grant) {
+				count++
+			}
+		}
+	}
+	return count
+}
+
 func countDynamoDBRDSAssociatedRoles(records []AWSDynamoDBRDSReachabilityRecord) int {
 	count := 0
 	for _, record := range records {
@@ -481,11 +495,34 @@ func countDynamoDBRDSAssociatedRoles(records []AWSDynamoDBRDSReachabilityRecord)
 }
 
 func validateAWSDynamoDBRDSReachabilityRecord(scope db.Scope, project db.TenancyProject, connectorID string, record AWSDynamoDBRDSReachabilityRecord) error {
-	if strings.TrimSpace(scope.TenantID) == "" || strings.TrimSpace(project.WorkspaceID) == "" || strings.TrimSpace(project.ProjectID) == "" || strings.TrimSpace(connectorID) == "" {
-		return ErrInvalidAWSConnectionRequest
+	required := []struct {
+		name  string
+		value string
+	}{
+		{"tenant_id", scope.TenantID},
+		{"workspace_id", project.WorkspaceID},
+		{"project_id", project.ProjectID},
+		{"connector_id", connectorID},
+		{"account_id", record.AccountID},
+		{"region", record.Region},
+		{"service", record.Service},
+		{"resource_arn", record.ResourceARN},
+		{"resource_name", record.ResourceName},
+		{"resource_type", record.ResourceType},
+		{"source", record.Source},
+		{"evidence_ref", record.EvidenceRef},
+		{"exposure_classification", record.ExposureClassification},
 	}
-	if strings.TrimSpace(record.ResourceARN) == "" || strings.TrimSpace(record.ResourceType) == "" || strings.TrimSpace(record.Source) == "" || strings.TrimSpace(record.EvidenceRef) == "" {
-		return ErrInvalidAWSConnectionRequest
+	for _, field := range required {
+		if strings.TrimSpace(field.value) == "" {
+			return fmt.Errorf("%s is required", field.name)
+		}
+	}
+	if record.Confidence <= 0 || record.Confidence > 1 {
+		return fmt.Errorf("confidence must be greater than 0 and at most 1")
+	}
+	if record.CollectedAt.IsZero() {
+		return fmt.Errorf("collected_at is required")
 	}
 	return nil
 }

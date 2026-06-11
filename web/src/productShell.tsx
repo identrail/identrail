@@ -6576,7 +6576,7 @@ function awsDynamoDBRDSReachabilityRow(record: AWSDynamoDBRDSReachabilityRecord)
     stage: 'wired',
     detail: `${formatTokenLabel(record.exposure_classification)}; ${policyLabel}; ${grantLabel}; ${roleLabel}; ${encryptionLabel}; ${authLabel}. Contents hidden.`,
     filters: {
-      category: record.resource_type,
+      category: `dynamodb-rds,${record.resource_type}`,
       sensitivity: publicOrCross ? 'database-exposure' : 'database-resource',
       readPosture: 'metadata-only',
       search: ''

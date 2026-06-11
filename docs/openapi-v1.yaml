@@ -10135,6 +10135,7 @@ components:
         iam_auth_resource_count: { type: integer }
         identity_grant_count: { type: integer }
         associated_role_count: { type: integer }
+        deny_grant_count: { type: integer }
         relationship_count: { type: integer }
         failure_reasons:
           type: array
