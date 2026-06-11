@@ -255,15 +255,7 @@ func ecrRepositoryReferenceKeysFromRef(ref string) []string {
 			withoutTag = withoutTag[:colon]
 		}
 	}
-	name := ""
-	if strings.Contains(withoutTag, ".dkr.ecr.") && strings.Contains(withoutTag, ".amazonaws.com") {
-		name = ecrRepositoryNameFromURI(withoutTag)
-	}
-	keys := dedupeStrings([]string{trimmed, withoutDigest, withoutTag})
-	if name != "" {
-		keys = append(keys, name)
-	}
-	return dedupeStrings(keys)
+	return dedupeStrings([]string{trimmed, withoutDigest, withoutTag})
 }
 
 func secretsManagerResourceIndex(resources []domain.Resource) map[string]string {
