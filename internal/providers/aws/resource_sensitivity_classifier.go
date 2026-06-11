@@ -1,6 +1,9 @@
 package aws
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 const (
 	sensitivityClassificationSourceAuto      = "auto_rules"
@@ -25,16 +28,21 @@ func secretsManagerSensitivityOverride(tags map[string]string) string {
 	if len(tags) == 0 {
 		return ""
 	}
-	for k, v := range tags {
+	keys := make([]string, 0, len(tags))
+	for k := range tags {
 		key := strings.ToLower(strings.TrimSpace(k))
 		if key != secretsManagerSensitivityOverrideTagName {
 			continue
 		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := tags[k]
 		value := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(v), "-", "_"))
 		if _, ok := validSecretsManagerSensitivityClassifications[value]; ok {
 			return value
 		}
-		return ""
 	}
 	return ""
 }

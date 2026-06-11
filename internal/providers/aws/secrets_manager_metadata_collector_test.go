@@ -300,6 +300,19 @@ func TestClassifySecretsManagerSensitivity(t *testing.T) {
 		}
 	})
 
+	t.Run("operator_override_skips_invalid_duplicate_tags", func(t *testing.T) {
+		secret := SecretsManagerSecretMetadata{
+			Tags: map[string]string{
+				"IDENTRAIL:sensitivity_classification":   "customer-kms-secret",
+				" identrail:sensitivity_classification ": "not-a-valid-classification",
+			},
+		}
+		classification, source, override := classifySecretsManagerSensitivity(secret)
+		if classification != "customer_kms_secret" || source != sensitivityClassificationSourceOverride || override != "customer_kms_secret" {
+			t.Fatalf("expected valid duplicate override tag to win, got %q %q %q", classification, source, override)
+		}
+	})
+
 	t.Run("customer_kms_classification", func(t *testing.T) {
 		classification, source, _ := classifySecretsManagerSensitivity(SecretsManagerSecretMetadata{
 			ReferencedBy: []SecretWorkloadReference{},
