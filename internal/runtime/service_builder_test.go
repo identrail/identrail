@@ -287,7 +287,7 @@ func TestBuildScanServiceAWSSDKMode(t *testing.T) {
 	} else if composite.AccountID() != cfg.AWSAccountID || composite.Region() != cfg.AWSRegion {
 		t.Fatalf("unexpected composite scope: account=%q region=%q", composite.AccountID(), composite.Region())
 	} else {
-		assertAWSCompositeServiceNames(t, composite, []string{"iam", "ec2", "ecs", "lambda", "codebuild", "codepipeline", "stepfunctions", "eventbridge", "managed-compute", "sagemaker", "iam-passrole", "eks", "s3", "kms", "secretsmanager", "ssm", "ecr"})
+		assertAWSCompositeServiceNames(t, composite, []string{"iam", "ec2", "ecs", "lambda", "codebuild", "codepipeline", "stepfunctions", "eventbridge", "managed-compute", "sagemaker", "iam-passrole", "eks", "s3", "kms", "sqs_sns", "secretsmanager", "ssm", "ecr"})
 	}
 	connectorScanner, err := svc.AWSScannerFactory(context.Background(), api.AWSConnectionStatus{
 		AccountID:  cfg.AWSAccountID,
@@ -305,7 +305,7 @@ func TestBuildScanServiceAWSSDKMode(t *testing.T) {
 	if connectorComposite, ok := connectorAppScanner.Collector.(*aws.AWSCompositeCollector); !ok {
 		t.Fatalf("expected connector composite collector, got %T", connectorAppScanner.Collector)
 	} else {
-		assertAWSCompositeServiceNames(t, connectorComposite, []string{"iam", "ec2", "ecs", "lambda", "codebuild", "codepipeline", "stepfunctions", "eventbridge", "managed-compute", "sagemaker", "iam-passrole", "eks", "s3", "kms", "secretsmanager", "ssm", "ecr"})
+		assertAWSCompositeServiceNames(t, connectorComposite, []string{"iam", "ec2", "ecs", "lambda", "codebuild", "codepipeline", "stepfunctions", "eventbridge", "managed-compute", "sagemaker", "iam-passrole", "eks", "s3", "kms", "sqs_sns", "secretsmanager", "ssm", "ecr"})
 	}
 	if err := closeFn(); err != nil {
 		t.Fatalf("close failed: %v", err)

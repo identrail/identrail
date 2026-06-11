@@ -642,6 +642,10 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 			if err != nil {
 				return app.Scanner{}, fmt.Errorf("initialize aws kms decrypt reachability collector: %w", err)
 			}
+			sqsSNSAPI, err := awsprovider.NewSDKSQSSNSReachabilityAPI(cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if err != nil {
+				return app.Scanner{}, fmt.Errorf("initialize aws sqs/sns reachability collector: %w", err)
+			}
 			secretsAPI, err := awsprovider.NewSDKSecretsManagerMetadataAPI(cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
 			if err != nil {
 				return app.Scanner{}, fmt.Errorf("initialize aws secrets manager metadata collector: %w", err)
@@ -668,6 +672,7 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 				awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 				awsprovider.NewS3BucketReachabilityCollector(s3API),
 				awsprovider.NewKMSDecryptReachabilityCollector(kmsAPI),
+				awsprovider.NewSQSSNSReachabilityCollector(sqsSNSAPI),
 				awsprovider.NewSecretsManagerMetadataCollector(secretsAPI),
 				awsprovider.NewSSMParameterMetadataCollector(ssmAPI),
 				awsprovider.NewECRRepositoryMetadataCollector(ecrAPI),

@@ -144,6 +144,21 @@ const readOnlyPolicyJSON = `{
       "Resource": "*"
     },
     {
+      "Sid": "IdentityTrustGraphReadOnlyMessaging",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:GetQueueAttributes",
+        "sqs:ListQueues",
+        "sqs:ListQueueTags",
+        "sns:GetSubscriptionAttributes",
+        "sns:GetTopicAttributes",
+        "sns:ListSubscriptionsByTopic",
+        "sns:ListTagsForResource",
+        "sns:ListTopics"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "IdentityTrustGraphCallerIdentity",
       "Effect": "Allow",
       "Action": "sts:GetCallerIdentity",
@@ -308,6 +323,21 @@ func PermissionPreview() []PermissionPreviewItem {
 			},
 			Resources: []string{"*"},
 			Reason:    "Reads key metadata, key policies, rotation status, aliases, live grants, and tags so Identrail can map which IAM principals can decrypt or administer customer-managed keys. Metadata-only — no Encrypt, Decrypt, Sign, Verify, GenerateDataKey, or grant-creation calls are made.",
+		},
+		{
+			Service: "SQS/SNS",
+			Actions: []string{
+				"sqs:ListQueues",
+				"sqs:GetQueueAttributes",
+				"sqs:ListQueueTags",
+				"sns:ListTopics",
+				"sns:GetTopicAttributes",
+				"sns:ListSubscriptionsByTopic",
+				"sns:GetSubscriptionAttributes",
+				"sns:ListTagsForResource",
+			},
+			Resources: []string{"*"},
+			Reason:    "Reads queue and topic metadata, resource policies, encryption references, DLQs, tags, and endpoint-redacted subscription metadata. Never sends, receives, deletes, publishes, or subscribes messages.",
 		},
 		{
 			Service: "ECR",

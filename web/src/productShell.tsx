@@ -55,6 +55,8 @@ import {
   type AWSECRRepositoryMetadataRecord,
   type AWSSecretsManagerMetadataInventoryResult,
   type AWSSecretsManagerMetadataRecord,
+  type AWSSQSSNSReachabilityInventoryResult,
+  type AWSSQSSNSReachabilityRecord,
   type AWSSSMParameterMetadataInventoryResult,
   type AWSSSMParameterMetadataRecord,
   type AWSPermissionPreviewItem,
@@ -3646,6 +3648,13 @@ type AWSInventoryECRRepositoryState = {
   onRetry: () => void;
 };
 
+type AWSInventorySQSSNSState = {
+  inventory: AWSSQSSNSReachabilityInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryCoverageRow = AWSInventoryFilterable & {
   id: string;
   category: string;
@@ -5896,6 +5905,7 @@ function AWSResourcesInventoryContent({
   secretsManagerState,
   ssmParameterState,
   ecrRepositoryState,
+  sqsSNSState,
   filters,
   onFiltersChange
 }: {
@@ -5903,6 +5913,7 @@ function AWSResourcesInventoryContent({
   secretsManagerState: AWSInventorySecretsManagerState;
   ssmParameterState: AWSInventorySSMParameterState;
   ecrRepositoryState: AWSInventoryECRRepositoryState;
+  sqsSNSState: AWSInventorySQSSNSState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
@@ -5912,10 +5923,13 @@ function AWSResourcesInventoryContent({
   const ssmRows = buildAWSSSMParameterMetadataRows(ssmInventory, ssmParameterState.loading, connection);
   const ecrInventory = ecrRepositoryState.inventory;
   const ecrRows = buildAWSECRRepositoryMetadataRows(ecrInventory, ecrRepositoryState.loading, connection);
+  const sqsSNSInventory = sqsSNSState.inventory;
+  const sqsSNSRows = buildAWSSQSSNSReachabilityRows(sqsSNSInventory, sqsSNSState.loading, connection);
   const rows: AWSInventoryTableRow[] = [
     ...secretsRows,
     ...ssmRows,
     ...ecrRows,
+    ...sqsSNSRows,
     {
       id: 'kms',
       name: 'KMS key reachability',
@@ -5974,6 +5988,12 @@ function AWSResourcesInventoryContent({
           total={1}
           detail={ecrRepositoryState.loading ? 'Loading' : ecrInventory ? formatTokenLabel(ecrInventory.status) : 'Pending'}
         />
+        <DomainCoverageCard
+          label="SQS/SNS reachability"
+          scanned={sqsSNSInventory && sqsSNSInventory.status !== 'blocked' ? 1 : 0}
+          total={1}
+          detail={sqsSNSState.loading ? 'Loading' : sqsSNSInventory ? formatTokenLabel(sqsSNSInventory.status) : 'Pending'}
+        />
         <DomainCoverageCard label="KMS reachability" scanned={0} total={1} detail="Coming wave" />
         <DomainCoverageCard label="S3 sensitivity" scanned={0} total={1} detail="Coming wave" />
       </section>
@@ -6001,11 +6021,19 @@ function AWSResourcesInventoryContent({
           retryAction={{ label: 'Retry ECR repository metadata', onClick: ecrRepositoryState.onRetry }}
         />
       ) : null}
+      {sqsSNSState.loading ? <DomainLoadingState label="Loading SQS and SNS reachability" /> : null}
+      {sqsSNSState.error ? (
+        <DomainErrorState
+          title="SQS/SNS reachability could not load"
+          body={sqsSNSState.error}
+          retryAction={{ label: 'Retry SQS/SNS reachability', onClick: sqsSNSState.onRetry }}
+        />
+      ) : null}
       <DomainStatusPanel eyebrow="Safety posture" title="No secret value reads" status="Metadata only" tone="success">
         <p>
           Resource inventory is designed around reachability and metadata. Secrets Manager, SSM Parameter, ECR image
-          repository, and external AI provider key mapping must use safe metadata and credential references, not
-          credential values or image payloads.
+          repository, SQS queues, SNS topics, and external AI provider key mapping must use safe metadata and credential
+          references, not credential values, message bodies, notification payloads, or image payloads.
         </p>
       </DomainStatusPanel>
       <DomainDataTable
@@ -6351,6 +6379,117 @@ function awsECRRepositoryMetadataRow(record: AWSECRRepositoryMetadataRecord): AW
   };
 }
 
+function buildAWSSQSSNSReachabilityRows(
+  inventory: AWSSQSSNSReachabilityInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsSQSSNSReachabilityRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'sqs-sns-blocked',
+        name: 'SQS/SNS reachability unavailable',
+        category: 'Messaging resource',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'SQS/SNS reachability collection is blocked.',
+        filters: { category: 'sqs-sns', sensitivity: 'messaging-resource', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['sqs sns messaging blocked', inventory.account_id, inventory.region])
+      }
+    ];
+  }
+  if (inventory) {
+    const degraded = inventory.status === 'degraded' || inventory.diagnostics.length > 0 || inventory.failure_reasons.length > 0;
+    return [
+      {
+        id: 'sqs-sns-empty',
+        name: degraded ? 'SQS/SNS reachability incomplete' : 'No SQS queues or SNS topics found',
+        category: 'Messaging resource',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: degraded ? 'degraded' : 'wired now',
+        stage: 'wired',
+        detail: degraded ? (inventory.failure_reasons[0] ?? 'SQS/SNS collection completed with degraded evidence and no retained records.') : 'The collector completed without SQS queues or SNS topics in this account and region.',
+        filters: { category: 'sqs-sns', sensitivity: 'messaging-resource', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['sqs sns messaging', inventory.account_id, inventory.region, degraded ? 'degraded empty' : 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'sqs-sns-loading',
+        name: 'SQS/SNS reachability',
+        category: 'Messaging resource',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading queue and topic policies, encryption, DLQs, subscriptions, and endpoint-safe metadata.',
+        filters: { category: 'sqs-sns', sensitivity: 'messaging-resource', readPosture: 'metadata-only', search: '' },
+        searchText: inventorySearchText(['sqs sns messaging loading'])
+      }
+    ];
+  }
+  return [
+    {
+      id: 'sqs-sns',
+      name: 'SQS/SNS reachability',
+      category: 'Messaging resource',
+      scope: connection?.region ?? 'Region pending',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Queue/topic policies, encryption, DLQs, and subscriptions without message or notification payload reads.',
+      filters: { category: 'sqs-sns', sensitivity: 'messaging-resource', readPosture: 'metadata-only', search: '' },
+      searchText: inventorySearchText(['sqs', 'sns', 'queue', 'topic', 'reachability'])
+    }
+  ];
+}
+
+function awsSQSSNSReachabilityRow(record: AWSSQSSNSReachabilityRecord): AWSInventoryTableRow {
+  const publicOrCross = record.exposure_classification === 'public' || record.exposure_classification === 'cross_account';
+  const degraded = record.status !== 'ready' || publicOrCross;
+  const status = degraded ? 'degraded' : 'wired now';
+  const policyLabel = record.has_resource_policy ? `${record.resource_policy_statement_count} policy statements` : 'no resource policy';
+  const grantLabel = record.identity_grants?.length ? `${record.identity_grants.length} policy grants` : 'no policy grants';
+  const dlqLabel = record.dlq_arns?.length ? `${record.dlq_arns.length} DLQs` : 'no DLQ reported';
+  const encryptionLabel = record.kms_key_id ? 'customer KMS configured' : record.sqs_managed_sse ? 'SQS-managed encryption' : 'encryption metadata default';
+  const subscriptionLabel = record.resource_type === 'sns_topic' ? `${record.subscription_count ?? record.subscriptions?.length ?? 0} subscriptions` : record.visibility_timeout_seconds ? `${record.visibility_timeout_seconds}s visibility timeout` : 'queue timing metadata';
+  const risk = record.exposure_classification === 'public' ? 'high' : record.exposure_classification === 'cross_account' ? 'medium' : 'low';
+  return {
+    id: `sqs-sns-${record.resource_arn}`,
+    name: record.resource_name || record.resource_arn,
+    category: record.resource_type === 'sns_topic' ? 'SNS topic' : 'SQS queue',
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage: 'wired',
+    detail: `${formatTokenLabel(record.exposure_classification)}; ${policyLabel}; ${grantLabel}; ${subscriptionLabel}; ${dlqLabel}; ${encryptionLabel}. Payloads hidden.`,
+    filters: {
+      category: record.service === 'sns' ? 'sns-topic' : 'sqs-queue',
+      sensitivity: publicOrCross ? 'messaging-exposure' : 'messaging-resource',
+      readPosture: 'metadata-only',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.resource_arn,
+      record.resource_name,
+      record.resource_type,
+      record.service,
+      record.account_id,
+      record.region,
+      record.exposure_classification,
+      ...(record.exposure_reasons ?? []),
+      ...(record.dlq_arns ?? []),
+      ...(record.identity_grants ?? []).map((grant) => `${grant.principal_arn ?? ''} ${(grant.actions ?? []).join(' ')} ${(grant.capabilities ?? []).join(' ')}`),
+      ...(record.subscriptions ?? []).map((subscription) => `${subscription.protocol ?? ''} ${subscription.endpoint_resource_arn ?? ''} ${subscription.endpoint_redacted ? 'endpoint redacted' : ''}`),
+      risk,
+      'sqs sns queue topic messaging reachability payloads hidden'
+    ])
+  };
+}
+
 function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) {
   const data = useAWSInventoryData();
   const { scope, environmentScope, selectedEnvironmentID, connection, connectionLoading, connectionError } = data;
@@ -6406,6 +6545,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [ecrRepositoryInventoryLoading, setECRRepositoryInventoryLoading] = useState(false);
   const [ecrRepositoryInventoryError, setECRRepositoryInventoryError] = useState('');
   const ecrRepositoryInventoryRequestRef = useRef(0);
+  const [sqsSNSInventory, setSQSSNSInventory] = useState<AWSSQSSNSReachabilityInventoryResult | null>(null);
+  const [sqsSNSInventoryLoading, setSQSSNSInventoryLoading] = useState(false);
+  const [sqsSNSInventoryError, setSQSSNSInventoryError] = useState('');
+  const sqsSNSInventoryRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -6897,6 +7040,46 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadECRRepositoryInventory]);
 
+  const loadSQSSNSInventory = useCallback(async () => {
+    const requestID = ++sqsSNSInventoryRequestRef.current;
+    setSQSSNSInventory(null);
+    setSQSSNSInventoryError('');
+    if (routeID !== 'resources' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setSQSSNSInventoryLoading(false);
+      return;
+    }
+    setSQSSNSInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectSQSSNSReachability(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== sqsSNSInventoryRequestRef.current) {
+        return;
+      }
+      setSQSSNSInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== sqsSNSInventoryRequestRef.current) {
+        return;
+      }
+      setSQSSNSInventoryError(formatAPIError(error, 'Unable to load SQS/SNS reachability.'));
+    } finally {
+      if (requestID === sqsSNSInventoryRequestRef.current) {
+        setSQSSNSInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadSQSSNSInventory();
+    return () => {
+      sqsSNSInventoryRequestRef.current += 1;
+    };
+  }, [loadSQSSNSInventory]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -7050,6 +7233,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: ecrRepositoryInventoryLoading,
             error: ecrRepositoryInventoryError,
             onRetry: () => void loadECRRepositoryInventory()
+          }}
+          sqsSNSState={{
+            inventory: sqsSNSInventory,
+            loading: sqsSNSInventoryLoading,
+            error: sqsSNSInventoryError,
+            onRetry: () => void loadSQSSNSInventory()
           }}
           filters={activeFilters}
           onFiltersChange={onFiltersChange}

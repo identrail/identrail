@@ -247,6 +247,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		}
 	}
 
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != rawKindSQSSNSReachability {
+			continue
+		}
+		if err := normalizeSQSSNSReachabilityAsset(asset, i, &bundle, identitySeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
 	return bundle, nil
 }
 
@@ -2233,6 +2245,126 @@ func s3CrossAccountGrantCount(grants []S3IdentityGrant) int {
 }
 
 func s3DenyGrantCount(grants []S3IdentityGrant) int {
+	count := 0
+	for _, grant := range grants {
+		if strings.EqualFold(grant.Effect, "Deny") {
+			count++
+		}
+	}
+	return count
+}
+
+// normalizeSQSSNSReachabilityAsset registers queues and topics as first-class
+// resources and projects concrete IAM principals from resource policies.
+func normalizeSQSSNSReachabilityAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record SQSSNSReachability
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode sqs/sns reachability asset[%d]: %w", index, err)
+	}
+	resourceARN := strings.TrimSpace(record.ResourceARN)
+	if resourceARN == "" {
+		return nil
+	}
+	resourceID := sqsSNSResourceID(record)
+	if _, exists := resourceSeen[resourceID]; !exists {
+		resourceSeen[resourceID] = struct{}{}
+		bundle.Resources = append(bundle.Resources, domain.Resource{
+			ID:        resourceID,
+			Provider:  domain.ProviderAWS,
+			Type:      sqsSNSDomainResourceType(record),
+			Name:      firstNonEmptyAWSValue(record.ResourceName, sqsSNSNameFromARN(resourceARN), resourceARN),
+			ARN:       resourceARN,
+			Region:    strings.TrimSpace(record.Region),
+			AccountID: strings.TrimSpace(record.AccountID),
+			Labels:    copyTags(record.Tags),
+			Metadata: map[string]any{
+				"service":                         record.Service,
+				"resource_type":                   record.ResourceType,
+				"resource_url":                    record.ResourceURL,
+				"queue_url":                       record.QueueURL,
+				"topic_arn":                       record.TopicARN,
+				"owner_account_id":                record.OwnerAccountID,
+				"fifo":                            record.Fifo,
+				"content_based_deduplication":     record.ContentBasedDeduplication,
+				"sqs_managed_sse":                 record.SQSManagedSSE,
+				"kms_key_id":                      record.KMSKeyID,
+				"visibility_timeout_seconds":      record.VisibilityTimeoutSeconds,
+				"message_retention_seconds":       record.MessageRetentionSeconds,
+				"dead_letter_queue_count":         len(record.DLQARNs),
+				"subscription_count":              record.SubscriptionCount,
+				"endpoint_resource_count":         sqsSNSEndpointResourceCount(record.Subscriptions),
+				"has_resource_policy":             record.HasResourcePolicy,
+				"resource_policy_statement_count": record.ResourcePolicyStatementCount,
+				"resource_policy_source":          record.ResourcePolicySource,
+				"exposure_classification":         record.ExposureClassification,
+				"exposure_reasons":                append([]string(nil), record.ExposureReasons...),
+				"identity_grant_count":            len(record.IdentityGrants),
+				"public_grant_count":              sqsSNSPublicGrantCount(record.IdentityGrants),
+				"cross_account_grant_count":       sqsSNSCrossAccountGrantCount(record.IdentityGrants),
+				"deny_grant_count":                sqsSNSDenyGrantCount(record.IdentityGrants),
+			},
+			RawRef: asset.SourceID,
+		})
+	}
+	for _, grant := range record.IdentityGrants {
+		projectAWSIAMPrincipalIdentity(bundle, identitySeen, grant.PrincipalARN, asset.SourceID)
+	}
+	return nil
+}
+
+func sqsSNSResourceID(record SQSSNSReachability) string {
+	switch sqsSNSServiceForResourceType(record.ResourceType) {
+	case sqsServiceName:
+		return "aws:resource:sqs-queue:" + strings.TrimSpace(record.ResourceARN)
+	case snsServiceName:
+		return "aws:resource:sns-topic:" + strings.TrimSpace(record.ResourceARN)
+	default:
+		return "aws:resource:sqs-sns:" + strings.TrimSpace(record.ResourceARN)
+	}
+}
+
+func sqsSNSDomainResourceType(record SQSSNSReachability) domain.ResourceType {
+	switch sqsSNSServiceForResourceType(record.ResourceType) {
+	case sqsServiceName:
+		return domain.ResourceTypeSQSQueue
+	case snsServiceName:
+		return domain.ResourceTypeSNSTopic
+	default:
+		return domain.ResourceTypeUnknown
+	}
+}
+
+func sqsSNSEndpointResourceCount(subscriptions []SNSTopicSubscription) int {
+	count := 0
+	for _, subscription := range subscriptions {
+		if strings.TrimSpace(subscription.EndpointResourceARN) != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func sqsSNSPublicGrantCount(grants []SQSSNSIdentityGrant) int {
+	count := 0
+	for _, grant := range grants {
+		if grant.IsPublic {
+			count++
+		}
+	}
+	return count
+}
+
+func sqsSNSCrossAccountGrantCount(grants []SQSSNSIdentityGrant) int {
+	count := 0
+	for _, grant := range grants {
+		if grant.IsCrossAccount {
+			count++
+		}
+	}
+	return count
+}
+
+func sqsSNSDenyGrantCount(grants []SQSSNSIdentityGrant) int {
 	count := 0
 	for _, grant := range grants {
 		if strings.EqualFold(grant.Effect, "Deny") {

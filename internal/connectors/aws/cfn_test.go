@@ -183,6 +183,33 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 			t.Fatalf("connector policy must not include cryptographic or mutating KMS action %q", sensitive)
 		}
 	}
+	for _, action := range []string{
+		"sqs:ListQueues",
+		"sqs:GetQueueAttributes",
+		"sqs:ListQueueTags",
+		"sns:ListTopics",
+		"sns:GetTopicAttributes",
+		"sns:ListSubscriptionsByTopic",
+		"sns:GetSubscriptionAttributes",
+		"sns:ListTagsForResource",
+	} {
+		if !strings.Contains(string(policy), "\""+action+"\"") {
+			t.Fatalf("expected SQS/SNS reachability read action %q in policy", action)
+		}
+	}
+	for _, sensitive := range []string{
+		"sqs:SendMessage",
+		"sqs:ReceiveMessage",
+		"sqs:DeleteMessage",
+		"sqs:PurgeQueue",
+		"sns:Publish",
+		"sns:Subscribe",
+		"sns:SetTopicAttributes",
+	} {
+		if strings.Contains(string(policy), "\""+sensitive+"\"") {
+			t.Fatalf("connector policy must not include message or subscription action %q", sensitive)
+		}
+	}
 	hash, err := ReadOnlyPolicyHash()
 	if err != nil {
 		t.Fatalf("hash policy: %v", err)
@@ -204,6 +231,9 @@ func TestReadOnlyPolicyDocument(t *testing.T) {
 	}
 	if !permissionPreviewContainsService(PermissionPreview(), "S3") {
 		t.Fatalf("expected S3 permission preview entry")
+	}
+	if !permissionPreviewContainsService(PermissionPreview(), "SQS/SNS") {
+		t.Fatalf("expected SQS/SNS permission preview entry")
 	}
 }
 

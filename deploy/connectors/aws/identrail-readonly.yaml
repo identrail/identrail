@@ -77,6 +77,18 @@ Resources:
                   - kms:GetKeyPolicy
                   - kms:ListKeys
                 Resource: '*'
+              - Sid: IdentityTrustGraphReadOnlyMessaging
+                Effect: Allow
+                Action:
+                  - sqs:GetQueueAttributes
+                  - sqs:ListQueues
+                  - sqs:ListQueueTags
+                  - sns:GetSubscriptionAttributes
+                  - sns:GetTopicAttributes
+                  - sns:ListSubscriptionsByTopic
+                  - sns:ListTagsForResource
+                  - sns:ListTopics
+                Resource: '*'
               - Sid: IdentityTrustGraphCallerIdentity
                 Effect: Allow
                 Action: sts:GetCallerIdentity

@@ -2627,6 +2627,114 @@ describe('Domain-first app routes', () => {
     expect(getAWSProjectConnection).not.toHaveBeenCalled();
   });
 
+  it('renders SQS and SNS reachability in AWS resources inventory', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getAWSProjectSecretsManagerMetadata').mockResolvedValue({
+      inventory: { status: 'ready', records: [], diagnostics: [], failure_reasons: [], account_id: '123456789012', region: 'us-east-1' }
+    } as any);
+    vi.spyOn(api.apiClient, 'getAWSProjectSSMParameterMetadata').mockResolvedValue({
+      inventory: { status: 'ready', records: [], diagnostics: [], failure_reasons: [], account_id: '123456789012', region: 'us-east-1' }
+    } as any);
+    vi.spyOn(api.apiClient, 'getAWSProjectECRRepositoryMetadata').mockResolvedValue({
+      inventory: { status: 'ready', records: [], diagnostics: [], failure_reasons: [], account_id: '123456789012', region: 'us-east-1' }
+    } as any);
+    const getSQSSNSReachability = vi.spyOn(api.apiClient, 'getAWSProjectSQSSNSReachability').mockResolvedValue({
+      inventory: {
+        status: 'ready',
+        records: [
+          {
+            account_id: '123456789012',
+            region: 'us-east-1',
+            service: 'sns',
+            resource_arn: 'arn:aws:sns:us-east-1:123456789012:billing-events',
+            resource_name: 'billing-events',
+            resource_type: 'sns_topic',
+            fifo: false,
+            content_based_deduplication: false,
+            sqs_managed_sse: false,
+            subscription_count: 1,
+            subscriptions: [{ protocol: 'sqs', endpoint_resource_arn: 'arn:aws:sqs:us-east-1:123456789012:payments-worker', endpoint_present: true }],
+            has_resource_policy: true,
+            resource_policy_statement_count: 1,
+            identity_grants: [{ principal_arn: '*', effect: 'Allow', capabilities: ['publish'], is_public: true, wildcard_principal: true }],
+            exposure_classification: 'public',
+            source: 'sqs_sns_metadata',
+            evidence_ref: 'arn:aws:sns:us-east-1:123456789012:billing-events',
+            from_node_id: 'aws:resource:sns-topic:arn:aws:sns:us-east-1:123456789012:billing-events',
+            relationship_type: 'can_access',
+            confidence: 0.94,
+            collected_at: '2026-06-11T10:00:00Z',
+            status: 'ready'
+          },
+          {
+            account_id: '123456789012',
+            region: 'us-east-1',
+            service: 'sqs',
+            resource_arn: 'arn:aws:sqs:us-east-1:123456789012:partner-ingest',
+            resource_name: 'partner-ingest',
+            resource_type: 'sqs_queue',
+            queue_url: 'https://sqs.us-east-1.amazonaws.com/123456789012/partner-ingest',
+            fifo: false,
+            content_based_deduplication: false,
+            sqs_managed_sse: true,
+            dlq_arns: ['arn:aws:sqs:us-east-1:123456789012:partner-ingest-dlq'],
+            has_resource_policy: true,
+            resource_policy_statement_count: 1,
+            identity_grants: [{ principal_arn: 'arn:aws:iam::999999999999:role/partner-publisher', effect: 'Allow', capabilities: ['publish'], is_cross_account: true }],
+            exposure_classification: 'cross_account',
+            source: 'sqs_sns_metadata',
+            evidence_ref: 'arn:aws:sqs:us-east-1:123456789012:partner-ingest',
+            from_node_id: 'aws:resource:sqs-queue:arn:aws:sqs:us-east-1:123456789012:partner-ingest',
+            relationship_type: 'can_access',
+            confidence: 0.91,
+            collected_at: '2026-06-11T10:00:00Z',
+            status: 'ready'
+          }
+        ],
+        diagnostics: [],
+        failure_reasons: [],
+        account_id: '123456789012',
+        region: 'us-east-1'
+      }
+    } as any);
+
+    const { ProductAWSResourcesPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/resources?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/resources" element={<ProductAWSResourcesPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('billing-events')).toBeInTheDocument();
+    expect(screen.getByText('partner-ingest')).toBeInTheDocument();
+    expect(screen.getAllByText(/Payloads hidden/i).length).toBeGreaterThan(0);
+    expect(getSQSSNSReachability).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      'aws-connector-1',
+      undefined,
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+  });
+
   it('keeps AWS connect on the domain page when no environment exists', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');

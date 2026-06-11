@@ -59,6 +59,8 @@ type ResourceType string
 
 const (
 	ResourceTypeS3Bucket            ResourceType = "s3_bucket"
+	ResourceTypeSQSQueue            ResourceType = "sqs_queue"
+	ResourceTypeSNSTopic            ResourceType = "sns_topic"
 	ResourceTypeKMSKey              ResourceType = "kms_key"
 	ResourceTypeSecretsManager      ResourceType = "secrets_manager_secret"
 	ResourceTypeSSMParameter        ResourceType = "ssm_parameter"

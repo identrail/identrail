@@ -9,5 +9,6 @@ This policy is intentionally narrower than AWS managed `ReadOnlyAccess`. It gran
 | EC2 | `ec2:DescribeInstances`, `ec2:DescribeIamInstanceProfileAssociations`, `ec2:DescribeRegions` | Maps compute workloads to instance profiles and IAM roles. |
 | S3 | `s3:ListAllMyBuckets`, `s3:GetBucketAcl`, `s3:GetBucketPolicy`, `s3:GetBucketPublicAccessBlock` | Reads bucket policy edges that can grant or expose machine identities. |
 | KMS | `kms:ListKeys`, `kms:DescribeKey`, `kms:GetKeyPolicy` | Reads key policy edges that can grant sensitive decrypt or administration paths. |
+| SQS/SNS | `sqs:ListQueues`, `sqs:GetQueueAttributes`, `sqs:ListQueueTags`, `sns:ListTopics`, `sns:GetTopicAttributes`, `sns:ListSubscriptionsByTopic`, `sns:GetSubscriptionAttributes`, `sns:ListTagsForResource` | Reads queue/topic metadata, resource policies, encryption references, DLQs, and endpoint-redacted subscription metadata. |
 
 The CloudFormation template requires an External ID condition in the trust policy. Identrail generates a unique 32-byte External ID per connector and stores it in the connector secret envelope table, not plaintext connector metadata.

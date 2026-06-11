@@ -270,6 +270,16 @@ ordered by `kind`, then `source_id`.
   collector never decrypts, encrypts, signs, verifies, or generates data
   keys; never reads ciphertext or plaintext; and never surfaces
   encryption-context *values*.
+- SQS and SNS reachability is exposed through
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/sqs-sns-reachability`
+  and the AWS resources page. The collector records queue/topic metadata,
+  resource-policy grants, encryption references, DLQs, tags, SNS subscription
+  protocols, AWS ARN endpoints, and redaction flags for non-ARN endpoints. It
+  classifies public/cross-account/restricted reachability and emits
+  `can_access` edges only for resolved Allow grants to IAM principal ARNs.
+  The collector never reads SQS message bodies, SNS notification payloads, or
+  raw non-ARN subscription endpoint values, and never calls publish, receive,
+  delete, subscribe, or mutation APIs.
 - Secrets Manager metadata and workload references are exposed through
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/secrets-manager-metadata`.
   The collector records secret metadata, rotation state, resource-policy grant

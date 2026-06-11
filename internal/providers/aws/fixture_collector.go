@@ -152,6 +152,15 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	// SQS/SNS reachability records carry sqs/sns service markers and queue or
+	// topic resource types.
+	var sqsSNSReach SQSSNSReachability
+	if err := json.Unmarshal(payload, &sqsSNSReach); err == nil {
+		if isSQSSNSReachabilityFixture(sqsSNSReach) {
+			return rawKindSQSSNSReachability, sqsSNSReachabilitySourceID(sqsSNSReach)
+		}
+	}
+
 	// SSM parameter metadata must be checked before Secrets Manager metadata.
 	// Both record shapes share the kms_key_id and referenced_by JSON keys, and
 	// the Secrets Manager matcher treats either as a secret signal, so an SSM
@@ -567,6 +576,24 @@ func isKMSDecryptReachabilityFixture(record KMSDecryptReachability) bool {
 		return true
 	}
 	return false
+}
+
+// isSQSSNSReachabilityFixture identifies queue/topic reachability records
+// without claiming unrelated AWS service collector payloads.
+func isSQSSNSReachabilityFixture(record SQSSNSReachability) bool {
+	service := strings.ToLower(strings.TrimSpace(record.Service))
+	if service == sqsServiceName || service == snsServiceName || service == sqsSNSServiceName {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(record.CollectorName), sqsSNSReachabilityCollectorName) {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(record.ResourceType)) {
+	case "sqs_queue", "sns_topic":
+		return true
+	default:
+		return false
+	}
 }
 
 // isSSMParameterMetadataFixture identifies metadata-only SSM Parameter Store

@@ -133,6 +133,11 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws kms decrypt reachability collector: %w", kmsErr)
 			}
+			sqsSNSAPI, sqsSNSErr := awsprovider.NewSDKSQSSNSReachabilityAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if sqsSNSErr != nil {
+				_ = store.Close()
+				return nil, nil, fmt.Errorf("initialize aws sqs/sns reachability collector: %w", sqsSNSErr)
+			}
 			secretsAPI, secretsErr := awsprovider.NewSDKSecretsManagerMetadataAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
 			if secretsErr != nil {
 				_ = store.Close()
@@ -165,6 +170,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 				awsprovider.NewS3BucketReachabilityCollector(s3API),
 				awsprovider.NewKMSDecryptReachabilityCollector(kmsAPI),
+				awsprovider.NewSQSSNSReachabilityCollector(sqsSNSAPI),
 				awsprovider.NewSecretsManagerMetadataCollector(secretsAPI),
 				awsprovider.NewSSMParameterMetadataCollector(ssmAPI),
 				awsprovider.NewECRRepositoryMetadataCollector(ecrAPI),
@@ -304,6 +310,10 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		if kmsErr != nil {
 			return nil, kmsErr
 		}
+		sqsSNSAPI, sqsSNSErr := awsprovider.NewSDKSQSSNSReachabilityAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
+		if sqsSNSErr != nil {
+			return nil, sqsSNSErr
+		}
 		secretsAPI, secretsErr := awsprovider.NewSDKSecretsManagerMetadataAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
 		if secretsErr != nil {
 			return nil, secretsErr
@@ -333,6 +343,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 			awsprovider.NewEKSWorkloadIdentityCollector(eksAPI),
 			awsprovider.NewS3BucketReachabilityCollector(s3API),
 			awsprovider.NewKMSDecryptReachabilityCollector(kmsAPI),
+			awsprovider.NewSQSSNSReachabilityCollector(sqsSNSAPI),
 			awsprovider.NewSecretsManagerMetadataCollector(secretsAPI),
 			awsprovider.NewSSMParameterMetadataCollector(ssmAPI),
 			awsprovider.NewECRRepositoryMetadataCollector(ecrAPI),

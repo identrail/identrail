@@ -2338,6 +2338,153 @@ export type AWSKMSDecryptReachabilityInventoryResult = {
   updated_at: string;
 };
 
+export type AWSSQSSNSReachabilityInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSSQSSNSReachabilityFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+
+export type AWSSQSSNSCoverageGap = {
+  capability: string;
+  status: 'unsupported';
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSSQSSNSIdentityGrant = {
+  principal_arn?: string;
+  principal_type?: string;
+  effect: 'Allow' | 'Deny';
+  actions?: string[];
+  not_action?: boolean;
+  capabilities?: string[];
+  condition_keys?: string[];
+  is_public?: boolean;
+  is_cross_account?: boolean;
+  has_condition?: boolean;
+  statement_sid?: string;
+  wildcard_principal?: boolean;
+};
+
+export type AWSSNSTopicSubscription = {
+  subscription_arn?: string;
+  protocol?: string;
+  owner_account_id?: string;
+  endpoint_resource_arn?: string;
+  endpoint_present?: boolean;
+  endpoint_redacted?: boolean;
+  pending_confirmation?: boolean;
+  raw_message_delivery?: boolean;
+  filter_policy_present?: boolean;
+  dlq_arn?: string;
+};
+
+export type AWSSQSSNSReachabilityRecord = {
+  account_id: string;
+  region: string;
+  service: 'sqs' | 'sns';
+  resource_arn: string;
+  resource_name: string;
+  resource_type: 'sqs_queue' | 'sns_topic';
+  resource_url?: string;
+  queue_url?: string;
+  topic_arn?: string;
+  owner_account_id?: string;
+  created_at?: string;
+  last_modified_at?: string;
+  fifo: boolean;
+  content_based_deduplication: boolean;
+  sqs_managed_sse: boolean;
+  kms_key_id?: string;
+  visibility_timeout_seconds?: number;
+  message_retention_seconds?: number;
+  dlq_arns?: string[];
+  subscription_count?: number;
+  subscriptions?: AWSSNSTopicSubscription[];
+  has_resource_policy: boolean;
+  resource_policy_statement_count: number;
+  resource_policy_source?: string;
+  identity_grants?: AWSSQSSNSIdentityGrant[];
+  exposure_classification:
+    | 'public'
+    | 'cross_account'
+    | 'restricted'
+    | 'private_with_grants'
+    | 'private'
+    | 'unknown';
+  exposure_reasons?: string[];
+  tags?: Record<string, string>;
+  source: string;
+  evidence_ref: string;
+  from_node_id: string;
+  relationship_type: 'can_access';
+  confidence: number;
+  collected_at: string;
+  status: 'ready' | 'degraded';
+};
+
+export type AWSSQSSNSReachabilityRelationship = {
+  type: 'can_access';
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+  effect: 'Allow';
+  principal_type: string;
+  capabilities?: string[];
+  has_condition?: boolean;
+};
+
+export type AWSSQSSNSReachabilityDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSSQSSNSReachabilityInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSSQSSNSReachabilityInventoryStatus;
+  fixture_state: AWSSQSSNSReachabilityFixtureState;
+  confidence: number;
+  resource_count: number;
+  queue_count: number;
+  topic_count: number;
+  public_resource_count: number;
+  cross_account_resource_count: number;
+  restricted_resource_count: number;
+  encrypted_resource_count: number;
+  dlq_resource_count: number;
+  subscription_count: number;
+  identity_grant_count: number;
+  public_grant_count: number;
+  cross_account_grant_count: number;
+  deny_grant_count: number;
+  relationship_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSSQSSNSCoverageGap[];
+  records: AWSSQSSNSReachabilityRecord[];
+  relationships: AWSSQSSNSReachabilityRelationship[];
+  diagnostics: AWSSQSSNSReachabilityDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSSecretsManagerMetadataInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSSecretsManagerMetadataFixtureState =
   | 'success'
@@ -3972,6 +4119,25 @@ export const apiClient = {
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/kms-decrypt-reachability${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectSQSSNSReachability(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSSQSSNSReachabilityFixtureState,
+    auth?: RequestAuthContext,
+    resourceType?: 'sqs_queue' | 'sns_topic',
+    identity?: string
+  ) {
+    return request<{ inventory: AWSSQSSNSReachabilityInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/sqs-sns-reachability${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState,
+        resource_type: resourceType,
+        identity
       })}`,
       auth
     );
