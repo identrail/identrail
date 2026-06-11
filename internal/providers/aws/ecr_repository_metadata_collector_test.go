@@ -133,18 +133,12 @@ func TestECRRepositoryReferenceKeysFromRefStripsTagsAndDigests(t *testing.T) {
 		want []string
 	}{
 		{
-			ref: "IMAGE=123456789012.dkr.ecr.us-east-1.amazonaws.com/payments/api:prod",
-			want: []string{
-				"123456789012.dkr.ecr.us-east-1.amazonaws.com/payments/api",
-				"payments/api",
-			},
+			ref:  "IMAGE=123456789012.dkr.ecr.us-east-1.amazonaws.com/payments/api:prod",
+			want: []string{"123456789012.dkr.ecr.us-east-1.amazonaws.com/payments/api"},
 		},
 		{
-			ref: "123456789012.dkr.ecr.us-east-1.amazonaws.com/payments/api@sha256:abcdef",
-			want: []string{
-				"123456789012.dkr.ecr.us-east-1.amazonaws.com/payments/api",
-				"payments/api",
-			},
+			ref:  "123456789012.dkr.ecr.us-east-1.amazonaws.com/payments/api@sha256:abcdef",
+			want: []string{"123456789012.dkr.ecr.us-east-1.amazonaws.com/payments/api"},
 		},
 	}
 	for _, tc := range tests {
@@ -153,6 +147,9 @@ func TestECRRepositoryReferenceKeysFromRefStripsTagsAndDigests(t *testing.T) {
 			if !containsString(keys, want) {
 				t.Fatalf("expected key %q in %+v", want, keys)
 			}
+		}
+		if containsString(keys, "payments/api") {
+			t.Fatalf("unexpected cross-registry fallback key %q in %+v", "payments/api", keys)
 		}
 	}
 }
