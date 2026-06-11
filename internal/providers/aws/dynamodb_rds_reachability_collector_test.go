@@ -12,21 +12,24 @@ import (
 
 type fakeDynamoDBRDSReachabilityAPI struct {
 	pages []DynamoDBRDSReachabilityPage
-	err   error
+	errs  []error
 	calls int
 }
 
 func (f *fakeDynamoDBRDSReachabilityAPI) ListDynamoDBRDSReachability(context.Context, string, int32) (DynamoDBRDSReachabilityPage, error) {
 	f.calls++
-	if f.err != nil {
-		return DynamoDBRDSReachabilityPage{}, f.err
-	}
-	if len(f.pages) == 0 {
+	call := f.calls - 1
+	if call >= len(f.pages) {
+		if len(f.errs) > call {
+			return DynamoDBRDSReachabilityPage{}, f.errs[call]
+		}
 		return DynamoDBRDSReachabilityPage{}, nil
 	}
-	page := f.pages[0]
-	f.pages = f.pages[1:]
-	return page, nil
+	page := f.pages[call]
+	if call >= len(f.errs) {
+		return page, nil
+	}
+	return page, f.errs[call]
 }
 
 func TestDynamoDBRDSReachabilityCollectorEmitsAssetsAndDiagnostics(t *testing.T) {
@@ -67,7 +70,7 @@ func TestDynamoDBRDSReachabilityCollectorRetainsPartialAssetsOnFailure(t *testin
 	api := &fakeDynamoDBRDSReachabilityAPI{pages: []DynamoDBRDSReachabilityPage{{
 		Records:   []DynamoDBRDSReachability{{ServiceCollectorRecord: awscontract.ServiceCollectorRecord{Service: rdsServiceName}, ResourceARN: "arn:aws:rds:us-east-1:123456789012:db:payments", ResourceType: "rds_instance"}},
 		NextToken: "next",
-	}}, err: nil}
+	}}}
 	collector := NewDynamoDBRDSReachabilityCollector(api, WithDynamoDBRDSReachabilityMaxPages(1))
 	assets, diagnostics, err := collector.CollectWithDiagnostics(context.Background(), AWSCollectorScope{AccountID: "123456789012", Region: "us-east-1"})
 	if err == nil || len(assets) != 1 {
@@ -78,8 +81,30 @@ func TestDynamoDBRDSReachabilityCollectorRetainsPartialAssetsOnFailure(t *testin
 	}
 }
 
+func TestDynamoDBRDSReachabilityCollectorRetainsPartialAssetsWhenPageFails(t *testing.T) {
+	api := &fakeDynamoDBRDSReachabilityAPI{pages: []DynamoDBRDSReachabilityPage{{
+		Records:     []DynamoDBRDSReachability{{ServiceCollectorRecord: awscontract.ServiceCollectorRecord{Service: dynamoDBServiceName}, ResourceARN: "arn:aws:dynamodb:us-east-1:123456789012:table/payments", ResourceType: "dynamodb_table"}},
+		Diagnostics: []providers.SourceError{{Collector: dynamoDBRDSReachabilityCollectorName, Code: "partial_warning", Message: "partial failure"}},
+	}}, errs: []error{errors.New("describer access denied")}}
+
+	collector := NewDynamoDBRDSReachabilityCollector(api)
+	assets, diagnostics, err := collector.CollectWithDiagnostics(context.Background(), AWSCollectorScope{AccountID: "123456789012", Region: "us-east-1"})
+	if err == nil {
+		t.Fatalf("expected page failure error")
+	}
+	if len(assets) != 1 {
+		t.Fatalf("expected one partial asset, got %d", len(assets))
+	}
+	if len(diagnostics) != 2 {
+		t.Fatalf("expected diagnostics from partial response and page error, got %+v", diagnostics)
+	}
+	if diagnostics[1].Code != "dynamodb_rds_reachability_page_failed" {
+		t.Fatalf("expected failure diagnostic to be last, got %+v", diagnostics)
+	}
+}
+
 func TestDynamoDBRDSReachabilityCollectorReturnsErrorWithoutAssets(t *testing.T) {
-	api := &fakeDynamoDBRDSReachabilityAPI{err: errors.New("throttled")}
+	api := &fakeDynamoDBRDSReachabilityAPI{errs: []error{errors.New("access denied")}}
 	_, diagnostics, err := NewDynamoDBRDSReachabilityCollector(api).CollectWithDiagnostics(context.Background(), AWSCollectorScope{})
 	if err == nil || len(diagnostics) == 0 || diagnostics[0].Code != "dynamodb_rds_reachability_page_failed" {
 		t.Fatalf("expected page failure diagnostic, diagnostics=%+v err=%v", diagnostics, err)

@@ -160,24 +160,8 @@ func (c *DynamoDBRDSReachabilityCollector) CollectWithDiagnostics(ctx context.Co
 	seen := map[string]struct{}{}
 	nextToken := ""
 	collectedAt := c.now().UTC()
-	for page := 1; ; page++ {
-		if page > c.maxPages {
-			issue := providers.SourceError{Collector: dynamoDBRDSReachabilityCollectorName, SourceID: firstNonEmptyAWSValue(nextToken, "page"), Code: "dynamodb_rds_reachability_page_limit_exceeded", Message: fmt.Sprintf("dynamodb/rds reachability collection exceeded max pages (%d)", c.maxPages)}
-			return assets, append(issues, issue), fmt.Errorf("dynamodb/rds reachability collection exceeded max pages (%d)", c.maxPages)
-		}
-		response, err := retryAWSPage(ctx, c.retry, c.jitter, c.randFn, c.sleep, func(callCtx context.Context) (DynamoDBRDSReachabilityPage, error) {
-			return c.client.ListDynamoDBRDSReachability(callCtx, nextToken, c.pageSize)
-		})
-		if err != nil {
-			wrapped := fmt.Errorf("list dynamodb/rds reachability page %d: %w", page, err)
-			issues = append(issues, providers.SourceError{Collector: dynamoDBRDSReachabilityCollectorName, SourceID: firstNonEmptyAWSValue(nextToken, "page"), Code: "dynamodb_rds_reachability_page_failed", Message: wrapped.Error(), Retryable: isRetryable(err)})
-			if len(assets) > 0 {
-				return assets, issues, wrapped
-			}
-			return nil, issues, wrapped
-		}
-		issues = append(issues, response.Diagnostics...)
-		for _, record := range response.Records {
+	processRecords := func(records []DynamoDBRDSReachability) error {
+		for _, record := range records {
 			normalized := normalizeDynamoDBRDSReachabilityScope(scope, record, collectedAt)
 			if strings.TrimSpace(normalized.ResourceARN) == "" && strings.TrimSpace(normalized.ResourceName) == "" {
 				issues = append(issues, providers.SourceError{Collector: dynamoDBRDSReachabilityCollectorName, Code: "malformed_dynamodb_rds_reachability_record", Message: "skipped dynamodb/rds record without an ARN or name"})
@@ -187,12 +171,38 @@ func (c *DynamoDBRDSReachabilityCollector) CollectWithDiagnostics(ctx context.Co
 			if _, exists := seen[sourceID]; exists {
 				continue
 			}
-			payload, err := json.Marshal(normalized)
-			if err != nil {
-				return nil, nil, fmt.Errorf("marshal dynamodb/rds reachability %q: %w", sourceID, err)
+			payload, marshalErr := json.Marshal(normalized)
+			if marshalErr != nil {
+				return fmt.Errorf("marshal dynamodb/rds reachability %q: %w", sourceID, marshalErr)
 			}
 			assets = append(assets, providers.RawAsset{Kind: rawKindDynamoDBRDSReachability, SourceID: sourceID, Payload: payload, Collected: collectedAt.Format(time.RFC3339Nano)})
 			seen[sourceID] = struct{}{}
+		}
+		return nil
+	}
+	for page := 1; ; page++ {
+		if page > c.maxPages {
+			issue := providers.SourceError{Collector: dynamoDBRDSReachabilityCollectorName, SourceID: firstNonEmptyAWSValue(nextToken, "page"), Code: "dynamodb_rds_reachability_page_limit_exceeded", Message: fmt.Sprintf("dynamodb/rds reachability collection exceeded max pages (%d)", c.maxPages)}
+			return assets, append(issues, issue), fmt.Errorf("dynamodb/rds reachability collection exceeded max pages (%d)", c.maxPages)
+		}
+
+		response, err := c.listDynamoDBRDSReachabilityPage(ctx, nextToken)
+		if err != nil {
+			issues = append(issues, response.Diagnostics...)
+			wrapped := fmt.Errorf("list dynamodb/rds reachability page %d: %w", page, err)
+			issues = append(issues, providers.SourceError{Collector: dynamoDBRDSReachabilityCollectorName, SourceID: firstNonEmptyAWSValue(nextToken, "page"), Code: "dynamodb_rds_reachability_page_failed", Message: wrapped.Error(), Retryable: isRetryable(err)})
+			if marshalErr := processRecords(response.Records); marshalErr != nil {
+				return nil, nil, marshalErr
+			}
+			if len(assets) > 0 {
+				return assets, issues, wrapped
+			}
+			return nil, issues, wrapped
+		}
+
+		issues = append(issues, response.Diagnostics...)
+		if marshalErr := processRecords(response.Records); marshalErr != nil {
+			return nil, nil, marshalErr
 		}
 		if strings.TrimSpace(response.NextToken) == "" {
 			break
@@ -200,6 +210,29 @@ func (c *DynamoDBRDSReachabilityCollector) CollectWithDiagnostics(ctx context.Co
 		nextToken = strings.TrimSpace(response.NextToken)
 	}
 	return assets, issues, nil
+}
+
+func (c *DynamoDBRDSReachabilityCollector) listDynamoDBRDSReachabilityPage(ctx context.Context, nextToken string) (DynamoDBRDSReachabilityPage, error) {
+	var response DynamoDBRDSReachabilityPage
+	var err error
+	for attempt := 0; attempt <= c.retry.MaxRetries; attempt++ {
+		if ctx.Err() != nil {
+			return response, ctx.Err()
+		}
+		response, err = c.client.ListDynamoDBRDSReachability(ctx, nextToken, c.pageSize)
+		if err == nil {
+			return response, nil
+		}
+		if !isRetryable(err) || attempt == c.retry.MaxRetries {
+			return response, fmt.Errorf("retries exhausted: %w", err)
+		}
+		delay := awsRetryBackoff(c.retry, c.jitter, c.randFn, attempt)
+		if sleepErr := c.sleep(ctx, delay); sleepErr != nil {
+			return response, sleepErr
+		}
+	}
+
+	return response, fmt.Errorf("retries exhausted: %w", err)
 }
 
 func normalizeDynamoDBRDSReachabilityScope(scope AWSCollectorScope, record DynamoDBRDSReachability, collectedAt time.Time) DynamoDBRDSReachability {
