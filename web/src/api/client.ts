@@ -4275,7 +4275,7 @@ export const apiClient = {
     connectorID?: string,
     fixtureState?: AWSDynamoDBRDSReachabilityFixtureState,
     auth?: RequestAuthContext,
-    resourceType?: AWSDynamoDBRDSReachabilityRecord['resource_type'],
+    resourceType?: AWSDynamoDBRDSReachabilityRecord['resource_type'] | AWSDynamoDBRDSReachabilityRecord['service'],
     identity?: string
   ) {
     return request<{ inventory: AWSDynamoDBRDSReachabilityInventoryResult }>(

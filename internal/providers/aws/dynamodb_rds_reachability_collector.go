@@ -312,7 +312,13 @@ func dynamoDBRDSReachabilityConfidence(record DynamoDBRDSReachability) float64 {
 }
 
 func dynamoDBRDSReachabilitySourceID(record DynamoDBRDSReachability) string {
-	return strings.Join(normalizeStringList([]string{record.Service, firstNonEmptyAWSValue(record.ResourceARN, record.ResourceName), record.Region}), "|")
+	return strings.Join(normalizeStringList([]string{
+		record.Service,
+		record.ResourceType,
+		strings.TrimSpace(record.ResourceARN),
+		strings.TrimSpace(record.ResourceName),
+		record.Region,
+	}), "|")
 }
 
 func dynamoDBRDSServiceForResourceType(resourceType string) string {

@@ -284,14 +284,14 @@ func awsDynamoDBRDSReachabilityFixtureRecords(accountID, region, fixtureState st
 		awsDynamoDBRDSReachabilityFixtureRecord(accountID, region, "rds", "rds_instance", "customer-export", instanceARN, "public", checkedAt, func(r *AWSDynamoDBRDSReachabilityRecord) {
 			r.Engine = "postgres"
 			r.EngineVersion = "15.5"
-			r.Endpoint = fmt.Sprintf("customer-export.%s.rds.amazonaws.com", region)
+			r.Endpoint = fmt.Sprintf("customer-export.%s%s", region, awsRDSEndpointSuffixForRegion(region))
 			r.PubliclyAccessible = true
 			r.StorageEncrypted = true
 			r.PerformanceInsightsEnabled = true
 		}),
 		awsDynamoDBRDSReachabilityFixtureRecord(accountID, region, "rds", "rds_proxy", "payments-proxy", proxyARN, "private_with_grants", checkedAt, func(r *AWSDynamoDBRDSReachabilityRecord) {
 			r.Engine = "POSTGRESQL"
-			r.Endpoint = fmt.Sprintf("payments-proxy.proxy-%s.rds.amazonaws.com", region)
+			r.Endpoint = fmt.Sprintf("payments-proxy.proxy-%s%s", region, awsRDSEndpointSuffixForRegion(region))
 			r.IAMDatabaseAuthenticationEnabled = true
 			r.AssociatedRoleARNs = []string{fmt.Sprintf("arn:%s:iam::%s:role/rds-proxy-secrets", partition, accountID)}
 		}),
@@ -309,6 +309,16 @@ func awsDynamoDBRDSReachabilityFixtureRecords(accountID, region, fixtureState st
 		return nil, []providers.SourceError{{Collector: "aws_dynamodb_rds/dynamodb_rds_reachability", SourceID: fmt.Sprintf("service=dynamodb_rds|account=%s|region=%s", accountID, region), Code: "permission_denied", Message: "Read-only DynamoDB/RDS metadata permissions are missing"}}, gaps
 	default:
 		return records, nil, gaps
+	}
+}
+
+func awsRDSEndpointSuffixForRegion(region string) string {
+	normalized := strings.ToLower(strings.TrimSpace(region))
+	switch {
+	case strings.HasPrefix(normalized, "cn-"):
+		return ".rds.amazonaws.com.cn"
+	default:
+		return ".rds.amazonaws.com"
 	}
 }
 

@@ -166,7 +166,10 @@ func (a *SDKDynamoDBRDSReachabilityAPI) ListDynamoDBRDSReachability(ctx context.
 }
 
 func (a *SDKDynamoDBRDSReachabilityAPI) listDynamoDBTablesPage(ctx context.Context, nextToken string, pageSize int32) ([]DynamoDBRDSReachability, string, []providers.SourceError, error) {
-	output, err := a.dynamoDBClient.ListTables(ctx, &dynamodb.ListTablesInput{ExclusiveStartTableName: stringPtrOrNil(nextToken), Limit: awsv2.Int32(pageSize)})
+	output, err := a.dynamoDBClient.ListTables(ctx, &dynamodb.ListTablesInput{
+		ExclusiveStartTableName: stringPtrOrNil(nextToken),
+		Limit:                   awsv2.Int32(dynamoDBTablePageSize(pageSize)),
+	})
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -223,7 +226,7 @@ func (a *SDKDynamoDBRDSReachabilityAPI) recordFromDynamoDBTable(table ddbtypes.T
 		record.BillingMode = string(table.BillingModeSummary.BillingMode)
 	}
 	if table.SSEDescription != nil {
-		record.StorageEncrypted = strings.TrimSpace(string(table.SSEDescription.Status)) != ""
+		record.StorageEncrypted = strings.EqualFold(strings.TrimSpace(string(table.SSEDescription.Status)), "ENABLED")
 		record.KMSKeyID = awsv2.ToString(table.SSEDescription.KMSMasterKeyArn)
 	}
 	return record
@@ -235,6 +238,10 @@ func (a *SDKDynamoDBRDSReachabilityAPI) enrichDynamoDBResourcePolicy(ctx context
 	}
 	output, err := a.dynamoDBClient.GetResourcePolicy(ctx, &dynamodb.GetResourcePolicyInput{ResourceArn: awsv2.String(record.ResourceARN)})
 	if err != nil {
+		var policyNotFound *ddbtypes.PolicyNotFoundException
+		if errors.As(err, &policyNotFound) {
+			return
+		}
 		*diagnostics = append(*diagnostics, dynamoDBRDSReachabilityDiagnostic("dynamodb_resource_policy_failed", record.ResourceARN, fmt.Sprintf("GetResourcePolicy %q failed: %v", record.ResourceARN, err), true))
 		return
 	}
@@ -480,6 +487,16 @@ func dynamoDBRDSDecodePageToken(token string) (string, string) {
 func rdsPageSize(pageSize int32) int32 {
 	if pageSize < 20 {
 		return 20
+	}
+	if pageSize > 100 {
+		return 100
+	}
+	return pageSize
+}
+
+func dynamoDBTablePageSize(pageSize int32) int32 {
+	if pageSize < 1 {
+		return 1
 	}
 	if pageSize > 100 {
 		return 100
