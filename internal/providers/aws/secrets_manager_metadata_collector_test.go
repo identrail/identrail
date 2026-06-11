@@ -201,8 +201,8 @@ func TestSecretsManagerMetadataNormalizeAndGraphUsesSecret(t *testing.T) {
 	if resource.Metadata["sensitive"] != true {
 		t.Fatalf("expected legacy secrets manager asset to default sensitive=true, got %v", resource.Metadata["sensitive"])
 	}
-	if resource.Metadata["sensitivity_classification"] != "secret_bearing" {
-		t.Fatalf("expected default secret-bearing classification, got %v", resource.Metadata["sensitivity_classification"])
+	if resource.Metadata["sensitivity_classification"] != "runtime_secret_reference" {
+		t.Fatalf("expected runtime-reference classification from workload refs, got %v", resource.Metadata["sensitivity_classification"])
 	}
 	if resource.Metadata["sensitivity_classification_source"] != sensitivityClassificationSourceAuto {
 		t.Fatalf("expected auto classification source, got %v", resource.Metadata["sensitivity_classification_source"])
@@ -220,6 +220,42 @@ func TestSecretsManagerMetadataNormalizeAndGraphUsesSecret(t *testing.T) {
 		}
 	}
 	t.Fatalf("expected uses_secret relationship, got %+v", relationships)
+}
+
+func TestSecretsManagerMetadataNormalizeDefaultsLegacySecretSensitivity(t *testing.T) {
+	secret := SecretsManagerSecretMetadata{
+		SecretARN:              "arn:aws:secretsmanager:us-east-1:123456789012:secret:payments/api-AbCdEf",
+		SecretName:             "payments/api",
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{},
+	}
+	secret.AccountID = "123456789012"
+	secret.Region = "us-east-1"
+	secret.Service = secretsManagerServiceName
+	payload, err := json.Marshal(secret)
+	if err != nil {
+		t.Fatalf("marshal secret: %v", err)
+	}
+	bundle, err := NewRoleNormalizer().Normalize(context.Background(), []providers.RawAsset{{
+		Kind:     rawKindSecretsManagerMetadata,
+		SourceID: secretsManagerMetadataSourceID(secret),
+		Payload:  payload,
+	}})
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if len(bundle.Resources) != 1 {
+		t.Fatalf("expected 1 normalized resource, got %d", len(bundle.Resources))
+	}
+	resource := bundle.Resources[0]
+	if resource.Metadata["sensitive"] != true {
+		t.Fatalf("expected legacy secrets manager asset to default sensitive=true, got %v", resource.Metadata["sensitive"])
+	}
+	if resource.Metadata["sensitivity_classification"] != "secret_bearing" {
+		t.Fatalf("expected default secret-bearing classification, got %v", resource.Metadata["sensitivity_classification"])
+	}
+	if resource.Metadata["sensitivity_classification_source"] != sensitivityClassificationSourceAuto {
+		t.Fatalf("expected auto classification source, got %v", resource.Metadata["sensitivity_classification_source"])
+	}
 }
 
 func TestSecretsManagerReferenceKeysFromRefStripsValueSuffixes(t *testing.T) {

@@ -271,6 +271,7 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		}
 	}
 
+	applyRuntimeSecretReferenceSensitivity(&bundle)
 	return bundle, nil
 }
 
@@ -448,6 +449,42 @@ func normalizeSecretsManagerMetadataAsset(asset providers.RawAsset, index int, b
 		RawRef: asset.SourceID,
 	})
 	return nil
+}
+
+func applyRuntimeSecretReferenceSensitivity(bundle *providers.NormalizedBundle) {
+	if bundle == nil || len(bundle.Resources) == 0 {
+		return
+	}
+	secretIndex := secretsManagerResourceIndex(bundle.Resources)
+	secretResourceIndexes := map[string]int{}
+	for i, resource := range bundle.Resources {
+		if resource.Type == domain.ResourceTypeSecretsManager {
+			secretResourceIndexes[resource.ID] = i
+		}
+	}
+	for _, resource := range bundle.Resources {
+		for _, ref := range parseStringList(resource.Metadata["secret_refs"]) {
+			secretID := matchSecretsManagerReference(ref, secretIndex)
+			if secretID == "" {
+				continue
+			}
+			resourceIndex, ok := secretResourceIndexes[secretID]
+			if !ok {
+				continue
+			}
+			metadata := bundle.Resources[resourceIndex].Metadata
+			if metadata == nil {
+				metadata = map[string]any{}
+				bundle.Resources[resourceIndex].Metadata = metadata
+			}
+			if metadata["sensitivity_classification_source"] == sensitivityClassificationSourceOverride {
+				continue
+			}
+			metadata["sensitive"] = true
+			metadata["sensitivity_classification"] = "runtime_secret_reference"
+			metadata["sensitivity_classification_source"] = sensitivityClassificationSourceAuto
+		}
+	}
 }
 
 func imageReferenceMetadata(refs []ImageWorkloadReference) []map[string]any {
