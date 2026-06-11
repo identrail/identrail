@@ -204,6 +204,145 @@ func TestMapBundleCredentialReferencesSynthesizesUnresolvedProviderNodes(t *test
 	}
 }
 
+func TestMapBundleCredentialReferencesSkipsEnvKeysAlreadySourced(t *testing.T) {
+	// CodeBuild lists a Parameter Store-backed DATABASE_PASSWORD in both
+	// secret_refs (as NAME=source) and environment_keys (bare name). The bare
+	// name must not produce a second, phantom inline credential; only the
+	// sourced reference (here resolving to the collected parameter) survives.
+	paramARN := "arn:aws:ssm:us-east-1:123456789012:parameter/payments/db/password"
+	bundle := providers.NormalizedBundle{
+		Resources: []domain.Resource{
+			{
+				ID:        ssmParameterResourceID(paramARN),
+				Provider:  domain.ProviderAWS,
+				Type:      domain.ResourceTypeSSMParameter,
+				Name:      "/payments/db/password",
+				ARN:       paramARN,
+				AccountID: "123456789012",
+				Region:    "us-east-1",
+			},
+			workloadResource(
+				"arn:aws:codebuild:us-east-1:123456789012:project/release",
+				"release",
+				domain.ResourceTypeCodeBuildProject,
+				[]string{"DATABASE_PASSWORD=PARAMETER_STORE:/payments/db/password"},
+				[]string{"DATABASE_PASSWORD", "LOG_LEVEL"},
+			),
+		},
+	}
+
+	refs, relationships := MapBundleCredentialReferences(bundle)
+
+	databaseRefs := 0
+	for _, ref := range refs {
+		if ref.Provider == credentialProviderDatabase {
+			databaseRefs++
+		}
+	}
+	if databaseRefs != 1 {
+		t.Fatalf("expected one database reference (the sourced one), got %d: %+v", databaseRefs, refs)
+	}
+	if _, ok := findCredentialReference(refs, "DATABASE_PASSWORD"); ok {
+		t.Fatalf("bare DATABASE_PASSWORD env key must be suppressed when already sourced via secret_refs")
+	}
+	if len(credentialReferenceNodes(refs)) != 0 {
+		t.Fatalf("a secret-store-backed variable must not synthesize a phantom inline node, got %+v", credentialReferenceNodes(refs))
+	}
+	if len(relationships) != 1 || relationships[0].ToNodeID != ssmParameterResourceID(paramARN) {
+		t.Fatalf("expected one edge to the collected parameter node, got %+v", relationships)
+	}
+}
+
+func TestMapBundleCredentialReferencesKeepsBareEnvKeysUnresolvedEvenWhenNameMatchesCollectedSecret(t *testing.T) {
+	secretARN := "arn:aws:secretsmanager:us-east-1:123456789012:secret:OPENAI_API_KEY"
+	bundle := providers.NormalizedBundle{
+		Resources: []domain.Resource{
+			{
+				ID:        secretsManagerSecretResourceID(secretARN),
+				Provider:  domain.ProviderAWS,
+				Type:      domain.ResourceTypeSecretsManager,
+				Name:      "OPENAI_API_KEY",
+				ARN:       secretARN,
+				AccountID: "123456789012",
+				Region:    "us-east-1",
+			},
+			workloadResource(
+				"arn:aws:lambda:us-east-1:123456789012:function:agent",
+				"agent",
+				domain.ResourceTypeLambdaFunction,
+				nil,
+				[]string{"OPENAI_API_KEY"},
+			),
+		},
+	}
+
+	refs, relationships := MapBundleCredentialReferences(bundle)
+
+	ref, ok := findCredentialReference(refs, "OPENAI_API_KEY")
+	if !ok {
+		t.Fatalf("missing reference in %+v", refs)
+	}
+	if ref.Resolved {
+		t.Fatalf("bare env key should not resolve from matching secret name: %+v", ref)
+	}
+	if !ref.Unresolved {
+		t.Fatalf("expected unresolved bare env key, got %+v", ref)
+	}
+	if ref.ReferenceKind != credentialKindEnvironment {
+		t.Fatalf("expected environment kind for bare env key, got %q", ref.ReferenceKind)
+	}
+	if ref.Provider != credentialProviderOpenAI {
+		t.Fatalf("expected openai provider for bare OPENAI_API_KEY, got %q", ref.Provider)
+	}
+	for _, rel := range relationships {
+		if rel.ToNodeID == secretsManagerSecretResourceID(secretARN) {
+			t.Fatalf("unexpected relationship to collected secret for bare env key: %+v", rel)
+		}
+	}
+}
+
+func TestMapBundleCredentialReferencesReclassifiesNameOnlySecretRefs(t *testing.T) {
+	paramARN := "arn:aws:ssm:us-east-1:123456789012:parameter/payments/config"
+	bundle := providers.NormalizedBundle{
+		Resources: []domain.Resource{
+			{
+				ID:        ssmParameterResourceID(paramARN),
+				Provider:  domain.ProviderAWS,
+				Type:      domain.ResourceTypeSSMParameter,
+				Name:      "/payments/config",
+				ARN:       paramARN,
+				AccountID: "123456789012",
+				Region:    "us-east-1",
+			},
+			workloadResource(
+				"arn:aws:ecs:us-east-1:123456789012:service/prod/worker",
+				"worker",
+				domain.ResourceTypeECSService,
+				[]string{"APP_CONFIG=/payments/config"},
+				nil,
+			),
+		},
+	}
+
+	refs, _ := MapBundleCredentialReferences(bundle)
+	ref, ok := findCredentialReference(refs, "APP_CONFIG=/payments/config")
+	if !ok {
+		t.Fatalf("missing reference in %+v", refs)
+	}
+	if !ref.Resolved {
+		t.Fatalf("expected resolved reference, got %+v", ref)
+	}
+	if ref.ReferenceKind != credentialKindSSMParameter {
+		t.Fatalf("expected SSM parameter kind, got %q", ref.ReferenceKind)
+	}
+	if ref.Provider != credentialProviderSSM {
+		t.Fatalf("expected aws_ssm provider, got %q", ref.Provider)
+	}
+	if ref.TargetNodeID != ssmParameterResourceID(paramARN) {
+		t.Fatalf("expected target %q, got %q", ssmParameterResourceID(paramARN), ref.TargetNodeID)
+	}
+}
+
 func TestMapBundleCredentialReferencesScopesSynthesizedNodesPerWorkload(t *testing.T) {
 	// Two workloads in different accounts both expose an unresolved OPENAI_API_KEY.
 	// An unresolved reference is not evidence they share one credential, so each

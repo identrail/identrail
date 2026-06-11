@@ -237,13 +237,28 @@ func credentialSourceService(resourceType domain.ResourceType) string {
 // environment variable names whose name pattern indicates a provider key or
 // credential. Plain environment keys that are not credential-suggestive are
 // ignored to avoid noise.
+//
+// An environment key that is already the left-hand side of a `secret_refs`
+// entry (for example a CodeBuild `DATABASE_PASSWORD` sourced from Parameter
+// Store appears in both lists) is skipped, so a secret-store-backed variable
+// is not also reported as a phantom inline credential.
 func credentialCandidateRefs(resource domain.Resource) []string {
 	refs := parseStringList(resource.Metadata["secret_refs"])
 	out := append([]string(nil), refs...)
-	for _, key := range parseStringList(resource.Metadata["environment_keys"]) {
-		if credentialSuggestiveName(key) {
-			out = append(out, key)
+	sourced := map[string]struct{}{}
+	for _, ref := range refs {
+		if name, _ := splitCredentialReference(strings.TrimSpace(ref)); name != "" {
+			sourced[strings.ToLower(name)] = struct{}{}
 		}
+	}
+	for _, key := range parseStringList(resource.Metadata["environment_keys"]) {
+		if !credentialSuggestiveName(key) {
+			continue
+		}
+		if _, exists := sourced[strings.ToLower(strings.TrimSpace(key))]; exists {
+			continue
+		}
+		out = append(out, key)
 	}
 	return out
 }
@@ -269,15 +284,25 @@ func classifyCredentialReference(raw string, resource domain.Resource, sourceSer
 	}
 	ref.ReferenceKind = classifyCredentialReferenceKind(name, source)
 
-	// Resolve against collected AWS secret/parameter nodes first; a resolved
-	// node lets provider detection also consider the secret's own name.
-	resolveTarget := firstNonEmptyAWSValue(source, trimmed)
-	if secretID := matchSecretsManagerReference(resolveTarget, secretIndex); secretID != "" {
-		ref.Resolved = true
-		ref.TargetNodeID = secretID
-	} else if parameterID := matchSSMParameterReference(resolveTarget, parameterIndex); parameterID != "" {
-		ref.Resolved = true
-		ref.TargetNodeID = parameterID
+	// Resolve against collected AWS secret/parameter nodes only when the workload
+	// supplies an explicit source marker. Bare environment variable keys can be
+	// identical to collected names; resolving them here would create false
+	// confidence edges.
+	resolveTarget := strings.TrimSpace(source)
+	if resolveTarget != "" {
+		if secretID := matchSecretsManagerReference(resolveTarget, secretIndex); secretID != "" {
+			ref.Resolved = true
+			ref.ReferenceKind = credentialKindSecretsManager
+			ref.TargetNodeID = secretID
+		} else if parameterID := matchSSMParameterReference(resolveTarget, parameterIndex); parameterID != "" {
+			ref.Resolved = true
+			ref.ReferenceKind = credentialKindSSMParameter
+			ref.TargetNodeID = parameterID
+		}
+	}
+	// Bare env keys must stay explicit as unresolved references.
+	if !ref.Resolved && resolveTarget == "" {
+		ref.ReferenceKind = credentialKindEnvironment
 	}
 
 	provider, sensitivity, confidence := classifyCredentialProvider(name, source, ref.ReferenceKind)
