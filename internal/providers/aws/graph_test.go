@@ -10,6 +10,23 @@ import (
 	"github.com/identrail/identrail/internal/providers"
 )
 
+func TestMatchECRImageReferenceDoesNotMatchBareDockerImageName(t *testing.T) {
+	index := ecrRepositoryResourceIndex([]domain.Resource{{
+		ID:       "aws:resource:ecr-repository:arn:aws:ecr:us-east-1:123456789012:repository/payments/api",
+		Type:     domain.ResourceTypeECRRepository,
+		Name:     "payments/api",
+		ARN:      "arn:aws:ecr:us-east-1:123456789012:repository/payments/api",
+		Metadata: map[string]any{"repository_uri": "123456789012.dkr.ecr.us-east-1.amazonaws.com/payments/api"},
+	}})
+
+	if got := matchECRImageReference("payments/api:prod", index); got != "" {
+		t.Fatalf("did not expect bare docker image reference to match ECR repository: %s", got)
+	}
+	if got := matchECRImageReference("123456789012.dkr.ecr.us-east-1.amazonaws.com/payments/api:prod", index); got != "aws:resource:ecr-repository:arn:aws:ecr:us-east-1:123456789012:repository/payments/api" {
+		t.Fatalf("expected full ECR URI to resolve, got %q", got)
+	}
+}
+
 func TestRelationshipBuilderBuildsExpectedEdges(t *testing.T) {
 	normalizer := NewRoleNormalizer()
 	bundle, err := normalizer.Normalize(context.Background(), []providers.RawAsset{loadRawRoleAssetFixture(t, "role_with_policies.json")})

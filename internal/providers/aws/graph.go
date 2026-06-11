@@ -236,6 +236,14 @@ func ecrRepositoryReferenceKeys(repositoryARN string, repositoryName string, rep
 	return dedupeStrings(keys)
 }
 
+func isECRImageURI(uri string) bool {
+	host := strings.SplitN(strings.TrimSpace(uri), "/", 2)
+	if len(host) == 0 || host[0] == "" {
+		return false
+	}
+	return ecrAccountIDFromURI(host[0]) != "" && ecrRegionFromURI(host[0]) != ""
+}
+
 func ecrRepositoryReferenceKeysFromRef(ref string) []string {
 	trimmed := strings.TrimSpace(ref)
 	if trimmed == "" {
@@ -255,7 +263,11 @@ func ecrRepositoryReferenceKeysFromRef(ref string) []string {
 			withoutTag = withoutTag[:colon]
 		}
 	}
-	return dedupeStrings([]string{trimmed, withoutDigest, withoutTag})
+	keys := []string{trimmed, withoutDigest}
+	if isECRImageURI(withoutTag) {
+		keys = append(keys, withoutTag)
+	}
+	return dedupeStrings(keys)
 }
 
 func secretsManagerResourceIndex(resources []domain.Resource) map[string]string {

@@ -123,7 +123,7 @@ const readOnlyPolicyJSON = `{
 	        "ecr:DescribeImages",
 	        "ecr:DescribeRepositories",
 	        "ecr:GetLifecyclePolicy",
-	        "ecr:GetPolicy",
+	        "ecr:GetRepositoryPolicy",
 	        "ecr:GetRegistryScanningConfiguration",
 	        "ecr:ListTagsForResource"
 	      ],
@@ -315,7 +315,7 @@ func PermissionPreview() []PermissionPreviewItem {
 				"ecr:DescribeImages",
 				"ecr:DescribeRepositories",
 				"ecr:GetLifecyclePolicy",
-				"ecr:GetPolicy",
+				"ecr:GetRepositoryPolicy",
 				"ecr:GetRegistryScanningConfiguration",
 				"ecr:ListTagsForResource",
 			},
