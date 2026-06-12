@@ -450,6 +450,14 @@ func TestGetAWSAccountRegionCoveragePublicStatuses(t *testing.T) {
 	}
 }
 
+func TestAWSAccountRegionCoverageStatusMapsBlockedToMissing(t *testing.T) {
+	t.Parallel()
+	got := awsAccountRegionCoverageStatus(AWSCoveragePlanTarget{State: "blocked", Reason: "no persisted account/region coverage row for this pair"}, false)
+	if got != "missing" {
+		t.Fatalf("expected blocked to map to missing, got %q", got)
+	}
+}
+
 func TestGetAWSAccountRegionCoverageMarksGlobalStaleCursors(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()

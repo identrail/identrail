@@ -269,6 +269,8 @@ func awsAccountRegionCoverageStatus(target AWSCoveragePlanTarget, stale bool) st
 		return "unreachable"
 	case state == "permission_denied":
 		return "permission_denied"
+	case state == "blocked":
+		return "missing"
 	case state == "planned" || state == "pending" || state == "in_progress":
 		return "missing"
 	default:
