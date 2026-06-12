@@ -281,6 +281,39 @@ func TestPlanCoverageAvailabilityDoesNotReplayCheckpointForBlockedTarget(t *test
 	}
 }
 
+func TestPlanCoverageAvailabilityClearsStaleCheckpointObservedAt(t *testing.T) {
+	now := time.Now().UTC()
+	checkpointObservedAt := now.Add(-time.Hour)
+	plan, err := PlanCoverage(CoveragePlanConfig{
+		Accounts: []CoverageAccount{{AccountID: "111111111111", Enabled: true}},
+		Regions:  []CoverageRegion{{Region: "us-east-1", Enabled: true}},
+		Services: []CoverageService{{Service: "lambda", Enabled: true}},
+		RegionAvailability: []CoverageAccountRegionAvailability{{
+			AccountID: "111111111111",
+			Region:    "us-east-1",
+			State:     CoverageStateBlocked,
+			Reason:    "region is not enabled in this account",
+		}},
+		Checkpoints: []CoverageCheckpoint{{
+			AccountID:  "111111111111",
+			Region:     "us-east-1",
+			Service:    "lambda",
+			State:      CoverageStateCovered,
+			ObservedAt: checkpointObservedAt,
+		}},
+	}, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	target := plan.Targets[0]
+	if target.State != CoverageStateBlocked {
+		t.Fatalf("expected availability to override checkpoint state, got %q", target.State)
+	}
+	if !target.ObservedAt.IsZero() {
+		t.Fatalf("expected stale checkpoint observed_at to be cleared, got %v", target.ObservedAt)
+	}
+}
+
 func TestPlanCoverageCheckpointResumes(t *testing.T) {
 	now := time.Now().UTC()
 	observed := time.Date(2026, 6, 11, 9, 0, 0, 0, time.UTC)

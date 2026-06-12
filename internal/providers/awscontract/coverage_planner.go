@@ -412,6 +412,7 @@ func applyCoverageAvailability(target *CoverageTarget, availability coverageAvai
 		target.Enabled = false
 		target.Cursor = ""
 		target.Attempts = 0
+		target.ObservedAt = time.Time{}
 		if failureReason := strings.TrimSpace(availability.FailureReason); failureReason != "" {
 			target.FailureReason = failureReason
 		} else {
