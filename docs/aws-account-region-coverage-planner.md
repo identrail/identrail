@@ -1,8 +1,12 @@
 # AWS Account and Region Coverage Planner
 
-Issue #1497 adds a deterministic, metadata-only planner that expands an AWS
+Issue #1499 adds a deterministic, metadata-only planner that expands an AWS
 connector's configured accounts, regions, and service partitions into explicit
 scan targets.
+
+It also models per-account, per-region, and per-service availability outcomes
+(`blocked`, `unsupported`, `disabled`, and `permission_denied`) so operators can
+see exactly where and why scanning cannot proceed.
 
 ## What It Plans
 
@@ -44,15 +48,20 @@ The response includes tenant, workspace, project, issue metadata, summary
 counts, filtered targets, diagnostics, coverage gaps, remediation hints, and
 evidence links.
 
+When using fixture input or external planner input, `region_availability` and
+`service_availability` constraints are applied after checkpoint replay, so explicit
+blocked/unsupported/permission-denied/disabled states are preserved as
+first-class outcomes.
+
 ## Safety Boundary
 
 The planner performs no AWS mutations and reads no customer payloads. It does
 not read or persist secret values, prompts, completions, object contents,
 database rows, environment variable values, or code-interpreter output.
 
-AWS Organizations account discovery and live region availability discovery are
-outside this issue. This PR plans from configured connector scope and explicit
-checkpoints only.
+AWS Organizations account discovery is an upstream dependency for this issue.
+This planner does not call live AWS APIs during planning and applies explicit
+availability signals and checkpoints only.
 
 ## Failure States
 

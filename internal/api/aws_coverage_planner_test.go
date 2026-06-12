@@ -30,7 +30,7 @@ func TestGetAWSCoveragePlanSuccess(t *testing.T) {
 	if result.Status != awsPlatformDependencyStatusReady || result.Confidence < 0.9 {
 		t.Fatalf("expected ready plan, got %+v", result)
 	}
-	if result.CurrentIssueRef != "#1497" || result.Version == "" {
+	if result.CurrentIssueRef != "#1499" || result.Version == "" {
 		t.Fatalf("unexpected metadata: %+v", result)
 	}
 	if result.Summary.AccountCount != 3 || result.Summary.RegionCount != 3 || result.Summary.ServiceCount != 6 {
@@ -160,6 +160,12 @@ func TestGetAWSCoveragePlanEmptyAndDegradedAndDenied(t *testing.T) {
 	if degraded.Summary.FailedTargets == 0 || degraded.Summary.ResumableTargets == 0 {
 		t.Fatalf("expected failed/resumable targets in degraded plan, got %+v", degraded.Summary)
 	}
+	if degraded.Summary.StateCounts["blocked"] == 0 {
+		t.Fatalf("expected blocked availability example in degraded plan: %+v", degraded.Summary.StateCounts)
+	}
+	if degraded.Summary.StateCounts["unsupported"] == 0 {
+		t.Fatalf("expected unsupported availability example in degraded plan: %+v", degraded.Summary.StateCounts)
+	}
 
 	denied, err := svc.GetAWSCoveragePlan(ctx, "default", "project-a", AWSCoveragePlanRequest{ConnectorID: "aws-prod", FixtureState: "permission_denied"})
 	if err != nil {
@@ -167,6 +173,9 @@ func TestGetAWSCoveragePlanEmptyAndDegradedAndDenied(t *testing.T) {
 	}
 	if denied.Status != awsPlatformDependencyStatusBlocked || denied.Summary.PermissionDenied == 0 || len(denied.Diagnostics) == 0 {
 		t.Fatalf("expected blocked permission-denied plan, got %+v", denied)
+	}
+	if denied.Summary.StateCounts["permission_denied"] == 0 {
+		t.Fatalf("expected permission-denied state in denied plan: %+v", denied.Summary.StateCounts)
 	}
 }
 
