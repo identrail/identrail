@@ -37,6 +37,8 @@ import {
   type AWSEventDrivenRoleRecord,
   type AWSManagedComputeRoleInventoryResult,
   type AWSManagedComputeRoleRecord,
+  type AWSAIAgentIdentityInventoryResult,
+  type AWSAIAgentIdentityRecord,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
@@ -3641,6 +3643,13 @@ type AWSInventoryEKSState = {
   onRetry: () => void;
 };
 
+type AWSInventoryAIAgentState = {
+  inventory: AWSAIAgentIdentityInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventorySecretsManagerState = {
   inventory: AWSSecretsManagerMetadataInventoryResult | null;
   loading: boolean;
@@ -3819,7 +3828,7 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
     {
       id: 'status',
       label: 'Status',
-      options: [{ label: 'All status', value: 'all' }, { label: 'Role anchor', value: 'role-anchor' }, { label: 'Coming', value: 'coming' }, { label: 'Not yet available', value: 'not-yet-available' }]
+      options: [{ label: 'All status', value: 'all' }, { label: 'Role anchor', value: 'role-anchor' }, { label: 'Degraded', value: 'degraded' }, { label: 'Coming', value: 'coming' }, { label: 'Not yet available', value: 'not-yet-available' }]
     }
   ],
   resources: [
@@ -6629,79 +6638,92 @@ function awsEC2IMDSLabel(inventory: AWSEC2InstanceProfileInventoryResult | null)
 
 function AWSAgentIdentitiesContent({
   connection,
+  aiAgentState,
   filters,
   onFiltersChange
 }: {
   connection: AWSConnectionStatus | null;
+  aiAgentState: AWSInventoryAIAgentState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
-  const rows: AWSInventoryTableRow[] = [
-    {
-      id: 'role-anchor',
-      name: connection?.role_arn ?? 'AWS role anchor',
-      category: 'Agent-to-role anchor',
-      scope: awsAccountRegionLabel(connection),
-      status: connection?.connected ? 'role anchor' : 'not yet available',
-      stage: connection?.connected ? 'wired' : 'not-available',
-      detail: 'Future agent inventory can attach Bedrock or external agent execution back to this AWS role context.',
-      filters: {
-        surface: 'agentcore-runtime',
-        relationship: 'agent-to-role',
-        status: connection?.connected ? 'role-anchor' : 'not-yet-available',
-        search: ''
-      },
-      searchText: inventorySearchText(['agent to role', 'agent', 'role anchor', 'role relationship'])
-    },
-    {
-      id: 'bedrock-agents',
-      name: 'Bedrock agents',
-      category: 'AWS-native agent',
-      scope: 'Bedrock',
-      status: 'coming',
-      stage: 'coming',
-      detail: 'Agent identity, action groups, tool use, and role relationship slots are reserved here.',
-      filters: { surface: 'bedrock-agents', relationship: 'agent-to-tool', status: 'coming', search: '' },
-      searchText: inventorySearchText(['bedrock', 'agent surface', 'tools'])
-    },
-    {
-      id: 'agentcore',
-      name: 'AgentCore runtime and gateway identity',
-      category: 'AgentCore',
-      scope: 'Runtime / gateway',
-      status: 'coming',
-      stage: 'coming',
-      detail: 'Will map AgentCore runtime, gateway, identity metadata, MCP gateway, and tool relationships.',
-      filters: { surface: 'agentcore-runtime,mcp-gateway', relationship: 'agent-to-tool', status: 'coming', search: '' },
-      searchText: inventorySearchText(['agentcore', 'runtime', 'gateway', 'identity'])
-    },
-    {
-      id: 'external-provider-keys',
-      name: 'External AI provider key metadata',
-      category: 'Safe metadata',
-      scope: 'Secrets metadata only',
-      status: 'not yet available',
-      stage: 'not-available',
-      detail: 'OpenAI, Anthropic, and Claude Platform usage mapping will use safe metadata, never secret values.',
-      filters: {
-        surface: 'external-provider-keys',
-        relationship: 'agent-to-secret',
-        status: 'not-yet-available',
-        search: ''
-      },
-      searchText: inventorySearchText(['external', 'provider', 'keys', 'agent'])
-    }
-  ];
+  const inventory = aiAgentState.inventory;
+  const rows = buildAWSAIAgentIdentityRows(inventory, aiAgentState.loading, connection);
   const displayedRows = filterAWSInventoryRows(rows, filters);
 
   return (
     <>
       <AWSInventoryFilterSet routeID="agents" filters={filters} onChange={onFiltersChange} />
+      {aiAgentState.loading ? <DomainLoadingState label="Loading AWS AI agent identities" /> : null}
+      {aiAgentState.error ? (
+        <DomainErrorState
+          title="AI agent identities could not load"
+          body={aiAgentState.error}
+          retryAction={{ label: 'Retry AI agents', onClick: aiAgentState.onRetry }}
+        />
+      ) : null}
+      {inventory ? (
+        <DomainStatusPanel
+          eyebrow="Normalized agent model"
+          title="AI agent identities are metadata-only"
+          status={formatTokenLabel(inventory.status)}
+          tone={inventory.status === 'blocked' ? 'danger' : inventory.status === 'degraded' ? 'warning' : 'success'}
+        >
+          <section className="idt-aws-inventory-coverage" aria-label="AWS AI agent identity summary">
+            <DomainCoverageCard
+              label="Agent records"
+              scanned={inventory.record_count}
+              total={Math.max(inventory.record_count, 1)}
+              detail={`${inventory.runtime_role_count} runtime roles`}
+            />
+            <DomainCoverageCard
+              label="Native agents"
+              scanned={inventory.bedrock_agent_count + inventory.agentcore_runtime_count}
+              total={Math.max(inventory.record_count, 1)}
+              detail={`${inventory.gateway_count} gateways`}
+            />
+            <DomainCoverageCard
+              label="Tools"
+              scanned={inventory.tool_count}
+              total={Math.max(inventory.tool_count, 1)}
+              detail={`${inventory.capability_count} capabilities`}
+            />
+            <DomainCoverageCard
+              label="Credential refs"
+              scanned={inventory.credential_reference_count}
+              total={Math.max(inventory.credential_reference_count, 1)}
+              detail="Values hidden"
+            />
+          </section>
+          {inventory.diagnostics.length ? (
+            <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS AI agent identity diagnostics">
+              {inventory.diagnostics.map((diagnostic) => (
+                <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
+                  <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                  <p>{diagnostic.message}</p>
+                  {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+          {inventory.coverage_gaps.length ? (
+            <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS AI agent identity sensitive boundaries">
+              {inventory.coverage_gaps.map((gap) => (
+                <article key={`${gap.capability}-${gap.status}`}>
+                  <strong>{formatTokenLabel(gap.capability)}</strong>
+                  <p>{gap.reason}</p>
+                  {gap.remediation ? <small>{gap.remediation}</small> : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </DomainStatusPanel>
+      ) : null}
       <section className="idt-aws-agent-relationship-grid" aria-label="AWS agent relationship slots">
         {[
-          ['Agent to role', connection?.role_arn ? 'Role anchor available' : 'Waiting for role validation'],
-          ['Agent to tool', 'Tool and MCP gateway coverage reserved'],
-          ['Agent to secret', 'Secret metadata only, no value reads'],
+          ['Agent to role', inventory ? `${inventory.runtime_role_count} runtime role anchors` : connection?.role_arn ? 'Role anchor available' : 'Waiting for role validation'],
+          ['Agent to tool', inventory ? `${inventory.tool_count} tool names` : 'Tool and gateway metadata pending'],
+          ['Agent to secret', inventory ? `${inventory.credential_reference_count} credential references, values hidden` : 'Secret metadata only, no value reads'],
           ['Agent to user', 'Human owner mapping reserved for governance waves']
         ].map(([label, detail]) => (
           <article key={label}>
@@ -6724,6 +6746,197 @@ function AWSAgentIdentitiesContent({
       />
     </>
   );
+}
+
+function buildAWSAIAgentIdentityRows(
+  inventory: AWSAIAgentIdentityInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsAIAgentIdentityRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'ai-agent-identities-blocked',
+        name: 'AI agent identities unavailable',
+        category: 'AI agent identity',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'AI agent identity collection is blocked.',
+        filters: { surface: 'bedrock-agents,agentcore-runtime,mcp-gateway,external-provider-keys', relationship: 'agent-to-role,agent-to-tool,agent-to-secret', status: 'not-yet-available', search: '' },
+        searchText: inventorySearchText(['ai agent identity blocked', inventory.account_id, inventory.region])
+      }
+    ];
+  }
+  if (inventory) {
+    const degraded = inventory.status === 'degraded' || inventory.diagnostics.length > 0 || inventory.failure_reasons.length > 0;
+    return [
+      {
+        id: 'ai-agent-identities-empty',
+        name: degraded ? 'AI agent identities incomplete' : 'No AI agent identities found',
+        category: 'AI agent identity',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: degraded ? 'degraded' : 'role anchor',
+        stage: 'wired',
+        detail: degraded ? (inventory.failure_reasons[0] ?? 'AI agent identity collection completed with degraded evidence and no retained records.') : 'The collector completed without Bedrock, AgentCore, custom, external-provider-backed, or gateway agent records.',
+        filters: { surface: 'bedrock-agents,agentcore-runtime,mcp-gateway,external-provider-keys', relationship: 'agent-to-role', status: degraded ? 'degraded' : 'role-anchor', search: '' },
+        searchText: inventorySearchText(['ai agent identity', inventory.account_id, inventory.region, degraded ? 'degraded empty' : 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'ai-agent-identities-loading',
+        name: 'AI agent identities',
+        category: 'AI agent identity',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading Bedrock, AgentCore, custom, external-provider-backed, and gateway metadata.',
+        filters: { surface: 'bedrock-agents,agentcore-runtime,mcp-gateway,external-provider-keys', relationship: 'agent-to-role,agent-to-tool,agent-to-secret', status: 'coming', search: '' },
+        searchText: inventorySearchText(['ai agent identity loading'])
+      }
+    ];
+  }
+  return [
+    {
+      id: 'role-anchor',
+      name: connection?.role_arn ?? 'AWS role anchor',
+      category: 'Agent-to-role anchor',
+      scope: awsAccountRegionLabel(connection),
+      status: connection?.connected ? 'role anchor' : 'not yet available',
+      stage: connection?.connected ? 'wired' : 'not-available',
+      detail: 'AI agent inventory can attach Bedrock, AgentCore, custom, and external agent execution back to this AWS role context.',
+      filters: {
+        surface: 'agentcore-runtime',
+        relationship: 'agent-to-role',
+        status: connection?.connected ? 'role-anchor' : 'not-yet-available',
+        search: ''
+      },
+      searchText: inventorySearchText(['agent to role', 'agent', 'role anchor', 'role relationship'])
+    },
+    {
+      id: 'bedrock-agents',
+      name: 'Bedrock agents',
+      category: 'AWS-native agent',
+      scope: 'Bedrock',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Agent identity, action groups, tool use, and runtime role relationships are normalized when AWS is connected.',
+      filters: { surface: 'bedrock-agents', relationship: 'agent-to-tool', status: 'coming', search: '' },
+      searchText: inventorySearchText(['bedrock', 'agent surface', 'tools'])
+    },
+    {
+      id: 'agentcore',
+      name: 'AgentCore runtime and gateway identity',
+      category: 'AgentCore',
+      scope: 'Runtime / gateway',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'AgentCore runtime, gateway, identity metadata, MCP gateway, and tool relationships are normalized when AWS is connected.',
+      filters: { surface: 'agentcore-runtime,mcp-gateway', relationship: 'agent-to-tool', status: 'coming', search: '' },
+      searchText: inventorySearchText(['agentcore', 'runtime', 'gateway', 'identity'])
+    },
+    {
+      id: 'external-provider-keys',
+      name: 'External AI provider key metadata',
+      category: 'Safe metadata',
+      scope: 'Secrets metadata only',
+      status: 'not yet available',
+      stage: 'not-available',
+      detail: 'External provider usage mapping uses safe credential-reference metadata, never secret values.',
+      filters: {
+        surface: 'external-provider-keys',
+        relationship: 'agent-to-secret',
+        status: 'not-yet-available',
+        search: ''
+      },
+      searchText: inventorySearchText(['external', 'provider', 'keys', 'agent'])
+    },
+    {
+      id: 'ai-agent-identities',
+      name: 'AI agent identities',
+      category: 'AI agent identity',
+      scope: 'Account and region expansion',
+      status: 'coming',
+      stage: 'coming',
+      detail: 'Bedrock, AgentCore, custom, external-provider-backed, and gateway metadata will attach agents to runtime roles, tools, and credential references.',
+      filters: { surface: 'bedrock-agents,agentcore-runtime,mcp-gateway,external-provider-keys', relationship: 'agent-to-role,agent-to-tool,agent-to-secret', status: 'coming', search: '' },
+      searchText: inventorySearchText(['bedrock agentcore custom external provider gateway ai agent'])
+    }
+  ];
+}
+
+function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTableRow {
+  const stage: AWSCapabilityStage = record.status === 'ready' && record.runtime_role_arn ? 'wired' : record.status === 'blocked' ? 'not-available' : 'coming';
+  const degraded = record.status !== 'ready' || record.coverage_status === 'degraded' || Boolean(record.coverage_reason);
+  const status = stage === 'not-available' ? 'not yet available' : degraded ? 'degraded' : 'role anchor';
+  const roleLabel = record.runtime_role_name || record.runtime_role_arn || 'runtime role unresolved';
+  const toolLabel = record.tool_names?.length ? `${record.tool_names.length} tools` : 'no tools reported';
+  const capabilityLabel = record.capability_names?.length ? `${record.capability_names.join(', ')} capabilities` : 'capabilities not reported';
+  const credentialLabel = record.credential_reference_refs?.length ? `${record.credential_reference_refs.length} credential refs, values hidden` : 'no credential refs reported';
+  const surface = awsAIAgentSurfaceFilter(record);
+  const relationships = new Set<string>(['agent-to-role']);
+  if (record.tool_names?.length || record.gateway_arn) {
+    relationships.add('agent-to-tool');
+  }
+  if (record.credential_reference_refs?.length) {
+    relationships.add('agent-to-secret');
+  }
+  return {
+    id: `ai-agent-identity-${record.agent_node_id || record.agent_id}`,
+    name: record.agent_name || record.agent_id,
+    category: formatTokenLabel(record.agent_type),
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage,
+    detail: `${record.provider || 'provider not reported'} ${record.model_id || 'model not reported'}; runs as ${roleLabel}; ${toolLabel}; ${capabilityLabel}; ${credentialLabel}.`,
+    filters: {
+      surface,
+      relationship: Array.from(relationships).join(','),
+      status: status === 'role anchor' ? 'role-anchor' : status === 'not yet available' ? 'not-yet-available' : 'coming,degraded',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.agent_id,
+      record.agent_arn,
+      record.agent_name,
+      record.agent_type,
+      record.provider,
+      record.model_id,
+      record.runtime_role_arn,
+      record.runtime_role_name,
+      record.gateway_id,
+      record.gateway_arn,
+      record.external_provider,
+      ...(record.tool_names ?? []),
+      ...(record.capability_names ?? []),
+      ...(record.credential_reference_refs ?? []),
+      record.account_id,
+      record.region,
+      'ai agent identity metadata only values hidden'
+    ])
+  };
+}
+
+function awsAIAgentSurfaceFilter(record: AWSAIAgentIdentityRecord): string {
+  switch (record.agent_type) {
+    case 'bedrock_agent':
+      return 'bedrock-agents';
+    case 'agentcore_runtime':
+      return 'agentcore-runtime';
+    case 'agent_gateway':
+      return 'mcp-gateway';
+    case 'external_provider_agent':
+    case 'custom_agent':
+      return record.credential_reference_refs?.length ? 'external-provider-keys' : 'bedrock-agents';
+    default:
+      return 'bedrock-agents,agentcore-runtime,mcp-gateway,external-provider-keys';
+  }
 }
 
 function AWSResourcesInventoryContent({
@@ -7620,6 +7833,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [eksInventoryLoading, setEKSInventoryLoading] = useState(false);
   const [eksInventoryError, setEKSInventoryError] = useState('');
   const eksInventoryRequestRef = useRef(0);
+  const [aiAgentInventory, setAIAgentInventory] = useState<AWSAIAgentIdentityInventoryResult | null>(null);
+  const [aiAgentInventoryLoading, setAIAgentInventoryLoading] = useState(false);
+  const [aiAgentInventoryError, setAIAgentInventoryError] = useState('');
+  const aiAgentInventoryRequestRef = useRef(0);
   const [secretsManagerInventory, setSecretsManagerInventory] = useState<AWSSecretsManagerMetadataInventoryResult | null>(null);
   const [secretsManagerInventoryLoading, setSecretsManagerInventoryLoading] = useState(false);
   const [secretsManagerInventoryError, setSecretsManagerInventoryError] = useState('');
@@ -8032,6 +8249,46 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
       eksInventoryRequestRef.current += 1;
     };
   }, [loadEKSInventory]);
+
+  const loadAIAgentInventory = useCallback(async () => {
+    const requestID = ++aiAgentInventoryRequestRef.current;
+    setAIAgentInventory(null);
+    setAIAgentInventoryError('');
+    if (routeID !== 'agents' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setAIAgentInventoryLoading(false);
+      return;
+    }
+    setAIAgentInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectAIAgentIdentities(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== aiAgentInventoryRequestRef.current) {
+        return;
+      }
+      setAIAgentInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== aiAgentInventoryRequestRef.current) {
+        return;
+      }
+      setAIAgentInventoryError(formatAPIError(error, 'Unable to load AWS AI agent identities.'));
+    } finally {
+      if (requestID === aiAgentInventoryRequestRef.current) {
+        setAIAgentInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadAIAgentInventory();
+    return () => {
+      aiAgentInventoryRequestRef.current += 1;
+    };
+  }, [loadAIAgentInventory]);
 
   const loadSecretsManagerInventory = useCallback(async () => {
     const requestID = ++secretsManagerInventoryRequestRef.current;
@@ -8702,7 +8959,17 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
         />
       ) : null}
       {routeID === 'agents' ? (
-        <AWSAgentIdentitiesContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
+        <AWSAgentIdentitiesContent
+          connection={connection}
+          aiAgentState={{
+            inventory: aiAgentInventory,
+            loading: aiAgentInventoryLoading,
+            error: aiAgentInventoryError,
+            onRetry: () => void loadAIAgentInventory()
+          }}
+          filters={activeFilters}
+          onFiltersChange={onFiltersChange}
+        />
       ) : null}
       {routeID === 'resources' ? (
         <AWSResourcesInventoryContent

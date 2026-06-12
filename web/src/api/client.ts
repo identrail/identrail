@@ -1941,6 +1941,114 @@ export type AWSSageMakerWorkloadRoleInventoryResult = {
   updated_at: string;
 };
 
+export type AWSAIAgentIdentityInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSAIAgentIdentityFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+
+export type AWSAIAgentCoverageGap = {
+  capability: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSAIAgentIdentityRecord = {
+  account_id: string;
+  region: string;
+  service: string;
+  agent_id: string;
+  agent_arn?: string;
+  agent_name: string;
+  agent_type: 'bedrock_agent' | 'agentcore_runtime' | 'custom_agent' | 'external_provider_agent' | 'agent_gateway' | string;
+  provider?: string;
+  model_id?: string;
+  runtime_role_arn?: string;
+  runtime_role_name?: string;
+  runtime_role_account_id?: string;
+  gateway_id?: string;
+  gateway_arn?: string;
+  external_provider?: string;
+  tool_names?: string[];
+  memory_enabled: boolean;
+  memory_store_refs?: string[];
+  browser_enabled: boolean;
+  code_interpreter_enabled: boolean;
+  capability_names?: string[];
+  credential_reference_refs?: string[];
+  sensitive_boundary: string;
+  coverage_status: string;
+  coverage_reason?: string;
+  source: string;
+  evidence_ref: string;
+  agent_node_id: string;
+  runtime_role_node_id?: string;
+  gateway_node_id?: string;
+  relationship_types: string[];
+  confidence: number;
+  collected_at: string;
+  status: string;
+  tags?: Record<string, string>;
+};
+
+export type AWSAIAgentIdentityRelationship = {
+  type: 'runs_as' | 'calls_tool' | 'uses_credential' | string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSAIAgentIdentityDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSAIAgentIdentityInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSAIAgentIdentityInventoryStatus;
+  fixture_state: AWSAIAgentIdentityFixtureState;
+  confidence: number;
+  record_count: number;
+  bedrock_agent_count: number;
+  agentcore_runtime_count: number;
+  custom_agent_count: number;
+  external_agent_count: number;
+  gateway_count: number;
+  runtime_role_count: number;
+  provider_count: number;
+  model_count: number;
+  tool_count: number;
+  capability_count: number;
+  credential_reference_count: number;
+  relationship_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSAIAgentCoverageGap[];
+  records: AWSAIAgentIdentityRecord[];
+  relationships: AWSAIAgentIdentityRelationship[];
+  diagnostics: AWSAIAgentIdentityDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSIAMPassRoleRelationshipInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSIAMPassRoleRelationshipFixtureState =
   | 'success'
@@ -4872,6 +4980,21 @@ export const apiClient = {
   ) {
     return request<{ inventory: AWSSageMakerWorkloadRoleInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/sagemaker-workload-roles${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectAIAgentIdentities(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSAIAgentIdentityFixtureState,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSAIAgentIdentityInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/ai-agent-identities${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
       })}`,
