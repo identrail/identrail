@@ -753,9 +753,12 @@ func awsCoverageCursorTime(fields map[string]any, fallback time.Time) time.Time 
 
 func awsCoverageCursorDiagnostic(row db.AWSAccountRegionCoverage, service string, code string, message string, retryable bool) AWSCoveragePlanDiagnostic {
 	cursor := ""
-	entries := awsCoverageCursorEntries(row.ScanCursor)
-	if len(entries) > 0 {
-		cursor = awsCoverageCursorString(entries[0].fields, "cursor")
+	for _, entry := range awsCoverageCursorEntries(row.ScanCursor) {
+		if strings.ToLower(strings.TrimSpace(entry.service)) != strings.ToLower(strings.TrimSpace(service)) {
+			continue
+		}
+		cursor = awsCoverageCursorString(entry.fields, "cursor")
+		break
 	}
 	return AWSCoveragePlanDiagnostic{
 		Source:      "scan_cursor",

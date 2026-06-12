@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 )
@@ -207,13 +208,6 @@ func awsCoverageStaleDiagnostics(diagnostics []AWSCoveragePlanDiagnostic) map[st
 	return out
 }
 
-func staleDiagnosticCursor(diagnostic *AWSCoveragePlanDiagnostic) string {
-	if diagnostic == nil {
-		return ""
-	}
-	return strings.TrimSpace(diagnostic.Cursor)
-}
-
 func awsCoverageStaleDiagnosticForTarget(staleDiagnostics map[string]AWSCoveragePlanDiagnostic, target AWSCoveragePlanTarget) (*AWSCoveragePlanDiagnostic, bool) {
 	service := strings.ToLower(strings.TrimSpace(target.Service))
 	region := strings.ToLower(strings.TrimSpace(target.Region))
@@ -224,20 +218,34 @@ func awsCoverageStaleDiagnosticForTarget(staleDiagnostics map[string]AWSCoverage
 	if !target.Global {
 		return nil, false
 	}
-	for scope, diagnostic := range staleDiagnostics {
+	scopes := make([]string, 0, len(staleDiagnostics))
+	for scope := range staleDiagnostics {
 		parts := strings.Split(scope, "/")
 		if len(parts) != 3 {
 			continue
 		}
-		if parts[0] == strings.TrimSpace(target.AccountID) && parts[2] == service {
-			return &diagnostic, true
+		if parts[0] != strings.TrimSpace(target.AccountID) || parts[2] != service {
+			continue
 		}
+		scopes = append(scopes, scope)
+	}
+	sort.Strings(scopes)
+	if len(scopes) > 0 {
+		diagnostic := staleDiagnostics[scopes[0]]
+		return &diagnostic, true
 	}
 	return nil, false
 }
 
-func awsCoverageStaleDiagnosticScopes(diagnostics []AWSCoveragePlanDiagnostic) map[string]string {
-	out := map[string]string{}
+func staleDiagnosticCursor(diagnostic *AWSCoveragePlanDiagnostic) string {
+	if diagnostic == nil {
+		return ""
+	}
+	return strings.TrimSpace(diagnostic.Cursor)
+}
+
+func awsCoverageStaleDiagnosticScopes(diagnostics []AWSCoveragePlanDiagnostic) map[string]AWSCoveragePlanDiagnostic {
+	out := map[string]AWSCoveragePlanDiagnostic{}
 	for _, diagnostic := range diagnostics {
 		if strings.ToLower(strings.TrimSpace(diagnostic.Code)) != "stale_cursor_expired" {
 			continue
@@ -246,7 +254,7 @@ func awsCoverageStaleDiagnosticScopes(diagnostics []AWSCoveragePlanDiagnostic) m
 		if scope == "" {
 			continue
 		}
-		out[scope] = diagnostic.Message
+		out[scope] = diagnostic
 	}
 	return out
 }
