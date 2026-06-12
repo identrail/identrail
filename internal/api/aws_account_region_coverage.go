@@ -211,10 +211,14 @@ func awsCoverageStaleDiagnostics(diagnostics []AWSCoveragePlanDiagnostic) map[st
 
 func awsCoverageStaleDiagnosticForTarget(staleDiagnostics map[string]AWSCoveragePlanDiagnostic, target AWSCoveragePlanTarget) (*AWSCoveragePlanDiagnostic, bool) {
 	service := strings.ToLower(strings.TrimSpace(target.Service))
+	state := strings.ToLower(strings.TrimSpace(target.State))
 	region := strings.ToLower(strings.TrimSpace(target.Region))
 	exactScope := strings.Join([]string{target.AccountID, region, service}, "/")
 	if diagnostic, ok := staleDiagnostics[exactScope]; ok {
 		return &diagnostic, true
+	}
+	if state == "covered" {
+		return nil, false
 	}
 	if !target.Global {
 		return nil, false
