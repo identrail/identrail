@@ -104,11 +104,11 @@ func (s *Service) GetAWSFanOutExecution(ctx context.Context, workspaceID string,
 	}
 	coverageRows := []db.AWSAccountRegionCoverage{}
 	if strings.TrimSpace(request.FixtureState) == "" && hasConnection {
-		coverageRows, err = s.Store.ListAWSAccountRegionCoverages(ctx, db.AWSAccountRegionCoverageFilter{
+		coverageRows, err = awsCoverageListRows(ctx, s.Store, db.AWSAccountRegionCoverageFilter{
 			WorkspaceID: project.WorkspaceID,
 			ProjectID:   project.ProjectID,
 			ConnectorID: strings.TrimSpace(connection.ConnectorID),
-			Limit:       1000,
+			Limit:       awsCoveragePlannerAccountRegionPageSize,
 		})
 		if err != nil {
 			return AWSFanOutExecutionResult{}, err

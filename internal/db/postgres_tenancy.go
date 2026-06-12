@@ -2221,8 +2221,12 @@ func (p *PostgresStore) ListAWSAccountRegionCoverages(ctx context.Context, filte
 		return nil, fmt.Errorf("project id is required")
 	}
 	limit := filter.Limit
-	if limit <= 0 {
-		limit = 100
+	if limit < 0 {
+		limit = 0
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
 	}
 	query := `SELECT tenant_id, workspace_id, project_id, connector_id, account_id, COALESCE(account_alias, ''), COALESCE(organization_id, ''), COALESCE(ou_path, ''), partition, region, COALESCE(role_arn, ''), coverage_status, last_successful_scan_at, COALESCE(last_observed_error_code, ''), COALESCE(last_observed_error_message, ''), scan_cursor, suspended, disabled, unreachable, created_at, updated_at
 		 FROM aws_account_region_coverages
@@ -2246,8 +2250,17 @@ func (p *PostgresStore) ListAWSAccountRegionCoverages(ctx context.Context, filte
 		args = append(args, region)
 		nextArg++
 	}
-	query += fmt.Sprintf(" ORDER BY connector_id ASC, account_id ASC, region ASC LIMIT $%d", nextArg)
-	args = append(args, limit)
+	query += " ORDER BY connector_id ASC, account_id ASC, region ASC"
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", nextArg)
+		args = append(args, limit)
+		nextArg++
+	}
+	if offset > 0 {
+		query += fmt.Sprintf(" OFFSET $%d", nextArg)
+		args = append(args, offset)
+		nextArg++
+	}
 
 	rows, err := p.queryContext(ctx, query, args...)
 	if err != nil {

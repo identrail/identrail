@@ -16,6 +16,7 @@ import (
 const awsCoveragePlannerCurrentIssue = 1501
 const awsCoveragePlannerGlobalServiceHomeRegion = "us-east-1"
 const awsCoverageScanCursorTTL = 24 * time.Hour
+const awsCoveragePlannerAccountRegionPageSize = 250
 
 // AWSCoveragePlanRequest filters and pins the account/region coverage plan.
 type AWSCoveragePlanRequest struct {
@@ -137,11 +138,11 @@ func (s *Service) GetAWSCoveragePlan(ctx context.Context, workspaceID string, pr
 	}
 	coverageRows := []db.AWSAccountRegionCoverage{}
 	if strings.TrimSpace(request.FixtureState) == "" && hasConnection {
-		coverageRows, err = s.Store.ListAWSAccountRegionCoverages(ctx, db.AWSAccountRegionCoverageFilter{
+		coverageRows, err = awsCoverageListRows(ctx, s.Store, db.AWSAccountRegionCoverageFilter{
 			WorkspaceID: project.WorkspaceID,
 			ProjectID:   project.ProjectID,
 			ConnectorID: strings.TrimSpace(connection.ConnectorID),
-			Limit:       1000,
+			Limit:       awsCoveragePlannerAccountRegionPageSize,
 		})
 		if err != nil {
 			return AWSCoveragePlanResult{}, err
@@ -430,6 +431,25 @@ func awsCoverageCheckpointsFromScanCursor(row db.AWSAccountRegionCoverage, check
 		services = append(services, service)
 	}
 	return checkpoints, diagnostics, dedupeStrings(services)
+}
+
+func awsCoverageListRows(ctx context.Context, store db.Store, filter db.AWSAccountRegionCoverageFilter) ([]db.AWSAccountRegionCoverage, error) {
+	if filter.Limit <= 0 {
+		filter.Limit = awsCoveragePlannerAccountRegionPageSize
+	}
+	allRows := []db.AWSAccountRegionCoverage{}
+	for offset := 0; ; offset += filter.Limit {
+		filter.Offset = offset
+		batch, err := store.ListAWSAccountRegionCoverages(ctx, filter)
+		if err != nil {
+			return nil, err
+		}
+		allRows = append(allRows, batch...)
+		if len(batch) < filter.Limit {
+			break
+		}
+	}
+	return allRows, nil
 }
 
 type awsCoverageCursorEntry struct {

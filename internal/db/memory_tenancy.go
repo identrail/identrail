@@ -1741,8 +1741,12 @@ func (m *MemoryStore) ListAWSAccountRegionCoverages(ctx context.Context, filter 
 		return nil, fmt.Errorf("project id is required")
 	}
 	limit := filter.Limit
-	if limit <= 0 {
-		limit = 100
+	if limit < 0 {
+		limit = 0
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
 	}
 	connectorID := strings.TrimSpace(filter.ConnectorID)
 	accountID := strings.TrimSpace(filter.AccountID)
@@ -1772,7 +1776,13 @@ func (m *MemoryStore) ListAWSAccountRegionCoverages(ctx context.Context, filter 
 		}
 		return results[i].Region < results[j].Region
 	})
-	if len(results) > limit {
+	if offset > 0 {
+		if offset >= len(results) {
+			return []AWSAccountRegionCoverage{}, nil
+		}
+		results = results[offset:]
+	}
+	if limit > 0 && len(results) > limit {
 		results = results[:limit]
 	}
 	return results, nil

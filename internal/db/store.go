@@ -1035,6 +1035,7 @@ type AWSAccountRegionCoverageFilter struct {
 	AccountID   string
 	Region      string
 	Limit       int
+	Offset      int
 }
 
 // AWSPlatformBaselineCheck records one operator-visible readiness check for the
