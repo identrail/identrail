@@ -437,7 +437,7 @@ func buildAWSCoveragePartialFailureReports(targets []AWSCoveragePlanTarget) []AW
 
 func awsCoverageStateIsPartialFailure(state string) bool {
 	switch awscontract.CoverageState(strings.ToLower(strings.TrimSpace(state))) {
-	case awscontract.CoverageStatePartial, awscontract.CoverageStateFailed, awscontract.CoverageStatePermissionDenied, awscontract.CoverageStateUnsupported, awscontract.CoverageStateBlocked:
+	case awscontract.CoverageStatePartial, awscontract.CoverageStateFailed, awscontract.CoverageStatePermissionDenied:
 		return true
 	default:
 		return false

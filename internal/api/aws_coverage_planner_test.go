@@ -175,6 +175,9 @@ func TestGetAWSCoveragePlanBlocksInventedLiveAccountRegionPairs(t *testing.T) {
 	if iam := targetsByKey["222222222222|us-east-1|iam"]; iam.State == "blocked" {
 		t.Fatalf("global iam home-region target should not be blocked as an invented regional pair: %+v", iam)
 	}
+	if len(result.PartialFailures) != 0 {
+		t.Fatalf("blocked prerequisite gaps should not become retry-focused partial failure reports: %+v", result.PartialFailures)
+	}
 }
 
 func TestGetAWSCoveragePlanPartialFailureReports(t *testing.T) {

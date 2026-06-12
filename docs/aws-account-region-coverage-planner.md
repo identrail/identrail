@@ -89,10 +89,11 @@ entry is scoped to one account, region, and service and includes:
 - failure reason, retryability, attempts, and cursor/checkpoint when available
 - evidence reference, timestamp, and next operator action
 
-Reports are emitted for `partial`, `failed`, `permission_denied`,
-`unsupported`, and `blocked` target states. Successful targets remain in the
-response, so operators can see what was preserved while recovering only the
-degraded target.
+Reports are emitted for `partial`, `failed`, and `permission_denied` target
+states. Blocked and unsupported targets stay visible as target states and
+diagnostics, but are not included in the retry-focused partial failure queue.
+Successful targets remain in the response, so operators can see what was
+preserved while recovering only the degraded target.
 
 When using fixture input or external planner input, `region_availability` and
 `service_availability` constraints are applied after checkpoint replay, so explicit

@@ -4476,10 +4476,10 @@ function AWSAccountsInventoryContent({
       : 0;
   const displayedRows = filterAWSInventoryRows(rows, filters);
   const displayedTopologyRows = filterAWSInventoryRows(topologyRows, filters);
-  const partialFailureReports = [
+  const partialFailureReports = dedupeAWSPartialFailureReports([
     ...(execution?.partial_failure_reports ?? []),
     ...(plan?.partial_failure_reports ?? [])
-  ];
+  ]);
 
   return (
     <>
@@ -4597,7 +4597,7 @@ function AWSAccountsInventoryContent({
           status={`${partialFailureReports.length} target${partialFailureReports.length === 1 ? '' : 's'}`}
           tone="warning"
         >
-          <AWSPartialFailureReportList reports={partialFailureReports.slice(0, 12)} label="AWS partial failure reports" />
+          <AWSPartialFailureReportList reports={partialFailureReports} label="AWS partial failure reports" />
         </DomainStatusPanel>
       ) : null}
       {topology?.diagnostics.length ? (
@@ -4668,6 +4668,20 @@ function AWSAccountsInventoryContent({
       </DomainStatusPanel>
     </>
   );
+}
+
+function dedupeAWSPartialFailureReports(reports: AWSPartialFailureReport[]) {
+  const seen = new Set<string>();
+  const deduped: AWSPartialFailureReport[] = [];
+  for (const report of reports) {
+    const key = report.key || `${report.account_id}|${report.region}|${report.service}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(report);
+  }
+  return deduped;
 }
 
 function AWSPartialFailureReportList({ reports, label }: { reports: AWSPartialFailureReport[]; label: string }) {
