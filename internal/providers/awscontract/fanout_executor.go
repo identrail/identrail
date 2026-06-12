@@ -124,10 +124,23 @@ func PlanFanOutExecution(config FanOutExecutionConfig) (FanOutExecutionPlan, err
 		MaxAttempts:      attempts,
 	}
 	runningSlot := 0
-	for _, coverageTarget := range config.Plan.Targets {
+	planned := make(map[string]struct{}, len(config.Plan.Targets))
+	appendTarget := func(coverageTarget CoverageTarget) {
 		target := buildFanOutExecutionTarget(coverageTarget, outcomes[coverageTarget.Key], attempts, config.ThrottleRetryAfter, &runningSlot, concurrency, startedAt)
 		targets = append(targets, target)
 		summarizeFanOutExecutionTarget(&summary, target)
+		planned[coverageTarget.Key] = struct{}{}
+	}
+	for _, coverageTarget := range config.Plan.Targets {
+		if coverageTarget.State == CoverageStateInProgress && outcomes[coverageTarget.Key].Key == "" {
+			appendTarget(coverageTarget)
+		}
+	}
+	for _, coverageTarget := range config.Plan.Targets {
+		if _, ok := planned[coverageTarget.Key]; ok {
+			continue
+		}
+		appendTarget(coverageTarget)
 	}
 
 	sort.SliceStable(targets, func(i, j int) bool {
@@ -186,7 +199,7 @@ func buildFanOutExecutionTarget(target CoverageTarget, outcome FanOutTargetOutco
 	case CoverageStateCovered, CoverageStatePermissionDenied, CoverageStateFailed, CoverageStatePartial:
 		execution.WorkerState = target.State
 		execution.Retryable = target.State == CoverageStateFailed || target.State == CoverageStatePartial
-		if target.State == CoverageStateFailed && execution.Attempts >= maxAttempts {
+		if execution.Retryable && execution.Attempts >= maxAttempts {
 			execution.Retryable = false
 		}
 	case CoverageStateInProgress:
@@ -260,7 +273,7 @@ func applyFanOutOutcome(target *FanOutExecutionTarget, outcome FanOutTargetOutco
 		target.Retryable = true
 	}
 	target.Attempts++
-	if target.Attempts >= maxAttempts && target.WorkerState == CoverageStateFailed {
+	if target.Attempts >= maxAttempts && (target.WorkerState == CoverageStateFailed || target.WorkerState == CoverageStatePartial) {
 		target.Retryable = false
 	}
 	target.NextAction = fanOutNextAction(*target)
