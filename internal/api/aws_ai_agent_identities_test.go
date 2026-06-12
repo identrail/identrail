@@ -227,6 +227,30 @@ func TestAIAgentRelationshipsEmitCallsToolToToolNodes(t *testing.T) {
 	}
 }
 
+func TestAIAgentRelationshipsEmitCallsToolForGatewayRecord(t *testing.T) {
+	record := awsAIAgentFixtureRecord("111111111111", "us-east-1", "agent_gateway", "payments-gateway", "payments-gateway", "arn:aws:bedrock:us-east-1:111111111111:agent-gateway/payments-gateway", "arn:aws:iam::111111111111:role/bedrock-agent-gateway-payments", time.Now(), func(r *AWSAIAgentIdentityRecord) {
+		r.ToolNames = []string{"payments-case-search"}
+	})
+
+	relationships := awsAIAgentIdentityRelationships([]AWSAIAgentIdentityRecord{record})
+	found := false
+	for _, relationship := range relationships {
+		if relationship.Type != "calls_tool" {
+			continue
+		}
+		found = true
+		if relationship.FromNodeID != record.AgentNodeID {
+			t.Fatalf("expected calls_tool source %q, got %q", record.AgentNodeID, relationship.FromNodeID)
+		}
+		if relationship.ToNodeID != awsAIAgentToolNodeID(record.AgentNodeID, "payments-case-search") {
+			t.Fatalf("expected calls_tool to target %q, got %q", awsAIAgentToolNodeID(record.AgentNodeID, "payments-case-search"), relationship.ToNodeID)
+		}
+	}
+	if !found {
+		t.Fatalf("expected gateway record to emit calls_tool relationship when tool names are present, got %+v", relationships)
+	}
+}
+
 func TestRouterAWSAIAgentIdentityInventoryPermissionDenied(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()

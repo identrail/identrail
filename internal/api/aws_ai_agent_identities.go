@@ -439,24 +439,24 @@ func awsAIAgentIdentityRelationships(records []AWSAIAgentIdentityRecord) []AWSAI
 		if record.AgentNodeID != "" && record.RuntimeRoleNodeID != "" {
 			result = append(result, AWSAIAgentIdentityRelation{Type: "runs_as", FromNodeID: record.AgentNodeID, ToNodeID: record.RuntimeRoleNodeID, EvidenceRef: record.EvidenceRef})
 		}
-		if record.AgentNodeID != "" && record.GatewayNodeID != "" && record.AgentNodeID != record.GatewayNodeID {
-			for _, tool := range dedupeStrings(record.ToolNames) {
+		toolNames := dedupeStrings(record.ToolNames)
+		if record.AgentNodeID != "" && len(toolNames) > 0 {
+			callsToolSource := firstNonEmptyAWSValue(record.GatewayNodeID, record.AgentNodeID)
+			if strings.EqualFold(record.AgentType, "agent_gateway") {
+				callsToolSource = record.AgentNodeID
+			}
+			if callsToolSource == "" {
+				continue
+			}
+			for _, tool := range toolNames {
 				tool = strings.TrimSpace(tool)
 				if tool == "" {
 					continue
 				}
 				result = append(result, AWSAIAgentIdentityRelation{
 					Type:        "calls_tool",
-					FromNodeID:  record.GatewayNodeID,
-					ToNodeID:    awsAIAgentToolNodeID(record.GatewayNodeID, tool),
-					EvidenceRef: record.EvidenceRef,
-				})
-			}
-			if len(dedupeStrings(record.ToolNames)) == 0 {
-				result = append(result, AWSAIAgentIdentityRelation{
-					Type:        "calls_tool",
-					FromNodeID:  record.GatewayNodeID,
-					ToNodeID:    awsAIAgentToolNodeID(record.GatewayNodeID, ""),
+					FromNodeID:  callsToolSource,
+					ToNodeID:    awsAIAgentToolNodeID(callsToolSource, tool),
 					EvidenceRef: record.EvidenceRef,
 				})
 			}
