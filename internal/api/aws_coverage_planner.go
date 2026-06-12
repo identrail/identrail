@@ -9,7 +9,7 @@ import (
 	"github.com/identrail/identrail/internal/providers/awscontract"
 )
 
-const awsCoveragePlannerCurrentIssue = 1497
+const awsCoveragePlannerCurrentIssue = 1499
 const awsCoveragePlannerGlobalServiceHomeRegion = "us-east-1"
 
 // AWSCoveragePlanRequest filters and pins the account/region coverage plan.
@@ -224,7 +224,7 @@ func awsCoveragePlanFixtureConfig(connectorID, accountID, region, fixtureState s
 		{
 			Capability:  "live_account_discovery",
 			Status:      "out_of_scope",
-			Reason:      "The planner expands the configured account/region/service targets only; AWS Organizations and region availability discovery are later-wave capabilities.",
+			Reason:      "The planner accepts per-account region and service availability overrides for this issue, while organization-driven account discovery remains an upstream dependency.",
 			Remediation: "Populate accounts and regions from connector configuration or organization discovery before planning.",
 		},
 		{
@@ -256,6 +256,27 @@ func awsCoveragePlanFixtureConfig(connectorID, accountID, region, fixtureState s
 	}
 
 	diagnostics := []AWSCoveragePlanDiagnostic{}
+	// Capability examples: explicit account-region and account-region-service availability
+	// signals are surfaced here so the UI can show opt-in blocked, unsupported,
+	// and permission-denied behavior before live discovery is implemented.
+	if fixtureState == "degraded" || fixtureState == "partial_failure" || fixtureState == "permission_denied" {
+		config.RegionAvailability = []awscontract.CoverageAccountRegionAvailability{{
+			AccountID:   accountID,
+			Region:      awsCoveragePlanSecondaryRegion(region),
+			State:       awscontract.CoverageStateBlocked,
+			Reason:      "member account has not enabled the secondary region",
+			EvidenceRef: "/docs/aws-account-region-coverage-planner",
+		}}
+		config.ServiceAvailability = []awscontract.CoverageAccountServiceAvailability{{
+			AccountID:   secondaryAccount,
+			Region:      region,
+			Service:     "ecs",
+			State:       awscontract.CoverageStateUnsupported,
+			Reason:      "ecs inventory is not supported in this exact account-region pairing",
+			EvidenceRef: "/docs/aws-service-collector-contract#ecs",
+		}}
+	}
+
 	switch fixtureState {
 	case "permission_denied":
 		config.Checkpoints = []awscontract.CoverageCheckpoint{{

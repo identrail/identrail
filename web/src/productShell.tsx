@@ -3720,6 +3720,8 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'Planned', value: 'planned' },
         { label: 'Missing', value: 'missing' },
         { label: 'Blocked', value: 'blocked' },
+        { label: 'Unsupported', value: 'unsupported' },
+        { label: 'Disabled', value: 'disabled' },
         { label: 'Degraded', value: 'degraded' },
         { label: 'Failed', value: 'failed' },
         { label: 'Permission denied', value: 'permission_denied' },
@@ -4019,11 +4021,13 @@ function awsCoveragePlanFilterValue(state: string): string {
     case 'in_progress':
       return 'degraded';
     case 'blocked':
-    case 'disabled':
-    case 'unsupported':
     case 'planned':
     case 'pending':
       return 'missing';
+    case 'unsupported':
+      return 'unsupported';
+    case 'disabled':
+      return 'disabled';
     default:
       return 'not-yet-available';
   }
@@ -4037,11 +4041,20 @@ function awsCoveragePlanTargetDetail(target: AWSCoveragePlanTarget): string {
   const details = [`Priority ${formatTokenLabel(target.priority)}`];
   if (target.failure_reason) {
     details.push(target.failure_reason);
-  } else if (target.prerequisites.length > 0) {
+  }
+  if (target.reason) {
+    details.push(target.reason);
+  }
+  if (target.prerequisites.length > 0) {
     details.push(target.prerequisites[0]);
-  } else if (target.cursor) {
+  }
+  if (target.cursor) {
     details.push(`Cursor ${target.cursor}`);
-  } else {
+  }
+  if (target.observed_at) {
+    details.push(`Observed ${formatConnectionTime(target.observed_at)}`);
+  }
+  if (details.length === 1) {
     details.push(target.next_action);
   }
   if (target.attempts) {
