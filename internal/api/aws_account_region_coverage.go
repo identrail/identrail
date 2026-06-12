@@ -244,21 +244,6 @@ func staleDiagnosticCursor(diagnostic *AWSCoveragePlanDiagnostic) string {
 	return strings.TrimSpace(diagnostic.Cursor)
 }
 
-func awsCoverageStaleDiagnosticScopes(diagnostics []AWSCoveragePlanDiagnostic) map[string]AWSCoveragePlanDiagnostic {
-	out := map[string]AWSCoveragePlanDiagnostic{}
-	for _, diagnostic := range diagnostics {
-		if strings.ToLower(strings.TrimSpace(diagnostic.Code)) != "stale_cursor_expired" {
-			continue
-		}
-		scope := strings.ToLower(strings.TrimSpace(diagnostic.Scope))
-		if scope == "" {
-			continue
-		}
-		out[scope] = diagnostic
-	}
-	return out
-}
-
 func awsAccountRegionCoverageStatus(target AWSCoveragePlanTarget, stale bool) string {
 	if stale {
 		return "stale"
