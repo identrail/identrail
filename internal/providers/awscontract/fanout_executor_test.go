@@ -47,6 +47,54 @@ func TestPlanFanOutExecutionBoundsConcurrency(t *testing.T) {
 	}
 }
 
+func TestPlanFanOutExecutionCountsResumedWorkAgainstConcurrency(t *testing.T) {
+	now := time.Date(2026, 6, 12, 13, 45, 0, 0, time.UTC)
+	config := sampleCoverageConfig()
+	config.Services = []CoverageService{
+		{Service: "iam", Enabled: true, Priority: CoveragePriorityCritical, Global: true},
+		{Service: "lambda", Enabled: true, Priority: CoveragePriorityHigh},
+	}
+	config.Checkpoints = []CoverageCheckpoint{
+		{AccountID: "111111111111", Region: "eu-west-1", Service: "lambda", State: CoverageStateInProgress, Cursor: "lambda-page-2", Attempts: 1},
+	}
+	coverage, err := PlanCoverage(config, now)
+	if err != nil {
+		t.Fatalf("plan coverage: %v", err)
+	}
+
+	execution, err := PlanFanOutExecution(FanOutExecutionConfig{
+		Plan:           coverage,
+		MaxConcurrency: 1,
+		MaxAttempts:    3,
+		StartedAt:      now,
+	})
+	if err != nil {
+		t.Fatalf("plan fan-out execution: %v", err)
+	}
+
+	if execution.Summary.ConcurrencyLimit != 1 || execution.Summary.InProgressTargets != 1 {
+		t.Fatalf("expected exactly one resumed target to occupy the worker slot, got %+v", execution.Summary)
+	}
+	if execution.Summary.QueuedTargets == 0 {
+		t.Fatalf("expected new executable targets to remain queued while resumed work is running: %+v", execution.Summary)
+	}
+	var resumed FanOutExecutionTarget
+	for _, target := range execution.Targets {
+		if target.Key == "111111111111|eu-west-1|lambda" {
+			resumed = target
+			break
+		}
+	}
+	if resumed.WorkerState != CoverageStateInProgress || resumed.ConcurrencySlot != 1 || resumed.Checkpoint != "lambda-page-2" || resumed.Attempts != 1 {
+		t.Fatalf("resumed target should keep its checkpoint and consume the only slot: %+v", resumed)
+	}
+	for _, target := range execution.Targets {
+		if target.Key != resumed.Key && target.WorkerState == CoverageStateInProgress {
+			t.Fatalf("new target started even though resumed work already consumed concurrency: %+v", target)
+		}
+	}
+}
+
 func TestPlanFanOutExecutionKeepsFailuresTargetScoped(t *testing.T) {
 	now := time.Date(2026, 6, 12, 14, 0, 0, 0, time.UTC)
 	coverage, err := PlanCoverage(CoveragePlanConfig{

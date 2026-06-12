@@ -186,10 +186,16 @@ func buildFanOutExecutionTarget(target CoverageTarget, outcome FanOutTargetOutco
 		execution.WorkerState = target.State
 		execution.Retryable = target.State == CoverageStateFailed || target.State == CoverageStatePartial
 	case CoverageStateInProgress:
-		execution.WorkerState = CoverageStateInProgress
 		execution.Retryable = true
 		if execution.Checkpoint == "" {
 			execution.Checkpoint = target.Key + ":cursor"
+		}
+		if *runningSlot < concurrency {
+			*runningSlot++
+			execution.ConcurrencySlot = *runningSlot
+			execution.WorkerState = CoverageStateInProgress
+		} else {
+			execution.WorkerState = CoverageStatePending
 		}
 	default:
 		if *runningSlot < concurrency {
