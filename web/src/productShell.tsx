@@ -4037,6 +4037,11 @@ function awsCoveragePlanStage(state: string): AWSCapabilityStage {
   return state === 'covered' ? 'wired' : state === 'disabled' || state === 'unsupported' ? 'not-available' : 'coming';
 }
 
+function hasAWSCoverageObservedAt(value?: string): boolean {
+  const timestamp = value?.trim();
+  return Boolean(timestamp && !timestamp.startsWith('0001-01-01T00:00:00'));
+}
+
 function awsCoveragePlanTargetDetail(target: AWSCoveragePlanTarget): string {
   const details = [`Priority ${formatTokenLabel(target.priority)}`];
   if (target.failure_reason) {
@@ -4051,7 +4056,7 @@ function awsCoveragePlanTargetDetail(target: AWSCoveragePlanTarget): string {
   if (target.cursor) {
     details.push(`Cursor ${target.cursor}`);
   }
-  if (target.observed_at) {
+  if (hasAWSCoverageObservedAt(target.observed_at)) {
     details.push(`Observed ${formatConnectionTime(target.observed_at)}`);
   }
   if (details.length === 1) {
