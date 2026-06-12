@@ -10592,7 +10592,7 @@ components:
         account_name: { type: string }
         status:
           type: string
-          enum: [active, suspended, closed]
+          enum: [active, suspended, pending_activation, pending_closure, closed]
         parent_id: { type: string }
         ou_path: { type: string }
         partition: { type: string }
