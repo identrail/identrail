@@ -1,9 +1,9 @@
 # AWS Account and Region Fan-Out Worker
 
-Issue #1500 adds a deterministic, metadata-only execution view for bounded AWS
-account/region/service fan-out. It builds on the coverage planner from issue
-#1499 and makes worker state explicit for operators and downstream recovery
-flows.
+Issues #1500 and #1501 add a deterministic, metadata-only execution view for
+bounded AWS account/region/service fan-out. It builds on the coverage planner
+and makes worker state, persisted scan cursors, and downstream recovery state
+explicit for operators.
 
 ## What It Executes
 
@@ -11,6 +11,7 @@ The fan-out executor consumes an `awscontract.CoveragePlan` and produces one
 worker target for each planned account, region, and service target. It records:
 
 - target account, region, service, priority, coverage state, and worker state
+- collector name when the checkpoint is owned by a specific service collector
 - bounded concurrency slot and queue state
 - attempts, maximum attempts, retryability, retry-after, and checkpoints
 - failure reason, evidence reference, timestamp, and next operator action
@@ -42,9 +43,15 @@ diagnostics, coverage gaps, remediation hints, and evidence links.
 ## Failure And Retry Behavior
 
 One account/region/service failure does not fail the whole execution view.
-Throttled and partial targets preserve their checkpoint and retry metadata so a
-future worker run can resume from the last safe cursor. Permission-denied targets
-are non-retryable until the read-only collector role is repaired.
+Throttled, partial, pending, and in-progress targets preserve their checkpoint
+and retry metadata so a future worker run can resume from the last safe cursor.
+Permission-denied targets are non-retryable until the read-only collector role is
+repaired.
+
+Default API calls replay persisted `scan_cursor` service checkpoints from
+account/region coverage rows. Explicit `fixture_state` calls keep using
+deterministic fixture outcomes for CI and app validation. Resumable cursors older
+than 24 hours are treated as stale and are not reused for continuation.
 
 ## Safety Boundary
 

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -19,6 +20,17 @@ func TestGetAWSCoveragePlanSuccess(t *testing.T) {
 	now := time.Date(2026, 6, 12, 9, 0, 0, 0, time.UTC)
 	seedDefaultProject(t, store, ctx, "project-a")
 	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "123456789012",
+		AccountAlias:   "Production",
+		Region:         "us-east-1",
+		CoverageStatus: db.AWSAccountRegionCoveragePending,
+		ScanCursor: map[string]any{"services": map[string]any{
+			"iam":    map[string]any{"collector": "iam_roles", "state": "covered", "observed_at": now.Format(time.RFC3339Nano)},
+			"lambda": map[string]any{"collector": "lambda_execution_roles", "state": "in_progress", "cursor": "lambda-page-2", "attempts": 1, "observed_at": now.Format(time.RFC3339Nano)},
+		}},
+		UpdatedAt: now,
+	})
 
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.Now = func() time.Time { return now }
@@ -30,17 +42,23 @@ func TestGetAWSCoveragePlanSuccess(t *testing.T) {
 	if result.Status != awsPlatformDependencyStatusReady || result.Confidence < 0.9 {
 		t.Fatalf("expected ready plan, got %+v", result)
 	}
-	if result.CurrentIssueRef != "#1499" || result.Version == "" {
+	if result.CurrentIssueRef != "#1501" || result.Version == "" {
 		t.Fatalf("unexpected metadata: %+v", result)
 	}
-	if result.Summary.AccountCount != 3 || result.Summary.RegionCount != 3 || result.Summary.ServiceCount != 6 {
+	if result.Summary.AccountCount != 1 || result.Summary.RegionCount != 1 || result.Summary.ServiceCount != 6 {
 		t.Fatalf("unexpected dimension counts: %+v", result.Summary)
 	}
-	if result.Summary.CoveredTargets != 3 || result.Summary.CoveragePercent <= 0 {
+	if result.Summary.CoveredTargets != 1 || result.Summary.ResumableTargets != 1 || result.Summary.CoveragePercent <= 0 {
 		t.Fatalf("expected covered targets and positive coverage percent, got %+v", result.Summary)
 	}
-	if result.Summary.DisabledTargets == 0 {
-		t.Fatalf("expected disabled targets from the decommissioned account, got %+v", result.Summary)
+	var lambda AWSCoveragePlanTarget
+	for _, target := range result.Targets {
+		if target.Service == "lambda" {
+			lambda = target
+		}
+	}
+	if lambda.Collector != "lambda_execution_roles" || lambda.Cursor != "lambda-page-2" || !lambda.Resumable {
+		t.Fatalf("expected lambda checkpoint to be operator-visible, got %+v", lambda)
 	}
 	// Determinism: targets must be sorted by priority rank then key.
 	for i := 1; i < len(result.Targets); i++ {
@@ -66,6 +84,21 @@ func TestGetAWSCoveragePlanGlobalServicePlannedOncePerAccount(t *testing.T) {
 	now := time.Date(2026, 6, 12, 9, 30, 0, 0, time.UTC)
 	seedDefaultProject(t, store, ctx, "project-a")
 	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "123456789012",
+		AccountAlias:   "Production",
+		Region:         "us-east-1",
+		CoverageStatus: db.AWSAccountRegionCoveragePending,
+		ScanCursor:     map[string]any{"services": map[string]any{"iam": map[string]any{"state": "covered", "observed_at": now.Format(time.RFC3339Nano)}}},
+		UpdatedAt:      now,
+	})
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "222222222222",
+		AccountAlias:   "Data",
+		Region:         "eu-west-1",
+		CoverageStatus: db.AWSAccountRegionCoveragePending,
+		UpdatedAt:      now,
+	})
 
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.Now = func() time.Time { return now }
@@ -97,6 +130,20 @@ func TestGetAWSCoveragePlanFilters(t *testing.T) {
 	now := time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC)
 	seedDefaultProject(t, store, ctx, "project-a")
 	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		CoverageStatus: db.AWSAccountRegionCoveragePending,
+		ScanCursor:     map[string]any{"services": map[string]any{"iam": map[string]any{"state": "covered", "observed_at": now.Format(time.RFC3339Nano)}}},
+		UpdatedAt:      now,
+	})
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "222222222222",
+		Region:         "eu-west-1",
+		CoverageStatus: db.AWSAccountRegionCoverageDisabled,
+		Disabled:       true,
+		UpdatedAt:      now,
+	})
 
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.Now = func() time.Time { return now }
@@ -179,6 +226,41 @@ func TestGetAWSCoveragePlanEmptyAndDegradedAndDenied(t *testing.T) {
 	}
 }
 
+func TestGetAWSCoveragePlanLiveCursorExpiryAndMalformed(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 12, 12, 30, 0, 0, time.UTC)
+	old := now.Add(-awsCoverageScanCursorTTL - time.Minute)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		CoverageStatus: db.AWSAccountRegionCoveragePending,
+		ScanCursor: map[string]any{"services": map[string]any{
+			"lambda": map[string]any{"state": "in_progress", "cursor": "stale-lambda", "observed_at": old.Format(time.RFC3339Nano)},
+			"ecs":    map[string]any{"cursor": "missing-state"},
+		}},
+		UpdatedAt: now,
+	})
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	result, err := svc.GetAWSCoveragePlan(ctx, "default", "project-a", AWSCoveragePlanRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get coverage plan: %v", err)
+	}
+	if result.Status != awsPlatformDependencyStatusDegraded || len(result.Diagnostics) != 2 {
+		t.Fatalf("expected degraded stale/malformed cursor diagnostics, got %+v", result)
+	}
+	for _, target := range result.Targets {
+		if target.Service == "lambda" && target.Cursor == "stale-lambda" {
+			t.Fatalf("stale cursor should not be replayed: %+v", target)
+		}
+	}
+}
+
 func TestGetAWSCoveragePlanNeverLeaksValues(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()
@@ -235,5 +317,27 @@ func TestRouterAWSCoveragePlanPartialFailureAndInvalid(t *testing.T) {
 		if bad.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for %q, got %d body=%s", query, bad.Code, bad.Body.String())
 		}
+	}
+}
+
+func seedAWSCoverageCursorRow(t *testing.T, store db.Store, ctx context.Context, projectID string, connectorID string, coverage db.AWSAccountRegionCoverage) {
+	t.Helper()
+	if coverage.CoverageStatus == "" {
+		coverage.CoverageStatus = db.AWSAccountRegionCoveragePending
+	}
+	if coverage.Partition == "" {
+		coverage.Partition = "aws"
+	}
+	if coverage.CreatedAt.IsZero() {
+		coverage.CreatedAt = time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)
+	}
+	if coverage.UpdatedAt.IsZero() {
+		coverage.UpdatedAt = coverage.CreatedAt
+	}
+	coverage.WorkspaceID = "default"
+	coverage.ProjectID = projectID
+	coverage.ConnectorID = connectorID
+	if _, err := store.UpsertAWSAccountRegionCoverage(ctx, coverage); err != nil {
+		t.Fatalf("seed aws coverage cursor row: %v", err)
 	}
 }

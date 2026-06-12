@@ -139,6 +139,7 @@ type CoverageCheckpoint struct {
 	AccountID     string        `json:"account_id"`
 	Region        string        `json:"region"`
 	Service       string        `json:"service"`
+	Collector     string        `json:"collector,omitempty"`
 	State         CoverageState `json:"state"`
 	Cursor        string        `json:"cursor,omitempty"`
 	FailureReason string        `json:"failure_reason,omitempty"`
@@ -168,6 +169,7 @@ type CoverageTarget struct {
 	RegionName    string           `json:"region_name,omitempty"`
 	Service       string           `json:"service"`
 	ServiceName   string           `json:"service_name,omitempty"`
+	Collector     string           `json:"collector,omitempty"`
 	Global        bool             `json:"global,omitempty"`
 	Enabled       bool             `json:"enabled"`
 	Priority      CoveragePriority `json:"priority"`
@@ -475,6 +477,7 @@ func applyCoverageCheckpoint(target *CoverageTarget, checkpoint CoverageCheckpoi
 	if checkpoint.State != "" {
 		target.State = checkpoint.State
 	}
+	target.Collector = strings.TrimSpace(checkpoint.Collector)
 	target.Cursor = strings.TrimSpace(checkpoint.Cursor)
 	target.FailureReason = strings.TrimSpace(checkpoint.FailureReason)
 	if checkpoint.Attempts > 0 {

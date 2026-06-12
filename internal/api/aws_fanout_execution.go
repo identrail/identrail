@@ -28,6 +28,7 @@ type AWSFanOutExecutionTarget struct {
 	AccountID       string    `json:"account_id"`
 	Region          string    `json:"region"`
 	Service         string    `json:"service"`
+	Collector       string    `json:"collector,omitempty"`
 	Priority        string    `json:"priority"`
 	State           string    `json:"state"`
 	WorkerState     string    `json:"worker_state"`
@@ -76,7 +77,7 @@ type AWSFanOutExecutionResult struct {
 	CurrentIssueRef    string                       `json:"current_issue_ref"`
 	Version            string                       `json:"version"`
 	Status             string                       `json:"status"`
-	FixtureState       string                       `json:"fixture_state"`
+	FixtureState       string                       `json:"fixture_state,omitempty"`
 	Confidence         float64                      `json:"confidence"`
 	FilteredTargets    int                          `json:"filtered_targets"`
 	Summary            AWSFanOutExecutionSummary    `json:"summary"`
@@ -101,12 +102,24 @@ func (s *Service) GetAWSFanOutExecution(ctx context.Context, workspaceID string,
 	if err != nil {
 		return AWSFanOutExecutionResult{}, err
 	}
-	return buildAWSFanOutExecution(scope, project, connection, hasConnection, request, s.Now().UTC())
+	coverageRows := []db.AWSAccountRegionCoverage{}
+	if strings.TrimSpace(request.FixtureState) == "" && hasConnection {
+		coverageRows, err = s.Store.ListAWSAccountRegionCoverages(ctx, db.AWSAccountRegionCoverageFilter{
+			WorkspaceID: project.WorkspaceID,
+			ProjectID:   project.ProjectID,
+			ConnectorID: strings.TrimSpace(connection.ConnectorID),
+			Limit:       1000,
+		})
+		if err != nil {
+			return AWSFanOutExecutionResult{}, err
+		}
+	}
+	return buildAWSFanOutExecution(scope, project, connection, hasConnection, request, coverageRows, s.Now().UTC())
 }
 
-func buildAWSFanOutExecution(scope db.Scope, project db.TenancyProject, connection AWSConnectionStatus, hasConnection bool, request AWSFanOutExecutionRequest, checkedAt time.Time) (AWSFanOutExecutionResult, error) {
+func buildAWSFanOutExecution(scope db.Scope, project db.TenancyProject, connection AWSConnectionStatus, hasConnection bool, request AWSFanOutExecutionRequest, coverageRows []db.AWSAccountRegionCoverage, checkedAt time.Time) (AWSFanOutExecutionResult, error) {
 	fixtureState := normalizeAWSCoveragePlanFixtureState(request.FixtureState, connection, hasConnection)
-	if fixtureState == "" {
+	if strings.TrimSpace(request.FixtureState) != "" && fixtureState == "" {
 		return AWSFanOutExecutionResult{}, ErrInvalidAWSConnectionRequest
 	}
 	if !validAWSCoveragePlanStateFilter(request.State) {
@@ -116,11 +129,18 @@ func buildAWSFanOutExecution(scope db.Scope, project db.TenancyProject, connecti
 	if maxConcurrency < 0 || maxConcurrency > 64 {
 		return AWSFanOutExecutionResult{}, ErrInvalidAWSConnectionRequest
 	}
-	accountID := firstNonEmptyAWSValue(connection.AccountID, "111111111111")
-	region := firstNonEmptyAWSValue(connection.Region, "us-east-1")
-	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID), "aws-fixture")
+	accountID := firstNonEmptyAWSValue(strings.TrimSpace(connection.AccountID), "111111111111")
+	region := firstNonEmptyAWSValue(strings.TrimSpace(connection.Region), "us-east-1")
+	connectorID := firstNonEmptyAWSValue(strings.TrimSpace(connection.ConnectorID), strings.TrimSpace(request.ConnectorID), "aws-fixture")
 
-	config, diagnostics, gaps := awsCoveragePlanFixtureConfig(connectorID, accountID, region, fixtureState)
+	var config awscontract.CoveragePlanConfig
+	var diagnostics []AWSCoveragePlanDiagnostic
+	var gaps []AWSCoveragePlanCoverageGap
+	if fixtureState != "" {
+		config, diagnostics, gaps = awsCoveragePlanFixtureConfig(connectorID, accountID, region, fixtureState)
+	} else {
+		config, diagnostics, gaps = awsCoveragePlanLiveConfig(connectorID, accountID, region, hasConnection, connection.Connected, coverageRows, checkedAt)
+	}
 	coverage, err := awscontract.PlanCoverage(config, checkedAt)
 	if err != nil {
 		return AWSFanOutExecutionResult{}, err
@@ -175,7 +195,7 @@ func buildAWSFanOutExecution(scope db.Scope, project db.TenancyProject, connecti
 }
 
 func awsFanOutFixtureOutcomes(plan awscontract.CoveragePlan, accountID, region, fixtureState string, checkedAt time.Time) []awscontract.FanOutTargetOutcome {
-	if fixtureState == "empty" || fixtureState == "permission_denied" {
+	if fixtureState == "" || fixtureState == "empty" || fixtureState == "permission_denied" {
 		return nil
 	}
 	outcomes := []awscontract.FanOutTargetOutcome{}
@@ -213,6 +233,7 @@ func mapAWSFanOutExecutionTargets(targets []awscontract.FanOutExecutionTarget) [
 			AccountID:       target.AccountID,
 			Region:          target.Region,
 			Service:         target.Service,
+			Collector:       target.Collector,
 			Priority:        string(target.Priority),
 			State:           string(target.State),
 			WorkerState:     string(target.WorkerState),
@@ -279,12 +300,12 @@ func filterAWSFanOutExecutionTargets(targets []AWSFanOutExecutionTarget, request
 }
 
 func summarizeAWSFanOutExecution(fixtureState string, diagnostics []AWSCoveragePlanDiagnostic, execution awscontract.FanOutExecutionPlan) (string, float64, []string, []string) {
-	if fixtureState == "permission_denied" || execution.Summary.PermissionDeniedTargets > 0 {
+	if fixtureState == "permission_denied" || execution.Summary.PermissionDeniedTargets > 0 || awsCoveragePlanHasDiagnosticCode(diagnostics, "permission_denied") {
 		return awsPlatformDependencyStatusBlocked, 0.34,
 			awsCoveragePlanDiagnosticMessages(diagnostics),
 			[]string{"Deploy read-only collector roles into denied accounts/regions before rerunning fan-out execution."}
 	}
-	if fixtureState == "partial_failure" || fixtureState == "degraded" || execution.Summary.FailedTargets > 0 || execution.Summary.PartialTargets > 0 {
+	if fixtureState == "partial_failure" || fixtureState == "degraded" || execution.Summary.FailedTargets > 0 || execution.Summary.PartialTargets > 0 || len(diagnostics) > 0 {
 		return awsPlatformDependencyStatusDegraded, 0.74,
 			awsCoveragePlanDiagnosticMessages(diagnostics),
 			[]string{"Retry throttled or partial targets with bounded backoff; completed targets stay checkpointed."}

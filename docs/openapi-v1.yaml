@@ -10545,6 +10545,7 @@ components:
         region_name: { type: string }
         service: { type: string }
         service_name: { type: string }
+        collector: { type: string }
         global: { type: boolean }
         enabled: { type: boolean }
         priority:
@@ -10672,6 +10673,7 @@ components:
         account_id: { type: string }
         region: { type: string }
         service: { type: string }
+        collector: { type: string }
         priority:
           type: string
           enum: [critical, high, normal, low]

@@ -1,8 +1,8 @@
 # AWS Account and Region Coverage Planner
 
-Issue #1499 adds a deterministic, metadata-only planner that expands an AWS
-connector's configured accounts, regions, and service partitions into explicit
-scan targets.
+Issues #1499 and #1501 add a deterministic, metadata-only planner that expands
+an AWS connector's configured accounts, regions, service partitions, and
+persisted scan cursors into explicit scan targets.
 
 It also models per-account, per-region, and per-service availability outcomes
 (`blocked`, `unsupported`, `disabled`, and `permission_denied`) so operators can
@@ -23,10 +23,41 @@ Each target records:
 - lifecycle state: `planned`, `pending`, `in_progress`, `covered`, `partial`,
   `failed`, `permission_denied`, `unsupported`, `blocked`, or `disabled`
 - cursor, failure reason, attempts, resumability, and evidence reference
+- collector name when a service checkpoint is owned by a specific collector
 - the next operator action
 
 The planner is deterministic: the same connector configuration and checkpoints
 produce the same ordered plan.
+
+## Scan Cursor Shape
+
+Live planning reads `aws_account_region_coverages.scan_cursor` as a metadata
+envelope scoped by tenant, workspace, project, connector, account, and region.
+Service cursors are keyed below `services`, `service_cursors`, `checkpoints`, or
+`cursors`:
+
+```json
+{
+  "services": {
+    "lambda": {
+      "collector": "lambda_execution_roles",
+      "state": "in_progress",
+      "cursor": "lambda-page-2",
+      "attempts": 1,
+      "observed_at": "2026-06-12T12:00:00Z"
+    }
+  }
+}
+```
+
+Supported states are `planned`, `pending`, `in_progress`, `covered`, `partial`,
+`failed`, `permission_denied`, `unsupported`, `blocked`, and `disabled`.
+Malformed cursor entries are ignored and surfaced as diagnostics instead of
+failing the whole plan.
+
+Resumable cursors in `pending`, `in_progress`, `partial`, or `failed` expire
+after 24 hours. Expired cursors are not replayed; operators see a degraded
+diagnostic and can refresh the target with a new read-only scan.
 
 ## API
 
@@ -59,9 +90,9 @@ The planner performs no AWS mutations and reads no customer payloads. It does
 not read or persist secret values, prompts, completions, object contents,
 database rows, environment variable values, or code-interpreter output.
 
-AWS Organizations account discovery is an upstream dependency for this issue.
-This planner does not call live AWS APIs during planning and applies explicit
-availability signals and checkpoints only.
+The planner does not call live AWS APIs during planning. Default API calls use
+persisted account/region rows and their scan cursors; explicit `fixture_state`
+queries use deterministic fixtures for validation.
 
 ## Failure States
 

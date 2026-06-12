@@ -18,6 +18,17 @@ func TestGetAWSFanOutExecutionSuccess(t *testing.T) {
 	now := time.Date(2026, 6, 12, 15, 0, 0, 0, time.UTC)
 	seedDefaultProject(t, store, ctx, "project-a")
 	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "123456789012",
+		AccountAlias:   "Production",
+		Region:         "us-east-1",
+		CoverageStatus: db.AWSAccountRegionCoveragePending,
+		ScanCursor: map[string]any{"services": map[string]any{
+			"iam":    map[string]any{"collector": "iam_roles", "state": "covered", "observed_at": now.Format(time.RFC3339Nano)},
+			"lambda": map[string]any{"collector": "lambda_execution_roles", "state": "in_progress", "cursor": "lambda-page-2", "attempts": 1, "observed_at": now.Format(time.RFC3339Nano)},
+		}},
+		UpdatedAt: now,
+	})
 
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.Now = func() time.Time { return now }
@@ -43,6 +54,16 @@ func TestGetAWSFanOutExecutionSuccess(t *testing.T) {
 			t.Fatalf("target exceeded concurrency limit: %+v", target)
 		}
 	}
+	lambda := result.Targets[0]
+	for _, target := range result.Targets {
+		if target.Service == "lambda" {
+			lambda = target
+			break
+		}
+	}
+	if lambda.Collector != "lambda_execution_roles" || lambda.Checkpoint != "lambda-page-2" {
+		t.Fatalf("expected lambda fan-out target to replay persisted checkpoint, got %+v", lambda)
+	}
 }
 
 func TestGetAWSFanOutExecutionDegradedAndDenied(t *testing.T) {
@@ -51,6 +72,13 @@ func TestGetAWSFanOutExecutionDegradedAndDenied(t *testing.T) {
 	now := time.Date(2026, 6, 12, 15, 30, 0, 0, time.UTC)
 	seedDefaultProject(t, store, ctx, "project-a")
 	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		CoverageStatus: db.AWSAccountRegionCoveragePending,
+		ScanCursor:     map[string]any{"services": map[string]any{"iam": map[string]any{"state": "covered", "observed_at": now.Format(time.RFC3339Nano)}}},
+		UpdatedAt:      now,
+	})
 
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.Now = func() time.Time { return now }
@@ -81,6 +109,13 @@ func TestGetAWSFanOutExecutionFilters(t *testing.T) {
 	now := time.Date(2026, 6, 12, 16, 0, 0, 0, time.UTC)
 	seedDefaultProject(t, store, ctx, "project-a")
 	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		CoverageStatus: db.AWSAccountRegionCoveragePending,
+		ScanCursor:     map[string]any{"services": map[string]any{"iam": map[string]any{"state": "covered", "observed_at": now.Format(time.RFC3339Nano)}}},
+		UpdatedAt:      now,
+	})
 
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.Now = func() time.Time { return now }

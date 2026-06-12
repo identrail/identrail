@@ -4064,6 +4064,9 @@ function awsCoveragePlanTargetDetail(target: AWSCoveragePlanTarget): string {
   if (target.cursor) {
     details.push(`Cursor ${target.cursor}`);
   }
+  if (target.collector) {
+    details.push(`Collector ${formatTokenLabel(target.collector)}`);
+  }
   if (hasAWSCoverageObservedAt(target.observed_at)) {
     details.push(`Observed ${formatConnectionTime(target.observed_at)}`);
   }
@@ -4106,6 +4109,7 @@ function buildAWSCoveragePlanRows(
           target.region,
           target.service,
           target.service_name,
+          target.collector,
           target.state,
           target.priority,
           target.failure_reason,

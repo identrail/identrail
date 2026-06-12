@@ -34,8 +34,15 @@ Coverage rows can include:
 - `scan_cursor` for scanner-owned pagination or incremental state.
 - `account_suspended`, `region_disabled`, and `region_unreachable` booleans for explicit blocked states.
 
-The scan cursor is an internal JSON object and should not contain secrets.
+The scan cursor is a metadata-only JSON object and should not contain secrets.
+Service cursor entries are stored below keys such as `services.lambda` and may
+include `collector`, `state`, `cursor`, `attempts`, `failure_reason`, and
+`observed_at`. Resumable cursors older than 24 hours are treated as stale by the
+planner and are not reused.
 
 ## Public API posture
 
-The first implementation keeps this registry behind store and service methods. Public HTTP endpoints can be added later when the UI is ready to show AWS estate coverage. Until then, scanner and connector workflows should write and read coverage through the scoped service methods.
+Scanner and connector workflows write coverage through the scoped service
+methods. Operators read normalized plan and execution views through the AWS
+coverage-plan and fan-out execution endpoints instead of reading raw database
+rows.

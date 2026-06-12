@@ -51,6 +51,7 @@ type FanOutExecutionTarget struct {
 	AccountID       string           `json:"account_id"`
 	Region          string           `json:"region"`
 	Service         string           `json:"service"`
+	Collector       string           `json:"collector,omitempty"`
 	Priority        CoveragePriority `json:"priority"`
 	State           CoverageState    `json:"state"`
 	WorkerState     CoverageState    `json:"worker_state"`
@@ -165,6 +166,7 @@ func buildFanOutExecutionTarget(target CoverageTarget, outcome FanOutTargetOutco
 		AccountID:   target.AccountID,
 		Region:      target.Region,
 		Service:     target.Service,
+		Collector:   target.Collector,
 		Priority:    target.Priority,
 		State:       target.State,
 		WorkerState: target.State,

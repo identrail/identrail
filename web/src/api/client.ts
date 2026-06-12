@@ -2714,6 +2714,7 @@ export type AWSCoveragePlanTarget = {
   region_name?: string;
   service: string;
   service_name?: string;
+  collector?: string;
   global: boolean;
   enabled: boolean;
   priority: AWSCoveragePriority;
@@ -2778,7 +2779,7 @@ export type AWSCoveragePlanResult = {
   current_issue_ref: string;
   version: string;
   status: AWSCoveragePlanStatus;
-  fixture_state: AWSCoveragePlanFixtureState;
+  fixture_state?: AWSCoveragePlanFixtureState;
   confidence: number;
   filtered_targets: number;
   summary: AWSCoveragePlanSummary;
@@ -2797,6 +2798,7 @@ export type AWSFanOutExecutionTarget = {
   account_id: string;
   region: string;
   service: string;
+  collector?: string;
   priority: AWSCoveragePriority;
   state: AWSCoverageState;
   worker_state: AWSCoverageState;
@@ -2843,7 +2845,7 @@ export type AWSFanOutExecutionResult = {
   current_issue_ref: string;
   version: string;
   status: AWSCoveragePlanStatus;
-  fixture_state: AWSCoveragePlanFixtureState;
+  fixture_state?: AWSCoveragePlanFixtureState;
   confidence: number;
   filtered_targets: number;
   summary: AWSFanOutExecutionSummary;
