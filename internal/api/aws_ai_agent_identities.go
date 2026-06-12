@@ -315,11 +315,11 @@ func awsAIAgentIdentityFixtureRecords(accountID string, region string, fixtureSt
 			Retryable: false,
 		}}, gaps
 	case "partial_failure":
-		return records[:3], []providers.SourceError{{
+		return records[:4], []providers.SourceError{{
 			Collector: "aws_ai-agent/ai_agent_identity",
 			SourceID:  fmt.Sprintf("service=ai-agent|account=%s|region=%s|source=agent_gateways", accountID, region),
 			Code:      "ai_agent_gateway_list_failed",
-			Message:   "agent gateway metadata could not be listed; retained Bedrock, AgentCore, and custom agent identities remain visible",
+			Message:   "agent gateway metadata could not be listed; retained Bedrock, AgentCore, custom, and external-provider-backed agent identities remain visible",
 			Retryable: true,
 		}}, gaps
 	case "permission_denied":
@@ -373,8 +373,11 @@ func awsAIAgentFixtureRecord(accountID string, region string, agentType string, 
 		record.RelationshipTypes = dedupeStrings(append(record.RelationshipTypes, "uses_credential"))
 	}
 	if record.GatewayARN != "" {
-		record.GatewayNodeID = awsAIAgentNodeID(accountID, region, "agent_gateway", firstNonEmptyAWSValue(record.GatewayID, record.GatewayARN))
-		record.RelationshipTypes = dedupeStrings(append(record.RelationshipTypes, "calls_tool"))
+		gatewayNodeID := awsAIAgentNodeID(accountID, region, "agent_gateway", firstNonEmptyAWSValue(record.GatewayID, record.GatewayARN))
+		if record.AgentNodeID != gatewayNodeID {
+			record.GatewayNodeID = gatewayNodeID
+			record.RelationshipTypes = dedupeStrings(append(record.RelationshipTypes, "calls_tool"))
+		}
 	}
 	return record
 }

@@ -82,8 +82,8 @@ func TestRouterAWSAIAgentIdentityInventoryPartialFailure(t *testing.T) {
 	if body.Inventory.Status != awsPlatformDependencyStatusDegraded || body.Inventory.FixtureState != "partial_failure" {
 		t.Fatalf("expected degraded partial_failure, got status=%q fixture=%q", body.Inventory.Status, body.Inventory.FixtureState)
 	}
-	if body.Inventory.RecordCount != 3 {
-		t.Fatalf("expected partial failure to retain three records, got %d", body.Inventory.RecordCount)
+	if body.Inventory.RecordCount != 4 {
+		t.Fatalf("expected partial failure to retain four records, got %d", body.Inventory.RecordCount)
 	}
 	foundGatewayDiag := false
 	for _, diag := range body.Inventory.Diagnostics {
@@ -93,6 +93,22 @@ func TestRouterAWSAIAgentIdentityInventoryPartialFailure(t *testing.T) {
 	}
 	if !foundGatewayDiag {
 		t.Fatalf("expected retryable gateway diagnostic, got %+v", body.Inventory.Diagnostics)
+	}
+}
+
+func TestAIAgentFixtureRecordCallsToolRelationshipTypeOnlyForTrueGatewayCalls(t *testing.T) {
+	record := awsAIAgentFixtureRecord("111111111111", "us-east-1", "agent_gateway", "payments-gateway", "payments-gateway", "arn:aws:bedrock:us-east-1:111111111111:agent-gateway/payments-gateway", "arn:aws:iam::111111111111:role/bedrock-agent-gateway-payments", time.Now(), func(r *AWSAIAgentIdentityRecord) {
+		r.GatewayID = "payments-gateway"
+		r.GatewayARN = "arn:aws:bedrock:us-east-1:111111111111:agent-gateway/payments-gateway"
+	})
+	found := false
+	for _, relationshipType := range record.RelationshipTypes {
+		if relationshipType == "calls_tool" {
+			found = true
+		}
+	}
+	if found {
+		t.Fatalf("expected gateway self-record to omit calls_tool relationship type, got %v", record.RelationshipTypes)
 	}
 }
 

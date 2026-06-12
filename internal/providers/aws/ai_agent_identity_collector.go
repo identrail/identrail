@@ -189,11 +189,15 @@ func (c *AIAgentIdentityCollector) CollectWithDiagnostics(ctx context.Context, s
 		}
 		for _, record := range response.Records {
 			normalized := normalizeAIAgentIdentityScope(scope, record, collectedAt)
-			if strings.TrimSpace(normalized.AgentID) == "" || strings.TrimSpace(normalized.AgentName) == "" {
+			if strings.TrimSpace(normalized.AgentName) == "" &&
+				strings.TrimSpace(normalized.AgentID) == "" &&
+				strings.TrimSpace(normalized.AgentARN) == "" &&
+				strings.TrimSpace(normalized.GatewayID) == "" &&
+				strings.TrimSpace(normalized.GatewayARN) == "" {
 				addIssue(providers.SourceError{
 					Collector: aiAgentIdentityCollectorName,
 					Code:      "malformed_ai_agent_identity",
-					Message:   "skipped ai agent identity without an agent id and name",
+					Message:   "skipped ai agent identity without a stable identity or gateway identifier",
 					Retryable: false,
 				})
 				continue

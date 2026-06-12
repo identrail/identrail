@@ -6898,7 +6898,7 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
     filters: {
       surface,
       relationship: Array.from(relationships).join(','),
-      status: status === 'role anchor' ? 'role-anchor' : status === 'not yet available' ? 'not-yet-available' : 'coming,degraded',
+      status: status === 'role anchor' ? 'role-anchor' : status === 'not yet available' ? 'not-yet-available' : status === 'degraded' ? 'degraded' : 'coming',
       search: ''
     },
     searchText: inventorySearchText([
