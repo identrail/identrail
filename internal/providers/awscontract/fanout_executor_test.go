@@ -146,6 +146,48 @@ func TestPlanFanOutExecutionKeepsFailuresTargetScoped(t *testing.T) {
 	}
 }
 
+func TestPlanFanOutExecutionHonorsReplayedFailureAttemptLimit(t *testing.T) {
+	now := time.Date(2026, 6, 12, 14, 15, 0, 0, time.UTC)
+	coverage, err := PlanCoverage(CoveragePlanConfig{
+		ConnectorID: "aws-prod",
+		Accounts:    []CoverageAccount{{AccountID: "111111111111", Enabled: true}},
+		Regions:     []CoverageRegion{{Region: "us-east-1", Enabled: true}},
+		Services:    []CoverageService{{Service: "lambda", Enabled: true}},
+		Checkpoints: []CoverageCheckpoint{
+			{
+				AccountID:     "111111111111",
+				Region:        "us-east-1",
+				Service:       "lambda",
+				State:         CoverageStateFailed,
+				FailureReason: "Throttling: lambda ListFunctions",
+				Attempts:      3,
+			},
+		},
+	}, now)
+	if err != nil {
+		t.Fatalf("plan coverage: %v", err)
+	}
+
+	execution, err := PlanFanOutExecution(FanOutExecutionConfig{
+		Plan:        coverage,
+		MaxAttempts: 3,
+		StartedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("plan fan-out execution: %v", err)
+	}
+	if execution.Summary.FailedTargets != 1 || execution.Summary.RetryableTargets != 0 {
+		t.Fatalf("failed checkpoint at max attempts should be terminal, got %+v", execution.Summary)
+	}
+	if len(execution.Targets) != 1 {
+		t.Fatalf("expected one target, got %d", len(execution.Targets))
+	}
+	target := execution.Targets[0]
+	if target.WorkerState != CoverageStateFailed || target.Retryable || target.Attempts != 3 {
+		t.Fatalf("replayed failure should stay non-retryable at max attempts: %+v", target)
+	}
+}
+
 func TestPlanFanOutExecutionSkipsNonExecutableTargets(t *testing.T) {
 	now := time.Date(2026, 6, 12, 14, 30, 0, 0, time.UTC)
 	coverage, err := PlanCoverage(CoveragePlanConfig{

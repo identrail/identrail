@@ -186,6 +186,9 @@ func buildFanOutExecutionTarget(target CoverageTarget, outcome FanOutTargetOutco
 	case CoverageStateCovered, CoverageStatePermissionDenied, CoverageStateFailed, CoverageStatePartial:
 		execution.WorkerState = target.State
 		execution.Retryable = target.State == CoverageStateFailed || target.State == CoverageStatePartial
+		if target.State == CoverageStateFailed && execution.Attempts >= maxAttempts {
+			execution.Retryable = false
+		}
 	case CoverageStateInProgress:
 		execution.Retryable = true
 		if execution.Checkpoint == "" {
