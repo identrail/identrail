@@ -39,8 +39,15 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 	if result.RuntimeRoleCount == 0 || result.ToolCount == 0 || result.CapabilityCount == 0 || result.RelationshipCount == 0 {
 		t.Fatalf("expected populated counts, got %+v", result)
 	}
+	var customAgentNodeID, externalAgentNodeID string
 	foundRecordCredentialType := false
 	for _, record := range result.Records {
+		switch record.AgentType {
+		case "custom_agent":
+			customAgentNodeID = record.AgentNodeID
+		case "external_provider_agent":
+			externalAgentNodeID = record.AgentNodeID
+		}
 		for _, relationshipType := range record.RelationshipTypes {
 			if relationshipType == "uses_credential" {
 				t.Fatalf("expected supported graph relationship type uses_secret, got unsupported uses_credential in %+v", record)
@@ -53,6 +60,10 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 	if !foundRecordCredentialType {
 		t.Fatalf("expected credential records to advertise uses_secret relationship type, got %+v", result.Records)
 	}
+	expectedCustomCredentialRefTarget := awsCredentialReferenceNodeID(customAgentNodeID, "secretsmanager:prod/ai/openai-key")
+	expectedExternalCredentialRefTarget := awsCredentialReferenceNodeID(externalAgentNodeID, "ssm:/prod/support/ai-provider-key")
+	matchedCustomCredentialRef := false
+	matchedExternalCredentialRef := false
 	foundCredentialEdge := false
 	for _, relationship := range result.Relationships {
 		if relationship.Type == "uses_credential" {
@@ -60,13 +71,29 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 		}
 		if relationship.Type == "uses_secret" {
 			foundCredentialEdge = true
+			parts := strings.Split(strings.TrimPrefix(relationship.ToNodeID, awsAIAgentCredentialRefPrefix), "|")
+			if len(parts) != 4 {
+				t.Fatalf("expected uses_secret target to include workload/provider/name/source, got %+v", relationship)
+			}
 			if !strings.HasPrefix(relationship.ToNodeID, awsAIAgentCredentialRefPrefix) {
 				t.Fatalf("expected uses_secret edge to target credential-reference resource node, got %+v", relationship)
+			}
+			if relationship.ToNodeID == expectedCustomCredentialRefTarget {
+				matchedCustomCredentialRef = true
+			}
+			if relationship.ToNodeID == expectedExternalCredentialRefTarget {
+				matchedExternalCredentialRef = true
 			}
 		}
 	}
 	if !foundCredentialEdge {
 		t.Fatalf("expected credential references to emit uses_secret relationship, got %+v", result.Relationships)
+	}
+	if !matchedCustomCredentialRef {
+		t.Fatalf("expected custom agent unresolved credential reference to emit uses_secret edge to %q, got %+v", expectedCustomCredentialRefTarget, result.Relationships)
+	}
+	if !matchedExternalCredentialRef {
+		t.Fatalf("expected external-provider-agent unresolved credential reference to emit uses_secret edge to %q, got %+v", expectedExternalCredentialRefTarget, result.Relationships)
 	}
 	if len(result.CoverageGaps) == 0 {
 		t.Fatalf("expected sensitive-boundary coverage gaps, got %+v", result.CoverageGaps)
@@ -156,6 +183,41 @@ func TestAIAgentFixtureRecordCallsToolRelationshipTypeOnlyForTrueGatewayCalls(t 
 	}
 	if found {
 		t.Fatalf("expected gateway self-record to omit calls_tool relationship type, got %v", record.RelationshipTypes)
+	}
+}
+
+func TestAIAgentRelationshipsEmitCallsToolToToolNodes(t *testing.T) {
+	record := awsAIAgentFixtureRecord("111111111111", "us-east-1", "custom_agent", "agent-with-gateway", "agent-1", "arn:aws:bedrock:us-east-1:111111111111:agent/agent-1", "arn:aws:iam::111111111111:role/agent-1", time.Now(), func(r *AWSAIAgentIdentityRecord) {
+		r.GatewayID = "payments-gateway"
+		r.GatewayARN = "arn:aws:bedrock:us-east-1:111111111111:agent-gateway/payments-gateway"
+		r.ToolNames = []string{"payments-case-search", "fraud-review-action-group"}
+	})
+
+	relationships := awsAIAgentIdentityRelationships([]AWSAIAgentIdentityRecord{record})
+	if len(relationships) != 2 {
+		t.Fatalf("expected one calls_tool relationship per tool, got %d", len(relationships))
+	}
+	gatewayToolNodeIDs := map[string]struct{}{
+		awsAIAgentToolNodeID(record.GatewayNodeID, "payments-case-search"):      {},
+		awsAIAgentToolNodeID(record.GatewayNodeID, "fraud-review-action-group"): {},
+	}
+	for _, relationship := range relationships {
+		if relationship.Type != "calls_tool" {
+			t.Fatalf("expected calls_tool relationship, got %+v", relationship)
+		}
+		if relationship.FromNodeID != record.GatewayNodeID {
+			t.Fatalf("expected calls_tool source %q, got %q", record.GatewayNodeID, relationship.FromNodeID)
+		}
+		if !strings.HasPrefix(relationship.ToNodeID, awsAIAgentToolNodePrefix) {
+			t.Fatalf("expected tool node target with tool: prefix, got %q", relationship.ToNodeID)
+		}
+		if _, ok := gatewayToolNodeIDs[relationship.ToNodeID]; !ok {
+			t.Fatalf("unexpected tool node target %q", relationship.ToNodeID)
+		}
+		delete(gatewayToolNodeIDs, relationship.ToNodeID)
+	}
+	if len(gatewayToolNodeIDs) != 0 {
+		t.Fatalf("missing calls_tool edges for tools: %+v", gatewayToolNodeIDs)
 	}
 }
 

@@ -15,6 +15,7 @@ const (
 	awsAIAgentIdentityCurrentIssue = 1505
 	awsAIAgentIdentityVersion      = "aws-ai-agent-identity-normalized-model-v1"
 	awsAIAgentCredentialRefPrefix  = "aws:resource:credential-reference:"
+	awsAIAgentToolNodePrefix       = "tool:agent:"
 )
 
 type AWSAIAgentIdentityInventoryRequest struct {
@@ -439,20 +440,120 @@ func awsAIAgentIdentityRelationships(records []AWSAIAgentIdentityRecord) []AWSAI
 			result = append(result, AWSAIAgentIdentityRelation{Type: "runs_as", FromNodeID: record.AgentNodeID, ToNodeID: record.RuntimeRoleNodeID, EvidenceRef: record.EvidenceRef})
 		}
 		if record.AgentNodeID != "" && record.GatewayNodeID != "" && record.AgentNodeID != record.GatewayNodeID {
-			result = append(result, AWSAIAgentIdentityRelation{Type: "calls_tool", FromNodeID: record.GatewayNodeID, ToNodeID: record.AgentNodeID, EvidenceRef: record.EvidenceRef})
+			for _, tool := range dedupeStrings(record.ToolNames) {
+				tool = strings.TrimSpace(tool)
+				if tool == "" {
+					continue
+				}
+				result = append(result, AWSAIAgentIdentityRelation{
+					Type:        "calls_tool",
+					FromNodeID:  record.GatewayNodeID,
+					ToNodeID:    awsAIAgentToolNodeID(record.GatewayNodeID, tool),
+					EvidenceRef: record.EvidenceRef,
+				})
+			}
+			if len(dedupeStrings(record.ToolNames)) == 0 {
+				result = append(result, AWSAIAgentIdentityRelation{
+					Type:        "calls_tool",
+					FromNodeID:  record.GatewayNodeID,
+					ToNodeID:    awsAIAgentToolNodeID(record.GatewayNodeID, ""),
+					EvidenceRef: record.EvidenceRef,
+				})
+			}
 		}
 		for _, ref := range record.CredentialReferenceRefs {
 			ref = strings.TrimSpace(ref)
 			if record.AgentNodeID != "" && ref != "" {
-				result = append(result, AWSAIAgentIdentityRelation{Type: "uses_secret", FromNodeID: record.AgentNodeID, ToNodeID: awsCredentialReferenceNodeID(ref), EvidenceRef: record.EvidenceRef})
+				result = append(result, AWSAIAgentIdentityRelation{Type: "uses_secret", FromNodeID: record.AgentNodeID, ToNodeID: awsCredentialReferenceNodeID(record.AgentNodeID, ref), EvidenceRef: record.EvidenceRef})
 			}
 		}
 	}
 	return result
 }
 
-func awsCredentialReferenceNodeID(ref string) string {
-	return awsAIAgentCredentialRefPrefix + strings.ToLower(strings.NewReplacer(" ", "-", "/", ":", "|", ":", "#", "-").Replace(strings.TrimSpace(ref)))
+func awsAIAgentToolNodeID(gatewayNodeID string, tool string) string {
+	workload := strings.TrimSpace(strings.ToLower(gatewayNodeID))
+	if workload == "" {
+		workload = "gateway"
+	}
+	name := strings.TrimSpace(strings.ToLower(tool))
+	if name == "" {
+		name = "tool"
+	}
+	return awsAIAgentToolNodePrefix + strings.Join(normalizeStringList([]string{workload, name}), "|")
+}
+
+func awsCredentialReferenceNodeID(agentNodeID string, ref string) string {
+	name, source := awsAIAgentCredentialReferenceParts(ref)
+	agentNodeID = strings.TrimSpace(strings.ToLower(agentNodeID))
+	if agentNodeID == "" {
+		agentNodeID = "agent"
+	}
+	name = strings.TrimSpace(strings.ToLower(name))
+	source = strings.TrimSpace(strings.ToLower(source))
+	return awsAIAgentCredentialRefPrefix + strings.Join(normalizeStringList([]string{
+		agentNodeID,
+		awsAIAgentCredentialReferenceProvider(name, source),
+		name,
+		source,
+	}), "|")
+}
+
+func awsAIAgentCredentialReferenceProvider(name, source string) string {
+	probe := strings.ToLower(strings.TrimSpace(name + " " + source))
+	switch {
+	case containsAnyToken(probe, "openai", "open_ai", "gpt_"):
+		return "openai"
+	case containsAnyToken(probe, "anthropic", "claude"):
+		return "anthropic"
+	case containsAnyToken(probe, "bedrock"):
+		return "bedrock"
+	case strings.HasPrefix(probe, "secretsmanager:"):
+		return "secretsmanager"
+	case strings.HasPrefix(probe, "ssm:"):
+		return "ssm"
+	default:
+		return "generic"
+	}
+}
+
+func awsAIAgentCredentialReferenceParts(ref string) (string, string) {
+	trimmed := strings.TrimSpace(ref)
+	if trimmed == "" {
+		return "credential_reference", "unknown"
+	}
+	if idx := strings.Index(trimmed, "="); idx > 0 {
+		name := strings.TrimSpace(trimmed[:idx])
+		source := strings.TrimSpace(trimmed[idx+1:])
+		if source == "" {
+			source = "environment"
+		}
+		return sanitizeCredentialReferenceToken(name), sanitizeCredentialReferenceToken(source)
+	}
+
+	if !strings.Contains(trimmed, ":") && !strings.Contains(trimmed, "/") {
+		return sanitizeCredentialReferenceToken(trimmed), ""
+	}
+	name := trimmed
+	if lastSlash := strings.LastIndex(trimmed, "/"); lastSlash >= 0 && lastSlash < len(trimmed)-1 {
+		name = trimmed[lastSlash+1:]
+	} else if colonIndex := strings.LastIndex(trimmed, ":"); colonIndex >= 0 && colonIndex < len(trimmed)-1 {
+		name = trimmed[colonIndex+1:]
+	}
+	return sanitizeCredentialReferenceToken(name), sanitizeCredentialReferenceToken(trimmed)
+}
+
+func sanitizeCredentialReferenceToken(value string) string {
+	return strings.ToLower(strings.NewReplacer(" ", "-", "/", "|", "-", ":", "-", "#", "-").Replace(strings.TrimSpace(value)))
+}
+
+func containsAnyToken(haystack string, tokens ...string) bool {
+	for _, token := range tokens {
+		if token != "" && strings.Contains(haystack, token) {
+			return true
+		}
+	}
+	return false
 }
 
 func awsAIAgentIdentityTypeCount(records []AWSAIAgentIdentityRecord, agentType string) int {
