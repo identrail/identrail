@@ -87,6 +87,32 @@ type CoverageRegion struct {
 	OptIn bool `json:"opt_in,omitempty"`
 }
 
+// CoverageAccountRegionAvailability is an account-aware signal for whether a
+// region can be scanned for that account today.
+type CoverageAccountRegionAvailability struct {
+	AccountID     string        `json:"account_id"`
+	Region        string        `json:"region"`
+	State         CoverageState `json:"state"`
+	Reason        string        `json:"reason,omitempty"`
+	FailureReason string        `json:"failure_reason,omitempty"`
+	EvidenceRef   string        `json:"evidence_ref,omitempty"`
+	ObservedAt    time.Time     `json:"observed_at,omitempty"`
+}
+
+// CoverageAccountServiceAvailability is a per-account and per-region service
+// exception to planner assumptions, such as unsupported or permission-denied
+// service usage in a region.
+type CoverageAccountServiceAvailability struct {
+	AccountID     string        `json:"account_id"`
+	Region        string        `json:"region"`
+	Service       string        `json:"service"`
+	State         CoverageState `json:"state"`
+	Reason        string        `json:"reason,omitempty"`
+	FailureReason string        `json:"failure_reason,omitempty"`
+	EvidenceRef   string        `json:"evidence_ref,omitempty"`
+	ObservedAt    time.Time     `json:"observed_at,omitempty"`
+}
+
 // CoverageService is one AWS service partition in the coverage configuration.
 type CoverageService struct {
 	Service       string           `json:"service"`
@@ -123,11 +149,13 @@ type CoverageCheckpoint struct {
 // CoveragePlanConfig is the connector's expanded account/region/service scan
 // configuration plus any prior checkpoints to resume from.
 type CoveragePlanConfig struct {
-	ConnectorID string               `json:"connector_id,omitempty"`
-	Accounts    []CoverageAccount    `json:"accounts"`
-	Regions     []CoverageRegion     `json:"regions"`
-	Services    []CoverageService    `json:"services"`
-	Checkpoints []CoverageCheckpoint `json:"checkpoints,omitempty"`
+	ConnectorID         string                               `json:"connector_id,omitempty"`
+	Accounts            []CoverageAccount                    `json:"accounts"`
+	Regions             []CoverageRegion                     `json:"regions"`
+	RegionAvailability  []CoverageAccountRegionAvailability  `json:"region_availability,omitempty"`
+	ServiceAvailability []CoverageAccountServiceAvailability `json:"service_availability,omitempty"`
+	Services            []CoverageService                    `json:"services"`
+	Checkpoints         []CoverageCheckpoint                 `json:"checkpoints,omitempty"`
 }
 
 // CoverageTarget is one planned account/region/service scan unit with its
@@ -209,22 +237,48 @@ func PlanCoverage(config CoveragePlanConfig, generatedAt time.Time) (CoveragePla
 	if err != nil {
 		return CoveragePlan{}, err
 	}
+	regionAvailability, err := normalizeCoverageRegionAvailability(config.RegionAvailability)
+	if err != nil {
+		return CoveragePlan{}, err
+	}
+	serviceAvailability, err := normalizeCoverageServiceAvailability(config.ServiceAvailability)
+	if err != nil {
+		return CoveragePlan{}, err
+	}
 	checkpoints, err := indexCoverageCheckpoints(config.Checkpoints)
 	if err != nil {
 		return CoveragePlan{}, err
 	}
+	regionAvailabilityByKey := indexCoverageRegionAvailability(regionAvailability)
+	serviceAvailabilityByKey := indexCoverageServiceAvailability(serviceAvailability)
 
 	targets := []CoverageTarget{}
 	seen := map[string]struct{}{}
 	for _, account := range accounts {
 		for _, service := range services {
 			if service.Global {
-				target := buildCoverageTarget(config.ConnectorID, account, globalCoverageRegion(service), service, checkpoints)
+				target := buildCoverageTarget(
+					config.ConnectorID,
+					account,
+					globalCoverageRegion(service),
+					service,
+					regionAvailabilityByKey,
+					serviceAvailabilityByKey,
+					checkpoints,
+				)
 				appendCoverageTarget(&targets, seen, target)
 				continue
 			}
 			for _, region := range regions {
-				target := buildCoverageTarget(config.ConnectorID, account, region, service, checkpoints)
+				target := buildCoverageTarget(
+					config.ConnectorID,
+					account,
+					region,
+					service,
+					regionAvailabilityByKey,
+					serviceAvailabilityByKey,
+					checkpoints,
+				)
 				appendCoverageTarget(&targets, seen, target)
 			}
 		}
@@ -261,7 +315,15 @@ func globalCoverageRegion(service CoverageService) CoverageRegion {
 	}
 }
 
-func buildCoverageTarget(connectorID string, account CoverageAccount, region CoverageRegion, service CoverageService, checkpoints map[string]CoverageCheckpoint) CoverageTarget {
+func buildCoverageTarget(
+	connectorID string,
+	account CoverageAccount,
+	region CoverageRegion,
+	service CoverageService,
+	regionAvailability map[string]CoverageAccountRegionAvailability,
+	serviceAvailability map[string]CoverageAccountServiceAvailability,
+	checkpoints map[string]CoverageCheckpoint,
+) CoverageTarget {
 	enabled := account.Enabled && region.Enabled && service.Enabled
 	priority, rank := mostUrgentCoveragePriority(account.Priority, region.Priority, service.Priority)
 	prerequisites := mergeCoveragePrerequisites(account, region, service)
@@ -297,8 +359,94 @@ func buildCoverageTarget(connectorID string, account CoverageAccount, region Cov
 	if checkpoint, ok := checkpoints[target.Key]; ok {
 		applyCoverageCheckpoint(&target, checkpoint)
 	}
+	// Explicit availability overrides are authoritative for execution state and
+	// must be preserved over prior checkpoints where they represent true
+	// operator-visible failure modes.
+	applyCoverageAccountRegionAvailability(&target, regionAvailability[coverageRegionKey(target.AccountID, target.Region)])
+	applyCoverageAccountServiceAvailability(&target, serviceAvailability[target.Key])
 	target.Resumable = coverageTargetResumable(target)
 	return target
+}
+
+type coverageAvailabilityHint struct {
+	State         CoverageState
+	Reason        string
+	FailureReason string
+	EvidenceRef   string
+	ObservedAt    time.Time
+}
+
+// applyCoverageAccountRegionAvailability applies account-region constraints after
+// checkpoint replay so explicit availability is authoritative.
+func applyCoverageAccountRegionAvailability(target *CoverageTarget, availability CoverageAccountRegionAvailability) {
+	applyCoverageAvailability(target, coverageAvailabilityHint{
+		State:         availability.State,
+		Reason:        availability.Reason,
+		FailureReason: availability.FailureReason,
+		EvidenceRef:   availability.EvidenceRef,
+		ObservedAt:    availability.ObservedAt,
+	})
+}
+
+// applyCoverageAccountServiceAvailability applies service-specific exceptions after
+// region availability. Service availability can mark a specific service as
+// unsupported or denied in a region even when the region itself is otherwise
+// available.
+func applyCoverageAccountServiceAvailability(target *CoverageTarget, availability CoverageAccountServiceAvailability) {
+	applyCoverageAvailability(target, coverageAvailabilityHint{
+		State:         availability.State,
+		Reason:        availability.Reason,
+		FailureReason: availability.FailureReason,
+		EvidenceRef:   availability.EvidenceRef,
+		ObservedAt:    availability.ObservedAt,
+	})
+}
+
+func applyCoverageAvailability(target *CoverageTarget, availability coverageAvailabilityHint) {
+	if availability.State == "" {
+		return
+	}
+	target.State = availability.State
+	switch availability.State {
+	case CoverageStateDisabled, CoverageStateBlocked, CoverageStateUnsupported, CoverageStatePermissionDenied:
+		target.Enabled = false
+		target.Cursor = ""
+		target.Attempts = 0
+		if failureReason := strings.TrimSpace(availability.FailureReason); failureReason != "" {
+			target.FailureReason = failureReason
+		} else {
+			target.FailureReason = ""
+		}
+	default:
+		if fr := strings.TrimSpace(availability.FailureReason); fr != "" {
+			target.FailureReason = fr
+		}
+	}
+	if reason := strings.TrimSpace(availability.Reason); reason != "" {
+		target.Reason = appendCoverageReason(target.Reason, reason)
+	}
+	if evidenceRef := strings.TrimSpace(availability.EvidenceRef); evidenceRef != "" {
+		target.EvidenceRef = evidenceRef
+	}
+	if !availability.ObservedAt.IsZero() {
+		target.ObservedAt = availability.ObservedAt.UTC()
+	}
+}
+
+func appendCoverageReason(current, next string) string {
+	next = strings.TrimSpace(next)
+	if next == "" {
+		return current
+	}
+	qualified := "availability: " + next
+	current = strings.TrimSpace(current)
+	if current == "" {
+		return qualified
+	}
+	if strings.Contains(current, qualified) {
+		return current
+	}
+	return current + "; " + qualified
 }
 
 // applyCoverageCheckpoint replays a persisted target state. A disabled target
@@ -424,6 +572,96 @@ func normalizeCoverageRegions(input []CoverageRegion) ([]CoverageRegion, error) 
 	return out, nil
 }
 
+func normalizeCoverageRegionAvailability(input []CoverageAccountRegionAvailability) ([]CoverageAccountRegionAvailability, error) {
+	out := make([]CoverageAccountRegionAvailability, 0, len(input))
+	for _, item := range input {
+		accountID := strings.TrimSpace(item.AccountID)
+		if !isTwelveDigitAWSAccountID(accountID) {
+			return nil, fmt.Errorf("coverage account region availability account id %q must be 12 digits", item.AccountID)
+		}
+		region := strings.ToLower(strings.TrimSpace(item.Region))
+		if region == "" {
+			return nil, fmt.Errorf("coverage account region availability region is required")
+		}
+		state, err := normalizeCoverageAvailabilityState(item.State)
+		if err != nil {
+			return nil, fmt.Errorf("coverage account region availability state %q is invalid", item.State)
+		}
+		out = append(out, CoverageAccountRegionAvailability{
+			AccountID:     accountID,
+			Region:        region,
+			State:         state,
+			Reason:        strings.TrimSpace(item.Reason),
+			FailureReason: strings.TrimSpace(item.FailureReason),
+			EvidenceRef:   strings.TrimSpace(item.EvidenceRef),
+		})
+		if !item.ObservedAt.IsZero() {
+			out[len(out)-1].ObservedAt = item.ObservedAt.UTC()
+		}
+	}
+	return out, nil
+}
+
+func normalizeCoverageServiceAvailability(input []CoverageAccountServiceAvailability) ([]CoverageAccountServiceAvailability, error) {
+	out := make([]CoverageAccountServiceAvailability, 0, len(input))
+	for _, item := range input {
+		accountID := strings.TrimSpace(item.AccountID)
+		if !isTwelveDigitAWSAccountID(accountID) {
+			return nil, fmt.Errorf("coverage account service availability account id %q must be 12 digits", item.AccountID)
+		}
+		region := strings.ToLower(strings.TrimSpace(item.Region))
+		if region == "" {
+			return nil, fmt.Errorf("coverage account service availability region is required")
+		}
+		service := strings.ToLower(strings.TrimSpace(item.Service))
+		if service == "" {
+			return nil, fmt.Errorf("coverage account service availability service is required")
+		}
+		state, err := normalizeCoverageAvailabilityState(item.State)
+		if err != nil {
+			return nil, fmt.Errorf("coverage account service availability state %q is invalid", item.State)
+		}
+		out = append(out, CoverageAccountServiceAvailability{
+			AccountID:     accountID,
+			Region:        region,
+			Service:       service,
+			State:         state,
+			Reason:        strings.TrimSpace(item.Reason),
+			FailureReason: strings.TrimSpace(item.FailureReason),
+			EvidenceRef:   strings.TrimSpace(item.EvidenceRef),
+		})
+		if !item.ObservedAt.IsZero() {
+			out[len(out)-1].ObservedAt = item.ObservedAt.UTC()
+		}
+	}
+	return out, nil
+}
+
+func normalizeCoverageAvailabilityState(state CoverageState) (CoverageState, error) {
+	switch CoverageState(strings.ToLower(strings.TrimSpace(string(state)))) {
+	case CoverageStateDisabled, CoverageStateBlocked, CoverageStateUnsupported, CoverageStatePermissionDenied:
+		return CoverageState(strings.ToLower(strings.TrimSpace(string(state)))), nil
+	default:
+		return "", fmt.Errorf("coverage availability state %q is unsupported", state)
+	}
+}
+
+func indexCoverageRegionAvailability(input []CoverageAccountRegionAvailability) map[string]CoverageAccountRegionAvailability {
+	index := make(map[string]CoverageAccountRegionAvailability, len(input))
+	for _, availability := range input {
+		index[coverageRegionKey(availability.AccountID, availability.Region)] = availability
+	}
+	return index
+}
+
+func indexCoverageServiceAvailability(input []CoverageAccountServiceAvailability) map[string]CoverageAccountServiceAvailability {
+	index := make(map[string]CoverageAccountServiceAvailability, len(input))
+	for _, availability := range input {
+		index[coverageTargetKey(availability.AccountID, availability.Region, availability.Service)] = availability
+	}
+	return index
+}
+
 func normalizeCoverageServices(input []CoverageService) ([]CoverageService, error) {
 	out := make([]CoverageService, 0, len(input))
 	seen := map[string]struct{}{}
@@ -543,6 +781,13 @@ func coverageTargetKey(accountID, region, service string) string {
 		strings.TrimSpace(accountID),
 		strings.ToLower(strings.TrimSpace(region)),
 		strings.ToLower(strings.TrimSpace(service)),
+	}, "|")
+}
+
+func coverageRegionKey(accountID, region string) string {
+	return strings.Join([]string{
+		strings.TrimSpace(accountID),
+		strings.ToLower(strings.TrimSpace(region)),
 	}, "|")
 }
 
