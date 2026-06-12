@@ -259,7 +259,7 @@ func awsCoveragePlanFixtureConfig(connectorID, accountID, region, fixtureState s
 	switch fixtureState {
 	case "permission_denied":
 		config.Checkpoints = []awscontract.CoverageCheckpoint{{
-			AccountID: secondaryAccount, Region: region, Service: "iam",
+			AccountID: secondaryAccount, Service: "iam",
 			Region: awsCoveragePlannerGlobalServiceHomeRegion,
 			State:  awscontract.CoverageStatePermissionDenied, FailureReason: "AccessDenied: iam:ListRoles denied in member account",
 		}}
