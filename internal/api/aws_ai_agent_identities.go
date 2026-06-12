@@ -14,6 +14,7 @@ import (
 const (
 	awsAIAgentIdentityCurrentIssue = 1505
 	awsAIAgentIdentityVersion      = "aws-ai-agent-identity-normalized-model-v1"
+	awsAIAgentCredentialRefPrefix  = "aws:resource:credential-reference:"
 )
 
 type AWSAIAgentIdentityInventoryRequest struct {
@@ -451,7 +452,7 @@ func awsAIAgentIdentityRelationships(records []AWSAIAgentIdentityRecord) []AWSAI
 }
 
 func awsCredentialReferenceNodeID(ref string) string {
-	return "aws:credential-reference:" + strings.ToLower(strings.NewReplacer(" ", "-", "/", ":", "|", ":", "#", "-").Replace(strings.TrimSpace(ref)))
+	return awsAIAgentCredentialRefPrefix + strings.ToLower(strings.NewReplacer(" ", "-", "/", ":", "|", ":", "#", "-").Replace(strings.TrimSpace(ref)))
 }
 
 func awsAIAgentIdentityTypeCount(records []AWSAIAgentIdentityRecord, agentType string) int {

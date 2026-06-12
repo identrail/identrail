@@ -60,6 +60,9 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 		}
 		if relationship.Type == "uses_secret" {
 			foundCredentialEdge = true
+			if !strings.HasPrefix(relationship.ToNodeID, awsAIAgentCredentialRefPrefix) {
+				t.Fatalf("expected uses_secret edge to target credential-reference resource node, got %+v", relationship)
+			}
 		}
 	}
 	if !foundCredentialEdge {
