@@ -241,6 +241,18 @@ func TestPlanCoverageRegionAndServiceAvailabilityIsPerAccountAware(t *testing.T)
 	if targetByKey["222222222222|us-east-1|ec2"].Enabled {
 		t.Fatalf("expected availability-disabled target to be disabled")
 	}
+	if !targetByKey["111111111111|us-east-1|lambda"].Enabled {
+		t.Fatalf("expected permission-denied target to remain enabled and outstanding")
+	}
+	if !targetByKey["222222222222|eu-west-1|ec2"].Enabled {
+		t.Fatalf("expected blocked target to remain enabled and outstanding")
+	}
+	if targetByKey["111111111111|eu-west-1|lambda"].Enabled {
+		t.Fatalf("expected unsupported target to be removed from enabled coverage")
+	}
+	if plan.Summary.EnabledTargets != 8 || plan.Summary.DisabledTargets != 2 {
+		t.Fatalf("unexpected enabled/disabled summary counts: %+v", plan.Summary)
+	}
 }
 
 func TestPlanCoverageAvailabilityDoesNotReplayCheckpointForBlockedTarget(t *testing.T) {

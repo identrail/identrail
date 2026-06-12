@@ -408,8 +408,17 @@ func applyCoverageAvailability(target *CoverageTarget, availability coverageAvai
 	}
 	target.State = availability.State
 	switch availability.State {
-	case CoverageStateDisabled, CoverageStateBlocked, CoverageStateUnsupported, CoverageStatePermissionDenied:
+	case CoverageStateDisabled, CoverageStateUnsupported:
 		target.Enabled = false
+		target.Cursor = ""
+		target.Attempts = 0
+		target.ObservedAt = time.Time{}
+		if failureReason := strings.TrimSpace(availability.FailureReason); failureReason != "" {
+			target.FailureReason = failureReason
+		} else {
+			target.FailureReason = ""
+		}
+	case CoverageStateBlocked, CoverageStatePermissionDenied:
 		target.Cursor = ""
 		target.Attempts = 0
 		target.ObservedAt = time.Time{}
