@@ -82,6 +82,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 
 - Architecture overview: `architecture.md`
 - AWS collector details: `aws-collector.md`
+- AWS account/region fan-out worker: `aws-account-region-fanout-worker.md`
 - AWS normalizer and graph: `aws-normalizer-graph.md`
 - AWS risk engine: `aws-risk-engine.md`
 

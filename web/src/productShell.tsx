@@ -59,6 +59,7 @@ import {
   type AWSCredentialReferenceRecord,
   type AWSCoveragePlanResult,
   type AWSCoveragePlanTarget,
+  type AWSFanOutExecutionResult,
   type AWSOrganizationsTopologyAccount,
   type AWSOrganizationsTopologyResult,
   type AWSSecretsManagerMetadataInventoryResult,
@@ -3684,6 +3685,13 @@ type AWSInventoryCoveragePlanState = {
   onRetry: () => void;
 };
 
+type AWSInventoryFanOutExecutionState = {
+  execution: AWSFanOutExecutionResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryOrganizationsTopologyState = {
   topology: AWSOrganizationsTopologyResult | null;
   loading: boolean;
@@ -4429,6 +4437,7 @@ function AWSAccountsInventoryContent({
   connection,
   connectPath,
   coveragePlanState,
+  fanOutExecutionState,
   organizationsTopologyState,
   filters,
   onFiltersChange
@@ -4436,6 +4445,7 @@ function AWSAccountsInventoryContent({
   connection: AWSConnectionStatus | null;
   connectPath: string;
   coveragePlanState: AWSInventoryCoveragePlanState;
+  fanOutExecutionState: AWSInventoryFanOutExecutionState;
   organizationsTopologyState: AWSInventoryOrganizationsTopologyState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
@@ -4443,6 +4453,7 @@ function AWSAccountsInventoryContent({
   const accountCoverage = awsCoverageState(connection);
   const hasHealthyCoverage = accountCoverage === 'covered';
   const plan = coveragePlanState.plan;
+  const execution = fanOutExecutionState.execution;
   const topology = organizationsTopologyState.topology;
   const rows = buildAWSCoveragePlanRows(plan, coveragePlanState.loading, connection);
   const topologyRows = buildAWSOrganizationsTopologyRows(topology, organizationsTopologyState.loading, connection);
@@ -4465,12 +4476,20 @@ function AWSAccountsInventoryContent({
     <>
       <AWSInventoryFilterSet routeID="accounts" filters={filters} onChange={onFiltersChange} />
       {coveragePlanState.loading ? <DomainLoadingState label="Loading account and region coverage plan" /> : null}
+      {fanOutExecutionState.loading ? <DomainLoadingState label="Loading fan-out execution state" /> : null}
       {organizationsTopologyState.loading ? <DomainLoadingState label="Loading AWS Organizations topology" /> : null}
       {coveragePlanState.error ? (
         <DomainErrorState
           title="Coverage plan could not load"
           body={coveragePlanState.error}
           retryAction={{ label: 'Retry coverage plan', onClick: coveragePlanState.onRetry }}
+        />
+      ) : null}
+      {fanOutExecutionState.error ? (
+        <DomainErrorState
+          title="Fan-out execution could not load"
+          body={fanOutExecutionState.error}
+          retryAction={{ label: 'Retry fan-out execution', onClick: fanOutExecutionState.onRetry }}
         />
       ) : null}
       {organizationsTopologyState.error ? (
@@ -4491,6 +4510,59 @@ function AWSAccountsInventoryContent({
         />
         <DomainCoverageCard label="Permission evidence" scanned={passedChecks} total={Math.max(totalChecks, 1)} detail="Read-only validation" />
       </section>
+      {execution ? (
+        <DomainStatusPanel
+          eyebrow="Fan-out worker"
+          title="Account and region execution is target-scoped"
+          status={formatTokenLabel(execution.status)}
+          tone={execution.status === 'blocked' ? 'danger' : execution.status === 'degraded' ? 'warning' : 'success'}
+        >
+          <section className="idt-aws-inventory-coverage" aria-label="AWS fan-out execution status">
+            <DomainCoverageCard
+              label="Worker slots"
+              scanned={execution.summary.in_progress_targets}
+              total={Math.max(execution.summary.concurrency_limit, 1)}
+              detail={`${execution.summary.queued_targets} queued`}
+            />
+            <DomainCoverageCard
+              label="Completed targets"
+              scanned={execution.summary.covered_targets}
+              total={Math.max(execution.summary.executable_targets, 1)}
+              detail={`${execution.summary.skipped_targets} skipped`}
+            />
+            <DomainCoverageCard
+              label="Retryable targets"
+              scanned={execution.summary.retryable_targets}
+              total={Math.max(execution.summary.executable_targets, 1)}
+              detail={`${execution.summary.throttled_targets} throttled`}
+            />
+            <DomainCoverageCard
+              label="Denied targets"
+              scanned={execution.summary.permission_denied_targets}
+              total={Math.max(execution.summary.executable_targets, 1)}
+              detail={`${execution.summary.failed_targets + execution.summary.partial_targets} degraded`}
+            />
+          </section>
+          {execution.diagnostics.length ? (
+            <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS fan-out execution diagnostics">
+              {execution.diagnostics.map((diagnostic) => (
+                <article key={`${diagnostic.code}-${diagnostic.scope ?? diagnostic.source}`}>
+                  <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                  <p>{diagnostic.message}</p>
+                  {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+          {execution.remediation_hints.length ? (
+            <ul className="idt-domain-charter-list">
+              {execution.remediation_hints.map((hint) => (
+                <li key={hint}>{hint}</li>
+              ))}
+            </ul>
+          ) : null}
+        </DomainStatusPanel>
+      ) : null}
       {plan?.diagnostics.length ? (
         <DomainStatusPanel
           eyebrow="Coverage diagnostics"
@@ -7148,6 +7220,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [coveragePlanLoading, setCoveragePlanLoading] = useState(false);
   const [coveragePlanError, setCoveragePlanError] = useState('');
   const coveragePlanRequestRef = useRef(0);
+  const [fanOutExecution, setFanOutExecution] = useState<AWSFanOutExecutionResult | null>(null);
+  const [fanOutExecutionLoading, setFanOutExecutionLoading] = useState(false);
+  const [fanOutExecutionError, setFanOutExecutionError] = useState('');
+  const fanOutExecutionRequestRef = useRef(0);
   const [organizationsTopology, setOrganizationsTopology] = useState<AWSOrganizationsTopologyResult | null>(null);
   const [organizationsTopologyLoading, setOrganizationsTopologyLoading] = useState(false);
   const [organizationsTopologyError, setOrganizationsTopologyError] = useState('');
@@ -7816,6 +7892,58 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadCoveragePlan]);
 
+  const loadFanOutExecution = useCallback(async () => {
+    const requestID = ++fanOutExecutionRequestRef.current;
+    setFanOutExecution(null);
+    setFanOutExecutionError('');
+    if (routeID !== 'accounts' || !scope || !selectedEnvironmentID || !connection?.connector_id) {
+      setFanOutExecutionLoading(false);
+      return;
+    }
+    setFanOutExecutionLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectFanOutExecution(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        { maxConcurrency: 4 },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== fanOutExecutionRequestRef.current) {
+        return;
+      }
+      setFanOutExecution(response.execution);
+    } catch (error) {
+      if (requestID !== fanOutExecutionRequestRef.current) {
+        return;
+      }
+      setFanOutExecutionError(formatAPIError(error, 'Unable to load fan-out execution state.'));
+    } finally {
+      if (requestID === fanOutExecutionRequestRef.current) {
+        setFanOutExecutionLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id,
+    connection?.account_id,
+    connection?.region,
+    connection?.status,
+    connection?.health_status
+  ]);
+
+  useEffect(() => {
+    void loadFanOutExecution();
+    return () => {
+      fanOutExecutionRequestRef.current += 1;
+    };
+  }, [loadFanOutExecution]);
+
   const loadOrganizationsTopology = useCallback(async () => {
     const requestID = ++organizationsTopologyRequestRef.current;
     setOrganizationsTopology(null);
@@ -7943,6 +8071,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: coveragePlanLoading,
             error: coveragePlanError,
             onRetry: () => void loadCoveragePlan()
+          }}
+          fanOutExecutionState={{
+            execution: fanOutExecution,
+            loading: fanOutExecutionLoading,
+            error: fanOutExecutionError,
+            onRetry: () => void loadFanOutExecution()
           }}
           organizationsTopologyState={{
             topology: organizationsTopology,

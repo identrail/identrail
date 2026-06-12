@@ -2985,6 +2985,50 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"plan": record})
 	})
 
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/fanout-execution", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		maxConcurrency := 0
+		if raw := strings.TrimSpace(c.Query("max_concurrency")); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws fan-out execution request"})
+				return
+			}
+			maxConcurrency = parsed
+		}
+		record, err := svc.GetAWSFanOutExecution(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSFanOutExecutionRequest{
+			ConnectorID:    strings.TrimSpace(c.Query("connector_id")),
+			FixtureState:   strings.TrimSpace(c.Query("fixture_state")),
+			Account:        strings.TrimSpace(c.Query("account")),
+			Region:         strings.TrimSpace(c.Query("region")),
+			Service:        strings.TrimSpace(c.Query("service")),
+			State:          strings.TrimSpace(c.Query("state")),
+			MaxConcurrency: maxConcurrency,
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project or connector not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws fan-out execution request"})
+			default:
+				if logger != nil {
+					logger.Error("get aws fan-out execution",
+						zap.String("workspace_id", c.Param("workspace_id")),
+						zap.String("project_id", c.Param("project_id")),
+						telemetry.ZapError(err),
+					)
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws fan-out execution"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"execution": record})
+	})
+
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/organizations-topology", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)

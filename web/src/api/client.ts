@@ -2792,6 +2792,70 @@ export type AWSCoveragePlanResult = {
   updated_at: string;
 };
 
+export type AWSFanOutExecutionTarget = {
+  key: string;
+  account_id: string;
+  region: string;
+  service: string;
+  priority: AWSCoveragePriority;
+  state: AWSCoverageState;
+  worker_state: AWSCoverageState;
+  enabled: boolean;
+  attempts: number;
+  max_attempts: number;
+  concurrency_slot?: number;
+  checkpoint?: string;
+  retryable: boolean;
+  retry_after?: string;
+  failure_reason?: string;
+  evidence_ref: string;
+  next_action: string;
+  observed_at?: string;
+};
+
+export type AWSFanOutExecutionSummary = {
+  total_targets: number;
+  executable_targets: number;
+  skipped_targets: number;
+  queued_targets: number;
+  in_progress_targets: number;
+  covered_targets: number;
+  partial_targets: number;
+  failed_targets: number;
+  permission_denied_targets: number;
+  throttled_targets: number;
+  retryable_targets: number;
+  concurrency_limit: number;
+  max_attempts: number;
+};
+
+export type AWSFanOutExecutionResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSCoveragePlanStatus;
+  fixture_state: AWSCoveragePlanFixtureState;
+  confidence: number;
+  filtered_targets: number;
+  summary: AWSFanOutExecutionSummary;
+  targets: AWSFanOutExecutionTarget[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSCoveragePlanCoverageGap[];
+  diagnostics: AWSCoveragePlanDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSOrganizationsTopologyStatus = AWSCoveragePlanStatus;
 export type AWSOrganizationsTopologyFixtureState = AWSCoveragePlanFixtureState;
 export type AWSOrganizationsAccountStatus = 'active' | 'suspended' | 'closed' | 'pending_activation' | 'pending_closure';
@@ -4640,6 +4704,27 @@ export const apiClient = {
         region: filters?.region,
         service: filters?.service,
         state: filters?.state
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectFanOutExecution(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSCoveragePlanFixtureState,
+    filters?: { account?: string; region?: string; service?: string; state?: AWSCoverageState; maxConcurrency?: number },
+    auth?: RequestAuthContext
+  ) {
+    return request<{ execution: AWSFanOutExecutionResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/fanout-execution${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState,
+        account: filters?.account,
+        region: filters?.region,
+        service: filters?.service,
+        state: filters?.state,
+        max_concurrency: filters?.maxConcurrency
       })}`,
       auth
     );
