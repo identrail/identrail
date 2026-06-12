@@ -1995,7 +1995,7 @@ export type AWSAIAgentIdentityRecord = {
 };
 
 export type AWSAIAgentIdentityRelationship = {
-  type: 'runs_as' | 'calls_tool' | 'uses_credential' | string;
+  type: 'runs_as' | 'calls_tool' | 'uses_secret' | string;
   from_node_id: string;
   to_node_id: string;
   evidence_ref: string;

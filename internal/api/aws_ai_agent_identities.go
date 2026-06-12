@@ -443,7 +443,7 @@ func awsAIAgentIdentityRelationships(records []AWSAIAgentIdentityRecord) []AWSAI
 		for _, ref := range record.CredentialReferenceRefs {
 			ref = strings.TrimSpace(ref)
 			if record.AgentNodeID != "" && ref != "" {
-				result = append(result, AWSAIAgentIdentityRelation{Type: "uses_credential", FromNodeID: record.AgentNodeID, ToNodeID: awsCredentialReferenceNodeID(ref), EvidenceRef: record.EvidenceRef})
+				result = append(result, AWSAIAgentIdentityRelation{Type: "uses_secret", FromNodeID: record.AgentNodeID, ToNodeID: awsCredentialReferenceNodeID(ref), EvidenceRef: record.EvidenceRef})
 			}
 		}
 	}

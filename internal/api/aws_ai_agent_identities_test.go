@@ -39,6 +39,18 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 	if result.RuntimeRoleCount == 0 || result.ToolCount == 0 || result.CapabilityCount == 0 || result.RelationshipCount == 0 {
 		t.Fatalf("expected populated counts, got %+v", result)
 	}
+	foundCredentialEdge := false
+	for _, relationship := range result.Relationships {
+		if relationship.Type == "uses_credential" {
+			t.Fatalf("expected supported graph relationship type uses_secret, got unsupported uses_credential in %+v", relationship)
+		}
+		if relationship.Type == "uses_secret" {
+			foundCredentialEdge = true
+		}
+	}
+	if !foundCredentialEdge {
+		t.Fatalf("expected credential references to emit uses_secret relationship, got %+v", result.Relationships)
+	}
 	if len(result.CoverageGaps) == 0 {
 		t.Fatalf("expected sensitive-boundary coverage gaps, got %+v", result.CoverageGaps)
 	}
