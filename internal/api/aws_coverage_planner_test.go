@@ -87,7 +87,7 @@ func TestGetAWSCoveragePlanGlobalServicePlannedOncePerAccount(t *testing.T) {
 	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
 		AccountID:      "123456789012",
 		AccountAlias:   "Production",
-		Region:         "us-east-1",
+		Region:         "eu-west-1",
 		CoverageStatus: db.AWSAccountRegionCoveragePending,
 		ScanCursor:     map[string]any{"services": map[string]any{"iam": map[string]any{"state": "covered", "observed_at": now.Format(time.RFC3339Nano)}}},
 		UpdatedAt:      now,
@@ -117,10 +117,19 @@ func TestGetAWSCoveragePlanGlobalServicePlannedOncePerAccount(t *testing.T) {
 	if len(perAccount) == 0 {
 		t.Fatalf("expected iam targets")
 	}
+	var productionIAM AWSCoveragePlanTarget
 	for accountID, count := range perAccount {
 		if count != 1 {
 			t.Fatalf("account %s has %d iam targets, want 1 (global)", accountID, count)
 		}
+		for _, target := range result.Targets {
+			if target.AccountID == "123456789012" {
+				productionIAM = target
+			}
+		}
+	}
+	if productionIAM.Region != awsCoveragePlannerGlobalServiceHomeRegion || productionIAM.State != "covered" {
+		t.Fatalf("expected non-home region iam cursor to replay in global home region, got %+v", productionIAM)
 	}
 }
 

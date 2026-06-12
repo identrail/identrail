@@ -419,7 +419,7 @@ func awsCoverageCheckpointsFromScanCursor(row db.AWSAccountRegionCoverage, check
 		}
 		checkpoints = append(checkpoints, awscontract.CoverageCheckpoint{
 			AccountID:     row.AccountID,
-			Region:        row.Region,
+			Region:        awsCoverageCheckpointRegion(service, row.Region),
 			Service:       service,
 			Collector:     firstNonEmptyAWSValue(awsCoverageCursorString(entry.fields, "collector"), entry.collector),
 			State:         state,
@@ -431,6 +431,17 @@ func awsCoverageCheckpointsFromScanCursor(row db.AWSAccountRegionCoverage, check
 		services = append(services, service)
 	}
 	return checkpoints, diagnostics, dedupeStrings(services)
+}
+
+func awsCoverageCheckpointRegion(service string, rowRegion string) string {
+	service = strings.ToLower(strings.TrimSpace(service))
+	for _, defaultService := range awscontract.DefaultCoverageServices() {
+		if strings.ToLower(strings.TrimSpace(defaultService.Service)) != service || !defaultService.Global {
+			continue
+		}
+		return firstNonEmptyAWSValue(strings.ToLower(strings.TrimSpace(defaultService.HomeRegion)), awsCoveragePlannerGlobalServiceHomeRegion)
+	}
+	return strings.ToLower(strings.TrimSpace(rowRegion))
 }
 
 func awsCoverageListRows(ctx context.Context, store db.Store, filter db.AWSAccountRegionCoverageFilter) ([]db.AWSAccountRegionCoverage, error) {

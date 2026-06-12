@@ -2259,7 +2259,6 @@ func (p *PostgresStore) ListAWSAccountRegionCoverages(ctx context.Context, filte
 	if offset > 0 {
 		query += fmt.Sprintf(" OFFSET $%d", nextArg)
 		args = append(args, offset)
-		nextArg++
 	}
 
 	rows, err := p.queryContext(ctx, query, args...)
