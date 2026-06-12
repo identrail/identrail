@@ -569,6 +569,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/organizations-topology
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/secrets-manager-metadata
     action: tenancy.read
     resource_type: project
@@ -4645,6 +4650,76 @@ paths:
                     $ref: "#/components/schemas/AWSCoveragePlanResult"
         "400":
           description: Invalid AWS coverage plan request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/organizations-topology:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS Organizations account and OU topology
+      operationId: getAWSProjectOrganizationsTopology
+      description: Returns deterministic, project-scoped AWS Organizations account and OU topology for an AWS connector. The response includes account status, management-account and delegated-admin indicators, parent relationships, scan eligibility, cursor/checkpoint state, failure reasons, evidence links, and operator next actions. Read-only and metadata-only - it does not read secret values, customer payloads, object contents, database rows, prompts, completions, or browser output.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope topology discovery.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: account
+          schema: { type: string }
+          description: Optional 12-digit AWS account id filter.
+        - in: query
+          name: ou
+          schema: { type: string }
+          description: Optional OU id or OU path filter.
+        - in: query
+          name: state
+          schema:
+            type: string
+            enum: [planned, pending, in_progress, covered, partial, failed, permission_denied, unsupported, blocked, disabled]
+          description: Optional discovery lifecycle state filter.
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [active, suspended, pending_activation, pending_closure, closed]
+          description: Optional AWS Organizations account lifecycle status filter.
+      responses:
+        "200":
+          description: AWS Organizations topology
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  topology:
+                    $ref: "#/components/schemas/AWSOrganizationsTopologyResult"
+        "400":
+          description: Invalid AWS Organizations topology request
           content:
             application/json:
               schema:
@@ -10504,6 +10579,155 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSCoveragePlanDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSOrganizationsTopologyAccount:
+      type: object
+      properties:
+        account_id: { type: string }
+        account_name: { type: string }
+        status:
+          type: string
+          enum: [active, suspended, pending_activation, pending_closure, closed]
+        parent_id: { type: string }
+        ou_path: { type: string }
+        partition: { type: string }
+        management: { type: boolean }
+        delegated_admin_services:
+          type: array
+          items: { type: string }
+        connector_scoped: { type: boolean }
+        scan_eligible: { type: boolean }
+        state:
+          type: string
+          enum: [planned, pending, in_progress, covered, partial, failed, permission_denied, unsupported, blocked, disabled]
+        cursor: { type: string }
+        failure_reason: { type: string }
+        attempts: { type: integer }
+        resumable: { type: boolean }
+        next_action: { type: string }
+        evidence_ref: { type: string }
+        observed_at:
+          type: string
+          format: date-time
+        eligibility_failure_reason: { type: string }
+    AWSOrganizationsTopologyOU:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        parent_id: { type: string }
+        path: { type: string }
+        enabled: { type: boolean }
+        reason: { type: string }
+    AWSOrganizationsTopologyRelationship:
+      type: object
+      properties:
+        parent_id: { type: string }
+        child_id: { type: string }
+        child_type:
+          type: string
+          enum: [organizational_unit, account]
+        relationship: { type: string }
+    AWSOrganizationsTopologySummary:
+      type: object
+      properties:
+        account_count: { type: integer }
+        organizational_unit_count: { type: integer }
+        management_account_count: { type: integer }
+        delegated_admin_account_count: { type: integer }
+        suspended_account_count: { type: integer }
+        connector_scoped_accounts: { type: integer }
+        scan_eligible_accounts: { type: integer }
+        blocked_accounts: { type: integer }
+        permission_denied_accounts: { type: integer }
+        failed_accounts: { type: integer }
+        resumable_accounts: { type: integer }
+        state_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+    AWSOrganizationsTopologyDiagnostic:
+      type: object
+      properties:
+        source: { type: string }
+        scope: { type: string }
+        code: { type: string }
+        message: { type: string }
+        remediation: { type: string }
+        retryable: { type: boolean }
+    AWSOrganizationsTopologyCoverageGap:
+      type: object
+      properties:
+        capability: { type: string }
+        status: { type: string }
+        reason: { type: string }
+        remediation: { type: string }
+    AWSOrganizationsTopologyResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        organization_id: { type: string }
+        management_account_id: { type: string }
+        partition: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        filtered_accounts: { type: integer }
+        summary:
+          $ref: "#/components/schemas/AWSOrganizationsTopologySummary"
+        organizational_units:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSOrganizationsTopologyOU"
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSOrganizationsTopologyAccount"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSOrganizationsTopologyRelationship"
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSOrganizationsTopologyCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSOrganizationsTopologyDiagnostic"
         generated_at:
           type: string
           format: date-time

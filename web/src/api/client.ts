@@ -2792,6 +2792,100 @@ export type AWSCoveragePlanResult = {
   updated_at: string;
 };
 
+export type AWSOrganizationsTopologyStatus = AWSCoveragePlanStatus;
+export type AWSOrganizationsTopologyFixtureState = AWSCoveragePlanFixtureState;
+export type AWSOrganizationsAccountStatus = 'active' | 'suspended' | 'closed' | 'pending_activation' | 'pending_closure';
+
+export type AWSOrganizationsTopologyAccount = {
+  account_id: string;
+  account_name?: string;
+  status: AWSOrganizationsAccountStatus;
+  parent_id?: string;
+  ou_path?: string;
+  partition: string;
+  management: boolean;
+  delegated_admin_services: string[];
+  connector_scoped: boolean;
+  scan_eligible: boolean;
+  state: AWSCoverageState;
+  cursor?: string;
+  failure_reason?: string;
+  attempts?: number;
+  resumable: boolean;
+  next_action: string;
+  evidence_ref: string;
+  observed_at?: string;
+  eligibility_failure_reason?: string;
+};
+
+export type AWSOrganizationsTopologyOU = {
+  id: string;
+  name?: string;
+  parent_id?: string;
+  path: string;
+  enabled: boolean;
+  reason?: string;
+};
+
+export type AWSOrganizationsTopologyRelationship = {
+  parent_id: string;
+  child_id: string;
+  child_type: 'organizational_unit' | 'account';
+  relationship: string;
+};
+
+export type AWSOrganizationsTopologySummary = {
+  account_count: number;
+  organizational_unit_count: number;
+  management_account_count: number;
+  delegated_admin_account_count: number;
+  suspended_account_count: number;
+  connector_scoped_accounts: number;
+  scan_eligible_accounts: number;
+  blocked_accounts: number;
+  permission_denied_accounts: number;
+  failed_accounts: number;
+  resumable_accounts: number;
+  state_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+};
+
+export type AWSOrganizationsTopologyDiagnostic = AWSCoveragePlanDiagnostic;
+
+export type AWSOrganizationsTopologyCoverageGap = AWSCoveragePlanCoverageGap;
+
+export type AWSOrganizationsTopologyResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  organization_id?: string;
+  management_account_id?: string;
+  partition: string;
+  version: string;
+  status: AWSOrganizationsTopologyStatus;
+  fixture_state: AWSOrganizationsTopologyFixtureState;
+  confidence: number;
+  filtered_accounts: number;
+  summary: AWSOrganizationsTopologySummary;
+  organizational_units: AWSOrganizationsTopologyOU[];
+  accounts: AWSOrganizationsTopologyAccount[];
+  relationships: AWSOrganizationsTopologyRelationship[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSOrganizationsTopologyCoverageGap[];
+  diagnostics: AWSOrganizationsTopologyDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSDynamoDBRDSReachabilityInventoryResult = {
   tenant_id: string;
   workspace_id: string;
@@ -4546,6 +4640,26 @@ export const apiClient = {
         region: filters?.region,
         service: filters?.service,
         state: filters?.state
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectOrganizationsTopology(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSOrganizationsTopologyFixtureState,
+    filters?: { account?: string; ou?: string; state?: AWSCoverageState; status?: AWSOrganizationsAccountStatus },
+    auth?: RequestAuthContext
+  ) {
+    return request<{ topology: AWSOrganizationsTopologyResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/organizations-topology${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState,
+        account: filters?.account,
+        ou: filters?.ou,
+        state: filters?.state,
+        status: filters?.status
       })}`,
       auth
     );

@@ -59,6 +59,8 @@ import {
   type AWSCredentialReferenceRecord,
   type AWSCoveragePlanResult,
   type AWSCoveragePlanTarget,
+  type AWSOrganizationsTopologyAccount,
+  type AWSOrganizationsTopologyResult,
   type AWSSecretsManagerMetadataInventoryResult,
   type AWSSecretsManagerMetadataRecord,
   type AWSSQSSNSReachabilityInventoryResult,
@@ -3682,6 +3684,13 @@ type AWSInventoryCoveragePlanState = {
   onRetry: () => void;
 };
 
+type AWSInventoryOrganizationsTopologyState = {
+  topology: AWSOrganizationsTopologyResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryCoverageRow = AWSInventoryFilterable & {
   id: string;
   category: string;
@@ -4144,6 +4153,102 @@ function buildAWSCoveragePlanRows(
   ];
 }
 
+function awsOrganizationsTopologyFilterValue(account: AWSOrganizationsTopologyAccount): string {
+  if (
+    account.status === 'suspended' ||
+    account.status === 'closed' ||
+    account.status === 'pending_activation' ||
+    account.status === 'pending_closure' ||
+    account.state === 'disabled' ||
+    account.state === 'unsupported'
+  ) {
+    return 'missing';
+  }
+  return awsCoveragePlanFilterValue(account.state);
+}
+
+function awsOrganizationsTopologyDetail(account: AWSOrganizationsTopologyAccount): string {
+  const details: string[] = [];
+  if (account.management) {
+    details.push('Management account');
+  }
+  if (account.delegated_admin_services.length > 0) {
+    details.push(`Delegated admin for ${account.delegated_admin_services.map(formatTokenLabel).join(', ')}`);
+  }
+  if (account.failure_reason) {
+    details.push(account.failure_reason);
+  } else if (account.eligibility_failure_reason) {
+    details.push(account.eligibility_failure_reason);
+  } else if (account.cursor) {
+    details.push(`Cursor ${account.cursor}`);
+  } else {
+    details.push(account.next_action);
+  }
+  if (account.attempts) {
+    details.push(`${account.attempts} ${account.attempts === 1 ? 'attempt' : 'attempts'}`);
+  }
+  return details.join(' · ');
+}
+
+function buildAWSOrganizationsTopologyRows(
+  topology: AWSOrganizationsTopologyResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryCoverageRow[] {
+  if (topology?.accounts.length) {
+    return topology.accounts.map((account) => {
+      const coverage = awsOrganizationsTopologyFilterValue(account);
+      const coverageTokens = [coverage, account.state];
+      if (account.status !== 'active') {
+        coverageTokens.push(account.status);
+      }
+      const accountFilter = connection?.account_id && account.account_id === connection.account_id ? 'connected,planned' : 'planned';
+      return {
+        id: `org-${account.account_id}`,
+        category: `${account.account_name || account.account_id} / ${account.ou_path || account.parent_id || 'Root'}`,
+        coverage: account.state,
+        source: account.evidence_ref,
+        status: account.status,
+        detail: awsOrganizationsTopologyDetail(account),
+        filters: {
+          account: accountFilter,
+          region: 'current,uncovered',
+          coverage: [...new Set(coverageTokens)].join(','),
+          search: ''
+        },
+        searchText: inventorySearchText([
+          account.account_id,
+          account.account_name,
+          account.status,
+          account.parent_id,
+          account.ou_path,
+          account.state,
+          account.failure_reason,
+          account.eligibility_failure_reason,
+          account.next_action,
+          account.evidence_ref,
+          ...account.delegated_admin_services
+        ])
+      };
+    });
+  }
+  if (loading) {
+    return [
+      {
+        id: 'organizations-topology-loading',
+        category: 'AWS Organizations topology',
+        coverage: 'planned',
+        source: 'AWS Organizations discovery',
+        status: 'loading',
+        detail: 'Loading accounts, OUs, parent relationships, and delegated-admin metadata.',
+        filters: { account: 'planned', region: 'current,uncovered', coverage: 'planned', search: '' },
+        searchText: inventorySearchText(['organizations topology loading'])
+      }
+    ];
+  }
+  return [];
+}
+
 function AWSInventoryFilterSet({
   routeID,
   filters,
@@ -4319,19 +4424,23 @@ function AWSAccountsInventoryContent({
   connection,
   connectPath,
   coveragePlanState,
+  organizationsTopologyState,
   filters,
   onFiltersChange
 }: {
   connection: AWSConnectionStatus | null;
   connectPath: string;
   coveragePlanState: AWSInventoryCoveragePlanState;
+  organizationsTopologyState: AWSInventoryOrganizationsTopologyState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
   const accountCoverage = awsCoverageState(connection);
   const hasHealthyCoverage = accountCoverage === 'covered';
   const plan = coveragePlanState.plan;
+  const topology = organizationsTopologyState.topology;
   const rows = buildAWSCoveragePlanRows(plan, coveragePlanState.loading, connection);
+  const topologyRows = buildAWSOrganizationsTopologyRows(topology, organizationsTopologyState.loading, connection);
   const passedChecks = connection?.permission_checks.filter((check) => check.passed).length ?? 0;
   const totalChecks = connection?.permission_checks.length ?? 0;
   const coveredAccounts = plan
@@ -4345,11 +4454,13 @@ function AWSAccountsInventoryContent({
       ? 1
       : 0;
   const displayedRows = filterAWSInventoryRows(rows, filters);
+  const displayedTopologyRows = filterAWSInventoryRows(topologyRows, filters);
 
   return (
     <>
       <AWSInventoryFilterSet routeID="accounts" filters={filters} onChange={onFiltersChange} />
       {coveragePlanState.loading ? <DomainLoadingState label="Loading account and region coverage plan" /> : null}
+      {organizationsTopologyState.loading ? <DomainLoadingState label="Loading AWS Organizations topology" /> : null}
       {coveragePlanState.error ? (
         <DomainErrorState
           title="Coverage plan could not load"
@@ -4357,9 +4468,22 @@ function AWSAccountsInventoryContent({
           retryAction={{ label: 'Retry coverage plan', onClick: coveragePlanState.onRetry }}
         />
       ) : null}
+      {organizationsTopologyState.error ? (
+        <DomainErrorState
+          title="Organizations topology could not load"
+          body={organizationsTopologyState.error}
+          retryAction={{ label: 'Retry Organizations topology', onClick: organizationsTopologyState.onRetry }}
+        />
+      ) : null}
       <section className="idt-aws-inventory-coverage" aria-label="AWS account and region coverage map">
         <DomainCoverageCard label="Account coverage" scanned={coveredAccounts} total={plan?.summary.account_count ?? 1} detail="Configured accounts" />
         <DomainCoverageCard label="Region coverage" scanned={coveredRegions} total={plan?.summary.region_count ?? 1} detail={plan ? `${plan.summary.coverage_percent}% target coverage` : hasHealthyCoverage ? connection?.region ?? 'Pending' : 'Pending'} />
+        <DomainCoverageCard
+          label="Organizations accounts"
+          scanned={topology?.summary.scan_eligible_accounts ?? coveredAccounts}
+          total={topology?.summary.account_count ?? plan?.summary.account_count ?? 1}
+          detail={topology ? `${topology.summary.organizational_unit_count} OUs` : 'Topology pending'}
+        />
         <DomainCoverageCard label="Permission evidence" scanned={passedChecks} total={Math.max(totalChecks, 1)} detail="Read-only validation" />
       </section>
       {plan?.diagnostics.length ? (
@@ -4380,6 +4504,35 @@ function AWSAccountsInventoryContent({
           </div>
         </DomainStatusPanel>
       ) : null}
+      {topology?.diagnostics.length ? (
+        <DomainStatusPanel
+          eyebrow="Organizations diagnostics"
+          title="Topology discovery has explicit recovery work"
+          status={formatTokenLabel(topology.status)}
+          tone={topology.status === 'blocked' ? 'danger' : 'warning'}
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS Organizations topology diagnostics">
+            {topology.diagnostics.map((diagnostic) => (
+              <article key={`${diagnostic.code}-${diagnostic.scope ?? diagnostic.source}`}>
+                <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                <p>{diagnostic.message}</p>
+                {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
+      <DomainDataTable
+        label="AWS Organizations topology"
+        rows={displayedTopologyRows}
+        getRowKey={(row) => row.id}
+        columns={[
+          { key: 'category', header: 'Account / OU', render: (row) => <strong>{row.category}</strong> },
+          { key: 'coverage', header: 'Discovery', render: (row) => <AWSInventoryPill stage={awsCoveragePlanStage(row.coverage)} label={formatTokenLabel(row.coverage)} /> },
+          { key: 'status', header: 'Account status', render: (row) => formatTokenLabel(row.status) },
+          { key: 'detail', header: 'Detail', render: (row) => row.detail }
+        ]}
+      />
       <DomainDataTable
         label="AWS account and region coverage"
         rows={displayedRows}
@@ -4405,6 +4558,13 @@ function AWSAccountsInventoryContent({
         {plan?.remediation_hints.length ? (
           <ul className="idt-domain-charter-list">
             {plan.remediation_hints.map((hint) => (
+              <li key={hint}>{hint}</li>
+            ))}
+          </ul>
+        ) : null}
+        {topology?.remediation_hints.length ? (
+          <ul className="idt-domain-charter-list">
+            {topology.remediation_hints.map((hint) => (
               <li key={hint}>{hint}</li>
             ))}
           </ul>
@@ -6983,6 +7143,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [coveragePlanLoading, setCoveragePlanLoading] = useState(false);
   const [coveragePlanError, setCoveragePlanError] = useState('');
   const coveragePlanRequestRef = useRef(0);
+  const [organizationsTopology, setOrganizationsTopology] = useState<AWSOrganizationsTopologyResult | null>(null);
+  const [organizationsTopologyLoading, setOrganizationsTopologyLoading] = useState(false);
+  const [organizationsTopologyError, setOrganizationsTopologyError] = useState('');
+  const organizationsTopologyRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -7647,6 +7811,58 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadCoveragePlan]);
 
+  const loadOrganizationsTopology = useCallback(async () => {
+    const requestID = ++organizationsTopologyRequestRef.current;
+    setOrganizationsTopology(null);
+    setOrganizationsTopologyError('');
+    if (routeID !== 'accounts' || !scope || !selectedEnvironmentID || !connection?.connector_id) {
+      setOrganizationsTopologyLoading(false);
+      return;
+    }
+    setOrganizationsTopologyLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectOrganizationsTopology(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== organizationsTopologyRequestRef.current) {
+        return;
+      }
+      setOrganizationsTopology(response.topology);
+    } catch (error) {
+      if (requestID !== organizationsTopologyRequestRef.current) {
+        return;
+      }
+      setOrganizationsTopologyError(formatAPIError(error, 'Unable to load AWS Organizations topology.'));
+    } finally {
+      if (requestID === organizationsTopologyRequestRef.current) {
+        setOrganizationsTopologyLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id,
+    connection?.account_id,
+    connection?.region,
+    connection?.status,
+    connection?.health_status,
+  ]);
+
+  useEffect(() => {
+    void loadOrganizationsTopology();
+    return () => {
+      organizationsTopologyRequestRef.current += 1;
+    };
+  }, [loadOrganizationsTopology]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -7722,6 +7938,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: coveragePlanLoading,
             error: coveragePlanError,
             onRetry: () => void loadCoveragePlan()
+          }}
+          organizationsTopologyState={{
+            topology: organizationsTopology,
+            loading: organizationsTopologyLoading,
+            error: organizationsTopologyError,
+            onRetry: () => void loadOrganizationsTopology()
           }}
           filters={activeFilters}
           onFiltersChange={onFiltersChange}
