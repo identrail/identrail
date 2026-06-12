@@ -37,7 +37,7 @@ func TestGetAWSFanOutExecutionSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get fan-out execution: %v", err)
 	}
-	if result.Status != awsPlatformDependencyStatusReady || result.CurrentIssueRef != "#1500" {
+	if result.Status != awsPlatformDependencyStatusReady || result.CurrentIssueRef != "#1502" {
 		t.Fatalf("unexpected execution metadata: %+v", result)
 	}
 	if result.Summary.ConcurrencyLimit != 2 || result.Summary.InProgressTargets > 2 {
@@ -92,6 +92,19 @@ func TestGetAWSFanOutExecutionDegradedAndDenied(t *testing.T) {
 	}
 	if len(degraded.Diagnostics) == 0 || len(degraded.RemediationHints) == 0 {
 		t.Fatalf("degraded execution should carry diagnostics and hints: %+v", degraded)
+	}
+	if len(degraded.PartialFailures) == 0 {
+		t.Fatalf("degraded execution should carry partial failure reports: %+v", degraded)
+	}
+	var partialReport AWSPartialFailureReport
+	for _, report := range degraded.PartialFailures {
+		if report.Service == "lambda" && report.WorkerState == "partial" {
+			partialReport = report
+			break
+		}
+	}
+	if partialReport.ReasonCode != "partial_failure" || !partialReport.Retryable || partialReport.Cursor != "lambda-page-3" {
+		t.Fatalf("expected retryable lambda partial failure report, got %+v", partialReport)
 	}
 
 	denied, err := svc.GetAWSFanOutExecution(ctx, "default", "project-a", AWSFanOutExecutionRequest{ConnectorID: "aws-prod", FixtureState: "permission_denied"})

@@ -1,6 +1,6 @@
 # AWS Account and Region Fan-Out Worker
 
-Issues #1500 and #1501 add a deterministic, metadata-only execution view for
+Issues #1500, #1501, and #1502 add a deterministic, metadata-only execution view for
 bounded AWS account/region/service fan-out. It builds on the coverage planner
 and makes worker state, persisted scan cursors, and downstream recovery state
 explicit for operators.
@@ -38,7 +38,8 @@ Optional query parameters:
 - `max_concurrency`: deterministic worker concurrency limit from 1 to 64.
 
 The response includes issue metadata, summary counts, filtered targets,
-diagnostics, coverage gaps, remediation hints, and evidence links.
+normalized `partial_failure_reports`, diagnostics, coverage gaps, remediation
+hints, and evidence links.
 
 ## Failure And Retry Behavior
 
@@ -47,6 +48,12 @@ Throttled, partial, pending, and in-progress targets preserve their checkpoint
 and retry metadata so a future worker run can resume from the last safe cursor.
 Permission-denied targets are non-retryable until the read-only collector role is
 repaired.
+
+`partial_failure_reports` provides the recovery queue for degraded fan-out
+state. Each report includes account, region, service, collector, worker state,
+reason code, failure reason, retryability, attempts, checkpoint, evidence
+reference, timestamp, and next action. Successful targets stay visible in the
+same response so operators can retry only the failed target scope.
 
 Default API calls replay persisted `scan_cursor` service checkpoints from
 account/region coverage rows. Explicit `fixture_state` calls keep using

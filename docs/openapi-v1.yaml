@@ -10605,6 +10605,30 @@ components:
         message: { type: string }
         remediation: { type: string }
         retryable: { type: boolean }
+    AWSPartialFailureReport:
+      type: object
+      properties:
+        key: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        service: { type: string }
+        collector: { type: string }
+        state:
+          type: string
+          enum: [planned, pending, in_progress, covered, partial, failed, permission_denied, unsupported, blocked, disabled]
+        worker_state:
+          type: string
+          enum: [planned, pending, in_progress, covered, partial, failed, permission_denied, unsupported, blocked, disabled]
+        reason_code: { type: string }
+        failure_reason: { type: string }
+        retryable: { type: boolean }
+        attempts: { type: integer }
+        cursor: { type: string }
+        evidence_ref: { type: string }
+        next_action: { type: string }
+        observed_at:
+          type: string
+          format: date-time
     AWSCoveragePlanCoverageGap:
       type: object
       properties:
@@ -10652,6 +10676,10 @@ components:
         evidence_links:
           type: array
           items: { type: string }
+        partial_failure_reports:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSPartialFailureReport"
         coverage_gaps:
           type: array
           items:
@@ -10753,6 +10781,10 @@ components:
         evidence_links:
           type: array
           items: { type: string }
+        partial_failure_reports:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSPartialFailureReport"
         coverage_gaps:
           type: array
           items:

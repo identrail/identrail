@@ -14,6 +14,7 @@ import (
 )
 
 const awsCoveragePlannerCurrentIssue = 1501
+const awsPartialFailureReportingCurrentIssue = 1502
 const awsCoveragePlannerGlobalServiceHomeRegion = "us-east-1"
 const awsCoverageScanCursorTTL = 24 * time.Hour
 const awsCoveragePlannerAccountRegionPageSize = 250
@@ -88,6 +89,26 @@ type AWSCoveragePlanDiagnostic struct {
 	Retryable   bool   `json:"retryable"`
 }
 
+// AWSPartialFailureReport is one normalized account/region/service failure
+// signal for dashboards, reruns, and operator recovery workflows.
+type AWSPartialFailureReport struct {
+	Key           string    `json:"key"`
+	AccountID     string    `json:"account_id"`
+	Region        string    `json:"region"`
+	Service       string    `json:"service"`
+	Collector     string    `json:"collector,omitempty"`
+	State         string    `json:"state"`
+	WorkerState   string    `json:"worker_state,omitempty"`
+	ReasonCode    string    `json:"reason_code"`
+	FailureReason string    `json:"failure_reason,omitempty"`
+	Retryable     bool      `json:"retryable"`
+	Attempts      int       `json:"attempts,omitempty"`
+	Cursor        string    `json:"cursor,omitempty"`
+	EvidenceRef   string    `json:"evidence_ref"`
+	NextAction    string    `json:"next_action"`
+	ObservedAt    time.Time `json:"observed_at,omitempty"`
+}
+
 // AWSCoveragePlanCoverageGap names an explicit limit of the planner.
 type AWSCoveragePlanCoverageGap struct {
 	Capability  string `json:"capability"`
@@ -118,6 +139,7 @@ type AWSCoveragePlanResult struct {
 	FailureReasons     []string                     `json:"failure_reasons"`
 	RemediationHints   []string                     `json:"remediation_hints"`
 	EvidenceLinks      []string                     `json:"evidence_links"`
+	PartialFailures    []AWSPartialFailureReport    `json:"partial_failure_reports"`
 	CoverageGaps       []AWSCoveragePlanCoverageGap `json:"coverage_gaps"`
 	Diagnostics        []AWSCoveragePlanDiagnostic  `json:"diagnostics"`
 	GeneratedAt        time.Time                    `json:"generated_at"`
@@ -189,8 +211,8 @@ func buildAWSCoveragePlan(scope db.Scope, project db.TenancyProject, connection 
 		Region:             region,
 		ParentIssueNumber:  awsPlatformDependencyParentIssue,
 		ParentIssueRef:     awsIssueRef(awsPlatformDependencyParentIssue),
-		CurrentIssueNumber: awsCoveragePlannerCurrentIssue,
-		CurrentIssueRef:    awsIssueRef(awsCoveragePlannerCurrentIssue),
+		CurrentIssueNumber: awsPartialFailureReportingCurrentIssue,
+		CurrentIssueRef:    awsIssueRef(awsPartialFailureReportingCurrentIssue),
 		Version:            plan.Version,
 		Status:             status,
 		FixtureState:       fixtureState,
@@ -202,15 +224,17 @@ func buildAWSCoveragePlan(scope db.Scope, project db.TenancyProject, connection 
 		RemediationHints:   remediations,
 		EvidenceLinks: dedupeStrings([]string{
 			awsIssueURL(awsPlatformDependencyParentIssue),
+			awsIssueURL(awsPartialFailureReportingCurrentIssue),
 			awsIssueURL(awsCoveragePlannerCurrentIssue),
 			"/docs/aws-account-region-coverage-planner",
 			"/docs/aws-service-collector-contract",
 			awsBaselineProjectEvidenceURL(scope, project),
 		}),
-		CoverageGaps: gaps,
-		Diagnostics:  diagnostics,
-		GeneratedAt:  checkedAt,
-		UpdatedAt:    checkedAt,
+		PartialFailures: buildAWSCoveragePartialFailureReports(filtered),
+		CoverageGaps:    gaps,
+		Diagnostics:     diagnostics,
+		GeneratedAt:     checkedAt,
+		UpdatedAt:       checkedAt,
 	}, nil
 }
 
@@ -382,6 +406,66 @@ func awsCoverageMissingAccountRegionServiceAvailability(accounts []awscontract.C
 
 func awsCoverageAccountRegionKey(accountID string, region string) string {
 	return strings.TrimSpace(accountID) + "|" + strings.ToLower(strings.TrimSpace(region))
+}
+
+func buildAWSCoveragePartialFailureReports(targets []AWSCoveragePlanTarget) []AWSPartialFailureReport {
+	reports := []AWSPartialFailureReport{}
+	for _, target := range targets {
+		state := strings.ToLower(strings.TrimSpace(target.State))
+		if !awsCoverageStateIsPartialFailure(state) {
+			continue
+		}
+		reports = append(reports, AWSPartialFailureReport{
+			Key:           target.Key,
+			AccountID:     target.AccountID,
+			Region:        target.Region,
+			Service:       target.Service,
+			Collector:     target.Collector,
+			State:         state,
+			ReasonCode:    awsCoveragePartialFailureReasonCode(state, target.FailureReason, target.Reason),
+			FailureReason: firstNonEmptyAWSValue(target.FailureReason, target.Reason),
+			Retryable:     target.Resumable && (state == string(awscontract.CoverageStatePartial) || state == string(awscontract.CoverageStateFailed)),
+			Attempts:      target.Attempts,
+			Cursor:        target.Cursor,
+			EvidenceRef:   target.EvidenceRef,
+			NextAction:    target.NextAction,
+			ObservedAt:    target.ObservedAt,
+		})
+	}
+	return reports
+}
+
+func awsCoverageStateIsPartialFailure(state string) bool {
+	switch awscontract.CoverageState(strings.ToLower(strings.TrimSpace(state))) {
+	case awscontract.CoverageStatePartial, awscontract.CoverageStateFailed, awscontract.CoverageStatePermissionDenied, awscontract.CoverageStateUnsupported, awscontract.CoverageStateBlocked:
+		return true
+	default:
+		return false
+	}
+}
+
+func awsCoveragePartialFailureReasonCode(state string, values ...string) string {
+	combined := strings.ToLower(strings.Join(values, " "))
+	switch {
+	case strings.Contains(combined, "throttl"):
+		return "throttled"
+	case strings.Contains(combined, "accessdenied") || strings.Contains(combined, "access denied") || strings.Contains(combined, "permission") || state == string(awscontract.CoverageStatePermissionDenied):
+		return "permission_denied"
+	case strings.Contains(combined, "unsupported") || state == string(awscontract.CoverageStateUnsupported):
+		return "unsupported"
+	case strings.Contains(combined, "stale"):
+		return "stale_cursor"
+	case strings.Contains(combined, "no persisted account/region"):
+		return "missing_account_region_coverage"
+	case state == string(awscontract.CoverageStateBlocked):
+		return "blocked"
+	case state == string(awscontract.CoverageStatePartial):
+		return "partial_failure"
+	case state == string(awscontract.CoverageStateFailed):
+		return "failed"
+	default:
+		return state
+	}
 }
 
 func awsCoverageAvailabilityFromRow(row db.AWSAccountRegionCoverage, checkedAt time.Time) awscontract.CoverageAccountRegionAvailability {
@@ -956,6 +1040,11 @@ func summarizeAWSCoveragePlan(fixtureState string, diagnostics []AWSCoveragePlan
 				awsCoveragePlanDiagnosticMessages(diagnostics),
 				[]string{"Refresh stale or malformed scan cursors so retry and resume behavior stays accurate."}
 		}
+		if plan.Summary.FailedTargets > 0 || awsCoveragePlanStateCount(plan, awscontract.CoverageStatePartial) > 0 {
+			return awsPlatformDependencyStatusDegraded, 0.74,
+				awsCoveragePlanDiagnosticMessages(diagnostics),
+				[]string{"Use partial failure reports to retry only failed account/region/service targets; successful targets stay preserved."}
+		}
 		if plan.Summary.TotalTargets == 0 {
 			return awsPlatformDependencyStatusReady, 0.8, nil,
 				[]string{"No accounts, regions, or services are configured for coverage; add scan targets to the AWS connector."}
@@ -967,6 +1056,13 @@ func summarizeAWSCoveragePlan(fixtureState string, diagnostics []AWSCoveragePlan
 		return awsPlatformDependencyStatusReady, 0.94, nil,
 			[]string{"Coverage plan is deterministic and resumable; schedule the fan-out scan worker to execute outstanding targets."}
 	}
+}
+
+func awsCoveragePlanStateCount(plan awscontract.CoveragePlan, state awscontract.CoverageState) int {
+	if plan.Summary.StateCounts == nil {
+		return 0
+	}
+	return plan.Summary.StateCounts[state]
 }
 
 func awsCoveragePlanHasDiagnosticCode(diagnostics []AWSCoveragePlanDiagnostic, code string) bool {

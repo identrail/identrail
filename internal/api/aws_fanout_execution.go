@@ -85,6 +85,7 @@ type AWSFanOutExecutionResult struct {
 	FailureReasons     []string                     `json:"failure_reasons"`
 	RemediationHints   []string                     `json:"remediation_hints"`
 	EvidenceLinks      []string                     `json:"evidence_links"`
+	PartialFailures    []AWSPartialFailureReport    `json:"partial_failure_reports"`
 	CoverageGaps       []AWSCoveragePlanCoverageGap `json:"coverage_gaps"`
 	Diagnostics        []AWSCoveragePlanDiagnostic  `json:"diagnostics"`
 	GeneratedAt        time.Time                    `json:"generated_at"`
@@ -169,8 +170,8 @@ func buildAWSFanOutExecution(scope db.Scope, project db.TenancyProject, connecti
 		Region:             region,
 		ParentIssueNumber:  awsPlatformDependencyParentIssue,
 		ParentIssueRef:     awsIssueRef(awsPlatformDependencyParentIssue),
-		CurrentIssueNumber: awsFanOutExecutionCurrentIssue,
-		CurrentIssueRef:    awsIssueRef(awsFanOutExecutionCurrentIssue),
+		CurrentIssueNumber: awsPartialFailureReportingCurrentIssue,
+		CurrentIssueRef:    awsIssueRef(awsPartialFailureReportingCurrentIssue),
 		Version:            execution.Version,
 		Status:             status,
 		FixtureState:       fixtureState,
@@ -182,15 +183,17 @@ func buildAWSFanOutExecution(scope db.Scope, project db.TenancyProject, connecti
 		RemediationHints:   remediations,
 		EvidenceLinks: dedupeStrings([]string{
 			awsIssueURL(awsPlatformDependencyParentIssue),
+			awsIssueURL(awsPartialFailureReportingCurrentIssue),
 			awsIssueURL(awsFanOutExecutionCurrentIssue),
 			"/docs/aws-account-region-fanout-worker",
 			"/docs/aws-account-region-coverage-planner",
 			awsBaselineProjectEvidenceURL(scope, project),
 		}),
-		CoverageGaps: gaps,
-		Diagnostics:  diagnostics,
-		GeneratedAt:  checkedAt,
-		UpdatedAt:    checkedAt,
+		PartialFailures: buildAWSFanOutPartialFailureReports(filtered),
+		CoverageGaps:    gaps,
+		Diagnostics:     diagnostics,
+		GeneratedAt:     checkedAt,
+		UpdatedAt:       checkedAt,
 	}, nil
 }
 
@@ -297,6 +300,37 @@ func filterAWSFanOutExecutionTargets(targets []AWSFanOutExecutionTarget, request
 		filtered = append(filtered, target)
 	}
 	return filtered
+}
+
+func buildAWSFanOutPartialFailureReports(targets []AWSFanOutExecutionTarget) []AWSPartialFailureReport {
+	reports := []AWSPartialFailureReport{}
+	for _, target := range targets {
+		state := strings.ToLower(strings.TrimSpace(target.WorkerState))
+		if state == "" {
+			state = strings.ToLower(strings.TrimSpace(target.State))
+		}
+		if !awsCoverageStateIsPartialFailure(state) {
+			continue
+		}
+		reports = append(reports, AWSPartialFailureReport{
+			Key:           target.Key,
+			AccountID:     target.AccountID,
+			Region:        target.Region,
+			Service:       target.Service,
+			Collector:     target.Collector,
+			State:         strings.ToLower(strings.TrimSpace(target.State)),
+			WorkerState:   state,
+			ReasonCode:    awsCoveragePartialFailureReasonCode(state, target.FailureReason, target.NextAction),
+			FailureReason: target.FailureReason,
+			Retryable:     target.Retryable,
+			Attempts:      target.Attempts,
+			Cursor:        target.Checkpoint,
+			EvidenceRef:   target.EvidenceRef,
+			NextAction:    target.NextAction,
+			ObservedAt:    target.ObservedAt,
+		})
+	}
+	return reports
 }
 
 func summarizeAWSFanOutExecution(fixtureState string, diagnostics []AWSCoveragePlanDiagnostic, execution awscontract.FanOutExecutionPlan) (string, float64, []string, []string) {

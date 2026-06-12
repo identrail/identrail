@@ -42,7 +42,7 @@ func TestGetAWSCoveragePlanSuccess(t *testing.T) {
 	if result.Status != awsPlatformDependencyStatusReady || result.Confidence < 0.9 {
 		t.Fatalf("expected ready plan, got %+v", result)
 	}
-	if result.CurrentIssueRef != "#1501" || result.Version == "" {
+	if result.CurrentIssueRef != "#1502" || result.Version == "" {
 		t.Fatalf("unexpected metadata: %+v", result)
 	}
 	if result.Summary.AccountCount != 1 || result.Summary.RegionCount != 1 || result.Summary.ServiceCount != 6 {
@@ -174,6 +174,48 @@ func TestGetAWSCoveragePlanBlocksInventedLiveAccountRegionPairs(t *testing.T) {
 	}
 	if iam := targetsByKey["222222222222|us-east-1|iam"]; iam.State == "blocked" {
 		t.Fatalf("global iam home-region target should not be blocked as an invented regional pair: %+v", iam)
+	}
+}
+
+func TestGetAWSCoveragePlanPartialFailureReports(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 12, 9, 50, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		CoverageStatus: db.AWSAccountRegionCoveragePending,
+		ScanCursor: map[string]any{"services": map[string]any{
+			"lambda": map[string]any{
+				"collector":      "lambda_execution_roles",
+				"state":          "partial",
+				"cursor":         "lambda-page-3",
+				"attempts":       2,
+				"failure_reason": "Throttling: lambda ListFunctions after partial page",
+				"observed_at":    now.Format(time.RFC3339Nano),
+			},
+		}},
+		UpdatedAt: now,
+	})
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	result, err := svc.GetAWSCoveragePlan(ctx, "default", "project-a", AWSCoveragePlanRequest{ConnectorID: "aws-prod", State: "partial"})
+	if err != nil {
+		t.Fatalf("get coverage plan: %v", err)
+	}
+	if result.Status != awsPlatformDependencyStatusDegraded || len(result.PartialFailures) != 1 {
+		t.Fatalf("expected one degraded partial failure report, got %+v", result)
+	}
+	report := result.PartialFailures[0]
+	if report.AccountID != "123456789012" || report.Region != "us-east-1" || report.Service != "lambda" || report.Collector != "lambda_execution_roles" {
+		t.Fatalf("unexpected report scope: %+v", report)
+	}
+	if report.ReasonCode != "throttled" || !report.Retryable || report.Cursor != "lambda-page-3" || report.Attempts != 2 {
+		t.Fatalf("expected retryable throttled cursor report, got %+v", report)
 	}
 }
 

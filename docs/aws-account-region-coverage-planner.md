@@ -1,6 +1,6 @@
 # AWS Account and Region Coverage Planner
 
-Issues #1499 and #1501 add a deterministic, metadata-only planner that expands
+Issues #1499, #1501, and #1502 add a deterministic, metadata-only planner that expands
 an AWS connector's configured accounts, regions, service partitions, and
 persisted scan cursors into explicit scan targets.
 
@@ -76,8 +76,23 @@ Optional query parameters:
 - `state`: filter to one coverage lifecycle state.
 
 The response includes tenant, workspace, project, issue metadata, summary
-counts, filtered targets, diagnostics, coverage gaps, remediation hints, and
-evidence links.
+counts, filtered targets, normalized `partial_failure_reports`, diagnostics,
+coverage gaps, remediation hints, and evidence links.
+
+## Partial Failure Reports
+
+`partial_failure_reports` is a normalized dashboard and rerun contract. Each
+entry is scoped to one account, region, and service and includes:
+
+- target key, account, region, service, and collector
+- lifecycle state and reason code
+- failure reason, retryability, attempts, and cursor/checkpoint when available
+- evidence reference, timestamp, and next operator action
+
+Reports are emitted for `partial`, `failed`, `permission_denied`,
+`unsupported`, and `blocked` target states. Successful targets remain in the
+response, so operators can see what was preserved while recovering only the
+degraded target.
 
 When using fixture input or external planner input, `region_availability` and
 `service_availability` constraints are applied after checkpoint replay, so explicit
@@ -99,9 +114,10 @@ queries use deterministic fixtures for validation.
 Denied, unsupported, partial, failed, blocked, and disabled targets are explicit
 states. They are never counted as successful coverage.
 
-Use diagnostics and target-level `next_action` values to decide whether to
-deploy missing read-only roles, enable an opt-in region, remove unsupported
-targets, or rerun resumable targets from their checkpoint.
+Use `partial_failure_reports`, diagnostics, and target-level `next_action`
+values to decide whether to deploy missing read-only roles, enable an opt-in
+region, remove unsupported targets, or rerun resumable targets from their
+checkpoint.
 
 ## Validation
 

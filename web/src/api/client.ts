@@ -2759,6 +2759,24 @@ export type AWSCoveragePlanDiagnostic = {
   retryable: boolean;
 };
 
+export type AWSPartialFailureReport = {
+  key: string;
+  account_id: string;
+  region: string;
+  service: string;
+  collector?: string;
+  state: AWSCoverageState;
+  worker_state?: AWSCoverageState;
+  reason_code: string;
+  failure_reason?: string;
+  retryable: boolean;
+  attempts?: number;
+  cursor?: string;
+  evidence_ref: string;
+  next_action: string;
+  observed_at?: string;
+};
+
 export type AWSCoveragePlanCoverageGap = {
   capability: string;
   status: string;
@@ -2787,6 +2805,7 @@ export type AWSCoveragePlanResult = {
   failure_reasons: string[];
   remediation_hints: string[];
   evidence_links: string[];
+  partial_failure_reports: AWSPartialFailureReport[];
   coverage_gaps: AWSCoveragePlanCoverageGap[];
   diagnostics: AWSCoveragePlanDiagnostic[];
   generated_at: string;
@@ -2853,6 +2872,7 @@ export type AWSFanOutExecutionResult = {
   failure_reasons: string[];
   remediation_hints: string[];
   evidence_links: string[];
+  partial_failure_reports: AWSPartialFailureReport[];
   coverage_gaps: AWSCoveragePlanCoverageGap[];
   diagnostics: AWSCoveragePlanDiagnostic[];
   generated_at: string;

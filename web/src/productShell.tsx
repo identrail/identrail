@@ -51,6 +51,7 @@ import {
   type AWSPlatformDependencyIndexResult,
   type AWSPlatformValidationHarnessResult,
   type AWSServiceCollectorContractResult,
+  type AWSPartialFailureReport,
   type AWSECRRepositoryMetadataInventoryResult,
   type AWSECRRepositoryMetadataRecord,
   type AWSDynamoDBRDSReachabilityInventoryResult,
@@ -4475,6 +4476,10 @@ function AWSAccountsInventoryContent({
       : 0;
   const displayedRows = filterAWSInventoryRows(rows, filters);
   const displayedTopologyRows = filterAWSInventoryRows(topologyRows, filters);
+  const partialFailureReports = [
+    ...(execution?.partial_failure_reports ?? []),
+    ...(plan?.partial_failure_reports ?? [])
+  ];
 
   return (
     <>
@@ -4585,6 +4590,16 @@ function AWSAccountsInventoryContent({
           </div>
         </DomainStatusPanel>
       ) : null}
+      {partialFailureReports.length ? (
+        <DomainStatusPanel
+          eyebrow="Partial failure reporting"
+          title="Degraded targets stay scoped and recoverable"
+          status={`${partialFailureReports.length} target${partialFailureReports.length === 1 ? '' : 's'}`}
+          tone="warning"
+        >
+          <AWSPartialFailureReportList reports={partialFailureReports.slice(0, 12)} label="AWS partial failure reports" />
+        </DomainStatusPanel>
+      ) : null}
       {topology?.diagnostics.length ? (
         <DomainStatusPanel
           eyebrow="Organizations diagnostics"
@@ -4652,6 +4667,31 @@ function AWSAccountsInventoryContent({
         ) : null}
       </DomainStatusPanel>
     </>
+  );
+}
+
+function AWSPartialFailureReportList({ reports, label }: { reports: AWSPartialFailureReport[]; label: string }) {
+  return (
+    <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label={label}>
+      {reports.map((report) => (
+        <article key={`${report.key}-${report.worker_state ?? report.state}-${report.reason_code}`}>
+          <strong>
+            {formatTokenLabel(report.service)} · {formatTokenLabel(report.reason_code)}
+          </strong>
+          <p>
+            {report.account_id} / {report.region}
+            {report.collector ? ` / ${formatTokenLabel(report.collector)}` : ''}
+          </p>
+          <small>
+            {formatTokenLabel(report.worker_state ?? report.state)} · {report.retryable ? 'Retryable' : 'Not retryable'}
+            {report.attempts ? ` · ${report.attempts} attempts` : ''}
+            {report.cursor ? ` · ${report.cursor}` : ''}
+          </small>
+          {report.failure_reason ? <p>{report.failure_reason}</p> : null}
+          <small>{report.next_action}</small>
+        </article>
+      ))}
+    </div>
   );
 }
 
