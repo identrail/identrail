@@ -165,6 +165,7 @@ func buildAWSAccountRegionCoverageRecords(plan AWSCoveragePlanResult) []AWSAccou
 		if stale && staleDiagnostic != nil {
 			failureReason = firstNonEmptyAWSValue(failureReason, staleDiagnostic.Message)
 		}
+		collector := firstNonEmptyAWSValue(target.Collector, staleDiagnosticCollector(staleDiagnostic))
 		records = append(records, AWSAccountRegionCoverageRecord{
 			Key:            target.Key,
 			AccountID:      target.AccountID,
@@ -173,7 +174,7 @@ func buildAWSAccountRegionCoverageRecords(plan AWSCoveragePlanResult) []AWSAccou
 			RegionName:     target.RegionName,
 			Service:        target.Service,
 			ServiceName:    target.ServiceName,
-			Collector:      target.Collector,
+			Collector:      collector,
 			Global:         target.Global,
 			Enabled:        target.Enabled,
 			State:          target.State,
@@ -242,6 +243,13 @@ func staleDiagnosticCursor(diagnostic *AWSCoveragePlanDiagnostic) string {
 		return ""
 	}
 	return strings.TrimSpace(diagnostic.Cursor)
+}
+
+func staleDiagnosticCollector(diagnostic *AWSCoveragePlanDiagnostic) string {
+	if diagnostic == nil {
+		return ""
+	}
+	return strings.TrimSpace(diagnostic.Collector)
 }
 
 func awsAccountRegionCoverageStatus(target AWSCoveragePlanTarget, stale bool) string {

@@ -490,6 +490,9 @@ func TestGetAWSAccountRegionCoverageMarksGlobalStaleCursors(t *testing.T) {
 	if record.Cursor != "iam-stale" || record.Checkpoint != "iam-stale" {
 		t.Fatalf("expected stale cursor metadata to be preserved, got %+v", record)
 	}
+	if record.Collector != "iam_roles" {
+		t.Fatalf("expected stale collector metadata to be preserved, got %+v", record)
+	}
 }
 
 func TestGetAWSCoveragePlanNeverLeaksValues(t *testing.T) {
