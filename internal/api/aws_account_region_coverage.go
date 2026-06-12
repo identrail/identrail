@@ -155,14 +155,14 @@ func (s *Service) GetAWSAccountRegionCoverage(ctx context.Context, workspaceID s
 }
 
 func buildAWSAccountRegionCoverageRecords(plan AWSCoveragePlanResult) []AWSAccountRegionCoverageRecord {
-	staleScopes := awsCoverageStaleDiagnosticScopes(plan.Diagnostics)
+	staleDiagnostics := awsCoverageStaleDiagnostics(plan.Diagnostics)
 	records := make([]AWSAccountRegionCoverageRecord, 0, len(plan.Targets))
 	for _, target := range plan.Targets {
-		staleMessage, stale := awsCoverageStaleDiagnosticForTarget(staleScopes, target)
+		staleDiagnostic, stale := awsCoverageStaleDiagnosticForTarget(staleDiagnostics, target)
 		status := awsAccountRegionCoverageStatus(target, stale)
 		failureReason := firstNonEmptyAWSValue(target.FailureReason, target.Reason)
-		if stale && staleMessage != "" {
-			failureReason = firstNonEmptyAWSValue(failureReason, staleMessage)
+		if stale && staleDiagnostic != nil {
+			failureReason = firstNonEmptyAWSValue(failureReason, staleDiagnostic.Message)
 		}
 		records = append(records, AWSAccountRegionCoverageRecord{
 			Key:            target.Key,
@@ -177,8 +177,8 @@ func buildAWSAccountRegionCoverageRecords(plan AWSCoveragePlanResult) []AWSAccou
 			Enabled:        target.Enabled,
 			State:          target.State,
 			CoverageStatus: status,
-			Cursor:         target.Cursor,
-			Checkpoint:     target.Cursor,
+			Cursor:         firstNonEmptyAWSValue(target.Cursor, staleDiagnosticCursor(staleDiagnostic)),
+			Checkpoint:     firstNonEmptyAWSValue(target.Cursor, staleDiagnosticCursor(staleDiagnostic)),
 			Attempts:       target.Attempts,
 			FailureReason:  failureReason,
 			Retryable:      target.Resumable && status != "covered",
@@ -192,26 +192,48 @@ func buildAWSAccountRegionCoverageRecords(plan AWSCoveragePlanResult) []AWSAccou
 	return records
 }
 
-func awsCoverageStaleDiagnosticForTarget(staleScopes map[string]string, target AWSCoveragePlanTarget) (string, bool) {
+func awsCoverageStaleDiagnostics(diagnostics []AWSCoveragePlanDiagnostic) map[string]AWSCoveragePlanDiagnostic {
+	out := map[string]AWSCoveragePlanDiagnostic{}
+	for _, diagnostic := range diagnostics {
+		if strings.ToLower(strings.TrimSpace(diagnostic.Code)) != "stale_cursor_expired" {
+			continue
+		}
+		scope := strings.ToLower(strings.TrimSpace(diagnostic.Scope))
+		if scope == "" {
+			continue
+		}
+		out[scope] = diagnostic
+	}
+	return out
+}
+
+func staleDiagnosticCursor(diagnostic *AWSCoveragePlanDiagnostic) string {
+	if diagnostic == nil {
+		return ""
+	}
+	return strings.TrimSpace(diagnostic.Cursor)
+}
+
+func awsCoverageStaleDiagnosticForTarget(staleDiagnostics map[string]AWSCoveragePlanDiagnostic, target AWSCoveragePlanTarget) (*AWSCoveragePlanDiagnostic, bool) {
 	service := strings.ToLower(strings.TrimSpace(target.Service))
 	region := strings.ToLower(strings.TrimSpace(target.Region))
 	exactScope := strings.Join([]string{target.AccountID, region, service}, "/")
-	if message, ok := staleScopes[exactScope]; ok {
-		return message, true
+	if diagnostic, ok := staleDiagnostics[exactScope]; ok {
+		return &diagnostic, true
 	}
 	if !target.Global {
-		return "", false
+		return nil, false
 	}
-	for scope, message := range staleScopes {
+	for scope, diagnostic := range staleDiagnostics {
 		parts := strings.Split(scope, "/")
 		if len(parts) != 3 {
 			continue
 		}
 		if parts[0] == strings.TrimSpace(target.AccountID) && parts[2] == service {
-			return message, true
+			return &diagnostic, true
 		}
 	}
-	return "", false
+	return nil, false
 }
 
 func awsCoverageStaleDiagnosticScopes(diagnostics []AWSCoveragePlanDiagnostic) map[string]string {

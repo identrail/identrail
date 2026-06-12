@@ -487,6 +487,9 @@ func TestGetAWSAccountRegionCoverageMarksGlobalStaleCursors(t *testing.T) {
 	if record.Service != "iam" || !record.Stale || record.CoverageStatus != "stale" {
 		t.Fatalf("expected global iam cursor to remain stale, got %+v", record)
 	}
+	if record.Cursor != "iam-stale" || record.Checkpoint != "iam-stale" {
+		t.Fatalf("expected stale cursor metadata to be preserved, got %+v", record)
+	}
 }
 
 func TestGetAWSCoveragePlanNeverLeaksValues(t *testing.T) {

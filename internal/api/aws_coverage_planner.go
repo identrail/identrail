@@ -87,6 +87,7 @@ type AWSCoveragePlanDiagnostic struct {
 	Message     string `json:"message"`
 	Remediation string `json:"remediation,omitempty"`
 	Retryable   bool   `json:"retryable"`
+	Cursor      string `json:"cursor,omitempty"`
 }
 
 // AWSPartialFailureReport is one normalized account/region/service failure
@@ -751,6 +752,11 @@ func awsCoverageCursorTime(fields map[string]any, fallback time.Time) time.Time 
 }
 
 func awsCoverageCursorDiagnostic(row db.AWSAccountRegionCoverage, service string, code string, message string, retryable bool) AWSCoveragePlanDiagnostic {
+	cursor := ""
+	entries := awsCoverageCursorEntries(row.ScanCursor)
+	if len(entries) > 0 {
+		cursor = awsCoverageCursorString(entries[0].fields, "cursor")
+	}
 	return AWSCoveragePlanDiagnostic{
 		Source:      "scan_cursor",
 		Scope:       strings.Join([]string{row.AccountID, strings.ToLower(strings.TrimSpace(row.Region)), strings.ToLower(strings.TrimSpace(service))}, "/"),
@@ -758,6 +764,7 @@ func awsCoverageCursorDiagnostic(row db.AWSAccountRegionCoverage, service string
 		Message:     message,
 		Remediation: "Refresh this account/region/service scan so Identrail can write a current checkpoint.",
 		Retryable:   retryable,
+		Cursor:      cursor,
 	}
 }
 
