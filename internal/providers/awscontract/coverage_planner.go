@@ -363,7 +363,7 @@ func buildCoverageTarget(
 	// must be preserved over prior checkpoints where they represent true
 	// operator-visible failure modes.
 	applyCoverageAccountRegionAvailability(&target, regionAvailability[coverageRegionKey(target.AccountID, target.Region)])
-	applyCoverageAccountServiceAvailability(&target, serviceAvailability[target.Key])
+	applyCoverageAccountServiceAvailability(&target, serviceAvailability[target.Key], enabled)
 	target.Resumable = coverageTargetResumable(target)
 	return target
 }
@@ -392,7 +392,7 @@ func applyCoverageAccountRegionAvailability(target *CoverageTarget, availability
 // region availability. Service availability can mark a specific service as
 // unsupported or denied in a region even when the region itself is otherwise
 // available.
-func applyCoverageAccountServiceAvailability(target *CoverageTarget, availability CoverageAccountServiceAvailability) {
+func applyCoverageAccountServiceAvailability(target *CoverageTarget, availability CoverageAccountServiceAvailability, configuredEnabled bool) {
 	applyCoverageAvailability(target, coverageAvailabilityHint{
 		State:         availability.State,
 		Reason:        availability.Reason,
@@ -400,6 +400,9 @@ func applyCoverageAccountServiceAvailability(target *CoverageTarget, availabilit
 		EvidenceRef:   availability.EvidenceRef,
 		ObservedAt:    availability.ObservedAt,
 	})
+	if configuredEnabled && (availability.State == CoverageStateBlocked || availability.State == CoverageStatePermissionDenied) {
+		target.Enabled = true
+	}
 }
 
 func applyCoverageAvailability(target *CoverageTarget, availability coverageAvailabilityHint) {

@@ -326,6 +326,55 @@ func TestPlanCoverageAvailabilityClearsStaleCheckpointObservedAt(t *testing.T) {
 	}
 }
 
+func TestPlanCoverageServiceAvailabilityRestoresFixableTargetAfterRegionDisable(t *testing.T) {
+	now := time.Now().UTC()
+	plan, err := PlanCoverage(CoveragePlanConfig{
+		Accounts: []CoverageAccount{{AccountID: "111111111111", Enabled: true}},
+		Regions:  []CoverageRegion{{Region: "us-east-1", Enabled: true}},
+		Services: []CoverageService{
+			{Service: "ec2", Enabled: true},
+			{Service: "lambda", Enabled: true},
+		},
+		RegionAvailability: []CoverageAccountRegionAvailability{{
+			AccountID: "111111111111",
+			Region:    "us-east-1",
+			State:     CoverageStateDisabled,
+			Reason:    "region disabled for this account",
+		}},
+		ServiceAvailability: []CoverageAccountServiceAvailability{{
+			AccountID:     "111111111111",
+			Region:        "us-east-1",
+			Service:       "lambda",
+			State:         CoverageStatePermissionDenied,
+			Reason:        "lambda read action denied",
+			FailureReason: "AccessDenied: lambda:ListFunctions",
+		}},
+	}, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	targetByKey := map[string]CoverageTarget{}
+	for _, target := range plan.Targets {
+		targetByKey[target.Key] = target
+	}
+
+	ec2 := targetByKey["111111111111|us-east-1|ec2"]
+	if ec2.State != CoverageStateDisabled || ec2.Enabled {
+		t.Fatalf("expected region-disabled service to stay disabled: %#v", ec2)
+	}
+	lambda := targetByKey["111111111111|us-east-1|lambda"]
+	if lambda.State != CoverageStatePermissionDenied || !lambda.Enabled {
+		t.Fatalf("expected service permission denial to restore enabled target: %#v", lambda)
+	}
+	if lambda.FailureReason == "" {
+		t.Fatalf("expected service permission denial failure reason")
+	}
+	if plan.Summary.EnabledTargets != 1 || plan.Summary.DisabledTargets != 1 || plan.Summary.OutstandingTargets != 1 {
+		t.Fatalf("unexpected summary counts after service availability override: %+v", plan.Summary)
+	}
+}
+
 func TestPlanCoverageCheckpointResumes(t *testing.T) {
 	now := time.Now().UTC()
 	observed := time.Date(2026, 6, 11, 9, 0, 0, 0, time.UTC)
