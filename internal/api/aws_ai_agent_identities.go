@@ -395,7 +395,7 @@ func awsAIAgentFixtureRecord(accountID string, region string, agentType string, 
 	record.CapabilityNames = dedupeStrings(record.CapabilityNames)
 	record.CredentialReferenceRefs = dedupeStrings(record.CredentialReferenceRefs)
 	if len(record.CredentialReferenceRefs) > 0 {
-		record.RelationshipTypes = dedupeStrings(append(record.RelationshipTypes, "uses_credential"))
+		record.RelationshipTypes = dedupeStrings(append(record.RelationshipTypes, "uses_secret"))
 	}
 	if record.GatewayARN != "" {
 		gatewayNodeID := awsAIAgentNodeID(accountID, region, "agent_gateway", firstNonEmptyAWSValue(record.GatewayID, record.GatewayARN))

@@ -39,6 +39,20 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 	if result.RuntimeRoleCount == 0 || result.ToolCount == 0 || result.CapabilityCount == 0 || result.RelationshipCount == 0 {
 		t.Fatalf("expected populated counts, got %+v", result)
 	}
+	foundRecordCredentialType := false
+	for _, record := range result.Records {
+		for _, relationshipType := range record.RelationshipTypes {
+			if relationshipType == "uses_credential" {
+				t.Fatalf("expected supported graph relationship type uses_secret, got unsupported uses_credential in %+v", record)
+			}
+			if relationshipType == "uses_secret" {
+				foundRecordCredentialType = true
+			}
+		}
+	}
+	if !foundRecordCredentialType {
+		t.Fatalf("expected credential records to advertise uses_secret relationship type, got %+v", result.Records)
+	}
 	foundCredentialEdge := false
 	for _, relationship := range result.Relationships {
 		if relationship.Type == "uses_credential" {
