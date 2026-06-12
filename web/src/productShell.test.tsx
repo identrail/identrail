@@ -2312,6 +2312,41 @@ describe('Domain-first app routes', () => {
       ]
     });
     vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getAWSProjectCoveragePlan').mockResolvedValue({
+      plan: {
+        status: 'ready',
+        summary: { account_count: 1, region_count: 1, coverage_percent: 100 },
+        targets: [],
+        diagnostics: [],
+        remediation_hints: []
+      } as any
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectOrganizationsTopology').mockResolvedValue({
+      topology: {
+        status: 'ready',
+        summary: { account_count: 1, organizational_unit_count: 1, scan_eligible_accounts: 1 },
+        accounts: [
+          {
+            account_id: '123456789012',
+            account_name: 'Production',
+            status: 'active',
+            parent_id: 'r-identrail',
+            ou_path: '/',
+            partition: 'aws',
+            management: true,
+            delegated_admin_services: [],
+            connector_scoped: true,
+            scan_eligible: true,
+            state: 'covered',
+            resumable: false,
+            next_action: 'Use this account for downstream coverage.',
+            evidence_ref: 'aws-organizations:aws-connector-1:123456789012'
+          }
+        ],
+        diagnostics: [],
+        remediation_hints: []
+      } as any
+    });
 
     const { ProductAWSControlCenterPage } = await import('./productShell');
 
@@ -2447,6 +2482,7 @@ describe('Domain-first app routes', () => {
     );
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Accounts' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'AWS Organizations topology' })).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'AWS account and region coverage' })).toBeInTheDocument();
     expect(screen.getAllByText(/AWS account 123456789012/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Region us-east-1/i).length).toBeGreaterThan(0);
