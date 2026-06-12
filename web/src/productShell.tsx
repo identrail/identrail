@@ -7614,7 +7614,18 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
         setCoveragePlanLoading(false);
       }
     }
-  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connector_id]);
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id,
+    connection?.account_id,
+    connection?.region,
+    connection?.status,
+    connection?.health_status,
+  ]);
 
   useEffect(() => {
     void loadCoveragePlan();
