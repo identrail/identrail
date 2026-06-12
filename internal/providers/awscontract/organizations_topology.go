@@ -250,10 +250,12 @@ func normalizeOrganizationAccountStatus(status OrganizationAccountStatus) Organi
 		return OrganizationAccountActive
 	case OrganizationAccountSuspended:
 		return OrganizationAccountSuspended
-	case OrganizationAccountClosed, OrganizationAccountPendingClosure:
+	case OrganizationAccountClosed:
 		return OrganizationAccountClosed
 	case OrganizationAccountPendingActivation:
 		return OrganizationAccountPendingActivation
+	case OrganizationAccountPendingClosure:
+		return OrganizationAccountPendingClosure
 	default:
 		return OrganizationAccountClosed
 	}

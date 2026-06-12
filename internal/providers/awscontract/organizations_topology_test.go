@@ -146,10 +146,10 @@ func TestNormalizeOrganizationAccountStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("pending_closure_normalized_to_closed", func(t *testing.T) {
+	t.Run("pending_closure_normalized_to_pending_closure", func(t *testing.T) {
 		got := normalizeOrganizationAccountStatus(OrganizationAccountPendingClosure)
-		if got != OrganizationAccountClosed {
-			t.Fatalf("expected %q, got %q", OrganizationAccountClosed, got)
+		if got != OrganizationAccountPendingClosure {
+			t.Fatalf("expected %q, got %q", OrganizationAccountPendingClosure, got)
 		}
 	})
 
@@ -202,6 +202,16 @@ func TestInitialOrganizationAccountState(t *testing.T) {
 				ConnectorScoped: false,
 			},
 			want: CoverageStateUnsupported,
+		},
+		{
+			name: "active_with_eligibility_failure_is_blocked",
+			account: OrganizationAccount{
+				AccountID:                "111111111115",
+				Status:                   OrganizationAccountActive,
+				ConnectorScoped:          true,
+				EligibilityFailureReason: "parent organizational unit is disabled",
+			},
+			want: CoverageStateBlocked,
 		},
 	}
 
