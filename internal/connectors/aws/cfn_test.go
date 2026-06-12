@@ -73,6 +73,51 @@ func TestBuildCloudFormationLaunchURL(t *testing.T) {
 	}
 }
 
+func TestBuildCloudFormationStackSetLaunchURL(t *testing.T) {
+	launchURL := BuildCloudFormationStackSetLaunchURL(CloudFormationStackSetLaunchInput{
+		TemplateURL:           "https://cdn.example.com/identrail-readonly.yaml",
+		Region:                "us-east-1",
+		StackSetName:          "identrail-prod-stackset",
+		IdentrailAccountID:    "123456789012",
+		ExternalID:            "external-id",
+		RoleName:              "IdentrailReadOnlyProd",
+		PermissionModel:       StackSetLaunchPermissionModelServiceManaged,
+		OrganizationalUnitIDs: []string{"ou-xxxx-1", "ou-yyyy-2"},
+		TargetRegions:         []string{"us-east-1", "eu-west-1"},
+	})
+	parsed, err := url.Parse(launchURL)
+	if err != nil || parsed.Scheme != "https" {
+		t.Fatalf("parse stackset launch URL: %v / %s", err, launchURL)
+	}
+	if !strings.Contains(parsed.Fragment, "permissionModel=SERVICE_MANAGED") {
+		t.Fatalf("expected permission model in fragment, got %q", parsed.Fragment)
+	}
+	if !strings.Contains(parsed.Fragment, "organizationalUnitIds=ou-xxxx-1,ou-yyyy-2") {
+		t.Fatalf("expected OU ids in fragment, got %q", parsed.Fragment)
+	}
+	if !strings.Contains(parsed.Fragment, "regions=us-east-1,eu-west-1") {
+		t.Fatalf("expected target regions in fragment, got %q", parsed.Fragment)
+	}
+	if !strings.Contains(parsed.Fragment, "stacksets/create") {
+		t.Fatalf("expected stacksets/create fragment, got %q", parsed.Fragment)
+	}
+
+	// Missing template URL yields empty so the surface can render a blocked state instead of a malformed URL.
+	if got := BuildCloudFormationStackSetLaunchURL(CloudFormationStackSetLaunchInput{Region: "us-east-1"}); got != "" {
+		t.Fatalf("expected empty URL without template, got %q", got)
+	}
+
+	// Unknown permission model defaults to service-managed.
+	defaulted := BuildCloudFormationStackSetLaunchURL(CloudFormationStackSetLaunchInput{
+		TemplateURL:     "https://cdn.example.com/identrail-readonly.yaml",
+		Region:          "us-east-1",
+		PermissionModel: StackSetLaunchPermissionModel("bogus"),
+	})
+	if !strings.Contains(defaulted, "permissionModel=SERVICE_MANAGED") {
+		t.Fatalf("expected default service-managed model, got %q", defaulted)
+	}
+}
+
 func TestNormalizeRegion(t *testing.T) {
 	if got := NormalizeRegion("us-gov-west-1"); got != "us-gov-west-1" {
 		t.Fatalf("expected gov region to be preserved, got %q", got)

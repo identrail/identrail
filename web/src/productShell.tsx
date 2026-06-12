@@ -65,6 +65,8 @@ import {
   type AWSFanOutExecutionResult,
   type AWSOrganizationsTopologyAccount,
   type AWSOrganizationsTopologyResult,
+  type AWSStackSetOnboardingResult,
+  type AWSStackSetOnboardingInstance,
   type AWSSecretsManagerMetadataInventoryResult,
   type AWSSecretsManagerMetadataRecord,
   type AWSSQSSNSReachabilityInventoryResult,
@@ -3709,6 +3711,13 @@ type AWSInventoryOrganizationsTopologyState = {
   onRetry: () => void;
 };
 
+type AWSInventoryStackSetOnboardingState = {
+  onboarding: AWSStackSetOnboardingResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryCoverageRow = AWSInventoryFilterable & {
   id: string;
   category: string;
@@ -4381,6 +4390,91 @@ function buildAWSOrganizationsTopologyRows(
   return [];
 }
 
+function buildAWSStackSetOnboardingRows(
+  onboarding: AWSStackSetOnboardingResult | null,
+  loading: boolean
+): AWSInventoryCoverageRow[] {
+  if (onboarding?.instances.length) {
+    return onboarding.instances.map((instance) => awsStackSetOnboardingInstanceRow(instance, onboarding.account_id ?? '', onboarding.region ?? ''));
+  }
+  if (onboarding) {
+    const validation = onboarding.validation;
+    const blocked = validation.status === 'blocked' || validation.status === 'permission_denied';
+    return [
+      {
+        id: 'stackset-onboarding-empty',
+        category: 'StackSet onboarding',
+        coverage: blocked ? 'missing' : 'planned',
+        source: onboarding.stack_set_name,
+        status: validation.status,
+        detail: blocked
+          ? validation.failure_reasons[0] ?? 'Resolve blocking prerequisites before launching the StackSet.'
+          : 'Configure target accounts/OUs and regions to populate the StackSet onboarding plan.',
+        filters: {
+          account: 'planned',
+          region: 'uncovered',
+          coverage: blocked ? 'missing' : 'planned',
+          search: ''
+        },
+        searchText: inventorySearchText(['stackset onboarding empty', validation.status])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'stackset-onboarding-loading',
+        category: 'AWS Organization StackSet onboarding',
+        coverage: 'planned',
+        source: 'StackSet onboarding planner',
+        status: 'loading',
+        detail: 'Loading StackSet target accounts, regions, prerequisites, and launch URL.',
+        filters: { account: 'planned', region: 'current,uncovered', coverage: 'planned', search: '' },
+        searchText: inventorySearchText(['stackset onboarding loading'])
+      }
+    ];
+  }
+  return [];
+}
+
+function awsStackSetOnboardingInstanceRow(
+  instance: AWSStackSetOnboardingInstance,
+  connectionAccountID: string,
+  connectionRegion: string
+): AWSInventoryCoverageRow {
+  const coverage = instance.state === 'active'
+    ? 'covered'
+    : instance.state === 'failed' || instance.state === 'permission_denied' || instance.state === 'suspended' || instance.state === 'blocked' || instance.state === 'unsupported'
+      ? 'missing'
+      : 'planned';
+  const coverageTokens = [coverage, instance.state];
+  return {
+    id: `stackset-instance-${instance.key}`,
+    category: `${instance.account_name || instance.account_id} / ${instance.region_name || instance.region}`,
+    coverage,
+    source: instance.evidence_ref,
+    status: instance.state,
+    detail: `${instance.next_action}${instance.failure_reason ? ` (${instance.failure_reason})` : ''}`,
+    filters: {
+      account: instance.account_id && instance.account_id === connectionAccountID ? 'connected,planned' : 'planned',
+      region: instance.region && instance.region === connectionRegion ? 'current' : 'uncovered',
+      coverage: [...new Set(coverageTokens)].join(','),
+      search: ''
+    },
+    searchText: inventorySearchText([
+      instance.account_id,
+      instance.account_name,
+      instance.ou_path,
+      instance.region,
+      instance.region_name,
+      instance.state,
+      instance.next_action,
+      instance.failure_reason,
+      instance.evidence_ref
+    ])
+  };
+}
+
 function AWSInventoryFilterSet({
   routeID,
   filters,
@@ -4559,6 +4653,7 @@ function AWSAccountsInventoryContent({
   accountRegionCoverageState,
   fanOutExecutionState,
   organizationsTopologyState,
+  stackSetOnboardingState,
   filters,
   onFiltersChange
 }: {
@@ -4568,6 +4663,7 @@ function AWSAccountsInventoryContent({
   accountRegionCoverageState: AWSInventoryAccountRegionCoverageState;
   fanOutExecutionState: AWSInventoryFanOutExecutionState;
   organizationsTopologyState: AWSInventoryOrganizationsTopologyState;
+  stackSetOnboardingState: AWSInventoryStackSetOnboardingState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
@@ -4580,6 +4676,8 @@ function AWSAccountsInventoryContent({
   const rows = buildAWSCoveragePlanRows(plan, coveragePlanState.loading, connection);
   const coverageAPIRows = buildAWSAccountRegionCoverageRows(coverageAPI, accountRegionCoverageState.loading, connection);
   const topologyRows = buildAWSOrganizationsTopologyRows(topology, organizationsTopologyState.loading, connection);
+  const stackSetOnboarding = stackSetOnboardingState.onboarding;
+  const stackSetRows = buildAWSStackSetOnboardingRows(stackSetOnboarding, stackSetOnboardingState.loading);
   const passedChecks = connection?.permission_checks.filter((check) => check.passed).length ?? 0;
   const totalChecks = connection?.permission_checks.length ?? 0;
   const coveredAccounts = plan
@@ -4800,6 +4898,105 @@ function AWSAccountsInventoryContent({
           { key: 'coverage', header: 'Discovery', render: (row) => <AWSInventoryPill stage={awsCoveragePlanStage(row.coverage)} label={formatTokenLabel(row.coverage)} /> },
           { key: 'status', header: 'Account status', render: (row) => formatTokenLabel(row.status) },
           { key: 'detail', header: 'Detail', render: (row) => row.detail }
+        ]}
+      />
+      {stackSetOnboardingState.loading ? <DomainLoadingState label="Loading StackSet onboarding plan" /> : null}
+      {stackSetOnboardingState.error ? (
+        <DomainErrorState
+          title="StackSet onboarding could not load"
+          body={stackSetOnboardingState.error}
+          retryAction={{ label: 'Retry StackSet onboarding', onClick: stackSetOnboardingState.onRetry }}
+        />
+      ) : null}
+      {stackSetOnboarding ? (
+        <DomainStatusPanel
+          eyebrow="StackSet onboarding"
+          title="AWS Organization StackSet read-only deployment"
+          status={formatTokenLabel(stackSetOnboarding.validation.status)}
+              tone={
+                stackSetOnboarding.status === 'blocked' || stackSetOnboarding.status === 'permission_denied' || stackSetOnboarding.status === 'partial_failure'
+                  ? 'danger'
+                  : stackSetOnboarding.status === 'degraded'
+                    ? 'warning'
+                    : 'success'
+              }
+          actions={
+            stackSetOnboarding.launch_url
+              ? [{ label: 'Open StackSet launch URL', to: stackSetOnboarding.launch_url, variant: 'primary' }]
+              : undefined
+          }
+        >
+          <section className="idt-aws-inventory-coverage" aria-label="StackSet onboarding plan summary">
+            <DomainCoverageCard
+              label="Target accounts"
+              scanned={stackSetOnboarding.summary.target_accounts}
+              total={Math.max(stackSetOnboarding.summary.target_accounts, 1)}
+              detail={`${stackSetOnboarding.summary.target_regions} regions`}
+            />
+            <DomainCoverageCard
+              label="Active instances"
+              scanned={stackSetOnboarding.summary.active_instances}
+              total={Math.max(stackSetOnboarding.summary.total_instances, 1)}
+              detail={`${stackSetOnboarding.summary.deployed_percent}% deployed`}
+            />
+            <DomainCoverageCard
+              label="Failed or blocked"
+              scanned={stackSetOnboarding.summary.failed_instances + stackSetOnboarding.summary.blocked_instances}
+              total={Math.max(stackSetOnboarding.summary.total_instances, 1)}
+              detail={`${stackSetOnboarding.summary.permission_denied_instances} permission denied`}
+            />
+            <DomainCoverageCard
+              label="Expected coverage"
+              scanned={stackSetOnboarding.coverage_expectation.expected_coverage_targets}
+              total={Math.max(stackSetOnboarding.coverage_expectation.expected_coverage_targets, 1)}
+              detail={`${stackSetOnboarding.coverage_expectation.coverage_percent}% projected`}
+            />
+          </section>
+          {stackSetOnboarding.validation.prerequisites.length ? (
+            <ul className="idt-domain-charter-list" aria-label="StackSet onboarding prerequisites">
+              {stackSetOnboarding.validation.prerequisites.map((prereq) => (
+                <li key={prereq.id}>
+                  <strong>{prereq.satisfied ? '✓' : prereq.severity === 'blocking' ? '✗' : '!'} {prereq.title}</strong>
+                  {' — '}
+                  {prereq.reason}
+                  {prereq.remediation ? <small> {prereq.remediation}</small> : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {stackSetOnboarding.recovery_actions.length ? (
+            <ul className="idt-domain-charter-list" aria-label="StackSet onboarding recovery actions">
+              {stackSetOnboarding.recovery_actions.map((action) => (
+                <li key={action.id}>
+                  <strong>{action.title}</strong>
+                  {' — '}
+                  {action.description}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {stackSetOnboarding.diagnostics.length ? (
+            <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="StackSet onboarding diagnostics">
+              {stackSetOnboarding.diagnostics.map((diagnostic) => (
+                <article key={`${diagnostic.code}-${diagnostic.scope ?? diagnostic.source}`}>
+                  <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                  <p>{diagnostic.message}</p>
+                  {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </DomainStatusPanel>
+      ) : null}
+      <DomainDataTable
+        label="StackSet onboarding instances"
+        rows={filterAWSInventoryRows(stackSetRows, filters)}
+        getRowKey={(row) => row.id}
+        columns={[
+          { key: 'category', header: 'Account / region', render: (row) => <strong>{row.category}</strong> },
+          { key: 'coverage', header: 'Stage', render: (row) => <AWSInventoryPill stage={awsCoveragePlanStage(row.coverage)} label={formatTokenLabel(row.coverage)} /> },
+          { key: 'status', header: 'Instance state', render: (row) => formatTokenLabel(row.status) },
+          { key: 'detail', header: 'Next action', render: (row) => row.detail }
         ]}
       />
       <DomainDataTable
@@ -7463,6 +7660,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [organizationsTopologyLoading, setOrganizationsTopologyLoading] = useState(false);
   const [organizationsTopologyError, setOrganizationsTopologyError] = useState('');
   const organizationsTopologyRequestRef = useRef(0);
+  const [stackSetOnboarding, setStackSetOnboarding] = useState<AWSStackSetOnboardingResult | null>(null);
+  const [stackSetOnboardingLoading, setStackSetOnboardingLoading] = useState(false);
+  const [stackSetOnboardingError, setStackSetOnboardingError] = useState('');
+  const stackSetOnboardingRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -8283,6 +8484,58 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadOrganizationsTopology]);
 
+  const loadStackSetOnboarding = useCallback(async () => {
+    const requestID = ++stackSetOnboardingRequestRef.current;
+    setStackSetOnboarding(null);
+    setStackSetOnboardingError('');
+    if (routeID !== 'accounts' || !scope || !selectedEnvironmentID || !connection?.connector_id) {
+      setStackSetOnboardingLoading(false);
+      return;
+    }
+    setStackSetOnboardingLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectStackSetOnboarding(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== stackSetOnboardingRequestRef.current) {
+        return;
+      }
+      setStackSetOnboarding(response.onboarding);
+    } catch (error) {
+      if (requestID !== stackSetOnboardingRequestRef.current) {
+        return;
+      }
+      setStackSetOnboardingError(formatAPIError(error, 'Unable to load StackSet onboarding plan.'));
+    } finally {
+      if (requestID === stackSetOnboardingRequestRef.current) {
+        setStackSetOnboardingLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id,
+    connection?.account_id,
+    connection?.region,
+    connection?.status,
+    connection?.health_status,
+  ]);
+
+  useEffect(() => {
+    void loadStackSetOnboarding();
+    return () => {
+      stackSetOnboardingRequestRef.current += 1;
+    };
+  }, [loadStackSetOnboarding]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -8376,6 +8629,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: organizationsTopologyLoading,
             error: organizationsTopologyError,
             onRetry: () => void loadOrganizationsTopology()
+          }}
+          stackSetOnboardingState={{
+            onboarding: stackSetOnboarding,
+            loading: stackSetOnboardingLoading,
+            error: stackSetOnboardingError,
+            onRetry: () => void loadStackSetOnboarding()
           }}
           filters={activeFilters}
           onFiltersChange={onFiltersChange}

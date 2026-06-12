@@ -1102,6 +1102,44 @@ describe('apiClient', () => {
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 
+  it('gets AWS StackSet onboarding with scoped headers, fixture state, and deployment mode', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        onboarding: {
+          status: 'ready',
+          summary: { total_instances: 6, active_instances: 2 },
+          instances: [],
+          validation: { status: 'ready' }
+        }
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectStackSetOnboarding(
+      'workspace/a',
+      'project 1',
+      'aws-prod',
+      'partial_failure',
+      { deploymentMode: 'self_managed' },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(
+      '/v1/workspaces/workspace%2Fa/projects/project%201/aws/stackset-onboarding?connector_id=aws-prod&fixture_state=partial_failure&deployment_mode=self_managed'
+    );
+    expect(options.method ?? 'GET').toBe('GET');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
+
   it('gets AWS Secrets Manager metadata inventory with scoped headers and fixture state', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

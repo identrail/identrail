@@ -584,6 +584,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/stackset-onboarding
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/secrets-manager-metadata
     action: tenancy.read
     resource_type: project
@@ -4883,6 +4888,62 @@ paths:
                     $ref: "#/components/schemas/AWSOrganizationsTopologyResult"
         "400":
           description: Invalid AWS Organizations topology request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/stackset-onboarding:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS Organization StackSet onboarding plan
+      operationId: getAWSProjectStackSetOnboarding
+      description: Returns the deterministic AWS Organization StackSet onboarding plan for an AWS connector. The response includes a permission preview, prerequisites with severity, validation verdict, target accounts/OUs/regions, per-instance lifecycle state with explicit failure reasons and resumable cursors, the AWS console launch URL, projected scan coverage expectations, and operator recovery actions. Read-only and metadata-only - it does not read secret values, customer payloads, object contents, database rows, prompts, or completions, and never mutates AWS state on the operator's behalf.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope onboarding planning.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: deployment_mode
+          schema:
+            type: string
+            enum: [service_managed, self_managed]
+          description: StackSet deployment mode. Service-managed uses AWS Organizations trusted access; self-managed uses operator-provided administration/execution roles.
+      responses:
+        "200":
+          description: AWS Organization StackSet onboarding plan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  onboarding:
+                    $ref: "#/components/schemas/AWSStackSetOnboardingResult"
+        "400":
+          description: Invalid AWS StackSet onboarding request
           content:
             application/json:
               schema:
@@ -11137,6 +11198,261 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSOrganizationsTopologyDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSStackSetOnboardingPrerequisite:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        severity:
+          type: string
+          enum: [blocking, advisory]
+        satisfied: { type: boolean }
+        reason: { type: string }
+        remediation: { type: string }
+    AWSStackSetOnboardingPermissionPreviewItem:
+      type: object
+      properties:
+        service: { type: string }
+        actions:
+          type: array
+          items: { type: string }
+        resources:
+          type: array
+          items: { type: string }
+        reason: { type: string }
+    AWSStackSetOnboardingPermissionPreview:
+      type: object
+      properties:
+        capability: { type: string }
+        tier: { type: string }
+        available: { type: boolean }
+        summary: { type: string }
+        permissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSStackSetOnboardingPermissionPreviewItem"
+    AWSStackSetOnboardingValidation:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ready, degraded, blocked, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        blocking_count: { type: integer }
+        advisory_count: { type: integer }
+        prerequisites:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSStackSetOnboardingPrerequisite"
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+    AWSStackSetOnboardingTargetAccount:
+      type: object
+      properties:
+        account_id: { type: string }
+        name: { type: string }
+        ou_path: { type: string }
+        management: { type: boolean }
+        suspended: { type: boolean }
+    AWSStackSetOnboardingTargetRegion:
+      type: object
+      properties:
+        region: { type: string }
+        name: { type: string }
+        opt_in: { type: boolean }
+    AWSStackSetOnboardingOU:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        parent_id: { type: string }
+        path: { type: string }
+        enabled: { type: boolean }
+        reason: { type: string }
+    AWSStackSetOnboardingTargets:
+      type: object
+      properties:
+        organization_id: { type: string }
+        organizational_units:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSStackSetOnboardingOU"
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSStackSetOnboardingTargetAccount"
+        regions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSStackSetOnboardingTargetRegion"
+    AWSStackSetOnboardingInstance:
+      type: object
+      properties:
+        key: { type: string }
+        account_id: { type: string }
+        account_name: { type: string }
+        ou_path: { type: string }
+        region: { type: string }
+        region_name: { type: string }
+        state:
+          type: string
+          enum: [pending, validating, blocked, deploying, active, degraded, failed, permission_denied, unsupported, suspended, canceled]
+        stack_id: { type: string }
+        operation_id: { type: string }
+        failure_reason: { type: string }
+        attempts: { type: integer }
+        resumable: { type: boolean }
+        suspended: { type: boolean }
+        opt_in_region: { type: boolean }
+        next_action: { type: string }
+        coverage_targets: { type: integer }
+        evidence_ref: { type: string }
+        observed_at:
+          type: string
+          format: date-time
+    AWSStackSetOnboardingCoverageExpectation:
+      type: object
+      properties:
+        expected_accounts: { type: integer }
+        expected_regions: { type: integer }
+        expected_instances: { type: integer }
+        expected_coverage_targets: { type: integer }
+        coverage_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        global_service_notes: { type: string }
+    AWSStackSetOnboardingRecoveryAction:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        targets:
+          type: array
+          items: { type: string }
+    AWSStackSetOnboardingSummary:
+      type: object
+      properties:
+        target_accounts: { type: integer }
+        target_regions: { type: integer }
+        total_instances: { type: integer }
+        pending_instances: { type: integer }
+        active_instances: { type: integer }
+        blocked_instances: { type: integer }
+        failed_instances: { type: integer }
+        degraded_instances: { type: integer }
+        suspended_instances: { type: integer }
+        permission_denied_instances: { type: integer }
+        unsupported_instances: { type: integer }
+        resumable_instances: { type: integer }
+        deployed_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        state_counts:
+          type: object
+          additionalProperties: { type: integer }
+    AWSStackSetOnboardingDiagnostic:
+      type: object
+      properties:
+        source: { type: string }
+        scope: { type: string }
+        code: { type: string }
+        message: { type: string }
+        remediation: { type: string }
+        retryable: { type: boolean }
+    AWSStackSetOnboardingCoverageGap:
+      type: object
+      properties:
+        capability: { type: string }
+        status: { type: string }
+        reason: { type: string }
+        remediation: { type: string }
+    AWSStackSetOnboardingResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        organization_id: { type: string }
+        management_account_id: { type: string }
+        stack_set_name: { type: string }
+        template_url: { type: string }
+        template_checksum: { type: string }
+        launch_url: { type: string }
+        deployment_mode:
+          type: string
+          enum: [service_managed, self_managed]
+        partition: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        validation:
+          $ref: "#/components/schemas/AWSStackSetOnboardingValidation"
+        permission_preview:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSStackSetOnboardingPermissionPreview"
+        targets:
+          $ref: "#/components/schemas/AWSStackSetOnboardingTargets"
+        instances:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSStackSetOnboardingInstance"
+        coverage_expectation:
+          $ref: "#/components/schemas/AWSStackSetOnboardingCoverageExpectation"
+        recovery_actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSStackSetOnboardingRecoveryAction"
+        summary:
+          $ref: "#/components/schemas/AWSStackSetOnboardingSummary"
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSStackSetOnboardingCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSStackSetOnboardingDiagnostic"
         generated_at:
           type: string
           format: date-time

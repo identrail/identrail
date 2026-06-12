@@ -1,6 +1,31 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS Organization StackSet onboarding app flow** (#1504). A deterministic,
+  read-only, metadata-only planner in `internal/providers/awscontract` turns the
+  connector + Organizations topology + coverage plan + checkpoint set into an
+  ordered, resumable onboarding plan with explicit lifecycle states (`pending`,
+  `validating`, `blocked`, `deploying`, `active`, `degraded`, `failed`,
+  `permission_denied`, `unsupported`, `suspended`, `canceled`). The API at
+  `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/stackset-onboarding`
+  surfaces a validation verdict with blocking/advisory prerequisites, a
+  permission preview (read-only discovery tier plus *unavailable* write tiers),
+  the target accounts/OUs/regions, per-instance state with resumable cursors and
+  failure reasons, projected coverage expectations from the existing coverage
+  planner, recovery actions for failed/permission-denied/suspended instances,
+  and the AWS console launch URL for the StackSet operator action. Supports
+  `service_managed` and `self_managed` deployment modes plus `success`, `empty`,
+  `degraded`, `partial_failure`, and `permission_denied` fixture states. Adds a
+  `BuildCloudFormationStackSetLaunchURL` console-URL builder that pins the
+  template URL, parameter set, permission model, organizational units, account
+  ids, and regions without embedding any secret values. Adds the AWS app surface
+  in `web/src/productShell.tsx` (`AWS → Accounts`) showing the validation
+  verdict, prerequisites, target counts, expected coverage, instance state
+  table, diagnostics, and the StackSet launch button. The planner never reads
+  AWS state directly, never carries customer payloads, and never executes the
+  StackSet on the operator's behalf — Identrail surfaces the AWS console URL
+  and the operator authorizes the operation. See
+  [docs/aws-stackset-onboarding.md](docs/aws-stackset-onboarding.md).
 - Add **credential and secret reference mapper across AWS workloads** (#1496).
   A metadata-only derivation over the normalized scan graph (no AWS calls, no
   added permissions) that extracts the `secret_refs` and credential-suggestive

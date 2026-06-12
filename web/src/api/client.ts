@@ -3046,6 +3046,202 @@ export type AWSOrganizationsTopologyResult = {
   updated_at: string;
 };
 
+export type AWSStackSetOnboardingStatus = 'ready' | 'degraded' | 'blocked' | 'permission_denied' | 'partial_failure';
+export type AWSStackSetOnboardingFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+export type AWSStackSetDeploymentMode = 'service_managed' | 'self_managed';
+export type AWSStackSetOnboardingValidationStatus = 'ready' | 'degraded' | 'blocked' | 'permission_denied';
+export type AWSStackSetOnboardingState =
+  | 'pending'
+  | 'validating'
+  | 'blocked'
+  | 'deploying'
+  | 'active'
+  | 'degraded'
+  | 'failed'
+  | 'permission_denied'
+  | 'unsupported'
+  | 'suspended'
+  | 'canceled';
+export type AWSStackSetOnboardingPrerequisiteSeverity = 'blocking' | 'advisory';
+
+export type AWSStackSetOnboardingPrerequisite = {
+  id: string;
+  title: string;
+  severity: AWSStackSetOnboardingPrerequisiteSeverity;
+  satisfied: boolean;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSStackSetOnboardingPermissionPreviewItem = {
+  service: string;
+  actions: string[];
+  resources: string[];
+  reason: string;
+};
+
+export type AWSStackSetOnboardingPermissionPreview = {
+  capability: string;
+  tier: string;
+  available: boolean;
+  summary: string;
+  permissions: AWSStackSetOnboardingPermissionPreviewItem[];
+};
+
+export type AWSStackSetOnboardingValidation = {
+  status: AWSStackSetOnboardingValidationStatus;
+  confidence: number;
+  blocking_count: number;
+  advisory_count: number;
+  prerequisites: AWSStackSetOnboardingPrerequisite[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+};
+
+export type AWSStackSetOnboardingTargetAccount = {
+  account_id: string;
+  name?: string;
+  ou_path?: string;
+  management?: boolean;
+  suspended?: boolean;
+};
+
+export type AWSStackSetOnboardingTargetRegion = {
+  region: string;
+  name?: string;
+  opt_in?: boolean;
+};
+
+export type AWSStackSetOnboardingOU = {
+  id: string;
+  name?: string;
+  parent_id?: string;
+  path?: string;
+  enabled: boolean;
+  reason?: string;
+};
+
+export type AWSStackSetOnboardingTargets = {
+  organization_id?: string;
+  organizational_units: AWSStackSetOnboardingOU[];
+  accounts: AWSStackSetOnboardingTargetAccount[];
+  regions: AWSStackSetOnboardingTargetRegion[];
+};
+
+export type AWSStackSetOnboardingInstance = {
+  key: string;
+  account_id: string;
+  account_name?: string;
+  ou_path?: string;
+  region: string;
+  region_name?: string;
+  state: AWSStackSetOnboardingState;
+  stack_id?: string;
+  operation_id?: string;
+  failure_reason?: string;
+  attempts?: number;
+  resumable: boolean;
+  suspended?: boolean;
+  opt_in_region?: boolean;
+  next_action: string;
+  coverage_targets: number;
+  evidence_ref: string;
+  observed_at?: string;
+};
+
+export type AWSStackSetOnboardingCoverageExpectation = {
+  expected_accounts: number;
+  expected_regions: number;
+  expected_instances: number;
+  expected_coverage_targets: number;
+  coverage_percent: number;
+  global_service_notes: string;
+};
+
+export type AWSStackSetOnboardingRecoveryAction = {
+  id: string;
+  title: string;
+  description: string;
+  targets: string[];
+};
+
+export type AWSStackSetOnboardingSummary = {
+  target_accounts: number;
+  target_regions: number;
+  total_instances: number;
+  pending_instances: number;
+  active_instances: number;
+  blocked_instances: number;
+  failed_instances: number;
+  degraded_instances: number;
+  suspended_instances: number;
+  permission_denied_instances: number;
+  unsupported_instances: number;
+  resumable_instances: number;
+  deployed_percent: number;
+  state_counts: Record<string, number>;
+};
+
+export type AWSStackSetOnboardingDiagnostic = {
+  source: string;
+  scope?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSStackSetOnboardingCoverageGap = {
+  capability: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSStackSetOnboardingResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  organization_id?: string;
+  management_account_id?: string;
+  stack_set_name: string;
+  template_url?: string;
+  template_checksum?: string;
+  launch_url?: string;
+  deployment_mode: AWSStackSetDeploymentMode;
+  partition: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSStackSetOnboardingStatus;
+  fixture_state: AWSStackSetOnboardingFixtureState;
+  confidence: number;
+  validation: AWSStackSetOnboardingValidation;
+  permission_preview: AWSStackSetOnboardingPermissionPreview[];
+  targets: AWSStackSetOnboardingTargets;
+  instances: AWSStackSetOnboardingInstance[];
+  coverage_expectation: AWSStackSetOnboardingCoverageExpectation;
+  recovery_actions: AWSStackSetOnboardingRecoveryAction[];
+  summary: AWSStackSetOnboardingSummary;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSStackSetOnboardingCoverageGap[];
+  diagnostics: AWSStackSetOnboardingDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSDynamoDBRDSReachabilityInventoryResult = {
   tenant_id: string;
   workspace_id: string;
@@ -4863,6 +5059,23 @@ export const apiClient = {
         ou: filters?.ou,
         state: filters?.state,
         status: filters?.status
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectStackSetOnboarding(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSStackSetOnboardingFixtureState,
+    options?: { deploymentMode?: AWSStackSetDeploymentMode },
+    auth?: RequestAuthContext
+  ) {
+    return request<{ onboarding: AWSStackSetOnboardingResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/stackset-onboarding${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState,
+        deployment_mode: options?.deploymentMode
       })}`,
       auth
     );
