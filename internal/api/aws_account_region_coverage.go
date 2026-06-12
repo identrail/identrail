@@ -158,8 +158,7 @@ func buildAWSAccountRegionCoverageRecords(plan AWSCoveragePlanResult) []AWSAccou
 	staleScopes := awsCoverageStaleDiagnosticScopes(plan.Diagnostics)
 	records := make([]AWSAccountRegionCoverageRecord, 0, len(plan.Targets))
 	for _, target := range plan.Targets {
-		scope := strings.Join([]string{target.AccountID, strings.ToLower(strings.TrimSpace(target.Region)), strings.ToLower(strings.TrimSpace(target.Service))}, "/")
-		staleMessage, stale := staleScopes[scope]
+		staleMessage, stale := awsCoverageStaleDiagnosticForTarget(staleScopes, target)
 		status := awsAccountRegionCoverageStatus(target, stale)
 		failureReason := firstNonEmptyAWSValue(target.FailureReason, target.Reason)
 		if stale && staleMessage != "" {
@@ -191,6 +190,28 @@ func buildAWSAccountRegionCoverageRecords(plan AWSCoveragePlanResult) []AWSAccou
 		})
 	}
 	return records
+}
+
+func awsCoverageStaleDiagnosticForTarget(staleScopes map[string]string, target AWSCoveragePlanTarget) (string, bool) {
+	service := strings.ToLower(strings.TrimSpace(target.Service))
+	region := strings.ToLower(strings.TrimSpace(target.Region))
+	exactScope := strings.Join([]string{target.AccountID, region, service}, "/")
+	if message, ok := staleScopes[exactScope]; ok {
+		return message, true
+	}
+	if !target.Global {
+		return "", false
+	}
+	for scope, message := range staleScopes {
+		parts := strings.Split(scope, "/")
+		if len(parts) != 3 {
+			continue
+		}
+		if parts[0] == strings.TrimSpace(target.AccountID) && parts[2] == service {
+			return message, true
+		}
+	}
+	return "", false
 }
 
 func awsCoverageStaleDiagnosticScopes(diagnostics []AWSCoveragePlanDiagnostic) map[string]string {
