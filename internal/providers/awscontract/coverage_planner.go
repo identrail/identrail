@@ -308,6 +308,9 @@ func applyCoverageCheckpoint(target *CoverageTarget, checkpoint CoverageCheckpoi
 	if !target.Enabled {
 		return
 	}
+	if checkpoint.State == CoverageStateDisabled {
+		return
+	}
 	if checkpoint.State != "" {
 		target.State = checkpoint.State
 	}
