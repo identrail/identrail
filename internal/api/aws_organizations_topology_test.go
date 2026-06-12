@@ -85,6 +85,31 @@ func TestGetAWSOrganizationsTopologyFilters(t *testing.T) {
 	}
 }
 
+func TestGetAWSOrganizationsTopologyFiltersPendingStatuses(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 12, 17, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	for _, status := range []string{"pending_activation", "pending_closure"} {
+		status := status
+		result, err := svc.GetAWSOrganizationsTopology(ctx, "default", "project-a", AWSOrganizationsTopologyRequest{
+			ConnectorID: "aws-prod",
+			Status:      status,
+		})
+		if err != nil {
+			t.Fatalf("pending status %q should be accepted: %v", status, err)
+		}
+		if result.FilteredAccounts != 0 {
+			t.Fatalf("expected no matched accounts for %q with fixture dataset, got %d", status, result.FilteredAccounts)
+		}
+	}
+}
+
 func TestGetAWSOrganizationsTopologyEmptyDegradedAndDenied(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()

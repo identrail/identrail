@@ -250,8 +250,10 @@ func normalizeOrganizationAccountStatus(status OrganizationAccountStatus) Organi
 		return OrganizationAccountActive
 	case OrganizationAccountSuspended:
 		return OrganizationAccountSuspended
-	case OrganizationAccountClosed, OrganizationAccountPendingActivation, OrganizationAccountPendingClosure:
+	case OrganizationAccountClosed, OrganizationAccountPendingClosure:
 		return OrganizationAccountClosed
+	case OrganizationAccountPendingActivation:
+		return OrganizationAccountPendingActivation
 	default:
 		return OrganizationAccountClosed
 	}
@@ -261,7 +263,7 @@ func initialOrganizationAccountState(account OrganizationAccount) CoverageState 
 	switch {
 	case !account.ConnectorScoped:
 		return CoverageStateUnsupported
-	case account.Status == OrganizationAccountSuspended || account.Status == OrganizationAccountClosed:
+	case account.Status == OrganizationAccountSuspended || account.Status == OrganizationAccountClosed || account.Status == OrganizationAccountPendingClosure || account.Status == OrganizationAccountPendingActivation:
 		return CoverageStateDisabled
 	case account.EligibilityFailureReason != "":
 		return CoverageStateBlocked

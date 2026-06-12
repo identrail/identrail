@@ -137,3 +137,81 @@ func TestPlanOrganizationsTopologyRejectsInvalidInput(t *testing.T) {
 		t.Fatal("expected invalid checkpoint state error")
 	}
 }
+
+func TestNormalizeOrganizationAccountStatus(t *testing.T) {
+	t.Run("pending_activation_preserved", func(t *testing.T) {
+		got := normalizeOrganizationAccountStatus(OrganizationAccountPendingActivation)
+		if got != OrganizationAccountPendingActivation {
+			t.Fatalf("expected %q, got %q", OrganizationAccountPendingActivation, got)
+		}
+	})
+
+	t.Run("pending_closure_normalized_to_closed", func(t *testing.T) {
+		got := normalizeOrganizationAccountStatus(OrganizationAccountPendingClosure)
+		if got != OrganizationAccountClosed {
+			t.Fatalf("expected %q, got %q", OrganizationAccountClosed, got)
+		}
+	})
+
+	t.Run("unknown_status_defaults_to_closed", func(t *testing.T) {
+		got := normalizeOrganizationAccountStatus(OrganizationAccountStatus("stale_state"))
+		if got != OrganizationAccountClosed {
+			t.Fatalf("expected %q, got %q", OrganizationAccountClosed, got)
+		}
+	})
+}
+
+func TestInitialOrganizationAccountState(t *testing.T) {
+	cases := []struct {
+		name    string
+		account OrganizationAccount
+		want    CoverageState
+	}{
+		{
+			name: "pending_activation_is_disabled",
+			account: OrganizationAccount{
+				AccountID:       "111111111111",
+				Status:          OrganizationAccountPendingActivation,
+				ConnectorScoped: true,
+			},
+			want: CoverageStateDisabled,
+		},
+		{
+			name: "pending_closure_is_disabled",
+			account: OrganizationAccount{
+				AccountID:       "111111111112",
+				Status:          OrganizationAccountPendingClosure,
+				ConnectorScoped: true,
+			},
+			want: CoverageStateDisabled,
+		},
+		{
+			name: "active_is_planned_when_connector_scoped",
+			account: OrganizationAccount{
+				AccountID:       "111111111113",
+				Status:          OrganizationAccountActive,
+				ConnectorScoped: true,
+			},
+			want: CoverageStatePlanned,
+		},
+		{
+			name: "unsupported_when_not_connector_scoped",
+			account: OrganizationAccount{
+				AccountID:       "111111111114",
+				Status:          OrganizationAccountActive,
+				ConnectorScoped: false,
+			},
+			want: CoverageStateUnsupported,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got := initialOrganizationAccountState(tc.account)
+			if got != tc.want {
+				t.Fatalf("expected %q, got %q", tc.want, got)
+			}
+		})
+	}
+}

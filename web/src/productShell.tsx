@@ -4185,10 +4185,7 @@ function buildAWSOrganizationsTopologyRows(
   if (topology?.accounts.length) {
     return topology.accounts.map((account) => {
       const coverage = awsOrganizationsTopologyFilterValue(account);
-      const coverageTokens = [coverage];
-      if (coverage !== 'missing' || account.state === 'planned') {
-        coverageTokens.push(account.state);
-      }
+      const coverageTokens = [coverage, account.state];
       if (account.status !== 'active') {
         coverageTokens.push(account.status);
       }

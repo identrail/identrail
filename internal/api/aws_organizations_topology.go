@@ -221,7 +221,12 @@ func validAWSOrganizationsTopologyFilters(request AWSOrganizationsTopologyReques
 		return false
 	}
 	switch awscontract.OrganizationAccountStatus(strings.ToLower(strings.TrimSpace(request.Status))) {
-	case "", awscontract.OrganizationAccountActive, awscontract.OrganizationAccountSuspended, awscontract.OrganizationAccountClosed:
+	case "",
+		awscontract.OrganizationAccountActive,
+		awscontract.OrganizationAccountSuspended,
+		awscontract.OrganizationAccountClosed,
+		awscontract.OrganizationAccountPendingActivation,
+		awscontract.OrganizationAccountPendingClosure:
 		return true
 	default:
 		return false
