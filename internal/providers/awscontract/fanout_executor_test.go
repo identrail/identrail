@@ -112,11 +112,10 @@ func TestPlanFanOutExecutionKeepsFailuresTargetScoped(t *testing.T) {
 	}
 
 	execution, err := PlanFanOutExecution(FanOutExecutionConfig{
-		Plan:               coverage,
-		MaxConcurrency:     3,
-		MaxAttempts:        3,
-		ThrottleRetryAfter: 30 * time.Second,
-		StartedAt:          now,
+		Plan:           coverage,
+		MaxConcurrency: 3,
+		MaxAttempts:    3,
+		StartedAt:      now,
 		Outcomes: []FanOutTargetOutcome{
 			{Key: "111111111111|us-east-1|iam", Outcome: FanOutExecutionOutcomeCovered, ObservedAt: now},
 			{Key: "111111111111|us-east-1|lambda", Outcome: FanOutExecutionOutcomeThrottled, Cursor: "lambda-page-2", FailureReason: "Throttling: lambda ListFunctions", Retryable: true, ObservedAt: now},
@@ -138,8 +137,8 @@ func TestPlanFanOutExecutionKeepsFailuresTargetScoped(t *testing.T) {
 		targetByKey[target.Key] = target
 	}
 	throttled := targetByKey["111111111111|us-east-1|lambda"]
-	if throttled.WorkerState != CoverageStateFailed || !throttled.Retryable || throttled.Checkpoint != "lambda-page-2" || throttled.RetryAfter == "" {
-		t.Fatalf("expected retryable throttled target with checkpoint: %+v", throttled)
+	if throttled.WorkerState != CoverageStateFailed || !throttled.Retryable || !throttled.Throttled || throttled.Checkpoint != "lambda-page-2" || throttled.RetryAfter != "" {
+		t.Fatalf("expected retryable throttled target with checkpoint and no retry-after requirement: %+v", throttled)
 	}
 	denied := targetByKey["111111111111|us-east-1|ecs"]
 	if denied.WorkerState != CoverageStatePermissionDenied || denied.Retryable {

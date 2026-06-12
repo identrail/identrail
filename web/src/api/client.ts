@@ -2806,6 +2806,7 @@ export type AWSFanOutExecutionTarget = {
   concurrency_slot?: number;
   checkpoint?: string;
   retryable: boolean;
+  throttled: boolean;
   retry_after?: string;
   failure_reason?: string;
   evidence_ref: string;

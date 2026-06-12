@@ -60,6 +60,7 @@ type FanOutExecutionTarget struct {
 	ConcurrencySlot int              `json:"concurrency_slot"`
 	Checkpoint      string           `json:"checkpoint,omitempty"`
 	Retryable       bool             `json:"retryable"`
+	Throttled       bool             `json:"throttled"`
 	RetryAfter      string           `json:"retry_after,omitempty"`
 	FailureReason   string           `json:"failure_reason,omitempty"`
 	EvidenceRef     string           `json:"evidence_ref"`
@@ -242,6 +243,7 @@ func applyFanOutOutcome(target *FanOutExecutionTarget, outcome FanOutTargetOutco
 		target.WorkerState = CoverageStateFailed
 		target.State = CoverageStateFailed
 		target.Retryable = true
+		target.Throttled = true
 		if throttleRetryAfter > 0 {
 			target.RetryAfter = throttleRetryAfter.String()
 		}
@@ -316,7 +318,7 @@ func summarizeFanOutExecutionTarget(summary *FanOutExecutionSummary, target FanO
 		summary.PartialTargets++
 	case CoverageStateFailed:
 		summary.FailedTargets++
-		if target.RetryAfter != "" {
+		if target.Throttled {
 			summary.ThrottledTargets++
 		}
 	case CoverageStatePermissionDenied:

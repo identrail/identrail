@@ -10687,6 +10687,7 @@ components:
         concurrency_slot: { type: integer }
         checkpoint: { type: string }
         retryable: { type: boolean }
+        throttled: { type: boolean }
         retry_after: { type: string }
         failure_reason: { type: string }
         evidence_ref: { type: string }

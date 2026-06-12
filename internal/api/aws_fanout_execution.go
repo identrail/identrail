@@ -37,6 +37,7 @@ type AWSFanOutExecutionTarget struct {
 	ConcurrencySlot int       `json:"concurrency_slot,omitempty"`
 	Checkpoint      string    `json:"checkpoint,omitempty"`
 	Retryable       bool      `json:"retryable"`
+	Throttled       bool      `json:"throttled"`
 	RetryAfter      string    `json:"retry_after,omitempty"`
 	FailureReason   string    `json:"failure_reason,omitempty"`
 	EvidenceRef     string    `json:"evidence_ref"`
@@ -221,6 +222,7 @@ func mapAWSFanOutExecutionTargets(targets []awscontract.FanOutExecutionTarget) [
 			ConcurrencySlot: target.ConcurrencySlot,
 			Checkpoint:      target.Checkpoint,
 			Retryable:       target.Retryable,
+			Throttled:       target.Throttled,
 			RetryAfter:      target.RetryAfter,
 			FailureReason:   target.FailureReason,
 			EvidenceRef:     target.EvidenceRef,
