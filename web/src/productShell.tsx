@@ -4141,7 +4141,14 @@ function buildAWSCoveragePlanRows(
 }
 
 function awsOrganizationsTopologyFilterValue(account: AWSOrganizationsTopologyAccount): string {
-  if (account.status === 'suspended' || account.status === 'closed' || account.state === 'disabled' || account.state === 'unsupported') {
+  if (
+    account.status === 'suspended' ||
+    account.status === 'closed' ||
+    account.status === 'pending_activation' ||
+    account.status === 'pending_closure' ||
+    account.state === 'disabled' ||
+    account.state === 'unsupported'
+  ) {
     return 'missing';
   }
   return awsCoveragePlanFilterValue(account.state);
@@ -4178,6 +4185,13 @@ function buildAWSOrganizationsTopologyRows(
   if (topology?.accounts.length) {
     return topology.accounts.map((account) => {
       const coverage = awsOrganizationsTopologyFilterValue(account);
+      const coverageTokens = [coverage];
+      if (coverage !== 'missing' || account.state === 'planned') {
+        coverageTokens.push(account.state);
+      }
+      if (account.status !== 'active') {
+        coverageTokens.push(account.status);
+      }
       const accountFilter = connection?.account_id && account.account_id === connection.account_id ? 'connected,planned' : 'planned';
       return {
         id: `org-${account.account_id}`,
@@ -4189,7 +4203,7 @@ function buildAWSOrganizationsTopologyRows(
         filters: {
           account: accountFilter,
           region: 'current,uncovered',
-          coverage: `${coverage},${account.state},${account.status}`,
+          coverage: [...new Set(coverageTokens)].join(','),
           search: ''
         },
         searchText: inventorySearchText([

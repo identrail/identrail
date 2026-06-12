@@ -2792,14 +2792,9 @@ export type AWSCoveragePlanResult = {
   updated_at: string;
 };
 
-export type AWSOrganizationsTopologyStatus = 'ready' | 'degraded' | 'blocked';
-export type AWSOrganizationsTopologyFixtureState =
-  | 'success'
-  | 'empty'
-  | 'degraded'
-  | 'partial_failure'
-  | 'permission_denied';
-export type AWSOrganizationsAccountStatus = 'active' | 'suspended' | 'closed';
+export type AWSOrganizationsTopologyStatus = AWSCoveragePlanStatus;
+export type AWSOrganizationsTopologyFixtureState = AWSCoveragePlanFixtureState;
+export type AWSOrganizationsAccountStatus = 'active' | 'suspended' | 'closed' | 'pending_activation' | 'pending_closure';
 
 export type AWSOrganizationsTopologyAccount = {
   account_id: string;
@@ -2855,21 +2850,9 @@ export type AWSOrganizationsTopologySummary = {
   status_counts: Record<string, number>;
 };
 
-export type AWSOrganizationsTopologyDiagnostic = {
-  source: string;
-  scope?: string;
-  code: string;
-  message: string;
-  remediation?: string;
-  retryable: boolean;
-};
+export type AWSOrganizationsTopologyDiagnostic = AWSCoveragePlanDiagnostic;
 
-export type AWSOrganizationsTopologyCoverageGap = {
-  capability: string;
-  status: string;
-  reason: string;
-  remediation?: string;
-};
+export type AWSOrganizationsTopologyCoverageGap = AWSCoveragePlanCoverageGap;
 
 export type AWSOrganizationsTopologyResult = {
   tenant_id: string;

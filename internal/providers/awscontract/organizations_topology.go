@@ -16,9 +16,11 @@ const OrganizationsTopologyVersion = "aws-organizations-topology-v1"
 type OrganizationAccountStatus string
 
 const (
-	OrganizationAccountActive    OrganizationAccountStatus = "active"
-	OrganizationAccountSuspended OrganizationAccountStatus = "suspended"
-	OrganizationAccountClosed    OrganizationAccountStatus = "closed"
+	OrganizationAccountActive            OrganizationAccountStatus = "active"
+	OrganizationAccountSuspended         OrganizationAccountStatus = "suspended"
+	OrganizationAccountClosed            OrganizationAccountStatus = "closed"
+	OrganizationAccountPendingActivation OrganizationAccountStatus = "pending_activation"
+	OrganizationAccountPendingClosure    OrganizationAccountStatus = "pending_closure"
 )
 
 // OrganizationUnit is one AWS Organizations OU or root-like container.
@@ -244,12 +246,14 @@ func normalizeOrganizationAccounts(config OrganizationsTopologyConfig, partition
 
 func normalizeOrganizationAccountStatus(status OrganizationAccountStatus) OrganizationAccountStatus {
 	switch OrganizationAccountStatus(strings.ToLower(strings.TrimSpace(string(status)))) {
+	case OrganizationAccountActive:
+		return OrganizationAccountActive
 	case OrganizationAccountSuspended:
 		return OrganizationAccountSuspended
-	case OrganizationAccountClosed:
+	case OrganizationAccountClosed, OrganizationAccountPendingActivation, OrganizationAccountPendingClosure:
 		return OrganizationAccountClosed
 	default:
-		return OrganizationAccountActive
+		return OrganizationAccountClosed
 	}
 }
 

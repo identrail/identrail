@@ -4706,7 +4706,7 @@ paths:
           name: status
           schema:
             type: string
-            enum: [active, suspended, closed]
+            enum: [active, suspended, pending_activation, pending_closure, closed]
           description: Optional AWS Organizations account lifecycle status filter.
       responses:
         "200":
