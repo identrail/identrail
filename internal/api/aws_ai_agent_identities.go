@@ -544,7 +544,7 @@ func awsAIAgentCredentialReferenceParts(ref string) (string, string) {
 }
 
 func sanitizeCredentialReferenceToken(value string) string {
-	return strings.ToLower(strings.NewReplacer(" ", "-", "/", "|", "-", ":", "-", "#", "-").Replace(strings.TrimSpace(value)))
+	return strings.ToLower(strings.NewReplacer(" ", "-", "/", "-", ":", "-", "#", "-").Replace(strings.TrimSpace(value)))
 }
 
 func containsAnyToken(haystack string, tokens ...string) bool {

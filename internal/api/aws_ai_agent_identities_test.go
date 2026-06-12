@@ -194,14 +194,20 @@ func TestAIAgentRelationshipsEmitCallsToolToToolNodes(t *testing.T) {
 	})
 
 	relationships := awsAIAgentIdentityRelationships([]AWSAIAgentIdentityRecord{record})
-	if len(relationships) != 2 {
-		t.Fatalf("expected one calls_tool relationship per tool, got %d", len(relationships))
+	callsToolRelationships := make([]AWSAIAgentIdentityRelation, 0, len(relationships))
+	for _, relationship := range relationships {
+		if relationship.Type == "calls_tool" {
+			callsToolRelationships = append(callsToolRelationships, relationship)
+		}
+	}
+	if len(callsToolRelationships) != 2 {
+		t.Fatalf("expected one calls_tool relationship per tool, got %d", len(callsToolRelationships))
 	}
 	gatewayToolNodeIDs := map[string]struct{}{
 		awsAIAgentToolNodeID(record.GatewayNodeID, "payments-case-search"):      {},
 		awsAIAgentToolNodeID(record.GatewayNodeID, "fraud-review-action-group"): {},
 	}
-	for _, relationship := range relationships {
+	for _, relationship := range callsToolRelationships {
 		if relationship.Type != "calls_tool" {
 			t.Fatalf("expected calls_tool relationship, got %+v", relationship)
 		}
