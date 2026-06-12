@@ -254,6 +254,7 @@ func awsCoveragePlanLiveConfig(connectorID, connectionAccountID, connectionRegio
 	serviceNames := map[string]struct{}{}
 	checkpoints := []awscontract.CoverageCheckpoint{}
 	regionAvailability := []awscontract.CoverageAccountRegionAvailability{}
+	persistedAccountRegions := map[string]struct{}{}
 
 	for _, row := range rows {
 		accountID := strings.TrimSpace(row.AccountID)
@@ -261,6 +262,7 @@ func awsCoveragePlanLiveConfig(connectorID, connectionAccountID, connectionRegio
 		if accountID == "" || region == "" {
 			continue
 		}
+		persistedAccountRegions[awsCoverageAccountRegionKey(accountID, region)] = struct{}{}
 		account := accountsByID[accountID]
 		account.AccountID = accountID
 		account.Enabled = true
@@ -301,13 +303,15 @@ func awsCoveragePlanLiveConfig(connectorID, connectionAccountID, connectionRegio
 	sort.Slice(regions, func(i, j int) bool { return regions[i].Region < regions[j].Region })
 
 	services := awsCoverageServicesWithDiscovered(serviceNames)
+	serviceAvailability := awsCoverageMissingAccountRegionServiceAvailability(accounts, regions, services, persistedAccountRegions, checkedAt)
 	return awscontract.CoveragePlanConfig{
-		ConnectorID:        connectorID,
-		Accounts:           accounts,
-		Regions:            regions,
-		RegionAvailability: regionAvailability,
-		Services:           services,
-		Checkpoints:        checkpoints,
+		ConnectorID:         connectorID,
+		Accounts:            accounts,
+		Regions:             regions,
+		RegionAvailability:  regionAvailability,
+		ServiceAvailability: serviceAvailability,
+		Services:            services,
+		Checkpoints:         checkpoints,
 	}, diagnostics, gaps
 }
 
@@ -336,6 +340,48 @@ func awsCoverageRegionPriority(region, connectionRegion string) awscontract.Cove
 		return awscontract.CoveragePriorityHigh
 	}
 	return awscontract.CoveragePriorityNormal
+}
+
+func awsCoverageMissingAccountRegionServiceAvailability(accounts []awscontract.CoverageAccount, regions []awscontract.CoverageRegion, services []awscontract.CoverageService, persisted map[string]struct{}, checkedAt time.Time) []awscontract.CoverageAccountServiceAvailability {
+	availability := []awscontract.CoverageAccountServiceAvailability{}
+	for _, account := range accounts {
+		accountID := strings.TrimSpace(account.AccountID)
+		if accountID == "" {
+			continue
+		}
+		for _, region := range regions {
+			regionName := strings.ToLower(strings.TrimSpace(region.Region))
+			if regionName == "" {
+				continue
+			}
+			if _, ok := persisted[awsCoverageAccountRegionKey(accountID, regionName)]; ok {
+				continue
+			}
+			for _, service := range services {
+				if service.Global {
+					continue
+				}
+				serviceName := strings.ToLower(strings.TrimSpace(service.Service))
+				if serviceName == "" {
+					continue
+				}
+				availability = append(availability, awscontract.CoverageAccountServiceAvailability{
+					AccountID:   accountID,
+					Region:      regionName,
+					Service:     serviceName,
+					State:       awscontract.CoverageStateBlocked,
+					Reason:      "no persisted account/region coverage row for this pair",
+					EvidenceRef: "aws:coverage:" + strings.Join([]string{accountID, regionName, serviceName}, ":"),
+					ObservedAt:  checkedAt,
+				})
+			}
+		}
+	}
+	return availability
+}
+
+func awsCoverageAccountRegionKey(accountID string, region string) string {
+	return strings.TrimSpace(accountID) + "|" + strings.ToLower(strings.TrimSpace(region))
 }
 
 func awsCoverageAvailabilityFromRow(row db.AWSAccountRegionCoverage, checkedAt time.Time) awscontract.CoverageAccountRegionAvailability {

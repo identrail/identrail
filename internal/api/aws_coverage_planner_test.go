@@ -133,6 +133,50 @@ func TestGetAWSCoveragePlanGlobalServicePlannedOncePerAccount(t *testing.T) {
 	}
 }
 
+func TestGetAWSCoveragePlanBlocksInventedLiveAccountRegionPairs(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 12, 9, 45, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "111111111111",
+		Region:         "us-east-1",
+		CoverageStatus: db.AWSAccountRegionCoveragePending,
+		UpdatedAt:      now,
+	})
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "222222222222",
+		Region:         "eu-west-1",
+		CoverageStatus: db.AWSAccountRegionCoveragePending,
+		UpdatedAt:      now,
+	})
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	result, err := svc.GetAWSCoveragePlan(ctx, "default", "project-a", AWSCoveragePlanRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get coverage plan: %v", err)
+	}
+	targetsByKey := map[string]AWSCoveragePlanTarget{}
+	for _, target := range result.Targets {
+		targetsByKey[target.Key] = target
+	}
+	for _, key := range []string{
+		"111111111111|eu-west-1|lambda",
+		"222222222222|us-east-1|lambda",
+	} {
+		target := targetsByKey[key]
+		if target.State != "blocked" || !strings.Contains(target.Reason, "no persisted account/region coverage row") {
+			t.Fatalf("expected invented regional target %s to be blocked, got %+v", key, target)
+		}
+	}
+	if iam := targetsByKey["222222222222|us-east-1|iam"]; iam.State == "blocked" {
+		t.Fatalf("global iam home-region target should not be blocked as an invented regional pair: %+v", iam)
+	}
+}
+
 func TestGetAWSCoveragePlanFilters(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()
