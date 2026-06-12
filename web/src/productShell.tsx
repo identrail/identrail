@@ -7586,7 +7586,7 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     const requestID = ++coveragePlanRequestRef.current;
     setCoveragePlan(null);
     setCoveragePlanError('');
-    if (routeID !== 'accounts' || !scope || !selectedEnvironmentID || !connection?.connected) {
+    if (routeID !== 'accounts' || !scope || !selectedEnvironmentID || !connection?.connector_id) {
       setCoveragePlanLoading(false);
       return;
     }
@@ -7614,7 +7614,7 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
         setCoveragePlanLoading(false);
       }
     }
-  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connector_id]);
 
   useEffect(() => {
     void loadCoveragePlan();

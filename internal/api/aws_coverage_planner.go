@@ -10,6 +10,7 @@ import (
 )
 
 const awsCoveragePlannerCurrentIssue = 1497
+const awsCoveragePlannerGlobalServiceHomeRegion = "us-east-1"
 
 // AWSCoveragePlanRequest filters and pins the account/region coverage plan.
 type AWSCoveragePlanRequest struct {
@@ -259,7 +260,8 @@ func awsCoveragePlanFixtureConfig(connectorID, accountID, region, fixtureState s
 	case "permission_denied":
 		config.Checkpoints = []awscontract.CoverageCheckpoint{{
 			AccountID: secondaryAccount, Region: region, Service: "iam",
-			State: awscontract.CoverageStatePermissionDenied, FailureReason: "AccessDenied: iam:ListRoles denied in member account",
+			Region: awsCoveragePlannerGlobalServiceHomeRegion,
+			State:  awscontract.CoverageStatePermissionDenied, FailureReason: "AccessDenied: iam:ListRoles denied in member account",
 		}}
 		diagnostics = append(diagnostics, AWSCoveragePlanDiagnostic{
 			Source:      "coverage_planner",
