@@ -96,6 +96,24 @@ func TestRouterAWSAIAgentIdentityInventoryPartialFailure(t *testing.T) {
 	}
 }
 
+func TestRouterAWSAIAgentIdentityInventoryEmptyStateReturnsArrayFields(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 12, 13, 45, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-empty")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-empty", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	r := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{})
+
+	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-empty/aws/ai-agent-identities?connector_id=aws-prod&fixture_state=empty", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	assertAWSAIAgentIdentityInventoryArrayFields(t, resp.Body.Bytes(), []string{"records", "relationships", "failure_reasons", "remediation_hints", "diagnostics"})
+}
+
 func TestAIAgentFixtureRecordCallsToolRelationshipTypeOnlyForTrueGatewayCalls(t *testing.T) {
 	record := awsAIAgentFixtureRecord("111111111111", "us-east-1", "agent_gateway", "payments-gateway", "payments-gateway", "arn:aws:bedrock:us-east-1:111111111111:agent-gateway/payments-gateway", "arn:aws:iam::111111111111:role/bedrock-agent-gateway-payments", time.Now(), func(r *AWSAIAgentIdentityRecord) {
 		r.GatewayID = "payments-gateway"
@@ -139,6 +157,7 @@ func TestRouterAWSAIAgentIdentityInventoryPermissionDenied(t *testing.T) {
 	if len(body.Inventory.Records) != 0 {
 		t.Fatalf("expected no records on permission_denied, got %d", len(body.Inventory.Records))
 	}
+	assertAWSAIAgentIdentityInventoryArrayFields(t, resp.Body.Bytes(), []string{"records", "relationships", "failure_reasons", "remediation_hints", "diagnostics"})
 }
 
 func TestRouterAWSAIAgentIdentityInventoryInvalidFixtureState(t *testing.T) {
@@ -155,5 +174,28 @@ func TestRouterAWSAIAgentIdentityInventoryInvalidFixtureState(t *testing.T) {
 	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-3/aws/ai-agent-identities?connector_id=aws-prod&fixture_state=invalid_state", "")
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid fixture state, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func assertAWSAIAgentIdentityInventoryArrayFields(t *testing.T, payload []byte, fields []string) {
+	t.Helper()
+	var body struct {
+		Inventory map[string]json.RawMessage `json:"inventory"`
+	}
+	if err := json.Unmarshal(payload, &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	for _, field := range fields {
+		raw, ok := body.Inventory[field]
+		if !ok {
+			t.Fatalf("expected inventory.%s in response", field)
+		}
+		if string(raw) == "null" {
+			t.Fatalf("expected inventory.%s to be an array, got null", field)
+		}
+		var values []json.RawMessage
+		if err := json.Unmarshal(raw, &values); err != nil {
+			t.Fatalf("expected inventory.%s to be an array, got %s: %v", field, string(raw), err)
+		}
 	}
 }

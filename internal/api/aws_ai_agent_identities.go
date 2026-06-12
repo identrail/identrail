@@ -150,6 +150,8 @@ func buildAWSAIAgentIdentityInventory(scope db.Scope, project db.TenancyProject,
 	region := firstNonEmptyAWSValue(connection.Region, "us-east-1")
 	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID), "aws-fixture")
 	records, diagnostics, coverageGaps := awsAIAgentIdentityFixtureRecords(accountID, region, fixtureState, checkedAt)
+	records = emptyAWSAIAgentIdentityRecords(records)
+	coverageGaps = emptyAWSAIAgentCoverageGaps(coverageGaps)
 	for _, record := range records {
 		if _, err := awscontract.NormalizeServiceCollectorRecord(awscontract.ServiceCollectorRecord{
 			TenantID:      scope.TenantID,
@@ -175,6 +177,8 @@ func buildAWSAIAgentIdentityInventory(scope db.Scope, project db.TenancyProject,
 	}
 	status, confidence, failures, remediations := summarizeAWSAIAgentIdentityInventory(fixtureState, diagnostics)
 	relationships := awsAIAgentIdentityRelationships(records)
+	failures = emptyStrings(failures)
+	remediations = emptyStrings(remediations)
 	return AWSAIAgentIdentityInventoryResult{
 		TenantID:              scope.TenantID,
 		WorkspaceID:           project.WorkspaceID,
@@ -219,6 +223,27 @@ func buildAWSAIAgentIdentityInventory(scope db.Scope, project db.TenancyProject,
 		GeneratedAt:   checkedAt,
 		UpdatedAt:     checkedAt,
 	}, nil
+}
+
+func emptyAWSAIAgentIdentityRecords(records []AWSAIAgentIdentityRecord) []AWSAIAgentIdentityRecord {
+	if records == nil {
+		return []AWSAIAgentIdentityRecord{}
+	}
+	return records
+}
+
+func emptyAWSAIAgentCoverageGaps(gaps []AWSAIAgentCoverageGap) []AWSAIAgentCoverageGap {
+	if gaps == nil {
+		return []AWSAIAgentCoverageGap{}
+	}
+	return gaps
+}
+
+func emptyStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }
 
 func normalizeAWSAIAgentIdentityFixtureState(requested string, connection AWSConnectionStatus, hasConnection bool) string {
@@ -301,7 +326,7 @@ func awsAIAgentIdentityFixtureRecords(accountID string, region string, fixtureSt
 	}
 	switch fixtureState {
 	case "empty":
-		return nil, nil, gaps
+		return []AWSAIAgentIdentityRecord{}, nil, gaps
 	case "degraded":
 		records[2].Status = "degraded"
 		records[2].CoverageStatus = "degraded"
@@ -323,7 +348,7 @@ func awsAIAgentIdentityFixtureRecords(accountID string, region string, fixtureSt
 			Retryable: true,
 		}}, gaps
 	case "permission_denied":
-		return nil, []providers.SourceError{{
+		return []AWSAIAgentIdentityRecord{}, []providers.SourceError{{
 			Collector: "aws_ai-agent/ai_agent_identity",
 			SourceID:  fmt.Sprintf("service=ai-agent|account=%s|region=%s|source=list", accountID, region),
 			Code:      "permission_denied",
