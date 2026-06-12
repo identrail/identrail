@@ -406,7 +406,11 @@ func awsCoverageCheckpointsFromScanCursor(row db.AWSAccountRegionCoverage, check
 			diagnostics = append(diagnostics, awsCoverageCursorDiagnostic(row, service, "malformed_cursor", "Scan cursor entry does not contain a supported coverage state.", false))
 			continue
 		}
-		observedAt := awsCoverageCursorTime(entry.fields, checkedAt)
+		observedFallback := row.UpdatedAt
+		if observedFallback.IsZero() {
+			observedFallback = checkedAt
+		}
+		observedAt := awsCoverageCursorTime(entry.fields, observedFallback)
 		if awsCoverageCursorExpired(state, observedAt, checkedAt) {
 			diagnostics = append(diagnostics, awsCoverageCursorDiagnostic(row, service, "stale_cursor_expired", "Stored scan cursor is stale and will not be reused for continuation.", true))
 			services = append(services, service)
