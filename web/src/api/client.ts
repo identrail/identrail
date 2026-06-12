@@ -2686,6 +2686,112 @@ export type AWSCredentialReferencesInventoryResult = {
   updated_at: string;
 };
 
+export type AWSCoveragePlanStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSCoveragePlanFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+export type AWSCoveragePriority = 'critical' | 'high' | 'normal' | 'low';
+export type AWSCoverageState =
+  | 'planned'
+  | 'pending'
+  | 'in_progress'
+  | 'covered'
+  | 'partial'
+  | 'failed'
+  | 'permission_denied'
+  | 'unsupported'
+  | 'blocked'
+  | 'disabled';
+
+export type AWSCoveragePlanTarget = {
+  key: string;
+  account_id: string;
+  account_name?: string;
+  region: string;
+  region_name?: string;
+  service: string;
+  service_name?: string;
+  global: boolean;
+  enabled: boolean;
+  priority: AWSCoveragePriority;
+  priority_rank: number;
+  reason?: string;
+  prerequisites: string[];
+  state: AWSCoverageState;
+  cursor?: string;
+  failure_reason?: string;
+  attempts?: number;
+  resumable: boolean;
+  next_action: string;
+  evidence_ref: string;
+  observed_at?: string;
+};
+
+export type AWSCoveragePlanSummary = {
+  total_targets: number;
+  enabled_targets: number;
+  disabled_targets: number;
+  account_count: number;
+  region_count: number;
+  service_count: number;
+  outstanding_targets: number;
+  covered_targets: number;
+  blocked_targets: number;
+  failed_targets: number;
+  permission_denied_targets: number;
+  resumable_targets: number;
+  coverage_percent: number;
+  state_counts: Record<string, number>;
+  priority_counts: Record<string, number>;
+  prerequisites: string[];
+};
+
+export type AWSCoveragePlanDiagnostic = {
+  source: string;
+  scope?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSCoveragePlanCoverageGap = {
+  capability: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSCoveragePlanResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSCoveragePlanStatus;
+  fixture_state: AWSCoveragePlanFixtureState;
+  confidence: number;
+  filtered_targets: number;
+  summary: AWSCoveragePlanSummary;
+  targets: AWSCoveragePlanTarget[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSCoveragePlanCoverageGap[];
+  diagnostics: AWSCoveragePlanDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSDynamoDBRDSReachabilityInventoryResult = {
   tenant_id: string;
   workspace_id: string;
@@ -4420,6 +4526,26 @@ export const apiClient = {
         resource_type: filters?.resourceType,
         identity: filters?.identity,
         provider: filters?.provider
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectCoveragePlan(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSCoveragePlanFixtureState,
+    filters?: { account?: string; region?: string; service?: string; state?: AWSCoverageState },
+    auth?: RequestAuthContext
+  ) {
+    return request<{ plan: AWSCoveragePlanResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/coverage-plan${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState,
+        account: filters?.account,
+        region: filters?.region,
+        service: filters?.service,
+        state: filters?.state
       })}`,
       auth
     );

@@ -564,6 +564,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/coverage-plan
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/secrets-manager-metadata
     action: tenancy.read
     resource_type: project
@@ -4572,6 +4577,74 @@ paths:
                     $ref: "#/components/schemas/AWSCredentialReferencesInventoryResult"
         "400":
           description: Invalid AWS credential references request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/coverage-plan:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS account and region coverage plan
+      operationId: getAWSProjectCoveragePlan
+      description: Returns the deterministic account/region/service coverage plan for an AWS connector. Each target carries enabled/disabled status, priority, reason, prerequisites, an explicit coverage state (planned, pending, in_progress, covered, partial, failed, permission_denied, unsupported, blocked, disabled), a resumable cursor/checkpoint, failure reason, and the operator's next action. Global-scope services (for example IAM) are planned once per account in their home region instead of per region. Read-only and metadata-only - the planner reads no customer payloads and mutates no AWS state.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope the account, region, and read-only coverage evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: account
+          schema: { type: string }
+          description: Optional 12-digit AWS account id filter over plan targets.
+        - in: query
+          name: region
+          schema: { type: string }
+          description: Optional AWS region code filter over plan targets.
+        - in: query
+          name: service
+          schema: { type: string }
+          description: Optional AWS service partition filter (for example iam, ec2, lambda).
+        - in: query
+          name: state
+          schema:
+            type: string
+            enum: [planned, pending, in_progress, covered, partial, failed, permission_denied, unsupported, blocked, disabled]
+          description: Optional coverage lifecycle state filter over plan targets.
+      responses:
+        "200":
+          description: AWS account and region coverage plan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plan:
+                    $ref: "#/components/schemas/AWSCoveragePlanResult"
+        "400":
+          description: Invalid AWS coverage plan request
           content:
             application/json:
               schema:
@@ -10301,6 +10374,136 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSCredentialReferenceDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSCoveragePlanTarget:
+      type: object
+      properties:
+        key: { type: string }
+        account_id: { type: string }
+        account_name: { type: string }
+        region: { type: string }
+        region_name: { type: string }
+        service: { type: string }
+        service_name: { type: string }
+        global: { type: boolean }
+        enabled: { type: boolean }
+        priority:
+          type: string
+          enum: [critical, high, normal, low]
+        priority_rank: { type: integer }
+        reason: { type: string }
+        prerequisites:
+          type: array
+          items: { type: string }
+        state:
+          type: string
+          enum: [planned, pending, in_progress, covered, partial, failed, permission_denied, unsupported, blocked, disabled]
+        cursor: { type: string }
+        failure_reason: { type: string }
+        attempts: { type: integer }
+        resumable: { type: boolean }
+        next_action: { type: string }
+        evidence_ref: { type: string }
+        observed_at:
+          type: string
+          format: date-time
+    AWSCoveragePlanSummary:
+      type: object
+      properties:
+        total_targets: { type: integer }
+        enabled_targets: { type: integer }
+        disabled_targets: { type: integer }
+        account_count: { type: integer }
+        region_count: { type: integer }
+        service_count: { type: integer }
+        outstanding_targets: { type: integer }
+        covered_targets: { type: integer }
+        blocked_targets: { type: integer }
+        failed_targets: { type: integer }
+        permission_denied_targets: { type: integer }
+        resumable_targets: { type: integer }
+        coverage_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        state_counts:
+          type: object
+          additionalProperties: { type: integer }
+        priority_counts:
+          type: object
+          additionalProperties: { type: integer }
+        prerequisites:
+          type: array
+          items: { type: string }
+    AWSCoveragePlanDiagnostic:
+      type: object
+      properties:
+        source: { type: string }
+        scope: { type: string }
+        code: { type: string }
+        message: { type: string }
+        remediation: { type: string }
+        retryable: { type: boolean }
+    AWSCoveragePlanCoverageGap:
+      type: object
+      properties:
+        capability: { type: string }
+        status: { type: string }
+        reason: { type: string }
+        remediation: { type: string }
+    AWSCoveragePlanResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        filtered_targets: { type: integer }
+        summary:
+          $ref: "#/components/schemas/AWSCoveragePlanSummary"
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSCoveragePlanTarget"
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSCoveragePlanCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSCoveragePlanDiagnostic"
         generated_at:
           type: string
           format: date-time

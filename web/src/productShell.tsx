@@ -57,6 +57,8 @@ import {
   type AWSDynamoDBRDSReachabilityRecord,
   type AWSCredentialReferencesInventoryResult,
   type AWSCredentialReferenceRecord,
+  type AWSCoveragePlanResult,
+  type AWSCoveragePlanTarget,
   type AWSSecretsManagerMetadataInventoryResult,
   type AWSSecretsManagerMetadataRecord,
   type AWSSQSSNSReachabilityInventoryResult,
@@ -3673,6 +3675,13 @@ type AWSInventoryCredentialReferencesState = {
   onRetry: () => void;
 };
 
+type AWSInventoryCoveragePlanState = {
+  plan: AWSCoveragePlanResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryCoverageRow = AWSInventoryFilterable & {
   id: string;
   category: string;
@@ -3699,8 +3708,12 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
       options: [
         { label: 'All coverage', value: 'all' },
         { label: 'Covered', value: 'covered' },
+        { label: 'Planned', value: 'planned' },
         { label: 'Missing', value: 'missing' },
+        { label: 'Blocked', value: 'blocked' },
         { label: 'Degraded', value: 'degraded' },
+        { label: 'Failed', value: 'failed' },
+        { label: 'Permission denied', value: 'permission_denied' },
         { label: 'Not yet available', value: 'not-yet-available' }
       ]
     }
@@ -3987,6 +4000,137 @@ function AWSInventoryPill({
   return <span className={`idt-aws-inventory-pill is-${awsInventoryPillTone(stage)}`}>{label ?? awsStageLabel(stage)}</span>;
 }
 
+function awsCoveragePlanFilterValue(state: string): string {
+  switch (state) {
+    case 'covered':
+      return 'covered';
+    case 'failed':
+    case 'partial':
+    case 'permission_denied':
+    case 'in_progress':
+      return 'degraded';
+    case 'blocked':
+    case 'disabled':
+    case 'unsupported':
+    case 'planned':
+    case 'pending':
+      return 'missing';
+    default:
+      return 'not-yet-available';
+  }
+}
+
+function awsCoveragePlanStage(state: string): AWSCapabilityStage {
+  return state === 'covered' ? 'wired' : state === 'disabled' || state === 'unsupported' ? 'not-available' : 'coming';
+}
+
+function awsCoveragePlanTargetDetail(target: AWSCoveragePlanTarget): string {
+  const details = [`Priority ${formatTokenLabel(target.priority)}`];
+  if (target.failure_reason) {
+    details.push(target.failure_reason);
+  } else if (target.prerequisites.length > 0) {
+    details.push(target.prerequisites[0]);
+  } else if (target.cursor) {
+    details.push(`Cursor ${target.cursor}`);
+  } else {
+    details.push(target.next_action);
+  }
+  if (target.attempts) {
+    details.push(`${target.attempts} ${target.attempts === 1 ? 'attempt' : 'attempts'}`);
+  }
+  return details.join(' · ');
+}
+
+function buildAWSCoveragePlanRows(
+  plan: AWSCoveragePlanResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryCoverageRow[] {
+  if (plan?.targets.length) {
+    return plan.targets.map((target) => {
+      const coverage = awsCoveragePlanFilterValue(target.state);
+      const accountFilter = connection?.account_id && target.account_id === connection.account_id ? 'connected,planned' : 'planned';
+      const regionFilter =
+        connection?.region && target.region.toLowerCase() === connection.region.toLowerCase() ? 'current' : 'uncovered';
+      return {
+        id: target.key,
+        category: `${target.account_name || target.account_id} / ${target.region} / ${formatTokenLabel(target.service)}`,
+        coverage: target.state,
+        source: target.evidence_ref,
+        status: target.state,
+        detail: awsCoveragePlanTargetDetail(target),
+        filters: {
+          account: accountFilter,
+          region: regionFilter,
+          coverage: `${coverage},${target.state}`,
+          search: ''
+        },
+        searchText: inventorySearchText([
+          target.account_id,
+          target.account_name,
+          target.region,
+          target.service,
+          target.service_name,
+          target.state,
+          target.priority,
+          target.failure_reason,
+          target.next_action,
+          target.evidence_ref,
+          ...target.prerequisites
+        ])
+      };
+    });
+  }
+  if (loading) {
+    return [
+      {
+        id: 'coverage-plan-loading',
+        category: 'Coverage plan',
+        coverage: 'planned',
+        source: 'AWS coverage planner',
+        status: 'loading',
+        detail: 'Loading account, region, and service targets.',
+        filters: { account: 'planned', region: 'uncovered', coverage: 'planned', search: '' },
+        searchText: inventorySearchText(['coverage plan loading'])
+      }
+    ];
+  }
+  const accountCoverage = awsCoverageState(connection);
+  const currentCoverageFilter = accountCoverage === 'covered' ? 'covered' : accountCoverage === 'degraded' ? 'degraded' : 'missing';
+  return [
+    {
+      id: 'current-account',
+      category: connection?.account_id ? `AWS account ${connection.account_id}` : 'Selected AWS account',
+      coverage: accountCoverage,
+      source: connection?.display_name ?? 'Connect AWS',
+      status: connection?.connected ? 'covered' : 'missing',
+      detail: connection?.region ? `Validated in ${connection.region}` : 'Region coverage starts after validation.',
+      filters: {
+        account: connection?.account_id ? 'connected' : 'planned',
+        region: connection?.region ? 'current' : 'uncovered',
+        coverage: currentCoverageFilter,
+        search: ''
+      },
+      searchText: inventorySearchText([connection?.account_id, connection?.region, connection?.display_name, 'current account', 'covered', 'missing'])
+    },
+    {
+      id: 'current-region',
+      category: connection?.region ? `Region ${connection.region}` : 'Current region',
+      coverage: accountCoverage,
+      source: 'AWS connector payload',
+      status: accountCoverage,
+      detail: connection?.last_validated_at ? `Last validation ${formatConnectionTime(connection.last_validated_at)}` : 'No validation time yet.',
+      filters: {
+        account: connection?.account_id ? 'connected' : 'planned',
+        region: connection?.region ? 'current' : 'uncovered',
+        coverage: currentCoverageFilter,
+        search: ''
+      },
+      searchText: inventorySearchText([connection?.region, 'region', 'coverage', 'region coverage'])
+    }
+  ];
+}
+
 function AWSInventoryFilterSet({
   routeID,
   filters,
@@ -4161,110 +4305,75 @@ function AWSInventoryPrerequisites({
 function AWSAccountsInventoryContent({
   connection,
   connectPath,
+  coveragePlanState,
   filters,
   onFiltersChange
 }: {
   connection: AWSConnectionStatus | null;
   connectPath: string;
+  coveragePlanState: AWSInventoryCoveragePlanState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
   const accountCoverage = awsCoverageState(connection);
   const hasHealthyCoverage = accountCoverage === 'covered';
-  const currentCoverageFilter = accountCoverage === 'covered' ? 'covered' : accountCoverage === 'degraded' ? 'degraded' : 'missing';
-  const rows: AWSInventoryCoverageRow[] = [
-    {
-      id: 'current-account',
-      category: connection?.account_id ? `AWS account ${connection.account_id}` : 'Selected AWS account',
-      coverage: accountCoverage,
-      source: connection?.display_name ?? 'Connect AWS',
-      status: connection?.connected ? 'covered' : 'missing',
-      detail: connection?.region ? `Validated in ${connection.region}` : 'Region coverage starts after validation.',
-      filters: {
-        account: connection?.account_id ? 'connected' : 'planned',
-        region: connection?.region ? 'current' : 'uncovered',
-        coverage: currentCoverageFilter,
-        search: ''
-      },
-      searchText: inventorySearchText([connection?.account_id, connection?.region, connection?.display_name, 'current account', 'covered', 'missing'])
-      },
-      {
-        id: 'current-region',
-        category: connection?.region ? `Region ${connection.region}` : 'Current region',
-        coverage: accountCoverage,
-        source: 'AWS connector payload',
-        status: accountCoverage,
-        detail: connection?.last_validated_at ? `Last validation ${formatConnectionTime(connection.last_validated_at)}` : 'No validation time yet.',
-        filters: {
-          account: connection?.account_id ? 'connected' : 'planned',
-          region: connection?.region ? 'current' : 'uncovered',
-          coverage: currentCoverageFilter,
-          search: ''
-        },
-        searchText: inventorySearchText([connection?.region, 'region', 'coverage', 'region coverage'])
-      },
-    {
-      id: 'org-planner',
-      category: 'Organization account planner',
-      coverage: 'not yet available',
-      source: 'Future AWS inventory API',
-      status: 'not yet available',
-      detail: 'Will track account enrollment, incremental cursors, and partial account failure.',
-      filters: {
-        account: 'planned',
-        region: 'uncovered',
-        coverage: 'not-yet-available',
-        search: ''
-      },
-      searchText: inventorySearchText([
-        'organization',
-        'planner',
-        'account',
-        'not yet available'
-      ])
-    },
-    {
-      id: 'region-planner',
-      category: 'Multi-region scan planner',
-      coverage: 'not yet available',
-      source: 'Future AWS inventory API',
-      status: 'not yet available',
-      detail: 'Will track service-by-region coverage and degraded or unreachable regions.',
-      filters: {
-        account: 'planned',
-        region: 'uncovered',
-        coverage: 'not-yet-available',
-        search: ''
-      },
-      searchText: inventorySearchText([
-        'multi-region',
-        'planner',
-        'coverage',
-        'not yet available',
-        'degraded',
-        'region'
-      ])
-    }
-  ];
+  const plan = coveragePlanState.plan;
+  const rows = buildAWSCoveragePlanRows(plan, coveragePlanState.loading, connection);
   const passedChecks = connection?.permission_checks.filter((check) => check.passed).length ?? 0;
   const totalChecks = connection?.permission_checks.length ?? 0;
+  const coveredAccounts = plan
+    ? new Set(plan.targets.filter((target) => target.state === 'covered').map((target) => target.account_id)).size
+    : hasHealthyCoverage
+      ? 1
+      : 0;
+  const coveredRegions = plan
+    ? new Set(plan.targets.filter((target) => target.state === 'covered').map((target) => target.region)).size
+    : hasHealthyCoverage
+      ? 1
+      : 0;
   const displayedRows = filterAWSInventoryRows(rows, filters);
 
   return (
     <>
       <AWSInventoryFilterSet routeID="accounts" filters={filters} onChange={onFiltersChange} />
+      {coveragePlanState.loading ? <DomainLoadingState label="Loading account and region coverage plan" /> : null}
+      {coveragePlanState.error ? (
+        <DomainErrorState
+          title="Coverage plan could not load"
+          body={coveragePlanState.error}
+          retryAction={{ label: 'Retry coverage plan', onClick: coveragePlanState.onRetry }}
+        />
+      ) : null}
       <section className="idt-aws-inventory-coverage" aria-label="AWS account and region coverage map">
-        <DomainCoverageCard label="Account coverage" scanned={hasHealthyCoverage ? 1 : 0} total={1} detail="Selected environment" />
-        <DomainCoverageCard label="Region coverage" scanned={hasHealthyCoverage ? 1 : 0} total={1} detail={hasHealthyCoverage ? connection?.region ?? 'Pending' : 'Pending'} />
+        <DomainCoverageCard label="Account coverage" scanned={coveredAccounts} total={plan?.summary.account_count ?? 1} detail="Configured accounts" />
+        <DomainCoverageCard label="Region coverage" scanned={coveredRegions} total={plan?.summary.region_count ?? 1} detail={plan ? `${plan.summary.coverage_percent}% target coverage` : hasHealthyCoverage ? connection?.region ?? 'Pending' : 'Pending'} />
         <DomainCoverageCard label="Permission evidence" scanned={passedChecks} total={Math.max(totalChecks, 1)} detail="Read-only validation" />
       </section>
+      {plan?.diagnostics.length ? (
+        <DomainStatusPanel
+          eyebrow="Coverage diagnostics"
+          title="Planner found explicit recovery work"
+          status={formatTokenLabel(plan.status)}
+          tone={plan.status === 'blocked' ? 'danger' : 'warning'}
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS coverage plan diagnostics">
+            {plan.diagnostics.map((diagnostic) => (
+              <article key={`${diagnostic.code}-${diagnostic.scope ?? diagnostic.source}`}>
+                <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                <p>{diagnostic.message}</p>
+                {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
       <DomainDataTable
         label="AWS account and region coverage"
         rows={displayedRows}
         getRowKey={(row) => row.id}
         columns={[
           { key: 'category', header: 'Coverage scope', render: (row) => <strong>{row.category}</strong> },
-          { key: 'coverage', header: 'Coverage', render: (row) => <AWSInventoryPill stage={row.coverage === 'covered' ? 'wired' : row.coverage === 'not yet available' ? 'not-available' : 'coming'} label={formatTokenLabel(row.coverage)} /> },
+          { key: 'coverage', header: 'Coverage', render: (row) => <AWSInventoryPill stage={awsCoveragePlanStage(row.coverage)} label={formatTokenLabel(row.coverage)} /> },
           { key: 'source', header: 'Source', render: (row) => row.source },
           { key: 'detail', header: 'Detail', render: (row) => row.detail }
         ]}
@@ -4277,9 +4386,16 @@ function AWSAccountsInventoryContent({
         actions={[{ label: 'Open Connect AWS', to: connectPath, variant: 'secondary' }]}
       >
         <p>
-          Account and region coverage uses the current AWS connector when it exists. Organization-wide scale, cursor health,
-          and partial-region failure reporting stay labeled as future AWS inventory work.
+          Account and region coverage uses the current AWS connector when it exists. The plan stays metadata-only,
+          keeps cursor and failure state explicit, and never treats denied or partial targets as successful coverage.
         </p>
+        {plan?.remediation_hints.length ? (
+          <ul className="idt-domain-charter-list">
+            {plan.remediation_hints.map((hint) => (
+              <li key={hint}>{hint}</li>
+            ))}
+          </ul>
+        ) : null}
       </DomainStatusPanel>
     </>
   );
@@ -6850,6 +6966,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [credentialReferencesInventoryLoading, setCredentialReferencesInventoryLoading] = useState(false);
   const [credentialReferencesInventoryError, setCredentialReferencesInventoryError] = useState('');
   const credentialReferencesInventoryRequestRef = useRef(0);
+  const [coveragePlan, setCoveragePlan] = useState<AWSCoveragePlanResult | null>(null);
+  const [coveragePlanLoading, setCoveragePlanLoading] = useState(false);
+  const [coveragePlanError, setCoveragePlanError] = useState('');
+  const coveragePlanRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -7462,6 +7582,47 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadCredentialReferencesInventory]);
 
+  const loadCoveragePlan = useCallback(async () => {
+    const requestID = ++coveragePlanRequestRef.current;
+    setCoveragePlan(null);
+    setCoveragePlanError('');
+    if (routeID !== 'accounts' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setCoveragePlanLoading(false);
+      return;
+    }
+    setCoveragePlanLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectCoveragePlan(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== coveragePlanRequestRef.current) {
+        return;
+      }
+      setCoveragePlan(response.plan);
+    } catch (error) {
+      if (requestID !== coveragePlanRequestRef.current) {
+        return;
+      }
+      setCoveragePlanError(formatAPIError(error, 'Unable to load account and region coverage plan.'));
+    } finally {
+      if (requestID === coveragePlanRequestRef.current) {
+        setCoveragePlanLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadCoveragePlan();
+    return () => {
+      coveragePlanRequestRef.current += 1;
+    };
+  }, [loadCoveragePlan]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -7529,7 +7690,18 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
       ) : null}
 
       {routeID === 'accounts' ? (
-        <AWSAccountsInventoryContent connection={connection} connectPath={connectPath} filters={activeFilters} onFiltersChange={onFiltersChange} />
+        <AWSAccountsInventoryContent
+          connection={connection}
+          connectPath={connectPath}
+          coveragePlanState={{
+            plan: coveragePlan,
+            loading: coveragePlanLoading,
+            error: coveragePlanError,
+            onRetry: () => void loadCoveragePlan()
+          }}
+          filters={activeFilters}
+          onFiltersChange={onFiltersChange}
+        />
       ) : null}
       {routeID === 'identities' ? (
         <AWSMachineIdentitiesContent
