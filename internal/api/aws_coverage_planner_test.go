@@ -359,6 +359,97 @@ func TestGetAWSCoveragePlanLiveCursorExpiryAndMalformed(t *testing.T) {
 	}
 }
 
+func TestGetAWSAccountRegionCoveragePublicStatuses(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 12, 14, 0, 0, 0, time.UTC)
+	old := now.Add(-awsCoverageScanCursorTTL - time.Minute)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "123456789012",
+		AccountAlias:   "Production",
+		Region:         "us-east-1",
+		CoverageStatus: db.AWSAccountRegionCoveragePending,
+		ScanCursor: map[string]any{"services": map[string]any{
+			"iam":    map[string]any{"collector": "iam_roles", "state": "covered", "observed_at": now.Format(time.RFC3339Nano)},
+			"lambda": map[string]any{"collector": "lambda_execution_roles", "state": "partial", "cursor": "lambda-page-2", "attempts": 2, "failure_reason": "Throttling: lambda page failed", "observed_at": now.Format(time.RFC3339Nano)},
+			"ecs":    map[string]any{"collector": "ecs_tasks", "state": "in_progress", "cursor": "ecs-stale-page", "observed_at": old.Format(time.RFC3339Nano)},
+		}},
+		UpdatedAt: now,
+	})
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "222222222222",
+		AccountAlias:   "Archive",
+		Region:         "eu-west-1",
+		CoverageStatus: db.AWSAccountRegionCoverageUnreachable,
+		Unreachable:    true,
+		UpdatedAt:      now,
+	})
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "333333333333",
+		AccountAlias:   "Retired",
+		Region:         "us-west-2",
+		CoverageStatus: db.AWSAccountRegionCoverageDisabled,
+		Disabled:       true,
+		UpdatedAt:      now,
+	})
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	result, err := svc.GetAWSAccountRegionCoverage(ctx, "default", "project-a", AWSAccountRegionCoverageRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get account-region coverage: %v", err)
+	}
+	if result.CurrentIssueRef != "#1503" || result.Version != "aws-account-region-coverage-api-v1" {
+		t.Fatalf("unexpected api metadata: %+v", result)
+	}
+	if result.Status != awsPlatformDependencyStatusDegraded {
+		t.Fatalf("expected degraded public coverage status, got %+v", result)
+	}
+	if result.Summary.CoveredRecords == 0 || result.Summary.DegradedRecords == 0 || result.Summary.StaleRecords == 0 || result.Summary.UnreachableRecords == 0 || result.Summary.DisabledRecords == 0 {
+		t.Fatalf("expected public coverage status counts, got %+v", result.Summary)
+	}
+	recordsByStatus := map[string]int{}
+	for _, record := range result.Records {
+		recordsByStatus[record.CoverageStatus]++
+		if record.EvidenceRef == "" || record.NextAction == "" || record.UpdatedAt.IsZero() {
+			t.Fatalf("record missing public operator fields: %+v", record)
+		}
+	}
+	for _, status := range []string{"covered", "degraded", "stale", "unreachable", "disabled"} {
+		if recordsByStatus[status] == 0 {
+			t.Fatalf("expected status %q in public records: %+v", status, recordsByStatus)
+		}
+	}
+
+	degraded, err := svc.GetAWSAccountRegionCoverage(ctx, "default", "project-a", AWSAccountRegionCoverageRequest{ConnectorID: "aws-prod", Status: "degraded"})
+	if err != nil {
+		t.Fatalf("get degraded account-region coverage: %v", err)
+	}
+	if degraded.Summary.FilteredRecords == 0 || len(degraded.Records) != degraded.Summary.FilteredRecords {
+		t.Fatalf("expected degraded records to match filtered count, got %+v", degraded.Summary)
+	}
+	for _, record := range degraded.Records {
+		if record.CoverageStatus != "degraded" {
+			t.Fatalf("degraded status filter leaked %+v", record)
+		}
+	}
+
+	collector, err := svc.GetAWSAccountRegionCoverage(ctx, "default", "project-a", AWSAccountRegionCoverageRequest{ConnectorID: "aws-prod", Collector: "lambda_execution_roles"})
+	if err != nil {
+		t.Fatalf("get collector-filtered account-region coverage: %v", err)
+	}
+	if len(collector.Records) != 1 || collector.Records[0].Collector != "lambda_execution_roles" || collector.Records[0].Checkpoint != "lambda-page-2" {
+		t.Fatalf("expected lambda collector checkpoint, got %+v", collector.Records)
+	}
+
+	if _, err := svc.GetAWSAccountRegionCoverage(ctx, "default", "project-a", AWSAccountRegionCoverageRequest{ConnectorID: "aws-prod", Status: "unknown"}); err == nil {
+		t.Fatalf("expected invalid public status filter error")
+	}
+}
+
 func TestGetAWSCoveragePlanNeverLeaksValues(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()
@@ -415,6 +506,49 @@ func TestRouterAWSCoveragePlanPartialFailureAndInvalid(t *testing.T) {
 		if bad.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for %q, got %d body=%s", query, bad.Code, bad.Body.String())
 		}
+	}
+}
+
+func TestRouterAWSAccountRegionCoverage(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 12, 14, 30, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-1")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-1", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	seedAWSCoverageCursorRow(t, store, ctx, "project-1", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		CoverageStatus: db.AWSAccountRegionCoveragePending,
+		ScanCursor:     map[string]any{"services": map[string]any{"iam": map[string]any{"state": "covered", "observed_at": now.Format(time.RFC3339Nano)}}},
+		UpdatedAt:      now,
+	})
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	r := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{})
+
+	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-1/aws/account-region-coverage?connector_id=aws-prod&status=covered", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		Coverage AWSAccountRegionCoverageResult `json:"coverage"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Coverage.CurrentIssueRef != "#1503" || len(body.Coverage.Records) == 0 {
+		t.Fatalf("expected public coverage response, got %+v", body.Coverage)
+	}
+	for _, record := range body.Coverage.Records {
+		if record.CoverageStatus != "covered" {
+			t.Fatalf("covered status filter leaked %+v", record)
+		}
+	}
+
+	bad := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-1/aws/account-region-coverage?connector_id=aws-prod&status=bogus", "")
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", bad.Code, bad.Body.String())
 	}
 }
 

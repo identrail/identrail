@@ -58,6 +58,8 @@ import {
   type AWSDynamoDBRDSReachabilityRecord,
   type AWSCredentialReferencesInventoryResult,
   type AWSCredentialReferenceRecord,
+  type AWSAccountRegionCoverageRecord,
+  type AWSAccountRegionCoverageResult,
   type AWSCoveragePlanResult,
   type AWSCoveragePlanTarget,
   type AWSFanOutExecutionResult,
@@ -3686,6 +3688,13 @@ type AWSInventoryCoveragePlanState = {
   onRetry: () => void;
 };
 
+type AWSInventoryAccountRegionCoverageState = {
+  coverage: AWSAccountRegionCoverageResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventoryFanOutExecutionState = {
   execution: AWSFanOutExecutionResult | null;
   loading: boolean;
@@ -4043,7 +4052,11 @@ function awsCoveragePlanFilterValue(state: string): string {
 }
 
 function awsCoveragePlanStage(state: string): AWSCapabilityStage {
-  return state === 'covered' ? 'wired' : state === 'disabled' || state === 'unsupported' ? 'not-available' : 'coming';
+  return state === 'covered'
+    ? 'wired'
+    : state === 'disabled' || state === 'unsupported' || state === 'suspended'
+      ? 'not-available'
+      : 'coming';
 }
 
 function hasAWSCoverageObservedAt(value?: string): boolean {
@@ -4078,6 +4091,107 @@ function awsCoveragePlanTargetDetail(target: AWSCoveragePlanTarget): string {
     details.push(`${target.attempts} ${target.attempts === 1 ? 'attempt' : 'attempts'}`);
   }
   return details.join(' · ');
+}
+
+function awsAccountRegionCoverageDetail(record: AWSAccountRegionCoverageRecord): string {
+  const details: string[] = [];
+  if (record.failure_reason) {
+    details.push(record.failure_reason);
+  }
+  if (record.checkpoint || record.cursor) {
+    details.push(`Checkpoint ${record.checkpoint ?? record.cursor}`);
+  }
+  if (record.attempts) {
+    details.push(`${record.attempts} ${record.attempts === 1 ? 'attempt' : 'attempts'}`);
+  }
+  if (record.evidence_ref) {
+    details.push(record.evidence_ref);
+  }
+  if (hasAWSCoverageObservedAt(record.observed_at)) {
+    details.push(`Observed ${formatConnectionTime(record.observed_at)}`);
+  }
+  if (details.length === 0) {
+    details.push(record.next_action);
+  } else {
+    details.push(record.next_action);
+  }
+  return details.join(' · ');
+}
+
+function awsAccountRegionCoverageFilterValue(status: string): string {
+  switch (status) {
+    case 'covered':
+      return 'covered';
+    case 'disabled':
+    case 'suspended':
+      return 'disabled';
+    case 'missing':
+    case 'unreachable':
+      return 'missing';
+    case 'degraded':
+    case 'permission_denied':
+    case 'stale':
+      return 'degraded';
+    default:
+      return awsCoveragePlanFilterValue(status);
+  }
+}
+
+function buildAWSAccountRegionCoverageRows(
+  coverage: AWSAccountRegionCoverageResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryCoverageRow[] {
+  if (coverage?.records.length) {
+    return coverage.records.map((record) => {
+      const filterValue = awsAccountRegionCoverageFilterValue(record.coverage_status);
+      const accountFilter = connection?.account_id && record.account_id === connection.account_id ? 'connected,planned' : 'planned';
+      const regionFilter =
+        connection?.region && record.region.toLowerCase() === connection.region.toLowerCase() ? 'current' : 'uncovered';
+      return {
+        id: record.key,
+        category: `${record.account_name || record.account_id} / ${record.region} / ${formatTokenLabel(record.service)}`,
+        coverage: record.coverage_status,
+        source: record.collector ? formatTokenLabel(record.collector) : record.evidence_ref,
+        status: record.state,
+        detail: awsAccountRegionCoverageDetail(record),
+        filters: {
+          account: accountFilter,
+          region: regionFilter,
+          coverage: `${filterValue},${record.coverage_status},${record.state}`,
+          search: ''
+        },
+        searchText: inventorySearchText([
+          record.account_id,
+          record.account_name,
+          record.region,
+          record.service,
+          record.service_name,
+          record.collector,
+          record.state,
+          record.coverage_status,
+          record.failure_reason,
+          record.next_action,
+          record.evidence_ref
+        ])
+      };
+    });
+  }
+  if (loading) {
+    return [
+      {
+        id: 'account-region-coverage-loading',
+        category: 'Coverage API',
+        coverage: 'planned',
+        source: 'AWS account-region coverage API',
+        status: 'loading',
+        detail: 'Loading public coverage records.',
+        filters: { account: 'planned', region: 'uncovered', coverage: 'planned', search: '' },
+        searchText: inventorySearchText(['coverage api loading'])
+      }
+    ];
+  }
+  return [];
 }
 
 function buildAWSCoveragePlanRows(
@@ -4442,6 +4556,7 @@ function AWSAccountsInventoryContent({
   connection,
   connectPath,
   coveragePlanState,
+  accountRegionCoverageState,
   fanOutExecutionState,
   organizationsTopologyState,
   filters,
@@ -4450,6 +4565,7 @@ function AWSAccountsInventoryContent({
   connection: AWSConnectionStatus | null;
   connectPath: string;
   coveragePlanState: AWSInventoryCoveragePlanState;
+  accountRegionCoverageState: AWSInventoryAccountRegionCoverageState;
   fanOutExecutionState: AWSInventoryFanOutExecutionState;
   organizationsTopologyState: AWSInventoryOrganizationsTopologyState;
   filters: AWSInventoryFilterState;
@@ -4458,9 +4574,11 @@ function AWSAccountsInventoryContent({
   const accountCoverage = awsCoverageState(connection);
   const hasHealthyCoverage = accountCoverage === 'covered';
   const plan = coveragePlanState.plan;
+  const coverageAPI = accountRegionCoverageState.coverage;
   const execution = fanOutExecutionState.execution;
   const topology = organizationsTopologyState.topology;
   const rows = buildAWSCoveragePlanRows(plan, coveragePlanState.loading, connection);
+  const coverageAPIRows = buildAWSAccountRegionCoverageRows(coverageAPI, accountRegionCoverageState.loading, connection);
   const topologyRows = buildAWSOrganizationsTopologyRows(topology, organizationsTopologyState.loading, connection);
   const passedChecks = connection?.permission_checks.filter((check) => check.passed).length ?? 0;
   const totalChecks = connection?.permission_checks.length ?? 0;
@@ -4475,6 +4593,7 @@ function AWSAccountsInventoryContent({
       ? 1
       : 0;
   const displayedRows = filterAWSInventoryRows(rows, filters);
+  const displayedCoverageAPIRows = filterAWSInventoryRows(coverageAPIRows, filters);
   const displayedTopologyRows = filterAWSInventoryRows(topologyRows, filters);
   const partialFailureReports = dedupeAWSPartialFailureReports([
     ...(execution?.partial_failure_reports ?? []),
@@ -4485,6 +4604,7 @@ function AWSAccountsInventoryContent({
     <>
       <AWSInventoryFilterSet routeID="accounts" filters={filters} onChange={onFiltersChange} />
       {coveragePlanState.loading ? <DomainLoadingState label="Loading account and region coverage plan" /> : null}
+      {accountRegionCoverageState.loading ? <DomainLoadingState label="Loading account and region coverage API" /> : null}
       {fanOutExecutionState.loading ? <DomainLoadingState label="Loading fan-out execution state" /> : null}
       {organizationsTopologyState.loading ? <DomainLoadingState label="Loading AWS Organizations topology" /> : null}
       {coveragePlanState.error ? (
@@ -4492,6 +4612,13 @@ function AWSAccountsInventoryContent({
           title="Coverage plan could not load"
           body={coveragePlanState.error}
           retryAction={{ label: 'Retry coverage plan', onClick: coveragePlanState.onRetry }}
+        />
+      ) : null}
+      {accountRegionCoverageState.error ? (
+        <DomainErrorState
+          title="Coverage API could not load"
+          body={accountRegionCoverageState.error}
+          retryAction={{ label: 'Retry coverage API', onClick: accountRegionCoverageState.onRetry }}
         />
       ) : null}
       {fanOutExecutionState.error ? (
@@ -4519,6 +4646,52 @@ function AWSAccountsInventoryContent({
         />
         <DomainCoverageCard label="Permission evidence" scanned={passedChecks} total={Math.max(totalChecks, 1)} detail="Read-only validation" />
       </section>
+      {coverageAPI ? (
+        <DomainStatusPanel
+          eyebrow="Coverage API"
+          title="Public account and region coverage records"
+          status={formatTokenLabel(coverageAPI.status)}
+          tone={coverageAPI.status === 'blocked' ? 'danger' : coverageAPI.status === 'degraded' ? 'warning' : 'success'}
+        >
+          <section className="idt-aws-inventory-coverage" aria-label="AWS account and region coverage API summary">
+            <DomainCoverageCard
+              label="Covered records"
+              scanned={coverageAPI.summary.covered_records}
+              total={Math.max(coverageAPI.summary.total_records, 1)}
+              detail={`${coverageAPI.summary.account_count} accounts`}
+            />
+            <DomainCoverageCard
+              label="Missing records"
+              scanned={coverageAPI.summary.missing_records}
+              total={Math.max(coverageAPI.summary.total_records, 1)}
+              detail={`${coverageAPI.summary.retryable_records} retryable`}
+            />
+            <DomainCoverageCard
+              label="Degraded records"
+              scanned={coverageAPI.summary.degraded_records + coverageAPI.summary.permission_denied_records}
+              total={Math.max(coverageAPI.summary.total_records, 1)}
+              detail={`${coverageAPI.summary.unreachable_records} unreachable`}
+            />
+            <DomainCoverageCard
+              label="Stale records"
+              scanned={coverageAPI.summary.stale_records}
+              total={Math.max(coverageAPI.summary.total_records, 1)}
+              detail={`${coverageAPI.summary.disabled_records + coverageAPI.summary.suspended_records} disabled or suspended`}
+            />
+          </section>
+          <DomainDataTable
+            label="AWS account-region coverage API records"
+            rows={displayedCoverageAPIRows}
+            getRowKey={(row) => row.id}
+            columns={[
+              { key: 'category', header: 'Coverage scope', render: (row) => <strong>{row.category}</strong> },
+              { key: 'coverage', header: 'Status', render: (row) => <AWSInventoryPill stage={awsCoveragePlanStage(row.coverage)} label={formatTokenLabel(row.coverage)} /> },
+              { key: 'source', header: 'Collector', render: (row) => row.source },
+              { key: 'detail', header: 'Evidence / action', render: (row) => row.detail }
+            ]}
+          />
+        </DomainStatusPanel>
+      ) : null}
       {execution ? (
         <DomainStatusPanel
           eyebrow="Fan-out worker"
@@ -7278,6 +7451,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [coveragePlanLoading, setCoveragePlanLoading] = useState(false);
   const [coveragePlanError, setCoveragePlanError] = useState('');
   const coveragePlanRequestRef = useRef(0);
+  const [accountRegionCoverage, setAccountRegionCoverage] = useState<AWSAccountRegionCoverageResult | null>(null);
+  const [accountRegionCoverageLoading, setAccountRegionCoverageLoading] = useState(false);
+  const [accountRegionCoverageError, setAccountRegionCoverageError] = useState('');
+  const accountRegionCoverageRequestRef = useRef(0);
   const [fanOutExecution, setFanOutExecution] = useState<AWSFanOutExecutionResult | null>(null);
   const [fanOutExecutionLoading, setFanOutExecutionLoading] = useState(false);
   const [fanOutExecutionError, setFanOutExecutionError] = useState('');
@@ -7950,6 +8127,58 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     };
   }, [loadCoveragePlan]);
 
+  const loadAccountRegionCoverage = useCallback(async () => {
+    const requestID = ++accountRegionCoverageRequestRef.current;
+    setAccountRegionCoverage(null);
+    setAccountRegionCoverageError('');
+    if (routeID !== 'accounts' || !scope || !selectedEnvironmentID || !connection?.connector_id) {
+      setAccountRegionCoverageLoading(false);
+      return;
+    }
+    setAccountRegionCoverageLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectAccountRegionCoverage(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== accountRegionCoverageRequestRef.current) {
+        return;
+      }
+      setAccountRegionCoverage(response.coverage);
+    } catch (error) {
+      if (requestID !== accountRegionCoverageRequestRef.current) {
+        return;
+      }
+      setAccountRegionCoverageError(formatAPIError(error, 'Unable to load account and region coverage API.'));
+    } finally {
+      if (requestID === accountRegionCoverageRequestRef.current) {
+        setAccountRegionCoverageLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id,
+    connection?.account_id,
+    connection?.region,
+    connection?.status,
+    connection?.health_status,
+  ]);
+
+  useEffect(() => {
+    void loadAccountRegionCoverage();
+    return () => {
+      accountRegionCoverageRequestRef.current += 1;
+    };
+  }, [loadAccountRegionCoverage]);
+
   const loadFanOutExecution = useCallback(async () => {
     const requestID = ++fanOutExecutionRequestRef.current;
     setFanOutExecution(null);
@@ -8129,6 +8358,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: coveragePlanLoading,
             error: coveragePlanError,
             onRetry: () => void loadCoveragePlan()
+          }}
+          accountRegionCoverageState={{
+            coverage: accountRegionCoverage,
+            loading: accountRegionCoverageLoading,
+            error: accountRegionCoverageError,
+            onRetry: () => void loadAccountRegionCoverage()
           }}
           fanOutExecutionState={{
             execution: fanOutExecution,

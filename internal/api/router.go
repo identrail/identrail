@@ -2985,6 +2985,42 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"plan": record})
 	})
 
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/account-region-coverage", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetAWSAccountRegionCoverage(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSAccountRegionCoverageRequest{
+			ConnectorID:  strings.TrimSpace(c.Query("connector_id")),
+			FixtureState: strings.TrimSpace(c.Query("fixture_state")),
+			Account:      strings.TrimSpace(c.Query("account")),
+			Region:       strings.TrimSpace(c.Query("region")),
+			Service:      strings.TrimSpace(c.Query("service")),
+			Collector:    strings.TrimSpace(c.Query("collector")),
+			State:        strings.TrimSpace(c.Query("state")),
+			Status:       strings.TrimSpace(c.Query("status")),
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project or connector not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws account-region coverage request"})
+			default:
+				if logger != nil {
+					logger.Error("get aws account-region coverage",
+						zap.String("workspace_id", c.Param("workspace_id")),
+						zap.String("project_id", c.Param("project_id")),
+						telemetry.ZapError(err),
+					)
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws account-region coverage"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"coverage": record})
+	})
+
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/fanout-execution", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)

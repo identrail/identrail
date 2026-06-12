@@ -2812,6 +2812,79 @@ export type AWSCoveragePlanResult = {
   updated_at: string;
 };
 
+export type AWSAccountRegionCoverageStatus = 'covered' | 'missing' | 'degraded' | 'unreachable' | 'suspended' | 'disabled' | 'stale' | 'permission_denied';
+
+export type AWSAccountRegionCoverageRecord = {
+  key: string;
+  account_id: string;
+  account_name?: string;
+  region: string;
+  region_name?: string;
+  service: string;
+  service_name?: string;
+  collector?: string;
+  global: boolean;
+  enabled: boolean;
+  state: AWSCoverageState;
+  coverage_status: AWSAccountRegionCoverageStatus;
+  cursor?: string;
+  checkpoint?: string;
+  attempts?: number;
+  failure_reason?: string;
+  retryable: boolean;
+  stale: boolean;
+  evidence_ref: string;
+  next_action: string;
+  observed_at?: string;
+  updated_at: string;
+};
+
+export type AWSAccountRegionCoverageSummary = {
+  total_records: number;
+  filtered_records: number;
+  account_count: number;
+  region_count: number;
+  service_count: number;
+  covered_records: number;
+  missing_records: number;
+  degraded_records: number;
+  unreachable_records: number;
+  suspended_records: number;
+  disabled_records: number;
+  stale_records: number;
+  permission_denied_records: number;
+  retryable_records: number;
+  status_counts: Record<string, number>;
+  state_counts: Record<string, number>;
+  collector_counts: Record<string, number>;
+};
+
+export type AWSAccountRegionCoverageResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSCoveragePlanStatus;
+  fixture_state?: AWSCoveragePlanFixtureState;
+  confidence: number;
+  summary: AWSAccountRegionCoverageSummary;
+  records: AWSAccountRegionCoverageRecord[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSCoveragePlanCoverageGap[];
+  diagnostics: AWSCoveragePlanDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSFanOutExecutionTarget = {
   key: string;
   account_id: string;
@@ -4727,6 +4800,28 @@ export const apiClient = {
         region: filters?.region,
         service: filters?.service,
         state: filters?.state
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectAccountRegionCoverage(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSCoveragePlanFixtureState,
+    filters?: { account?: string; region?: string; service?: string; collector?: string; state?: AWSCoverageState; status?: AWSAccountRegionCoverageStatus },
+    auth?: RequestAuthContext
+  ) {
+    return request<{ coverage: AWSAccountRegionCoverageResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/account-region-coverage${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState,
+        account: filters?.account,
+        region: filters?.region,
+        service: filters?.service,
+        collector: filters?.collector,
+        state: filters?.state,
+        status: filters?.status
       })}`,
       auth
     );
