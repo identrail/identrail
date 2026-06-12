@@ -450,6 +450,45 @@ func TestGetAWSAccountRegionCoveragePublicStatuses(t *testing.T) {
 	}
 }
 
+func TestGetAWSAccountRegionCoverageMarksGlobalStaleCursors(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 12, 14, 15, 0, 0, time.UTC)
+	old := now.Add(-awsCoverageScanCursorTTL - time.Minute)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	seedAWSCoverageCursorRow(t, store, ctx, "project-a", "aws-prod", db.AWSAccountRegionCoverage{
+		AccountID:      "123456789012",
+		AccountAlias:   "Production",
+		Region:         "eu-west-1",
+		CoverageStatus: db.AWSAccountRegionCoveragePending,
+		ScanCursor: map[string]any{"services": map[string]any{
+			"iam": map[string]any{
+				"collector":   "iam_roles",
+				"state":       "in_progress",
+				"cursor":      "iam-stale",
+				"observed_at": old.Format(time.RFC3339Nano),
+			},
+		}},
+		UpdatedAt: now,
+	})
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	result, err := svc.GetAWSAccountRegionCoverage(ctx, "default", "project-a", AWSAccountRegionCoverageRequest{ConnectorID: "aws-prod", Status: "stale"})
+	if err != nil {
+		t.Fatalf("get stale account-region coverage: %v", err)
+	}
+	if len(result.Records) != 1 {
+		t.Fatalf("expected one stale global record, got %+v", result.Records)
+	}
+	record := result.Records[0]
+	if record.Service != "iam" || !record.Stale || record.CoverageStatus != "stale" {
+		t.Fatalf("expected global iam cursor to remain stale, got %+v", record)
+	}
+}
+
 func TestGetAWSCoveragePlanNeverLeaksValues(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()
