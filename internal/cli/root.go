@@ -650,6 +650,10 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 			if err != nil {
 				return app.Scanner{}, fmt.Errorf("initialize aws secrets manager metadata collector: %w", err)
 			}
+			agentCoreAPI, err := awsprovider.NewSDKAgentCoreRuntimeAPI(cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if err != nil {
+				return app.Scanner{}, fmt.Errorf("initialize aws agentcore runtime collector: %w", err)
+			}
 			ssmAPI, err := awsprovider.NewSDKSSMParameterMetadataAPI(cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
 			if err != nil {
 				return app.Scanner{}, fmt.Errorf("initialize aws ssm parameter metadata collector: %w", err)
@@ -674,6 +678,7 @@ func buildScannerForProvider(cfg config.Config, fixtures []string, staleAfterDay
 				awsprovider.NewKMSDecryptReachabilityCollector(kmsAPI),
 				awsprovider.NewSQSSNSReachabilityCollector(sqsSNSAPI),
 				awsprovider.NewSecretsManagerMetadataCollector(secretsAPI),
+				awsprovider.NewAIAgentIdentityCollector(agentCoreAPI),
 				awsprovider.NewSSMParameterMetadataCollector(ssmAPI),
 				awsprovider.NewECRRepositoryMetadataCollector(ecrAPI),
 			}, awsprovider.NewRuleSet(

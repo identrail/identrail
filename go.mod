@@ -67,6 +67,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.29 // indirect
 	github.com/aws/aws-sdk-go-v2/service/bedrock v1.64.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.54.6 // indirect
+	github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.44.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.12 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.21 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.12.6 // indirect

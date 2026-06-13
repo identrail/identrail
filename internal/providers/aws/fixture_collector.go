@@ -101,6 +101,15 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	var aiAgentIdentity AIAgentIdentity
+	if err := json.Unmarshal(payload, &aiAgentIdentity); err == nil {
+		if isAIAgentIdentityFixture(aiAgentIdentity) {
+			if sourceID := strings.TrimSpace(aiAgentIdentitySourceID(aiAgentIdentity)); sourceID != "" {
+				return rawKindAIAgentIdentity, sourceID
+			}
+		}
+	}
+
 	var eksIdentity EKSWorkloadIdentity
 	if err := json.Unmarshal(payload, &eksIdentity); err == nil {
 		sourceID := eksWorkloadIdentitySourceID(eksIdentity)
@@ -253,6 +262,20 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 	}
 
 	return "", ""
+}
+
+func isAIAgentIdentityFixture(record AIAgentIdentity) bool {
+	if strings.TrimSpace(record.AgentType) == "" {
+		return false
+	}
+	if strings.TrimSpace(record.AgentID) == "" &&
+		strings.TrimSpace(record.AgentARN) == "" &&
+		strings.TrimSpace(record.GatewayID) == "" &&
+		strings.TrimSpace(record.GatewayARN) == "" &&
+		strings.TrimSpace(record.WorkloadID) == "" {
+		return false
+	}
+	return true
 }
 
 func isECRRepositoryMetadataFixture(record ECRRepositoryMetadata) bool {

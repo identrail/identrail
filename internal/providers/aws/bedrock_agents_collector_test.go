@@ -164,6 +164,34 @@ func TestBedrockAgentsCollectorMetadataOnlyPayload(t *testing.T) {
 	}
 }
 
+func TestBedrockAgentsCollectorDefaultsScopeFieldsOnCollect(t *testing.T) {
+	api := &fakeBedrockAgentsAPI{
+		pages: []BedrockAgentsPage{{
+			Agents: []BedrockAgentSummary{
+				{AgentID: "AG1", AgentARN: "arn:aws:bedrock:us-east-1:123456789012:agent/AG1", AgentName: "agent", RoleARN: "arn:aws:iam::123456789012:role/r"},
+			},
+		}},
+		details: map[string]BedrockAgentDetail{"AG1": {}},
+	}
+	collector := NewBedrockAgentsCollector(api)
+	assets, err := collector.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if len(assets) != 1 {
+		t.Fatalf("expected one asset, got %d", len(assets))
+	}
+	var record AIAgentIdentity
+	if err := json.Unmarshal(assets[0].Payload, &record); err != nil {
+		t.Fatalf("unmarshal asset: %v", err)
+	}
+	if record.TenantID != "tenant" || record.WorkspaceID != "workspace" || record.ProjectID != "project" {
+		t.Fatalf("expected default tenant/workspace/project scope, got %+v", record.ServiceCollectorRecord)
+	}
+	if record.ConnectorID != "aws-connector" || record.ScanID != "aws-ai-agent-identity-fixture" {
+		t.Fatalf("expected default connector/scan scope, got %+v", record.ServiceCollectorRecord)
+	}
+}
 func TestBedrockAgentsCollectorPartialFailureWhenDetailFails(t *testing.T) {
 	api := &fakeBedrockAgentsAPI{
 		pages: []BedrockAgentsPage{{

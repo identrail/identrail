@@ -51,6 +51,28 @@ func (b *RelationshipBuilder) ResolveRelationships(ctx context.Context, bundle p
 		identityIDs[identity.ID] = struct{}{}
 	}
 
+	for _, agent := range bundle.Agents {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		identityID := strings.TrimSpace(agent.OwnerID)
+		if identityID == "" {
+			continue
+		}
+		if _, exists := identityIDs[identityID]; !exists {
+			continue
+		}
+		relationship := domain.Relationship{
+			ID:           relationshipID(domain.RelationshipRunsAs, agent.ID, identityID),
+			Type:         domain.RelationshipRunsAs,
+			FromNodeID:   agent.ID,
+			ToNodeID:     identityID,
+			EvidenceRef:  agent.RawRef,
+			DiscoveredAt: timestamp,
+		}
+		appendRelationship(&relationships, seen, relationship)
+	}
+
 	for _, workload := range bundle.Workloads {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -80,6 +102,17 @@ func (b *RelationshipBuilder) ResolveRelationships(ctx context.Context, bundle p
 	for _, resource := range bundle.Resources {
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		if resource.Type == domain.ResourceTypeBedrockAgentCore && strings.TrimSpace(resource.SourceEntityID) != "" {
+			relationship := domain.Relationship{
+				ID:           relationshipID(domain.RelationshipInvokes, resource.SourceEntityID, resource.ID),
+				Type:         domain.RelationshipInvokes,
+				FromNodeID:   resource.SourceEntityID,
+				ToNodeID:     resource.ID,
+				EvidenceRef:  resource.RawRef,
+				DiscoveredAt: timestamp,
+			}
+			appendRelationship(&relationships, seen, relationship)
 		}
 		refs := parseStringList(resource.Metadata["secret_refs"])
 		for _, ref := range refs {

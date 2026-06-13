@@ -7096,9 +7096,13 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
   const degraded = record.status !== 'ready' || record.coverage_status === 'degraded' || Boolean(record.coverage_reason);
   const status = stage === 'not-available' ? 'not yet available' : degraded ? 'degraded' : 'role anchor';
   const roleLabel = record.runtime_role_name || record.runtime_role_arn || 'runtime role unresolved';
+  const runtimeLabel = record.runtime_version || 'runtime version not reported';
   const toolLabel = record.tool_names?.length ? `${record.tool_names.length} tools` : 'no tools reported';
   const capabilityLabel = record.capability_names?.length ? `${record.capability_names.join(', ')} capabilities` : 'capabilities not reported';
   const credentialLabel = record.credential_reference_refs?.length ? `${record.credential_reference_refs.length} credential refs, values hidden` : 'no credential refs reported';
+  const endpointLabel = record.execution_endpoint_names?.length ? `${record.execution_endpoint_names.length} execution endpoints` : 'no execution endpoints reported';
+  const protocolLabel = record.server_protocol || 'protocol not reported';
+  const networkLabel = record.network_mode || 'network mode not reported';
   const surface = awsAIAgentSurfaceFilter(record);
   const relationships = new Set<string>(['agent-to-role']);
   if (record.tool_names?.length || record.gateway_arn) {
@@ -7107,6 +7111,9 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
   if (record.credential_reference_refs?.length) {
     relationships.add('agent-to-secret');
   }
+  if (record.execution_endpoint_arns?.length) {
+    relationships.add('agent-to-endpoint');
+  }
   return {
     id: `ai-agent-identity-${record.agent_node_id || record.agent_id}`,
     name: record.agent_name || record.agent_id,
@@ -7114,7 +7121,7 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
     stage,
-    detail: `${record.provider || 'provider not reported'} ${record.model_id || 'model not reported'}; runs as ${roleLabel}; ${toolLabel}; ${capabilityLabel}; ${credentialLabel}.`,
+    detail: `${record.provider || 'provider not reported'} ${record.model_id || 'model not reported'}; runs as ${roleLabel}; ${runtimeLabel}; ${toolLabel}; ${endpointLabel}; ${networkLabel}; ${protocolLabel}; ${capabilityLabel}; ${credentialLabel}.`,
     filters: {
       surface,
       relationship: Array.from(relationships).join(','),
@@ -7130,12 +7137,18 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
       record.model_id,
       record.runtime_role_arn,
       record.runtime_role_name,
+      record.runtime_version,
       record.gateway_id,
       record.gateway_arn,
       record.external_provider,
       ...(record.tool_names ?? []),
+      ...(record.execution_endpoint_names ?? []),
+      ...(record.execution_endpoint_arns ?? []),
+      ...(record.observability_links ?? []),
       ...(record.capability_names ?? []),
       ...(record.credential_reference_refs ?? []),
+      record.network_mode,
+      record.server_protocol,
       record.account_id,
       record.region,
       'ai agent identity metadata only values hidden'

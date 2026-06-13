@@ -70,41 +70,50 @@ type AWSAIAgentIdentityInventoryResult struct {
 }
 
 type AWSAIAgentIdentityRecord struct {
-	AccountID               string            `json:"account_id"`
-	Region                  string            `json:"region"`
-	Service                 string            `json:"service"`
-	AgentID                 string            `json:"agent_id"`
-	AgentARN                string            `json:"agent_arn,omitempty"`
-	AgentName               string            `json:"agent_name"`
-	AgentType               string            `json:"agent_type"`
-	Provider                string            `json:"provider,omitempty"`
-	ModelID                 string            `json:"model_id,omitempty"`
-	RuntimeRoleARN          string            `json:"runtime_role_arn,omitempty"`
-	RuntimeRoleName         string            `json:"runtime_role_name,omitempty"`
-	RuntimeRoleAccountID    string            `json:"runtime_role_account_id,omitempty"`
-	GatewayID               string            `json:"gateway_id,omitempty"`
-	GatewayARN              string            `json:"gateway_arn,omitempty"`
-	ExternalProvider        string            `json:"external_provider,omitempty"`
-	ToolNames               []string          `json:"tool_names,omitempty"`
-	MemoryEnabled           bool              `json:"memory_enabled"`
-	MemoryStoreRefs         []string          `json:"memory_store_refs,omitempty"`
-	BrowserEnabled          bool              `json:"browser_enabled"`
-	CodeInterpreterEnabled  bool              `json:"code_interpreter_enabled"`
-	CapabilityNames         []string          `json:"capability_names,omitempty"`
-	CredentialReferenceRefs []string          `json:"credential_reference_refs,omitempty"`
-	SensitiveBoundary       string            `json:"sensitive_boundary"`
-	CoverageStatus          string            `json:"coverage_status"`
-	CoverageReason          string            `json:"coverage_reason,omitempty"`
-	Source                  string            `json:"source"`
-	EvidenceRef             string            `json:"evidence_ref"`
-	AgentNodeID             string            `json:"agent_node_id"`
-	RuntimeRoleNodeID       string            `json:"runtime_role_node_id,omitempty"`
-	GatewayNodeID           string            `json:"gateway_node_id,omitempty"`
-	RelationshipTypes       []string          `json:"relationship_types"`
-	Confidence              float64           `json:"confidence"`
-	CollectedAt             time.Time         `json:"collected_at"`
-	Status                  string            `json:"status"`
-	Tags                    map[string]string `json:"tags,omitempty"`
+	AccountID                 string            `json:"account_id"`
+	Region                    string            `json:"region"`
+	Service                   string            `json:"service"`
+	AgentID                   string            `json:"agent_id"`
+	AgentARN                  string            `json:"agent_arn,omitempty"`
+	AgentName                 string            `json:"agent_name"`
+	AgentType                 string            `json:"agent_type"`
+	RuntimeVersion            string            `json:"runtime_version,omitempty"`
+	Provider                  string            `json:"provider,omitempty"`
+	ModelID                   string            `json:"model_id,omitempty"`
+	RuntimeRoleARN            string            `json:"runtime_role_arn,omitempty"`
+	RuntimeRoleName           string            `json:"runtime_role_name,omitempty"`
+	RuntimeRoleAccountID      string            `json:"runtime_role_account_id,omitempty"`
+	WorkloadIdentityARN       string            `json:"workload_identity_arn,omitempty"`
+	GatewayID                 string            `json:"gateway_id,omitempty"`
+	GatewayARN                string            `json:"gateway_arn,omitempty"`
+	ExternalProvider          string            `json:"external_provider,omitempty"`
+	ToolNames                 []string          `json:"tool_names,omitempty"`
+	MemoryEnabled             bool              `json:"memory_enabled"`
+	MemoryStoreRefs           []string          `json:"memory_store_refs,omitempty"`
+	BrowserEnabled            bool              `json:"browser_enabled"`
+	CodeInterpreterEnabled    bool              `json:"code_interpreter_enabled"`
+	CapabilityNames           []string          `json:"capability_names,omitempty"`
+	CredentialReferenceRefs   []string          `json:"credential_reference_refs,omitempty"`
+	ResourceReferenceRefs     []string          `json:"resource_reference_refs,omitempty"`
+	ExecutionEndpointARNs     []string          `json:"execution_endpoint_arns,omitempty"`
+	ExecutionEndpointNames    []string          `json:"execution_endpoint_names,omitempty"`
+	ExecutionEndpointStatuses []string          `json:"execution_endpoint_statuses,omitempty"`
+	ObservabilityLinks        []string          `json:"observability_links,omitempty"`
+	NetworkMode               string            `json:"network_mode,omitempty"`
+	ServerProtocol            string            `json:"server_protocol,omitempty"`
+	SensitiveBoundary         string            `json:"sensitive_boundary"`
+	CoverageStatus            string            `json:"coverage_status"`
+	CoverageReason            string            `json:"coverage_reason,omitempty"`
+	Source                    string            `json:"source"`
+	EvidenceRef               string            `json:"evidence_ref"`
+	AgentNodeID               string            `json:"agent_node_id"`
+	RuntimeRoleNodeID         string            `json:"runtime_role_node_id,omitempty"`
+	GatewayNodeID             string            `json:"gateway_node_id,omitempty"`
+	RelationshipTypes         []string          `json:"relationship_types"`
+	Confidence                float64           `json:"confidence"`
+	CollectedAt               time.Time         `json:"collected_at"`
+	Status                    string            `json:"status"`
+	Tags                      map[string]string `json:"tags,omitempty"`
 }
 
 type AWSAIAgentIdentityRelation struct {
@@ -248,6 +257,21 @@ func emptyStrings(values []string) []string {
 	return values
 }
 
+func normalizeOrderedStringList(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
 func normalizeAWSAIAgentIdentityFixtureState(requested string, connection AWSConnectionStatus, hasConnection bool) string {
 	switch strings.ToLower(strings.TrimSpace(requested)) {
 	case "":
@@ -293,8 +317,23 @@ func awsAIAgentIdentityFixtureRecords(accountID string, region string, fixtureSt
 		awsAIAgentFixtureRecord(accountID, region, "agentcore_runtime", "case-triage-runtime", "runtime-case-triage", agentARN("bedrock-agentcore", "runtime-case-triage"), role("agentcore-case-triage-runtime"), checkedAt, func(r *AWSAIAgentIdentityRecord) {
 			r.Service = "agentcore"
 			r.Provider = "amazon-bedrock-agentcore"
+			r.RuntimeVersion = "2026-06-01"
 			r.ModelID = "us.amazon.nova-pro-v1:0"
 			r.ToolNames = []string{"case-router", "policy-checker"}
+			r.WorkloadIdentityARN = fmt.Sprintf("arn:%s:bedrock-agentcore:%s:%s:workload-identity/runtime-case-triage", partition, region, accountID)
+			r.ExecutionEndpointARNs = []string{
+				fmt.Sprintf("arn:%s:bedrock-agentcore:%s:%s:agent-runtime-endpoint/runtime-case-triage/blue", partition, region, accountID),
+				fmt.Sprintf("arn:%s:bedrock-agentcore:%s:%s:agent-runtime-endpoint/runtime-case-triage/green", partition, region, accountID),
+			}
+			r.ExecutionEndpointNames = []string{"blue", "green"}
+			r.ExecutionEndpointStatuses = []string{"READY", "READY"}
+			r.ObservabilityLinks = []string{
+				fmt.Sprintf("observability://agentcore/runtime/%s", "runtime-case-triage"),
+				fmt.Sprintf("observability://agentcore/runtime/%s/endpoints/blue", "runtime-case-triage"),
+				fmt.Sprintf("observability://agentcore/runtime/%s/endpoints/green", "runtime-case-triage"),
+			}
+			r.NetworkMode = "VPC"
+			r.ServerProtocol = "HTTP"
 			r.BrowserEnabled = true
 			r.CodeInterpreterEnabled = true
 			r.CapabilityNames = []string{"browser", "code_interpreter", "tool_use"}
@@ -378,7 +417,7 @@ func awsAIAgentFixtureRecord(accountID string, region string, agentType string, 
 		CoverageStatus:          "covered",
 		Source:                  "ai_agent_metadata",
 		EvidenceRef:             agentARN,
-		AgentNodeID:             awsAIAgentNodeID(accountID, region, agentType, agentID),
+		AgentNodeID:             awsAIAgentNodeID(accountID, region, agentType, agentID, ""),
 		RuntimeRoleNodeID:       awsIdentityNodeIDForAPI(roleARN),
 		RelationshipTypes:       []string{"runs_as"},
 		Confidence:              0.9,
@@ -393,14 +432,24 @@ func awsAIAgentFixtureRecord(accountID string, region string, agentType string, 
 	if mutate != nil {
 		mutate(&record)
 	}
+	record.AgentNodeID = awsAIAgentNodeID(accountID, region, agentType, firstNonEmptyAWSValue(record.AgentID, agentID), record.RuntimeVersion)
+	record.RuntimeRoleNodeID = awsIdentityNodeIDForAPI(roleARN)
 	record.ToolNames = dedupeStrings(record.ToolNames)
 	record.CapabilityNames = dedupeStrings(record.CapabilityNames)
 	record.CredentialReferenceRefs = dedupeStrings(record.CredentialReferenceRefs)
+	record.ExecutionEndpointARNs = normalizeOrderedStringList(record.ExecutionEndpointARNs)
+	record.ExecutionEndpointNames = normalizeOrderedStringList(record.ExecutionEndpointNames)
+	record.ExecutionEndpointStatuses = normalizeOrderedStringList(record.ExecutionEndpointStatuses)
+	record.ObservabilityLinks = normalizeOrderedStringList(record.ObservabilityLinks)
+	record.ResourceReferenceRefs = dedupeStrings(append(record.ResourceReferenceRefs, append(append([]string{}, record.ExecutionEndpointARNs...), record.WorkloadIdentityARN)...))
 	if len(record.CredentialReferenceRefs) > 0 {
 		record.RelationshipTypes = dedupeStrings(append(record.RelationshipTypes, "uses_secret"))
 	}
+	if len(record.ExecutionEndpointARNs) > 0 {
+		record.RelationshipTypes = dedupeStrings(append(record.RelationshipTypes, "invokes"))
+	}
 	if record.GatewayARN != "" {
-		gatewayNodeID := awsAIAgentNodeID(accountID, region, "agent_gateway", firstNonEmptyAWSValue(record.GatewayID, record.GatewayARN))
+		gatewayNodeID := awsAIAgentNodeID(accountID, region, "agent_gateway", firstNonEmptyAWSValue(record.GatewayID, record.GatewayARN), "")
 		if record.AgentNodeID != gatewayNodeID {
 			record.GatewayNodeID = gatewayNodeID
 			record.RelationshipTypes = dedupeStrings(append(record.RelationshipTypes, "calls_tool"))
@@ -414,7 +463,7 @@ func summarizeAWSAIAgentIdentityInventory(fixtureState string, diagnostics []pro
 	case "permission_denied":
 		return awsPlatformDependencyStatusBlocked, 0.35,
 			[]string{"AI agent identity collection is blocked by missing read-only metadata permission"},
-			[]string{"Grant metadata-only agent, runtime, gateway, and role-list permissions; do not grant prompt, invocation, browser, memory-content, or code-output reads."}
+			[]string{"Grant metadata-only agent, runtime, gateway, and role-list permissions; do not grant prompt, invocation, browser, memory-content, code-output, or endpoint-content reads."}
 	case "degraded":
 		return awsPlatformDependencyStatusDegraded, 0.72,
 			[]string{"one or more agent credential references are unresolved"},
@@ -438,6 +487,17 @@ func awsAIAgentIdentityRelationships(records []AWSAIAgentIdentityRecord) []AWSAI
 	for _, record := range records {
 		if record.AgentNodeID != "" && record.RuntimeRoleNodeID != "" {
 			result = append(result, AWSAIAgentIdentityRelation{Type: "runs_as", FromNodeID: awsAIAgentWorkloadNodeID(record), ToNodeID: record.RuntimeRoleNodeID, EvidenceRef: record.EvidenceRef})
+		}
+		for _, endpointARN := range record.ExecutionEndpointARNs {
+			endpointARN = strings.TrimSpace(endpointARN)
+			if record.AgentNodeID != "" && endpointARN != "" {
+				result = append(result, AWSAIAgentIdentityRelation{
+					Type:        "invokes",
+					FromNodeID:  record.AgentNodeID,
+					ToNodeID:    awsAIAgentExecutionEndpointNodeID(record.AgentNodeID, endpointARN),
+					EvidenceRef: record.EvidenceRef,
+				})
+			}
 		}
 		toolNames := dedupeStrings(record.ToolNames)
 		if record.AgentNodeID != "" && len(toolNames) > 0 {
@@ -481,6 +541,51 @@ func awsAIAgentToolNodeID(gatewayNodeID string, tool string) string {
 		name = "tool"
 	}
 	return awsAIAgentToolNodePrefix + strings.Join(normalizeStringList([]string{workload, name}), "|")
+}
+
+func awsAIAgentExecutionEndpointNodeID(agentNodeID string, endpointARN string) string {
+	workload := strings.TrimSpace(strings.ToLower(agentNodeID))
+	if workload == "" {
+		workload = "agent"
+	}
+	name, source := awsAIAgentResourceReferenceParts(endpointARN)
+	name = strings.TrimSpace(strings.ToLower(name))
+	source = strings.TrimSpace(strings.ToLower(source))
+	return "aws:resource:bedrock-agentcore:" + strings.Join(normalizeStringList([]string{
+		workload,
+		"endpoint",
+		source,
+		name,
+	}), "|")
+}
+
+func awsAIAgentResourceReferenceParts(ref string) (string, string) {
+	trimmed := strings.TrimSpace(ref)
+	if trimmed == "" {
+		return "resource", "unknown"
+	}
+	if idx := strings.Index(trimmed, "="); idx > 0 {
+		name := strings.TrimSpace(trimmed[:idx])
+		source := strings.TrimSpace(trimmed[idx+1:])
+		if source == "" {
+			source = "environment"
+		}
+		return sanitizeAIAgentReferenceToken(name), sanitizeAIAgentReferenceToken(source)
+	}
+	if !strings.Contains(trimmed, ":") && !strings.Contains(trimmed, "/") {
+		return sanitizeAIAgentReferenceToken(trimmed), ""
+	}
+	name := trimmed
+	if lastSlash := strings.LastIndex(trimmed, "/"); lastSlash >= 0 && lastSlash < len(trimmed)-1 {
+		name = trimmed[lastSlash+1:]
+	} else if colonIndex := strings.LastIndex(trimmed, ":"); colonIndex >= 0 && colonIndex < len(trimmed)-1 {
+		name = trimmed[colonIndex+1:]
+	}
+	return sanitizeAIAgentReferenceToken(name), sanitizeAIAgentReferenceToken(trimmed)
+}
+
+func sanitizeAIAgentReferenceToken(value string) string {
+	return strings.ToLower(strings.NewReplacer(" ", "-", "/", "-", ":", "-", "#", "-").Replace(strings.TrimSpace(value)))
 }
 
 func awsCredentialReferenceNodeID(agentNodeID string, ref string) string {
@@ -611,6 +716,8 @@ func awsAIAgentIdentityDiagnosticRemediation(code string) string {
 		return "Grant metadata-only AI agent list/describe permissions; do not add prompt, invoke, memory-content, browser-page, code-output, database-row, object-content, or secret-value reads."
 	case "ai_agent_gateway_list_failed", "ai_agent_gateway_describe_failed", "ai_agent_identity_page_failed":
 		return "Retry only the failed agent metadata call and keep successful normalized agent records visible."
+	case "agentcore_runtime_describe_failed", "agentcore_runtime_endpoint_list_failed", "agentcore_runtime_malformed":
+		return "Retry the failed AgentCore runtime metadata call and keep the surviving runtime records visible."
 	case "ai_agent_credential_reference_unresolved":
 		return "Join to credential-reference metadata for ownership and rotation without exposing provider key values."
 	default:
@@ -618,17 +725,37 @@ func awsAIAgentIdentityDiagnosticRemediation(code string) string {
 	}
 }
 
-func awsAIAgentNodeID(accountID string, region string, agentType string, agentID string) string {
+func awsAIAgentNodeID(accountID string, region string, agentType string, agentID string, runtimeVersion string) string {
+	version := strings.TrimSpace(runtimeVersion)
+	if version != "" {
+		version = normalizeName(version)
+	}
+	suffix := firstNonEmptyAWSValue(agentID, "unknown")
+	if version != "" {
+		suffix = suffix + "/" + version
+	}
 	return fmt.Sprintf("aws:agent:%s:%s:%s/%s",
 		firstNonEmptyAWSValue(accountID, "account"),
 		firstNonEmptyAWSValue(region, "region"),
 		firstNonEmptyAWSValue(agentType, "agent"),
-		firstNonEmptyAWSValue(agentID, "unknown"),
+		suffix,
 	)
+}
+
+func normalizeName(input string) string {
+	trimmed := strings.TrimSpace(strings.ToLower(input))
+	if trimmed == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(" ", "-", "_", "-", "/", "-", ":", "-", "#", "-", ",", "-", ".", "-")
+	return strings.Trim(replacer.Replace(trimmed), "-")
 }
 
 func awsAIAgentWorkloadNodeID(record AWSAIAgentIdentityRecord) string {
 	agentID := firstNonEmptyAWSValue(record.AgentID, record.AgentARN, record.AgentName)
+	if strings.EqualFold(record.AgentType, "agentcore_runtime") && strings.TrimSpace(record.RuntimeVersion) != "" {
+		agentID = agentID + "/" + normalizeName(record.RuntimeVersion)
+	}
 	if strings.TrimSpace(record.AgentNodeID) != "" {
 		if idx := strings.LastIndex(record.AgentNodeID, "/"); idx >= 0 && idx < len(record.AgentNodeID)-1 {
 			agentID = firstNonEmptyAWSValue(agentID, record.AgentNodeID[idx+1:])

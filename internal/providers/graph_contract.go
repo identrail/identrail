@@ -208,8 +208,8 @@ func validateRelationshipEndpoints(
 		}
 		return fmt.Errorf("can_access relationship %q has invalid access node %q", relationship.ID, relationship.ToNodeID)
 	case domain.RelationshipRunsAs:
-		if !hasWorkload(relationship.FromNodeID) {
-			return fmt.Errorf("runs_as relationship %q has unknown workload %q", relationship.ID, relationship.FromNodeID)
+		if !hasWorkload(relationship.FromNodeID) && !hasAgent(relationship.FromNodeID) {
+			return fmt.Errorf("runs_as relationship %q has unknown workload or agent %q", relationship.ID, relationship.FromNodeID)
 		}
 		if !hasIdentity(relationship.ToNodeID) {
 			return fmt.Errorf("runs_as relationship %q has unknown target identity %q", relationship.ID, relationship.ToNodeID)

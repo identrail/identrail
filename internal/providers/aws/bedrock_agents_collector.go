@@ -382,11 +382,11 @@ func buildBedrockAgentIdentity(scope AWSCollectorScope, summary BedrockAgentSumm
 	}
 	record.ToolCount = len(record.ToolNames)
 	record.ServiceCollectorRecord = awscontract.ServiceCollectorRecord{
-		TenantID:      scope.TenantID,
-		WorkspaceID:   scope.WorkspaceID,
-		ProjectID:     scope.ProjectID,
-		ConnectorID:   scope.ConnectorID,
-		ScanID:        scope.ScanID,
+		TenantID:      firstNonEmptyAWSValue(scope.TenantID, "tenant"),
+		WorkspaceID:   firstNonEmptyAWSValue(scope.WorkspaceID, "workspace"),
+		ProjectID:     firstNonEmptyAWSValue(scope.ProjectID, "project"),
+		ConnectorID:   firstNonEmptyAWSValue(scope.ConnectorID, "aws-connector"),
+		ScanID:        firstNonEmptyAWSValue(scope.ScanID, "aws-ai-agent-identity-fixture"),
 		AccountID:     firstNonEmptyAWSValue(scope.AccountID),
 		Region:        firstNonEmptyAWSValue(scope.Region),
 		Service:       bedrockAgentsServiceName,

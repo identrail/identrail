@@ -10084,11 +10084,13 @@ components:
             - custom_agent
             - external_provider_agent
             - agent_gateway
+        runtime_version: { type: string }
         provider: { type: string }
         model_id: { type: string }
         runtime_role_arn: { type: string }
         runtime_role_name: { type: string }
         runtime_role_account_id: { type: string }
+        workload_identity_arn: { type: string }
         gateway_id: { type: string }
         gateway_arn: { type: string }
         external_provider: { type: string }
@@ -10107,6 +10109,23 @@ components:
         credential_reference_refs:
           type: array
           items: { type: string }
+        resource_reference_refs:
+          type: array
+          items: { type: string }
+        execution_endpoint_arns:
+          type: array
+          items: { type: string }
+        execution_endpoint_names:
+          type: array
+          items: { type: string }
+        execution_endpoint_statuses:
+          type: array
+          items: { type: string }
+        observability_links:
+          type: array
+          items: { type: string }
+        network_mode: { type: string }
+        server_protocol: { type: string }
         sensitive_boundary:
           type: string
           enum: [metadata_only]
@@ -10123,7 +10142,7 @@ components:
           type: array
           items:
             type: string
-            enum: [runs_as, calls_tool, uses_secret]
+            enum: [runs_as, calls_tool, uses_secret, invokes]
         confidence:
           type: number
           minimum: 0
@@ -10142,7 +10161,7 @@ components:
       properties:
         type:
           type: string
-          enum: [runs_as, calls_tool, uses_secret]
+          enum: [runs_as, calls_tool, uses_secret, invokes]
         from_node_id: { type: string }
         to_node_id: { type: string }
         evidence_ref: { type: string }
@@ -10155,7 +10174,12 @@ components:
           type: string
           enum:
             - ai_agent_credential_reference_unresolved
+            - ai_agent_gateway_describe_failed
             - ai_agent_gateway_list_failed
+            - ai_agent_identity_page_failed
+            - agentcore_runtime_describe_failed
+            - agentcore_runtime_endpoint_list_failed
+            - agentcore_runtime_malformed
             - permission_denied
         message: { type: string }
         remediation: { type: string }
@@ -10280,7 +10304,9 @@ components:
         runtime_role_node_id: { type: string }
         relationship_types:
           type: array
-          items: { type: string }
+          items:
+            type: string
+            enum: [runs_as, calls_tool, uses_secret, invokes]
         confidence:
           type: number
           minimum: 0

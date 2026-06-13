@@ -158,6 +158,67 @@ func TestRoleNormalizerInvalidPayload(t *testing.T) {
 	}
 }
 
+func TestRoleNormalizerKeepsDistinctGatewayOnlyAIAgents(t *testing.T) {
+	normalizer := NewRoleNormalizer()
+	recordA := AIAgentIdentity{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID: "123456789012",
+			Region:    "us-east-1",
+			Service:   "bedrock",
+		},
+		AgentType:  "agent_gateway",
+		AgentName:  "payments gateway a",
+		GatewayID:  "payments-gateway-a",
+		GatewayARN: "arn:aws:bedrock:us-east-1:123456789012:agent-gateway/payments-gateway-a",
+	}
+	recordB := AIAgentIdentity{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID: "123456789012",
+			Region:    "us-east-1",
+			Service:   "bedrock",
+		},
+		AgentType:  "agent_gateway",
+		AgentName:  "payments gateway b",
+		GatewayID:  "payments-gateway-b",
+		GatewayARN: "arn:aws:bedrock:us-east-1:123456789012:agent-gateway/payments-gateway-b",
+	}
+	payloadA, err := json.Marshal(recordA)
+	if err != nil {
+		t.Fatalf("marshal record A: %v", err)
+	}
+	payloadB, err := json.Marshal(recordB)
+	if err != nil {
+		t.Fatalf("marshal record B: %v", err)
+	}
+
+	bundle, err := normalizer.Normalize(context.Background(), []providers.RawAsset{
+		{Kind: rawKindAIAgentIdentity, SourceID: "gateway-a", Payload: payloadA},
+		{Kind: rawKindAIAgentIdentity, SourceID: "gateway-b", Payload: payloadB},
+	})
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if len(bundle.Agents) != 2 {
+		t.Fatalf("expected two gateway agents, got %+v", bundle.Agents)
+	}
+	if bundle.Agents[0].ID == bundle.Agents[1].ID {
+		t.Fatalf("expected distinct gateway agent IDs, got %q", bundle.Agents[0].ID)
+	}
+	if strings.Contains(bundle.Agents[0].ID, "/unknown") || strings.Contains(bundle.Agents[1].ID, "/unknown") {
+		t.Fatalf("gateway-only agents should not collapse to unknown IDs: %+v", bundle.Agents)
+	}
+}
+
+func TestAIAgentExecutionEndpointNodeIDPreservesAgentNodeCase(t *testing.T) {
+	agentNodeID := "aws:agent:123456789012:us-east-1:custom_agent/CaseSensitiveGateway"
+	endpointARN := "arn:aws:bedrock-agentcore:us-east-1:123456789012:agent-runtime-endpoint/runtime/Blue"
+
+	nodeID := awsAIAgentExecutionEndpointNodeID(agentNodeID, endpointARN)
+	if !strings.Contains(nodeID, agentNodeID) {
+		t.Fatalf("expected endpoint node id to preserve agent node case, got %q", nodeID)
+	}
+}
+
 func TestRoleNormalizerInvalidPermissionPolicyDocument(t *testing.T) {
 	role := IAMRole{
 		ARN:                "arn:aws:iam::1:role/demo",

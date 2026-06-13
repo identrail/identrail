@@ -148,6 +148,11 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws secrets manager metadata collector: %w", secretsErr)
 			}
+			agentCoreAPI, agentCoreErr := awsprovider.NewSDKAgentCoreRuntimeAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			if agentCoreErr != nil {
+				_ = store.Close()
+				return nil, nil, fmt.Errorf("initialize aws agentcore runtime collector: %w", agentCoreErr)
+			}
 			ssmAPI, ssmErr := awsprovider.NewSDKSSMParameterMetadataAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
 			if ssmErr != nil {
 				_ = store.Close()
@@ -178,6 +183,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				awsprovider.NewSQSSNSReachabilityCollector(sqsSNSAPI),
 				awsprovider.NewDynamoDBRDSReachabilityCollector(dynamoDBRDSAPI),
 				awsprovider.NewSecretsManagerMetadataCollector(secretsAPI),
+				awsprovider.NewAIAgentIdentityCollector(agentCoreAPI),
 				awsprovider.NewSSMParameterMetadataCollector(ssmAPI),
 				awsprovider.NewECRRepositoryMetadataCollector(ecrAPI),
 			)
@@ -328,6 +334,10 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		if secretsErr != nil {
 			return nil, secretsErr
 		}
+		agentCoreAPI, agentCoreErr := awsprovider.NewSDKAgentCoreRuntimeAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
+		if agentCoreErr != nil {
+			return nil, agentCoreErr
+		}
 		ssmAPI, ssmErr := awsprovider.NewSDKSSMParameterMetadataAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
 		if ssmErr != nil {
 			return nil, ssmErr
@@ -356,6 +366,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 			awsprovider.NewSQSSNSReachabilityCollector(sqsSNSAPI),
 			awsprovider.NewDynamoDBRDSReachabilityCollector(dynamoDBRDSAPI),
 			awsprovider.NewSecretsManagerMetadataCollector(secretsAPI),
+			awsprovider.NewAIAgentIdentityCollector(agentCoreAPI),
 			awsprovider.NewSSMParameterMetadataCollector(ssmAPI),
 			awsprovider.NewECRRepositoryMetadataCollector(ecrAPI),
 		)

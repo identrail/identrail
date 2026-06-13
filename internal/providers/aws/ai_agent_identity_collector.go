@@ -25,31 +25,40 @@ const (
 // contents, browser pages, code output, object contents, and secret values.
 type AIAgentIdentity struct {
 	awscontract.ServiceCollectorRecord
-	AgentID                 string            `json:"agent_id"`
-	AgentARN                string            `json:"agent_arn,omitempty"`
-	AgentName               string            `json:"agent_name"`
-	AgentType               string            `json:"agent_type"`
-	Provider                string            `json:"provider,omitempty"`
-	ModelID                 string            `json:"model_id,omitempty"`
-	RuntimeRoleARN          string            `json:"runtime_role_arn,omitempty"`
-	RuntimeRoleName         string            `json:"runtime_role_name,omitempty"`
-	RuntimeRoleAccountID    string            `json:"runtime_role_account_id,omitempty"`
-	GatewayID               string            `json:"gateway_id,omitempty"`
-	GatewayARN              string            `json:"gateway_arn,omitempty"`
-	ExternalProvider        string            `json:"external_provider,omitempty"`
-	ToolNames               []string          `json:"tool_names,omitempty"`
-	ToolCount               int               `json:"tool_count"`
-	MemoryEnabled           bool              `json:"memory_enabled"`
-	MemoryStoreRefs         []string          `json:"memory_store_refs,omitempty"`
-	BrowserEnabled          bool              `json:"browser_enabled"`
-	CodeInterpreterEnabled  bool              `json:"code_interpreter_enabled"`
-	CapabilityNames         []string          `json:"capability_names,omitempty"`
-	CredentialReferenceRefs []string          `json:"credential_reference_refs,omitempty"`
-	SensitiveBoundary       string            `json:"sensitive_boundary"`
-	CoverageStatus          string            `json:"coverage_status"`
-	CoverageReason          string            `json:"coverage_reason,omitempty"`
-	Status                  string            `json:"status"`
-	Tags                    map[string]string `json:"tags,omitempty"`
+	AgentID                   string            `json:"agent_id"`
+	AgentARN                  string            `json:"agent_arn,omitempty"`
+	AgentName                 string            `json:"agent_name"`
+	AgentType                 string            `json:"agent_type"`
+	RuntimeVersion            string            `json:"runtime_version,omitempty"`
+	Provider                  string            `json:"provider,omitempty"`
+	ModelID                   string            `json:"model_id,omitempty"`
+	RuntimeRoleARN            string            `json:"runtime_role_arn,omitempty"`
+	RuntimeRoleName           string            `json:"runtime_role_name,omitempty"`
+	RuntimeRoleAccountID      string            `json:"runtime_role_account_id,omitempty"`
+	WorkloadIdentityARN       string            `json:"workload_identity_arn,omitempty"`
+	GatewayID                 string            `json:"gateway_id,omitempty"`
+	GatewayARN                string            `json:"gateway_arn,omitempty"`
+	ExternalProvider          string            `json:"external_provider,omitempty"`
+	ToolNames                 []string          `json:"tool_names,omitempty"`
+	ToolCount                 int               `json:"tool_count"`
+	MemoryEnabled             bool              `json:"memory_enabled"`
+	MemoryStoreRefs           []string          `json:"memory_store_refs,omitempty"`
+	BrowserEnabled            bool              `json:"browser_enabled"`
+	CodeInterpreterEnabled    bool              `json:"code_interpreter_enabled"`
+	CapabilityNames           []string          `json:"capability_names,omitempty"`
+	CredentialReferenceRefs   []string          `json:"credential_reference_refs,omitempty"`
+	ResourceReferenceRefs     []string          `json:"resource_reference_refs,omitempty"`
+	ExecutionEndpointARNs     []string          `json:"execution_endpoint_arns,omitempty"`
+	ExecutionEndpointNames    []string          `json:"execution_endpoint_names,omitempty"`
+	ExecutionEndpointStatuses []string          `json:"execution_endpoint_statuses,omitempty"`
+	ObservabilityLinks        []string          `json:"observability_links,omitempty"`
+	NetworkMode               string            `json:"network_mode,omitempty"`
+	ServerProtocol            string            `json:"server_protocol,omitempty"`
+	SensitiveBoundary         string            `json:"sensitive_boundary"`
+	CoverageStatus            string            `json:"coverage_status"`
+	CoverageReason            string            `json:"coverage_reason,omitempty"`
+	Status                    string            `json:"status"`
+	Tags                      map[string]string `json:"tags,omitempty"`
 }
 
 type AIAgentIdentityPage struct {
@@ -235,11 +244,13 @@ func normalizeAIAgentIdentityScope(scope AWSCollectorScope, record AIAgentIdenti
 	normalized.AgentARN = strings.TrimSpace(record.AgentARN)
 	normalized.AgentName = firstNonEmptyAWSValue(record.AgentName, normalized.AgentID)
 	normalized.AgentType = canonicalAIAgentType(record.AgentType, record.Service)
+	normalized.RuntimeVersion = strings.TrimSpace(record.RuntimeVersion)
 	normalized.Provider = strings.TrimSpace(record.Provider)
 	normalized.ModelID = strings.TrimSpace(record.ModelID)
 	normalized.RuntimeRoleARN = firstNonEmptyAWSValue(record.RuntimeRoleARN, record.RoleARN)
 	normalized.RuntimeRoleName = firstNonEmptyAWSValue(record.RuntimeRoleName, roleNameFromARN(record.RuntimeRoleARN), roleNameFromARN(record.RoleARN))
 	normalized.RuntimeRoleAccountID = firstNonEmptyAWSValue(record.RuntimeRoleAccountID, roleAccountIDFromARN(record.RuntimeRoleARN), roleAccountIDFromARN(record.RoleARN))
+	normalized.WorkloadIdentityARN = strings.TrimSpace(record.WorkloadIdentityARN)
 	normalized.RoleARN = normalized.RuntimeRoleARN
 	normalized.WorkloadID = aiAgentIdentityWorkloadID(normalized)
 	normalized.WorkloadName = firstNonEmptyAWSValue(record.WorkloadName, normalized.AgentName)
@@ -260,6 +271,34 @@ func normalizeAIAgentIdentityScope(scope AWSCollectorScope, record AIAgentIdenti
 	normalized.MemoryStoreRefs = normalizeStringList(record.MemoryStoreRefs)
 	normalized.CapabilityNames = normalizeStringList(record.CapabilityNames)
 	normalized.CredentialReferenceRefs = normalizeStringList(record.CredentialReferenceRefs)
+	normalized.ResourceReferenceRefs = normalizeStringList(record.ResourceReferenceRefs)
+	normalized.ExecutionEndpointARNs = normalizeOrderedStringList(record.ExecutionEndpointARNs)
+	normalized.ExecutionEndpointNames = normalizeOrderedStringList(record.ExecutionEndpointNames)
+	normalized.ExecutionEndpointStatuses = normalizeOrderedStringList(record.ExecutionEndpointStatuses)
+	normalized.ObservabilityLinks = normalizeOrderedStringList(record.ObservabilityLinks)
+	normalized.NetworkMode = strings.TrimSpace(record.NetworkMode)
+	normalized.ServerProtocol = strings.TrimSpace(record.ServerProtocol)
+	if len(normalized.ExecutionEndpointARNs) > 0 {
+		normalized.ResourceReferenceRefs = normalizeStringList(append(normalized.ResourceReferenceRefs, normalized.ExecutionEndpointARNs...))
+	}
+	if normalized.WorkloadIdentityARN != "" {
+		normalized.ResourceReferenceRefs = normalizeStringList(append(normalized.ResourceReferenceRefs, normalized.WorkloadIdentityARN))
+	}
+	if normalized.NetworkMode != "" {
+		normalized.CapabilityNames = appendUnique(normalized.CapabilityNames, "runtime_network_"+strings.ToLower(normalized.NetworkMode))
+	}
+	if normalized.ServerProtocol != "" {
+		normalized.CapabilityNames = appendUnique(normalized.CapabilityNames, "runtime_protocol_"+strings.ToLower(normalized.ServerProtocol))
+	}
+	if normalized.WorkloadIdentityARN != "" {
+		normalized.CapabilityNames = appendUnique(normalized.CapabilityNames, "workload_identity")
+	}
+	if len(normalized.ExecutionEndpointARNs) > 0 {
+		normalized.CapabilityNames = appendUnique(normalized.CapabilityNames, "execution_endpoint")
+	}
+	if len(normalized.ObservabilityLinks) > 0 {
+		normalized.CapabilityNames = appendUnique(normalized.CapabilityNames, "observability")
+	}
 	normalized.SensitiveBoundary = firstNonEmptyAWSValue(record.SensitiveBoundary, "metadata_only")
 	normalized.CoverageStatus = firstNonEmptyAWSValue(record.CoverageStatus, "covered")
 	normalized.Status = firstNonEmptyAWSValue(record.Status, "ready")
@@ -280,22 +319,43 @@ func aiAgentIdentitySourceID(record AIAgentIdentity) string {
 	}, "|")
 }
 
-func aiAgentIdentityWorkloadSourceID(record AIAgentIdentity) string {
+func aiAgentIdentityAgentRef(record AIAgentIdentity) string {
+	agentType := canonicalAIAgentType(record.AgentType, record.Service)
 	agentRef := firstNonEmptyAWSValue(record.AgentARN, record.AgentID, record.AgentName)
-	if strings.EqualFold(firstNonEmptyAWSValue(record.AgentType, "agent"), "agent_gateway") {
+	if agentType == "agentcore_runtime" {
+		agentRef = firstNonEmptyAWSValue(record.AgentID, record.AgentARN, record.AgentName)
+		if version := strings.TrimSpace(record.RuntimeVersion); version != "" {
+			agentRef = agentRef + "/" + normalizeName(version)
+		}
+	}
+	return agentRef
+}
+
+func aiAgentIdentityNodeRef(record AIAgentIdentity) string {
+	agentRef := aiAgentIdentityAgentRef(record)
+	if canonicalAIAgentType(record.AgentType, record.Service) == "agent_gateway" {
 		return firstNonEmptyAWSValue(record.GatewayID, record.GatewayARN, agentRef)
 	}
 	return firstNonEmptyAWSValue(agentRef, record.GatewayID, record.GatewayARN)
 }
 
+func aiAgentIdentityNodeIdentity(record AIAgentIdentity) string {
+	if canonicalAIAgentType(record.AgentType, record.Service) == "agent_gateway" {
+		return firstNonEmptyAWSValue(record.GatewayID, record.GatewayARN, record.AgentID, record.AgentARN, record.AgentName)
+	}
+	return firstNonEmptyAWSValue(record.AgentID, record.AgentARN, record.AgentName)
+}
+
+func aiAgentIdentityWorkloadSourceID(record AIAgentIdentity) string {
+	return aiAgentIdentityNodeRef(record)
+}
+
 func aiAgentIdentityWorkloadID(record AIAgentIdentity) string {
-	agentRef := firstNonEmptyAWSValue(record.AgentARN, record.AgentID, record.AgentName)
-	if strings.EqualFold(firstNonEmptyAWSValue(record.AgentType, "agent"), "agent_gateway") {
+	agentRef := aiAgentIdentityAgentRef(record)
+	if canonicalAIAgentType(record.AgentType, record.Service) == "agent_gateway" {
 		return firstNonEmptyAWSValue(
 			record.WorkloadID,
-			record.GatewayID,
-			record.GatewayARN,
-			agentRef,
+			aiAgentIdentityNodeRef(record),
 		)
 	}
 	return firstNonEmptyAWSValue(
@@ -330,6 +390,9 @@ func aiAgentIdentityConfidence(record AIAgentIdentity) float64 {
 	if strings.TrimSpace(record.RuntimeRoleARN) != "" {
 		confidence += 0.08
 	}
+	if strings.TrimSpace(record.RuntimeVersion) != "" {
+		confidence += 0.03
+	}
 	if strings.TrimSpace(record.AgentARN) != "" {
 		confidence += 0.06
 	}
@@ -338,6 +401,18 @@ func aiAgentIdentityConfidence(record AIAgentIdentity) float64 {
 	}
 	if len(record.CredentialReferenceRefs) > 0 {
 		confidence += 0.04
+	}
+	if strings.TrimSpace(record.WorkloadIdentityARN) != "" {
+		confidence += 0.03
+	}
+	if len(record.ExecutionEndpointARNs) > 0 {
+		confidence += 0.04
+	}
+	if len(record.ObservabilityLinks) > 0 {
+		confidence += 0.02
+	}
+	if strings.TrimSpace(record.NetworkMode) != "" || strings.TrimSpace(record.ServerProtocol) != "" {
+		confidence += 0.02
 	}
 	if confidence > 0.95 {
 		return 0.95

@@ -1964,11 +1964,13 @@ export type AWSAIAgentIdentityRecord = {
   agent_arn?: string;
   agent_name: string;
   agent_type: 'bedrock_agent' | 'agentcore_runtime' | 'custom_agent' | 'external_provider_agent' | 'agent_gateway' | string;
+  runtime_version?: string;
   provider?: string;
   model_id?: string;
   runtime_role_arn?: string;
   runtime_role_name?: string;
   runtime_role_account_id?: string;
+  workload_identity_arn?: string;
   gateway_id?: string;
   gateway_arn?: string;
   external_provider?: string;
@@ -1979,6 +1981,13 @@ export type AWSAIAgentIdentityRecord = {
   code_interpreter_enabled: boolean;
   capability_names?: string[];
   credential_reference_refs?: string[];
+  resource_reference_refs?: string[];
+  execution_endpoint_arns?: string[];
+  execution_endpoint_names?: string[];
+  execution_endpoint_statuses?: string[];
+  observability_links?: string[];
+  network_mode?: string;
+  server_protocol?: string;
   sensitive_boundary: string;
   coverage_status: string;
   coverage_reason?: string;
@@ -1995,7 +2004,7 @@ export type AWSAIAgentIdentityRecord = {
 };
 
 export type AWSAIAgentIdentityRelationship = {
-  type: 'runs_as' | 'calls_tool' | 'uses_secret' | string;
+  type: 'runs_as' | 'calls_tool' | 'uses_secret' | 'invokes' | string;
   from_node_id: string;
   to_node_id: string;
   evidence_ref: string;
@@ -2004,7 +2013,7 @@ export type AWSAIAgentIdentityRelationship = {
 export type AWSAIAgentIdentityDiagnostic = {
   collector: string;
   source_id?: string;
-  code: string;
+  code: 'ai_agent_credential_reference_unresolved' | 'ai_agent_gateway_list_failed' | 'ai_agent_gateway_describe_failed' | 'ai_agent_identity_page_failed' | 'agentcore_runtime_describe_failed' | 'agentcore_runtime_endpoint_list_failed' | 'agentcore_runtime_malformed' | 'permission_denied' | string;
   message: string;
   remediation?: string;
   retryable: boolean;

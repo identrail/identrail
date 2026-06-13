@@ -12,10 +12,12 @@ The model is metadata-only. Each `agent_identity` record can describe:
 - external-provider-backed agents
 - agent gateways
 - runtime IAM role ARN/name/account
+- AgentCore runtime version, workload identity ARN, execution endpoints, observability links, network mode, and server protocol
 - provider and model identifiers
 - tool names and capability names
 - memory/browser/code-interpreter capability flags
 - credential-reference identifiers
+- agent-to-endpoint `invokes` relationships for AgentCore runtime execution surfaces
 - evidence references, confidence, account, region, connector, scan, workspace, and project context
 
 The public API is:
@@ -55,3 +57,4 @@ The AWS Agents inventory page shows normalized agent rows, runtime role anchors,
 - Partial failure: retry the failed sub-listing and keep successful records visible.
 - Unresolved credential reference: join to the credential-reference metadata surface for ownership and rotation, never to secret values.
 - Empty result: confirm that the selected connector account and region actually hosts Bedrock, AgentCore, custom, external-provider-backed, or gateway agent resources.
+- Missing runtime endpoints: confirm the runtime has published execution endpoints in the selected region and account.

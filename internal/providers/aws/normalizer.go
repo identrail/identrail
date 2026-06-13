@@ -41,6 +41,7 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 	identitySeen := map[string]struct{}{}
 	policySeen := map[string]struct{}{}
 	workloadSeen := map[string]struct{}{}
+	agentSeen := map[string]struct{}{}
 	resourceSeen := map[string]struct{}{}
 
 	for i, asset := range raw {
@@ -87,6 +88,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 			continue
 		}
 		if err := normalizeIAMRoleAsset(asset, i, &bundle, identitySeen, policySeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != rawKindAIAgentIdentity {
+			continue
+		}
+		if err := normalizeAIAgentIdentityAsset(asset, i, &bundle, identitySeen, agentSeen, resourceSeen); err != nil {
 			return providers.NormalizedBundle{}, err
 		}
 	}
@@ -326,6 +339,154 @@ func normalizeIAMRoleAsset(asset providers.RawAsset, index int, bundle *provider
 		}
 	}
 	return nil
+}
+
+func normalizeAIAgentIdentityAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, agentSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record AIAgentIdentity
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode ai agent identity %s: %w", asset.SourceID, err)
+	}
+	if strings.TrimSpace(record.AgentID) == "" && strings.TrimSpace(record.AgentARN) == "" && strings.TrimSpace(record.GatewayID) == "" && strings.TrimSpace(record.GatewayARN) == "" {
+		return fmt.Errorf("ai agent identity %s missing stable identifier", asset.SourceID)
+	}
+
+	agentID := awsAIAgentNodeID(record.AccountID, record.Region, canonicalAIAgentType(record.AgentType, record.Service), aiAgentIdentityNodeIdentity(record), record.RuntimeVersion)
+	agentIndex := -1
+	if _, exists := agentSeen[agentID]; !exists {
+		agent := domain.Agent{
+			ID:       agentID,
+			Provider: domain.ProviderAWS,
+			Type:     domain.AgentTypeAI,
+			Name:     firstNonEmptyAWSValue(record.AgentName, record.AgentID, record.GatewayID, record.GatewayARN),
+			Model:    strings.TrimSpace(record.ModelID),
+			Runtime:  firstNonEmptyAWSValue(record.RuntimeVersion, record.AgentType, record.Service),
+			OwnerID:  "",
+			RawRef:   asset.SourceID,
+			Metadata: map[string]any{
+				"agent_arn":                   strings.TrimSpace(record.AgentARN),
+				"agent_type":                  strings.TrimSpace(record.AgentType),
+				"provider":                    strings.TrimSpace(record.Provider),
+				"runtime_version":             strings.TrimSpace(record.RuntimeVersion),
+				"runtime_role_arn":            strings.TrimSpace(record.RuntimeRoleARN),
+				"runtime_role_name":           strings.TrimSpace(record.RuntimeRoleName),
+				"runtime_role_account_id":     strings.TrimSpace(record.RuntimeRoleAccountID),
+				"workload_identity_arn":       strings.TrimSpace(record.WorkloadIdentityARN),
+				"gateway_arn":                 strings.TrimSpace(record.GatewayARN),
+				"gateway_id":                  strings.TrimSpace(record.GatewayID),
+				"tool_names":                  normalizeStringList(record.ToolNames),
+				"capability_names":            normalizeStringList(record.CapabilityNames),
+				"credential_reference_refs":   normalizeStringList(record.CredentialReferenceRefs),
+				"resource_reference_refs":     normalizeStringList(record.ResourceReferenceRefs),
+				"execution_endpoint_arns":     normalizeOrderedStringList(record.ExecutionEndpointARNs),
+				"execution_endpoint_names":    normalizeOrderedStringList(record.ExecutionEndpointNames),
+				"execution_endpoint_statuses": normalizeOrderedStringList(record.ExecutionEndpointStatuses),
+				"observability_links":         normalizeOrderedStringList(record.ObservabilityLinks),
+				"network_mode":                strings.TrimSpace(record.NetworkMode),
+				"server_protocol":             strings.TrimSpace(record.ServerProtocol),
+				"source":                      strings.TrimSpace(record.Source),
+				"evidence_ref":                strings.TrimSpace(record.EvidenceRef),
+				"coverage_status":             strings.TrimSpace(record.CoverageStatus),
+				"coverage_reason":             strings.TrimSpace(record.CoverageReason),
+				"sensitive_boundary":          strings.TrimSpace(record.SensitiveBoundary),
+				"status":                      strings.TrimSpace(record.Status),
+			},
+			Tags: copyTags(record.Tags),
+		}
+		bundle.Agents = append(bundle.Agents, agent)
+		agentSeen[agentID] = struct{}{}
+		agentIndex = len(bundle.Agents) - 1
+	}
+
+	if runtimeRoleARN := strings.TrimSpace(record.RuntimeRoleARN); runtimeRoleARN != "" {
+		runtimeRoleID := identityIDFromARN(runtimeRoleARN)
+		if _, exists := identitySeen[runtimeRoleID]; !exists {
+			identity := domain.Identity{
+				ID:        runtimeRoleID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.IdentityTypeRole,
+				Name:      firstNonEmptyAWSValue(record.RuntimeRoleName, roleNameFromARN(runtimeRoleARN), runtimeRoleARN),
+				ARN:       runtimeRoleARN,
+				OwnerHint: firstNonEmptyAWSValue(record.RuntimeRoleAccountID, record.AccountID),
+				CreatedAt: record.CollectedAt,
+				Tags:      map[string]string{},
+				RawRef:    asset.SourceID,
+			}
+			bundle.Identities = append(bundle.Identities, identity)
+			identitySeen[runtimeRoleID] = struct{}{}
+		}
+		if agentIndex >= 0 && agentIndex < len(bundle.Agents) {
+			bundle.Agents[agentIndex].OwnerID = runtimeRoleID
+		}
+	}
+
+	for _, endpointARN := range normalizeStringList(record.ExecutionEndpointARNs) {
+		endpointID := awsAIAgentExecutionEndpointNodeID(agentID, endpointARN)
+		if _, exists := resourceSeen[endpointID]; exists {
+			continue
+		}
+		resource := domain.Resource{
+			ID:        endpointID,
+			Provider:  domain.ProviderAWS,
+			Type:      domain.ResourceTypeBedrockAgentCore,
+			Name:      endpointNameFromARN(endpointARN),
+			ARN:       endpointARN,
+			Region:    strings.TrimSpace(record.Region),
+			AccountID: strings.TrimSpace(record.AccountID),
+			Labels: map[string]string{
+				"resource_kind": "agentcore_runtime_endpoint",
+			},
+			Metadata: map[string]any{
+				"runtime_agent_id":          agentID,
+				"runtime_version":           strings.TrimSpace(record.RuntimeVersion),
+				"runtime_role_arn":          strings.TrimSpace(record.RuntimeRoleARN),
+				"endpoint_name":             endpointNameFromARN(endpointARN),
+				"endpoint_status":           endpointStatusByIndex(record, endpointARN),
+				"endpoint_arn":              endpointARN,
+				"observability_links":       normalizeOrderedStringList(record.ObservabilityLinks),
+				"resource_reference_refs":   normalizeStringList(record.ResourceReferenceRefs),
+				"workload_identity_arn":     strings.TrimSpace(record.WorkloadIdentityARN),
+				"execution_endpoint_names":  normalizeOrderedStringList(record.ExecutionEndpointNames),
+				"execution_endpoint_status": endpointStatusByIndex(record, endpointARN),
+			},
+			RawRef:         asset.SourceID,
+			SourceEntityID: agentID,
+		}
+		bundle.Resources = append(bundle.Resources, resource)
+		resourceSeen[endpointID] = struct{}{}
+	}
+
+	return nil
+}
+
+func endpointNameFromARN(arn string) string {
+	trimmed := strings.TrimSpace(arn)
+	if trimmed == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(trimmed, "/"); idx >= 0 && idx < len(trimmed)-1 {
+		return strings.TrimSpace(trimmed[idx+1:])
+	}
+	if idx := strings.LastIndex(trimmed, ":"); idx >= 0 && idx < len(trimmed)-1 {
+		return strings.TrimSpace(trimmed[idx+1:])
+	}
+	return trimmed
+}
+
+func endpointStatusByIndex(record AIAgentIdentity, endpointARN string) string {
+	normalizedARN := strings.TrimSpace(endpointARN)
+	if normalizedARN == "" {
+		return ""
+	}
+	for i, arn := range record.ExecutionEndpointARNs {
+		if strings.TrimSpace(arn) != normalizedARN {
+			continue
+		}
+		if i < len(record.ExecutionEndpointStatuses) {
+			return strings.TrimSpace(record.ExecutionEndpointStatuses[i])
+		}
+		break
+	}
+	return ""
 }
 
 func normalizeECRRepositoryMetadataAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, resourceSeen map[string]struct{}) error {
