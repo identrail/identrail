@@ -12,13 +12,15 @@ import (
 )
 
 type fakeBedrockAgentsAPI struct {
-	pages         []BedrockAgentsPage
-	pageCalls     int
-	details       map[string]BedrockAgentDetail
-	detailIssues  map[string][]providers.SourceError
-	detailErr     map[string]error
-	listErr       map[int]error
-	listCallCount int
+	pages           []BedrockAgentsPage
+	pageCalls       int
+	details         map[string]BedrockAgentDetail
+	detailIssues    map[string][]providers.SourceError
+	detailErr       map[string]error
+	listErr         map[int]error
+	listCallCount   int
+	detailCallCount int
+	detailCallIDs   []string
 }
 
 func (f *fakeBedrockAgentsAPI) ListAgents(_ context.Context, _ string, _ int32) (BedrockAgentsPage, error) {
@@ -37,6 +39,8 @@ func (f *fakeBedrockAgentsAPI) ListAgents(_ context.Context, _ string, _ int32) 
 }
 
 func (f *fakeBedrockAgentsAPI) GetAgentDetail(_ context.Context, agentID string) (BedrockAgentDetail, []providers.SourceError, error) {
+	f.detailCallCount++
+	f.detailCallIDs = append(f.detailCallIDs, agentID)
 	if err, ok := f.detailErr[agentID]; ok {
 		return BedrockAgentDetail{}, nil, err
 	}
@@ -252,6 +256,44 @@ func TestBedrockAgentsCollectorListFailureSurfaces(t *testing.T) {
 	}
 	if !hasIssueCode(issues, "bedrock_agents_list_failed") {
 		t.Fatalf("expected list-failure diagnostic, got %v", issues)
+	}
+}
+
+func TestBedrockAgentsCollectorARNOnlySummarySkipsDetailFetch(t *testing.T) {
+	// An ARN-only summary must not trigger GetAgentDetail(""); doing so would
+	// produce a misleading per-agent diagnostic. Instead the collector emits a
+	// degraded record with an explicit "detail skipped" diagnostic.
+	api := &fakeBedrockAgentsAPI{
+		pages: []BedrockAgentsPage{{
+			Agents: []BedrockAgentSummary{
+				{AgentARN: "arn:aws:bedrock:us-east-1:123456789012:agent/ARNONLY", AgentName: "arn-only", RoleARN: "arn:aws:iam::123456789012:role/r"},
+			},
+		}},
+	}
+	collector := NewBedrockAgentsCollector(api)
+	assets, issues, err := collector.CollectWithDiagnostics(context.Background(), bedrockSampleScope())
+	if err != nil {
+		t.Fatalf("CollectWithDiagnostics: %v", err)
+	}
+	if api.detailCallCount != 0 {
+		t.Fatalf("GetAgentDetail must not be invoked for ARN-only summaries (empty AgentID), called %d time(s) with ids=%v", api.detailCallCount, api.detailCallIDs)
+	}
+	if len(assets) != 1 {
+		t.Fatalf("expected one degraded asset, got %d", len(assets))
+	}
+	var record AIAgentIdentity
+	if err := json.Unmarshal(assets[0].Payload, &record); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if record.CoverageStatus != "degraded" {
+		t.Fatalf("expected degraded coverage for ARN-only summary, got %+v", record)
+	}
+	if !hasIssueCode(issues, "bedrock_agent_detail_skipped_missing_id") {
+		t.Fatalf("expected detail-skipped diagnostic, got %v", issues)
+	}
+	// And the misleading "GetAgent() failed" diagnostic must not appear.
+	if hasIssueCode(issues, "bedrock_agent_detail_failed") {
+		t.Fatalf("ARN-only summary should not produce a generic detail_failed diagnostic, got %v", issues)
 	}
 }
 

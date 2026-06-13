@@ -192,7 +192,10 @@ func buildAWSBedrockAgentsInventory(scope db.Scope, project db.TenancyProject, c
 		}
 	}
 	filtered := filterAWSBedrockAgentRecords(records, request)
-	relationships := awsBedrockAgentRelationships(records)
+	// Relationships are derived from the filtered records so a narrowed
+	// agent_id/identity/provider filter cannot leak edges anchored at agents the
+	// operator deliberately excluded.
+	relationships := awsBedrockAgentRelationships(filtered)
 	status, confidence, failures, remediations := summarizeAWSBedrockAgentsInventory(fixtureState, diagnostics, records)
 
 	return AWSBedrockAgentsInventoryResult{
@@ -357,11 +360,12 @@ func buildAWSBedrockAgentFixtureRecord(scope db.Scope, project db.TenancyProject
 	record.RuntimeRoleNodeID = awsBedrockRuntimeRoleNodeID(record.RuntimeRoleARN)
 	record.RuntimeRoleName = roleNameFromArnSegment(record.RuntimeRoleARN)
 	record.RuntimeRoleAccountID = roleAccountIDFromArnSegment(record.RuntimeRoleARN)
-	record.ToolCount = len(record.ToolNames)
 	record.ToolNames = dedupeSortedStrings(record.ToolNames)
 	record.MemoryStoreRefs = dedupeSortedStrings(record.MemoryStoreRefs)
 	record.CapabilityNames = dedupeSortedStrings(record.CapabilityNames)
 	record.CredentialReferenceRefs = dedupeSortedStrings(record.CredentialReferenceRefs)
+	// Set ToolCount after dedup so the count matches the emitted tool_names.
+	record.ToolCount = len(record.ToolNames)
 	if record.NextAction == "" {
 		record.NextAction = "Use the AI agent identity surface to review tool bindings, role permissions, and runtime risk."
 	}

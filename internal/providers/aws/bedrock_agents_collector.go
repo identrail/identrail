@@ -18,8 +18,13 @@ const (
 	bedrockAgentsCollectorName = "bedrock_agents"
 	bedrockAgentsServiceName   = "bedrock"
 	bedrockAgentType           = "bedrock_agent"
-	bedrockAgentNodeID         = "aws:resource:bedrock-agent:"
 )
+
+// errBedrockAgentDetailSkipped marks a summary whose detail fetch was
+// intentionally skipped (for example an ARN-only summary). It is used to flip
+// the coverage_status onto the degraded path without producing a misleading
+// "GetAgent("") failed" diagnostic.
+var errBedrockAgentDetailSkipped = errors.New("bedrock agent detail skipped: missing agent id")
 
 // BedrockAgentSummary is the minimal identity row returned by ListAgents. The
 // summary is intentionally narrow: prompts, instructions, embedded model
@@ -258,18 +263,41 @@ func (c *BedrockAgentsCollector) CollectWithDiagnostics(ctx context.Context, sco
 				})
 				continue
 			}
-			detail, detailIssues, detailErr := c.getDetailWithRetry(ctx, summary.AgentID)
-			for _, diagnostic := range detailIssues {
-				addIssue(diagnostic)
-			}
-			if detailErr != nil {
+			// GetAgentDetail requires the AgentID (the short identifier AWS uses
+			// in the Bedrock control plane); calling it with an empty id would
+			// produce a misleading per-agent diagnostic. ARN-only summaries are
+			// kept as partial records so operators see the identity but know
+			// detail evidence is missing until a follow-up list call returns a
+			// proper id.
+			var (
+				detail    BedrockAgentDetail
+				detailErr error
+				agentID   = strings.TrimSpace(summary.AgentID)
+			)
+			if agentID == "" {
 				addIssue(providers.SourceError{
 					Collector: bedrockAgentsCollectorName,
-					SourceID:  summary.AgentID,
-					Code:      "bedrock_agent_detail_failed",
-					Message:   fmt.Sprintf("agent %s detail fetch failed: %v", summary.AgentID, detailErr),
-					Retryable: isRetryable(detailErr),
+					SourceID:  strings.TrimSpace(summary.AgentARN),
+					Code:      "bedrock_agent_detail_skipped_missing_id",
+					Message:   "skipped GetAgentDetail for ARN-only bedrock agent summary; surfaced summary only",
+					Retryable: true,
 				})
+				detailErr = errBedrockAgentDetailSkipped
+			} else {
+				var detailIssues []providers.SourceError
+				detail, detailIssues, detailErr = c.getDetailWithRetry(ctx, agentID)
+				for _, diagnostic := range detailIssues {
+					addIssue(diagnostic)
+				}
+				if detailErr != nil {
+					addIssue(providers.SourceError{
+						Collector: bedrockAgentsCollectorName,
+						SourceID:  agentID,
+						Code:      "bedrock_agent_detail_failed",
+						Message:   fmt.Sprintf("agent %s detail fetch failed: %v", agentID, detailErr),
+						Retryable: isRetryable(detailErr),
+					})
+				}
 			}
 			record := buildBedrockAgentIdentity(scope, summary, detail, detailErr, collectedAt)
 			sourceID := aiAgentIdentitySourceID(record)
@@ -470,9 +498,4 @@ func appendUnique(values []string, candidate string) []string {
 		}
 	}
 	return append(values, candidate)
-}
-
-// bedrockAgentNodeIDFor returns the canonical graph node ID for a Bedrock agent.
-func bedrockAgentNodeIDFor(record AIAgentIdentity) string {
-	return bedrockAgentNodeID + firstNonEmptyAWSValue(record.AgentARN, record.AgentID)
 }

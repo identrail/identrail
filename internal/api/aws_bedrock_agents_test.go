@@ -154,6 +154,51 @@ func TestGetAWSBedrockAgentsInventoryFixtureStates(t *testing.T) {
 	}
 }
 
+func TestGetAWSBedrockAgentsInventoryRelationshipsRespectFilters(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 13, 9, 45, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	svc := newBedrockAgentsService(t, store, now)
+
+	filtered, err := svc.GetAWSBedrockAgentsInventory(ctx, "default", "project-a", AWSBedrockAgentsInventoryRequest{ConnectorID: "aws-prod", AgentID: "PAYMENTSAGENT1"})
+	if err != nil {
+		t.Fatalf("filter by agent_id: %v", err)
+	}
+	if filtered.FilteredAgentCount != 1 {
+		t.Fatalf("expected one filtered agent, got %d", filtered.FilteredAgentCount)
+	}
+	allowedAgentNodes := map[string]struct{}{}
+	for _, rec := range filtered.Records {
+		allowedAgentNodes[rec.AgentNodeID] = struct{}{}
+	}
+	for _, rel := range filtered.Relationships {
+		if _, ok := allowedAgentNodes[rel.FromNodeID]; !ok {
+			t.Fatalf("relationship %+v leaks edge anchored at non-matching agent (allowed=%v)", rel, allowedAgentNodes)
+		}
+	}
+}
+
+func TestGetAWSBedrockAgentsInventoryToolCountMatchesToolNames(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 13, 9, 50, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	svc := newBedrockAgentsService(t, store, now)
+
+	result, err := svc.GetAWSBedrockAgentsInventory(ctx, "default", "project-a", AWSBedrockAgentsInventoryRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	for _, record := range result.Records {
+		if record.ToolCount != len(record.ToolNames) {
+			t.Fatalf("agent %s tool_count=%d, len(tool_names)=%d; counts must match after dedup", record.AgentID, record.ToolCount, len(record.ToolNames))
+		}
+	}
+}
+
 func TestGetAWSBedrockAgentsInventoryNeverLeaksValues(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()

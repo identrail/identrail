@@ -10232,7 +10232,9 @@ components:
       type: object
       properties:
         capability: { type: string }
-        status: { type: string }
+        status:
+          type: string
+          enum: [intentionally_not_collected, unsupported]
         reason: { type: string }
         remediation: { type: string }
     AWSBedrockAgentRecord:
@@ -10265,8 +10267,12 @@ components:
           type: array
           items: { type: string }
         guardrail_id: { type: string }
-        sensitive_boundary: { type: string }
-        coverage_status: { type: string }
+        sensitive_boundary:
+          type: string
+          enum: [metadata_only]
+        coverage_status:
+          type: string
+          enum: [covered, degraded]
         coverage_reason: { type: string }
         source: { type: string }
         evidence_ref: { type: string }
