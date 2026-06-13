@@ -482,6 +482,7 @@ func normalizeAIAgentIdentityAsset(asset providers.RawAsset, index int, bundle *
 				"allowed_actions":  normalizeStringList(record.AllowedActions),
 				"tool_target_refs": normalizeStringList(record.ToolTargetRefs),
 				"capability_names": normalizeStringList(record.CapabilityNames),
+				"secret_refs":      normalizeStringList(record.CredentialReferenceRefs),
 			},
 			RawRef:         asset.SourceID,
 			SourceEntityID: agentID,
