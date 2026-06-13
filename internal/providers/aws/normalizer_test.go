@@ -209,6 +209,60 @@ func TestRoleNormalizerKeepsDistinctGatewayOnlyAIAgents(t *testing.T) {
 	}
 }
 
+func TestRoleNormalizerEmitsGatewayToolResourcesAndRelationships(t *testing.T) {
+	normalizer := NewRoleNormalizer()
+	record := AIAgentIdentity{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID: "123456789012",
+			Region:    "us-east-1",
+			Service:   "agentcore",
+		},
+		AgentType:      "agent_gateway",
+		AgentID:        "gw-payments",
+		AgentName:      "payments-gateway",
+		GatewayID:      "gw-payments",
+		GatewayARN:     "arn:aws:bedrock-agentcore:us-east-1:123456789012:gateway/gw-payments",
+		RuntimeRoleARN: "arn:aws:iam::123456789012:role/agentcore-gateway-payments",
+		ToolNames:      []string{"payments-case-search"},
+		AuthMode:       "custom_jwt",
+	}
+	payload, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal ai agent: %v", err)
+	}
+
+	bundle, err := normalizer.Normalize(context.Background(), []providers.RawAsset{{
+		Kind:     rawKindAIAgentIdentity,
+		SourceID: "gateway/gw-payments",
+		Payload:  payload,
+	}})
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	var toolResourceID string
+	for _, resource := range bundle.Resources {
+		if resource.Type == domain.ResourceTypeTool {
+			toolResourceID = resource.ID
+			if resource.SourceEntityID == "" {
+				t.Fatalf("expected tool source entity id, got %+v", resource)
+			}
+		}
+	}
+	if toolResourceID == "" {
+		t.Fatalf("expected gateway tool resource, got %+v", bundle.Resources)
+	}
+	relationships, err := NewRelationshipBuilder().ResolveRelationships(context.Background(), bundle, nil)
+	if err != nil {
+		t.Fatalf("resolve relationships: %v", err)
+	}
+	for _, relationship := range relationships {
+		if relationship.Type == domain.RelationshipCallsTool && relationship.ToNodeID == toolResourceID {
+			return
+		}
+	}
+	t.Fatalf("expected calls_tool relationship to %q, got %+v", toolResourceID, relationships)
+}
+
 func TestAIAgentExecutionEndpointNodeIDPreservesAgentNodeCase(t *testing.T) {
 	agentNodeID := "aws:agent:123456789012:us-east-1:custom_agent/CaseSensitiveGateway"
 	endpointARN := "arn:aws:bedrock-agentcore:us-east-1:123456789012:agent-runtime-endpoint/runtime/Blue"

@@ -41,6 +41,9 @@ type AIAgentIdentity struct {
 	ExternalProvider          string            `json:"external_provider,omitempty"`
 	ToolNames                 []string          `json:"tool_names,omitempty"`
 	ToolCount                 int               `json:"tool_count"`
+	ToolTargetRefs            []string          `json:"tool_target_refs,omitempty"`
+	AllowedActions            []string          `json:"allowed_actions,omitempty"`
+	AuthMode                  string            `json:"auth_mode,omitempty"`
 	MemoryEnabled             bool              `json:"memory_enabled"`
 	MemoryStoreRefs           []string          `json:"memory_store_refs,omitempty"`
 	BrowserEnabled            bool              `json:"browser_enabled"`
@@ -268,6 +271,9 @@ func normalizeAIAgentIdentityScope(scope AWSCollectorScope, record AIAgentIdenti
 	normalized.ExternalProvider = strings.TrimSpace(record.ExternalProvider)
 	normalized.ToolNames = normalizeStringList(record.ToolNames)
 	normalized.ToolCount = len(normalized.ToolNames)
+	normalized.ToolTargetRefs = normalizeStringList(record.ToolTargetRefs)
+	normalized.AllowedActions = normalizeStringList(record.AllowedActions)
+	normalized.AuthMode = strings.TrimSpace(record.AuthMode)
 	normalized.MemoryStoreRefs = normalizeStringList(record.MemoryStoreRefs)
 	normalized.CapabilityNames = normalizeStringList(record.CapabilityNames)
 	normalized.CredentialReferenceRefs = normalizeStringList(record.CredentialReferenceRefs)
@@ -280,6 +286,9 @@ func normalizeAIAgentIdentityScope(scope AWSCollectorScope, record AIAgentIdenti
 	normalized.ServerProtocol = strings.TrimSpace(record.ServerProtocol)
 	if len(normalized.ExecutionEndpointARNs) > 0 {
 		normalized.ResourceReferenceRefs = normalizeStringList(append(normalized.ResourceReferenceRefs, normalized.ExecutionEndpointARNs...))
+	}
+	if len(normalized.ToolTargetRefs) > 0 {
+		normalized.ResourceReferenceRefs = normalizeStringList(append(normalized.ResourceReferenceRefs, normalized.ToolTargetRefs...))
 	}
 	if normalized.WorkloadIdentityARN != "" {
 		normalized.ResourceReferenceRefs = normalizeStringList(append(normalized.ResourceReferenceRefs, normalized.WorkloadIdentityARN))
@@ -295,6 +304,9 @@ func normalizeAIAgentIdentityScope(scope AWSCollectorScope, record AIAgentIdenti
 	}
 	if len(normalized.ExecutionEndpointARNs) > 0 {
 		normalized.CapabilityNames = appendUnique(normalized.CapabilityNames, "execution_endpoint")
+	}
+	if normalized.AuthMode != "" {
+		normalized.CapabilityNames = appendUnique(normalized.CapabilityNames, "auth_"+strings.ToLower(normalized.AuthMode))
 	}
 	if len(normalized.ObservabilityLinks) > 0 {
 		normalized.CapabilityNames = appendUnique(normalized.CapabilityNames, "observability")

@@ -1,6 +1,6 @@
 # AWS AI Agent Identities
 
-Issue #1505 adds a normalized AI agent identity model for AWS machine-identity governance.
+Issue #1505 adds a normalized AI agent identity model for AWS machine-identity governance. Issue #1508 extends the same model with AgentCore Gateway and MCP tool mapping.
 
 ## What Is Collected
 
@@ -14,10 +14,11 @@ The model is metadata-only. Each `agent_identity` record can describe:
 - runtime IAM role ARN/name/account
 - AgentCore runtime version, workload identity ARN, execution endpoints, observability links, network mode, and server protocol
 - provider and model identifiers
-- tool names and capability names
+- gateway auth mode, tool target references, allowed action names, tool names, and capability names
 - memory/browser/code-interpreter capability flags
 - credential-reference identifiers
 - agent-to-endpoint `invokes` relationships for AgentCore runtime execution surfaces
+- agent-to-tool `calls_tool` relationships for AgentCore Gateway and MCP tool surfaces
 - evidence references, confidence, account, region, connector, scan, workspace, and project context
 
 The public API is:
@@ -45,11 +46,11 @@ External AI provider credentials are represented as credential references only. 
 
 ## Permissions
 
-Use metadata-only list and describe permissions for the relevant agent, runtime, gateway, and IAM-role surfaces. Do not grant invoke, prompt/session reads, memory-content reads, browser-output reads, code-output reads, database-row reads, object-content reads, or secret-value reads for this issue.
+Use metadata-only list and describe permissions for the relevant agent, runtime, gateway target, and IAM-role surfaces. Do not grant invoke, prompt/session reads, memory-content reads, browser-output reads, code-output reads, database-row reads, object-content reads, or secret-value reads for this issue. Inline MCP schemas are used only for declared tool names; S3-backed schemas are retained as references and are not fetched.
 
 ## UI Surface
 
-The AWS Agents inventory page shows normalized agent rows, runtime role anchors, provider/model metadata, tools, credential-reference counts, confidence, diagnostics, sensitive-boundary coverage gaps, account/region context, and retry guidance.
+The AWS Agents inventory page shows normalized agent rows, runtime role anchors, provider/model metadata, Gateway/MCP tools, auth mode, allowed-action counts, credential-reference counts, confidence, diagnostics, sensitive-boundary coverage gaps, account/region context, and retry guidance.
 
 ## Troubleshooting
 
@@ -58,3 +59,4 @@ The AWS Agents inventory page shows normalized agent rows, runtime role anchors,
 - Unresolved credential reference: join to the credential-reference metadata surface for ownership and rotation, never to secret values.
 - Empty result: confirm that the selected connector account and region actually hosts Bedrock, AgentCore, custom, external-provider-backed, or gateway agent resources.
 - Missing runtime endpoints: confirm the runtime has published execution endpoints in the selected region and account.
+- Missing Gateway tools: confirm the gateway has targets, target describe permissions, and inline MCP/API tool metadata or schema references in the selected region and account.

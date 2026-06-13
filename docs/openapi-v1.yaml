@@ -10097,6 +10097,13 @@ components:
         tool_names:
           type: array
           items: { type: string }
+        tool_target_refs:
+          type: array
+          items: { type: string }
+        allowed_actions:
+          type: array
+          items: { type: string }
+        auth_mode: { type: string }
         memory_enabled: { type: boolean }
         memory_store_refs:
           type: array
@@ -10176,6 +10183,9 @@ components:
             - ai_agent_credential_reference_unresolved
             - ai_agent_gateway_describe_failed
             - ai_agent_gateway_list_failed
+            - ai_agent_gateway_malformed
+            - ai_agent_gateway_target_describe_failed
+            - ai_agent_gateway_target_list_failed
             - ai_agent_identity_page_failed
             - agentcore_runtime_describe_failed
             - agentcore_runtime_endpoint_list_failed

@@ -7100,6 +7100,8 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
   const toolLabel = record.tool_names?.length ? `${record.tool_names.length} tools` : 'no tools reported';
   const capabilityLabel = record.capability_names?.length ? `${record.capability_names.join(', ')} capabilities` : 'capabilities not reported';
   const credentialLabel = record.credential_reference_refs?.length ? `${record.credential_reference_refs.length} credential refs, values hidden` : 'no credential refs reported';
+  const authLabel = record.auth_mode ? `${formatTokenLabel(record.auth_mode)} auth` : 'auth mode not reported';
+  const actionLabel = record.allowed_actions?.length ? `${record.allowed_actions.length} allowed actions` : 'allowed actions not reported';
   const endpointLabel = record.execution_endpoint_names?.length ? `${record.execution_endpoint_names.length} execution endpoints` : 'no execution endpoints reported';
   const protocolLabel = record.server_protocol || 'protocol not reported';
   const networkLabel = record.network_mode || 'network mode not reported';
@@ -7121,7 +7123,7 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
     stage,
-    detail: `${record.provider || 'provider not reported'} ${record.model_id || 'model not reported'}; runs as ${roleLabel}; ${runtimeLabel}; ${toolLabel}; ${endpointLabel}; ${networkLabel}; ${protocolLabel}; ${capabilityLabel}; ${credentialLabel}.`,
+    detail: `${record.provider || 'provider not reported'} ${record.model_id || 'model not reported'}; runs as ${roleLabel}; ${runtimeLabel}; ${toolLabel}; ${authLabel}; ${actionLabel}; ${endpointLabel}; ${networkLabel}; ${protocolLabel}; ${capabilityLabel}; ${credentialLabel}.`,
     filters: {
       surface,
       relationship: Array.from(relationships).join(','),
@@ -7141,7 +7143,10 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
       record.gateway_id,
       record.gateway_arn,
       record.external_provider,
+      record.auth_mode,
       ...(record.tool_names ?? []),
+      ...(record.tool_target_refs ?? []),
+      ...(record.allowed_actions ?? []),
       ...(record.execution_endpoint_names ?? []),
       ...(record.execution_endpoint_arns ?? []),
       ...(record.observability_links ?? []),

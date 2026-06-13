@@ -148,10 +148,10 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 				_ = store.Close()
 				return nil, nil, fmt.Errorf("initialize aws secrets manager metadata collector: %w", secretsErr)
 			}
-			agentCoreAPI, agentCoreErr := awsprovider.NewSDKAgentCoreRuntimeAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
+			agentCoreAPI, agentCoreErr := awsprovider.NewSDKAgentCoreAIAgentIdentityAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
 			if agentCoreErr != nil {
 				_ = store.Close()
-				return nil, nil, fmt.Errorf("initialize aws agentcore runtime collector: %w", agentCoreErr)
+				return nil, nil, fmt.Errorf("initialize aws agentcore identity collector: %w", agentCoreErr)
 			}
 			ssmAPI, ssmErr := awsprovider.NewSDKSSMParameterMetadataAPIWithContext(ctx, cfg.AWSRegion, cfg.AWSProfile, cfg.AWSAccountID)
 			if ssmErr != nil {
@@ -334,7 +334,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		if secretsErr != nil {
 			return nil, secretsErr
 		}
-		agentCoreAPI, agentCoreErr := awsprovider.NewSDKAgentCoreRuntimeAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
+		agentCoreAPI, agentCoreErr := awsprovider.NewSDKAgentCoreAIAgentIdentityAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan", connection.AccountID)
 		if agentCoreErr != nil {
 			return nil, agentCoreErr
 		}

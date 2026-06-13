@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	awsAIAgentIdentityCurrentIssue = 1505
+	awsAIAgentIdentityCurrentIssue = 1508
 	awsAIAgentIdentityVersion      = "aws-ai-agent-identity-normalized-model-v1"
 	awsAIAgentCredentialRefPrefix  = "aws:resource:credential-reference:"
 	awsAIAgentToolNodePrefix       = "tool:agent:"
@@ -88,6 +88,9 @@ type AWSAIAgentIdentityRecord struct {
 	GatewayARN                string            `json:"gateway_arn,omitempty"`
 	ExternalProvider          string            `json:"external_provider,omitempty"`
 	ToolNames                 []string          `json:"tool_names,omitempty"`
+	ToolTargetRefs            []string          `json:"tool_target_refs,omitempty"`
+	AllowedActions            []string          `json:"allowed_actions,omitempty"`
+	AuthMode                  string            `json:"auth_mode,omitempty"`
 	MemoryEnabled             bool              `json:"memory_enabled"`
 	MemoryStoreRefs           []string          `json:"memory_store_refs,omitempty"`
 	BrowserEnabled            bool              `json:"browser_enabled"`
@@ -362,7 +365,10 @@ func awsAIAgentIdentityFixtureRecords(accountID string, region string, fixtureSt
 			r.GatewayID = "payments-gateway"
 			r.GatewayARN = gatewayARN
 			r.ToolNames = []string{"payments-case-search", "fraud-review-action-group", "support-search"}
-			r.CapabilityNames = []string{"gateway", "tool_routing"}
+			r.ToolTargetRefs = []string{"payments-search-target", "fraud-review-target", "support-search-target"}
+			r.AllowedActions = []string{"search_cases", "create_fraud_review", "search_support"}
+			r.AuthMode = "custom_jwt"
+			r.CapabilityNames = []string{"gateway", "tool_routing", "mcp", "gateway_auth_custom_jwt"}
 		}),
 	}
 	switch fixtureState {
@@ -435,13 +441,15 @@ func awsAIAgentFixtureRecord(accountID string, region string, agentType string, 
 	record.AgentNodeID = awsAIAgentNodeID(accountID, region, agentType, firstNonEmptyAWSValue(record.AgentID, agentID), record.RuntimeVersion)
 	record.RuntimeRoleNodeID = awsIdentityNodeIDForAPI(roleARN)
 	record.ToolNames = dedupeStrings(record.ToolNames)
+	record.ToolTargetRefs = dedupeStrings(record.ToolTargetRefs)
+	record.AllowedActions = dedupeStrings(record.AllowedActions)
 	record.CapabilityNames = dedupeStrings(record.CapabilityNames)
 	record.CredentialReferenceRefs = dedupeStrings(record.CredentialReferenceRefs)
 	record.ExecutionEndpointARNs = normalizeOrderedStringList(record.ExecutionEndpointARNs)
 	record.ExecutionEndpointNames = normalizeOrderedStringList(record.ExecutionEndpointNames)
 	record.ExecutionEndpointStatuses = normalizeOrderedStringList(record.ExecutionEndpointStatuses)
 	record.ObservabilityLinks = normalizeOrderedStringList(record.ObservabilityLinks)
-	record.ResourceReferenceRefs = dedupeStrings(append(record.ResourceReferenceRefs, append(append([]string{}, record.ExecutionEndpointARNs...), record.WorkloadIdentityARN)...))
+	record.ResourceReferenceRefs = dedupeStrings(append(append(record.ResourceReferenceRefs, record.ToolTargetRefs...), append(append([]string{}, record.ExecutionEndpointARNs...), record.WorkloadIdentityARN)...))
 	if len(record.CredentialReferenceRefs) > 0 {
 		record.RelationshipTypes = dedupeStrings(append(record.RelationshipTypes, "uses_secret"))
 	}
@@ -714,7 +722,7 @@ func awsAIAgentIdentityDiagnosticRemediation(code string) string {
 	switch code {
 	case "permission_denied":
 		return "Grant metadata-only AI agent list/describe permissions; do not add prompt, invoke, memory-content, browser-page, code-output, database-row, object-content, or secret-value reads."
-	case "ai_agent_gateway_list_failed", "ai_agent_gateway_describe_failed", "ai_agent_identity_page_failed":
+	case "ai_agent_gateway_list_failed", "ai_agent_gateway_describe_failed", "ai_agent_gateway_target_list_failed", "ai_agent_gateway_target_describe_failed", "ai_agent_gateway_malformed", "ai_agent_identity_page_failed":
 		return "Retry only the failed agent metadata call and keep successful normalized agent records visible."
 	case "agentcore_runtime_describe_failed", "agentcore_runtime_endpoint_list_failed", "agentcore_runtime_malformed":
 		return "Retry the failed AgentCore runtime metadata call and keep the surviving runtime records visible."

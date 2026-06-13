@@ -374,6 +374,9 @@ func normalizeAIAgentIdentityAsset(asset providers.RawAsset, index int, bundle *
 				"gateway_arn":                 strings.TrimSpace(record.GatewayARN),
 				"gateway_id":                  strings.TrimSpace(record.GatewayID),
 				"tool_names":                  normalizeStringList(record.ToolNames),
+				"tool_target_refs":            normalizeStringList(record.ToolTargetRefs),
+				"allowed_actions":             normalizeStringList(record.AllowedActions),
+				"auth_mode":                   strings.TrimSpace(record.AuthMode),
 				"capability_names":            normalizeStringList(record.CapabilityNames),
 				"credential_reference_refs":   normalizeStringList(record.CredentialReferenceRefs),
 				"resource_reference_refs":     normalizeStringList(record.ResourceReferenceRefs),
@@ -453,6 +456,38 @@ func normalizeAIAgentIdentityAsset(asset providers.RawAsset, index int, bundle *
 		}
 		bundle.Resources = append(bundle.Resources, resource)
 		resourceSeen[endpointID] = struct{}{}
+	}
+
+	for _, toolName := range normalizeStringList(record.ToolNames) {
+		toolID := awsAIAgentToolNodeID(agentID, toolName)
+		if _, exists := resourceSeen[toolID]; exists {
+			continue
+		}
+		resource := domain.Resource{
+			ID:        toolID,
+			Provider:  domain.ProviderAWS,
+			Type:      domain.ResourceTypeTool,
+			Name:      toolName,
+			Region:    strings.TrimSpace(record.Region),
+			AccountID: strings.TrimSpace(record.AccountID),
+			Labels: map[string]string{
+				"resource_kind": "agentcore_gateway_tool",
+			},
+			Metadata: map[string]any{
+				"agent_id":         strings.TrimSpace(record.AgentID),
+				"agent_type":       strings.TrimSpace(record.AgentType),
+				"gateway_id":       strings.TrimSpace(record.GatewayID),
+				"gateway_arn":      strings.TrimSpace(record.GatewayARN),
+				"auth_mode":        strings.TrimSpace(record.AuthMode),
+				"allowed_actions":  normalizeStringList(record.AllowedActions),
+				"tool_target_refs": normalizeStringList(record.ToolTargetRefs),
+				"capability_names": normalizeStringList(record.CapabilityNames),
+			},
+			RawRef:         asset.SourceID,
+			SourceEntityID: agentID,
+		}
+		bundle.Resources = append(bundle.Resources, resource)
+		resourceSeen[toolID] = struct{}{}
 	}
 
 	return nil

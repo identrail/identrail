@@ -30,7 +30,7 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 	if result.Status != awsPlatformDependencyStatusReady || result.Confidence < 0.9 {
 		t.Fatalf("expected ready inventory, got %+v", result)
 	}
-	if result.ParentIssueRef != "#1472" || result.CurrentIssueRef != "#1505" || result.Version != awsAIAgentIdentityVersion {
+	if result.ParentIssueRef != "#1472" || result.CurrentIssueRef != "#1508" || result.Version != awsAIAgentIdentityVersion {
 		t.Fatalf("unexpected parent/current/version metadata: %+v", result)
 	}
 	if result.BedrockAgentCount != 1 || result.AgentCoreRuntimeCount != 1 || result.CustomAgentCount != 1 || result.ExternalAgentCount != 1 || result.GatewayCount != 1 {

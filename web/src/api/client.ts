@@ -1975,6 +1975,9 @@ export type AWSAIAgentIdentityRecord = {
   gateway_arn?: string;
   external_provider?: string;
   tool_names?: string[];
+  tool_target_refs?: string[];
+  allowed_actions?: string[];
+  auth_mode?: string;
   memory_enabled: boolean;
   memory_store_refs?: string[];
   browser_enabled: boolean;
@@ -2013,7 +2016,7 @@ export type AWSAIAgentIdentityRelationship = {
 export type AWSAIAgentIdentityDiagnostic = {
   collector: string;
   source_id?: string;
-  code: 'ai_agent_credential_reference_unresolved' | 'ai_agent_gateway_list_failed' | 'ai_agent_gateway_describe_failed' | 'ai_agent_identity_page_failed' | 'agentcore_runtime_describe_failed' | 'agentcore_runtime_endpoint_list_failed' | 'agentcore_runtime_malformed' | 'permission_denied' | string;
+  code: 'ai_agent_credential_reference_unresolved' | 'ai_agent_gateway_list_failed' | 'ai_agent_gateway_describe_failed' | 'ai_agent_gateway_malformed' | 'ai_agent_gateway_target_describe_failed' | 'ai_agent_gateway_target_list_failed' | 'ai_agent_identity_page_failed' | 'agentcore_runtime_describe_failed' | 'agentcore_runtime_endpoint_list_failed' | 'agentcore_runtime_malformed' | 'permission_denied' | string;
   message: string;
   remediation?: string;
   retryable: boolean;

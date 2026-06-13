@@ -114,6 +114,17 @@ func (b *RelationshipBuilder) ResolveRelationships(ctx context.Context, bundle p
 			}
 			appendRelationship(&relationships, seen, relationship)
 		}
+		if resource.Type == domain.ResourceTypeTool && strings.TrimSpace(resource.SourceEntityID) != "" {
+			relationship := domain.Relationship{
+				ID:           relationshipID(domain.RelationshipCallsTool, resource.SourceEntityID, resource.ID),
+				Type:         domain.RelationshipCallsTool,
+				FromNodeID:   resource.SourceEntityID,
+				ToNodeID:     resource.ID,
+				EvidenceRef:  resource.RawRef,
+				DiscoveredAt: timestamp,
+			}
+			appendRelationship(&relationships, seen, relationship)
+		}
 		refs := parseStringList(resource.Metadata["secret_refs"])
 		for _, ref := range refs {
 			secretID := matchSecretsManagerReference(ref, secretIndex)
