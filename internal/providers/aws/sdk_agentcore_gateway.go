@@ -413,10 +413,13 @@ func apiGatewayTargetMetadata(config agentcoretypes.ApiGatewayTargetConfiguratio
 	actions := []string{}
 	if config.ApiGatewayToolConfiguration != nil {
 		for _, override := range config.ApiGatewayToolConfiguration.ToolOverrides {
+			action := strings.TrimSpace(string(override.Method) + " " + awsv2.ToString(override.Path))
 			if name := strings.TrimSpace(awsv2.ToString(override.Name)); name != "" {
 				tools = append(tools, name)
+			} else if action != "" {
+				tools = append(tools, action)
 			}
-			actions = append(actions, strings.TrimSpace(string(override.Method)+" "+awsv2.ToString(override.Path)))
+			actions = append(actions, action)
 		}
 		for _, filter := range config.ApiGatewayToolConfiguration.ToolFilters {
 			for _, method := range filter.Methods {

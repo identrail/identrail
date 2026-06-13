@@ -207,6 +207,9 @@ func TestAPIGatewayTargetMetadataKeepsFiltersOutOfToolNames(t *testing.T) {
 				Name:   awsv2.String("getOrder"),
 				Method: agentcoretypes.RestApiMethodGet,
 				Path:   awsv2.String("/orders/{id}"),
+			}, {
+				Method: agentcoretypes.RestApiMethodDelete,
+				Path:   awsv2.String("/orders/{id}"),
 			}},
 			ToolFilters: []agentcoretypes.ApiGatewayToolFilter{{
 				Methods:    []agentcoretypes.RestApiMethod{agentcoretypes.RestApiMethodPost},
@@ -218,10 +221,15 @@ func TestAPIGatewayTargetMetadataKeepsFiltersOutOfToolNames(t *testing.T) {
 	if !containsGatewayTestString(tools, "getOrder") {
 		t.Fatalf("expected override name as tool, got %+v", tools)
 	}
+	if !containsGatewayTestString(tools, "DELETE /orders/{id}") {
+		t.Fatalf("expected unnamed override method/path fallback as tool, got %+v", tools)
+	}
 	if containsGatewayTestString(tools, "POST /orders") {
 		t.Fatalf("expected filter actions to stay out of tool names, got %+v", tools)
 	}
-	if !containsGatewayTestString(actions, "GET /orders/{id}") || !containsGatewayTestString(actions, "POST /orders") {
+	if !containsGatewayTestString(actions, "GET /orders/{id}") ||
+		!containsGatewayTestString(actions, "DELETE /orders/{id}") ||
+		!containsGatewayTestString(actions, "POST /orders") {
 		t.Fatalf("expected override and filter actions, got %+v", actions)
 	}
 	if !containsGatewayTestString(refs, "api-123") || !containsGatewayTestString(refs, "prod") {
