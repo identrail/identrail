@@ -1982,6 +1982,9 @@ export type AWSAIAgentIdentityRecord = {
   memory_store_refs?: string[];
   browser_enabled: boolean;
   code_interpreter_enabled: boolean;
+  capability_kind?: 'memory' | 'browser' | 'code_interpreter';
+  storage_reference_refs?: string[];
+  encryption_key_arn?: string;
   capability_names?: string[];
   credential_reference_refs?: string[];
   resource_reference_refs?: string[];
@@ -2043,6 +2046,10 @@ export type AWSAIAgentIdentityInventoryResult = {
   custom_agent_count: number;
   external_agent_count: number;
   gateway_count: number;
+  capability_agent_count: number;
+  memory_store_count: number;
+  browser_count: number;
+  code_interpreter_count: number;
   runtime_role_count: number;
   provider_count: number;
   model_count: number;

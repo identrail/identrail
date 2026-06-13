@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	awsAIAgentIdentityCurrentIssue = 1508
-	awsAIAgentIdentityVersion      = "aws-ai-agent-identity-normalized-model-v1"
-	awsAIAgentCredentialRefPrefix  = "aws:resource:credential-reference:"
-	awsAIAgentToolNodePrefix       = "tool:agent:"
+	awsAIAgentIdentityCurrentIssue  = 1509
+	awsAIAgentIdentityVersion       = "aws-ai-agent-identity-normalized-model-v1"
+	awsAIAgentCredentialRefPrefix   = "aws:resource:credential-reference:"
+	awsAIAgentToolNodePrefix        = "tool:agent:"
+	agentCoreCapabilityAgentTypeAPI = "agentcore_capability"
 )
 
 type AWSAIAgentIdentityInventoryRequest struct {
@@ -51,6 +52,10 @@ type AWSAIAgentIdentityInventoryResult struct {
 	CustomAgentCount      int                            `json:"custom_agent_count"`
 	ExternalAgentCount    int                            `json:"external_agent_count"`
 	GatewayCount          int                            `json:"gateway_count"`
+	CapabilityAgentCount  int                            `json:"capability_agent_count"`
+	MemoryStoreCount      int                            `json:"memory_store_count"`
+	BrowserCount          int                            `json:"browser_count"`
+	CodeInterpreterCount  int                            `json:"code_interpreter_count"`
 	RuntimeRoleCount      int                            `json:"runtime_role_count"`
 	ProviderCount         int                            `json:"provider_count"`
 	ModelCount            int                            `json:"model_count"`
@@ -95,6 +100,9 @@ type AWSAIAgentIdentityRecord struct {
 	MemoryStoreRefs           []string          `json:"memory_store_refs,omitempty"`
 	BrowserEnabled            bool              `json:"browser_enabled"`
 	CodeInterpreterEnabled    bool              `json:"code_interpreter_enabled"`
+	CapabilityKind            string            `json:"capability_kind,omitempty"`
+	StorageReferenceRefs      []string          `json:"storage_reference_refs,omitempty"`
+	EncryptionKeyARN          string            `json:"encryption_key_arn,omitempty"`
 	CapabilityNames           []string          `json:"capability_names,omitempty"`
 	CredentialReferenceRefs   []string          `json:"credential_reference_refs,omitempty"`
 	ResourceReferenceRefs     []string          `json:"resource_reference_refs,omitempty"`
@@ -214,6 +222,10 @@ func buildAWSAIAgentIdentityInventory(scope db.Scope, project db.TenancyProject,
 		CustomAgentCount:      awsAIAgentIdentityTypeCount(records, "custom_agent"),
 		ExternalAgentCount:    awsAIAgentIdentityTypeCount(records, "external_provider_agent"),
 		GatewayCount:          awsAIAgentIdentityTypeCount(records, "agent_gateway"),
+		CapabilityAgentCount:  awsAIAgentIdentityTypeCount(records, agentCoreCapabilityAgentTypeAPI),
+		MemoryStoreCount:      awsAIAgentIdentityCapabilityKindCount(records, "memory"),
+		BrowserCount:          awsAIAgentIdentityCapabilityKindCount(records, "browser"),
+		CodeInterpreterCount:  awsAIAgentIdentityCapabilityKindCount(records, "code_interpreter"),
 		RuntimeRoleCount:      awsAIAgentIdentityUniqueCount(records, func(r AWSAIAgentIdentityRecord) string { return r.RuntimeRoleNodeID }),
 		ProviderCount:         awsAIAgentIdentityUniqueCount(records, func(r AWSAIAgentIdentityRecord) string { return r.Provider }),
 		ModelCount:            awsAIAgentIdentityUniqueCount(records, func(r AWSAIAgentIdentityRecord) string { return r.ModelID }),
@@ -370,6 +382,32 @@ func awsAIAgentIdentityFixtureRecords(accountID string, region string, fixtureSt
 			r.AuthMode = "custom_jwt"
 			r.CapabilityNames = []string{"gateway", "tool_routing", "mcp", "gateway_auth_custom_jwt"}
 		}),
+		awsAIAgentFixtureRecord(accountID, region, agentCoreCapabilityAgentTypeAPI, "payments-agent-memory", "mem-payments", fmt.Sprintf("arn:%s:bedrock-agentcore:%s:%s:memory/mem-payments", partition, region, accountID), role("agentcore-memory-payments"), checkedAt, func(r *AWSAIAgentIdentityRecord) {
+			r.Service = "agentcore"
+			r.Provider = "amazon-bedrock-agentcore"
+			r.CapabilityKind = "memory"
+			r.MemoryEnabled = true
+			r.MemoryStoreRefs = []string{fmt.Sprintf("arn:%s:bedrock-agentcore:%s:%s:memory/mem-payments", partition, region, accountID)}
+			r.EncryptionKeyARN = fmt.Sprintf("arn:%s:kms:%s:%s:key/cmk-agentcore-memory", partition, region, accountID)
+			r.CapabilityNames = []string{"agentcore_memory", "memory", "memory_strategy_semantic", "memory_event_expiry_days_30", "customer_encryption_kms"}
+		}),
+		awsAIAgentFixtureRecord(accountID, region, agentCoreCapabilityAgentTypeAPI, "research-browser", "br-research", fmt.Sprintf("arn:%s:bedrock-agentcore:%s:%s:browser/br-research", partition, region, accountID), role("agentcore-browser-research"), checkedAt, func(r *AWSAIAgentIdentityRecord) {
+			r.Service = "agentcore"
+			r.Provider = "amazon-bedrock-agentcore"
+			r.CapabilityKind = "browser"
+			r.BrowserEnabled = true
+			r.NetworkMode = "vpc"
+			r.StorageReferenceRefs = []string{"s3://agentcore-browser-recordings/research/"}
+			r.CapabilityNames = []string{"agentcore_browser", "browser", "browser_recording", "vpc_attached", "storage_reference"}
+		}),
+		awsAIAgentFixtureRecord(accountID, region, agentCoreCapabilityAgentTypeAPI, "python-sandbox", "ci-python", fmt.Sprintf("arn:%s:bedrock-agentcore:%s:%s:code-interpreter/ci-python", partition, region, accountID), role("agentcore-code-python"), checkedAt, func(r *AWSAIAgentIdentityRecord) {
+			r.Service = "agentcore"
+			r.Provider = "amazon-bedrock-agentcore"
+			r.CapabilityKind = "code_interpreter"
+			r.CodeInterpreterEnabled = true
+			r.NetworkMode = "sandbox"
+			r.CapabilityNames = []string{"agentcore_code_interpreter", "code_interpreter"}
+		}),
 	}
 	switch fixtureState {
 	case "empty":
@@ -387,11 +425,22 @@ func awsAIAgentIdentityFixtureRecords(accountID string, region string, fixtureSt
 			Retryable: false,
 		}}, gaps
 	case "partial_failure":
-		return records[:4], []providers.SourceError{{
+		// Simulate the gateway sub-listing failing while every other sub-listing
+		// (Bedrock, AgentCore runtime, custom, external-provider, and the
+		// AgentCore Memory/Browser/Code Interpreter capability surfaces) is
+		// retained. Drop only the gateway record so the diagnostic stays honest.
+		retained := make([]AWSAIAgentIdentityRecord, 0, len(records))
+		for _, record := range records {
+			if record.AgentType == "agent_gateway" {
+				continue
+			}
+			retained = append(retained, record)
+		}
+		return retained, []providers.SourceError{{
 			Collector: "aws_ai-agent/ai_agent_identity",
 			SourceID:  fmt.Sprintf("service=ai-agent|account=%s|region=%s|source=agent_gateways", accountID, region),
 			Code:      "ai_agent_gateway_list_failed",
-			Message:   "agent gateway metadata could not be listed; retained Bedrock, AgentCore, custom, and external-provider-backed agent identities remain visible",
+			Message:   "agent gateway metadata could not be listed; retained Bedrock, AgentCore runtime, custom, external-provider, and AgentCore capability identities remain visible",
 			Retryable: true,
 		}}, gaps
 	case "permission_denied":
@@ -449,7 +498,8 @@ func awsAIAgentFixtureRecord(accountID string, region string, agentType string, 
 	record.ExecutionEndpointNames = normalizeOrderedStringList(record.ExecutionEndpointNames)
 	record.ExecutionEndpointStatuses = normalizeOrderedStringList(record.ExecutionEndpointStatuses)
 	record.ObservabilityLinks = normalizeOrderedStringList(record.ObservabilityLinks)
-	record.ResourceReferenceRefs = dedupeStrings(append(append(record.ResourceReferenceRefs, record.ToolTargetRefs...), append(append([]string{}, record.ExecutionEndpointARNs...), record.WorkloadIdentityARN)...))
+	record.StorageReferenceRefs = dedupeStrings(record.StorageReferenceRefs)
+	record.ResourceReferenceRefs = dedupeStrings(append(append(record.ResourceReferenceRefs, record.ToolTargetRefs...), append(append(append([]string{}, record.ExecutionEndpointARNs...), record.StorageReferenceRefs...), record.WorkloadIdentityARN, record.EncryptionKeyARN)...))
 	if len(record.CredentialReferenceRefs) > 0 {
 		record.RelationshipTypes = dedupeStrings(append(record.RelationshipTypes, "uses_secret"))
 	}
@@ -679,6 +729,16 @@ func awsAIAgentIdentityTypeCount(records []AWSAIAgentIdentityRecord, agentType s
 	return count
 }
 
+func awsAIAgentIdentityCapabilityKindCount(records []AWSAIAgentIdentityRecord, kind string) int {
+	count := 0
+	for _, record := range records {
+		if record.CapabilityKind == kind {
+			count++
+		}
+	}
+	return count
+}
+
 func awsAIAgentIdentityUniqueCount(records []AWSAIAgentIdentityRecord, accessor func(AWSAIAgentIdentityRecord) string) int {
 	seen := map[string]struct{}{}
 	for _, record := range records {
@@ -726,6 +786,10 @@ func awsAIAgentIdentityDiagnosticRemediation(code string) string {
 		return "Retry only the failed agent metadata call and keep successful normalized agent records visible."
 	case "agentcore_runtime_describe_failed", "agentcore_runtime_endpoint_list_failed", "agentcore_runtime_malformed":
 		return "Retry the failed AgentCore runtime metadata call and keep the surviving runtime records visible."
+	case "agentcore_memory_describe_failed", "agentcore_memory_malformed",
+		"agentcore_browser_describe_failed", "agentcore_browser_malformed",
+		"agentcore_code_interpreter_describe_failed", "agentcore_code_interpreter_malformed":
+		return "Retry the failed AgentCore Memory/Browser/Code Interpreter metadata call; never read memory records, browser pages, or code-interpreter output."
 	case "ai_agent_credential_reference_unresolved":
 		return "Join to credential-reference metadata for ownership and rotation without exposing provider key values."
 	default:

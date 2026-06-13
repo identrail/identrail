@@ -48,7 +48,7 @@ func NewSDKAgentCoreAIAgentIdentityAPIWithContext(ctx context.Context, region st
 	}
 	resolvedRegion := firstNonEmptyAWSValue(strings.TrimSpace(region), strings.TrimSpace(cfg.Region))
 	client := bedrockagentcorecontrol.NewFromConfig(cfg)
-	return NewSDKAgentCoreAIAgentIdentityAPIFromClient(client, client, resolvedAccountID, resolvedRegion), nil
+	return NewSDKAgentCoreAIAgentIdentityAPIFromClient(client, client, client, resolvedAccountID, resolvedRegion), nil
 }
 
 func NewSDKAgentCoreAIAgentIdentityAPIFromAssumeRole(ctx context.Context, region string, profile string, roleARN string, externalID string, sessionName string, accountID string) (AIAgentIdentityAPI, error) {
@@ -77,13 +77,14 @@ func NewSDKAgentCoreAIAgentIdentityAPIFromAssumeRole(ctx context.Context, region
 	}
 	resolvedRegion := firstNonEmptyAWSValue(strings.TrimSpace(region), strings.TrimSpace(cfg.Region))
 	client := bedrockagentcorecontrol.NewFromConfig(cfg)
-	return NewSDKAgentCoreAIAgentIdentityAPIFromClient(client, client, resolvedAccountID, resolvedRegion), nil
+	return NewSDKAgentCoreAIAgentIdentityAPIFromClient(client, client, client, resolvedAccountID, resolvedRegion), nil
 }
 
-func NewSDKAgentCoreAIAgentIdentityAPIFromClient(runtimeClient AgentCoreRuntimeSDKClient, gatewayClient AgentCoreGatewaySDKClient, accountID string, region string) AIAgentIdentityAPI {
+func NewSDKAgentCoreAIAgentIdentityAPIFromClient(runtimeClient AgentCoreRuntimeSDKClient, gatewayClient AgentCoreGatewaySDKClient, capabilitiesClient AgentCoreCapabilitiesSDKClient, accountID string, region string) AIAgentIdentityAPI {
 	return NewCompositeAIAgentIdentityAPI(
 		NewSDKAgentCoreRuntimeAPIFromClient(runtimeClient, accountID, region),
 		NewSDKAgentCoreGatewayAPIFromClient(gatewayClient, accountID, region),
+		NewSDKAgentCoreCapabilitiesAPIFromClient(capabilitiesClient, accountID, region),
 	)
 }
 

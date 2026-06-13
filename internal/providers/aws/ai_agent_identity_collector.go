@@ -19,6 +19,17 @@ const (
 	aiAgentIdentityServiceName   = "ai-agent"
 )
 
+// AgentCore capability kinds describe the data/tool surface a capability record
+// represents. They are metadata-only: a memory store, browser, or code
+// interpreter is recorded by identity, role binding, storage references, and
+// network posture, never by its memory contents, browser pages, or code output.
+const (
+	agentCoreCapabilityKindMemory          = "memory"
+	agentCoreCapabilityKindBrowser         = "browser"
+	agentCoreCapabilityKindCodeInterpreter = "code_interpreter"
+	agentCoreCapabilityAgentType           = "agentcore_capability"
+)
+
 // AIAgentIdentity is the payload-safe normalized model for AWS-hosted AI agents.
 // It records identity, role, provider/model, tool, memory, browser, and code
 // capability metadata while deliberately excluding prompts, completions, memory
@@ -48,6 +59,9 @@ type AIAgentIdentity struct {
 	MemoryStoreRefs           []string          `json:"memory_store_refs,omitempty"`
 	BrowserEnabled            bool              `json:"browser_enabled"`
 	CodeInterpreterEnabled    bool              `json:"code_interpreter_enabled"`
+	CapabilityKind            string            `json:"capability_kind,omitempty"`
+	StorageReferenceRefs      []string          `json:"storage_reference_refs,omitempty"`
+	EncryptionKeyARN          string            `json:"encryption_key_arn,omitempty"`
 	CapabilityNames           []string          `json:"capability_names,omitempty"`
 	CredentialReferenceRefs   []string          `json:"credential_reference_refs,omitempty"`
 	ResourceReferenceRefs     []string          `json:"resource_reference_refs,omitempty"`
@@ -275,6 +289,9 @@ func normalizeAIAgentIdentityScope(scope AWSCollectorScope, record AIAgentIdenti
 	normalized.AllowedActions = normalizeStringList(record.AllowedActions)
 	normalized.AuthMode = strings.TrimSpace(record.AuthMode)
 	normalized.MemoryStoreRefs = normalizeStringList(record.MemoryStoreRefs)
+	normalized.CapabilityKind = canonicalAgentCoreCapabilityKind(record.CapabilityKind)
+	normalized.StorageReferenceRefs = normalizeStringList(record.StorageReferenceRefs)
+	normalized.EncryptionKeyARN = strings.TrimSpace(record.EncryptionKeyARN)
 	normalized.CapabilityNames = normalizeStringList(record.CapabilityNames)
 	normalized.CredentialReferenceRefs = normalizeStringList(record.CredentialReferenceRefs)
 	normalized.ResourceReferenceRefs = normalizeStringList(record.ResourceReferenceRefs)
@@ -310,6 +327,30 @@ func normalizeAIAgentIdentityScope(scope AWSCollectorScope, record AIAgentIdenti
 	}
 	if len(normalized.ObservabilityLinks) > 0 {
 		normalized.CapabilityNames = appendUnique(normalized.CapabilityNames, "observability")
+	}
+	// AgentCore Memory / Browser / Code Interpreter capability surfaces. Storage
+	// references and the encryption key feed the resource-reference graph so the
+	// capability's persistent data surface is visible, while contents stay
+	// uncollected. The kind also flips the matching capability flag so downstream
+	// dashboards keep working without inspecting the agent_type.
+	switch normalized.CapabilityKind {
+	case agentCoreCapabilityKindMemory:
+		normalized.MemoryEnabled = true
+		normalized.CapabilityNames = appendUnique(normalized.CapabilityNames, "memory")
+	case agentCoreCapabilityKindBrowser:
+		normalized.BrowserEnabled = true
+		normalized.CapabilityNames = appendUnique(normalized.CapabilityNames, "browser")
+	case agentCoreCapabilityKindCodeInterpreter:
+		normalized.CodeInterpreterEnabled = true
+		normalized.CapabilityNames = appendUnique(normalized.CapabilityNames, "code_interpreter")
+	}
+	if len(normalized.StorageReferenceRefs) > 0 {
+		normalized.ResourceReferenceRefs = normalizeStringList(append(normalized.ResourceReferenceRefs, normalized.StorageReferenceRefs...))
+		normalized.CapabilityNames = appendUnique(normalized.CapabilityNames, "storage_reference")
+	}
+	if normalized.EncryptionKeyARN != "" {
+		normalized.ResourceReferenceRefs = normalizeStringList(append(normalized.ResourceReferenceRefs, normalized.EncryptionKeyARN))
+		normalized.CapabilityNames = appendUnique(normalized.CapabilityNames, "customer_encryption_kms")
 	}
 	normalized.SensitiveBoundary = firstNonEmptyAWSValue(record.SensitiveBoundary, "metadata_only")
 	normalized.CoverageStatus = firstNonEmptyAWSValue(record.CoverageStatus, "covered")
@@ -390,11 +431,28 @@ func canonicalAIAgentType(agentType string, service string) string {
 		return "external_provider_agent"
 	case "agent_gateway", "gateway":
 		return "agent_gateway"
+	case agentCoreCapabilityAgentType, "agentcore_memory", "agentcore_browser", "agentcore_code_interpreter":
+		return agentCoreCapabilityAgentType
 	}
 	if strings.EqualFold(strings.TrimSpace(service), "bedrock") {
 		return "bedrock_agent"
 	}
 	return "custom_agent"
+}
+
+// canonicalAgentCoreCapabilityKind normalizes a capability kind onto the
+// supported set, returning "" for non-capability records.
+func canonicalAgentCoreCapabilityKind(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case agentCoreCapabilityKindMemory, "agentcore_memory", "memory_store":
+		return agentCoreCapabilityKindMemory
+	case agentCoreCapabilityKindBrowser, "agentcore_browser", "browser_tool":
+		return agentCoreCapabilityKindBrowser
+	case agentCoreCapabilityKindCodeInterpreter, "agentcore_code_interpreter", "code-interpreter", "codeinterpreter":
+		return agentCoreCapabilityKindCodeInterpreter
+	default:
+		return ""
+	}
 }
 
 func aiAgentIdentityConfidence(record AIAgentIdentity) float64 {
@@ -424,6 +482,15 @@ func aiAgentIdentityConfidence(record AIAgentIdentity) float64 {
 		confidence += 0.02
 	}
 	if strings.TrimSpace(record.NetworkMode) != "" || strings.TrimSpace(record.ServerProtocol) != "" {
+		confidence += 0.02
+	}
+	if strings.TrimSpace(record.CapabilityKind) != "" {
+		confidence += 0.04
+	}
+	if len(record.StorageReferenceRefs) > 0 {
+		confidence += 0.03
+	}
+	if strings.TrimSpace(record.EncryptionKeyARN) != "" {
 		confidence += 0.02
 	}
 	if confidence > 0.95 {

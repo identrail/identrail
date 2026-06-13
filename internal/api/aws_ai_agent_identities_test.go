@@ -13,6 +13,65 @@ import (
 	"go.uber.org/zap"
 )
 
+func TestGetAWSAIAgentIdentityInventoryMapsAgentCoreCapabilities(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 13, 13, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	result, err := svc.GetAWSAIAgentIdentityInventory(ctx, "default", "project-a", AWSAIAgentIdentityInventoryRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get ai agent identity inventory: %v", err)
+	}
+	byKind := map[string]AWSAIAgentIdentityRecord{}
+	for _, record := range result.Records {
+		if record.AgentType != agentCoreCapabilityAgentTypeAPI {
+			continue
+		}
+		byKind[record.CapabilityKind] = record
+	}
+	if len(byKind) != 3 {
+		t.Fatalf("expected memory/browser/code_interpreter capability records, got %v", byKind)
+	}
+
+	memory := byKind["memory"]
+	if !memory.MemoryEnabled || memory.EncryptionKeyARN == "" || memory.RuntimeRoleARN == "" {
+		t.Fatalf("memory capability missing role/encryption/flag: %+v", memory)
+	}
+	if !strings.HasPrefix(memory.RuntimeRoleNodeID, "aws:identity:") {
+		t.Fatalf("memory capability role node must use canonical identity prefix, got %q", memory.RuntimeRoleNodeID)
+	}
+	browser := byKind["browser"]
+	if !browser.BrowserEnabled || browser.NetworkMode != "vpc" {
+		t.Fatalf("browser capability missing network/flag: %+v", browser)
+	}
+	if !containsString(browser.StorageReferenceRefs, "s3://agentcore-browser-recordings/research/") {
+		t.Fatalf("browser capability missing storage reference: %+v", browser.StorageReferenceRefs)
+	}
+	code := byKind["code_interpreter"]
+	if !code.CodeInterpreterEnabled {
+		t.Fatalf("code interpreter capability flag not set: %+v", code)
+	}
+
+	// Counts must reflect the capability surfaces.
+	if result.CapabilityAgentCount != 3 || result.MemoryStoreCount != 1 || result.BrowserCount != 1 || result.CodeInterpreterCount != 1 {
+		t.Fatalf("unexpected capability counts: %+v", result)
+	}
+
+	// Metadata-only invariant: no capability contents leak.
+	payload, _ := json.Marshal(result.Records)
+	lower := strings.ToLower(string(payload))
+	for _, forbidden := range []string{"memory_record", "browser_page", "code_output", "conversation", "secret_value"} {
+		if strings.Contains(lower, forbidden) {
+			t.Fatalf("metadata-only contract violated by %q in records", forbidden)
+		}
+	}
+}
+
 func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()
@@ -30,11 +89,14 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 	if result.Status != awsPlatformDependencyStatusReady || result.Confidence < 0.9 {
 		t.Fatalf("expected ready inventory, got %+v", result)
 	}
-	if result.ParentIssueRef != "#1472" || result.CurrentIssueRef != "#1508" || result.Version != awsAIAgentIdentityVersion {
+	if result.ParentIssueRef != "#1472" || result.CurrentIssueRef != "#1509" || result.Version != awsAIAgentIdentityVersion {
 		t.Fatalf("unexpected parent/current/version metadata: %+v", result)
 	}
 	if result.BedrockAgentCount != 1 || result.AgentCoreRuntimeCount != 1 || result.CustomAgentCount != 1 || result.ExternalAgentCount != 1 || result.GatewayCount != 1 {
 		t.Fatalf("expected one record per agent type, got %+v", result)
+	}
+	if result.CapabilityAgentCount != 3 || result.MemoryStoreCount != 1 || result.BrowserCount != 1 || result.CodeInterpreterCount != 1 {
+		t.Fatalf("expected AgentCore Memory/Browser/Code Interpreter capability records, got %+v", result)
 	}
 	if result.RuntimeRoleCount == 0 || result.ToolCount == 0 || result.CapabilityCount == 0 || result.RelationshipCount == 0 {
 		t.Fatalf("expected populated counts, got %+v", result)
@@ -138,8 +200,17 @@ func TestRouterAWSAIAgentIdentityInventoryPartialFailure(t *testing.T) {
 	if body.Inventory.Status != awsPlatformDependencyStatusDegraded || body.Inventory.FixtureState != "partial_failure" {
 		t.Fatalf("expected degraded partial_failure, got status=%q fixture=%q", body.Inventory.Status, body.Inventory.FixtureState)
 	}
-	if body.Inventory.RecordCount != 4 {
-		t.Fatalf("expected partial failure to retain four records, got %d", body.Inventory.RecordCount)
+	// The gateway sub-listing fails; every non-gateway record (Bedrock,
+	// AgentCore runtime, custom, external-provider, and the three AgentCore
+	// capability surfaces) remains visible.
+	if body.Inventory.RecordCount != 7 {
+		t.Fatalf("expected partial failure to retain seven non-gateway records, got %d", body.Inventory.RecordCount)
+	}
+	if body.Inventory.GatewayCount != 0 {
+		t.Fatalf("expected gateway record to be dropped on gateway list failure, got %d", body.Inventory.GatewayCount)
+	}
+	if body.Inventory.CapabilityAgentCount != 3 {
+		t.Fatalf("expected AgentCore capability records to survive the gateway list failure, got %d", body.Inventory.CapabilityAgentCount)
 	}
 	foundGatewayDiag := false
 	for _, diag := range body.Inventory.Diagnostics {

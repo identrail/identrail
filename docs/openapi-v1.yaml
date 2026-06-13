@@ -10110,6 +10110,13 @@ components:
           items: { type: string }
         browser_enabled: { type: boolean }
         code_interpreter_enabled: { type: boolean }
+        capability_kind:
+          type: string
+          enum: [memory, browser, code_interpreter]
+        storage_reference_refs:
+          type: array
+          items: { type: string }
+        encryption_key_arn: { type: string }
         capability_names:
           type: array
           items: { type: string }
@@ -10224,6 +10231,10 @@ components:
         custom_agent_count: { type: integer }
         external_agent_count: { type: integer }
         gateway_count: { type: integer }
+        capability_agent_count: { type: integer }
+        memory_store_count: { type: integer }
+        browser_count: { type: integer }
+        code_interpreter_count: { type: integer }
         runtime_role_count: { type: integer }
         provider_count: { type: integer }
         model_count: { type: integer }

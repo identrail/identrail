@@ -1,6 +1,26 @@
 # Changelog
 
 ## Unreleased
+- Add **AgentCore Memory, Browser, and Code Interpreter metadata mapping** (#1509).
+  Extends the AWS AI agent identity model with a read-only, metadata-only
+  AgentCore capabilities adapter (`internal/providers/aws/sdk_agentcore_capabilities.go`)
+  that lists and describes AgentCore Memory, Browser, and Code Interpreter
+  resources and maps each into an `agentcore_capability` identity carrying its
+  `capability_kind` (`memory`/`browser`/`code_interpreter`), execution role
+  binding, storage references (browser recording `s3://` destination, memory
+  stream-delivery resource counts), customer encryption key ARN, network
+  posture (VPC/sandbox with subnet/security-group counts only), and lifecycle
+  status. The model gains `capability_kind`, `storage_reference_refs`, and
+  `encryption_key_arn` fields; the normalizer emits an `agentcore_capability`
+  resource node per surface linked to its agent identity and execution-role
+  identity. The inventory API exposes `capability_agent_count`,
+  `memory_store_count`, `browser_count`, and `code_interpreter_count`, and the
+  AWS Agents app surface shows an AgentCore capabilities coverage card and
+  per-capability rows. Per-resource describe failures degrade only that record
+  and emit a scoped diagnostic while surviving records stay visible. Memory
+  records, browser pages, code-interpreter output, conversations, and secret
+  values are never read. See
+  [docs/aws-ai-agent-identities.md](docs/aws-ai-agent-identities.md).
 - Add **AWS Bedrock Agents identity collector** (#1506). A bounded, retryable,
   read-only, metadata-only collector in `internal/providers/aws` that emits one
   `AIAgentIdentity` raw asset per Bedrock agent so the merged Wave 4.01 AI agent

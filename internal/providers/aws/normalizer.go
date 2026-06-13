@@ -377,6 +377,13 @@ func normalizeAIAgentIdentityAsset(asset providers.RawAsset, index int, bundle *
 				"tool_target_refs":            normalizeStringList(record.ToolTargetRefs),
 				"allowed_actions":             normalizeStringList(record.AllowedActions),
 				"auth_mode":                   strings.TrimSpace(record.AuthMode),
+				"capability_kind":             strings.TrimSpace(record.CapabilityKind),
+				"storage_reference_refs":      normalizeStringList(record.StorageReferenceRefs),
+				"encryption_key_arn":          strings.TrimSpace(record.EncryptionKeyARN),
+				"memory_enabled":              record.MemoryEnabled,
+				"browser_enabled":             record.BrowserEnabled,
+				"code_interpreter_enabled":    record.CodeInterpreterEnabled,
+				"memory_store_refs":           normalizeStringList(record.MemoryStoreRefs),
 				"capability_names":            normalizeStringList(record.CapabilityNames),
 				"credential_reference_refs":   normalizeStringList(record.CredentialReferenceRefs),
 				"resource_reference_refs":     normalizeStringList(record.ResourceReferenceRefs),
@@ -489,6 +496,47 @@ func normalizeAIAgentIdentityAsset(asset providers.RawAsset, index int, bundle *
 		}
 		bundle.Resources = append(bundle.Resources, resource)
 		resourceSeen[toolID] = struct{}{}
+	}
+
+	// AgentCore Memory / Browser / Code Interpreter capability surface. Each
+	// capability record emits one capability resource node carrying its kind,
+	// storage references, encryption key, and network posture so the graph shows
+	// the agent's persistent data/tool surface without any capability contents.
+	if capabilityKind := canonicalAgentCoreCapabilityKind(record.CapabilityKind); capabilityKind != "" {
+		capabilityID := awsAIAgentCapabilityNodeID(agentID, capabilityKind)
+		if _, exists := resourceSeen[capabilityID]; !exists {
+			resource := domain.Resource{
+				ID:        capabilityID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.ResourceTypeBedrockAgentCore,
+				Name:      firstNonEmptyAWSValue(record.AgentName, record.AgentID),
+				ARN:       strings.TrimSpace(record.AgentARN),
+				Region:    strings.TrimSpace(record.Region),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Labels: map[string]string{
+					"resource_kind":   "agentcore_capability",
+					"capability_kind": capabilityKind,
+				},
+				Metadata: map[string]any{
+					"capability_kind":          capabilityKind,
+					"capability_agent_id":      agentID,
+					"memory_enabled":           record.MemoryEnabled,
+					"browser_enabled":          record.BrowserEnabled,
+					"code_interpreter_enabled": record.CodeInterpreterEnabled,
+					"storage_reference_refs":   normalizeStringList(record.StorageReferenceRefs),
+					"resource_reference_refs":  normalizeStringList(record.ResourceReferenceRefs),
+					"encryption_key_arn":       strings.TrimSpace(record.EncryptionKeyARN),
+					"execution_role_arn":       strings.TrimSpace(record.RuntimeRoleARN),
+					"network_mode":             strings.TrimSpace(record.NetworkMode),
+					"capability_names":         normalizeStringList(record.CapabilityNames),
+					"coverage_status":          strings.TrimSpace(record.CoverageStatus),
+				},
+				RawRef:         asset.SourceID,
+				SourceEntityID: agentID,
+			}
+			bundle.Resources = append(bundle.Resources, resource)
+			resourceSeen[capabilityID] = struct{}{}
+		}
 	}
 
 	return nil

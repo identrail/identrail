@@ -83,6 +83,18 @@ func awsAIAgentExecutionEndpointNodeID(agentNodeID string, endpointARN string) s
 	}), "|")
 }
 
+func awsAIAgentCapabilityNodeID(agentNodeID string, capabilityKind string) string {
+	workload := strings.TrimSpace(agentNodeID)
+	if workload == "" {
+		workload = "agent"
+	}
+	kind := strings.TrimSpace(strings.ToLower(capabilityKind))
+	if kind == "" {
+		kind = "capability"
+	}
+	return "aws:resource:agentcore-capability:" + strings.Join(normalizeStringList([]string{workload, kind}), "|")
+}
+
 func awsAIAgentResourceReferenceParts(ref string) (string, string) {
 	trimmed := strings.TrimSpace(ref)
 	if trimmed == "" {

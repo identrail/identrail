@@ -292,6 +292,81 @@ func TestRoleNormalizerEmitsGatewayToolResourcesAndRelationships(t *testing.T) {
 	}
 }
 
+func TestRoleNormalizerEmitsAgentCoreCapabilityResource(t *testing.T) {
+	normalizer := NewRoleNormalizer()
+	record := AIAgentIdentity{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID: "123456789012",
+			Region:    "us-east-1",
+			Service:   "agentcore",
+		},
+		AgentType:            agentCoreCapabilityAgentType,
+		CapabilityKind:       agentCoreCapabilityKindBrowser,
+		AgentID:              "br-research",
+		AgentName:            "research-browser",
+		AgentARN:             "arn:aws:bedrock-agentcore:us-east-1:123456789012:browser/br-research",
+		RuntimeRoleARN:       "arn:aws:iam::123456789012:role/agentcore-browser",
+		NetworkMode:          "vpc",
+		StorageReferenceRefs: []string{"s3://agent-recordings/browser/"},
+		EncryptionKeyARN:     "arn:aws:kms:us-east-1:123456789012:key/cmk-browser",
+	}
+	// Normalize the record the way the collector would before marshalling.
+	enriched := normalizeAIAgentIdentityScope(AWSCollectorScope{AccountID: "123456789012", Region: "us-east-1"}, record, record.CollectedAt)
+	payload, err := json.Marshal(enriched)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	bundle, err := normalizer.Normalize(context.Background(), []providers.RawAsset{{
+		Kind:     rawKindAIAgentIdentity,
+		SourceID: "capability/br-research",
+		Payload:  payload,
+	}})
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+
+	// One agent node, one runtime-role identity, and one capability resource.
+	if len(bundle.Agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(bundle.Agents))
+	}
+	var capabilityResource *domain.Resource
+	for i := range bundle.Resources {
+		if bundle.Resources[i].Labels["resource_kind"] == "agentcore_capability" {
+			capabilityResource = &bundle.Resources[i]
+		}
+	}
+	if capabilityResource == nil {
+		t.Fatalf("expected agentcore_capability resource, got %+v", bundle.Resources)
+	}
+	if capabilityResource.Labels["capability_kind"] != agentCoreCapabilityKindBrowser {
+		t.Fatalf("expected browser capability kind, got %+v", capabilityResource.Labels)
+	}
+	if capabilityResource.SourceEntityID == "" {
+		t.Fatalf("capability resource must link to its agent node")
+	}
+	if !containsString(parseStringList(capabilityResource.Metadata["storage_reference_refs"]), "s3://agent-recordings/browser/") {
+		t.Fatalf("expected storage reference, got %+v", capabilityResource.Metadata)
+	}
+	if got, _ := capabilityResource.Metadata["encryption_key_arn"].(string); strings.TrimSpace(got) == "" {
+		t.Fatalf("expected encryption key arn metadata, got %+v", capabilityResource.Metadata)
+	}
+	if enabled, _ := capabilityResource.Metadata["browser_enabled"].(bool); !enabled {
+		t.Fatalf("expected browser_enabled true, got %+v", capabilityResource.Metadata)
+	}
+
+	// The capability's execution role must surface as an identity.
+	foundRole := false
+	for _, identity := range bundle.Identities {
+		if identity.ARN == "arn:aws:iam::123456789012:role/agentcore-browser" {
+			foundRole = true
+		}
+	}
+	if !foundRole {
+		t.Fatalf("expected capability execution role identity, got %+v", bundle.Identities)
+	}
+}
+
 func TestAIAgentExecutionEndpointNodeIDPreservesAgentNodeCase(t *testing.T) {
 	agentNodeID := "aws:agent:123456789012:us-east-1:custom_agent/CaseSensitiveGateway"
 	endpointARN := "arn:aws:bedrock-agentcore:us-east-1:123456789012:agent-runtime-endpoint/runtime/Blue"
