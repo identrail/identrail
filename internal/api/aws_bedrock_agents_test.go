@@ -154,6 +154,95 @@ func TestGetAWSBedrockAgentsInventoryFixtureStates(t *testing.T) {
 	}
 }
 
+func TestGetAWSBedrockAgentsRuntimeRoleNodeIDUsesCanonicalIdentityPrefix(t *testing.T) {
+	// Runs_with_role edges must point at the same identity node id every other
+	// AWS endpoint emits via awsIdentityNodeIDForAPI; otherwise UI graph joins
+	// silently miss.
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 13, 11, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	svc := newBedrockAgentsService(t, store, now)
+
+	result, err := svc.GetAWSBedrockAgentsInventory(ctx, "default", "project-a", AWSBedrockAgentsInventoryRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(result.Records) == 0 {
+		t.Fatalf("expected records")
+	}
+	for _, record := range result.Records {
+		if record.RuntimeRoleARN == "" {
+			continue
+		}
+		expected := awsIdentityNodeIDForAPI(record.RuntimeRoleARN)
+		if record.RuntimeRoleNodeID != expected {
+			t.Fatalf("record %s runtime_role_node_id=%q, want %q (canonical aws:identity: prefix)", record.AgentID, record.RuntimeRoleNodeID, expected)
+		}
+		if !strings.HasPrefix(record.RuntimeRoleNodeID, "aws:identity:") {
+			t.Fatalf("record %s runtime_role_node_id must start with aws:identity:, got %q", record.AgentID, record.RuntimeRoleNodeID)
+		}
+	}
+	// And the relationship edge from runs_with_role uses the same node id so
+	// the UI graph join lands on the IAM identity node, not an orphan resource.
+	for _, rel := range result.Relationships {
+		if rel.Type != "runs_with_role" {
+			continue
+		}
+		if !strings.HasPrefix(rel.ToNodeID, "aws:identity:") {
+			t.Fatalf("runs_with_role edge to_node_id must start with aws:identity:, got %q", rel.ToNodeID)
+		}
+	}
+}
+
+func TestGetAWSBedrockAgentsInventoryDiagnosticsScopedToFilteredRecords(t *testing.T) {
+	// When a filter narrows records, per-agent diagnostics for agents that
+	// were excluded must drop out so the response does not report unrelated
+	// failures. Scan-wide diagnostics (no SourceID) stay included.
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 13, 11, 30, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	svc := newBedrockAgentsService(t, store, now)
+
+	// Degraded fixture has a SUPPORTAGENT2 diagnostic. Filtering to the healthy
+	// PAYMENTSAGENT1 must drop it.
+	scoped, err := svc.GetAWSBedrockAgentsInventory(ctx, "default", "project-a", AWSBedrockAgentsInventoryRequest{ConnectorID: "aws-prod", FixtureState: "degraded", AgentID: "PAYMENTSAGENT1"})
+	if err != nil {
+		t.Fatalf("get scoped: %v", err)
+	}
+	if scoped.FilteredAgentCount != 1 {
+		t.Fatalf("expected 1 filtered agent, got %d", scoped.FilteredAgentCount)
+	}
+	for _, diag := range scoped.Diagnostics {
+		if diag.SourceID == "SUPPORTAGENT2" {
+			t.Fatalf("diagnostic for filtered-out agent SUPPORTAGENT2 leaked into scoped response: %+v", diag)
+		}
+	}
+	// And the response-level status should reflect the surviving records, not
+	// the dropped ones — PAYMENTSAGENT1 is healthy so status drops back to ready.
+	if scoped.Status != awsPlatformDependencyStatusReady {
+		t.Fatalf("expected ready status when filter retains only healthy records, got %q (failures=%v)", scoped.Status, scoped.FailureReasons)
+	}
+
+	// Inventory-wide aggregate counts still show the full inventory totals.
+	if scoped.AgentCount != 2 || scoped.GuardrailCount == 0 {
+		t.Fatalf("aggregate counts must stay inventory-wide for dashboard sanity, got %+v", scoped)
+	}
+
+	// A scan-wide diagnostic (no SourceID, or a non-agent SourceID) must stay
+	// visible even under a narrowing filter.
+	denied, err := svc.GetAWSBedrockAgentsInventory(ctx, "default", "project-a", AWSBedrockAgentsInventoryRequest{ConnectorID: "aws-prod", FixtureState: "permission_denied", AgentID: "PAYMENTSAGENT1"})
+	if err != nil {
+		t.Fatalf("get denied: %v", err)
+	}
+	if len(denied.Diagnostics) == 0 {
+		t.Fatalf("scan-wide permission_denied diagnostic must remain visible even when records filter narrows to zero")
+	}
+}
+
 func TestGetAWSBedrockAgentsInventoryRelationshipsRespectFilters(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()

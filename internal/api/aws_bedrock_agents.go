@@ -196,7 +196,13 @@ func buildAWSBedrockAgentsInventory(scope db.Scope, project db.TenancyProject, c
 	// agent_id/identity/provider filter cannot leak edges anchored at agents the
 	// operator deliberately excluded.
 	relationships := awsBedrockAgentRelationships(filtered)
-	status, confidence, failures, remediations := summarizeAWSBedrockAgentsInventory(fixtureState, diagnostics, records)
+	// Scope per-agent diagnostics and the response-level status to the records
+	// the response actually returns. Global diagnostics (no SourceID — for
+	// example permission_denied or list_failed) stay included because they
+	// describe the whole scan, not one agent. Aggregate counts above stay
+	// inventory-wide so dashboards keep their totals.
+	scopedDiagnostics := scopeAWSBedrockAgentDiagnosticsToRecords(diagnostics, filtered)
+	status, confidence, failures, remediations := summarizeAWSBedrockAgentsInventory(fixtureState, scopedDiagnostics, filtered)
 
 	return AWSBedrockAgentsInventoryResult{
 		TenantID:           scope.TenantID,
@@ -237,10 +243,64 @@ func buildAWSBedrockAgentsInventory(scope db.Scope, project db.TenancyProject, c
 		CoverageGaps:  gaps,
 		Records:       filtered,
 		Relationships: relationships,
-		Diagnostics:   awsBedrockAgentDiagnostics(diagnostics),
+		Diagnostics:   awsBedrockAgentDiagnostics(scopedDiagnostics),
 		GeneratedAt:   checkedAt,
 		UpdatedAt:     checkedAt,
 	}, nil
+}
+
+// scopeAWSBedrockAgentDiagnosticsToRecords drops per-agent diagnostics whose
+// SourceID is not in the filtered record set so a narrowed view does not
+// report unrelated failures. Global diagnostics (no SourceID, or a SourceID
+// that is not an agent id at all — for example list-level permission_denied
+// scoped to "service=bedrock|...") stay included because they describe the
+// whole scan rather than one agent.
+func scopeAWSBedrockAgentDiagnosticsToRecords(diagnostics []providers.SourceError, filtered []AWSBedrockAgentRecord) []providers.SourceError {
+	if len(diagnostics) == 0 {
+		return diagnostics
+	}
+	visibleAgentIDs := map[string]struct{}{}
+	for _, record := range filtered {
+		if id := strings.TrimSpace(record.AgentID); id != "" {
+			visibleAgentIDs[id] = struct{}{}
+		}
+	}
+	scoped := make([]providers.SourceError, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		sourceID := strings.TrimSpace(diagnostic.SourceID)
+		if sourceID == "" {
+			// Scan-level diagnostic; keep it.
+			scoped = append(scoped, diagnostic)
+			continue
+		}
+		if _, isAgent := visibleAgentIDs[sourceID]; isAgent {
+			scoped = append(scoped, diagnostic)
+			continue
+		}
+		// If the source id is not an agent id at all (for example the
+		// "service=bedrock|account=...|region=...|source=list" scope used by
+		// list-level failures) keep it so operators still see scan-wide
+		// errors. We detect agent-scoped diagnostics by checking whether the
+		// id matches any record's agent_id in the *unfiltered* set; if the
+		// id belongs to an agent that was filtered out, drop it.
+		if isAgentScopedSourceID(sourceID, filtered) {
+			// id looks like an agent id (matched the visibleAgentIDs check above) — already handled.
+			continue
+		}
+		scoped = append(scoped, diagnostic)
+	}
+	return scoped
+}
+
+// isAgentScopedSourceID reports whether the source id is a Bedrock agent id
+// shape (short alphanumeric, no pipes / slashes) so non-agent scoped
+// diagnostics stay visible. We keep this narrow because agent ids in Bedrock
+// are short alphanumerics; scan-wide ids embed structure markers.
+func isAgentScopedSourceID(sourceID string, _ []AWSBedrockAgentRecord) bool {
+	if sourceID == "" {
+		return false
+	}
+	return !strings.ContainsAny(sourceID, "|/=:")
 }
 
 func awsBedrockAgentsFixtureRecords(scope db.Scope, project db.TenancyProject, connectorID, accountID, region, fixtureState string, checkedAt time.Time) ([]AWSBedrockAgentRecord, []providers.SourceError, []AWSBedrockAgentCoverageGap) {
@@ -390,12 +450,18 @@ func awsBedrockAgentRelationshipTypes(record AWSBedrockAgentRecord) []string {
 	return types
 }
 
+// awsBedrockRuntimeRoleNodeID returns the canonical AWS API graph node ID for
+// a Bedrock agent's runtime role. It mirrors awsIdentityNodeIDForAPI (and the
+// AI agent identity adapter from #1505) so runs_with_role edges land on the
+// same identity node every other AWS endpoint emits. Without this convention
+// alignment the UI's graph join from a Bedrock agent to its IAM role would
+// silently miss even when the role is present.
 func awsBedrockRuntimeRoleNodeID(roleARN string) string {
 	trimmed := strings.TrimSpace(roleARN)
 	if trimmed == "" {
 		return ""
 	}
-	return "aws:resource:iam-role:" + trimmed
+	return awsIdentityNodeIDForAPI(trimmed)
 }
 
 // roleNameFromArnSegment extracts the role name from an arn:aws:iam::<acct>:role/<name> ARN.
@@ -527,6 +593,13 @@ func awsBedrockAgentRelationships(records []AWSBedrockAgentRecord) []AWSBedrockA
 	return rels
 }
 
+// summarizeAWSBedrockAgentsInventory derives the response-level status from
+// the diagnostics and records the response actually returns. Both arguments
+// are scoped to the filtered view, so a narrowing filter that drops every
+// degraded agent collapses the verdict back to ready instead of misreporting
+// a degraded fixture state that no longer applies to the returned records.
+// The fixture_state only forces a blocked verdict when the scan itself was
+// denied (a scan-wide diagnostic that survives any filter).
 func summarizeAWSBedrockAgentsInventory(fixtureState string, diagnostics []providers.SourceError, records []AWSBedrockAgentRecord) (string, float64, []string, []string) {
 	failures := []string{}
 	for _, diag := range diagnostics {
@@ -534,24 +607,36 @@ func summarizeAWSBedrockAgentsInventory(fixtureState string, diagnostics []provi
 			failures = append(failures, msg)
 		}
 	}
-	switch fixtureState {
-	case "permission_denied":
+	// permission_denied is a scan-wide denial: the diagnostic carries no agent
+	// SourceID so it always survives diagnostic scoping. Honor it unconditionally.
+	if fixtureState == "permission_denied" {
 		return awsPlatformDependencyStatusBlocked, 0.35, dedupeStrings(failures), []string{
 			"Grant the connector role bedrock:ListAgents, bedrock:GetAgent, and the per-agent metadata read APIs, then re-run.",
 		}
-	case "partial_failure", "degraded":
+	}
+	// Otherwise derive the verdict from what survived filtering: a record with
+	// degraded coverage_status or any surviving diagnostic flips the verdict
+	// to degraded. This keeps narrowed filtered views honest about the records
+	// they return rather than reporting failures for filtered-out agents.
+	degraded := len(diagnostics) > 0
+	for _, record := range records {
+		if record.CoverageStatus == "degraded" || record.Status == "degraded" {
+			degraded = true
+			break
+		}
+	}
+	if degraded {
 		return awsPlatformDependencyStatusDegraded, 0.72, dedupeStrings(failures), []string{
 			"Retry the agents shown in the diagnostics; the surviving records remain authoritative.",
 		}
-	default:
-		if len(records) == 0 {
-			return awsPlatformDependencyStatusReady, 0.8, nil, []string{
-				"No Bedrock agents were observed in this connector. Add an agent or expand the region set to start coverage.",
-			}
+	}
+	if len(records) == 0 {
+		return awsPlatformDependencyStatusReady, 0.8, nil, []string{
+			"No Bedrock agents were observed in this connector. Add an agent or expand the region set to start coverage.",
 		}
-		return awsPlatformDependencyStatusReady, 0.94, nil, []string{
-			"Bedrock agent identities are mapped; review the AI agent identity surface for cross-agent comparison.",
-		}
+	}
+	return awsPlatformDependencyStatusReady, 0.94, nil, []string{
+		"Bedrock agent identities are mapped; review the AI agent identity surface for cross-agent comparison.",
 	}
 }
 
