@@ -413,14 +413,14 @@ func apiGatewayTargetMetadata(config agentcoretypes.ApiGatewayTargetConfiguratio
 	actions := []string{}
 	if config.ApiGatewayToolConfiguration != nil {
 		for _, override := range config.ApiGatewayToolConfiguration.ToolOverrides {
-			name := firstNonEmptyAWSValue(awsv2.ToString(override.Name), string(override.Method)+" "+awsv2.ToString(override.Path))
-			tools = append(tools, name)
-			actions = append(actions, string(override.Method)+" "+awsv2.ToString(override.Path))
+			if name := strings.TrimSpace(awsv2.ToString(override.Name)); name != "" {
+				tools = append(tools, name)
+			}
+			actions = append(actions, strings.TrimSpace(string(override.Method)+" "+awsv2.ToString(override.Path)))
 		}
 		for _, filter := range config.ApiGatewayToolConfiguration.ToolFilters {
 			for _, method := range filter.Methods {
 				action := strings.TrimSpace(string(method) + " " + awsv2.ToString(filter.FilterPath))
-				tools = append(tools, action)
 				actions = append(actions, action)
 			}
 		}
@@ -478,6 +478,7 @@ func toolNamesFromInlineJSON(raw string) []string {
 		return nil
 	}
 	names := []string{}
+	names = append(names, openAPIOperationIDs(value)...)
 	var visit func(any, string)
 	visit = func(node any, parent string) {
 		switch typed := node.(type) {
@@ -498,6 +499,46 @@ func toolNamesFromInlineJSON(raw string) []string {
 	}
 	visit(value, "")
 	return normalizeStringList(names)
+}
+
+func openAPIOperationIDs(value any) []string {
+	root, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	paths, ok := root["paths"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	names := []string{}
+	for _, rawPathItem := range paths {
+		pathItem, ok := rawPathItem.(map[string]any)
+		if !ok {
+			continue
+		}
+		for method, rawOperation := range pathItem {
+			if !isOpenAPIOperationMethod(method) {
+				continue
+			}
+			operation, ok := rawOperation.(map[string]any)
+			if !ok {
+				continue
+			}
+			if operationID, ok := operation["operationId"].(string); ok {
+				names = append(names, operationID)
+			}
+		}
+	}
+	return names
+}
+
+func isOpenAPIOperationMethod(method string) bool {
+	switch strings.ToLower(strings.TrimSpace(method)) {
+	case "get", "put", "post", "delete", "options", "head", "patch", "trace":
+		return true
+	default:
+		return false
+	}
 }
 
 func gatewayCredentialRefs(configs []agentcoretypes.CredentialProviderConfiguration) []string {

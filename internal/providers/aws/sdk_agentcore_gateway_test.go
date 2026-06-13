@@ -198,6 +198,65 @@ func TestSDKAgentCoreGatewayAPIDegradesOnTargetDescribeFailure(t *testing.T) {
 	}
 }
 
+func TestAPIGatewayTargetMetadataKeepsFiltersOutOfToolNames(t *testing.T) {
+	tools, refs, caps, actions := apiGatewayTargetMetadata(agentcoretypes.ApiGatewayTargetConfiguration{
+		RestApiId: awsv2.String("api-123"),
+		Stage:     awsv2.String("prod"),
+		ApiGatewayToolConfiguration: &agentcoretypes.ApiGatewayToolConfiguration{
+			ToolOverrides: []agentcoretypes.ApiGatewayToolOverride{{
+				Name:   awsv2.String("getOrder"),
+				Method: agentcoretypes.RestApiMethodGet,
+				Path:   awsv2.String("/orders/{id}"),
+			}},
+			ToolFilters: []agentcoretypes.ApiGatewayToolFilter{{
+				Methods:    []agentcoretypes.RestApiMethod{agentcoretypes.RestApiMethodPost},
+				FilterPath: awsv2.String("/orders"),
+			}},
+		},
+	})
+
+	if !containsGatewayTestString(tools, "getOrder") {
+		t.Fatalf("expected override name as tool, got %+v", tools)
+	}
+	if containsGatewayTestString(tools, "POST /orders") {
+		t.Fatalf("expected filter actions to stay out of tool names, got %+v", tools)
+	}
+	if !containsGatewayTestString(actions, "GET /orders/{id}") || !containsGatewayTestString(actions, "POST /orders") {
+		t.Fatalf("expected override and filter actions, got %+v", actions)
+	}
+	if !containsGatewayTestString(refs, "api-123") || !containsGatewayTestString(refs, "prod") {
+		t.Fatalf("expected API Gateway refs, got %+v", refs)
+	}
+	if !containsGatewayTestString(caps, "mcp_api_gateway") {
+		t.Fatalf("expected API Gateway capability, got %+v", caps)
+	}
+}
+
+func TestToolNamesFromInlineJSONExtractsOpenAPIOperationIDs(t *testing.T) {
+	tools := toolNamesFromInlineJSON(`{
+		"openapi": "3.0.1",
+		"paths": {
+			"/orders": {
+				"get": {"operationId": "listOrders"},
+				"post": {"operationId": "createOrder"},
+				"parameters": [{"name": "tenant_id", "in": "header"}]
+			},
+			"/orders/{id}": {
+				"get": {"operationId": "getOrder"}
+			}
+		}
+	}`)
+
+	for _, want := range []string{"listOrders", "createOrder", "getOrder"} {
+		if !containsGatewayTestString(tools, want) {
+			t.Fatalf("expected OpenAPI operationId %q in tools, got %+v", want, tools)
+		}
+	}
+	if containsGatewayTestString(tools, "tenant_id") {
+		t.Fatalf("expected non-operation schema names to stay out of tools, got %+v", tools)
+	}
+}
+
 func containsGatewayTestString(values []string, want string) bool {
 	for _, value := range values {
 		if strings.TrimSpace(value) == want {
