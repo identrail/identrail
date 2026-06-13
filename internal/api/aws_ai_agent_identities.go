@@ -437,7 +437,7 @@ func awsAIAgentIdentityRelationships(records []AWSAIAgentIdentityRecord) []AWSAI
 	result := []AWSAIAgentIdentityRelation{}
 	for _, record := range records {
 		if record.AgentNodeID != "" && record.RuntimeRoleNodeID != "" {
-			result = append(result, AWSAIAgentIdentityRelation{Type: "runs_as", FromNodeID: record.AgentNodeID, ToNodeID: record.RuntimeRoleNodeID, EvidenceRef: record.EvidenceRef})
+			result = append(result, AWSAIAgentIdentityRelation{Type: "runs_as", FromNodeID: awsAIAgentWorkloadNodeID(record), ToNodeID: record.RuntimeRoleNodeID, EvidenceRef: record.EvidenceRef})
 		}
 		toolNames := dedupeStrings(record.ToolNames)
 		if record.AgentNodeID != "" && len(toolNames) > 0 {
@@ -624,6 +624,21 @@ func awsAIAgentNodeID(accountID string, region string, agentType string, agentID
 		firstNonEmptyAWSValue(region, "region"),
 		firstNonEmptyAWSValue(agentType, "agent"),
 		firstNonEmptyAWSValue(agentID, "unknown"),
+	)
+}
+
+func awsAIAgentWorkloadNodeID(record AWSAIAgentIdentityRecord) string {
+	agentID := firstNonEmptyAWSValue(record.AgentID, record.AgentARN, record.AgentName)
+	if strings.TrimSpace(record.AgentNodeID) != "" {
+		if idx := strings.LastIndex(record.AgentNodeID, "/"); idx >= 0 && idx < len(record.AgentNodeID)-1 {
+			agentID = firstNonEmptyAWSValue(agentID, record.AgentNodeID[idx+1:])
+		}
+	}
+	return fmt.Sprintf("aws:workload:ai-agent:%s:%s:%s/%s",
+		firstNonEmptyAWSValue(record.AccountID, "account"),
+		firstNonEmptyAWSValue(record.Region, "region"),
+		firstNonEmptyAWSValue(record.AgentType, "agent"),
+		firstNonEmptyAWSValue(agentID, "workload"),
 	)
 }
 

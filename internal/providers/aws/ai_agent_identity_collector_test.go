@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -152,5 +153,116 @@ func TestAIAgentIdentityCollectorDedupesAndSkipsMalformedRecords(t *testing.T) {
 	}
 	if len(diagnostics) != 1 || diagnostics[0].Code != "malformed_ai_agent_identity" {
 		t.Fatalf("expected malformed diagnostic, got %+v", diagnostics)
+	}
+}
+
+func TestAIAgentIdentityCollectorPreservesGatewayIdentifiersForSourceID(t *testing.T) {
+	collectedAt := time.Date(2026, 6, 12, 12, 30, 0, 0, time.UTC)
+	gatewayRecord := func(gatewayID string) AIAgentIdentity {
+		return AIAgentIdentity{
+			ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+				AccountID:     "123456789012",
+				Region:        "us-east-1",
+				Service:       "bedrock",
+				Source:        "ai_agent_metadata",
+				EvidenceRef:   "gateway:" + gatewayID,
+				ScanID:        "scan-gateway",
+				CollectorName: aiAgentIdentityCollectorName,
+				CollectedAt:   collectedAt,
+			},
+			GatewayID:  gatewayID,
+			GatewayARN: fmt.Sprintf("arn:aws:bedrock:us-east-1:123456789012:agent-gateway/%s", gatewayID),
+			AgentType:  "agent_gateway",
+			AgentName:  "",
+			AgentID:    "",
+			AgentARN:   "",
+		}
+	}
+
+	api := &fakeAIAgentIdentityAPI{pages: []AIAgentIdentityPage{{
+		Records: []AIAgentIdentity{
+			gatewayRecord("payments-gateway-a"),
+			gatewayRecord("payments-gateway-b"),
+		},
+	}}}
+	collector := NewAIAgentIdentityCollector(api, WithAIAgentIdentityClock(func() time.Time { return collectedAt }))
+
+	assets, _, err := collector.CollectWithDiagnostics(context.Background(), AWSCollectorScope{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-a", ConnectorID: "aws-prod", ScanID: "scan-1"})
+	if err != nil {
+		t.Fatalf("collect failed: %v", err)
+	}
+	if len(assets) != 2 {
+		t.Fatalf("expected two unique gateway identities, got %d", len(assets))
+	}
+
+	seenWorkloads := map[string]struct{}{}
+	for _, raw := range assets {
+		var record AIAgentIdentity
+		if err := json.Unmarshal(raw.Payload, &record); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if strings.TrimSpace(record.WorkloadID) == "" {
+			t.Fatalf("expected workload ID from gateway identifier, got %+v", record)
+		}
+		seenWorkloads[record.WorkloadID] = struct{}{}
+	}
+	if len(seenWorkloads) != 2 {
+		t.Fatalf("expected two preserved gateway workload IDs, got %d (%+v)", len(seenWorkloads), seenWorkloads)
+	}
+}
+
+func TestAIAgentIdentityCollectorPreservesAgentIDsInSourceIDForNonGatewayRecords(t *testing.T) {
+	collectedAt := time.Date(2026, 6, 12, 12, 45, 0, 0, time.UTC)
+	agentRecord := func(agentID string) AIAgentIdentity {
+		return AIAgentIdentity{
+			ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+				AccountID:     "123456789012",
+				Region:        "us-east-1",
+				Service:       "bedrock",
+				Source:        "ai_agent_metadata",
+				EvidenceRef:   "agent:" + agentID,
+				WorkloadID:    "gateway-workload-shared-gateway",
+				ScanID:        "scan-agent",
+				CollectorName: aiAgentIdentityCollectorName,
+				CollectedAt:   collectedAt,
+			},
+			GatewayID:  "shared-gateway",
+			GatewayARN: "arn:aws:bedrock:us-east-1:123456789012:agent-gateway/shared-gateway",
+			AgentType:  "custom_agent",
+			AgentID:    agentID,
+			AgentARN:   "arn:aws:bedrock:us-east-1:123456789012:agent/" + agentID,
+			AgentName:  "agent-" + agentID,
+		}
+	}
+
+	api := &fakeAIAgentIdentityAPI{pages: []AIAgentIdentityPage{{
+		Records: []AIAgentIdentity{
+			agentRecord("agent-a"),
+			agentRecord("agent-b"),
+		},
+	}}}
+	collector := NewAIAgentIdentityCollector(api, WithAIAgentIdentityClock(func() time.Time { return collectedAt }))
+
+	assets, _, err := collector.CollectWithDiagnostics(context.Background(), AWSCollectorScope{TenantID: "tenant-a", WorkspaceID: "workspace-a", ProjectID: "project-a", ConnectorID: "aws-prod", ScanID: "scan-1"})
+	if err != nil {
+		t.Fatalf("collect failed: %v", err)
+	}
+	if len(assets) != 2 {
+		t.Fatalf("expected two unique non-gateway agents, got %d", len(assets))
+	}
+
+	seen := map[string]struct{}{}
+	for _, raw := range assets {
+		var record AIAgentIdentity
+		if err := json.Unmarshal(raw.Payload, &record); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		seen[record.WorkloadID] = struct{}{}
+		if strings.Contains(record.WorkloadID, "shared-gateway") {
+			t.Fatalf("expected non-gateway agent workload to preserve agent identity, got gateway-derived workload ID %q", record.WorkloadID)
+		}
+	}
+	if len(seen) != 2 {
+		t.Fatalf("expected two unique workload IDs, got %d (%+v)", len(seen), seen)
 	}
 }

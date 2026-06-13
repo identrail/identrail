@@ -251,6 +251,32 @@ func TestAIAgentRelationshipsEmitCallsToolForGatewayRecord(t *testing.T) {
 	}
 }
 
+func TestAIAgentRelationshipsEmitRunsAsFromWorkloadNode(t *testing.T) {
+	record := awsAIAgentFixtureRecord("111111111111", "us-east-1", "custom_agent", "invoice-reconciliation-agent", "custom-invoice-agent", "arn:aws:lambda:us-east-1:111111111111:function:invoice-reconciliation-agent", "arn:aws:iam::111111111111:role/invoice-agent", time.Now(), func(r *AWSAIAgentIdentityRecord) {
+		r.ToolNames = nil
+	})
+
+	relationships := awsAIAgentIdentityRelationships([]AWSAIAgentIdentityRecord{record})
+	var runsAs *AWSAIAgentIdentityRelation
+	for _, relationship := range relationships {
+		if relationship.Type == "runs_as" {
+			rel := relationship
+			runsAs = &rel
+			break
+		}
+	}
+	if runsAs == nil {
+		t.Fatalf("expected runs_as relationship, got %+v", relationships)
+	}
+	expected := awsAIAgentWorkloadNodeID(record)
+	if runsAs.FromNodeID != expected {
+		t.Fatalf("expected runs_as source %q, got %q", expected, runsAs.FromNodeID)
+	}
+	if runsAs.ToNodeID != record.RuntimeRoleNodeID {
+		t.Fatalf("expected runs_as target %q, got %q", record.RuntimeRoleNodeID, runsAs.ToNodeID)
+	}
+}
+
 func TestRouterAWSAIAgentIdentityInventoryPermissionDenied(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()

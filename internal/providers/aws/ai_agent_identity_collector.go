@@ -241,7 +241,7 @@ func normalizeAIAgentIdentityScope(scope AWSCollectorScope, record AIAgentIdenti
 	normalized.RuntimeRoleName = firstNonEmptyAWSValue(record.RuntimeRoleName, roleNameFromARN(record.RuntimeRoleARN), roleNameFromARN(record.RoleARN))
 	normalized.RuntimeRoleAccountID = firstNonEmptyAWSValue(record.RuntimeRoleAccountID, roleAccountIDFromARN(record.RuntimeRoleARN), roleAccountIDFromARN(record.RoleARN))
 	normalized.RoleARN = normalized.RuntimeRoleARN
-	normalized.WorkloadID = firstNonEmptyAWSValue(record.WorkloadID, normalized.AgentARN, normalized.AgentID)
+	normalized.WorkloadID = aiAgentIdentityWorkloadID(normalized)
 	normalized.WorkloadName = firstNonEmptyAWSValue(record.WorkloadName, normalized.AgentName)
 	normalized.WorkloadType = firstNonEmptyAWSValue(record.WorkloadType, normalized.AgentType)
 	normalized.Source = firstNonEmptyAWSValue(record.Source, "ai_agent_metadata")
@@ -276,8 +276,34 @@ func aiAgentIdentitySourceID(record AIAgentIdentity) string {
 		firstNonEmptyAWSValue(record.AccountID, "account"),
 		firstNonEmptyAWSValue(record.Region, "region"),
 		firstNonEmptyAWSValue(record.AgentType, "agent"),
-		firstNonEmptyAWSValue(record.AgentARN, record.AgentID, record.AgentName),
+		aiAgentIdentityWorkloadSourceID(record),
 	}, "|")
+}
+
+func aiAgentIdentityWorkloadSourceID(record AIAgentIdentity) string {
+	agentRef := firstNonEmptyAWSValue(record.AgentARN, record.AgentID, record.AgentName)
+	if strings.EqualFold(firstNonEmptyAWSValue(record.AgentType, "agent"), "agent_gateway") {
+		return firstNonEmptyAWSValue(record.GatewayID, record.GatewayARN, agentRef)
+	}
+	return firstNonEmptyAWSValue(agentRef, record.GatewayID, record.GatewayARN)
+}
+
+func aiAgentIdentityWorkloadID(record AIAgentIdentity) string {
+	agentRef := firstNonEmptyAWSValue(record.AgentARN, record.AgentID, record.AgentName)
+	if strings.EqualFold(firstNonEmptyAWSValue(record.AgentType, "agent"), "agent_gateway") {
+		return firstNonEmptyAWSValue(
+			record.WorkloadID,
+			record.GatewayID,
+			record.GatewayARN,
+			agentRef,
+		)
+	}
+	return firstNonEmptyAWSValue(
+		agentRef,
+		record.WorkloadID,
+		record.GatewayID,
+		record.GatewayARN,
+	)
 }
 
 func canonicalAIAgentType(agentType string, service string) string {
