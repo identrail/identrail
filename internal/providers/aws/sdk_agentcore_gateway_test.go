@@ -265,6 +265,24 @@ func TestToolNamesFromInlineJSONExtractsOpenAPIOperationIDs(t *testing.T) {
 	}
 }
 
+func TestSmithyModelMetadataExtractsOperationShapes(t *testing.T) {
+	tools := smithyModelMetadata(&agentcoretypes.ApiSchemaConfigurationMemberInlinePayload{Value: `{
+		"smithy": "2.0",
+		"shapes": {
+			"com.example#ListOrders": {"type": "operation"},
+			"com.example#CreateOrder": {"type": "operation"},
+			"com.example#Order": {"type": "structure"}
+		}
+	}`})
+
+	if !containsGatewayTestString(tools, "ListOrders") || !containsGatewayTestString(tools, "CreateOrder") {
+		t.Fatalf("expected Smithy operation shapes as tools, got %+v", tools)
+	}
+	if containsGatewayTestString(tools, "Order") || containsGatewayTestString(tools, "com.example#ListOrders") {
+		t.Fatalf("expected only local operation shape names, got %+v", tools)
+	}
+}
+
 func containsGatewayTestString(values []string, want string) bool {
 	for _, value := range values {
 		if strings.TrimSpace(value) == want {

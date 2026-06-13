@@ -391,7 +391,7 @@ func mcpTargetConfigurationMetadata(config agentcoretypes.McpTargetConfiguration
 	case *agentcoretypes.McpTargetConfigurationMemberOpenApiSchema:
 		return apiSchemaMetadata(typed.Value), apiSchemaRefs(typed.Value), []string{"mcp_openapi_schema"}, apiSchemaMetadata(typed.Value)
 	case *agentcoretypes.McpTargetConfigurationMemberSmithyModel:
-		return apiSchemaMetadata(typed.Value), apiSchemaRefs(typed.Value), []string{"mcp_smithy_model"}, apiSchemaMetadata(typed.Value)
+		return smithyModelMetadata(typed.Value), apiSchemaRefs(typed.Value), []string{"mcp_smithy_model"}, smithyModelMetadata(typed.Value)
 	default:
 		return nil, nil, nil, nil
 	}
@@ -444,6 +444,15 @@ func apiSchemaRefs(config agentcoretypes.ApiSchemaConfiguration) []string {
 	switch typed := config.(type) {
 	case *agentcoretypes.ApiSchemaConfigurationMemberS3:
 		return []string{s3ConfigurationRef(typed.Value)}
+	default:
+		return nil
+	}
+}
+
+func smithyModelMetadata(config agentcoretypes.ApiSchemaConfiguration) []string {
+	switch typed := config.(type) {
+	case *agentcoretypes.ApiSchemaConfigurationMemberInlinePayload:
+		return smithyOperationNamesFromInlineJSON(awsv2.ToString(&typed.Value))
 	default:
 		return nil
 	}
@@ -502,6 +511,45 @@ func toolNamesFromInlineJSON(raw string) []string {
 	}
 	visit(value, "")
 	return normalizeStringList(names)
+}
+
+func smithyOperationNamesFromInlineJSON(raw string) []string {
+	var value any
+	if strings.TrimSpace(raw) == "" || json.Unmarshal([]byte(raw), &value) != nil {
+		return nil
+	}
+	root, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	shapes, ok := root["shapes"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	names := []string{}
+	for shapeID, rawShape := range shapes {
+		shape, ok := rawShape.(map[string]any)
+		if !ok {
+			continue
+		}
+		shapeType, _ := shape["type"].(string)
+		if !strings.EqualFold(strings.TrimSpace(shapeType), "operation") {
+			continue
+		}
+		names = append(names, smithyShapeName(shapeID))
+	}
+	return normalizeStringList(names)
+}
+
+func smithyShapeName(shapeID string) string {
+	trimmed := strings.TrimSpace(shapeID)
+	if trimmed == "" {
+		return ""
+	}
+	if hash := strings.LastIndex(trimmed, "#"); hash >= 0 && hash < len(trimmed)-1 {
+		return strings.TrimSpace(trimmed[hash+1:])
+	}
+	return trimmed
 }
 
 func openAPIOperationIDs(value any) []string {
