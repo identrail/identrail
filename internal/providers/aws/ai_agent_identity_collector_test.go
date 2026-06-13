@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -16,11 +17,15 @@ type fakeAIAgentIdentityAPI struct {
 	pages     []AIAgentIdentityPage
 	tokens    []string
 	pageSizes []int32
+	err       error
 }
 
 func (f *fakeAIAgentIdentityAPI) ListAgentIdentities(ctx context.Context, nextToken string, pageSize int32) (AIAgentIdentityPage, error) {
 	f.tokens = append(f.tokens, nextToken)
 	f.pageSizes = append(f.pageSizes, pageSize)
+	if f.err != nil {
+		return AIAgentIdentityPage{}, f.err
+	}
 	if len(f.pages) == 0 {
 		return AIAgentIdentityPage{}, nil
 	}
@@ -122,6 +127,32 @@ func TestCompositeAIAgentIdentityAPIRejectsOutOfRangeToken(t *testing.T) {
 	_, err := api.ListAgentIdentities(context.Background(), "4:", 10)
 	if err == nil || !strings.Contains(err.Error(), "invalid ai agent identity pagination token") {
 		t.Fatalf("expected invalid pagination token error, got %v", err)
+	}
+}
+
+func TestCompositeAIAgentIdentityAPIContinuesAfterAdapterFailure(t *testing.T) {
+	failing := &fakeAIAgentIdentityAPI{err: errors.New("access denied")}
+	successful := &fakeAIAgentIdentityAPI{pages: []AIAgentIdentityPage{{
+		Records: []AIAgentIdentity{{
+			AgentID:   "gateway-1",
+			AgentName: "payments-gateway",
+			AgentType: "agent_gateway",
+		}},
+	}}}
+	api := NewCompositeAIAgentIdentityAPI(failing, successful)
+
+	page, err := api.ListAgentIdentities(context.Background(), "", 10)
+	if err != nil {
+		t.Fatalf("expected composite api to continue after adapter failure, got %v", err)
+	}
+	if len(page.Records) != 1 || page.Records[0].AgentID != "gateway-1" {
+		t.Fatalf("expected successful adapter records, got %+v", page.Records)
+	}
+	if len(page.Diagnostics) != 1 || page.Diagnostics[0].Code != "ai_agent_identity_adapter_failed" {
+		t.Fatalf("expected adapter failure diagnostic, got %+v", page.Diagnostics)
+	}
+	if got := strings.Join(successful.tokens, ","); got != "" {
+		t.Fatalf("expected next adapter to start with empty token, got %q", got)
 	}
 }
 

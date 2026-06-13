@@ -273,7 +273,7 @@ func TestAIAgentExecutionEndpointNodeIDPreservesAgentNodeCase(t *testing.T) {
 	}
 }
 
-func TestAIAgentToolNodeIDMatchesAPIGatewayFallbackBehavior(t *testing.T) {
+func TestAIAgentToolNodeIDGatewayFallbackBehavior(t *testing.T) {
 	nodeID := awsAIAgentToolNodeID("Aws:Agent:123456789012:Us-East-1:AgentCore/GatewayA", "Payments Search")
 	if nodeID != "tool:agent:aws:agent:123456789012:us-east-1:agentcore/gatewaya|payments search" {
 		t.Fatalf("expected lowercase provider tool node id, got %q", nodeID)
