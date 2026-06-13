@@ -140,6 +140,9 @@ func TestSDKAgentCoreGatewayAPIMapsMCPToolsAndAuthMetadata(t *testing.T) {
 	if !containsGatewayTestString(record.ToolNames, "payments-case-search") || !containsGatewayTestString(record.ToolNames, "fraud-review-action-group") {
 		t.Fatalf("expected MCP tool names from inline schema, got %+v", record.ToolNames)
 	}
+	if len(record.ToolNames) != 2 || containsGatewayTestString(record.ToolNames, "payments-mcp") {
+		t.Fatalf("expected only schema-derived MCP tool names, got %+v", record.ToolNames)
+	}
 	if !containsGatewayTestString(record.CredentialReferenceRefs, "arn:aws:bedrock-agentcore:us-east-1:123456789012:oauth/payments") {
 		t.Fatalf("expected credential provider ARN reference, got %+v", record.CredentialReferenceRefs)
 	}
@@ -189,6 +192,9 @@ func TestSDKAgentCoreGatewayAPIDegradesOnTargetDescribeFailure(t *testing.T) {
 	}
 	if len(page.Diagnostics) != 1 || page.Diagnostics[0].Code != "ai_agent_gateway_target_describe_failed" {
 		t.Fatalf("expected target describe diagnostic, got %+v", page.Diagnostics)
+	}
+	if len(page.Records[0].ToolNames) != 0 || len(page.Records[0].AllowedActions) != 0 {
+		t.Fatalf("expected no synthetic tools for undescribed target, got tools=%+v actions=%+v", page.Records[0].ToolNames, page.Records[0].AllowedActions)
 	}
 }
 

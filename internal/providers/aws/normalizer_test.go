@@ -273,6 +273,18 @@ func TestAIAgentExecutionEndpointNodeIDPreservesAgentNodeCase(t *testing.T) {
 	}
 }
 
+func TestAIAgentToolNodeIDMatchesAPIGatewayFallbackBehavior(t *testing.T) {
+	nodeID := awsAIAgentToolNodeID("Aws:Agent:123456789012:Us-East-1:AgentCore/GatewayA", "Payments Search")
+	if nodeID != "tool:agent:aws:agent:123456789012:us-east-1:agentcore/gatewaya|payments search" {
+		t.Fatalf("expected lowercase provider tool node id, got %q", nodeID)
+	}
+
+	fallbackNodeID := awsAIAgentToolNodeID("", "")
+	if fallbackNodeID != "tool:agent:gateway|tool" {
+		t.Fatalf("expected gateway/tool fallback node id, got %q", fallbackNodeID)
+	}
+}
+
 func TestRoleNormalizerInvalidPermissionPolicyDocument(t *testing.T) {
 	role := IAMRole{
 		ARN:                "arn:aws:iam::1:role/demo",

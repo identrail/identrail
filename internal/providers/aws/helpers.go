@@ -56,9 +56,9 @@ func awsAIAgentNodeID(accountID string, region string, agentType string, agentID
 }
 
 func awsAIAgentToolNodeID(agentNodeID string, tool string) string {
-	workload := strings.TrimSpace(agentNodeID)
+	workload := strings.TrimSpace(strings.ToLower(agentNodeID))
 	if workload == "" {
-		workload = "agent"
+		workload = "gateway"
 	}
 	name := strings.TrimSpace(strings.ToLower(tool))
 	if name == "" {

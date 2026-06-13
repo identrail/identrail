@@ -287,14 +287,12 @@ func (a *SDKAgentCoreGatewayAPI) gatewayTargets(ctx context.Context, gatewayID s
 					Retryable: isRetryable(err),
 				})
 				targets = append(targets, gatewayTargetMetadata{
-					targetID:       targetID,
-					targetName:     firstNonEmptyAWSValue(awsv2.ToString(summary.Name), targetID),
-					status:         targetStatus(summary.Status),
-					toolNames:      []string{firstNonEmptyAWSValue(awsv2.ToString(summary.Name), targetID)},
-					targetRefs:     []string{targetID},
-					capabilities:   []string{"gateway_target"},
-					allowedActions: []string{firstNonEmptyAWSValue(awsv2.ToString(summary.Name), targetID)},
-					degraded:       true,
+					targetID:     targetID,
+					targetName:   firstNonEmptyAWSValue(awsv2.ToString(summary.Name), targetID),
+					status:       targetStatus(summary.Status),
+					targetRefs:   []string{targetID},
+					capabilities: []string{"gateway_target"},
+					degraded:     true,
 				})
 				continue
 			}
@@ -329,15 +327,13 @@ func gatewayTargetMetadataFromDetail(detail bedrockagentcorecontrol.GetGatewayTa
 	targetID := strings.TrimSpace(awsv2.ToString(detail.TargetId))
 	targetName := firstNonEmptyAWSValue(awsv2.ToString(detail.Name), targetID)
 	metadata := gatewayTargetMetadata{
-		targetID:       targetID,
-		targetName:     targetName,
-		status:         targetStatus(detail.Status),
-		toolNames:      []string{targetName},
-		targetRefs:     []string{targetID},
-		capabilities:   []string{"gateway_target", "target_protocol_" + strings.ToLower(string(detail.ProtocolType))},
-		resourceRefs:   []string{awsv2.ToString(detail.GatewayArn)},
-		allowedActions: []string{targetName},
-		degraded:       targetStatus(detail.Status) != "ready",
+		targetID:     targetID,
+		targetName:   targetName,
+		status:       targetStatus(detail.Status),
+		targetRefs:   []string{targetID},
+		capabilities: []string{"gateway_target", "target_protocol_" + strings.ToLower(string(detail.ProtocolType))},
+		resourceRefs: []string{awsv2.ToString(detail.GatewayArn)},
+		degraded:     targetStatus(detail.Status) != "ready",
 	}
 	metadata.credentialRefs = append(metadata.credentialRefs, gatewayCredentialRefs(detail.CredentialProviderConfigurations)...)
 	metadata.capabilities = append(metadata.capabilities, gatewayCredentialCapabilities(detail.CredentialProviderConfigurations)...)
@@ -346,6 +342,12 @@ func gatewayTargetMetadataFromDetail(detail bedrockagentcorecontrol.GetGatewayTa
 	metadata.resourceRefs = append(metadata.resourceRefs, refs...)
 	metadata.capabilities = append(metadata.capabilities, caps...)
 	metadata.allowedActions = append(metadata.allowedActions, actions...)
+	if len(normalizeOrderedStringList(metadata.toolNames)) == 0 {
+		metadata.toolNames = normalizeOrderedStringList([]string{targetName})
+	}
+	if len(normalizeOrderedStringList(metadata.allowedActions)) == 0 {
+		metadata.allowedActions = normalizeOrderedStringList([]string{targetName})
+	}
 	return metadata
 }
 

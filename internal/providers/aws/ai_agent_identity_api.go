@@ -34,6 +34,9 @@ func (a *CompositeAIAgentIdentityAPI) ListAgentIdentities(ctx context.Context, n
 	if err != nil {
 		return AIAgentIdentityPage{}, err
 	}
+	if apiIndex >= len(a.apis) {
+		return AIAgentIdentityPage{}, fmt.Errorf("invalid ai agent identity pagination token")
+	}
 	for apiIndex < len(a.apis) {
 		if err := ctx.Err(); err != nil {
 			return AIAgentIdentityPage{}, err

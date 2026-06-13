@@ -116,6 +116,15 @@ func TestAIAgentIdentityCollectorEmitsNormalizedPayloadSafeAssets(t *testing.T) 
 	}
 }
 
+func TestCompositeAIAgentIdentityAPIRejectsOutOfRangeToken(t *testing.T) {
+	api := NewCompositeAIAgentIdentityAPI(&fakeAIAgentIdentityAPI{})
+
+	_, err := api.ListAgentIdentities(context.Background(), "4:", 10)
+	if err == nil || !strings.Contains(err.Error(), "invalid ai agent identity pagination token") {
+		t.Fatalf("expected invalid pagination token error, got %v", err)
+	}
+}
+
 func TestAIAgentIdentityCollectorDedupesAndSkipsMalformedRecords(t *testing.T) {
 	collectedAt := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)
 	record := AIAgentIdentity{
