@@ -38,6 +38,8 @@ import {
   type AWSManagedComputeRoleInventoryResult,
   type AWSManagedComputeRoleRecord,
   type AWSAIAgentIdentityInventoryResult,
+  type AWSBedrockAgentsInventoryResult,
+  type AWSBedrockAgentRecord,
   type AWSAIAgentIdentityRecord,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
@@ -3650,6 +3652,13 @@ type AWSInventoryAIAgentState = {
   onRetry: () => void;
 };
 
+type AWSInventoryBedrockAgentsState = {
+  inventory: AWSBedrockAgentsInventoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+};
+
 type AWSInventorySecretsManagerState = {
   inventory: AWSSecretsManagerMetadataInventoryResult | null;
   loading: boolean;
@@ -6639,17 +6648,22 @@ function awsEC2IMDSLabel(inventory: AWSEC2InstanceProfileInventoryResult | null)
 function AWSAgentIdentitiesContent({
   connection,
   aiAgentState,
+  bedrockAgentsState,
   filters,
   onFiltersChange
 }: {
   connection: AWSConnectionStatus | null;
   aiAgentState: AWSInventoryAIAgentState;
+  bedrockAgentsState: AWSInventoryBedrockAgentsState;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
   const inventory = aiAgentState.inventory;
+  const bedrock = bedrockAgentsState.inventory;
   const rows = buildAWSAIAgentIdentityRows(inventory, aiAgentState.loading, connection);
+  const bedrockRows = buildAWSBedrockAgentsRows(bedrock, bedrockAgentsState.loading, connection);
   const displayedRows = filterAWSInventoryRows(rows, filters);
+  const displayedBedrockRows = filterAWSInventoryRows(bedrockRows, filters);
 
   return (
     <>
@@ -6744,8 +6758,198 @@ function AWSAgentIdentitiesContent({
           { key: 'detail', header: 'Relationship slot', render: (row) => row.detail }
         ]}
       />
+      {bedrockAgentsState.loading ? <DomainLoadingState label="Loading AWS Bedrock Agents" /> : null}
+      {bedrockAgentsState.error ? (
+        <DomainErrorState
+          title="Bedrock Agents could not load"
+          body={bedrockAgentsState.error}
+          retryAction={{ label: 'Retry Bedrock Agents', onClick: bedrockAgentsState.onRetry }}
+        />
+      ) : null}
+      {bedrock ? (
+        <DomainStatusPanel
+          eyebrow="Bedrock Agents collector"
+          title="Bedrock agent identities are metadata-only"
+          status={formatTokenLabel(bedrock.status)}
+          tone={bedrock.status === 'blocked' ? 'danger' : bedrock.status === 'degraded' ? 'warning' : 'success'}
+        >
+          <section className="idt-aws-inventory-coverage" aria-label="AWS Bedrock Agents summary">
+            <DomainCoverageCard
+              label="Bedrock agents"
+              scanned={bedrock.agent_count}
+              total={Math.max(bedrock.agent_count, 1)}
+              detail={`${bedrock.runtime_role_count} runtime roles`}
+            />
+            <DomainCoverageCard
+              label="Action group tools"
+              scanned={bedrock.tool_count}
+              total={Math.max(bedrock.tool_count, 1)}
+              detail={`${bedrock.knowledge_base_count} knowledge bases`}
+            />
+            <DomainCoverageCard
+              label="Guardrails"
+              scanned={bedrock.guardrail_count}
+              total={Math.max(bedrock.agent_count, 1)}
+              detail={`${bedrock.model_count} foundation models`}
+            />
+            <DomainCoverageCard
+              label="Credential refs"
+              scanned={bedrock.credential_reference_count}
+              total={Math.max(bedrock.credential_reference_count, 1)}
+              detail="Values hidden"
+            />
+          </section>
+          {bedrock.diagnostics.length ? (
+            <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS Bedrock Agents diagnostics">
+              {bedrock.diagnostics.map((diagnostic) => (
+                <article key={`${diagnostic.code}-${diagnostic.source_id ?? diagnostic.collector}`}>
+                  <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                  <p>{diagnostic.message}</p>
+                  {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+          {bedrock.coverage_gaps.length ? (
+            <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="AWS Bedrock Agents sensitive boundaries">
+              {bedrock.coverage_gaps.map((gap) => (
+                <article key={`${gap.capability}-${gap.status}`}>
+                  <strong>{formatTokenLabel(gap.capability)}</strong>
+                  <p>{gap.reason}</p>
+                  {gap.remediation ? <small>{gap.remediation}</small> : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+          {bedrock.remediation_hints.length ? (
+            <ul className="idt-domain-charter-list" aria-label="AWS Bedrock Agents remediation hints">
+              {bedrock.remediation_hints.map((hint) => (
+                <li key={hint}>{hint}</li>
+              ))}
+            </ul>
+          ) : null}
+        </DomainStatusPanel>
+      ) : null}
+      <DomainDataTable
+        label="AWS Bedrock Agents inventory"
+        rows={displayedBedrockRows}
+        getRowKey={(row) => row.id}
+        columns={[
+          { key: 'name', header: 'Bedrock agent', render: (row) => <strong>{row.name}</strong> },
+          { key: 'category', header: 'Category', render: (row) => row.category },
+          { key: 'scope', header: 'Scope', render: (row) => row.scope },
+          { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> },
+          { key: 'detail', header: 'Next action', render: (row) => row.detail }
+        ]}
+      />
     </>
   );
+}
+
+function buildAWSBedrockAgentsRows(
+  inventory: AWSBedrockAgentsInventoryResult | null,
+  loading: boolean,
+  connection: AWSConnectionStatus | null
+): AWSInventoryTableRow[] {
+  if (inventory?.records.length) {
+    return inventory.records.map((record) => awsBedrockAgentRow(record));
+  }
+  if (inventory?.status === 'blocked') {
+    return [
+      {
+        id: 'bedrock-agents-blocked',
+        name: 'Bedrock Agents unavailable',
+        category: 'Bedrock agent',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: 'not yet available',
+        stage: 'not-available',
+        detail: inventory.failure_reasons[0] ?? 'Bedrock Agents collection is blocked by permissions.',
+        filters: {
+          surface: 'bedrock-agents',
+          relationship: 'agent-to-role,agent-to-tool,agent-to-secret',
+          status: 'not-yet-available',
+          search: ''
+        },
+        searchText: inventorySearchText(['bedrock agents blocked', inventory.account_id, inventory.region])
+      }
+    ];
+  }
+  if (inventory) {
+    const degraded = inventory.status === 'degraded' || inventory.diagnostics.length > 0 || inventory.failure_reasons.length > 0;
+    return [
+      {
+        id: 'bedrock-agents-empty',
+        name: degraded ? 'Bedrock Agents incomplete' : 'No Bedrock Agents found',
+        category: 'Bedrock agent',
+        scope: awsAccountRegionInventoryLabel(inventory.account_id, inventory.region),
+        status: degraded ? 'degraded' : 'role anchor',
+        stage: 'wired',
+        detail: degraded
+          ? (inventory.failure_reasons[0] ?? 'Bedrock Agents collection completed with degraded evidence.')
+          : 'No Bedrock agents were observed in this account/region.',
+        filters: {
+          surface: 'bedrock-agents',
+          relationship: 'agent-to-role',
+          status: degraded ? 'degraded' : 'role-anchor',
+          search: ''
+        },
+        searchText: inventorySearchText(['bedrock agents', inventory.account_id, inventory.region, degraded ? 'degraded empty' : 'empty'])
+      }
+    ];
+  }
+  if (loading) {
+    return [
+      {
+        id: 'bedrock-agents-loading',
+        name: 'Bedrock Agents',
+        category: 'Bedrock agent',
+        scope: awsAccountRegionLabel(connection),
+        status: 'coming',
+        stage: 'coming',
+        detail: 'Loading Bedrock agents, action groups, knowledge bases, and guardrails.',
+        filters: { surface: 'bedrock-agents', relationship: 'agent-to-role', status: 'coming', search: '' },
+        searchText: inventorySearchText(['bedrock agents loading'])
+      }
+    ];
+  }
+  return [];
+}
+
+function awsBedrockAgentRow(record: AWSBedrockAgentRecord): AWSInventoryTableRow {
+  const degraded = record.coverage_status === 'degraded' || record.status === 'degraded';
+  const status = degraded ? 'degraded' : 'role anchor';
+  const stage = degraded ? 'coming' : 'wired';
+  const detail = record.next_action;
+  return {
+    id: `bedrock-agent-${record.agent_id}`,
+    name: record.agent_name || record.agent_id,
+    category: record.guardrail_id ? 'Bedrock agent (guardrailed)' : 'Bedrock agent',
+    scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
+    status,
+    stage,
+    detail,
+    filters: {
+      surface: 'bedrock-agents',
+      relationship: 'agent-to-role,agent-to-tool,agent-to-secret',
+      status: degraded ? 'degraded' : 'role-anchor',
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.agent_id,
+      record.agent_name,
+      record.agent_arn,
+      record.runtime_role_arn,
+      record.runtime_role_name,
+      record.model_id,
+      record.provider,
+      record.guardrail_id,
+      ...record.tool_names,
+      ...record.capability_names,
+      record.account_id,
+      record.region,
+      degraded ? 'degraded' : 'ready'
+    ])
+  };
 }
 
 function buildAWSAIAgentIdentityRows(
@@ -7837,6 +8041,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
   const [aiAgentInventoryLoading, setAIAgentInventoryLoading] = useState(false);
   const [aiAgentInventoryError, setAIAgentInventoryError] = useState('');
   const aiAgentInventoryRequestRef = useRef(0);
+  const [bedrockAgentsInventory, setBedrockAgentsInventory] = useState<AWSBedrockAgentsInventoryResult | null>(null);
+  const [bedrockAgentsInventoryLoading, setBedrockAgentsInventoryLoading] = useState(false);
+  const [bedrockAgentsInventoryError, setBedrockAgentsInventoryError] = useState('');
+  const bedrockAgentsInventoryRequestRef = useRef(0);
   const [secretsManagerInventory, setSecretsManagerInventory] = useState<AWSSecretsManagerMetadataInventoryResult | null>(null);
   const [secretsManagerInventoryLoading, setSecretsManagerInventoryLoading] = useState(false);
   const [secretsManagerInventoryError, setSecretsManagerInventoryError] = useState('');
@@ -8289,6 +8497,47 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
       aiAgentInventoryRequestRef.current += 1;
     };
   }, [loadAIAgentInventory]);
+
+  const loadBedrockAgentsInventory = useCallback(async () => {
+    const requestID = ++bedrockAgentsInventoryRequestRef.current;
+    setBedrockAgentsInventory(null);
+    setBedrockAgentsInventoryError('');
+    if (routeID !== 'agents' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setBedrockAgentsInventoryLoading(false);
+      return;
+    }
+    setBedrockAgentsInventoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectBedrockAgents(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        connection.connector_id,
+        undefined,
+        undefined,
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== bedrockAgentsInventoryRequestRef.current) {
+        return;
+      }
+      setBedrockAgentsInventory(response.inventory);
+    } catch (error) {
+      if (requestID !== bedrockAgentsInventoryRequestRef.current) {
+        return;
+      }
+      setBedrockAgentsInventoryError(formatAPIError(error, 'Unable to load AWS Bedrock Agents inventory.'));
+    } finally {
+      if (requestID === bedrockAgentsInventoryRequestRef.current) {
+        setBedrockAgentsInventoryLoading(false);
+      }
+    }
+  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+
+  useEffect(() => {
+    void loadBedrockAgentsInventory();
+    return () => {
+      bedrockAgentsInventoryRequestRef.current += 1;
+    };
+  }, [loadBedrockAgentsInventory]);
 
   const loadSecretsManagerInventory = useCallback(async () => {
     const requestID = ++secretsManagerInventoryRequestRef.current;
@@ -8966,6 +9215,12 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
             loading: aiAgentInventoryLoading,
             error: aiAgentInventoryError,
             onRetry: () => void loadAIAgentInventory()
+          }}
+          bedrockAgentsState={{
+            inventory: bedrockAgentsInventory,
+            loading: bedrockAgentsInventoryLoading,
+            error: bedrockAgentsInventoryError,
+            onRetry: () => void loadBedrockAgentsInventory()
           }}
           filters={activeFilters}
           onFiltersChange={onFiltersChange}

@@ -2049,6 +2049,110 @@ export type AWSAIAgentIdentityInventoryResult = {
   updated_at: string;
 };
 
+export type AWSBedrockAgentsInventoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSBedrockAgentsFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+export type AWSBedrockAgentsProvider = 'amazon-bedrock';
+
+export type AWSBedrockAgentCoverageGap = {
+  capability: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSBedrockAgentRecord = {
+  account_id: string;
+  region: string;
+  service: string;
+  agent_id: string;
+  agent_arn?: string;
+  agent_name: string;
+  agent_type: string;
+  provider?: string;
+  model_id?: string;
+  runtime_role_arn?: string;
+  runtime_role_name?: string;
+  runtime_role_account_id?: string;
+  tool_names: string[];
+  tool_count: number;
+  memory_enabled: boolean;
+  memory_store_refs: string[];
+  capability_names: string[];
+  credential_reference_refs: string[];
+  guardrail_id?: string;
+  sensitive_boundary: string;
+  coverage_status: string;
+  coverage_reason?: string;
+  source: string;
+  evidence_ref: string;
+  agent_node_id: string;
+  runtime_role_node_id?: string;
+  relationship_types: string[];
+  confidence: number;
+  next_action: string;
+  collected_at: string;
+  status: string;
+  tags?: Record<string, string>;
+};
+
+export type AWSBedrockAgentRelation = {
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSBedrockAgentDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSBedrockAgentsInventoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSBedrockAgentsInventoryStatus;
+  fixture_state: AWSBedrockAgentsFixtureState;
+  confidence: number;
+  agent_count: number;
+  filtered_agent_count: number;
+  guardrail_count: number;
+  knowledge_base_count: number;
+  tool_count: number;
+  credential_reference_count: number;
+  runtime_role_count: number;
+  model_count: number;
+  provider_breakdown: Record<string, number>;
+  status_breakdown: Record<string, number>;
+  relationship_count: number;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSBedrockAgentCoverageGap[];
+  records: AWSBedrockAgentRecord[];
+  relationships: AWSBedrockAgentRelation[];
+  diagnostics: AWSBedrockAgentDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSIAMPassRoleRelationshipInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSIAMPassRoleRelationshipFixtureState =
   | 'success'
@@ -4997,6 +5101,25 @@ export const apiClient = {
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/ai-agent-identities${buildQuery({
         connector_id: connectorID,
         fixture_state: fixtureState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectBedrockAgents(
+    workspaceID: string,
+    projectID: string,
+    connectorID?: string,
+    fixtureState?: AWSBedrockAgentsFixtureState,
+    filters?: { agentID?: string; identity?: string; provider?: AWSBedrockAgentsProvider },
+    auth?: RequestAuthContext
+  ) {
+    return request<{ inventory: AWSBedrockAgentsInventoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/bedrock-agents${buildQuery({
+        connector_id: connectorID,
+        fixture_state: fixtureState,
+        agent_id: filters?.agentID,
+        identity: filters?.identity,
+        provider: filters?.provider
       })}`,
       auth
     );

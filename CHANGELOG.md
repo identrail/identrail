@@ -1,6 +1,32 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS Bedrock Agents identity collector** (#1506). A bounded, retryable,
+  read-only, metadata-only collector in `internal/providers/aws` that emits one
+  `AIAgentIdentity` raw asset per Bedrock agent so the merged Wave 4.01 AI agent
+  identity model adapter consumes Bedrock records without a new normalization
+  layer. Each record carries the agent id and ARN, foundation model id, runtime
+  role binding, tool (action group) names, knowledge-base IDs, guardrail id,
+  capability tokens (`tool_use`, `knowledge_base`, `foundation_model`,
+  `guardrail`, `customer_encryption_kms`, `aliases`, `instruction_configured`,
+  `prompt_override_configured`), credential references for action-group
+  executors and customer encryption keys, graph relationship types
+  (`runs_with_role`, `uses_tool`, `uses_secret`, `reads_knowledge_base`), and
+  the operator's next action. The collector exposes a narrowly scoped
+  `BedrockAgentsAPI` (`ListAgents` + `GetAgentDetail`) so per-agent detail
+  failures degrade gracefully into partial-failure diagnostics instead of
+  aborting the scan. A fixture-backed `FixtureBedrockAgentsAPI` and a canonical
+  `DefaultBedrockAgentsFixture` keep the live SDK behind a vetted boundary
+  while local dev and contract tests exercise the same code path. Exposes
+  `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/bedrock-agents`
+  with `success`, `empty`, `degraded`, `partial_failure`, and
+  `permission_denied` fixture states plus `agent_id`, `identity`, and
+  `provider` filters, derived counts, graph relationships, evidence links,
+  coverage gaps, and diagnostics. Adds the AWS app surface
+  (`AWS → Agents`) with explicit loading / empty / error / degraded /
+  permission-denied states. Instructions, prompt overrides, completions,
+  knowledge-base contents, embeddings, memory contents, and secret values are
+  never read. See [docs/aws-bedrock-agents.md](docs/aws-bedrock-agents.md).
 - Add **AWS Organization StackSet onboarding app flow** (#1504). A deterministic,
   read-only, metadata-only planner in `internal/providers/awscontract` turns the
   connector + Organizations topology + coverage plan + checkpoint set into an
