@@ -24,6 +24,10 @@ github.com/aws/aws-sdk-go-v2/service/apprunner v1.40.5 h1:F9+qleYIBE+8vTDc7ziud/
 github.com/aws/aws-sdk-go-v2/service/apprunner v1.40.5/go.mod h1:7lvd8HgCk8mPW3LkZTpuc1r5xux1ZWi7cQ5wmORIdCA=
 github.com/aws/aws-sdk-go-v2/service/batch v1.65.5 h1:+bOiP++19XAWs3CRhFNkAhAe+DAGMF/eq7Q+4Ib5OlE=
 github.com/aws/aws-sdk-go-v2/service/batch v1.65.5/go.mod h1:H9zD0xL2LX2iF6XQAcvP1aJiMbIXTF2gVMoIG36mQTQ=
+github.com/aws/aws-sdk-go-v2/service/bedrock v1.64.0 h1:jZOg03lM41zl89h17avGr6AFqAb9g3s/rZytTQslz14=
+github.com/aws/aws-sdk-go-v2/service/bedrock v1.64.0/go.mod h1:f0MnAznWRN75Dnezt6MBnHOKHEpAI/ztr4Q6Lo1IGDk=
+github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.54.6 h1:4Z9EIZUF8dkVDYTEt7NxKhA3yE3S/x7iWYL/C+reRgw=
+github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.54.6/go.mod h1:GlwXK7c/0CMTSU4a0PAAp5jiYXH55DRYT3mliKlqf6M=
 github.com/aws/aws-sdk-go-v2/service/codebuild v1.69.3 h1:bdJcqPbvkHSyG7N+5PDsBB6cWnWXHWkZ80SaY09R8qQ=
 github.com/aws/aws-sdk-go-v2/service/codebuild v1.69.3/go.mod h1:1j2vP0fJjVysTByZ5MSp0/iMlej8Oqa8TWYtcX3HTRQ=
 github.com/aws/aws-sdk-go-v2/service/codepipeline v1.47.3 h1:T4DN0zLNMJA7Z7Ewppfkt5erz3UE/uB1nxBSQhGJI5g=

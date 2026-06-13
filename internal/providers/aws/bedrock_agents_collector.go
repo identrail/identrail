@@ -25,6 +25,7 @@ const (
 // the coverage_status onto the degraded path without producing a misleading
 // "GetAgent("") failed" diagnostic.
 var errBedrockAgentDetailSkipped = errors.New("bedrock agent detail skipped: missing agent id")
+var errBedrockAgentDetailIncomplete = errors.New("bedrock agent detail returned diagnostics")
 
 // BedrockAgentSummary is the minimal identity row returned by ListAgents. The
 // summary is intentionally narrow: prompts, instructions, embedded model
@@ -289,13 +290,29 @@ func (c *BedrockAgentsCollector) CollectWithDiagnostics(ctx context.Context, sco
 				for _, diagnostic := range detailIssues {
 					addIssue(diagnostic)
 				}
-				if detailErr != nil {
+				// Adapters may return diagnostics with a nil error (for example a
+				// fixture flagging "not seeded" or an SDK adapter that returned a
+				// partial response). Treat that as incomplete evidence so the
+				// emitted record is degraded rather than appearing authoritative,
+				// but keep it separate from a hard failure so operators can
+				// distinguish retry-worthy partial detail from a fatal denial.
+				switch {
+				case detailErr != nil:
 					addIssue(providers.SourceError{
 						Collector: bedrockAgentsCollectorName,
 						SourceID:  agentID,
 						Code:      "bedrock_agent_detail_failed",
 						Message:   fmt.Sprintf("agent %s detail fetch failed: %v", agentID, detailErr),
 						Retryable: isRetryable(detailErr),
+					})
+				case len(detailIssues) > 0:
+					detailErr = errBedrockAgentDetailIncomplete
+					addIssue(providers.SourceError{
+						Collector: bedrockAgentsCollectorName,
+						SourceID:  agentID,
+						Code:      "bedrock_agent_detail_incomplete",
+						Message:   fmt.Sprintf("agent %s detail returned diagnostics; surfaced summary only", agentID),
+						Retryable: true,
 					})
 				}
 			}
@@ -384,8 +401,15 @@ func buildBedrockAgentIdentity(scope AWSCollectorScope, summary BedrockAgentSumm
 	}
 	if detailErr != nil {
 		record.CoverageStatus = "degraded"
-		record.CoverageReason = "bedrock agent detail fetch failed; surfaced summary only"
 		record.Status = "degraded"
+		switch {
+		case errors.Is(detailErr, errBedrockAgentDetailSkipped):
+			record.CoverageReason = "bedrock agent detail skipped: ARN-only summary; surfaced summary only"
+		case errors.Is(detailErr, errBedrockAgentDetailIncomplete):
+			record.CoverageReason = "bedrock agent detail returned diagnostics without a hard failure; surfaced summary only"
+		default:
+			record.CoverageReason = "bedrock agent detail fetch failed; surfaced summary only"
+		}
 	}
 	if len(detail.AliasNames) > 0 {
 		record.CapabilityNames = appendUnique(record.CapabilityNames, "aliases")

@@ -11,6 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/batch v1.65.5
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.69.3
 	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.47.3
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.59.0
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.305.2
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.58.4
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.82.3
@@ -20,10 +21,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/glue v1.143.0
 	github.com/aws/aws-sdk-go-v2/service/iam v1.54.3
 	github.com/aws/aws-sdk-go-v2/service/kms v1.53.4
-	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.59.0
-	github.com/aws/aws-sdk-go-v2/service/rds v1.119.2
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.92.2
 	github.com/aws/aws-sdk-go-v2/service/pipes v1.24.5
+	github.com/aws/aws-sdk-go-v2/service/rds v1.119.2
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.103.2
 	github.com/aws/aws-sdk-go-v2/service/s3control v1.71.5
 	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.253.0
@@ -65,6 +65,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.29 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.29 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.29 // indirect
+	github.com/aws/aws-sdk-go-v2/service/bedrock v1.64.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.54.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.12 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.21 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.12.6 // indirect

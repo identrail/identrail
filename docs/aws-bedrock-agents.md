@@ -111,6 +111,23 @@ runtime, risk, and remediation pipelines.
    per-agent `bedrock_agent_detail_failed` diagnostic and surviving agents
    remain authoritative.
 
+## Runtime composition boundary (intentionally out of scope)
+
+This PR ships the collector, its small `BedrockAgentsAPI` interface, the
+`FixtureBedrockAgentsAPI`, and the project-scoped inventory API at
+`GET .../aws/bedrock-agents`. The live aws-sdk-go-v2 adapter is deliberately
+**not** introduced in this PR because the Bedrock SDK module is not yet vetted
+in `go.mod`. The follow-up issue that wires the live adapter must also:
+
+- add a case for `rawKindAIAgentIdentity` to `RoleNormalizer.Normalize` so the
+  collector's raw assets are picked up during scans instead of being silently
+  dropped; and
+- compose `NewBedrockAgentsCollector(NewSDKBedrockAgentsAPI(...))` inside
+  `internal/runtime/service_builder.go` alongside the other Wave 1 collectors.
+
+Until then the collector is reachable only through the inventory API, which
+consumes `RawAsset` payloads directly without going through the normalizer.
+
 ## Out of scope (next-wave issues)
 
 - AgentCore Runtime, Gateway, and Memory collectors land in #1507–#1509.

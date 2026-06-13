@@ -201,6 +201,55 @@ func TestBedrockAgentsCollectorPartialFailureWhenDetailFails(t *testing.T) {
 	}
 }
 
+func TestBedrockAgentsCollectorDegradesWhenDetailIssuesReturned(t *testing.T) {
+	api := &fakeBedrockAgentsAPI{
+		pages: []BedrockAgentsPage{{
+			Agents: []BedrockAgentSummary{
+				{
+					AgentID:                     "UNSEEDED",
+					AgentARN:                    "arn:aws:bedrock:us-east-1:123456789012:agent/UNSEEDED",
+					AgentName:                   "unseeded",
+					RoleARN:                     "arn:aws:iam::123456789012:role/unseeded",
+					FoundationModel:             "anthropic.claude-3-5-sonnet-20240620-v1:0",
+					CustomerEncryptionKMSKeyARN: "arn:aws:kms:us-east-1:123456789012:key/cmk-1",
+				},
+			},
+		}},
+		detailIssues: map[string][]providers.SourceError{
+			"UNSEEDED": {
+				{
+					Collector: bedrockAgentsCollectorName,
+					SourceID:  "UNSEEDED",
+					Code:      "bedrock_agent_detail_not_seeded",
+					Message:   "no fixture detail seeded for agent",
+					Retryable: true,
+				},
+			},
+		},
+	}
+	collector := NewBedrockAgentsCollector(api)
+	assets, issues, err := collector.CollectWithDiagnostics(context.Background(), bedrockSampleScope())
+	if err != nil {
+		t.Fatalf("CollectWithDiagnostics: %v", err)
+	}
+	if len(assets) != 1 {
+		t.Fatalf("expected one asset, got %d", len(assets))
+	}
+	if !hasIssueCode(issues, "bedrock_agent_detail_not_seeded") {
+		t.Fatalf("expected detail diagnostic, got %v", issues)
+	}
+	var record AIAgentIdentity
+	if err := json.Unmarshal(assets[0].Payload, &record); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if record.CoverageStatus != "degraded" {
+		t.Fatalf("expected degraded coverage when detail diagnostics are returned, got %+v", record)
+	}
+	if record.Status != "degraded" {
+		t.Fatalf("expected degraded status when detail diagnostics are returned, got %+v", record)
+	}
+}
+
 func TestBedrockAgentsCollectorPaginationDedup(t *testing.T) {
 	api := &fakeBedrockAgentsAPI{
 		pages: []BedrockAgentsPage{
@@ -256,6 +305,51 @@ func TestBedrockAgentsCollectorListFailureSurfaces(t *testing.T) {
 	}
 	if !hasIssueCode(issues, "bedrock_agents_list_failed") {
 		t.Fatalf("expected list-failure diagnostic, got %v", issues)
+	}
+}
+
+func TestBedrockAgentsCollectorDegradesOnDetailDiagnosticsWithoutError(t *testing.T) {
+	// When the detail adapter returns soft diagnostics with a nil error (for
+	// example a fixture flagging "not seeded" or a partial SDK response), the
+	// emitted record must be degraded and the emitted diagnostic must use the
+	// dedicated "incomplete" code so operators can distinguish it from a hard
+	// detail fetch failure.
+	api := &fakeBedrockAgentsAPI{
+		pages: []BedrockAgentsPage{{
+			Agents: []BedrockAgentSummary{
+				{AgentID: "AG1", AgentARN: "arn:aws:bedrock:us-east-1:123456789012:agent/AG1", AgentName: "agent", RoleARN: "arn:aws:iam::123456789012:role/r"},
+			},
+		}},
+		details: map[string]BedrockAgentDetail{},
+		detailIssues: map[string][]providers.SourceError{
+			"AG1": {{
+				Collector: "bedrock_agents",
+				SourceID:  "AG1",
+				Code:      "bedrock_agent_detail_not_seeded",
+				Message:   "fixture detail not seeded",
+			}},
+		},
+	}
+	collector := NewBedrockAgentsCollector(api)
+	assets, issues, err := collector.CollectWithDiagnostics(context.Background(), bedrockSampleScope())
+	if err != nil {
+		t.Fatalf("CollectWithDiagnostics: %v", err)
+	}
+	if len(assets) != 1 {
+		t.Fatalf("expected one degraded asset, got %d", len(assets))
+	}
+	var record AIAgentIdentity
+	if err := json.Unmarshal(assets[0].Payload, &record); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if record.CoverageStatus != "degraded" || record.Status != "degraded" {
+		t.Fatalf("expected degraded coverage when detail adapter returns soft diagnostics, got %+v", record)
+	}
+	if !hasIssueCode(issues, "bedrock_agent_detail_incomplete") {
+		t.Fatalf("expected incomplete diagnostic, got %v", issues)
+	}
+	if hasIssueCode(issues, "bedrock_agent_detail_failed") {
+		t.Fatalf("soft diagnostics must not be reported as detail_failed, got %v", issues)
 	}
 }
 

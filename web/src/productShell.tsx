@@ -6920,6 +6920,22 @@ function awsBedrockAgentRow(record: AWSBedrockAgentRecord): AWSInventoryTableRow
   const status = degraded ? 'degraded' : 'role anchor';
   const stage = degraded ? 'coming' : 'wired';
   const detail = record.next_action;
+  // Derive the relationship filter from the record's actual edges so selecting
+  // "Agent to secret" never matches a record that has no credential references,
+  // and "Agent to tool" never matches a record without action groups.
+  const relationshipTokens: string[] = [];
+  if (record.runtime_role_arn) {
+    relationshipTokens.push('agent-to-role');
+  }
+  if (record.tool_names.length > 0) {
+    relationshipTokens.push('agent-to-tool');
+  }
+  if (record.credential_reference_refs.length > 0) {
+    relationshipTokens.push('agent-to-secret');
+  }
+  if (record.memory_store_refs.length > 0) {
+    relationshipTokens.push('agent-to-knowledge-base');
+  }
   return {
     id: `bedrock-agent-${record.agent_id}`,
     name: record.agent_name || record.agent_id,
@@ -6930,7 +6946,7 @@ function awsBedrockAgentRow(record: AWSBedrockAgentRecord): AWSInventoryTableRow
     detail,
     filters: {
       surface: 'bedrock-agents',
-      relationship: 'agent-to-role,agent-to-tool,agent-to-secret',
+      relationship: relationshipTokens.join(','),
       status: degraded ? 'degraded' : 'role-anchor',
       search: ''
     },

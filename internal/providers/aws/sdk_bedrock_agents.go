@@ -14,6 +14,19 @@ import (
 // from the live SDK adapter so deploying Identrail without the live Bedrock SDK
 // stays first-class (some operators want metadata-only fixtures while they
 // stage the live read-only permission grant).
+//
+// Runtime composition boundary: this fixture is the only BedrockAgentsAPI
+// implementation in this PR. A live aws-sdk-go-v2 Bedrock adapter is
+// deliberately not introduced here because the Bedrock SDK module is not yet
+// listed in go.mod and pulling it in would balloon this PR's scope and audit
+// surface. The follow-up issue that wires the SDK adapter must also (1) add a
+// case for rawKindAIAgentIdentity to RoleNormalizer.Normalize so the collector
+// is not silently dropped during scans, and (2) compose
+// NewBedrockAgentsCollector(NewSDKBedrockAgentsAPI(...)) inside
+// internal/runtime/service_builder.go alongside the other Wave 1 collectors.
+// Until then the collector is reachable only through the inventory API at
+// GET .../aws/bedrock-agents, which consumes RawAssets directly without going
+// through the normalizer.
 type FixtureBedrockAgentsAPI struct {
 	mu      sync.RWMutex
 	agents  []BedrockAgentSummary
