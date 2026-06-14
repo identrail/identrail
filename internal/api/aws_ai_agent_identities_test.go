@@ -378,6 +378,8 @@ func TestAIAgentProviderKeyReferencesClassifyStoreOnlySources(t *testing.T) {
 			"arn:aws:secretsmanager:us-east-1:111111111111:secret:provider/key-AbCdEf",
 			"arn:aws:ssm:us-east-1:111111111111:parameter/provider/key",
 			"PARAMETER_STORE:/prod/provider-key",
+			"BEDROCK_API_KEY=secretsmanager:prod/bedrock/api-key",
+			"arn:aws:bedrock-agentcore:us-east-1:111111111111:oauth/payments",
 		}
 	})
 
@@ -404,9 +406,21 @@ func TestAIAgentProviderKeyReferencesClassifyStoreOnlySources(t *testing.T) {
 	if providersByRef["PARAMETER_STORE:/prod/provider-key"] != "ssm" {
 		t.Fatalf("expected PARAMETER_STORE marker to classify as ssm, got %+v", record.ProviderKeyReferences)
 	}
+	if providersByRef["BEDROCK_API_KEY=secretsmanager:prod/bedrock/api-key"] != "bedrock" {
+		t.Fatalf("expected Bedrock API key marker to classify as bedrock, got %+v", record.ProviderKeyReferences)
+	}
+	if providersByRef["arn:aws:bedrock-agentcore:us-east-1:111111111111:oauth/payments"] != "generic" {
+		t.Fatalf("expected AgentCore OAuth ARN to classify as generic, got %+v", record.ProviderKeyReferences)
+	}
 	if sensitivityByRef["ssm:/prod/support/ai-provider-key"] != "aws_managed_secret" ||
 		sensitivityByRef["secretsmanager:prod/provider-key"] != "aws_managed_secret" {
 		t.Fatalf("expected AWS store-backed references to use aws_managed_secret sensitivity, got %+v", record.ProviderKeyReferences)
+	}
+	if sensitivityByRef["BEDROCK_API_KEY=secretsmanager:prod/bedrock/api-key"] != "ai_provider_api_key" {
+		t.Fatalf("expected Bedrock API key marker to use ai_provider_api_key sensitivity, got %+v", record.ProviderKeyReferences)
+	}
+	if sensitivityByRef["arn:aws:bedrock-agentcore:us-east-1:111111111111:oauth/payments"] != "generic_secret" {
+		t.Fatalf("expected AgentCore OAuth ARN to use generic_secret sensitivity, got %+v", record.ProviderKeyReferences)
 	}
 	if kindsByRef["OPENAI_API_KEY=SECRETS_MANAGER:arn:aws:secretsmanager:us-east-1:111111111111:secret:openai/key-AbCdEf"] != "secrets_manager" {
 		t.Fatalf("expected SECRETS_MANAGER marker to classify as secrets_manager kind, got %+v", record.ProviderKeyReferences)
