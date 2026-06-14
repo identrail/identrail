@@ -691,6 +691,7 @@ func awsCredentialReferenceNodeID(agentNodeID string, ref string) string {
 
 func awsAIAgentCredentialReferenceProvider(name, source string) string {
 	probe := strings.ToLower(strings.TrimSpace(name + " " + source))
+	sourceProbe := strings.ToLower(strings.TrimSpace(source))
 	switch {
 	case containsAnyToken(probe, "openai", "open_ai", "gpt_"):
 		return "openai"
@@ -698,9 +699,9 @@ func awsAIAgentCredentialReferenceProvider(name, source string) string {
 		return "anthropic"
 	case containsAnyToken(probe, "bedrock"):
 		return "bedrock"
-	case strings.HasPrefix(probe, "secretsmanager:"):
+	case strings.HasPrefix(sourceProbe, "secretsmanager:") || strings.HasPrefix(sourceProbe, "secretsmanager-") || strings.HasPrefix(sourceProbe, "secrets_manager-"):
 		return "secretsmanager"
-	case strings.HasPrefix(probe, "ssm:"):
+	case strings.HasPrefix(sourceProbe, "ssm:") || strings.HasPrefix(sourceProbe, "ssm-"):
 		return "ssm"
 	default:
 		return "generic"

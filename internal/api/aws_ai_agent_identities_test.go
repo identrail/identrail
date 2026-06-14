@@ -369,6 +369,32 @@ func TestAIAgentRelationshipsEmitRunsAsFromWorkloadNode(t *testing.T) {
 	}
 }
 
+func TestAIAgentProviderKeyReferencesClassifyStoreOnlySources(t *testing.T) {
+	record := awsAIAgentFixtureRecord("111111111111", "us-east-1", "external_provider_agent", "store-backed-agent", "agent-1", "arn:aws:ecs:us-east-1:111111111111:service/prod/agent-1", "arn:aws:iam::111111111111:role/agent-1", time.Now(), func(r *AWSAIAgentIdentityRecord) {
+		r.CredentialReferenceRefs = []string{
+			"ssm:/prod/support/ai-provider-key",
+			"secretsmanager:prod/provider-key",
+		}
+	})
+
+	providersByRef := map[string]string{}
+	sensitivityByRef := map[string]string{}
+	for _, ref := range record.ProviderKeyReferences {
+		providersByRef[ref.Reference] = ref.Provider
+		sensitivityByRef[ref.Reference] = ref.Sensitivity
+	}
+	if providersByRef["ssm:/prod/support/ai-provider-key"] != "ssm" {
+		t.Fatalf("expected SSM store-only reference to classify as ssm, got %+v", record.ProviderKeyReferences)
+	}
+	if providersByRef["secretsmanager:prod/provider-key"] != "secretsmanager" {
+		t.Fatalf("expected Secrets Manager store-only reference to classify as secretsmanager, got %+v", record.ProviderKeyReferences)
+	}
+	if sensitivityByRef["ssm:/prod/support/ai-provider-key"] != "aws_managed_secret" ||
+		sensitivityByRef["secretsmanager:prod/provider-key"] != "aws_managed_secret" {
+		t.Fatalf("expected AWS store-backed references to use aws_managed_secret sensitivity, got %+v", record.ProviderKeyReferences)
+	}
+}
+
 func TestRouterAWSAIAgentIdentityInventoryPermissionDenied(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()
