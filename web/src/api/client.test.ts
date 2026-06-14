@@ -1178,6 +1178,52 @@ describe('apiClient', () => {
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 
+  it('gets AWS runtime events with scoped headers, fixture state, and filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        runtime: {
+          status: 'ready',
+          event_count: 2,
+          filtered_event_count: 2,
+          records: []
+        }
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectRuntimeEvents(
+      'workspace/a',
+      'project 1',
+      {
+        connectorID: 'aws-prod',
+        fixtureState: 'partial_failure',
+        eventType: 'agent-tool',
+        identity: 'payments',
+        agentID: 'PAYMENTSAGENT1',
+        resource: 'arn:aws:s3:::payments-prod',
+        evidence: 'cloudtrail',
+        owner: 'security',
+        status: 'observed'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(
+      '/v1/workspaces/workspace%2Fa/projects/project%201/aws/runtime-events?connector_id=aws-prod&fixture_state=partial_failure&event_type=agent-tool&identity=payments&agent_id=PAYMENTSAGENT1&resource=arn%3Aaws%3As3%3A%3A%3Apayments-prod&evidence=cloudtrail&owner=security&status=observed'
+    );
+    expect(options.method ?? 'GET').toBe('GET');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
+
   it('gets AWS Secrets Manager metadata inventory with scoped headers and fixture state', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
