@@ -148,7 +148,7 @@ func (a *SDKAgentCoreCapabilitiesAPI) ListAgentIdentities(ctx context.Context, n
 			// a diagnostic and we advance to the next source so an account that
 			// still has ListBrowsers/ListCodeInterpreters permission does not
 			// lose those records to a single ListMemories denial.
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || isRetryable(err) {
 				return AIAgentIdentityPage{}, err
 			}
 			diagnostic := providers.SourceError{
