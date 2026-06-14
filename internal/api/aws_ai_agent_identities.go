@@ -708,6 +708,8 @@ func awsAIAgentCredentialReferenceProvider(name, source string) string {
 		return "secretsmanager"
 	case strings.HasPrefix(sourceProbe, "ssm:") ||
 		strings.HasPrefix(sourceProbe, "ssm-") ||
+		strings.HasPrefix(sourceProbe, "parameter_store:") ||
+		strings.HasPrefix(sourceProbe, "parameter_store-") ||
 		strings.Contains(sourceProbe, "arn-aws-ssm-") ||
 		strings.Contains(sourceProbe, "arn-aws-us-gov-ssm-") ||
 		strings.Contains(sourceProbe, "arn-aws-cn-ssm-"):

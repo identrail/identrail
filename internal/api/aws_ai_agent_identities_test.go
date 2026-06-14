@@ -377,6 +377,7 @@ func TestAIAgentProviderKeyReferencesClassifyStoreOnlySources(t *testing.T) {
 			"OPENAI_API_KEY=SECRETS_MANAGER:arn:aws:secretsmanager:us-east-1:111111111111:secret:openai/key-AbCdEf",
 			"arn:aws:secretsmanager:us-east-1:111111111111:secret:provider/key-AbCdEf",
 			"arn:aws:ssm:us-east-1:111111111111:parameter/provider/key",
+			"PARAMETER_STORE:/prod/provider-key",
 		}
 	})
 
@@ -400,12 +401,18 @@ func TestAIAgentProviderKeyReferencesClassifyStoreOnlySources(t *testing.T) {
 	if providersByRef["arn:aws:ssm:us-east-1:111111111111:parameter/provider/key"] != "ssm" {
 		t.Fatalf("expected full SSM ARN to classify as ssm, got %+v", record.ProviderKeyReferences)
 	}
+	if providersByRef["PARAMETER_STORE:/prod/provider-key"] != "ssm" {
+		t.Fatalf("expected PARAMETER_STORE marker to classify as ssm, got %+v", record.ProviderKeyReferences)
+	}
 	if sensitivityByRef["ssm:/prod/support/ai-provider-key"] != "aws_managed_secret" ||
 		sensitivityByRef["secretsmanager:prod/provider-key"] != "aws_managed_secret" {
 		t.Fatalf("expected AWS store-backed references to use aws_managed_secret sensitivity, got %+v", record.ProviderKeyReferences)
 	}
 	if kindsByRef["OPENAI_API_KEY=SECRETS_MANAGER:arn:aws:secretsmanager:us-east-1:111111111111:secret:openai/key-AbCdEf"] != "secrets_manager" {
 		t.Fatalf("expected SECRETS_MANAGER marker to classify as secrets_manager kind, got %+v", record.ProviderKeyReferences)
+	}
+	if kindsByRef["PARAMETER_STORE:/prod/provider-key"] != "ssm_parameter" {
+		t.Fatalf("expected PARAMETER_STORE marker to classify as ssm_parameter kind, got %+v", record.ProviderKeyReferences)
 	}
 }
 
