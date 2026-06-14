@@ -232,6 +232,21 @@ func (s *Service) GetAWSRuntimeEvents(ctx context.Context, workspaceID string, p
 			Reason:      "Connector's effective capability set does not include runtime_evidence.",
 			Remediation: "Grant the runtime_evidence capability to enable live CloudTrail LookupEvents ingestion.",
 		})
+		// Mirror the factory-error fallback: the fixture path has
+		// already classified the response as ready with high
+		// confidence because the synthetic records look healthy, but
+		// the operator-declared capability boundary intentionally
+		// blocked live ingestion. Returning ready would let operators
+		// believe live coverage is active when it is not — downgrade
+		// so the UI surfaces the capability-gated state and so the
+		// failure reason that explains it is preserved.
+		result.Status = "degraded"
+		result.FixtureState = "capability_unavailable"
+		if result.Confidence > 0.6 {
+			result.Confidence = 0.6
+		}
+		result.FailureReasons = dedupeStrings(append(result.FailureReasons, "Connector capabilities do not include runtime_evidence"))
+		result.RemediationHints = dedupeStrings(append(result.RemediationHints, "Grant the runtime_evidence connector capability and confirm the AWS role policy allows cloudtrail:LookupEvents."))
 		return result, nil
 	}
 	return buildAWSRuntimeEvents(scope, project, connection, hasConnection, request, now)

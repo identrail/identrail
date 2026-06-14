@@ -186,6 +186,29 @@ func TestGetAWSRuntimeEventsCapabilityGatedConnectorDoesNotCallFactory(t *testin
 	if !foundGap {
 		t.Fatalf("expected capability_unavailable coverage gap, got %+v", result.CoverageGaps)
 	}
+	// The fixture path classified the synthetic records as ready
+	// with high confidence, but the operator-declared capability
+	// boundary blocked live ingestion. The response must be
+	// downgraded so the UI does not let operators believe live
+	// coverage is active when it is not.
+	if result.Status != "degraded" {
+		t.Fatalf("expected capability-gated fallback status=degraded, got %q (%+v)", result.Status, result)
+	}
+	if result.FixtureState != "capability_unavailable" {
+		t.Fatalf("expected fixture_state=capability_unavailable, got %q", result.FixtureState)
+	}
+	if result.Confidence > 0.6 {
+		t.Fatalf("expected confidence capped at 0.6, got %v", result.Confidence)
+	}
+	foundReason := false
+	for _, reason := range result.FailureReasons {
+		if strings.Contains(reason, "runtime_evidence") {
+			foundReason = true
+		}
+	}
+	if !foundReason {
+		t.Fatalf("expected runtime_evidence failure reason, got %+v", result.FailureReasons)
+	}
 }
 
 func TestGetAWSRuntimeEventsFixtureOverrideBypassesLiveFactory(t *testing.T) {
