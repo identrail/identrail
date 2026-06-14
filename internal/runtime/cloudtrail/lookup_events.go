@@ -864,7 +864,7 @@ func classifyEventType(eventSource string, eventName string) string {
 			return "sts-session"
 		}
 	case "secretsmanager.amazonaws.com":
-		if name == "GetSecretValue" || strings.HasPrefix(name, "GetSecret") {
+		if name == "GetSecretValue" || name == "BatchGetSecretValue" || strings.HasPrefix(name, "GetSecret") {
 			return "secret-read"
 		}
 	case "kms.amazonaws.com":

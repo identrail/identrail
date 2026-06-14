@@ -312,6 +312,20 @@ func TestIngestRetriesThrottlingThenSurfacesDiagnostic(t *testing.T) {
 	}
 }
 
+func TestClassifyBatchGetSecretValueAsSecretRead(t *testing.T) {
+	// CloudTrail emits BatchGetSecretValue for the Secrets Manager
+	// batch API; without this case the live response classifies them
+	// as generic api-call and a `event_type=secret-read` filter
+	// drops them after the EventSource pushdown already fetched them.
+	if got := classifyEventType("secretsmanager.amazonaws.com", "BatchGetSecretValue"); got != "secret-read" {
+		t.Fatalf("expected BatchGetSecretValue to classify as secret-read, got %q", got)
+	}
+	// Sanity check: GetSecretValue still classifies as secret-read.
+	if got := classifyEventType("secretsmanager.amazonaws.com", "GetSecretValue"); got != "secret-read" {
+		t.Fatalf("expected GetSecretValue to classify as secret-read, got %q", got)
+	}
+}
+
 func TestIngestExpiredTokenIsTransientNotBlocked(t *testing.T) {
 	// ExpiredToken means the assumed-role session aged out; a retry
 	// with refreshed credentials succeeds. Treating it as
