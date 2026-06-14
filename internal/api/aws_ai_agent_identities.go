@@ -693,7 +693,6 @@ func awsCredentialReferenceNodeID(agentNodeID string, ref string) string {
 }
 
 func awsAIAgentCredentialReferenceProvider(name, source string) string {
-	nameProbe := strings.ToLower(strings.TrimSpace(name))
 	probe := strings.ToLower(strings.TrimSpace(name + " " + source))
 	sourceProbe := strings.ToLower(strings.TrimSpace(source))
 	switch {
@@ -701,7 +700,7 @@ func awsAIAgentCredentialReferenceProvider(name, source string) string {
 		return "openai"
 	case containsAnyToken(probe, "anthropic", "claude"):
 		return "anthropic"
-	case awsAIAgentCredentialReferenceLooksLikeBedrockProviderKey(nameProbe, probe):
+	case awsAIAgentCredentialReferenceLooksLikeBedrockProviderKey(sourceProbe, probe):
 		return "bedrock"
 	case strings.HasPrefix(sourceProbe, "secretsmanager:") ||
 		strings.HasPrefix(sourceProbe, "secretsmanager-") ||
@@ -723,8 +722,8 @@ func awsAIAgentCredentialReferenceProvider(name, source string) string {
 	}
 }
 
-func awsAIAgentCredentialReferenceLooksLikeBedrockProviderKey(nameProbe, probe string) bool {
-	if !awsAIAgentCredentialReferenceContainsBedrockKeyToken(nameProbe) && awsAIAgentCredentialReferenceLooksLikeAgentCoreOAuthSource(probe) {
+func awsAIAgentCredentialReferenceLooksLikeBedrockProviderKey(sourceProbe, probe string) bool {
+	if sourceProbe != "" && awsAIAgentCredentialReferenceLooksLikeAgentCoreOAuthSource(sourceProbe) {
 		return false
 	}
 	return awsAIAgentCredentialReferenceContainsBedrockKeyToken(probe)

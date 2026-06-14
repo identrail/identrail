@@ -381,6 +381,7 @@ func TestAIAgentProviderKeyReferencesClassifyStoreOnlySources(t *testing.T) {
 			"BEDROCK_API_KEY=secretsmanager:prod/bedrock/api-key",
 			"BEDROCK_API_KEY=secretsmanager:prod/bedrock-agentcore/bedrock-api-key",
 			"arn:aws:bedrock-agentcore:us-east-1:111111111111:oauth/payments",
+			"arn:aws:bedrock-agentcore:us-east-1:111111111111:oauth/bedrock-api-key",
 		}
 	})
 
@@ -416,6 +417,9 @@ func TestAIAgentProviderKeyReferencesClassifyStoreOnlySources(t *testing.T) {
 	if providersByRef["arn:aws:bedrock-agentcore:us-east-1:111111111111:oauth/payments"] != "generic" {
 		t.Fatalf("expected AgentCore OAuth ARN to classify as generic, got %+v", record.ProviderKeyReferences)
 	}
+	if providersByRef["arn:aws:bedrock-agentcore:us-east-1:111111111111:oauth/bedrock-api-key"] != "generic" {
+		t.Fatalf("expected AgentCore OAuth ARN with key-like tail to classify as generic, got %+v", record.ProviderKeyReferences)
+	}
 	if sensitivityByRef["ssm:/prod/support/ai-provider-key"] != "aws_managed_secret" ||
 		sensitivityByRef["secretsmanager:prod/provider-key"] != "aws_managed_secret" {
 		t.Fatalf("expected AWS store-backed references to use aws_managed_secret sensitivity, got %+v", record.ProviderKeyReferences)
@@ -428,6 +432,9 @@ func TestAIAgentProviderKeyReferencesClassifyStoreOnlySources(t *testing.T) {
 	}
 	if sensitivityByRef["arn:aws:bedrock-agentcore:us-east-1:111111111111:oauth/payments"] != "generic_secret" {
 		t.Fatalf("expected AgentCore OAuth ARN to use generic_secret sensitivity, got %+v", record.ProviderKeyReferences)
+	}
+	if sensitivityByRef["arn:aws:bedrock-agentcore:us-east-1:111111111111:oauth/bedrock-api-key"] != "generic_secret" {
+		t.Fatalf("expected AgentCore OAuth ARN with key-like tail to use generic_secret sensitivity, got %+v", record.ProviderKeyReferences)
 	}
 	if kindsByRef["OPENAI_API_KEY=SECRETS_MANAGER:arn:aws:secretsmanager:us-east-1:111111111111:secret:openai/key-AbCdEf"] != "secrets_manager" {
 		t.Fatalf("expected SECRETS_MANAGER marker to classify as secrets_manager kind, got %+v", record.ProviderKeyReferences)
