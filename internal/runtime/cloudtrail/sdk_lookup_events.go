@@ -105,10 +105,17 @@ func (a *SDKLookupEventsAPI) LookupEvents(ctx context.Context, input LookupEvent
 		max := input.MaxResults
 		params.MaxResults = &max
 	}
-	if input.Attributes.Key != "" {
+	// CloudTrail rejects a LookupAttribute whose AttributeValue is
+	// empty (`InvalidLookupAttributesException`), so only push the
+	// attribute when both key and trimmed value are non-empty. A
+	// key-only attribute is treated as "no pushdown" and falls back to
+	// the full window scan.
+	attrKey := strings.TrimSpace(input.Attributes.Key)
+	attrValue := strings.TrimSpace(input.Attributes.Value)
+	if attrKey != "" && attrValue != "" {
 		params.LookupAttributes = []cloudtrailtypes.LookupAttribute{{
-			AttributeKey:   cloudtrailtypes.LookupAttributeKey(input.Attributes.Key),
-			AttributeValue: awsv2.String(strings.TrimSpace(input.Attributes.Value)),
+			AttributeKey:   cloudtrailtypes.LookupAttributeKey(attrKey),
+			AttributeValue: awsv2.String(attrValue),
 		}}
 	}
 	out, err := a.client.LookupEvents(ctx, params)

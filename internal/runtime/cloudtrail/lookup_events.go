@@ -241,12 +241,19 @@ const (
 // case-insensitive and also matches the code embedded in an unwrapped
 // error string so we work both with SDK *types.AccessDeniedException
 // and bare net/http transport errors.
+//
+// ExpiredToken / TokenRefreshRequired are intentionally NOT on this
+// list: those mean the assumed-role session aged out and a retry with
+// fresh credentials will work. Treating them as permission_denied
+// would collapse the response to status=blocked and discard the
+// events ingested before the token expired, which is misleading and
+// loses real evidence. They fall through to the transient-failure
+// branch in the Ingest loop instead.
 var permissionDeniedCodes = []string{
 	"AccessDeniedException",
 	"AccessDenied",
 	"UnauthorizedOperation",
 	"InvalidClientTokenId",
-	"ExpiredToken",
 }
 
 // throttleCodes is the set of AWS error codes the ingester treats as
@@ -258,6 +265,17 @@ var throttleCodes = []string{
 	"RequestLimitExceeded",
 	"TooManyRequestsException",
 	"SlowDown",
+}
+
+// transientAuthCodes is the set of AWS error codes that signal the
+// assumed-role session aged out (or the SDK needs to refresh
+// credentials) — distinct from permission denial. They are degraded
+// and retryable, never blocked, so partial events ingested before
+// the token expired are preserved.
+var transientAuthCodes = []string{
+	"ExpiredToken",
+	"ExpiredTokenException",
+	"TokenRefreshRequired",
 }
 
 // Ingester drives one bounded LookupEvents ingestion run.
@@ -574,8 +592,12 @@ func isThrottling(err error) bool {
 	return errorMatchesAny(err, throttleCodes)
 }
 
+func isTransientAuth(err error) bool {
+	return errorMatchesAny(err, transientAuthCodes)
+}
+
 func isRetryable(err error) bool {
-	return isThrottling(err)
+	return isThrottling(err) || isTransientAuth(err)
 }
 
 func diagnosticCodeFor(err error) string {
@@ -584,6 +606,9 @@ func diagnosticCodeFor(err error) string {
 	}
 	if isThrottling(err) {
 		return "cloudtrail_lookup_events_throttled"
+	}
+	if isTransientAuth(err) {
+		return "cloudtrail_lookup_events_credentials_expired"
 	}
 	return "cloudtrail_lookup_events_failed"
 }
@@ -607,9 +632,9 @@ func errorMatchesAny(err error, codes []string) bool {
 			}
 		}
 	}
-	msg := err.Error()
+	msg := strings.ToLower(err.Error())
 	for _, code := range codes {
-		if strings.Contains(msg, code) {
+		if strings.Contains(msg, strings.ToLower(code)) {
 			return true
 		}
 	}

@@ -312,6 +312,56 @@ func TestIngestRetriesThrottlingThenSurfacesDiagnostic(t *testing.T) {
 	}
 }
 
+func TestIngestExpiredTokenIsTransientNotBlocked(t *testing.T) {
+	// ExpiredToken means the assumed-role session aged out; a retry
+	// with refreshed credentials succeeds. Treating it as
+	// permission_denied would collapse the response to
+	// status=blocked and discard the events already ingested. It
+	// must instead degrade with a retryable diagnostic.
+	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
+	expired := codedError{code: "ExpiredToken", msg: "The security token included in the request is expired (ExpiredToken)"}
+	api := &fakeLookupEventsAPI{errs: []error{expired}}
+	ing, _ := newIngester(api, now)
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1"})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if result.Status == "blocked" {
+		t.Fatalf("ExpiredToken must not collapse to status=blocked, got %+v", result)
+	}
+	if result.Status != "degraded" {
+		t.Fatalf("expected degraded status for ExpiredToken, got %q (%+v)", result.Status, result)
+	}
+	if len(result.Diagnostics) == 0 || !result.Diagnostics[0].Retryable {
+		t.Fatalf("expected retryable transient diagnostic, got %+v", result.Diagnostics)
+	}
+}
+
+func TestErrorMatchesAnyIsCaseInsensitiveOnUnwrappedMessage(t *testing.T) {
+	// Some SDK error wrappers lowercase the embedded code; the
+	// substring scan must still classify them so throttling /
+	// permission denial don't slip into the generic transient bucket.
+	for _, tc := range []struct {
+		name       string
+		err        error
+		throttle   bool
+		permDenied bool
+	}{
+		{name: "lowercased throttling embedded in error string", err: errors.New("operation error CloudTrail: lookupevents, https response error StatusCode: 400, RequestID: x, throttlingexception: Rate exceeded"), throttle: true},
+		{name: "mixed-case accessdenied", err: errors.New("AccessDeniedException: cloudtrail:LookupEvents is not allowed"), permDenied: true},
+		{name: "lowercased accessdenied", err: errors.New("api error accessdeniedexception: user lacks cloudtrail:LookupEvents"), permDenied: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isThrottling(tc.err); got != tc.throttle {
+				t.Fatalf("isThrottling=%v, want %v", got, tc.throttle)
+			}
+			if got := isPermissionDenied(tc.err); got != tc.permDenied {
+				t.Fatalf("isPermissionDenied=%v, want %v", got, tc.permDenied)
+			}
+		})
+	}
+}
+
 func TestIngestSurfacesPermissionDeniedAsBlocked(t *testing.T) {
 	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
 	denied := codedError{code: "AccessDeniedException", msg: "User is not authorized to perform cloudtrail:LookupEvents (AccessDeniedException)"}
