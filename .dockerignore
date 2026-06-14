@@ -37,3 +37,10 @@ coverage
 *.log
 tmp
 .DS_Store
+
+# CI build cache round-trip (buildkit-cache-dance); keep out of the build
+# context so restored caches are not uploaded or copied in by COPY . .
+.ci-cache
+.ci-cache/**
+scratch
+scratch/**
