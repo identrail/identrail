@@ -715,7 +715,7 @@ func normalizeEvent(raw Event, accountID string, region string) (NormalizedEvent
 		normalized.ActorPrincipalARN = meta.UserARN
 	}
 	if meta.UserType != "" {
-		normalized.ActorPrincipalType = strings.ToLower(meta.UserType)
+		normalized.ActorPrincipalType = mapPrincipalType(meta.UserType)
 	}
 	if meta.SessionPrincipalID != "" {
 		normalized.SessionID = meta.SessionPrincipalID
@@ -853,6 +853,58 @@ func decodeString(raw json.RawMessage) string {
 		return ""
 	}
 	return strings.TrimSpace(s)
+}
+
+// mapPrincipalType converts the CloudTrail userIdentity `type` field
+// into the snake_case principal-type token the runtime event contract
+// uses across fixtures, API responses, and the frontend. Without this
+// mapping a live response would emit camel-case tokens like
+// `assumedrole` (just lowercased) while fixtures emit `assumed_role`,
+// breaking consumers that group or compare across the two sources.
+// Unknown types fall back to a snake_case projection of the input so
+// future CloudTrail principal classes degrade safely instead of being
+// dropped.
+func mapPrincipalType(userType string) string {
+	switch strings.TrimSpace(userType) {
+	case "":
+		return ""
+	case "AssumedRole":
+		return "assumed_role"
+	case "IAMUser":
+		return "iam_user"
+	case "Root":
+		return "root"
+	case "FederatedUser":
+		return "federated_user"
+	case "AWSAccount":
+		return "aws_account"
+	case "AWSService":
+		return "aws_service"
+	case "WebIdentityUser":
+		return "web_identity_user"
+	case "SAMLUser":
+		return "saml_user"
+	case "Role":
+		return "role"
+	case "Directory":
+		return "directory"
+	case "Unknown":
+		return "unknown"
+	default:
+		// Snake-case fallback: insert "_" between lower→upper case
+		// transitions then lowercase. Keeps unknown CloudTrail types
+		// usable instead of letting them drift into a different
+		// token space than the fixture contract.
+		var b strings.Builder
+		runes := []rune(strings.TrimSpace(userType))
+		for i, r := range runes {
+			if i > 0 && r >= 'A' && r <= 'Z' && runes[i-1] >= 'a' && runes[i-1] <= 'z' {
+				b.WriteByte('_')
+			}
+			b.WriteRune(r)
+		}
+		return strings.ToLower(b.String())
+	}
 }
 
 func classifyEventType(eventSource string, eventName string) string {

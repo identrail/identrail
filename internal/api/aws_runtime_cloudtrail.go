@@ -108,6 +108,20 @@ func runtimeEventRecordFromNormalized(ev cloudtrail.NormalizedEvent, fallbackAcc
 	if resourceName == "" {
 		resourceName = displayNameFromARN(ev.TargetResourceARN)
 	}
+	// For assumed-role events CloudTrail's ActorPrincipalARN is the STS
+	// session ARN (arn:aws:sts::...:assumed-role/<role>/<session>),
+	// whereas the discovered IAM identity graph keys roles by the
+	// issuer ARN (arn:aws:iam::...:role/<role>). Building the node ID
+	// from the STS ARN would create an orphan node that never joins
+	// back to the role discovered by the IAM collector, so runtime
+	// evidence would never link to the role's other relationships.
+	// Prefer the session issuer when present and only fall back to the
+	// principal ARN for non-assumed-role events (root, IAM user,
+	// federated user, AWS service).
+	identityARN := strings.TrimSpace(ev.SessionIssuerARN)
+	if identityARN == "" {
+		identityARN = ev.ActorPrincipalARN
+	}
 	return AWSRuntimeEventRecord{
 		EventID:             ev.EventID,
 		AccountID:           accountID,
@@ -118,7 +132,7 @@ func runtimeEventRecordFromNormalized(ev cloudtrail.NormalizedEvent, fallbackAcc
 		Action:              ev.Action,
 		ActorPrincipalARN:   ev.ActorPrincipalARN,
 		ActorPrincipalType:  firstNonEmptyAWSValue(ev.ActorPrincipalType, "assumed_role"),
-		ActorIdentityNodeID: awsIdentityNodeIDForAPI(ev.ActorPrincipalARN),
+		ActorIdentityNodeID: awsIdentityNodeIDForAPI(identityARN),
 		Session: AWSRuntimeEventSession{
 			SessionID:        ev.SessionID,
 			PrincipalARN:     ev.ActorPrincipalARN,

@@ -9,6 +9,7 @@ import (
 
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/runtime/cloudtrail"
 )
 
 type fakeCloudTrailIngester struct {
@@ -186,6 +187,57 @@ func TestGetAWSRuntimeEventsFactoryErrorAttachesDiagnosticAndFallsBackToFixture(
 	}
 	if !foundFactoryReason {
 		t.Fatalf("expected factory failure reason on fallback response, got %+v", result.FailureReasons)
+	}
+}
+
+func TestRuntimeEventRecordFromNormalizedKeysAssumedRoleIdentityByIssuerARN(t *testing.T) {
+	sessionARN := "arn:aws:sts::123456789012:assumed-role/identrail-runtime-reader/sess-runtime-reader"
+	issuerARN := "arn:aws:iam::123456789012:role/identrail-runtime-reader"
+	// Assumed-role events must key the identity graph by the issuer
+	// role ARN so the observed_runtime_action relationship joins the
+	// same role node the IAM identity collector emits. Building the
+	// node ID from the STS session ARN would create an orphan node
+	// that never matches any role in the discovered graph.
+	got := runtimeEventRecordFromNormalized(cloudtrail.NormalizedEvent{
+		EventID:            "evt-assume",
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		EventType:          "sts-session",
+		EventSource:        "sts.amazonaws.com",
+		EventName:          "AssumeRole",
+		Action:             "sts:AssumeRole",
+		ActorPrincipalARN:  sessionARN,
+		ActorPrincipalType: "assumed_role",
+		SessionIssuerARN:   issuerARN,
+		AssumedRoleARN:     issuerARN,
+		ObservedAt:         time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC),
+		RedactionBoundary:  "metadata_only_no_payloads_no_secret_values",
+	}, "123456789012", "us-east-1")
+	if want, have := awsIdentityNodeIDForAPI(issuerARN), got.ActorIdentityNodeID; want != have {
+		t.Fatalf("expected ActorIdentityNodeID to use issuer ARN %q (got %q)", want, have)
+	}
+	if got.ActorPrincipalARN != sessionARN {
+		t.Fatalf("expected principal ARN to remain the STS session ARN, got %q", got.ActorPrincipalARN)
+	}
+	if got.Session.SessionIssuerARN != issuerARN || got.Session.AssumedRoleARN != issuerARN {
+		t.Fatalf("expected session block to preserve issuer/role ARN, got %+v", got.Session)
+	}
+
+	// Non-assumed-role event (no SessionIssuerARN): identity node ID
+	// must still use the actor principal ARN so root/IAM-user/service
+	// events do not regress.
+	rootARN := "arn:aws:iam::123456789012:root"
+	got = runtimeEventRecordFromNormalized(cloudtrail.NormalizedEvent{
+		EventID:           "evt-root",
+		AccountID:         "123456789012",
+		Region:            "us-east-1",
+		EventType:         "api-call",
+		EventSource:       "iam.amazonaws.com",
+		EventName:         "CreateUser",
+		ActorPrincipalARN: rootARN,
+	}, "123456789012", "us-east-1")
+	if want, have := awsIdentityNodeIDForAPI(rootARN), got.ActorIdentityNodeID; want != have {
+		t.Fatalf("expected non-assumed-role event to key identity by principal ARN, got %q want %q", have, want)
 	}
 }
 

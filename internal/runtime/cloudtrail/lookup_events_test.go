@@ -312,6 +312,32 @@ func TestIngestRetriesThrottlingThenSurfacesDiagnostic(t *testing.T) {
 	}
 }
 
+func TestMapPrincipalTypeProducesSnakeCaseContractTokens(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		{in: "AssumedRole", want: "assumed_role"},
+		{in: "IAMUser", want: "iam_user"},
+		{in: "Root", want: "root"},
+		{in: "FederatedUser", want: "federated_user"},
+		{in: "AWSAccount", want: "aws_account"},
+		{in: "AWSService", want: "aws_service"},
+		{in: "WebIdentityUser", want: "web_identity_user"},
+		{in: "SAMLUser", want: "saml_user"},
+		{in: "Unknown", want: "unknown"},
+		// Unknown CloudTrail types fall back to a snake_case
+		// projection, never camel-case, so they stay in the same
+		// token space as the fixture contract.
+		{in: "FutureWeirdType", want: "future_weird_type"},
+		{in: "", want: ""},
+	} {
+		if got := mapPrincipalType(tc.in); got != tc.want {
+			t.Errorf("mapPrincipalType(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestClassifyBatchGetSecretValueAsSecretRead(t *testing.T) {
 	// CloudTrail emits BatchGetSecretValue for the Secrets Manager
 	// batch API; without this case the live response classifies them
