@@ -180,6 +180,20 @@ func (s *Service) GetAWSRuntimeEvents(ctx context.Context, workspaceID string, p
 				Remediation: "Confirm the CloudTrail role grants metadata-only cloudtrail:LookupEvents and retry.",
 				Retryable:   true,
 			})
+			// The fixture path already classified the response as
+			// `ready` with high confidence because the synthetic
+			// fixture records look healthy. That conflicts with the
+			// reality that live ingestion failed and the records the
+			// operator is seeing are not live evidence — downgrade so
+			// the UI surfaces the partial-failure state and so the
+			// failure reason that explains it is preserved.
+			result.Status = "degraded"
+			result.FixtureState = "partial_failure"
+			if result.Confidence > 0.6 {
+				result.Confidence = 0.6
+			}
+			result.FailureReasons = dedupeStrings(append(result.FailureReasons, "CloudTrail LookupEvents ingester is not available for this connector"))
+			result.RemediationHints = dedupeStrings(append(result.RemediationHints, "Confirm the CloudTrail role grants metadata-only cloudtrail:LookupEvents and retry."))
 		}
 		return result, nil
 	}
@@ -207,7 +221,7 @@ func buildAWSRuntimeEventsFromCloudTrail(ctx context.Context, scope db.Scope, pr
 
 	filtered, applied := filterAWSRuntimeEventRecords(ingestResult.Records, request)
 	relationships := awsRuntimeEventRelationships(filtered)
-	diagnostics := scopeAWSRuntimeEventDiagnostics(ingestResult.Diagnostics, filtered)
+	diagnostics := scopeAWSRuntimeEventDiagnostics(ingestResult.Diagnostics, ingestResult.Records, filtered)
 	summary := summarizeAWSRuntimeEvents(ingestResult.Records, len(filtered), len(relationships))
 
 	status := ingestResult.Status
@@ -273,10 +287,14 @@ func buildAWSRuntimeEventsFromCloudTrail(ctx context.Context, scope db.Scope, pr
 
 // cloudTrailEventSourceFilterFor translates a normalized
 // AWSRuntimeEventRequest.EventType into the CloudTrail event source
-// the ingester should push to the LookupEvents request. Unknown event
-// types resolve to an empty filter so CloudTrail still returns every
-// source the trail captures; the API layer's record-level filter then
-// scopes the response.
+// the ingester should push to the LookupEvents request. CloudTrail
+// accepts exactly one lookup attribute per call, so this only
+// pushes the filter when the typed event maps to a single event
+// source. Event types that span multiple sources (`agent-tool`
+// covers both `bedrock-agentcore.amazonaws.com` and
+// `bedrock-agent.amazonaws.com`) intentionally fall through to an
+// empty pushdown — the API layer's record-level filter then scopes
+// the response without dropping the second source on the trail side.
 func cloudTrailEventSourceFilterFor(eventType string) string {
 	switch normalizeAWSRuntimeEventFilterToken(eventType) {
 	case "secret-read":
@@ -285,8 +303,6 @@ func cloudTrailEventSourceFilterFor(eventType string) string {
 		return "kms.amazonaws.com"
 	case "sts-session":
 		return "sts.amazonaws.com"
-	case "agent-tool":
-		return "bedrock-agentcore.amazonaws.com"
 	default:
 		return ""
 	}
@@ -303,7 +319,7 @@ func buildAWSRuntimeEvents(scope db.Scope, project db.TenancyProject, connection
 	records, diagnostics, gaps := awsRuntimeEventFixtureRecords(accountID, region, fixtureState, checkedAt)
 	filtered, applied := filterAWSRuntimeEventRecords(records, request)
 	relationships := awsRuntimeEventRelationships(filtered)
-	diagnostics = scopeAWSRuntimeEventDiagnostics(diagnostics, filtered)
+	diagnostics = scopeAWSRuntimeEventDiagnostics(diagnostics, records, filtered)
 	summary := summarizeAWSRuntimeEvents(records, len(filtered), len(relationships))
 	status, confidence, failures, remediations := summarizeAWSRuntimeEventStatus(fixtureState, diagnostics, filtered)
 
@@ -414,13 +430,25 @@ func normalizeAWSRuntimeEventFilterToken(value string) string {
 	return strings.ToLower(strings.NewReplacer(" ", "-", "_", "-").Replace(strings.TrimSpace(value)))
 }
 
-func scopeAWSRuntimeEventDiagnostics(diagnostics []AWSRuntimeEventDiagnostic, records []AWSRuntimeEventRecord) []AWSRuntimeEventDiagnostic {
+// scopeAWSRuntimeEventDiagnostics keeps per-event diagnostics scoped
+// to the filtered record set while preserving collector-level
+// diagnostics (e.g. `cloudtrail`, `agent-runtime`, `factory`) whose
+// SourceID does not refer to any record EventID. Without that
+// distinction, blocked, throttled, or first-page-failure responses —
+// which by construction have zero records — would lose the diagnostic
+// that explains the state, even though `summarizeAWSRuntimeEventStatus`
+// also surfaces the same reason via FailureReasons/RemediationHints.
+func scopeAWSRuntimeEventDiagnostics(diagnostics []AWSRuntimeEventDiagnostic, allRecords []AWSRuntimeEventRecord, filteredRecords []AWSRuntimeEventRecord) []AWSRuntimeEventDiagnostic {
 	if len(diagnostics) == 0 {
 		return nil
 	}
-	recordIDs := make(map[string]struct{}, len(records))
-	for _, record := range records {
-		recordIDs[record.EventID] = struct{}{}
+	allRecordIDs := make(map[string]struct{}, len(allRecords))
+	for _, record := range allRecords {
+		allRecordIDs[record.EventID] = struct{}{}
+	}
+	filteredIDs := make(map[string]struct{}, len(filteredRecords))
+	for _, record := range filteredRecords {
+		filteredIDs[record.EventID] = struct{}{}
 	}
 	scoped := make([]AWSRuntimeEventDiagnostic, 0, len(diagnostics))
 	for _, diagnostic := range diagnostics {
@@ -429,7 +457,12 @@ func scopeAWSRuntimeEventDiagnostics(diagnostics []AWSRuntimeEventDiagnostic, re
 			scoped = append(scoped, diagnostic)
 			continue
 		}
-		if _, ok := recordIDs[sourceID]; ok {
+		if _, isRecord := allRecordIDs[sourceID]; !isRecord {
+			// Collector-level diagnostic — keep regardless of filter.
+			scoped = append(scoped, diagnostic)
+			continue
+		}
+		if _, ok := filteredIDs[sourceID]; ok {
 			scoped = append(scoped, diagnostic)
 		}
 	}

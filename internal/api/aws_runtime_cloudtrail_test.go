@@ -156,6 +156,19 @@ func TestGetAWSRuntimeEventsFactoryErrorAttachesDiagnosticAndFallsBackToFixture(
 	if result.Summary.TotalEvents == 0 {
 		t.Fatalf("expected fixture fallback to keep returning records, got %+v", result)
 	}
+	// When the factory fails the fixture path's synthetic "ready"
+	// status would otherwise tell the operator that live coverage is
+	// healthy even though no live CloudTrail data was collected. The
+	// fallback must downgrade so the partial-failure state is visible.
+	if result.Status != "degraded" {
+		t.Fatalf("expected fallback status=degraded after factory failure, got %q (%+v)", result.Status, result)
+	}
+	if result.FixtureState != "partial_failure" {
+		t.Fatalf("expected fixture_state=partial_failure after factory failure, got %q", result.FixtureState)
+	}
+	if result.Confidence > 0.6 {
+		t.Fatalf("expected confidence capped at 0.6 after factory failure, got %v", result.Confidence)
+	}
 	foundFactoryDiagnostic := false
 	for _, diag := range result.Diagnostics {
 		if diag.Code == "cloudtrail_ingester_unavailable" {
@@ -164,6 +177,37 @@ func TestGetAWSRuntimeEventsFactoryErrorAttachesDiagnosticAndFallsBackToFixture(
 	}
 	if !foundFactoryDiagnostic {
 		t.Fatalf("expected factory failure diagnostic on fallback response, got %+v", result.Diagnostics)
+	}
+	foundFactoryReason := false
+	for _, reason := range result.FailureReasons {
+		if strings.Contains(reason, "CloudTrail LookupEvents ingester is not available") {
+			foundFactoryReason = true
+		}
+	}
+	if !foundFactoryReason {
+		t.Fatalf("expected factory failure reason on fallback response, got %+v", result.FailureReasons)
+	}
+}
+
+func TestGetAWSRuntimeEventsAgentToolEventTypeDoesNotPushdownSingleSource(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 20, 15, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-agent-pushdown")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-agent-pushdown", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	fake := &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{Status: "ready"}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailLookupEventsFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error) {
+		return fake, nil
+	}
+
+	if _, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-agent-pushdown", AWSRuntimeEventRequest{ConnectorID: "aws-prod", EventType: "agent-tool"}); err != nil {
+		t.Fatalf("get runtime events: %v", err)
+	}
+	if len(fake.calls) != 1 || fake.calls[0].EventSourceFilter != "" {
+		t.Fatalf("agent-tool spans bedrock-agentcore + bedrock-agent and must not push a single-source CloudTrail filter, got %+v", fake.calls)
 	}
 }
 
@@ -235,5 +279,51 @@ func TestGetAWSRuntimeEventsLiveBlockedStatusKeepsContractShape(t *testing.T) {
 	}
 	if len(result.FailureReasons) == 0 || !strings.Contains(strings.Join(result.FailureReasons, "|"), "not authorized") {
 		t.Fatalf("expected blocked failure reasons surfaced to operators, got %+v", result.FailureReasons)
+	}
+	// Regression: a blocked response carries zero records, so the
+	// permission_denied diagnostic (SourceID="cloudtrail") must survive
+	// scopeAWSRuntimeEventDiagnostics. Without that, the operator
+	// would lose the structured diagnostic that explains the state.
+	foundCollectorDiagnostic := false
+	for _, diag := range result.Diagnostics {
+		if diag.Code == "permission_denied" && diag.SourceID == "cloudtrail" {
+			foundCollectorDiagnostic = true
+		}
+	}
+	if !foundCollectorDiagnostic {
+		t.Fatalf("expected collector-level permission_denied diagnostic to survive in blocked response, got %+v", result.Diagnostics)
+	}
+}
+
+func TestScopeAWSRuntimeEventDiagnosticsPreservesCollectorLevelSourceIDs(t *testing.T) {
+	allRecords := []AWSRuntimeEventRecord{
+		{EventID: "evt-a"},
+		{EventID: "evt-b"},
+	}
+	filtered := []AWSRuntimeEventRecord{{EventID: "evt-a"}}
+	diagnostics := []AWSRuntimeEventDiagnostic{
+		// Collector-level: SourceID does not match any record EventID.
+		{Collector: "aws_cloudtrail_lookup_events", SourceID: "cloudtrail", Code: "permission_denied"},
+		// Collector-level via factory wrapper.
+		{Collector: "aws_cloudtrail_lookup_events", SourceID: "factory", Code: "cloudtrail_ingester_unavailable"},
+		// Per-event diagnostic for a record that survived filtering.
+		{Collector: "aws_runtime_events", SourceID: "evt-a", Code: "runtime_event_delivery_delayed"},
+		// Per-event diagnostic for a record that was filtered out.
+		{Collector: "aws_runtime_events", SourceID: "evt-b", Code: "runtime_event_delivery_delayed"},
+		// Empty SourceID — always preserved.
+		{Collector: "aws_runtime_events", Code: "unknown"},
+	}
+	scoped := scopeAWSRuntimeEventDiagnostics(diagnostics, allRecords, filtered)
+	codes := map[string]bool{}
+	for _, diag := range scoped {
+		codes[diag.SourceID+":"+diag.Code] = true
+	}
+	for _, want := range []string{"cloudtrail:permission_denied", "factory:cloudtrail_ingester_unavailable", "evt-a:runtime_event_delivery_delayed", ":unknown"} {
+		if !codes[want] {
+			t.Fatalf("expected diagnostic %q to be preserved, got %+v", want, scoped)
+		}
+	}
+	if codes["evt-b:runtime_event_delivery_delayed"] {
+		t.Fatalf("per-record diagnostic for filtered-out event must be dropped, got %+v", scoped)
 	}
 }
