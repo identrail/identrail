@@ -530,7 +530,7 @@ func awsAIAgentRecordMatchesProvider(record AWSAIAgentIdentityRecord, query stri
 			return true
 		}
 	}
-	if _, known := awsAIAgentKnownProviderFilterTokens()[normalizedQuery]; known {
+	if awsAIAgentProviderFilterRequiresExactProviderMatch(normalizedQuery) {
 		return false
 	}
 	return awsAIAgentRecordMatchesAny(record, query, record.ModelID)
@@ -551,15 +551,12 @@ func normalizeAWSAIAgentProviderToken(value string) string {
 	}
 }
 
-func awsAIAgentKnownProviderFilterTokens() map[string]struct{} {
-	return map[string]struct{}{
-		"amazon_bedrock":           {},
-		"amazon_bedrock_agentcore": {},
-		"external_provider":        {},
-		"openai":                   {},
-		"anthropic":                {},
-		"bedrock":                  {},
-		"custom":                   {},
+func awsAIAgentProviderFilterRequiresExactProviderMatch(normalizedQuery string) bool {
+	switch normalizedQuery {
+	case "amazon_bedrock", "amazon_bedrock_agentcore", "external_provider", "custom":
+		return true
+	default:
+		return false
 	}
 }
 
