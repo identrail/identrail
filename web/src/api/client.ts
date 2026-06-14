@@ -2053,7 +2053,10 @@ export type AWSAIAgentIdentityInventoryResult = {
   status: AWSAIAgentIdentityInventoryStatus;
   fixture_state: AWSAIAgentIdentityFixtureState;
   confidence: number;
+  applied_filters: Record<string, string>;
   record_count: number;
+  total_record_count: number;
+  filtered_record_count: number;
   bedrock_agent_count: number;
   agentcore_runtime_count: number;
   custom_agent_count: number;
@@ -2082,6 +2085,20 @@ export type AWSAIAgentIdentityInventoryResult = {
   diagnostics: AWSAIAgentIdentityDiagnostic[];
   generated_at: string;
   updated_at: string;
+};
+
+export type AWSAIAgentIdentityQuery = {
+  connectorID?: string;
+  fixtureState?: AWSAIAgentIdentityFixtureState;
+  accountID?: string;
+  region?: string;
+  agentID?: string;
+  provider?: string;
+  runtime?: string;
+  tool?: string;
+  status?: string;
+  risk?: string;
+  minConfidence?: string;
 };
 
 export type AWSBedrockAgentsInventoryStatus = 'ready' | 'degraded' | 'blocked';
@@ -5128,14 +5145,22 @@ export const apiClient = {
   getAWSProjectAIAgentIdentities(
     workspaceID: string,
     projectID: string,
-    connectorID?: string,
-    fixtureState?: AWSAIAgentIdentityFixtureState,
+    query?: AWSAIAgentIdentityQuery,
     auth?: RequestAuthContext
   ) {
     return request<{ inventory: AWSAIAgentIdentityInventoryResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/ai-agent-identities${buildQuery({
-        connector_id: connectorID,
-        fixture_state: fixtureState
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        agent_id: query?.agentID,
+        provider: query?.provider,
+        runtime: query?.runtime,
+        tool: query?.tool,
+        status: query?.status,
+        risk: query?.risk,
+        min_confidence: query?.minConfidence
       })}`,
       auth
     );

@@ -2770,8 +2770,17 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			return
 		}
 		record, err := svc.GetAWSAIAgentIdentityInventory(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSAIAgentIdentityInventoryRequest{
-			ConnectorID:  strings.TrimSpace(c.Query("connector_id")),
-			FixtureState: strings.TrimSpace(c.Query("fixture_state")),
+			ConnectorID:   strings.TrimSpace(c.Query("connector_id")),
+			FixtureState:  strings.TrimSpace(c.Query("fixture_state")),
+			AccountID:     strings.TrimSpace(c.Query("account_id")),
+			Region:        strings.TrimSpace(c.Query("region")),
+			AgentID:       strings.TrimSpace(c.Query("agent_id")),
+			Provider:      strings.TrimSpace(c.Query("provider")),
+			Runtime:       strings.TrimSpace(c.Query("runtime")),
+			Tool:          strings.TrimSpace(c.Query("tool")),
+			Status:        strings.TrimSpace(c.Query("status")),
+			Risk:          strings.TrimSpace(c.Query("risk")),
+			MinConfidence: strings.TrimSpace(c.Query("min_confidence")),
 		})
 		if err != nil {
 			switch {
@@ -2790,6 +2799,43 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"inventory": record})
+	})
+
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/ai-agent-identities/:agent_id", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetAWSAIAgentIdentityDetail(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), c.Param("agent_id"), AWSAIAgentIdentityInventoryRequest{
+			ConnectorID:   strings.TrimSpace(c.Query("connector_id")),
+			FixtureState:  strings.TrimSpace(c.Query("fixture_state")),
+			AccountID:     strings.TrimSpace(c.Query("account_id")),
+			Region:        strings.TrimSpace(c.Query("region")),
+			Provider:      strings.TrimSpace(c.Query("provider")),
+			Runtime:       strings.TrimSpace(c.Query("runtime")),
+			Tool:          strings.TrimSpace(c.Query("tool")),
+			Status:        strings.TrimSpace(c.Query("status")),
+			Risk:          strings.TrimSpace(c.Query("risk")),
+			MinConfidence: strings.TrimSpace(c.Query("min_confidence")),
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "aws ai agent identity not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws ai agent identity request"})
+			default:
+				logger.Error("get aws ai agent identity detail",
+					zap.String("workspace_id", c.Param("workspace_id")),
+					zap.String("project_id", c.Param("project_id")),
+					zap.String("agent_id", c.Param("agent_id")),
+					telemetry.ZapError(err),
+				)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws ai agent identity detail"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, record)
 	})
 
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/bedrock-agents", func(c *gin.Context) {

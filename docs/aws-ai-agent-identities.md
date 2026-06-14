@@ -1,6 +1,6 @@
 # AWS AI Agent Identities
 
-Issue #1505 adds a normalized AI agent identity model for AWS machine-identity governance. Issue #1508 extends the same model with AgentCore Gateway and MCP tool mapping. Issue #1509 extends it again with AgentCore Memory, Browser, and Code Interpreter capability metadata mapping. Issue #1510 maps external AI provider key metadata onto agent identities without reading credential values. Issue #1511 detects custom AWS-hosted agents across existing workload metadata.
+Issue #1505 adds a normalized AI agent identity model for AWS machine-identity governance. Issue #1508 extends the same model with AgentCore Gateway and MCP tool mapping. Issue #1509 extends it again with AgentCore Memory, Browser, and Code Interpreter capability metadata mapping. Issue #1510 maps external AI provider key metadata onto agent identities without reading credential values. Issue #1511 detects custom AWS-hosted agents across existing workload metadata. Issue #1512 wires the agent identity API and explorer so operators can filter, drill into detail, and connect agents to roles, tools, provider-key metadata, evidence, and downstream graph relationships.
 
 ## What Is Collected
 
@@ -40,10 +40,24 @@ The public API is:
 
 `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/ai-agent-identities`
 
+The detail API is:
+
+`GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/ai-agent-identities/{agent_id}`
+
 Optional query parameters:
 
 - `connector_id`
 - `fixture_state=success|empty|degraded|partial_failure|permission_denied`
+- `account_id` and `region`
+- `agent_id` for list narrowing, or the `{agent_id}` path parameter for detail
+- `provider` for provider/model matching, including `amazon-bedrock`, `amazon-bedrock-agentcore`, `external_provider`, `openai`, or `anthropic`
+- `runtime` for service/runtime matching, including `bedrock`, `agentcore`, `ecs`, `lambda`, `eks`, `ec2`, `sagemaker`, `stepfunctions`, or `codebuild`
+- `tool` for tool name or tool target references
+- `status=ready|role-anchor|candidate|degraded|blocked|not-yet-available`
+- `risk=high|medium|low|unscored`
+- `min_confidence` from `0` through `1`
+
+List responses include response-level explorer metadata such as `total_record_count`, `filtered_record_count`, `applied_filters`, provider/runtime/risk/status/confidence filter effects, and evidence links. Detail responses return one `record`, scoped `relationships`, and detail-specific evidence links while preserving the same metadata-only boundary.
 
 ### External AI provider key metadata mapping (issue #1510)
 
@@ -97,7 +111,7 @@ Use metadata-only list and describe permissions for the relevant agent, runtime,
 
 ## UI Surface
 
-The AWS Agents inventory page shows normalized agent rows, custom-agent candidates, runtime role anchors, provider/model metadata, Gateway/MCP tools, auth mode, allowed-action counts, external provider key counts, credential-reference counts, confidence, diagnostics, sensitive-boundary coverage gaps, account/region context, and retry guidance.
+The AWS Agents inventory page shows normalized agent rows, custom-agent candidates, runtime role anchors, provider/model metadata, Gateway/MCP tools, auth mode, allowed-action counts, external provider key counts, credential-reference counts, confidence, diagnostics, sensitive-boundary coverage gaps, account/region context, filtered/total counts, and retry guidance. Operators can filter by agent surface, relationship type, provider, runtime, derived risk, confidence threshold, status, and search text without exposing secret values or payload contents.
 
 ## Troubleshooting
 

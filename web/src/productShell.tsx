@@ -37,6 +37,7 @@ import {
   type AWSEventDrivenRoleRecord,
   type AWSManagedComputeRoleInventoryResult,
   type AWSManagedComputeRoleRecord,
+  type AWSAIAgentIdentityQuery,
   type AWSAIAgentIdentityInventoryResult,
   type AWSBedrockAgentsInventoryResult,
   type AWSBedrockAgentRecord,
@@ -3748,7 +3749,7 @@ type AWSInventoryCoverageRow = AWSInventoryFilterable & {
 const AWS_INVENTORY_FILTER_DEFAULTS: Record<AWSInventoryRouteID, AWSInventoryFilterState> = {
   accounts: { account: 'all', region: 'all', coverage: 'all', search: '' },
   identities: { identityType: 'all', service: 'all', risk: 'all', status: 'all', search: '' },
-  agents: { surface: 'all', relationship: 'all', status: 'all', search: '' },
+  agents: { surface: 'all', relationship: 'all', provider: 'all', runtime: 'all', risk: 'all', confidence: 'all', status: 'all', search: '' },
   resources: { category: 'all', sensitivity: 'all', readPosture: 'all', search: '' }
 };
 
@@ -3835,6 +3836,56 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'Agent to tool', value: 'agent-to-tool' },
         { label: 'Agent to secret', value: 'agent-to-secret' },
         { label: 'Agent to storage', value: 'agent-to-storage' }
+      ]
+    },
+    {
+      id: 'provider',
+      label: 'Provider',
+      options: [
+        { label: 'All providers', value: 'all' },
+        { label: 'Amazon Bedrock', value: 'amazon-bedrock' },
+        { label: 'AgentCore', value: 'amazon-bedrock-agentcore' },
+        { label: 'External provider', value: 'external_provider' },
+        { label: 'OpenAI', value: 'openai' },
+        { label: 'Anthropic', value: 'anthropic' },
+        { label: 'Custom', value: 'custom' }
+      ]
+    },
+    {
+      id: 'runtime',
+      label: 'Runtime',
+      options: [
+        { label: 'All runtimes', value: 'all' },
+        { label: 'Bedrock', value: 'bedrock' },
+        { label: 'AgentCore', value: 'agentcore' },
+        { label: 'ECS', value: 'ecs' },
+        { label: 'Lambda', value: 'lambda' },
+        { label: 'EKS', value: 'eks' },
+        { label: 'EC2', value: 'ec2' },
+        { label: 'SageMaker', value: 'sagemaker' },
+        { label: 'Step Functions', value: 'stepfunctions' },
+        { label: 'CodeBuild', value: 'codebuild' }
+      ]
+    },
+    {
+      id: 'risk',
+      label: 'Risk',
+      options: [
+        { label: 'All risk', value: 'all' },
+        { label: 'High', value: 'high' },
+        { label: 'Medium', value: 'medium' },
+        { label: 'Low', value: 'low' },
+        { label: 'Unscored', value: 'unscored' }
+      ]
+    },
+    {
+      id: 'confidence',
+      label: 'Confidence',
+      options: [
+        { label: 'All confidence', value: 'all' },
+        { label: '0.90+', value: '0.9' },
+        { label: '0.75+', value: '0.75' },
+        { label: '0.50+', value: '0.5' }
       ]
     },
     {
@@ -3935,6 +3986,33 @@ function filterAWSInventoryRows<RowType extends AWSInventoryFilterable>(rows: Ro
     }
     return row.searchText.includes(query);
   });
+}
+
+function awsAIAgentIdentityQueryFromFilters(
+  filters: AWSInventoryFilterState,
+  connection: AWSConnectionStatus
+): AWSAIAgentIdentityQuery {
+  const query: AWSAIAgentIdentityQuery = {
+    connectorID: connection.connector_id,
+    accountID: connection.account_id,
+    region: connection.region
+  };
+  if (filters.provider && filters.provider !== 'all') {
+    query.provider = filters.provider;
+  }
+  if (filters.runtime && filters.runtime !== 'all') {
+    query.runtime = filters.runtime;
+  }
+  if (filters.status && filters.status !== 'all') {
+    query.status = filters.status;
+  }
+  if (filters.risk && filters.risk !== 'all') {
+    query.risk = filters.risk;
+  }
+  if (filters.confidence && filters.confidence !== 'all') {
+    query.minConfidence = filters.confidence;
+  }
+  return query;
 }
 
 function useAWSInventoryData(): AWSInventoryDataState {
@@ -6690,8 +6768,8 @@ function AWSAgentIdentitiesContent({
             <DomainCoverageCard
               label="Agent records"
               scanned={inventory.record_count}
-              total={Math.max(inventory.record_count, 1)}
-              detail={`${inventory.runtime_role_count} runtime roles`}
+              total={Math.max(inventory.total_record_count || inventory.record_count, 1)}
+              detail={`${inventory.runtime_role_count} runtime roles${inventory.total_record_count > inventory.record_count ? `; ${inventory.record_count}/${inventory.total_record_count} filtered` : ''}`}
             />
             <DomainCoverageCard
               label="Native agents"
@@ -6882,6 +6960,10 @@ function buildAWSBedrockAgentsRows(
         filters: {
           surface: 'bedrock-agents',
           relationship: 'agent-to-role,agent-to-tool,agent-to-secret',
+          provider: 'amazon-bedrock',
+          runtime: 'bedrock',
+          risk: 'high',
+          confidence: 'all',
           status: 'not-yet-available',
           search: ''
         },
@@ -6905,6 +6987,10 @@ function buildAWSBedrockAgentsRows(
         filters: {
           surface: 'bedrock-agents',
           relationship: 'agent-to-role',
+          provider: 'amazon-bedrock',
+          runtime: 'bedrock',
+          risk: degraded ? 'high' : 'low',
+          confidence: 'all',
           status: degraded ? 'degraded' : 'role-anchor',
           search: ''
         },
@@ -6922,7 +7008,7 @@ function buildAWSBedrockAgentsRows(
         status: 'coming',
         stage: 'coming',
         detail: 'Loading Bedrock agents, action groups, knowledge bases, and guardrails.',
-        filters: { surface: 'bedrock-agents', relationship: 'agent-to-role', status: 'coming', search: '' },
+        filters: { surface: 'bedrock-agents', relationship: 'agent-to-role', provider: 'amazon-bedrock', runtime: 'bedrock', risk: 'unscored', confidence: 'all', status: 'coming', search: '' },
         searchText: inventorySearchText(['bedrock agents loading'])
       }
     ];
@@ -6962,6 +7048,10 @@ function awsBedrockAgentRow(record: AWSBedrockAgentRecord): AWSInventoryTableRow
     filters: {
       surface: 'bedrock-agents',
       relationship: relationshipTokens.join(','),
+      provider: record.provider ?? 'amazon-bedrock',
+      runtime: record.service || 'bedrock',
+      risk: awsBedrockAgentRiskFilter(record),
+      confidence: awsAIAgentConfidenceFilter(record.confidence),
       status: degraded ? 'degraded' : 'role-anchor',
       search: ''
     },
@@ -6981,6 +7071,19 @@ function awsBedrockAgentRow(record: AWSBedrockAgentRecord): AWSInventoryTableRow
       degraded ? 'degraded' : 'ready'
     ])
   };
+}
+
+function awsBedrockAgentRiskFilter(record: AWSBedrockAgentRecord): string {
+  if (record.status === 'degraded' || record.coverage_status === 'degraded' || record.coverage_reason) {
+    return 'high';
+  }
+  if (record.confidence === 0) {
+    return 'unscored';
+  }
+  if (record.confidence < 0.75) {
+    return 'medium';
+  }
+  return 'low';
 }
 
 function buildAWSAIAgentIdentityRows(
@@ -7125,6 +7228,10 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
     ? `${record.provider_key_references.map((ref) => formatTokenLabel(ref.provider)).join(', ')} provider keys, values hidden`
     : credentialLabel;
   const surface = awsAIAgentSurfaceFilter(record);
+  const providerFilter = awsAIAgentProviderFilter(record);
+  const runtimeFilter = awsAIAgentRuntimeFilter(record);
+  const riskFilter = awsAIAgentRiskFilter(record);
+  const confidenceFilter = awsAIAgentConfidenceFilter(record.confidence);
   const relationships = new Set<string>(['agent-to-role']);
   if (record.tool_names?.length || record.gateway_arn) {
     relationships.add('agent-to-tool');
@@ -7163,6 +7270,10 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
     filters: {
       surface,
       relationship: Array.from(relationships).join(','),
+      provider: providerFilter,
+      runtime: runtimeFilter,
+      risk: riskFilter,
+      confidence: confidenceFilter,
       status: status === 'role anchor' ? 'role-anchor' : status === 'not yet available' ? 'not-yet-available' : status === 'candidate' ? 'candidate' : status === 'degraded' ? 'degraded' : 'coming',
       search: ''
     },
@@ -7197,9 +7308,56 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
       record.server_protocol,
       record.account_id,
       record.region,
+      providerFilter,
+      runtimeFilter,
+      riskFilter,
+      confidenceFilter,
       'ai agent identity metadata only values hidden'
     ])
   };
+}
+
+function awsAIAgentProviderFilter(record: AWSAIAgentIdentityRecord): string {
+  const providers = [
+    record.provider,
+    record.external_provider,
+    ...(record.provider_key_references?.map((ref) => ref.provider) ?? [])
+  ].filter((value): value is string => Boolean(value));
+  return providers.length ? Array.from(new Set(providers)).join(',') : 'custom';
+}
+
+function awsAIAgentRuntimeFilter(record: AWSAIAgentIdentityRecord): string {
+  const values = [record.service, record.agent_type, record.runtime_version, record.network_mode, record.server_protocol]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => normalizeFilterValue(value));
+  return values.length ? Array.from(new Set(values)).join(',') : 'unknown';
+}
+
+function awsAIAgentRiskFilter(record: AWSAIAgentIdentityRecord): string {
+  if (record.status === 'degraded' || record.coverage_status === 'degraded' || record.coverage_reason) {
+    return 'high';
+  }
+  if (record.confidence === 0) {
+    return 'unscored';
+  }
+  if (record.status === 'candidate' || record.coverage_status === 'candidate' || record.confidence < 0.75) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+function awsAIAgentConfidenceFilter(confidence: number): string {
+  const tokens = ['all'];
+  if (confidence >= 0.5) {
+    tokens.push('0.5');
+  }
+  if (confidence >= 0.75) {
+    tokens.push('0.75');
+  }
+  if (confidence >= 0.9) {
+    tokens.push('0.9');
+  }
+  return tokens.join(',');
 }
 
 function awsAIAgentSurfaceFilter(record: AWSAIAgentIdentityRecord): string {
@@ -8549,8 +8707,7 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
       const response = await apiClient.getAWSProjectAIAgentIdentities(
         scope.workspaceID,
         selectedEnvironmentID,
-        connection.connector_id,
-        undefined,
+        awsAIAgentIdentityQueryFromFilters(activeFilters, connection),
         buildProductAuthContext(scope)
       );
       if (requestID !== aiAgentInventoryRequestRef.current) {
@@ -8567,7 +8724,18 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
         setAIAgentInventoryLoading(false);
       }
     }
-  }, [routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connected, connection?.connector_id]);
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection,
+    activeFilters.provider,
+    activeFilters.runtime,
+    activeFilters.status,
+    activeFilters.risk,
+    activeFilters.confidence
+  ]);
 
   useEffect(() => {
     void loadAIAgentInventory();

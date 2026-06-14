@@ -539,6 +539,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/ai-agent-identities/{agent_id}
+    action: tenancy.read
+    resource_type: ai_agent_identity
+    resource_id_param: agent_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/bedrock-agents
     action: tenancy.read
     resource_type: project
@@ -3943,6 +3948,86 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/ai-agent-identities/{agent_id}:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: agent_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS AI agent identity detail
+      operationId: getAWSProjectAIAgentIdentityDetail
+      description: Returns one scoped AWS AI agent identity record plus its filtered relationships and evidence links. The detail response uses the same metadata-only boundaries as the list endpoint.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: provider
+          schema: { type: string }
+        - in: query
+          name: runtime
+          schema: { type: string }
+        - in: query
+          name: tool
+          schema: { type: string }
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [ready, role-anchor, candidate, degraded, blocked, not-yet-available]
+        - in: query
+          name: risk
+          schema:
+            type: string
+            enum: [high, medium, low, unscored]
+        - in: query
+          name: min_confidence
+          schema:
+            type: number
+            minimum: 0
+            maximum: 1
+      responses:
+        "200":
+          description: AWS AI agent identity detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AWSAIAgentIdentityDetailResult"
+        "400":
+          description: Invalid AWS AI agent identity detail request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/workspaces/{workspace_id}/projects/{project_id}/aws/ecs-task-roles:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -4371,6 +4456,49 @@ paths:
             type: string
             enum: [success, empty, degraded, partial_failure, permission_denied]
           description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: account_id
+          schema: { type: string }
+          description: Optional account filter for explorer list/detail views.
+        - in: query
+          name: region
+          schema: { type: string }
+          description: Optional AWS region filter for explorer list/detail views.
+        - in: query
+          name: agent_id
+          schema: { type: string }
+          description: Optional agent ID, name, ARN, or node ID filter.
+        - in: query
+          name: provider
+          schema: { type: string }
+          description: Optional provider/model filter, such as amazon-bedrock, amazon-bedrock-agentcore, external_provider, openai, or anthropic.
+        - in: query
+          name: runtime
+          schema: { type: string }
+          description: Optional runtime/service filter, such as bedrock, agentcore, ecs, lambda, eks, ec2, sagemaker, stepfunctions, or codebuild.
+        - in: query
+          name: tool
+          schema: { type: string }
+          description: Optional tool name or target-reference filter.
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [ready, role-anchor, candidate, degraded, blocked, not-yet-available]
+          description: Optional operator status filter.
+        - in: query
+          name: risk
+          schema:
+            type: string
+            enum: [high, medium, low, unscored]
+          description: Optional derived risk filter for degraded, candidate, low-confidence, or ready records.
+        - in: query
+          name: min_confidence
+          schema:
+            type: number
+            minimum: 0
+            maximum: 1
+          description: Optional minimum confidence threshold.
       responses:
         "200":
           description: AWS AI agent identity inventory
@@ -10251,7 +10379,12 @@ components:
           type: number
           minimum: 0
           maximum: 1
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
         record_count: { type: integer }
+        total_record_count: { type: integer }
+        filtered_record_count: { type: integer }
         bedrock_agent_count: { type: integer }
         agentcore_runtime_count: { type: integer }
         custom_agent_count: { type: integer }
@@ -10302,6 +10435,23 @@ components:
           type: string
           format: date-time
         updated_at:
+          type: string
+          format: date-time
+    AWSAIAgentIdentityDetailResult:
+      type: object
+      properties:
+        inventory:
+          $ref: "#/components/schemas/AWSAIAgentIdentityInventoryResult"
+        record:
+          $ref: "#/components/schemas/AWSAIAgentIdentityRecord"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAIAgentIdentityRelationship"
+        evidence_links:
+          type: array
+          items: { type: string }
+        generated_at:
           type: string
           format: date-time
     AWSBedrockAgentCoverageGap:

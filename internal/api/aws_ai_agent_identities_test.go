@@ -89,8 +89,11 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 	if result.Status != awsPlatformDependencyStatusReady || result.Confidence < 0.9 {
 		t.Fatalf("expected ready inventory, got %+v", result)
 	}
-	if result.ParentIssueRef != "#1472" || result.CurrentIssueRef != "#1511" || result.Version != awsAIAgentIdentityVersion {
+	if result.ParentIssueRef != "#1472" || result.CurrentIssueRef != "#1512" || result.Version != awsAIAgentIdentityVersion {
 		t.Fatalf("unexpected parent/current/version metadata: %+v", result)
+	}
+	if result.TotalRecordCount != result.RecordCount || result.FilteredRecordCount != result.RecordCount {
+		t.Fatalf("expected unfiltered counts to match record count, got total=%d filtered=%d record=%d", result.TotalRecordCount, result.FilteredRecordCount, result.RecordCount)
 	}
 	if result.BedrockAgentCount != 1 || result.AgentCoreRuntimeCount != 1 || result.CustomAgentCount != 1 || result.ExternalAgentCount != 1 || result.GatewayCount != 1 {
 		t.Fatalf("expected one record per agent type, got %+v", result)
@@ -194,6 +197,132 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 	}
 	if result.GeneratedAt != now || result.UpdatedAt != now {
 		t.Fatalf("expected deterministic timestamps %v, got %v/%v", now, result.GeneratedAt, result.UpdatedAt)
+	}
+}
+
+func TestGetAWSAIAgentIdentityInventoryAppliesExplorerFilters(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 15, 30, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	result, err := svc.GetAWSAIAgentIdentityInventory(ctx, "default", "project-a", AWSAIAgentIdentityInventoryRequest{
+		ConnectorID:   "aws-prod",
+		Provider:      "external_provider",
+		Tool:          "support-search",
+		Runtime:       "ecs",
+		Status:        "ready",
+		Risk:          "low",
+		MinConfidence: "0.85",
+	})
+	if err != nil {
+		t.Fatalf("get filtered ai agent identity inventory: %v", err)
+	}
+	if result.TotalRecordCount <= result.FilteredRecordCount || result.RecordCount != 1 {
+		t.Fatalf("expected one filtered record and retained total count, got total=%d filtered=%d record=%d", result.TotalRecordCount, result.FilteredRecordCount, result.RecordCount)
+	}
+	if result.Records[0].AgentType != "external_provider_agent" || result.Records[0].Provider != "external_provider" {
+		t.Fatalf("expected external provider agent, got %+v", result.Records[0])
+	}
+	if result.AppliedFilters["provider"] != "external_provider" || result.AppliedFilters["tool"] != "support-search" || result.AppliedFilters["min_confidence"] != "0.85" {
+		t.Fatalf("expected applied filters to be echoed, got %+v", result.AppliedFilters)
+	}
+	if result.RelationshipCount != len(result.Relationships) || result.ExternalProviderKeyCount != 2 || result.ToolCount != 1 {
+		t.Fatalf("expected filtered counts to recompute from selected record, got %+v", result)
+	}
+	expectedRelationshipSources := map[string]struct{}{
+		result.Records[0].AgentNodeID:               {},
+		awsAIAgentWorkloadNodeID(result.Records[0]): {},
+	}
+	if result.Records[0].GatewayNodeID != "" {
+		expectedRelationshipSources[result.Records[0].GatewayNodeID] = struct{}{}
+	}
+	for _, relationship := range result.Relationships {
+		if _, ok := expectedRelationshipSources[relationship.FromNodeID]; !ok {
+			t.Fatalf("expected relationship to belong to filtered record, got %+v", relationship)
+		}
+	}
+
+	openAIResult, err := svc.GetAWSAIAgentIdentityInventory(ctx, "default", "project-a", AWSAIAgentIdentityInventoryRequest{
+		ConnectorID: "aws-prod",
+		Provider:    "openai",
+	})
+	if err != nil {
+		t.Fatalf("get openai-filtered ai agent identity inventory: %v", err)
+	}
+	if openAIResult.RecordCount != 1 || openAIResult.Records[0].AgentType != "custom_agent" {
+		t.Fatalf("expected provider_key_references to make openai filter return the custom agent, got %+v", openAIResult.Records)
+	}
+
+	bedrockResult, err := svc.GetAWSAIAgentIdentityInventory(ctx, "default", "project-a", AWSAIAgentIdentityInventoryRequest{
+		ConnectorID: "aws-prod",
+		Provider:    "amazon-bedrock",
+	})
+	if err != nil {
+		t.Fatalf("get bedrock-filtered ai agent identity inventory: %v", err)
+	}
+	if bedrockResult.RecordCount == 0 {
+		t.Fatal("expected amazon-bedrock provider filter to return Bedrock records")
+	}
+	for _, record := range bedrockResult.Records {
+		if record.Provider != "amazon-bedrock" {
+			t.Fatalf("expected exact amazon-bedrock provider filter to exclude %q record %+v", record.Provider, record)
+		}
+	}
+}
+
+func TestAWSAIAgentRiskClassifiesZeroConfidenceAsUnscored(t *testing.T) {
+	record := AWSAIAgentIdentityRecord{Status: "ready", CoverageStatus: "covered", Confidence: 0}
+	if risk := awsAIAgentRecordRisk(record); risk != "unscored" {
+		t.Fatalf("expected zero confidence to classify as unscored, got %q", risk)
+	}
+}
+
+func TestRouterAWSAIAgentIdentityDetailReturnsOneRecord(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 16, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-detail")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-detail", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	r := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{})
+
+	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-detail/aws/ai-agent-identities/external-support-agent?connector_id=aws-prod", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var body AWSAIAgentIdentityDetailResult
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode detail response: %v", err)
+	}
+	if body.Record.AgentID != "external-support-agent" || body.Inventory.RecordCount != 1 {
+		t.Fatalf("expected detail response for external-support-agent, got %+v", body)
+	}
+	if len(body.Relationships) == 0 || len(body.EvidenceLinks) == 0 {
+		t.Fatalf("expected detail response to include relationships and evidence, got %+v", body)
+	}
+}
+
+func TestRouterAWSAIAgentIdentityInventoryInvalidMinConfidence(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 16, 30, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-invalid-filter")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-invalid-filter", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	r := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{})
+
+	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-invalid-filter/aws/ai-agent-identities?connector_id=aws-prod&min_confidence=2", "")
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid min_confidence, got %d body=%s", resp.Code, resp.Body.String())
 	}
 }
 
