@@ -351,6 +351,127 @@ func TestIngestEmptyWindowReturnsDegradedNotBlocked(t *testing.T) {
 	}
 }
 
+func TestIngestExactBudgetFillWithoutMorePagesIsNotTruncated(t *testing.T) {
+	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
+	makePage := func(prefix string, next string, count int) LookupEventsPage {
+		p := LookupEventsPage{NextToken: next}
+		for i := 0; i < count; i++ {
+			p.Events = append(p.Events, Event{
+				EventID:     fmt.Sprintf("%s-%d", prefix, i),
+				EventName:   "AssumeRole",
+				EventSource: "sts.amazonaws.com",
+				EventTime:   now.Add(time.Duration(-i) * time.Minute),
+				Username:    "arn:aws:sts::123456789012:assumed-role/role/role-session",
+			})
+		}
+		return p
+	}
+
+	for _, tc := range []struct {
+		name      string
+		pages     []LookupEventsPage
+		maxEvents int
+		truncated bool
+		status    string
+	}{
+		{
+			name:      "exact fill on single page with no next token",
+			pages:     []LookupEventsPage{makePage("p", "", 5)},
+			maxEvents: 5,
+			truncated: false,
+			status:    "ready",
+		},
+		{
+			name:      "exact fill on last page of multi-page with no next token",
+			pages:     []LookupEventsPage{makePage("p1", "tok-1", 3), makePage("p2", "", 2)},
+			maxEvents: 5,
+			truncated: false,
+			status:    "ready",
+		},
+		{
+			name:      "exact fill on page with next token signals more available",
+			pages:     []LookupEventsPage{makePage("p1", "tok-1", 5)},
+			maxEvents: 5,
+			truncated: true,
+			status:    "degraded",
+		},
+		{
+			name:      "budget fills mid-page leaves unread records on the page",
+			pages:     []LookupEventsPage{makePage("p1", "", 7)},
+			maxEvents: 4,
+			truncated: true,
+			status:    "degraded",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api := &fakeLookupEventsAPI{pages: tc.pages}
+			ing, _ := newIngester(api, now)
+			result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1", MaxEvents: tc.maxEvents})
+			if err != nil {
+				t.Fatalf("ingest: %v", err)
+			}
+			if result.HistoryTruncated != tc.truncated {
+				t.Fatalf("expected HistoryTruncated=%v, got %v (%+v)", tc.truncated, result.HistoryTruncated, result)
+			}
+			if result.Status != tc.status {
+				t.Fatalf("expected status=%q, got %q (%+v)", tc.status, result.Status, result)
+			}
+			if !tc.truncated {
+				for _, gap := range result.CoverageGaps {
+					if gap.Status == "history_truncated" {
+						t.Fatalf("complete run must not emit history_truncated coverage gap, got %+v", result.CoverageGaps)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestIngestDowngradesToDegradedWhenNormalizationEmitsDiagnostics(t *testing.T) {
+	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
+	api := &fakeLookupEventsAPI{pages: []LookupEventsPage{{
+		Events: []Event{
+			{
+				EventID:     "evt-good",
+				EventName:   "AssumeRole",
+				EventSource: "sts.amazonaws.com",
+				EventTime:   now.Add(-5 * time.Minute),
+				Username:    "arn:aws:sts::123456789012:assumed-role/role/role-session",
+			},
+			{
+				// CloudTrailEvent JSON is unparseable — falls back to
+				// top-level metadata and emits a diagnostic.
+				EventID:     "evt-bad-json",
+				EventName:   "AssumeRole",
+				EventSource: "sts.amazonaws.com",
+				EventTime:   now.Add(-4 * time.Minute),
+				Username:    "arn:aws:sts::123456789012:assumed-role/role/role-session",
+				RawEvent:    "{not-json",
+			},
+		},
+	}}}
+	ing, _ := newIngester(api, now)
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1"})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 2 {
+		t.Fatalf("expected both events preserved (one cleanly normalized, one fallback), got %+v", result.Events)
+	}
+	if result.Status != "degraded" {
+		t.Fatalf("normalization diagnostics must downgrade live status to degraded, got %q (%+v)", result.Status, result)
+	}
+	foundReason := false
+	for _, reason := range result.FailureReasons {
+		if reason == "CloudTrail LookupEvents ingestion returned diagnostics" {
+			foundReason = true
+		}
+	}
+	if !foundReason {
+		t.Fatalf("expected diagnostic-driven failure reason, got %+v", result.FailureReasons)
+	}
+}
+
 func TestIngestPropagatesContextCancellationInsteadOfDegrading(t *testing.T) {
 	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
 	api := &fakeLookupEventsAPI{errs: []error{context.Canceled}}

@@ -349,7 +349,7 @@ func (i *Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestRes
 			}
 			break
 		}
-		for _, raw := range pageOut.Events {
+		for idx, raw := range pageOut.Events {
 			result.EventsConsidered++
 			eventID := strings.TrimSpace(raw.EventID)
 			if eventID == "" {
@@ -374,12 +374,24 @@ func (i *Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestRes
 			}
 			result.Events = append(result.Events, normalized)
 			if len(result.Events) >= request.MaxEvents {
-				result.HistoryTruncated = true
+				// More events still in this page → history is
+				// genuinely truncated. If the budget fills on the
+				// last event of the page we leave the flag to the
+				// post-loop check, which can also see NextToken.
+				if idx+1 < len(pageOut.Events) {
+					result.HistoryTruncated = true
+				}
 				break
 			}
 		}
 		if len(result.Events) >= request.MaxEvents {
-			result.HistoryTruncated = true
+			// Budget filled. Only mark truncation when CloudTrail
+			// has more pages to serve; an exact-fill run that
+			// happens to end with a complete trailing page is
+			// complete, not truncated.
+			if strings.TrimSpace(pageOut.NextToken) != "" {
+				result.HistoryTruncated = true
+			}
 			break
 		}
 		nextToken = strings.TrimSpace(pageOut.NextToken)
@@ -501,6 +513,18 @@ func finalize(result *IngestResult) {
 		if result.Status == "ready" {
 			result.Status = "degraded"
 		}
+	}
+	// Mirror the fixture path in aws_runtime_events.go
+	// summarizeAWSRuntimeEventStatus: if normalization emitted any
+	// diagnostic — e.g. skipped events with missing core fields, or a
+	// CloudTrailEvent payload that fell back to top-level metadata —
+	// the run is not "ready". Without this, a live response could
+	// claim full confidence even though the ingested page contained
+	// malformed or partially normalized records.
+	if result.Status == "ready" && len(result.Diagnostics) > 0 {
+		result.Status = "degraded"
+		result.FailureReasons = append(result.FailureReasons, "CloudTrail LookupEvents ingestion returned diagnostics")
+		result.RemediationHints = append(result.RemediationHints, "Review diagnostics before treating runtime coverage as complete.")
 	}
 }
 
