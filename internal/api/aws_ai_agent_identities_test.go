@@ -273,6 +273,24 @@ func TestGetAWSAIAgentIdentityInventoryAppliesExplorerFilters(t *testing.T) {
 			t.Fatalf("expected exact amazon-bedrock provider filter to exclude %q record %+v", record.Provider, record)
 		}
 	}
+
+	anthropicResult, err := svc.GetAWSAIAgentIdentityInventory(ctx, "default", "project-a", AWSAIAgentIdentityInventoryRequest{
+		ConnectorID: "aws-prod",
+		Provider:    "anthropic",
+	})
+	if err != nil {
+		t.Fatalf("get anthropic-filtered ai agent identity inventory: %v", err)
+	}
+	foundClaudeBedrockModel := false
+	for _, record := range anthropicResult.Records {
+		if record.Provider == "amazon-bedrock" && strings.Contains(record.ModelID, "anthropic.claude") {
+			foundClaudeBedrockModel = true
+			break
+		}
+	}
+	if !foundClaudeBedrockModel {
+		t.Fatalf("expected anthropic provider filter to preserve Bedrock Claude model matches, got %+v", anthropicResult.Records)
+	}
 }
 
 func TestAWSAIAgentRiskClassifiesZeroConfidenceAsUnscored(t *testing.T) {
