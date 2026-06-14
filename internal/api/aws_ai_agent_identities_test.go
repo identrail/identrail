@@ -282,6 +282,24 @@ func TestAWSAIAgentRiskClassifiesZeroConfidenceAsUnscored(t *testing.T) {
 	}
 }
 
+func TestAWSAIAgentIdentityExactDetailRecordDoesNotSubstringMatch(t *testing.T) {
+	records := []AWSAIAgentIdentityRecord{
+		{AgentID: "foo", AgentNodeID: "aws:ai-agent:foo"},
+		{AgentID: "foo-v2", AgentNodeID: "aws:ai-agent:foo-v2"},
+	}
+
+	record, ok := awsAIAgentIdentityExactDetailRecord(records, "foo")
+	if !ok || record.AgentID != "foo" {
+		t.Fatalf("expected exact agent ID lookup to return foo, got ok=%v record=%+v", ok, record)
+	}
+	if record, ok := awsAIAgentIdentityExactDetailRecord(records, "aws:ai-agent:foo-v2"); !ok || record.AgentID != "foo-v2" {
+		t.Fatalf("expected exact node ID lookup to return foo-v2, got ok=%v record=%+v", ok, record)
+	}
+	if record, ok := awsAIAgentIdentityExactDetailRecord(records, "foo-v"); ok {
+		t.Fatalf("expected substring detail lookup to miss, got %+v", record)
+	}
+}
+
 func TestRouterAWSAIAgentIdentityDetailReturnsOneRecord(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()
@@ -304,6 +322,9 @@ func TestRouterAWSAIAgentIdentityDetailReturnsOneRecord(t *testing.T) {
 	if body.Record.AgentID != "external-support-agent" || body.Inventory.RecordCount != 1 {
 		t.Fatalf("expected detail response for external-support-agent, got %+v", body)
 	}
+	if body.Inventory.TotalRecordCount != 1 || body.Inventory.FilteredRecordCount != 1 || body.Inventory.ExternalAgentCount != 1 || body.Inventory.CustomAgentCount != 0 {
+		t.Fatalf("expected detail inventory counts to describe only the selected record, got %+v", body.Inventory)
+	}
 	if len(body.Relationships) == 0 || len(body.EvidenceLinks) == 0 {
 		t.Fatalf("expected detail response to include relationships and evidence, got %+v", body)
 	}
@@ -320,9 +341,11 @@ func TestRouterAWSAIAgentIdentityInventoryInvalidMinConfidence(t *testing.T) {
 	svc.Now = func() time.Time { return now }
 	r := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{})
 
-	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-invalid-filter/aws/ai-agent-identities?connector_id=aws-prod&min_confidence=2", "")
-	if resp.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for invalid min_confidence, got %d body=%s", resp.Code, resp.Body.String())
+	for _, minConfidence := range []string{"2", "NaN"} {
+		resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-invalid-filter/aws/ai-agent-identities?connector_id=aws-prod&min_confidence="+minConfidence, "")
+		if resp.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for invalid min_confidence %q, got %d body=%s", minConfidence, resp.Code, resp.Body.String())
+		}
 	}
 }
 
@@ -495,6 +518,26 @@ func TestAIAgentRelationshipsEmitRunsAsFromWorkloadNode(t *testing.T) {
 	}
 	if runsAs.ToNodeID != record.RuntimeRoleNodeID {
 		t.Fatalf("expected runs_as target %q, got %q", record.RuntimeRoleNodeID, runsAs.ToNodeID)
+	}
+}
+
+func TestAIAgentRelationshipsForRecordExcludeSharedRoleEdgesFromOtherAgents(t *testing.T) {
+	sharedRoleARN := "arn:aws:iam::111111111111:role/shared-ai-agent-role"
+	selected := awsAIAgentFixtureRecord("111111111111", "us-east-1", "custom_agent", "selected-agent", "agent-1", "arn:aws:lambda:us-east-1:111111111111:function:selected-agent", sharedRoleARN, time.Now(), func(r *AWSAIAgentIdentityRecord) {
+		r.ToolNames = nil
+	})
+	other := awsAIAgentFixtureRecord("111111111111", "us-east-1", "custom_agent", "other-agent", "agent-2", "arn:aws:lambda:us-east-1:111111111111:function:other-agent", sharedRoleARN, time.Now(), func(r *AWSAIAgentIdentityRecord) {
+		r.ToolNames = nil
+	})
+
+	relationships := awsAIAgentIdentityRelationshipsForRecord(selected, awsAIAgentIdentityRelationships([]AWSAIAgentIdentityRecord{selected, other}))
+	if len(relationships) == 0 {
+		t.Fatal("expected selected agent relationships")
+	}
+	for _, relationship := range relationships {
+		if relationship.FromNodeID == other.AgentNodeID || relationship.FromNodeID == awsAIAgentWorkloadNodeID(other) || relationship.FromNodeID == other.GatewayNodeID {
+			t.Fatalf("expected detail relationships to exclude other agent source edges, got %+v", relationship)
+		}
 	}
 }
 

@@ -7322,8 +7322,14 @@ function awsAIAgentProviderFilter(record: AWSAIAgentIdentityRecord): string {
     record.provider,
     record.external_provider,
     ...(record.provider_key_references?.map((ref) => ref.provider) ?? [])
-  ].filter((value): value is string => Boolean(value));
+  ]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => awsAIAgentProviderFilterToken(value));
   return providers.length ? Array.from(new Set(providers)).join(',') : 'custom';
+}
+
+function awsAIAgentProviderFilterToken(value: string): string {
+  return normalizeFilterValue(value) === 'external_ai_provider' ? 'external_provider' : value;
 }
 
 function awsAIAgentRuntimeFilter(record: AWSAIAgentIdentityRecord): string {
