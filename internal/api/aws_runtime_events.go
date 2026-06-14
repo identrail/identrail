@@ -164,6 +164,7 @@ func buildAWSRuntimeEvents(scope db.Scope, project db.TenancyProject, connection
 	records, diagnostics, gaps := awsRuntimeEventFixtureRecords(accountID, region, fixtureState, checkedAt)
 	filtered, applied := filterAWSRuntimeEventRecords(records, request)
 	relationships := awsRuntimeEventRelationships(filtered)
+	diagnostics = scopeAWSRuntimeEventDiagnostics(diagnostics, filtered)
 	summary := summarizeAWSRuntimeEvents(records, len(filtered), len(relationships))
 	status, confidence, failures, remediations := summarizeAWSRuntimeEventStatus(fixtureState, diagnostics, filtered)
 
@@ -272,6 +273,28 @@ func filterAWSRuntimeEventRecords(records []AWSRuntimeEventRecord, request AWSRu
 
 func normalizeAWSRuntimeEventFilterToken(value string) string {
 	return strings.ToLower(strings.NewReplacer(" ", "-", "_", "-").Replace(strings.TrimSpace(value)))
+}
+
+func scopeAWSRuntimeEventDiagnostics(diagnostics []AWSRuntimeEventDiagnostic, records []AWSRuntimeEventRecord) []AWSRuntimeEventDiagnostic {
+	if len(diagnostics) == 0 {
+		return nil
+	}
+	recordIDs := make(map[string]struct{}, len(records))
+	for _, record := range records {
+		recordIDs[record.EventID] = struct{}{}
+	}
+	scoped := make([]AWSRuntimeEventDiagnostic, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		sourceID := strings.TrimSpace(diagnostic.SourceID)
+		if sourceID == "" {
+			scoped = append(scoped, diagnostic)
+			continue
+		}
+		if _, ok := recordIDs[sourceID]; ok {
+			scoped = append(scoped, diagnostic)
+		}
+	}
+	return scoped
 }
 
 func awsRuntimeEventMatchesAny(query string, values ...string) bool {

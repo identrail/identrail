@@ -77,6 +77,9 @@ func TestGetAWSRuntimeEventsAppliesFiltersAndRelationships(t *testing.T) {
 	if result.AppliedFilters["event_type"] != "agent-tool" || result.AppliedFilters["agent_id"] != "runtime-case-triage" {
 		t.Fatalf("expected applied runtime filters, got %+v", result.AppliedFilters)
 	}
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("expected filtered agent-tool response to omit unrelated diagnostics, got %+v", result.Diagnostics)
+	}
 	for _, relationship := range result.Relationships {
 		if relationship.EvidenceRef != result.Records[0].EvidenceRef {
 			t.Fatalf("expected relationships scoped to filtered event, got %+v", relationship)
@@ -108,6 +111,49 @@ func TestGetAWSRuntimeEventsAppliesFiltersAndRelationships(t *testing.T) {
 				t.Fatalf("expected scoped filter to avoid metadata-only false positives, got summary=%+v records=%+v", result.Summary, result.Records)
 			}
 		})
+	}
+}
+
+func TestGetAWSRuntimeEventsScopesDiagnosticsToFilteredRecords(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 18, 45, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-diagnostics")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-diagnostics", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-diagnostics", AWSRuntimeEventRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "degraded",
+		EventType:    "agent-tool",
+		Evidence:     "agent-runtime",
+		AgentID:      "runtime-case-triage",
+		Resource:     "runtime-case-triage",
+		Identity:     "agentcore-case-triage-runtime",
+		Owner:        "security",
+		Status:       "observed",
+	})
+	if err != nil {
+		t.Fatalf("get filtered degraded runtime events: %v", err)
+	}
+	if len(result.Records) != 1 || result.Records[0].EventID != "evt-agent-tool" {
+		t.Fatalf("expected only the filtered agent event, got %+v", result.Records)
+	}
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("expected delayed s3 diagnostic to be omitted from agent-only response, got %+v", result.Diagnostics)
+	}
+
+	unfiltered, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-diagnostics", AWSRuntimeEventRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "degraded",
+	})
+	if err != nil {
+		t.Fatalf("get unfiltered degraded runtime events: %v", err)
+	}
+	if len(unfiltered.Diagnostics) != 1 || unfiltered.Diagnostics[0].SourceID != "evt-s3-access" {
+		t.Fatalf("expected unfiltered degraded response to retain source diagnostic, got %+v", unfiltered.Diagnostics)
 	}
 }
 
