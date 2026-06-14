@@ -429,12 +429,12 @@ func TestNormalizerAndGraphEmitCredentialReferenceNodeAndEdge(t *testing.T) {
 			"region":"us-east-1",
 			"service":"ecs",
 			"cluster_arn":"arn:aws:ecs:us-east-1:123456789012:cluster/prod",
-			"service_arn":"arn:aws:ecs:us-east-1:123456789012:service/prod/agent",
-			"workload_id":"arn:aws:ecs:us-east-1:123456789012:service/prod/agent",
+			"service_arn":"arn:aws:ecs:us-east-1:123456789012:service/prod/payments",
+			"workload_id":"arn:aws:ecs:us-east-1:123456789012:service/prod/payments",
 			"workload_type":"ecs_service",
-			"workload_name":"agent",
-			"task_definition_arn":"arn:aws:ecs:us-east-1:123456789012:task-definition/agent:3",
-			"role_arn":"arn:aws:iam::123456789012:role/agent-task",
+			"workload_name":"payments",
+			"task_definition_arn":"arn:aws:ecs:us-east-1:123456789012:task-definition/payments:3",
+			"role_arn":"arn:aws:iam::123456789012:role/payments-task",
 			"environment_keys":["OPENAI_API_KEY","LOG_LEVEL"]
 		}`),
 	}})

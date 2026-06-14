@@ -3821,6 +3821,7 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'Bedrock agents', value: 'bedrock-agents' },
         { label: 'AgentCore runtime', value: 'agentcore-runtime' },
         { label: 'AgentCore capabilities', value: 'agentcore-capabilities' },
+        { label: 'Custom agents', value: 'custom-agents' },
         { label: 'MCP gateway', value: 'mcp-gateway' },
         { label: 'External provider keys', value: 'external-provider-keys' }
       ]
@@ -3839,7 +3840,7 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
     {
       id: 'status',
       label: 'Status',
-      options: [{ label: 'All status', value: 'all' }, { label: 'Role anchor', value: 'role-anchor' }, { label: 'Degraded', value: 'degraded' }, { label: 'Coming', value: 'coming' }, { label: 'Not yet available', value: 'not-yet-available' }]
+      options: [{ label: 'All status', value: 'all' }, { label: 'Role anchor', value: 'role-anchor' }, { label: 'Candidate', value: 'candidate' }, { label: 'Degraded', value: 'degraded' }, { label: 'Coming', value: 'coming' }, { label: 'Not yet available', value: 'not-yet-available' }]
     }
   ],
   resources: [
@@ -6699,6 +6700,12 @@ function AWSAgentIdentitiesContent({
               detail={`${inventory.gateway_count} gateways`}
             />
             <DomainCoverageCard
+              label="Custom agents"
+              scanned={inventory.custom_agent_count}
+              total={Math.max(inventory.record_count, 1)}
+              detail={`${inventory.external_agent_count} external-provider agents`}
+            />
+            <DomainCoverageCard
               label="Tools"
               scanned={inventory.tool_count}
               total={Math.max(inventory.tool_count, 1)}
@@ -7100,9 +7107,10 @@ function buildAWSAIAgentIdentityRows(
 }
 
 function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTableRow {
+  const candidate = record.status === 'candidate' || record.coverage_status === 'candidate';
   const stage: AWSCapabilityStage = record.status === 'ready' && record.runtime_role_arn ? 'wired' : record.status === 'blocked' ? 'not-available' : 'coming';
-  const degraded = record.status !== 'ready' || record.coverage_status === 'degraded' || Boolean(record.coverage_reason);
-  const status = stage === 'not-available' ? 'not yet available' : degraded ? 'degraded' : 'role anchor';
+  const degraded = !candidate && (record.status !== 'ready' || record.coverage_status === 'degraded' || Boolean(record.coverage_reason));
+  const status = candidate ? 'candidate' : stage === 'not-available' ? 'not yet available' : degraded ? 'degraded' : 'role anchor';
   const roleLabel = record.runtime_role_name || record.runtime_role_arn || 'runtime role unresolved';
   const runtimeLabel = record.runtime_version || 'runtime version not reported';
   const toolLabel = record.tool_names?.length ? `${record.tool_names.length} tools` : 'no tools reported';
@@ -7155,7 +7163,7 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
     filters: {
       surface,
       relationship: Array.from(relationships).join(','),
-      status: status === 'role anchor' ? 'role-anchor' : status === 'not yet available' ? 'not-yet-available' : status === 'degraded' ? 'degraded' : 'coming',
+      status: status === 'role anchor' ? 'role-anchor' : status === 'not yet available' ? 'not-yet-available' : status === 'candidate' ? 'candidate' : status === 'degraded' ? 'degraded' : 'coming',
       search: ''
     },
     searchText: inventorySearchText([
@@ -7205,10 +7213,11 @@ function awsAIAgentSurfaceFilter(record: AWSAIAgentIdentityRecord): string {
     case 'agentcore_capability':
       return 'agentcore-capabilities';
     case 'external_provider_agent':
+      return 'external-provider-keys';
     case 'custom_agent':
-      return record.credential_reference_refs?.length ? 'external-provider-keys' : 'bedrock-agents';
+      return record.credential_reference_refs?.length ? 'custom-agents,external-provider-keys' : 'custom-agents';
     default:
-      return 'bedrock-agents,agentcore-runtime,mcp-gateway,external-provider-keys';
+      return 'bedrock-agents,agentcore-runtime,agentcore-capabilities,custom-agents,mcp-gateway,external-provider-keys';
   }
 }
 

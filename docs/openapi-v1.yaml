@@ -10146,7 +10146,7 @@ components:
           enum: [metadata_only]
         coverage_status:
           type: string
-          enum: [covered, degraded]
+          enum: [covered, degraded, candidate]
         coverage_reason: { type: string }
         source: { type: string }
         evidence_ref: { type: string }
@@ -10171,7 +10171,7 @@ components:
           format: date-time
         status:
           type: string
-          enum: [ready, degraded]
+          enum: [ready, degraded, candidate]
         tags:
           type: object
           additionalProperties: { type: string }

@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	awsAIAgentIdentityCurrentIssue        = 1510
-	awsAIAgentIdentityVersion             = "aws-ai-agent-external-provider-keys-v1"
+	awsAIAgentIdentityCurrentIssue        = 1511
+	awsAIAgentIdentityVersion             = "aws-ai-agent-custom-agent-detector-v1"
 	awsAIAgentCredentialRefPrefix         = "aws:resource:credential-reference:"
 	awsAIAgentToolNodePrefix              = "tool:agent:"
 	agentCoreCapabilityAgentTypeAPI       = "agentcore_capability"

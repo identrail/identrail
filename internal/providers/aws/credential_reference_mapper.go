@@ -139,6 +139,61 @@ func MapBundleCredentialReferences(bundle providers.NormalizedBundle) ([]Credent
 			})
 		}
 	}
+	for _, agent := range bundle.Agents {
+		candidates := parseStringList(agent.Metadata["credential_reference_refs"])
+		if len(candidates) == 0 {
+			continue
+		}
+		resource := domain.Resource{
+			ID:        agent.ID,
+			Provider:  domain.ProviderAWS,
+			Type:      domain.ResourceTypeCredentialReference,
+			Name:      agent.Name,
+			AccountID: stringMetadata(agent.Metadata, "account_id"),
+			Region:    stringMetadata(agent.Metadata, "region"),
+			Metadata: map[string]any{
+				"secret_refs": candidates,
+			},
+		}
+		sourceService := firstNonEmptyAWSValue(stringMetadata(agent.Metadata, "source"), "ai_agent")
+		fromNodeID := credentialWorkloadNodeID(resource)
+		workloadName := strings.TrimSpace(resource.Name)
+		for _, raw := range credentialCandidateRefs(resource) {
+			ref := classifyCredentialReference(raw, resource, sourceService, secretIndex, parameterIndex)
+			if ref.Reference == "" {
+				continue
+			}
+			ref.WorkloadID = fromNodeID
+			ref.WorkloadName = workloadName
+			ref.AccountID = strings.TrimSpace(resource.AccountID)
+			ref.Region = strings.TrimSpace(resource.Region)
+			ref.ResourceID = agent.ID
+			ref.ResourceType = string(agent.Type)
+
+			refKey := strings.Join([]string{fromNodeID, ref.Reference}, "|")
+			if _, exists := seenRef[refKey]; !exists {
+				seenRef[refKey] = struct{}{}
+				references = append(references, ref)
+			}
+
+			targetNode := ref.TargetNodeID
+			if targetNode == "" {
+				continue
+			}
+			edgeKey := strings.Join([]string{fromNodeID, targetNode}, "|")
+			if _, exists := seenEdge[edgeKey]; exists {
+				continue
+			}
+			seenEdge[edgeKey] = struct{}{}
+			relationships = append(relationships, domain.Relationship{
+				ID:          relationshipID(domain.RelationshipUsesSecret, fromNodeID, targetNode),
+				Type:        domain.RelationshipUsesSecret,
+				FromNodeID:  fromNodeID,
+				ToNodeID:    targetNode,
+				EvidenceRef: ref.Reference,
+			})
+		}
+	}
 
 	sort.SliceStable(references, func(i, j int) bool {
 		if references[i].WorkloadID == references[j].WorkloadID {
@@ -261,6 +316,16 @@ func credentialCandidateRefs(resource domain.Resource) []string {
 		out = append(out, key)
 	}
 	return out
+}
+
+func stringMetadata(metadata map[string]any, key string) string {
+	if metadata == nil {
+		return ""
+	}
+	if value, ok := metadata[key].(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return ""
 }
 
 // classifyCredentialReference parses one raw reference into a classified

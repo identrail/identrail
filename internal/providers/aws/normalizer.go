@@ -31,6 +31,9 @@ func NewRoleNormalizer() *RoleNormalizer {
 
 // Normalize converts AWS role and workload assets to normalized entities.
 func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset) (providers.NormalizedBundle, error) {
+	if derived := deriveCustomAIAgentIdentityAssets(raw); len(derived) > 0 {
+		raw = append(append([]providers.RawAsset{}, raw...), derived...)
+	}
 	bundle := providers.NormalizedBundle{
 		Identities: make([]domain.Identity, 0, len(raw)),
 		Policies:   make([]domain.Policy, 0, len(raw)*2),
@@ -364,6 +367,8 @@ func normalizeAIAgentIdentityAsset(asset providers.RawAsset, index int, bundle *
 			RawRef:   asset.SourceID,
 			Metadata: map[string]any{
 				"agent_arn":                   strings.TrimSpace(record.AgentARN),
+				"account_id":                  strings.TrimSpace(record.AccountID),
+				"region":                      strings.TrimSpace(record.Region),
 				"agent_type":                  strings.TrimSpace(record.AgentType),
 				"provider":                    strings.TrimSpace(record.Provider),
 				"runtime_version":             strings.TrimSpace(record.RuntimeVersion),
