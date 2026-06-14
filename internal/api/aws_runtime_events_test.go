@@ -82,7 +82,6 @@ func TestGetAWSRuntimeEventsAppliesFiltersAndRelationships(t *testing.T) {
 			t.Fatalf("expected relationships scoped to filtered event, got %+v", relationship)
 		}
 	}
-
 	for _, tc := range []struct {
 		name    string
 		request AWSRuntimeEventRequest
