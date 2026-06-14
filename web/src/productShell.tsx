@@ -7321,11 +7321,27 @@ function awsAIAgentProviderFilter(record: AWSAIAgentIdentityRecord): string {
   const providers = [
     record.provider,
     record.external_provider,
-    ...(record.provider_key_references?.map((ref) => ref.provider) ?? [])
+    ...(record.provider_key_references?.map((ref) => ref.provider) ?? []),
+    ...awsAIAgentModelProviderFilterTokens(record.model_id)
   ]
     .filter((value): value is string => Boolean(value))
     .map((value) => awsAIAgentProviderFilterToken(value));
   return providers.length ? Array.from(new Set(providers)).join(',') : 'custom';
+}
+
+function awsAIAgentModelProviderFilterTokens(modelID?: string): string[] {
+  const normalizedModel = normalizeFilterValue(modelID ?? '');
+  const tokens: string[] = [];
+  if (normalizedModel.includes('anthropic') || normalizedModel.includes('claude')) {
+    tokens.push('anthropic');
+  }
+  if (normalizedModel.includes('openai') || normalizedModel.includes('gpt')) {
+    tokens.push('openai');
+  }
+  if (normalizedModel.includes('bedrock')) {
+    tokens.push('bedrock');
+  }
+  return tokens;
 }
 
 function awsAIAgentProviderFilterToken(value: string): string {
