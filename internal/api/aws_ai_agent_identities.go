@@ -786,9 +786,9 @@ func awsAIAgentIdentityDiagnosticRemediation(code string) string {
 		return "Retry only the failed agent metadata call and keep successful normalized agent records visible."
 	case "agentcore_runtime_describe_failed", "agentcore_runtime_endpoint_list_failed", "agentcore_runtime_malformed":
 		return "Retry the failed AgentCore runtime metadata call and keep the surviving runtime records visible."
-	case "agentcore_memory_describe_failed", "agentcore_memory_malformed",
-		"agentcore_browser_describe_failed", "agentcore_browser_malformed",
-		"agentcore_code_interpreter_describe_failed", "agentcore_code_interpreter_malformed":
+	case "agentcore_memory_describe_failed", "agentcore_memory_malformed", "agentcore_memory_id_missing",
+		"agentcore_browser_describe_failed", "agentcore_browser_malformed", "agentcore_browser_id_missing",
+		"agentcore_code_interpreter_describe_failed", "agentcore_code_interpreter_malformed", "agentcore_code_interpreter_id_missing":
 		return "Retry the failed AgentCore Memory/Browser/Code Interpreter metadata call; never read memory records, browser pages, or code-interpreter output."
 	case "ai_agent_credential_reference_unresolved":
 		return "Join to credential-reference metadata for ownership and rotation without exposing provider key values."

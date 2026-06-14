@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
@@ -206,6 +207,24 @@ func (a *SDKAgentCoreCapabilitiesAPI) memoryRecord(ctx context.Context, summary 
 	record := a.baseCapabilityRecord(agentCoreCapabilityKindMemory, memoryID, memoryARN, "")
 	record.Status = agentCoreCapabilityStatus(string(summary.Status))
 
+	// GetMemory keys on the short memory id. If the summary is ARN-only, skip the
+	// describe call (it would query an empty id) and surface the summary as
+	// degraded with an explicit reason instead of an avoidable describe failure.
+	if memoryID == "" {
+		diagnostics = append(diagnostics, providers.SourceError{
+			Collector: aiAgentIdentityCollectorName,
+			SourceID:  memoryARN,
+			Code:      "agentcore_memory_id_missing",
+			Message:   "AgentCore memory summary did not include an id; surfaced summary only",
+			Retryable: true,
+		})
+		record.CoverageStatus = "degraded"
+		record.Status = "degraded"
+		record.CoverageReason = "AgentCore memory summary did not include an id"
+		a.finalizeCapabilityRecord(&record)
+		return record, diagnostics, nil
+	}
+
 	detail, detailErr := a.client.GetMemory(ctx, &bedrockagentcorecontrol.GetMemoryInput{MemoryId: awsv2.String(memoryID)})
 	if errors.Is(detailErr, context.Canceled) || errors.Is(detailErr, context.DeadlineExceeded) {
 		return AIAgentIdentity{}, diagnostics, detailErr
@@ -304,6 +323,24 @@ func (a *SDKAgentCoreCapabilitiesAPI) browserRecord(ctx context.Context, summary
 	record := a.baseCapabilityRecord(agentCoreCapabilityKindBrowser, browserID, browserARN, firstNonEmptyAWSValue(strings.TrimSpace(awsv2.ToString(summary.Name)), browserID))
 	record.Status = agentCoreCapabilityStatus(string(summary.Status))
 
+	// GetBrowser keys on the short browser id. Skip the describe call for an
+	// ARN-only summary and surface it as degraded with an explicit reason
+	// instead of an avoidable describe failure on an empty id.
+	if browserID == "" {
+		diagnostics = append(diagnostics, providers.SourceError{
+			Collector: aiAgentIdentityCollectorName,
+			SourceID:  browserARN,
+			Code:      "agentcore_browser_id_missing",
+			Message:   "AgentCore browser summary did not include an id; surfaced summary only",
+			Retryable: true,
+		})
+		record.CoverageStatus = "degraded"
+		record.Status = "degraded"
+		record.CoverageReason = "AgentCore browser summary did not include an id"
+		a.finalizeCapabilityRecord(&record)
+		return record, diagnostics, nil
+	}
+
 	detail, detailErr := a.client.GetBrowser(ctx, &bedrockagentcorecontrol.GetBrowserInput{BrowserId: awsv2.String(browserID)})
 	if errors.Is(detailErr, context.Canceled) || errors.Is(detailErr, context.DeadlineExceeded) {
 		return AIAgentIdentity{}, diagnostics, detailErr
@@ -396,6 +433,24 @@ func (a *SDKAgentCoreCapabilitiesAPI) codeInterpreterRecord(ctx context.Context,
 
 	record := a.baseCapabilityRecord(agentCoreCapabilityKindCodeInterpreter, interpreterID, interpreterARN, firstNonEmptyAWSValue(strings.TrimSpace(awsv2.ToString(summary.Name)), interpreterID))
 	record.Status = agentCoreCapabilityStatus(string(summary.Status))
+
+	// GetCodeInterpreter keys on the short id. Skip the describe call for an
+	// ARN-only summary and surface it as degraded with an explicit reason
+	// instead of an avoidable describe failure on an empty id.
+	if interpreterID == "" {
+		diagnostics = append(diagnostics, providers.SourceError{
+			Collector: aiAgentIdentityCollectorName,
+			SourceID:  interpreterARN,
+			Code:      "agentcore_code_interpreter_id_missing",
+			Message:   "AgentCore code interpreter summary did not include an id; surfaced summary only",
+			Retryable: true,
+		})
+		record.CoverageStatus = "degraded"
+		record.Status = "degraded"
+		record.CoverageReason = "AgentCore code interpreter summary did not include an id"
+		a.finalizeCapabilityRecord(&record)
+		return record, diagnostics, nil
+	}
 
 	detail, detailErr := a.client.GetCodeInterpreter(ctx, &bedrockagentcorecontrol.GetCodeInterpreterInput{CodeInterpreterId: awsv2.String(interpreterID)})
 	if errors.Is(detailErr, context.Canceled) || errors.Is(detailErr, context.DeadlineExceeded) {
@@ -534,8 +589,10 @@ func parseAgentCoreCapabilityToken(token string) (agentCoreCapabilitySource, str
 	if !ok {
 		return 0, "", fmt.Errorf("invalid agentcore capability pagination token")
 	}
-	var index int
-	if _, err := fmt.Sscanf(indexPart, "%d", &index); err != nil {
+	// strconv.Atoi rejects malformed prefixes like "1abc" that fmt.Sscanf("%d")
+	// would silently accept by stopping at the first non-digit.
+	index, err := strconv.Atoi(indexPart)
+	if err != nil {
 		return 0, "", fmt.Errorf("invalid agentcore capability pagination token")
 	}
 	if index < 0 || agentCoreCapabilitySource(index) >= agentCoreCapabilitySourceCount {

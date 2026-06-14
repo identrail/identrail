@@ -3820,6 +3820,7 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'All surfaces', value: 'all' },
         { label: 'Bedrock agents', value: 'bedrock-agents' },
         { label: 'AgentCore runtime', value: 'agentcore-runtime' },
+        { label: 'AgentCore capabilities', value: 'agentcore-capabilities' },
         { label: 'MCP gateway', value: 'mcp-gateway' },
         { label: 'External provider keys', value: 'external-provider-keys' }
       ]
@@ -3831,7 +3832,8 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'All relationships', value: 'all' },
         { label: 'Agent to role', value: 'agent-to-role' },
         { label: 'Agent to tool', value: 'agent-to-tool' },
-        { label: 'Agent to secret', value: 'agent-to-secret' }
+        { label: 'Agent to secret', value: 'agent-to-secret' },
+        { label: 'Agent to storage', value: 'agent-to-storage' }
       ]
     },
     {
@@ -7175,6 +7177,10 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
       ...(record.observability_links ?? []),
       ...(record.capability_names ?? []),
       ...(record.credential_reference_refs ?? []),
+      ...(record.storage_reference_refs ?? []),
+      ...(record.memory_store_refs ?? []),
+      record.capability_kind,
+      record.encryption_key_arn,
       record.network_mode,
       record.server_protocol,
       record.account_id,

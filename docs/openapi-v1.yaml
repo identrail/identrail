@@ -10084,6 +10084,7 @@ components:
             - custom_agent
             - external_provider_agent
             - agent_gateway
+            - agentcore_capability
         runtime_version: { type: string }
         provider: { type: string }
         model_id: { type: string }

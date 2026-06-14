@@ -252,7 +252,42 @@ func TestSDKAgentCoreCapabilitiesEmptyAuthorized(t *testing.T) {
 func TestSDKAgentCoreCapabilitiesRejectsBadToken(t *testing.T) {
 	client := &fakeAgentCoreCapabilitiesSDKClient{}
 	api := NewSDKAgentCoreCapabilitiesAPIFromClient(client, "123456789012", "us-east-1")
-	if _, err := api.ListAgentIdentities(context.Background(), "9:tok", 50); err == nil {
-		t.Fatalf("expected invalid token error")
+	// Out-of-range source index, non-numeric prefix, and a malformed prefix that
+	// a lenient %d scan would otherwise accept must all be rejected.
+	for _, badToken := range []string{"9:tok", "x:tok", "1abc:tok", "nodelim"} {
+		if _, err := api.ListAgentIdentities(context.Background(), badToken, 50); err == nil {
+			t.Fatalf("expected invalid token error for %q", badToken)
+		}
+	}
+}
+
+func TestSDKAgentCoreCapabilitiesSkipsDescribeForArnOnlySummary(t *testing.T) {
+	// An ARN-only memory summary (no short id) must not trigger GetMemory with an
+	// empty id; instead it surfaces a degraded record with an explicit reason.
+	client := &fakeAgentCoreCapabilitiesSDKClient{
+		memoriesOutput: &bedrockagentcorecontrol.ListMemoriesOutput{
+			Memories: []agentcoretypes.MemorySummary{{Arn: awsv2.String("arn:aws:bedrock-agentcore:us-east-1:123456789012:memory/mem-arn-only"), Status: agentcoretypes.MemoryStatusActive}},
+		},
+		memoryDetailErr: map[string]error{"": errors.New("GetMemory should not be called with an empty id")},
+	}
+	api := NewSDKAgentCoreCapabilitiesAPIFromClient(client, "123456789012", "us-east-1")
+	records, diagnostics := collectAllCapabilityRecords(t, api)
+	if len(records) != 1 {
+		t.Fatalf("expected one degraded record, got %d", len(records))
+	}
+	if records[0].CoverageStatus != "degraded" {
+		t.Fatalf("expected degraded coverage for ARN-only summary, got %+v", records[0])
+	}
+	found := false
+	for _, d := range diagnostics {
+		if d.Code == "agentcore_memory_id_missing" {
+			found = true
+		}
+		if d.Code == "agentcore_memory_describe_failed" {
+			t.Fatalf("ARN-only summary must not emit a describe-failed diagnostic, got %+v", d)
+		}
+	}
+	if !found {
+		t.Fatalf("expected agentcore_memory_id_missing diagnostic, got %v", diagnostics)
 	}
 }
