@@ -17,6 +17,7 @@ import (
 	"github.com/identrail/identrail/internal/db"
 	awsprovider "github.com/identrail/identrail/internal/providers/aws"
 	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
+	"github.com/identrail/identrail/internal/runtime/cloudtrail"
 	"github.com/identrail/identrail/internal/scheduler"
 	"github.com/identrail/identrail/internal/secretstore"
 	"github.com/identrail/identrail/internal/userexport"
@@ -371,6 +372,13 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 			awsprovider.NewECRRepositoryMetadataCollector(ecrAPI),
 		)
 		return scanner, nil
+	}
+	svc.AWSCloudTrailLookupEventsFactory = func(ctx context.Context, connection api.AWSConnectionStatus) (api.AWSCloudTrailRuntimeEventIngester, error) {
+		lookupAPI, lookupErr := cloudtrail.NewSDKLookupEventsAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-cloudtrail-lookup-events")
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
+		return api.NewCloudTrailRuntimeEventIngester(cloudtrail.New(lookupAPI)), nil
 	}
 	svc.DefaultScope = db.Scope{
 		TenantID:    cfg.DefaultTenantID,

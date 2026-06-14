@@ -128,6 +128,21 @@ type GitHubDependabotAlertCollector interface {
 // AWSScannerFactory creates a scanner bound to one persisted AWS connector.
 type AWSScannerFactory func(ctx context.Context, connection AWSConnectionStatus) (ScannerRunner, error)
 
+// AWSCloudTrailLookupEventsFactory builds a runtime-event ingester
+// bound to one persisted AWS connector. The API runtime-events handler
+// calls the factory only when a live connector is healthy; if the
+// factory is nil, the handler falls back to the fixture path so unit
+// tests and offline demos keep working without AWS credentials.
+type AWSCloudTrailLookupEventsFactory func(ctx context.Context, connection AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error)
+
+// AWSCloudTrailRuntimeEventIngester is the narrow seam the API layer
+// uses to drive one bounded CloudTrail LookupEvents ingestion run.
+// internal/runtime/cloudtrail.Ingester implements it; tests can
+// implement a fake.
+type AWSCloudTrailRuntimeEventIngester interface {
+	Ingest(ctx context.Context, request AWSCloudTrailIngestRequest) (AWSCloudTrailIngestResult, error)
+}
+
 type queuedScanDepthCounter interface {
 	CountQueuedScansAnyScope(ctx context.Context, provider string) (int, error)
 }
@@ -166,6 +181,7 @@ type Service struct {
 	KubernetesPreflightFactory         KubernetesConnectorPreflightFactory
 	AWSConnectorValidator              AWSConnectorValidator
 	AWSScannerFactory                  AWSScannerFactory
+	AWSCloudTrailLookupEventsFactory   AWSCloudTrailLookupEventsFactory
 	AWSCloudFormationTemplateURL       string
 	AWSAccountID                       string
 	AWSBaselineGitSHA                  string

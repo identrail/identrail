@@ -150,7 +150,146 @@ func (s *Service) GetAWSRuntimeEvents(ctx context.Context, workspaceID string, p
 	if err != nil {
 		return AWSRuntimeEventResult{}, err
 	}
-	return buildAWSRuntimeEvents(scope, project, connection, hasConnection, request, s.Now().UTC())
+	now := s.Now().UTC()
+	// Live CloudTrail ingestion is used only when the operator has not
+	// explicitly forced a fixture state and the connector is active
+	// and healthy. Anything else (no connector, fixture override,
+	// disconnected connector) falls through to the deterministic
+	// fixture path so demos, tests, and degraded environments keep
+	// rendering the same contract shape.
+	if s.AWSCloudTrailLookupEventsFactory != nil && hasConnection && connection.Connected && strings.TrimSpace(request.FixtureState) == "" {
+		ingester, ingErr := s.AWSCloudTrailLookupEventsFactory(ctx, connection)
+		if ingErr == nil && ingester != nil {
+			return buildAWSRuntimeEventsFromCloudTrail(ctx, scope, project, connection, ingester, request, now)
+		}
+		// Factory error is recorded as a diagnostic on the fixture
+		// fallback so operators still see why live ingestion did not
+		// run. A nil ingester from the factory is treated as
+		// "live coverage not configured for this connector" and falls
+		// through silently.
+		result, fixtureErr := buildAWSRuntimeEvents(scope, project, connection, hasConnection, request, now)
+		if fixtureErr != nil {
+			return result, fixtureErr
+		}
+		if ingErr != nil {
+			result.Diagnostics = append(result.Diagnostics, AWSRuntimeEventDiagnostic{
+				Collector:   "aws_cloudtrail_lookup_events",
+				SourceID:    "factory",
+				Code:        "cloudtrail_ingester_unavailable",
+				Message:     fmt.Sprintf("CloudTrail LookupEvents ingester is not available for this connector: %v", ingErr),
+				Remediation: "Confirm the CloudTrail role grants metadata-only cloudtrail:LookupEvents and retry.",
+				Retryable:   true,
+			})
+		}
+		return result, nil
+	}
+	return buildAWSRuntimeEvents(scope, project, connection, hasConnection, request, now)
+}
+
+// buildAWSRuntimeEventsFromCloudTrail wraps a live CloudTrail
+// ingestion run in the runtime event contract envelope so the live
+// response is indistinguishable in shape from the fixture path. The
+// caller has already gated on a healthy connector and a nil fixture
+// override, so the live result drives all of records, diagnostics,
+// coverage gaps, and the top-level status.
+func buildAWSRuntimeEventsFromCloudTrail(ctx context.Context, scope db.Scope, project db.TenancyProject, connection AWSConnectionStatus, ingester AWSCloudTrailRuntimeEventIngester, request AWSRuntimeEventRequest, checkedAt time.Time) (AWSRuntimeEventResult, error) {
+	accountID := firstNonEmptyAWSValue(strings.TrimSpace(request.AccountID), connection.AccountID, "123456789012")
+	region := firstNonEmptyAWSValue(strings.TrimSpace(request.Region), connection.Region, "us-east-1")
+	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID))
+	ingestResult, err := ingester.Ingest(ctx, AWSCloudTrailIngestRequest{
+		AccountID:         accountID,
+		Region:            region,
+		EventSourceFilter: cloudTrailEventSourceFilterFor(request.EventType),
+	})
+	if err != nil {
+		return AWSRuntimeEventResult{}, fmt.Errorf("ingest cloudtrail lookup events: %w", err)
+	}
+
+	filtered, applied := filterAWSRuntimeEventRecords(ingestResult.Records, request)
+	relationships := awsRuntimeEventRelationships(filtered)
+	diagnostics := scopeAWSRuntimeEventDiagnostics(ingestResult.Diagnostics, filtered)
+	summary := summarizeAWSRuntimeEvents(ingestResult.Records, len(filtered), len(relationships))
+
+	status := ingestResult.Status
+	confidence := 0.92
+	failures := append([]string{}, ingestResult.FailureReasons...)
+	remediations := append([]string{}, ingestResult.RemediationHints...)
+	switch status {
+	case "blocked":
+		confidence = 0
+	case "degraded":
+		confidence = 0.78
+	}
+	if status == "ready" && len(filtered) == 0 {
+		status = "degraded"
+		confidence = 0.5
+		failures = append(failures, "runtime event filters matched no records")
+		remediations = append(remediations, "Clear filters or broaden the time/resource scope.")
+	}
+
+	fixtureState := "success"
+	if status == "blocked" {
+		fixtureState = "permission_denied"
+	} else if status == "degraded" {
+		fixtureState = "degraded"
+	}
+
+	return AWSRuntimeEventResult{
+		TenantID:           scope.TenantID,
+		WorkspaceID:        project.WorkspaceID,
+		ProjectID:          project.ProjectID,
+		ConnectorID:        connectorID,
+		AccountID:          accountID,
+		Region:             region,
+		ParentIssueNumber:  awsPlatformDependencyParentIssue,
+		ParentIssueRef:     awsIssueRef(awsPlatformDependencyParentIssue),
+		CurrentIssueNumber: awsRuntimeEventsCurrentIssue,
+		CurrentIssueRef:    awsIssueRef(awsRuntimeEventsCurrentIssue),
+		Version:            awsRuntimeEventsVersion,
+		Status:             status,
+		FixtureState:       fixtureState,
+		Confidence:         confidence,
+		AppliedFilters:     applied,
+		Summary:            summary,
+		Records:            filtered,
+		Relationships:      relationships,
+		FailureReasons:     emptyStrings(failures),
+		RemediationHints:   emptyStrings(remediations),
+		EvidenceLinks: dedupeStrings([]string{
+			awsIssueURL(awsPlatformDependencyParentIssue),
+			awsIssueURL(awsRuntimeEventsCurrentIssue),
+			awsIssueURL(1512),
+			awsIssueURL(1503),
+			"/docs/aws-runtime-events",
+			"/docs/aws-service-collector-contract",
+			awsBaselineProjectEvidenceURL(scope, project),
+		}),
+		CoverageGaps: ingestResult.CoverageGaps,
+		Diagnostics:  diagnostics,
+		GeneratedAt:  checkedAt,
+		UpdatedAt:    checkedAt,
+	}, nil
+}
+
+// cloudTrailEventSourceFilterFor translates a normalized
+// AWSRuntimeEventRequest.EventType into the CloudTrail event source
+// the ingester should push to the LookupEvents request. Unknown event
+// types resolve to an empty filter so CloudTrail still returns every
+// source the trail captures; the API layer's record-level filter then
+// scopes the response.
+func cloudTrailEventSourceFilterFor(eventType string) string {
+	switch normalizeAWSRuntimeEventFilterToken(eventType) {
+	case "secret-read":
+		return "secretsmanager.amazonaws.com"
+	case "kms-decrypt":
+		return "kms.amazonaws.com"
+	case "sts-session":
+		return "sts.amazonaws.com"
+	case "agent-tool":
+		return "bedrock-agentcore.amazonaws.com"
+	default:
+		return ""
+	}
 }
 
 func buildAWSRuntimeEvents(scope db.Scope, project db.TenancyProject, connection AWSConnectionStatus, hasConnection bool, request AWSRuntimeEventRequest, checkedAt time.Time) (AWSRuntimeEventResult, error) {
