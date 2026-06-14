@@ -99,18 +99,6 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		if err := ctx.Err(); err != nil {
 			return providers.NormalizedBundle{}, err
 		}
-		if asset.Kind != rawKindAIAgentIdentity {
-			continue
-		}
-		if err := normalizeAIAgentIdentityAsset(asset, i, &bundle, identitySeen, agentSeen, resourceSeen); err != nil {
-			return providers.NormalizedBundle{}, err
-		}
-	}
-
-	for i, asset := range raw {
-		if err := ctx.Err(); err != nil {
-			return providers.NormalizedBundle{}, err
-		}
 		if asset.Kind != rawKindEC2InstanceProfile {
 			continue
 		}
@@ -283,6 +271,23 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 			continue
 		}
 		if err := normalizeDynamoDBRDSReachabilityAsset(asset, i, &bundle, identitySeen, resourceSeen, policySeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
+	// AI agent identities (including custom-agent detections derived from the
+	// workload assets above) are normalized last so the richer workload-role
+	// identities (with tags/owner) win in identitySeen. Running this earlier would
+	// let the agent's minimal runtime-role identity shadow a workload role that is
+	// only present as an ECS/Lambda/etc. asset and never as an iam_role asset.
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != rawKindAIAgentIdentity {
+			continue
+		}
+		if err := normalizeAIAgentIdentityAsset(asset, i, &bundle, identitySeen, agentSeen, resourceSeen); err != nil {
 			return providers.NormalizedBundle{}, err
 		}
 	}

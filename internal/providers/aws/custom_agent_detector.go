@@ -300,6 +300,22 @@ func detectCustomAgentWorkload(evidence customAgentWorkloadEvidence) (customAgen
 }
 
 func customAgentProviderCredentialRefs(evidence customAgentWorkloadEvidence) ([]string, []string) {
+	// Collect the env-var names that are already backed by a sourced secret
+	// reference (for example a CodeBuild `OPENAI_API_KEY=PARAMETER_STORE:...`).
+	// CodeBuild records such variables in both SecretRefs and EnvironmentKeys, so
+	// a bare `OPENAI_API_KEY` env entry must be suppressed here — otherwise the
+	// downstream agent credential mapper (which sees this flattened list only as
+	// `secret_refs`, bypassing credentialCandidateRefs' env-key suppression)
+	// emits both a resolved secret reference and a spurious unresolved
+	// provider-key node/edge for the same variable.
+	sourcedNames := map[string]struct{}{}
+	for _, ref := range evidence.SecretRefs {
+		name, source := splitCredentialReference(strings.TrimSpace(ref))
+		if strings.TrimSpace(source) != "" && strings.TrimSpace(name) != "" {
+			sourcedNames[strings.ToLower(strings.TrimSpace(name))] = struct{}{}
+		}
+	}
+
 	refs := []string{}
 	providers := []string{}
 	for _, ref := range append(append([]string{}, evidence.SecretRefs...), evidence.EnvironmentKeys...) {
@@ -310,6 +326,12 @@ func customAgentProviderCredentialRefs(evidence customAgentWorkloadEvidence) ([]
 		name, source := splitCredentialReference(ref)
 		if source == "" && !credentialSuggestiveName(name) {
 			continue
+		}
+		// Skip a bare env key whose value is already sourced from a secret store.
+		if source == "" {
+			if _, sourced := sourcedNames[strings.ToLower(strings.TrimSpace(name))]; sourced {
+				continue
+			}
 		}
 		kind := classifyCredentialReferenceKind(name, source)
 		provider, sensitivity, _ := classifyCredentialProvider(name, source, kind)
@@ -356,9 +378,54 @@ func customAgentLooseAgentSignal(value string) bool {
 
 func customAgentAISignal(value string) bool {
 	probe := strings.ToLower(value)
-	return containsAnyToken(probe,
-		"openai", "anthropic", "claude", "bedrock", "llm", "gpt",
-		"agentcore", "rag", "vector", "embedding")
+	// Distinctive multi-character vendor/technique tokens are safe as substrings.
+	if containsAnyToken(probe,
+		"openai", "anthropic", "claude", "bedrock",
+		"agentcore", "vector", "embedding") {
+		return true
+	}
+	// Short, ambiguous tokens (rag/llm/gpt) only match at word boundaries so they
+	// do not fire on unrelated substrings such as "storage", "fragment",
+	// "allment", or "encryption".
+	return containsAnyWordToken(probe, "rag", "llm", "gpt")
+}
+
+// containsAnyWordToken reports whether any token appears in haystack delimited by
+// non-alphanumeric boundaries (or string ends), avoiding substring false
+// positives for short tokens.
+func containsAnyWordToken(haystack string, tokens ...string) bool {
+	isBoundary := func(r byte) bool {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return false
+		case r >= 'A' && r <= 'Z':
+			return false
+		case r >= '0' && r <= '9':
+			return false
+		default:
+			return true
+		}
+	}
+	for _, token := range tokens {
+		if token == "" {
+			continue
+		}
+		for start := 0; ; {
+			idx := strings.Index(haystack[start:], token)
+			if idx < 0 {
+				break
+			}
+			pos := start + idx
+			before := pos == 0 || isBoundary(haystack[pos-1])
+			end := pos + len(token)
+			after := end == len(haystack) || isBoundary(haystack[end])
+			if before && after {
+				return true
+			}
+			start = pos + 1
+		}
+	}
+	return false
 }
 
 func customAgentToolSignal(value string) bool {

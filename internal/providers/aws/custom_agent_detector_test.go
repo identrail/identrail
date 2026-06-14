@@ -166,6 +166,107 @@ func TestRoleNormalizerDerivesCustomAgentCredentialGraph(t *testing.T) {
 	}
 }
 
+func TestCustomAgentAISignalUsesWordBoundariesForShortTokens(t *testing.T) {
+	// Short, ambiguous tokens must only match at word boundaries so they do not
+	// fire on unrelated substrings.
+	for _, value := range []string{"storage-service", "fragment-cache", "gptable-store", "allment", "rage"} {
+		if customAgentAISignal(value) {
+			t.Fatalf("expected no AI signal for %q", value)
+		}
+	}
+	// Delimited short tokens and distinctive vendor substrings must still match.
+	for _, value := range []string{"rag-pipeline", "team_llm", "gpt.runner", "openai-proxy", "vector-index"} {
+		if !customAgentAISignal(value) {
+			t.Fatalf("expected AI signal for %q", value)
+		}
+	}
+}
+
+func TestCustomAgentProviderRefsDedupesSecretBackedEnvKeys(t *testing.T) {
+	// A CodeBuild project records OPENAI_API_KEY both as a sourced secret ref and
+	// as a bare environment key. The bare key must be suppressed so the downstream
+	// mapper does not emit a spurious unresolved provider-key node alongside the
+	// resolved secret reference.
+	evidence := customAgentWorkloadEvidence{
+		EnvironmentKeys: []string{"OPENAI_API_KEY"},
+		SecretRefs:      []string{"OPENAI_API_KEY=PARAMETER_STORE:arn:aws:ssm:us-east-1:123456789012:parameter/openai"},
+	}
+	refs, providers := customAgentProviderCredentialRefs(evidence)
+	if len(refs) != 1 {
+		t.Fatalf("expected single deduped provider ref, got %+v", refs)
+	}
+	if _, source := splitCredentialReference(refs[0]); source == "" {
+		t.Fatalf("expected the sourced secret ref to win, got bare key %q", refs[0])
+	}
+	if len(providers) != 1 || providers[0] != "openai" {
+		t.Fatalf("expected single openai provider, got %+v", providers)
+	}
+}
+
+func TestCustomAgentCredentialReferenceCarriesAgentWorkloadType(t *testing.T) {
+	role := "arn:aws:iam::123456789012:role/support-agent-task"
+	raw := []providers.RawAsset{
+		rawAsset(t, rawKindECSTaskRole, "ecs-agent", ECSTaskRole{
+			ServiceCollectorRecord: awscontract.ServiceCollectorRecord{AccountID: "123456789012", Region: "us-east-1", Service: "ecs", RoleARN: role, WorkloadID: "arn:aws:ecs:us-east-1:123456789012:service/prod/support-assistant", WorkloadName: "support-assistant", WorkloadType: "ecs_service"},
+			RoleKind:               ecsRoleKindTask,
+			ServiceARN:             "arn:aws:ecs:us-east-1:123456789012:service/prod/support-assistant",
+			ServiceName:            "support-assistant",
+			EnvironmentKeys:        []string{"OPENAI_API_KEY"},
+		}),
+	}
+	bundle, err := NewRoleNormalizer().Normalize(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("normalize custom agent workload: %v", err)
+	}
+	if len(bundle.Agents) != 1 {
+		t.Fatalf("expected one derived custom agent, got %+v", bundle.Agents)
+	}
+	agent := bundle.Agents[0]
+	refs, _ := MapBundleCredentialReferences(bundle)
+	ref, ok := findCredentialReference(refs, "OPENAI_API_KEY")
+	if !ok {
+		t.Fatalf("expected mapped provider key reference, got %+v", refs)
+	}
+	if ref.WorkloadType != string(agent.Type) {
+		t.Fatalf("expected credential ref workload_type %q, got %q", string(agent.Type), ref.WorkloadType)
+	}
+}
+
+func TestCustomAgentNormalizationPreservesWorkloadRoleIdentity(t *testing.T) {
+	// The agent's runtime role is only present as an ECS asset (never as a
+	// standalone iam_role asset). The richer workload-role identity (with tags) must
+	// survive AI-agent normalization rather than be shadowed by the agent's minimal
+	// runtime-role identity.
+	role := "arn:aws:iam::123456789012:role/support-agent-task"
+	raw := []providers.RawAsset{
+		rawAsset(t, rawKindECSTaskRole, "ecs-agent", ECSTaskRole{
+			ServiceCollectorRecord: awscontract.ServiceCollectorRecord{AccountID: "123456789012", Region: "us-east-1", Service: "ecs", RoleARN: role, WorkloadID: "arn:aws:ecs:us-east-1:123456789012:service/prod/support-assistant", WorkloadName: "support-assistant", WorkloadType: "ecs_service"},
+			RoleKind:               ecsRoleKindTask,
+			ServiceARN:             "arn:aws:ecs:us-east-1:123456789012:service/prod/support-assistant",
+			ServiceName:            "support-assistant",
+			EnvironmentKeys:        []string{"OPENAI_API_KEY"},
+			Tags:                   map[string]string{"team": "support", "workload": "ai-agent"},
+		}),
+	}
+	bundle, err := NewRoleNormalizer().Normalize(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("normalize custom agent workload: %v", err)
+	}
+	var identity *domain.Identity
+	for i := range bundle.Identities {
+		if bundle.Identities[i].ARN == role {
+			identity = &bundle.Identities[i]
+			break
+		}
+	}
+	if identity == nil {
+		t.Fatalf("expected runtime-role identity for %q, got %+v", role, bundle.Identities)
+	}
+	if identity.Tags["team"] != "support" || identity.Tags["workload"] != "ai-agent" {
+		t.Fatalf("expected workload-role tags to win over agent runtime identity, got %+v", identity.Tags)
+	}
+}
+
 func rawAsset(t *testing.T, kind string, sourceID string, record any) providers.RawAsset {
 	t.Helper()
 	payload, err := json.Marshal(record)

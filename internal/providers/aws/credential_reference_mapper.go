@@ -169,6 +169,10 @@ func MapBundleCredentialReferences(bundle providers.NormalizedBundle) ([]Credent
 			ref.Region = strings.TrimSpace(resource.Region)
 			ref.ResourceID = agent.ID
 			ref.ResourceType = string(agent.Type)
+			// classifyCredentialReference defaults WorkloadType to the synthesized
+			// credential-reference resource type; override it with the agent's own
+			// type so custom-agent attribution and workload_type filters are correct.
+			ref.WorkloadType = string(agent.Type)
 
 			refKey := strings.Join([]string{fromNodeID, ref.Reference}, "|")
 			if _, exists := seenRef[refKey]; !exists {
