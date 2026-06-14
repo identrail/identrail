@@ -726,10 +726,13 @@ func normalizeEvent(raw Event, accountID string, region string) (NormalizedEvent
 	}
 	if !meta.SessionCreationDate.IsZero() {
 		normalized.SessionStartedAt = meta.SessionCreationDate
-		if normalized.SessionExpiresAt.IsZero() {
-			normalized.SessionExpiresAt = meta.SessionCreationDate.Add(time.Hour)
-		}
 	}
+	// SessionExpiresAt is deliberately left zero when the real
+	// expiration is not extracted from the payload. STS supports role
+	// session durations from 15 minutes up to 12 hours, so synthesising
+	// a +1h expiry would make long-running sessions look expired and
+	// short sessions look still valid; downstream consumers must check
+	// IsZero before treating the field as authoritative.
 	return normalized, nil, true
 }
 
@@ -836,7 +839,17 @@ func extractAllowedMetadata(raw string) (extractedMetadata, error) {
 }
 
 func parseSessionTime(value string) (time.Time, error) {
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05Z"} {
+	// CloudTrail's userIdentity sessionContext.attributes.creationDate
+	// is documented as basic ISO-8601 (e.g. `20131102T010628Z`), but
+	// real-world emitters also produce the dashed RFC3339 form. Try
+	// every layout we have observed before giving up.
+	for _, layout := range []string{
+		"20060102T150405Z",
+		"20060102T150405.000Z",
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05Z",
+	} {
 		if t, err := time.Parse(layout, value); err == nil {
 			return t.UTC(), nil
 		}
@@ -912,7 +925,7 @@ func classifyEventType(eventSource string, eventName string) string {
 	name := strings.TrimSpace(eventName)
 	switch source {
 	case "sts.amazonaws.com":
-		if strings.HasPrefix(name, "AssumeRole") || strings.HasPrefix(name, "GetSession") {
+		if strings.HasPrefix(name, "AssumeRole") || strings.HasPrefix(name, "GetSession") || strings.HasPrefix(name, "GetFederation") {
 			return "sts-session"
 		}
 	case "secretsmanager.amazonaws.com":

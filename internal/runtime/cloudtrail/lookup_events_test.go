@@ -312,6 +312,92 @@ func TestIngestRetriesThrottlingThenSurfacesDiagnostic(t *testing.T) {
 	}
 }
 
+func TestParseSessionTimeAcceptsCloudTrailBasicISO8601(t *testing.T) {
+	// CloudTrail's userIdentity sessionContext.attributes.creationDate
+	// is documented as basic ISO-8601 (e.g. `20131102T010628Z`), so
+	// the parser must accept that layout in addition to the dashed
+	// RFC3339 forms. Without this, live assumed-role events would
+	// leave SessionStartedAt zero even though CloudTrail supplied the
+	// session start.
+	for _, tc := range []struct {
+		name  string
+		value string
+	}{
+		{name: "cloudtrail basic", value: "20131102T010628Z"},
+		{name: "cloudtrail basic with millis", value: "20131102T010628.123Z"},
+		{name: "rfc3339 dashed", value: "2013-11-02T01:06:28Z"},
+		{name: "rfc3339 nano", value: "2013-11-02T01:06:28.123456789Z"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseSessionTime(tc.value)
+			if err != nil {
+				t.Fatalf("parseSessionTime(%q): %v", tc.value, err)
+			}
+			if got.IsZero() {
+				t.Fatalf("parseSessionTime(%q) returned zero time", tc.value)
+			}
+			if got.Year() != 2013 || got.Month() != 11 || got.Day() != 2 {
+				t.Fatalf("parseSessionTime(%q) = %s, expected 2013-11-02", tc.value, got)
+			}
+		})
+	}
+}
+
+func TestNormalizeEventLeavesSessionExpiresAtUnsetWhenUnknown(t *testing.T) {
+	// STS supports role session durations from 15 minutes to 12
+	// hours. Synthesising a +1h expiry would make long-running
+	// sessions look expired and short sessions look still valid;
+	// the field must stay zero so consumers know the expiration was
+	// not extracted.
+	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
+	role := "arn:aws:sts::123456789012:assumed-role/identrail-runtime-reader/sess-runtime-reader"
+	issuer := "arn:aws:iam::123456789012:role/identrail-runtime-reader"
+	creation := now.Add(-25 * time.Minute)
+	api := &fakeLookupEventsAPI{pages: []LookupEventsPage{{Events: []Event{{
+		EventID:     "evt-sts",
+		EventName:   "AssumeRole",
+		EventSource: "sts.amazonaws.com",
+		EventTime:   now.Add(-20 * time.Minute),
+		Username:    role,
+		RawEvent:    cloudTrailEventJSON(role, "AssumedRole", "AROAEXAMPLE", issuer, creation, "10.0.0.1", "boto3"),
+	}}}}}
+	ing, _ := newIngester(api, now)
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1"})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("expected 1 event, got %+v", result.Events)
+	}
+	ev := result.Events[0]
+	if ev.SessionStartedAt.IsZero() {
+		t.Fatalf("expected SessionStartedAt set from payload metadata, got zero")
+	}
+	if !ev.SessionExpiresAt.IsZero() {
+		t.Fatalf("SessionExpiresAt must stay zero when the real expiry isn't extracted, got %s", ev.SessionExpiresAt)
+	}
+}
+
+func TestClassifyGetFederationTokenAsSTSSession(t *testing.T) {
+	// GetFederationToken creates a federated-user temporary credential
+	// session. CloudTrail emits it on sts.amazonaws.com, so a request
+	// for event_type=sts-session pushes the secretsmanager.amazonaws.com
+	// pushdown ... wait, it pushes sts.amazonaws.com and then the
+	// record-level filter compares against event_type=sts-session. If
+	// the normalizer classifies these as api-call, the filter drops
+	// them and STSSessionCount undercounts federated workloads.
+	if got := classifyEventType("sts.amazonaws.com", "GetFederationToken"); got != "sts-session" {
+		t.Fatalf("expected GetFederationToken to classify as sts-session, got %q", got)
+	}
+	// Sanity check: AssumeRole + GetSessionToken still classify too.
+	if got := classifyEventType("sts.amazonaws.com", "AssumeRole"); got != "sts-session" {
+		t.Fatalf("expected AssumeRole to classify as sts-session, got %q", got)
+	}
+	if got := classifyEventType("sts.amazonaws.com", "GetSessionToken"); got != "sts-session" {
+		t.Fatalf("expected GetSessionToken to classify as sts-session, got %q", got)
+	}
+}
+
 func TestMapPrincipalTypeProducesSnakeCaseContractTokens(t *testing.T) {
 	for _, tc := range []struct {
 		in   string
