@@ -13,6 +13,7 @@ import type {
   AWSPlatformBaselineResult,
   AWSPlatformDependencyIndexResult,
   AWSPlatformValidationHarnessResult,
+  AWSRuntimeEventResult,
   AWSServiceCollectorContractResult,
   CurrentUserContext,
   Finding,
@@ -149,6 +150,118 @@ const connectedAWS: AWSConnectionStatus = {
   capabilities: { requested: ['discovery'], validated: ['discovery'], effective: ['discovery'], unavailable: [] },
   updated_at: '2026-05-17T10:00:00Z',
   last_validated_at: '2026-05-17T10:00:00Z'
+};
+
+const readyAWSRuntimeEvents: AWSRuntimeEventResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  parent_issue_number: 1472,
+  parent_issue_ref: '#1472',
+  current_issue_number: 1513,
+  current_issue_ref: '#1513',
+  version: 'aws-runtime-events-contract-v1',
+  status: 'ready',
+  fixture_state: 'success',
+  confidence: 0.92,
+  applied_filters: {},
+  summary: {
+    total_events: 2,
+    filtered_events: 2,
+    event_type_counts: { 'api-call': 1, 'agent-tool': 1 },
+    status_counts: { observed: 2 },
+    owner_counts: { security: 2 },
+    account_count: 1,
+    region_count: 1,
+    identity_count: 1,
+    resource_count: 2,
+    agent_event_count: 1,
+    secret_read_count: 0,
+    kms_decrypt_count: 0,
+    api_call_count: 1,
+    sts_session_count: 0,
+    relationship_count: 2,
+    permission_denied_events: 0
+  },
+  records: [
+    {
+      event_id: 'evt-s3-access',
+      account_id: '123456789012',
+      region: 'us-east-1',
+      event_type: 'api-call',
+      event_source: 's3.amazonaws.com',
+      event_name: 'GetObject',
+      action: 's3:GetObject',
+      actor_principal_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
+      actor_principal_type: 'assumed_role',
+      actor_identity_node_id: 'aws:identity:lambda-invoice-agent',
+      session: {
+        session_id: 'sess-invoice-agent',
+        principal_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
+        principal_type: 'assumed_role',
+        started_at: '2026-06-14T17:00:00Z'
+      },
+      target_resource_arn: 'arn:aws:s3:::billing-artifacts-123456789012/reports/redacted',
+      target_resource_type: 's3_object_metadata',
+      target_resource_name: 'redacted',
+      resource_node_id: 'aws:runtime-resource:s3_object_metadata:redacted',
+      owner: 'security',
+      evidence_category: 'cloudtrail',
+      evidence_ref: 'runtime-evidence://123456789012/us-east-1/evt-s3-access',
+      confidence: 0.9,
+      observed_at: '2026-06-14T17:15:00Z',
+      collected_at: '2026-06-14T17:17:00Z',
+      status: 'observed',
+      next_action: 'Correlate runtime evidence with identity and resource graph context.',
+      redaction_boundary: 'metadata_only_no_payloads_no_secret_values'
+    },
+    {
+      event_id: 'evt-agent-tool',
+      account_id: '123456789012',
+      region: 'us-east-1',
+      event_type: 'agent-tool',
+      event_source: 'bedrock-agentcore.amazonaws.com',
+      event_name: 'InvokeTool',
+      action: 'bedrock-agentcore:InvokeTool',
+      actor_principal_arn: 'arn:aws:iam::123456789012:role/agentcore-case-triage-runtime',
+      actor_principal_type: 'assumed_role',
+      actor_identity_node_id: 'aws:identity:agentcore-case-triage-runtime',
+      session: {
+        session_id: 'sess-agentcore-runtime',
+        principal_arn: 'arn:aws:iam::123456789012:role/agentcore-case-triage-runtime',
+        principal_type: 'assumed_role',
+        started_at: '2026-06-14T17:18:00Z'
+      },
+      target_resource_arn: 'arn:aws:bedrock-agentcore:us-east-1:123456789012:agent-runtime-endpoint/runtime-case-triage/blue',
+      target_resource_type: 'agent_tool_target',
+      target_resource_name: 'blue',
+      resource_node_id: 'aws:runtime-resource:agent_tool_target:blue',
+      agent_id: 'runtime-case-triage',
+      agent_node_id: 'aws:agent:runtime-case-triage',
+      tool_name: 'case-router',
+      tool_target_ref: 'case-router-policy-checker',
+      owner: 'security',
+      evidence_category: 'agent-runtime',
+      evidence_ref: 'runtime-evidence://123456789012/us-east-1/evt-agent-tool',
+      confidence: 0.9,
+      observed_at: '2026-06-14T17:19:00Z',
+      collected_at: '2026-06-14T17:21:00Z',
+      status: 'observed',
+      next_action: 'Review the agent identity and tool target relationship.',
+      redaction_boundary: 'metadata_only_no_payloads_no_secret_values'
+    }
+  ],
+  relationships: [],
+  failure_reasons: [],
+  remediation_hints: [],
+  evidence_links: ['/docs/aws-runtime-events'],
+  coverage_gaps: [],
+  diagnostics: [],
+  generated_at: '2026-06-14T17:30:00Z',
+  updated_at: '2026-06-14T17:30:00Z'
 };
 
 const readyAWSEC2InstanceProfileInventory: AWSEC2InstanceProfileInventoryResult = {
@@ -2635,6 +2748,69 @@ describe('Domain-first app routes', () => {
     expect(screen.getAllByText(/Bedrock agents/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/AgentCore runtime and gateway identity/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Secret metadata only, no value reads/i)).toBeInTheDocument();
+  });
+
+  it('translates AWS runtime filter aliases before querying runtime events', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const getRuntimeEvents = vi
+      .spyOn(api.apiClient, 'getAWSProjectRuntimeEvents')
+      .mockResolvedValue({ runtime: readyAWSRuntimeEvents });
+
+    const { ProductAWSRuntimePage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/runtime?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/runtime" element={<ProductAWSRuntimePage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Runtime' })).toBeInTheDocument();
+    expect(await screen.findByText(/CloudTrail: GetObject/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Event type' }), {
+      target: { value: 'cloudtrail' }
+    });
+
+    await waitFor(() =>
+      expect(getRuntimeEvents).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1', eventType: 'api-call' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(screen.getByText(/CloudTrail: GetObject/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Agent tool: InvokeTool/i)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Evidence' }), {
+      target: { value: 'cloudtrail' }
+    });
+
+    await waitFor(() =>
+      expect(getRuntimeEvents).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1', eventType: 'api-call', evidence: 'cloudtrail' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
   });
 
   it('keeps AWS resources inventory metadata-only when no environment exists', async () => {

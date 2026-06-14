@@ -549,6 +549,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/runtime-events
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/iam-passrole-relationships
     action: tenancy.read
     resource_type: project
@@ -4511,6 +4516,94 @@ paths:
                     $ref: "#/components/schemas/AWSAIAgentIdentityInventoryResult"
         "400":
           description: Invalid AWS AI agent identity inventory request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/runtime-events:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS runtime event contract
+      operationId: getAWSProjectRuntimeEvents
+      description: Returns scoped, metadata-only AWS runtime events for API calls, STS sessions, secret reads, KMS decrypts, S3 access, and agent tool calls. The response links actor identity, session, target resource, event source, timestamp, confidence, and evidence without reading or returning secret values, object bodies, prompts, completions, browser pages, code-interpreter output, database rows, or customer payloads.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope the account, region, and read-only runtime evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: event_type
+          schema:
+            type: string
+            enum: [sts-session, api-call, secret-read, kms-decrypt, agent-tool]
+        - in: query
+          name: identity
+          schema: { type: string }
+          description: Optional actor principal, role, session, or identity-node search.
+        - in: query
+          name: agent_id
+          schema: { type: string }
+          description: Optional agent ID or agent-node search.
+        - in: query
+          name: resource
+          schema: { type: string }
+          description: Optional target resource ARN, name, type, or node search.
+        - in: query
+          name: evidence
+          schema:
+            type: string
+            enum: [cloudtrail, agent-runtime]
+        - in: query
+          name: owner
+          schema:
+            type: string
+            enum: [security, platform, application]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [observed, delayed, permission-denied]
+      responses:
+        "200":
+          description: AWS runtime event contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runtime:
+                    $ref: "#/components/schemas/AWSRuntimeEventResult"
+        "400":
+          description: Invalid AWS runtime event request
           content:
             application/json:
               schema:
@@ -10601,6 +10694,185 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSBedrockAgentDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSRuntimeEventSession:
+      type: object
+      properties:
+        session_id: { type: string }
+        principal_arn: { type: string }
+        principal_type: { type: string }
+        assumed_role_arn: { type: string }
+        session_issuer_arn: { type: string }
+        source_ip_address: { type: string }
+        user_agent: { type: string }
+        started_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    AWSRuntimeEventRecord:
+      type: object
+      properties:
+        event_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        event_type:
+          type: string
+          enum: [sts-session, api-call, secret-read, kms-decrypt, agent-tool]
+        event_source: { type: string }
+        event_name: { type: string }
+        action: { type: string }
+        actor_principal_arn: { type: string }
+        actor_principal_type: { type: string }
+        actor_identity_node_id: { type: string }
+        session:
+          $ref: "#/components/schemas/AWSRuntimeEventSession"
+        target_resource_arn: { type: string }
+        target_resource_type: { type: string }
+        target_resource_name: { type: string }
+        resource_node_id: { type: string }
+        agent_id: { type: string }
+        agent_node_id: { type: string }
+        tool_name: { type: string }
+        tool_target_ref: { type: string }
+        owner:
+          type: string
+          enum: [security, platform, application]
+        evidence_category:
+          type: string
+          enum: [cloudtrail, agent-runtime]
+        evidence_ref: { type: string }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        observed_at:
+          type: string
+          format: date-time
+        collected_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [observed, delayed, permission-denied]
+        next_action: { type: string }
+        redaction_boundary:
+          type: string
+          enum: [metadata_only_no_payloads_no_secret_values]
+    AWSRuntimeEventRelationship:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [observed_runtime_action, agent_invoked_runtime_action]
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSRuntimeEventDiagnostic:
+      type: object
+      properties:
+        collector: { type: string }
+        source_id: { type: string }
+        code:
+          type: string
+          enum: [runtime_event_delivery_delayed, agent_runtime_event_source_failed, permission_denied]
+        message: { type: string }
+        remediation: { type: string }
+        retryable: { type: boolean }
+    AWSRuntimeEventCoverageGap:
+      type: object
+      properties:
+        capability: { type: string }
+        status:
+          type: string
+          enum: [empty, partial_failure, permission_denied]
+        reason: { type: string }
+        remediation: { type: string }
+    AWSRuntimeEventSummary:
+      type: object
+      properties:
+        total_events: { type: integer }
+        filtered_events: { type: integer }
+        event_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        owner_counts:
+          type: object
+          additionalProperties: { type: integer }
+        account_count: { type: integer }
+        region_count: { type: integer }
+        identity_count: { type: integer }
+        resource_count: { type: integer }
+        agent_event_count: { type: integer }
+        secret_read_count: { type: integer }
+        kms_decrypt_count: { type: integer }
+        api_call_count: { type: integer }
+        sts_session_count: { type: integer }
+        relationship_count: { type: integer }
+        permission_denied_events: { type: integer }
+    AWSRuntimeEventResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSRuntimeEventSummary"
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRuntimeEventRecord"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRuntimeEventRelationship"
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRuntimeEventCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRuntimeEventDiagnostic"
         generated_at:
           type: string
           format: date-time
