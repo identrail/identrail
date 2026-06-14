@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
 )
 
 const (
@@ -152,12 +153,19 @@ func (s *Service) GetAWSRuntimeEvents(ctx context.Context, workspaceID string, p
 	}
 	now := s.Now().UTC()
 	// Live CloudTrail ingestion is used only when the operator has not
-	// explicitly forced a fixture state and the connector is active
-	// and healthy. Anything else (no connector, fixture override,
-	// disconnected connector) falls through to the deterministic
-	// fixture path so demos, tests, and degraded environments keep
-	// rendering the same contract shape.
-	if s.AWSCloudTrailLookupEventsFactory != nil && hasConnection && connection.Connected && strings.TrimSpace(request.FixtureState) == "" {
+	// explicitly forced a fixture state, the connector is active and
+	// healthy, AND the connector's effective capability set includes
+	// `runtime_evidence`. The capability gate is load-bearing: the
+	// default discovery-only baseline role is intentionally not granted
+	// `cloudtrail:LookupEvents`, so calling LookupEvents on a
+	// discovery-only connector would either fail with
+	// AccessDeniedException (blocked) or — worse — bypass the operator's
+	// declared capability boundary if the role happens to allow it.
+	// Anything else (no connector, fixture override, disconnected
+	// connector, capability denied) falls through to the deterministic
+	// fixture path so demos, tests, capability-gated environments, and
+	// degraded environments keep rendering the same contract shape.
+	if s.AWSCloudTrailLookupEventsFactory != nil && hasConnection && connection.Connected && strings.TrimSpace(request.FixtureState) == "" && awsConnectorHasRuntimeEvidence(connection) {
 		ingester, ingErr := s.AWSCloudTrailLookupEventsFactory(ctx, connection)
 		if ingErr == nil && ingester != nil {
 			return buildAWSRuntimeEventsFromCloudTrail(ctx, scope, project, connection, ingester, request, now)
@@ -197,7 +205,51 @@ func (s *Service) GetAWSRuntimeEvents(ctx context.Context, workspaceID string, p
 		}
 		return result, nil
 	}
+	// Capability-gated fallback: when a factory is wired and the
+	// connector is otherwise live but the connector's effective
+	// capability set does not include runtime_evidence, the request
+	// still gets the fixture-shaped response so the UI stays stable,
+	// but a capability-unavailable coverage gap and a diagnostic tell
+	// the operator why live ingestion was not attempted. This keeps
+	// the capability boundary visible instead of silently rendering
+	// fixture data as if it were live.
+	if s.AWSCloudTrailLookupEventsFactory != nil && hasConnection && connection.Connected && strings.TrimSpace(request.FixtureState) == "" && !awsConnectorHasRuntimeEvidence(connection) {
+		result, fixtureErr := buildAWSRuntimeEvents(scope, project, connection, hasConnection, request, now)
+		if fixtureErr != nil {
+			return result, fixtureErr
+		}
+		result.Diagnostics = append(result.Diagnostics, AWSRuntimeEventDiagnostic{
+			Collector:   "aws_cloudtrail_lookup_events",
+			SourceID:    "capability",
+			Code:        "runtime_evidence_capability_unavailable",
+			Message:     "Connector capabilities do not include runtime_evidence; live CloudTrail LookupEvents ingestion was not attempted.",
+			Remediation: "Grant the runtime_evidence connector capability and confirm the AWS role policy allows cloudtrail:LookupEvents.",
+			Retryable:   false,
+		})
+		result.CoverageGaps = append(result.CoverageGaps, AWSRuntimeEventCoverageGap{
+			Capability:  "cloudtrail_lookup_events",
+			Status:      "capability_unavailable",
+			Reason:      "Connector's effective capability set does not include runtime_evidence.",
+			Remediation: "Grant the runtime_evidence capability to enable live CloudTrail LookupEvents ingestion.",
+		})
+		return result, nil
+	}
 	return buildAWSRuntimeEvents(scope, project, connection, hasConnection, request, now)
+}
+
+// awsConnectorHasRuntimeEvidence reports whether the connector's
+// validated and effective capability set includes runtime_evidence.
+// Effective is the authoritative gate — it never exceeds what the
+// deployment policy validated — so this is the single check the
+// runtime-events handler needs before assuming a role and calling
+// cloudtrail:LookupEvents.
+func awsConnectorHasRuntimeEvidence(connection AWSConnectionStatus) bool {
+	for _, cap := range connection.Capabilities.Effective {
+		if cap == domain.ConnectorCapabilityRuntimeEvidence {
+			return true
+		}
+	}
+	return false
 }
 
 // buildAWSRuntimeEventsFromCloudTrail wraps a live CloudTrail

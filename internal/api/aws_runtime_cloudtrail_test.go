@@ -12,6 +12,33 @@ import (
 	"github.com/identrail/identrail/internal/runtime/cloudtrail"
 )
 
+// grantRuntimeEvidenceCapability extends a seeded connector's
+// effective capability set with runtime_evidence so the live
+// CloudTrail path in GetAWSRuntimeEvents is reachable in unit tests.
+// The default seed only grants discovery; runtime_evidence is the
+// operator-declared boundary this PR honors before assuming a role
+// and calling cloudtrail:LookupEvents.
+func grantRuntimeEvidenceCapability(t *testing.T, store db.Store, ctx context.Context, projectID string, connectorID string) {
+	t.Helper()
+	stored, err := store.GetTenancyConnector(ctx, "default", projectID, connectorID)
+	if err != nil {
+		t.Fatalf("load connector for capability grant: %v", err)
+	}
+	caps := AWSConnectorCapabilities{
+		Requested:   []domain.ConnectorCapability{domain.ConnectorCapabilityDiscovery, domain.ConnectorCapabilityRuntimeEvidence},
+		Validated:   []domain.ConnectorCapability{domain.ConnectorCapabilityDiscovery, domain.ConnectorCapabilityRuntimeEvidence},
+		Effective:   []domain.ConnectorCapability{domain.ConnectorCapabilityDiscovery, domain.ConnectorCapabilityRuntimeEvidence},
+		Unavailable: []AWSConnectorCapabilityUnavailable{},
+	}
+	if stored.State.Metadata == nil {
+		stored.State.Metadata = map[string]any{}
+	}
+	stored.State.Metadata["capabilities"] = caps
+	if err := store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
+		t.Fatalf("upsert connector capability grant: %v", err)
+	}
+}
+
 type fakeCloudTrailIngester struct {
 	calls  []AWSCloudTrailIngestRequest
 	result AWSCloudTrailIngestResult
@@ -63,6 +90,7 @@ func TestGetAWSRuntimeEventsUsesLiveCloudTrailWhenFactoryReturnsIngester(t *test
 	now := time.Date(2026, 6, 14, 19, 0, 0, 0, time.UTC)
 	seedDefaultProject(t, store, ctx, "project-runtime-live")
 	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-live", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-live", "aws-prod")
 
 	role := "arn:aws:sts::123456789012:assumed-role/identrail-runtime-reader/sess-runtime-reader"
 	fake := &fakeCloudTrailIngester{
@@ -110,6 +138,56 @@ func TestGetAWSRuntimeEventsUsesLiveCloudTrailWhenFactoryReturnsIngester(t *test
 	}
 }
 
+func TestGetAWSRuntimeEventsCapabilityGatedConnectorDoesNotCallFactory(t *testing.T) {
+	// A connector with the default discovery-only capability set must
+	// not enter the live CloudTrail path even when a factory is wired
+	// and the connector is otherwise active and healthy: the
+	// operator-declared capability boundary is the single gate that
+	// permits assuming the role and calling cloudtrail:LookupEvents.
+	// The response stays fixture-shaped but carries the
+	// runtime_evidence_capability_unavailable diagnostic + coverage
+	// gap so operators see why live ingestion was skipped.
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 19, 15, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-no-runtime-evidence")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-no-runtime-evidence", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	called := false
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailLookupEventsFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error) {
+		called = true
+		return &fakeCloudTrailIngester{}, nil
+	}
+
+	result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-no-runtime-evidence", AWSRuntimeEventRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get runtime events: %v", err)
+	}
+	if called {
+		t.Fatalf("discovery-only connector must not trigger the CloudTrail factory")
+	}
+	foundDiag := false
+	for _, diag := range result.Diagnostics {
+		if diag.Code == "runtime_evidence_capability_unavailable" {
+			foundDiag = true
+		}
+	}
+	if !foundDiag {
+		t.Fatalf("expected runtime_evidence_capability_unavailable diagnostic, got %+v", result.Diagnostics)
+	}
+	foundGap := false
+	for _, gap := range result.CoverageGaps {
+		if gap.Status == "capability_unavailable" {
+			foundGap = true
+		}
+	}
+	if !foundGap {
+		t.Fatalf("expected capability_unavailable coverage gap, got %+v", result.CoverageGaps)
+	}
+}
+
 func TestGetAWSRuntimeEventsFixtureOverrideBypassesLiveFactory(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()
@@ -143,6 +221,7 @@ func TestGetAWSRuntimeEventsFactoryErrorAttachesDiagnosticAndFallsBackToFixture(
 	now := time.Date(2026, 6, 14, 20, 0, 0, 0, time.UTC)
 	seedDefaultProject(t, store, ctx, "project-runtime-factory-error")
 	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-factory-error", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-factory-error", "aws-prod")
 
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.Now = func() time.Time { return now }
@@ -247,6 +326,7 @@ func TestGetAWSRuntimeEventsIngestionScopeIsConnectorNotRequestFilters(t *testin
 	now := time.Date(2026, 6, 14, 20, 7, 0, 0, time.UTC)
 	seedDefaultProject(t, store, ctx, "project-runtime-scope")
 	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-scope", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-scope", "aws-prod")
 
 	fake := &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{Status: "ready"}}
 	svc := NewService(store, fakeScanner{}, "aws")
@@ -282,6 +362,7 @@ func TestGetAWSRuntimeEventsAgentToolEventTypeDoesNotPushdownSingleSource(t *tes
 	now := time.Date(2026, 6, 14, 20, 15, 0, 0, time.UTC)
 	seedDefaultProject(t, store, ctx, "project-runtime-agent-pushdown")
 	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-agent-pushdown", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-agent-pushdown", "aws-prod")
 
 	fake := &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{Status: "ready"}}
 	svc := NewService(store, fakeScanner{}, "aws")
@@ -304,6 +385,7 @@ func TestGetAWSRuntimeEventsLiveEventSourceFilterIsPushedToIngester(t *testing.T
 	now := time.Date(2026, 6, 14, 20, 30, 0, 0, time.UTC)
 	seedDefaultProject(t, store, ctx, "project-runtime-source-filter")
 	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-source-filter", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-source-filter", "aws-prod")
 
 	fake := &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{Status: "ready"}}
 	svc := NewService(store, fakeScanner{}, "aws")
@@ -326,6 +408,7 @@ func TestGetAWSRuntimeEventsLiveBlockedStatusKeepsContractShape(t *testing.T) {
 	now := time.Date(2026, 6, 14, 21, 0, 0, 0, time.UTC)
 	seedDefaultProject(t, store, ctx, "project-runtime-live-blocked")
 	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-live-blocked", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-live-blocked", "aws-prod")
 
 	fake := &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{
 		Status: "blocked",
