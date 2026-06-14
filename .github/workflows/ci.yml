@@ -211,13 +211,45 @@ jobs:
     name: Deploy Portability
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [go-quality, web-build, go-cli-smoke, infra-validate]
+    # Gate only on the fast Go linter so the image builds start in parallel with
+    # the test/integration jobs instead of waiting for all of them to finish.
+    needs: [go-quality]
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
 
       - name: Setup Docker Buildx
+        id: buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
+
+      - name: Restore Build Caches
+        id: portability-cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: |
+            .ci-cache/go-build
+            .ci-cache/go-mod
+            .ci-cache/npm
+          key: deploy-portability-${{ runner.os }}-${{ hashFiles('go.sum', 'web/package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            deploy-portability-${{ runner.os }}-${{ hashFiles('go.sum', 'web/package-lock.json') }}-
+            deploy-portability-${{ runner.os }}-
+
+      - name: Hydrate BuildKit Cache Mounts
+        # Round-trips the Go module/compiler and npm caches into the BuildKit
+        # cache mounts (the gha layer cache does not persist cache mounts), so a
+        # source change only recompiles the affected packages instead of the whole
+        # dependency tree on every run.
+        uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          cache-map: |
+            {
+              ".ci-cache/go-build": "/root/.cache/go-build",
+              ".ci-cache/go-mod": "/go/pkg/mod",
+              ".ci-cache/npm": "/root/.npm"
+            }
+          skip-extraction: ${{ steps.portability-cache.outputs.cache-hit }}
 
       - name: Validate Docker Compose Config
         shell: bash
