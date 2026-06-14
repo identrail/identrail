@@ -315,6 +315,17 @@ func (i *Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestRes
 		pageOut, fetchErr := i.fetchWithRetry(ctx, input, request)
 		result.PagesFetched++
 		if fetchErr != nil {
+			// Context cancellation and deadline expiry are caller-
+			// driven aborts, not CloudTrail partial-coverage states.
+			// Returning a degraded result here would let an HTTP
+			// handler whose client already disconnected (or whose
+			// per-request deadline already fired) record a stale
+			// runtime-events response instead of aborting. Propagate
+			// the context error to the caller so the request layer
+			// can shed the in-flight work.
+			if errors.Is(fetchErr, context.Canceled) || errors.Is(fetchErr, context.DeadlineExceeded) {
+				return IngestResult{}, fetchErr
+			}
 			if isPermissionDenied(fetchErr) {
 				return finalizeBlocked(result, fetchErr), nil
 			}

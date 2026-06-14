@@ -189,6 +189,41 @@ func TestGetAWSRuntimeEventsFactoryErrorAttachesDiagnosticAndFallsBackToFixture(
 	}
 }
 
+func TestGetAWSRuntimeEventsIngestionScopeIsConnectorNotRequestFilters(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 20, 7, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-scope")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-scope", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	fake := &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{Status: "ready"}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailLookupEventsFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error) {
+		return fake, nil
+	}
+
+	// Caller asks the API to *filter* by a different account and region
+	// than the connector. Those values are caller-side filters; they
+	// must never become the ingestion scope, because a CloudTrailEvent
+	// payload missing recipientAccountId/awsRegion would otherwise
+	// inherit them and a filter for a different account could match
+	// and return mislabeled runtime evidence.
+	if _, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-scope", AWSRuntimeEventRequest{
+		ConnectorID: "aws-prod",
+		AccountID:   "999999999999",
+		Region:      "eu-central-1",
+	}); err != nil {
+		t.Fatalf("get runtime events: %v", err)
+	}
+	if len(fake.calls) != 1 {
+		t.Fatalf("expected one ingestion call, got %d", len(fake.calls))
+	}
+	if fake.calls[0].AccountID == "999999999999" || fake.calls[0].Region == "eu-central-1" {
+		t.Fatalf("request filter account/region must not become ingestion scope, got %+v", fake.calls[0])
+	}
+}
+
 func TestGetAWSRuntimeEventsAgentToolEventTypeDoesNotPushdownSingleSource(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()

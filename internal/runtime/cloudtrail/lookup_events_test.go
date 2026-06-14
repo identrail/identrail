@@ -351,6 +351,29 @@ func TestIngestEmptyWindowReturnsDegradedNotBlocked(t *testing.T) {
 	}
 }
 
+func TestIngestPropagatesContextCancellationInsteadOfDegrading(t *testing.T) {
+	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
+	api := &fakeLookupEventsAPI{errs: []error{context.Canceled}}
+	ing, _ := newIngester(api, now)
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled to propagate, got err=%v result=%+v", err, result)
+	}
+	if result.Status == "degraded" || len(result.Diagnostics) > 0 {
+		t.Fatalf("canceled context must not be surfaced as a degraded CloudTrail result, got %+v", result)
+	}
+
+	api = &fakeLookupEventsAPI{errs: []error{context.DeadlineExceeded}}
+	ing, _ = newIngester(api, now)
+	result, err = ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded to propagate, got err=%v result=%+v", err, result)
+	}
+	if result.Status == "degraded" || len(result.Diagnostics) > 0 {
+		t.Fatalf("deadline exceeded must not be surfaced as a degraded CloudTrail result, got %+v", result)
+	}
+}
+
 func TestIngestPartialFailureFromNonThrottleError(t *testing.T) {
 	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
 	api := &fakeLookupEventsAPI{

@@ -207,8 +207,17 @@ func (s *Service) GetAWSRuntimeEvents(ctx context.Context, workspaceID string, p
 // override, so the live result drives all of records, diagnostics,
 // coverage gaps, and the top-level status.
 func buildAWSRuntimeEventsFromCloudTrail(ctx context.Context, scope db.Scope, project db.TenancyProject, connection AWSConnectionStatus, ingester AWSCloudTrailRuntimeEventIngester, request AWSRuntimeEventRequest, checkedAt time.Time) (AWSRuntimeEventResult, error) {
-	accountID := firstNonEmptyAWSValue(strings.TrimSpace(request.AccountID), connection.AccountID, "123456789012")
-	region := firstNonEmptyAWSValue(strings.TrimSpace(request.Region), connection.Region, "us-east-1")
+	// Ingestion is always scoped to the connector's own account and
+	// region. The request's account_id/region fields are caller-side
+	// filters that downstream callers apply via
+	// filterAWSRuntimeEventRecords, not ingestion-side scope: if we let
+	// them through, a CloudTrailEvent whose payload is missing
+	// `recipientAccountId`/`awsRegion` would inherit the caller's
+	// requested values and a filter for a different account could
+	// match and return mislabeled runtime evidence. The connector
+	// metadata is authoritative for the trail Identrail is reading.
+	accountID := firstNonEmptyAWSValue(connection.AccountID, "123456789012")
+	region := firstNonEmptyAWSValue(connection.Region, "us-east-1")
 	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID))
 	ingestResult, err := ingester.Ingest(ctx, AWSCloudTrailIngestRequest{
 		AccountID:         accountID,
