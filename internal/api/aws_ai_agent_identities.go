@@ -530,10 +530,33 @@ func awsAIAgentRecordMatchesProvider(record AWSAIAgentIdentityRecord, query stri
 			return true
 		}
 	}
+	for _, value := range awsAIAgentModelProviderFilterAliases(record.ModelID) {
+		if normalizeAWSAIAgentProviderToken(value) == normalizedQuery {
+			return true
+		}
+	}
 	if awsAIAgentProviderFilterRequiresExactProviderMatch(normalizedQuery) {
 		return false
 	}
 	return awsAIAgentRecordMatchesAny(record, query, record.ModelID)
+}
+
+func awsAIAgentModelProviderFilterAliases(modelID string) []string {
+	normalizedModel := strings.ToLower(strings.TrimSpace(modelID))
+	if normalizedModel == "" {
+		return nil
+	}
+	aliases := []string{}
+	if strings.Contains(normalizedModel, "anthropic") || strings.Contains(normalizedModel, "claude") {
+		aliases = append(aliases, "anthropic")
+	}
+	if strings.Contains(normalizedModel, "openai") || strings.Contains(normalizedModel, "gpt") {
+		aliases = append(aliases, "openai")
+	}
+	if strings.Contains(normalizedModel, "bedrock") {
+		aliases = append(aliases, "bedrock")
+	}
+	return aliases
 }
 
 func normalizeAWSAIAgentProviderToken(value string) string {

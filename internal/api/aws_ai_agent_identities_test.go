@@ -318,6 +318,48 @@ func TestAWSAIAgentIdentityExactDetailRecordDoesNotSubstringMatch(t *testing.T) 
 	}
 }
 
+func TestAWSAIAgentRecordMatchesProviderUsesModelProviderAliases(t *testing.T) {
+	tests := []struct {
+		name   string
+		record AWSAIAgentIdentityRecord
+		query  string
+		want   bool
+	}{
+		{
+			name:   "openai query matches gpt model ID",
+			record: AWSAIAgentIdentityRecord{ModelID: "gpt-4o"},
+			query:  "openai",
+			want:   true,
+		},
+		{
+			name:   "anthropic query matches claude model ID",
+			record: AWSAIAgentIdentityRecord{ModelID: "claude-3-opus"},
+			query:  "anthropic",
+			want:   true,
+		},
+		{
+			name:   "bedrock query matches bedrock model ID alias",
+			record: AWSAIAgentIdentityRecord{ModelID: "amazon.bedrock.meta.llama3"},
+			query:  "bedrock",
+			want:   true,
+		},
+		{
+			name:   "exact provider families still do not cross-match",
+			record: AWSAIAgentIdentityRecord{Provider: "amazon-bedrock-agentcore", ModelID: "claude-3-haiku"},
+			query:  "amazon-bedrock",
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := awsAIAgentRecordMatchesProvider(tt.record, tt.query); got != tt.want {
+				t.Fatalf("awsAIAgentRecordMatchesProvider(%+v, %q) = %v, want %v", tt.record, tt.query, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRouterAWSAIAgentIdentityDetailReturnsOneRecord(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()

@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - dev
-  pull_request:
   schedule:
     - cron: '31 2 * * *'
   workflow_dispatch:
@@ -13,20 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  osv-pr:
-    if: github.event_name == 'pull_request'
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@9a498708959aeaef5ef730655706c5a1df1edbc2
-    with:
-      scan-args: |-
-        --recursive
-        .
-
   osv-default:
-    if: github.event_name != 'pull_request'
     permissions:
       actions: read
       contents: read

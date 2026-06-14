@@ -1,5 +1,5 @@
 vulnerability-check: true
-comment-summary-in-pr: always
+comment-summary-in-pr: on-failure
 fail-on-severity: high
 license-check: true
 allow-dependencies-licenses:
