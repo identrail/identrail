@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -485,6 +486,46 @@ func TestGetAWSRuntimeEventsLiveBlockedStatusKeepsContractShape(t *testing.T) {
 	}
 	if !foundCollectorDiagnostic {
 		t.Fatalf("expected collector-level permission_denied diagnostic to survive in blocked response, got %+v", result.Diagnostics)
+	}
+}
+
+func TestAWSRuntimeEventSessionOmitsUnknownTimestamps(t *testing.T) {
+	// IAM/root/service events do not carry a CloudTrail session,
+	// and even assumed-role events where STS rotated the credential
+	// do not expose a real expiration. The JSON response must omit
+	// the field entirely rather than emit the bogus year-0001 zero
+	// literal ("0001-01-01T00:00:00Z") that encoding/json would
+	// produce by default for a zero time.Time.
+	session := AWSRuntimeEventSession{
+		SessionID:     "ASIAEXAMPLE",
+		PrincipalARN:  "arn:aws:iam::123456789012:root",
+		PrincipalType: "root",
+	}
+	encoded, err := json.Marshal(session)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	body := string(encoded)
+	if strings.Contains(body, "started_at") {
+		t.Fatalf("expected started_at to be omitted when zero, got %s", body)
+	}
+	if strings.Contains(body, "expires_at") {
+		t.Fatalf("expected expires_at to be omitted when zero, got %s", body)
+	}
+	if strings.Contains(body, "0001-01-01") {
+		t.Fatalf("expected no year-0001 zero-time literal, got %s", body)
+	}
+
+	// When the times are populated they must round-trip back.
+	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
+	session.StartedAt = now
+	session.ExpiresAt = now.Add(time.Hour)
+	encoded, err = json.Marshal(session)
+	if err != nil {
+		t.Fatalf("marshal populated: %v", err)
+	}
+	if !strings.Contains(string(encoded), "\"started_at\":\"2026-06-14T18:00:00Z\"") {
+		t.Fatalf("expected populated started_at in response, got %s", encoded)
 	}
 }
 

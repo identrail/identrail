@@ -2117,7 +2117,12 @@ export type AWSRuntimeEventSession = {
   session_issuer_arn?: string;
   source_ip_address?: string;
   user_agent?: string;
-  started_at: string;
+  // started_at / expires_at are omitted from the JSON response when
+  // CloudTrail did not supply a real value (e.g. IAM/root/service
+  // events that carry no session, or assumed-role events where STS
+  // rotated the credential and did not expose an expiration). The API
+  // never emits the bogus year-0001 literal.
+  started_at?: string;
   expires_at?: string;
 };
 

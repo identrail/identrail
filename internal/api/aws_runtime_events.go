@@ -30,15 +30,25 @@ type AWSRuntimeEventRequest struct {
 }
 
 type AWSRuntimeEventSession struct {
-	SessionID        string    `json:"session_id"`
-	PrincipalARN     string    `json:"principal_arn"`
-	PrincipalType    string    `json:"principal_type"`
-	AssumedRoleARN   string    `json:"assumed_role_arn,omitempty"`
-	SessionIssuerARN string    `json:"session_issuer_arn,omitempty"`
-	SourceIPAddress  string    `json:"source_ip_address,omitempty"`
-	UserAgent        string    `json:"user_agent,omitempty"`
-	StartedAt        time.Time `json:"started_at"`
-	ExpiresAt        time.Time `json:"expires_at,omitempty"`
+	SessionID        string `json:"session_id"`
+	PrincipalARN     string `json:"principal_arn"`
+	PrincipalType    string `json:"principal_type"`
+	AssumedRoleARN   string `json:"assumed_role_arn,omitempty"`
+	SessionIssuerARN string `json:"session_issuer_arn,omitempty"`
+	SourceIPAddress  string `json:"source_ip_address,omitempty"`
+	UserAgent        string `json:"user_agent,omitempty"`
+	// StartedAt and ExpiresAt use `omitzero` (Go 1.24+) so a zero
+	// time.Time is omitted from the JSON response entirely. Without
+	// this, `encoding/json` serializes the Go zero value as the
+	// bogus literal "0001-01-01T00:00:00Z" — `omitempty` does not
+	// recognise zero structs. This matters because IAM/root/service
+	// runtime events do not carry a CloudTrail session, and even
+	// assumed-role sessions where STS rotated the credential do not
+	// expose a real expiration: synthesising a value would mislead
+	// downstream consumers, and emitting the literal year-0001 zero
+	// would do the same.
+	StartedAt time.Time `json:"started_at,omitzero"`
+	ExpiresAt time.Time `json:"expires_at,omitzero"`
 }
 
 type AWSRuntimeEventRecord struct {
