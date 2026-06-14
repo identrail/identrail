@@ -231,12 +231,54 @@ func TestSDKAgentCoreCapabilitiesDegradesOnDescribeFailure(t *testing.T) {
 	}
 }
 
-func TestSDKAgentCoreCapabilitiesListFailureSurfaces(t *testing.T) {
-	client := &fakeAgentCoreCapabilitiesSDKClient{memoriesErr: errors.New("AccessDenied: ListMemories")}
+func TestSDKAgentCoreCapabilitiesListFailureAdvancesToNextSource(t *testing.T) {
+	// ListMemories is denied, but the account still has ListBrowsers /
+	// ListCodeInterpreters permission. The adapter must record a diagnostic for
+	// the failed memory source and still surface the browser record instead of
+	// aborting the whole capabilities adapter.
+	client := &fakeAgentCoreCapabilitiesSDKClient{
+		memoriesErr: errors.New("AccessDenied: ListMemories"),
+		browsersOutput: &bedrockagentcorecontrol.ListBrowsersOutput{
+			BrowserSummaries: []agentcoretypes.BrowserSummary{{BrowserId: awsv2.String("br-1"), BrowserArn: awsv2.String("arn:aws:bedrock-agentcore:us-east-1:123456789012:browser/br-1"), Name: awsv2.String("research-browser"), Status: agentcoretypes.BrowserStatusReady}},
+		},
+		browserDetail: map[string]*bedrockagentcorecontrol.GetBrowserOutput{
+			"br-1": {
+				BrowserId:        awsv2.String("br-1"),
+				BrowserArn:       awsv2.String("arn:aws:bedrock-agentcore:us-east-1:123456789012:browser/br-1"),
+				Name:             awsv2.String("research-browser"),
+				Status:           agentcoretypes.BrowserStatusReady,
+				ExecutionRoleArn: awsv2.String("arn:aws:iam::123456789012:role/agentcore-browser"),
+			},
+		},
+	}
 	api := NewSDKAgentCoreCapabilitiesAPIFromClient(client, "123456789012", "us-east-1")
-	_, err := api.ListAgentIdentities(context.Background(), "", 50)
-	if err == nil {
-		t.Fatalf("expected list error to surface")
+	records, diagnostics := collectAllCapabilityRecords(t, api)
+
+	foundBrowser := false
+	for _, r := range records {
+		if r.CapabilityKind == agentCoreCapabilityKindBrowser {
+			foundBrowser = true
+		}
+	}
+	if !foundBrowser {
+		t.Fatalf("expected browser record to survive a ListMemories denial, got %+v", records)
+	}
+	foundDiag := false
+	for _, d := range diagnostics {
+		if d.Code == "agentcore_capability_list_failed" && d.SourceID == "memory" {
+			foundDiag = true
+		}
+	}
+	if !foundDiag {
+		t.Fatalf("expected agentcore_capability_list_failed diagnostic for memory, got %v", diagnostics)
+	}
+}
+
+func TestSDKAgentCoreCapabilitiesListFailureAbortsOnCancellation(t *testing.T) {
+	client := &fakeAgentCoreCapabilitiesSDKClient{memoriesErr: context.Canceled}
+	api := NewSDKAgentCoreCapabilitiesAPIFromClient(client, "123456789012", "us-east-1")
+	if _, err := api.ListAgentIdentities(context.Background(), "", 50); err == nil {
+		t.Fatalf("expected cancellation to abort the adapter")
 	}
 }
 

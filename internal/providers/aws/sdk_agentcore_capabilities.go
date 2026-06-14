@@ -143,7 +143,26 @@ func (a *SDKAgentCoreCapabilitiesAPI) ListAgentIdentities(ctx context.Context, n
 			records, next, diagnostics, err = a.listCodeInterpreters(ctx, sourceToken, pageSize)
 		}
 		if err != nil {
-			return AIAgentIdentityPage{}, err
+			// Cancellation/deadline aborts the whole adapter; any other list
+			// failure (denied/throttled on one capability source) is recorded as
+			// a diagnostic and we advance to the next source so an account that
+			// still has ListBrowsers/ListCodeInterpreters permission does not
+			// lose those records to a single ListMemories denial.
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return AIAgentIdentityPage{}, err
+			}
+			diagnostic := providers.SourceError{
+				Collector: aiAgentIdentityCollectorName,
+				SourceID:  agentCoreCapabilitySourceName(source),
+				Code:      "agentcore_capability_list_failed",
+				Message:   fmt.Sprintf("AgentCore %s list failed: %v", agentCoreCapabilitySourceName(source), err),
+				Retryable: isRetryable(err),
+			}
+			page := AIAgentIdentityPage{Diagnostics: []providers.SourceError{diagnostic}}
+			if source+1 < agentCoreCapabilitySourceCount {
+				page.NextToken = formatAgentCoreCapabilityToken(source+1, "")
+			}
+			return page, nil
 		}
 		page := AIAgentIdentityPage{Records: records, Diagnostics: diagnostics}
 		if strings.TrimSpace(next) != "" {
@@ -603,4 +622,17 @@ func parseAgentCoreCapabilityToken(token string) (agentCoreCapabilitySource, str
 
 func formatAgentCoreCapabilityToken(source agentCoreCapabilitySource, sourceToken string) string {
 	return fmt.Sprintf("%d:%s", int(source), strings.TrimSpace(sourceToken))
+}
+
+func agentCoreCapabilitySourceName(source agentCoreCapabilitySource) string {
+	switch source {
+	case agentCoreCapabilitySourceMemory:
+		return "memory"
+	case agentCoreCapabilitySourceBrowser:
+		return "browser"
+	case agentCoreCapabilitySourceCodeInterpreter:
+		return "code_interpreter"
+	default:
+		return "capability"
+	}
 }
