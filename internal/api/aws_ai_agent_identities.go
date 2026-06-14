@@ -699,9 +699,18 @@ func awsAIAgentCredentialReferenceProvider(name, source string) string {
 		return "anthropic"
 	case containsAnyToken(probe, "bedrock"):
 		return "bedrock"
-	case strings.HasPrefix(sourceProbe, "secretsmanager:") || strings.HasPrefix(sourceProbe, "secretsmanager-") || strings.HasPrefix(sourceProbe, "secrets_manager-"):
+	case strings.HasPrefix(sourceProbe, "secretsmanager:") ||
+		strings.HasPrefix(sourceProbe, "secretsmanager-") ||
+		strings.HasPrefix(sourceProbe, "secrets_manager-") ||
+		strings.Contains(sourceProbe, "arn-aws-secretsmanager-") ||
+		strings.Contains(sourceProbe, "arn-aws-us-gov-secretsmanager-") ||
+		strings.Contains(sourceProbe, "arn-aws-cn-secretsmanager-"):
 		return "secretsmanager"
-	case strings.HasPrefix(sourceProbe, "ssm:") || strings.HasPrefix(sourceProbe, "ssm-"):
+	case strings.HasPrefix(sourceProbe, "ssm:") ||
+		strings.HasPrefix(sourceProbe, "ssm-") ||
+		strings.Contains(sourceProbe, "arn-aws-ssm-") ||
+		strings.Contains(sourceProbe, "arn-aws-us-gov-ssm-") ||
+		strings.Contains(sourceProbe, "arn-aws-cn-ssm-"):
 		return "ssm"
 	default:
 		return "generic"
