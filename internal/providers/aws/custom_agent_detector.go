@@ -70,6 +70,9 @@ func deriveCustomAIAgentIdentityAssets(raw []providers.RawAsset) []providers.Raw
 		if !ok {
 			continue
 		}
+		if customAgentEvidenceIsControlPlaneExecutionRole(evidence) {
+			continue
+		}
 		detection, ok := detectCustomAgentWorkload(evidence)
 		if !ok {
 			continue
@@ -116,11 +119,19 @@ func deriveCustomAIAgentIdentityAssets(raw []providers.RawAsset) []providers.Raw
 // An ECS task role (the identity the container code assumes) outranks an ECS
 // execution role, which is only used by the ECS agent to pull images and secrets.
 func customAgentEvidencePriority(evidence customAgentWorkloadEvidence) int {
-	if evidence.Kind == rawKindECSTaskRole &&
-		strings.EqualFold(strings.TrimSpace(evidence.RoleKind), ecsRoleKindExecution) {
+	if customAgentEvidenceIsControlPlaneExecutionRole(evidence) {
 		return 0
 	}
 	return 1
+}
+
+func customAgentEvidenceIsControlPlaneExecutionRole(evidence customAgentWorkloadEvidence) bool {
+	if evidence.Kind == rawKindECSTaskRole &&
+		strings.EqualFold(strings.TrimSpace(evidence.RoleKind), ecsRoleKindExecution) {
+		return true
+	}
+	return evidence.Kind == rawKindEKSWorkloadIdentity &&
+		strings.EqualFold(strings.TrimSpace(evidence.RoleKind), eksRoleKindFargatePodExecution)
 }
 
 func customAgentEvidenceFromRawAsset(asset providers.RawAsset) (customAgentWorkloadEvidence, bool) {

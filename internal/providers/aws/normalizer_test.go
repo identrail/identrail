@@ -262,12 +262,8 @@ func TestRoleNormalizerEmitsGatewayToolResourcesAndRelationships(t *testing.T) {
 	}
 
 	refs, _ := MapBundleCredentialReferences(bundle)
-	credential, ok := findCredentialReference(refs, credentialRef)
-	if !ok {
-		t.Fatalf("expected gateway tool credential reference %q, got %+v", credentialRef, refs)
-	}
-	if credential.WorkloadID != toolSourceEntityID {
-		t.Fatalf("expected credential reference workload %q, got %q", toolSourceEntityID, credential.WorkloadID)
+	if _, ok := findCredentialReference(refs, credentialRef); ok {
+		t.Fatalf("expected AgentCore credential-provider ARN to stay metadata-only, got %+v", refs)
 	}
 
 	relationships, err := NewRelationshipBuilder().ResolveRelationships(context.Background(), bundle, nil)
@@ -280,15 +276,15 @@ func TestRoleNormalizerEmitsGatewayToolResourcesAndRelationships(t *testing.T) {
 		if relationship.Type == domain.RelationshipCallsTool && relationship.ToNodeID == toolResourceID {
 			foundCallsTool = true
 		}
-		if relationship.Type == domain.RelationshipUsesSecret && relationship.FromNodeID == toolSourceEntityID && relationship.ToNodeID == credential.TargetNodeID {
+		if relationship.Type == domain.RelationshipUsesSecret && relationship.FromNodeID == toolSourceEntityID {
 			foundUsesSecret = true
 		}
 	}
 	if !foundCallsTool {
 		t.Fatalf("expected calls_tool relationship to %q, got %+v", toolResourceID, relationships)
 	}
-	if !foundUsesSecret {
-		t.Fatalf("expected uses_secret relationship from %q to %q, got %+v", toolSourceEntityID, credential.TargetNodeID, relationships)
+	if foundUsesSecret {
+		t.Fatalf("expected no uses_secret relationship for AgentCore credential-provider metadata from %q, got %+v", toolSourceEntityID, relationships)
 	}
 }
 

@@ -104,6 +104,9 @@ func MapBundleCredentialReferences(bundle providers.NormalizedBundle) ([]Credent
 		fromNodeID := credentialWorkloadNodeID(resource)
 		workloadName := strings.TrimSpace(resource.Name)
 		for _, raw := range candidates {
+			if isAgentCoreCredentialProviderReference(raw) {
+				continue
+			}
 			ref := classifyCredentialReference(raw, resource, sourceService, secretIndex, parameterIndex)
 			if ref.Reference == "" {
 				continue
@@ -159,6 +162,9 @@ func MapBundleCredentialReferences(bundle providers.NormalizedBundle) ([]Credent
 		fromNodeID := credentialWorkloadNodeID(resource)
 		workloadName := strings.TrimSpace(resource.Name)
 		for _, raw := range credentialCandidateRefs(resource) {
+			if isAgentCoreCredentialProviderReference(raw) {
+				continue
+			}
 			ref := classifyCredentialReference(raw, resource, sourceService, secretIndex, parameterIndex)
 			if ref.Reference == "" {
 				continue
@@ -390,6 +396,25 @@ func classifyCredentialReference(raw string, resource domain.Resource, sourceSer
 		}
 	}
 	return ref
+}
+
+func isAgentCoreCredentialProviderReference(raw string) bool {
+	name, source := splitCredentialReference(strings.TrimSpace(raw))
+	if strings.TrimSpace(name) != "" {
+		return false
+	}
+	probe := strings.ToLower(strings.TrimSpace(source))
+	if !strings.Contains(probe, "bedrock-agentcore") {
+		return false
+	}
+	return strings.Contains(probe, ":oauth/") ||
+		strings.Contains(probe, "/oauth/") ||
+		strings.Contains(probe, ":api-key/") ||
+		strings.Contains(probe, "/api-key/") ||
+		strings.Contains(probe, ":apikey/") ||
+		strings.Contains(probe, "/apikey/") ||
+		strings.Contains(probe, ":api_key/") ||
+		strings.Contains(probe, "/api_key/")
 }
 
 // splitCredentialReference separates a `NAME=SOURCE` reference into its env-var

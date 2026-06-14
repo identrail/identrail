@@ -303,6 +303,42 @@ func TestCustomAgentDetectorPrefersECSTaskRoleOverExecutionRole(t *testing.T) {
 	}
 }
 
+func TestCustomAgentDetectorSkipsECSExecutionRoleOnly(t *testing.T) {
+	executionRole := "arn:aws:iam::123456789012:role/support-assistant-exec"
+	raw := []providers.RawAsset{
+		rawAsset(t, rawKindECSTaskRole, "ecs-exec", ECSTaskRole{
+			ServiceCollectorRecord: awscontract.ServiceCollectorRecord{AccountID: "123456789012", Region: "us-east-1", Service: "ecs", RoleARN: executionRole, WorkloadID: "arn:aws:ecs:us-east-1:123456789012:service/prod/support-assistant", WorkloadName: "support-assistant", WorkloadType: "ecs_service"},
+			RoleKind:               ecsRoleKindExecution,
+			ServiceARN:             "arn:aws:ecs:us-east-1:123456789012:service/prod/support-assistant",
+			ServiceName:            "support-assistant",
+			ContainerImages:        []string{"123456789012.dkr.ecr.us-east-1.amazonaws.com/langchain-agent:prod"},
+			EnvironmentKeys:        []string{"OPENAI_API_KEY"},
+		}),
+	}
+	if derived := deriveCustomAIAgentIdentityAssets(raw); len(derived) != 0 {
+		t.Fatalf("expected execution-role-only ECS evidence to be skipped, got %+v", derived)
+	}
+}
+
+func TestCustomAgentDetectorSkipsEKSFargatePodExecutionRole(t *testing.T) {
+	podExecutionRole := "arn:aws:iam::123456789012:role/prod-fargate-pod-exec"
+	raw := []providers.RawAsset{
+		rawAsset(t, rawKindEKSWorkloadIdentity, "eks-fargate", EKSWorkloadIdentity{
+			ServiceCollectorRecord: awscontract.ServiceCollectorRecord{AccountID: "123456789012", Region: "us-east-1", Service: "eks", RoleARN: podExecutionRole, WorkloadID: "arn:aws:eks:us-east-1:123456789012:fargateprofile/prod/ai-agents", WorkloadName: "ai-agents", WorkloadType: "eks_fargate_pod_execution_role"},
+			RoleKind:               eksRoleKindFargatePodExecution,
+			ClusterName:            "prod",
+			FargateProfileARN:      "arn:aws:eks:us-east-1:123456789012:fargateprofile/prod/ai-agents",
+			FargateProfileName:     "ai-agents",
+			PodExecutionRoleARN:    podExecutionRole,
+			SelectorLabels:         []string{"workload=ai-agent"},
+			Tags:                   map[string]string{"workload": "ai-agent"},
+		}),
+	}
+	if derived := deriveCustomAIAgentIdentityAssets(raw); len(derived) != 0 {
+		t.Fatalf("expected EKS Fargate pod execution role evidence to be skipped, got %+v", derived)
+	}
+}
+
 func rawAsset(t *testing.T, kind string, sourceID string, record any) providers.RawAsset {
 	t.Helper()
 	payload, err := json.Marshal(record)
