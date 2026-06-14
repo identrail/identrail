@@ -394,7 +394,10 @@ func awsAIAgentIdentityFixtureRecords(accountID string, region string, fixtureSt
 			r.ModelID = "provider:model-redacted"
 			r.ToolNames = []string{"support-search"}
 			r.CapabilityNames = []string{"tool_use"}
-			r.CredentialReferenceRefs = []string{"ANTHROPIC_API_KEY=ssm:/prod/support/anthropic-key"}
+			r.CredentialReferenceRefs = []string{
+				"ANTHROPIC_API_KEY=ssm:/prod/support/anthropic-key",
+				"BEDROCK_API_KEY=secretsmanager:prod/bedrock/api-key",
+			}
 			r.ExternalProvider = "anthropic"
 		}),
 		awsAIAgentFixtureRecord(accountID, region, "agent_gateway", "payments-gateway", "payments-gateway", gatewayARN, role("bedrock-agent-gateway-payments"), checkedAt, func(r *AWSAIAgentIdentityRecord) {
@@ -690,6 +693,7 @@ func awsCredentialReferenceNodeID(agentNodeID string, ref string) string {
 }
 
 func awsAIAgentCredentialReferenceProvider(name, source string) string {
+	nameProbe := strings.ToLower(strings.TrimSpace(name))
 	probe := strings.ToLower(strings.TrimSpace(name + " " + source))
 	sourceProbe := strings.ToLower(strings.TrimSpace(source))
 	switch {
@@ -697,7 +701,7 @@ func awsAIAgentCredentialReferenceProvider(name, source string) string {
 		return "openai"
 	case containsAnyToken(probe, "anthropic", "claude"):
 		return "anthropic"
-	case awsAIAgentCredentialReferenceLooksLikeBedrockProviderKey(probe):
+	case awsAIAgentCredentialReferenceLooksLikeBedrockProviderKey(nameProbe, probe):
 		return "bedrock"
 	case strings.HasPrefix(sourceProbe, "secretsmanager:") ||
 		strings.HasPrefix(sourceProbe, "secretsmanager-") ||
@@ -719,10 +723,14 @@ func awsAIAgentCredentialReferenceProvider(name, source string) string {
 	}
 }
 
-func awsAIAgentCredentialReferenceLooksLikeBedrockProviderKey(probe string) bool {
-	if strings.Contains(probe, "bedrock-agentcore") || strings.Contains(probe, "bedrock_agentcore") {
+func awsAIAgentCredentialReferenceLooksLikeBedrockProviderKey(nameProbe, probe string) bool {
+	if !awsAIAgentCredentialReferenceContainsBedrockKeyToken(nameProbe) && awsAIAgentCredentialReferenceLooksLikeAgentCoreOAuthSource(probe) {
 		return false
 	}
+	return awsAIAgentCredentialReferenceContainsBedrockKeyToken(probe)
+}
+
+func awsAIAgentCredentialReferenceContainsBedrockKeyToken(probe string) bool {
 	return containsAnyToken(probe,
 		"bedrock_api_key",
 		"bedrock-api-key",
@@ -734,6 +742,12 @@ func awsAIAgentCredentialReferenceLooksLikeBedrockProviderKey(probe string) bool
 		"amazon-bedrock-api-key",
 		"amazonbedrockapikey",
 	)
+}
+
+func awsAIAgentCredentialReferenceLooksLikeAgentCoreOAuthSource(probe string) bool {
+	agentCore := strings.Contains(probe, "bedrock-agentcore") || strings.Contains(probe, "bedrock_agentcore")
+	oauth := strings.Contains(probe, "-oauth-") || strings.Contains(probe, "/oauth/") || strings.Contains(probe, ":oauth/")
+	return agentCore && oauth
 }
 
 func awsAIAgentProviderKeyReferences(record AWSAIAgentIdentityRecord) []AWSAIAgentProviderKeyReference {
@@ -806,7 +820,7 @@ func awsAIAgentCredentialReferenceConfidence(provider string) float64 {
 
 func awsAIAgentProviderIsExternalAI(provider string) bool {
 	switch provider {
-	case "openai", "anthropic":
+	case "openai", "anthropic", "bedrock":
 		return true
 	default:
 		return false

@@ -169,14 +169,14 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 			}
 		}
 	}
-	if result.ExternalProviderKeyCount != 2 || result.AIProviderKeyCount != 2 {
-		t.Fatalf("expected two external AI provider key references, got external=%d ai=%d", result.ExternalProviderKeyCount, result.AIProviderKeyCount)
+	if result.ExternalProviderKeyCount != 3 || result.AIProviderKeyCount != 3 {
+		t.Fatalf("expected three external AI provider key references, got external=%d ai=%d", result.ExternalProviderKeyCount, result.AIProviderKeyCount)
 	}
-	if providerCounts["openai"] != 1 || providerCounts["anthropic"] != 1 {
-		t.Fatalf("expected openai and anthropic provider-key records, got %+v", providerCounts)
+	if providerCounts["openai"] != 1 || providerCounts["anthropic"] != 1 || providerCounts["bedrock"] != 1 {
+		t.Fatalf("expected openai, anthropic, and bedrock provider-key records, got %+v", providerCounts)
 	}
-	if result.ProviderKeyBreakdown["openai"] != 1 || result.ProviderKeyBreakdown["anthropic"] != 1 {
-		t.Fatalf("expected provider key breakdown for openai/anthropic, got %+v", result.ProviderKeyBreakdown)
+	if result.ProviderKeyBreakdown["openai"] != 1 || result.ProviderKeyBreakdown["anthropic"] != 1 || result.ProviderKeyBreakdown["bedrock"] != 1 {
+		t.Fatalf("expected provider key breakdown for openai/anthropic/bedrock, got %+v", result.ProviderKeyBreakdown)
 	}
 	if len(result.CoverageGaps) == 0 {
 		t.Fatalf("expected sensitive-boundary coverage gaps, got %+v", result.CoverageGaps)
@@ -379,6 +379,7 @@ func TestAIAgentProviderKeyReferencesClassifyStoreOnlySources(t *testing.T) {
 			"arn:aws:ssm:us-east-1:111111111111:parameter/provider/key",
 			"PARAMETER_STORE:/prod/provider-key",
 			"BEDROCK_API_KEY=secretsmanager:prod/bedrock/api-key",
+			"BEDROCK_API_KEY=secretsmanager:prod/bedrock-agentcore/bedrock-api-key",
 			"arn:aws:bedrock-agentcore:us-east-1:111111111111:oauth/payments",
 		}
 	})
@@ -409,6 +410,9 @@ func TestAIAgentProviderKeyReferencesClassifyStoreOnlySources(t *testing.T) {
 	if providersByRef["BEDROCK_API_KEY=secretsmanager:prod/bedrock/api-key"] != "bedrock" {
 		t.Fatalf("expected Bedrock API key marker to classify as bedrock, got %+v", record.ProviderKeyReferences)
 	}
+	if providersByRef["BEDROCK_API_KEY=secretsmanager:prod/bedrock-agentcore/bedrock-api-key"] != "bedrock" {
+		t.Fatalf("expected explicit Bedrock API key marker with AgentCore path to classify as bedrock, got %+v", record.ProviderKeyReferences)
+	}
 	if providersByRef["arn:aws:bedrock-agentcore:us-east-1:111111111111:oauth/payments"] != "generic" {
 		t.Fatalf("expected AgentCore OAuth ARN to classify as generic, got %+v", record.ProviderKeyReferences)
 	}
@@ -418,6 +422,9 @@ func TestAIAgentProviderKeyReferencesClassifyStoreOnlySources(t *testing.T) {
 	}
 	if sensitivityByRef["BEDROCK_API_KEY=secretsmanager:prod/bedrock/api-key"] != "ai_provider_api_key" {
 		t.Fatalf("expected Bedrock API key marker to use ai_provider_api_key sensitivity, got %+v", record.ProviderKeyReferences)
+	}
+	if sensitivityByRef["BEDROCK_API_KEY=secretsmanager:prod/bedrock-agentcore/bedrock-api-key"] != "ai_provider_api_key" {
+		t.Fatalf("expected explicit Bedrock API key marker with AgentCore path to use ai_provider_api_key sensitivity, got %+v", record.ProviderKeyReferences)
 	}
 	if sensitivityByRef["arn:aws:bedrock-agentcore:us-east-1:111111111111:oauth/payments"] != "generic_secret" {
 		t.Fatalf("expected AgentCore OAuth ARN to use generic_secret sensitivity, got %+v", record.ProviderKeyReferences)
