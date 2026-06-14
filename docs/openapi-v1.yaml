@@ -10158,6 +10158,10 @@ components:
           items:
             type: string
             enum: [runs_as, calls_tool, uses_secret, invokes]
+        provider_key_references:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAIAgentProviderKeyReference"
         confidence:
           type: number
           minimum: 0
@@ -10171,6 +10175,27 @@ components:
         tags:
           type: object
           additionalProperties: { type: string }
+    AWSAIAgentProviderKeyReference:
+      type: object
+      properties:
+        reference: { type: string }
+        reference_name: { type: string }
+        reference_kind:
+          type: string
+          enum: [secrets_manager, ssm_parameter, environment_variable, credential_reference]
+        provider:
+          type: string
+          enum: [openai, anthropic, bedrock, secretsmanager, ssm, generic]
+        sensitivity:
+          type: string
+          enum: [ai_provider_api_key, aws_managed_secret, generic_secret]
+        resolved: { type: boolean }
+        target_node_id: { type: string }
+        evidence_ref: { type: string }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
     AWSAIAgentIdentityRelationship:
       type: object
       properties:
@@ -10242,6 +10267,11 @@ components:
         tool_count: { type: integer }
         capability_count: { type: integer }
         credential_reference_count: { type: integer }
+        external_provider_key_count: { type: integer }
+        ai_provider_key_count: { type: integer }
+        provider_key_breakdown:
+          type: object
+          additionalProperties: { type: integer }
         relationship_count: { type: integer }
         failure_reasons:
           type: array

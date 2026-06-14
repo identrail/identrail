@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- Add **external AI provider key metadata mapping for AWS agents** (#1510).
+  Extends the AWS AI agent identity inventory with classified
+  `provider_key_references` derived from safe names, ARNs, source markers, and
+  workload credential references for OpenAI, Anthropic/Claude, Bedrock, and
+  generic provider keys. The API now reports `external_provider_key_count`,
+  `ai_provider_key_count`, and `provider_key_breakdown`, keeps `uses_secret`
+  edges pointed at credential-reference nodes, and the AWS Agents app surface
+  shows external provider key counts and per-agent provider labels. The mapper
+  remains metadata-only: it never reads, logs, persists, or exposes secret
+  values, prompts, completions, browser pages, code output, database rows,
+  object contents, or customer payloads. See
+  [docs/aws-ai-agent-identities.md](docs/aws-ai-agent-identities.md).
 - Add **AgentCore Memory, Browser, and Code Interpreter metadata mapping** (#1509).
   Extends the AWS AI agent identity model with a read-only, metadata-only
   AgentCore capabilities adapter (`internal/providers/aws/sdk_agentcore_capabilities.go`)

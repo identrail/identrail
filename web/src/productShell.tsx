@@ -6711,10 +6711,10 @@ function AWSAgentIdentitiesContent({
               detail={`${inventory.memory_store_count} memory · ${inventory.browser_count} browser · ${inventory.code_interpreter_count} code`}
             />
             <DomainCoverageCard
-              label="Credential refs"
-              scanned={inventory.credential_reference_count}
+              label="External provider keys"
+              scanned={inventory.external_provider_key_count}
               total={Math.max(inventory.credential_reference_count, 1)}
-              detail="Values hidden"
+              detail={`${inventory.ai_provider_key_count} AI keys, values hidden`}
             />
           </section>
           {inventory.diagnostics.length ? (
@@ -6745,7 +6745,7 @@ function AWSAgentIdentitiesContent({
         {[
           ['Agent to role', inventory ? `${inventory.runtime_role_count} runtime role anchors` : connection?.role_arn ? 'Role anchor available' : 'Waiting for role validation'],
           ['Agent to tool', inventory ? `${inventory.tool_count} tool names` : 'Tool and gateway metadata pending'],
-          ['Agent to secret', inventory ? `${inventory.credential_reference_count} credential references, values hidden` : 'Secret metadata only, no value reads'],
+          ['Agent to secret', inventory ? `${inventory.external_provider_key_count} external provider keys, ${inventory.credential_reference_count} credential references; values hidden` : 'Secret metadata only, no value reads'],
           ['Agent to user', 'Human owner mapping reserved for governance waves']
         ].map(([label, detail]) => (
           <article key={label}>
@@ -7113,6 +7113,9 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
   const endpointLabel = record.execution_endpoint_names?.length ? `${record.execution_endpoint_names.length} execution endpoints` : 'no execution endpoints reported';
   const protocolLabel = record.server_protocol || 'protocol not reported';
   const networkLabel = record.network_mode || 'network mode not reported';
+  const providerKeyLabel = record.provider_key_references?.length
+    ? `${record.provider_key_references.map((ref) => formatTokenLabel(ref.provider)).join(', ')} provider keys, values hidden`
+    : credentialLabel;
   const surface = awsAIAgentSurfaceFilter(record);
   const relationships = new Set<string>(['agent-to-role']);
   if (record.tool_names?.length || record.gateway_arn) {
@@ -7148,7 +7151,7 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
     stage,
     detail: record.capability_kind
       ? `${capabilityDetail}; runs as ${roleLabel}; ${capabilityLabel}. Contents never collected.`
-      : `${record.provider || 'provider not reported'} ${record.model_id || 'model not reported'}; runs as ${roleLabel}; ${runtimeLabel}; ${toolLabel}; ${authLabel}; ${actionLabel}; ${endpointLabel}; ${networkLabel}; ${protocolLabel}; ${capabilityLabel}; ${credentialLabel}.`,
+      : `${record.provider || 'provider not reported'} ${record.model_id || 'model not reported'}; runs as ${roleLabel}; ${runtimeLabel}; ${toolLabel}; ${authLabel}; ${actionLabel}; ${endpointLabel}; ${networkLabel}; ${protocolLabel}; ${capabilityLabel}; ${providerKeyLabel}.`,
     filters: {
       surface,
       relationship: Array.from(relationships).join(','),
@@ -7177,6 +7180,7 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
       ...(record.observability_links ?? []),
       ...(record.capability_names ?? []),
       ...(record.credential_reference_refs ?? []),
+      ...(record.provider_key_references?.flatMap((ref) => [ref.provider, ref.sensitivity, ref.reference_kind, ref.reference]) ?? []),
       ...(record.storage_reference_refs ?? []),
       ...(record.memory_store_refs ?? []),
       record.capability_kind,

@@ -12,11 +12,14 @@ import (
 )
 
 const (
-	awsAIAgentIdentityCurrentIssue  = 1509
-	awsAIAgentIdentityVersion       = "aws-ai-agent-identity-normalized-model-v1"
-	awsAIAgentCredentialRefPrefix   = "aws:resource:credential-reference:"
-	awsAIAgentToolNodePrefix        = "tool:agent:"
-	agentCoreCapabilityAgentTypeAPI = "agentcore_capability"
+	awsAIAgentIdentityCurrentIssue        = 1510
+	awsAIAgentIdentityVersion             = "aws-ai-agent-external-provider-keys-v1"
+	awsAIAgentCredentialRefPrefix         = "aws:resource:credential-reference:"
+	awsAIAgentToolNodePrefix              = "tool:agent:"
+	agentCoreCapabilityAgentTypeAPI       = "agentcore_capability"
+	awsAIAgentProviderSensitivityAIKey    = "ai_provider_api_key"
+	awsAIAgentProviderSensitivityAWSStore = "aws_managed_secret"
+	awsAIAgentProviderSensitivityGeneric  = "generic_secret"
 )
 
 type AWSAIAgentIdentityInventoryRequest struct {
@@ -32,99 +35,115 @@ type AWSAIAgentCoverageGap struct {
 }
 
 type AWSAIAgentIdentityInventoryResult struct {
-	TenantID              string                         `json:"tenant_id"`
-	WorkspaceID           string                         `json:"workspace_id"`
-	ProjectID             string                         `json:"project_id"`
-	ConnectorID           string                         `json:"connector_id,omitempty"`
-	AccountID             string                         `json:"account_id,omitempty"`
-	Region                string                         `json:"region,omitempty"`
-	ParentIssueNumber     int                            `json:"parent_issue_number"`
-	ParentIssueRef        string                         `json:"parent_issue_ref"`
-	CurrentIssueNumber    int                            `json:"current_issue_number"`
-	CurrentIssueRef       string                         `json:"current_issue_ref"`
-	Version               string                         `json:"version"`
-	Status                string                         `json:"status"`
-	FixtureState          string                         `json:"fixture_state"`
-	Confidence            float64                        `json:"confidence"`
-	RecordCount           int                            `json:"record_count"`
-	BedrockAgentCount     int                            `json:"bedrock_agent_count"`
-	AgentCoreRuntimeCount int                            `json:"agentcore_runtime_count"`
-	CustomAgentCount      int                            `json:"custom_agent_count"`
-	ExternalAgentCount    int                            `json:"external_agent_count"`
-	GatewayCount          int                            `json:"gateway_count"`
-	CapabilityAgentCount  int                            `json:"capability_agent_count"`
-	MemoryStoreCount      int                            `json:"memory_store_count"`
-	BrowserCount          int                            `json:"browser_count"`
-	CodeInterpreterCount  int                            `json:"code_interpreter_count"`
-	RuntimeRoleCount      int                            `json:"runtime_role_count"`
-	ProviderCount         int                            `json:"provider_count"`
-	ModelCount            int                            `json:"model_count"`
-	ToolCount             int                            `json:"tool_count"`
-	CapabilityCount       int                            `json:"capability_count"`
-	CredentialRefCount    int                            `json:"credential_reference_count"`
-	RelationshipCount     int                            `json:"relationship_count"`
-	FailureReasons        []string                       `json:"failure_reasons"`
-	RemediationHints      []string                       `json:"remediation_hints"`
-	EvidenceLinks         []string                       `json:"evidence_links"`
-	CoverageGaps          []AWSAIAgentCoverageGap        `json:"coverage_gaps"`
-	Records               []AWSAIAgentIdentityRecord     `json:"records"`
-	Relationships         []AWSAIAgentIdentityRelation   `json:"relationships"`
-	Diagnostics           []AWSAIAgentIdentityDiagnostic `json:"diagnostics"`
-	GeneratedAt           time.Time                      `json:"generated_at"`
-	UpdatedAt             time.Time                      `json:"updated_at"`
+	TenantID                 string                         `json:"tenant_id"`
+	WorkspaceID              string                         `json:"workspace_id"`
+	ProjectID                string                         `json:"project_id"`
+	ConnectorID              string                         `json:"connector_id,omitempty"`
+	AccountID                string                         `json:"account_id,omitempty"`
+	Region                   string                         `json:"region,omitempty"`
+	ParentIssueNumber        int                            `json:"parent_issue_number"`
+	ParentIssueRef           string                         `json:"parent_issue_ref"`
+	CurrentIssueNumber       int                            `json:"current_issue_number"`
+	CurrentIssueRef          string                         `json:"current_issue_ref"`
+	Version                  string                         `json:"version"`
+	Status                   string                         `json:"status"`
+	FixtureState             string                         `json:"fixture_state"`
+	Confidence               float64                        `json:"confidence"`
+	RecordCount              int                            `json:"record_count"`
+	BedrockAgentCount        int                            `json:"bedrock_agent_count"`
+	AgentCoreRuntimeCount    int                            `json:"agentcore_runtime_count"`
+	CustomAgentCount         int                            `json:"custom_agent_count"`
+	ExternalAgentCount       int                            `json:"external_agent_count"`
+	GatewayCount             int                            `json:"gateway_count"`
+	CapabilityAgentCount     int                            `json:"capability_agent_count"`
+	MemoryStoreCount         int                            `json:"memory_store_count"`
+	BrowserCount             int                            `json:"browser_count"`
+	CodeInterpreterCount     int                            `json:"code_interpreter_count"`
+	RuntimeRoleCount         int                            `json:"runtime_role_count"`
+	ProviderCount            int                            `json:"provider_count"`
+	ModelCount               int                            `json:"model_count"`
+	ToolCount                int                            `json:"tool_count"`
+	CapabilityCount          int                            `json:"capability_count"`
+	CredentialRefCount       int                            `json:"credential_reference_count"`
+	ExternalProviderKeyCount int                            `json:"external_provider_key_count"`
+	AIProviderKeyCount       int                            `json:"ai_provider_key_count"`
+	ProviderKeyBreakdown     map[string]int                 `json:"provider_key_breakdown"`
+	RelationshipCount        int                            `json:"relationship_count"`
+	FailureReasons           []string                       `json:"failure_reasons"`
+	RemediationHints         []string                       `json:"remediation_hints"`
+	EvidenceLinks            []string                       `json:"evidence_links"`
+	CoverageGaps             []AWSAIAgentCoverageGap        `json:"coverage_gaps"`
+	Records                  []AWSAIAgentIdentityRecord     `json:"records"`
+	Relationships            []AWSAIAgentIdentityRelation   `json:"relationships"`
+	Diagnostics              []AWSAIAgentIdentityDiagnostic `json:"diagnostics"`
+	GeneratedAt              time.Time                      `json:"generated_at"`
+	UpdatedAt                time.Time                      `json:"updated_at"`
 }
 
 type AWSAIAgentIdentityRecord struct {
-	AccountID                 string            `json:"account_id"`
-	Region                    string            `json:"region"`
-	Service                   string            `json:"service"`
-	AgentID                   string            `json:"agent_id"`
-	AgentARN                  string            `json:"agent_arn,omitempty"`
-	AgentName                 string            `json:"agent_name"`
-	AgentType                 string            `json:"agent_type"`
-	RuntimeVersion            string            `json:"runtime_version,omitempty"`
-	Provider                  string            `json:"provider,omitempty"`
-	ModelID                   string            `json:"model_id,omitempty"`
-	RuntimeRoleARN            string            `json:"runtime_role_arn,omitempty"`
-	RuntimeRoleName           string            `json:"runtime_role_name,omitempty"`
-	RuntimeRoleAccountID      string            `json:"runtime_role_account_id,omitempty"`
-	WorkloadIdentityARN       string            `json:"workload_identity_arn,omitempty"`
-	GatewayID                 string            `json:"gateway_id,omitempty"`
-	GatewayARN                string            `json:"gateway_arn,omitempty"`
-	ExternalProvider          string            `json:"external_provider,omitempty"`
-	ToolNames                 []string          `json:"tool_names,omitempty"`
-	ToolTargetRefs            []string          `json:"tool_target_refs,omitempty"`
-	AllowedActions            []string          `json:"allowed_actions,omitempty"`
-	AuthMode                  string            `json:"auth_mode,omitempty"`
-	MemoryEnabled             bool              `json:"memory_enabled"`
-	MemoryStoreRefs           []string          `json:"memory_store_refs,omitempty"`
-	BrowserEnabled            bool              `json:"browser_enabled"`
-	CodeInterpreterEnabled    bool              `json:"code_interpreter_enabled"`
-	CapabilityKind            string            `json:"capability_kind,omitempty"`
-	StorageReferenceRefs      []string          `json:"storage_reference_refs,omitempty"`
-	EncryptionKeyARN          string            `json:"encryption_key_arn,omitempty"`
-	CapabilityNames           []string          `json:"capability_names,omitempty"`
-	CredentialReferenceRefs   []string          `json:"credential_reference_refs,omitempty"`
-	ResourceReferenceRefs     []string          `json:"resource_reference_refs,omitempty"`
-	ExecutionEndpointARNs     []string          `json:"execution_endpoint_arns,omitempty"`
-	ExecutionEndpointNames    []string          `json:"execution_endpoint_names,omitempty"`
-	ExecutionEndpointStatuses []string          `json:"execution_endpoint_statuses,omitempty"`
-	ObservabilityLinks        []string          `json:"observability_links,omitempty"`
-	NetworkMode               string            `json:"network_mode,omitempty"`
-	ServerProtocol            string            `json:"server_protocol,omitempty"`
-	SensitiveBoundary         string            `json:"sensitive_boundary"`
-	CoverageStatus            string            `json:"coverage_status"`
-	CoverageReason            string            `json:"coverage_reason,omitempty"`
-	Source                    string            `json:"source"`
-	EvidenceRef               string            `json:"evidence_ref"`
-	AgentNodeID               string            `json:"agent_node_id"`
-	RuntimeRoleNodeID         string            `json:"runtime_role_node_id,omitempty"`
-	GatewayNodeID             string            `json:"gateway_node_id,omitempty"`
-	RelationshipTypes         []string          `json:"relationship_types"`
-	Confidence                float64           `json:"confidence"`
-	CollectedAt               time.Time         `json:"collected_at"`
-	Status                    string            `json:"status"`
-	Tags                      map[string]string `json:"tags,omitempty"`
+	AccountID                 string                           `json:"account_id"`
+	Region                    string                           `json:"region"`
+	Service                   string                           `json:"service"`
+	AgentID                   string                           `json:"agent_id"`
+	AgentARN                  string                           `json:"agent_arn,omitempty"`
+	AgentName                 string                           `json:"agent_name"`
+	AgentType                 string                           `json:"agent_type"`
+	RuntimeVersion            string                           `json:"runtime_version,omitempty"`
+	Provider                  string                           `json:"provider,omitempty"`
+	ModelID                   string                           `json:"model_id,omitempty"`
+	RuntimeRoleARN            string                           `json:"runtime_role_arn,omitempty"`
+	RuntimeRoleName           string                           `json:"runtime_role_name,omitempty"`
+	RuntimeRoleAccountID      string                           `json:"runtime_role_account_id,omitempty"`
+	WorkloadIdentityARN       string                           `json:"workload_identity_arn,omitempty"`
+	GatewayID                 string                           `json:"gateway_id,omitempty"`
+	GatewayARN                string                           `json:"gateway_arn,omitempty"`
+	ExternalProvider          string                           `json:"external_provider,omitempty"`
+	ToolNames                 []string                         `json:"tool_names,omitempty"`
+	ToolTargetRefs            []string                         `json:"tool_target_refs,omitempty"`
+	AllowedActions            []string                         `json:"allowed_actions,omitempty"`
+	AuthMode                  string                           `json:"auth_mode,omitempty"`
+	MemoryEnabled             bool                             `json:"memory_enabled"`
+	MemoryStoreRefs           []string                         `json:"memory_store_refs,omitempty"`
+	BrowserEnabled            bool                             `json:"browser_enabled"`
+	CodeInterpreterEnabled    bool                             `json:"code_interpreter_enabled"`
+	CapabilityKind            string                           `json:"capability_kind,omitempty"`
+	StorageReferenceRefs      []string                         `json:"storage_reference_refs,omitempty"`
+	EncryptionKeyARN          string                           `json:"encryption_key_arn,omitempty"`
+	CapabilityNames           []string                         `json:"capability_names,omitempty"`
+	CredentialReferenceRefs   []string                         `json:"credential_reference_refs,omitempty"`
+	ResourceReferenceRefs     []string                         `json:"resource_reference_refs,omitempty"`
+	ExecutionEndpointARNs     []string                         `json:"execution_endpoint_arns,omitempty"`
+	ExecutionEndpointNames    []string                         `json:"execution_endpoint_names,omitempty"`
+	ExecutionEndpointStatuses []string                         `json:"execution_endpoint_statuses,omitempty"`
+	ObservabilityLinks        []string                         `json:"observability_links,omitempty"`
+	NetworkMode               string                           `json:"network_mode,omitempty"`
+	ServerProtocol            string                           `json:"server_protocol,omitempty"`
+	SensitiveBoundary         string                           `json:"sensitive_boundary"`
+	CoverageStatus            string                           `json:"coverage_status"`
+	CoverageReason            string                           `json:"coverage_reason,omitempty"`
+	Source                    string                           `json:"source"`
+	EvidenceRef               string                           `json:"evidence_ref"`
+	AgentNodeID               string                           `json:"agent_node_id"`
+	RuntimeRoleNodeID         string                           `json:"runtime_role_node_id,omitempty"`
+	GatewayNodeID             string                           `json:"gateway_node_id,omitempty"`
+	RelationshipTypes         []string                         `json:"relationship_types"`
+	ProviderKeyReferences     []AWSAIAgentProviderKeyReference `json:"provider_key_references,omitempty"`
+	Confidence                float64                          `json:"confidence"`
+	CollectedAt               time.Time                        `json:"collected_at"`
+	Status                    string                           `json:"status"`
+	Tags                      map[string]string                `json:"tags,omitempty"`
+}
+
+type AWSAIAgentProviderKeyReference struct {
+	Reference     string  `json:"reference"`
+	ReferenceName string  `json:"reference_name,omitempty"`
+	ReferenceKind string  `json:"reference_kind"`
+	Provider      string  `json:"provider"`
+	Sensitivity   string  `json:"sensitivity"`
+	Resolved      bool    `json:"resolved"`
+	TargetNodeID  string  `json:"target_node_id,omitempty"`
+	EvidenceRef   string  `json:"evidence_ref"`
+	Confidence    float64 `json:"confidence"`
 }
 
 type AWSAIAgentIdentityRelation struct {
@@ -232,9 +251,16 @@ func buildAWSAIAgentIdentityInventory(scope db.Scope, project db.TenancyProject,
 		ToolCount:             awsAIAgentIdentityListCount(records, func(r AWSAIAgentIdentityRecord) []string { return r.ToolNames }),
 		CapabilityCount:       awsAIAgentIdentityListCount(records, func(r AWSAIAgentIdentityRecord) []string { return r.CapabilityNames }),
 		CredentialRefCount:    awsAIAgentIdentityListCount(records, func(r AWSAIAgentIdentityRecord) []string { return r.CredentialReferenceRefs }),
-		RelationshipCount:     len(relationships),
-		FailureReasons:        failures,
-		RemediationHints:      remediations,
+		ExternalProviderKeyCount: awsAIAgentProviderKeyCount(records, func(ref AWSAIAgentProviderKeyReference) bool {
+			return awsAIAgentProviderIsExternalAI(ref.Provider)
+		}),
+		AIProviderKeyCount: awsAIAgentProviderKeyCount(records, func(ref AWSAIAgentProviderKeyReference) bool {
+			return ref.Sensitivity == awsAIAgentProviderSensitivityAIKey
+		}),
+		ProviderKeyBreakdown: awsAIAgentProviderKeyBreakdown(records),
+		RelationshipCount:    len(relationships),
+		FailureReasons:       failures,
+		RemediationHints:     remediations,
 		EvidenceLinks: dedupeStrings([]string{
 			awsIssueURL(awsPlatformDependencyParentIssue),
 			awsIssueURL(awsAIAgentIdentityCurrentIssue),
@@ -368,8 +394,8 @@ func awsAIAgentIdentityFixtureRecords(accountID string, region string, fixtureSt
 			r.ModelID = "provider:model-redacted"
 			r.ToolNames = []string{"support-search"}
 			r.CapabilityNames = []string{"tool_use"}
-			r.CredentialReferenceRefs = []string{"ssm:/prod/support/ai-provider-key"}
-			r.ExternalProvider = "provider_key_reference"
+			r.CredentialReferenceRefs = []string{"ANTHROPIC_API_KEY=ssm:/prod/support/anthropic-key"}
+			r.ExternalProvider = "anthropic"
 		}),
 		awsAIAgentFixtureRecord(accountID, region, "agent_gateway", "payments-gateway", "payments-gateway", gatewayARN, role("bedrock-agent-gateway-payments"), checkedAt, func(r *AWSAIAgentIdentityRecord) {
 			r.Service = "bedrock"
@@ -494,6 +520,7 @@ func awsAIAgentFixtureRecord(accountID string, region string, agentType string, 
 	record.AllowedActions = dedupeStrings(record.AllowedActions)
 	record.CapabilityNames = dedupeStrings(record.CapabilityNames)
 	record.CredentialReferenceRefs = dedupeStrings(record.CredentialReferenceRefs)
+	record.ProviderKeyReferences = awsAIAgentProviderKeyReferences(record)
 	record.ExecutionEndpointARNs = normalizeOrderedStringList(record.ExecutionEndpointARNs)
 	record.ExecutionEndpointNames = normalizeOrderedStringList(record.ExecutionEndpointNames)
 	record.ExecutionEndpointStatuses = normalizeOrderedStringList(record.ExecutionEndpointStatuses)
@@ -680,6 +707,83 @@ func awsAIAgentCredentialReferenceProvider(name, source string) string {
 	}
 }
 
+func awsAIAgentProviderKeyReferences(record AWSAIAgentIdentityRecord) []AWSAIAgentProviderKeyReference {
+	refs := []AWSAIAgentProviderKeyReference{}
+	seen := map[string]struct{}{}
+	for _, raw := range record.CredentialReferenceRefs {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		name, source := awsAIAgentCredentialReferenceParts(trimmed)
+		provider := awsAIAgentCredentialReferenceProvider(name, source)
+		ref := AWSAIAgentProviderKeyReference{
+			Reference:     trimmed,
+			ReferenceName: name,
+			ReferenceKind: awsAIAgentCredentialReferenceKind(source),
+			Provider:      provider,
+			Sensitivity:   awsAIAgentCredentialReferenceSensitivity(provider),
+			Resolved:      false,
+			TargetNodeID:  awsCredentialReferenceNodeID(record.AgentNodeID, trimmed),
+			EvidenceRef:   firstNonEmptyAWSValue(record.EvidenceRef, trimmed),
+			Confidence:    awsAIAgentCredentialReferenceConfidence(provider),
+		}
+		refs = append(refs, ref)
+	}
+	return refs
+}
+
+func awsAIAgentCredentialReferenceKind(source string) string {
+	probe := strings.ToLower(strings.TrimSpace(source))
+	switch {
+	case strings.Contains(probe, "secretsmanager") || strings.HasPrefix(probe, "secretsmanager-"):
+		return "secrets_manager"
+	case strings.HasPrefix(probe, "ssm-") || strings.Contains(probe, "parameter"):
+		return "ssm_parameter"
+	case probe == "":
+		return "environment_variable"
+	default:
+		return "credential_reference"
+	}
+}
+
+func awsAIAgentCredentialReferenceSensitivity(provider string) string {
+	switch provider {
+	case "openai", "anthropic", "bedrock":
+		return awsAIAgentProviderSensitivityAIKey
+	case "secretsmanager", "ssm":
+		return awsAIAgentProviderSensitivityAWSStore
+	default:
+		return awsAIAgentProviderSensitivityGeneric
+	}
+}
+
+func awsAIAgentCredentialReferenceConfidence(provider string) float64 {
+	switch provider {
+	case "openai", "anthropic":
+		return 0.9
+	case "bedrock":
+		return 0.85
+	case "secretsmanager", "ssm":
+		return 0.72
+	default:
+		return 0.62
+	}
+}
+
+func awsAIAgentProviderIsExternalAI(provider string) bool {
+	switch provider {
+	case "openai", "anthropic":
+		return true
+	default:
+		return false
+	}
+}
+
 func awsAIAgentCredentialReferenceParts(ref string) (string, string) {
 	trimmed := strings.TrimSpace(ref)
 	if trimmed == "" {
@@ -704,6 +808,31 @@ func awsAIAgentCredentialReferenceParts(ref string) (string, string) {
 		name = trimmed[colonIndex+1:]
 	}
 	return sanitizeCredentialReferenceToken(name), sanitizeCredentialReferenceToken(trimmed)
+}
+
+func awsAIAgentProviderKeyCount(records []AWSAIAgentIdentityRecord, match func(AWSAIAgentProviderKeyReference) bool) int {
+	count := 0
+	for _, record := range records {
+		for _, ref := range record.ProviderKeyReferences {
+			if match(ref) {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func awsAIAgentProviderKeyBreakdown(records []AWSAIAgentIdentityRecord) map[string]int {
+	breakdown := map[string]int{}
+	for _, record := range records {
+		for _, ref := range record.ProviderKeyReferences {
+			if ref.Provider == "" {
+				continue
+			}
+			breakdown[ref.Provider]++
+		}
+	}
+	return breakdown
 }
 
 func sanitizeCredentialReferenceToken(value string) string {

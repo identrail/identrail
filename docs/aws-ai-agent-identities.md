@@ -1,6 +1,6 @@
 # AWS AI Agent Identities
 
-Issue #1505 adds a normalized AI agent identity model for AWS machine-identity governance. Issue #1508 extends the same model with AgentCore Gateway and MCP tool mapping. Issue #1509 extends it again with AgentCore Memory, Browser, and Code Interpreter capability metadata mapping.
+Issue #1505 adds a normalized AI agent identity model for AWS machine-identity governance. Issue #1508 extends the same model with AgentCore Gateway and MCP tool mapping. Issue #1509 extends it again with AgentCore Memory, Browser, and Code Interpreter capability metadata mapping. Issue #1510 maps external AI provider key metadata onto agent identities without reading credential values.
 
 ## What Is Collected
 
@@ -19,6 +19,7 @@ The model is metadata-only. Each `agent_identity` record can describe:
 - memory/browser/code-interpreter capability flags
 - per-capability execution role bindings, storage references (`storage_reference_refs` such as a browser recording `s3://bucket/prefix` destination or a memory stream-delivery resource count), customer encryption key ARN (`encryption_key_arn`), and network posture (`vpc`, `sandbox`, etc.)
 - credential-reference identifiers
+- classified external provider key references (`provider_key_references`) for OpenAI, Anthropic/Claude, Bedrock, and generic credential metadata
 - agent-to-endpoint `invokes` relationships for AgentCore runtime execution surfaces
 - agent-to-tool `calls_tool` relationships for AgentCore Gateway and MCP tool surfaces
 - an `agentcore_capability` resource node per Memory/Browser/Code Interpreter surface, linked to its agent identity, carrying the kind, storage references, encryption key, network mode, and execution role — but never the capability's contents
@@ -43,6 +44,17 @@ Optional query parameters:
 - `connector_id`
 - `fixture_state=success|empty|degraded|partial_failure|permission_denied`
 
+### External AI provider key metadata mapping (issue #1510)
+
+Agent records expose `provider_key_references` derived from safe names, ARNs, source markers, and workload references such as `OPENAI_API_KEY=secretsmanager:...` or `ANTHROPIC_API_KEY=ssm:...`. Each reference includes:
+
+- provider classification (`openai`, `anthropic`, `bedrock`, `secretsmanager`, `ssm`, or `generic`)
+- reference kind (`secrets_manager`, `ssm_parameter`, `environment_variable`, or `credential_reference`)
+- sensitivity (`ai_provider_api_key`, `aws_managed_secret`, or `generic_secret`)
+- evidence reference, target credential-reference node id, and confidence
+
+Inventory aggregates include `external_provider_key_count`, `ai_provider_key_count`, and `provider_key_breakdown`, alongside the existing `credential_reference_count` and `uses_secret` relationships. These fields let operators filter and drill into provider-key ownership from the AWS Agents surface while keeping values hidden.
+
 ## What Is Not Collected
 
 Identrail does not collect prompt text, completions, memory contents, browser pages, code-interpreter output, database rows, object contents, secret values, or customer payloads for this capability.
@@ -63,7 +75,7 @@ Use metadata-only list and describe permissions for the relevant agent, runtime,
 
 ## UI Surface
 
-The AWS Agents inventory page shows normalized agent rows, runtime role anchors, provider/model metadata, Gateway/MCP tools, auth mode, allowed-action counts, credential-reference counts, confidence, diagnostics, sensitive-boundary coverage gaps, account/region context, and retry guidance.
+The AWS Agents inventory page shows normalized agent rows, runtime role anchors, provider/model metadata, Gateway/MCP tools, auth mode, allowed-action counts, external provider key counts, credential-reference counts, confidence, diagnostics, sensitive-boundary coverage gaps, account/region context, and retry guidance.
 
 ## Troubleshooting
 

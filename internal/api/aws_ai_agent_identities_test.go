@@ -89,7 +89,7 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 	if result.Status != awsPlatformDependencyStatusReady || result.Confidence < 0.9 {
 		t.Fatalf("expected ready inventory, got %+v", result)
 	}
-	if result.ParentIssueRef != "#1472" || result.CurrentIssueRef != "#1509" || result.Version != awsAIAgentIdentityVersion {
+	if result.ParentIssueRef != "#1472" || result.CurrentIssueRef != "#1510" || result.Version != awsAIAgentIdentityVersion {
 		t.Fatalf("unexpected parent/current/version metadata: %+v", result)
 	}
 	if result.BedrockAgentCount != 1 || result.AgentCoreRuntimeCount != 1 || result.CustomAgentCount != 1 || result.ExternalAgentCount != 1 || result.GatewayCount != 1 {
@@ -123,10 +123,11 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 		t.Fatalf("expected credential records to advertise uses_secret relationship type, got %+v", result.Records)
 	}
 	expectedCustomCredentialRefTarget := awsCredentialReferenceNodeID(customAgentNodeID, "secretsmanager:prod/ai/openai-key")
-	expectedExternalCredentialRefTarget := awsCredentialReferenceNodeID(externalAgentNodeID, "ssm:/prod/support/ai-provider-key")
+	expectedExternalCredentialRefTarget := awsCredentialReferenceNodeID(externalAgentNodeID, "ANTHROPIC_API_KEY=ssm:/prod/support/anthropic-key")
 	matchedCustomCredentialRef := false
 	matchedExternalCredentialRef := false
 	foundCredentialEdge := false
+	providerCounts := map[string]int{}
 	for _, relationship := range result.Relationships {
 		if relationship.Type == "uses_credential" {
 			t.Fatalf("expected supported graph relationship type uses_secret, got unsupported uses_credential in %+v", relationship)
@@ -156,6 +157,26 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 	}
 	if !matchedExternalCredentialRef {
 		t.Fatalf("expected external-provider-agent unresolved credential reference to emit uses_secret edge to %q, got %+v", expectedExternalCredentialRefTarget, result.Relationships)
+	}
+	for _, record := range result.Records {
+		for _, ref := range record.ProviderKeyReferences {
+			providerCounts[ref.Provider]++
+			if ref.Sensitivity == "ai_provider_api_key" && ref.ReferenceKind == "" {
+				t.Fatalf("expected provider key reference kind for %+v", ref)
+			}
+			if strings.Contains(strings.ToLower(ref.Reference+" "+ref.EvidenceRef), "secret_value") {
+				t.Fatalf("provider key reference leaked forbidden value marker: %+v", ref)
+			}
+		}
+	}
+	if result.ExternalProviderKeyCount != 2 || result.AIProviderKeyCount != 2 {
+		t.Fatalf("expected two external AI provider key references, got external=%d ai=%d", result.ExternalProviderKeyCount, result.AIProviderKeyCount)
+	}
+	if providerCounts["openai"] != 1 || providerCounts["anthropic"] != 1 {
+		t.Fatalf("expected openai and anthropic provider-key records, got %+v", providerCounts)
+	}
+	if result.ProviderKeyBreakdown["openai"] != 1 || result.ProviderKeyBreakdown["anthropic"] != 1 {
+		t.Fatalf("expected provider key breakdown for openai/anthropic, got %+v", result.ProviderKeyBreakdown)
 	}
 	if len(result.CoverageGaps) == 0 {
 		t.Fatalf("expected sensitive-boundary coverage gaps, got %+v", result.CoverageGaps)

@@ -2003,10 +2003,23 @@ export type AWSAIAgentIdentityRecord = {
   runtime_role_node_id?: string;
   gateway_node_id?: string;
   relationship_types: string[];
+  provider_key_references?: AWSAIAgentProviderKeyReference[];
   confidence: number;
   collected_at: string;
   status: string;
   tags?: Record<string, string>;
+};
+
+export type AWSAIAgentProviderKeyReference = {
+  reference: string;
+  reference_name?: string;
+  reference_kind: string;
+  provider: string;
+  sensitivity: string;
+  resolved: boolean;
+  target_node_id?: string;
+  evidence_ref: string;
+  confidence: number;
 };
 
 export type AWSAIAgentIdentityRelationship = {
@@ -2056,6 +2069,9 @@ export type AWSAIAgentIdentityInventoryResult = {
   tool_count: number;
   capability_count: number;
   credential_reference_count: number;
+  external_provider_key_count: number;
+  ai_provider_key_count: number;
+  provider_key_breakdown: Record<string, number>;
   relationship_count: number;
   failure_reasons: string[];
   remediation_hints: string[];
