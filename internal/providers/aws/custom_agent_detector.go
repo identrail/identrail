@@ -26,6 +26,7 @@ type customAgentWorkloadEvidence struct {
 	WorkloadARN     string
 	RuntimeRoleARN  string
 	RuntimeRoleName string
+	RoleKind        string
 	Status          string
 	Names           []string
 	Images          []string
@@ -51,6 +52,18 @@ func deriveCustomAIAgentIdentityAssets(raw []providers.RawAsset) []providers.Raw
 		}
 	}
 
+	// chosen tracks the derived asset already emitted for a sourceID together with
+	// the priority of the evidence that produced it. Multiple raw assets can map to
+	// the same detected agent (an ECS service exposes both an execution-role and a
+	// task-role asset, and the SDK adapter may visit the execution role first). A
+	// higher-priority detection must be able to replace a lower-priority one so the
+	// agent's runs_as edge points at the role the workload actually runs as rather
+	// than at whichever asset happened to be visited first.
+	type chosenDetection struct {
+		index    int
+		priority int
+	}
+	chosen := map[string]chosenDetection{}
 	derived := []providers.RawAsset{}
 	for _, asset := range raw {
 		evidence, ok := customAgentEvidenceFromRawAsset(asset)
@@ -76,15 +89,38 @@ func deriveCustomAIAgentIdentityAssets(raw []providers.RawAsset) []providers.Raw
 		if strings.TrimSpace(collected) == "" && !evidence.CollectedAt.IsZero() {
 			collected = evidence.CollectedAt.UTC().Format(time.RFC3339Nano)
 		}
-		derived = append(derived, providers.RawAsset{
+		newAsset := providers.RawAsset{
 			Kind:      rawKindAIAgentIdentity,
 			SourceID:  sourceID,
 			Payload:   payload,
 			Collected: collected,
-		})
-		existing[sourceID] = struct{}{}
+		}
+		priority := customAgentEvidencePriority(evidence)
+		if prev, exists := chosen[sourceID]; exists {
+			// Keep the higher-priority evidence; otherwise leave the earlier,
+			// deterministic first-wins detection in place.
+			if priority > prev.priority {
+				derived[prev.index] = newAsset
+				chosen[sourceID] = chosenDetection{index: prev.index, priority: priority}
+			}
+			continue
+		}
+		chosen[sourceID] = chosenDetection{index: len(derived), priority: priority}
+		derived = append(derived, newAsset)
 	}
 	return derived
+}
+
+// customAgentEvidencePriority ranks competing workload evidence for the same
+// detected agent so the role the workload actually runs as wins de-duplication.
+// An ECS task role (the identity the container code assumes) outranks an ECS
+// execution role, which is only used by the ECS agent to pull images and secrets.
+func customAgentEvidencePriority(evidence customAgentWorkloadEvidence) int {
+	if evidence.Kind == rawKindECSTaskRole &&
+		strings.EqualFold(strings.TrimSpace(evidence.RoleKind), ecsRoleKindExecution) {
+		return 0
+	}
+	return 1
 }
 
 func customAgentEvidenceFromRawAsset(asset providers.RawAsset) (customAgentWorkloadEvidence, bool) {
@@ -116,6 +152,7 @@ func customAgentEvidenceFromRawAsset(asset providers.RawAsset) (customAgentWorkl
 			mapString(payload, "pod_execution_role_arn"),
 		),
 		RuntimeRoleName: mapString(payload, "role_name"),
+		RoleKind:        mapString(payload, "role_kind"),
 		Status:          firstNonEmptyAWSValue(mapString(payload, "status"), mapString(payload, "resource_status"), mapString(payload, "function_state"), mapString(payload, "service_status"), mapString(payload, "state_machine_status"), mapString(payload, "instance_state")),
 		EnvironmentKeys: mapStringList(payload, "environment_keys"),
 		SecretRefs:      mapStringList(payload, "secret_refs"),

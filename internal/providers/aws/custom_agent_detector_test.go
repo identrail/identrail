@@ -267,6 +267,42 @@ func TestCustomAgentNormalizationPreservesWorkloadRoleIdentity(t *testing.T) {
 	}
 }
 
+func TestCustomAgentDetectorPrefersECSTaskRoleOverExecutionRole(t *testing.T) {
+	// The ECS SDK adapter sorts assets so the execution-role record is visited
+	// before the task-role record for the same service. De-duplication must still
+	// attribute the agent to the task role (what the container code runs as) rather
+	// than the execution role (used only for image/secret retrieval).
+	taskRole := "arn:aws:iam::123456789012:role/support-assistant-task"
+	executionRole := "arn:aws:iam::123456789012:role/support-assistant-exec"
+	service := "arn:aws:ecs:us-east-1:123456789012:service/prod/support-assistant"
+	base := func(roleKind, roleARN string) ECSTaskRole {
+		return ECSTaskRole{
+			ServiceCollectorRecord: awscontract.ServiceCollectorRecord{AccountID: "123456789012", Region: "us-east-1", Service: "ecs", RoleARN: roleARN, WorkloadID: service, WorkloadName: "support-assistant", WorkloadType: "ecs_service"},
+			RoleKind:               roleKind,
+			ServiceARN:             service,
+			ServiceName:            "support-assistant",
+			ContainerImages:        []string{"123456789012.dkr.ecr.us-east-1.amazonaws.com/langchain-agent:prod"},
+			EnvironmentKeys:        []string{"OPENAI_API_KEY"},
+		}
+	}
+	// Execution role first, then task role — matching the SDK adapter ordering.
+	raw := []providers.RawAsset{
+		rawAsset(t, rawKindECSTaskRole, "ecs-exec", base(ecsRoleKindExecution, executionRole)),
+		rawAsset(t, rawKindECSTaskRole, "ecs-task", base(ecsRoleKindTask, taskRole)),
+	}
+	derived := deriveCustomAIAgentIdentityAssets(raw)
+	if len(derived) != 1 {
+		t.Fatalf("expected one deduped detection, got %d: %+v", len(derived), derived)
+	}
+	var record AIAgentIdentity
+	if err := json.Unmarshal(derived[0].Payload, &record); err != nil {
+		t.Fatalf("decode derived ai agent: %v", err)
+	}
+	if record.RuntimeRoleARN != taskRole {
+		t.Fatalf("expected agent to run as task role %q, got %q", taskRole, record.RuntimeRoleARN)
+	}
+}
+
 func rawAsset(t *testing.T, kind string, sourceID string, record any) providers.RawAsset {
 	t.Helper()
 	payload, err := json.Marshal(record)
