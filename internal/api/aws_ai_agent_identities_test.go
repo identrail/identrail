@@ -374,13 +374,16 @@ func TestAIAgentProviderKeyReferencesClassifyStoreOnlySources(t *testing.T) {
 		r.CredentialReferenceRefs = []string{
 			"ssm:/prod/support/ai-provider-key",
 			"secretsmanager:prod/provider-key",
+			"OPENAI_API_KEY=SECRETS_MANAGER:arn:aws:secretsmanager:us-east-1:111111111111:secret:openai/key-AbCdEf",
 		}
 	})
 
 	providersByRef := map[string]string{}
+	kindsByRef := map[string]string{}
 	sensitivityByRef := map[string]string{}
 	for _, ref := range record.ProviderKeyReferences {
 		providersByRef[ref.Reference] = ref.Provider
+		kindsByRef[ref.Reference] = ref.ReferenceKind
 		sensitivityByRef[ref.Reference] = ref.Sensitivity
 	}
 	if providersByRef["ssm:/prod/support/ai-provider-key"] != "ssm" {
@@ -392,6 +395,9 @@ func TestAIAgentProviderKeyReferencesClassifyStoreOnlySources(t *testing.T) {
 	if sensitivityByRef["ssm:/prod/support/ai-provider-key"] != "aws_managed_secret" ||
 		sensitivityByRef["secretsmanager:prod/provider-key"] != "aws_managed_secret" {
 		t.Fatalf("expected AWS store-backed references to use aws_managed_secret sensitivity, got %+v", record.ProviderKeyReferences)
+	}
+	if kindsByRef["OPENAI_API_KEY=SECRETS_MANAGER:arn:aws:secretsmanager:us-east-1:111111111111:secret:openai/key-AbCdEf"] != "secrets_manager" {
+		t.Fatalf("expected SECRETS_MANAGER marker to classify as secrets_manager kind, got %+v", record.ProviderKeyReferences)
 	}
 }
 

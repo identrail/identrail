@@ -741,7 +741,7 @@ func awsAIAgentProviderKeyReferences(record AWSAIAgentIdentityRecord) []AWSAIAge
 func awsAIAgentCredentialReferenceKind(source string) string {
 	probe := strings.ToLower(strings.TrimSpace(source))
 	switch {
-	case strings.Contains(probe, "secretsmanager") || strings.HasPrefix(probe, "secretsmanager-"):
+	case strings.Contains(probe, "secretsmanager") || strings.HasPrefix(probe, "secretsmanager-") || strings.HasPrefix(probe, "secrets_manager-"):
 		return "secrets_manager"
 	case strings.HasPrefix(probe, "ssm-") || strings.Contains(probe, "parameter"):
 		return "ssm_parameter"
