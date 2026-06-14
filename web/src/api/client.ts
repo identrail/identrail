@@ -2101,6 +2101,141 @@ export type AWSAIAgentIdentityQuery = {
   minConfidence?: string;
 };
 
+export type AWSRuntimeEventStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSRuntimeEventFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+
+export type AWSRuntimeEventSession = {
+  session_id: string;
+  principal_arn: string;
+  principal_type: string;
+  assumed_role_arn?: string;
+  session_issuer_arn?: string;
+  source_ip_address?: string;
+  user_agent?: string;
+  started_at: string;
+  expires_at?: string;
+};
+
+export type AWSRuntimeEventRecord = {
+  event_id: string;
+  account_id: string;
+  region: string;
+  event_type: 'sts-session' | 'api-call' | 'secret-read' | 'kms-decrypt' | 'agent-tool' | string;
+  event_source: string;
+  event_name: string;
+  action: string;
+  actor_principal_arn: string;
+  actor_principal_type: string;
+  actor_identity_node_id: string;
+  session: AWSRuntimeEventSession;
+  target_resource_arn?: string;
+  target_resource_type?: string;
+  target_resource_name?: string;
+  resource_node_id?: string;
+  agent_id?: string;
+  agent_node_id?: string;
+  tool_name?: string;
+  tool_target_ref?: string;
+  owner: string;
+  evidence_category: string;
+  evidence_ref: string;
+  confidence: number;
+  observed_at: string;
+  collected_at: string;
+  status: string;
+  next_action: string;
+  redaction_boundary: string;
+};
+
+export type AWSRuntimeEventRelationship = {
+  type: 'observed_runtime_action' | 'agent_invoked_runtime_action' | string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSRuntimeEventDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: 'runtime_event_delivery_delayed' | 'agent_runtime_event_source_failed' | 'permission_denied' | string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSRuntimeEventCoverageGap = {
+  capability: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSRuntimeEventSummary = {
+  total_events: number;
+  filtered_events: number;
+  event_type_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  owner_counts: Record<string, number>;
+  account_count: number;
+  region_count: number;
+  identity_count: number;
+  resource_count: number;
+  agent_event_count: number;
+  secret_read_count: number;
+  kms_decrypt_count: number;
+  api_call_count: number;
+  sts_session_count: number;
+  relationship_count: number;
+  permission_denied_events: number;
+};
+
+export type AWSRuntimeEventResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSRuntimeEventStatus;
+  fixture_state: AWSRuntimeEventFixtureState;
+  confidence: number;
+  applied_filters: Record<string, string>;
+  summary: AWSRuntimeEventSummary;
+  records: AWSRuntimeEventRecord[];
+  relationships: AWSRuntimeEventRelationship[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSRuntimeEventCoverageGap[];
+  diagnostics: AWSRuntimeEventDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSRuntimeEventQuery = {
+  connectorID?: string;
+  fixtureState?: AWSRuntimeEventFixtureState;
+  accountID?: string;
+  region?: string;
+  eventType?: string;
+  identity?: string;
+  agentID?: string;
+  resource?: string;
+  evidence?: string;
+  owner?: string;
+  status?: string;
+};
+
 export type AWSBedrockAgentsInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBedrockAgentsFixtureState =
   | 'success'
@@ -5180,6 +5315,29 @@ export const apiClient = {
         agent_id: filters?.agentID,
         identity: filters?.identity,
         provider: filters?.provider
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectRuntimeEvents(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSRuntimeEventQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ runtime: AWSRuntimeEventResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/runtime-events${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        event_type: query?.eventType,
+        identity: query?.identity,
+        agent_id: query?.agentID,
+        resource: query?.resource,
+        evidence: query?.evidence,
+        owner: query?.owner,
+        status: query?.status
       })}`,
       auth
     );

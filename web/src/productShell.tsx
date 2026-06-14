@@ -42,6 +42,8 @@ import {
   type AWSBedrockAgentsInventoryResult,
   type AWSBedrockAgentRecord,
   type AWSAIAgentIdentityRecord,
+  type AWSRuntimeEventRecord,
+  type AWSRuntimeEventResult,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
@@ -9667,9 +9669,8 @@ const AWS_RISK_OPERATION_FILTERS: AWSRiskOperationFilterConfigMap = {
       label: 'Evidence',
       options: [
         { label: 'All evidence', value: 'all' },
-        { label: 'Current connector', value: 'current-connector' },
-        { label: 'Coming', value: 'coming' },
-        { label: 'Unavailable', value: 'unavailable' }
+        { label: 'CloudTrail', value: 'cloudtrail' },
+        { label: 'Agent runtime', value: 'agent-runtime' }
       ]
     },
     {
@@ -9986,90 +9987,42 @@ function AWSRiskOperationPrerequisites({
 }
 
 function AWSRuntimeEvidenceContent({
-  connection,
+  runtime,
+  loading,
+  error,
   filters,
-  onFiltersChange
+  onFiltersChange,
+  onRetry
 }: {
-  connection: AWSConnectionStatus | null;
+  runtime: AWSRuntimeEventResult | null;
+  loading: boolean;
+  error: string;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
+  onRetry: () => void;
 }) {
-  const rows: AWSRiskOperationTableRow[] = [
-    ...(connection?.role_arn
-      ? [
-          {
-            id: 'runtime-role-anchor',
-            title: awsConnectionRoleLabel(connection),
-            category: 'STS AssumeRole',
-            evidence: 'Connector',
-            owner: 'Security',
-            blastRadius: awsAccountRegionLabel(connection),
-            nextAction: 'Attach CloudTrail',
-            status: 'connector',
-            stage: 'wired' as AWSCapabilityStage,
-            filters: { event: 'sts-assume-role', evidence: 'current-connector', owner: 'security', search: '' },
-            searchText: inventorySearchText([connection.role_arn, connection.principal_arn, 'sts assume role current connector'])
-          }
-        ]
-      : []),
-    {
-      id: 'cloudtrail-management-events',
-      title: 'CloudTrail management events',
-      category: 'CloudTrail',
-      evidence: 'Planned',
-      owner: 'Security',
-      blastRadius: connection?.account_id ? `Account ${connection.account_id}` : 'Account pending',
-      nextAction: 'Wire ingestion',
-      status: 'planned',
-      stage: 'coming',
-      filters: { event: 'cloudtrail', evidence: 'coming', owner: 'security', search: '' },
-      searchText: inventorySearchText(['cloudtrail', 'management events', 'runtime evidence'])
-    },
-    {
-      id: 'secret-read-events',
-      title: 'Secrets Manager GetSecretValue',
-      category: 'Secrets Manager',
-      evidence: 'Planned',
-      owner: 'Application',
-      blastRadius: 'Secret metadata only',
-      nextAction: 'Map metadata',
-      status: 'planned',
-      stage: 'coming',
-      filters: { event: 'secrets-manager', evidence: 'coming', owner: 'application', search: '' },
-      searchText: inventorySearchText(['secrets manager', 'getsecretvalue', 'secret reads'])
-    },
-    {
-      id: 'kms-decrypt-events',
-      title: 'KMS Decrypt activity',
-      category: 'KMS decrypt',
-      evidence: 'Planned',
-      owner: 'Platform',
-      blastRadius: 'Key reachability pending',
-      nextAction: 'Join key policy',
-      status: 'planned',
-      stage: 'coming',
-      filters: { event: 'kms-decrypt', evidence: 'coming', owner: 'platform', search: '' },
-      searchText: inventorySearchText(['kms', 'decrypt', 'runtime evidence'])
-    },
-    {
-      id: 'agent-tool-events',
-      title: 'Agent tool invocation',
-      category: 'Agent tool',
-      evidence: 'Unavailable',
-      owner: 'Security',
-      blastRadius: 'Agent graph pending',
-      nextAction: 'Map agent identity',
-      status: 'unavailable',
-      stage: 'not-available',
-      filters: { event: 'agent-tool', evidence: 'unavailable', owner: 'security', search: '' },
-      searchText: inventorySearchText(['agent', 'tool', 'mcp', 'agentcore'])
-    }
-  ];
-  const displayedRows = filterAWSInventoryRows(rows, filters);
+  const rows: AWSRiskOperationTableRow[] = runtime ? runtime.records.map((record) => awsRuntimeEventRow(record)) : [];
+  const displayFilters = awsRuntimeEventDisplayFilters(filters);
+  const displayedRows = filterAWSInventoryRows(rows, displayFilters);
 
   return (
     <>
       <AWSRiskOperationFilterSet routeID="runtime" filters={filters} onChange={onFiltersChange} />
+      {error ? <DomainErrorState title="Couldn't load runtime events" body={error} retryAction={{ label: 'Retry', onClick: onRetry }} /> : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Loading runtime events"
+          body="Identrail is loading metadata-only runtime events for this AWS environment."
+        />
+      ) : null}
+      {!error && !loading && runtime && runtime.records.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={runtime.status === 'blocked' ? 'Permission required' : 'No runtime events'}
+          title={runtime.status === 'blocked' ? 'Runtime events need read-only event access' : 'No runtime events matched'}
+          body={runtime.failure_reasons[0] ?? 'Runtime event ingestion returned no events for the current environment and filters.'}
+        />
+      ) : null}
       <DomainDataTable
         label="AWS runtime evidence surfaces"
         rows={displayedRows}
@@ -10089,6 +10042,125 @@ function AWSRuntimeEvidenceContent({
       />
     </>
   );
+}
+
+function awsRuntimeEventRow(record: AWSRuntimeEventRecord): AWSRiskOperationTableRow {
+  const eventLabel = awsRuntimeEventLabel(record);
+  const resourceLabel = record.target_resource_name || record.target_resource_type || record.target_resource_arn || 'Session event';
+  const observed = formatShortDateLabel(record.observed_at);
+  return {
+    id: `runtime-${record.event_id}`,
+    title: `${eventLabel}: ${record.event_name}`,
+    category: eventLabel,
+    evidence: `${formatTokenLabel(record.evidence_category)} · ${formatConfidenceScore(record.confidence)}`,
+    owner: formatTokenLabel(record.owner),
+    blastRadius: `${awsAccountRegionInventoryLabel(record.account_id, record.region)} · ${resourceLabel}`,
+    nextAction: record.next_action,
+    status: record.status,
+    stage: record.status === 'observed' ? 'wired' : record.status === 'permission-denied' ? 'not-available' : 'coming',
+    filters: {
+      event: awsRuntimeEventUIEventFilterToken(record.event_type),
+      evidence: awsRuntimeEventFilterToken(record.evidence_category),
+      owner: awsRuntimeEventFilterToken(record.owner),
+      search: ''
+    },
+    searchText: inventorySearchText([
+      record.event_id,
+      record.event_type,
+      record.event_source,
+      record.event_name,
+      record.action,
+      record.actor_principal_arn,
+      record.session?.session_id,
+      record.target_resource_arn,
+      record.target_resource_type,
+      record.agent_id,
+      record.tool_name,
+      record.tool_target_ref,
+      record.evidence_ref,
+      observed,
+      'runtime event metadata only no payloads no secret values'
+    ])
+  };
+}
+
+function awsRuntimeEventLabel(record: AWSRuntimeEventRecord): string {
+  switch (record.event_type) {
+    case 'sts-session':
+      return 'STS AssumeRole';
+    case 'secret-read':
+      return 'Secrets Manager';
+    case 'kms-decrypt':
+      return 'KMS decrypt';
+    case 'agent-tool':
+      return 'Agent tool';
+    default:
+      return 'CloudTrail';
+  }
+}
+
+function awsRuntimeEventFilterToken(value: string): string {
+  return normalizeFilterValue(value).replace(/_/g, '-');
+}
+
+function awsRuntimeEventUIEventFilterToken(value: string): string {
+  switch (awsRuntimeEventFilterToken(value)) {
+    case 'sts-session':
+      return 'sts-assume-role';
+    case 'secret-read':
+      return 'secrets-manager';
+    case 'api-call':
+      return 'cloudtrail';
+    default:
+      return awsRuntimeEventFilterToken(value);
+  }
+}
+
+function awsRuntimeEventAPIEventFilterToken(value: string | undefined): string | undefined {
+  switch (awsRuntimeEventFilterToken(value ?? '')) {
+    case '':
+    case 'all':
+      return undefined;
+    case 'sts-assume-role':
+      return 'sts-session';
+    case 'secrets-manager':
+      return 'secret-read';
+    case 'cloudtrail':
+      return 'api-call';
+    default:
+      return awsRuntimeEventFilterToken(value ?? '');
+  }
+}
+
+function awsRuntimeEventAPIEvidenceFilterToken(value: string | undefined): string | undefined {
+  switch (awsRuntimeEventFilterToken(value ?? '')) {
+    case '':
+    case 'all':
+    case 'coming':
+    case 'unavailable':
+      return undefined;
+    case 'current-connector':
+      return 'cloudtrail';
+    default:
+      return awsRuntimeEventFilterToken(value ?? '');
+  }
+}
+
+function awsRuntimeEventDisplayFilters(filters: AWSInventoryFilterState): AWSInventoryFilterState {
+  const event = awsRuntimeEventFilterToken(filters.event ?? '');
+  const evidence = awsRuntimeEventFilterToken(filters.evidence ?? '');
+  return {
+    ...filters,
+    event:
+      event === 'api-call'
+        ? 'cloudtrail'
+        : event === 'sts-session'
+          ? 'sts-assume-role'
+          : event === 'secret-read'
+            ? 'secrets-manager'
+            : filters.event,
+    evidence: evidence === 'current-connector' ? 'cloudtrail' : evidence === 'coming' || evidence === 'unavailable' ? 'all' : filters.evidence
+  };
 }
 
 function AWSGraphExplorerContent({
@@ -10411,6 +10483,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [activeFilters, setActiveFilters] = useState<AWSInventoryFilterState>(() => ({
     ...AWS_RISK_OPERATION_FILTER_DEFAULTS[routeID]
   }));
+  const [runtimeEvents, setRuntimeEvents] = useState<AWSRuntimeEventResult | null>(null);
+  const [runtimeEventsLoading, setRuntimeEventsLoading] = useState(false);
+  const [runtimeEventsError, setRuntimeEventsError] = useState('');
+  const runtimeEventsRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -10419,6 +10495,60 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   useEffect(() => {
     setActiveFilters({ ...AWS_RISK_OPERATION_FILTER_DEFAULTS[routeID] });
   }, [routeID]);
+
+  const loadRuntimeEvents = useCallback(async () => {
+    const requestID = ++runtimeEventsRequestRef.current;
+    setRuntimeEvents(null);
+    setRuntimeEventsError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setRuntimeEventsLoading(false);
+      return;
+    }
+    setRuntimeEventsLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectRuntimeEvents(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id,
+          eventType: awsRuntimeEventAPIEventFilterToken(activeFilters.event),
+          evidence: awsRuntimeEventAPIEvidenceFilterToken(activeFilters.evidence),
+          owner: activeFilters.owner && activeFilters.owner !== 'all' ? activeFilters.owner : undefined
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== runtimeEventsRequestRef.current) {
+        return;
+      }
+      setRuntimeEvents(response.runtime);
+    } catch (error) {
+      if (requestID !== runtimeEventsRequestRef.current) {
+        return;
+      }
+      setRuntimeEventsError(formatAPIError(error, 'Unable to load AWS runtime events.'));
+    } finally {
+      if (requestID === runtimeEventsRequestRef.current) {
+        setRuntimeEventsLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id,
+    activeFilters.event,
+    activeFilters.evidence,
+    activeFilters.owner
+  ]);
+
+  useEffect(() => {
+    void loadRuntimeEvents();
+    return () => {
+      runtimeEventsRequestRef.current += 1;
+    };
+  }, [loadRuntimeEvents]);
 
   if (!scope) {
     return (
@@ -10504,7 +10634,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
         ) : null}
 
         {routeID === 'runtime' ? (
-          <AWSRuntimeEvidenceContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
+          <AWSRuntimeEvidenceContent
+            runtime={runtimeEvents}
+            loading={runtimeEventsLoading}
+            error={runtimeEventsError}
+            filters={activeFilters}
+            onFiltersChange={onFiltersChange}
+            onRetry={loadRuntimeEvents}
+          />
         ) : null}
         {routeID === 'graph' ? (
           <AWSGraphExplorerContent
