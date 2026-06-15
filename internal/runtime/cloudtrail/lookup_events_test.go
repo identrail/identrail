@@ -312,6 +312,62 @@ func TestIngestRetriesThrottlingThenSurfacesDiagnostic(t *testing.T) {
 	}
 }
 
+func TestIngestSurfacesTruncationEvenWhenAllEventsSkipped(t *testing.T) {
+	// When CloudTrail returns events but every page's events are
+	// dropped during normalization (e.g. all missing core fields),
+	// result.Events ends up empty AND HistoryTruncated may still be
+	// true because the budget was exhausted. The finalize step must
+	// emit the history_truncated coverage gap instead of hiding it
+	// behind the empty-window branch.
+	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
+	makeBadPage := func(prefix string, next string) LookupEventsPage {
+		return LookupEventsPage{
+			NextToken: next,
+			Events: []Event{
+				// Missing EventName/EventSource → normalizer drops + emits
+				// "cloudtrail_event_missing_core_fields" diagnostic.
+				{EventID: prefix + "-1", EventTime: now.Add(-5 * time.Minute)},
+				{EventID: prefix + "-2", EventTime: now.Add(-4 * time.Minute)},
+			},
+		}
+	}
+	api := &fakeLookupEventsAPI{pages: []LookupEventsPage{
+		makeBadPage("p1", "tok-1"),
+		makeBadPage("p2", "tok-2"),
+	}}
+	ing, _ := newIngester(api, now)
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID: "123456789012",
+		Region:    "us-east-1",
+		MaxPages:  2, // exhaust after the second page, leaving tok-2 unread
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 0 {
+		t.Fatalf("expected zero normalized events (all skipped), got %+v", result.Events)
+	}
+	if !result.HistoryTruncated {
+		t.Fatalf("expected HistoryTruncated when budget exhausted with unread NextToken")
+	}
+	foundTruncated := false
+	foundEmpty := false
+	for _, gap := range result.CoverageGaps {
+		if gap.Status == "history_truncated" {
+			foundTruncated = true
+		}
+		if gap.Status == "empty" {
+			foundEmpty = true
+		}
+	}
+	if !foundTruncated {
+		t.Fatalf("expected history_truncated coverage gap to be emitted even with zero records, got %+v", result.CoverageGaps)
+	}
+	if foundEmpty {
+		t.Fatalf("empty coverage gap must not co-emit with history_truncated; the trail had more events to scan, got %+v", result.CoverageGaps)
+	}
+}
+
 func TestIngestCapsMultiResourceFanOutAtMaxEventsBudget(t *testing.T) {
 	// A single CloudTrail event that normalizes into many records
 	// (e.g. BatchGetSecretValue with 7 resources) must not bypass

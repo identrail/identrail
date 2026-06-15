@@ -541,18 +541,12 @@ func (r IngestRequest) attribute() LookupAttribute {
 // contract so the API layer's status thresholds remain consistent
 // whether the data came from a fixture or from CloudTrail.
 func finalize(result *IngestResult) {
-	if len(result.Events) == 0 && result.Status == "ready" {
-		result.Status = "degraded"
-		result.FailureReasons = append(result.FailureReasons, "no runtime events matched the scoped account and region")
-		result.RemediationHints = append(result.RemediationHints, "Confirm CloudTrail management events are enabled, then retry runtime event ingestion.")
-		result.CoverageGaps = append(result.CoverageGaps, CoverageGap{
-			Capability:  "cloudtrail_lookup_events",
-			Status:      "empty",
-			Reason:      "CloudTrail LookupEvents returned no events in the scanned window.",
-			Remediation: "Widen the lookback window or confirm CloudTrail management events are enabled.",
-		})
-		return
-	}
+	// Truncation must be considered before the empty-window branch:
+	// when the page budget exhausts on pages whose events all got
+	// skipped for missing core fields or unparseable payloads,
+	// `result.Events` is empty AND `result.HistoryTruncated` is
+	// true. Reporting only an empty window would hide the fact that
+	// more CloudTrail history remained unread.
 	if result.HistoryTruncated {
 		result.FailureReasons = append(result.FailureReasons, "CloudTrail LookupEvents ingestion stopped at a bounded budget")
 		result.RemediationHints = append(result.RemediationHints, "Narrow the time window or raise the per-run budget; partial coverage is preserved.")
@@ -565,6 +559,18 @@ func finalize(result *IngestResult) {
 		if result.Status == "ready" {
 			result.Status = "degraded"
 		}
+	}
+	if len(result.Events) == 0 && result.Status == "ready" {
+		result.Status = "degraded"
+		result.FailureReasons = append(result.FailureReasons, "no runtime events matched the scoped account and region")
+		result.RemediationHints = append(result.RemediationHints, "Confirm CloudTrail management events are enabled, then retry runtime event ingestion.")
+		result.CoverageGaps = append(result.CoverageGaps, CoverageGap{
+			Capability:  "cloudtrail_lookup_events",
+			Status:      "empty",
+			Reason:      "CloudTrail LookupEvents returned no events in the scanned window.",
+			Remediation: "Widen the lookback window or confirm CloudTrail management events are enabled.",
+		})
+		return
 	}
 	// Mirror the fixture path in aws_runtime_events.go
 	// summarizeAWSRuntimeEventStatus: if normalization emitted any
