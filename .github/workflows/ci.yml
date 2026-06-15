@@ -259,7 +259,7 @@ jobs:
           docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env config > /tmp/identrail-compose.yml
 
       - name: Build API Image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf
         with:
           context: .
           file: deploy/docker/Dockerfile.backend
@@ -271,7 +271,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=deploy-portability-backend,ignore-error=true
 
       - name: Build Worker Image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf
         with:
           context: .
           file: deploy/docker/Dockerfile.backend
@@ -286,7 +286,7 @@ jobs:
         run: docker run --rm --entrypoint /usr/bin/git identrail/worker:ci --version
 
       - name: Build Web Image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf
         with:
           context: .
           file: deploy/docker/Dockerfile.web
