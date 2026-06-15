@@ -1,6 +1,35 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS CloudTrail LookupEvents runtime ingestion** (#1514). Adds a
+  bounded, metadata-only CloudTrail LookupEvents ingester
+  (`internal/runtime/cloudtrail`) that turns recent CloudTrail API
+  activity into the AWS runtime event contract introduced in #1513.
+  The engine enforces per-run `MaxPages`/`MaxEvents` budgets, a
+  90-minute default lookback (clamped to CloudTrail's 90-day
+  retention horizon), exponential-backoff retries for throttled
+  `LookupEvents` calls, deduplication by `EventId`, and
+  per-event partial-failure diagnostics so a malformed record never
+  blocks the rest of the page. Normalization maps STS `AssumeRole`,
+  Secrets Manager `GetSecretValue`, KMS `Decrypt`, generic API calls,
+  and AgentCore tool invocations onto the existing
+  `AWSRuntimeEventRecord` shape, classifies each event into
+  `sts-session`/`secret-read`/`kms-decrypt`/`api-call`/`agent-tool`,
+  and joins payload-allow-listed session metadata (assumed-role ARN,
+  session issuer, session start, source IP, user agent) into the
+  runtime contract's session block. Permission-denied errors surface
+  as `status=blocked` with no leaked records; throttling exhaustion,
+  truncation by budget, and empty windows surface as `status=degraded`
+  with explicit coverage gaps and remediation hints. The ingester is
+  wired into `Service.AWSCloudTrailLookupEventsFactory` and used
+  automatically when the AWS connector is active and healthy; explicit
+  `fixture_state` overrides bypass it so deterministic fixtures stay
+  available for tests and demos. The ingester is metadata-only: it
+  never reads, logs, persists, or exposes secret values, decrypted
+  plaintext, request parameters, response elements, object bodies,
+  prompts, completions, browser output, code-interpreter output, or
+  customer payloads from `CloudTrailEvent` JSON. See
+  [docs/aws-runtime-events.md](docs/aws-runtime-events.md).
 - Add **external AI provider key metadata mapping for AWS agents** (#1510).
   Extends the AWS AI agent identity inventory with classified
   `provider_key_references` derived from safe names, ARNs, source markers, and

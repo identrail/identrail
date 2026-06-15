@@ -10781,7 +10781,18 @@ components:
         source_id: { type: string }
         code:
           type: string
-          enum: [runtime_event_delivery_delayed, agent_runtime_event_source_failed, permission_denied]
+          enum:
+            - runtime_event_delivery_delayed
+            - agent_runtime_event_source_failed
+            - permission_denied
+            - runtime_evidence_capability_unavailable
+            - cloudtrail_ingester_unavailable
+            - cloudtrail_lookup_events_throttled
+            - cloudtrail_lookup_events_failed
+            - cloudtrail_lookup_events_credentials_expired
+            - cloudtrail_event_missing_id
+            - cloudtrail_event_missing_core_fields
+            - cloudtrail_event_payload_unparseable
         message: { type: string }
         remediation: { type: string }
         retryable: { type: boolean }
@@ -10791,7 +10802,12 @@ components:
         capability: { type: string }
         status:
           type: string
-          enum: [empty, partial_failure, permission_denied]
+          enum:
+            - empty
+            - partial_failure
+            - permission_denied
+            - capability_unavailable
+            - history_truncated
         reason: { type: string }
         remediation: { type: string }
     AWSRuntimeEventSummary:
@@ -10838,7 +10854,7 @@ components:
           enum: [ready, degraded, blocked]
         fixture_state:
           type: string
-          enum: [success, empty, degraded, partial_failure, permission_denied]
+          enum: [success, empty, degraded, partial_failure, permission_denied, capability_unavailable]
         confidence:
           type: number
           minimum: 0

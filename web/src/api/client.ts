@@ -2102,12 +2102,29 @@ export type AWSAIAgentIdentityQuery = {
 };
 
 export type AWSRuntimeEventStatus = 'ready' | 'degraded' | 'blocked';
-export type AWSRuntimeEventFixtureState =
+// AWSRuntimeEventFixtureStateRequest is the query-side enum: every
+// value here is one the backend accepts as `?fixture_state=...`. It
+// intentionally excludes `capability_unavailable` because that state
+// is only produced by the API when a healthy connector lacks the
+// `runtime_evidence` capability; sending it as a request would be
+// rejected with HTTP 400.
+export type AWSRuntimeEventFixtureStateRequest =
   | 'success'
   | 'empty'
   | 'degraded'
   | 'partial_failure'
   | 'permission_denied';
+
+// AWSRuntimeEventFixtureState is the response-side enum and is a
+// superset of the request enum. `capability_unavailable` is returned
+// when the connector is otherwise healthy but its effective
+// capability set does not include `runtime_evidence`, so live
+// CloudTrail LookupEvents ingestion was intentionally not attempted;
+// the response carries fixture-shaped records with a degraded status
+// so the UI surfaces the boundary.
+export type AWSRuntimeEventFixtureState =
+  | AWSRuntimeEventFixtureStateRequest
+  | 'capability_unavailable';
 
 export type AWSRuntimeEventSession = {
   session_id: string;
@@ -2117,7 +2134,12 @@ export type AWSRuntimeEventSession = {
   session_issuer_arn?: string;
   source_ip_address?: string;
   user_agent?: string;
-  started_at: string;
+  // started_at / expires_at are omitted from the JSON response when
+  // CloudTrail did not supply a real value (e.g. IAM/root/service
+  // events that carry no session, or assumed-role events where STS
+  // rotated the credential and did not expose an expiration). The API
+  // never emits the bogus year-0001 literal.
+  started_at?: string;
   expires_at?: string;
 };
 
@@ -2224,7 +2246,7 @@ export type AWSRuntimeEventResult = {
 
 export type AWSRuntimeEventQuery = {
   connectorID?: string;
-  fixtureState?: AWSRuntimeEventFixtureState;
+  fixtureState?: AWSRuntimeEventFixtureStateRequest;
   accountID?: string;
   region?: string;
   eventType?: string;
