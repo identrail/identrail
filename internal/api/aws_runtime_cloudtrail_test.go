@@ -612,6 +612,35 @@ func TestAWSRuntimeEventSessionOmitsUnknownTimestamps(t *testing.T) {
 	}
 }
 
+func TestScopeAWSRuntimeEventDiagnosticsKeepsBaseDiagnosticForFannedOutRecords(t *testing.T) {
+	// A multi-resource CloudTrail event normalizes into base + `#N`
+	// suffixed records but the engine emits a single diagnostic keyed
+	// to the base EventID. If the filter retains only `evt#1`, the
+	// scope helper must still keep the base-keyed diagnostic — the
+	// fan-out children belong to the same CloudTrail event family.
+	allRecords := []AWSRuntimeEventRecord{
+		{EventID: "evt-bad"},
+		{EventID: "evt-bad#1"},
+		{EventID: "evt-bad#2"},
+	}
+	filtered := []AWSRuntimeEventRecord{{EventID: "evt-bad#1"}}
+	diagnostics := []AWSRuntimeEventDiagnostic{
+		{Collector: "aws_cloudtrail_lookup_events", SourceID: "evt-bad", Code: "cloudtrail_event_payload_unparseable"},
+	}
+	scoped := scopeAWSRuntimeEventDiagnostics(diagnostics, allRecords, filtered)
+	if len(scoped) != 1 || scoped[0].Code != "cloudtrail_event_payload_unparseable" {
+		t.Fatalf("expected base diagnostic preserved when fan-out child retained, got %+v", scoped)
+	}
+
+	// When NO fan-out child of the family survives the filter, the
+	// diagnostic is dropped — matching the existing per-event behavior.
+	filteredNone := []AWSRuntimeEventRecord{{EventID: "evt-other"}}
+	scoped = scopeAWSRuntimeEventDiagnostics(diagnostics, allRecords, filteredNone)
+	if len(scoped) != 0 {
+		t.Fatalf("expected base diagnostic dropped when no fan-out child retained, got %+v", scoped)
+	}
+}
+
 func TestScopeAWSRuntimeEventDiagnosticsPreservesCollectorLevelSourceIDs(t *testing.T) {
 	allRecords := []AWSRuntimeEventRecord{
 		{EventID: "evt-a"},

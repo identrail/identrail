@@ -312,6 +312,40 @@ func TestIngestRetriesThrottlingThenSurfacesDiagnostic(t *testing.T) {
 	}
 }
 
+func TestIngestCapsMultiResourceFanOutAtMaxEventsBudget(t *testing.T) {
+	// A single CloudTrail event that normalizes into many records
+	// (e.g. BatchGetSecretValue with 7 resources) must not bypass
+	// the per-run MaxEvents cap. The ingester trims the fan-out to
+	// the remaining budget and marks the run truncated.
+	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
+	resources := []EventResource{}
+	for i := 0; i < 7; i++ {
+		resources = append(resources, EventResource{
+			ResourceType: "AWS::SecretsManager::Secret",
+			ResourceName: fmt.Sprintf("arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/%d", i),
+		})
+	}
+	api := &fakeLookupEventsAPI{pages: []LookupEventsPage{{Events: []Event{{
+		EventID:     "evt-batch",
+		EventName:   "BatchGetSecretValue",
+		EventSource: "secretsmanager.amazonaws.com",
+		EventTime:   now.Add(-5 * time.Minute),
+		Username:    "arn:aws:sts::123456789012:assumed-role/r/s",
+		Resources:   resources,
+	}}}}}
+	ing, _ := newIngester(api, now)
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1", MaxEvents: 4})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 4 {
+		t.Fatalf("expected MaxEvents=4 to cap fan-out, got %d records", len(result.Events))
+	}
+	if !result.HistoryTruncated {
+		t.Fatalf("expected HistoryTruncated=true when fan-out is trimmed")
+	}
+}
+
 func TestNormalizeEventFansOutPerResourceForMultiResourceCalls(t *testing.T) {
 	// CloudTrail BatchGetSecretValue can touch several secrets in
 	// one call. The normalizer must emit one normalized event per

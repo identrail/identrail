@@ -554,13 +554,23 @@ func scopeAWSRuntimeEventDiagnostics(diagnostics []AWSRuntimeEventDiagnostic, al
 	if len(diagnostics) == 0 {
 		return nil
 	}
+	// A multi-resource CloudTrail event fans out into base + `#N`
+	// suffixed records in the engine; the diagnostic is keyed to the
+	// base EventID only. Build a family lookup so any retained
+	// fan-out child (e.g. `evt#1`) keeps the base-keyed diagnostic.
+	baseEventID := func(id string) string {
+		if hash := strings.Index(id, "#"); hash >= 0 {
+			return id[:hash]
+		}
+		return id
+	}
 	allRecordIDs := make(map[string]struct{}, len(allRecords))
 	for _, record := range allRecords {
-		allRecordIDs[record.EventID] = struct{}{}
+		allRecordIDs[baseEventID(record.EventID)] = struct{}{}
 	}
 	filteredIDs := make(map[string]struct{}, len(filteredRecords))
 	for _, record := range filteredRecords {
-		filteredIDs[record.EventID] = struct{}{}
+		filteredIDs[baseEventID(record.EventID)] = struct{}{}
 	}
 	scoped := make([]AWSRuntimeEventDiagnostic, 0, len(diagnostics))
 	for _, diagnostic := range diagnostics {
@@ -569,12 +579,13 @@ func scopeAWSRuntimeEventDiagnostics(diagnostics []AWSRuntimeEventDiagnostic, al
 			scoped = append(scoped, diagnostic)
 			continue
 		}
-		if _, isRecord := allRecordIDs[sourceID]; !isRecord {
+		base := baseEventID(sourceID)
+		if _, isRecord := allRecordIDs[base]; !isRecord {
 			// Collector-level diagnostic — keep regardless of filter.
 			scoped = append(scoped, diagnostic)
 			continue
 		}
-		if _, ok := filteredIDs[sourceID]; ok {
+		if _, ok := filteredIDs[base]; ok {
 			scoped = append(scoped, diagnostic)
 		}
 	}

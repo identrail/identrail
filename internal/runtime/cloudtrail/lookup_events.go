@@ -392,6 +392,21 @@ func (i *Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestRes
 			if !ok {
 				continue
 			}
+			// Cap the per-event fan-out (multi-resource CloudTrail
+			// events normalize into >1 records) against the remaining
+			// MaxEvents budget before appending. Otherwise a single
+			// BatchGetSecretValue with many resources could push the
+			// run past the advertised cap. If we trim mid-fan-out the
+			// trailing resources are unread events, so mark truncation.
+			remaining := request.MaxEvents - len(result.Events)
+			if remaining <= 0 {
+				result.HistoryTruncated = true
+				break
+			}
+			if len(normalized) > remaining {
+				normalized = normalized[:remaining]
+				result.HistoryTruncated = true
+			}
 			result.Events = append(result.Events, normalized...)
 			if len(result.Events) >= request.MaxEvents {
 				// More events still in this page → history is
