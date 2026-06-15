@@ -590,6 +590,46 @@ func TestNormalizeEventLeavesSessionExpiresAtUnsetWhenUnknown(t *testing.T) {
 	}
 }
 
+func TestClassifyBedrockManagementEventsAsAPICallNotAgentTool(t *testing.T) {
+	// Bedrock control-plane operations (CreateAgent, UpdateAgent,
+	// DeleteAgent, GetAgent, ListAgents, PrepareAgent, etc.) are
+	// ordinary management API calls and must not be classified as
+	// agent-tool. Only Invoke* operations represent actual tool
+	// invocations; a caller filtering for `event_type=agent-tool`
+	// should not see management records reported as tool evidence.
+	for _, name := range []string{"CreateAgent", "UpdateAgent", "DeleteAgent", "GetAgent", "ListAgents", "PrepareAgent"} {
+		if got := classifyEventType("bedrock-agent.amazonaws.com", name); got != "api-call" {
+			t.Errorf("classifyEventType(bedrock-agent, %q) = %q, want api-call", name, got)
+		}
+		if got := classifyEventType("bedrock-agentcore.amazonaws.com", name); got != "api-call" {
+			t.Errorf("classifyEventType(bedrock-agentcore, %q) = %q, want api-call", name, got)
+		}
+	}
+	// Invoke* operations are tool invocations.
+	for _, name := range []string{"InvokeAgent", "InvokeTool", "InvokeAgentRuntime"} {
+		if got := classifyEventType("bedrock-agentcore.amazonaws.com", name); got != "agent-tool" {
+			t.Errorf("classifyEventType(bedrock-agentcore, %q) = %q, want agent-tool", name, got)
+		}
+	}
+}
+
+func TestExtractAgentIdentityCapturesAgentCoreRuntimeVersion(t *testing.T) {
+	// AgentCore endpoint ARNs carry the runtime version / endpoint
+	// alias in the third path segment. The canonical node id helper
+	// appends it, so live runtime evidence must carry it through so
+	// `agent_invoked_runtime_action` edges and `agent_id` filters
+	// keyed on inventory nodes match the live record.
+	agentID, agentType, version := extractAgentIdentity("agent-tool", "arn:aws:bedrock-agentcore:us-east-1:123456789012:agent-runtime-endpoint/runtime-case-triage/blue")
+	if agentID != "runtime-case-triage" || agentType != "agentcore_runtime" || version != "blue" {
+		t.Fatalf("expected agentID=runtime-case-triage agentType=agentcore_runtime version=blue, got %q/%q/%q", agentID, agentType, version)
+	}
+	// Bedrock-agent ARNs do not carry a third segment.
+	agentID, agentType, version = extractAgentIdentity("agent-tool", "arn:aws:bedrock-agent:us-east-1:123456789012:agent/AGENT-ABC123")
+	if agentID != "AGENT-ABC123" || agentType != "bedrock_agent" || version != "" {
+		t.Fatalf("expected agentID=AGENT-ABC123 agentType=bedrock_agent version=empty, got %q/%q/%q", agentID, agentType, version)
+	}
+}
+
 func TestClassifyGetFederationTokenAsSTSSession(t *testing.T) {
 	// GetFederationToken creates a federated-user temporary credential
 	// session. CloudTrail emits it on sts.amazonaws.com, so a request

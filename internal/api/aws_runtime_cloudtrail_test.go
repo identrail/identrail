@@ -299,22 +299,30 @@ func TestRuntimeEventRecordFromNormalizedUsesCanonicalAgentNodeID(t *testing.T) 
 	// AI-agent inventory and provider normalizer use, otherwise
 	// live runtime evidence and the agent inventory won't join.
 	got := runtimeEventRecordFromNormalized(cloudtrail.NormalizedEvent{
-		EventID:           "evt-agent",
-		AccountID:         "123456789012",
-		Region:            "us-east-1",
-		EventType:         "agent-tool",
-		EventSource:       "bedrock-agentcore.amazonaws.com",
-		EventName:         "InvokeTool",
-		Action:            "bedrock-agentcore:InvokeTool",
-		AgentID:           "runtime-case-triage",
-		AgentType:         "agentcore_runtime",
-		TargetResourceARN: "arn:aws:bedrock-agentcore:us-east-1:123456789012:agent-runtime-endpoint/runtime-case-triage/blue",
-		ObservedAt:        time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC),
-		RedactionBoundary: "metadata_only_no_payloads_no_secret_values",
+		EventID:             "evt-agent",
+		AccountID:           "123456789012",
+		Region:              "us-east-1",
+		EventType:           "agent-tool",
+		EventSource:         "bedrock-agentcore.amazonaws.com",
+		EventName:           "InvokeTool",
+		Action:              "bedrock-agentcore:InvokeTool",
+		AgentID:             "runtime-case-triage",
+		AgentType:           "agentcore_runtime",
+		AgentRuntimeVersion: "blue",
+		TargetResourceARN:   "arn:aws:bedrock-agentcore:us-east-1:123456789012:agent-runtime-endpoint/runtime-case-triage/blue",
+		ObservedAt:          time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC),
+		RedactionBoundary:   "metadata_only_no_payloads_no_secret_values",
 	}, "123456789012", "us-east-1")
-	want := awsAIAgentNodeID("123456789012", "us-east-1", "agentcore_runtime", "runtime-case-triage", "")
+	// The version must be included in the canonical node id so live
+	// relationships join the AI-agent inventory nodes that already
+	// stamp the runtime version. With "blue", the canonical helper
+	// appends it to produce `...:agentcore_runtime/runtime-case-triage/blue`.
+	want := awsAIAgentNodeID("123456789012", "us-east-1", "agentcore_runtime", "runtime-case-triage", "blue")
 	if got.AgentNodeID != want {
 		t.Fatalf("expected canonical AgentNodeID %q, got %q", want, got.AgentNodeID)
+	}
+	if !strings.Contains(got.AgentNodeID, "/blue") {
+		t.Fatalf("expected runtime version segment in AgentNodeID, got %q", got.AgentNodeID)
 	}
 
 	// Non-agent-tool events leave AgentNodeID empty.

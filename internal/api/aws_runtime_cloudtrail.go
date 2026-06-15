@@ -173,7 +173,17 @@ func agentNodeIDForLiveEvent(ev cloudtrail.NormalizedEvent, accountID string, re
 	if strings.TrimSpace(ev.AgentID) == "" {
 		return ""
 	}
-	return awsAIAgentNodeID(accountID, region, ev.AgentType, ev.AgentID, "")
+	// AgentCore endpoint ARNs carry the runtime version / endpoint
+	// alias in the third path segment. The AI-agent inventory and
+	// provider normalizer pass that same value into awsAIAgentNodeID
+	// as RuntimeVersion, and the helper appends it to the node id
+	// (`...:agentcore_runtime/<runtime>/<version>`). Pass it through
+	// for live events too so `agent_invoked_runtime_action` edges
+	// and `agent_id` filters keyed on inventory nodes match the
+	// runtime evidence record. Bedrock-agent ARNs have no version
+	// segment, so AgentRuntimeVersion stays empty and the node id
+	// is unaffected.
+	return awsAIAgentNodeID(accountID, region, ev.AgentType, ev.AgentID, ev.AgentRuntimeVersion)
 }
 
 func displayNameFromARN(arn string) string {
