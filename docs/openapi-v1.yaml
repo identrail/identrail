@@ -4549,10 +4549,16 @@ paths:
           schema: { type: string }
           description: Optional AWS connector ID used to scope the account, region, and read-only runtime evidence.
         - in: query
+          name: delivery_source
+          schema:
+            type: string
+            enum: [lookup_events, s3, eventbridge, all]
+          description: Optional CloudTrail delivery channel selector. Default `lookup_events` keeps the existing LookupEvents-API path; `s3` reads from the trail's S3 log destination; `eventbridge` consumes the EventBridge target SQS queue; `all` fans out across every wired channel and dedupes by EventID.
+        - in: query
           name: fixture_state
           schema:
             type: string
-            enum: [success, empty, degraded, partial_failure, permission_denied]
+            enum: [success, empty, degraded, partial_failure, permission_denied, capability_unavailable]
           description: Optional deterministic fixture state for UI validation and contract tests.
         - in: query
           name: account_id

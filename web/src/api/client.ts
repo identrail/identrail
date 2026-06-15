@@ -2244,8 +2244,21 @@ export type AWSRuntimeEventResult = {
   updated_at: string;
 };
 
+// AWSRuntimeEventDeliverySource selects which CloudTrail delivery
+// channel the API drives for a request. `lookup_events` (the default)
+// keeps the existing LookupEvents-API path; `s3` reads from the
+// trail's S3 log destination; `eventbridge` consumes the EventBridge
+// target SQS queue; `all` fans out across every wired channel and
+// dedupes by EventID.
+export type AWSRuntimeEventDeliverySource =
+  | 'lookup_events'
+  | 's3'
+  | 'eventbridge'
+  | 'all';
+
 export type AWSRuntimeEventQuery = {
   connectorID?: string;
+  deliverySource?: AWSRuntimeEventDeliverySource;
   fixtureState?: AWSRuntimeEventFixtureStateRequest;
   accountID?: string;
   region?: string;
@@ -5350,6 +5363,7 @@ export const apiClient = {
     return request<{ runtime: AWSRuntimeEventResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/runtime-events${buildQuery({
         connector_id: query?.connectorID,
+        delivery_source: query?.deliverySource,
         fixture_state: query?.fixtureState,
         account_id: query?.accountID,
         region: query?.region,

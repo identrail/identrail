@@ -28,6 +28,12 @@ type AWSRuntimeEventRequest struct {
 	Evidence     string `json:"evidence,omitempty"`
 	Owner        string `json:"owner,omitempty"`
 	Status       string `json:"status,omitempty"`
+	// DeliverySource selects the CloudTrail ingestion path: empty (or
+	// `lookup_events`) uses the LookupEvents API, `s3` uses the S3
+	// trail log ingester, `eventbridge` uses the EventBridge/SQS
+	// ingester, and `all` runs every available source and merges with
+	// cross-channel dedupe by EventID. Unknown values return 400.
+	DeliverySource string `json:"delivery_source,omitempty"`
 }
 
 type AWSRuntimeEventSession struct {
@@ -163,6 +169,24 @@ func (s *Service) GetAWSRuntimeEvents(ctx context.Context, workspaceID string, p
 		return AWSRuntimeEventResult{}, err
 	}
 	now := s.Now().UTC()
+
+	// Resolve and validate the delivery_source query value. Unknown
+	// tokens return HTTP 400 via ErrInvalidAWSConnectionRequest.
+	deliverySource, deliveryErr := normalizeDeliverySource(request.DeliverySource)
+	if deliveryErr != nil {
+		return AWSRuntimeEventResult{}, deliveryErr
+	}
+
+	// Delivery-channel ingestion (S3, EventBridge, or all) is gated
+	// on the same connector-healthy + runtime_evidence + no-fixture
+	// guards as LookupEvents. When the operator pins a delivery
+	// source other than the default lookup_events, dispatch to the
+	// delivery builder instead. The delivery builder falls back to
+	// fixtures and the same capability/factory diagnostics if the
+	// delivery factory is not wired or the connector is not eligible.
+	if deliverySource == "s3" || deliverySource == "eventbridge" || deliverySource == "all" {
+		return s.getAWSRuntimeEventsFromDelivery(ctx, scope, project, connection, hasConnection, deliverySource, request, now)
+	}
 	// Live CloudTrail ingestion is used only when the operator has not
 	// explicitly forced a fixture state, the connector is active and
 	// healthy, AND the connector's effective capability set includes
@@ -840,4 +864,110 @@ func awsRuntimeEventNextAction(eventType string) string {
 	default:
 		return "Correlate runtime evidence with identity and resource graph context."
 	}
+}
+
+// getAWSRuntimeEventsFromDelivery handles `delivery_source=s3`,
+// `eventbridge`, and `all`. It mirrors the LookupEvents capability /
+// factory gating but dispatches to the delivery factory once per
+// selected source and merges results before threading them through
+// the existing buildAWSRuntimeEventsFromCloudTrail envelope so the
+// response shape stays identical regardless of which CloudTrail
+// ingestion path produced the records.
+func (s *Service) getAWSRuntimeEventsFromDelivery(ctx context.Context, scope db.Scope, project db.TenancyProject, connection AWSConnectionStatus, hasConnection bool, deliverySource string, request AWSRuntimeEventRequest, now time.Time) (AWSRuntimeEventResult, error) {
+	// Capability + factory + connector-health gate mirrors the
+	// LookupEvents path. If the operator pinned a fixture state, fall
+	// through to the deterministic fixture so demos stay stable.
+	if strings.TrimSpace(request.FixtureState) != "" || s.AWSCloudTrailDeliveryFactory == nil || !hasConnection || !connection.Connected || !awsConnectorHasRuntimeEvidence(connection) {
+		result, fixtureErr := buildAWSRuntimeEvents(scope, project, connection, hasConnection, request, now)
+		if fixtureErr != nil {
+			return result, fixtureErr
+		}
+		if strings.TrimSpace(request.FixtureState) == "" {
+			result.Diagnostics = append(result.Diagnostics, AWSRuntimeEventDiagnostic{
+				Collector:   "aws_cloudtrail_delivery",
+				SourceID:    "delivery-" + deliverySource,
+				Code:        "cloudtrail_delivery_unavailable",
+				Message:     fmt.Sprintf("CloudTrail %s delivery ingester is not available for this connector.", deliverySource),
+				Remediation: "Wire AWSCloudTrailDeliveryFactory and grant the connector role read-only access to the trail's S3 bucket or EventBridge target.",
+				Retryable:   true,
+			})
+			result.Status = "degraded"
+			result.FixtureState = "partial_failure"
+			if result.Confidence > 0.6 {
+				result.Confidence = 0.6
+			}
+			result.FailureReasons = dedupeStrings(append(result.FailureReasons, fmt.Sprintf("CloudTrail %s delivery ingester is not available for this connector", deliverySource)))
+			result.RemediationHints = dedupeStrings(append(result.RemediationHints, "Wire AWSCloudTrailDeliveryFactory or grant read-only delivery channel access."))
+		}
+		return result, nil
+	}
+
+	sources := []AWSCloudTrailDeliverySource{}
+	switch deliverySource {
+	case "s3":
+		sources = append(sources, AWSCloudTrailDeliverySourceS3)
+	case "eventbridge":
+		sources = append(sources, AWSCloudTrailDeliverySourceEventBridge)
+	case "all":
+		sources = append(sources, AWSCloudTrailDeliverySourceS3, AWSCloudTrailDeliverySourceEventBridge)
+	}
+
+	results := make([]AWSCloudTrailIngestResult, 0, len(sources))
+	for _, source := range sources {
+		ingester, ingErr := s.AWSCloudTrailDeliveryFactory(ctx, connection, source)
+		if ingErr != nil && (errors.Is(ingErr, context.Canceled) || errors.Is(ingErr, context.DeadlineExceeded)) {
+			return AWSRuntimeEventResult{}, ingErr
+		}
+		if ingErr != nil || ingester == nil {
+			// Source not configured for this connector. Record a
+			// per-source diagnostic so the operator sees why it was
+			// skipped, then continue with the other sources.
+			results = append(results, AWSCloudTrailIngestResult{
+				Status: "degraded",
+				Diagnostics: []AWSRuntimeEventDiagnostic{{
+					Collector:   "aws_cloudtrail_delivery",
+					SourceID:    string(source),
+					Code:        "cloudtrail_delivery_source_unavailable",
+					Message:     fmt.Sprintf("CloudTrail %s delivery ingester is not configured: %v", source, ingErr),
+					Remediation: "Configure the bucket/queue for this delivery channel on the connector and retry.",
+					Retryable:   true,
+				}},
+				CoverageGaps: []AWSRuntimeEventCoverageGap{{
+					Capability:  "cloudtrail_" + string(source) + "_delivery",
+					Status:      "delivery_unavailable",
+					Reason:      fmt.Sprintf("Connector does not have a configured %s delivery target.", source),
+					Remediation: "Configure the delivery channel and retry.",
+				}},
+				FailureReasons:   []string{fmt.Sprintf("CloudTrail %s delivery is not configured", source)},
+				RemediationHints: []string{fmt.Sprintf("Configure the %s delivery target on the connector.", source)},
+			})
+			continue
+		}
+		accountID := firstNonEmptyAWSValue(connection.AccountID, "123456789012")
+		region := firstNonEmptyAWSValue(connection.Region, "us-east-1")
+		ingestResult, err := ingester.Ingest(ctx, AWSCloudTrailIngestRequest{
+			AccountID: accountID,
+			Region:    region,
+		})
+		if err != nil {
+			return AWSRuntimeEventResult{}, fmt.Errorf("ingest cloudtrail %s delivery: %w", source, err)
+		}
+		results = append(results, ingestResult)
+	}
+
+	merged := mergeDeliveryResults(results)
+	// Wrap a fake ingester so we can reuse the existing CloudTrail
+	// envelope builder without duplicating its 80+ lines.
+	stub := &precomputedIngester{result: merged}
+	return buildAWSRuntimeEventsFromCloudTrail(ctx, scope, project, connection, stub, request, now)
+}
+
+// precomputedIngester satisfies AWSCloudTrailRuntimeEventIngester
+// with a pre-computed result. Used by the delivery dispatcher to
+// reuse buildAWSRuntimeEventsFromCloudTrail's envelope builder
+// without duplicating its summary/filter/diagnostic logic.
+type precomputedIngester struct{ result AWSCloudTrailIngestResult }
+
+func (p *precomputedIngester) Ingest(_ context.Context, _ AWSCloudTrailIngestRequest) (AWSCloudTrailIngestResult, error) {
+	return p.result, nil
 }

@@ -12,6 +12,16 @@ response shape is identical so operator UI, filters, evidence links, and
 graph relationships behave the same whether the data came from CloudTrail or
 the fixture.
 
+Issue #1515 adds two additional CloudTrail delivery channels — **S3 trail
+logs** and **EventBridge** (via SQS) — behind the same response envelope.
+LookupEvents only indexes management events, so the data-event rows in the
+contract (S3 `GetObject`, Lambda `Invoke`, Bedrock Agent / AgentCore tool
+calls, DynamoDB item reads) are not reachable through the LookupEvents code
+path. The new S3 and EventBridge ingesters read directly from the trail's
+S3 log destination or the EventBridge fan-out queue, so they can deliver
+data events too. Operators select the source with the new `delivery_source`
+query parameter; the default keeps the existing LookupEvents behavior.
+
 ## API
 
 `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/runtime-events`
@@ -19,6 +29,7 @@ the fixture.
 Supported filters:
 
 - `connector_id`
+- `delivery_source`: `lookup_events` (default), `s3`, `eventbridge`, or `all`
 - `fixture_state`: `success`, `empty`, `degraded`, `partial_failure`, or `permission_denied`
 - `account_id`
 - `region`
@@ -152,3 +163,95 @@ response means the role policy is missing
 `cloudtrail:LookupEvents`. A `history_truncated` coverage gap means the
 window covered more events than the per-run budget; narrow the
 `event_type` filter or raise budgets in a future release.
+
+## CloudTrail S3 + EventBridge delivery ingestion (#1515)
+
+Live S3-trail and EventBridge ingestion is implemented in
+`internal/runtime/cloudtraildelivery` and wired into
+`internal/api.Service.AWSCloudTrailDeliveryFactory`. The factory is
+invoked once per selected source when `delivery_source` is `s3`,
+`eventbridge`, or `all`, the connector is active and healthy, and the
+operator's effective capability set includes `runtime_evidence`. Any
+other state (no factory wired, no connector, capability denied,
+explicit `fixture_state`) falls through to the deterministic fixture
+path so demos and tests stay stable.
+
+### Required AWS permissions
+
+The connector role needs read-only access to the chosen delivery
+channel:
+
+| Source | IAM permissions |
+|---|---|
+| `s3` | `s3:ListBucket` + `s3:GetObject` scoped to the CloudTrail trail's S3 destination bucket and prefix |
+| `eventbridge` | `sqs:ReceiveMessage` + `sqs:DeleteMessage` on the EventBridge target queue |
+
+Identrail never grants or requests object-body write permissions, KMS
+decrypt permissions, or any mutation of the trail destination. Object
+bodies, request parameters, and response elements are never read; only
+the metadata allow-list defined by `cloudtrail.NormalizeEvent` crosses
+the boundary.
+
+### Bounded budgets
+
+Each delivery-ingestion run enforces:
+
+| Budget | Default | Purpose |
+|---|---|---|
+| `LookbackWindow` | 30 minutes | S3 ingester's scan window when no Checkpoint is supplied. |
+| `MaxFiles` | 50 | Caps S3 log objects downloaded per run. |
+| `MaxMessages` | 100 | Caps SQS messages consumed per run. |
+| `MaxEvents` | 1000 | Caps total normalized events across all files / messages per run. |
+| `MaxFileBytes` | 32 MiB | Skips and diagnostically-warns on individual S3 log files larger than this. |
+| `MaxThrottleRetries` | 4 | Per-request throttling retries with linear backoff. |
+
+When ingestion stops at the budget, the response gains a
+`history_truncated` coverage gap and a `degraded` status. When
+`AccessDeniedException` is observed on a list / get / receive call the
+response collapses to `status=blocked` with a `permission_denied`
+coverage gap and zero records — partial coverage is dropped because
+the run could not assert completeness.
+
+### Delivery channel semantics
+
+- **S3 trail logs** are pulled with `ListObjectsV2(StartAfter=checkpoint)`
+  so the next run efficiently resumes after the last processed key. The
+  ingester downloads each `.json.gz` log, parses the `Records[]`
+  envelope, dedupes by `eventID`, and reuses
+  `cloudtrail.NormalizeEvent` for the metadata-only field extraction
+  the LookupEvents engine already vets. The advanced checkpoint is
+  returned on `IngestResult.Checkpoint` for the caller to persist.
+- **EventBridge** ingestion consumes the SQS queue an EventBridge rule
+  targets. The ingester pulls a bounded batch, normalizes each
+  envelope's `detail` (a CloudTrail record), and **deletes
+  successfully-processed messages** so they are not re-delivered.
+  Messages whose envelopes are unparseable are **left in the queue**
+  so the queue's redrive policy applies; messages whose records pass
+  envelope parsing but fail the engine's allow-list normalization
+  (missing core fields, etc.) are deleted to prevent re-delivery
+  storms.
+
+### Cross-channel dedupe
+
+When `delivery_source=all` runs both S3 and EventBridge in the same
+request (plus LookupEvents in a future extension), the API layer
+dedupes by `EventID` across channels. The same CloudTrail event
+arriving on multiple channels surfaces only once; diagnostics,
+coverage gaps, failure reasons, and remediation hints from every
+channel are preserved.
+
+### Live validation
+
+```
+# S3 trail delivery
+GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/runtime-events?connector_id={id}&delivery_source=s3
+
+# EventBridge delivery
+GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/runtime-events?connector_id={id}&delivery_source=eventbridge
+
+# Union with cross-channel dedupe
+GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/runtime-events?connector_id={id}&delivery_source=all
+```
+
+Look for `evidence_category=s3-delivery` or `eventbridge-delivery` on
+the returned records to confirm which channel produced each event.

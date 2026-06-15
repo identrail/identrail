@@ -723,7 +723,7 @@ var payloadAllowedKeys = struct {
 	CreationDate:      "creationDate",
 }
 
-// normalizeEvent converts one CloudTrail Event into one or more
+// NormalizeEvent converts one CloudTrail Event into one or more
 // NormalizedEvents. Multi-resource CloudTrail events
 // (e.g. BatchGetSecretValue reading several secrets) fan out to one
 // normalized event per Resources entry — using suffixed EventIDs to
@@ -733,6 +733,15 @@ var payloadAllowedKeys = struct {
 // argument is the wall-clock time of the ingestion run; live records
 // use it instead of `observed_at + 2min` so audit ordering, cache
 // invalidation, and freshness checks see the actual collection time.
+//
+// Exported so the S3 and EventBridge delivery ingesters in
+// internal/runtime/cloudtraildelivery can reuse the same
+// metadata-only normalization without duplicating the allow-listed
+// payload extraction.
+func NormalizeEvent(raw Event, accountID string, region string, collectedAt time.Time) ([]NormalizedEvent, *Diagnostic, bool) {
+	return normalizeEvent(raw, accountID, region, collectedAt)
+}
+
 func normalizeEvent(raw Event, accountID string, region string, collectedAt time.Time) ([]NormalizedEvent, *Diagnostic, bool) {
 	eventID := strings.TrimSpace(raw.EventID)
 	eventName := strings.TrimSpace(raw.EventName)

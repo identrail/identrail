@@ -143,6 +143,26 @@ type AWSCloudTrailRuntimeEventIngester interface {
 	Ingest(ctx context.Context, request AWSCloudTrailIngestRequest) (AWSCloudTrailIngestResult, error)
 }
 
+// AWSCloudTrailDeliverySource selects which CloudTrail delivery
+// channel (S3 trail logs or EventBridge/SQS) the delivery factory
+// should bind to.
+type AWSCloudTrailDeliverySource string
+
+const (
+	// AWSCloudTrailDeliverySourceS3 selects the S3 trail log ingester.
+	AWSCloudTrailDeliverySourceS3 AWSCloudTrailDeliverySource = "s3"
+	// AWSCloudTrailDeliverySourceEventBridge selects the EventBridge
+	// (SQS-backed) ingester.
+	AWSCloudTrailDeliverySourceEventBridge AWSCloudTrailDeliverySource = "eventbridge"
+)
+
+// AWSCloudTrailDeliveryIngesterFactory builds a delivery-channel
+// ingester (S3 trail logs or EventBridge/SQS) bound to one persisted
+// AWS connector. The factory returns nil for sources the deployment
+// does not configure (e.g. no S3 bucket recorded on the connector);
+// the runtime-events handler then skips that source for the request.
+type AWSCloudTrailDeliveryIngesterFactory func(ctx context.Context, connection AWSConnectionStatus, source AWSCloudTrailDeliverySource) (AWSCloudTrailRuntimeEventIngester, error)
+
 type queuedScanDepthCounter interface {
 	CountQueuedScansAnyScope(ctx context.Context, provider string) (int, error)
 }
@@ -182,6 +202,7 @@ type Service struct {
 	AWSConnectorValidator              AWSConnectorValidator
 	AWSScannerFactory                  AWSScannerFactory
 	AWSCloudTrailLookupEventsFactory   AWSCloudTrailLookupEventsFactory
+	AWSCloudTrailDeliveryFactory       AWSCloudTrailDeliveryIngesterFactory
 	AWSCloudFormationTemplateURL       string
 	AWSAccountID                       string
 	AWSBaselineGitSHA                  string

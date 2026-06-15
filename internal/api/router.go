@@ -2875,17 +2875,18 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			return
 		}
 		record, err := svc.GetAWSRuntimeEvents(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSRuntimeEventRequest{
-			ConnectorID:  strings.TrimSpace(c.Query("connector_id")),
-			FixtureState: strings.TrimSpace(c.Query("fixture_state")),
-			AccountID:    strings.TrimSpace(c.Query("account_id")),
-			Region:       strings.TrimSpace(c.Query("region")),
-			EventType:    strings.TrimSpace(c.Query("event_type")),
-			Identity:     strings.TrimSpace(c.Query("identity")),
-			AgentID:      strings.TrimSpace(c.Query("agent_id")),
-			Resource:     strings.TrimSpace(c.Query("resource")),
-			Evidence:     strings.TrimSpace(c.Query("evidence")),
-			Owner:        strings.TrimSpace(c.Query("owner")),
-			Status:       strings.TrimSpace(c.Query("status")),
+			ConnectorID:    strings.TrimSpace(c.Query("connector_id")),
+			FixtureState:   strings.TrimSpace(c.Query("fixture_state")),
+			AccountID:      strings.TrimSpace(c.Query("account_id")),
+			Region:         strings.TrimSpace(c.Query("region")),
+			EventType:      strings.TrimSpace(c.Query("event_type")),
+			Identity:       strings.TrimSpace(c.Query("identity")),
+			AgentID:        strings.TrimSpace(c.Query("agent_id")),
+			Resource:       strings.TrimSpace(c.Query("resource")),
+			Evidence:       strings.TrimSpace(c.Query("evidence")),
+			Owner:          strings.TrimSpace(c.Query("owner")),
+			Status:         strings.TrimSpace(c.Query("status")),
+			DeliverySource: strings.TrimSpace(c.Query("delivery_source")),
 		})
 		if err != nil {
 			switch {

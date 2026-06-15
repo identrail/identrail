@@ -1,6 +1,28 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS CloudTrail S3 + EventBridge delivery ingestion** (#1515).
+  Adds two bounded, metadata-only CloudTrail delivery-channel
+  ingesters (`internal/runtime/cloudtraildelivery`) that read directly
+  from the trail's S3 log destination or an EventBridge target SQS
+  queue. The new `delivery_source` query parameter on
+  `GET /v1/workspaces/{ws}/projects/{p}/aws/runtime-events` selects
+  `lookup_events` (default), `s3`, `eventbridge`, or `all`; the `all`
+  fan-out runs every wired channel and dedupes by `EventID` so the
+  same CloudTrail event arriving on multiple channels surfaces once.
+  Both ingesters enforce `MaxFiles`/`MaxMessages`/`MaxEvents` budgets,
+  use linear-backoff throttling retries, surface
+  `permission_denied`/`history_truncated`/`empty` coverage gaps, and
+  reuse `cloudtrail.NormalizeEvent` for the metadata-only field
+  extraction the LookupEvents path already vets. The S3 ingester
+  resumes from a per-run S3 key checkpoint; the EventBridge ingester
+  deletes successfully-processed messages so they are not re-
+  delivered and leaves malformed envelopes in-queue so the queue's
+  redrive policy applies. The ingesters are wired into
+  `Service.AWSCloudTrailDeliveryFactory` and only run when the
+  connector is active and healthy and the operator's effective
+  capability set includes `runtime_evidence`. Closes #1515. See
+  [docs/aws-runtime-events.md](docs/aws-runtime-events.md).
 - Add **AWS CloudTrail LookupEvents runtime ingestion** (#1514). Adds a
   bounded, metadata-only CloudTrail LookupEvents ingester
   (`internal/runtime/cloudtrail`) that turns recent CloudTrail API
