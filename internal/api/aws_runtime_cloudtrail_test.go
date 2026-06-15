@@ -293,6 +293,43 @@ func TestGetAWSRuntimeEventsFactoryErrorAttachesDiagnosticAndFallsBackToFixture(
 	}
 }
 
+func TestRuntimeEventRecordFromNormalizedUsesCanonicalAgentNodeID(t *testing.T) {
+	// The runtime evidence graph must key agent nodes on the same
+	// shape (aws:agent:<account>:<region>:<type>/<id>) the
+	// AI-agent inventory and provider normalizer use, otherwise
+	// live runtime evidence and the agent inventory won't join.
+	got := runtimeEventRecordFromNormalized(cloudtrail.NormalizedEvent{
+		EventID:           "evt-agent",
+		AccountID:         "123456789012",
+		Region:            "us-east-1",
+		EventType:         "agent-tool",
+		EventSource:       "bedrock-agentcore.amazonaws.com",
+		EventName:         "InvokeTool",
+		Action:            "bedrock-agentcore:InvokeTool",
+		AgentID:           "runtime-case-triage",
+		AgentType:         "agentcore_runtime",
+		TargetResourceARN: "arn:aws:bedrock-agentcore:us-east-1:123456789012:agent-runtime-endpoint/runtime-case-triage/blue",
+		ObservedAt:        time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC),
+		RedactionBoundary: "metadata_only_no_payloads_no_secret_values",
+	}, "123456789012", "us-east-1")
+	want := awsAIAgentNodeID("123456789012", "us-east-1", "agentcore_runtime", "runtime-case-triage", "")
+	if got.AgentNodeID != want {
+		t.Fatalf("expected canonical AgentNodeID %q, got %q", want, got.AgentNodeID)
+	}
+
+	// Non-agent-tool events leave AgentNodeID empty.
+	got = runtimeEventRecordFromNormalized(cloudtrail.NormalizedEvent{
+		EventID:     "evt-secret",
+		AccountID:   "123456789012",
+		Region:      "us-east-1",
+		EventType:   "secret-read",
+		EventSource: "secretsmanager.amazonaws.com",
+	}, "123456789012", "us-east-1")
+	if got.AgentNodeID != "" {
+		t.Fatalf("expected empty AgentNodeID for non-agent event, got %q", got.AgentNodeID)
+	}
+}
+
 func TestRuntimeEventRecordFromNormalizedKeysAssumedRoleIdentityByIssuerARN(t *testing.T) {
 	sessionARN := "arn:aws:sts::123456789012:assumed-role/identrail-runtime-reader/sess-runtime-reader"
 	issuerARN := "arn:aws:iam::123456789012:role/identrail-runtime-reader"

@@ -415,22 +415,22 @@ func TestNormalizeEventStampsCollectedAtWithRunTime(t *testing.T) {
 func TestNormalizeEventDerivesAgentIdentityFromBedrockARN(t *testing.T) {
 	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
-		name       string
-		resource   string
-		wantAgent  string
-		wantPrefix string
+		name      string
+		resource  string
+		wantAgent string
+		wantType  string
 	}{
 		{
-			name:       "agentcore runtime endpoint",
-			resource:   "arn:aws:bedrock-agentcore:us-east-1:123456789012:agent-runtime-endpoint/runtime-case-triage/blue",
-			wantAgent:  "runtime-case-triage",
-			wantPrefix: "aws:agentcore_runtime:123456789012:us-east-1:",
+			name:      "agentcore runtime endpoint",
+			resource:  "arn:aws:bedrock-agentcore:us-east-1:123456789012:agent-runtime-endpoint/runtime-case-triage/blue",
+			wantAgent: "runtime-case-triage",
+			wantType:  "agentcore_runtime",
 		},
 		{
-			name:       "bedrock agent",
-			resource:   "arn:aws:bedrock-agent:us-east-1:123456789012:agent/AGENT-ABC123",
-			wantAgent:  "AGENT-ABC123",
-			wantPrefix: "aws:bedrock_agent:123456789012:us-east-1:",
+			name:      "bedrock agent",
+			resource:  "arn:aws:bedrock-agent:us-east-1:123456789012:agent/AGENT-ABC123",
+			wantAgent: "AGENT-ABC123",
+			wantType:  "bedrock_agent",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -448,8 +448,8 @@ func TestNormalizeEventDerivesAgentIdentityFromBedrockARN(t *testing.T) {
 			if got[0].AgentID != tc.wantAgent {
 				t.Fatalf("expected AgentID=%q, got %q", tc.wantAgent, got[0].AgentID)
 			}
-			if !strings.HasPrefix(got[0].AgentNodeID, tc.wantPrefix) {
-				t.Fatalf("expected AgentNodeID prefix %q, got %q", tc.wantPrefix, got[0].AgentNodeID)
+			if got[0].AgentType != tc.wantType {
+				t.Fatalf("expected AgentType %q, got %q", tc.wantType, got[0].AgentType)
 			}
 		})
 	}
@@ -463,7 +463,7 @@ func TestNormalizeEventDerivesAgentIdentityFromBedrockARN(t *testing.T) {
 		Resources:   []EventResource{{ResourceName: "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/x"}},
 	}
 	got, _, _ := normalizeEvent(raw, "123456789012", "us-east-1", now)
-	if got[0].AgentID != "" || got[0].AgentNodeID != "" {
+	if got[0].AgentID != "" || got[0].AgentType != "" {
 		t.Fatalf("non-agent event must not derive agent identity, got %+v", got[0])
 	}
 }

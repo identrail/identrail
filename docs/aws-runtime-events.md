@@ -82,6 +82,29 @@ of `userIdentity` metadata (`type`, `arn`, `principalId`, and
 `sessionContext.attributes.creationDate` /
 `sessionContext.sessionIssuer.arn`).
 
+### What LookupEvents can (and can't) surface
+
+CloudTrail's `LookupEvents` API only searches **management events** (and
+Insights events when explicitly requested). AWS classifies high-volume
+data-plane activity as **data events**, which are not indexed by
+`LookupEvents` and require a separate CloudTrail trail with data-event
+selectors (or CloudTrail Lake).
+
+| Runtime event type | Source | Reaches `LookupEvents`? |
+|---|---|---|
+| `sts-session` (AssumeRole/GetSessionToken/GetFederationToken) | `sts.amazonaws.com` | ✓ Management |
+| `secret-read` (GetSecretValue, BatchGetSecretValue) | `secretsmanager.amazonaws.com` | ✓ Management |
+| `kms-decrypt` (Decrypt, GenerateDataKey, ReEncrypt) | `kms.amazonaws.com` | ✓ Management |
+| `api-call` (control-plane API operations) | various | ✓ Management |
+| `api-call` (S3 `GetObject`, Lambda `Invoke`, DynamoDB item reads) | `s3.amazonaws.com`, `lambda.amazonaws.com`, `dynamodb.amazonaws.com` | ✗ Data event |
+| `agent-tool` (Bedrock `InvokeAgent` / AgentCore tool calls) | `bedrock-agent.amazonaws.com`, `bedrock-agentcore.amazonaws.com` | ✗ Data event |
+
+For the data-event rows, the ingester does not advertise live coverage
+through this code path. The fixture contract retains those event types
+so the API/UI surface stays stable; wiring CloudTrail Lake or a
+data-events trail to populate them is a separate capability tracked
+outside this PR.
+
 ### Bounded budgets
 
 Each ingestion run enforces:

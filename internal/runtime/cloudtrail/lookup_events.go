@@ -5,6 +5,18 @@
 // tests can drive every pagination, throttling, permission-denied, and
 // partial-failure branch without network access or AWS credentials.
 //
+// Coverage scope: CloudTrail's LookupEvents API only indexes management
+// events (and Insights events when explicitly requested). Data events —
+// notably S3 GetObject, Lambda Invoke, Bedrock Agent / AgentCore tool
+// invocations, and DynamoDB item-level reads — are not searchable
+// through LookupEvents and require a separate CloudTrail trail with
+// data-event selectors (or CloudTrail Lake). The normalizer keeps the
+// classification logic for those event types so the same engine can
+// fold a data-events source in once it is wired, but operators must
+// not interpret an empty data-event slice from this ingester as
+// "the activity did not happen". See docs/aws-runtime-events.md for the
+// per-event-type coverage matrix.
+//
 // Safety boundaries:
 //   - Metadata only. The ingester never reads, logs, or persists
 //     userIdentity payloads, request parameters, response elements,
@@ -186,16 +198,21 @@ type NormalizedEvent struct {
 	TargetResourceARN  string
 	TargetResourceType string
 	TargetResourceName string
-	AgentID            string
-	AgentNodeID        string
-	Owner              string
-	EvidenceCategory   string
-	Confidence         float64
-	ObservedAt         time.Time
-	CollectedAt        time.Time
-	Status             string
-	ReadOnly           bool
-	RedactionBoundary  string
+	// AgentID and AgentType are derived from the target-resource
+	// ARN for agent-tool events. The API layer composes the
+	// canonical AgentNodeID from these using the same helper the
+	// AI-agent inventory and provider normalizer use, so the
+	// runtime evidence graph joins back to the agent inventory nodes.
+	AgentID           string
+	AgentType         string
+	Owner             string
+	EvidenceCategory  string
+	Confidence        float64
+	ObservedAt        time.Time
+	CollectedAt       time.Time
+	Status            string
+	ReadOnly          bool
+	RedactionBoundary string
 }
 
 const (
@@ -798,7 +815,7 @@ func buildNormalizedFromCore(raw Event, resource EventResource, accountID string
 	if eventType == "agent-tool" {
 		evidence = "agent-runtime"
 	}
-	agentID, agentNodeID := extractAgentIdentity(eventType, resourceARN, accountID, region)
+	agentID, agentType := extractAgentIdentity(eventType, resourceARN)
 	return NormalizedEvent{
 		EventID:            eventID,
 		AccountID:          strings.TrimSpace(accountID),
@@ -821,7 +838,7 @@ func buildNormalizedFromCore(raw Event, resource EventResource, accountID string
 		TargetResourceType: resourceType,
 		TargetResourceName: resourceName,
 		AgentID:            agentID,
-		AgentNodeID:        agentNodeID,
+		AgentType:          agentType,
 		RedactionBoundary:  RedactionBoundary,
 	}
 }
@@ -1030,13 +1047,20 @@ func pickTargetResource(r EventResource) (string, string, string) {
 	return name, rt, display
 }
 
-// extractAgentIdentity derives the agent ID + agent node ID from an
-// agent-tool target resource ARN. Bedrock AgentCore emits resources
-// like `arn:aws:bedrock-agentcore:<region>:<account>:agent-runtime-endpoint/<agentID>/<alias>`
-// and Bedrock Agents emits `arn:aws:bedrock-agent:<region>:<account>:agent/<agentID>`;
-// the agent ID is the segment immediately after the resource type.
+// extractAgentIdentity derives the agent ID and the agent-type
+// discriminator token from an agent-tool target resource ARN. Bedrock
+// AgentCore emits resources like
+// `arn:aws:bedrock-agentcore:<region>:<account>:agent-runtime-endpoint/<agentID>/<alias>`
+// and Bedrock Agents emits
+// `arn:aws:bedrock-agent:<region>:<account>:agent/<agentID>`; the
+// agent ID is the segment immediately after the resource type, and
+// the type discriminator distinguishes which agent inventory the ID
+// belongs to. The API layer composes the canonical AgentNodeID from
+// these two tokens via `awsAIAgentNodeID`, so the engine never
+// constructs the node-id string itself and the runtime evidence
+// graph joins back to the agent inventory nodes consistently.
 // Non-agent-tool events return empty strings.
-func extractAgentIdentity(eventType string, resourceARN string, accountID string, region string) (string, string) {
+func extractAgentIdentity(eventType string, resourceARN string) (string, string) {
 	if eventType != "agent-tool" {
 		return "", ""
 	}
@@ -1044,13 +1068,11 @@ func extractAgentIdentity(eventType string, resourceARN string, accountID string
 	if trimmed == "" {
 		return "", ""
 	}
-	// Split off everything after the last `:` — the resource portion.
 	colon := strings.LastIndex(trimmed, ":")
 	if colon < 0 || colon+1 >= len(trimmed) {
 		return "", ""
 	}
 	resource := trimmed[colon+1:]
-	// Resource shape is `<type>/<agentID>[/<alias>]` — pull the agent ID.
 	parts := strings.Split(resource, "/")
 	if len(parts) < 2 {
 		return "", ""
@@ -1060,11 +1082,11 @@ func extractAgentIdentity(eventType string, resourceARN string, accountID string
 	if agentID == "" {
 		return "", ""
 	}
-	agentTypeToken := "bedrock_agent"
+	agentType := "bedrock_agent"
 	if strings.HasPrefix(resourceType, "agent-runtime") {
-		agentTypeToken = "agentcore_runtime"
+		agentType = "agentcore_runtime"
 	}
-	return agentID, fmt.Sprintf("aws:%s:%s:%s:%s", agentTypeToken, strings.TrimSpace(accountID), strings.TrimSpace(region), agentID)
+	return agentID, agentType
 }
 
 func firstNonEmpty(values ...string) string {

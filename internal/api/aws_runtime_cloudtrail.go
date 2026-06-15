@@ -149,7 +149,7 @@ func runtimeEventRecordFromNormalized(ev cloudtrail.NormalizedEvent, fallbackAcc
 		TargetResourceName: resourceName,
 		ResourceNodeID:     awsRuntimeEventResourceNodeID(ev.TargetResourceARN, ev.TargetResourceType),
 		AgentID:            ev.AgentID,
-		AgentNodeID:        ev.AgentNodeID,
+		AgentNodeID:        agentNodeIDForLiveEvent(ev, accountID, region),
 		Owner:              ev.Owner,
 		EvidenceCategory:   ev.EvidenceCategory,
 		EvidenceRef:        fmt.Sprintf("runtime-evidence://%s/%s/%s", accountID, region, ev.EventID),
@@ -160,6 +160,20 @@ func runtimeEventRecordFromNormalized(ev cloudtrail.NormalizedEvent, fallbackAcc
 		NextAction:         awsRuntimeEventNextAction(ev.EventType),
 		RedactionBoundary:  ev.RedactionBoundary,
 	}
+}
+
+// agentNodeIDForLiveEvent composes the canonical agent node id used
+// across the AI-agent inventory and the AWS provider normalizer. The
+// engine only emits AgentID + AgentType; the bridge calls
+// awsAIAgentNodeID so the runtime evidence graph keys agent nodes on
+// the same shape (`aws:agent:<account>:<region>:<type>/<id>`) as the
+// rest of the AWS graph and the agent inventory rows the operator
+// already sees in the UI.
+func agentNodeIDForLiveEvent(ev cloudtrail.NormalizedEvent, accountID string, region string) string {
+	if strings.TrimSpace(ev.AgentID) == "" {
+		return ""
+	}
+	return awsAIAgentNodeID(accountID, region, ev.AgentType, ev.AgentID, "")
 }
 
 func displayNameFromARN(arn string) string {
