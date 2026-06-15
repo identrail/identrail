@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -180,6 +181,17 @@ func (s *Service) GetAWSRuntimeEvents(ctx context.Context, workspaceID string, p
 		if ingErr == nil && ingester != nil {
 			return buildAWSRuntimeEventsFromCloudTrail(ctx, scope, project, connection, ingester, request, now)
 		}
+		// Context cancellation / deadline expiry during factory setup
+		// (loading AWS config, assuming the role) is a caller-driven
+		// abort — not a CloudTrail partial-coverage state. Returning
+		// a degraded fixture here would let an HTTP handler whose
+		// client already disconnected record a misleading response;
+		// propagate the context error so the request layer can shed
+		// the in-flight work. This mirrors the same check the
+		// ingester applies for in-flight LookupEvents calls.
+		if ingErr != nil && (errors.Is(ingErr, context.Canceled) || errors.Is(ingErr, context.DeadlineExceeded)) {
+			return AWSRuntimeEventResult{}, ingErr
+		}
 		// Factory error is recorded as a diagnostic on the fixture
 		// fallback so operators still see why live ingestion did not
 		// run. A nil ingester from the factory is treated as
@@ -319,6 +331,20 @@ func buildAWSRuntimeEventsFromCloudTrail(ctx context.Context, scope db.Scope, pr
 		confidence = 0
 	case "degraded":
 		confidence = 0.78
+	}
+	// If the unfiltered ingester degraded the response solely because
+	// of normalization diagnostics that the filter then scoped out,
+	// the response the operator actually sees has no diagnostics, no
+	// truncation, and no coverage gaps. Recompute to "ready" so the
+	// UI does not show degraded for a clean filtered slice. Truncation
+	// and partial-failure coverage gaps still hold the response at
+	// degraded because they affect the unfiltered ingestion run, not
+	// the filtered view.
+	if status == "degraded" && len(diagnostics) == 0 && !ingestResult.HistoryTruncated && len(ingestResult.CoverageGaps) == 0 && len(filtered) > 0 {
+		status = "ready"
+		confidence = 0.92
+		failures = nil
+		remediations = nil
 	}
 	if status == "ready" && len(filtered) == 0 {
 		status = "degraded"

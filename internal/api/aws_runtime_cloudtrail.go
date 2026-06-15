@@ -148,6 +148,8 @@ func runtimeEventRecordFromNormalized(ev cloudtrail.NormalizedEvent, fallbackAcc
 		TargetResourceType: ev.TargetResourceType,
 		TargetResourceName: resourceName,
 		ResourceNodeID:     awsRuntimeEventResourceNodeID(ev.TargetResourceARN, ev.TargetResourceType),
+		AgentID:            ev.AgentID,
+		AgentNodeID:        ev.AgentNodeID,
 		Owner:              ev.Owner,
 		EvidenceCategory:   ev.EvidenceCategory,
 		EvidenceRef:        fmt.Sprintf("runtime-evidence://%s/%s/%s", accountID, region, ev.EventID),

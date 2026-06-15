@@ -312,6 +312,128 @@ func TestIngestRetriesThrottlingThenSurfacesDiagnostic(t *testing.T) {
 	}
 }
 
+func TestNormalizeEventFansOutPerResourceForMultiResourceCalls(t *testing.T) {
+	// CloudTrail BatchGetSecretValue can touch several secrets in
+	// one call. The normalizer must emit one normalized event per
+	// Resources entry — with a deterministic suffixed EventID — so
+	// the resource-level filter, the relationship builder, and the
+	// per-resource summary counts all see every secret.
+	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
+	raw := Event{
+		EventID:     "evt-batch",
+		EventName:   "BatchGetSecretValue",
+		EventSource: "secretsmanager.amazonaws.com",
+		EventTime:   now.Add(-5 * time.Minute),
+		Username:    "arn:aws:sts::123456789012:assumed-role/role/sess",
+		Resources: []EventResource{
+			{ResourceType: "AWS::SecretsManager::Secret", ResourceName: "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db"},
+			{ResourceType: "AWS::SecretsManager::Secret", ResourceName: "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/api"},
+			{ResourceType: "AWS::SecretsManager::Secret", ResourceName: "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/oauth"},
+		},
+	}
+	got, diag, ok := normalizeEvent(raw, "123456789012", "us-east-1", now)
+	if !ok {
+		t.Fatalf("expected normalization to succeed")
+	}
+	if diag != nil {
+		t.Fatalf("expected no diagnostic, got %+v", diag)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected one normalized event per resource, got %d", len(got))
+	}
+	if got[0].EventID != "evt-batch" || got[1].EventID != "evt-batch#1" || got[2].EventID != "evt-batch#2" {
+		t.Fatalf("expected suffixed event ids, got %q/%q/%q", got[0].EventID, got[1].EventID, got[2].EventID)
+	}
+	for i, want := range []string{"prod/db", "prod/api", "prod/oauth"} {
+		if !strings.Contains(got[i].TargetResourceARN, want) {
+			t.Fatalf("expected per-resource ARN containing %q at idx %d, got %q", want, i, got[i].TargetResourceARN)
+		}
+	}
+}
+
+func TestNormalizeEventStampsCollectedAtWithRunTime(t *testing.T) {
+	// Live records must carry the actual ingestion-run timestamp in
+	// collected_at, not `observed_at + 2min`. Events near the start
+	// of the 90-minute lookback would otherwise look as if Identrail
+	// collected them over an hour earlier, breaking freshness checks
+	// and audit ordering.
+	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
+	observed := now.Add(-85 * time.Minute)
+	raw := Event{
+		EventID:     "evt-old",
+		EventName:   "AssumeRole",
+		EventSource: "sts.amazonaws.com",
+		EventTime:   observed,
+		Username:    "arn:aws:sts::123456789012:assumed-role/role/sess",
+	}
+	got, _, _ := normalizeEvent(raw, "123456789012", "us-east-1", now)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(got))
+	}
+	if !got[0].CollectedAt.Equal(now) {
+		t.Fatalf("expected CollectedAt to equal ingestion-run time %s, got %s", now, got[0].CollectedAt)
+	}
+	if !got[0].ObservedAt.Equal(observed) {
+		t.Fatalf("expected ObservedAt to preserve the CloudTrail event time %s, got %s", observed, got[0].ObservedAt)
+	}
+}
+
+func TestNormalizeEventDerivesAgentIdentityFromBedrockARN(t *testing.T) {
+	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name       string
+		resource   string
+		wantAgent  string
+		wantPrefix string
+	}{
+		{
+			name:       "agentcore runtime endpoint",
+			resource:   "arn:aws:bedrock-agentcore:us-east-1:123456789012:agent-runtime-endpoint/runtime-case-triage/blue",
+			wantAgent:  "runtime-case-triage",
+			wantPrefix: "aws:agentcore_runtime:123456789012:us-east-1:",
+		},
+		{
+			name:       "bedrock agent",
+			resource:   "arn:aws:bedrock-agent:us-east-1:123456789012:agent/AGENT-ABC123",
+			wantAgent:  "AGENT-ABC123",
+			wantPrefix: "aws:bedrock_agent:123456789012:us-east-1:",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := Event{
+				EventID:     "evt-agent",
+				EventName:   "InvokeTool",
+				EventSource: "bedrock-agentcore.amazonaws.com",
+				EventTime:   now,
+				Resources:   []EventResource{{ResourceType: "AWS::BedrockAgent::Agent", ResourceName: tc.resource}},
+			}
+			got, _, ok := normalizeEvent(raw, "123456789012", "us-east-1", now)
+			if !ok || len(got) != 1 {
+				t.Fatalf("expected 1 event, got %d (ok=%v)", len(got), ok)
+			}
+			if got[0].AgentID != tc.wantAgent {
+				t.Fatalf("expected AgentID=%q, got %q", tc.wantAgent, got[0].AgentID)
+			}
+			if !strings.HasPrefix(got[0].AgentNodeID, tc.wantPrefix) {
+				t.Fatalf("expected AgentNodeID prefix %q, got %q", tc.wantPrefix, got[0].AgentNodeID)
+			}
+		})
+	}
+
+	// Non-agent-tool events leave the agent fields empty.
+	raw := Event{
+		EventID:     "evt-secret",
+		EventName:   "GetSecretValue",
+		EventSource: "secretsmanager.amazonaws.com",
+		EventTime:   now,
+		Resources:   []EventResource{{ResourceName: "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/x"}},
+	}
+	got, _, _ := normalizeEvent(raw, "123456789012", "us-east-1", now)
+	if got[0].AgentID != "" || got[0].AgentNodeID != "" {
+		t.Fatalf("non-agent event must not derive agent identity, got %+v", got[0])
+	}
+}
+
 func TestParseSessionTimeAcceptsCloudTrailBasicISO8601(t *testing.T) {
 	// CloudTrail's userIdentity sessionContext.attributes.creationDate
 	// is documented as basic ISO-8601 (e.g. `20131102T010628Z`), so
@@ -772,14 +894,14 @@ func TestNormalizeEventToleratesUnparseablePayload(t *testing.T) {
 		Username:    "arn:aws:iam::123456789012:role/r",
 		RawEvent:    "{not-json",
 	}
-	got, diag, ok := normalizeEvent(raw, "123456789012", "us-east-1")
+	got, diag, ok := normalizeEvent(raw, "123456789012", "us-east-1", now)
 	if !ok {
 		t.Fatalf("expected normalization to fall back to core fields when JSON is unparseable")
 	}
 	if diag == nil || diag.Code != "cloudtrail_event_payload_unparseable" {
 		t.Fatalf("expected payload-unparseable diagnostic, got %+v", diag)
 	}
-	if got.EventID != "evt-bad-json" {
+	if len(got) != 1 || got[0].EventID != "evt-bad-json" {
 		t.Fatalf("expected core fields to land, got %+v", got)
 	}
 }

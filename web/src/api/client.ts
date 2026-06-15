@@ -2102,12 +2102,18 @@ export type AWSAIAgentIdentityQuery = {
 };
 
 export type AWSRuntimeEventStatus = 'ready' | 'degraded' | 'blocked';
+// `capability_unavailable` is returned when the connector is otherwise
+// healthy but its effective capability set does not include
+// `runtime_evidence`, so live CloudTrail LookupEvents ingestion was
+// intentionally not attempted; the response carries the fixture-shaped
+// records with a degraded status so the UI surfaces the boundary.
 export type AWSRuntimeEventFixtureState =
   | 'success'
   | 'empty'
   | 'degraded'
   | 'partial_failure'
-  | 'permission_denied';
+  | 'permission_denied'
+  | 'capability_unavailable';
 
 export type AWSRuntimeEventSession = {
   session_id: string;

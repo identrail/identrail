@@ -10838,7 +10838,7 @@ components:
           enum: [ready, degraded, blocked]
         fixture_state:
           type: string
-          enum: [success, empty, degraded, partial_failure, permission_denied]
+          enum: [success, empty, degraded, partial_failure, permission_denied, capability_unavailable]
         confidence:
           type: number
           minimum: 0

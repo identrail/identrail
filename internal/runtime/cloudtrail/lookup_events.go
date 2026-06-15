@@ -186,6 +186,8 @@ type NormalizedEvent struct {
 	TargetResourceARN  string
 	TargetResourceType string
 	TargetResourceName string
+	AgentID            string
+	AgentNodeID        string
 	Owner              string
 	EvidenceCategory   string
 	Confidence         float64
@@ -383,14 +385,14 @@ func (i *Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestRes
 				continue
 			}
 			seen[eventID] = struct{}{}
-			normalized, mapDiag, ok := normalizeEvent(raw, result.AccountID, result.Region)
+			normalized, mapDiag, ok := normalizeEvent(raw, result.AccountID, result.Region, now)
 			if mapDiag != nil {
 				result.Diagnostics = append(result.Diagnostics, *mapDiag)
 			}
 			if !ok {
 				continue
 			}
-			result.Events = append(result.Events, normalized)
+			result.Events = append(result.Events, normalized...)
 			if len(result.Events) >= request.MaxEvents {
 				// More events still in this page → history is
 				// genuinely truncated. If the budget fills on the
@@ -678,15 +680,22 @@ var payloadAllowedKeys = struct {
 	CreationDate:      "creationDate",
 }
 
-// normalizeEvent converts one CloudTrail Event to a NormalizedEvent.
-// Returns (event, diag, ok). When ok is false the event was dropped
-// and the diagnostic — if any — explains why.
-func normalizeEvent(raw Event, accountID string, region string) (NormalizedEvent, *Diagnostic, bool) {
+// normalizeEvent converts one CloudTrail Event into one or more
+// NormalizedEvents. Multi-resource CloudTrail events
+// (e.g. BatchGetSecretValue reading several secrets) fan out to one
+// normalized event per Resources entry — using suffixed EventIDs to
+// keep dedupe deterministic — so the resource-level filter, the
+// graph relationship builder, and the per-resource summary counts
+// all see every secret/key/object the event touched. The collectedAt
+// argument is the wall-clock time of the ingestion run; live records
+// use it instead of `observed_at + 2min` so audit ordering, cache
+// invalidation, and freshness checks see the actual collection time.
+func normalizeEvent(raw Event, accountID string, region string, collectedAt time.Time) ([]NormalizedEvent, *Diagnostic, bool) {
 	eventID := strings.TrimSpace(raw.EventID)
 	eventName := strings.TrimSpace(raw.EventName)
 	eventSource := strings.TrimSpace(raw.EventSource)
 	if eventID == "" || eventName == "" || eventSource == "" {
-		return NormalizedEvent{}, &Diagnostic{
+		return nil, &Diagnostic{
 			SourceID:  firstNonEmpty(eventID, "cloudtrail"),
 			Code:      "cloudtrail_event_missing_core_fields",
 			Message:   "CloudTrail event is missing EventId, EventName, or EventSource; skipping.",
@@ -695,64 +704,86 @@ func normalizeEvent(raw Event, accountID string, region string) (NormalizedEvent
 	}
 
 	meta, metaErr := extractAllowedMetadata(raw.RawEvent)
+	var diag *Diagnostic
+	scopedAccount := accountID
+	scopedRegion := region
 	if metaErr != nil {
 		// Bad payload JSON is treated as a partial-failure
 		// diagnostic, not a hard error: the SDK Event's top-level
 		// fields are still usable.
-		diag := &Diagnostic{
+		diag = &Diagnostic{
 			SourceID:  eventID,
 			Code:      "cloudtrail_event_payload_unparseable",
 			Message:   fmt.Sprintf("CloudTrailEvent JSON could not be parsed for %s; falling back to top-level metadata: %v", eventID, metaErr),
 			Retryable: false,
 		}
-		normalized := buildNormalizedFromCore(raw, accountID, region)
-		return normalized, diag, true
+	} else {
+		scopedAccount = firstNonEmpty(meta.RecipientAccount, accountID)
+		scopedRegion = firstNonEmpty(meta.AWSRegion, region)
 	}
-	normalized := buildNormalizedFromCore(raw, firstNonEmpty(meta.RecipientAccount, accountID), firstNonEmpty(meta.AWSRegion, region))
-	normalized.SourceIPAddress = meta.SourceIPAddress
-	normalized.UserAgent = meta.UserAgent
-	if meta.UserARN != "" {
-		normalized.ActorPrincipalARN = meta.UserARN
+
+	// Fan out per Resources entry — or once with an empty resource
+	// when the event carries none. The base event id is preserved on
+	// the first record; later resources get a deterministic
+	// `${EventID}#${idx}` suffix so the outer dedupe keeps them all
+	// while remaining stable across repeated lookups.
+	resources := raw.Resources
+	if len(resources) == 0 {
+		resources = []EventResource{{}}
 	}
-	if meta.UserType != "" {
-		normalized.ActorPrincipalType = mapPrincipalType(meta.UserType)
+	out := make([]NormalizedEvent, 0, len(resources))
+	for idx, resource := range resources {
+		base := buildNormalizedFromCore(raw, resource, scopedAccount, scopedRegion, collectedAt)
+		if idx > 0 {
+			base.EventID = fmt.Sprintf("%s#%d", eventID, idx)
+		}
+		if metaErr == nil {
+			base.SourceIPAddress = meta.SourceIPAddress
+			base.UserAgent = meta.UserAgent
+			if meta.UserARN != "" {
+				base.ActorPrincipalARN = meta.UserARN
+			}
+			if meta.UserType != "" {
+				base.ActorPrincipalType = mapPrincipalType(meta.UserType)
+			}
+			if meta.SessionPrincipalID != "" {
+				base.SessionID = meta.SessionPrincipalID
+			}
+			if meta.IssuerARN != "" {
+				base.SessionIssuerARN = meta.IssuerARN
+				base.AssumedRoleARN = meta.IssuerARN
+			}
+			if !meta.SessionCreationDate.IsZero() {
+				base.SessionStartedAt = meta.SessionCreationDate
+			}
+			// SessionExpiresAt is deliberately left zero when the
+			// real expiration is not extracted; STS sessions range
+			// from 15 minutes to 12 hours, so synthesising +1h would
+			// mislead consumers.
+		}
+		out = append(out, base)
 	}
-	if meta.SessionPrincipalID != "" {
-		normalized.SessionID = meta.SessionPrincipalID
-	}
-	if meta.IssuerARN != "" {
-		normalized.SessionIssuerARN = meta.IssuerARN
-		normalized.AssumedRoleARN = meta.IssuerARN
-	}
-	if !meta.SessionCreationDate.IsZero() {
-		normalized.SessionStartedAt = meta.SessionCreationDate
-	}
-	// SessionExpiresAt is deliberately left zero when the real
-	// expiration is not extracted from the payload. STS supports role
-	// session durations from 15 minutes up to 12 hours, so synthesising
-	// a +1h expiry would make long-running sessions look expired and
-	// short sessions look still valid; downstream consumers must check
-	// IsZero before treating the field as authoritative.
-	return normalized, nil, true
+	return out, diag, true
 }
 
-func buildNormalizedFromCore(raw Event, accountID string, region string) NormalizedEvent {
+func buildNormalizedFromCore(raw Event, resource EventResource, accountID string, region string, collectedAt time.Time) NormalizedEvent {
 	eventID := strings.TrimSpace(raw.EventID)
 	eventName := strings.TrimSpace(raw.EventName)
 	eventSource := strings.TrimSpace(raw.EventSource)
 	observed := raw.EventTime.UTC()
 	if observed.IsZero() {
-		observed = time.Now().UTC()
+		observed = collectedAt
 	}
 	readOnly := strings.EqualFold(strings.TrimSpace(raw.ReadOnly), "true")
 	eventType := classifyEventType(eventSource, eventName)
-	resourceARN, resourceType, resourceName := pickTargetResource(raw.Resources)
+	resourceARN, resourceType, resourceName := pickTargetResource(resource)
 	owner := ownerForEventType(eventType)
 	evidence := "cloudtrail"
 	status := "observed"
 	if eventType == "agent-tool" {
 		evidence = "agent-runtime"
 	}
+	agentID, agentNodeID := extractAgentIdentity(eventType, resourceARN, accountID, region)
 	return NormalizedEvent{
 		EventID:            eventID,
 		AccountID:          strings.TrimSpace(accountID),
@@ -768,12 +799,14 @@ func buildNormalizedFromCore(raw Event, accountID string, region string) Normali
 		EvidenceCategory:   evidence,
 		Confidence:         0.9,
 		ObservedAt:         observed,
-		CollectedAt:        observed.Add(2 * time.Minute),
+		CollectedAt:        collectedAt,
 		Status:             status,
 		ReadOnly:           readOnly,
 		TargetResourceARN:  resourceARN,
 		TargetResourceType: resourceType,
 		TargetResourceName: resourceName,
+		AgentID:            agentID,
+		AgentNodeID:        agentNodeID,
 		RedactionBoundary:  RedactionBoundary,
 	}
 }
@@ -966,23 +999,57 @@ func buildAction(eventSource string, eventName string) string {
 	return source + ":" + strings.TrimSpace(eventName)
 }
 
-func pickTargetResource(resources []EventResource) (string, string, string) {
-	for _, r := range resources {
-		name := strings.TrimSpace(r.ResourceName)
-		rt := strings.TrimSpace(r.ResourceType)
-		if name == "" && rt == "" {
-			continue
-		}
-		display := name
-		if display == "" {
-			display = rt
-		}
-		// The ResourceName from CloudTrail is usually an ARN for
-		// secrets/KMS/S3 events and a plain name otherwise; the
-		// API layer keeps both for downstream graph wiring.
-		return name, rt, display
+func pickTargetResource(r EventResource) (string, string, string) {
+	name := strings.TrimSpace(r.ResourceName)
+	rt := strings.TrimSpace(r.ResourceType)
+	if name == "" && rt == "" {
+		return "", "", ""
 	}
-	return "", "", ""
+	display := name
+	if display == "" {
+		display = rt
+	}
+	// The ResourceName from CloudTrail is usually an ARN for
+	// secrets/KMS/S3 events and a plain name otherwise; the API
+	// layer keeps both for downstream graph wiring.
+	return name, rt, display
+}
+
+// extractAgentIdentity derives the agent ID + agent node ID from an
+// agent-tool target resource ARN. Bedrock AgentCore emits resources
+// like `arn:aws:bedrock-agentcore:<region>:<account>:agent-runtime-endpoint/<agentID>/<alias>`
+// and Bedrock Agents emits `arn:aws:bedrock-agent:<region>:<account>:agent/<agentID>`;
+// the agent ID is the segment immediately after the resource type.
+// Non-agent-tool events return empty strings.
+func extractAgentIdentity(eventType string, resourceARN string, accountID string, region string) (string, string) {
+	if eventType != "agent-tool" {
+		return "", ""
+	}
+	trimmed := strings.TrimSpace(resourceARN)
+	if trimmed == "" {
+		return "", ""
+	}
+	// Split off everything after the last `:` — the resource portion.
+	colon := strings.LastIndex(trimmed, ":")
+	if colon < 0 || colon+1 >= len(trimmed) {
+		return "", ""
+	}
+	resource := trimmed[colon+1:]
+	// Resource shape is `<type>/<agentID>[/<alias>]` — pull the agent ID.
+	parts := strings.Split(resource, "/")
+	if len(parts) < 2 {
+		return "", ""
+	}
+	resourceType := strings.TrimSpace(parts[0])
+	agentID := strings.TrimSpace(parts[1])
+	if agentID == "" {
+		return "", ""
+	}
+	agentTypeToken := "bedrock_agent"
+	if strings.HasPrefix(resourceType, "agent-runtime") {
+		agentTypeToken = "agentcore_runtime"
+	}
+	return agentID, fmt.Sprintf("aws:%s:%s:%s:%s", agentTypeToken, strings.TrimSpace(accountID), strings.TrimSpace(region), agentID)
 }
 
 func firstNonEmpty(values ...string) string {

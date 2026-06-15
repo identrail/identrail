@@ -489,6 +489,89 @@ func TestGetAWSRuntimeEventsLiveBlockedStatusKeepsContractShape(t *testing.T) {
 	}
 }
 
+func TestGetAWSRuntimeEventsFactoryContextCancellationPropagates(t *testing.T) {
+	// Context cancellation / deadline expiry inside the factory
+	// (loading AWS config, assuming the role) is a caller-driven
+	// abort, not a CloudTrail partial-coverage state. The handler
+	// must return the context error to the caller — letting the
+	// fixture fallback render a "degraded" response would mislead
+	// an HTTP client that already disconnected.
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 21, 45, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-factory-cancel")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-factory-cancel", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-factory-cancel", "aws-prod")
+
+	for _, ctxErr := range []error{context.Canceled, context.DeadlineExceeded} {
+		svc := NewService(store, fakeScanner{}, "aws")
+		svc.Now = func() time.Time { return now }
+		svc.AWSCloudTrailLookupEventsFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error) {
+			return nil, ctxErr
+		}
+		_, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-factory-cancel", AWSRuntimeEventRequest{ConnectorID: "aws-prod"})
+		if !errors.Is(err, ctxErr) {
+			t.Fatalf("expected %v to propagate, got %v", ctxErr, err)
+		}
+	}
+}
+
+func TestGetAWSRuntimeEventsRecomputesStatusReadyWhenFilterDropsAllDiagnostics(t *testing.T) {
+	// If the unfiltered ingester is degraded only because of a
+	// normalization diagnostic on a record that the filter then drops,
+	// the response the operator sees has no diagnostic, no coverage
+	// gap, and clean records. The handler must recompute to ready so
+	// the UI does not show degraded for a clean filtered slice.
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 22, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-recompute")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-recompute", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-recompute", "aws-prod")
+
+	role := "arn:aws:sts::123456789012:assumed-role/identrail-runtime-reader/sess"
+	cleanSecret := liveRuntimeRecord(t, "evt-clean-secret", "secret-read", "GetSecretValue", "secretsmanager.amazonaws.com", "secretsmanager:GetSecretValue", "application", "cloudtrail", role, "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/clean", "AWS::SecretsManager::Secret", now.Add(-10*time.Minute))
+	dirtyAPI := liveRuntimeRecord(t, "evt-dirty-api", "api-call", "DescribeInstances", "ec2.amazonaws.com", "ec2:DescribeInstances", "application", "cloudtrail", role, "arn:aws:ec2:us-east-1:123456789012:instance/i-1", "AWS::EC2::Instance", now.Add(-5*time.Minute))
+	fake := &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{
+		// Ingester is degraded only because of the diagnostic
+		// attached to the dirty-api record. No coverage gaps, no
+		// truncation, two records.
+		Status:           "degraded",
+		Records:          []AWSRuntimeEventRecord{cleanSecret, dirtyAPI},
+		FailureReasons:   []string{"CloudTrail LookupEvents ingestion returned diagnostics"},
+		RemediationHints: []string{"Review diagnostics before treating runtime coverage as complete."},
+		Diagnostics: []AWSRuntimeEventDiagnostic{{
+			Collector: "aws_cloudtrail_lookup_events",
+			SourceID:  "evt-dirty-api",
+			Code:      "cloudtrail_event_payload_unparseable",
+			Message:   "synthetic test diagnostic",
+		}},
+	}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailLookupEventsFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error) {
+		return fake, nil
+	}
+
+	// Filter scopes the response to the clean secret-read record only.
+	result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-recompute", AWSRuntimeEventRequest{ConnectorID: "aws-prod", EventType: "secret-read"})
+	if err != nil {
+		t.Fatalf("get runtime events: %v", err)
+	}
+	if len(result.Records) != 1 || result.Records[0].EventID != "evt-clean-secret" {
+		t.Fatalf("expected only the clean secret record in filtered response, got %+v", result.Records)
+	}
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("expected scoped-out diagnostics to be absent, got %+v", result.Diagnostics)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected status to be recomputed to ready when all diagnostics scoped out, got %q (%+v)", result.Status, result)
+	}
+	if result.FixtureState != "success" {
+		t.Fatalf("expected fixture_state=success on recomputed ready, got %q", result.FixtureState)
+	}
+}
+
 func TestAWSRuntimeEventSessionOmitsUnknownTimestamps(t *testing.T) {
 	// IAM/root/service events do not carry a CloudTrail session,
 	// and even assumed-role events where STS rotated the credential
