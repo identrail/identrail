@@ -103,6 +103,9 @@ type Config struct {
 	AWSProfile                    string
 	AWSCloudFormationTemplateURL  string
 	AWSAccountID                  string
+	AWSCloudTrailS3Bucket         string
+	AWSCloudTrailS3Prefix         string
+	AWSCloudTrailEventBridgeQueue string
 	AWSConnectorCapabilities      []string
 	AWSFixturePath                []string
 	KubernetesFixturePath         []string
@@ -278,6 +281,9 @@ func Load() Config {
 		AWSProfile:                    getEnv("IDENTRAIL_AWS_PROFILE", ""),
 		AWSCloudFormationTemplateURL:  getEnv("IDENTRAIL_AWS_CFN_TEMPLATE_URL", ""),
 		AWSAccountID:                  getEnv("IDENTRAIL_AWS_ACCOUNT_ID", ""),
+		AWSCloudTrailS3Bucket:         strings.TrimSpace(getEnv("IDENTRAIL_AWS_CLOUDTRAIL_S3_BUCKET", "")),
+		AWSCloudTrailS3Prefix:         strings.TrimSpace(getEnv("IDENTRAIL_AWS_CLOUDTRAIL_S3_PREFIX", "")),
+		AWSCloudTrailEventBridgeQueue: strings.TrimSpace(getEnv("IDENTRAIL_AWS_CLOUDTRAIL_EVENTBRIDGE_QUEUE_URL", "")),
 		AWSConnectorCapabilities:      parseCommaSeparated(getEnv("IDENTRAIL_AWS_CONNECTOR_CAPABILITIES", "")),
 		AWSFixturePath:                parseCommaSeparated(getEnv("IDENTRAIL_AWS_FIXTURES", defaultAWSFixtures)),
 		KubernetesFixturePath:         parseCommaSeparated(getEnv("IDENTRAIL_K8S_FIXTURES", defaultK8sFixtures)),

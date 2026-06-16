@@ -18,6 +18,7 @@ import (
 	awsprovider "github.com/identrail/identrail/internal/providers/aws"
 	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
 	"github.com/identrail/identrail/internal/runtime/cloudtrail"
+	"github.com/identrail/identrail/internal/runtime/cloudtraildelivery"
 	"github.com/identrail/identrail/internal/scheduler"
 	"github.com/identrail/identrail/internal/secretstore"
 	"github.com/identrail/identrail/internal/userexport"
@@ -379,6 +380,32 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 			return nil, lookupErr
 		}
 		return api.NewCloudTrailRuntimeEventIngester(cloudtrail.New(lookupAPI)), nil
+	}
+	svc.AWSCloudTrailDeliveryFactory = func(ctx context.Context, connection api.AWSConnectionStatus, source api.AWSCloudTrailDeliverySource) (api.AWSCloudTrailRuntimeEventIngester, error) {
+		switch source {
+		case api.AWSCloudTrailDeliverySourceS3:
+			bucket := strings.TrimSpace(cfg.AWSCloudTrailS3Bucket)
+			if bucket == "" {
+				return nil, fmt.Errorf("IDENTRAIL_AWS_CLOUDTRAIL_S3_BUCKET is required for delivery_source=s3")
+			}
+			s3API, s3Err := cloudtraildelivery.NewSDKS3APIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-cloudtrail-s3-delivery")
+			if s3Err != nil {
+				return nil, s3Err
+			}
+			return api.NewCloudTrailS3DeliveryIngester(cloudtraildelivery.NewS3Ingester(s3API, bucket, cfg.AWSCloudTrailS3Prefix)), nil
+		case api.AWSCloudTrailDeliverySourceEventBridge:
+			queueURL := strings.TrimSpace(cfg.AWSCloudTrailEventBridgeQueue)
+			if queueURL == "" {
+				return nil, fmt.Errorf("IDENTRAIL_AWS_CLOUDTRAIL_EVENTBRIDGE_QUEUE_URL is required for delivery_source=eventbridge")
+			}
+			sqsAPI, sqsErr := cloudtraildelivery.NewSDKSQSAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-cloudtrail-eventbridge-delivery")
+			if sqsErr != nil {
+				return nil, sqsErr
+			}
+			return api.NewCloudTrailEventBridgeDeliveryIngester(cloudtraildelivery.NewEventBridgeIngester(sqsAPI, queueURL)), nil
+		default:
+			return nil, fmt.Errorf("unsupported CloudTrail delivery source %q", source)
+		}
 	}
 	svc.DefaultScope = db.Scope{
 		TenantID:    cfg.DefaultTenantID,

@@ -4,21 +4,32 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
 
 type fakeSQS struct {
 	receiveOut    ReceiveMessageOutput
+	receivePages  []ReceiveMessageOutput
 	receiveErr    error
+	receiveInputs []ReceiveMessageInput
 	deletedIDs    []string
 	deleteFailure []DeleteMessageBatchFailure
 	deleteErr     error
 }
 
-func (f *fakeSQS) ReceiveMessage(ctx context.Context, _ ReceiveMessageInput) (ReceiveMessageOutput, error) {
+func (f *fakeSQS) ReceiveMessage(ctx context.Context, input ReceiveMessageInput) (ReceiveMessageOutput, error) {
 	if err := ctx.Err(); err != nil {
 		return ReceiveMessageOutput{}, err
+	}
+	f.receiveInputs = append(f.receiveInputs, input)
+	if len(f.receivePages) > 0 {
+		idx := len(f.receiveInputs) - 1
+		if idx >= len(f.receivePages) {
+			return ReceiveMessageOutput{}, nil
+		}
+		return f.receivePages[idx], f.receiveErr
 	}
 	return f.receiveOut, f.receiveErr
 }
@@ -47,6 +58,37 @@ func eventBridgeMessageBody(t *testing.T, eventID, eventName, eventSource string
 		"eventTime":          eventTime.UTC().Format(time.RFC3339),
 		"awsRegion":          "us-east-1",
 		"recipientAccountId": "123456789012",
+		"userIdentity": map[string]any{
+			"type": "AssumedRole",
+			"arn":  "arn:aws:sts::123456789012:assumed-role/role/sess",
+		},
+	}
+	envelope := map[string]any{
+		"id":          "eb-id-" + eventID,
+		"source":      "aws.cloudtrail",
+		"detail-type": "AWS API Call via CloudTrail",
+		"account":     "123456789012",
+		"region":      "us-east-1",
+		"time":        eventTime.UTC().Format(time.RFC3339),
+		"detail":      detail,
+	}
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("encode envelope: %v", err)
+	}
+	return string(body)
+}
+
+func eventBridgeMessageBodyWithResources(t *testing.T, eventID, eventName, eventSource string, eventTime time.Time, resources []map[string]any) string {
+	t.Helper()
+	detail := map[string]any{
+		"eventID":            eventID,
+		"eventName":          eventName,
+		"eventSource":        eventSource,
+		"eventTime":          eventTime.UTC().Format(time.RFC3339),
+		"awsRegion":          "us-east-1",
+		"recipientAccountId": "123456789012",
+		"resources":          resources,
 		"userIdentity": map[string]any{
 			"type": "AssumedRole",
 			"arn":  "arn:aws:sts::123456789012:assumed-role/role/sess",
@@ -193,5 +235,57 @@ func TestEventBridgeIngesterRespectsMaxEventsBudget(t *testing.T) {
 	}
 	if !result.HistoryTruncated {
 		t.Fatalf("expected HistoryTruncated when budget capped")
+	}
+}
+
+func TestEventBridgeIngesterReceivesBatchesUpToMaxMessages(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	page := func(start int) ReceiveMessageOutput {
+		out := ReceiveMessageOutput{}
+		for idx := 0; idx < 10; idx++ {
+			n := start + idx
+			out.Messages = append(out.Messages, SQSMessage{
+				MessageID:     fmt.Sprintf("msg-%02d", n),
+				ReceiptHandle: fmt.Sprintf("rh-%02d", n),
+				Body:          eventBridgeMessageBody(t, fmt.Sprintf("evt-%02d", n), "AssumeRole", "sts.amazonaws.com", now),
+			})
+		}
+		return out
+	}
+	fake := &fakeSQS{receivePages: []ReceiveMessageOutput{page(0), page(10), ReceiveMessageOutput{}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1", MaxMessages: 20})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 20 || len(fake.deletedIDs) != 20 {
+		t.Fatalf("expected 20 events/deletes, got events=%d deletes=%d", len(result.Events), len(fake.deletedIDs))
+	}
+	if len(fake.receiveInputs) != 2 || fake.receiveInputs[0].MaxNumberOfMessages != 10 || fake.receiveInputs[1].MaxNumberOfMessages != 10 {
+		t.Fatalf("expected two 10-message receives, got %+v", fake.receiveInputs)
+	}
+}
+
+func TestEventBridgeIngesterDoesNotDeleteMessageTruncatedMidFanout(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	body := eventBridgeMessageBodyWithResources(t, "evt-many", "BatchGetSecretValue", "secretsmanager.amazonaws.com", now, []map[string]any{
+		{"type": "AWS::SecretsManager::Secret", "ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/one"},
+		{"type": "AWS::SecretsManager::Secret", "ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/two"},
+	})
+	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+		{MessageID: "msg-many", ReceiptHandle: "rh-many", Body: body},
+	}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1", MaxEvents: 1})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if !result.HistoryTruncated || len(result.Events) != 1 {
+		t.Fatalf("expected one truncated event, got %+v", result)
+	}
+	if len(fake.deletedIDs) != 0 {
+		t.Fatalf("truncated message must remain for redelivery, deleted=%+v", fake.deletedIDs)
 	}
 }

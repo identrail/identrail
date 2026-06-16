@@ -111,7 +111,7 @@ func (i *S3Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestR
 	request = request.withDefaults()
 	result := IngestResult{Source: DeliverySourceS3, Status: "ready"}
 
-	objects, listErr := i.listObjects(ctx, request, now)
+	objects, listTruncated, listErr := i.listObjects(ctx, request, now)
 	if listErr != nil {
 		if errors.Is(listErr, context.Canceled) || errors.Is(listErr, context.DeadlineExceeded) {
 			return IngestResult{}, listErr
@@ -142,6 +142,9 @@ func (i *S3Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestR
 	seen := map[string]struct{}{}
 	checkpoint := strings.TrimSpace(request.Checkpoint)
 	checkpointBlocked := false
+	if listTruncated {
+		result.HistoryTruncated = true
+	}
 	for idx, obj := range objects {
 		result.FilesProcessed++
 		if result.FilesProcessed > request.MaxFiles {
@@ -241,27 +244,38 @@ func (i *S3Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestR
 // (already strictly greater than any earlier key for the same trail).
 // When the checkpoint is empty the lookback window scopes the listing
 // to the last LookbackWindow worth of activity.
-func (i *S3Ingester) listObjects(ctx context.Context, request IngestRequest, now time.Time) ([]S3Object, error) {
+func (i *S3Ingester) listObjects(ctx context.Context, request IngestRequest, now time.Time) ([]S3Object, bool, error) {
 	startAfter := strings.TrimSpace(request.Checkpoint)
 	prefix := strings.TrimSpace(i.Prefix)
-	out, err := i.listWithRetry(ctx, ListObjectsV2Input{
-		Bucket:     i.Bucket,
-		Prefix:     prefix,
-		MaxKeys:    int32(request.MaxFiles),
-		StartAfter: startAfter,
-	}, request)
-	if err != nil {
-		return nil, err
-	}
-	filtered := make([]S3Object, 0, len(out.Objects))
+	filtered := make([]S3Object, 0, request.MaxFiles)
 	cutoff := now.Add(-request.LookbackWindow)
-	for _, obj := range out.Objects {
-		if startAfter == "" && !obj.LastModified.IsZero() && obj.LastModified.Before(cutoff) {
-			continue
+	nextToken := ""
+	for {
+		out, err := i.listWithRetry(ctx, ListObjectsV2Input{
+			Bucket:            i.Bucket,
+			Prefix:            prefix,
+			MaxKeys:           int32(request.MaxFiles),
+			StartAfter:        startAfter,
+			ContinuationToken: nextToken,
+		}, request)
+		if err != nil {
+			return nil, false, err
 		}
-		filtered = append(filtered, obj)
+		for _, obj := range out.Objects {
+			if startAfter == "" && !obj.LastModified.IsZero() && obj.LastModified.Before(cutoff) {
+				continue
+			}
+			filtered = append(filtered, obj)
+			if len(filtered) >= request.MaxFiles {
+				return filtered, out.IsTruncated || strings.TrimSpace(out.NextToken) != "", nil
+			}
+		}
+		nextToken = strings.TrimSpace(out.NextToken)
+		if !out.IsTruncated || nextToken == "" {
+			break
+		}
 	}
-	return filtered, nil
+	return filtered, false, nil
 }
 
 func (i *S3Ingester) listWithRetry(ctx context.Context, input ListObjectsV2Input, request IngestRequest) (ListObjectsV2Output, error) {

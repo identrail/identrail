@@ -261,7 +261,7 @@ type CloudTrailRecord struct {
 	EventTime        string           `json:"eventTime,omitempty"`
 	AWSRegion        string           `json:"awsRegion,omitempty"`
 	RecipientAccount string           `json:"recipientAccountId,omitempty"`
-	ReadOnly         string           `json:"readOnly,omitempty"`
+	ReadOnly         any              `json:"readOnly,omitempty"`
 	UserIdentity     map[string]any   `json:"userIdentity,omitempty"`
 	Resources        []CloudTrailRsrc `json:"resources,omitempty"`
 	SourceIPAddress  string           `json:"sourceIPAddress,omitempty"`
@@ -294,7 +294,7 @@ func (r CloudTrailRecord) toCloudTrailEvent(rawJSON string) cloudtrail.Event {
 		EventID:     strings.TrimSpace(r.EventID),
 		EventName:   strings.TrimSpace(r.EventName),
 		EventSource: strings.TrimSpace(r.EventSource),
-		ReadOnly:    strings.TrimSpace(r.ReadOnly),
+		ReadOnly:    readOnlyString(r.ReadOnly),
 		Username:    pickUsername(r.UserIdentity),
 		AccessKeyID: pickAccessKeyID(r.UserIdentity),
 		Resources:   resources,
@@ -306,6 +306,20 @@ func (r CloudTrailRecord) toCloudTrailEvent(rawJSON string) cloudtrail.Event {
 		}
 	}
 	return event
+}
+
+func readOnlyString(value any) string {
+	switch v := value.(type) {
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	case string:
+		return strings.TrimSpace(v)
+	default:
+		return ""
+	}
 }
 
 func pickUsername(identity map[string]any) string {

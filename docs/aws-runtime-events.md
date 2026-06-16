@@ -176,6 +176,14 @@ other state (no factory wired, no connector, capability denied,
 explicit `fixture_state`) falls through to the deterministic fixture
 path so demos and tests stay stable.
 
+Hosted runtime wiring uses these optional environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `IDENTRAIL_AWS_CLOUDTRAIL_S3_BUCKET` | CloudTrail trail destination bucket used by `delivery_source=s3`. |
+| `IDENTRAIL_AWS_CLOUDTRAIL_S3_PREFIX` | Optional account/region/date-scoped prefix for S3 trail objects. |
+| `IDENTRAIL_AWS_CLOUDTRAIL_EVENTBRIDGE_QUEUE_URL` | SQS queue URL targeted by the EventBridge rule used by `delivery_source=eventbridge`. |
+
 ### Required AWS permissions
 
 The connector role needs read-only access to the chosen delivery

@@ -15,20 +15,30 @@ import (
 
 type fakeS3 struct {
 	objects     []S3Object
+	listPages   []ListObjectsV2Output
 	bodyByKey   map[string][]byte
 	listErr     error
 	getErrByKey map[string]error
+	listInputs  []ListObjectsV2Input
 	listCalls   int
 	getCalls    int
 }
 
-func (f *fakeS3) ListObjectsV2(ctx context.Context, _ ListObjectsV2Input) (ListObjectsV2Output, error) {
+func (f *fakeS3) ListObjectsV2(ctx context.Context, input ListObjectsV2Input) (ListObjectsV2Output, error) {
 	if err := ctx.Err(); err != nil {
 		return ListObjectsV2Output{}, err
 	}
 	f.listCalls++
+	f.listInputs = append(f.listInputs, input)
 	if f.listErr != nil {
 		return ListObjectsV2Output{}, f.listErr
+	}
+	if len(f.listPages) > 0 {
+		page := f.listCalls - 1
+		if page >= len(f.listPages) {
+			return ListObjectsV2Output{}, nil
+		}
+		return f.listPages[page], nil
 	}
 	return ListObjectsV2Output{Objects: f.objects}, nil
 }
@@ -320,6 +330,64 @@ func TestS3IngesterOrdersByKeyForStartAfterCheckpoint(t *testing.T) {
 	}
 }
 
+func TestS3IngesterPagesPastOldObjectsIntoLookbackWindow(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	key := "AWSLogs/123/CloudTrail/us-east-1/2026/06/15/recent.json.gz"
+	body := gzipLogFile(t, cloudTrailRecord("evt-recent", "AssumeRole", "sts.amazonaws.com", now.Add(-1*time.Minute), nil))
+	fake := &fakeS3{
+		listPages: []ListObjectsV2Output{
+			{
+				Objects: []S3Object{
+					{Key: "old-1.json.gz", Size: 10, LastModified: now.Add(-2 * time.Hour)},
+					{Key: "old-2.json.gz", Size: 10, LastModified: now.Add(-90 * time.Minute)},
+				},
+				NextToken:   "page-2",
+				IsTruncated: true,
+			},
+			{
+				Objects: []S3Object{{Key: key, Size: int64(len(body)), LastModified: now.Add(-1 * time.Minute)}},
+			},
+		},
+		bodyByKey: map[string][]byte{key: body},
+	}
+	ing := NewS3Ingester(fake, "bucket", "AWSLogs/123/CloudTrail/us-east-1/")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1", MaxFiles: 2})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if fake.listCalls != 2 || fake.listInputs[1].ContinuationToken != "page-2" {
+		t.Fatalf("expected second S3 listing page, calls=%d inputs=%+v", fake.listCalls, fake.listInputs)
+	}
+	if len(result.Events) != 1 || result.Events[0].EventID != "evt-recent" {
+		t.Fatalf("expected recent event from second page, got %+v", result.Events)
+	}
+}
+
+func TestS3IngesterMarksTruncatedListing(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	key := "log-1.json.gz"
+	body := gzipLogFile(t, cloudTrailRecord("evt-1", "AssumeRole", "sts.amazonaws.com", now, nil))
+	fake := &fakeS3{
+		listPages: []ListObjectsV2Output{{
+			Objects:     []S3Object{{Key: key, Size: int64(len(body)), LastModified: now}},
+			NextToken:   "more",
+			IsTruncated: true,
+		}},
+		bodyByKey: map[string][]byte{key: body},
+	}
+	ing := NewS3Ingester(fake, "bucket", "")
+	ing.Now = func() time.Time { return now }
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1", MaxFiles: 1})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if !result.HistoryTruncated {
+		t.Fatalf("expected truncated listing to mark HistoryTruncated")
+	}
+}
+
 func TestS3IngesterEnforcesDecompressedMaxFileBytes(t *testing.T) {
 	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
 	key := "large-decompressed.json.gz"
@@ -347,6 +415,20 @@ func TestS3IngesterEnforcesDecompressedMaxFileBytes(t *testing.T) {
 	}
 	if !strings.Contains(result.Diagnostics[0].Message, "MaxFileBytes") {
 		t.Fatalf("expected MaxFileBytes diagnostic, got %+v", result.Diagnostics)
+	}
+}
+
+func TestParseCloudTrailLogFileAcceptsBooleanReadOnly(t *testing.T) {
+	payload := []byte(`{"Records":[{"eventID":"evt-readonly","eventName":"GetObject","eventSource":"s3.amazonaws.com","eventTime":"2026-06-15T18:00:00Z","readOnly":true}]}`)
+	records, err := parseCloudTrailLogFile(payload)
+	if err != nil {
+		t.Fatalf("parse log file: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected one record, got %d", len(records))
+	}
+	if records[0].Event.ReadOnly != "true" {
+		t.Fatalf("expected boolean readOnly to normalize to true string, got %q", records[0].Event.ReadOnly)
 	}
 }
 

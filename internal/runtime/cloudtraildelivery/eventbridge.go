@@ -202,6 +202,9 @@ func (i *EventBridgeIngester) Ingest(ctx context.Context, request IngestRequest)
 		if len(normalized) > remaining {
 			normalized = normalized[:remaining]
 			result.HistoryTruncated = true
+			result.Events = append(result.Events, normalized...)
+			result.EventsConsidered++
+			break
 		}
 		result.Events = append(result.Events, normalized...)
 		toDelete = append(toDelete, DeleteMessageBatchEntry{ID: msg.MessageID, ReceiptHandle: msg.ReceiptHandle})
@@ -219,13 +222,30 @@ func (i *EventBridgeIngester) Ingest(ctx context.Context, request IngestRequest)
 }
 
 func (i *EventBridgeIngester) receiveWithRetry(ctx context.Context, request IngestRequest) (ReceiveMessageOutput, error) {
-	max := request.MaxMessages
-	// SQS caps ReceiveMessage at 10 entries per request — let the
-	// caller batch beyond that by sizing MaxMessages but cap each
-	// receive at 10 to match SDK semantics.
-	if max > 10 {
-		max = 10
+	var combined ReceiveMessageOutput
+	for len(combined.Messages) < request.MaxMessages {
+		max := request.MaxMessages - len(combined.Messages)
+		// SQS caps ReceiveMessage at 10 entries per request; loop so
+		// one ingestion run can consume the caller's MaxMessages budget.
+		if max > 10 {
+			max = 10
+		}
+		out, err := i.receiveOneWithRetry(ctx, request, max)
+		if err != nil {
+			return ReceiveMessageOutput{}, err
+		}
+		if len(out.Messages) == 0 {
+			break
+		}
+		combined.Messages = append(combined.Messages, out.Messages...)
+		if len(out.Messages) < max {
+			break
+		}
 	}
+	return combined, nil
+}
+
+func (i *EventBridgeIngester) receiveOneWithRetry(ctx context.Context, request IngestRequest, max int) (ReceiveMessageOutput, error) {
 	input := ReceiveMessageInput{
 		QueueURL:            i.QueueURL,
 		MaxNumberOfMessages: int32(max),
