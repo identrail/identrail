@@ -79,6 +79,7 @@ func (a *cloudTrailDeliveryAdapter) Ingest(ctx context.Context, request AWSCloud
 		FailureReasons:   append([]string{}, engineResult.FailureReasons...),
 		RemediationHints: append([]string{}, engineResult.RemediationHints...),
 		HistoryTruncated: engineResult.HistoryTruncated,
+		Checkpoint:       engineResult.Checkpoint,
 	}
 	for _, ev := range engineResult.Events {
 		record := runtimeEventRecordFromNormalized(ev, request.AccountID, request.Region)

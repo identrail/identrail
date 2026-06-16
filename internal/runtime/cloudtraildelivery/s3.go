@@ -250,7 +250,15 @@ func (i *S3Ingester) listObjects(ctx context.Context, request IngestRequest, now
 	filtered := make([]S3Object, 0, request.MaxFiles)
 	cutoff := now.Add(-request.LookbackWindow)
 	nextToken := ""
-	for {
+	// maxListPages caps how many S3 list pages we fetch so an
+	// unbounded prefix with many old objects doesn't cause us to
+	// traverse the entire bucket. One page returns up to MaxFiles
+	// keys, so MaxFiles pages is a generous upper bound.
+	maxListPages := request.MaxFiles
+	if maxListPages < 1 {
+		maxListPages = DefaultMaxFiles
+	}
+	for page := 0; page < maxListPages; page++ {
 		out, err := i.listWithRetry(ctx, ListObjectsV2Input{
 			Bucket:            i.Bucket,
 			Prefix:            prefix,
@@ -274,6 +282,11 @@ func (i *S3Ingester) listObjects(ctx context.Context, request IngestRequest, now
 		if !out.IsTruncated || nextToken == "" {
 			break
 		}
+	}
+	// If we exhausted the page budget without filling the file budget
+	// and there are still more pages, report truncation.
+	if nextToken != "" && len(filtered) < request.MaxFiles {
+		return filtered, true, nil
 	}
 	return filtered, false, nil
 }

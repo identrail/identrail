@@ -121,7 +121,7 @@ func (i *EventBridgeIngester) Ingest(ctx context.Context, request IngestRequest)
 	request = request.withDefaults()
 	result := IngestResult{Source: DeliverySourceEventBridge, Status: "ready"}
 
-	receiveOut, recvErr := i.receiveWithRetry(ctx, request)
+	receiveOut, moreAvailable, recvErr := i.receiveWithRetry(ctx, request)
 	if recvErr != nil {
 		if errors.Is(recvErr, context.Canceled) || errors.Is(recvErr, context.DeadlineExceeded) {
 			return IngestResult{}, recvErr
@@ -141,6 +141,9 @@ func (i *EventBridgeIngester) Ingest(ctx context.Context, request IngestRequest)
 		result.RemediationHints = append(result.RemediationHints, "Confirm the connector role can sqs:ReceiveMessage on the configured queue.")
 		finalizeEmptyOrTruncated(&result)
 		return result, nil
+	}
+	if moreAvailable {
+		result.HistoryTruncated = true
 	}
 
 	seen := map[string]struct{}{}
@@ -221,8 +224,9 @@ func (i *EventBridgeIngester) Ingest(ctx context.Context, request IngestRequest)
 	return result, nil
 }
 
-func (i *EventBridgeIngester) receiveWithRetry(ctx context.Context, request IngestRequest) (ReceiveMessageOutput, error) {
+func (i *EventBridgeIngester) receiveWithRetry(ctx context.Context, request IngestRequest) (ReceiveMessageOutput, bool, error) {
 	var combined ReceiveMessageOutput
+	lastBatchFull := false
 	for len(combined.Messages) < request.MaxMessages {
 		max := request.MaxMessages - len(combined.Messages)
 		// SQS caps ReceiveMessage at 10 entries per request; loop so
@@ -232,17 +236,22 @@ func (i *EventBridgeIngester) receiveWithRetry(ctx context.Context, request Inge
 		}
 		out, err := i.receiveOneWithRetry(ctx, request, max)
 		if err != nil {
-			return ReceiveMessageOutput{}, err
+			return ReceiveMessageOutput{}, false, err
 		}
 		if len(out.Messages) == 0 {
+			lastBatchFull = false
 			break
 		}
 		combined.Messages = append(combined.Messages, out.Messages...)
+		lastBatchFull = len(out.Messages) >= max
 		if len(out.Messages) < max {
 			break
 		}
 	}
-	return combined, nil
+	// If the budget is filled and the last batch was full, the queue
+	// likely has more messages the caller could not consume.
+	moreAvailable := lastBatchFull && len(combined.Messages) >= request.MaxMessages
+	return combined, moreAvailable, nil
 }
 
 func (i *EventBridgeIngester) receiveOneWithRetry(ctx context.Context, request IngestRequest, max int) (ReceiveMessageOutput, error) {

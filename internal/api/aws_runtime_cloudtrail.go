@@ -34,6 +34,11 @@ type AWSCloudTrailIngestResult struct {
 	FailureReasons   []string
 	RemediationHints []string
 	HistoryTruncated bool
+	// Checkpoint is the delivery engine's resume marker. For S3 this
+	// is the last completely processed object key; callers should
+	// persist it and pass it back in the next IngestRequest so the
+	// next run resumes from where this one stopped.
+	Checkpoint string
 }
 
 // cloudTrailIngesterAdapter wraps an internal/runtime/cloudtrail
