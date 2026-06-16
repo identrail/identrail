@@ -16,11 +16,17 @@ type fakeSQS struct {
 	deleteErr     error
 }
 
-func (f *fakeSQS) ReceiveMessage(_ context.Context, _ ReceiveMessageInput) (ReceiveMessageOutput, error) {
+func (f *fakeSQS) ReceiveMessage(ctx context.Context, _ ReceiveMessageInput) (ReceiveMessageOutput, error) {
+	if err := ctx.Err(); err != nil {
+		return ReceiveMessageOutput{}, err
+	}
 	return f.receiveOut, f.receiveErr
 }
 
-func (f *fakeSQS) DeleteMessageBatch(_ context.Context, input DeleteMessageBatchInput) (DeleteMessageBatchOutput, error) {
+func (f *fakeSQS) DeleteMessageBatch(ctx context.Context, input DeleteMessageBatchInput) (DeleteMessageBatchOutput, error) {
+	if err := ctx.Err(); err != nil {
+		return DeleteMessageBatchOutput{}, err
+	}
 	if f.deleteErr != nil {
 		return DeleteMessageBatchOutput{}, f.deleteErr
 	}
@@ -151,6 +157,21 @@ func TestEventBridgeIngesterPropagatesContextCancellation(t *testing.T) {
 	ing.Now = func() time.Time { return time.Now().UTC() }
 	if _, err := ing.Ingest(context.Background(), IngestRequest{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled propagation, got %v", err)
+	}
+}
+
+func TestEventBridgeIngesterPropagatesDeleteContextCancellation(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	fake := &fakeSQS{
+		receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+			{MessageID: "msg-1", ReceiptHandle: "rh-1", Body: eventBridgeMessageBody(t, "evt-1", "AssumeRole", "sts.amazonaws.com", now)},
+		}},
+		deleteErr: context.Canceled,
+	}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+	if _, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled propagation from delete, got %v", err)
 	}
 }
 

@@ -209,7 +209,9 @@ func (i *EventBridgeIngester) Ingest(ctx context.Context, request IngestRequest)
 	}
 
 	if len(toDelete) > 0 {
-		i.deleteBatch(ctx, toDelete, &result)
+		if err := i.deleteBatch(ctx, toDelete, &result); err != nil {
+			return IngestResult{}, err
+		}
 	}
 	finalizeEmptyOrTruncated(&result)
 	finalizeDiagnosticDegrade(&result)
@@ -254,11 +256,14 @@ func (i *EventBridgeIngester) receiveWithRetry(ctx context.Context, request Inge
 	return ReceiveMessageOutput{}, lastErr
 }
 
-func (i *EventBridgeIngester) deleteBatch(ctx context.Context, entries []DeleteMessageBatchEntry, result *IngestResult) {
+func (i *EventBridgeIngester) deleteBatch(ctx context.Context, entries []DeleteMessageBatchEntry, result *IngestResult) error {
 	// SQS DeleteMessageBatch caps at 10 entries per request. Chunk to
 	// stay within the cap and accumulate per-failure diagnostics.
 	const batchCap = 10
 	for start := 0; start < len(entries); start += batchCap {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		end := start + batchCap
 		if end > len(entries) {
 			end = len(entries)
@@ -268,6 +273,9 @@ func (i *EventBridgeIngester) deleteBatch(ctx context.Context, entries []DeleteM
 			Entries:  entries[start:end],
 		})
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
 			result.Diagnostics = append(result.Diagnostics, cloudtrail.Diagnostic{
 				SourceID:    "sqs-delete-batch",
 				Code:        diagnosticCodeFor(err),
@@ -287,6 +295,7 @@ func (i *EventBridgeIngester) deleteBatch(ctx context.Context, entries []DeleteM
 			})
 		}
 	}
+	return nil
 }
 
 // decodeEventBridgeMessage parses an SQS message body produced by an

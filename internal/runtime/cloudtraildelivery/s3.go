@@ -133,15 +133,15 @@ func (i *S3Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestR
 		return result, nil
 	}
 
-	// Objects are returned key-sorted; sort by LastModified for
-	// deterministic checkpoint advancement even if S3 returns them in
-	// list-key order.
+	// The checkpoint is an S3 key fed back through StartAfter, so keep
+	// processing order key-sorted to match S3 resume semantics.
 	sort.SliceStable(objects, func(a, b int) bool {
-		return objects[a].LastModified.Before(objects[b].LastModified)
+		return objects[a].Key < objects[b].Key
 	})
 
 	seen := map[string]struct{}{}
 	checkpoint := strings.TrimSpace(request.Checkpoint)
+	checkpointBlocked := false
 	for idx, obj := range objects {
 		result.FilesProcessed++
 		if result.FilesProcessed > request.MaxFiles {
@@ -156,9 +156,10 @@ func (i *S3Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestR
 				Remediation: "Raise the MaxFileBytes budget or split the trail's destination so each file is smaller.",
 				Retryable:   false,
 			})
+			checkpointBlocked = true
 			continue
 		}
-		records, recordErr := i.downloadAndParse(ctx, obj.Key)
+		records, recordErr := i.downloadAndParse(ctx, obj.Key, request.MaxFileBytes)
 		if recordErr != nil {
 			if errors.Is(recordErr, context.Canceled) || errors.Is(recordErr, context.DeadlineExceeded) {
 				return IngestResult{}, recordErr
@@ -174,8 +175,10 @@ func (i *S3Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestR
 				Retryable:   isRetryable(recordErr),
 			})
 			result.Status = "degraded"
+			checkpointBlocked = true
 			continue
 		}
+		fileComplete := true
 		for _, raw := range records {
 			result.EventsConsidered++
 			eventID := strings.TrimSpace(raw.Event.EventID)
@@ -203,11 +206,13 @@ func (i *S3Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestR
 			remaining := request.MaxEvents - len(result.Events)
 			if remaining <= 0 {
 				result.HistoryTruncated = true
+				fileComplete = false
 				break
 			}
 			if len(normalized) > remaining {
 				normalized = normalized[:remaining]
 				result.HistoryTruncated = true
+				fileComplete = false
 			}
 			result.Events = append(result.Events, normalized...)
 		}
@@ -216,10 +221,14 @@ func (i *S3Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestR
 			if idx+1 < len(objects) {
 				result.HistoryTruncated = true
 			}
-			checkpoint = obj.Key
+			if !checkpointBlocked && fileComplete {
+				checkpoint = obj.Key
+			}
 			break
 		}
-		checkpoint = obj.Key
+		if !checkpointBlocked && fileComplete {
+			checkpoint = obj.Key
+		}
 	}
 	result.Checkpoint = checkpoint
 	finalizeEmptyOrTruncated(&result)
@@ -286,7 +295,7 @@ type s3RawRecord struct {
 	Event  cloudtrail.Event
 }
 
-func (i *S3Ingester) downloadAndParse(ctx context.Context, key string) ([]s3RawRecord, error) {
+func (i *S3Ingester) downloadAndParse(ctx context.Context, key string, maxBytes int64) ([]s3RawRecord, error) {
 	resp, err := i.API.GetObject(ctx, GetObjectInput{Bucket: i.Bucket, Key: key})
 	if err != nil {
 		return nil, err
@@ -297,11 +306,26 @@ func (i *S3Ingester) downloadAndParse(ctx context.Context, key string) ([]s3RawR
 		return nil, fmt.Errorf("open gzip stream for %s: %w", key, err)
 	}
 	defer gzReader.Close()
-	payload, err := io.ReadAll(gzReader)
+	payload, err := readAllLimited(gzReader, maxBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read gzip stream for %s: %w", key, err)
 	}
 	return parseCloudTrailLogFile(payload)
+}
+
+func readAllLimited(reader io.Reader, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 {
+		return io.ReadAll(reader)
+	}
+	limited := io.LimitReader(reader, maxBytes+1)
+	payload, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(payload)) > maxBytes {
+		return nil, fmt.Errorf("decompressed CloudTrail S3 object exceeds MaxFileBytes=%d", maxBytes)
+	}
+	return payload, nil
 }
 
 // parseCloudTrailLogFile decodes a CloudTrail S3 log file

@@ -22,7 +22,10 @@ type fakeS3 struct {
 	getCalls    int
 }
 
-func (f *fakeS3) ListObjectsV2(_ context.Context, _ ListObjectsV2Input) (ListObjectsV2Output, error) {
+func (f *fakeS3) ListObjectsV2(ctx context.Context, _ ListObjectsV2Input) (ListObjectsV2Output, error) {
+	if err := ctx.Err(); err != nil {
+		return ListObjectsV2Output{}, err
+	}
 	f.listCalls++
 	if f.listErr != nil {
 		return ListObjectsV2Output{}, f.listErr
@@ -30,7 +33,10 @@ func (f *fakeS3) ListObjectsV2(_ context.Context, _ ListObjectsV2Input) (ListObj
 	return ListObjectsV2Output{Objects: f.objects}, nil
 }
 
-func (f *fakeS3) GetObject(_ context.Context, input GetObjectInput) (GetObjectOutput, error) {
+func (f *fakeS3) GetObject(ctx context.Context, input GetObjectInput) (GetObjectOutput, error) {
+	if err := ctx.Err(); err != nil {
+		return GetObjectOutput{}, err
+	}
 	f.getCalls++
 	if err, ok := f.getErrByKey[input.Key]; ok {
 		return GetObjectOutput{}, err
@@ -252,6 +258,95 @@ func TestS3IngesterPartialFileFailureKeepsOtherFiles(t *testing.T) {
 	}
 	if !foundDiag {
 		t.Fatalf("expected a diagnostic naming the failed file, got %+v", result.Diagnostics)
+	}
+}
+
+func TestS3IngesterDoesNotAdvanceCheckpointPastFailedFile(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	good := gzipLogFile(t, cloudTrailRecord("evt-good", "AssumeRole", "sts.amazonaws.com", now.Add(-1*time.Minute), nil))
+	previousCheckpoint := "log-0.json.gz"
+	badKey, goodKey := "log-1.json.gz", "log-2.json.gz"
+	fake := &fakeS3{
+		objects: []S3Object{
+			{Key: badKey, Size: 32, LastModified: now.Add(-1 * time.Minute)},
+			{Key: goodKey, Size: int64(len(good)), LastModified: now.Add(-2 * time.Minute)},
+		},
+		bodyByKey: map[string][]byte{badKey: []byte("not a gzip"), goodKey: good},
+	}
+	ing := NewS3Ingester(fake, "bucket", "")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:  "123456789012",
+		Region:     "us-east-1",
+		Checkpoint: previousCheckpoint,
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 1 || result.Events[0].EventID != "evt-good" {
+		t.Fatalf("expected later good file to be preserved, got %+v", result.Events)
+	}
+	if result.Checkpoint != previousCheckpoint {
+		t.Fatalf("checkpoint advanced past failed file: got %q want %q", result.Checkpoint, previousCheckpoint)
+	}
+}
+
+func TestS3IngesterOrdersByKeyForStartAfterCheckpoint(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	earlyKey := "log-1.json.gz"
+	lateKey := "log-2.json.gz"
+	earlyBody := gzipLogFile(t, cloudTrailRecord("evt-early-key", "AssumeRole", "sts.amazonaws.com", now.Add(-1*time.Minute), nil))
+	lateBody := gzipLogFile(t, cloudTrailRecord("evt-late-key", "Decrypt", "kms.amazonaws.com", now.Add(-2*time.Minute), nil))
+	fake := &fakeS3{
+		objects: []S3Object{
+			{Key: lateKey, Size: int64(len(lateBody)), LastModified: now.Add(-2 * time.Minute)},
+			{Key: earlyKey, Size: int64(len(earlyBody)), LastModified: now.Add(-1 * time.Minute)},
+		},
+		bodyByKey: map[string][]byte{earlyKey: earlyBody, lateKey: lateBody},
+	}
+	ing := NewS3Ingester(fake, "bucket", "")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1"})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if result.Checkpoint != lateKey {
+		t.Fatalf("expected key-ordered checkpoint %q, got %q", lateKey, result.Checkpoint)
+	}
+	if len(result.Events) != 2 || result.Events[0].EventID != "evt-early-key" || result.Events[1].EventID != "evt-late-key" {
+		t.Fatalf("expected events processed in key order, got %+v", result.Events)
+	}
+}
+
+func TestS3IngesterEnforcesDecompressedMaxFileBytes(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	key := "large-decompressed.json.gz"
+	body := gzipLogFile(t, cloudTrailRecord("evt-large", strings.Repeat("A", 512), "sts.amazonaws.com", now, nil))
+	fake := &fakeS3{
+		objects:   []S3Object{{Key: key, Size: int64(len(body)), LastModified: now}},
+		bodyByKey: map[string][]byte{key: body},
+	}
+	ing := NewS3Ingester(fake, "bucket", "")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:    "123456789012",
+		Region:       "us-east-1",
+		MaxFileBytes: int64(len(body)),
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if result.Checkpoint != "" {
+		t.Fatalf("expected checkpoint to stay empty after oversized decompressed object, got %q", result.Checkpoint)
+	}
+	if result.Status != "degraded" || len(result.Diagnostics) == 0 {
+		t.Fatalf("expected degraded diagnostic for oversized decompressed payload, got %+v", result)
+	}
+	if !strings.Contains(result.Diagnostics[0].Message, "MaxFileBytes") {
+		t.Fatalf("expected MaxFileBytes diagnostic, got %+v", result.Diagnostics)
 	}
 }
 

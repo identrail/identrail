@@ -85,10 +85,10 @@ type IngestRequest struct {
 	AccountID string
 	Region    string
 	// Checkpoint is the per-channel resume marker. For S3 it is the
-	// last processed key's LastModified time (RFC3339). For
-	// EventBridge/SQS it is unused — the queue itself is the
-	// checkpoint, and the ingester deletes successfully-processed
-	// messages so they are not re-delivered.
+	// last completely processed S3 object key, passed to ListObjectsV2
+	// as StartAfter on the next run. For EventBridge/SQS it is unused
+	// — the queue itself is the checkpoint, and the ingester deletes
+	// successfully-processed messages so they are not re-delivered.
 	Checkpoint string
 	// LookbackWindow caps how far back the S3 ingester scans for new
 	// trail files when no Checkpoint is supplied. Defaults to
@@ -125,9 +125,9 @@ type IngestResult struct {
 	FailureReasons   []string
 	RemediationHints []string
 	// Checkpoint is the new resume marker the caller should persist
-	// for the next run. For S3 this is the latest-LastModified key the
-	// run processed; for EventBridge the field is empty because the
-	// queue is the implicit checkpoint.
+	// for the next run. For S3 this is the last completely processed
+	// object key; for EventBridge the field is empty because the queue
+	// is the implicit checkpoint.
 	Checkpoint string
 	// FilesProcessed (S3) and MessagesProcessed (EventBridge) let the
 	// API layer attach observability metadata to the response.
