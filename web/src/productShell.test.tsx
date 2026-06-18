@@ -1869,6 +1869,7 @@ describe('ProductAppearanceSettingsPage', () => {
     expect(stored).toMatchObject({
       lightPreset: 'vercel',
       accent: '#123456',
+      customColors: true,
       pointerCursors: true,
       appIcon: 'dark'
     });
@@ -1885,6 +1886,7 @@ describe('ProductAppearanceSettingsPage', () => {
       accent: 'url(javascript:alert(1))',
       background: 'expression(alert(1))',
       foreground: '#abcdef',
+      customColors: 'yes',
       uiFont: 'url(https://evil.example/font.woff2)',
       codeFont: '<script>alert(1)</script>',
       contrast: 999,
@@ -1896,12 +1898,40 @@ describe('ProductAppearanceSettingsPage', () => {
       accent: '#7c6dff',
       background: '#121518',
       foreground: '#abcdef',
+      customColors: false,
       uiFont: 'system',
       codeFont: 'mono-system',
       contrast: 100,
       reduceMotion: 'system',
       appIcon: 'default'
     });
+  });
+
+  it('uses preset colors for legacy light-theme users without custom colors', async () => {
+    const { applyStoredAppearancePreferences } = await import('./appearance');
+    window.localStorage.setItem('identrail-theme', 'light');
+
+    applyStoredAppearancePreferences();
+
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(document.documentElement.dataset.appearancePreset).toBe('notion');
+    expect(document.documentElement.style.getPropertyValue('--appearance-bg')).toBe('#ffffff');
+    expect(document.documentElement.style.getPropertyValue('--appearance-fg')).toBe('#37352f');
+  });
+
+  it('exposes contrast as real color-mix inputs for shell styles', async () => {
+    const { applyAppearancePreferences, normalizeAppearancePreferences } = await import('./appearance');
+
+    applyAppearancePreferences(
+      normalizeAppearancePreferences({
+        themeMode: 'dark',
+        contrast: 100
+      })
+    );
+
+    expect(document.documentElement.style.getPropertyValue('--appearance-panel-mix')).toBe('88%');
+    expect(document.documentElement.style.getPropertyValue('--appearance-border-mix')).toBe('100%');
+    expect(document.documentElement.style.getPropertyValue('--appearance-muted-mix')).toBe('90%');
   });
 });
 

@@ -30739,12 +30739,12 @@ html[data-appearance-ready='true'] .idt-app-shell-screen,
 html[data-appearance-ready='true'] .idt-executive-report-shell {
   --app-bg: var(--appearance-bg, #121518);
   --app-panel: var(--appearance-panel, #090b0e);
-  --app-panel-strong: color-mix(in srgb, var(--appearance-panel, #090b0e) 76%, black);
+  --app-panel-strong: color-mix(in srgb, var(--appearance-panel, #090b0e) var(--appearance-panel-mix, 76%), black);
   --app-border: var(--appearance-border, #2b3037);
-  --app-border-soft: color-mix(in srgb, var(--appearance-border, #2b3037) 72%, transparent);
+  --app-border-soft: color-mix(in srgb, var(--appearance-border, #2b3037) var(--appearance-border-mix, 72%), transparent);
   --app-text: var(--appearance-fg, #f5f7f8);
   --app-muted: var(--appearance-muted, #adb5bf);
-  --app-dim: color-mix(in srgb, var(--appearance-muted, #adb5bf) 74%, var(--appearance-bg, #121518));
+  --app-dim: color-mix(in srgb, var(--appearance-muted, #adb5bf) var(--appearance-muted-mix, 74%), var(--appearance-bg, #121518));
   --idt-console-focus: var(--appearance-accent, #7c6dff);
   --idt-product-font: var(--appearance-ui-font, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
   background: var(--appearance-bg, #121518);
@@ -30785,6 +30785,25 @@ html[data-reduce-motion='on'] *::after {
 html[data-appearance-translucent-sidebar='true'] .idt-app-sidebar {
   background: color-mix(in srgb, var(--appearance-panel, #090b0e) 82%, transparent);
   backdrop-filter: blur(18px);
+}
+
+html[data-appearance-app-icon='light'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger .idt-app-sidebar-mark {
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(5, 6, 7, 0.14), 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+html[data-appearance-app-icon='light'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger .idt-app-sidebar-mark img {
+  filter: none;
+}
+
+html[data-appearance-app-icon='dark'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger .idt-app-sidebar-mark {
+  background: #050607;
+  box-shadow: inset 0 0 0 1px var(--appearance-accent, #7c6dff), 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+html[data-appearance-app-icon='dark'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger .idt-app-sidebar-mark img {
+  filter: brightness(0.9) saturate(1.15);
+  mix-blend-mode: screen;
 }
 
 .idt-settings-appearance-entry {

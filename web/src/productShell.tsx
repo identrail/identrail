@@ -149,6 +149,7 @@ import {
   findAppearancePreset,
   normalizeAppearancePreferences,
   readAppearancePreferences,
+  resolveAppearanceThemeMode,
   saveAppearancePreferences,
   type AppearanceDiffMarkers,
   type AppearanceFontID,
@@ -22760,6 +22761,21 @@ export function ProductAppearanceSettingsPage() {
   const [preferences, setPreferences] = useState<AppearancePreferences>(() =>
     readAppearancePreferences()
   );
+  const resolvedTheme = resolveAppearanceThemeMode(preferences.themeMode);
+  const activePreset = findAppearancePreset(
+    resolvedTheme === 'light' ? preferences.lightPreset : preferences.darkPreset
+  );
+  const effectiveColors = preferences.customColors
+    ? {
+        accent: preferences.accent,
+        background: preferences.background,
+        foreground: preferences.foreground
+      }
+    : {
+        accent: activePreset.accent,
+        background: activePreset.background,
+        foreground: activePreset.foreground
+      };
 
   useEffect(() => {
     applyAppearancePreferences(preferences);
@@ -22780,7 +22796,8 @@ export function ProductAppearanceSettingsPage() {
       [key]: preset.id,
       accent: preset.accent,
       background: preset.background,
-      foreground: preset.foreground
+      foreground: preset.foreground,
+      customColors: false
     });
   };
 
@@ -22788,7 +22805,7 @@ export function ProductAppearanceSettingsPage() {
     key: 'accent' | 'background' | 'foreground',
     value: string
   ) => {
-    commitPreferences({ [key]: value });
+    commitPreferences({ [key]: value, customColors: true });
   };
 
   return (
@@ -22838,7 +22855,7 @@ export function ProductAppearanceSettingsPage() {
                 <code>
                   {line === 1 ? 'const themePreview: {' : ''}
                   {line === 2 ? '  surface: "sidebar-edge",' : ''}
-                  {line === 3 ? `  accent: "${preferences.accent}",` : ''}
+                  {line === 3 ? `  accent: "${effectiveColors.accent}",` : ''}
                   {line === 4 ? `  contrast: ${preferences.contrast},` : ''}
                   {line === 5 ? '};' : ''}
                 </code>
@@ -22883,9 +22900,9 @@ export function ProductAppearanceSettingsPage() {
           </label>
 
           {[
-            ['accent', 'Accent', preferences.accent],
-            ['background', 'Background', preferences.background],
-            ['foreground', 'Foreground', preferences.foreground]
+            ['accent', 'Accent', effectiveColors.accent],
+            ['background', 'Background', effectiveColors.background],
+            ['foreground', 'Foreground', effectiveColors.foreground]
           ].map(([key, label, value]) => (
             <label key={key} className="idt-appearance-control-row">
               <span>

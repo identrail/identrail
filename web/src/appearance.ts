@@ -33,6 +33,7 @@ export type AppearancePreferences = {
   accent: string;
   background: string;
   foreground: string;
+  customColors: boolean;
   uiFont: AppearanceFontID;
   codeFont: AppearanceFontID;
   translucentSidebar: boolean;
@@ -260,6 +261,7 @@ export const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
   accent: '#7c6dff',
   background: '#121518',
   foreground: '#f5f7f8',
+  customColors: false,
   uiFont: 'system',
   codeFont: 'mono-system',
   translucentSidebar: false,
@@ -318,6 +320,7 @@ export function normalizeAppearancePreferences(value: unknown): AppearancePrefer
     accent: sanitizeHexColor(source.accent, DEFAULT_APPEARANCE_PREFERENCES.accent),
     background: sanitizeHexColor(source.background, DEFAULT_APPEARANCE_PREFERENCES.background),
     foreground: sanitizeHexColor(source.foreground, DEFAULT_APPEARANCE_PREFERENCES.foreground),
+    customColors: sanitizeBoolean(source.customColors, DEFAULT_APPEARANCE_PREFERENCES.customColors),
     uiFont: sanitizeFontID(source.uiFont, DEFAULT_APPEARANCE_PREFERENCES.uiFont),
     codeFont: sanitizeFontID(source.codeFont, DEFAULT_APPEARANCE_PREFERENCES.codeFont),
     translucentSidebar: sanitizeBoolean(
@@ -397,6 +400,21 @@ export function applyAppearancePreferences(preferences: AppearancePreferences): 
   const preset = findAppearancePreset(presetID);
   const root = document.documentElement;
   const style = root.style;
+  const colors = normalized.customColors
+    ? {
+        accent: normalized.accent,
+        background: normalized.background,
+        foreground: normalized.foreground
+      }
+    : {
+        accent: preset.accent,
+        background: preset.background,
+        foreground: preset.foreground
+      };
+  const contrast = normalized.contrast / 100;
+  const panelMix = `${Math.round(64 + contrast * 24)}%`;
+  const borderMix = `${Math.round(50 + contrast * 50)}%`;
+  const mutedMix = `${Math.round(58 + contrast * 32)}%`;
 
   root.dataset.theme = resolvedTheme;
   root.dataset.appearanceReady = 'true';
@@ -409,12 +427,15 @@ export function applyAppearancePreferences(preferences: AppearancePreferences): 
   root.dataset.appearanceTranslucentSidebar = normalized.translucentSidebar ? 'true' : 'false';
   root.dataset.appearanceAppIcon = normalized.appIcon;
 
-  style.setProperty('--appearance-accent', normalized.accent || preset.accent);
-  style.setProperty('--appearance-bg', normalized.background || preset.background);
-  style.setProperty('--appearance-fg', normalized.foreground || preset.foreground);
+  style.setProperty('--appearance-accent', colors.accent);
+  style.setProperty('--appearance-bg', colors.background);
+  style.setProperty('--appearance-fg', colors.foreground);
   style.setProperty('--appearance-panel', preset.panel);
   style.setProperty('--appearance-border', preset.border);
   style.setProperty('--appearance-muted', preset.muted);
+  style.setProperty('--appearance-panel-mix', panelMix);
+  style.setProperty('--appearance-border-mix', borderMix);
+  style.setProperty('--appearance-muted-mix', mutedMix);
   style.setProperty('--appearance-ui-font', APPEARANCE_FONTS[normalized.uiFont]);
   style.setProperty('--appearance-code-font', APPEARANCE_FONTS[normalized.codeFont]);
   style.setProperty('--appearance-ui-font-size', `${normalized.uiFontSize}px`);
