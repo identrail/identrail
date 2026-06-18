@@ -35,6 +35,9 @@ func TestGetAWSRuntimeEventsBuildsMetadataOnlyContract(t *testing.T) {
 	if result.Summary.SecretReadCount != 1 || result.Summary.KMSDecryptCount != 1 || result.Summary.AgentEventCount != 1 || result.Summary.STSSessionCount == 0 {
 		t.Fatalf("expected runtime event type counts, got %+v", result.Summary)
 	}
+	if result.Summary.LineageResolvedCount == 0 || result.Summary.MissingSourceIDCount == 0 {
+		t.Fatalf("expected explicit STS lineage summary counts, got %+v", result.Summary)
+	}
 	for _, record := range result.Records {
 		if record.RedactionBoundary != "metadata_only_no_payloads_no_secret_values" {
 			t.Fatalf("runtime event leaked unsafe redaction boundary: %+v", record)

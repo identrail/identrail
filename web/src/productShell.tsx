@@ -10048,13 +10048,15 @@ function awsRuntimeEventRow(record: AWSRuntimeEventRecord): AWSRiskOperationTabl
   const eventLabel = awsRuntimeEventLabel(record);
   const resourceLabel = record.target_resource_name || record.target_resource_type || record.target_resource_arn || 'Session event';
   const observed = formatShortDateLabel(record.observed_at);
+  const lineageLabel = awsRuntimeEventLineageLabel(record);
+  const sourceIdentityLabel = record.session?.source_identity ? `SourceIdentity ${record.session.source_identity}` : lineageLabel;
   return {
     id: `runtime-${record.event_id}`,
     title: `${eventLabel}: ${record.event_name}`,
     category: eventLabel,
-    evidence: `${formatTokenLabel(record.evidence_category)} · ${formatConfidenceScore(record.confidence)}`,
+    evidence: `${formatTokenLabel(record.evidence_category)} · ${formatConfidenceScore(record.confidence)}${lineageLabel ? ` · ${lineageLabel}` : ''}`,
     owner: formatTokenLabel(record.owner),
-    blastRadius: `${awsAccountRegionInventoryLabel(record.account_id, record.region)} · ${resourceLabel}`,
+    blastRadius: `${awsAccountRegionInventoryLabel(record.account_id, record.region)} · ${resourceLabel} · ${sourceIdentityLabel}`,
     nextAction: record.next_action,
     status: record.status,
     stage: record.status === 'observed' ? 'wired' : record.status === 'permission-denied' ? 'not-available' : 'coming',
@@ -10072,6 +10074,15 @@ function awsRuntimeEventRow(record: AWSRuntimeEventRecord): AWSRiskOperationTabl
       record.action,
       record.actor_principal_arn,
       record.session?.session_id,
+      record.session?.session_node_id,
+      record.session?.source_identity,
+      record.session?.role_session_name,
+      record.session?.session_tag_keys?.join(' '),
+      record.session?.transitive_tag_keys?.join(' '),
+      record.session?.original_actor_arn,
+      record.session?.chained_from_principal_arn,
+      record.session?.lineage_status,
+      record.session?.lineage_reason,
       record.target_resource_arn,
       record.target_resource_type,
       record.agent_id,
@@ -10082,6 +10093,19 @@ function awsRuntimeEventRow(record: AWSRuntimeEventRecord): AWSRiskOperationTabl
       'runtime event metadata only no payloads no secret values'
     ])
   };
+}
+
+function awsRuntimeEventLineageLabel(record: AWSRuntimeEventRecord): string {
+  switch (record.session?.lineage_status) {
+    case 'resolved':
+      return 'Lineage resolved';
+    case 'source_identity_missing':
+      return 'SourceIdentity missing';
+    case 'ambiguous':
+      return 'Ambiguous lineage';
+    default:
+      return '';
+  }
 }
 
 function awsRuntimeEventLabel(record: AWSRuntimeEventRecord): string {

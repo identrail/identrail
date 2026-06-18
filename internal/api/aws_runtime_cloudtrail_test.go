@@ -139,6 +139,110 @@ func TestGetAWSRuntimeEventsUsesLiveCloudTrailWhenFactoryReturnsIngester(t *test
 	}
 }
 
+func TestRuntimeEventRecordFromNormalizedCarriesSTSLineage(t *testing.T) {
+	now := time.Date(2026, 6, 15, 11, 0, 0, 0, time.UTC)
+	caller := "arn:aws:sts::123456789012:assumed-role/ci-deploy/deploy-session"
+	targetRole := "arn:aws:iam::123456789012:role/payments-runtime"
+	record := runtimeEventRecordFromNormalized(cloudtrail.NormalizedEvent{
+		EventID:            "evt-assume-payments",
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		EventType:          "sts-session",
+		EventSource:        "sts.amazonaws.com",
+		EventName:          "AssumeRole",
+		Action:             "sts:AssumeRole",
+		ActorPrincipalARN:  caller,
+		ActorPrincipalType: "assumed_role",
+		SessionID:          "AROAEXAMPLE:deploy-session",
+		AssumedRoleARN:     targetRole,
+		SessionIssuerARN:   "arn:aws:iam::123456789012:role/ci-deploy",
+		SourceIdentity:     "github-actions:deploy",
+		RoleSessionName:    "payments-job-42",
+		SessionTagKeys:     []string{"environment", "owner"},
+		TransitiveTagKeys:  []string{"owner"},
+		OriginalActorARN:   caller,
+		ChainedFromARN:     caller,
+		LineageStatus:      "resolved",
+		LineageReason:      "CloudTrail SourceIdentity and session issuer metadata resolved this STS lineage.",
+		TargetResourceARN:  targetRole,
+		TargetResourceType: "iam_role",
+		TargetResourceName: "payments-runtime",
+		Owner:              "security",
+		EvidenceCategory:   "cloudtrail",
+		Confidence:         0.9,
+		ObservedAt:         now.Add(-time.Minute),
+		CollectedAt:        now,
+		Status:             "observed",
+		RedactionBoundary:  "metadata_only_no_payloads_no_secret_values",
+	}, "123456789012", "us-east-1")
+
+	if record.Session.SessionNodeID == "" || !strings.Contains(record.Session.SessionNodeID, "runtime-session") {
+		t.Fatalf("expected session node id, got %+v", record.Session)
+	}
+	wantTargetSessionNodeID := "aws:runtime-session:" + sanitizeCredentialReferenceToken("123456789012") + ":" + sanitizeCredentialReferenceToken("us-east-1") + ":" + sanitizeCredentialReferenceToken(targetRole+"/payments-job-42")
+	if record.Session.SessionNodeID != wantTargetSessionNodeID {
+		t.Fatalf("expected AssumeRole event to key the target session node %q, got %q", wantTargetSessionNodeID, record.Session.SessionNodeID)
+	}
+	targetActivity := runtimeEventRecordFromNormalized(cloudtrail.NormalizedEvent{
+		EventID:            "evt-payments-secret",
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		EventType:          "secret-read",
+		EventSource:        "secretsmanager.amazonaws.com",
+		EventName:          "GetSecretValue",
+		Action:             "secretsmanager:GetSecretValue",
+		ActorPrincipalARN:  "arn:aws:sts::123456789012:assumed-role/payments-runtime/payments-job-42",
+		ActorPrincipalType: "assumed_role",
+		SessionID:          "AROAEXAMPLE:payments-job-42",
+		AssumedRoleARN:     targetRole,
+		SessionIssuerARN:   targetRole,
+		RoleSessionName:    "payments-job-42",
+		LineageStatus:      "source_identity_missing",
+		TargetResourceARN:  "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/payments",
+		TargetResourceType: "AWS::SecretsManager::Secret",
+		Owner:              "application",
+		EvidenceCategory:   "cloudtrail",
+		Confidence:         0.9,
+		ObservedAt:         now.Add(time.Minute),
+		CollectedAt:        now,
+		Status:             "observed",
+		RedactionBoundary:  "metadata_only_no_payloads_no_secret_values",
+	}, "123456789012", "us-east-1")
+	if targetActivity.Session.SessionNodeID != record.Session.SessionNodeID {
+		t.Fatalf("expected target session activity to join AssumeRole session node %q, got %q", record.Session.SessionNodeID, targetActivity.Session.SessionNodeID)
+	}
+	if record.Session.SourceIdentity != "github-actions:deploy" || record.Session.RoleSessionName != "payments-job-42" {
+		t.Fatalf("expected source identity and role session name, got %+v", record.Session)
+	}
+	if record.Session.LineageStatus != "resolved" || record.Session.OriginalActorNodeID == "" || record.Session.ChainedFromNodeID == "" {
+		t.Fatalf("expected resolved original/chained lineage nodes, got %+v", record.Session)
+	}
+	if got := strings.Join(record.Session.SessionTagKeys, ","); got != "environment,owner" {
+		t.Fatalf("expected session tag keys to pass through, got %q", got)
+	}
+	relationships := awsRuntimeEventRelationships([]AWSRuntimeEventRecord{record})
+	wantTypes := map[string]bool{
+		"observed_runtime_action":          false,
+		"has_runtime_session":              false,
+		"runtime_session_performed_action": false,
+		"role_chained_into_session":        false,
+	}
+	for _, rel := range relationships {
+		if _, ok := wantTypes[rel.Type]; ok {
+			wantTypes[rel.Type] = true
+		}
+	}
+	for relType, found := range wantTypes {
+		if !found {
+			t.Fatalf("expected relationship %s in %+v", relType, relationships)
+		}
+	}
+	summary := summarizeAWSRuntimeEvents([]AWSRuntimeEventRecord{record}, 1, len(relationships))
+	if summary.LineageResolvedCount != 1 || summary.MissingSourceIDCount != 0 || summary.AmbiguousLineageCount != 0 {
+		t.Fatalf("expected lineage summary counts, got %+v", summary)
+	}
+}
+
 func TestGetAWSRuntimeEventsCapabilityGatedConnectorDoesNotCallFactory(t *testing.T) {
 	// A connector with the default discovery-only capability set must
 	// not enter the live CloudTrail path even when a factory is wired

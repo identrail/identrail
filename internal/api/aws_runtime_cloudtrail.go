@@ -133,6 +133,11 @@ func runtimeEventRecordFromNormalized(ev cloudtrail.NormalizedEvent, fallbackAcc
 		identityARN = ev.ActorPrincipalARN
 	}
 	sessionNodeID := awsRuntimeSessionNodeID(accountID, region, ev)
+	originalActorARN := ""
+	if strings.TrimSpace(ev.LineageStatus) != "" {
+		originalActorARN = firstNonEmptyAWSValue(ev.OriginalActorARN, ev.ActorPrincipalARN)
+	}
+	chainedFromARN := strings.TrimSpace(ev.ChainedFromARN)
 	return AWSRuntimeEventRecord{
 		EventID:             ev.EventID,
 		AccountID:           accountID,
@@ -145,16 +150,26 @@ func runtimeEventRecordFromNormalized(ev cloudtrail.NormalizedEvent, fallbackAcc
 		ActorPrincipalType:  firstNonEmptyAWSValue(ev.ActorPrincipalType, "assumed_role"),
 		ActorIdentityNodeID: awsIdentityNodeIDForAPI(identityARN),
 		Session: AWSRuntimeEventSession{
-			SessionID:        ev.SessionID,
-			SessionNodeID:    sessionNodeID,
-			PrincipalARN:     ev.ActorPrincipalARN,
-			PrincipalType:    firstNonEmptyAWSValue(ev.ActorPrincipalType, "assumed_role"),
-			AssumedRoleARN:   ev.AssumedRoleARN,
-			SessionIssuerARN: ev.SessionIssuerARN,
-			SourceIPAddress:  ev.SourceIPAddress,
-			UserAgent:        ev.UserAgent,
-			StartedAt:        ev.SessionStartedAt,
-			ExpiresAt:        ev.SessionExpiresAt,
+			SessionID:               ev.SessionID,
+			SessionNodeID:           sessionNodeID,
+			PrincipalARN:            ev.ActorPrincipalARN,
+			PrincipalType:           firstNonEmptyAWSValue(ev.ActorPrincipalType, "assumed_role"),
+			AssumedRoleARN:          ev.AssumedRoleARN,
+			SessionIssuerARN:        ev.SessionIssuerARN,
+			SourceIdentity:          ev.SourceIdentity,
+			RoleSessionName:         ev.RoleSessionName,
+			SessionTagKeys:          append([]string{}, ev.SessionTagKeys...),
+			TransitiveTagKeys:       append([]string{}, ev.TransitiveTagKeys...),
+			OriginalActorARN:        originalActorARN,
+			OriginalActorNodeID:     awsIdentityNodeIDForAPI(originalActorARN),
+			ChainedFromPrincipalARN: chainedFromARN,
+			ChainedFromNodeID:       awsIdentityNodeIDForAPI(chainedFromARN),
+			LineageStatus:           ev.LineageStatus,
+			LineageReason:           ev.LineageReason,
+			SourceIPAddress:         ev.SourceIPAddress,
+			UserAgent:               ev.UserAgent,
+			StartedAt:               ev.SessionStartedAt,
+			ExpiresAt:               ev.SessionExpiresAt,
 		},
 		TargetResourceARN:  ev.TargetResourceARN,
 		TargetResourceType: ev.TargetResourceType,
@@ -175,14 +190,45 @@ func runtimeEventRecordFromNormalized(ev cloudtrail.NormalizedEvent, fallbackAcc
 }
 
 func awsRuntimeSessionNodeID(accountID string, region string, ev cloudtrail.NormalizedEvent) string {
-	if strings.TrimSpace(ev.SessionID) == "" {
+	if strings.TrimSpace(ev.SessionID) == "" && strings.TrimSpace(ev.LineageStatus) == "" {
 		return ""
 	}
-	token := firstNonEmptyAWSValue(ev.ActorPrincipalARN, ev.SessionID)
+	token := awsRuntimeSessionToken(ev)
 	if strings.TrimSpace(token) == "" {
 		return ""
 	}
 	return "aws:runtime-session:" + sanitizeCredentialReferenceToken(firstNonEmptyAWSValue(accountID, ev.AccountID, "unknown-account")) + ":" + sanitizeCredentialReferenceToken(firstNonEmptyAWSValue(region, ev.Region, "unknown-region")) + ":" + sanitizeCredentialReferenceToken(token)
+}
+
+func awsRuntimeSessionToken(ev cloudtrail.NormalizedEvent) string {
+	if isSTSAssumeRoleRuntimeEvent(ev) {
+		if token := assumedRoleSessionToken(ev.AssumedRoleARN, ev.RoleSessionName); token != "" {
+			return token
+		}
+	}
+	if isAssumedRoleRuntimeEvent(ev) {
+		if token := assumedRoleSessionToken(firstNonEmptyAWSValue(ev.AssumedRoleARN, ev.SessionIssuerARN), ev.RoleSessionName); token != "" {
+			return token
+		}
+	}
+	return firstNonEmptyAWSValue(ev.ActorPrincipalARN, ev.SessionID, ev.RoleSessionName)
+}
+
+func assumedRoleSessionToken(roleARN string, roleSessionName string) string {
+	roleARN = strings.TrimSpace(roleARN)
+	roleSessionName = strings.TrimSpace(roleSessionName)
+	if roleARN == "" || roleSessionName == "" {
+		return ""
+	}
+	return roleARN + "/" + roleSessionName
+}
+
+func isSTSAssumeRoleRuntimeEvent(ev cloudtrail.NormalizedEvent) bool {
+	return strings.EqualFold(strings.TrimSpace(ev.EventSource), "sts.amazonaws.com") && strings.HasPrefix(strings.TrimSpace(ev.EventName), "AssumeRole")
+}
+
+func isAssumedRoleRuntimeEvent(ev cloudtrail.NormalizedEvent) bool {
+	return strings.EqualFold(strings.TrimSpace(ev.ActorPrincipalType), "assumed_role") || strings.TrimSpace(ev.SessionIssuerARN) != "" || strings.TrimSpace(ev.AssumedRoleARN) != ""
 }
 
 // agentNodeIDForLiveEvent composes the canonical agent node id used

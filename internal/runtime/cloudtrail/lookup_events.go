@@ -19,12 +19,14 @@
 //
 // Safety boundaries:
 //   - Metadata only. The ingester never reads, logs, or persists
-//     userIdentity payloads, request parameters, response elements,
+//     userIdentity payloads, arbitrary request parameters, response elements,
 //     secret values, decrypted plaintext, object bodies, or any other
 //     customer payload from CloudTrailEvent JSON. Only metadata-only
 //     fields whose names are listed in payloadAllowedKeys cross the
-//     boundary, and any failure to extract one of those fields is treated
-//     as missing — not as a normalization failure.
+//     boundary. For STS AssumeRole, session tag values are deliberately
+//     dropped and only tag keys cross the boundary. Any failure to
+//     extract one of those fields is treated as missing — not as a
+//     normalization failure.
 //   - Bounded budgets. MaxPages, MaxEvents, MaxThrottleRetries, and the
 //     LookbackWindow are enforced in the ingester loop so a hostile or
 //     misbehaving trail cannot exhaust the worker.
@@ -89,8 +91,9 @@ type Event struct {
 	// RawEvent is the unparsed CloudTrailEvent JSON string. The
 	// ingester uses it only to pull a small allow-listed set of
 	// metadata fields (region, sourceIPAddress, userAgent, recipient
-	// account, the userIdentity arn/type/principalId and session
-	// context). It is never logged or persisted.
+	// account, the userIdentity arn/type/principalId/session context, and
+	// STS session request metadata needed for lineage). It is never logged
+	// or persisted.
 	RawEvent string
 }
 
@@ -191,6 +194,14 @@ type NormalizedEvent struct {
 	SessionID          string
 	AssumedRoleARN     string
 	SessionIssuerARN   string
+	SourceIdentity     string
+	RoleSessionName    string
+	SessionTagKeys     []string
+	TransitiveTagKeys  []string
+	OriginalActorARN   string
+	ChainedFromARN     string
+	LineageStatus      string
+	LineageReason      string
 	SourceIPAddress    string
 	UserAgent          string
 	SessionStartedAt   time.Time
@@ -705,7 +716,14 @@ var payloadAllowedKeys = struct {
 	SessionIssuer     string
 	IssuerARN         string
 	IssuerType        string
+	SourceIdentity    string
 	CreationDate      string
+	RequestParameters string
+	RoleARN           string
+	RoleSessionName   string
+	Tags              string
+	TransitiveTagKeys string
+	TagKey            string
 }{
 	UserIdentity:      "userIdentity",
 	SourceIPAddress:   "sourceIPAddress",
@@ -720,7 +738,14 @@ var payloadAllowedKeys = struct {
 	SessionIssuer:     "sessionIssuer",
 	IssuerARN:         "arn",
 	IssuerType:        "type",
+	SourceIdentity:    "sourceIdentity",
 	CreationDate:      "creationDate",
+	RequestParameters: "requestParameters",
+	RoleARN:           "roleArn",
+	RoleSessionName:   "roleSessionName",
+	Tags:              "tags",
+	TransitiveTagKeys: "transitiveTagKeys",
+	TagKey:            "key",
 }
 
 // NormalizeEvent converts one CloudTrail Event into one or more
@@ -755,7 +780,7 @@ func normalizeEvent(raw Event, accountID string, region string, collectedAt time
 		}, false
 	}
 
-	meta, metaErr := extractAllowedMetadata(raw.RawEvent)
+	meta, metaErr := extractAllowedMetadata(raw.RawEvent, eventSource, eventName)
 	var diag *Diagnostic
 	scopedAccount := accountID
 	scopedRegion := region
@@ -805,6 +830,11 @@ func normalizeEvent(raw Event, accountID string, region string, collectedAt time
 				base.SessionIssuerARN = meta.IssuerARN
 				base.AssumedRoleARN = meta.IssuerARN
 			}
+			base.SourceIdentity = firstNonEmpty(meta.SessionSourceID, meta.RequestSourceID)
+			base.RoleSessionName = firstNonEmpty(meta.RequestSessionName, roleSessionNameFromARN(base.ActorPrincipalARN), roleSessionNameFromPrincipalID(meta.SessionPrincipalID))
+			base.SessionTagKeys = append([]string{}, meta.SessionTagKeys...)
+			base.TransitiveTagKeys = append([]string{}, meta.TransitiveTagKeys...)
+			applySessionLineage(&base, meta)
 			if !meta.SessionCreationDate.IsZero() {
 				base.SessionStartedAt = meta.SessionCreationDate
 			}
@@ -864,6 +894,55 @@ func buildNormalizedFromCore(raw Event, resource EventResource, accountID string
 	}
 }
 
+func applySessionLineage(ev *NormalizedEvent, meta extractedMetadata) {
+	if ev == nil {
+		return
+	}
+	principalType := mapPrincipalType(meta.UserType)
+	isAssumeRole := isSTSAssumeRoleEvent(ev.EventSource, ev.EventName)
+	isAssumedRoleActivity := principalType == "assumed_role" || strings.TrimSpace(ev.SessionIssuerARN) != ""
+	if !isAssumeRole && !isAssumedRoleActivity {
+		return
+	}
+
+	ev.OriginalActorARN = strings.TrimSpace(meta.UserARN)
+	if isAssumeRole {
+		if meta.RequestRoleARN != "" {
+			ev.AssumedRoleARN = meta.RequestRoleARN
+			ev.TargetResourceARN = meta.RequestRoleARN
+			ev.TargetResourceType = "iam_role"
+			ev.TargetResourceName = roleNameFromARN(meta.RequestRoleARN)
+		}
+		if principalType == "assumed_role" {
+			ev.ChainedFromARN = meta.UserARN
+		}
+	}
+
+	missing := []string{}
+	if strings.TrimSpace(ev.OriginalActorARN) == "" {
+		missing = append(missing, "original actor")
+	}
+	if strings.TrimSpace(firstNonEmpty(ev.AssumedRoleARN, ev.SessionIssuerARN)) == "" {
+		missing = append(missing, "assumed role")
+	}
+	if len(missing) > 0 {
+		ev.LineageStatus = "ambiguous"
+		ev.LineageReason = "CloudTrail metadata did not include " + strings.Join(missing, " or ") + "."
+		return
+	}
+	if strings.TrimSpace(ev.SourceIdentity) == "" {
+		ev.LineageStatus = "source_identity_missing"
+		ev.LineageReason = "CloudTrail resolved the session issuer, but STS SourceIdentity was not present."
+		return
+	}
+	ev.LineageStatus = "resolved"
+	ev.LineageReason = "CloudTrail SourceIdentity and session issuer metadata resolved this STS lineage."
+}
+
+func isSTSAssumeRoleEvent(eventSource string, eventName string) bool {
+	return strings.EqualFold(strings.TrimSpace(eventSource), "sts.amazonaws.com") && strings.HasPrefix(strings.TrimSpace(eventName), "AssumeRole")
+}
+
 // extractedMetadata is the small allow-listed slice of CloudTrailEvent
 // JSON the ingester reads. Every field is metadata-only.
 type extractedMetadata struct {
@@ -875,10 +954,16 @@ type extractedMetadata struct {
 	UserType            string
 	SessionPrincipalID  string
 	IssuerARN           string
+	SessionSourceID     string
+	RequestRoleARN      string
+	RequestSessionName  string
+	RequestSourceID     string
+	SessionTagKeys      []string
+	TransitiveTagKeys   []string
 	SessionCreationDate time.Time
 }
 
-func extractAllowedMetadata(raw string) (extractedMetadata, error) {
+func extractAllowedMetadata(raw string, eventSource string, eventName string) (extractedMetadata, error) {
 	out := extractedMetadata{}
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -917,11 +1002,71 @@ func extractAllowedMetadata(raw string) (extractedMetadata, error) {
 							out.IssuerARN = decodeString(issuerBlob[payloadAllowedKeys.IssuerARN])
 						}
 					}
+					out.SessionSourceID = decodeString(session[payloadAllowedKeys.SourceIdentity])
 				}
 			}
 		}
 	}
+	if requestParams, ok := blob[payloadAllowedKeys.RequestParameters]; ok && isSTSAssumeRoleEvent(eventSource, eventName) {
+		var params map[string]json.RawMessage
+		if err := json.Unmarshal(requestParams, &params); err == nil {
+			out.RequestRoleARN = decodeString(params[payloadAllowedKeys.RoleARN])
+			out.RequestSessionName = decodeString(params[payloadAllowedKeys.RoleSessionName])
+			out.RequestSourceID = decodeString(params[payloadAllowedKeys.SourceIdentity])
+			out.SessionTagKeys = decodeSessionTagKeys(params[payloadAllowedKeys.Tags])
+			out.TransitiveTagKeys = decodeStringSlice(params[payloadAllowedKeys.TransitiveTagKeys])
+		}
+	}
 	return out, nil
+}
+
+func decodeSessionTagKeys(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var tags []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &tags); err != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if key := decodeString(tag[payloadAllowedKeys.TagKey]); key != "" {
+			keys = append(keys, key)
+		}
+	}
+	return dedupeSorted(keys)
+}
+
+func decodeStringSlice(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var values []string
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil
+	}
+	for idx := range values {
+		values[idx] = strings.TrimSpace(values[idx])
+	}
+	return dedupeSorted(values)
+}
+
+func dedupeSorted(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func parseSessionTime(value string) (time.Time, error) {
@@ -952,6 +1097,36 @@ func decodeString(raw json.RawMessage) string {
 		return ""
 	}
 	return strings.TrimSpace(s)
+}
+
+func roleSessionNameFromARN(arn string) string {
+	trimmed := strings.TrimSpace(arn)
+	needle := ":assumed-role/"
+	idx := strings.Index(trimmed, needle)
+	if idx < 0 {
+		return ""
+	}
+	parts := strings.Split(trimmed[idx+len(needle):], "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(parts[len(parts)-1])
+}
+
+func roleSessionNameFromPrincipalID(principalID string) string {
+	trimmed := strings.TrimSpace(principalID)
+	if colon := strings.LastIndex(trimmed, ":"); colon >= 0 && colon < len(trimmed)-1 {
+		return strings.TrimSpace(trimmed[colon+1:])
+	}
+	return ""
+}
+
+func roleNameFromARN(arn string) string {
+	trimmed := strings.TrimSpace(arn)
+	if slash := strings.LastIndex(trimmed, "/"); slash >= 0 && slash < len(trimmed)-1 {
+		return trimmed[slash+1:]
+	}
+	return trimmed
 }
 
 // mapPrincipalType converts the CloudTrail userIdentity `type` field
