@@ -172,37 +172,37 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .idt-modal-backdrop,
-  .idt-modal,
-  .idt-permission-preview-modal,
-  .idt-repo-finding-detail-modal,
-  .idt-danger-modal,
-  .idt-command-palette-backdrop,
-  .idt-command-palette,
-  .idt-domain-drawer-root,
-  .idt-domain-drawer-scrim,
-  .idt-domain-drawer,
-  .idt-domain-flyout,
-  .idt-domain-flyout-section,
-  .idt-domain-flyout-nested-body,
-  .idt-profile-avatar-menu,
-  .idt-auth-theme-menu,
-  .idt-app-sidebar-account-menu,
-  .idt-app-sidebar-workspace-menu,
-  .idt-app-alert,
-  .idt-settings-inline-status,
-  .idt-form-error,
-  .idt-auth-provider-grid,
-  .idt-scan-stepper li.is-active,
-  .idt-danger-modal-error,
-  .idt-danger-modal-blocker,
-  .idt-form-success,
-  .idt-auth-mfa-setup,
-  .idt-auth-provider-stack,
-  .idt-settings-disclosure[open] .idt-settings-disclosure-body,
-  .idt-settings-inline-disclosure[open] .idt-settings-disclosure-body,
-  .idt-hold-confirm.is-holding::before,
-  .idt-hold-confirm.is-rejected {
+  html:not([data-reduce-motion='off']) .idt-modal-backdrop,
+  html:not([data-reduce-motion='off']) .idt-modal,
+  html:not([data-reduce-motion='off']) .idt-permission-preview-modal,
+  html:not([data-reduce-motion='off']) .idt-repo-finding-detail-modal,
+  html:not([data-reduce-motion='off']) .idt-danger-modal,
+  html:not([data-reduce-motion='off']) .idt-command-palette-backdrop,
+  html:not([data-reduce-motion='off']) .idt-command-palette,
+  html:not([data-reduce-motion='off']) .idt-domain-drawer-root,
+  html:not([data-reduce-motion='off']) .idt-domain-drawer-scrim,
+  html:not([data-reduce-motion='off']) .idt-domain-drawer,
+  html:not([data-reduce-motion='off']) .idt-domain-flyout,
+  html:not([data-reduce-motion='off']) .idt-domain-flyout-section,
+  html:not([data-reduce-motion='off']) .idt-domain-flyout-nested-body,
+  html:not([data-reduce-motion='off']) .idt-profile-avatar-menu,
+  html:not([data-reduce-motion='off']) .idt-auth-theme-menu,
+  html:not([data-reduce-motion='off']) .idt-app-sidebar-account-menu,
+  html:not([data-reduce-motion='off']) .idt-app-sidebar-workspace-menu,
+  html:not([data-reduce-motion='off']) .idt-app-alert,
+  html:not([data-reduce-motion='off']) .idt-settings-inline-status,
+  html:not([data-reduce-motion='off']) .idt-form-error,
+  html:not([data-reduce-motion='off']) .idt-auth-provider-grid,
+  html:not([data-reduce-motion='off']) .idt-scan-stepper li.is-active,
+  html:not([data-reduce-motion='off']) .idt-danger-modal-error,
+  html:not([data-reduce-motion='off']) .idt-danger-modal-blocker,
+  html:not([data-reduce-motion='off']) .idt-form-success,
+  html:not([data-reduce-motion='off']) .idt-auth-mfa-setup,
+  html:not([data-reduce-motion='off']) .idt-auth-provider-stack,
+  html:not([data-reduce-motion='off']) .idt-settings-disclosure[open] .idt-settings-disclosure-body,
+  html:not([data-reduce-motion='off']) .idt-settings-inline-disclosure[open] .idt-settings-disclosure-body,
+  html:not([data-reduce-motion='off']) .idt-hold-confirm.is-holding::before,
+  html:not([data-reduce-motion='off']) .idt-hold-confirm.is-rejected {
     animation: none !important;
   }
 }
@@ -30558,23 +30558,23 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .idt-btn::before,
-  .idt-esc-close::before,
-  .idt-modal-close::before,
-  .idt-domain-drawer-close::before,
-  .idt-hold-confirm::before,
-  .idt-onboarding-input-wrap.has-error input,
-  .idt-onboarding-input-wrap.has-error textarea,
-  .idt-onboarding-inline-error {
+  html:not([data-reduce-motion='off']) .idt-btn::before,
+  html:not([data-reduce-motion='off']) .idt-esc-close::before,
+  html:not([data-reduce-motion='off']) .idt-modal-close::before,
+  html:not([data-reduce-motion='off']) .idt-domain-drawer-close::before,
+  html:not([data-reduce-motion='off']) .idt-hold-confirm::before,
+  html:not([data-reduce-motion='off']) .idt-onboarding-input-wrap.has-error input,
+  html:not([data-reduce-motion='off']) .idt-onboarding-input-wrap.has-error textarea,
+  html:not([data-reduce-motion='off']) .idt-onboarding-inline-error {
     animation: none !important;
     transition: none !important;
   }
 
-  .idt-btn:active:not(:disabled),
-  .idt-esc-close:active,
-  .idt-modal-close:active,
-  .idt-domain-drawer-close:active,
-  .idt-domain-drawer {
+  html:not([data-reduce-motion='off']) .idt-btn:active:not(:disabled),
+  html:not([data-reduce-motion='off']) .idt-esc-close:active,
+  html:not([data-reduce-motion='off']) .idt-modal-close:active,
+  html:not([data-reduce-motion='off']) .idt-domain-drawer-close:active,
+  html:not([data-reduce-motion='off']) .idt-domain-drawer {
     transform: none !important;
   }
 }
@@ -30748,6 +30748,10 @@ html[data-appearance-ready='true'] #main-content:has(.idt-account-security-page)
 html[data-appearance-ready='true'] #main-content:has(.idt-app-shell-screen),
 html[data-appearance-ready='true'] #main-content:has(.idt-executive-report-shell) {
   background: var(--appearance-bg, #121518);
+}
+
+html[data-appearance-ready='true'] {
+  font-size: var(--appearance-ui-font-size, 16px);
 }
 
 html[data-appearance-ready='true'] .idt-app-console-layout,
