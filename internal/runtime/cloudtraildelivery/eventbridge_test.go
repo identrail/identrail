@@ -8,7 +8,56 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/identrail/identrail/internal/runtime/cloudtrail"
 )
+
+func TestDeliveryFilterMatchesSessionDerivedIdentityCandidates(t *testing.T) {
+	event := cloudtrail.NormalizedEvent{
+		EventID:            "evt-identity",
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		EventSource:        "sts.amazonaws.com",
+		EventName:          "AssumeRole",
+		ActorPrincipalARN:  "arn:aws:sts::123456789012:assumed-role/payments/payments-job-42",
+		ActorPrincipalType: "assumed_role",
+		SessionID:          "sess-123",
+		AssumedRoleARN:     "arn:aws:iam::123456789012:role/payments",
+		SessionIssuerARN:   "arn:aws:iam::123456789012:role/payments",
+		SourceIdentity:     "alice@example.com",
+		RoleSessionName:    "payments-job-42",
+		OriginalActorARN:   "arn:aws:iam::123456789012:role/original",
+		ChainedFromARN:     "arn:aws:iam::123456789012:role/chained",
+		LineageStatus:      "resolved",
+	}
+	for _, identity := range []string{
+		"aws:identity:arn:aws:iam::123456789012:role/payments",
+		"alice@example.com",
+		"payments-job-42",
+		"arn:aws:iam::123456789012:role/original",
+		"arn:aws:iam::123456789012:role/chained",
+		deliveryRuntimeSessionNodeID(event),
+	} {
+		if got := filterRuntimeEventRecordsForDelivery([]cloudtrail.NormalizedEvent{event}, map[string]string{"identity": identity}, DeliverySourceEventBridge); len(got) != 1 {
+			t.Fatalf("expected identity filter %q to match delivery event, got %+v", identity, got)
+		}
+	}
+}
+
+func TestDeliveryFilterMatchesAgentNodeID(t *testing.T) {
+	event := cloudtrail.NormalizedEvent{
+		EventID:             "evt-agent",
+		AccountID:           "123456789012",
+		Region:              "us-east-1",
+		AgentID:             "runtime-case-triage",
+		AgentType:           "agentcore_runtime",
+		AgentRuntimeVersion: "blue",
+	}
+	agentNodeID := deliveryAgentNodeID(event)
+	if got := filterRuntimeEventRecordsForDelivery([]cloudtrail.NormalizedEvent{event}, map[string]string{"agent_id": agentNodeID}, DeliverySourceEventBridge); len(got) != 1 {
+		t.Fatalf("expected agent node filter %q to match delivery event, got %+v", agentNodeID, got)
+	}
+}
 
 type fakeSQS struct {
 	receiveOut    ReceiveMessageOutput

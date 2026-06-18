@@ -269,21 +269,15 @@ func matchesRuntimeEventFilter(event cloudtrail.NormalizedEvent, filters map[str
 				return false
 			}
 		case "identity":
-			if !strings.Contains(strings.ToLower(event.ActorPrincipalARN), query) &&
-				!strings.Contains(strings.ToLower(event.SessionID), query) &&
-				!strings.Contains(strings.ToLower(event.SessionIssuerARN), query) &&
-				!strings.Contains(strings.ToLower(event.AssumedRoleARN), query) {
+			if !deliveryRuntimeEventMatchesAny(query, deliveryIdentityFilterCandidates(event)...) {
 				return false
 			}
 		case "agent_id":
-			if !strings.Contains(strings.ToLower(event.AgentID), query) {
+			if !deliveryRuntimeEventMatchesAny(query, event.AgentID, deliveryAgentNodeID(event)) {
 				return false
 			}
 		case "resource":
-			if !strings.Contains(strings.ToLower(event.TargetResourceARN), query) &&
-				!strings.Contains(strings.ToLower(event.TargetResourceType), query) &&
-				!strings.Contains(strings.ToLower(event.TargetResourceName), query) &&
-				!strings.Contains(strings.ToLower(deliveryRuntimeResourceNodeID(event.TargetResourceARN, event.TargetResourceType)), query) {
+			if !deliveryRuntimeEventMatchesAny(query, event.TargetResourceARN, event.TargetResourceType, event.TargetResourceName, deliveryRuntimeResourceNodeID(event.TargetResourceARN, event.TargetResourceType)) {
 				return false
 			}
 		case "evidence":
@@ -302,6 +296,107 @@ func matchesRuntimeEventFilter(event cloudtrail.NormalizedEvent, filters map[str
 		}
 	}
 	return true
+}
+
+func deliveryRuntimeEventMatchesAny(query string, values ...string) bool {
+	probe := strings.ToLower(strings.TrimSpace(query))
+	if probe == "" {
+		return true
+	}
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), probe) {
+			return true
+		}
+	}
+	return false
+}
+
+func deliveryIdentityFilterCandidates(event cloudtrail.NormalizedEvent) []string {
+	identityARN := strings.TrimSpace(event.SessionIssuerARN)
+	if identityARN == "" {
+		identityARN = event.ActorPrincipalARN
+	}
+	originalActorARN := ""
+	if strings.TrimSpace(event.LineageStatus) != "" {
+		originalActorARN = firstNonEmptyDeliveryValue(event.OriginalActorARN, event.ActorPrincipalARN)
+	}
+	return []string{
+		event.ActorPrincipalARN,
+		deliveryIdentityNodeID(identityARN),
+		event.ActorPrincipalARN,
+		event.AssumedRoleARN,
+		event.SessionIssuerARN,
+		event.SourceIdentity,
+		event.RoleSessionName,
+		originalActorARN,
+		event.ChainedFromARN,
+		event.SessionID,
+		deliveryRuntimeSessionNodeID(event),
+	}
+}
+
+func deliveryIdentityNodeID(roleARN string) string {
+	if strings.TrimSpace(roleARN) == "" {
+		return ""
+	}
+	return "aws:identity:" + strings.TrimSpace(roleARN)
+}
+
+func deliveryRuntimeSessionNodeID(event cloudtrail.NormalizedEvent) string {
+	if strings.TrimSpace(event.SessionID) == "" && strings.TrimSpace(event.LineageStatus) == "" {
+		return ""
+	}
+	token := deliveryRuntimeSessionToken(event)
+	if strings.TrimSpace(token) == "" {
+		return ""
+	}
+	return "aws:runtime-session:" + sanitizeDeliveryRuntimeToken(firstNonEmptyDeliveryValue(event.AccountID, "unknown-account")) + ":" + sanitizeDeliveryRuntimeToken(firstNonEmptyDeliveryValue(event.Region, "unknown-region")) + ":" + sanitizeDeliveryRuntimeToken(token)
+}
+
+func deliveryRuntimeSessionToken(event cloudtrail.NormalizedEvent) string {
+	if isDeliverySTSAssumeRoleRuntimeEvent(event) {
+		if token := deliveryAssumedRoleSessionToken(event.AssumedRoleARN, event.RoleSessionName); token != "" {
+			return token
+		}
+	}
+	if isDeliveryAssumedRoleRuntimeEvent(event) {
+		if token := deliveryAssumedRoleSessionToken(firstNonEmptyDeliveryValue(event.AssumedRoleARN, event.SessionIssuerARN), event.RoleSessionName); token != "" {
+			return token
+		}
+	}
+	return firstNonEmptyDeliveryValue(event.ActorPrincipalARN, event.SessionID, event.RoleSessionName)
+}
+
+func deliveryAssumedRoleSessionToken(roleARN string, roleSessionName string) string {
+	roleARN = strings.TrimSpace(roleARN)
+	roleSessionName = strings.TrimSpace(roleSessionName)
+	if roleARN == "" || roleSessionName == "" {
+		return ""
+	}
+	return roleARN + "/" + roleSessionName
+}
+
+func isDeliverySTSAssumeRoleRuntimeEvent(event cloudtrail.NormalizedEvent) bool {
+	return strings.EqualFold(strings.TrimSpace(event.EventSource), "sts.amazonaws.com") && strings.HasPrefix(strings.TrimSpace(event.EventName), "AssumeRole")
+}
+
+func isDeliveryAssumedRoleRuntimeEvent(event cloudtrail.NormalizedEvent) bool {
+	return strings.EqualFold(strings.TrimSpace(event.ActorPrincipalType), "assumed_role") || strings.TrimSpace(event.SessionIssuerARN) != "" || strings.TrimSpace(event.AssumedRoleARN) != ""
+}
+
+func deliveryAgentNodeID(event cloudtrail.NormalizedEvent) string {
+	if strings.TrimSpace(event.AgentID) == "" {
+		return ""
+	}
+	version := strings.TrimSpace(event.AgentRuntimeVersion)
+	if version != "" {
+		version = normalizeDeliveryRuntimeName(version)
+	}
+	suffix := firstNonEmptyDeliveryValue(event.AgentID, "unknown")
+	if version != "" {
+		suffix = suffix + "/" + version
+	}
+	return "aws:agent:" + firstNonEmptyDeliveryValue(event.AccountID, "account") + ":" + firstNonEmptyDeliveryValue(event.Region, "region") + ":" + firstNonEmptyDeliveryValue(event.AgentType, "agent") + "/" + suffix
 }
 
 func deliveryRuntimeResourceNodeID(resourceARN string, resourceType string) string {
