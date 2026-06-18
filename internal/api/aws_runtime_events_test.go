@@ -26,7 +26,7 @@ func TestGetAWSRuntimeEventsBuildsMetadataOnlyContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get runtime events: %v", err)
 	}
-	if result.CurrentIssueRef != "#1513" || result.Version != awsRuntimeEventsVersion || result.Status != "ready" {
+	if result.CurrentIssueRef != "#1516" || result.Version != awsRuntimeEventsVersion || result.Status != "ready" {
 		t.Fatalf("unexpected runtime event contract metadata: %+v", result)
 	}
 	if result.Summary.TotalEvents != 5 || result.Summary.FilteredEvents != 5 || result.Summary.RelationshipCount != len(result.Relationships) {
