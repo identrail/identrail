@@ -30772,7 +30772,10 @@ html[data-appearance-ready='true'] #main-content:has(.idt-executive-report-shell
   background: var(--appearance-bg, #121518);
 }
 
-html[data-appearance-ready='true'] {
+html[data-appearance-ready='true']:has(.idt-app-console-layout),
+html[data-appearance-ready='true']:has(.idt-account-security-page),
+html[data-appearance-ready='true']:has(.idt-app-shell-screen),
+html[data-appearance-ready='true']:has(.idt-executive-report-shell) {
   font-size: var(--appearance-ui-font-size, 16px);
 }
 
@@ -30835,6 +30838,22 @@ html[data-appearance-ready='true'] .idt-app-console-layout :is(
   .idt-source-install-card,
   .idt-source-advanced,
   .idt-source-diagnostics article,
+  .idt-domain-header,
+  .idt-domain-kpi,
+  .idt-domain-status-panel,
+  .idt-domain-empty-state,
+  .idt-domain-error-state,
+  .idt-domain-detail-panel,
+  .idt-domain-evidence-panel,
+  .idt-domain-filter-bar,
+  .idt-domain-filter-fields input,
+  .idt-domain-filter-fields select,
+  .idt-domain-loading-state,
+  .idt-domain-readiness-items article > span,
+  .idt-domain-action-footer,
+  .idt-domain-table-wrap,
+  .idt-domain-evidence-panel pre,
+  .idt-domain-status-panel header > span,
   .idt-repo-finding-list,
   .idt-repo-finding-detail,
   .idt-repo-finding-trend,
@@ -30883,6 +30902,15 @@ html[data-appearance-ready='true'] .idt-app-console-layout :is(
   .idt-overview-projects small,
   .idt-source-card small,
   .idt-source-diagnostics small,
+  .idt-domain-kpi span,
+  .idt-domain-kpi p,
+  .idt-domain-header p,
+  .idt-domain-status-panel p,
+  .idt-domain-empty-state p,
+  .idt-domain-error-state p,
+  .idt-domain-detail-panel p,
+  .idt-domain-filter-fields label,
+  .idt-domain-evidence-panel figcaption span,
   .idt-repo-finding-row-meta,
   .idt-repo-finding-trend-subtitle,
   .idt-repo-finding-trend-meta span,
