@@ -446,6 +446,38 @@ func TestS3IngesterDoesNotAdvanceCheckpointForFilteredOnlyFile(t *testing.T) {
 	}
 }
 
+func TestS3IngesterDoesNotAdvanceCheckpointPastEarlierFilteredFile(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	filteredKey := "AWSLogs/123456789012/CloudTrail/us-east-1/2026/06/15/filtered.json.gz"
+	retainedKey := "AWSLogs/123456789012/CloudTrail/us-east-1/2026/06/15/retained.json.gz"
+	filteredBody := gzipLogFile(t, cloudTrailRecord("evt-kms", "Decrypt", "kms.amazonaws.com", now.Add(-2*time.Minute), nil))
+	retainedBody := gzipLogFile(t, cloudTrailRecord("evt-secret", "GetSecretValue", "secretsmanager.amazonaws.com", now.Add(-time.Minute), nil))
+	fake := &fakeS3{
+		objects: []S3Object{
+			{Key: filteredKey, Size: int64(len(filteredBody)), LastModified: now.Add(-2 * time.Minute)},
+			{Key: retainedKey, Size: int64(len(retainedBody)), LastModified: now.Add(-time.Minute)},
+		},
+		bodyByKey: map[string][]byte{filteredKey: filteredBody, retainedKey: retainedBody},
+	}
+	ing := NewS3Ingester(fake, "bucket", "")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"event_type": "secret-read"},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 1 || result.Events[0].EventID != "evt-secret" {
+		t.Fatalf("expected retained secret event, got %+v", result.Events)
+	}
+	if result.Checkpoint != "" {
+		t.Fatalf("checkpoint must not advance past earlier filtered file, got %q", result.Checkpoint)
+	}
+}
+
 func TestS3IngesterMarksTruncatedListing(t *testing.T) {
 	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
 	key := "log-1.json.gz"

@@ -365,3 +365,51 @@ func TestEventBridgeIngesterIgnoresDeliveryEvidenceFilterBeforeAdapterStamping(t
 		t.Fatalf("expected fully retained message to delete, got %+v", fake.deletedIDs)
 	}
 }
+
+func TestEventBridgeIngesterDoesNotDeleteMessagesExcludedByAccountRegionFilters(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+		{MessageID: "msg-1", ReceiptHandle: "rh-1", Body: eventBridgeMessageBody(t, "evt-secret", "GetSecretValue", "secretsmanager.amazonaws.com", now.Add(-time.Minute))},
+	}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"region": "us-west-2"},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 0 {
+		t.Fatalf("expected region-filtered message to return no events, got %+v", result.Events)
+	}
+	if len(fake.deletedIDs) != 0 {
+		t.Fatalf("region-filtered message must remain for broader queries, deleted=%+v", fake.deletedIDs)
+	}
+}
+
+func TestEventBridgeIngesterKeepsMessagesForOtherDeliveryEvidenceFilter(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+		{MessageID: "msg-1", ReceiptHandle: "rh-1", Body: eventBridgeMessageBody(t, "evt-secret", "GetSecretValue", "secretsmanager.amazonaws.com", now.Add(-time.Minute))},
+	}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"evidence": "s3-delivery"},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 0 {
+		t.Fatalf("expected nonmatching delivery evidence filter to return no events, got %+v", result.Events)
+	}
+	if len(fake.deletedIDs) != 0 {
+		t.Fatalf("nonmatching delivery evidence filter must not delete message, deleted=%+v", fake.deletedIDs)
+	}
+}

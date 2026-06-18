@@ -209,9 +209,10 @@ func (i *S3Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestR
 			if !isWithinScope(request.AccountID, request.Region, raw.Record.RecipientAccount, raw.Record.AWSRegion) {
 				continue
 			}
-			filtered := filterRuntimeEventRecordsForDelivery(normalized, request.AppliedFilters)
+			filtered := filterRuntimeEventRecordsForDelivery(normalized, request.AppliedFilters, DeliverySourceS3)
 			if len(filtered) != len(normalized) {
 				fileComplete = false
+				checkpointBlocked = true
 			}
 			if len(filtered) == 0 {
 				continue

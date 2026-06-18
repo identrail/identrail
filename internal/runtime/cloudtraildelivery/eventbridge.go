@@ -200,7 +200,7 @@ func (i *EventBridgeIngester) Ingest(ctx context.Context, request IngestRequest)
 		if !isWithinScope(request.AccountID, request.Region, record.RecipientAccount, record.AWSRegion) {
 			continue
 		}
-		filtered := filterRuntimeEventRecordsForDelivery(normalized, request.AppliedFilters)
+		filtered := filterRuntimeEventRecordsForDelivery(normalized, request.AppliedFilters, DeliverySourceEventBridge)
 		if len(filtered) == 0 {
 			continue
 		}
@@ -246,7 +246,7 @@ func isWithinScope(requestedAccount string, requestedRegion string, recordAccoun
 	return true
 }
 
-func matchesRuntimeEventFilter(event cloudtrail.NormalizedEvent, filters map[string]string) bool {
+func matchesRuntimeEventFilter(event cloudtrail.NormalizedEvent, filters map[string]string, source DeliverySource) bool {
 	if len(filters) == 0 {
 		return true
 	}
@@ -256,6 +256,14 @@ func matchesRuntimeEventFilter(event cloudtrail.NormalizedEvent, filters map[str
 			continue
 		}
 		switch key {
+		case "account_id":
+			if event.AccountID != query {
+				return false
+			}
+		case "region":
+			if strings.ToLower(event.Region) != query {
+				return false
+			}
 		case "event_type":
 			if strings.ToLower(strings.ReplaceAll(event.EventType, " ", "-")) != query && strings.ToLower(strings.ReplaceAll(event.EventType, "_", "-")) != query {
 				return false
@@ -279,6 +287,9 @@ func matchesRuntimeEventFilter(event cloudtrail.NormalizedEvent, filters map[str
 			}
 		case "evidence":
 			if strings.HasSuffix(query, "-delivery") {
+				if query != string(source)+"-delivery" {
+					return false
+				}
 				continue
 			}
 			if strings.ToLower(strings.ReplaceAll(event.EvidenceCategory, "_", "-")) != query &&
@@ -298,13 +309,13 @@ func matchesRuntimeEventFilter(event cloudtrail.NormalizedEvent, filters map[str
 	return true
 }
 
-func filterRuntimeEventRecordsForDelivery(records []cloudtrail.NormalizedEvent, filters map[string]string) []cloudtrail.NormalizedEvent {
+func filterRuntimeEventRecordsForDelivery(records []cloudtrail.NormalizedEvent, filters map[string]string, source DeliverySource) []cloudtrail.NormalizedEvent {
 	if len(filters) == 0 {
 		return records
 	}
 	filtered := make([]cloudtrail.NormalizedEvent, 0, len(records))
 	for _, record := range records {
-		if matchesRuntimeEventFilter(record, filters) {
+		if matchesRuntimeEventFilter(record, filters, source) {
 			filtered = append(filtered, record)
 		}
 	}
