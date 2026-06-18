@@ -194,6 +194,11 @@ func (i *Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestRes
 		result.FailureReasons = dedupeStrings(append(result.FailureReasons, "IAM last-used or Access Analyzer returned diagnostics"))
 		result.RemediationHints = dedupeStrings(append(result.RemediationHints, "Review signal diagnostics before using runtime evidence for least-privilege decisions."))
 	}
+	if len(result.CoverageGaps) > 0 && result.Status == "ready" {
+		result.Status = "degraded"
+		result.FailureReasons = dedupeStrings(append(result.FailureReasons, "IAM last-used or Access Analyzer coverage is partial"))
+		result.RemediationHints = dedupeStrings(append(result.RemediationHints, "Review signal coverage gaps before using runtime evidence for least-privilege decisions."))
+	}
 	if len(result.Signals) == 0 && hasPermissionDeniedDiagnostic(result.Diagnostics) {
 		result.Status = "blocked"
 		result.FailureReasons = []string{"IAM last-used and Access Analyzer permissions are unavailable"}
@@ -277,7 +282,7 @@ func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest
 			diagnostics = append(diagnostics, permissionAwareDiagnostic("iam:"+roleName, "iam_last_used_permission_denied", "iam_last_used_generation_failed", fmt.Sprintf("IAM service last-used report could not be generated for %s: %v", roleName, genErr), "Grant iam:GenerateServiceLastAccessedDetails and retry.", genErr))
 			continue
 		}
-		details, getErr := i.getServiceLastAccessedDetails(ctx, job.JobId, request)
+		details, truncated, getErr := i.getServiceLastAccessedDetails(ctx, job.JobId, request)
 		if getErr != nil {
 			diagnostics = append(diagnostics, permissionAwareDiagnostic("iam:"+roleName, "iam_last_used_permission_denied", "iam_last_used_report_failed", fmt.Sprintf("IAM service last-used report could not be read for %s: %v", roleName, getErr), "Grant iam:GetServiceLastAccessedDetails and retry.", getErr))
 			continue
@@ -301,6 +306,14 @@ func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest
 		staleAt := request.CollectedAt
 		if details.JobCompletionDate != nil {
 			staleAt = details.JobCompletionDate.UTC()
+		}
+		if truncated {
+			gaps = append(gaps, CoverageGap{
+				Capability:  "iam_last_used",
+				Status:      "history_truncated",
+				Reason:      fmt.Sprintf("Service last-used report for %s exceeded the bounded per-role service budget.", roleName),
+				Remediation: "Rerun with a larger IAM last-used service budget or add paginated report reuse.",
+			})
 		}
 		for svcIdx, service := range details.ServicesLastAccessed {
 			if int32(svcIdx) >= request.MaxServicesPerRole {
@@ -354,7 +367,7 @@ func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest
 	return signals, diagnostics, gaps
 }
 
-func (i *Ingester) getServiceLastAccessedDetails(ctx context.Context, jobID *string, request IngestRequest) (*iam.GetServiceLastAccessedDetailsOutput, error) {
+func (i *Ingester) getServiceLastAccessedDetails(ctx context.Context, jobID *string, request IngestRequest) (*iam.GetServiceLastAccessedDetailsOutput, bool, error) {
 	var details *iam.GetServiceLastAccessedDetailsOutput
 	for attempt := 0; attempt < request.MaxReportPolls; attempt++ {
 		out, err := i.IAM.GetServiceLastAccessedDetails(ctx, &iam.GetServiceLastAccessedDetailsInput{
@@ -362,23 +375,23 @@ func (i *Ingester) getServiceLastAccessedDetails(ctx context.Context, jobID *str
 			MaxItems: awsv2.Int32(request.MaxServicesPerRole),
 		})
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		details = out
 		if out.JobStatus == iamtypes.JobStatusTypeCompleted {
-			return out, nil
+			return out, out.IsTruncated || out.Marker != nil, nil
 		}
 		if attempt == request.MaxReportPolls-1 {
 			break
 		}
 		if err := waitForIAMReportPoll(ctx, request.ReportPollInterval); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 	if details == nil {
 		details = &iam.GetServiceLastAccessedDetailsOutput{}
 	}
-	return details, nil
+	return details, details.IsTruncated || details.Marker != nil, nil
 }
 
 func waitForIAMReportPoll(ctx context.Context, interval time.Duration) error {

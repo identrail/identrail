@@ -17,6 +17,7 @@ import (
 type fakeIAMAPI struct {
 	listRolesErr error
 	getStatus    iamtypes.JobStatusType
+	truncated    bool
 }
 
 func (f fakeIAMAPI) ListRoles(context.Context, *iam.ListRolesInput, ...func(*iam.Options)) (*iam.ListRolesOutput, error) {
@@ -50,6 +51,7 @@ func (f fakeIAMAPI) GetServiceLastAccessedDetails(context.Context, *iam.GetServi
 	return &iam.GetServiceLastAccessedDetailsOutput{
 		JobStatus:         status,
 		JobCompletionDate: &completedAt,
+		IsTruncated:       f.truncated,
 		ServicesLastAccessed: []iamtypes.ServiceLastAccessed{{
 			ServiceName:             awsv2.String("Amazon S3"),
 			ServiceNamespace:        awsv2.String("s3"),
@@ -141,6 +143,34 @@ func TestIngesterCollectsIAMLastUsedAndAccessAnalyzerSignals(t *testing.T) {
 	}
 	if analyzerFinding.Category != "access-analyzer" || analyzerFinding.Scope != "account" || analyzerFinding.AnalyzerARN == "" || analyzerFinding.StaleAt.IsZero() || analyzerFinding.Confidence < 0.89 {
 		t.Fatalf("unexpected Access Analyzer signal: %+v", analyzerFinding)
+	}
+}
+
+func TestIngesterDegradesWhenCoverageGapsAreEmitted(t *testing.T) {
+	collectedAt := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+	result, err := New(fakeIAMAPI{truncated: true}, fakeAccessAnalyzerAPI{}).Ingest(context.Background(), IngestRequest{
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		CollectedAt:        collectedAt,
+		MaxServicesPerRole: 1,
+	})
+	if err != nil {
+		t.Fatalf("ingest signals: %v", err)
+	}
+	if result.Status != "degraded" {
+		t.Fatalf("expected coverage gap to degrade signal result, got %+v", result)
+	}
+	foundServiceGap := false
+	for _, gap := range result.CoverageGaps {
+		if gap.Capability == "iam_last_used" && gap.Status == "history_truncated" && strings.Contains(gap.Reason, "service budget") {
+			foundServiceGap = true
+		}
+	}
+	if !foundServiceGap {
+		t.Fatalf("expected service report truncation coverage gap, got %+v", result.CoverageGaps)
+	}
+	if len(result.Signals) == 0 {
+		t.Fatalf("expected retained signal rows alongside degraded coverage, got %+v", result)
 	}
 }
 

@@ -763,6 +763,60 @@ func TestGetAWSRuntimeEventsSignalsClearEmptyFilterState(t *testing.T) {
 	}
 }
 
+func TestGetAWSRuntimeEventsCloudTrailDeniedWithSignalsIsPartialCoverage(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 21, 40, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-cloudtrail-denied-signals")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-cloudtrail-denied-signals", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-cloudtrail-denied-signals", "aws-prod")
+
+	cloudTrail := &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{
+		Status: "blocked",
+		Diagnostics: []AWSRuntimeEventDiagnostic{{
+			Collector: "aws_cloudtrail_lookup_events",
+			SourceID:  "cloudtrail",
+			Code:      "permission_denied",
+			Message:   "CloudTrail LookupEvents permission is not available.",
+			Retryable: true,
+		}},
+		CoverageGaps: []AWSRuntimeEventCoverageGap{{
+			Capability: "cloudtrail_lookup_events",
+			Status:     "permission_denied",
+			Reason:     "CloudTrail LookupEvents permission is not available.",
+		}},
+		FailureReasons:   []string{"runtime event sources are not authorized for this connector"},
+		RemediationHints: []string{"Grant metadata-only CloudTrail LookupEvents."},
+	}}
+	signalRecord := liveSignalRuntimeRecord(t, "evt-live-analyzer", "access-analyzer", "access-analyzer:external-principal", "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/openai-key", now.Add(-5*time.Minute))
+	signals := &fakeRuntimeSignalIngester{result: AWSRuntimeSignalIngestResult{
+		Status:  "ready",
+		Records: []AWSRuntimeEventRecord{signalRecord},
+	}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailLookupEventsFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error) {
+		return cloudTrail, nil
+	}
+	svc.AWSRuntimeSignalFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSRuntimeSignalIngester, error) {
+		return signals, nil
+	}
+
+	result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-cloudtrail-denied-signals", AWSRuntimeEventRequest{ConnectorID: "aws-prod", EventType: "access-analyzer"})
+	if err != nil {
+		t.Fatalf("get runtime events: %v", err)
+	}
+	if result.Status != "degraded" || result.FixtureState != "partial_failure" || result.Confidence > 0.72 {
+		t.Fatalf("expected mixed CloudTrail-denied/signal-visible result to be partial coverage, got %+v", result)
+	}
+	if len(result.Records) != 1 || result.Records[0].EventID != "evt-live-analyzer" {
+		t.Fatalf("expected signal evidence to remain visible, got %+v", result.Records)
+	}
+	if len(result.CoverageGaps) == 0 || !strings.Contains(strings.Join(result.FailureReasons, "|"), "not authorized") {
+		t.Fatalf("expected CloudTrail denial context to remain visible, gaps=%+v failures=%+v", result.CoverageGaps, result.FailureReasons)
+	}
+}
+
 func TestGetAWSRuntimeEventsFactoryContextCancellationPropagates(t *testing.T) {
 	// Context cancellation / deadline expiry inside the factory
 	// (loading AWS config, assuming the role) is a caller-driven

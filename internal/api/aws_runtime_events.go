@@ -1067,6 +1067,12 @@ func (s *Service) appendAWSRuntimeSignals(ctx context.Context, scope db.Scope, p
 				base.Confidence = 0.72
 			}
 		}
+	} else if base.Status == "blocked" && len(filtered) > 0 {
+		base.Status = "degraded"
+		base.FixtureState = "partial_failure"
+		if base.Confidence == 0 || base.Confidence > 0.72 {
+			base.Confidence = 0.72
+		}
 	} else if signalResult.Status == "degraded" && base.Status == "ready" {
 		base.Status = "degraded"
 		base.FixtureState = "degraded"
