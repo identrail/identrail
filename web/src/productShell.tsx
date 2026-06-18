@@ -22197,7 +22197,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                 )}
                 {selectedFinding.line_snippet ? (
                   <div className="idt-repo-finding-code">
-                    <span>Evidence line</span>
+                    <span className="idt-repo-finding-code-label">Evidence line</span>
                     <pre>
                       <code>{renderRepoFindingLineSnippet(selectedFinding.line_snippet)}</code>
                     </pre>
@@ -22828,7 +22828,12 @@ export function ProductAppearanceSettingsPage() {
     key: 'accent' | 'background' | 'foreground',
     value: string
   ) => {
-    commitPreferences({ [key]: value, customColors: true });
+    commitPreferences({
+      accent: key === 'accent' ? value : effectiveColors.accent,
+      background: key === 'background' ? value : effectiveColors.background,
+      foreground: key === 'foreground' ? value : effectiveColors.foreground,
+      customColors: true
+    });
   };
 
   return (

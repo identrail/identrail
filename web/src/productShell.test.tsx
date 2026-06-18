@@ -1939,6 +1939,26 @@ describe('ProductAppearanceSettingsPage', () => {
     expect(document.documentElement.style.getPropertyValue('--appearance-fg')).toBe('#f5f7f8');
   });
 
+  it('seeds the visible preset colors before enabling custom colors', async () => {
+    await renderProductAppearanceSettingsPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Light' }));
+    fireEvent.change(screen.getByLabelText('Accent color'), { target: { value: '#123456' } });
+
+    const stored = JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}');
+    expect(stored).toMatchObject({
+      themeMode: 'light',
+      lightPreset: 'notion',
+      accent: '#123456',
+      background: '#ffffff',
+      foreground: '#37352f',
+      customColors: true
+    });
+    expect(document.documentElement.style.getPropertyValue('--appearance-accent')).toBe('#123456');
+    expect(document.documentElement.style.getPropertyValue('--appearance-bg')).toBe('#ffffff');
+    expect(document.documentElement.style.getPropertyValue('--appearance-fg')).toBe('#37352f');
+  });
+
   it('exposes contrast as real color-mix inputs for shell styles', async () => {
     const { applyAppearancePreferences, normalizeAppearancePreferences } = await import('./appearance');
 
@@ -4964,8 +4984,11 @@ describe('ProductFindingsPage states', () => {
 
     const addedLine = await screen.findByText('+ allow = true');
     const removedLine = await screen.findByText('- allow = false');
+    expect(screen.getByText('Evidence line')).toHaveClass('idt-repo-finding-code-label');
     expect(addedLine).toHaveClass('idt-repo-finding-code-line', 'is-add');
     expect(removedLine).toHaveClass('idt-repo-finding-code-line', 'is-remove');
+    expect(addedLine).not.toHaveClass('idt-repo-finding-code-label');
+    expect(removedLine).not.toHaveClass('idt-repo-finding-code-label');
 
     const closeButton = await screen.findByRole('button', { name: /Close finding detail/i });
     fireEvent.click(closeButton);

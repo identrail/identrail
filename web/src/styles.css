@@ -6387,7 +6387,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   gap: 0.45rem;
 }
 
-.idt-repo-finding-code span {
+.idt-repo-finding-code-label {
   color: #9fb5d8;
   font-size: 0.74rem;
   font-weight: 700;
@@ -8133,7 +8133,7 @@ html[data-theme='light'] .idt-repo-finding-trend {
 html[data-theme='light'] .idt-repo-finding-stat span,
 html[data-theme='light'] .idt-repo-finding-row-meta,
 html[data-theme='light'] .idt-repo-finding-facts dt,
-html[data-theme='light'] .idt-repo-finding-code span {
+html[data-theme='light'] .idt-repo-finding-code-label {
   color: #5473a4;
 }
 
@@ -22446,7 +22446,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend-subtitl
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend-meta span,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-group h4,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-facts dt,
-html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-code span,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-code-label,
 html[data-theme='light'] .idt-app-console-layout .idt-settings-header p,
 html[data-theme='light'] .idt-app-console-layout .idt-settings-card p,
 html[data-theme='light'] .idt-app-console-layout .idt-settings-route-grid span,
