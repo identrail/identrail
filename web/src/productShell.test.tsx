@@ -4982,13 +4982,19 @@ describe('ProductFindingsPage states', () => {
     rowButton.focus();
     fireEvent.click(rowButton);
 
-    const addedLine = await screen.findByText('+ allow = true');
-    const removedLine = await screen.findByText('- allow = false');
+    const addedLine = await screen.findByText((_, element) =>
+      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '+ allow = true')
+    );
+    const removedLine = await screen.findByText((_, element) =>
+      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '- allow = false')
+    );
     expect(screen.getByText('Evidence line')).toHaveClass('idt-repo-finding-code-label');
     expect(addedLine).toHaveClass('idt-repo-finding-code-line', 'is-add');
     expect(removedLine).toHaveClass('idt-repo-finding-code-line', 'is-remove');
     expect(addedLine).not.toHaveClass('idt-repo-finding-code-label');
     expect(removedLine).not.toHaveClass('idt-repo-finding-code-label');
+    expect(within(addedLine).getByText('+')).toHaveClass('idt-repo-finding-code-marker');
+    expect(within(removedLine).getByText('-')).toHaveClass('idt-repo-finding-code-marker');
 
     const closeButton = await screen.findByRole('button', { name: /Close finding detail/i });
     fireEvent.click(closeButton);

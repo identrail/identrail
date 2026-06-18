@@ -20193,11 +20193,15 @@ function repoFindingSnippetLineClass(line: string): string {
 }
 
 function renderRepoFindingLineSnippet(snippet: string) {
-  return snippet.split('\n').map((line, index) => (
-    <span className={repoFindingSnippetLineClass(line)} key={`${index}-${line}`}>
-      {line || ' '}
-    </span>
-  ));
+  return snippet.split('\n').map((line, index) => {
+    const diffMarker = line.startsWith('+') || line.startsWith('-') ? line[0] : null;
+    return (
+      <span className={repoFindingSnippetLineClass(line)} key={`${index}-${line}`}>
+        {diffMarker ? <span className="idt-repo-finding-code-marker">{diffMarker}</span> : null}
+        {diffMarker ? line.slice(1) || ' ' : line || ' '}
+      </span>
+    );
+  });
 }
 
 function repoFindingMatchesAny(finding: ApiFinding, tokens: string[]): boolean {

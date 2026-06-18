@@ -6421,18 +6421,10 @@ html[data-diff-markers='symbols'] .idt-repo-finding-code-line:is(.is-add, .is-re
   padding-left: 1.2rem;
 }
 
-html[data-diff-markers='symbols'] .idt-repo-finding-code-line:is(.is-add, .is-remove)::before {
+html[data-diff-markers='symbols'] .idt-repo-finding-code-marker {
   position: absolute;
   left: 0;
   font-weight: 900;
-}
-
-html[data-diff-markers='symbols'] .idt-repo-finding-code-line.is-add::before {
-  content: '+';
-}
-
-html[data-diff-markers='symbols'] .idt-repo-finding-code-line.is-remove::before {
-  content: '-';
 }
 
 .idt-repo-finding-remediation {
@@ -30798,6 +30790,84 @@ html[data-appearance-ready='true'] .idt-account-security-page :is(pre, code),
 html[data-appearance-ready='true'] .idt-app-shell-screen :is(pre, code),
 html[data-appearance-ready='true'] .idt-executive-report-shell :is(pre, code) {
   font-size: var(--appearance-code-font-size, 14px);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout :is(
+  .idt-app-shell-header,
+  .idt-overview-header,
+  .idt-workspace-admin-header,
+  .idt-projects-header,
+  .idt-source-onboarding-header,
+  .idt-repo-findings-header,
+  .idt-settings-header,
+  .idt-overview-card,
+  .idt-projects-list,
+  .idt-project-composer,
+  .idt-project-card,
+  .idt-source-card,
+  .idt-source-config,
+  .idt-source-install-card,
+  .idt-source-advanced,
+  .idt-source-diagnostics article,
+  .idt-repo-finding-list,
+  .idt-repo-finding-detail,
+  .idt-repo-finding-trend,
+  .idt-repo-finding-bucket,
+  .idt-repo-finding-detail-section,
+  .idt-repo-finding-detail-modal,
+  .idt-repo-finding-row,
+  .idt-settings-card,
+  .idt-settings-facts div,
+  .idt-overview-risk-row,
+  .idt-overview-scan-row,
+  .idt-overview-projects a,
+  .idt-overview-actions a,
+  .idt-settings-route-grid a
+),
+html[data-appearance-ready='true'] .idt-account-security-page :is(
+  .idt-app-shell-header,
+  .idt-security-overview article,
+  .idt-session-row
+),
+html[data-appearance-ready='true'] .idt-executive-report-shell :is(
+  .idt-executive-report-header,
+  .idt-executive-report-metrics article,
+  .idt-executive-report-section,
+  .idt-executive-severity-list article,
+  .idt-executive-type-list article,
+  .idt-executive-narrative article
+) {
+  border-color: var(--app-border);
+  background: var(--app-panel);
+  color: var(--app-text);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout :is(h1, h2, h3, h4, strong),
+html[data-appearance-ready='true'] .idt-account-security-page :is(h1, h2, h3, strong),
+html[data-appearance-ready='true'] .idt-executive-report-shell :is(h1, h2, h3, h4, strong) {
+  color: var(--app-text);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout :is(
+  p,
+  dd,
+  li,
+  .idt-overview-projects span,
+  .idt-overview-actions span,
+  .idt-overview-projects small,
+  .idt-source-card small,
+  .idt-source-diagnostics small,
+  .idt-repo-finding-row-meta,
+  .idt-repo-finding-trend-subtitle,
+  .idt-repo-finding-trend-meta span,
+  .idt-repo-finding-facts dt,
+  .idt-repo-finding-code-label,
+  .idt-settings-route-grid span,
+  .idt-settings-facts dt
+),
+html[data-appearance-ready='true'] .idt-account-security-page :is(p, dd),
+html[data-appearance-ready='true'] .idt-executive-report-shell :is(p, dd, .idt-executive-report-metrics p) {
+  color: var(--app-muted);
 }
 
 html[data-font-smoothing='true'] body {
