@@ -286,16 +286,10 @@ func matchesRuntimeEventFilter(event cloudtrail.NormalizedEvent, filters map[str
 				return false
 			}
 		case "evidence":
-			if strings.HasSuffix(query, "-delivery") {
-				if query != string(source)+"-delivery" {
-					return false
-				}
-				continue
-			}
-			if strings.ToLower(strings.ReplaceAll(event.EvidenceCategory, "_", "-")) != query &&
-				strings.ToLower(strings.ReplaceAll(event.EvidenceCategory, " ", "-")) != query {
+			if query != string(source)+"-delivery" {
 				return false
 			}
+			continue
 		case "owner":
 			if strings.ToLower(strings.ReplaceAll(event.Owner, " ", "-")) != query && strings.ToLower(strings.ReplaceAll(event.Owner, "_", "-")) != query {
 				return false

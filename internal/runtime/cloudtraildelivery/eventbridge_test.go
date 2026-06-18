@@ -413,3 +413,27 @@ func TestEventBridgeIngesterKeepsMessagesForOtherDeliveryEvidenceFilter(t *testi
 		t.Fatalf("nonmatching delivery evidence filter must not delete message, deleted=%+v", fake.deletedIDs)
 	}
 }
+
+func TestEventBridgeIngesterKeepsMessagesForRawEvidenceFilter(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+		{MessageID: "msg-1", ReceiptHandle: "rh-1", Body: eventBridgeMessageBody(t, "evt-secret", "GetSecretValue", "secretsmanager.amazonaws.com", now.Add(-time.Minute))},
+	}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"evidence": "cloudtrail"},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 0 {
+		t.Fatalf("expected raw evidence filter to exclude delivery event before stamping, got %+v", result.Events)
+	}
+	if len(fake.deletedIDs) != 0 {
+		t.Fatalf("raw evidence filter must not delete delivery message, deleted=%+v", fake.deletedIDs)
+	}
+}

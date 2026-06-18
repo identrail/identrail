@@ -478,6 +478,33 @@ func TestS3IngesterDoesNotAdvanceCheckpointPastEarlierFilteredFile(t *testing.T)
 	}
 }
 
+func TestS3IngesterDoesNotAdvanceCheckpointForRawEvidenceFilter(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	key := "AWSLogs/123456789012/CloudTrail/us-east-1/2026/06/15/raw-evidence.json.gz"
+	body := gzipLogFile(t, cloudTrailRecord("evt-secret", "GetSecretValue", "secretsmanager.amazonaws.com", now.Add(-time.Minute), nil))
+	fake := &fakeS3{
+		objects:   []S3Object{{Key: key, Size: int64(len(body)), LastModified: now}},
+		bodyByKey: map[string][]byte{key: body},
+	}
+	ing := NewS3Ingester(fake, "bucket", "")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"evidence": "cloudtrail"},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 0 {
+		t.Fatalf("expected raw evidence filter to exclude S3 delivery event before stamping, got %+v", result.Events)
+	}
+	if result.Checkpoint != "" {
+		t.Fatalf("raw evidence filter must not advance S3 checkpoint, got %q", result.Checkpoint)
+	}
+}
+
 func TestS3IngesterMarksTruncatedListing(t *testing.T) {
 	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
 	key := "log-1.json.gz"
