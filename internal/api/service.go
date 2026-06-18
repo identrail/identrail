@@ -163,6 +163,10 @@ const (
 // the runtime-events handler then skips that source for the request.
 type AWSCloudTrailDeliveryIngesterFactory func(ctx context.Context, connection AWSConnectionStatus, source AWSCloudTrailDeliverySource) (AWSCloudTrailRuntimeEventIngester, error)
 
+// AWSRuntimeSignalFactory builds an IAM last-used / Access Analyzer
+// ingester bound to one persisted AWS connector.
+type AWSRuntimeSignalFactory func(ctx context.Context, connection AWSConnectionStatus) (AWSRuntimeSignalIngester, error)
+
 type queuedScanDepthCounter interface {
 	CountQueuedScansAnyScope(ctx context.Context, provider string) (int, error)
 }
@@ -203,6 +207,7 @@ type Service struct {
 	AWSScannerFactory                  AWSScannerFactory
 	AWSCloudTrailLookupEventsFactory   AWSCloudTrailLookupEventsFactory
 	AWSCloudTrailDeliveryFactory       AWSCloudTrailDeliveryIngesterFactory
+	AWSRuntimeSignalFactory            AWSRuntimeSignalFactory
 	AWSCloudFormationTemplateURL       string
 	AWSAccountID                       string
 	AWSBaselineGitSHA                  string

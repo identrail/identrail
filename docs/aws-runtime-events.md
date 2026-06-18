@@ -29,6 +29,12 @@ explicit session lineage fields and graph edges. Missing SourceIdentity and
 ambiguous lineage are represented as first-class states instead of being
 treated as successful resolution.
 
+Issue #1517 adds IAM last-used and Access Analyzer signal ingestion to the
+same runtime envelope. Identrail now normalizes IAM role/service last-used
+timestamps and Access Analyzer findings as metadata-only runtime evidence so
+operators can compare observed activity, dormant access, analyzer scope, and
+trust findings before making least-privilege changes.
+
 ## API
 
 `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/runtime-events`
@@ -40,13 +46,13 @@ Supported filters:
 - `fixture_state`: `success`, `empty`, `degraded`, `partial_failure`, or `permission_denied`
 - `account_id`
 - `region`
-- `event_type`: `sts-session`, `api-call`, `secret-read`, `kms-decrypt`, or `agent-tool`
+- `event_type`: `sts-session`, `api-call`, `secret-read`, `kms-decrypt`, `agent-tool`, `iam-last-used`, or `access-analyzer`
 - `identity`
 - `agent_id`
 - `resource`
-- `evidence`: `cloudtrail` or `agent-runtime`
+- `evidence`: `cloudtrail`, `s3-delivery`, `eventbridge-delivery`, `agent-runtime`, `iam-last-used`, or `access-analyzer`
 - `owner`: `security`, `platform`, or `application`
-- `status`: `observed`, `delayed`, or `permission-denied`
+- `status`: `observed`, `delayed`, `permission-denied`, `resolved`, `archived`, or `stale`
 
 The response is returned as `{ "runtime": ... }` and includes:
 
@@ -54,6 +60,7 @@ The response is returned as `{ "runtime": ... }` and includes:
 - summary counts for event types, owners, identities, resources, sessions, and relationships
 - event records with actor, session, action, target resource metadata, agent context, timestamp, confidence, evidence, and next action
 - session lineage fields for SourceIdentity, role session names, redacted tag keys, original actors, chained roles, and ambiguous/missing lineage states
+- signal fields for IAM/Access Analyzer category, scope, analyzer ARN, and stale-data timestamp
 - graph relationships from observed actors, runtime sessions, chained actors, or agents to target resources
 - explicit diagnostics, coverage gaps, failure reasons, and remediation hints
 
@@ -68,6 +75,15 @@ STS session tags are represented by tag key only. Tag values are intentionally
 not copied into runtime records because operators can place sensitive business
 context in tag values.
 
+IAM last-used collection reads IAM Access Advisor metadata only: role names,
+role ARNs, service namespaces, last-authenticated entity ARN, last-authenticated
+region, and last-authenticated timestamps. Access Analyzer collection reads
+analyzer metadata and finding summaries only: analyzer ARN/name/type, finding
+status, resource ARN/type/account, action names, public flag, principal
+identifiers, and analyzed/updated timestamps. Identrail does not read policy
+documents, secret values, object bodies, decrypted plaintext, or customer
+payloads for this signal layer.
+
 The fixture contract uses redacted resource identifiers and the
 `metadata_only_no_payloads_no_secret_values` boundary so UI and API tests can
 prove the safe shape without requiring live AWS credentials.
@@ -80,6 +96,57 @@ prove the safe shape without requiring live AWS credentials.
 - `permission_denied`: required metadata-only event lookup permissions are missing.
 
 These states are explicit and are not treated as successful runtime coverage.
+
+## IAM last-used and Access Analyzer signals (#1517)
+
+Live signal ingestion is implemented in `internal/runtime/awssignals` and
+wired through `internal/api.Service.AWSRuntimeSignalFactory`. When the default
+LookupEvents path runs for a connector with the `runtime_evidence` capability,
+the API appends IAM last-used and Access Analyzer records to the same response
+envelope. The fixture path also includes representative signal rows so UI and
+client tests can exercise the contract without AWS credentials.
+
+### Required AWS permissions
+
+The connector role needs read-only signal permissions:
+
+| Source | IAM permissions |
+|---|---|
+| IAM Access Advisor | `iam:ListRoles`, `iam:GenerateServiceLastAccessedDetails`, `iam:GetServiceLastAccessedDetails` |
+| Access Analyzer | `access-analyzer:ListAnalyzers`, `access-analyzer:ListFindings` |
+
+No write APIs are called. The signal ingester is bounded per request and records
+`history_truncated` coverage gaps when role, service, analyzer, or finding
+budgets are exceeded.
+
+### Normalized signal records
+
+IAM signals use `event_type=iam-last-used` and `evidence_category=iam-last-used`.
+Role-level records use `signal_scope=role`; service-level records use
+`signal_scope=service` and a target resource such as `aws-service://lambda`.
+`signal_stale_at` carries the Access Advisor report completion timestamp when
+available, otherwise the collection timestamp, so operators can see when the
+last-used evidence became stale.
+
+Access Analyzer signals use `event_type=access-analyzer` and
+`evidence_category=access-analyzer`. `signal_scope` preserves the analyzer type
+(`account`, `organization`, or the unused/internal access variants),
+`analyzer_arn` links the finding to its analyzer, and `signal_stale_at` carries
+the analyzer's `analyzed_at` timestamp when available.
+
+Analyzer finding states remain visible instead of being collapsed into a single
+success state: active findings become `observed`, resolved findings become
+`resolved`, archived findings become `archived`, and findings with analyzer
+errors are lower confidence.
+
+### Failure handling
+
+If IAM or Access Analyzer permissions are missing, the response includes
+source-specific diagnostics and coverage gaps. If both signal sources are
+permission denied and no signal records can be returned, the signal layer reports
+`blocked`; if CloudTrail records are still available, the overall runtime
+response remains visible with degraded signal coverage so operators do not lose
+unrelated runtime evidence.
 
 ## CloudTrail LookupEvents ingestion (#1514)
 

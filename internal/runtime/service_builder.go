@@ -17,6 +17,7 @@ import (
 	"github.com/identrail/identrail/internal/db"
 	awsprovider "github.com/identrail/identrail/internal/providers/aws"
 	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
+	"github.com/identrail/identrail/internal/runtime/awssignals"
 	"github.com/identrail/identrail/internal/runtime/cloudtrail"
 	"github.com/identrail/identrail/internal/runtime/cloudtraildelivery"
 	"github.com/identrail/identrail/internal/scheduler"
@@ -406,6 +407,13 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 		default:
 			return nil, fmt.Errorf("unsupported CloudTrail delivery source %q", source)
 		}
+	}
+	svc.AWSRuntimeSignalFactory = func(ctx context.Context, connection api.AWSConnectionStatus) (api.AWSRuntimeSignalIngester, error) {
+		iamAPI, analyzerAPI, signalErr := awssignals.NewSDKClientsFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-iam-access-signals")
+		if signalErr != nil {
+			return nil, signalErr
+		}
+		return api.NewAWSRuntimeSignalIngester(awssignals.New(iamAPI, analyzerAPI)), nil
 	}
 	svc.DefaultScope = db.Scope{
 		TenantID:    cfg.DefaultTenantID,

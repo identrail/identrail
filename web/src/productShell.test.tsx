@@ -161,28 +161,31 @@ const readyAWSRuntimeEvents: AWSRuntimeEventResult = {
   region: 'us-east-1',
   parent_issue_number: 1472,
   parent_issue_ref: '#1472',
-  current_issue_number: 1516,
-  current_issue_ref: '#1516',
-  version: 'aws-runtime-events-contract-v2',
+  current_issue_number: 1517,
+  current_issue_ref: '#1517',
+  version: 'aws-runtime-events-contract-v3',
   status: 'ready',
   fixture_state: 'success',
   confidence: 0.92,
   applied_filters: {},
   summary: {
-    total_events: 2,
-    filtered_events: 2,
-    event_type_counts: { 'api-call': 1, 'agent-tool': 1 },
-    status_counts: { observed: 2 },
-    owner_counts: { security: 2 },
+    total_events: 3,
+    filtered_events: 3,
+    event_type_counts: { 'api-call': 1, 'agent-tool': 1, 'access-analyzer': 1 },
+    status_counts: { observed: 3 },
+    owner_counts: { security: 3 },
     account_count: 1,
     region_count: 1,
     identity_count: 1,
-    resource_count: 2,
+    resource_count: 3,
     agent_event_count: 1,
     secret_read_count: 0,
     kms_decrypt_count: 0,
     api_call_count: 1,
     sts_session_count: 0,
+    iam_last_used_signal_count: 0,
+    access_analyzer_finding_count: 1,
+    dormant_access_count: 0,
     relationship_count: 2,
     permission_denied_events: 0
   },
@@ -251,6 +254,40 @@ const readyAWSRuntimeEvents: AWSRuntimeEventResult = {
       collected_at: '2026-06-14T17:21:00Z',
       status: 'observed',
       next_action: 'Review the agent identity and tool target relationship.',
+      redaction_boundary: 'metadata_only_no_payloads_no_secret_values'
+    },
+    {
+      event_id: 'evt-access-analyzer-open-secret',
+      account_id: '123456789012',
+      region: 'us-east-1',
+      event_type: 'access-analyzer',
+      event_source: 'access-analyzer.amazonaws.com',
+      event_name: 'Finding',
+      action: 'secretsmanager:GetSecretValue',
+      actor_principal_arn: 'access-analyzer:external-principal',
+      actor_principal_type: 'aws_principal',
+      actor_identity_node_id: 'aws:identity:access-analyzer:external-principal',
+      session: {
+        session_id: '',
+        principal_arn: 'access-analyzer:external-principal',
+        principal_type: 'aws_principal'
+      },
+      target_resource_arn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/ai/openai-key',
+      target_resource_type: 'AWS::SecretsManager::Secret',
+      target_resource_name: 'prod/ai/openai-key',
+      resource_node_id: 'aws:runtime-resource:aws--secretsmanager--secret:openai-key',
+      signal_category: 'access-analyzer',
+      signal_scope: 'account',
+      analyzer_arn: 'arn:aws:access-analyzer:us-east-1:123456789012:analyzer/identrail-fixture',
+      signal_stale_at: '2026-06-14T17:58:00Z',
+      owner: 'security',
+      evidence_category: 'access-analyzer',
+      evidence_ref: 'runtime-evidence://123456789012/us-east-1/evt-access-analyzer-open-secret',
+      confidence: 0.9,
+      observed_at: '2026-06-14T17:49:00Z',
+      collected_at: '2026-06-14T17:58:00Z',
+      status: 'observed',
+      next_action: 'Review Access Analyzer scope and finding status before trusting or remediating access.',
       redaction_boundary: 'metadata_only_no_payloads_no_secret_values'
     }
   ],
@@ -3019,6 +3056,7 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Runtime' })).toBeInTheDocument();
     expect(await screen.findByText(/CloudTrail: GetObject/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Access Analyzer: Finding/i)).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Event type' }), {
       target: { value: 'cloudtrail' }
