@@ -110,6 +110,9 @@ func (i *S3Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestR
 	now := i.callerNow()
 	request = request.withDefaults()
 	result := IngestResult{Source: DeliverySourceS3, Status: "ready"}
+	if skipsDeliverySourceForEvidenceFilter(request.AppliedFilters, DeliverySourceS3) {
+		return result, nil
+	}
 
 	objects, listTruncated, listErr := i.listObjects(ctx, request, now)
 	if listErr != nil {

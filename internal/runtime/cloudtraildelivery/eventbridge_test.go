@@ -487,6 +487,12 @@ func TestEventBridgeIngesterKeepsMessagesForOtherDeliveryEvidenceFilter(t *testi
 	if len(result.Events) != 0 {
 		t.Fatalf("expected nonmatching delivery evidence filter to return no events, got %+v", result.Events)
 	}
+	if result.Status != "ready" || len(result.CoverageGaps) != 0 {
+		t.Fatalf("expected nonmatching delivery source to be neutral, got %+v", result)
+	}
+	if len(fake.receiveInputs) != 0 {
+		t.Fatalf("nonmatching delivery evidence filter must not receive SQS messages, inputs=%+v", fake.receiveInputs)
+	}
 	if len(fake.deletedIDs) != 0 {
 		t.Fatalf("nonmatching delivery evidence filter must not delete message, deleted=%+v", fake.deletedIDs)
 	}

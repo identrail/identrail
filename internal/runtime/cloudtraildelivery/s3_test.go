@@ -505,6 +505,39 @@ func TestS3IngesterDoesNotAdvanceCheckpointForRawEvidenceFilter(t *testing.T) {
 	}
 }
 
+func TestS3IngesterSkipsOtherDeliveryEvidenceFilter(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	key := "AWSLogs/123456789012/CloudTrail/us-east-1/2026/06/15/other-delivery.json.gz"
+	body := gzipLogFile(t, cloudTrailRecord("evt-secret", "GetSecretValue", "secretsmanager.amazonaws.com", now.Add(-time.Minute), nil))
+	fake := &fakeS3{
+		objects:   []S3Object{{Key: key, Size: int64(len(body)), LastModified: now}},
+		bodyByKey: map[string][]byte{key: body},
+	}
+	ing := NewS3Ingester(fake, "bucket", "")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"evidence": "eventbridge-delivery"},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 0 {
+		t.Fatalf("expected nonmatching delivery evidence filter to return no events, got %+v", result.Events)
+	}
+	if result.Status != "ready" || len(result.CoverageGaps) != 0 {
+		t.Fatalf("expected nonmatching delivery source to be neutral, got %+v", result)
+	}
+	if fake.listCalls != 0 || fake.getCalls != 0 {
+		t.Fatalf("nonmatching delivery evidence filter must not scan S3, listCalls=%d getCalls=%d", fake.listCalls, fake.getCalls)
+	}
+	if result.Checkpoint != "" {
+		t.Fatalf("nonmatching delivery evidence filter must not advance S3 checkpoint, got %q", result.Checkpoint)
+	}
+}
+
 func TestS3IngesterMatchesResourceNodeFilter(t *testing.T) {
 	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
 	key := "AWSLogs/123456789012/CloudTrail/us-east-1/2026/06/15/resource-node.json.gz"

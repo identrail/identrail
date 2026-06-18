@@ -120,6 +120,9 @@ func (i *EventBridgeIngester) Ingest(ctx context.Context, request IngestRequest)
 	now := i.callerNow()
 	request = request.withDefaults()
 	result := IngestResult{Source: DeliverySourceEventBridge, Status: "ready"}
+	if skipsDeliverySourceForEvidenceFilter(request.AppliedFilters, DeliverySourceEventBridge) {
+		return result, nil
+	}
 
 	receiveOut, moreAvailable, recvErr := i.receiveWithRetry(ctx, request)
 	if recvErr != nil {
@@ -244,6 +247,14 @@ func isWithinScope(requestedAccount string, requestedRegion string, recordAccoun
 		return false
 	}
 	return true
+}
+
+func skipsDeliverySourceForEvidenceFilter(filters map[string]string, source DeliverySource) bool {
+	query := strings.ToLower(strings.TrimSpace(filters["evidence"]))
+	if query == "" || query == "all" || !strings.HasSuffix(query, "-delivery") {
+		return false
+	}
+	return query != string(source)+"-delivery"
 }
 
 func matchesRuntimeEventFilter(event cloudtrail.NormalizedEvent, filters map[string]string, source DeliverySource) bool {
