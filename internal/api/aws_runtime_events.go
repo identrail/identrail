@@ -539,7 +539,7 @@ func filterAWSRuntimeEventRecords(records []AWSRuntimeEventRecord, request AWSRu
 		if filters["account_id"] != "" && filters["account_id"] != record.AccountID {
 			continue
 		}
-		if filters["region"] != "" && filters["region"] != record.Region {
+		if filters["region"] != "" && !strings.EqualFold(filters["region"], record.Region) {
 			continue
 		}
 		if filters["event_type"] != "" && filters["event_type"] != "all" && filters["event_type"] != normalizeAWSRuntimeEventFilterToken(record.EventType) {

@@ -117,6 +117,24 @@ func TestGetAWSRuntimeEventsAppliesFiltersAndRelationships(t *testing.T) {
 	}
 }
 
+func TestFilterAWSRuntimeEventRecordsMatchesRegionCaseInsensitive(t *testing.T) {
+	records := []AWSRuntimeEventRecord{{
+		EventID:   "evt-region",
+		Region:    "us-east-1",
+		AccountID: "123456789012",
+	}}
+
+	filtered, applied := filterAWSRuntimeEventRecords(records, AWSRuntimeEventRequest{
+		Region: "US-EAST-1",
+	})
+	if len(filtered) != 1 || filtered[0].EventID != "evt-region" {
+		t.Fatalf("expected differently cased region filter to retain record, got %+v", filtered)
+	}
+	if applied["region"] != "US-EAST-1" {
+		t.Fatalf("expected applied filter to preserve requested region, got %+v", applied)
+	}
+}
+
 func TestGetAWSRuntimeEventsScopesDiagnosticsToFilteredRecords(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()
