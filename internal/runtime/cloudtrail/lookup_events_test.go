@@ -101,6 +101,32 @@ func cloudTrailAssumeRoleEventJSON(callerARN string, principalType string, sessi
 	}`, principalType, callerARN, sessionID, sourceIdentity, creation.UTC().Format(time.RFC3339), issuerARN, roleARN, roleSessionName, sourceIdentity)
 }
 
+func cloudTrailTaggedResourceEventJSON(callerARN string, sessionID string, issuerARN string, creation time.Time) string {
+	return fmt.Sprintf(`{
+		"sourceIPAddress": "10.0.0.8",
+		"userAgent": "aws-sdk-go-v2/1.0",
+		"recipientAccountId": "123456789012",
+		"awsRegion": "us-east-1",
+		"userIdentity": {
+			"type": "AssumedRole",
+			"arn": %q,
+			"principalId": %q,
+			"sessionContext": {
+				"attributes": {"creationDate": %q},
+				"sessionIssuer": {"type": "Role", "arn": %q}
+			}
+		},
+		"requestParameters": {
+			"sourceIdentity": "resource-api-source-identity",
+			"tags": [
+				{"key": "owner", "value": "resource-owner"},
+				{"key": "environment", "value": "prod"}
+			],
+			"transitiveTagKeys": ["owner", "environment"]
+		}
+	}`, callerARN, sessionID, creation.UTC().Format(time.RFC3339), issuerARN)
+}
+
 func TestIngestMapsEventTypesAndPreservesMetadataBoundary(t *testing.T) {
 	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
 	role := "arn:aws:sts::123456789012:assumed-role/identrail-runtime-reader/sess-runtime-reader"
@@ -280,6 +306,48 @@ func TestIngestMarksMissingSourceIdentityExplicitly(t *testing.T) {
 	}
 	if !strings.Contains(event.LineageReason, "SourceIdentity") {
 		t.Fatalf("expected SourceIdentity remediation reason, got %+v", event)
+	}
+	if event.ChainedFromARN != "" {
+		t.Fatalf("non-STS assumed-role activity must not be marked as role chaining, got %+v", event)
+	}
+}
+
+func TestNormalizeEventIgnoresNonSTSRequestParametersForSessionLineage(t *testing.T) {
+	now := time.Date(2026, 6, 15, 11, 0, 0, 0, time.UTC)
+	role := "arn:aws:sts::123456789012:assumed-role/payments-runtime/payments-job-44"
+	issuer := "arn:aws:iam::123456789012:role/payments-runtime"
+	raw := Event{
+		EventID:     "evt-tag-resource",
+		EventName:   "TagResource",
+		EventSource: "secretsmanager.amazonaws.com",
+		EventTime:   now.Add(-2 * time.Minute),
+		Username:    role,
+		Resources:   []EventResource{{ResourceType: "AWS::SecretsManager::Secret", ResourceName: "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/payments"}},
+		RawEvent:    cloudTrailTaggedResourceEventJSON(role, "AROAEXAMPLE:payments-job-44", issuer, now.Add(-10*time.Minute)),
+	}
+
+	events, diag, ok := normalizeEvent(raw, "123456789012", "us-east-1", now)
+	if !ok {
+		t.Fatalf("expected normalization to succeed")
+	}
+	if diag != nil {
+		t.Fatalf("expected no diagnostic, got %+v", diag)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected one normalized event, got %+v", events)
+	}
+	event := events[0]
+	if event.SourceIdentity != "" {
+		t.Fatalf("non-STS request sourceIdentity must not be treated as session SourceIdentity, got %+v", event)
+	}
+	if len(event.SessionTagKeys) != 0 || len(event.TransitiveTagKeys) != 0 {
+		t.Fatalf("non-STS request tags must not be treated as session tags, got %+v", event)
+	}
+	if event.ChainedFromARN != "" {
+		t.Fatalf("non-STS assumed-role activity must not create role chaining lineage, got %+v", event)
+	}
+	if event.LineageStatus != "source_identity_missing" {
+		t.Fatalf("expected session lineage to remain missing SourceIdentity, got %+v", event)
 	}
 }
 

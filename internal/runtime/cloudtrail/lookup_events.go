@@ -780,7 +780,7 @@ func normalizeEvent(raw Event, accountID string, region string, collectedAt time
 		}, false
 	}
 
-	meta, metaErr := extractAllowedMetadata(raw.RawEvent)
+	meta, metaErr := extractAllowedMetadata(raw.RawEvent, eventSource, eventName)
 	var diag *Diagnostic
 	scopedAccount := accountID
 	scopedRegion := region
@@ -899,7 +899,7 @@ func applySessionLineage(ev *NormalizedEvent, meta extractedMetadata) {
 		return
 	}
 	principalType := mapPrincipalType(meta.UserType)
-	isAssumeRole := strings.EqualFold(ev.EventSource, "sts.amazonaws.com") && strings.HasPrefix(ev.EventName, "AssumeRole")
+	isAssumeRole := isSTSAssumeRoleEvent(ev.EventSource, ev.EventName)
 	isAssumedRoleActivity := principalType == "assumed_role" || strings.TrimSpace(ev.SessionIssuerARN) != ""
 	if !isAssumeRole && !isAssumedRoleActivity {
 		return
@@ -916,8 +916,6 @@ func applySessionLineage(ev *NormalizedEvent, meta extractedMetadata) {
 		if principalType == "assumed_role" {
 			ev.ChainedFromARN = meta.UserARN
 		}
-	} else if principalType == "assumed_role" {
-		ev.ChainedFromARN = strings.TrimSpace(meta.UserARN)
 	}
 
 	missing := []string{}
@@ -941,6 +939,10 @@ func applySessionLineage(ev *NormalizedEvent, meta extractedMetadata) {
 	ev.LineageReason = "CloudTrail SourceIdentity and session issuer metadata resolved this STS lineage."
 }
 
+func isSTSAssumeRoleEvent(eventSource string, eventName string) bool {
+	return strings.EqualFold(strings.TrimSpace(eventSource), "sts.amazonaws.com") && strings.HasPrefix(strings.TrimSpace(eventName), "AssumeRole")
+}
+
 // extractedMetadata is the small allow-listed slice of CloudTrailEvent
 // JSON the ingester reads. Every field is metadata-only.
 type extractedMetadata struct {
@@ -961,7 +963,7 @@ type extractedMetadata struct {
 	SessionCreationDate time.Time
 }
 
-func extractAllowedMetadata(raw string) (extractedMetadata, error) {
+func extractAllowedMetadata(raw string, eventSource string, eventName string) (extractedMetadata, error) {
 	out := extractedMetadata{}
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -1005,7 +1007,7 @@ func extractAllowedMetadata(raw string) (extractedMetadata, error) {
 			}
 		}
 	}
-	if requestParams, ok := blob[payloadAllowedKeys.RequestParameters]; ok {
+	if requestParams, ok := blob[payloadAllowedKeys.RequestParameters]; ok && isSTSAssumeRoleEvent(eventSource, eventName) {
 		var params map[string]json.RawMessage
 		if err := json.Unmarshal(requestParams, &params); err == nil {
 			out.RequestRoleARN = decodeString(params[payloadAllowedKeys.RoleARN])
