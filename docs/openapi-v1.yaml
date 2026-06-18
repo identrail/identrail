@@ -4587,7 +4587,7 @@ paths:
           name: evidence
           schema:
             type: string
-            enum: [cloudtrail, agent-runtime]
+            enum: [cloudtrail, s3-delivery, eventbridge-delivery, agent-runtime]
         - in: query
           name: owner
           schema:
@@ -10752,7 +10752,7 @@ components:
           enum: [security, platform, application]
         evidence_category:
           type: string
-          enum: [cloudtrail, agent-runtime]
+          enum: [cloudtrail, s3-delivery, eventbridge-delivery, agent-runtime]
         evidence_ref: { type: string }
         confidence:
           type: number
@@ -10799,6 +10799,16 @@ components:
             - cloudtrail_event_missing_id
             - cloudtrail_event_missing_core_fields
             - cloudtrail_event_payload_unparseable
+            - cloudtrail_delivery_unavailable
+            - cloudtrail_delivery_source_unavailable
+            - cloudtrail_s3_object_too_large
+            - cloudtrail_s3_record_missing_id
+            - cloudtrail_eventbridge_envelope_unparseable
+            - cloudtrail_eventbridge_record_missing_id
+            - cloudtrail_eventbridge_delete_failed
+            - cloudtrail_delivery_throttled
+            - cloudtrail_delivery_credentials_expired
+            - cloudtrail_delivery_failed
         message: { type: string }
         remediation: { type: string }
         retryable: { type: boolean }
@@ -10814,6 +10824,7 @@ components:
             - permission_denied
             - capability_unavailable
             - history_truncated
+            - delivery_unavailable
         reason: { type: string }
         remediation: { type: string }
     AWSRuntimeEventSummary:

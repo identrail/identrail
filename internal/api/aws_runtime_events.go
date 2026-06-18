@@ -874,22 +874,30 @@ func awsRuntimeEventNextAction(eventType string) string {
 // response shape stays identical regardless of which CloudTrail
 // ingestion path produced the records.
 func (s *Service) getAWSRuntimeEventsFromDelivery(ctx context.Context, scope db.Scope, project db.TenancyProject, connection AWSConnectionStatus, hasConnection bool, deliverySource string, request AWSRuntimeEventRequest, now time.Time) (AWSRuntimeEventResult, error) {
+	hasRequestFixture := strings.TrimSpace(request.FixtureState) != ""
+	isEligibleConnector := hasConnection && connection.Connected && awsConnectorHasRuntimeEvidence(connection)
 	// Capability + factory + connector-health gate mirrors the
 	// LookupEvents path. If the operator pinned a fixture state, fall
 	// through to the deterministic fixture so demos stay stable.
-	if strings.TrimSpace(request.FixtureState) != "" || s.AWSCloudTrailDeliveryFactory == nil || !hasConnection || !connection.Connected || !awsConnectorHasRuntimeEvidence(connection) {
+	if hasRequestFixture || s.AWSCloudTrailDeliveryFactory == nil || !isEligibleConnector {
 		result, fixtureErr := buildAWSRuntimeEvents(scope, project, connection, hasConnection, request, now)
 		if fixtureErr != nil {
 			return result, fixtureErr
 		}
-		if strings.TrimSpace(request.FixtureState) == "" {
+		if !hasRequestFixture && s.AWSCloudTrailDeliveryFactory != nil && hasConnection && connection.Connected && !awsConnectorHasRuntimeEvidence(connection) && result.Status != "blocked" {
 			result.Diagnostics = append(result.Diagnostics, AWSRuntimeEventDiagnostic{
 				Collector:   "aws_cloudtrail_delivery",
 				SourceID:    "delivery-" + deliverySource,
 				Code:        "cloudtrail_delivery_unavailable",
 				Message:     fmt.Sprintf("CloudTrail %s delivery ingester is not available for this connector.", deliverySource),
-				Remediation: "Wire AWSCloudTrailDeliveryFactory and grant the connector role read-only access to the trail's S3 bucket or EventBridge target.",
+				Remediation: "Grant the runtime_evidence capability and configure the connector role with read-only access to the trail's S3 bucket or EventBridge target.",
 				Retryable:   true,
+			})
+			result.CoverageGaps = append(result.CoverageGaps, AWSRuntimeEventCoverageGap{
+				Capability:  "cloudtrail_" + deliverySource + "_delivery",
+				Status:      "capability_unavailable",
+				Reason:      "Connector capabilities do not include runtime_evidence.",
+				Remediation: "Grant runtime_evidence to this connector role and rerun the query.",
 			})
 			result.Status = "degraded"
 			result.FixtureState = "partial_failure"
