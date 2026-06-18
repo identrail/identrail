@@ -5069,7 +5069,15 @@ describe('ProductFindingsPage states', () => {
       human_summary: 'A workflow permission entry was added.',
       remediation: 'Limit workflow permissions.',
       source_url: 'https://github.com/identrail/identrail/blob/main/workflow.yml#L12',
-      line_snippet: '@@ -0,0 +1 @@\n+ allow = true',
+      line_snippet: [
+        'diff --git a/workflow.yml b/workflow.yml',
+        'new file mode 100644',
+        'index 0000000..1111111',
+        '--- /dev/null',
+        '+++ b/workflow.yml',
+        '@@ -0,0 +1 @@',
+        '+ allow = true'
+      ].join('\n'),
       created_at: '2026-05-17T11:06:00Z'
     };
     const removalFinding: Finding = {

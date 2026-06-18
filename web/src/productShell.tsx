@@ -20184,11 +20184,28 @@ function repoFindingSearchText(finding: ApiFinding): string {
 
 function repoFindingSnippetLooksLikeDiff(lines: string[]): boolean {
   const meaningfulLines = lines.filter((line) => line.trim().length > 0);
+  const isDiffMetadataLine = (line: string) =>
+    line.startsWith('@@') ||
+    line.startsWith('diff --git') ||
+    line.startsWith('index ') ||
+    line.startsWith('old mode ') ||
+    line.startsWith('new mode ') ||
+    line.startsWith('deleted file mode ') ||
+    line.startsWith('new file mode ') ||
+    line.startsWith('similarity index ') ||
+    line.startsWith('dissimilarity index ') ||
+    line.startsWith('rename from ') ||
+    line.startsWith('rename to ') ||
+    line.startsWith('copy from ') ||
+    line.startsWith('copy to ') ||
+    line.startsWith('--- ') ||
+    line.startsWith('+++ ') ||
+    line.startsWith('\\ ');
   const hasDiffHeader = meaningfulLines.some(
     (line) => line.startsWith('@@') || line.startsWith('diff --git') || line.startsWith('--- ') || line.startsWith('+++ ')
   );
   const diffBodyLines = meaningfulLines.filter(
-    (line) => !line.startsWith('@@') && !line.startsWith('diff --git') && !line.startsWith('--- ') && !line.startsWith('+++ ')
+    (line) => !isDiffMetadataLine(line)
   );
   return (
     hasDiffHeader &&
@@ -20198,8 +20215,7 @@ function repoFindingSnippetLooksLikeDiff(lines: string[]): boolean {
         line.startsWith('+') ||
         line.startsWith('-') ||
         line.startsWith(' ') ||
-        line.startsWith('@@') ||
-        line.startsWith('diff --git')
+        isDiffMetadataLine(line)
     )
   );
 }
