@@ -113,6 +113,11 @@ type IngestRequest struct {
 	MaxThrottleRetries int
 	// ThrottleBackoff is the base linear backoff between retries.
 	ThrottleBackoff time.Duration
+	// AppliedFilters are API-side post-ingestion runtime filters. Delivery
+	// ingesters use these to avoid consuming evidence that the caller did
+	// not request. Keys are the same filter tokens used in the API layer,
+	// e.g. event_type, identity, resource.
+	AppliedFilters map[string]string
 }
 
 // IngestResult is the bounded outcome of one ingestion run.

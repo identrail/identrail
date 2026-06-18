@@ -200,21 +200,25 @@ func (i *EventBridgeIngester) Ingest(ctx context.Context, request IngestRequest)
 		if !isWithinScope(request.AccountID, request.Region, record.RecipientAccount, record.AWSRegion) {
 			continue
 		}
+		filtered := filterRuntimeEventRecordsForDelivery(normalized, request.AppliedFilters)
+		if len(filtered) == 0 {
+			continue
+		}
 		remaining := request.MaxEvents - len(result.Events)
 		if remaining <= 0 {
 			result.HistoryTruncated = true
 			break
 		}
-		if len(normalized) > remaining {
-			normalized = normalized[:remaining]
+		if len(filtered) > remaining {
+			filtered = filtered[:remaining]
 			result.HistoryTruncated = true
-			result.Events = append(result.Events, normalized...)
-			result.EventsConsidered++
+			result.Events = append(result.Events, filtered...)
+			result.EventsConsidered += len(filtered)
 			break
 		}
-		result.Events = append(result.Events, normalized...)
+		result.Events = append(result.Events, filtered...)
+		result.EventsConsidered += len(filtered)
 		toDelete = append(toDelete, DeleteMessageBatchEntry{ID: msg.MessageID, ReceiptHandle: msg.ReceiptHandle})
-		result.EventsConsidered++
 	}
 
 	if len(toDelete) > 0 {
@@ -237,6 +241,68 @@ func isWithinScope(requestedAccount string, requestedRegion string, recordAccoun
 		return false
 	}
 	return true
+}
+
+func matchesRuntimeEventFilter(event cloudtrail.NormalizedEvent, filters map[string]string) bool {
+	if len(filters) == 0 {
+		return true
+	}
+	for key, value := range filters {
+		query := strings.ToLower(strings.TrimSpace(value))
+		if query == "" || query == "all" {
+			continue
+		}
+		switch key {
+		case "event_type":
+			if strings.ToLower(strings.ReplaceAll(event.EventType, " ", "-")) != query && strings.ToLower(strings.ReplaceAll(event.EventType, "_", "-")) != query {
+				return false
+			}
+		case "identity":
+			if !strings.Contains(strings.ToLower(event.ActorPrincipalARN), query) &&
+				!strings.Contains(strings.ToLower(event.SessionID), query) &&
+				!strings.Contains(strings.ToLower(event.SessionIssuerARN), query) &&
+				!strings.Contains(strings.ToLower(event.AssumedRoleARN), query) {
+				return false
+			}
+		case "agent_id":
+			if !strings.Contains(strings.ToLower(event.AgentID), query) {
+				return false
+			}
+		case "resource":
+			if !strings.Contains(strings.ToLower(event.TargetResourceARN), query) &&
+				!strings.Contains(strings.ToLower(event.TargetResourceType), query) &&
+				!strings.Contains(strings.ToLower(event.TargetResourceName), query) {
+				return false
+			}
+		case "evidence":
+			if strings.ToLower(strings.ReplaceAll(event.EvidenceCategory, "_", "-")) != query &&
+				strings.ToLower(strings.ReplaceAll(event.EvidenceCategory, " ", "-")) != query {
+				return false
+			}
+		case "owner":
+			if strings.ToLower(strings.ReplaceAll(event.Owner, " ", "-")) != query && strings.ToLower(strings.ReplaceAll(event.Owner, "_", "-")) != query {
+				return false
+			}
+		case "status":
+			if strings.ToLower(event.Status) != query && strings.ToLower(strings.ReplaceAll(event.Status, "_", "-")) != query {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func filterRuntimeEventRecordsForDelivery(records []cloudtrail.NormalizedEvent, filters map[string]string) []cloudtrail.NormalizedEvent {
+	if len(filters) == 0 {
+		return records
+	}
+	filtered := make([]cloudtrail.NormalizedEvent, 0, len(records))
+	for _, record := range records {
+		if matchesRuntimeEventFilter(record, filters) {
+			filtered = append(filtered, record)
+		}
+	}
+	return filtered
 }
 
 func (i *EventBridgeIngester) receiveWithRetry(ctx context.Context, request IngestRequest) (ReceiveMessageOutput, bool, error) {

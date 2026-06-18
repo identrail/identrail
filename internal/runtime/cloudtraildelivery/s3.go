@@ -273,6 +273,9 @@ func (i *S3Ingester) listObjects(ctx context.Context, request IngestRequest, now
 			return nil, false, err
 		}
 		for _, obj := range out.Objects {
+			if !isS3ObjectWithinScope(request.AccountID, request.Region, obj.Key) {
+				continue
+			}
 			if startAfter == "" && !obj.LastModified.IsZero() && obj.LastModified.Before(cutoff) {
 				continue
 			}
@@ -292,6 +295,34 @@ func (i *S3Ingester) listObjects(ctx context.Context, request IngestRequest, now
 		return filtered, true, nil
 	}
 	return filtered, false, nil
+}
+
+func isS3ObjectWithinScope(requestedAccount string, requestedRegion string, key string) bool {
+	account := strings.TrimSpace(requestedAccount)
+	region := strings.TrimSpace(requestedRegion)
+	if account == "" && region == "" {
+		return true
+	}
+	objAccount, objRegion, ok := parseS3ObjectAccountRegion(key)
+	if !ok {
+		return true
+	}
+	if account != "" && objAccount != account {
+		return false
+	}
+	if region != "" && objRegion != region {
+		return false
+	}
+	return true
+}
+
+func parseS3ObjectAccountRegion(key string) (string, string, bool) {
+	clean := strings.TrimSpace(strings.TrimPrefix(key, "/"))
+	parts := strings.Split(clean, "/")
+	if len(parts) >= 4 && parts[0] == "AWSLogs" {
+		return parts[1], parts[3], true
+	}
+	return "", "", false
 }
 
 func (i *S3Ingester) listWithRetry(ctx context.Context, input ListObjectsV2Input, request IngestRequest) (ListObjectsV2Output, error) {

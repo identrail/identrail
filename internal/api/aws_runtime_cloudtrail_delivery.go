@@ -56,8 +56,9 @@ func NewCloudTrailEventBridgeDeliveryIngester(ingester *cloudtraildelivery.Event
 // LookupEvents adapter uses.
 func (a *cloudTrailDeliveryAdapter) Ingest(ctx context.Context, request AWSCloudTrailIngestRequest) (AWSCloudTrailIngestResult, error) {
 	deliveryRequest := cloudtraildelivery.IngestRequest{
-		AccountID: request.AccountID,
-		Region:    request.Region,
+		AccountID:      request.AccountID,
+		Region:         request.Region,
+		AppliedFilters: request.Filters,
 	}
 	var (
 		engineResult cloudtraildelivery.IngestResult

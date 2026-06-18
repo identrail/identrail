@@ -289,3 +289,26 @@ func TestEventBridgeIngesterDoesNotDeleteMessageTruncatedMidFanout(t *testing.T)
 		t.Fatalf("truncated message must remain for redelivery, deleted=%+v", fake.deletedIDs)
 	}
 }
+
+func TestEventBridgeIngesterDoesNotDeleteFilteredOutMessages(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+		{MessageID: "msg-1", ReceiptHandle: "rh-1", Body: eventBridgeMessageBody(t, "evt-secret", "GetSecretValue", "secretsmanager.amazonaws.com", now.Add(-2*time.Minute))},
+		{MessageID: "msg-2", ReceiptHandle: "rh-2", Body: eventBridgeMessageBody(t, "evt-kms", "Decrypt", "kms.amazonaws.com", now.Add(-1*time.Minute))},
+	}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1", AppliedFilters: map[string]string{"event_type": "secret-read"}})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 1 || result.Events[0].EventID != "evt-secret" {
+		t.Fatalf("expected only filtered event to be returned, got %+v", result.Events)
+	}
+	if len(fake.deletedIDs) != 1 {
+		t.Fatalf("expected only matching message to delete, got %+v", fake.deletedIDs)
+	}
+	if fake.deletedIDs[0] != "msg-1" {
+		t.Fatalf("expected secret message deleted, got %+v", fake.deletedIDs)
+	}
+}

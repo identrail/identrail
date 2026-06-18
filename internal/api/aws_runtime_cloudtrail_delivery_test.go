@@ -12,14 +12,16 @@ import (
 )
 
 type fakeDeliveryIngester struct {
-	source AWSCloudTrailDeliverySource
-	result AWSCloudTrailIngestResult
-	err    error
-	calls  int
+	source  AWSCloudTrailDeliverySource
+	result  AWSCloudTrailIngestResult
+	err     error
+	calls   int
+	request AWSCloudTrailIngestRequest
 }
 
-func (f *fakeDeliveryIngester) Ingest(_ context.Context, _ AWSCloudTrailIngestRequest) (AWSCloudTrailIngestResult, error) {
+func (f *fakeDeliveryIngester) Ingest(_ context.Context, request AWSCloudTrailIngestRequest) (AWSCloudTrailIngestResult, error) {
 	f.calls++
+	f.request = request
 	return f.result, f.err
 }
 
@@ -89,6 +91,57 @@ func TestGetAWSRuntimeEventsDeliverySourceS3UsesDeliveryFactory(t *testing.T) {
 	}
 	if result.Status != "ready" {
 		t.Fatalf("expected ready, got %q (%+v)", result.Status, result)
+	}
+}
+
+func TestGetAWSRuntimeEventsDeliveryPassesFiltersToIngestRequest(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 15, 19, 10, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-delivery-filter-propagation")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-delivery-filter-propagation", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-delivery-filter-propagation", "aws-prod")
+
+	role := "arn:aws:sts::123456789012:assumed-role/identrail/sess"
+	deliveryRecord := liveRuntimeRecord(t, "evt-filter", "secret-read", "GetSecretValue", "secretsmanager.amazonaws.com", "secretsmanager:GetSecretValue", "application", "s3-delivery", role, "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/key", "AWS::SecretsManager::Secret", now.Add(-2*time.Minute))
+	s3Fake := &fakeDeliveryIngester{source: AWSCloudTrailDeliverySourceS3, result: AWSCloudTrailIngestResult{
+		Status:  "ready",
+		Records: []AWSRuntimeEventRecord{deliveryRecord},
+	}}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailDeliveryFactory = func(_ context.Context, _ AWSConnectionStatus, source AWSCloudTrailDeliverySource) (AWSCloudTrailRuntimeEventIngester, error) {
+		if source != AWSCloudTrailDeliverySourceS3 {
+			t.Fatalf("expected only S3 source, got %q", source)
+		}
+		return s3Fake, nil
+	}
+
+	result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-delivery-filter-propagation", AWSRuntimeEventRequest{
+		ConnectorID:    "aws-prod",
+		DeliverySource: "s3",
+		EventType:      "secret-read",
+		Identity:       role,
+		Resource:       "prod/key",
+	})
+	if err != nil {
+		t.Fatalf("get runtime events: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected ready, got %q (%+v)", result.Status, result)
+	}
+	if len(s3Fake.request.Filters) == 0 {
+		t.Fatalf("expected filters to be passed to delivery ingester")
+	}
+	if s3Fake.request.Filters["event_type"] != "secret-read" {
+		t.Fatalf("expected event_type filter to pass through, got %+v", s3Fake.request.Filters)
+	}
+	if s3Fake.request.Filters["identity"] != role {
+		t.Fatalf("expected identity filter to pass through, got %+v", s3Fake.request.Filters)
+	}
+	if s3Fake.request.Filters["resource"] != "prod/key" {
+		t.Fatalf("expected resource filter to pass through, got %+v", s3Fake.request.Filters)
 	}
 }
 

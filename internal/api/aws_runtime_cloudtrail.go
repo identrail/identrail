@@ -20,6 +20,11 @@ type AWSCloudTrailIngestRequest struct {
 	LookbackWindow    time.Duration
 	EventSourceFilter string
 	MutationOnly      bool
+	// Filters are API-layer runtime filters that delivery ingesters can
+	// apply before returning events. Keys mirror AWSRuntimeEventRequest
+	// tokens and prevent filtered reads from consuming evidence that the
+	// caller excluded.
+	Filters map[string]string
 }
 
 // AWSCloudTrailIngestResult is the API-layer projection of one
@@ -127,6 +132,7 @@ func runtimeEventRecordFromNormalized(ev cloudtrail.NormalizedEvent, fallbackAcc
 	if identityARN == "" {
 		identityARN = ev.ActorPrincipalARN
 	}
+	sessionNodeID := awsRuntimeSessionNodeID(accountID, region, ev)
 	return AWSRuntimeEventRecord{
 		EventID:             ev.EventID,
 		AccountID:           accountID,
@@ -140,6 +146,7 @@ func runtimeEventRecordFromNormalized(ev cloudtrail.NormalizedEvent, fallbackAcc
 		ActorIdentityNodeID: awsIdentityNodeIDForAPI(identityARN),
 		Session: AWSRuntimeEventSession{
 			SessionID:        ev.SessionID,
+			SessionNodeID:    sessionNodeID,
 			PrincipalARN:     ev.ActorPrincipalARN,
 			PrincipalType:    firstNonEmptyAWSValue(ev.ActorPrincipalType, "assumed_role"),
 			AssumedRoleARN:   ev.AssumedRoleARN,
@@ -165,6 +172,17 @@ func runtimeEventRecordFromNormalized(ev cloudtrail.NormalizedEvent, fallbackAcc
 		NextAction:         awsRuntimeEventNextAction(ev.EventType),
 		RedactionBoundary:  ev.RedactionBoundary,
 	}
+}
+
+func awsRuntimeSessionNodeID(accountID string, region string, ev cloudtrail.NormalizedEvent) string {
+	if strings.TrimSpace(ev.SessionID) == "" {
+		return ""
+	}
+	token := firstNonEmptyAWSValue(ev.ActorPrincipalARN, ev.SessionID)
+	if strings.TrimSpace(token) == "" {
+		return ""
+	}
+	return "aws:runtime-session:" + sanitizeCredentialReferenceToken(firstNonEmptyAWSValue(accountID, ev.AccountID, "unknown-account")) + ":" + sanitizeCredentialReferenceToken(firstNonEmptyAWSValue(region, ev.Region, "unknown-region")) + ":" + sanitizeCredentialReferenceToken(token)
 }
 
 // agentNodeIDForLiveEvent composes the canonical agent node id used

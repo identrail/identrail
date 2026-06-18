@@ -332,7 +332,7 @@ func TestS3IngesterOrdersByKeyForStartAfterCheckpoint(t *testing.T) {
 
 func TestS3IngesterPagesPastOldObjectsIntoLookbackWindow(t *testing.T) {
 	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
-	key := "AWSLogs/123/CloudTrail/us-east-1/2026/06/15/recent.json.gz"
+	key := "AWSLogs/123456789012/CloudTrail/us-east-1/2026/06/15/recent.json.gz"
 	body := gzipLogFile(t, cloudTrailRecord("evt-recent", "AssumeRole", "sts.amazonaws.com", now.Add(-1*time.Minute), nil))
 	fake := &fakeS3{
 		listPages: []ListObjectsV2Output{
@@ -350,7 +350,7 @@ func TestS3IngesterPagesPastOldObjectsIntoLookbackWindow(t *testing.T) {
 		},
 		bodyByKey: map[string][]byte{key: body},
 	}
-	ing := NewS3Ingester(fake, "bucket", "AWSLogs/123/CloudTrail/us-east-1/")
+	ing := NewS3Ingester(fake, "bucket", "AWSLogs/123456789012/CloudTrail/us-east-1/")
 	ing.Now = func() time.Time { return now }
 
 	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1", MaxFiles: 2})
@@ -362,6 +362,37 @@ func TestS3IngesterPagesPastOldObjectsIntoLookbackWindow(t *testing.T) {
 	}
 	if len(result.Events) != 1 || result.Events[0].EventID != "evt-recent" {
 		t.Fatalf("expected recent event from second page, got %+v", result.Events)
+	}
+}
+
+func TestS3IngesterScopesObjectsBeforeSpendingFilesBudget(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	inScopeKey := "AWSLogs/123456789012/CloudTrail/us-east-1/2026/06/15/scope.json.gz"
+	outOfScopeKey := "AWSLogs/999999999999/CloudTrail/eu-west-1/2026/06/15/other.json.gz"
+	inScopeBody := gzipLogFile(t,
+		cloudTrailRecord("evt-scope", "GetSecretValue", "secretsmanager.amazonaws.com", now.Add(-time.Minute), nil),
+	)
+	fake := &fakeS3{
+		objects: []S3Object{
+			{Key: outOfScopeKey, Size: int64(len([]byte("ignore"))), LastModified: now.Add(-1 * time.Minute)},
+			{Key: inScopeKey, Size: int64(len(inScopeBody)), LastModified: now},
+		},
+		bodyByKey: map[string][]byte{inScopeKey: inScopeBody},
+	}
+	ing := NewS3Ingester(fake, "bucket", "")
+	ing.Now = func() time.Time { return now }
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1", MaxFiles: 1})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if result.FilesProcessed != 1 {
+		t.Fatalf("expected scoped file budget to count in-scope object only, got %d", result.FilesProcessed)
+	}
+	if result.Checkpoint != inScopeKey {
+		t.Fatalf("expected checkpoint to advance to scoped key, got %q", result.Checkpoint)
+	}
+	if len(result.Events) != 1 || result.Events[0].EventID != "evt-scope" {
+		t.Fatalf("expected in-scope event to be ingested, got %+v", result.Events)
 	}
 }
 
