@@ -38,6 +38,8 @@ type IngestRequest struct {
 	MaxServicesPerRole int32
 	MaxAnalyzers       int32
 	MaxFindings        int32
+	MaxReportPolls     int
+	ReportPollInterval time.Duration
 	CollectedAt        time.Time
 }
 
@@ -121,6 +123,14 @@ func (i *Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestRes
 	}
 	if request.MaxFindings <= 0 {
 		request.MaxFindings = 20
+	}
+	if request.MaxReportPolls <= 0 {
+		request.MaxReportPolls = 4
+	}
+	if request.ReportPollInterval == 0 {
+		request.ReportPollInterval = 100 * time.Millisecond
+	} else if request.ReportPollInterval < 0 {
+		request.ReportPollInterval = 0
 	}
 
 	result := IngestResult{Status: "ready"}
@@ -267,10 +277,7 @@ func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest
 			diagnostics = append(diagnostics, permissionAwareDiagnostic("iam:"+roleName, "iam_last_used_permission_denied", "iam_last_used_generation_failed", fmt.Sprintf("IAM service last-used report could not be generated for %s: %v", roleName, genErr), "Grant iam:GenerateServiceLastAccessedDetails and retry.", genErr))
 			continue
 		}
-		details, getErr := i.IAM.GetServiceLastAccessedDetails(ctx, &iam.GetServiceLastAccessedDetailsInput{
-			JobId:    job.JobId,
-			MaxItems: awsv2.Int32(request.MaxServicesPerRole),
-		})
+		details, getErr := i.getServiceLastAccessedDetails(ctx, job.JobId, request)
 		if getErr != nil {
 			diagnostics = append(diagnostics, permissionAwareDiagnostic("iam:"+roleName, "iam_last_used_permission_denied", "iam_last_used_report_failed", fmt.Sprintf("IAM service last-used report could not be read for %s: %v", roleName, getErr), "Grant iam:GetServiceLastAccessedDetails and retry.", getErr))
 			continue
@@ -345,6 +352,47 @@ func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest
 		})
 	}
 	return signals, diagnostics, gaps
+}
+
+func (i *Ingester) getServiceLastAccessedDetails(ctx context.Context, jobID *string, request IngestRequest) (*iam.GetServiceLastAccessedDetailsOutput, error) {
+	var details *iam.GetServiceLastAccessedDetailsOutput
+	for attempt := 0; attempt < request.MaxReportPolls; attempt++ {
+		out, err := i.IAM.GetServiceLastAccessedDetails(ctx, &iam.GetServiceLastAccessedDetailsInput{
+			JobId:    jobID,
+			MaxItems: awsv2.Int32(request.MaxServicesPerRole),
+		})
+		if err != nil {
+			return nil, err
+		}
+		details = out
+		if out.JobStatus == iamtypes.JobStatusTypeCompleted {
+			return out, nil
+		}
+		if attempt == request.MaxReportPolls-1 {
+			break
+		}
+		if err := waitForIAMReportPoll(ctx, request.ReportPollInterval); err != nil {
+			return nil, err
+		}
+	}
+	if details == nil {
+		details = &iam.GetServiceLastAccessedDetailsOutput{}
+	}
+	return details, nil
+}
+
+func waitForIAMReportPoll(ctx context.Context, interval time.Duration) error {
+	if interval <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func iamLastUsedStatus(observedAt time.Time, collectedAt time.Time) string {

@@ -1036,6 +1036,7 @@ func (s *Service) appendAWSRuntimeSignals(ctx context.Context, scope db.Scope, p
 	if signalErr != nil {
 		return AWSRuntimeEventResult{}, fmt.Errorf("ingest iam access signals: %w", signalErr)
 	}
+	wasEmptyFilterResult := awsRuntimeEventIsEmptyFilterResult(base)
 	filtered, _ := filterAWSRuntimeEventRecords(signalResult.Records, request)
 	base.Records = append(base.Records, filtered...)
 	base.Relationships = awsRuntimeEventRelationships(base.Records)
@@ -1045,10 +1046,27 @@ func (s *Service) appendAWSRuntimeSignals(ctx context.Context, scope db.Scope, p
 	base.RemediationHints = dedupeStrings(append(base.RemediationHints, signalResult.RemediationHints...))
 	base.EvidenceLinks = dedupeStrings(append(base.EvidenceLinks, "/docs/aws-runtime-events#iam-last-used-and-access-analyzer-signals-1517"))
 	base.Summary = mergeAWSRuntimeEventSummaries(base.Summary, signalResult.Records, len(filtered), len(base.Relationships), base.Records)
-	if signalResult.Status == "blocked" && len(base.Records) == 0 {
-		base.Status = "blocked"
-		base.Confidence = 0
-		base.FixtureState = "permission_denied"
+	if wasEmptyFilterResult && len(filtered) > 0 {
+		base.FailureReasons = removeRuntimeEventEmptyFilterFailures(base.FailureReasons)
+		base.RemediationHints = removeRuntimeEventEmptyFilterRemediations(base.RemediationHints)
+		if signalResult.Status == "ready" {
+			base.Status = "ready"
+			base.FixtureState = "success"
+			base.Confidence = 0.92
+		}
+	}
+	if signalResult.Status == "blocked" {
+		if len(base.Records) == 0 {
+			base.Status = "blocked"
+			base.Confidence = 0
+			base.FixtureState = "permission_denied"
+		} else {
+			base.Status = "degraded"
+			base.FixtureState = "partial_failure"
+			if base.Confidence > 0.72 {
+				base.Confidence = 0.72
+			}
+		}
 	} else if signalResult.Status == "degraded" && base.Status == "ready" {
 		base.Status = "degraded"
 		base.FixtureState = "degraded"
@@ -1057,6 +1075,37 @@ func (s *Service) appendAWSRuntimeSignals(ctx context.Context, scope db.Scope, p
 		}
 	}
 	return base, nil
+}
+
+func awsRuntimeEventIsEmptyFilterResult(result AWSRuntimeEventResult) bool {
+	if len(result.Records) != 0 || result.Summary.FilteredEvents != 0 {
+		return false
+	}
+	for _, reason := range result.FailureReasons {
+		if strings.Contains(strings.ToLower(reason), "filters matched no records") {
+			return true
+		}
+	}
+	return false
+}
+
+func removeRuntimeEventEmptyFilterFailures(values []string) []string {
+	return filterRuntimeEventMessages(values, "filters matched no records")
+}
+
+func removeRuntimeEventEmptyFilterRemediations(values []string) []string {
+	return filterRuntimeEventMessages(values, "clear filters")
+}
+
+func filterRuntimeEventMessages(values []string, dropSubstring string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), dropSubstring) {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
 }
 
 func mergeAWSRuntimeEventSummaries(base AWSRuntimeEventSummary, signalRecords []AWSRuntimeEventRecord, filteredSignals int, relationshipCount int, visibleRecords []AWSRuntimeEventRecord) AWSRuntimeEventSummary {

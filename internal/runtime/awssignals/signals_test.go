@@ -144,6 +144,50 @@ func TestIngesterCollectsIAMLastUsedAndAccessAnalyzerSignals(t *testing.T) {
 	}
 }
 
+type pollingIAMAPI struct {
+	fakeIAMAPI
+	statuses []iamtypes.JobStatusType
+	calls    int
+}
+
+func (f *pollingIAMAPI) GetServiceLastAccessedDetails(ctx context.Context, input *iam.GetServiceLastAccessedDetailsInput, options ...func(*iam.Options)) (*iam.GetServiceLastAccessedDetailsOutput, error) {
+	f.calls++
+	status := iamtypes.JobStatusTypeInProgress
+	if f.calls <= len(f.statuses) {
+		status = f.statuses[f.calls-1]
+	}
+	if status != iamtypes.JobStatusTypeCompleted {
+		return &iam.GetServiceLastAccessedDetailsOutput{JobStatus: status}, nil
+	}
+	return f.fakeIAMAPI.GetServiceLastAccessedDetails(ctx, input, options...)
+}
+
+func TestIngesterPollsPendingIAMLastUsedReport(t *testing.T) {
+	iamAPI := &pollingIAMAPI{statuses: []iamtypes.JobStatusType{
+		iamtypes.JobStatusTypeInProgress,
+		iamtypes.JobStatusTypeCompleted,
+	}}
+	result, err := New(iamAPI, fakeAccessAnalyzerAPI{}).Ingest(context.Background(), IngestRequest{
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		CollectedAt:        time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC),
+		MaxReportPolls:     2,
+		ReportPollInterval: -1,
+	})
+	if err != nil {
+		t.Fatalf("ingest signals: %v", err)
+	}
+	if iamAPI.calls != 2 {
+		t.Fatalf("expected pending report to be polled with the same job ID, got %d calls", iamAPI.calls)
+	}
+	for _, signal := range result.Signals {
+		if signal.EventID == "iam-service-last-used:arn-aws-iam-123456789012-role-payments-worker:s3" {
+			return
+		}
+	}
+	t.Fatalf("expected service last-used signal after polling, got %+v", result.Signals)
+}
+
 func TestIngesterReportsPermissionDeniedCoverage(t *testing.T) {
 	result, err := New(fakeIAMAPI{listRolesErr: errors.New("AccessDenied: not authorized")}, fakeAccessAnalyzerAPI{listAnalyzersErr: errors.New("AccessDeniedException")}).Ingest(context.Background(), IngestRequest{
 		AccountID:   "123456789012",
