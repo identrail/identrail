@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -310,5 +311,57 @@ func TestEventBridgeIngesterDoesNotDeleteFilteredOutMessages(t *testing.T) {
 	}
 	if fake.deletedIDs[0] != "msg-1" {
 		t.Fatalf("expected secret message deleted, got %+v", fake.deletedIDs)
+	}
+}
+
+func TestEventBridgeIngesterDoesNotDeletePartiallyFilteredFanoutMessage(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	body := eventBridgeMessageBodyWithResources(t, "evt-many", "BatchGetSecretValue", "secretsmanager.amazonaws.com", now, []map[string]any{
+		{"type": "AWS::SecretsManager::Secret", "ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/one"},
+		{"type": "AWS::SecretsManager::Secret", "ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/two"},
+	})
+	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+		{MessageID: "msg-many", ReceiptHandle: "rh-many", Body: body},
+	}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"resource": "prod/one"},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 1 || !strings.Contains(result.Events[0].TargetResourceARN, "prod/one") {
+		t.Fatalf("expected only matching fan-out record, got %+v", result.Events)
+	}
+	if len(fake.deletedIDs) != 0 {
+		t.Fatalf("partially filtered fan-out message must remain for broader queries, deleted=%+v", fake.deletedIDs)
+	}
+}
+
+func TestEventBridgeIngesterIgnoresDeliveryEvidenceFilterBeforeAdapterStamping(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+		{MessageID: "msg-1", ReceiptHandle: "rh-1", Body: eventBridgeMessageBody(t, "evt-secret", "GetSecretValue", "secretsmanager.amazonaws.com", now.Add(-time.Minute))},
+	}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"evidence": "eventbridge-delivery"},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 1 || result.Events[0].EventID != "evt-secret" {
+		t.Fatalf("expected delivery evidence filter to be left for API stamping, got %+v", result.Events)
+	}
+	if len(fake.deletedIDs) != 1 || fake.deletedIDs[0] != "msg-1" {
+		t.Fatalf("expected fully retained message to delete, got %+v", fake.deletedIDs)
 	}
 }

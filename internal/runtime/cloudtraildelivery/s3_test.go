@@ -396,6 +396,56 @@ func TestS3IngesterScopesObjectsBeforeSpendingFilesBudget(t *testing.T) {
 	}
 }
 
+func TestS3IngesterParsesPrefixedAndOrganizationTrailKeys(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  string
+	}{
+		{
+			name: "configured prefix before AWSLogs",
+			key:  "prod/trails/AWSLogs/123456789012/CloudTrail/us-east-1/2026/06/15/log.json.gz",
+		},
+		{
+			name: "organization trail layout",
+			key:  "org/prefix/AWSLogs/o-exampleorgid/123456789012/CloudTrail/us-east-1/2026/06/15/log.json.gz",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			account, region, ok := parseS3ObjectAccountRegion(tc.key)
+			if !ok || account != "123456789012" || region != "us-east-1" {
+				t.Fatalf("expected account/region from %q, got account=%q region=%q ok=%v", tc.key, account, region, ok)
+			}
+		})
+	}
+}
+
+func TestS3IngesterDoesNotAdvanceCheckpointForFilteredOnlyFile(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	key := "AWSLogs/123456789012/CloudTrail/us-east-1/2026/06/15/filtered.json.gz"
+	body := gzipLogFile(t, cloudTrailRecord("evt-kms", "Decrypt", "kms.amazonaws.com", now.Add(-time.Minute), nil))
+	fake := &fakeS3{
+		objects:   []S3Object{{Key: key, Size: int64(len(body)), LastModified: now}},
+		bodyByKey: map[string][]byte{key: body},
+	}
+	ing := NewS3Ingester(fake, "bucket", "")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"event_type": "secret-read"},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 0 {
+		t.Fatalf("expected filtered-only file to return no events, got %+v", result.Events)
+	}
+	if result.Checkpoint != "" {
+		t.Fatalf("filtered-only file must not advance checkpoint, got %q", result.Checkpoint)
+	}
+}
+
 func TestS3IngesterMarksTruncatedListing(t *testing.T) {
 	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
 	key := "log-1.json.gz"

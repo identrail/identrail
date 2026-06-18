@@ -204,6 +204,7 @@ func (i *EventBridgeIngester) Ingest(ctx context.Context, request IngestRequest)
 		if len(filtered) == 0 {
 			continue
 		}
+		keptWholeMessage := len(filtered) == len(normalized)
 		remaining := request.MaxEvents - len(result.Events)
 		if remaining <= 0 {
 			result.HistoryTruncated = true
@@ -218,7 +219,9 @@ func (i *EventBridgeIngester) Ingest(ctx context.Context, request IngestRequest)
 		}
 		result.Events = append(result.Events, filtered...)
 		result.EventsConsidered += len(filtered)
-		toDelete = append(toDelete, DeleteMessageBatchEntry{ID: msg.MessageID, ReceiptHandle: msg.ReceiptHandle})
+		if keptWholeMessage {
+			toDelete = append(toDelete, DeleteMessageBatchEntry{ID: msg.MessageID, ReceiptHandle: msg.ReceiptHandle})
+		}
 	}
 
 	if len(toDelete) > 0 {
@@ -275,6 +278,9 @@ func matchesRuntimeEventFilter(event cloudtrail.NormalizedEvent, filters map[str
 				return false
 			}
 		case "evidence":
+			if strings.HasSuffix(query, "-delivery") {
+				continue
+			}
 			if strings.ToLower(strings.ReplaceAll(event.EvidenceCategory, "_", "-")) != query &&
 				strings.ToLower(strings.ReplaceAll(event.EvidenceCategory, " ", "-")) != query {
 				return false

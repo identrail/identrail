@@ -209,18 +209,25 @@ func (i *S3Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestR
 			if !isWithinScope(request.AccountID, request.Region, raw.Record.RecipientAccount, raw.Record.AWSRegion) {
 				continue
 			}
+			filtered := filterRuntimeEventRecordsForDelivery(normalized, request.AppliedFilters)
+			if len(filtered) != len(normalized) {
+				fileComplete = false
+			}
+			if len(filtered) == 0 {
+				continue
+			}
 			remaining := request.MaxEvents - len(result.Events)
 			if remaining <= 0 {
 				result.HistoryTruncated = true
 				fileComplete = false
 				break
 			}
-			if len(normalized) > remaining {
-				normalized = normalized[:remaining]
+			if len(filtered) > remaining {
+				filtered = filtered[:remaining]
 				result.HistoryTruncated = true
 				fileComplete = false
 			}
-			result.Events = append(result.Events, normalized...)
+			result.Events = append(result.Events, filtered...)
 		}
 		if len(result.Events) >= request.MaxEvents {
 			// More files may exist past the current index → truncated.
@@ -319,8 +326,17 @@ func isS3ObjectWithinScope(requestedAccount string, requestedRegion string, key 
 func parseS3ObjectAccountRegion(key string) (string, string, bool) {
 	clean := strings.TrimSpace(strings.TrimPrefix(key, "/"))
 	parts := strings.Split(clean, "/")
-	if len(parts) >= 4 && parts[0] == "AWSLogs" {
-		return parts[1], parts[3], true
+	for idx, part := range parts {
+		if part != "AWSLogs" {
+			continue
+		}
+		rest := parts[idx+1:]
+		if len(rest) >= 4 && rest[1] == "CloudTrail" {
+			return rest[0], rest[2], true
+		}
+		if len(rest) >= 5 && rest[2] == "CloudTrail" {
+			return rest[1], rest[3], true
+		}
 	}
 	return "", "", false
 }
