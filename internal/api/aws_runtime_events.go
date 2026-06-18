@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	awsRuntimeEventsCurrentIssue = 1513
-	awsRuntimeEventsVersion      = "aws-runtime-events-contract-v1"
+	awsRuntimeEventsCurrentIssue = 1516
+	awsRuntimeEventsVersion      = "aws-runtime-events-contract-v2"
 )
 
 type AWSRuntimeEventRequest struct {
@@ -37,13 +37,24 @@ type AWSRuntimeEventRequest struct {
 }
 
 type AWSRuntimeEventSession struct {
-	SessionID        string `json:"session_id"`
-	PrincipalARN     string `json:"principal_arn"`
-	PrincipalType    string `json:"principal_type"`
-	AssumedRoleARN   string `json:"assumed_role_arn,omitempty"`
-	SessionIssuerARN string `json:"session_issuer_arn,omitempty"`
-	SourceIPAddress  string `json:"source_ip_address,omitempty"`
-	UserAgent        string `json:"user_agent,omitempty"`
+	SessionID               string   `json:"session_id"`
+	SessionNodeID           string   `json:"session_node_id,omitempty"`
+	PrincipalARN            string   `json:"principal_arn"`
+	PrincipalType           string   `json:"principal_type"`
+	AssumedRoleARN          string   `json:"assumed_role_arn,omitempty"`
+	SessionIssuerARN        string   `json:"session_issuer_arn,omitempty"`
+	SourceIdentity          string   `json:"source_identity,omitempty"`
+	RoleSessionName         string   `json:"role_session_name,omitempty"`
+	SessionTagKeys          []string `json:"session_tag_keys,omitempty"`
+	TransitiveTagKeys       []string `json:"transitive_tag_keys,omitempty"`
+	OriginalActorARN        string   `json:"original_actor_arn,omitempty"`
+	OriginalActorNodeID     string   `json:"original_actor_node_id,omitempty"`
+	ChainedFromPrincipalARN string   `json:"chained_from_principal_arn,omitempty"`
+	ChainedFromNodeID       string   `json:"chained_from_node_id,omitempty"`
+	LineageStatus           string   `json:"lineage_status,omitempty"`
+	LineageReason           string   `json:"lineage_reason,omitempty"`
+	SourceIPAddress         string   `json:"source_ip_address,omitempty"`
+	UserAgent               string   `json:"user_agent,omitempty"`
 	// StartedAt and ExpiresAt use `omitzero` (Go 1.24+) so a zero
 	// time.Time is omitted from the JSON response entirely. Without
 	// this, `encoding/json` serializes the Go zero value as the
@@ -127,6 +138,9 @@ type AWSRuntimeEventSummary struct {
 	KMSDecryptCount        int            `json:"kms_decrypt_count"`
 	APICallCount           int            `json:"api_call_count"`
 	STSSessionCount        int            `json:"sts_session_count"`
+	LineageResolvedCount   int            `json:"lineage_resolved_count"`
+	MissingSourceIDCount   int            `json:"missing_source_identity_count"`
+	AmbiguousLineageCount  int            `json:"ambiguous_lineage_count"`
 	RelationshipCount      int            `json:"relationship_count"`
 	PermissionDeniedEvents int            `json:"permission_denied_events"`
 }
@@ -548,7 +562,7 @@ func filterAWSRuntimeEventRecords(records []AWSRuntimeEventRecord, request AWSRu
 		if filters["status"] != "" && filters["status"] != "all" && filters["status"] != normalizeAWSRuntimeEventFilterToken(record.Status) {
 			continue
 		}
-		if filters["identity"] != "" && !awsRuntimeEventMatchesAny(filters["identity"], record.ActorPrincipalARN, record.ActorIdentityNodeID, record.Session.PrincipalARN, record.Session.AssumedRoleARN, record.Session.SessionIssuerARN, record.Session.SessionID) {
+		if filters["identity"] != "" && !awsRuntimeEventMatchesAny(filters["identity"], record.ActorPrincipalARN, record.ActorIdentityNodeID, record.Session.PrincipalARN, record.Session.AssumedRoleARN, record.Session.SessionIssuerARN, record.Session.SourceIdentity, record.Session.RoleSessionName, record.Session.OriginalActorARN, record.Session.ChainedFromPrincipalARN, record.Session.SessionID, record.Session.SessionNodeID) {
 			continue
 		}
 		if filters["agent_id"] != "" && !awsRuntimeEventMatchesAny(filters["agent_id"], record.AgentID, record.AgentNodeID) {
@@ -656,6 +670,14 @@ func summarizeAWSRuntimeEvents(records []AWSRuntimeEventRecord, filteredCount in
 		if record.Session.SessionID != "" {
 			sessions[record.Session.SessionID] = struct{}{}
 		}
+		switch record.Session.LineageStatus {
+		case "resolved":
+			summary.LineageResolvedCount++
+		case "source_identity_missing":
+			summary.MissingSourceIDCount++
+		case "ambiguous":
+			summary.AmbiguousLineageCount++
+		}
 		switch record.EventType {
 		case "agent-tool":
 			summary.AgentEventCount++
@@ -717,6 +739,18 @@ func awsRuntimeEventRelationships(records []AWSRuntimeEventRecord) []AWSRuntimeE
 		if record.ActorIdentityNodeID != "" && record.ResourceNodeID != "" {
 			out = append(out, AWSRuntimeEventRelationship{Type: "observed_runtime_action", FromNodeID: record.ActorIdentityNodeID, ToNodeID: record.ResourceNodeID, EvidenceRef: record.EvidenceRef})
 		}
+		if record.ActorIdentityNodeID != "" && record.Session.SessionNodeID != "" {
+			out = append(out, AWSRuntimeEventRelationship{Type: "has_runtime_session", FromNodeID: record.ActorIdentityNodeID, ToNodeID: record.Session.SessionNodeID, EvidenceRef: record.EvidenceRef})
+		}
+		if record.Session.SessionNodeID != "" && record.ResourceNodeID != "" {
+			out = append(out, AWSRuntimeEventRelationship{Type: "runtime_session_performed_action", FromNodeID: record.Session.SessionNodeID, ToNodeID: record.ResourceNodeID, EvidenceRef: record.EvidenceRef})
+		}
+		if record.Session.OriginalActorNodeID != "" && record.Session.SessionNodeID != "" && record.Session.OriginalActorNodeID != record.ActorIdentityNodeID {
+			out = append(out, AWSRuntimeEventRelationship{Type: "original_actor_started_session", FromNodeID: record.Session.OriginalActorNodeID, ToNodeID: record.Session.SessionNodeID, EvidenceRef: record.EvidenceRef})
+		}
+		if record.Session.ChainedFromNodeID != "" && record.Session.SessionNodeID != "" {
+			out = append(out, AWSRuntimeEventRelationship{Type: "role_chained_into_session", FromNodeID: record.Session.ChainedFromNodeID, ToNodeID: record.Session.SessionNodeID, EvidenceRef: record.EvidenceRef})
+		}
 		if record.AgentNodeID != "" && record.ResourceNodeID != "" {
 			out = append(out, AWSRuntimeEventRelationship{Type: "agent_invoked_runtime_action", FromNodeID: record.AgentNodeID, ToNodeID: record.ResourceNodeID, EvidenceRef: record.EvidenceRef})
 		}
@@ -730,16 +764,32 @@ func awsRuntimeEventFixtureRecords(accountID string, region string, fixtureState
 	lambdaRole := fmt.Sprintf("arn:aws:iam::%s:role/lambda-invoice-agent", accountID)
 	agentRole := fmt.Sprintf("arn:aws:iam::%s:role/agentcore-case-triage-runtime", accountID)
 	session := func(id string, principal string, started time.Time) AWSRuntimeEventSession {
+		sourceIdentity := "identrail-fixture"
+		lineageStatus := "resolved"
+		lineageReason := "Fixture session carries SourceIdentity and session issuer metadata."
+		if id == "sess-invoice-agent" {
+			sourceIdentity = ""
+			lineageStatus = "source_identity_missing"
+			lineageReason = "Fixture session resolved the role issuer, but SourceIdentity was absent."
+		}
 		return AWSRuntimeEventSession{
-			SessionID:        id,
-			PrincipalARN:     principal,
-			PrincipalType:    "assumed_role",
-			AssumedRoleARN:   principal,
-			SessionIssuerARN: principal,
-			SourceIPAddress:  "AWS Internal",
-			UserAgent:        "identrail-runtime-fixture",
-			StartedAt:        started,
-			ExpiresAt:        started.Add(time.Hour),
+			SessionID:           id,
+			SessionNodeID:       "aws:runtime-session:" + sanitizeCredentialReferenceToken(accountID) + ":" + sanitizeCredentialReferenceToken(region) + ":" + sanitizeCredentialReferenceToken(principal+"/"+id),
+			PrincipalARN:        principal,
+			PrincipalType:       "assumed_role",
+			AssumedRoleARN:      principal,
+			SessionIssuerARN:    principal,
+			SourceIdentity:      sourceIdentity,
+			RoleSessionName:     id,
+			SessionTagKeys:      []string{"environment", "owner"},
+			OriginalActorARN:    principal,
+			OriginalActorNodeID: awsIdentityNodeIDForAPI(principal),
+			LineageStatus:       lineageStatus,
+			LineageReason:       lineageReason,
+			SourceIPAddress:     "AWS Internal",
+			UserAgent:           "identrail-runtime-fixture",
+			StartedAt:           started,
+			ExpiresAt:           started.Add(time.Hour),
 		}
 	}
 	records := []AWSRuntimeEventRecord{

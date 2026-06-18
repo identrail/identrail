@@ -2128,10 +2128,21 @@ export type AWSRuntimeEventFixtureState =
 
 export type AWSRuntimeEventSession = {
   session_id: string;
+  session_node_id?: string;
   principal_arn: string;
   principal_type: string;
   assumed_role_arn?: string;
   session_issuer_arn?: string;
+  source_identity?: string;
+  role_session_name?: string;
+  session_tag_keys?: string[];
+  transitive_tag_keys?: string[];
+  original_actor_arn?: string;
+  original_actor_node_id?: string;
+  chained_from_principal_arn?: string;
+  chained_from_node_id?: string;
+  lineage_status?: 'resolved' | 'source_identity_missing' | 'ambiguous' | string;
+  lineage_reason?: string;
   source_ip_address?: string;
   user_agent?: string;
   // started_at / expires_at are omitted from the JSON response when
@@ -2212,6 +2223,9 @@ export type AWSRuntimeEventSummary = {
   kms_decrypt_count: number;
   api_call_count: number;
   sts_session_count: number;
+  lineage_resolved_count?: number;
+  missing_source_identity_count?: number;
+  ambiguous_lineage_count?: number;
   relationship_count: number;
   permission_denied_events: number;
 };

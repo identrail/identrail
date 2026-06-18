@@ -127,6 +127,12 @@ func runtimeEventRecordFromNormalized(ev cloudtrail.NormalizedEvent, fallbackAcc
 	if identityARN == "" {
 		identityARN = ev.ActorPrincipalARN
 	}
+	sessionNodeID := awsRuntimeSessionNodeID(accountID, region, ev)
+	originalActorARN := ""
+	if strings.TrimSpace(ev.LineageStatus) != "" {
+		originalActorARN = firstNonEmptyAWSValue(ev.OriginalActorARN, ev.ActorPrincipalARN)
+	}
+	chainedFromARN := strings.TrimSpace(ev.ChainedFromARN)
 	return AWSRuntimeEventRecord{
 		EventID:             ev.EventID,
 		AccountID:           accountID,
@@ -139,15 +145,26 @@ func runtimeEventRecordFromNormalized(ev cloudtrail.NormalizedEvent, fallbackAcc
 		ActorPrincipalType:  firstNonEmptyAWSValue(ev.ActorPrincipalType, "assumed_role"),
 		ActorIdentityNodeID: awsIdentityNodeIDForAPI(identityARN),
 		Session: AWSRuntimeEventSession{
-			SessionID:        ev.SessionID,
-			PrincipalARN:     ev.ActorPrincipalARN,
-			PrincipalType:    firstNonEmptyAWSValue(ev.ActorPrincipalType, "assumed_role"),
-			AssumedRoleARN:   ev.AssumedRoleARN,
-			SessionIssuerARN: ev.SessionIssuerARN,
-			SourceIPAddress:  ev.SourceIPAddress,
-			UserAgent:        ev.UserAgent,
-			StartedAt:        ev.SessionStartedAt,
-			ExpiresAt:        ev.SessionExpiresAt,
+			SessionID:               ev.SessionID,
+			SessionNodeID:           sessionNodeID,
+			PrincipalARN:            ev.ActorPrincipalARN,
+			PrincipalType:           firstNonEmptyAWSValue(ev.ActorPrincipalType, "assumed_role"),
+			AssumedRoleARN:          ev.AssumedRoleARN,
+			SessionIssuerARN:        ev.SessionIssuerARN,
+			SourceIdentity:          ev.SourceIdentity,
+			RoleSessionName:         ev.RoleSessionName,
+			SessionTagKeys:          append([]string{}, ev.SessionTagKeys...),
+			TransitiveTagKeys:       append([]string{}, ev.TransitiveTagKeys...),
+			OriginalActorARN:        originalActorARN,
+			OriginalActorNodeID:     awsIdentityNodeIDForAPI(originalActorARN),
+			ChainedFromPrincipalARN: chainedFromARN,
+			ChainedFromNodeID:       awsIdentityNodeIDForAPI(chainedFromARN),
+			LineageStatus:           ev.LineageStatus,
+			LineageReason:           ev.LineageReason,
+			SourceIPAddress:         ev.SourceIPAddress,
+			UserAgent:               ev.UserAgent,
+			StartedAt:               ev.SessionStartedAt,
+			ExpiresAt:               ev.SessionExpiresAt,
 		},
 		TargetResourceARN:  ev.TargetResourceARN,
 		TargetResourceType: ev.TargetResourceType,
@@ -165,6 +182,17 @@ func runtimeEventRecordFromNormalized(ev cloudtrail.NormalizedEvent, fallbackAcc
 		NextAction:         awsRuntimeEventNextAction(ev.EventType),
 		RedactionBoundary:  ev.RedactionBoundary,
 	}
+}
+
+func awsRuntimeSessionNodeID(accountID string, region string, ev cloudtrail.NormalizedEvent) string {
+	if strings.TrimSpace(ev.SessionID) == "" && strings.TrimSpace(ev.LineageStatus) == "" {
+		return ""
+	}
+	token := firstNonEmptyAWSValue(ev.ActorPrincipalARN, ev.SessionID, ev.RoleSessionName)
+	if strings.TrimSpace(token) == "" {
+		return ""
+	}
+	return "aws:runtime-session:" + sanitizeCredentialReferenceToken(firstNonEmptyAWSValue(accountID, ev.AccountID, "unknown-account")) + ":" + sanitizeCredentialReferenceToken(firstNonEmptyAWSValue(region, ev.Region, "unknown-region")) + ":" + sanitizeCredentialReferenceToken(token)
 }
 
 // agentNodeIDForLiveEvent composes the canonical agent node id used

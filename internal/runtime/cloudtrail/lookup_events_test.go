@@ -71,6 +71,36 @@ func cloudTrailEventJSON(arn string, principalType string, sessionID string, iss
 	}`, ip, ua, principalType, arn, sessionID, creation.UTC().Format(time.RFC3339), issuerARN)
 }
 
+func cloudTrailAssumeRoleEventJSON(callerARN string, principalType string, sessionID string, issuerARN string, roleARN string, roleSessionName string, sourceIdentity string, creation time.Time) string {
+	return fmt.Sprintf(`{
+		"sourceIPAddress": "AWS Internal",
+		"userAgent": "aws-sdk-go-v2/1.0",
+		"recipientAccountId": "123456789012",
+		"awsRegion": "us-east-1",
+		"userIdentity": {
+			"type": %q,
+			"arn": %q,
+			"principalId": %q,
+			"sessionContext": {
+				"sourceIdentity": %q,
+				"attributes": {"creationDate": %q},
+				"sessionIssuer": {"type": "Role", "arn": %q}
+			}
+		},
+		"requestParameters": {
+			"roleArn": %q,
+			"roleSessionName": %q,
+			"sourceIdentity": %q,
+			"tags": [
+				{"key": "owner", "value": "redacted-by-normalizer"},
+				{"key": "environment", "value": "prod"},
+				{"key": "owner", "value": "duplicate"}
+			],
+			"transitiveTagKeys": ["owner", "environment", "owner"]
+		}
+	}`, principalType, callerARN, sessionID, sourceIdentity, creation.UTC().Format(time.RFC3339), issuerARN, roleARN, roleSessionName, sourceIdentity)
+}
+
 func TestIngestMapsEventTypesAndPreservesMetadataBoundary(t *testing.T) {
 	now := time.Date(2026, 6, 14, 18, 0, 0, 0, time.UTC)
 	role := "arn:aws:sts::123456789012:assumed-role/identrail-runtime-reader/sess-runtime-reader"
@@ -174,6 +204,82 @@ func TestIngestMapsEventTypesAndPreservesMetadataBoundary(t *testing.T) {
 	secret := findEvent(t, result.Events, "evt-secret")
 	if !strings.Contains(secret.TargetResourceARN, "prod/openai-key") {
 		t.Fatalf("expected secret arn to be preserved as resource arn, got %+v", secret)
+	}
+}
+
+func TestIngestResolvesAssumeRoleSourceIdentityLineage(t *testing.T) {
+	now := time.Date(2026, 6, 15, 10, 0, 0, 0, time.UTC)
+	caller := "arn:aws:sts::123456789012:assumed-role/ci-deploy/deploy-session"
+	callerIssuer := "arn:aws:iam::123456789012:role/ci-deploy"
+	targetRole := "arn:aws:iam::123456789012:role/payments-runtime"
+	api := &fakeLookupEventsAPI{
+		pages: []LookupEventsPage{{
+			Events: []Event{{
+				EventID:     "evt-assume-payments",
+				EventName:   "AssumeRole",
+				EventSource: "sts.amazonaws.com",
+				EventTime:   now.Add(-3 * time.Minute),
+				AccessKeyID: "ASIAASSUMEROLE",
+				Username:    caller,
+				ReadOnly:    "false",
+				RawEvent:    cloudTrailAssumeRoleEventJSON(caller, "AssumedRole", "AROAEXAMPLE:deploy-session", callerIssuer, targetRole, "payments-job-42", "github-actions:deploy", now.Add(-5*time.Minute)),
+			}},
+		}},
+	}
+	ing, _ := newIngester(api, now)
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1"})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("expected one normalized event, got %+v", result.Events)
+	}
+	event := result.Events[0]
+	if event.EventType != "sts-session" || event.TargetResourceARN != targetRole || event.TargetResourceType != "iam_role" {
+		t.Fatalf("expected AssumeRole target role normalization, got %+v", event)
+	}
+	if event.SourceIdentity != "github-actions:deploy" || event.RoleSessionName != "payments-job-42" {
+		t.Fatalf("expected source identity and role session name, got %+v", event)
+	}
+	if event.LineageStatus != "resolved" || event.OriginalActorARN != caller || event.ChainedFromARN != caller {
+		t.Fatalf("expected resolved chained lineage, got %+v", event)
+	}
+	if got := strings.Join(event.SessionTagKeys, ","); got != "environment,owner" {
+		t.Fatalf("expected sorted redacted session tag keys, got %q", got)
+	}
+	if got := strings.Join(event.TransitiveTagKeys, ","); got != "environment,owner" {
+		t.Fatalf("expected sorted transitive tag keys, got %q", got)
+	}
+}
+
+func TestIngestMarksMissingSourceIdentityExplicitly(t *testing.T) {
+	now := time.Date(2026, 6, 15, 10, 30, 0, 0, time.UTC)
+	role := "arn:aws:sts::123456789012:assumed-role/payments-runtime/payments-job-43"
+	issuer := "arn:aws:iam::123456789012:role/payments-runtime"
+	api := &fakeLookupEventsAPI{
+		pages: []LookupEventsPage{{
+			Events: []Event{{
+				EventID:     "evt-secret-no-source-id",
+				EventName:   "GetSecretValue",
+				EventSource: "secretsmanager.amazonaws.com",
+				EventTime:   now.Add(-2 * time.Minute),
+				Username:    role,
+				Resources:   []EventResource{{ResourceType: "AWS::SecretsManager::Secret", ResourceName: "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/payments"}},
+				RawEvent:    cloudTrailEventJSON(role, "AssumedRole", "AROAEXAMPLE:payments-job-43", issuer, now.Add(-10*time.Minute), "10.0.0.5", "boto3/1.26"),
+			}},
+		}},
+	}
+	ing, _ := newIngester(api, now)
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1"})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	event := findEvent(t, result.Events, "evt-secret-no-source-id")
+	if event.LineageStatus != "source_identity_missing" {
+		t.Fatalf("expected missing SourceIdentity to be explicit, got %+v", event)
+	}
+	if !strings.Contains(event.LineageReason, "SourceIdentity") {
+		t.Fatalf("expected SourceIdentity remediation reason, got %+v", event)
 	}
 }
 

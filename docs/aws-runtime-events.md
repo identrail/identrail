@@ -22,6 +22,13 @@ S3 log destination or the EventBridge fan-out queue, so they can deliver
 data events too. Operators select the source with the new `delivery_source`
 query parameter; the default keeps the existing LookupEvents behavior.
 
+Issue #1516 adds the STS session resolver on top of those runtime events.
+Identrail resolves AssumeRole callers, SourceIdentity, role session names,
+session issuer roles, role chaining, and metadata-only session tag keys into
+explicit session lineage fields and graph edges. Missing SourceIdentity and
+ambiguous lineage are represented as first-class states instead of being
+treated as successful resolution.
+
 ## API
 
 `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/runtime-events`
@@ -46,7 +53,8 @@ The response is returned as `{ "runtime": ... }` and includes:
 - scoped account, region, connector, issue, version, status, confidence, and applied filters
 - summary counts for event types, owners, identities, resources, sessions, and relationships
 - event records with actor, session, action, target resource metadata, agent context, timestamp, confidence, evidence, and next action
-- graph relationships from observed actors or agents to target resources
+- session lineage fields for SourceIdentity, role session names, redacted tag keys, original actors, chained roles, and ambiguous/missing lineage states
+- graph relationships from observed actors, runtime sessions, chained actors, or agents to target resources
 - explicit diagnostics, coverage gaps, failure reasons, and remediation hints
 
 ## Safety boundaries
@@ -55,6 +63,10 @@ The runtime contract is read-only and metadata-only. It must not read, expose,
 log, or persist secret values, decrypted plaintext, object bodies, prompts,
 completions, browser pages, code-interpreter output, database rows, or customer
 payloads by default.
+
+STS session tags are represented by tag key only. Tag values are intentionally
+not copied into runtime records because operators can place sensitive business
+context in tag values.
 
 The fixture contract uses redacted resource identifiers and the
 `metadata_only_no_payloads_no_secret_values` boundary so UI and API tests can
@@ -86,12 +98,35 @@ The connector role must grant exactly:
 Identrail never grants or requests payload, secret-value, decrypt, or
 object-body permissions. CloudTrail's `LookupEvents` already surfaces
 `CloudTrailEvent` JSON containing `requestParameters` and
-`responseElements`; the ingester deliberately ignores both. The
+`responseElements`; the ingester deliberately ignores response elements and
+only reads a small, STS-specific allow-list from request parameters. The
 allow-listed extraction is restricted to: `awsRegion`,
 `recipientAccountId`, `sourceIPAddress`, `userAgent`, and a small subset
 of `userIdentity` metadata (`type`, `arn`, `principalId`, and
-`sessionContext.attributes.creationDate` /
-`sessionContext.sessionIssuer.arn`).
+`sessionContext.sourceIdentity`, `sessionContext.attributes.creationDate`,
+and `sessionContext.sessionIssuer.arn`) plus STS request metadata
+(`roleArn`, `roleSessionName`, `sourceIdentity`, session tag keys, and
+transitive tag keys). Session tag values and all response elements stay
+outside the contract.
+
+## STS session resolver (#1516)
+
+The resolver annotates each STS or assumed-role runtime record with:
+
+- `session.session_node_id`: stable runtime session node for graph edges.
+- `session.source_identity`: SourceIdentity from the session context or STS request.
+- `session.role_session_name`: the STS role session name, when present.
+- `session.session_tag_keys` and `session.transitive_tag_keys`: metadata-only tag-key lists with values redacted.
+- `session.original_actor_arn`: the CloudTrail actor that created or used the session.
+- `session.chained_from_principal_arn`: populated when an assumed role assumes another role.
+- `session.lineage_status`: `resolved`, `source_identity_missing`, or `ambiguous`.
+- `session.lineage_reason`: operator-readable explanation of the status.
+
+Runtime graph relationships now include `has_runtime_session`,
+`runtime_session_performed_action`, `original_actor_started_session`, and
+`role_chained_into_session` in addition to the existing resource/action edges.
+These edges let downstream reasoning distinguish what a role could do from
+what a particular STS session actually did.
 
 ### What LookupEvents can (and can't) surface
 

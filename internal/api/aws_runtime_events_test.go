@@ -26,7 +26,7 @@ func TestGetAWSRuntimeEventsBuildsMetadataOnlyContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get runtime events: %v", err)
 	}
-	if result.CurrentIssueRef != "#1513" || result.Version != awsRuntimeEventsVersion || result.Status != "ready" {
+	if result.CurrentIssueRef != "#1516" || result.Version != awsRuntimeEventsVersion || result.Status != "ready" {
 		t.Fatalf("unexpected runtime event contract metadata: %+v", result)
 	}
 	if result.Summary.TotalEvents != 5 || result.Summary.FilteredEvents != 5 || result.Summary.RelationshipCount != len(result.Relationships) {
@@ -34,6 +34,9 @@ func TestGetAWSRuntimeEventsBuildsMetadataOnlyContract(t *testing.T) {
 	}
 	if result.Summary.SecretReadCount != 1 || result.Summary.KMSDecryptCount != 1 || result.Summary.AgentEventCount != 1 || result.Summary.STSSessionCount == 0 {
 		t.Fatalf("expected runtime event type counts, got %+v", result.Summary)
+	}
+	if result.Summary.LineageResolvedCount == 0 || result.Summary.MissingSourceIDCount == 0 {
+		t.Fatalf("expected explicit STS lineage summary counts, got %+v", result.Summary)
 	}
 	for _, record := range result.Records {
 		if record.RedactionBoundary != "metadata_only_no_payloads_no_secret_values" {
