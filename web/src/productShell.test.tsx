@@ -4968,7 +4968,7 @@ describe('ProductFindingsPage states', () => {
       human_summary: 'AssumeRole trust policy allows any principal.',
       remediation: 'Tighten trust policy principals.',
       source_url: 'https://github.com/identrail/identrail/blob/main/policy.tf#L7',
-      line_snippet: '+ allow = true\n- allow = false',
+      line_snippet: '@@ -1 +1 @@\n+ allow = true\n- allow = false',
       created_at: '2026-05-17T11:06:00Z'
     };
 
@@ -4989,6 +4989,7 @@ describe('ProductFindingsPage states', () => {
       Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '- allow = false')
     );
     expect(screen.getByText('Evidence line')).toHaveClass('idt-repo-finding-code-label');
+    expect(screen.getByText('@@ -1 +1 @@')).toHaveClass('idt-repo-finding-code-line');
     expect(addedLine).toHaveClass('idt-repo-finding-code-line', 'is-add');
     expect(removedLine).toHaveClass('idt-repo-finding-code-line', 'is-remove');
     expect(addedLine).not.toHaveClass('idt-repo-finding-code-label');
@@ -5007,7 +5008,7 @@ describe('ProductFindingsPage states', () => {
     });
   });
 
-  it('does not mark ordinary source lines that start with a dash as diff removals', async () => {
+  it('does not mark ordinary source lines that start with plus or dash prefixes as diffs', async () => {
     const scan: RepoScanRecord = {
       ...queuedRepoScan,
       id: 'repo-scan-with-yaml-source',
@@ -5025,7 +5026,7 @@ describe('ProductFindingsPage states', () => {
       human_summary: 'A workflow permission entry needs review.',
       remediation: 'Limit workflow permissions.',
       source_url: 'https://github.com/identrail/identrail/blob/main/workflow.yml#L12',
-      line_snippet: '- name: prod',
+      line_snippet: '+enabled\n- name: prod',
       created_at: '2026-05-17T11:06:00Z'
     };
 
@@ -5038,10 +5039,16 @@ describe('ProductFindingsPage states', () => {
     if (!rowButton) return;
     fireEvent.click(rowButton);
 
-    const sourceLine = await screen.findByText('- name: prod');
-    expect(sourceLine).toHaveClass('idt-repo-finding-code-line');
-    expect(sourceLine).not.toHaveClass('is-remove');
-    expect(sourceLine.querySelector('.idt-repo-finding-code-marker')).toBeNull();
+    const plusSourceLine = await screen.findByText((_, element) =>
+      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '+enabled')
+    );
+    const yamlSourceLine = await screen.findByText((_, element) =>
+      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '- name: prod')
+    );
+    expect(plusSourceLine).not.toHaveClass('is-add');
+    expect(yamlSourceLine).not.toHaveClass('is-remove');
+    expect(plusSourceLine.querySelector('.idt-repo-finding-code-marker')).toBeNull();
+    expect(yamlSourceLine.querySelector('.idt-repo-finding-code-marker')).toBeNull();
   });
 
   it('keeps visible filters when active filters match no findings', async () => {

@@ -20187,12 +20187,21 @@ function repoFindingSnippetLooksLikeDiff(lines: string[]): boolean {
   const hasDiffHeader = meaningfulLines.some(
     (line) => line.startsWith('@@') || line.startsWith('diff --git') || line.startsWith('--- ') || line.startsWith('+++ ')
   );
+  const diffBodyLines = meaningfulLines.filter(
+    (line) => !line.startsWith('@@') && !line.startsWith('diff --git') && !line.startsWith('--- ') && !line.startsWith('+++ ')
+  );
   return (
     hasDiffHeader &&
-    meaningfulLines.length > 1 &&
-    meaningfulLines.some((line) => line.startsWith('+')) &&
-    meaningfulLines.some((line) => line.startsWith('-')) &&
-    meaningfulLines.every((line) => line.startsWith('+') || line.startsWith('-') || line.startsWith(' '))
+    diffBodyLines.some((line) => line.startsWith('+')) &&
+    diffBodyLines.some((line) => line.startsWith('-')) &&
+    meaningfulLines.every(
+      (line) =>
+        line.startsWith('+') ||
+        line.startsWith('-') ||
+        line.startsWith(' ') ||
+        line.startsWith('@@') ||
+        line.startsWith('diff --git')
+    )
   );
 }
 
