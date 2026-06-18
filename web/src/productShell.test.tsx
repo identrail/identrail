@@ -1860,14 +1860,14 @@ describe('ProductAppearanceSettingsPage', () => {
   it('persists Codex-style controls through the allowlisted appearance model', async () => {
     await renderProductAppearanceSettingsPage();
 
-    fireEvent.change(screen.getByLabelText('Light theme'), { target: { value: 'vercel' } });
+    fireEvent.change(screen.getByLabelText('Light theme'), { target: { value: 'xcode' } });
     fireEvent.change(screen.getByLabelText('Accent color'), { target: { value: '#123456' } });
     fireEvent.click(screen.getByRole('switch', { name: 'Use pointer cursors' }));
     fireEvent.click(screen.getByRole('button', { name: 'Identrail D...' }));
 
     const stored = JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}');
     expect(stored).toMatchObject({
-      lightPreset: 'vercel',
+      lightPreset: 'xcode',
       accent: '#123456',
       customColors: true,
       pointerCursors: true,
@@ -1878,11 +1878,26 @@ describe('ProductAppearanceSettingsPage', () => {
     expect(document.documentElement.dataset.appearanceAppIcon).toBe('dark');
   });
 
+  it('keeps dark palettes out of the light appearance preset choices', async () => {
+    await renderProductAppearanceSettingsPage();
+
+    const lightTheme = screen.getByLabelText('Light theme');
+    const darkTheme = screen.getByLabelText('Dark theme');
+
+    expect(within(lightTheme).queryByRole('option', { name: 'Vercel' })).not.toBeInTheDocument();
+    expect(within(lightTheme).queryByRole('option', { name: 'GitHub' })).not.toBeInTheDocument();
+    expect(within(lightTheme).getByRole('option', { name: 'Xcode' })).toBeInTheDocument();
+    expect(within(darkTheme).getByRole('option', { name: 'Vercel' })).toBeInTheDocument();
+    expect(within(darkTheme).getByRole('option', { name: 'GitHub' })).toBeInTheDocument();
+  });
+
   it('sanitizes stored appearance values before they reach CSS variables', async () => {
     const { normalizeAppearancePreferences } = await import('./appearance');
 
     const normalized = normalizeAppearancePreferences({
       themeMode: 'dark',
+      lightPreset: 'vercel',
+      darkPreset: 'notion',
       accent: 'url(javascript:alert(1))',
       background: 'expression(alert(1))',
       foreground: '#abcdef',
@@ -1895,6 +1910,8 @@ describe('ProductAppearanceSettingsPage', () => {
     });
 
     expect(normalized).toMatchObject({
+      lightPreset: 'notion',
+      darkPreset: 'identrail',
       accent: '#7c6dff',
       background: '#121518',
       foreground: '#abcdef',
@@ -5076,7 +5093,7 @@ describe('ProductFindingsPage states', () => {
         '--- /dev/null',
         '+++ b/workflow.yml',
         '@@ -0,0 +1 @@',
-        '+ allow = true'
+        '+++count'
       ].join('\n'),
       created_at: '2026-05-17T11:06:00Z'
     };
@@ -5085,7 +5102,7 @@ describe('ProductFindingsPage states', () => {
       id: 'finding-remove-only-diff',
       title: 'Workflow removes guardrail',
       human_summary: 'A workflow guardrail was removed.',
-      line_snippet: '@@ -1 +0,0 @@\n- require_review = true'
+      line_snippet: '@@ -1 +0,0 @@\n---count'
     };
 
     await renderFindings({ repoScans: [scan], repoFindings: [additionFinding, removalFinding] });
@@ -5098,7 +5115,7 @@ describe('ProductFindingsPage states', () => {
     fireEvent.click(addRow);
 
     const addedLine = await screen.findByText((_, element) =>
-      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '+ allow = true')
+      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '+++count')
     );
     expect(addedLine).toHaveClass('is-add');
     expect(within(addedLine).getByText('+')).toHaveClass('idt-repo-finding-code-marker');
@@ -5116,9 +5133,7 @@ describe('ProductFindingsPage states', () => {
     fireEvent.click(removeRow);
 
     const removedLine = await screen.findByText((_, element) =>
-      Boolean(
-        element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '- require_review = true'
-      )
+      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '---count')
     );
     expect(removedLine).toHaveClass('is-remove');
     expect(within(removedLine).getByText('-')).toHaveClass('idt-repo-finding-code-marker');

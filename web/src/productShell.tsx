@@ -20221,7 +20221,7 @@ function repoFindingSnippetLooksLikeDiff(lines: string[]): boolean {
 }
 
 function repoFindingSnippetDiffMarker(line: string, isDiffSnippet: boolean): '+' | '-' | null {
-  if (!isDiffSnippet || line.startsWith('+++') || line.startsWith('---')) {
+  if (!isDiffSnippet || line.startsWith('+++ ') || line.startsWith('--- ')) {
     return null;
   }
   if (line.startsWith('+')) {
@@ -22774,7 +22774,9 @@ const APPEARANCE_UI_FONT_OPTIONS: AppearanceFontID[] = ['system', 'inter', 'geis
 const APPEARANCE_CODE_FONT_OPTIONS: AppearanceFontID[] = ['mono-system', 'ibm-plex-mono'];
 
 function appearancePresetOptions(mode: 'light' | 'dark') {
-  return APPEARANCE_PRESETS.filter((preset) => preset.mode === mode || preset.mode === 'both');
+  return APPEARANCE_PRESETS.filter((preset) =>
+    mode === 'light' ? preset.mode === 'light' : preset.mode === 'dark' || preset.mode === 'both'
+  );
 }
 
 type AppearanceSegmentedControlProps<T extends string> = {

@@ -275,7 +275,6 @@ export const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
   appIcon: 'default'
 };
 
-const PRESET_IDS: ReadonlySet<string> = new Set(APPEARANCE_PRESETS.map((preset) => preset.id));
 const FONT_IDS: ReadonlySet<string> = new Set(Object.keys(APPEARANCE_FONTS));
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
@@ -287,8 +286,18 @@ function sanitizeEnum<T extends string>(value: unknown, allowed: readonly T[], f
   return typeof value === 'string' && allowed.includes(value as T) ? (value as T) : fallback;
 }
 
-function sanitizePresetID(value: unknown, fallback: AppearancePresetID): AppearancePresetID {
-  return typeof value === 'string' && PRESET_IDS.has(value) ? (value as AppearancePresetID) : fallback;
+function sanitizePresetID(value: unknown, mode: 'light' | 'dark', fallback: AppearancePresetID): AppearancePresetID {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+  const preset = APPEARANCE_PRESETS.find((candidate) => candidate.id === value);
+  if (!preset) {
+    return fallback;
+  }
+  if (mode === 'light') {
+    return preset.mode === 'light' ? preset.id : fallback;
+  }
+  return preset.mode === 'dark' || preset.mode === 'both' ? preset.id : fallback;
 }
 
 function sanitizeFontID(value: unknown, fallback: AppearanceFontID): AppearanceFontID {
@@ -315,8 +324,8 @@ export function normalizeAppearancePreferences(value: unknown): AppearancePrefer
   const source = isRecord(value) ? value : {};
   return {
     themeMode: sanitizeEnum(source.themeMode, ['light', 'dark', 'system'], DEFAULT_APPEARANCE_PREFERENCES.themeMode),
-    lightPreset: sanitizePresetID(source.lightPreset, DEFAULT_APPEARANCE_PREFERENCES.lightPreset),
-    darkPreset: sanitizePresetID(source.darkPreset, DEFAULT_APPEARANCE_PREFERENCES.darkPreset),
+    lightPreset: sanitizePresetID(source.lightPreset, 'light', DEFAULT_APPEARANCE_PREFERENCES.lightPreset),
+    darkPreset: sanitizePresetID(source.darkPreset, 'dark', DEFAULT_APPEARANCE_PREFERENCES.darkPreset),
     accent: sanitizeHexColor(source.accent, DEFAULT_APPEARANCE_PREFERENCES.accent),
     background: sanitizeHexColor(source.background, DEFAULT_APPEARANCE_PREFERENCES.background),
     foreground: sanitizeHexColor(source.foreground, DEFAULT_APPEARANCE_PREFERENCES.foreground),
