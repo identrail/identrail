@@ -1919,6 +1919,26 @@ describe('ProductAppearanceSettingsPage', () => {
     expect(document.documentElement.style.getPropertyValue('--appearance-fg')).toBe('#37352f');
   });
 
+  it('does not seed custom colors from an inactive preset', async () => {
+    await renderProductAppearanceSettingsPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dark' }));
+    fireEvent.change(screen.getByLabelText('Light theme'), { target: { value: 'xcode' } });
+    fireEvent.change(screen.getByLabelText('Accent color'), { target: { value: '#123456' } });
+
+    const stored = JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}');
+    expect(stored).toMatchObject({
+      themeMode: 'dark',
+      lightPreset: 'xcode',
+      accent: '#123456',
+      background: '#121518',
+      foreground: '#f5f7f8',
+      customColors: true
+    });
+    expect(document.documentElement.style.getPropertyValue('--appearance-bg')).toBe('#121518');
+    expect(document.documentElement.style.getPropertyValue('--appearance-fg')).toBe('#f5f7f8');
+  });
+
   it('exposes contrast as real color-mix inputs for shell styles', async () => {
     const { applyAppearancePreferences, normalizeAppearancePreferences } = await import('./appearance');
 
@@ -1933,6 +1953,21 @@ describe('ProductAppearanceSettingsPage', () => {
     expect(document.documentElement.style.getPropertyValue('--appearance-border-mix')).toBe('100%');
     expect(document.documentElement.style.getPropertyValue('--appearance-muted-mix')).toBe('90%');
   });
+
+  it('applies code typography preferences as root style variables', async () => {
+    const { applyAppearancePreferences, normalizeAppearancePreferences } = await import('./appearance');
+
+    applyAppearancePreferences(
+      normalizeAppearancePreferences({
+        codeFont: 'ibm-plex-mono',
+        codeFontSize: 18
+      })
+    );
+
+    expect(document.documentElement.style.getPropertyValue('--appearance-code-font')).toContain('IBM Plex Mono');
+    expect(document.documentElement.style.getPropertyValue('--appearance-code-font-size')).toBe('18px');
+  });
+
 });
 
 describe('ProductShellLayout', () => {
@@ -4912,6 +4947,8 @@ describe('ProductFindingsPage states', () => {
       title: 'IAM role with wildcard trust',
       human_summary: 'AssumeRole trust policy allows any principal.',
       remediation: 'Tighten trust policy principals.',
+      source_url: 'https://github.com/identrail/identrail/blob/main/policy.tf#L7',
+      line_snippet: '+ allow = true\n- allow = false',
       created_at: '2026-05-17T11:06:00Z'
     };
 
@@ -4924,6 +4961,11 @@ describe('ProductFindingsPage states', () => {
     if (!rowButton) return;
     rowButton.focus();
     fireEvent.click(rowButton);
+
+    const addedLine = await screen.findByText('+ allow = true');
+    const removedLine = await screen.findByText('- allow = false');
+    expect(addedLine).toHaveClass('idt-repo-finding-code-line', 'is-add');
+    expect(removedLine).toHaveClass('idt-repo-finding-code-line', 'is-remove');
 
     const closeButton = await screen.findByRole('button', { name: /Close finding detail/i });
     fireEvent.click(closeButton);

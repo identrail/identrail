@@ -20182,6 +20182,24 @@ function repoFindingSearchText(finding: ApiFinding): string {
     .join(' ');
 }
 
+function repoFindingSnippetLineClass(line: string): string {
+  if (line.startsWith('+')) {
+    return 'idt-repo-finding-code-line is-add';
+  }
+  if (line.startsWith('-')) {
+    return 'idt-repo-finding-code-line is-remove';
+  }
+  return 'idt-repo-finding-code-line';
+}
+
+function renderRepoFindingLineSnippet(snippet: string) {
+  return snippet.split('\n').map((line, index) => (
+    <span className={repoFindingSnippetLineClass(line)} key={`${index}-${line}`}>
+      {line || ' '}
+    </span>
+  ));
+}
+
 function repoFindingMatchesAny(finding: ApiFinding, tokens: string[]): boolean {
   const haystack = repoFindingSearchText(finding);
   return tokens.some((token) => haystack.includes(token));
@@ -22181,7 +22199,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                   <div className="idt-repo-finding-code">
                     <span>Evidence line</span>
                     <pre>
-                      <code>{selectedFinding.line_snippet}</code>
+                      <code>{renderRepoFindingLineSnippet(selectedFinding.line_snippet)}</code>
                     </pre>
                   </div>
                 ) : null}
@@ -22792,6 +22810,11 @@ export function ProductAppearanceSettingsPage() {
 
   const updatePreset = (key: 'lightPreset' | 'darkPreset', presetID: AppearancePresetID) => {
     const preset = findAppearancePreset(presetID);
+    const activePresetKey = resolvedTheme === 'light' ? 'lightPreset' : 'darkPreset';
+    if (key !== activePresetKey) {
+      commitPreferences({ [key]: preset.id });
+      return;
+    }
     commitPreferences({
       [key]: preset.id,
       accent: preset.accent,

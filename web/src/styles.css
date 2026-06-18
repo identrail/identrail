@@ -6410,6 +6410,31 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   font-size: 0.84rem;
 }
 
+.idt-repo-finding-code-line {
+  position: relative;
+  display: block;
+  min-height: 1.45em;
+  white-space: pre-wrap;
+}
+
+html[data-diff-markers='symbols'] .idt-repo-finding-code-line:is(.is-add, .is-remove) {
+  padding-left: 1.2rem;
+}
+
+html[data-diff-markers='symbols'] .idt-repo-finding-code-line:is(.is-add, .is-remove)::before {
+  position: absolute;
+  left: 0;
+  font-weight: 900;
+}
+
+html[data-diff-markers='symbols'] .idt-repo-finding-code-line.is-add::before {
+  content: '+';
+}
+
+html[data-diff-markers='symbols'] .idt-repo-finding-code-line.is-remove::before {
+  content: '-';
+}
+
 .idt-repo-finding-remediation {
   display: grid;
   gap: 0.35rem;
@@ -30745,12 +30770,34 @@ html[data-appearance-ready='true'] .idt-executive-report-shell {
   --app-text: var(--appearance-fg, #f5f7f8);
   --app-muted: var(--appearance-muted, #adb5bf);
   --app-dim: color-mix(in srgb, var(--appearance-muted, #adb5bf) var(--appearance-muted-mix, 74%), var(--appearance-bg, #121518));
+  --idt-console-rail: color-mix(in srgb, var(--appearance-panel, #090b0e) 92%, var(--appearance-bg, #121518));
+  --idt-console-rail-hover: color-mix(in srgb, var(--appearance-panel, #090b0e) 88%, var(--appearance-fg, #f5f7f8) 8%);
+  --idt-console-surface: var(--appearance-panel, #090b0e);
+  --idt-console-surface-raised: color-mix(in srgb, var(--appearance-panel, #090b0e) 92%, var(--appearance-fg, #f5f7f8) 8%);
+  --idt-console-surface-quiet: color-mix(in srgb, var(--appearance-panel, #090b0e) 94%, var(--appearance-bg, #121518) 6%);
+  --idt-console-surface-deep: color-mix(in srgb, var(--appearance-panel, #090b0e) 86%, var(--appearance-bg, #121518) 14%);
   --idt-console-focus: var(--appearance-accent, #7c6dff);
+  --idt-console-shadow: 0 18px 48px color-mix(in srgb, var(--appearance-bg, #121518) 32%, transparent);
   --idt-product-font: var(--appearance-ui-font, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
+  --idt-mono: var(--appearance-code-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
   background: var(--appearance-bg, #121518);
   color: var(--appearance-fg, #f5f7f8);
   font-family: var(--appearance-ui-font, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
   font-size: var(--appearance-ui-font-size, 16px);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout :is(pre, code, textarea),
+html[data-appearance-ready='true'] .idt-account-security-page :is(pre, code, textarea),
+html[data-appearance-ready='true'] .idt-app-shell-screen :is(pre, code, textarea),
+html[data-appearance-ready='true'] .idt-executive-report-shell :is(pre, code, textarea) {
+  font-family: var(--appearance-code-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout :is(pre, code),
+html[data-appearance-ready='true'] .idt-account-security-page :is(pre, code),
+html[data-appearance-ready='true'] .idt-app-shell-screen :is(pre, code),
+html[data-appearance-ready='true'] .idt-executive-report-shell :is(pre, code) {
+  font-size: var(--appearance-code-font-size, 14px);
 }
 
 html[data-font-smoothing='true'] body {
