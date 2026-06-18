@@ -140,6 +140,7 @@ func normalizeDeliverySource(value string) (string, error) {
 func mergeDeliveryResults(results []AWSCloudTrailIngestResult) AWSCloudTrailIngestResult {
 	merged := AWSCloudTrailIngestResult{Status: "ready"}
 	seenEvents := map[string]struct{}{}
+	hasRecords := false
 	worstStatus := "ready"
 	statusRank := map[string]int{"ready": 0, "degraded": 1, "blocked": 2}
 	for _, r := range results {
@@ -152,6 +153,7 @@ func mergeDeliveryResults(results []AWSCloudTrailIngestResult) AWSCloudTrailInge
 			}
 			seenEvents[record.EventID] = struct{}{}
 			merged.Records = append(merged.Records, record)
+			hasRecords = true
 		}
 		merged.Diagnostics = append(merged.Diagnostics, r.Diagnostics...)
 		merged.CoverageGaps = append(merged.CoverageGaps, r.CoverageGaps...)
@@ -161,7 +163,11 @@ func mergeDeliveryResults(results []AWSCloudTrailIngestResult) AWSCloudTrailInge
 			merged.HistoryTruncated = true
 		}
 	}
-	merged.Status = worstStatus
+	if worstStatus == "blocked" && hasRecords {
+		merged.Status = "degraded"
+	} else {
+		merged.Status = worstStatus
+	}
 	return merged
 }
 

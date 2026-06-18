@@ -4558,7 +4558,7 @@ paths:
           name: fixture_state
           schema:
             type: string
-            enum: [success, empty, degraded, partial_failure, permission_denied, capability_unavailable]
+            enum: [success, empty, degraded, partial_failure, permission_denied]
           description: Optional deterministic fixture state for UI validation and contract tests.
         - in: query
           name: account_id

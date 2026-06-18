@@ -206,6 +206,9 @@ func (i *S3Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestR
 			if !ok {
 				continue
 			}
+			if !isWithinScope(request.AccountID, request.Region, raw.Record.RecipientAccount, raw.Record.AWSRegion) {
+				continue
+			}
 			remaining := request.MaxEvents - len(result.Events)
 			if remaining <= 0 {
 				result.HistoryTruncated = true

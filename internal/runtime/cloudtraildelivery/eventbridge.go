@@ -197,6 +197,9 @@ func (i *EventBridgeIngester) Ingest(ctx context.Context, request IngestRequest)
 			toDelete = append(toDelete, DeleteMessageBatchEntry{ID: msg.MessageID, ReceiptHandle: msg.ReceiptHandle})
 			continue
 		}
+		if !isWithinScope(request.AccountID, request.Region, record.RecipientAccount, record.AWSRegion) {
+			continue
+		}
 		remaining := request.MaxEvents - len(result.Events)
 		if remaining <= 0 {
 			result.HistoryTruncated = true
@@ -222,6 +225,18 @@ func (i *EventBridgeIngester) Ingest(ctx context.Context, request IngestRequest)
 	finalizeEmptyOrTruncated(&result)
 	finalizeDiagnosticDegrade(&result)
 	return result, nil
+}
+
+func isWithinScope(requestedAccount string, requestedRegion string, recordAccount string, recordRegion string) bool {
+	account := strings.TrimSpace(requestedAccount)
+	region := strings.TrimSpace(requestedRegion)
+	if account != "" && strings.TrimSpace(recordAccount) != account {
+		return false
+	}
+	if region != "" && strings.TrimSpace(recordRegion) != region {
+		return false
+	}
+	return true
 }
 
 func (i *EventBridgeIngester) receiveWithRetry(ctx context.Context, request IngestRequest) (ReceiveMessageOutput, bool, error) {

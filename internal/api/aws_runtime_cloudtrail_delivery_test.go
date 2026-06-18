@@ -225,3 +225,16 @@ func TestMergeDeliveryResultsPropagatesWorstStatus(t *testing.T) {
 		t.Fatalf("expected merged status to inherit worst (blocked), got %q", got.Status)
 	}
 }
+
+func TestMergeDeliveryResultsBlockedWithRecordsDegrades(t *testing.T) {
+	got := mergeDeliveryResults([]AWSCloudTrailIngestResult{
+		{Status: "ready", Records: []AWSRuntimeEventRecord{{EventID: "a"}}},
+		{Status: "blocked", Records: []AWSRuntimeEventRecord{{EventID: "b"}}},
+	})
+	if got.Status != "degraded" {
+		t.Fatalf("expected mixed-source blocked+records merge to degrade, got %q", got.Status)
+	}
+	if len(got.Records) != 2 {
+		t.Fatalf("expected both source records to remain, got %d", len(got.Records))
+	}
+}
