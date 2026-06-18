@@ -505,6 +505,37 @@ func TestS3IngesterDoesNotAdvanceCheckpointForRawEvidenceFilter(t *testing.T) {
 	}
 }
 
+func TestS3IngesterMatchesResourceNodeFilter(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	key := "AWSLogs/123456789012/CloudTrail/us-east-1/2026/06/15/resource-node.json.gz"
+	resourceARN := "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/node"
+	body := gzipLogFile(t, cloudTrailRecord("evt-node", "GetSecretValue", "secretsmanager.amazonaws.com", now.Add(-time.Minute), []map[string]string{
+		{"type": "AWS::SecretsManager::Secret", "arn": resourceARN},
+	}))
+	fake := &fakeS3{
+		objects:   []S3Object{{Key: key, Size: int64(len(body)), LastModified: now}},
+		bodyByKey: map[string][]byte{key: body},
+	}
+	ing := NewS3Ingester(fake, "bucket", "")
+	ing.Now = func() time.Time { return now }
+	resourceNodeID := deliveryRuntimeResourceNodeID(resourceARN, "AWS::SecretsManager::Secret")
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"resource": resourceNodeID},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 1 || result.Events[0].EventID != "evt-node" {
+		t.Fatalf("expected resource-node filtered S3 event, got %+v", result.Events)
+	}
+	if result.Checkpoint != key {
+		t.Fatalf("expected fully retained resource-node match to advance checkpoint to %q, got %q", key, result.Checkpoint)
+	}
+}
+
 func TestS3IngesterMarksTruncatedListing(t *testing.T) {
 	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
 	key := "log-1.json.gz"

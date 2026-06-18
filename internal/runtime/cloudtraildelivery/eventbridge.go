@@ -282,7 +282,8 @@ func matchesRuntimeEventFilter(event cloudtrail.NormalizedEvent, filters map[str
 		case "resource":
 			if !strings.Contains(strings.ToLower(event.TargetResourceARN), query) &&
 				!strings.Contains(strings.ToLower(event.TargetResourceType), query) &&
-				!strings.Contains(strings.ToLower(event.TargetResourceName), query) {
+				!strings.Contains(strings.ToLower(event.TargetResourceName), query) &&
+				!strings.Contains(strings.ToLower(deliveryRuntimeResourceNodeID(event.TargetResourceARN, event.TargetResourceType)), query) {
 				return false
 			}
 		case "evidence":
@@ -301,6 +302,35 @@ func matchesRuntimeEventFilter(event cloudtrail.NormalizedEvent, filters map[str
 		}
 	}
 	return true
+}
+
+func deliveryRuntimeResourceNodeID(resourceARN string, resourceType string) string {
+	if strings.TrimSpace(resourceARN) == "" {
+		return ""
+	}
+	return "aws:runtime-resource:" + normalizeDeliveryRuntimeName(firstNonEmptyDeliveryValue(resourceType, "resource")) + ":" + sanitizeDeliveryRuntimeToken(resourceARN)
+}
+
+func normalizeDeliveryRuntimeName(input string) string {
+	trimmed := strings.TrimSpace(strings.ToLower(input))
+	if trimmed == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(" ", "-", "_", "-", "/", "-", ":", "-", "#", "-", ",", "-", ".", "-")
+	return strings.Trim(replacer.Replace(trimmed), "-")
+}
+
+func sanitizeDeliveryRuntimeToken(value string) string {
+	return strings.ToLower(strings.NewReplacer(" ", "-", "/", "-", ":", "-", "#", "-").Replace(strings.TrimSpace(value)))
+}
+
+func firstNonEmptyDeliveryValue(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func filterRuntimeEventRecordsForDelivery(records []cloudtrail.NormalizedEvent, filters map[string]string, source DeliverySource) []cloudtrail.NormalizedEvent {

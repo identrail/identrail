@@ -342,6 +342,35 @@ func TestEventBridgeIngesterDoesNotDeletePartiallyFilteredFanoutMessage(t *testi
 	}
 }
 
+func TestEventBridgeIngesterMatchesResourceNodeFilter(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	resourceARN := "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/one"
+	body := eventBridgeMessageBodyWithResources(t, "evt-node", "GetSecretValue", "secretsmanager.amazonaws.com", now, []map[string]any{
+		{"type": "AWS::SecretsManager::Secret", "ARN": resourceARN},
+	})
+	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+		{MessageID: "msg-node", ReceiptHandle: "rh-node", Body: body},
+	}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+	resourceNodeID := deliveryRuntimeResourceNodeID(resourceARN, "AWS::SecretsManager::Secret")
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"resource": resourceNodeID},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 1 || result.Events[0].EventID != "evt-node" {
+		t.Fatalf("expected resource-node filtered event, got %+v", result.Events)
+	}
+	if len(fake.deletedIDs) != 1 || fake.deletedIDs[0] != "msg-node" {
+		t.Fatalf("expected fully retained resource-node match to delete, got %+v", fake.deletedIDs)
+	}
+}
+
 func TestEventBridgeIngesterIgnoresDeliveryEvidenceFilterBeforeAdapterStamping(t *testing.T) {
 	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
 	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
