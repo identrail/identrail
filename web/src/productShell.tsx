@@ -20192,8 +20192,7 @@ function repoFindingSnippetLooksLikeDiff(lines: string[]): boolean {
   );
   return (
     hasDiffHeader &&
-    diffBodyLines.some((line) => line.startsWith('+')) &&
-    diffBodyLines.some((line) => line.startsWith('-')) &&
+    diffBodyLines.some((line) => line.startsWith('+') || line.startsWith('-')) &&
     meaningfulLines.every(
       (line) =>
         line.startsWith('+') ||

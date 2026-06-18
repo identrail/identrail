@@ -5051,6 +5051,71 @@ describe('ProductFindingsPage states', () => {
     expect(yamlSourceLine.querySelector('.idt-repo-finding-code-marker')).toBeNull();
   });
 
+  it('marks one-sided repository diff hunks as changed lines', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-with-one-sided-diff',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 2
+    };
+
+    const additionFinding: Finding = {
+      id: 'finding-add-only-diff',
+      scan_id: scan.id,
+      type: 'workflow_permission',
+      severity: 'medium',
+      title: 'Workflow adds broad permissions',
+      human_summary: 'A workflow permission entry was added.',
+      remediation: 'Limit workflow permissions.',
+      source_url: 'https://github.com/identrail/identrail/blob/main/workflow.yml#L12',
+      line_snippet: '@@ -0,0 +1 @@\n+ allow = true',
+      created_at: '2026-05-17T11:06:00Z'
+    };
+    const removalFinding: Finding = {
+      ...additionFinding,
+      id: 'finding-remove-only-diff',
+      title: 'Workflow removes guardrail',
+      human_summary: 'A workflow guardrail was removed.',
+      line_snippet: '@@ -1 +0,0 @@\n- require_review = true'
+    };
+
+    await renderFindings({ repoScans: [scan], repoFindings: [additionFinding, removalFinding] });
+
+    const addRow = (await screen.findAllByRole('listitem')).find((node) =>
+      node.textContent?.includes('Workflow adds broad permissions')
+    ) as HTMLButtonElement | undefined;
+    expect(addRow).toBeDefined();
+    if (!addRow) return;
+    fireEvent.click(addRow);
+
+    const addedLine = await screen.findByText((_, element) =>
+      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '+ allow = true')
+    );
+    expect(addedLine).toHaveClass('is-add');
+    expect(within(addedLine).getByText('+')).toHaveClass('idt-repo-finding-code-marker');
+
+    fireEvent.click(await screen.findByRole('button', { name: /Close finding detail/i }));
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /Close finding detail/i })).not.toBeInTheDocument();
+    });
+
+    const removeRow = (await screen.findAllByRole('listitem')).find((node) =>
+      node.textContent?.includes('Workflow removes guardrail')
+    ) as HTMLButtonElement | undefined;
+    expect(removeRow).toBeDefined();
+    if (!removeRow) return;
+    fireEvent.click(removeRow);
+
+    const removedLine = await screen.findByText((_, element) =>
+      Boolean(
+        element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '- require_review = true'
+      )
+    );
+    expect(removedLine).toHaveClass('is-remove');
+    expect(within(removedLine).getByText('-')).toHaveClass('idt-repo-finding-code-marker');
+  });
+
   it('keeps visible filters when active filters match no findings', async () => {
     const scan: RepoScanRecord = {
       ...queuedRepoScan,

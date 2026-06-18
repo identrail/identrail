@@ -31303,7 +31303,7 @@ html[data-diff-markers='symbols'] .idt-appearance-preview-pane[data-side='after'
 .idt-app-console-layout .idt-workspace-admin-grid > article {
   border: 1px solid var(--app-border);
   border-radius: 8px;
-  background: #050506;
+  background: var(--app-panel);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.035), var(--idt-console-shadow);
 }
 
@@ -31321,7 +31321,7 @@ html[data-diff-markers='symbols'] .idt-appearance-preview-pane[data-side='after'
   display: grid;
   align-content: center;
   gap: 0.1rem;
-  background: #070708;
+  background: var(--app-panel);
 }
 
 .idt-app-console-layout .idt-workspace-stats h3 {
@@ -31398,12 +31398,12 @@ html[data-diff-markers='symbols'] .idt-appearance-preview-pane[data-side='after'
   border: 1px solid var(--app-border);
   border-radius: 8px;
   padding: 0.85rem;
-  background: #050506;
+  background: var(--app-panel);
 }
 
 .idt-app-console-layout .idt-workspace-table-wrap {
   border-radius: 8px;
-  background: #050506;
+  background: var(--app-panel);
 }
 
 .idt-app-console-layout .idt-workspace-table th,
