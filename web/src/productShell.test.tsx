@@ -1384,6 +1384,22 @@ async function renderProductSettingsPage(options: {
   };
 }
 
+async function renderProductAppearanceSettingsPage() {
+  vi.resetModules();
+  const { ProductAppearanceSettingsPage } = await import('./productShell');
+  render(
+    <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/settings/appearance']}>
+      <Routes>
+        <Route
+          path="/app/:tenantID/:workspaceID/settings/appearance"
+          element={<ProductAppearanceSettingsPage />}
+        />
+        <Route path="/app/:tenantID/:workspaceID/settings" element={<h2>Settings</h2>} />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
 async function renderProjectDetail(
   githubBackend: BackendFeatureState,
   githubConnection = connectedGitHub,
@@ -1570,6 +1586,16 @@ describe('ProductSettingsPage profile', () => {
     vi.restoreAllMocks();
     vi.doUnmock('./hooks/useMe');
     vi.resetModules();
+  });
+
+  it('links to the dedicated appearance settings page', async () => {
+    await renderProductSettingsPage();
+
+    expect(await screen.findByRole('heading', { name: 'Appearance' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open appearance settings/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/settings/appearance'
+    );
   });
 
   it('updates profile fields optimistically from settings', async () => {
@@ -1800,6 +1826,82 @@ describe('ProductSettingsPage profile', () => {
 
     fireEvent.pointerDown(document.body);
     expect(screen.queryByRole('menuitem', { name: /Update photo/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('ProductAppearanceSettingsPage', () => {
+  afterEach(() => {
+    window.localStorage.removeItem('identrail-appearance');
+    window.localStorage.removeItem('identrail-theme');
+    delete document.documentElement.dataset.appearanceReady;
+    delete document.documentElement.dataset.appearancePreset;
+    delete document.documentElement.dataset.theme;
+    document.documentElement.removeAttribute('style');
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  it('loads without workspace API calls and applies theme preferences immediately', async () => {
+    const api = await import('./api/client');
+    const getWhoAmI = vi.spyOn(api.apiClient, 'getWhoAmI');
+
+    await renderProductAppearanceSettingsPage();
+
+    expect(await screen.findByRole('heading', { name: 'Appearance' })).toBeInTheDocument();
+    expect(getWhoAmI).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dark' }));
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}')).toMatchObject({
+      themeMode: 'dark'
+    });
+  });
+
+  it('persists Codex-style controls through the allowlisted appearance model', async () => {
+    await renderProductAppearanceSettingsPage();
+
+    fireEvent.change(screen.getByLabelText('Light theme'), { target: { value: 'vercel' } });
+    fireEvent.change(screen.getByLabelText('Accent color'), { target: { value: '#123456' } });
+    fireEvent.click(screen.getByRole('switch', { name: 'Use pointer cursors' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Identrail D...' }));
+
+    const stored = JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}');
+    expect(stored).toMatchObject({
+      lightPreset: 'vercel',
+      accent: '#123456',
+      pointerCursors: true,
+      appIcon: 'dark'
+    });
+    expect(document.documentElement.style.getPropertyValue('--appearance-accent')).toBe('#123456');
+    expect(document.documentElement.dataset.pointerCursors).toBe('true');
+    expect(document.documentElement.dataset.appearanceAppIcon).toBe('dark');
+  });
+
+  it('sanitizes stored appearance values before they reach CSS variables', async () => {
+    const { normalizeAppearancePreferences } = await import('./appearance');
+
+    const normalized = normalizeAppearancePreferences({
+      themeMode: 'dark',
+      accent: 'url(javascript:alert(1))',
+      background: 'expression(alert(1))',
+      foreground: '#abcdef',
+      uiFont: 'url(https://evil.example/font.woff2)',
+      codeFont: '<script>alert(1)</script>',
+      contrast: 999,
+      reduceMotion: 'drop-table',
+      appIcon: '../../private'
+    });
+
+    expect(normalized).toMatchObject({
+      accent: '#7c6dff',
+      background: '#121518',
+      foreground: '#abcdef',
+      uiFont: 'system',
+      codeFont: 'mono-system',
+      contrast: 100,
+      reduceMotion: 'system',
+      appIcon: 'default'
+    });
   });
 });
 
@@ -2279,7 +2381,8 @@ describe('Domain-first app routes', () => {
       '/app/:tenantID/:workspaceID/kubernetes/findings',
       '/app/:tenantID/:workspaceID/kubernetes/remediation',
       '/app/:tenantID/:workspaceID/reports',
-      '/app/:tenantID/:workspaceID/settings'
+      '/app/:tenantID/:workspaceID/settings',
+      '/app/:tenantID/:workspaceID/settings/appearance'
     ]);
     expect(DOMAIN_APP_ROUTE_MANIFEST).not.toContain('/app/:tenantID/:workspaceID/projects');
     expect(DOMAIN_APP_ROUTE_MANIFEST).not.toContain('/app/:tenantID/:workspaceID/findings');

@@ -63,6 +63,7 @@ import {
   ProductProjectsPage,
   ProductReportsPage,
   RequireProductAuth,
+  ProductAppearanceSettingsPage,
   ProductSettingsPage,
   ProductShellLayout,
   ProductWorkspacesPage
@@ -105,7 +106,6 @@ function LegacyScopedAppRedirect({ target }: { target: string }) {
 
   return <Navigate to={`/app/${encodeURIComponent(tenantID)}/${encodeURIComponent(workspaceID)}/${target}`} replace />;
 }
-const THEME_STORAGE_KEY = 'identrail-theme';
 const SCAN_CTA_LABEL = 'Request Trust Path Review';
 const INTAKE_TOTAL_STEPS = 4;
 const WORK_EMAIL_ERROR = 'Please use a company or work email address.';
@@ -4658,15 +4658,6 @@ export function RoutedSite() {
   const isAuthChoiceRoute = normalizedPath === '/signin' || normalizedPath === '/signup' || normalizedPath === '/auth/mfa';
   const isAuthShellRoute = isAuthChoiceRoute || normalizedPath === '/auth/callback';
   useEffect(() => {
-    document.documentElement.dataset.theme = 'light';
-    try {
-      window.localStorage.setItem(THEME_STORAGE_KEY, 'light');
-    } catch {
-      // Ignore storage write failures (blocked/disabled storage).
-    }
-  }, []);
-
-  useEffect(() => {
     if (isProductShellRoute || isOnboardingRoute || isAuthShellRoute) {
       return;
     }
@@ -4828,6 +4819,7 @@ export function RoutedSite() {
             <Route path="kubernetes/remediation" element={<ProductKubernetesRemediationPage />} />
             <Route path="reports" element={<ProductReportsPage />} />
             <Route path="settings" element={<ProductSettingsPage />} />
+            <Route path="settings/appearance" element={<ProductAppearanceSettingsPage />} />
           </Route>
           <Route path="/" element={<HomePage />} />
           <Route path="/product" element={<ProductPage />} />

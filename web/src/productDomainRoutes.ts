@@ -32,5 +32,6 @@ export const DOMAIN_APP_ROUTE_MANIFEST = [
   '/app/:tenantID/:workspaceID/kubernetes/findings',
   '/app/:tenantID/:workspaceID/kubernetes/remediation',
   '/app/:tenantID/:workspaceID/reports',
-  '/app/:tenantID/:workspaceID/settings'
+  '/app/:tenantID/:workspaceID/settings',
+  '/app/:tenantID/:workspaceID/settings/appearance'
 ] as const;
