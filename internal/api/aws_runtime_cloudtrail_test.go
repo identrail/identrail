@@ -179,6 +179,38 @@ func TestRuntimeEventRecordFromNormalizedCarriesSTSLineage(t *testing.T) {
 	if record.Session.SessionNodeID == "" || !strings.Contains(record.Session.SessionNodeID, "runtime-session") {
 		t.Fatalf("expected session node id, got %+v", record.Session)
 	}
+	wantTargetSessionNodeID := "aws:runtime-session:" + sanitizeCredentialReferenceToken("123456789012") + ":" + sanitizeCredentialReferenceToken("us-east-1") + ":" + sanitizeCredentialReferenceToken(targetRole+"/payments-job-42")
+	if record.Session.SessionNodeID != wantTargetSessionNodeID {
+		t.Fatalf("expected AssumeRole event to key the target session node %q, got %q", wantTargetSessionNodeID, record.Session.SessionNodeID)
+	}
+	targetActivity := runtimeEventRecordFromNormalized(cloudtrail.NormalizedEvent{
+		EventID:            "evt-payments-secret",
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		EventType:          "secret-read",
+		EventSource:        "secretsmanager.amazonaws.com",
+		EventName:          "GetSecretValue",
+		Action:             "secretsmanager:GetSecretValue",
+		ActorPrincipalARN:  "arn:aws:sts::123456789012:assumed-role/payments-runtime/payments-job-42",
+		ActorPrincipalType: "assumed_role",
+		SessionID:          "AROAEXAMPLE:payments-job-42",
+		AssumedRoleARN:     targetRole,
+		SessionIssuerARN:   targetRole,
+		RoleSessionName:    "payments-job-42",
+		LineageStatus:      "source_identity_missing",
+		TargetResourceARN:  "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/payments",
+		TargetResourceType: "AWS::SecretsManager::Secret",
+		Owner:              "application",
+		EvidenceCategory:   "cloudtrail",
+		Confidence:         0.9,
+		ObservedAt:         now.Add(time.Minute),
+		CollectedAt:        now,
+		Status:             "observed",
+		RedactionBoundary:  "metadata_only_no_payloads_no_secret_values",
+	}, "123456789012", "us-east-1")
+	if targetActivity.Session.SessionNodeID != record.Session.SessionNodeID {
+		t.Fatalf("expected target session activity to join AssumeRole session node %q, got %q", record.Session.SessionNodeID, targetActivity.Session.SessionNodeID)
+	}
 	if record.Session.SourceIdentity != "github-actions:deploy" || record.Session.RoleSessionName != "payments-job-42" {
 		t.Fatalf("expected source identity and role session name, got %+v", record.Session)
 	}

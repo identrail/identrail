@@ -188,11 +188,42 @@ func awsRuntimeSessionNodeID(accountID string, region string, ev cloudtrail.Norm
 	if strings.TrimSpace(ev.SessionID) == "" && strings.TrimSpace(ev.LineageStatus) == "" {
 		return ""
 	}
-	token := firstNonEmptyAWSValue(ev.ActorPrincipalARN, ev.SessionID, ev.RoleSessionName)
+	token := awsRuntimeSessionToken(ev)
 	if strings.TrimSpace(token) == "" {
 		return ""
 	}
 	return "aws:runtime-session:" + sanitizeCredentialReferenceToken(firstNonEmptyAWSValue(accountID, ev.AccountID, "unknown-account")) + ":" + sanitizeCredentialReferenceToken(firstNonEmptyAWSValue(region, ev.Region, "unknown-region")) + ":" + sanitizeCredentialReferenceToken(token)
+}
+
+func awsRuntimeSessionToken(ev cloudtrail.NormalizedEvent) string {
+	if isSTSAssumeRoleRuntimeEvent(ev) {
+		if token := assumedRoleSessionToken(ev.AssumedRoleARN, ev.RoleSessionName); token != "" {
+			return token
+		}
+	}
+	if isAssumedRoleRuntimeEvent(ev) {
+		if token := assumedRoleSessionToken(firstNonEmptyAWSValue(ev.AssumedRoleARN, ev.SessionIssuerARN), ev.RoleSessionName); token != "" {
+			return token
+		}
+	}
+	return firstNonEmptyAWSValue(ev.ActorPrincipalARN, ev.SessionID, ev.RoleSessionName)
+}
+
+func assumedRoleSessionToken(roleARN string, roleSessionName string) string {
+	roleARN = strings.TrimSpace(roleARN)
+	roleSessionName = strings.TrimSpace(roleSessionName)
+	if roleARN == "" || roleSessionName == "" {
+		return ""
+	}
+	return roleARN + "/" + roleSessionName
+}
+
+func isSTSAssumeRoleRuntimeEvent(ev cloudtrail.NormalizedEvent) bool {
+	return strings.EqualFold(strings.TrimSpace(ev.EventSource), "sts.amazonaws.com") && strings.HasPrefix(strings.TrimSpace(ev.EventName), "AssumeRole")
+}
+
+func isAssumedRoleRuntimeEvent(ev cloudtrail.NormalizedEvent) bool {
+	return strings.EqualFold(strings.TrimSpace(ev.ActorPrincipalType), "assumed_role") || strings.TrimSpace(ev.SessionIssuerARN) != "" || strings.TrimSpace(ev.AssumedRoleARN) != ""
 }
 
 // agentNodeIDForLiveEvent composes the canonical agent node id used
