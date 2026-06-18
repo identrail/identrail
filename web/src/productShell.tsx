@@ -20182,21 +20182,50 @@ function repoFindingSearchText(finding: ApiFinding): string {
     .join(' ');
 }
 
-function repoFindingSnippetLineClass(line: string): string {
+function repoFindingSnippetLooksLikeDiff(lines: string[]): boolean {
+  const meaningfulLines = lines.filter((line) => line.trim().length > 0);
+  const hasDiffHeader = meaningfulLines.some(
+    (line) => line.startsWith('@@') || line.startsWith('diff --git') || line.startsWith('--- ') || line.startsWith('+++ ')
+  );
+  return (
+    hasDiffHeader &&
+    meaningfulLines.length > 1 &&
+    meaningfulLines.some((line) => line.startsWith('+')) &&
+    meaningfulLines.some((line) => line.startsWith('-')) &&
+    meaningfulLines.every((line) => line.startsWith('+') || line.startsWith('-') || line.startsWith(' '))
+  );
+}
+
+function repoFindingSnippetDiffMarker(line: string, isDiffSnippet: boolean): '+' | '-' | null {
+  if (!isDiffSnippet || line.startsWith('+++') || line.startsWith('---')) {
+    return null;
+  }
   if (line.startsWith('+')) {
-    return 'idt-repo-finding-code-line is-add';
+    return '+';
   }
   if (line.startsWith('-')) {
+    return '-';
+  }
+  return null;
+}
+
+function repoFindingSnippetLineClass(diffMarker: '+' | '-' | null): string {
+  if (diffMarker === '+') {
+    return 'idt-repo-finding-code-line is-add';
+  }
+  if (diffMarker === '-') {
     return 'idt-repo-finding-code-line is-remove';
   }
   return 'idt-repo-finding-code-line';
 }
 
 function renderRepoFindingLineSnippet(snippet: string) {
-  return snippet.split('\n').map((line, index) => {
-    const diffMarker = line.startsWith('+') || line.startsWith('-') ? line[0] : null;
+  const lines = snippet.split('\n');
+  const isDiffSnippet = repoFindingSnippetLooksLikeDiff(lines);
+  return lines.map((line, index) => {
+    const diffMarker = repoFindingSnippetDiffMarker(line, isDiffSnippet);
     return (
-      <span className={repoFindingSnippetLineClass(line)} key={`${index}-${line}`}>
+      <span className={repoFindingSnippetLineClass(diffMarker)} key={`${index}-${line}`}>
         {diffMarker ? <span className="idt-repo-finding-code-marker">{diffMarker}</span> : null}
         {diffMarker ? line.slice(1) || ' ' : line || ' '}
       </span>

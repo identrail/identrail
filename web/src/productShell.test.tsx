@@ -5007,6 +5007,43 @@ describe('ProductFindingsPage states', () => {
     });
   });
 
+  it('does not mark ordinary source lines that start with a dash as diff removals', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-with-yaml-source',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 1
+    };
+
+    const finding: Finding = {
+      id: 'finding-yaml-list',
+      scan_id: scan.id,
+      type: 'workflow_permission',
+      severity: 'medium',
+      title: 'Workflow grants broad permissions',
+      human_summary: 'A workflow permission entry needs review.',
+      remediation: 'Limit workflow permissions.',
+      source_url: 'https://github.com/identrail/identrail/blob/main/workflow.yml#L12',
+      line_snippet: '- name: prod',
+      created_at: '2026-05-17T11:06:00Z'
+    };
+
+    await renderFindings({ repoScans: [scan], repoFindings: [finding] });
+
+    const rowButton = (await screen.findAllByRole('listitem')).find((node) =>
+      node.textContent?.includes('Workflow grants broad permissions')
+    ) as HTMLButtonElement | undefined;
+    expect(rowButton).toBeDefined();
+    if (!rowButton) return;
+    fireEvent.click(rowButton);
+
+    const sourceLine = await screen.findByText('- name: prod');
+    expect(sourceLine).toHaveClass('idt-repo-finding-code-line');
+    expect(sourceLine).not.toHaveClass('is-remove');
+    expect(sourceLine.querySelector('.idt-repo-finding-code-marker')).toBeNull();
+  });
+
   it('keeps visible filters when active filters match no findings', async () => {
     const scan: RepoScanRecord = {
       ...queuedRepoScan,
