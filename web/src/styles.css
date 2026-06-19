@@ -30924,6 +30924,61 @@ html[data-appearance-ready='true'] .idt-executive-report-shell :is(p, dd, .idt-e
   color: var(--app-muted);
 }
 
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-account-trigger {
+  color: var(--app-text);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout :is(
+  .idt-app-sidebar-workspace-copy strong,
+  .idt-app-sidebar-workspace-meta strong,
+  .idt-app-sidebar-account-name strong,
+  .idt-app-sidebar-account-meta strong
+) {
+  color: var(--app-text);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-quick-find,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a {
+  color: var(--app-muted);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout :is(
+  .idt-app-sidebar-workspace-caret,
+  .idt-app-sidebar-workspace-meta-eyebrow,
+  .idt-app-sidebar-account-name span,
+  .idt-app-sidebar-account-caret,
+  .idt-app-sidebar-account-meta span,
+  .idt-app-quick-find-icon,
+  .idt-app-quick-find-label,
+  .idt-app-quick-find-key,
+  .idt-app-nav-icon
+) {
+  color: var(--app-muted);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger:hover,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger:focus-visible,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger[aria-expanded='true'],
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-account-trigger:hover,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-account-trigger:focus-visible,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-account-trigger[aria-expanded='true'],
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a:hover:not(.active),
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a:focus-visible:not(.active) {
+  color: var(--app-text);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a.active {
+  background: var(--idt-console-rail-hover);
+  color: var(--app-text);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a:hover .idt-app-nav-icon,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a:focus-visible .idt-app-nav-icon,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a.active .idt-app-nav-icon {
+  color: var(--app-text);
+}
+
 html[data-font-smoothing='true'] body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
