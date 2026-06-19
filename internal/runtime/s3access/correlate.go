@@ -278,6 +278,7 @@ func Correlate(request CorrelateRequest) Result {
 	}
 
 	staticConsidered := 0
+	wildcardDeniesByBucket := map[string][]StaticGrant{}
 	for _, grant := range request.Static {
 		if strings.TrimSpace(grant.IdentityNodeID) == "" && strings.TrimSpace(grant.PrincipalARN) == "" {
 			continue
@@ -286,11 +287,22 @@ func Correlate(request CorrelateRequest) Result {
 			continue
 		}
 		staticConsidered++
+		if isWildcardPrincipalDeny(grant) {
+			bucketKey := normalize(grant.BucketARN)
+			wildcardDeniesByBucket[bucketKey] = append(wildcardDeniesByBucket[bucketKey], grant)
+			continue
+		}
 		agg := get(grant.IdentityNodeID, grant.PrincipalARN, grant.AccountID, grant.Region, grant.BucketARN, grant.BucketName)
 		if strings.EqualFold(strings.TrimSpace(grant.Effect), "Deny") {
 			agg.deny = append(agg.deny, grant)
 		} else {
 			agg.allow = append(agg.allow, grant)
+		}
+	}
+
+	for _, agg := range index {
+		if denies := wildcardDeniesByBucket[normalize(agg.bucketARN)]; len(denies) > 0 {
+			agg.deny = append(agg.deny, denies...)
 		}
 	}
 
@@ -550,6 +562,10 @@ func modesExceedGrant(observedModes []string, grantedModes map[string]struct{}) 
 		}
 	}
 	return false
+}
+
+func isWildcardPrincipalDeny(grant StaticGrant) bool {
+	return strings.EqualFold(strings.TrimSpace(grant.Effect), "Deny") && strings.TrimSpace(grant.PrincipalARN) == "*"
 }
 
 func isSensitive(sensitivity string) bool {

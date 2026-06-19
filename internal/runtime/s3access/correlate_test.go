@@ -201,6 +201,46 @@ func TestCorrelateAllowPlusExplicitDenyIsNotConfirmed(t *testing.T) {
 	}
 }
 
+func TestCorrelateWildcardDenyAppliesToObservedPrincipal(t *testing.T) {
+	bucketARN := "arn:aws:s3:::wildcard-denied"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{{
+			EventID:        "denied-read",
+			IdentityNodeID: "aws:identity:role:reader",
+			PrincipalARN:   "arn:aws:iam::111122223333:role/reader",
+			BucketARN:      bucketARN,
+			AccessMode:     ModeRead,
+			Action:         "s3:GetObject",
+			ObservedAt:     observedAt(1),
+			EvidenceRef:    "runtime-evidence://denied-read",
+		}},
+		Static: []StaticGrant{{
+			PrincipalARN: "*",
+			BucketARN:    bucketARN,
+			AllowedModes: []string{ModeRead},
+			Source:       SourceBucketPolicy,
+			Effect:       "Deny",
+			EvidenceRef:  "s3-evidence://wildcard-deny",
+		}},
+	})
+	if len(result.Correlations) != 1 {
+		t.Fatalf("expected observed principal correlation only, got %+v", result.Correlations)
+	}
+	correlation := result.Correlations[0]
+	if correlation.PrincipalARN == "*" {
+		t.Fatalf("wildcard deny must not create a standalone wildcard principal correlation: %+v", correlation)
+	}
+	if correlation.Status != StatusObservedWithoutGrant || correlation.StaticEffect != "Deny" {
+		t.Fatalf("expected observed_without_grant with deny effect, got %+v", correlation)
+	}
+	if !hasCaveat(correlation.Caveats, CaveatObservedDespiteDeny) || hasCaveat(correlation.Caveats, CaveatNoStaticPath) {
+		t.Fatalf("expected observed-despite-deny caveat without no-static-path, got %+v", correlation.Caveats)
+	}
+	if !containsString(correlation.EvidenceRefs, "s3-evidence://wildcard-deny") {
+		t.Fatalf("expected wildcard deny evidence to be attached, got %+v", correlation.EvidenceRefs)
+	}
+}
+
 func TestCorrelateSensitiveExposedBucketCaveat(t *testing.T) {
 	bucketARN := "arn:aws:s3:::pii-public"
 	identity := "aws:identity:role:reader"

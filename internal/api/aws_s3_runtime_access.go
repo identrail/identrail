@@ -385,10 +385,10 @@ func (s *Service) awsS3RuntimeAccessLiveInputs(ctx context.Context, workspaceID,
 	return observed, static, diagnostics, coverageGaps, failures, remediations, sourceStatus, true, nil
 }
 
-// observedS3AccessFromRuntimeRecords projects S3 runtime event records
-// (EventSource s3.amazonaws.com) into engine observed accesses. The object
-// key is redacted into a bounded safe prefix; only the bucket crosses the
-// boundary as the join resource.
+// observedS3AccessFromRuntimeRecords projects S3 runtime data-access
+// records into engine observed accesses. The object key is redacted into a
+// bounded safe prefix; only the bucket crosses the boundary as the join
+// resource.
 func observedS3AccessFromRuntimeRecords(records []AWSRuntimeEventRecord) []s3access.ObservedAccess {
 	out := []s3access.ObservedAccess{}
 	for _, record := range records {
@@ -424,42 +424,56 @@ func observedS3AccessFromRuntimeRecords(records []AWSRuntimeEventRecord) []s3acc
 }
 
 func isS3RuntimeEvent(record AWSRuntimeEventRecord) bool {
-	if strings.EqualFold(strings.TrimSpace(record.EventSource), "s3.amazonaws.com") {
-		return true
+	if s3AccessModeForEvent(record.EventName, record.Action) == "" {
+		return false
 	}
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(record.Action)), "s3:")
+	return strings.EqualFold(strings.TrimSpace(record.EventSource), "s3.amazonaws.com") ||
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(record.Action)), "s3:")
 }
 
 // s3AccessModeForEvent reduces an S3 event name (or action) to read /
-// write / list. Unknown S3 verbs default to read — the conservative
-// assumption for a data event.
+// write / list. Management-plane verbs return an empty mode so they are not
+// projected as runtime data access.
 func s3AccessModeForEvent(eventName string, action string) string {
-	name := strings.ToLower(strings.TrimSpace(eventName))
-	if name == "" {
-		// Action is like "s3:GetObject"; take the verb after the colon.
-		if colon := strings.LastIndex(action, ":"); colon >= 0 {
-			name = strings.ToLower(strings.TrimSpace(action[colon+1:]))
-		}
+	return s3AccessModeForVerb(s3ActionVerb(eventName, action))
+}
+
+func s3ActionVerb(eventName string, action string) string {
+	name := strings.TrimSpace(eventName)
+	if name != "" {
+		return strings.ToLower(name)
 	}
+	// Action is like "s3:GetObject"; take the verb after the colon.
+	if colon := strings.LastIndex(action, ":"); colon >= 0 {
+		return strings.ToLower(strings.TrimSpace(action[colon+1:]))
+	}
+	return strings.ToLower(strings.TrimSpace(action))
+}
+
+func s3AccessModeForVerb(name string) string {
 	switch {
-	case strings.HasPrefix(name, "put"),
-		strings.HasPrefix(name, "delete"),
+	case strings.HasPrefix(name, "putobject"),
+		strings.HasPrefix(name, "deleteobject"),
 		strings.HasPrefix(name, "copy"),
 		strings.HasPrefix(name, "restore"),
 		strings.HasPrefix(name, "createmultipart"),
 		strings.HasPrefix(name, "completemultipart"),
 		strings.HasPrefix(name, "uploadpart"),
-		strings.HasPrefix(name, "abortmultipart"),
-		strings.HasPrefix(name, "write"):
+		strings.HasPrefix(name, "abortmultipart"):
 		return s3access.ModeWrite
-	case strings.HasPrefix(name, "list"):
+	case name == "listbucket",
+		name == "listbucketversions",
+		name == "listbucketmultipartuploads",
+		name == "listmultipartuploadparts",
+		name == "listobjects",
+		name == "listobjectsv2":
 		return s3access.ModeList
-	case strings.HasPrefix(name, "get"),
-		strings.HasPrefix(name, "head"),
-		strings.HasPrefix(name, "select"):
+	case strings.HasPrefix(name, "getobject"),
+		strings.HasPrefix(name, "headobject"),
+		strings.HasPrefix(name, "selectobject"):
 		return s3access.ModeRead
 	default:
-		return s3access.ModeRead
+		return ""
 	}
 }
 
@@ -585,16 +599,8 @@ func staticGrantsFromS3Records(records []AWSS3BucketReachabilityRecord) []s3acce
 
 // s3GrantAllowedModes maps a bucket-policy statement's S3 actions to the
 // read/write/list access modes they authorize, matching AWS action
-// patterns (e.g. s3:*, s3:Get*) against representative APIs.
+// patterns (e.g. s3:*, s3:Get*) against concrete S3 data-access APIs.
 func s3GrantAllowedModes(actions []string) []string {
-	representatives := []struct {
-		mode   string
-		sample string
-	}{
-		{s3access.ModeRead, "s3:getobject"},
-		{s3access.ModeWrite, "s3:putobject"},
-		{s3access.ModeList, "s3:listbucket"},
-	}
 	seen := map[string]struct{}{}
 	out := []string{}
 	for _, action := range actions {
@@ -602,17 +608,58 @@ func s3GrantAllowedModes(actions []string) []string {
 		if trimmed == "" {
 			continue
 		}
-		for _, rep := range representatives {
-			if _, ok := seen[rep.mode]; ok {
+		for _, sample := range s3DataAccessActionSamples {
+			if _, ok := seen[sample.mode]; ok {
 				continue
 			}
-			if awsActionPatternMatches(trimmed, rep.sample) {
-				seen[rep.mode] = struct{}{}
-				out = append(out, rep.mode)
+			if awsActionPatternMatches(trimmed, sample.action) {
+				seen[sample.mode] = struct{}{}
+				out = append(out, sample.mode)
 			}
 		}
 	}
 	return out
+}
+
+var s3DataAccessActionSamples = []struct {
+	mode   string
+	action string
+}{
+	{s3access.ModeRead, "s3:getobject"},
+	{s3access.ModeRead, "s3:getobjectacl"},
+	{s3access.ModeRead, "s3:getobjectattributes"},
+	{s3access.ModeRead, "s3:getobjectlegalhold"},
+	{s3access.ModeRead, "s3:getobjectretention"},
+	{s3access.ModeRead, "s3:getobjecttagging"},
+	{s3access.ModeRead, "s3:getobjecttorrent"},
+	{s3access.ModeRead, "s3:getobjectversion"},
+	{s3access.ModeRead, "s3:getobjectversionacl"},
+	{s3access.ModeRead, "s3:getobjectversionattributes"},
+	{s3access.ModeRead, "s3:getobjectversionforreplication"},
+	{s3access.ModeRead, "s3:getobjectversiontagging"},
+	{s3access.ModeRead, "s3:getobjectversiontorrent"},
+	{s3access.ModeRead, "s3:headobject"},
+	{s3access.ModeRead, "s3:selectobjectcontent"},
+	{s3access.ModeWrite, "s3:abortmultipartupload"},
+	{s3access.ModeWrite, "s3:completemultipartupload"},
+	{s3access.ModeWrite, "s3:copyobject"},
+	{s3access.ModeWrite, "s3:createmultipartupload"},
+	{s3access.ModeWrite, "s3:deleteobject"},
+	{s3access.ModeWrite, "s3:deleteobjecttagging"},
+	{s3access.ModeWrite, "s3:deleteobjectversion"},
+	{s3access.ModeWrite, "s3:deleteobjectversiontagging"},
+	{s3access.ModeWrite, "s3:putobject"},
+	{s3access.ModeWrite, "s3:putobjectacl"},
+	{s3access.ModeWrite, "s3:putobjectlegalhold"},
+	{s3access.ModeWrite, "s3:putobjectretention"},
+	{s3access.ModeWrite, "s3:putobjecttagging"},
+	{s3access.ModeWrite, "s3:restoreobject"},
+	{s3access.ModeWrite, "s3:uploadpart"},
+	{s3access.ModeWrite, "s3:uploadpartcopy"},
+	{s3access.ModeList, "s3:listbucket"},
+	{s3access.ModeList, "s3:listbucketmultipartuploads"},
+	{s3access.ModeList, "s3:listbucketversions"},
+	{s3access.ModeList, "s3:listmultipartuploadparts"},
 }
 
 // s3BucketSensitivity derives a coarse sensitivity tier for a bucket from

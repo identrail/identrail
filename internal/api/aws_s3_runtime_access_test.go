@@ -272,7 +272,10 @@ func TestObservedS3AccessFromRuntimeRecordsFiltersAndRedacts(t *testing.T) {
 	records := []AWSRuntimeEventRecord{
 		{EventID: "s3get", EventType: "api-call", EventSource: "s3.amazonaws.com", EventName: "GetObject", Action: "s3:GetObject", ActorIdentityNodeID: "id-1", TargetResourceARN: "arn:aws:s3:::bucket/reports/2026/secret-customer@example.com.csv"},
 		{EventID: "s3uuid", EventType: "api-call", EventSource: "s3.amazonaws.com", EventName: "PutObject", Action: "s3:PutObject", ActorIdentityNodeID: "id-2", TargetResourceARN: "arn:aws:s3:::bucket/3f9a1b2c-1111-2222-3333-444455556666/data"},
-		{EventID: "kms", EventType: "kms-decrypt", EventSource: "kms.amazonaws.com", Action: "kms:Decrypt", ActorIdentityNodeID: "id-3", TargetResourceARN: "arn:aws:kms:us-east-1:1:key/k"},
+		{EventID: "bucket-policy", EventType: "api-call", EventSource: "s3.amazonaws.com", EventName: "PutBucketPolicy", Action: "s3:PutBucketPolicy", ActorIdentityNodeID: "id-3", TargetResourceARN: "arn:aws:s3:::bucket"},
+		{EventID: "bucket-encryption", EventType: "api-call", EventSource: "s3.amazonaws.com", EventName: "GetBucketEncryption", Action: "s3:GetBucketEncryption", ActorIdentityNodeID: "id-4", TargetResourceARN: "arn:aws:s3:::bucket"},
+		{EventID: "bucket-create", EventType: "api-call", EventSource: "s3.amazonaws.com", EventName: "CreateBucket", Action: "s3:CreateBucket", ActorIdentityNodeID: "id-5", TargetResourceARN: "arn:aws:s3:::bucket"},
+		{EventID: "kms", EventType: "kms-decrypt", EventSource: "kms.amazonaws.com", Action: "kms:Decrypt", ActorIdentityNodeID: "id-6", TargetResourceARN: "arn:aws:kms:us-east-1:1:key/k"},
 	}
 	observed := observedS3AccessFromRuntimeRecords(records)
 	if len(observed) != 2 {
@@ -310,8 +313,11 @@ func TestS3GrantAllowedModesMapsActionPatterns(t *testing.T) {
 		want    []string
 	}{
 		{actions: []string{"s3:GetObject"}, want: []string{s3access.ModeRead}},
+		{actions: []string{"s3:GetObjectVersion"}, want: []string{s3access.ModeRead}},
 		{actions: []string{"s3:PutObject", "s3:DeleteObject"}, want: []string{s3access.ModeWrite}},
+		{actions: []string{"s3:PutObjectAcl"}, want: []string{s3access.ModeWrite}},
 		{actions: []string{"s3:ListBucket"}, want: []string{s3access.ModeList}},
+		{actions: []string{"s3:ListBucketVersions"}, want: []string{s3access.ModeList}},
 		{actions: []string{"s3:*"}, want: []string{s3access.ModeRead, s3access.ModeWrite, s3access.ModeList}},
 		{actions: []string{"s3:Get*"}, want: []string{s3access.ModeRead}},
 	}
