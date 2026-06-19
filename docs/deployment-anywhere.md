@@ -27,6 +27,13 @@ Fastest local bootstrap:
    - API health: `curl http://localhost:8080/healthz`
    - Web: `http://localhost:8081`
 
+For a low-traffic Neon launch, run migrations once and start only `api` and
+`web` until background scans are needed. Configure the API with
+`IDENTRAIL_POSTGRES_MAX_IDLE_CONNS=0` and
+`IDENTRAIL_POSTGRES_CONN_MAX_IDLE_TIME=30s`, and point external uptime checks
+at `/healthz` instead of `/readyz`. Start `worker` later when queued scans,
+scheduled scan policies, repo scans, or export cleanup should run.
+
 ## 2) Kubernetes
 
 Use this for managed cluster deployment.

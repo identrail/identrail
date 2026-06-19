@@ -164,6 +164,12 @@ Production-style hardening example:
 - `docker compose -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.prod.example.yml -f deploy/docker/docker-compose.security.example.yml --env-file deploy/docker/.env run --build --rm migrations`
 - `docker compose -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.prod.example.yml -f deploy/docker/docker-compose.security.example.yml --env-file deploy/docker/.env up -d --build api worker web`
 
+For a low-traffic Neon launch, start only `api` and `web` after migrations,
+set `IDENTRAIL_POSTGRES_MAX_IDLE_CONNS=0` and
+`IDENTRAIL_POSTGRES_CONN_MAX_IDLE_TIME=30s`, and keep external uptime checks on
+`/healthz`. Start `worker` later when queued scans or scheduled background jobs
+are needed.
+
 ## Verify
 ### Production notes
 
@@ -173,6 +179,9 @@ Apply database migrations before starting API and worker services:
 
 - `docker compose --env-file deploy/docker/.env -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.prod.example.yml -f deploy/docker/docker-compose.security.example.yml run --build --rm migrations`
 - `docker compose --env-file deploy/docker/.env -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.prod.example.yml -f deploy/docker/docker-compose.security.example.yml up -d api worker web`
+
+For a quiet serverless Postgres launch, use `up -d api web` instead of starting
+`worker` immediately.
 
 
 - API health: `curl http://localhost:8080/healthz`

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -23,6 +24,13 @@ type PostgresStore struct {
 	db              *sql.DB
 	queries         *sqlcdb.Queries
 	enforceScopeRLS bool
+}
+
+type postgresPoolConfig struct {
+	maxOpenConns    int
+	maxIdleConns    int
+	connMaxLifetime time.Duration
+	connMaxIdleTime time.Duration
 }
 
 type sqlExecutor interface {
@@ -134,16 +142,79 @@ func NewPostgresStore(databaseURL string) (*PostgresStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}
-	// Conservative pool defaults reduce misconfiguration risk in early deployments.
-	db.SetMaxOpenConns(20)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(30 * time.Minute)
-	db.SetConnMaxIdleTime(5 * time.Minute)
+	poolConfig, err := postgresPoolConfigFromEnv()
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	applyPostgresPoolConfig(db, poolConfig)
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 	return &PostgresStore{db: db, queries: sqlcdb.New(db)}, nil
+}
+
+func applyPostgresPoolConfig(db *sql.DB, config postgresPoolConfig) {
+	db.SetMaxOpenConns(config.maxOpenConns)
+	db.SetMaxIdleConns(config.maxIdleConns)
+	db.SetConnMaxLifetime(config.connMaxLifetime)
+	db.SetConnMaxIdleTime(config.connMaxIdleTime)
+}
+
+func postgresPoolConfigFromEnv() (postgresPoolConfig, error) {
+	maxOpenConns, err := postgresIntEnv("IDENTRAIL_POSTGRES_MAX_OPEN_CONNS", 20, 1)
+	if err != nil {
+		return postgresPoolConfig{}, err
+	}
+	maxIdleConns, err := postgresIntEnv("IDENTRAIL_POSTGRES_MAX_IDLE_CONNS", 5, 0)
+	if err != nil {
+		return postgresPoolConfig{}, err
+	}
+	connMaxLifetime, err := postgresDurationEnv("IDENTRAIL_POSTGRES_CONN_MAX_LIFETIME", 30*time.Minute)
+	if err != nil {
+		return postgresPoolConfig{}, err
+	}
+	connMaxIdleTime, err := postgresDurationEnv("IDENTRAIL_POSTGRES_CONN_MAX_IDLE_TIME", 5*time.Minute)
+	if err != nil {
+		return postgresPoolConfig{}, err
+	}
+	return postgresPoolConfig{
+		maxOpenConns:    maxOpenConns,
+		maxIdleConns:    maxIdleConns,
+		connMaxLifetime: connMaxLifetime,
+		connMaxIdleTime: connMaxIdleTime,
+	}, nil
+}
+
+func postgresIntEnv(name string, defaultValue int, min int) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return defaultValue, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer: %w", name, err)
+	}
+	if value < min {
+		return 0, fmt.Errorf("%s must be >= %d", name, min)
+	}
+	return value, nil
+}
+
+func postgresDurationEnv(name string, defaultValue time.Duration) (time.Duration, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return defaultValue, nil
+	}
+	value, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a Go duration: %w", name, err)
+	}
+	if value < 0 {
+		return 0, fmt.Errorf("%s must be >= 0", name)
+	}
+	return value, nil
 }
 
 // NewPostgresStoreWithDB builds a store around an existing sql.DB (tests).
