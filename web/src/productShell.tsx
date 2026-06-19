@@ -23911,7 +23911,7 @@ export function ProductSettingsPage() {
           </div>
           <Palette size={18} aria-hidden="true" />
         </div>
-        <p>Theme, fonts, contrast, motion, and app icon preferences.</p>
+        <p>Theme, fonts, contrast, and motion preferences.</p>
         <Link className="idt-settings-action-row" to={appearancePath}>
           <span>
             <strong>Open appearance settings</strong>
@@ -24092,96 +24092,95 @@ export function ProductSettingsPage() {
         </div>
       </section>
 
-      <div className="idt-settings-grid">
-        <section className="idt-settings-card idt-settings-security-card">
-          <div className="idt-settings-card-header">
-            <div>
-              <h3>Security</h3>
-            </div>
+      <section className="idt-settings-card idt-settings-access-card" aria-labelledby="idt-settings-access-heading">
+        <div className="idt-settings-card-header">
+          <div>
+            <h3 id="idt-settings-access-heading">Security and workspace</h3>
           </div>
-          <dl className="idt-settings-facts">
-            <div>
-              <dt>Sign-in methods</dt>
-              <dd>{signInMethods}</dd>
-            </div>
-            <div>
-              <dt>2FA</dt>
-              <dd>{mfaStatus}</dd>
-            </div>
-            <div>
-              <dt>SAML SSO</dt>
-              <dd>{samlStatus}</dd>
-            </div>
-          </dl>
-          <details className="idt-settings-inline-disclosure idt-settings-sessions-card">
-            <summary className="idt-settings-action-row idt-settings-action-summary">
-              <span>
-                <strong>Manage sessions</strong>
-              </span>
-              <ChevronDown className="idt-settings-row-chevron" size={16} aria-hidden="true" />
-            </summary>
-            <div className="idt-settings-disclosure-body">
-              {sessionsLoading ? <p className="idt-app-alert">Loading active sessions...</p> : null}
-              {sessionsError ? (
-                <p className="idt-app-alert idt-app-alert-error" role="alert">
-                  {sessionsError}
-                </p>
-              ) : null}
-              {!sessionsLoading ? (
-                <SessionsList
-                  busySessionID={busySessionID}
-                  revokingOthers={revokingOthers}
-                  sessions={sessions}
-                  onRevoke={handleRevokeSession}
-                  onRevokeOthers={handleRevokeOtherSessions}
-                />
-              ) : null}
-            </div>
-          </details>
-        </section>
+        </div>
+        <div className="idt-settings-access-grid">
+          <div className="idt-settings-access-section">
+            <h4>Security</h4>
+            <dl className="idt-settings-facts idt-settings-security-facts">
+              <div>
+                <dt>Sign-in methods</dt>
+                <dd>{signInMethods}</dd>
+              </div>
+              <div>
+                <dt>2FA</dt>
+                <dd>{mfaStatus}</dd>
+              </div>
+              <div>
+                <dt>SAML SSO</dt>
+                <dd>{samlStatus}</dd>
+              </div>
+            </dl>
+            <details className="idt-settings-inline-disclosure idt-settings-sessions-card">
+              <summary className="idt-settings-action-row idt-settings-action-summary">
+                <span>
+                  <strong>Manage sessions</strong>
+                </span>
+                <ChevronDown className="idt-settings-row-chevron" size={16} aria-hidden="true" />
+              </summary>
+              <div className="idt-settings-disclosure-body">
+                {sessionsLoading ? <p className="idt-app-alert">Loading active sessions...</p> : null}
+                {sessionsError ? (
+                  <p className="idt-app-alert idt-app-alert-error" role="alert">
+                    {sessionsError}
+                  </p>
+                ) : null}
+                {!sessionsLoading ? (
+                  <SessionsList
+                    busySessionID={busySessionID}
+                    revokingOthers={revokingOthers}
+                    sessions={sessions}
+                    onRevoke={handleRevokeSession}
+                    onRevokeOthers={handleRevokeOtherSessions}
+                  />
+                ) : null}
+              </div>
+            </details>
+          </div>
 
-        <section className="idt-settings-card idt-settings-workspace-card">
-          <div className="idt-settings-card-header">
-            <div>
-              <h3>Workspace</h3>
+          <div className="idt-settings-access-section">
+            <h4>Workspace</h4>
+            <dl className="idt-settings-facts idt-settings-workspace-facts">
+              <div>
+                <dt>Name</dt>
+                <dd>{workspaceDisplayName}</dd>
+              </div>
+              <div>
+                <dt>Your access</dt>
+                <dd>{formatTokenLabel(activeRole)}</dd>
+              </div>
+              <div>
+                <dt>Admins</dt>
+                <dd>{adminMembers}</dd>
+              </div>
+            </dl>
+            <div className="idt-settings-counts">
+              <article>
+                <strong>{members.length}</strong>
+                <span>Total members</span>
+              </article>
+              <article>
+                <strong>{activeMembers}</strong>
+                <span>Active</span>
+              </article>
+              <article>
+                <strong>{invitedMembers}</strong>
+                <span>Invited</span>
+              </article>
             </div>
+            <Link className="idt-settings-action-row" to={workspacesPath}>
+              <span>
+                <strong>Manage members</strong>
+              </span>
+              <ChevronRight size={16} aria-hidden="true" />
+            </Link>
           </div>
-          <dl className="idt-settings-facts">
-            <div>
-              <dt>Name</dt>
-              <dd>{workspaceDisplayName}</dd>
-            </div>
-            <div>
-              <dt>Your access</dt>
-              <dd>{formatTokenLabel(activeRole)}</dd>
-            </div>
-            <div>
-              <dt>Admins</dt>
-              <dd>{adminMembers}</dd>
-            </div>
-          </dl>
-          <div className="idt-settings-counts">
-            <article>
-              <strong>{members.length}</strong>
-              <span>Total members</span>
-            </article>
-            <article>
-              <strong>{activeMembers}</strong>
-              <span>Active</span>
-            </article>
-            <article>
-              <strong>{invitedMembers}</strong>
-              <span>Invited</span>
-            </article>
-          </div>
-          <Link className="idt-settings-action-row" to={workspacesPath}>
-            <span>
-              <strong>Manage members</strong>
-            </span>
-            <ChevronRight size={16} aria-hidden="true" />
-          </Link>
-        </section>
-      </div>
+        </div>
+      </section>
 
       <details className="idt-settings-card idt-settings-disclosure">
         <summary className="idt-settings-disclosure-summary">
