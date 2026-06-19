@@ -1849,33 +1849,38 @@ describe('ProductAppearanceSettingsPage', () => {
 
     expect(await screen.findByRole('heading', { name: 'Appearance' })).toBeInTheDocument();
     expect(getWhoAmI).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Dark' }));
     expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(document.documentElement.dataset.appearancePreset).toBe('vercel');
+    expect(document.documentElement.style.getPropertyValue('--appearance-bg')).toBe('#000000');
+    expect(document.documentElement.style.getPropertyValue('--appearance-fg')).toBe('#ededed');
+    expect(document.documentElement.style.getPropertyValue('--appearance-ui-font')).toContain('Inter');
+    expect(document.documentElement.style.getPropertyValue('--appearance-contrast')).toBe('52');
+    expect(screen.queryByRole('heading', { name: 'App icon' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Light' }));
+    expect(document.documentElement.dataset.theme).toBe('light');
     expect(JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}')).toMatchObject({
-      themeMode: 'dark'
+      themeMode: 'light'
     });
   });
 
-  it('persists Codex-style controls through the allowlisted appearance model', async () => {
+  it('persists appearance controls through the allowlisted appearance model', async () => {
     await renderProductAppearanceSettingsPage();
 
     fireEvent.change(screen.getByLabelText('Light theme'), { target: { value: 'xcode' } });
     fireEvent.change(screen.getByLabelText('Accent color'), { target: { value: '#123456' } });
     fireEvent.click(screen.getByRole('switch', { name: 'Use pointer cursors' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Identrail D...' }));
 
     const stored = JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}');
     expect(stored).toMatchObject({
       lightPreset: 'xcode',
       accent: '#123456',
       customColors: true,
-      pointerCursors: true,
-      appIcon: 'dark'
+      pointerCursors: true
     });
     expect(document.documentElement.style.getPropertyValue('--appearance-accent')).toBe('#123456');
     expect(document.documentElement.dataset.pointerCursors).toBe('true');
-    expect(document.documentElement.dataset.appearanceAppIcon).toBe('dark');
+    expect(document.documentElement.dataset.appearanceAppIcon).toBeUndefined();
   });
 
   it('keeps dark palettes out of the light appearance preset choices', async () => {
@@ -1886,9 +1891,17 @@ describe('ProductAppearanceSettingsPage', () => {
 
     expect(within(lightTheme).queryByRole('option', { name: 'Vercel' })).not.toBeInTheDocument();
     expect(within(lightTheme).queryByRole('option', { name: 'GitHub' })).not.toBeInTheDocument();
+    expect(within(lightTheme).getByRole('option', { name: 'Stripe' })).toBeInTheDocument();
+    expect(within(lightTheme).getByRole('option', { name: 'Slack' })).toBeInTheDocument();
+    expect(within(lightTheme).getByRole('option', { name: 'Shopify' })).toBeInTheDocument();
     expect(within(lightTheme).getByRole('option', { name: 'Xcode' })).toBeInTheDocument();
     expect(within(darkTheme).getByRole('option', { name: 'Vercel' })).toBeInTheDocument();
     expect(within(darkTheme).getByRole('option', { name: 'GitHub' })).toBeInTheDocument();
+    expect(within(darkTheme).getByRole('option', { name: 'Stripe' })).toBeInTheDocument();
+    expect(within(darkTheme).getByRole('option', { name: 'Slack' })).toBeInTheDocument();
+    expect(within(darkTheme).getByRole('option', { name: 'Shopify' })).toBeInTheDocument();
+    expect(within(darkTheme).getByRole('option', { name: 'Supabase' })).toBeInTheDocument();
+    expect(within(darkTheme).getByRole('option', { name: 'Neon' })).toBeInTheDocument();
   });
 
   it('sanitizes stored appearance values before they reach CSS variables', async () => {
@@ -1911,16 +1924,15 @@ describe('ProductAppearanceSettingsPage', () => {
 
     expect(normalized).toMatchObject({
       lightPreset: 'notion',
-      darkPreset: 'identrail',
-      accent: '#7c6dff',
-      background: '#121518',
+      darkPreset: 'vercel',
+      accent: '#ffffff',
+      background: '#000000',
       foreground: '#abcdef',
       customColors: false,
-      uiFont: 'system',
+      uiFont: 'inter',
       codeFont: 'mono-system',
       contrast: 100,
-      reduceMotion: 'system',
-      appIcon: 'default'
+      reduceMotion: 'system'
     });
   });
 
@@ -1948,12 +1960,12 @@ describe('ProductAppearanceSettingsPage', () => {
       themeMode: 'dark',
       lightPreset: 'xcode',
       accent: '#123456',
-      background: '#121518',
-      foreground: '#f5f7f8',
+      background: '#000000',
+      foreground: '#ededed',
       customColors: true
     });
-    expect(document.documentElement.style.getPropertyValue('--appearance-bg')).toBe('#121518');
-    expect(document.documentElement.style.getPropertyValue('--appearance-fg')).toBe('#f5f7f8');
+    expect(document.documentElement.style.getPropertyValue('--appearance-bg')).toBe('#000000');
+    expect(document.documentElement.style.getPropertyValue('--appearance-fg')).toBe('#ededed');
   });
 
   it('seeds the visible preset colors before enabling custom colors', async () => {

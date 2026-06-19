@@ -8,8 +8,8 @@ import type {
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   BarChart3,
-  Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronUp,
   ExternalLink,
@@ -22770,8 +22770,14 @@ const APPEARANCE_DIFF_OPTIONS: Array<{ id: AppearanceDiffMarkers; label: string 
   { id: 'symbols', label: '+/-' }
 ];
 
-const APPEARANCE_UI_FONT_OPTIONS: AppearanceFontID[] = ['system', 'inter', 'geist'];
-const APPEARANCE_CODE_FONT_OPTIONS: AppearanceFontID[] = ['mono-system', 'ibm-plex-mono'];
+const APPEARANCE_UI_FONT_OPTIONS: AppearanceFontID[] = [
+  'inter',
+  'geist',
+  'system',
+  'space-grotesk',
+  'barlow-condensed'
+];
+const APPEARANCE_CODE_FONT_OPTIONS: AppearanceFontID[] = ['mono-system', 'ibm-plex-mono', 'jetbrains-mono'];
 
 function appearancePresetOptions(mode: 'light' | 'dark') {
   return APPEARANCE_PRESETS.filter((preset) =>
@@ -22826,7 +22832,10 @@ function AppearanceSwitch({ checked, label, onChange }: AppearanceSwitchProps) {
       aria-label={label}
       onClick={() => onChange(!checked)}
     >
-      <span aria-hidden="true" />
+      <span className="idt-appearance-switch-thumb" aria-hidden="true" />
+      <span className="idt-appearance-switch-label" aria-hidden="true">
+        {checked ? 'On' : 'Off'}
+      </span>
     </button>
   );
 }
@@ -22955,19 +22964,17 @@ export function ProductAppearanceSettingsPage() {
   return (
     <section className="idt-app-panel idt-settings-page idt-appearance-page">
       <header className="idt-settings-header idt-appearance-header">
-        <div>
-          <Link className="idt-appearance-back" to={settingsPath}>
-            Back to settings
-          </Link>
-          <h2>Appearance</h2>
-        </div>
+        <Link className="idt-appearance-back" to={settingsPath} aria-label="Back to settings">
+          <ChevronLeft size={20} aria-hidden="true" />
+        </Link>
+        <h2>Appearance</h2>
       </header>
 
       <section className="idt-settings-card idt-appearance-card" aria-labelledby="idt-appearance-theme-heading">
         <div className="idt-appearance-card-header">
           <div>
             <h3 id="idt-appearance-theme-heading">Theme</h3>
-            <p>Use light, dark, or match your system</p>
+            <p>Choose a theme or follow your system</p>
           </div>
           <AppearanceSegmentedControl
             label="Theme"
@@ -23012,6 +23019,7 @@ export function ProductAppearanceSettingsPage() {
           <label className="idt-appearance-control-row">
             <span>
               <strong>Light theme</strong>
+              <small>{resolvedTheme === 'light' ? 'Active now' : 'Used when Light is selected'}</small>
             </span>
             <select
               aria-label="Light theme"
@@ -23029,6 +23037,7 @@ export function ProductAppearanceSettingsPage() {
           <label className="idt-appearance-control-row">
             <span>
               <strong>Dark theme</strong>
+              <small>{resolvedTheme === 'dark' ? 'Active now' : 'Used when Dark is selected'}</small>
             </span>
             <select
               aria-label="Dark theme"
@@ -23103,6 +23112,7 @@ export function ProductAppearanceSettingsPage() {
           <div className="idt-appearance-control-row">
             <span>
               <strong>Translucent sidebar</strong>
+              <small>{preferences.translucentSidebar ? 'Sidebar blur is on' : 'Sidebar stays solid'}</small>
             </span>
             <AppearanceSwitch
               checked={preferences.translucentSidebar}
@@ -23134,7 +23144,7 @@ export function ProductAppearanceSettingsPage() {
         <div className="idt-appearance-behavior-row">
           <div>
             <h3>Use pointer cursors</h3>
-            <p>Change the cursor to a pointer when hovering over interactive elements</p>
+            <p>Show pointer cursors on interactive controls</p>
           </div>
           <AppearanceSwitch
             checked={preferences.pointerCursors}
@@ -23193,7 +23203,7 @@ export function ProductAppearanceSettingsPage() {
         <div className="idt-appearance-behavior-row">
           <div>
             <h3>Diff markers</h3>
-            <p>Use colored bars and backgrounds or show plus and minus symbols on each changed line</p>
+            <p>Show changed lines with color or +/- symbols</p>
           </div>
           <AppearanceSegmentedControl
             label="Diff markers"
@@ -23206,41 +23216,13 @@ export function ProductAppearanceSettingsPage() {
         <div className="idt-appearance-behavior-row">
           <div>
             <h3>Font smoothing</h3>
-            <p>Use native macOS font anti-aliasing</p>
+            <p>Use native font smoothing where supported</p>
           </div>
           <AppearanceSwitch
             checked={preferences.fontSmoothing}
             label="Font smoothing"
             onChange={(fontSmoothing) => commitPreferences({ fontSmoothing })}
           />
-        </div>
-      </section>
-
-      <section className="idt-appearance-dock-card" aria-labelledby="idt-appearance-icon-heading">
-        <div>
-          <h3 id="idt-appearance-icon-heading">App icon</h3>
-          <p>Choose the icon style Identrail uses inside the app shell</p>
-        </div>
-        <div className="idt-appearance-icon-options">
-          {[
-            ['default', 'Default'],
-            ['light', 'Identrail L...'],
-            ['dark', 'Identrail D...']
-          ].map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              className="idt-appearance-icon-option"
-              aria-pressed={preferences.appIcon === id}
-              onClick={() => commitPreferences({ appIcon: id as AppearancePreferences['appIcon'] })}
-            >
-              <span className="idt-appearance-icon-swatch" data-icon-tone={id} aria-hidden="true">
-                <Palette size={22} />
-              </span>
-              <span>{label}</span>
-              {preferences.appIcon === id ? <Check size={16} aria-hidden="true" /> : <span aria-hidden="true" />}
-            </button>
-          ))}
         </div>
       </section>
 

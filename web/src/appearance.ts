@@ -4,7 +4,6 @@ export const APPEARANCE_STORAGE_KEY = 'identrail-appearance';
 export type AppearanceThemeMode = 'light' | 'dark' | 'system';
 export type AppearanceReduceMotion = 'system' | 'on' | 'off';
 export type AppearanceDiffMarkers = 'color' | 'symbols';
-export type AppearanceAppIcon = 'default' | 'light' | 'dark';
 
 export type AppearancePresetID =
   | 'absolutely'
@@ -14,17 +13,33 @@ export type AppearancePresetID =
   | 'gruvbox'
   | 'identrail'
   | 'linear'
+  | 'neon'
   | 'notion'
   | 'one'
   | 'proof'
   | 'raycast'
   | 'rose-pine'
+  | 'shopify'
+  | 'shopify-light'
+  | 'slack'
+  | 'slack-light'
   | 'solarized'
+  | 'stripe'
+  | 'stripe-light'
+  | 'supabase'
   | 'vercel'
   | 'vs-code-plus'
   | 'xcode';
 
-export type AppearanceFontID = 'system' | 'inter' | 'geist' | 'mono-system' | 'ibm-plex-mono';
+export type AppearanceFontID =
+  | 'system'
+  | 'inter'
+  | 'geist'
+  | 'space-grotesk'
+  | 'barlow-condensed'
+  | 'mono-system'
+  | 'ibm-plex-mono'
+  | 'jetbrains-mono';
 
 export type AppearancePreferences = {
   themeMode: AppearanceThemeMode;
@@ -44,7 +59,6 @@ export type AppearancePreferences = {
   codeFontSize: number;
   diffMarkers: AppearanceDiffMarkers;
   fontSmoothing: boolean;
-  appIcon: AppearanceAppIcon;
 };
 
 export type AppearancePreset = {
@@ -103,6 +117,72 @@ export const APPEARANCE_PRESETS: AppearancePreset[] = [
     panel: '#1e1819',
     border: '#3b282b',
     muted: '#d7b8bc'
+  },
+  {
+    id: 'stripe-light',
+    label: 'Stripe',
+    mode: 'light',
+    accent: '#635bff',
+    background: '#f6f9fc',
+    foreground: '#0a2540',
+    panel: '#ffffff',
+    border: '#d6dee8',
+    muted: '#425466'
+  },
+  {
+    id: 'stripe',
+    label: 'Stripe',
+    mode: 'dark',
+    accent: '#99a3ff',
+    background: '#0a1020',
+    foreground: '#f6f9fc',
+    panel: '#11182b',
+    border: '#27324a',
+    muted: '#a5b4c6'
+  },
+  {
+    id: 'slack-light',
+    label: 'Slack',
+    mode: 'light',
+    accent: '#611f69',
+    background: '#f8f5f7',
+    foreground: '#1d1c1d',
+    panel: '#ffffff',
+    border: '#e8dfe7',
+    muted: '#616061'
+  },
+  {
+    id: 'slack',
+    label: 'Slack',
+    mode: 'dark',
+    accent: '#36c5f0',
+    background: '#101014',
+    foreground: '#f8f8f8',
+    panel: '#1a1d21',
+    border: '#34373b',
+    muted: '#ababad'
+  },
+  {
+    id: 'shopify-light',
+    label: 'Shopify',
+    mode: 'light',
+    accent: '#008060',
+    background: '#f6f6f7',
+    foreground: '#202223',
+    panel: '#ffffff',
+    border: '#d5d8dc',
+    muted: '#6d7175'
+  },
+  {
+    id: 'shopify',
+    label: 'Shopify',
+    mode: 'dark',
+    accent: '#95bf47',
+    background: '#0b1411',
+    foreground: '#f3f8f4',
+    panel: '#101d18',
+    border: '#284033',
+    muted: '#b6c5bb'
   },
   {
     id: 'rose-pine',
@@ -204,6 +284,28 @@ export const APPEARANCE_PRESETS: AppearancePreset[] = [
     muted: '#8b949e'
   },
   {
+    id: 'supabase',
+    label: 'Supabase',
+    mode: 'dark',
+    accent: '#3ecf8e',
+    background: '#0b0f0c',
+    foreground: '#ecfdf5',
+    panel: '#101815',
+    border: '#1f3a2f',
+    muted: '#9fb7aa'
+  },
+  {
+    id: 'neon',
+    label: 'Neon',
+    mode: 'dark',
+    accent: '#00e599',
+    background: '#030712',
+    foreground: '#f8fafc',
+    panel: '#08111f',
+    border: '#1f2a44',
+    muted: '#94a3b8'
+  },
+  {
     id: 'gruvbox',
     label: 'Gruvbox',
     mode: 'dark',
@@ -242,37 +344,42 @@ export const APPEARANCE_FONTS: Record<AppearanceFontID, string> = {
   system: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif',
   inter: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   geist: 'Geist, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  'space-grotesk': '"Space Grotesk", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  'barlow-condensed': '"Barlow Semi Condensed", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   'mono-system': 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-  'ibm-plex-mono': '"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+  'ibm-plex-mono': '"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+  'jetbrains-mono': '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
 };
 
 export const APPEARANCE_FONT_LABELS: Record<AppearanceFontID, string> = {
   system: 'System',
   inter: 'Inter',
   geist: 'Geist',
+  'space-grotesk': 'Space Grotesk',
+  'barlow-condensed': 'Barlow Condensed',
   'mono-system': 'System Mono',
-  'ibm-plex-mono': 'IBM Plex Mono'
+  'ibm-plex-mono': 'IBM Plex Mono',
+  'jetbrains-mono': 'JetBrains Mono'
 };
 
 export const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
-  themeMode: 'system',
+  themeMode: 'dark',
   lightPreset: 'notion',
-  darkPreset: 'identrail',
-  accent: '#7c6dff',
-  background: '#121518',
-  foreground: '#f5f7f8',
+  darkPreset: 'vercel',
+  accent: '#ffffff',
+  background: '#000000',
+  foreground: '#ededed',
   customColors: false,
-  uiFont: 'system',
+  uiFont: 'inter',
   codeFont: 'mono-system',
   translucentSidebar: false,
-  contrast: 45,
+  contrast: 52,
   pointerCursors: false,
   reduceMotion: 'system',
   uiFontSize: 16,
   codeFontSize: 14,
   diffMarkers: 'color',
-  fontSmoothing: true,
-  appIcon: 'default'
+  fontSmoothing: true
 };
 
 const FONT_IDS: ReadonlySet<string> = new Set(Object.keys(APPEARANCE_FONTS));
@@ -342,8 +449,7 @@ export function normalizeAppearancePreferences(value: unknown): AppearancePrefer
     uiFontSize: sanitizeNumber(source.uiFontSize, DEFAULT_APPEARANCE_PREFERENCES.uiFontSize, 14, 22),
     codeFontSize: sanitizeNumber(source.codeFontSize, DEFAULT_APPEARANCE_PREFERENCES.codeFontSize, 12, 22),
     diffMarkers: sanitizeEnum(source.diffMarkers, ['color', 'symbols'], DEFAULT_APPEARANCE_PREFERENCES.diffMarkers),
-    fontSmoothing: sanitizeBoolean(source.fontSmoothing, DEFAULT_APPEARANCE_PREFERENCES.fontSmoothing),
-    appIcon: sanitizeEnum(source.appIcon, ['default', 'light', 'dark'], DEFAULT_APPEARANCE_PREFERENCES.appIcon)
+    fontSmoothing: sanitizeBoolean(source.fontSmoothing, DEFAULT_APPEARANCE_PREFERENCES.fontSmoothing)
   };
 }
 
@@ -434,7 +540,7 @@ export function applyAppearancePreferences(preferences: AppearancePreferences): 
   root.dataset.diffMarkers = normalized.diffMarkers;
   root.dataset.fontSmoothing = normalized.fontSmoothing ? 'true' : 'false';
   root.dataset.appearanceTranslucentSidebar = normalized.translucentSidebar ? 'true' : 'false';
-  root.dataset.appearanceAppIcon = normalized.appIcon;
+  delete root.dataset.appearanceAppIcon;
 
   style.setProperty('--appearance-accent', colors.accent);
   style.setProperty('--appearance-bg', colors.background);
