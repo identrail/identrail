@@ -27228,6 +27228,13 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   transition: background-color 0.12s ease, color 0.12s ease;
 }
 
+@media (min-width: 641px) and (max-width: 960px) {
+  .idt-app-console-layout .idt-app-shell-nav a,
+  html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
+    width: auto;
+  }
+}
+
 .idt-app-console-layout .idt-app-shell-nav a:hover,
 .idt-app-console-layout .idt-app-shell-nav a:focus-visible {
   background: #131318;
