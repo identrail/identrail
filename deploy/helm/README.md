@@ -41,4 +41,9 @@ This chart is the Kubernetes deployment baseline for Identrail.
   from service when runtime dependencies fail. For low-traffic Neon launches
   where the database should scale to zero, override
   `api.readinessProbe.httpGet.path=/healthz`; otherwise Kubernetes will poll
-  `/readyz` and keep Postgres active.
+  `/readyz` and keep Postgres active. The chart also deploys the worker by
+  default (`worker.replicaCount: 1`) which polls Postgres via the API job
+  queue every 2s; set `worker.replicaCount=0` (or, if the worker must stay
+  running, set `config.IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED=false` and
+  `config.IDENTRAIL_WORKER_RUN_NOW=false`) so the worker does not keep the
+  compute active.
