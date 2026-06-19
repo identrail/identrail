@@ -199,7 +199,7 @@ func (i *Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestRes
 		result.FailureReasons = dedupeStrings(append(result.FailureReasons, "IAM last-used or Access Analyzer coverage is partial"))
 		result.RemediationHints = dedupeStrings(append(result.RemediationHints, "Review signal coverage gaps before using runtime evidence for least-privilege decisions."))
 	}
-	if len(result.Signals) == 0 && hasPermissionDeniedDiagnostic(result.Diagnostics) {
+	if len(result.Signals) == 0 && allSignalCollectorsPermissionDenied(result.CoverageGaps) {
 		result.Status = "blocked"
 		result.FailureReasons = []string{"IAM last-used and Access Analyzer permissions are unavailable"}
 		result.RemediationHints = []string{"Grant metadata-only iam:ListRoles, iam:GenerateServiceLastAccessedDetails, iam:GetServiceLastAccessedDetails, access-analyzer:ListAnalyzers, and access-analyzer:ListFindings."}
@@ -452,6 +452,15 @@ func (i *Ingester) collectAccessAnalyzer(ctx context.Context, request IngestRequ
 	signals := []Signal{}
 	diagnostics := []Diagnostic{}
 	gaps := []CoverageGap{}
+	if len(analyzers.Analyzers) == 0 {
+		gaps = append(gaps, CoverageGap{
+			Capability:  "access_analyzer",
+			Status:      "empty",
+			Reason:      "Access Analyzer returned no analyzers for this account and region.",
+			Remediation: "Enable an account or organization analyzer before relying on external-access findings.",
+		})
+		return signals, diagnostics, gaps
+	}
 	for idx, analyzer := range analyzers.Analyzers {
 		if int32(idx) >= request.MaxAnalyzers {
 			break
@@ -550,16 +559,14 @@ func isPermissionDenied(err error) bool {
 	return strings.Contains(msg, "accessdenied") || strings.Contains(msg, "access denied") || strings.Contains(msg, "unauthorized") || strings.Contains(msg, "not authorized")
 }
 
-func hasPermissionDeniedDiagnostic(diagnostics []Diagnostic) bool {
-	if len(diagnostics) == 0 {
-		return false
-	}
-	for _, diagnostic := range diagnostics {
-		if !strings.Contains(diagnostic.Code, "permission_denied") {
-			return false
+func allSignalCollectorsPermissionDenied(gaps []CoverageGap) bool {
+	denied := map[string]bool{}
+	for _, gap := range gaps {
+		if gap.Status == "permission_denied" {
+			denied[gap.Capability] = true
 		}
 	}
-	return true
+	return denied["iam_last_used"] && denied["access_analyzer"]
 }
 
 func accessAnalyzerStatus(finding accessanalyzertypes.FindingSummary) string {

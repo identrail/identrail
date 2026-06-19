@@ -18,11 +18,15 @@ type fakeIAMAPI struct {
 	listRolesErr error
 	getStatus    iamtypes.JobStatusType
 	truncated    bool
+	emptyRoles   bool
 }
 
 func (f fakeIAMAPI) ListRoles(context.Context, *iam.ListRolesInput, ...func(*iam.Options)) (*iam.ListRolesOutput, error) {
 	if f.listRolesErr != nil {
 		return nil, f.listRolesErr
+	}
+	if f.emptyRoles {
+		return &iam.ListRolesOutput{}, nil
 	}
 	lastUsed := time.Date(2026, 6, 17, 9, 0, 0, 0, time.UTC)
 	return &iam.ListRolesOutput{
@@ -65,11 +69,15 @@ func (f fakeIAMAPI) GetServiceLastAccessedDetails(context.Context, *iam.GetServi
 type fakeAccessAnalyzerAPI struct {
 	listAnalyzersErr error
 	listFindingsErr  error
+	emptyAnalyzers   bool
 }
 
 func (f fakeAccessAnalyzerAPI) ListAnalyzers(context.Context, *accessanalyzer.ListAnalyzersInput, ...func(*accessanalyzer.Options)) (*accessanalyzer.ListAnalyzersOutput, error) {
 	if f.listAnalyzersErr != nil {
 		return nil, f.listAnalyzersErr
+	}
+	if f.emptyAnalyzers {
+		return &accessanalyzer.ListAnalyzersOutput{}, nil
 	}
 	createdAt := time.Date(2026, 6, 10, 10, 0, 0, 0, time.UTC)
 	return &accessanalyzer.ListAnalyzersOutput{
@@ -174,6 +182,23 @@ func TestIngesterDegradesWhenCoverageGapsAreEmitted(t *testing.T) {
 	}
 }
 
+func TestIngesterDegradesWhenAccessAnalyzerHasNoAnalyzers(t *testing.T) {
+	result, err := New(fakeIAMAPI{}, fakeAccessAnalyzerAPI{emptyAnalyzers: true}).Ingest(context.Background(), IngestRequest{
+		AccountID:   "123456789012",
+		Region:      "us-east-1",
+		CollectedAt: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("ingest signals: %v", err)
+	}
+	if result.Status != "degraded" || len(result.Signals) == 0 {
+		t.Fatalf("expected IAM signals with degraded analyzer coverage, got %+v", result)
+	}
+	if !hasCoverageGap(result.CoverageGaps, "access_analyzer", "empty") {
+		t.Fatalf("expected empty Access Analyzer coverage gap, got %+v", result.CoverageGaps)
+	}
+}
+
 type pollingIAMAPI struct {
 	fakeIAMAPI
 	statuses []iamtypes.JobStatusType
@@ -238,4 +263,33 @@ func TestIngesterReportsPermissionDeniedCoverage(t *testing.T) {
 			t.Fatalf("expected permission-aware diagnostic, got %+v", diagnostic)
 		}
 	}
+}
+
+func TestIngesterDoesNotBlockWhenOnlyOneCollectorIsDenied(t *testing.T) {
+	result, err := New(fakeIAMAPI{emptyRoles: true}, fakeAccessAnalyzerAPI{listAnalyzersErr: errors.New("AccessDeniedException")}).Ingest(context.Background(), IngestRequest{
+		AccountID:   "123456789012",
+		Region:      "us-east-1",
+		CollectedAt: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("ingest mixed coverage signals: %v", err)
+	}
+	if result.Status != "degraded" {
+		t.Fatalf("expected partial coverage to stay degraded instead of blocked, got %+v", result)
+	}
+	if !hasCoverageGap(result.CoverageGaps, "access_analyzer", "permission_denied") {
+		t.Fatalf("expected denied Access Analyzer coverage gap, got %+v", result.CoverageGaps)
+	}
+	if hasCoverageGap(result.CoverageGaps, "iam_last_used", "permission_denied") {
+		t.Fatalf("IAM collector was reachable and must not be treated as denied, got %+v", result.CoverageGaps)
+	}
+}
+
+func hasCoverageGap(gaps []CoverageGap, capability string, status string) bool {
+	for _, gap := range gaps {
+		if gap.Capability == capability && gap.Status == status {
+			return true
+		}
+	}
+	return false
 }
