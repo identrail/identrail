@@ -47,3 +47,28 @@ The worker runs scans on a schedule and drains API-enqueued jobs.
 - Repo scans use per-target lock key (`repo-scan:<target>`) to avoid overlap between API and worker triggers
 - Successful repo scans update per-repository cursors; queued `delta` scans whose head revision already matches the cursor are skipped before execution.
 - In database mode, `IDENTRAIL_LOCK_BACKEND=auto` uses PostgreSQL advisory locks for multi-instance safety
+
+## Low-Traffic Neon Mode
+
+During a quiet launch period, leave the worker stopped unless the deployment
+needs queued scans, scheduled scan policies, repo scans, or user-data export
+garbage collection. The API can still serve auth, onboarding, and synchronous
+read/write routes without a continuously running worker.
+
+If the worker has to run briefly for diagnostics against a serverless Postgres
+provider that should scale to zero, disable the DB-backed polling loops:
+
+```bash
+IDENTRAIL_WORKER_RUN_NOW=false
+IDENTRAIL_WORKER_SCAN_ENABLED=false
+IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED=false
+IDENTRAIL_WORKER_SCAN_POLICY_SCHEDULER_ENABLED=false
+IDENTRAIL_WORKER_USER_EXPORT_GC_ENABLED=false
+IDENTRAIL_WORKER_REPO_SCAN_ENABLED=false
+IDENTRAIL_WORKER_USER_PURGE_ENABLED=false
+IDENTRAIL_WORKER_WORKSPACE_PURGE_ENABLED=false
+```
+
+Use `GET /healthz` for external uptime checks. Avoid frequent external
+`GET /readyz` polling in this mode because readiness checks verify runtime
+dependencies and can wake the database.

@@ -27,6 +27,13 @@ Fastest local bootstrap:
    - API health: `curl http://localhost:8080/healthz`
    - Web: `http://localhost:8081`
 
+For a low-traffic Neon launch, run migrations once and start only `api` and
+`web` until background scans are needed. Configure the API with
+`IDENTRAIL_POSTGRES_MAX_IDLE_CONNS=0` and
+`IDENTRAIL_POSTGRES_CONN_MAX_IDLE_TIME=30s`, and point external uptime checks
+at `/healthz` instead of `/readyz`. Start `worker` later when queued scans,
+scheduled scan policies, repo scans, or export cleanup should run.
+
 ## 2) Kubernetes
 
 Use this for managed cluster deployment.
@@ -48,6 +55,23 @@ Use this for managed cluster deployment.
    - `kubectl -n identrail patch deployment identrail-worker --type merge -p '{"spec":{"template":{"spec":{"serviceAccountName":"identrail-scanner","automountServiceAccountToken":true}}}}'`
    - `kubectl -n identrail rollout restart deployment/identrail-api deployment/identrail-worker`
 
+For a low-traffic Neon launch, patch API readiness from `/readyz` to `/healthz`
+before relying on the static Kubernetes manifest. The default `/readyz` probe
+checks Postgres every 10 seconds and can keep Neon active:
+
+```bash
+kubectl -n identrail patch deployment identrail-api --type json \
+  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/httpGet/path","value":"/healthz"}]'
+```
+
+`deploy/kubernetes/worker-deployment.yaml` also runs one worker replica that
+polls Postgres through the API job queue every 2s (see
+`deploy/kubernetes/configmap.yaml`). For the same profile, either skip the
+`worker-deployment.yaml` apply, scale the existing Deployment to zero
+(`kubectl -n identrail scale deployment identrail-worker --replicas=0`), or if
+the worker must stay running, disable its DB-backed loops per
+[docs/worker.md](worker.md).
+
 ## 3) Kubernetes Helm
 
 Use this for upgrade-safe cluster rollout.
@@ -57,6 +81,27 @@ Use this for upgrade-safe cluster rollout.
 2. Set production images and secrets in `/tmp/identrail-values.yaml`.
 3. Install or upgrade:
    - `helm upgrade --install identrail deploy/helm/identrail -n identrail --create-namespace -f /tmp/identrail-values.yaml`
+
+For a low-traffic Neon launch, set the API readiness probe path to `/healthz`
+in the Helm values file before installing. The default `/readyz` probe checks
+Postgres and can keep Neon active:
+
+```yaml
+api:
+  readinessProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+```
+
+The chart also defaults to `worker.replicaCount: 1` with
+`IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED: "true"` polling Postgres every 2s. For
+the same profile, also set `worker.replicaCount: 0` in the values file (or, if
+the worker must stay running, set every loop-disable override from
+[deploy/helm/README.md](../deploy/helm/README.md) under `config:`) so the
+worker does not keep Neon active.
 
 ## 4) Terraform
 
