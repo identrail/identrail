@@ -30,6 +30,7 @@ type IAMAPI interface {
 type AccessAnalyzerAPI interface {
 	ListAnalyzers(context.Context, *accessanalyzer.ListAnalyzersInput, ...func(*accessanalyzer.Options)) (*accessanalyzer.ListAnalyzersOutput, error)
 	ListFindings(context.Context, *accessanalyzer.ListFindingsInput, ...func(*accessanalyzer.Options)) (*accessanalyzer.ListFindingsOutput, error)
+	ListFindingsV2(context.Context, *accessanalyzer.ListFindingsV2Input, ...func(*accessanalyzer.Options)) (*accessanalyzer.ListFindingsV2Output, error)
 }
 
 type IngestRequest struct {
@@ -89,6 +90,22 @@ type CoverageGap struct {
 	Status      string
 	Reason      string
 	Remediation string
+}
+
+type accessAnalyzerFinding struct {
+	ID                   string
+	Resource             string
+	ResourceOwnerAccount string
+	ResourceType         accessanalyzertypes.ResourceType
+	Status               accessanalyzertypes.FindingStatus
+	Error                string
+	FindingType          accessanalyzertypes.FindingType
+	Action               []string
+	Principal            map[string]string
+	IsPublic             *bool
+	AnalyzedAt           *time.Time
+	CreatedAt            *time.Time
+	UpdatedAt            *time.Time
 }
 
 type Ingester struct {
@@ -515,10 +532,7 @@ func (i *Ingester) collectAccessAnalyzer(ctx context.Context, request IngestRequ
 		if analyzerARN == "" {
 			continue
 		}
-		findings, findErr := i.AccessAnalyzer.ListFindings(ctx, &accessanalyzer.ListFindingsInput{
-			AnalyzerArn: awsv2.String(analyzerARN),
-			MaxResults:  awsv2.Int32(request.MaxFindings),
-		})
+		findings, nextToken, findErr := i.listAccessAnalyzerFindings(ctx, analyzerARN, analyzer.Type, request.MaxFindings)
 		if findErr != nil {
 			if isContextCancellation(findErr) {
 				return nil, nil, nil, findErr
@@ -532,7 +546,7 @@ func (i *Ingester) collectAccessAnalyzer(ctx context.Context, request IngestRequ
 			})
 			continue
 		}
-		for findingIdx, finding := range findings.Findings {
+		for findingIdx, finding := range findings {
 			if int32(findingIdx) >= request.MaxFindings {
 				break
 			}
@@ -546,19 +560,20 @@ func (i *Ingester) collectAccessAnalyzer(ctx context.Context, request IngestRequ
 			if finding.AnalyzedAt != nil {
 				staleAt = finding.AnalyzedAt.UTC()
 			}
-			resourceARN := awsv2.ToString(finding.Resource)
-			ownerAccount := strings.TrimSpace(awsv2.ToString(finding.ResourceOwnerAccount))
+			resourceARN := finding.Resource
+			ownerAccount := strings.TrimSpace(finding.ResourceOwnerAccount)
 			if ownerAccount != "" && request.AccountID != "" && ownerAccount != request.AccountID {
 				continue
 			}
+			eventName := firstNonEmpty(string(finding.FindingType), "Finding")
 			signals = append(signals, Signal{
-				EventID:            "access-analyzer:" + sanitizeToken(firstNonEmpty(awsv2.ToString(finding.Id), resourceARN, analyzerARN)),
+				EventID:            "access-analyzer:" + sanitizeToken(firstNonEmpty(finding.ID, resourceARN, analyzerARN)),
 				AccountID:          firstNonEmpty(ownerAccount, request.AccountID),
 				Region:             request.Region,
 				Category:           "access-analyzer",
 				Scope:              strings.ToLower(strings.TrimSpace(string(analyzer.Type))),
 				EventSource:        "access-analyzer.amazonaws.com",
-				EventName:          "Finding",
+				EventName:          eventName,
 				Action:             firstNonEmpty(strings.Join(finding.Action, ","), "access-analyzer:Finding"),
 				ActorPrincipalARN:  principalFromFinding(finding.Principal),
 				ActorPrincipalType: "external_principal",
@@ -574,7 +589,7 @@ func (i *Ingester) collectAccessAnalyzer(ctx context.Context, request IngestRequ
 				StaleAt:            staleAt,
 			})
 		}
-		if findings.NextToken != nil {
+		if nextToken != nil {
 			gaps = append(gaps, CoverageGap{
 				Capability:  "access_analyzer",
 				Status:      "history_truncated",
@@ -592,6 +607,69 @@ func (i *Ingester) collectAccessAnalyzer(ctx context.Context, request IngestRequ
 		})
 	}
 	return signals, diagnostics, gaps, nil
+}
+
+func (i *Ingester) listAccessAnalyzerFindings(ctx context.Context, analyzerARN string, analyzerType accessanalyzertypes.Type, maxFindings int32) ([]accessAnalyzerFinding, *string, error) {
+	if accessAnalyzerUsesFindingsV2(analyzerType) {
+		out, err := i.AccessAnalyzer.ListFindingsV2(ctx, &accessanalyzer.ListFindingsV2Input{
+			AnalyzerArn: awsv2.String(analyzerARN),
+			MaxResults:  awsv2.Int32(maxFindings),
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		findings := make([]accessAnalyzerFinding, 0, len(out.Findings))
+		for _, finding := range out.Findings {
+			findings = append(findings, accessAnalyzerFinding{
+				ID:                   awsv2.ToString(finding.Id),
+				Resource:             awsv2.ToString(finding.Resource),
+				ResourceOwnerAccount: awsv2.ToString(finding.ResourceOwnerAccount),
+				ResourceType:         finding.ResourceType,
+				Status:               finding.Status,
+				Error:                awsv2.ToString(finding.Error),
+				FindingType:          finding.FindingType,
+				AnalyzedAt:           finding.AnalyzedAt,
+				CreatedAt:            finding.CreatedAt,
+				UpdatedAt:            finding.UpdatedAt,
+			})
+		}
+		return findings, out.NextToken, nil
+	}
+	out, err := i.AccessAnalyzer.ListFindings(ctx, &accessanalyzer.ListFindingsInput{
+		AnalyzerArn: awsv2.String(analyzerARN),
+		MaxResults:  awsv2.Int32(maxFindings),
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	findings := make([]accessAnalyzerFinding, 0, len(out.Findings))
+	for _, finding := range out.Findings {
+		findings = append(findings, accessAnalyzerFinding{
+			ID:                   awsv2.ToString(finding.Id),
+			Resource:             awsv2.ToString(finding.Resource),
+			ResourceOwnerAccount: awsv2.ToString(finding.ResourceOwnerAccount),
+			ResourceType:         finding.ResourceType,
+			Status:               finding.Status,
+			Error:                awsv2.ToString(finding.Error),
+			FindingType:          accessanalyzertypes.FindingTypeExternalAccess,
+			Action:               finding.Action,
+			Principal:            finding.Principal,
+			IsPublic:             finding.IsPublic,
+			AnalyzedAt:           finding.AnalyzedAt,
+			CreatedAt:            finding.CreatedAt,
+			UpdatedAt:            finding.UpdatedAt,
+		})
+	}
+	return findings, out.NextToken, nil
+}
+
+func accessAnalyzerUsesFindingsV2(analyzerType accessanalyzertypes.Type) bool {
+	switch analyzerType {
+	case accessanalyzertypes.TypeAccount, accessanalyzertypes.TypeOrganization:
+		return false
+	default:
+		return true
+	}
 }
 
 func permissionAwareDiagnostic(sourceID string, permissionCode string, fallbackCode string, message string, remediation string, err error) Diagnostic {
@@ -631,7 +709,7 @@ func allSignalCollectorsPermissionDenied(gaps []CoverageGap) bool {
 	return denied["iam_last_used"] && denied["access_analyzer"]
 }
 
-func accessAnalyzerStatus(finding accessanalyzertypes.FindingSummary) string {
+func accessAnalyzerStatus(finding accessAnalyzerFinding) string {
 	switch finding.Status {
 	case accessanalyzertypes.FindingStatusActive:
 		return "observed"
@@ -644,8 +722,8 @@ func accessAnalyzerStatus(finding accessanalyzertypes.FindingSummary) string {
 	}
 }
 
-func accessAnalyzerConfidence(finding accessanalyzertypes.FindingSummary) float64 {
-	if finding.Error != nil && strings.TrimSpace(*finding.Error) != "" {
+func accessAnalyzerConfidence(finding accessAnalyzerFinding) float64 {
+	if strings.TrimSpace(finding.Error) != "" {
 		return 0.54
 	}
 	if finding.IsPublic != nil && *finding.IsPublic {

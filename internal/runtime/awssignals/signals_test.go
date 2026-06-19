@@ -75,11 +75,13 @@ func (f fakeIAMAPI) GetServiceLastAccessedDetails(context.Context, *iam.GetServi
 }
 
 type fakeAccessAnalyzerAPI struct {
-	listAnalyzersErr error
-	listFindingsErr  error
-	emptyAnalyzers   bool
-	analyzerType     accessanalyzertypes.Type
-	findings         []accessanalyzertypes.FindingSummary
+	listAnalyzersErr  error
+	listFindingsErr   error
+	listFindingsV2Err error
+	emptyAnalyzers    bool
+	analyzerType      accessanalyzertypes.Type
+	findings          []accessanalyzertypes.FindingSummary
+	findingsV2        []accessanalyzertypes.FindingSummaryV2
 }
 
 func (f fakeAccessAnalyzerAPI) ListAnalyzers(context.Context, *accessanalyzer.ListAnalyzersInput, ...func(*accessanalyzer.Options)) (*accessanalyzer.ListAnalyzersOutput, error) {
@@ -124,6 +126,31 @@ func (f fakeAccessAnalyzerAPI) ListFindings(context.Context, *accessanalyzer.Lis
 			IsPublic:             awsv2.Bool(true),
 			Principal:            map[string]string{"AWS": "arn:aws:iam::210987654321:root"},
 			Resource:             awsv2.String("arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/payments"),
+		}},
+	}, nil
+}
+
+func (f fakeAccessAnalyzerAPI) ListFindingsV2(context.Context, *accessanalyzer.ListFindingsV2Input, ...func(*accessanalyzer.Options)) (*accessanalyzer.ListFindingsV2Output, error) {
+	if f.listFindingsV2Err != nil {
+		return nil, f.listFindingsV2Err
+	}
+	if f.findingsV2 != nil {
+		return &accessanalyzer.ListFindingsV2Output{Findings: f.findingsV2}, nil
+	}
+	createdAt := time.Date(2026, 6, 12, 11, 0, 0, 0, time.UTC)
+	updatedAt := time.Date(2026, 6, 18, 6, 30, 0, 0, time.UTC)
+	analyzedAt := time.Date(2026, 6, 18, 6, 0, 0, 0, time.UTC)
+	return &accessanalyzer.ListFindingsV2Output{
+		Findings: []accessanalyzertypes.FindingSummaryV2{{
+			AnalyzedAt:           &analyzedAt,
+			CreatedAt:            &createdAt,
+			Id:                   awsv2.String("finding-v2-1"),
+			ResourceOwnerAccount: awsv2.String("123456789012"),
+			ResourceType:         accessanalyzertypes.ResourceTypeAwsIamRole,
+			Status:               accessanalyzertypes.FindingStatusActive,
+			UpdatedAt:            &updatedAt,
+			FindingType:          accessanalyzertypes.FindingTypeInternalAccess,
+			Resource:             awsv2.String("arn:aws:iam::123456789012:role/payments-worker"),
 		}},
 	}, nil
 }
@@ -220,6 +247,34 @@ func TestIngesterSkipsCrossAccountAccessAnalyzerFindings(t *testing.T) {
 	}
 	if result.Signals[0].AccountID != "123456789012" || !strings.Contains(result.Signals[0].EventID, "same-account") {
 		t.Fatalf("expected retained finding to belong to connector account, got %+v", result.Signals[0])
+	}
+}
+
+func TestIngesterUsesFindingsV2ForInternalAccessAnalyzers(t *testing.T) {
+	collectedAt := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+	result, err := New(fakeIAMAPI{emptyRoles: true}, fakeAccessAnalyzerAPI{
+		analyzerType:    accessanalyzertypes.TypeAccountInternalAccess,
+		listFindingsErr: errors.New("legacy ListFindings should not be called"),
+	}).Ingest(context.Background(), IngestRequest{
+		AccountID:   "123456789012",
+		Region:      "us-east-1",
+		CollectedAt: collectedAt,
+	})
+	if err != nil {
+		t.Fatalf("ingest signals: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected ready internal analyzer result, got %+v", result)
+	}
+	if len(result.Signals) != 1 {
+		t.Fatalf("expected one internal analyzer finding, got %+v", result.Signals)
+	}
+	finding := result.Signals[0]
+	if finding.EventName != string(accessanalyzertypes.FindingTypeInternalAccess) || finding.Scope != strings.ToLower(string(accessanalyzertypes.TypeAccountInternalAccess)) {
+		t.Fatalf("expected internal analyzer finding from ListFindingsV2, got %+v", finding)
+	}
+	if finding.TargetResourceARN != "arn:aws:iam::123456789012:role/payments-worker" || finding.TargetResourceType != string(accessanalyzertypes.ResourceTypeAwsIamRole) {
+		t.Fatalf("expected normalized V2 resource details, got %+v", finding)
 	}
 }
 
