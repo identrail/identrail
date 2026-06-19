@@ -51,6 +51,54 @@ func TestDiscoveryTierMatchesReadOnlyPreview(t *testing.T) {
 	}
 }
 
+func TestRuntimeEvidenceTierIncludesAccessAnalyzerCollectionGrant(t *testing.T) {
+	var actions []string
+	for _, tier := range CapabilityPermissionTiers() {
+		if tier.Capability != domain.ConnectorCapabilityRuntimeEvidence {
+			continue
+		}
+		for _, permission := range tier.Permissions {
+			if permission.Service == "AccessAnalyzer" {
+				actions = permission.Actions
+				break
+			}
+		}
+		break
+	}
+	if len(actions) == 0 {
+		t.Fatal("runtime_evidence must advertise Access Analyzer permissions")
+	}
+	for _, want := range []string{"access-analyzer:ListAnalyzers", "access-analyzer:ListFindings"} {
+		if !containsString(actions, want) {
+			t.Fatalf("runtime_evidence Access Analyzer actions = %v, want %q", actions, want)
+		}
+	}
+}
+
+func TestRuntimeEvidenceTierIncludesIAMCollectionGrant(t *testing.T) {
+	var actions []string
+	for _, tier := range CapabilityPermissionTiers() {
+		if tier.Capability != domain.ConnectorCapabilityRuntimeEvidence {
+			continue
+		}
+		for _, permission := range tier.Permissions {
+			if permission.Service == "IAM" {
+				actions = permission.Actions
+				break
+			}
+		}
+		break
+	}
+	if len(actions) == 0 {
+		t.Fatal("runtime_evidence must advertise IAM permissions")
+	}
+	for _, want := range []string{"iam:ListRoles", "iam:GenerateServiceLastAccessedDetails", "iam:GetServiceLastAccessedDetails"} {
+		if !containsString(actions, want) {
+			t.Fatalf("runtime_evidence IAM actions = %v, want %q", actions, want)
+		}
+	}
+}
+
 func TestDefaultCapabilityPolicyAllowsOnlyDiscovery(t *testing.T) {
 	policy := DefaultCapabilityPolicy()
 	if allowed, _ := policy.CapabilityAllowed(domain.ConnectorCapabilityDiscovery); !allowed {
@@ -68,6 +116,15 @@ func TestDefaultCapabilityPolicyAllowsOnlyDiscovery(t *testing.T) {
 			t.Fatalf("capability %q denial must include a reason", capability)
 		}
 	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestNewCapabilityPolicyEnablesReadOnlyTierButGatesWrite(t *testing.T) {

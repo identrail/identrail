@@ -7,6 +7,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.42.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.25
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.24
+	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.49.5
 	github.com/aws/aws-sdk-go-v2/service/apprunner v1.40.6
 	github.com/aws/aws-sdk-go-v2/service/batch v1.65.6
 	github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.44.0

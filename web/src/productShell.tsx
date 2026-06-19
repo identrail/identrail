@@ -452,7 +452,7 @@ const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
       productDomainRoute('identities', 'Identities', 'identities', 'Identities', '', 'IAM roles, workload identities, and what they can reach.'),
       productDomainRoute('agents', 'Agents', 'agents', 'Agents', '', 'Bedrock and MCP agents Identrail can see.'),
       productDomainRoute('resources', 'Resources', 'resources', 'Resources', '', 'Secrets, KMS keys, and S3 buckets your AWS roles can reach.'),
-      productDomainRoute('runtime', 'Runtime', 'runtime', 'Runtime', '', 'What your AWS roles actually did, from CloudTrail.'),
+      productDomainRoute('runtime', 'Runtime', 'runtime', 'Runtime', '', 'What your AWS roles actually did, from runtime evidence.'),
       productDomainRoute('graph', 'Graph', 'graph', 'Graph', '', 'How AWS roles can reach things, visualised.'),
       productDomainRoute('findings', 'Findings', 'findings', 'Findings', '', 'Risks Identrail found in your AWS setup.'),
       productDomainRoute('remediation', 'Remediation', 'remediation', 'Remediation', '', 'AWS fixes Identrail prepares for you to approve.'),
@@ -2833,7 +2833,7 @@ const AWS_CONTROL_CARDS: AWSControlCard[] = [
     routeID: 'runtime',
     stage: 'coming',
     metric: '',
-    detail: 'What your AWS roles actually did, from CloudTrail.'
+    detail: 'What your AWS roles actually did, from runtime evidence.'
   },
   {
     id: 'findings',
@@ -9603,7 +9603,7 @@ const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOpera
     routeID: 'runtime',
     title: 'Runtime',
     eyebrow: '',
-    description: 'What your AWS roles actually did, from CloudTrail.',
+    description: 'What your AWS roles actually did, from CloudTrail, IAM last-used, and Access Analyzer.',
     statusLabel: '',
     currentCapability: '',
     plannedCapability: '',
@@ -9682,7 +9682,9 @@ const AWS_RISK_OPERATION_FILTERS: AWSRiskOperationFilterConfigMap = {
         { label: 'STS AssumeRole', value: 'sts-assume-role' },
         { label: 'Secrets Manager', value: 'secrets-manager' },
         { label: 'KMS decrypt', value: 'kms-decrypt' },
-        { label: 'Agent tool', value: 'agent-tool' }
+        { label: 'Agent tool', value: 'agent-tool' },
+        { label: 'IAM last-used', value: 'iam-last-used' },
+        { label: 'Access Analyzer', value: 'access-analyzer' }
       ]
     },
     {
@@ -9691,7 +9693,9 @@ const AWS_RISK_OPERATION_FILTERS: AWSRiskOperationFilterConfigMap = {
       options: [
         { label: 'All evidence', value: 'all' },
         { label: 'CloudTrail', value: 'cloudtrail' },
-        { label: 'Agent runtime', value: 'agent-runtime' }
+        { label: 'Agent runtime', value: 'agent-runtime' },
+        { label: 'IAM last-used', value: 'iam-last-used' },
+        { label: 'Access Analyzer', value: 'access-analyzer' }
       ]
     },
     {
@@ -10070,7 +10074,8 @@ function awsRuntimeEventRow(record: AWSRuntimeEventRecord): AWSRiskOperationTabl
   const resourceLabel = record.target_resource_name || record.target_resource_type || record.target_resource_arn || 'Session event';
   const observed = formatShortDateLabel(record.observed_at);
   const lineageLabel = awsRuntimeEventLineageLabel(record);
-  const sourceIdentityLabel = record.session?.source_identity ? `SourceIdentity ${record.session.source_identity}` : lineageLabel;
+  const signalLabel = awsRuntimeEventSignalLabel(record);
+  const sourceIdentityLabel = signalLabel || (record.session?.source_identity ? `SourceIdentity ${record.session.source_identity}` : lineageLabel);
   return {
     id: `runtime-${record.event_id}`,
     title: `${eventLabel}: ${record.event_name}`,
@@ -10109,11 +10114,25 @@ function awsRuntimeEventRow(record: AWSRuntimeEventRecord): AWSRiskOperationTabl
       record.agent_id,
       record.tool_name,
       record.tool_target_ref,
+      record.signal_category,
+      record.signal_scope,
+      record.analyzer_arn,
+      record.signal_stale_at,
       record.evidence_ref,
       observed,
       'runtime event metadata only no payloads no secret values'
     ])
   };
+}
+
+function awsRuntimeEventSignalLabel(record: AWSRuntimeEventRecord): string {
+  if (record.signal_category === 'iam-last-used' && record.signal_stale_at) {
+    return `IAM data as of ${formatShortDateLabel(record.signal_stale_at)}`;
+  }
+  if (record.signal_category === 'access-analyzer' && record.analyzer_arn) {
+    return 'Access Analyzer finding';
+  }
+  return '';
 }
 
 function awsRuntimeEventLineageLabel(record: AWSRuntimeEventRecord): string {
@@ -10139,6 +10158,10 @@ function awsRuntimeEventLabel(record: AWSRuntimeEventRecord): string {
       return 'KMS decrypt';
     case 'agent-tool':
       return 'Agent tool';
+    case 'iam-last-used':
+      return 'IAM last-used';
+    case 'access-analyzer':
+      return 'Access Analyzer';
     default:
       return 'CloudTrail';
   }

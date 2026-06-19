@@ -4542,7 +4542,7 @@ paths:
       tags: [ProjectManagement]
       summary: Get AWS runtime event contract
       operationId: getAWSProjectRuntimeEvents
-      description: Returns scoped, metadata-only AWS runtime events for API calls, STS sessions, secret reads, KMS decrypts, S3 access, and agent tool calls. The response links actor identity, session, target resource, event source, timestamp, confidence, and evidence without reading or returning secret values, object bodies, prompts, completions, browser pages, code-interpreter output, database rows, or customer payloads.
+      description: Returns scoped, metadata-only AWS runtime events and access signals for API calls, STS sessions, secret reads, KMS decrypts, S3 access, agent tool calls, IAM last-used data, and Access Analyzer findings. The response links actor identity, session, target resource, event source, timestamp, confidence, evidence, analyzer scope, and signal stale-data timestamps without reading or returning secret values, object bodies, prompts, completions, browser pages, code-interpreter output, database rows, or customer payloads.
       parameters:
         - in: query
           name: connector_id
@@ -4570,7 +4570,7 @@ paths:
           name: event_type
           schema:
             type: string
-            enum: [sts-session, api-call, secret-read, kms-decrypt, agent-tool]
+            enum: [sts-session, api-call, secret-read, kms-decrypt, agent-tool, iam-last-used, access-analyzer]
         - in: query
           name: identity
           schema: { type: string }
@@ -4587,7 +4587,7 @@ paths:
           name: evidence
           schema:
             type: string
-            enum: [cloudtrail, s3-delivery, eventbridge-delivery, agent-runtime]
+            enum: [cloudtrail, s3-delivery, eventbridge-delivery, agent-runtime, iam-last-used, access-analyzer]
         - in: query
           name: owner
           schema:
@@ -4597,7 +4597,7 @@ paths:
           name: status
           schema:
             type: string
-            enum: [observed, delayed, permission-denied]
+            enum: [observed, delayed, permission-denied, resolved, archived, stale, unknown]
       responses:
         "200":
           description: AWS runtime event contract
@@ -10730,7 +10730,7 @@ components:
         region: { type: string }
         event_type:
           type: string
-          enum: [sts-session, api-call, secret-read, kms-decrypt, agent-tool]
+          enum: [sts-session, api-call, secret-read, kms-decrypt, agent-tool, iam-last-used, access-analyzer]
         event_source: { type: string }
         event_name: { type: string }
         action: { type: string }
@@ -10747,12 +10747,25 @@ components:
         agent_node_id: { type: string }
         tool_name: { type: string }
         tool_target_ref: { type: string }
+        signal_category:
+          type: string
+          enum: [iam-last-used, access-analyzer]
+        signal_scope:
+          type: string
+          description: Signal scope such as role, service, account, or organization.
+        analyzer_arn:
+          type: string
+          description: Access Analyzer ARN when the record came from an analyzer finding.
+        signal_stale_at:
+          type: string
+          format: date-time
+          description: Timestamp showing how fresh the signal source was when normalized.
         owner:
           type: string
           enum: [security, platform, application]
         evidence_category:
           type: string
-          enum: [cloudtrail, s3-delivery, eventbridge-delivery, agent-runtime]
+          enum: [cloudtrail, s3-delivery, eventbridge-delivery, agent-runtime, iam-last-used, access-analyzer]
         evidence_ref: { type: string }
         confidence:
           type: number
@@ -10766,7 +10779,7 @@ components:
           format: date-time
         status:
           type: string
-          enum: [observed, delayed, permission-denied]
+          enum: [observed, delayed, permission-denied, resolved, archived, stale, unknown]
         next_action: { type: string }
         redaction_boundary:
           type: string
@@ -10809,6 +10822,18 @@ components:
             - cloudtrail_delivery_throttled
             - cloudtrail_delivery_credentials_expired
             - cloudtrail_delivery_failed
+            - iam_last_used_permission_denied
+            - iam_last_used_failed
+            - iam_last_used_generation_failed
+            - iam_last_used_report_failed
+            - iam_last_used_report_pending
+            - iam_last_used_source_unavailable
+            - access_analyzer_permission_denied
+            - access_analyzer_list_failed
+            - access_analyzer_findings_failed
+            - access_analyzer_source_failed
+            - access_analyzer_source_unavailable
+            - iam_access_signal_ingester_unavailable
         message: { type: string }
         remediation: { type: string }
         retryable: { type: boolean }
@@ -10825,6 +10850,7 @@ components:
             - capability_unavailable
             - history_truncated
             - delivery_unavailable
+            - source_unavailable
         reason: { type: string }
         remediation: { type: string }
     AWSRuntimeEventSummary:
@@ -10850,6 +10876,9 @@ components:
         kms_decrypt_count: { type: integer }
         api_call_count: { type: integer }
         sts_session_count: { type: integer }
+        iam_last_used_signal_count: { type: integer }
+        access_analyzer_finding_count: { type: integer }
+        dormant_access_count: { type: integer }
         relationship_count: { type: integer }
         permission_denied_events: { type: integer }
     AWSRuntimeEventResult:

@@ -2174,6 +2174,10 @@ export type AWSRuntimeEventRecord = {
   agent_node_id?: string;
   tool_name?: string;
   tool_target_ref?: string;
+  signal_category?: string;
+  signal_scope?: string;
+  analyzer_arn?: string;
+  signal_stale_at?: string;
   owner: string;
   evidence_category: string;
   evidence_ref: string;
@@ -2223,6 +2227,9 @@ export type AWSRuntimeEventSummary = {
   kms_decrypt_count: number;
   api_call_count: number;
   sts_session_count: number;
+  iam_last_used_signal_count?: number;
+  access_analyzer_finding_count?: number;
+  dormant_access_count?: number;
   lineage_resolved_count?: number;
   missing_source_identity_count?: number;
   ambiguous_lineage_count?: number;

@@ -51,6 +51,17 @@ func (f *fakeCloudTrailIngester) Ingest(_ context.Context, request AWSCloudTrail
 	return f.result, f.err
 }
 
+type fakeRuntimeSignalIngester struct {
+	calls  []AWSRuntimeSignalIngestRequest
+	result AWSRuntimeSignalIngestResult
+	err    error
+}
+
+func (f *fakeRuntimeSignalIngester) Ingest(_ context.Context, request AWSRuntimeSignalIngestRequest) (AWSRuntimeSignalIngestResult, error) {
+	f.calls = append(f.calls, request)
+	return f.result, f.err
+}
+
 func liveRuntimeRecord(t *testing.T, id string, eventType string, name string, source string, action string, owner string, evidence string, actorARN string, resourceARN string, resourceType string, observed time.Time) AWSRuntimeEventRecord {
 	t.Helper()
 	return AWSRuntimeEventRecord{
@@ -83,6 +94,20 @@ func liveRuntimeRecord(t *testing.T, id string, eventType string, name string, s
 		NextAction:         awsRuntimeEventNextAction(eventType),
 		RedactionBoundary:  "metadata_only_no_payloads_no_secret_values",
 	}
+}
+
+func liveSignalRuntimeRecord(t *testing.T, id string, eventType string, actorARN string, resourceARN string, observed time.Time) AWSRuntimeEventRecord {
+	t.Helper()
+	record := liveRuntimeRecord(t, id, eventType, "Finding", "access-analyzer.amazonaws.com", "secretsmanager:GetSecretValue", "security", eventType, actorARN, resourceARN, "AWS::SecretsManager::Secret", observed)
+	record.SignalCategory = eventType
+	record.SignalScope = "account"
+	record.AnalyzerARN = "arn:aws:access-analyzer:us-east-1:123456789012:analyzer/account"
+	record.SignalStaleAt = observed
+	record.Session = AWSRuntimeEventSession{
+		PrincipalARN:  actorARN,
+		PrincipalType: "external_principal",
+	}
+	return record
 }
 
 func TestGetAWSRuntimeEventsUsesLiveCloudTrailWhenFactoryReturnsIngester(t *testing.T) {
@@ -638,6 +663,316 @@ func TestGetAWSRuntimeEventsLiveBlockedStatusKeepsContractShape(t *testing.T) {
 	}
 }
 
+func TestGetAWSRuntimeEventsSignalPermissionDeniedDowngradesLiveCloudTrail(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 21, 15, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-signal-denied")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-signal-denied", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-signal-denied", "aws-prod")
+
+	role := "arn:aws:sts::123456789012:assumed-role/identrail-runtime-reader/sess"
+	cloudTrail := &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{
+		Status: "ready",
+		Records: []AWSRuntimeEventRecord{
+			liveRuntimeRecord(t, "evt-live-secret", "secret-read", "GetSecretValue", "secretsmanager.amazonaws.com", "secretsmanager:GetSecretValue", "application", "cloudtrail", role, "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/openai-key", "AWS::SecretsManager::Secret", now.Add(-10*time.Minute)),
+		},
+	}}
+	signals := &fakeRuntimeSignalIngester{result: AWSRuntimeSignalIngestResult{
+		Status: "blocked",
+		Diagnostics: []AWSRuntimeEventDiagnostic{{
+			Collector: "aws_iam_access_signals",
+			SourceID:  "iam",
+			Code:      "iam_last_used_permission_denied",
+			Message:   "IAM last-used collection is not authorized.",
+			Retryable: true,
+		}},
+		CoverageGaps: []AWSRuntimeEventCoverageGap{{
+			Capability: "iam_last_used",
+			Status:     "permission_denied",
+			Reason:     "IAM last-used collection is not authorized.",
+		}},
+		FailureReasons:   []string{"IAM last-used and Access Analyzer permissions are unavailable"},
+		RemediationHints: []string{"Grant metadata-only signal permissions."},
+	}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailLookupEventsFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error) {
+		return cloudTrail, nil
+	}
+	svc.AWSRuntimeSignalFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSRuntimeSignalIngester, error) {
+		return signals, nil
+	}
+
+	result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-signal-denied", AWSRuntimeEventRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get runtime events: %v", err)
+	}
+	if result.Status != "degraded" || result.FixtureState != "partial_failure" || result.Confidence > 0.72 {
+		t.Fatalf("expected blocked signal coverage to downgrade live CloudTrail result, got %+v", result)
+	}
+	if len(result.Records) != 1 || result.Records[0].EventID != "evt-live-secret" {
+		t.Fatalf("expected CloudTrail evidence to remain visible, got %+v", result.Records)
+	}
+	if len(result.Diagnostics) == 0 || !strings.Contains(strings.Join(result.FailureReasons, "|"), "permissions are unavailable") {
+		t.Fatalf("expected signal denial diagnostics/failures, got diagnostics=%+v failures=%+v", result.Diagnostics, result.FailureReasons)
+	}
+}
+
+func TestGetAWSRuntimeEventsSignalPermissionDeniedRespectsSourceFilters(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 21, 25, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-signal-source-filter")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-signal-source-filter", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-signal-source-filter", "aws-prod")
+
+	role := "arn:aws:sts::123456789012:assumed-role/identrail-runtime-reader/sess"
+	cloudTrail := &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{
+		Status: "ready",
+		Records: []AWSRuntimeEventRecord{
+			liveRuntimeRecord(t, "evt-live-kms", "kms-decrypt", "Decrypt", "kms.amazonaws.com", "kms:Decrypt", "application", "cloudtrail", role, "arn:aws:kms:us-east-1:123456789012:key/example", "AWS::KMS::Key", now.Add(-10*time.Minute)),
+		},
+	}}
+	signals := &fakeRuntimeSignalIngester{result: AWSRuntimeSignalIngestResult{
+		Status: "blocked",
+		Diagnostics: []AWSRuntimeEventDiagnostic{{
+			Collector: "aws_iam_access_signals",
+			SourceID:  "iam",
+			Code:      "iam_last_used_permission_denied",
+			Message:   "IAM last-used collection is not authorized.",
+			Retryable: true,
+		}},
+		CoverageGaps: []AWSRuntimeEventCoverageGap{{
+			Capability: "iam_last_used",
+			Status:     "permission_denied",
+			Reason:     "IAM last-used collection is not authorized.",
+		}},
+		FailureReasons:   []string{"IAM last-used and Access Analyzer permissions are unavailable"},
+		RemediationHints: []string{"Grant metadata-only signal permissions."},
+	}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailLookupEventsFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error) {
+		return cloudTrail, nil
+	}
+	svc.AWSRuntimeSignalFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSRuntimeSignalIngester, error) {
+		return signals, nil
+	}
+
+	result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-signal-source-filter", AWSRuntimeEventRequest{ConnectorID: "aws-prod", EventType: "secret-read"})
+	if err != nil {
+		t.Fatalf("get runtime events: %v", err)
+	}
+	if result.Status != "degraded" || result.FixtureState != "degraded" || result.Confidence != 0.5 {
+		t.Fatalf("expected empty CloudTrail filter state to survive out-of-scope signal denial, got %+v", result)
+	}
+	if len(result.Records) != 0 {
+		t.Fatalf("expected source filter to exclude CloudTrail and signal records, got %+v", result.Records)
+	}
+	if strings.Contains(strings.Join(result.FailureReasons, "|"), "permissions are unavailable") {
+		t.Fatalf("out-of-scope signal denial should not override filtered view failures, got %+v", result.FailureReasons)
+	}
+}
+
+func TestGetAWSRuntimeEventsSkipsSignalFactoryForCloudTrailOnlyFilters(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 21, 27, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-signal-factory-source-filter")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-signal-factory-source-filter", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-signal-factory-source-filter", "aws-prod")
+
+	role := "arn:aws:sts::123456789012:assumed-role/identrail-runtime-reader/sess"
+	cloudTrail := &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{
+		Status: "ready",
+		Records: []AWSRuntimeEventRecord{
+			liveRuntimeRecord(t, "evt-live-secret", "secret-read", "GetSecretValue", "secretsmanager.amazonaws.com", "secretsmanager:GetSecretValue", "application", "cloudtrail", role, "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/openai-key", "AWS::SecretsManager::Secret", now.Add(-10*time.Minute)),
+		},
+	}}
+	signalFactoryCalls := 0
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailLookupEventsFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error) {
+		return cloudTrail, nil
+	}
+	svc.AWSRuntimeSignalFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSRuntimeSignalIngester, error) {
+		signalFactoryCalls++
+		return nil, errors.New("signal factory unavailable")
+	}
+
+	result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-signal-factory-source-filter", AWSRuntimeEventRequest{ConnectorID: "aws-prod", EventType: "secret-read"})
+	if err != nil {
+		t.Fatalf("get runtime events: %v", err)
+	}
+	if signalFactoryCalls != 0 {
+		t.Fatalf("CloudTrail-only filters should not initialize signal factory, got %d calls", signalFactoryCalls)
+	}
+	if result.Status != "ready" || result.Confidence != 0.92 {
+		t.Fatalf("expected healthy CloudTrail-only result to stay ready, got %+v", result)
+	}
+	if len(result.Diagnostics) != 0 || strings.Contains(strings.Join(result.FailureReasons, "|"), "signal") {
+		t.Fatalf("out-of-scope signal factory failure should not leak into response, diagnostics=%+v failures=%+v", result.Diagnostics, result.FailureReasons)
+	}
+}
+
+func TestGetAWSRuntimeEventsSignalsClearEmptyFilterState(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 21, 30, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-signal-filter")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-signal-filter", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-signal-filter", "aws-prod")
+
+	role := "arn:aws:sts::123456789012:assumed-role/identrail-runtime-reader/sess"
+	cloudTrail := &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{
+		Status: "ready",
+		Records: []AWSRuntimeEventRecord{
+			liveRuntimeRecord(t, "evt-live-secret", "secret-read", "GetSecretValue", "secretsmanager.amazonaws.com", "secretsmanager:GetSecretValue", "application", "cloudtrail", role, "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/openai-key", "AWS::SecretsManager::Secret", now.Add(-10*time.Minute)),
+		},
+	}}
+	signalRecord := liveSignalRuntimeRecord(t, "evt-live-analyzer", "access-analyzer", "access-analyzer:external-principal", "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/openai-key", now.Add(-5*time.Minute))
+	signals := &fakeRuntimeSignalIngester{result: AWSRuntimeSignalIngestResult{
+		Status:  "ready",
+		Records: []AWSRuntimeEventRecord{signalRecord},
+	}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailLookupEventsFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error) {
+		return cloudTrail, nil
+	}
+	svc.AWSRuntimeSignalFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSRuntimeSignalIngester, error) {
+		return signals, nil
+	}
+
+	result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-signal-filter", AWSRuntimeEventRequest{ConnectorID: "aws-prod", EventType: "access-analyzer"})
+	if err != nil {
+		t.Fatalf("get runtime events: %v", err)
+	}
+	if result.Status != "ready" || result.FixtureState != "success" || result.Confidence != 0.92 {
+		t.Fatalf("expected signal match to clear stale empty-filter state, got %+v", result)
+	}
+	if len(result.Records) != 1 || result.Records[0].EventID != "evt-live-analyzer" {
+		t.Fatalf("expected filtered signal record, got %+v", result.Records)
+	}
+	if strings.Contains(strings.Join(result.FailureReasons, "|"), "filters matched no records") || strings.Contains(strings.Join(result.RemediationHints, "|"), "Clear filters") {
+		t.Fatalf("empty-filter messages should be cleared after signal match, failures=%+v remediations=%+v", result.FailureReasons, result.RemediationHints)
+	}
+}
+
+func TestGetAWSRuntimeEventsSignalDiagnosticsRespectRequestedSignalSource(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 21, 35, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-signal-source-diagnostics")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-signal-source-diagnostics", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-signal-source-diagnostics", "aws-prod")
+
+	role := "arn:aws:iam::123456789012:role/identrail-runtime-reader"
+	cloudTrail := &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{Status: "ready"}}
+	iamRecord := liveRuntimeRecord(t, "evt-live-iam-last-used", "iam-last-used", "ServiceLastAccessed", "iam.amazonaws.com", "lambda:LastAuthenticated", "platform", "iam-last-used", role, "aws-service://lambda", "aws_service", now.Add(-120*24*time.Hour))
+	iamRecord.SignalCategory = "iam-last-used"
+	iamRecord.SignalScope = "service"
+	iamRecord.SignalStaleAt = now
+	signals := &fakeRuntimeSignalIngester{result: AWSRuntimeSignalIngestResult{
+		Status:  "degraded",
+		Records: []AWSRuntimeEventRecord{iamRecord},
+		Diagnostics: []AWSRuntimeEventDiagnostic{{
+			Collector: "aws_iam_access_signals",
+			SourceID:  "access-analyzer:account",
+			Code:      "access_analyzer_permission_denied",
+			Message:   "Access Analyzer findings could not be listed.",
+			Retryable: true,
+		}},
+		CoverageGaps: []AWSRuntimeEventCoverageGap{{
+			Capability: "access_analyzer",
+			Status:     "permission_denied",
+			Reason:     "Access Analyzer findings could not be listed.",
+		}},
+		FailureReasons:   []string{"Access Analyzer signal permissions are unavailable"},
+		RemediationHints: []string{"Grant metadata-only Access Analyzer permissions."},
+	}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailLookupEventsFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error) {
+		return cloudTrail, nil
+	}
+	svc.AWSRuntimeSignalFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSRuntimeSignalIngester, error) {
+		return signals, nil
+	}
+
+	result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-signal-source-diagnostics", AWSRuntimeEventRequest{ConnectorID: "aws-prod", EventType: "iam-last-used"})
+	if err != nil {
+		t.Fatalf("get runtime events: %v", err)
+	}
+	if result.Status != "ready" || result.FixtureState != "success" {
+		t.Fatalf("expected IAM-only signal view to ignore Access Analyzer diagnostics, got %+v", result)
+	}
+	if len(result.Records) != 1 || result.Records[0].EventID != "evt-live-iam-last-used" {
+		t.Fatalf("expected IAM signal record to remain visible, got %+v", result.Records)
+	}
+	if len(result.Diagnostics) != 0 || len(result.CoverageGaps) != 0 || strings.Contains(strings.Join(result.FailureReasons, "|"), "Access Analyzer") {
+		t.Fatalf("Access Analyzer diagnostics should not leak into IAM-only view, diagnostics=%+v gaps=%+v failures=%+v", result.Diagnostics, result.CoverageGaps, result.FailureReasons)
+	}
+	if result.Summary.AccessAnalyzerCount != 0 || result.Summary.IAMLastUsedSignalCount != 1 {
+		t.Fatalf("summary should be scoped to IAM signals, got %+v", result.Summary)
+	}
+}
+
+func TestGetAWSRuntimeEventsCloudTrailDeniedWithSignalsIsPartialCoverage(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 21, 40, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-cloudtrail-denied-signals")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-cloudtrail-denied-signals", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-cloudtrail-denied-signals", "aws-prod")
+
+	cloudTrail := &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{
+		Status: "blocked",
+		Diagnostics: []AWSRuntimeEventDiagnostic{{
+			Collector: "aws_cloudtrail_lookup_events",
+			SourceID:  "cloudtrail",
+			Code:      "permission_denied",
+			Message:   "CloudTrail LookupEvents permission is not available.",
+			Retryable: true,
+		}},
+		CoverageGaps: []AWSRuntimeEventCoverageGap{{
+			Capability: "cloudtrail_lookup_events",
+			Status:     "permission_denied",
+			Reason:     "CloudTrail LookupEvents permission is not available.",
+		}},
+		FailureReasons:   []string{"runtime event sources are not authorized for this connector"},
+		RemediationHints: []string{"Grant metadata-only CloudTrail LookupEvents."},
+	}}
+	signalRecord := liveSignalRuntimeRecord(t, "evt-live-analyzer", "access-analyzer", "access-analyzer:external-principal", "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/openai-key", now.Add(-5*time.Minute))
+	signals := &fakeRuntimeSignalIngester{result: AWSRuntimeSignalIngestResult{
+		Status:  "ready",
+		Records: []AWSRuntimeEventRecord{signalRecord},
+	}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailLookupEventsFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error) {
+		return cloudTrail, nil
+	}
+	svc.AWSRuntimeSignalFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSRuntimeSignalIngester, error) {
+		return signals, nil
+	}
+
+	result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-cloudtrail-denied-signals", AWSRuntimeEventRequest{ConnectorID: "aws-prod", EventType: "access-analyzer"})
+	if err != nil {
+		t.Fatalf("get runtime events: %v", err)
+	}
+	if result.Status != "degraded" || result.FixtureState != "partial_failure" || result.Confidence > 0.72 {
+		t.Fatalf("expected mixed CloudTrail-denied/signal-visible result to be partial coverage, got %+v", result)
+	}
+	if len(result.Records) != 1 || result.Records[0].EventID != "evt-live-analyzer" {
+		t.Fatalf("expected signal evidence to remain visible, got %+v", result.Records)
+	}
+	if len(result.CoverageGaps) == 0 || !strings.Contains(strings.Join(result.FailureReasons, "|"), "not authorized") {
+		t.Fatalf("expected CloudTrail denial context to remain visible, gaps=%+v failures=%+v", result.CoverageGaps, result.FailureReasons)
+	}
+}
+
 func TestGetAWSRuntimeEventsFactoryContextCancellationPropagates(t *testing.T) {
 	// Context cancellation / deadline expiry inside the factory
 	// (loading AWS config, assuming the role) is a caller-driven
@@ -820,5 +1155,44 @@ func TestScopeAWSRuntimeEventDiagnosticsPreservesCollectorLevelSourceIDs(t *test
 	}
 	if codes["evt-b:runtime_event_delivery_delayed"] {
 		t.Fatalf("per-record diagnostic for filtered-out event must be dropped, got %+v", scoped)
+	}
+}
+
+func TestAWSRuntimeEventRelationshipsSkipRoleLastUsedSelfActions(t *testing.T) {
+	roleARN := "arn:aws:iam::123456789012:role/never-used"
+	record := AWSRuntimeEventRecord{
+		EventID:             "evt-role-never-used",
+		EventType:           "iam-last-used",
+		SignalCategory:      "iam-last-used",
+		SignalScope:         "role",
+		ActorIdentityNodeID: awsIdentityNodeIDForAPI(roleARN),
+		ResourceNodeID:      awsRuntimeEventResourceNodeID(roleARN, "iam_role"),
+		EvidenceRef:         "runtime-evidence://123456789012/us-east-1/evt-role-never-used",
+	}
+	relationships := awsRuntimeEventRelationships([]AWSRuntimeEventRecord{record})
+	for _, relationship := range relationships {
+		if relationship.Type == "observed_runtime_action" {
+			t.Fatalf("role last-used metadata must not create observed action self-edge, got %+v", relationships)
+		}
+	}
+}
+
+func TestAWSRuntimeEventRelationshipsSkipServiceNeverAccessedActions(t *testing.T) {
+	roleARN := "arn:aws:iam::123456789012:role/never-used"
+	record := AWSRuntimeEventRecord{
+		EventID:             "evt-service-never-accessed",
+		EventType:           "iam-last-used",
+		EventName:           "ServiceNeverAccessed",
+		SignalCategory:      "iam-last-used",
+		SignalScope:         "service",
+		ActorIdentityNodeID: awsIdentityNodeIDForAPI(roleARN),
+		ResourceNodeID:      awsRuntimeEventResourceNodeID("aws-service://sqs", "aws_service"),
+		EvidenceRef:         "runtime-evidence://123456789012/us-east-1/evt-service-never-accessed",
+	}
+	relationships := awsRuntimeEventRelationships([]AWSRuntimeEventRecord{record})
+	for _, relationship := range relationships {
+		if relationship.Type == "observed_runtime_action" {
+			t.Fatalf("service-never-accessed metadata must not create observed action edge, got %+v", relationships)
+		}
 	}
 }

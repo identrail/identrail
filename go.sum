@@ -20,6 +20,8 @@ github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.29 h1:RdwIf/CuUsvJX3RgJa
 github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.29/go.mod h1:71wt8W2EgswdZy9Mf9KNnzxZ3TiZlv4caKghPktDOkA=
 github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.30 h1:VTGy885W5DKBxWRUJbym9hytNaYzsyaPkCHGRRMAOhU=
 github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.30/go.mod h1:AS0HycUvJRFvTt613AYDOgO2jzw+00cVSMny8XB3yMY=
+github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.49.5 h1:YRmgSZDK5hzQGr3WD/tUVFCwVsnELDbTui7yhEgzy7g=
+github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.49.5/go.mod h1:4v0AkcAcWguJx3gOcZTvunFMbVeJ1e0jiUZPkaDPbhI=
 github.com/aws/aws-sdk-go-v2/service/apprunner v1.40.6 h1:MYVMZUGbJnoRZBtotS/otWTYf8z4YjTiZ1nlwiFOPj0=
 github.com/aws/aws-sdk-go-v2/service/apprunner v1.40.6/go.mod h1:VoWs1kYoXt1E02xMtFUq03ZGys+jcQQPxGqeof39ZmQ=
 github.com/aws/aws-sdk-go-v2/service/batch v1.65.6 h1:gVXOXnD5kjDGtkGgWGva7cRXYY7w/nR+1rv23xh5Jag=

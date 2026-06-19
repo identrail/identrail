@@ -204,6 +204,56 @@ func TestGetAWSRuntimeEventsDeliverySourceAllFansOutAndDedupes(t *testing.T) {
 	}
 }
 
+func TestGetAWSRuntimeEventsDeliverySourceAllAppendsSignalFilters(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 15, 19, 25, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-all-delivery-signals")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-all-delivery-signals", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-all-delivery-signals", "aws-prod")
+
+	s3Fake := &fakeDeliveryIngester{result: AWSCloudTrailIngestResult{Status: "ready"}}
+	ebFake := &fakeDeliveryIngester{result: AWSCloudTrailIngestResult{Status: "ready"}}
+	signalRecord := liveSignalRuntimeRecord(t, "evt-delivery-analyzer", "access-analyzer", "access-analyzer:external-principal", "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/openai-key", now.Add(-5*time.Minute))
+	signals := &fakeRuntimeSignalIngester{result: AWSRuntimeSignalIngestResult{
+		Status:  "ready",
+		Records: []AWSRuntimeEventRecord{signalRecord},
+	}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailDeliveryFactory = func(_ context.Context, _ AWSConnectionStatus, source AWSCloudTrailDeliverySource) (AWSCloudTrailRuntimeEventIngester, error) {
+		switch source {
+		case AWSCloudTrailDeliverySourceS3:
+			return s3Fake, nil
+		case AWSCloudTrailDeliverySourceEventBridge:
+			return ebFake, nil
+		}
+		t.Fatalf("unknown source %q", source)
+		return nil, nil
+	}
+	svc.AWSRuntimeSignalFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSRuntimeSignalIngester, error) {
+		return signals, nil
+	}
+
+	result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-all-delivery-signals", AWSRuntimeEventRequest{
+		ConnectorID:    "aws-prod",
+		DeliverySource: "all",
+		EventType:      "access-analyzer",
+	})
+	if err != nil {
+		t.Fatalf("get runtime events: %v", err)
+	}
+	if s3Fake.calls != 1 || ebFake.calls != 1 || len(signals.calls) != 1 {
+		t.Fatalf("expected delivery and signal ingesters to run once, got s3=%d eb=%d signals=%d", s3Fake.calls, ebFake.calls, len(signals.calls))
+	}
+	if result.Status != "ready" || result.FixtureState != "success" {
+		t.Fatalf("expected delivery signal filter to return ready signal result, got %+v", result)
+	}
+	if len(result.Records) != 1 || result.Records[0].EventID != "evt-delivery-analyzer" {
+		t.Fatalf("expected filtered signal record after delivery merge, got %+v", result.Records)
+	}
+}
+
 func TestGetAWSRuntimeEventsDeliveryUnknownSourceRejectedWith400(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()

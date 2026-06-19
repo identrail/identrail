@@ -26,14 +26,17 @@ func TestGetAWSRuntimeEventsBuildsMetadataOnlyContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get runtime events: %v", err)
 	}
-	if result.CurrentIssueRef != "#1516" || result.Version != awsRuntimeEventsVersion || result.Status != "ready" {
+	if result.CurrentIssueRef != "#1517" || result.Version != awsRuntimeEventsVersion || result.Status != "ready" {
 		t.Fatalf("unexpected runtime event contract metadata: %+v", result)
 	}
-	if result.Summary.TotalEvents != 5 || result.Summary.FilteredEvents != 5 || result.Summary.RelationshipCount != len(result.Relationships) {
+	if result.Summary.TotalEvents != 7 || result.Summary.FilteredEvents != 7 || result.Summary.RelationshipCount != len(result.Relationships) {
 		t.Fatalf("unexpected runtime event summary: %+v relationships=%d", result.Summary, len(result.Relationships))
 	}
-	if result.Summary.SecretReadCount != 1 || result.Summary.KMSDecryptCount != 1 || result.Summary.AgentEventCount != 1 || result.Summary.STSSessionCount == 0 {
+	if result.Summary.SecretReadCount != 1 || result.Summary.KMSDecryptCount != 1 || result.Summary.AgentEventCount != 1 || result.Summary.STSSessionCount == 0 || result.Summary.IAMLastUsedSignalCount != 1 || result.Summary.AccessAnalyzerCount != 1 {
 		t.Fatalf("expected runtime event type counts, got %+v", result.Summary)
+	}
+	if result.Summary.DormantAccessCount != 1 {
+		t.Fatalf("expected dormant access count from stale IAM last-used signal, got %+v", result.Summary)
 	}
 	if result.Summary.LineageResolvedCount == 0 || result.Summary.MissingSourceIDCount == 0 {
 		t.Fatalf("expected explicit STS lineage summary counts, got %+v", result.Summary)
@@ -42,12 +45,78 @@ func TestGetAWSRuntimeEventsBuildsMetadataOnlyContract(t *testing.T) {
 		if record.RedactionBoundary != "metadata_only_no_payloads_no_secret_values" {
 			t.Fatalf("runtime event leaked unsafe redaction boundary: %+v", record)
 		}
-		if record.EvidenceRef == "" || record.ActorIdentityNodeID == "" || record.Session.SessionID == "" || record.Confidence <= 0 {
-			t.Fatalf("runtime event missing evidence/session/identity/confidence: %+v", record)
+		if record.EvidenceRef == "" || record.ActorIdentityNodeID == "" || record.Confidence <= 0 {
+			t.Fatalf("runtime event missing evidence/identity/confidence: %+v", record)
+		}
+		if record.SignalCategory == "" && record.Session.SessionID == "" {
+			t.Fatalf("non-signal runtime event missing session metadata: %+v", record)
+		}
+		if record.SignalCategory != "" && (record.SignalStaleAt.IsZero() || record.SignalScope == "") {
+			t.Fatalf("signal runtime event missing stale timestamp or scope: %+v", record)
 		}
 	}
 	if len(result.EvidenceLinks) == 0 || len(result.FailureReasons) != 0 {
 		t.Fatalf("expected evidence links and no failure reasons, got links=%v failures=%v", result.EvidenceLinks, result.FailureReasons)
+	}
+}
+
+func TestGetAWSRuntimeEventsFiltersIAMAccessSignals(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 18, 35, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-signals")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-signals", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	for _, tc := range []struct {
+		name          string
+		eventType     string
+		evidence      string
+		wantSignal    string
+		wantAnalyzer  bool
+		wantEventType string
+	}{
+		{
+			name:          "iam last-used",
+			eventType:     "iam-last-used",
+			evidence:      "iam-last-used",
+			wantSignal:    "iam-last-used",
+			wantEventType: "iam-last-used",
+		},
+		{
+			name:          "access analyzer",
+			eventType:     "access-analyzer",
+			evidence:      "access-analyzer",
+			wantSignal:    "access-analyzer",
+			wantAnalyzer:  true,
+			wantEventType: "access-analyzer",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-signals", AWSRuntimeEventRequest{
+				ConnectorID: "aws-prod",
+				EventType:   tc.eventType,
+				Evidence:    tc.evidence,
+			})
+			if err != nil {
+				t.Fatalf("get filtered signal runtime events: %v", err)
+			}
+			if result.Summary.TotalEvents != 7 || result.Summary.FilteredEvents != 1 || len(result.Records) != 1 {
+				t.Fatalf("expected one filtered signal with retained total count, got summary=%+v records=%+v", result.Summary, result.Records)
+			}
+			record := result.Records[0]
+			if record.EventType != tc.wantEventType || record.SignalCategory != tc.wantSignal || record.EvidenceCategory != tc.evidence {
+				t.Fatalf("expected filtered signal metadata, got %+v", record)
+			}
+			if record.SignalStaleAt.IsZero() || record.SignalScope == "" {
+				t.Fatalf("expected signal stale timestamp and scope, got %+v", record)
+			}
+			if tc.wantAnalyzer && record.AnalyzerARN == "" {
+				t.Fatalf("expected analyzer ARN, got %+v", record)
+			}
+		})
 	}
 }
 
@@ -114,6 +183,34 @@ func TestGetAWSRuntimeEventsAppliesFiltersAndRelationships(t *testing.T) {
 				t.Fatalf("expected scoped filter to avoid metadata-only false positives, got summary=%+v records=%+v", result.Summary, result.Records)
 			}
 		})
+	}
+}
+
+func TestAWSRuntimeEventRelationshipsSkipAnalyzerFindings(t *testing.T) {
+	relationships := awsRuntimeEventRelationships([]AWSRuntimeEventRecord{
+		{
+			EventType:           "access-analyzer",
+			SignalCategory:      "access-analyzer",
+			ActorIdentityNodeID: "aws:identity:external:210987654321",
+			ResourceNodeID:      "aws:runtime-resource:secret:prod-payments",
+			EvidenceRef:         "runtime-evidence://123456789012/us-east-1/access-analyzer:finding-1",
+		},
+	})
+	if len(relationships) != 0 {
+		t.Fatalf("Access Analyzer exposure metadata must not produce runtime action edges, got %+v", relationships)
+	}
+
+	relationships = awsRuntimeEventRelationships([]AWSRuntimeEventRecord{
+		{
+			EventType:           "iam-last-used",
+			SignalCategory:      "iam-last-used",
+			ActorIdentityNodeID: "aws:identity:role:payments-worker",
+			ResourceNodeID:      "aws:runtime-resource:service:s3",
+			EvidenceRef:         "runtime-evidence://123456789012/us-east-1/iam-service-last-used:s3",
+		},
+	})
+	if len(relationships) != 1 || relationships[0].Type != "observed_runtime_action" {
+		t.Fatalf("non-analyzer runtime signals should keep observed action edges, got %+v", relationships)
 	}
 }
 
