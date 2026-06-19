@@ -773,7 +773,7 @@ func summarizeAWSRuntimeEventStatus(fixtureState string, diagnostics []AWSRuntim
 func awsRuntimeEventRelationships(records []AWSRuntimeEventRecord) []AWSRuntimeEventRelationship {
 	out := []AWSRuntimeEventRelationship{}
 	for _, record := range records {
-		if record.ActorIdentityNodeID != "" && record.ResourceNodeID != "" && !awsRuntimeEventIsExposureSignal(record) {
+		if record.ActorIdentityNodeID != "" && record.ResourceNodeID != "" && !awsRuntimeEventSkipsObservedActionEdge(record) {
 			out = append(out, AWSRuntimeEventRelationship{Type: "observed_runtime_action", FromNodeID: record.ActorIdentityNodeID, ToNodeID: record.ResourceNodeID, EvidenceRef: record.EvidenceRef})
 		}
 		if record.ActorIdentityNodeID != "" && record.Session.SessionNodeID != "" {
@@ -795,8 +795,12 @@ func awsRuntimeEventRelationships(records []AWSRuntimeEventRecord) []AWSRuntimeE
 	return out
 }
 
-func awsRuntimeEventIsExposureSignal(record AWSRuntimeEventRecord) bool {
-	return normalizeAWSRuntimeEventFilterToken(firstNonEmptyAWSValue(record.SignalCategory, record.EventType)) == "access-analyzer"
+func awsRuntimeEventSkipsObservedActionEdge(record AWSRuntimeEventRecord) bool {
+	category := normalizeAWSRuntimeEventFilterToken(firstNonEmptyAWSValue(record.SignalCategory, record.EventType))
+	if category == "access-analyzer" {
+		return true
+	}
+	return category == "iam-last-used" && normalizeAWSRuntimeEventFilterToken(record.SignalScope) == "role"
 }
 
 func awsRuntimeEventFixtureRecords(accountID string, region string, fixtureState string, checkedAt time.Time) ([]AWSRuntimeEventRecord, []AWSRuntimeEventDiagnostic, []AWSRuntimeEventCoverageGap) {
@@ -1003,6 +1007,10 @@ func (s *Service) appendAWSRuntimeSignals(ctx context.Context, scope db.Scope, p
 	if s.AWSRuntimeSignalFactory == nil || strings.TrimSpace(request.FixtureState) != "" || !awsConnectorHasRuntimeEvidence(connection) {
 		return base, nil
 	}
+	requestedSignalCategory, signalEvidenceInScope := awsRuntimeRequestedSignalCategory(request)
+	if !signalEvidenceInScope {
+		return base, nil
+	}
 	ingester, err := s.AWSRuntimeSignalFactory(ctx, connection)
 	if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 		return AWSRuntimeEventResult{}, err
@@ -1041,17 +1049,17 @@ func (s *Service) appendAWSRuntimeSignals(ctx context.Context, scope db.Scope, p
 		return AWSRuntimeEventResult{}, fmt.Errorf("ingest iam access signals: %w", signalErr)
 	}
 	wasEmptyFilterResult := awsRuntimeEventIsEmptyFilterResult(base)
+	signalResult, summaryRecords := scopeAWSRuntimeSignalResult(signalResult, requestedSignalCategory)
 	filtered, _ := filterAWSRuntimeEventRecords(signalResult.Records, request)
-	signalEvidenceInScope := awsRuntimeSignalEvidenceInScope(request) || len(filtered) > 0
 	base.Records = append(base.Records, filtered...)
 	base.Relationships = awsRuntimeEventRelationships(base.Records)
-	if signalEvidenceInScope {
+	if signalEvidenceInScope || len(filtered) > 0 {
 		base.Diagnostics = append(base.Diagnostics, signalResult.Diagnostics...)
 		base.CoverageGaps = append(base.CoverageGaps, signalResult.CoverageGaps...)
 		base.FailureReasons = dedupeStrings(append(base.FailureReasons, signalResult.FailureReasons...))
 		base.RemediationHints = dedupeStrings(append(base.RemediationHints, signalResult.RemediationHints...))
 		base.EvidenceLinks = dedupeStrings(append(base.EvidenceLinks, "/docs/aws-runtime-events#iam-last-used-and-access-analyzer-signals-1517"))
-		base.Summary = mergeAWSRuntimeEventSummaries(base.Summary, signalResult.Records, len(filtered), len(base.Relationships), base.Records)
+		base.Summary = mergeAWSRuntimeEventSummaries(base.Summary, summaryRecords, len(filtered), len(base.Relationships), base.Records)
 	}
 	if wasEmptyFilterResult && len(filtered) > 0 {
 		base.FailureReasons = removeRuntimeEventEmptyFilterFailures(base.FailureReasons)
@@ -1062,7 +1070,7 @@ func (s *Service) appendAWSRuntimeSignals(ctx context.Context, scope db.Scope, p
 			base.Confidence = 0.92
 		}
 	}
-	if signalEvidenceInScope && signalResult.Status == "blocked" {
+	if signalResult.Status == "blocked" {
 		if len(base.Records) == 0 {
 			base.Status = "blocked"
 			base.Confidence = 0
@@ -1080,7 +1088,7 @@ func (s *Service) appendAWSRuntimeSignals(ctx context.Context, scope db.Scope, p
 		if base.Confidence == 0 || base.Confidence > 0.72 {
 			base.Confidence = 0.72
 		}
-	} else if signalEvidenceInScope && signalResult.Status == "degraded" && base.Status == "ready" {
+	} else if signalResult.Status == "degraded" && base.Status == "ready" {
 		base.Status = "degraded"
 		base.FixtureState = "degraded"
 		if base.Confidence > 0.78 {
@@ -1090,21 +1098,153 @@ func (s *Service) appendAWSRuntimeSignals(ctx context.Context, scope db.Scope, p
 	return base, nil
 }
 
-func awsRuntimeSignalEvidenceInScope(request AWSRuntimeEventRequest) bool {
-	eventType := normalizeAWSRuntimeEventFilterToken(request.EventType)
-	switch eventType {
-	case "", "all", "iam-last-used", "access-analyzer":
-	default:
-		return false
+func awsRuntimeRequestedSignalCategory(request AWSRuntimeEventRequest) (string, bool) {
+	category := ""
+	for _, token := range []string{
+		normalizeAWSRuntimeEventFilterToken(request.EventType),
+		normalizeAWSRuntimeEventFilterToken(request.Evidence),
+	} {
+		switch token {
+		case "", "all":
+			continue
+		case "iam-last-used", "access-analyzer":
+			if category != "" && category != token {
+				return "", false
+			}
+			category = token
+		default:
+			return "", false
+		}
+	}
+	return category, true
+}
+
+func scopeAWSRuntimeSignalResult(result AWSRuntimeSignalIngestResult, category string) (AWSRuntimeSignalIngestResult, []AWSRuntimeEventRecord) {
+	category = normalizeAWSRuntimeEventFilterToken(category)
+	if category == "" || category == "all" {
+		return result, result.Records
 	}
 
-	evidence := normalizeAWSRuntimeEventFilterToken(request.Evidence)
-	switch evidence {
-	case "", "all", "iam-last-used", "access-analyzer":
+	scoped := AWSRuntimeSignalIngestResult{
+		Status:  "ready",
+		Records: filterAWSRuntimeSignalRecordsByCategory(result.Records, category),
+	}
+	scoped.Diagnostics = filterAWSRuntimeSignalDiagnosticsByCategory(result.Diagnostics, category)
+	scoped.CoverageGaps = filterAWSRuntimeSignalCoverageGapsByCategory(result.CoverageGaps, category)
+	if len(scoped.Diagnostics) > 0 || len(scoped.CoverageGaps) > 0 {
+		scoped.Status = "degraded"
+		scoped.FailureReasons = []string{awsRuntimeSignalScopedFailureReason(category)}
+		scoped.RemediationHints = []string{awsRuntimeSignalScopedRemediation(category)}
+		if len(scoped.Records) == 0 && awsRuntimeSignalCoverageGapsPermissionDenied(scoped.CoverageGaps) {
+			scoped.Status = "blocked"
+			scoped.FailureReasons = []string{awsRuntimeSignalScopedPermissionReason(category)}
+		}
+	}
+	return scoped, scoped.Records
+}
+
+func filterAWSRuntimeSignalRecordsByCategory(records []AWSRuntimeEventRecord, category string) []AWSRuntimeEventRecord {
+	out := make([]AWSRuntimeEventRecord, 0, len(records))
+	for _, record := range records {
+		if awsRuntimeSignalRecordCategory(record) == category {
+			out = append(out, record)
+		}
+	}
+	return out
+}
+
+func filterAWSRuntimeSignalDiagnosticsByCategory(diagnostics []AWSRuntimeEventDiagnostic, category string) []AWSRuntimeEventDiagnostic {
+	out := make([]AWSRuntimeEventDiagnostic, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		if awsRuntimeSignalDiagnosticMatchesCategory(diagnostic, category) {
+			out = append(out, diagnostic)
+		}
+	}
+	return out
+}
+
+func filterAWSRuntimeSignalCoverageGapsByCategory(gaps []AWSRuntimeEventCoverageGap, category string) []AWSRuntimeEventCoverageGap {
+	out := make([]AWSRuntimeEventCoverageGap, 0, len(gaps))
+	for _, gap := range gaps {
+		if awsRuntimeSignalCoverageGapMatchesCategory(gap, category) {
+			out = append(out, gap)
+		}
+	}
+	return out
+}
+
+func awsRuntimeSignalRecordCategory(record AWSRuntimeEventRecord) string {
+	return normalizeAWSRuntimeEventFilterToken(firstNonEmptyAWSValue(record.SignalCategory, record.EventType, record.EvidenceCategory))
+}
+
+func awsRuntimeSignalDiagnosticMatchesCategory(diagnostic AWSRuntimeEventDiagnostic, category string) bool {
+	sourceID := normalizeAWSRuntimeEventFilterToken(diagnostic.SourceID)
+	code := normalizeAWSRuntimeEventFilterToken(diagnostic.Code)
+	switch category {
+	case "iam-last-used":
+		return sourceID == "iam" || strings.HasPrefix(sourceID, "iam-") || strings.HasPrefix(sourceID, "iam:") || strings.Contains(code, "iam-last-used")
+	case "access-analyzer":
+		return sourceID == "access-analyzer" || strings.HasPrefix(sourceID, "access-analyzer-") || strings.HasPrefix(sourceID, "access-analyzer:") || strings.Contains(code, "access-analyzer")
 	default:
+		return true
+	}
+}
+
+func awsRuntimeSignalCoverageGapMatchesCategory(gap AWSRuntimeEventCoverageGap, category string) bool {
+	capability := normalizeAWSRuntimeEventFilterToken(gap.Capability)
+	switch category {
+	case "iam-last-used":
+		return capability == "iam-last-used"
+	case "access-analyzer":
+		return capability == "access-analyzer"
+	default:
+		return true
+	}
+}
+
+func awsRuntimeSignalCoverageGapsPermissionDenied(gaps []AWSRuntimeEventCoverageGap) bool {
+	if len(gaps) == 0 {
 		return false
 	}
+	for _, gap := range gaps {
+		if normalizeAWSRuntimeEventFilterToken(gap.Status) != "permission-denied" {
+			return false
+		}
+	}
 	return true
+}
+
+func awsRuntimeSignalScopedFailureReason(category string) string {
+	switch category {
+	case "iam-last-used":
+		return "IAM last-used signal coverage is incomplete"
+	case "access-analyzer":
+		return "Access Analyzer signal coverage is incomplete"
+	default:
+		return "IAM last-used and Access Analyzer signal coverage is incomplete"
+	}
+}
+
+func awsRuntimeSignalScopedPermissionReason(category string) string {
+	switch category {
+	case "iam-last-used":
+		return "IAM last-used signal permissions are unavailable"
+	case "access-analyzer":
+		return "Access Analyzer signal permissions are unavailable"
+	default:
+		return "IAM last-used and Access Analyzer permissions are unavailable"
+	}
+}
+
+func awsRuntimeSignalScopedRemediation(category string) string {
+	switch category {
+	case "iam-last-used":
+		return "Grant metadata-only iam:ListRoles, iam:GenerateServiceLastAccessedDetails, and iam:GetServiceLastAccessedDetails."
+	case "access-analyzer":
+		return "Grant metadata-only access-analyzer:ListAnalyzers and access-analyzer:ListFindings."
+	default:
+		return "Grant metadata-only IAM Access Advisor and Access Analyzer permissions."
+	}
 }
 
 func awsRuntimeEventIsEmptyFilterResult(result AWSRuntimeEventResult) bool {
