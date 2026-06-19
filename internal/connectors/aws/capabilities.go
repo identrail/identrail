@@ -40,7 +40,7 @@ func CapabilityPermissionTiers() []CapabilityPermissionTier {
 			Permissions: []PermissionPreviewItem{
 				{
 					Service:   "IAM",
-					Actions:   []string{"iam:GenerateServiceLastAccessedDetails", "iam:GetServiceLastAccessedDetails"},
+					Actions:   []string{"iam:ListRoles", "iam:GenerateServiceLastAccessedDetails", "iam:GetServiceLastAccessedDetails"},
 					Resources: []string{"*"},
 					Reason:    "Confirms which services a machine identity has actually used so unused high-risk permissions can be flagged.",
 				},

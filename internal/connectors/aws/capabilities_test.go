@@ -75,6 +75,30 @@ func TestRuntimeEvidenceTierIncludesAccessAnalyzerCollectionGrant(t *testing.T) 
 	}
 }
 
+func TestRuntimeEvidenceTierIncludesIAMCollectionGrant(t *testing.T) {
+	var actions []string
+	for _, tier := range CapabilityPermissionTiers() {
+		if tier.Capability != domain.ConnectorCapabilityRuntimeEvidence {
+			continue
+		}
+		for _, permission := range tier.Permissions {
+			if permission.Service == "IAM" {
+				actions = permission.Actions
+				break
+			}
+		}
+		break
+	}
+	if len(actions) == 0 {
+		t.Fatal("runtime_evidence must advertise IAM permissions")
+	}
+	for _, want := range []string{"iam:ListRoles", "iam:GenerateServiceLastAccessedDetails", "iam:GetServiceLastAccessedDetails"} {
+		if !containsString(actions, want) {
+			t.Fatalf("runtime_evidence IAM actions = %v, want %q", actions, want)
+		}
+	}
+}
+
 func TestDefaultCapabilityPolicyAllowsOnlyDiscovery(t *testing.T) {
 	policy := DefaultCapabilityPolicy()
 	if allowed, _ := policy.CapabilityAllowed(domain.ConnectorCapabilityDiscovery); !allowed {
