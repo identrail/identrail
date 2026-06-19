@@ -64,6 +64,14 @@ kubectl -n identrail patch deployment identrail-api --type json \
   -p='[{"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/httpGet/path","value":"/healthz"}]'
 ```
 
+`deploy/kubernetes/worker-deployment.yaml` also runs one worker replica that
+polls Postgres through the API job queue every 2s (see
+`deploy/kubernetes/configmap.yaml`). For the same profile, either skip the
+`worker-deployment.yaml` apply, scale the existing Deployment to zero
+(`kubectl -n identrail scale deployment identrail-worker --replicas=0`), or if
+the worker must stay running, disable its DB-backed loops per
+[docs/worker.md](worker.md).
+
 ## 3) Kubernetes Helm
 
 Use this for upgrade-safe cluster rollout.
@@ -87,6 +95,13 @@ api:
     initialDelaySeconds: 5
     periodSeconds: 10
 ```
+
+The chart also defaults to `worker.replicaCount: 1` with
+`IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED: "true"` polling Postgres every 2s. For
+the same profile, also set `worker.replicaCount: 0` in the values file (or, if
+the worker must stay running, set every loop-disable override from
+[deploy/helm/README.md](../deploy/helm/README.md) under `config:`) so the
+worker does not keep Neon active.
 
 ## 4) Terraform
 
