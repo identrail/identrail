@@ -43,7 +43,14 @@ This chart is the Kubernetes deployment baseline for Identrail.
   `api.readinessProbe.httpGet.path=/healthz`; otherwise Kubernetes will poll
   `/readyz` and keep Postgres active. The chart also deploys the worker by
   default (`worker.replicaCount: 1`) which polls Postgres via the API job
-  queue every 2s; set `worker.replicaCount=0` (or, if the worker must stay
-  running, set `config.IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED=false` and
-  `config.IDENTRAIL_WORKER_RUN_NOW=false`) so the worker does not keep the
-  compute active.
+  queue every 2s and runs the cloud scan and scan-policy scheduler loops on
+  their own intervals; set `worker.replicaCount=0` (or, if the worker must
+  stay running, disable every DB-backed loop by setting
+  `config.IDENTRAIL_WORKER_RUN_NOW=false`,
+  `config.IDENTRAIL_WORKER_SCAN_ENABLED=false`,
+  `config.IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED=false`,
+  `config.IDENTRAIL_WORKER_SCAN_POLICY_SCHEDULER_ENABLED=false`,
+  `config.IDENTRAIL_WORKER_USER_EXPORT_GC_ENABLED=false`, and
+  `config.IDENTRAIL_WORKER_REPO_SCAN_ENABLED=false`) so the worker does not
+  keep the compute active. See [docs/worker.md](../../docs/worker.md) for the
+  full disable list.
