@@ -368,6 +368,33 @@ func TestStaticGrantsFromS3RecordsProjectsIAMPrincipalsOnly(t *testing.T) {
 	}
 }
 
+func TestStaticGrantsFromS3RecordsInvertsDenyNotAction(t *testing.T) {
+	records := []AWSS3BucketReachabilityRecord{{
+		AccountID: "111122223333",
+		Region:    "us-east-1",
+		BucketARN: "arn:aws:s3:::write-denied",
+		IdentityGrants: []AWSS3IdentityGrant{{
+			PrincipalARN: "arn:aws:iam::111122223333:role/writer",
+			Effect:       "Deny",
+			Actions:      []string{"s3:GetObject"},
+			NotAction:    true,
+		}},
+	}}
+	grants := staticGrantsFromS3Records(records)
+	if len(grants) != 1 {
+		t.Fatalf("expected one inverted deny grant, got %+v", grants)
+	}
+	if grants[0].Effect != "Deny" {
+		t.Fatalf("expected deny effect, got %+v", grants[0])
+	}
+	if hasS3Mode(grants[0].AllowedModes, s3access.ModeRead) {
+		t.Fatalf("NotAction GetObject must exclude read from denied modes, got %+v", grants[0].AllowedModes)
+	}
+	if !hasS3Mode(grants[0].AllowedModes, s3access.ModeWrite) || !hasS3Mode(grants[0].AllowedModes, s3access.ModeList) {
+		t.Fatalf("NotAction GetObject should deny write+list modes, got %+v", grants[0].AllowedModes)
+	}
+}
+
 func hasS3Caveat(caveats []string, want string) bool {
 	for _, caveat := range caveats {
 		if caveat == want {

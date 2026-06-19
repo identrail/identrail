@@ -558,10 +558,8 @@ func staticGrantsFromS3Records(records []AWSS3BucketReachabilityRecord) []s3acce
 	for _, record := range records {
 		sensitivity := s3BucketSensitivity(record)
 		for _, grant := range record.IdentityGrants {
-			if grant.NotAction {
-				continue
-			}
-			modes := s3GrantAllowedModes(grant.Actions)
+			effect := firstNonEmptyAWSValue(grant.Effect, "Allow")
+			modes := s3GrantAllowedModesForEffect(grant.Actions, grant.NotAction, effect)
 			if len(modes) == 0 {
 				continue
 			}
@@ -588,7 +586,7 @@ func staticGrantsFromS3Records(records []AWSS3BucketReachabilityRecord) []s3acce
 				BucketName:     firstNonEmptyAWSValue(record.BucketName, displayNameFromARN(record.BucketARN)),
 				AllowedModes:   modes,
 				Source:         s3access.SourceBucketPolicy,
-				Effect:         firstNonEmptyAWSValue(grant.Effect, "Allow"),
+				Effect:         effect,
 				Conditional:    grant.HasCondition || len(grant.ConditionKeys) > 0,
 				CrossAccount:   grant.IsCrossAccount,
 				Exposure:       record.ExposureClassification,
@@ -596,6 +594,26 @@ func staticGrantsFromS3Records(records []AWSS3BucketReachabilityRecord) []s3acce
 				Confidence:     record.Confidence,
 				EvidenceRef:    record.EvidenceRef,
 			})
+		}
+	}
+	return out
+}
+
+func s3GrantAllowedModesForEffect(actions []string, notAction bool, effect string) []string {
+	if !notAction {
+		return s3GrantAllowedModes(actions)
+	}
+	if !strings.EqualFold(strings.TrimSpace(effect), "Deny") {
+		return nil
+	}
+	excluded := map[string]struct{}{}
+	for _, mode := range s3GrantAllowedModes(actions) {
+		excluded[mode] = struct{}{}
+	}
+	out := []string{}
+	for _, mode := range []string{s3access.ModeRead, s3access.ModeWrite, s3access.ModeList} {
+		if _, ok := excluded[mode]; !ok {
+			out = append(out, mode)
 		}
 	}
 	return out
