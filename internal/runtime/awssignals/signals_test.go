@@ -243,6 +243,19 @@ func TestIngesterPollsPendingIAMLastUsedReport(t *testing.T) {
 	t.Fatalf("expected service last-used signal after polling, got %+v", result.Signals)
 }
 
+func TestIngesterPropagatesContextCancellation(t *testing.T) {
+	for _, wantErr := range []error{context.Canceled, context.DeadlineExceeded} {
+		result, err := New(fakeIAMAPI{listRolesErr: wantErr}, fakeAccessAnalyzerAPI{}).Ingest(context.Background(), IngestRequest{
+			AccountID:   "123456789012",
+			Region:      "us-east-1",
+			CollectedAt: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC),
+		})
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("expected %v to propagate, got err=%v result=%+v", wantErr, err, result)
+		}
+	}
+}
+
 func TestIngesterReportsPermissionDeniedCoverage(t *testing.T) {
 	result, err := New(fakeIAMAPI{listRolesErr: errors.New("AccessDenied: not authorized")}, fakeAccessAnalyzerAPI{listAnalyzersErr: errors.New("AccessDeniedException")}).Ingest(context.Background(), IngestRequest{
 		AccountID:   "123456789012",

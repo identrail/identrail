@@ -186,6 +186,34 @@ func TestGetAWSRuntimeEventsAppliesFiltersAndRelationships(t *testing.T) {
 	}
 }
 
+func TestAWSRuntimeEventRelationshipsSkipAnalyzerFindings(t *testing.T) {
+	relationships := awsRuntimeEventRelationships([]AWSRuntimeEventRecord{
+		{
+			EventType:           "access-analyzer",
+			SignalCategory:      "access-analyzer",
+			ActorIdentityNodeID: "aws:identity:external:210987654321",
+			ResourceNodeID:      "aws:runtime-resource:secret:prod-payments",
+			EvidenceRef:         "runtime-evidence://123456789012/us-east-1/access-analyzer:finding-1",
+		},
+	})
+	if len(relationships) != 0 {
+		t.Fatalf("Access Analyzer exposure metadata must not produce runtime action edges, got %+v", relationships)
+	}
+
+	relationships = awsRuntimeEventRelationships([]AWSRuntimeEventRecord{
+		{
+			EventType:           "iam-last-used",
+			SignalCategory:      "iam-last-used",
+			ActorIdentityNodeID: "aws:identity:role:payments-worker",
+			ResourceNodeID:      "aws:runtime-resource:service:s3",
+			EvidenceRef:         "runtime-evidence://123456789012/us-east-1/iam-service-last-used:s3",
+		},
+	})
+	if len(relationships) != 1 || relationships[0].Type != "observed_runtime_action" {
+		t.Fatalf("non-analyzer runtime signals should keep observed action edges, got %+v", relationships)
+	}
+}
+
 func TestFilterAWSRuntimeEventRecordsMatchesRegionCaseInsensitive(t *testing.T) {
 	records := []AWSRuntimeEventRecord{{
 		EventID:   "evt-region",

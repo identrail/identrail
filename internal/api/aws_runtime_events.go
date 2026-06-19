@@ -773,7 +773,7 @@ func summarizeAWSRuntimeEventStatus(fixtureState string, diagnostics []AWSRuntim
 func awsRuntimeEventRelationships(records []AWSRuntimeEventRecord) []AWSRuntimeEventRelationship {
 	out := []AWSRuntimeEventRelationship{}
 	for _, record := range records {
-		if record.ActorIdentityNodeID != "" && record.ResourceNodeID != "" {
+		if record.ActorIdentityNodeID != "" && record.ResourceNodeID != "" && !awsRuntimeEventIsExposureSignal(record) {
 			out = append(out, AWSRuntimeEventRelationship{Type: "observed_runtime_action", FromNodeID: record.ActorIdentityNodeID, ToNodeID: record.ResourceNodeID, EvidenceRef: record.EvidenceRef})
 		}
 		if record.ActorIdentityNodeID != "" && record.Session.SessionNodeID != "" {
@@ -793,6 +793,10 @@ func awsRuntimeEventRelationships(records []AWSRuntimeEventRecord) []AWSRuntimeE
 		}
 	}
 	return out
+}
+
+func awsRuntimeEventIsExposureSignal(record AWSRuntimeEventRecord) bool {
+	return normalizeAWSRuntimeEventFilterToken(firstNonEmptyAWSValue(record.SignalCategory, record.EventType)) == "access-analyzer"
 }
 
 func awsRuntimeEventFixtureRecords(accountID string, region string, fixtureState string, checkedAt time.Time) ([]AWSRuntimeEventRecord, []AWSRuntimeEventDiagnostic, []AWSRuntimeEventCoverageGap) {

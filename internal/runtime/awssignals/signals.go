@@ -2,6 +2,7 @@ package awssignals
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -135,7 +136,10 @@ func (i *Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestRes
 
 	result := IngestResult{Status: "ready"}
 	if i.IAM != nil {
-		signals, diagnostics, gaps := i.collectIAMLastUsed(ctx, request)
+		signals, diagnostics, gaps, err := i.collectIAMLastUsed(ctx, request)
+		if err != nil {
+			return IngestResult{}, err
+		}
 		result.Signals = append(result.Signals, signals...)
 		result.Diagnostics = append(result.Diagnostics, diagnostics...)
 		result.CoverageGaps = append(result.CoverageGaps, gaps...)
@@ -155,7 +159,10 @@ func (i *Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestRes
 		})
 	}
 	if i.AccessAnalyzer != nil {
-		signals, diagnostics, gaps := i.collectAccessAnalyzer(ctx, request)
+		signals, diagnostics, gaps, err := i.collectAccessAnalyzer(ctx, request)
+		if err != nil {
+			return IngestResult{}, err
+		}
 		result.Signals = append(result.Signals, signals...)
 		result.Diagnostics = append(result.Diagnostics, diagnostics...)
 		result.CoverageGaps = append(result.CoverageGaps, gaps...)
@@ -207,15 +214,18 @@ func (i *Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestRes
 	return result, nil
 }
 
-func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest) ([]Signal, []Diagnostic, []CoverageGap) {
+func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest) ([]Signal, []Diagnostic, []CoverageGap, error) {
 	out, err := i.IAM.ListRoles(ctx, &iam.ListRolesInput{MaxItems: awsv2.Int32(request.MaxRoles)})
 	if err != nil {
+		if isContextCancellation(err) {
+			return nil, nil, nil, err
+		}
 		return nil, []Diagnostic{permissionAwareDiagnostic("iam", "iam_last_used_permission_denied", "iam_last_used_failed", fmt.Sprintf("IAM role listing failed: %v", err), "Grant metadata-only iam:ListRoles and retry.", err)}, []CoverageGap{{
 			Capability:  "iam_last_used",
 			Status:      permissionAwareStatus(err),
 			Reason:      "IAM roles could not be listed for last-used collection.",
 			Remediation: "Grant iam:ListRoles plus service last-accessed read APIs.",
-		}}
+		}}, nil
 	}
 	signals := []Signal{}
 	diagnostics := []Diagnostic{}
@@ -279,11 +289,17 @@ func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest
 			Granularity: iamtypes.AccessAdvisorUsageGranularityTypeServiceLevel,
 		})
 		if genErr != nil {
+			if isContextCancellation(genErr) {
+				return nil, nil, nil, genErr
+			}
 			diagnostics = append(diagnostics, permissionAwareDiagnostic("iam:"+roleName, "iam_last_used_permission_denied", "iam_last_used_generation_failed", fmt.Sprintf("IAM service last-used report could not be generated for %s: %v", roleName, genErr), "Grant iam:GenerateServiceLastAccessedDetails and retry.", genErr))
 			continue
 		}
 		details, truncated, getErr := i.getServiceLastAccessedDetails(ctx, job.JobId, request)
 		if getErr != nil {
+			if isContextCancellation(getErr) {
+				return nil, nil, nil, getErr
+			}
 			diagnostics = append(diagnostics, permissionAwareDiagnostic("iam:"+roleName, "iam_last_used_permission_denied", "iam_last_used_report_failed", fmt.Sprintf("IAM service last-used report could not be read for %s: %v", roleName, getErr), "Grant iam:GetServiceLastAccessedDetails and retry.", getErr))
 			continue
 		}
@@ -364,7 +380,7 @@ func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest
 			Remediation: "Rerun with a larger IAM last-used role budget or shard by path prefix.",
 		})
 	}
-	return signals, diagnostics, gaps
+	return signals, diagnostics, gaps, nil
 }
 
 func (i *Ingester) getServiceLastAccessedDetails(ctx context.Context, jobID *string, request IngestRequest) (*iam.GetServiceLastAccessedDetailsOutput, bool, error) {
@@ -439,15 +455,18 @@ func serviceLastAccessedAction(namespace string, hasLastAuthenticated bool) stri
 	return namespace + ":NeverAccessed"
 }
 
-func (i *Ingester) collectAccessAnalyzer(ctx context.Context, request IngestRequest) ([]Signal, []Diagnostic, []CoverageGap) {
+func (i *Ingester) collectAccessAnalyzer(ctx context.Context, request IngestRequest) ([]Signal, []Diagnostic, []CoverageGap, error) {
 	analyzers, err := i.AccessAnalyzer.ListAnalyzers(ctx, &accessanalyzer.ListAnalyzersInput{MaxResults: awsv2.Int32(request.MaxAnalyzers)})
 	if err != nil {
+		if isContextCancellation(err) {
+			return nil, nil, nil, err
+		}
 		return nil, []Diagnostic{permissionAwareDiagnostic("access-analyzer", "access_analyzer_permission_denied", "access_analyzer_list_failed", fmt.Sprintf("Access Analyzer analyzers could not be listed: %v", err), "Grant access-analyzer:ListAnalyzers and retry.", err)}, []CoverageGap{{
 			Capability:  "access_analyzer",
 			Status:      permissionAwareStatus(err),
 			Reason:      "Access Analyzer analyzers could not be listed.",
 			Remediation: "Grant access-analyzer:ListAnalyzers and access-analyzer:ListFindings.",
-		}}
+		}}, nil
 	}
 	signals := []Signal{}
 	diagnostics := []Diagnostic{}
@@ -459,7 +478,7 @@ func (i *Ingester) collectAccessAnalyzer(ctx context.Context, request IngestRequ
 			Reason:      "Access Analyzer returned no analyzers for this account and region.",
 			Remediation: "Enable an account or organization analyzer before relying on external-access findings.",
 		})
-		return signals, diagnostics, gaps
+		return signals, diagnostics, gaps, nil
 	}
 	for idx, analyzer := range analyzers.Analyzers {
 		if int32(idx) >= request.MaxAnalyzers {
@@ -475,6 +494,9 @@ func (i *Ingester) collectAccessAnalyzer(ctx context.Context, request IngestRequ
 			MaxResults:  awsv2.Int32(request.MaxFindings),
 		})
 		if findErr != nil {
+			if isContextCancellation(findErr) {
+				return nil, nil, nil, findErr
+			}
 			diagnostics = append(diagnostics, permissionAwareDiagnostic("access-analyzer:"+analyzerName, "access_analyzer_permission_denied", "access_analyzer_findings_failed", fmt.Sprintf("Access Analyzer findings could not be listed for %s: %v", analyzerName, findErr), "Grant access-analyzer:ListFindings and retry.", findErr))
 			gaps = append(gaps, CoverageGap{
 				Capability:  "access_analyzer",
@@ -539,7 +561,7 @@ func (i *Ingester) collectAccessAnalyzer(ctx context.Context, request IngestRequ
 			Remediation: "Rerun with a larger analyzer budget or shard by analyzer type.",
 		})
 	}
-	return signals, diagnostics, gaps
+	return signals, diagnostics, gaps, nil
 }
 
 func permissionAwareDiagnostic(sourceID string, permissionCode string, fallbackCode string, message string, remediation string, err error) Diagnostic {
@@ -563,6 +585,10 @@ func isPermissionDenied(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "accessdenied") || strings.Contains(msg, "access denied") || strings.Contains(msg, "unauthorized") || strings.Contains(msg, "not authorized")
+}
+
+func isContextCancellation(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func allSignalCollectorsPermissionDenied(gaps []CoverageGap) bool {
