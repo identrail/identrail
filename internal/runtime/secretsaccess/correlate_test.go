@@ -281,6 +281,42 @@ func TestCorrelateAllowPlusExplicitDenyIsNotConfirmed(t *testing.T) {
 	}
 }
 
+func TestCorrelateObservedKMSActionRequiresMatchingStaticAuthorization(t *testing.T) {
+	keyARN := "arn:aws:kms:us-east-1:111122223333:key/observed-without-kms-decrypt"
+	identity := "aws:identity:role:action-mismatch"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{{
+			EventID:        "evt-generate",
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindKMSKey,
+			ResourceARN:    keyARN,
+			Action:         "kms:GenerateDataKey",
+			ObservedAt:     observedAt(1),
+		}},
+		Static: []StaticGrant{{
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindKMSKey,
+			ResourceARN:    keyARN,
+			Source:         SourceKeyPolicy,
+			Effect:         "Allow",
+			Actions:        []string{"kms:Decrypt"},
+		}},
+	})
+	if len(result.Correlations) != 1 {
+		t.Fatalf("expected one correlation, got %d", len(result.Correlations))
+	}
+	correlation := result.Correlations[0]
+	if correlation.Status != StatusObservedWithoutGrant {
+		t.Fatalf("expected observed_without_grant when observed action exceeds static authorization, got %q", correlation.Status)
+	}
+	if correlation.ObservedCount != 1 {
+		t.Fatalf("expected one observed event, got %d", correlation.ObservedCount)
+	}
+	if result.ObservedWithoutGrant != 1 || result.ConfirmedCount != 0 {
+		t.Fatalf("expected observed_without_grant to be 1 and confirmed to be 0, got %+v", result)
+	}
+}
+
 func TestCorrelateUnresolvedResourcesSeparatedByKind(t *testing.T) {
 	// Same identity, two different unresolved (empty-ARN) accesses of
 	// different kinds must not merge into one correlation.

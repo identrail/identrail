@@ -297,6 +297,41 @@ func TestGetAWSSecretsKMSRuntimeAccessBlockedRuntimeSuppressesUnusedGrants(t *te
 	}
 }
 
+func TestGetAWSSecretsKMSRuntimeAccessDegradedRuntimeWithoutRecordsSuppressesUnusedGrants(t *testing.T) {
+	// A delivery-source failure can return degraded with no runtime records
+	// (for example when no data-event channel is configured). In that path,
+	// static grants cannot be safely interpreted as unused.
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 19, 19, 45, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-corr-degraded-empty")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-corr-degraded-empty", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-corr-degraded-empty", "aws-prod")
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailDeliveryFactory = func(_ context.Context, _ AWSConnectionStatus, _ AWSCloudTrailDeliverySource) (AWSCloudTrailRuntimeEventIngester, error) {
+		return &fakeDeliveryIngester{result: AWSCloudTrailIngestResult{
+			Status:         "degraded",
+			FailureReasons: []string{"S3 and EventBridge delivery are unavailable"},
+		}}, nil
+	}
+
+	result, err := svc.GetAWSSecretsKMSRuntimeAccess(ctx, "default", "project-corr-degraded-empty", AWSSecretsKMSRuntimeAccessRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get correlation: %v", err)
+	}
+	if result.Status != awsPlatformDependencyStatusDegraded {
+		t.Fatalf("expected degraded status when delivery is unavailable, got %q", result.Status)
+	}
+	if len(result.Records) != 0 {
+		t.Fatalf("expected no records when runtime had no records and should suppress static grants, got %+v", result.Records)
+	}
+	if result.Summary.GrantedUnusedCount != 0 || result.Summary.ConfirmedCount != 0 || result.Summary.ObservedWithoutGrantCount != 0 {
+		t.Fatalf("expected no correlation output when runtime telemetry is unavailable, got %+v", result.Summary)
+	}
+}
+
 func TestStaticGrantsFromSecretsRecognizesWildcardReadActions(t *testing.T) {
 	records := []AWSSecretsManagerMetadataRecord{{
 		AccountID:  "111122223333",

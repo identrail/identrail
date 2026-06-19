@@ -331,14 +331,12 @@ func (s *Service) awsSecretsKMSRuntimeAccessLiveInputs(ctx context.Context, work
 	failures = append(failures, runtime.FailureReasons...)
 	remediations = append(remediations, runtime.RemediationHints...)
 
-	// A blocked runtime source means the observed side is missing, not
-	// empty. Correlating the static grants anyway would emit every grant
-	// as granted_unused under a blocked response — surfacing missing
-	// telemetry as least-privilege cleanup work. Drop the static side so
-	// the response is blocked with no records, matching the fixture
-	// permission_denied path. KMS/Secrets being individually degraded does
-	// not trigger this — only a blocked runtime (observed) source does.
-	if runtime.Status == awsPlatformDependencyStatusBlocked {
+	// Correlation needs usable observed events. For an explicitly blocked
+	// runtime source, or a degraded source with no returned records, static
+	// edges should not appear as confirmed, observed, or granted_unused.
+	// In those cases, suppress static correlation output so the response
+	// stays faithful to what runtime telemetry could actually prove.
+	if runtime.Status == awsPlatformDependencyStatusBlocked || (runtime.Status == awsPlatformDependencyStatusDegraded && len(runtime.Records) == 0) {
 		observed = nil
 		static = nil
 	}
@@ -425,6 +423,7 @@ func staticGrantsFromKMSRecords(records []AWSKMSDecryptReachabilityRecord) []sec
 				CrossAccount:   grant.IsCrossAccount,
 				Confidence:     record.Confidence,
 				EvidenceRef:    record.EvidenceRef,
+				Actions:        dedupeStrings(normalizeStringList(grant.Actions)),
 			})
 		}
 		for _, grant := range record.Grants {
@@ -445,6 +444,7 @@ func staticGrantsFromKMSRecords(records []AWSKMSDecryptReachabilityRecord) []sec
 				CrossAccount:   grant.IsCrossAccount,
 				Confidence:     record.Confidence,
 				EvidenceRef:    record.EvidenceRef,
+				Actions:        dedupeStrings(normalizeStringList(grant.Operations)),
 			})
 		}
 	}

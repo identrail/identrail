@@ -127,6 +127,10 @@ type StaticGrant struct {
 	CrossAccount   bool
 	Confidence     float64
 	EvidenceRef    string
+	// Actions contains the raw action strings observed on this static edge.
+	// When present, observed KMS actions must match at least one action
+	// to be considered confirmed.
+	Actions []string
 }
 
 // CorrelateRequest configures one correlation pass.
@@ -461,7 +465,7 @@ func buildCorrelation(agg *correlationAgg, dataEventCoverageUnknown bool) Correl
 
 	caveats := map[string]struct{}{}
 	switch {
-	case correlation.ObservedCount > 0 && hasAllow && !hasDeny:
+	case correlation.ObservedCount > 0 && hasAllow && !hasDeny && allObservedKMSActionsAuthorizedByStatic(agg):
 		correlation.Status = StatusConfirmed
 		correlation.StaticEffect = "Allow"
 		correlation.Confidence = 0.95
@@ -517,6 +521,82 @@ func buildCorrelation(agg *correlationAgg, dataEventCoverageUnknown bool) Correl
 	}
 	correlation.Caveats = sortedKeys(caveats)
 	return correlation
+}
+
+func allObservedKMSActionsAuthorizedByStatic(agg *correlationAgg) bool {
+	if len(agg.observed) == 0 || len(agg.allow) == 0 {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(agg.resourceKind), ResourceKindKMSKey) {
+		return true
+	}
+
+	observedActions := map[string]struct{}{}
+	for _, observed := range agg.observed {
+		action := strings.TrimSpace(observed.Action)
+		if action == "" {
+			continue
+		}
+		observedActions[action] = struct{}{}
+	}
+	if len(observedActions) == 0 {
+		return true
+	}
+
+	for action := range observedActions {
+		actionMatched := false
+		for _, grant := range agg.allow {
+			// Legacy/compat grants may omit action details. Treat them as
+			// providing no stricter action requirement so they do not
+			// accidentally block confirmations.
+			if len(grant.Actions) == 0 {
+				actionMatched = true
+				break
+			}
+
+			for _, allowedAction := range grant.Actions {
+				if staticGrantActionAuthorizesObservedAction(action, allowedAction) {
+					actionMatched = true
+					break
+				}
+			}
+			if actionMatched {
+				break
+			}
+		}
+		if !actionMatched {
+			return false
+		}
+	}
+	return true
+}
+
+func staticGrantActionAuthorizesObservedAction(observedAction string, allowedAction string) bool {
+	observed := strings.ToLower(strings.TrimSpace(observedAction))
+	allowed := strings.ToLower(strings.TrimSpace(allowedAction))
+	if observed == "" || allowed == "" {
+		return false
+	}
+	if allowed == "*" {
+		return true
+	}
+	if strings.HasSuffix(allowed, "*") {
+		prefix := strings.TrimSuffix(allowed, "*")
+		return strings.HasPrefix(observed, prefix)
+	}
+	if observed == allowed {
+		return true
+	}
+
+	observedVerb := observed
+	if _, suffix, ok := strings.Cut(observed, ":"); ok {
+		observedVerb = suffix
+	}
+	allowedVerb := allowed
+	if _, suffix, ok := strings.Cut(allowed, ":"); ok {
+		allowedVerb = suffix
+	}
+	return strings.EqualFold(observedVerb, allowedVerb)
 }
 
 func correlationID(agg *correlationAgg) string {
