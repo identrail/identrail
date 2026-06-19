@@ -281,6 +281,97 @@ func TestCorrelateAllowPlusExplicitDenyIsNotConfirmed(t *testing.T) {
 	}
 }
 
+func TestCorrelateWildcardPrincipalDenyAppliesToObservedIdentity(t *testing.T) {
+	keyARN := "arn:aws:kms:us-east-1:111122223333:key/allow-and-wildcard-deny"
+	identity := "aws:identity:role:observed"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{{
+			EventID:        "evt-wildcard-deny",
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindKMSKey,
+			ResourceARN:    keyARN,
+			Action:         "kms:Decrypt",
+			ObservedAt:     observedAt(1),
+		}},
+		Static: []StaticGrant{
+			{
+				IdentityNodeID: identity,
+				ResourceKind:   ResourceKindKMSKey,
+				ResourceARN:    keyARN,
+				Source:         SourceKeyPolicy,
+				Effect:         "Allow",
+				Actions:        []string{"kms:Decrypt"},
+			},
+			{
+				PrincipalARN: "*",
+				ResourceKind: ResourceKindKMSKey,
+				ResourceARN:  keyARN,
+				Source:       SourceKeyPolicy,
+				Effect:       "Deny",
+				Actions:      []string{"kms:Decrypt"},
+			},
+		},
+	})
+
+	correlation := findCorrelation(t, result, keyARN)
+	if correlation.Status != StatusObservedWithoutGrant {
+		t.Fatalf("expected observed_without_grant when wildcard deny applies, got %q", correlation.Status)
+	}
+	if correlation.StaticEffect != "Deny" {
+		t.Fatalf("expected deny static effect when wildcard deny applies, got %q", correlation.StaticEffect)
+	}
+	if !hasCaveat(correlation.Caveats, CaveatObservedDespiteDeny) {
+		t.Fatalf("expected observed-despite-deny caveat, got %+v", correlation.Caveats)
+	}
+	if hasCaveat(correlation.Caveats, CaveatNoStaticPath) {
+		t.Fatalf("no-static-path caveat should not appear when deny is present, got %+v", correlation.Caveats)
+	}
+}
+
+func TestCorrelateWildcardPrincipalSecretDenyAppliesToObservedIdentity(t *testing.T) {
+	secretARN := "arn:aws:secretsmanager:us-east-1:111122223333:secret:allow-and-wildcard-deny"
+	identity := "aws:identity:role:secret-reader"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{{
+			EventID:        "evt-secret-wildcard-deny",
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindSecret,
+			ResourceARN:    secretARN,
+			Action:         "secretsmanager:GetSecretValue",
+			ObservedAt:     observedAt(1),
+		}},
+		Static: []StaticGrant{
+			{
+				IdentityNodeID: identity,
+				ResourceKind:   ResourceKindSecret,
+				ResourceARN:    secretARN,
+				Source:         SourceResourcePolicy,
+				Effect:         "Allow",
+				Actions:        []string{"secretsmanager:GetSecretValue"},
+			},
+			{
+				PrincipalARN: "*",
+				ResourceKind: ResourceKindSecret,
+				ResourceARN:  secretARN,
+				Source:       SourceResourcePolicy,
+				Effect:       "Deny",
+				Actions:      []string{"secretsmanager:GetSecretValue"},
+			},
+		},
+	})
+
+	correlation := findCorrelation(t, result, secretARN)
+	if correlation.Status != StatusObservedWithoutGrant {
+		t.Fatalf("expected observed_without_grant when wildcard secret deny applies, got %q", correlation.Status)
+	}
+	if correlation.StaticEffect != "Deny" {
+		t.Fatalf("expected deny static effect when wildcard secret deny applies, got %q", correlation.StaticEffect)
+	}
+	if !hasCaveat(correlation.Caveats, CaveatObservedDespiteDeny) {
+		t.Fatalf("expected observed-despite-deny caveat, got %+v", correlation.Caveats)
+	}
+}
+
 func TestCorrelateDenySpecificActionDoesNotBlockOtherKMSAction(t *testing.T) {
 	// Explicit deny rules are action-specific in AWS. A deny for a different
 	// KMS action should not downgrade a matching Decrypt access to

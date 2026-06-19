@@ -294,11 +294,18 @@ func Correlate(request CorrelateRequest) Result {
 	}
 
 	staticConsidered := 0
+	wildcardDenyByResource := map[string][]StaticGrant{}
 	for _, grant := range request.Static {
 		if strings.TrimSpace(grant.IdentityNodeID) == "" && strings.TrimSpace(grant.PrincipalARN) == "" {
 			continue
 		}
 		if strings.TrimSpace(grant.ResourceARN) == "" {
+			continue
+		}
+		if isResourceWildcardPrincipalDeny(grant) {
+			key := staticResourceIdentityKey(grant.ResourceKind, grant.ResourceARN)
+			wildcardDenyByResource[key] = append(wildcardDenyByResource[key], grant)
+			staticConsidered++
 			continue
 		}
 		staticConsidered++
@@ -307,6 +314,13 @@ func Correlate(request CorrelateRequest) Result {
 			agg.deny = append(agg.deny, grant)
 		} else {
 			agg.allow = append(agg.allow, grant)
+		}
+	}
+
+	for _, agg := range index {
+		wildcardDenyKey := staticResourceIdentityKey(agg.resourceKind, agg.resourceARN)
+		if wildcardDenyForResource, ok := wildcardDenyByResource[wildcardDenyKey]; ok {
+			agg.deny = append(agg.deny, wildcardDenyForResource...)
 		}
 	}
 
@@ -372,6 +386,17 @@ func Correlate(request CorrelateRequest) Result {
 		result.Caveats = append(result.Caveats, "Some observed reads have no matching static reachability edge. Most Secrets Manager access is authorized by IAM identity policies, which this correlation does not enumerate; review these before treating them as drift.")
 	}
 	return result
+}
+
+func staticResourceIdentityKey(resourceKind, resourceARN string) string {
+	return normalize(resourceKind) + "::" + normalize(resourceARN)
+}
+
+func isResourceWildcardPrincipalDeny(grant StaticGrant) bool {
+	if !strings.EqualFold(strings.TrimSpace(grant.Effect), "Deny") {
+		return false
+	}
+	return strings.TrimSpace(grant.PrincipalARN) == "*"
 }
 
 func buildCorrelation(agg *correlationAgg, dataEventCoverageUnknown bool) Correlation {

@@ -180,16 +180,19 @@ func (s *Service) GetAWSSecretsKMSRuntimeAccess(ctx context.Context, workspaceID
 		deliverySource = "all"
 	}
 
+	var deliveryErr error
+	deliverySource, deliveryErr = normalizeDeliverySource(deliverySource)
+	if deliveryErr != nil {
+		return AWSSecretsKMSRuntimeAccessResult{}, deliveryErr
+	}
+
 	// Live composition is attempted when the connector is healthy, the
 	// operator did not force a fixture state, the connector's effective
-	// capability set includes runtime_evidence, and at least one
-	// CloudTrail ingestion factory is wired. The delivery factory is the
-	// load-bearing one here because it carries the data events; the
-	// LookupEvents factory is accepted too so management-event-only
-	// deployments still compose live. Otherwise we use the deterministic
-	// correlation fixtures so demos, tests, and capability-gated
-	// environments keep rendering the same contract shape.
-	useLive := (s.AWSCloudTrailLookupEventsFactory != nil || s.AWSCloudTrailDeliveryFactory != nil) &&
+	// capability set includes runtime_evidence, and the CloudTrail factory
+	// required for the selected source is wired. The default data-event
+	// path is delivery-backed, so a LookupEvents factory alone must not
+	// enter live mode and then fall through to delivery fixtures.
+	useLive := awsSecretsKMSRuntimeAccessHasLiveRuntimeFactory(s, deliverySource) &&
 		hasConnection && connection.Connected &&
 		strings.TrimSpace(request.FixtureState) == "" &&
 		awsConnectorHasRuntimeEvidence(connection)
@@ -414,15 +417,28 @@ func staticGrantsFromKMSRecords(records []AWSKMSDecryptReachabilityRecord) []sec
 	out := []secretsaccess.StaticGrant{}
 	for _, record := range records {
 		for _, grant := range record.IdentityGrants {
-			if grant.WildcardPrincipal || grant.PrincipalARN == "*" || !isIAMPrincipalARNForKMSEdge(grant.PrincipalARN) {
-				continue
-			}
 			if !kmsCapabilitiesIncludeDecrypt(grant.Capabilities) {
 				continue
 			}
+
+			principal := strings.TrimSpace(grant.PrincipalARN)
+			isWildcardPrincipal := grant.WildcardPrincipal || principal == "*"
+			if isWildcardPrincipal {
+				if !strings.EqualFold(strings.TrimSpace(grant.Effect), "Deny") {
+					continue
+				}
+				principal = "*"
+			} else if !isIAMPrincipalARNForKMSEdge(principal) {
+				continue
+			}
+
+			identityNodeID := ""
+			if !isWildcardPrincipal {
+				identityNodeID = awsIdentityNodeIDForAPI(principal)
+			}
 			out = append(out, secretsaccess.StaticGrant{
-				IdentityNodeID: awsIdentityNodeIDForAPI(grant.PrincipalARN),
-				PrincipalARN:   grant.PrincipalARN,
+				IdentityNodeID: identityNodeID,
+				PrincipalARN:   principal,
 				AccountID:      record.AccountID,
 				Region:         record.Region,
 				ResourceKind:   secretsaccess.ResourceKindKMSKey,
@@ -462,6 +478,17 @@ func staticGrantsFromKMSRecords(records []AWSKMSDecryptReachabilityRecord) []sec
 	return out
 }
 
+func awsSecretsKMSRuntimeAccessHasLiveRuntimeFactory(s *Service, deliverySource string) bool {
+	switch strings.TrimSpace(deliverySource) {
+	case "lookup_events":
+		return s.AWSCloudTrailLookupEventsFactory != nil
+	case "s3", "eventbridge", "all":
+		return s.AWSCloudTrailDeliveryFactory != nil
+	default:
+		return false
+	}
+}
+
 // staticGrantsFromSecretsRecords projects Secrets Manager resource-policy
 // grants (allow and deny) for IAM principals that can read the secret
 // into engine static grants.
@@ -469,15 +496,28 @@ func staticGrantsFromSecretsRecords(records []AWSSecretsManagerMetadataRecord) [
 	out := []secretsaccess.StaticGrant{}
 	for _, record := range records {
 		for _, grant := range record.IdentityGrants {
-			if grant.WildcardPrincipal || grant.PrincipalARN == "*" || !isIAMPrincipalARNForKMSEdge(grant.PrincipalARN) {
-				continue
-			}
 			if !secretsActionsIncludeRead(grant.Actions) {
 				continue
 			}
+
+			principal := strings.TrimSpace(grant.PrincipalARN)
+			isWildcardPrincipal := grant.WildcardPrincipal || principal == "*"
+			if isWildcardPrincipal {
+				if !strings.EqualFold(strings.TrimSpace(grant.Effect), "Deny") {
+					continue
+				}
+				principal = "*"
+			} else if !isIAMPrincipalARNForKMSEdge(principal) {
+				continue
+			}
+
+			identityNodeID := ""
+			if !isWildcardPrincipal {
+				identityNodeID = awsIdentityNodeIDForAPI(principal)
+			}
 			out = append(out, secretsaccess.StaticGrant{
-				IdentityNodeID: awsIdentityNodeIDForAPI(grant.PrincipalARN),
-				PrincipalARN:   grant.PrincipalARN,
+				IdentityNodeID: identityNodeID,
+				PrincipalARN:   principal,
 				AccountID:      record.AccountID,
 				Region:         record.Region,
 				ResourceKind:   secretsaccess.ResourceKindSecret,

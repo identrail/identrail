@@ -261,6 +261,46 @@ func TestGetAWSSecretsKMSRuntimeAccessLiveRoutesDataEventsThroughDelivery(t *tes
 	}
 }
 
+func TestGetAWSSecretsKMSRuntimeAccessDefaultLiveRequiresDeliveryFactory(t *testing.T) {
+	// The default correlation source is `all`, which is delivery-backed because
+	// secret-read and kms-decrypt are CloudTrail data events. A LookupEvents-only
+	// deployment must not enter live mode and then receive delivery fixtures.
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 19, 19, 15, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-corr-lookup-only")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-corr-lookup-only", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-corr-lookup-only", "aws-prod")
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	lookupCalled := false
+	svc.AWSCloudTrailLookupEventsFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error) {
+		lookupCalled = true
+		return &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{
+			Status: "ready",
+			Records: []AWSRuntimeEventRecord{
+				liveRuntimeRecord(t, "evt-lookup-secret", "secret-read", "GetSecretValue", "secretsmanager.amazonaws.com", "secretsmanager:GetSecretValue", "application", "lookup-events", "arn:aws:iam::123456789012:role/payments-app", "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/openai-key", "AWS::SecretsManager::Secret", now.Add(-2*time.Minute)),
+			},
+		}}, nil
+	}
+
+	result, err := svc.GetAWSSecretsKMSRuntimeAccess(ctx, "default", "project-corr-lookup-only", AWSSecretsKMSRuntimeAccessRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get correlation: %v", err)
+	}
+	if lookupCalled {
+		t.Fatalf("default data-event correlation should require delivery factory, but LookupEvents was called")
+	}
+	for _, record := range result.Records {
+		for _, eventID := range record.ObservedEventIDs {
+			if eventID == "evt-lookup-secret" {
+				t.Fatalf("lookup-only live event leaked into default delivery-backed correlation: %+v", record)
+			}
+		}
+	}
+}
+
 func TestGetAWSSecretsKMSRuntimeAccessBlockedRuntimeSuppressesUnusedGrants(t *testing.T) {
 	// When the runtime (observed) source is blocked, static grants must
 	// not be emitted as granted_unused — that would surface missing
@@ -433,6 +473,38 @@ func TestStaticGrantsFromSecretsPreservesActions(t *testing.T) {
 	}
 }
 
+func TestStaticGrantsFromSecretsPreservesExplicitWildcardDeny(t *testing.T) {
+	records := []AWSSecretsManagerMetadataRecord{{
+		AccountID:  "111122223333",
+		Region:     "us-east-1",
+		SecretARN:  "arn:aws:secretsmanager:us-east-1:111122223333:secret:s1",
+		SecretName: "s1",
+		Confidence: 0.92,
+		IdentityGrants: []AWSSecretsManagerIdentityGrant{
+			{PrincipalARN: "arn:aws:iam::111122223333:role/reader", Effect: "Allow", Actions: []string{"secretsmanager:GetSecretValue"}},
+			{PrincipalARN: "*", WildcardPrincipal: true, Effect: "Deny", Actions: []string{"secretsmanager:GetSecretValue"}},
+			{PrincipalARN: "*", WildcardPrincipal: true, Effect: "Allow", Actions: []string{"secretsmanager:GetSecretValue"}},
+		},
+	}}
+
+	grants := staticGrantsFromSecretsRecords(records)
+	if len(grants) != 2 {
+		t.Fatalf("expected concrete allow plus wildcard deny grants, got %+v", grants)
+	}
+	hasWildcardDeny := false
+	for _, grant := range grants {
+		if strings.EqualFold(grant.Effect, "Deny") && grant.PrincipalARN == "*" && grant.IdentityNodeID == "" {
+			hasWildcardDeny = true
+		}
+		if strings.EqualFold(grant.Effect, "Allow") && grant.PrincipalARN == "*" {
+			t.Fatalf("wildcard allow grant should not be preserved for secret resource policies: %+v", grant)
+		}
+	}
+	if !hasWildcardDeny {
+		t.Fatalf("expected wildcard deny to be preserved: %+v", grants)
+	}
+}
+
 func TestObservedAccessFromRuntimeRecordsFiltersEventTypes(t *testing.T) {
 	records := []AWSRuntimeEventRecord{
 		{EventID: "a", EventType: "secret-read", ActorIdentityNodeID: "id-1", TargetResourceARN: "arn:secret", Action: "secretsmanager:GetSecretValue"},
@@ -491,5 +563,60 @@ func TestStaticGrantsFromKMSAndSecretsProjectIAMPrincipalsOnly(t *testing.T) {
 	}
 	if secretGrants[0].Source != secretsaccess.SourceResourcePolicy {
 		t.Fatalf("unexpected secret grant source: %+v", secretGrants[0])
+	}
+}
+
+func TestStaticGrantsFromKMSPreservesExplicitWildcardDeny(t *testing.T) {
+	kmsRecords := []AWSKMSDecryptReachabilityRecord{{
+		AccountID:  "111122223333",
+		Region:     "us-east-1",
+		KeyARN:     "arn:aws:kms:us-east-1:111122223333:key/k1",
+		KeyID:      "k1",
+		Confidence: 0.9,
+		IdentityGrants: []AWSKMSIdentityGrant{
+			{
+				PrincipalARN:      "arn:aws:iam::111122223333:role/app",
+				Effect:            "Allow",
+				Capabilities:      []string{"decrypt"},
+				Actions:           []string{"kms:Decrypt"},
+				WildcardPrincipal: false,
+			},
+			{
+				PrincipalARN:      "*",
+				Effect:            "Deny",
+				Capabilities:      []string{"decrypt"},
+				Actions:           []string{"kms:Decrypt"},
+				WildcardPrincipal: true,
+			},
+			{
+				PrincipalARN:      "*",
+				Effect:            "Allow",
+				Capabilities:      []string{"decrypt"},
+				Actions:           []string{"kms:Decrypt"},
+				WildcardPrincipal: true,
+			},
+		},
+	}}
+
+	grants := staticGrantsFromKMSRecords(kmsRecords)
+	if len(grants) != 2 {
+		t.Fatalf("expected concrete allow plus wildcard deny grants, got %+v", grants)
+	}
+
+	hasWildcardDeny := false
+	for _, grant := range grants {
+		if strings.EqualFold(grant.Effect, "Deny") && grant.PrincipalARN == "*" {
+			hasWildcardDeny = true
+		}
+		if strings.EqualFold(grant.Effect, "Allow") && strings.Contains(grant.PrincipalARN, "role/app") {
+			// existing behavior: concrete identity allow is still preserved.
+			continue
+		}
+		if strings.EqualFold(grant.Effect, "Allow") && grant.PrincipalARN == "*" {
+			t.Fatalf("wildcard allow grant should not be preserved for KMS identity grants: %+v", grant)
+		}
+	}
+	if !hasWildcardDeny {
+		t.Fatalf("expected wildcard deny to be preserved: %+v", grants)
 	}
 }
