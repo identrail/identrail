@@ -40,34 +40,36 @@ type AWSAgentRuntimeAccessRequest struct {
 // AWSAgentRuntimeAccessRecord is one (agent, tool) correlation projected
 // for the API/app surface.
 type AWSAgentRuntimeAccessRecord struct {
-	CorrelationID       string    `json:"correlation_id"`
-	AccountID           string    `json:"account_id"`
-	Region              string    `json:"region"`
-	AgentNodeID         string    `json:"agent_node_id"`
-	AgentID             string    `json:"agent_id,omitempty"`
-	AgentName           string    `json:"agent_name,omitempty"`
-	AgentType           string    `json:"agent_type,omitempty"`
-	RuntimeVersion      string    `json:"runtime_version,omitempty"`
-	ToolName            string    `json:"tool_name,omitempty"`
-	ToolTargetRef       string    `json:"tool_target_ref,omitempty"`
-	Status              string    `json:"status"`
-	Confidence          float64   `json:"confidence"`
-	ObservedCount       int       `json:"observed_count"`
-	ObservedEventIDs    []string  `json:"observed_event_ids,omitempty"`
-	BackingRoleARNs     []string  `json:"backing_role_arns,omitempty"`
-	BackingRoleNodeIDs  []string  `json:"backing_role_node_ids,omitempty"`
-	DeclaredBackingRole string    `json:"declared_backing_role,omitempty"`
-	TargetResourceARNs  []string  `json:"target_resource_arns,omitempty"`
-	Outcomes            []string  `json:"outcomes,omitempty"`
-	SessionIDs          []string  `json:"session_ids,omitempty"`
-	FirstObservedAt     time.Time `json:"first_observed_at,omitzero"`
-	LastObservedAt      time.Time `json:"last_observed_at,omitzero"`
-	DeclaredInInventory bool      `json:"declared_in_inventory"`
-	Caveats             []string  `json:"caveats,omitempty"`
-	EvidenceRef         string    `json:"evidence_ref"`
-	EvidenceRefs        []string  `json:"evidence_refs,omitempty"`
-	NextAction          string    `json:"next_action"`
-	RedactionBoundary   string    `json:"redaction_boundary"`
+	CorrelationID           string    `json:"correlation_id"`
+	AccountID               string    `json:"account_id"`
+	Region                  string    `json:"region"`
+	AgentNodeID             string    `json:"agent_node_id"`
+	AgentID                 string    `json:"agent_id,omitempty"`
+	AgentName               string    `json:"agent_name,omitempty"`
+	AgentType               string    `json:"agent_type,omitempty"`
+	RuntimeVersion          string    `json:"runtime_version,omitempty"`
+	ToolName                string    `json:"tool_name,omitempty"`
+	ToolTargetRef           string    `json:"tool_target_ref,omitempty"`
+	Status                  string    `json:"status"`
+	Confidence              float64   `json:"confidence"`
+	ObservedCount           int       `json:"observed_count"`
+	ObservedEventIDs        []string  `json:"observed_event_ids,omitempty"`
+	BackingRoleARNs         []string  `json:"backing_role_arns,omitempty"`
+	BackingRoleNodeIDs      []string  `json:"backing_role_node_ids,omitempty"`
+	DeclaredBackingRole     string    `json:"declared_backing_role,omitempty"`
+	DeclaredBackingRoleNode string    `json:"declared_backing_role_node_id,omitempty"`
+	TargetResourceARNs      []string  `json:"target_resource_arns,omitempty"`
+	TargetResourceNodeIDs   []string  `json:"target_resource_node_ids,omitempty"`
+	Outcomes                []string  `json:"outcomes,omitempty"`
+	SessionIDs              []string  `json:"session_ids,omitempty"`
+	FirstObservedAt         time.Time `json:"first_observed_at,omitzero"`
+	LastObservedAt          time.Time `json:"last_observed_at,omitzero"`
+	DeclaredInInventory     bool      `json:"declared_in_inventory"`
+	Caveats                 []string  `json:"caveats,omitempty"`
+	EvidenceRef             string    `json:"evidence_ref"`
+	EvidenceRefs            []string  `json:"evidence_refs,omitempty"`
+	NextAction              string    `json:"next_action"`
+	RedactionBoundary       string    `json:"redaction_boundary"`
 }
 
 // AWSAgentRuntimeAccessRelationship is one correlation graph edge so the
@@ -467,34 +469,36 @@ func awsAgentRuntimeAccessRecords(correlations []agentaccess.Correlation) []AWSA
 	out := make([]AWSAgentRuntimeAccessRecord, 0, len(correlations))
 	for _, correlation := range correlations {
 		out = append(out, AWSAgentRuntimeAccessRecord{
-			CorrelationID:       correlation.CorrelationID,
-			AccountID:           correlation.AccountID,
-			Region:              correlation.Region,
-			AgentNodeID:         correlation.AgentNodeID,
-			AgentID:             correlation.AgentID,
-			AgentName:           correlation.AgentName,
-			AgentType:           correlation.AgentType,
-			RuntimeVersion:      correlation.RuntimeVersion,
-			ToolName:            correlation.ToolName,
-			ToolTargetRef:       correlation.ToolTargetRef,
-			Status:              correlation.Status,
-			Confidence:          correlation.Confidence,
-			ObservedCount:       correlation.ObservedCount,
-			ObservedEventIDs:    correlation.ObservedEventIDs,
-			BackingRoleARNs:     correlation.BackingRoleARNs,
-			BackingRoleNodeIDs:  correlation.BackingRoleNodeIDs,
-			DeclaredBackingRole: correlation.DeclaredBackingRole,
-			TargetResourceARNs:  correlation.TargetResourceARNs,
-			Outcomes:            correlation.Outcomes,
-			SessionIDs:          correlation.SessionIDs,
-			FirstObservedAt:     correlation.FirstObservedAt,
-			LastObservedAt:      correlation.LastObservedAt,
-			DeclaredInInventory: correlation.DeclaredInInventory,
-			Caveats:             correlation.Caveats,
-			EvidenceRef:         fmt.Sprintf("runtime-correlation://%s", correlation.CorrelationID),
-			EvidenceRefs:        correlation.EvidenceRefs,
-			NextAction:          awsAgentRuntimeAccessNextAction(correlation.Status),
-			RedactionBoundary:   correlation.RedactionBoundary,
+			CorrelationID:           correlation.CorrelationID,
+			AccountID:               correlation.AccountID,
+			Region:                  correlation.Region,
+			AgentNodeID:             correlation.AgentNodeID,
+			AgentID:                 correlation.AgentID,
+			AgentName:               correlation.AgentName,
+			AgentType:               correlation.AgentType,
+			RuntimeVersion:          correlation.RuntimeVersion,
+			ToolName:                correlation.ToolName,
+			ToolTargetRef:           correlation.ToolTargetRef,
+			Status:                  correlation.Status,
+			Confidence:              correlation.Confidence,
+			ObservedCount:           correlation.ObservedCount,
+			ObservedEventIDs:        correlation.ObservedEventIDs,
+			BackingRoleARNs:         correlation.BackingRoleARNs,
+			BackingRoleNodeIDs:      correlation.BackingRoleNodeIDs,
+			DeclaredBackingRole:     correlation.DeclaredBackingRole,
+			DeclaredBackingRoleNode: correlation.DeclaredBackingRoleNode,
+			TargetResourceARNs:      correlation.TargetResourceARNs,
+			TargetResourceNodeIDs:   correlation.TargetResourceNodeIDs,
+			Outcomes:                correlation.Outcomes,
+			SessionIDs:              correlation.SessionIDs,
+			FirstObservedAt:         correlation.FirstObservedAt,
+			LastObservedAt:          correlation.LastObservedAt,
+			DeclaredInInventory:     correlation.DeclaredInInventory,
+			Caveats:                 correlation.Caveats,
+			EvidenceRef:             fmt.Sprintf("runtime-correlation://%s", correlation.CorrelationID),
+			EvidenceRefs:            correlation.EvidenceRefs,
+			NextAction:              awsAgentRuntimeAccessNextAction(correlation.Status),
+			RedactionBoundary:       correlation.RedactionBoundary,
 		})
 	}
 	return out
@@ -554,10 +558,26 @@ func filterAWSAgentRuntimeAccessRecords(records []AWSAgentRuntimeAccessRecord, r
 		if filters["tool"] != "" && !awsRuntimeEventMatchesAny(filters["tool"], record.ToolName, record.ToolTargetRef) {
 			continue
 		}
-		if filters["identity"] != "" && !awsRuntimeEventMatchesAny(filters["identity"], append(append([]string{}, record.BackingRoleARNs...), record.BackingRoleNodeIDs...)...) {
-			continue
+		if filters["identity"] != "" {
+			// Match against both observed backing roles and the inventory's
+			// declared backing role so a `?identity=<role>` filter still
+			// surfaces declared_unused tools for that role (where no runtime
+			// event was observed). Without this, the advertised backing-role
+			// query drops every unused declared tool — exactly the
+			// least-privilege cleanup case the filter is for.
+			identityValues := append([]string{}, record.BackingRoleARNs...)
+			identityValues = append(identityValues, record.BackingRoleNodeIDs...)
+			if record.DeclaredBackingRole != "" {
+				identityValues = append(identityValues, record.DeclaredBackingRole)
+			}
+			if record.DeclaredBackingRoleNode != "" {
+				identityValues = append(identityValues, record.DeclaredBackingRoleNode)
+			}
+			if !awsRuntimeEventMatchesAny(filters["identity"], identityValues...) {
+				continue
+			}
 		}
-		if filters["resource"] != "" && !awsRuntimeEventMatchesAny(filters["resource"], record.TargetResourceARNs...) {
+		if filters["resource"] != "" && !awsRuntimeEventMatchesAny(filters["resource"], append(append([]string{}, record.TargetResourceARNs...), record.TargetResourceNodeIDs...)...) {
 			continue
 		}
 		filtered = append(filtered, record)
@@ -600,7 +620,14 @@ func awsAgentRuntimeAccessRelationships(records []AWSAgentRuntimeAccessRecord) [
 				EvidenceRef: record.EvidenceRef,
 			})
 		}
-		for _, target := range record.TargetResourceARNs {
+		// Prefer the graph resource node id from the runtime-event contract
+		// so edges join to the same node other AWS graph edges key on; fall
+		// back to the raw ARN only when no node id was projected.
+		targetNodes := record.TargetResourceNodeIDs
+		if len(targetNodes) == 0 {
+			targetNodes = record.TargetResourceARNs
+		}
+		for _, target := range targetNodes {
 			if strings.TrimSpace(target) == "" {
 				continue
 			}

@@ -144,32 +144,34 @@ type CorrelateRequest struct {
 
 // Correlation is one (agent, tool) correlation record.
 type Correlation struct {
-	CorrelationID       string
-	AgentNodeID         string
-	AgentID             string
-	AgentName           string
-	AgentType           string
-	RuntimeVersion      string
-	ToolName            string
-	ToolTargetRef       string
-	AccountID           string
-	Region              string
-	Status              string
-	Confidence          float64
-	ObservedCount       int
-	ObservedEventIDs    []string
-	BackingRoleARNs     []string
-	BackingRoleNodeIDs  []string
-	DeclaredBackingRole string
-	TargetResourceARNs  []string
-	Outcomes            []string
-	SessionIDs          []string
-	FirstObservedAt     time.Time
-	LastObservedAt      time.Time
-	DeclaredInInventory bool
-	Caveats             []string
-	EvidenceRefs        []string
-	RedactionBoundary   string
+	CorrelationID           string
+	AgentNodeID             string
+	AgentID                 string
+	AgentName               string
+	AgentType               string
+	RuntimeVersion          string
+	ToolName                string
+	ToolTargetRef           string
+	AccountID               string
+	Region                  string
+	Status                  string
+	Confidence              float64
+	ObservedCount           int
+	ObservedEventIDs        []string
+	BackingRoleARNs         []string
+	BackingRoleNodeIDs      []string
+	DeclaredBackingRole     string
+	DeclaredBackingRoleNode string
+	TargetResourceARNs      []string
+	TargetResourceNodeIDs   []string
+	Outcomes                []string
+	SessionIDs              []string
+	FirstObservedAt         time.Time
+	LastObservedAt          time.Time
+	DeclaredInInventory     bool
+	Caveats                 []string
+	EvidenceRefs            []string
+	RedactionBoundary       string
 }
 
 // Result is the bounded outcome of one correlation pass.
@@ -387,6 +389,7 @@ func buildCorrelation(agg *correlationAgg, knownAgents map[string]struct{}, inve
 	backingRoleARNs := map[string]struct{}{}
 	backingRoleNodes := map[string]struct{}{}
 	targets := map[string]struct{}{}
+	targetNodes := map[string]struct{}{}
 	outcomes := map[string]struct{}{}
 	sessions := map[string]struct{}{}
 	evidence := map[string]struct{}{}
@@ -405,6 +408,9 @@ func buildCorrelation(agg *correlationAgg, knownAgents map[string]struct{}, inve
 		}
 		if target := strings.TrimSpace(observed.TargetResourceARN); target != "" {
 			targets[target] = struct{}{}
+		}
+		if node := strings.TrimSpace(observed.TargetResourceNodeID); node != "" {
+			targetNodes[node] = struct{}{}
 		}
 		if session := strings.TrimSpace(observed.SessionID); session != "" {
 			sessions[session] = struct{}{}
@@ -436,6 +442,7 @@ func buildCorrelation(agg *correlationAgg, knownAgents map[string]struct{}, inve
 	correlation.BackingRoleARNs = sortedKeys(backingRoleARNs)
 	correlation.BackingRoleNodeIDs = sortedKeys(backingRoleNodes)
 	correlation.TargetResourceARNs = sortedKeys(targets)
+	correlation.TargetResourceNodeIDs = sortedKeys(targetNodes)
 	correlation.Outcomes = sortedKeys(outcomes)
 	correlation.SessionIDs = sortedKeys(sessions)
 
@@ -454,6 +461,7 @@ func buildCorrelation(agg *correlationAgg, knownAgents map[string]struct{}, inve
 	}
 	correlation.DeclaredInInventory = declaredHere
 	correlation.DeclaredBackingRole = firstNonEmpty(declaredBackingRoleARN, declaredBackingRoleNode)
+	correlation.DeclaredBackingRoleNode = declaredBackingRoleNode
 	correlation.EvidenceRefs = sortedKeys(evidence)
 
 	agentKnown := declaredHere

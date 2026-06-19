@@ -33,22 +33,24 @@ func hasCaveat(caveats []string, want string) bool {
 func TestCorrelateConfirmedJoinsObservedWithDeclaredTool(t *testing.T) {
 	agent := "aws:agent:111122223333:us-east-1:agentcore_runtime/case-triage/2026-06-01"
 	role := "arn:aws:iam::111122223333:role/case-triage-runtime"
+	targetNode := "aws:resource:bedrock-agentcore:us-east-1:111122223333:agent-runtime-endpoint/case-triage/blue"
 	result := Correlate(CorrelateRequest{
 		Observed: []ObservedToolCall{{
-			EventID:           "evt-1",
-			AgentNodeID:       agent,
-			AgentID:           "case-triage",
-			AgentType:         "agentcore_runtime",
-			ToolName:          "case-router",
-			ToolTargetRef:     "case-router-policy",
-			BackingRoleARN:    role,
-			BackingRoleNodeID: "aws:identity:role:case-triage-runtime",
-			TargetResourceARN: "arn:aws:bedrock-agentcore:us-east-1:111122223333:agent-runtime-endpoint/case-triage/blue",
-			Outcome:           OutcomeSucceeded,
-			SessionID:         "ASIA-sess",
-			LineageStatus:     "resolved",
-			ObservedAt:        observedAt(5),
-			EvidenceRef:       "runtime-evidence://evt-1",
+			EventID:              "evt-1",
+			AgentNodeID:          agent,
+			AgentID:              "case-triage",
+			AgentType:            "agentcore_runtime",
+			ToolName:             "case-router",
+			ToolTargetRef:        "case-router-policy",
+			BackingRoleARN:       role,
+			BackingRoleNodeID:    "aws:identity:role:case-triage-runtime",
+			TargetResourceARN:    "arn:aws:bedrock-agentcore:us-east-1:111122223333:agent-runtime-endpoint/case-triage/blue",
+			TargetResourceNodeID: targetNode,
+			Outcome:              OutcomeSucceeded,
+			SessionID:            "ASIA-sess",
+			LineageStatus:        "resolved",
+			ObservedAt:           observedAt(5),
+			EvidenceRef:          "runtime-evidence://evt-1",
 		}},
 		Declared: []DeclaredTool{{
 			AgentNodeID:       agent,
@@ -81,6 +83,9 @@ func TestCorrelateConfirmedJoinsObservedWithDeclaredTool(t *testing.T) {
 	}
 	if correlation.RedactionBoundary != RedactionBoundary {
 		t.Fatalf("missing redaction boundary: %+v", correlation)
+	}
+	if len(correlation.TargetResourceNodeIDs) != 1 || correlation.TargetResourceNodeIDs[0] != targetNode {
+		t.Fatalf("expected target resource node id preserved, got %+v", correlation.TargetResourceNodeIDs)
 	}
 	if result.ConfirmedCount != 1 || result.AgentCount != 1 || result.ToolCount != 1 {
 		t.Fatalf("unexpected result counts: %+v", result)

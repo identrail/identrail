@@ -2597,7 +2597,9 @@ export type AWSAgentRuntimeAccessRecord = {
   backing_role_arns?: string[];
   backing_role_node_ids?: string[];
   declared_backing_role?: string;
+  declared_backing_role_node_id?: string;
   target_resource_arns?: string[];
+  target_resource_node_ids?: string[];
   outcomes?: string[];
   session_ids?: string[];
   first_observed_at?: string;

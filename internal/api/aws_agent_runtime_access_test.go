@@ -130,6 +130,36 @@ func TestGetAWSAgentRuntimeAccessFiltersByStatusAndAgent(t *testing.T) {
 	}
 }
 
+func TestGetAWSAgentRuntimeAccessIdentityFilterIncludesDeclaredUnusedRole(t *testing.T) {
+	now := time.Date(2026, 6, 19, 18, 0, 0, 0, time.UTC)
+	svc, ws := newAgentRuntimeAccessService(t, "project-agent-identity-filter", now)
+
+	result, err := svc.GetAWSAgentRuntimeAccess(defaultScopeContext(), ws, "project-agent-identity-filter", AWSAgentRuntimeAccessRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Identity:     "case-triage-runtime",
+	})
+	if err != nil {
+		t.Fatalf("get correlation: %v", err)
+	}
+	var policyChecker *AWSAgentRuntimeAccessRecord
+	for i := range result.Records {
+		if result.Records[i].ToolName == "policy-checker" {
+			policyChecker = &result.Records[i]
+			break
+		}
+	}
+	if policyChecker == nil {
+		t.Fatalf("identity filter dropped declared_unused tool for declared role: %+v", result.Records)
+	}
+	if policyChecker.Status != agentaccess.StatusDeclaredUnused {
+		t.Fatalf("expected declared_unused policy-checker, got %+v", policyChecker)
+	}
+	if !strings.Contains(policyChecker.DeclaredBackingRole, "case-triage-runtime") || policyChecker.DeclaredBackingRoleNode == "" {
+		t.Fatalf("expected declared backing role metadata projected, got %+v", policyChecker)
+	}
+}
+
 func TestGetAWSAgentRuntimeAccessPermissionDeniedIsExplicit(t *testing.T) {
 	now := time.Date(2026, 6, 19, 18, 0, 0, 0, time.UTC)
 	svc, ws := newAgentRuntimeAccessService(t, "project-agent-denied", now)
@@ -305,5 +335,35 @@ func TestDeclaredToolsFromAgentInventoryExpandsToolsAndKnownAgents(t *testing.T)
 	}
 	if t1 == nil || t1.ToolTargetRef != "ref1" {
 		t.Fatalf("expected t1 with target ref, got %+v", declared)
+	}
+}
+
+func TestAWSAgentRuntimeAccessRelationshipsUseTargetResourceNodeIDs(t *testing.T) {
+	agentNode := "aws:agent:123456789012:us-east-1:agentcore_runtime/case-triage/blue"
+	resourceARN := "arn:aws:bedrock-agentcore:us-east-1:123456789012:agent-runtime-endpoint/case-triage/blue"
+	resourceNode := "aws:resource:bedrock-agentcore:us-east-1:123456789012:agent-runtime-endpoint/case-triage/blue"
+	relationships := awsAgentRuntimeAccessRelationships([]AWSAgentRuntimeAccessRecord{{
+		AgentNodeID:           agentNode,
+		Status:                agentaccess.StatusConfirmed,
+		TargetResourceARNs:    []string{resourceARN},
+		TargetResourceNodeIDs: []string{resourceNode},
+		EvidenceRef:           "runtime-correlation://case-triage",
+	}})
+
+	foundTargetEdge := false
+	for _, rel := range relationships {
+		if rel.Type != "agent_tool_targeted_resource" {
+			continue
+		}
+		foundTargetEdge = true
+		if rel.FromNodeID != agentNode || rel.ToNodeID != resourceNode {
+			t.Fatalf("expected target edge to graph resource node, got %+v", rel)
+		}
+		if rel.ToNodeID == resourceARN {
+			t.Fatalf("target edge must not use raw ARN when graph node id is available: %+v", rel)
+		}
+	}
+	if !foundTargetEdge {
+		t.Fatalf("expected agent_tool_targeted_resource relationship, got %+v", relationships)
 	}
 }
