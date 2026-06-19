@@ -219,7 +219,18 @@ func Correlate(request CorrelateRequest) Result {
 	order := 0
 	get := func(identityNode, principal, account, region, kind, arn, name string) *correlationAgg {
 		identity := firstNonEmpty(identityNode, principal)
-		k := correlationKey{identity: normalize(identity), resource: normalize(arn)}
+		// When the runtime event did not resolve a resource ARN, keying on
+		// the ARN alone collapses every unresolved access for an identity
+		// into one aggregate — so an unresolved secret-read and an
+		// unresolved kms-decrypt by the same role would merge and the later
+		// event would inherit the first event's resource_kind, corrupting
+		// the counts and resource_kind filter. Discriminate by kind when
+		// the ARN is missing so the two kinds stay separate.
+		resourceKey := normalize(arn)
+		if resourceKey == "" {
+			resourceKey = "unresolved:" + normalize(kind)
+		}
+		k := correlationKey{identity: normalize(identity), resource: resourceKey}
 		agg, ok := index[k]
 		if !ok {
 			agg = &correlationAgg{
@@ -450,7 +461,7 @@ func buildCorrelation(agg *correlationAgg, dataEventCoverageUnknown bool) Correl
 
 	caveats := map[string]struct{}{}
 	switch {
-	case correlation.ObservedCount > 0 && hasAllow:
+	case correlation.ObservedCount > 0 && hasAllow && !hasDeny:
 		correlation.Status = StatusConfirmed
 		correlation.StaticEffect = "Allow"
 		correlation.Confidence = 0.95
@@ -468,12 +479,20 @@ func buildCorrelation(agg *correlationAgg, dataEventCoverageUnknown bool) Correl
 			caveats[CaveatLineageUnresolved] = struct{}{}
 		}
 	case correlation.ObservedCount > 0:
+		// Observed, but not a clean confirmation. An explicit Deny in AWS
+		// overrides any Allow, so an observed access against a resource
+		// that carries a specific Deny is anomalous — never confirmed —
+		// even when an Allow is also present. Surface it as observed
+		// despite deny rather than reporting a clean confirmation. The
+		// no-static-path caveat only applies when there is genuinely no
+		// allow edge (and no deny) explaining the access.
 		correlation.Status = StatusObservedWithoutGrant
 		correlation.Confidence = 0.6
-		caveats[CaveatNoStaticPath] = struct{}{}
 		if hasDeny {
 			caveats[CaveatObservedDespiteDeny] = struct{}{}
 			correlation.StaticEffect = "Deny"
+		} else {
+			caveats[CaveatNoStaticPath] = struct{}{}
 		}
 		if lineageUnresolved {
 			caveats[CaveatLineageUnresolved] = struct{}{}

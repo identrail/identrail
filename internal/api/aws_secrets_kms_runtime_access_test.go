@@ -260,6 +260,69 @@ func TestGetAWSSecretsKMSRuntimeAccessLiveRoutesDataEventsThroughDelivery(t *tes
 	}
 }
 
+func TestGetAWSSecretsKMSRuntimeAccessBlockedRuntimeSuppressesUnusedGrants(t *testing.T) {
+	// When the runtime (observed) source is blocked, static grants must
+	// not be emitted as granted_unused — that would surface missing
+	// telemetry as least-privilege cleanup work.
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 19, 19, 30, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-corr-blocked")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-corr-blocked", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-corr-blocked", "aws-prod")
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	// Delivery returns a blocked (permission-denied) runtime result with
+	// no records, while the static KMS/Secrets inventories still resolve.
+	svc.AWSCloudTrailDeliveryFactory = func(_ context.Context, _ AWSConnectionStatus, _ AWSCloudTrailDeliverySource) (AWSCloudTrailRuntimeEventIngester, error) {
+		return &fakeDeliveryIngester{result: AWSCloudTrailIngestResult{
+			Status:         "blocked",
+			FailureReasons: []string{"runtime event sources are not authorized for this connector"},
+		}}, nil
+	}
+
+	result, err := svc.GetAWSSecretsKMSRuntimeAccess(ctx, "default", "project-corr-blocked", AWSSecretsKMSRuntimeAccessRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get correlation: %v", err)
+	}
+	if result.Status != "blocked" {
+		t.Fatalf("expected blocked status when runtime telemetry is blocked, got %q", result.Status)
+	}
+	if len(result.Records) != 0 {
+		t.Fatalf("expected no records (no granted_unused) under a blocked runtime, got %+v", result.Records)
+	}
+	if result.Summary.GrantedUnusedCount != 0 {
+		t.Fatalf("blocked runtime must not surface granted_unused grants, got %+v", result.Summary)
+	}
+}
+
+func TestStaticGrantsFromSecretsRecognizesWildcardReadActions(t *testing.T) {
+	records := []AWSSecretsManagerMetadataRecord{{
+		AccountID:  "111122223333",
+		Region:     "us-east-1",
+		SecretARN:  "arn:aws:secretsmanager:us-east-1:111122223333:secret:s1",
+		SecretName: "s1",
+		Confidence: 0.88,
+		IdentityGrants: []AWSSecretsManagerIdentityGrant{
+			{PrincipalARN: "arn:aws:iam::111122223333:role/get-star", Effect: "Allow", Actions: []string{"secretsmanager:Get*"}},
+			{PrincipalARN: "arn:aws:iam::111122223333:role/batch-star", Effect: "Allow", Actions: []string{"secretsmanager:BatchGet*"}},
+			{PrincipalARN: "arn:aws:iam::111122223333:role/describe-star", Effect: "Allow", Actions: []string{"secretsmanager:Describe*"}},
+		},
+	}}
+	grants := staticGrantsFromSecretsRecords(records)
+	got := map[string]bool{}
+	for _, grant := range grants {
+		got[grant.PrincipalARN] = true
+	}
+	if !got["arn:aws:iam::111122223333:role/get-star"] || !got["arn:aws:iam::111122223333:role/batch-star"] {
+		t.Fatalf("expected Get*/BatchGet* wildcard read grants to be recognized, got %+v", grants)
+	}
+	if got["arn:aws:iam::111122223333:role/describe-star"] {
+		t.Fatalf("Describe* does not authorize secret-value reads and must be dropped: %+v", grants)
+	}
+}
+
 func TestObservedAccessFromRuntimeRecordsFiltersEventTypes(t *testing.T) {
 	records := []AWSRuntimeEventRecord{
 		{EventID: "a", EventType: "secret-read", ActorIdentityNodeID: "id-1", TargetResourceARN: "arn:secret", Action: "secretsmanager:GetSecretValue"},

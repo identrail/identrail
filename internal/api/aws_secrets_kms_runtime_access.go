@@ -331,6 +331,18 @@ func (s *Service) awsSecretsKMSRuntimeAccessLiveInputs(ctx context.Context, work
 	failures = append(failures, runtime.FailureReasons...)
 	remediations = append(remediations, runtime.RemediationHints...)
 
+	// A blocked runtime source means the observed side is missing, not
+	// empty. Correlating the static grants anyway would emit every grant
+	// as granted_unused under a blocked response — surfacing missing
+	// telemetry as least-privilege cleanup work. Drop the static side so
+	// the response is blocked with no records, matching the fixture
+	// permission_denied path. KMS/Secrets being individually degraded does
+	// not trigger this — only a blocked runtime (observed) source does.
+	if runtime.Status == awsPlatformDependencyStatusBlocked {
+		observed = nil
+		static = nil
+	}
+
 	// A blocked runtime source means we cannot assert any observed
 	// access, so the worst-of source status drives the envelope.
 	sourceStatus := worstAWSStatus(runtime.Status, worstAWSStatus(kms.Status, secrets.Status))
@@ -473,17 +485,35 @@ func staticGrantsFromSecretsRecords(records []AWSSecretsManagerMetadataRecord) [
 }
 
 // secretsActionsIncludeRead reports whether a resource-policy statement's
-// actions authorize reading the secret value. A wildcard action and the
-// explicit GetSecretValue both qualify.
+// actions authorize reading the secret value. It matches the exact read
+// actions, the `*` / `secretsmanager:*` wildcards, and prefix wildcards
+// such as `secretsmanager:Get*` or `secretsmanager:BatchGet*` that the
+// collector preserves verbatim — otherwise a resource policy that really
+// allows the read via a wildcard would be dropped, mislabeling observed
+// reads as observed_without_grant and hiding unused grants.
 func secretsActionsIncludeRead(actions []string) bool {
+	readActions := []string{"secretsmanager:getsecretvalue", "secretsmanager:batchgetsecretvalue"}
 	for _, action := range actions {
 		trimmed := strings.ToLower(strings.TrimSpace(action))
-		switch {
-		case trimmed == "*",
-			trimmed == "secretsmanager:*",
-			trimmed == "secretsmanager:getsecretvalue",
-			trimmed == "secretsmanager:batchgetsecretvalue":
+		if trimmed == "" {
+			continue
+		}
+		if trimmed == "*" {
 			return true
+		}
+		if strings.HasSuffix(trimmed, "*") {
+			prefix := strings.TrimSuffix(trimmed, "*")
+			for _, read := range readActions {
+				if strings.HasPrefix(read, prefix) {
+					return true
+				}
+			}
+			continue
+		}
+		for _, read := range readActions {
+			if trimmed == read {
+				return true
+			}
 		}
 	}
 	return false

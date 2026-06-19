@@ -244,6 +244,71 @@ func TestCorrelateObservedDespiteExplicitDeny(t *testing.T) {
 	}
 }
 
+func TestCorrelateAllowPlusExplicitDenyIsNotConfirmed(t *testing.T) {
+	// An explicit Deny overrides any Allow in AWS, so an observed access
+	// against a resource carrying both must not be reported as a clean
+	// confirmation.
+	keyARN := "arn:aws:kms:us-east-1:111122223333:key/allow-and-deny"
+	identity := "aws:identity:role:mixed"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{{
+			EventID:        "evt-mixed",
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindKMSKey,
+			ResourceARN:    keyARN,
+			ObservedAt:     observedAt(1),
+		}},
+		Static: []StaticGrant{
+			{IdentityNodeID: identity, ResourceKind: ResourceKindKMSKey, ResourceARN: keyARN, Source: SourceKeyPolicy, Effect: "Allow"},
+			{IdentityNodeID: identity, ResourceKind: ResourceKindKMSKey, ResourceARN: keyARN, Source: SourceKeyPolicy, Effect: "Deny"},
+		},
+	})
+	correlation := result.Correlations[0]
+	if correlation.Status != StatusObservedWithoutGrant {
+		t.Fatalf("expected observed_without_grant when an explicit deny is present, got %q", correlation.Status)
+	}
+	if !hasCaveat(correlation.Caveats, CaveatObservedDespiteDeny) {
+		t.Fatalf("expected observed-despite-deny caveat, got %+v", correlation.Caveats)
+	}
+	if hasCaveat(correlation.Caveats, CaveatNoStaticPath) {
+		t.Fatalf("no-static-path caveat is misleading when an allow exists: %+v", correlation.Caveats)
+	}
+	if correlation.StaticEffect != "Deny" {
+		t.Fatalf("expected deny static effect, got %q", correlation.StaticEffect)
+	}
+	if result.ConfirmedCount != 0 {
+		t.Fatalf("expected no confirmed correlations, got %+v", result)
+	}
+}
+
+func TestCorrelateUnresolvedResourcesSeparatedByKind(t *testing.T) {
+	// Same identity, two different unresolved (empty-ARN) accesses of
+	// different kinds must not merge into one correlation.
+	identity := "aws:identity:role:unresolved"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{
+			{EventID: "s", IdentityNodeID: identity, ResourceKind: ResourceKindSecret, ResourceARN: "", ObservedAt: observedAt(1)},
+			{EventID: "k", IdentityNodeID: identity, ResourceKind: ResourceKindKMSKey, ResourceARN: "", ObservedAt: observedAt(2)},
+		},
+	})
+	if len(result.Correlations) != 2 {
+		t.Fatalf("expected unresolved secret and kms accesses to stay separate, got %d (%+v)", len(result.Correlations), result.Correlations)
+	}
+	kinds := map[string]int{}
+	for _, correlation := range result.Correlations {
+		kinds[correlation.ResourceKind]++
+		if !hasCaveat(correlation.Caveats, CaveatResourceUnresolved) {
+			t.Fatalf("expected resource-unresolved caveat, got %+v", correlation.Caveats)
+		}
+	}
+	if kinds[ResourceKindSecret] != 1 || kinds[ResourceKindKMSKey] != 1 {
+		t.Fatalf("expected one secret and one kms correlation, got %+v", kinds)
+	}
+	if result.SecretCorrelationCount != 1 || result.KMSKeyCorrelationCount != 1 {
+		t.Fatalf("expected accurate per-kind counts, got %+v", result)
+	}
+}
+
 func TestCorrelateDenyOnlyWithoutAccessIsNotSurfaced(t *testing.T) {
 	result := Correlate(CorrelateRequest{
 		Static: []StaticGrant{{
