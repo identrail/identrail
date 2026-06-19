@@ -1897,6 +1897,11 @@ describe('ProductAppearanceSettingsPage', () => {
     expect(document.documentElement.style.getPropertyValue('--appearance-ui-font')).toContain('Inter');
     expect(document.documentElement.style.getPropertyValue('--appearance-contrast')).toBe('52');
     expect(screen.queryByRole('heading', { name: 'App icon' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Theme preview')).toBeInTheDocument();
+    expect(screen.getByLabelText('App preview')).toBeInTheDocument();
+    expect(screen.getByText('Repository findings')).toBeInTheDocument();
+    expect(screen.getByText('OIDC trust path exposed')).toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: 'Translucent sidebar' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Light' }));
     expect(document.documentElement.dataset.theme).toBe('light');
@@ -2209,6 +2214,50 @@ describe('ProductShellLayout', () => {
     fireEvent.keyDown(screen.getByLabelText(/Search workspace commands/i), { key: 'Enter' });
 
     expect(await screen.findByRole('heading', { level: 2, name: /GitHub findings content/i })).toBeInTheDocument();
+  });
+
+  it('uses Windows shortcut labels when rendering the app shell outside macOS', async () => {
+    vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32');
+    mockConnectorFeatureFlags({ github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const { ProductShellLayout } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
+            <Route index element={<h2>Overview content</h2>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('Ctrl+K')).toBeInTheDocument();
+    expect(screen.getByText('Ctrl+B')).toBeInTheDocument();
+    expect(screen.getByText('Click to collapse')).toBeInTheDocument();
+    expect(screen.getByText('Drag to resize')).toBeInTheDocument();
+  });
+
+  it('uses macOS shortcut labels when rendering the app shell on Apple platforms', async () => {
+    vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('MacIntel');
+    mockConnectorFeatureFlags({ github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const { ProductShellLayout } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
+            <Route index element={<h2>Overview content</h2>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('⌘K')).toBeInTheDocument();
+    expect(screen.getByText('⌘B')).toBeInTheDocument();
+    expect(screen.getByText('Click to collapse')).toBeInTheDocument();
+    expect(screen.getByText('Drag to resize')).toBeInTheDocument();
   });
 
   it('keeps GitHub domain navigation open when the connector is unavailable', async () => {
