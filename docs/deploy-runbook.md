@@ -121,10 +121,11 @@ Portable deployment profiles:
 ### AWS API Hosting Notes
 
 For AWS-hosted API rollout, keep `create_api_hosting_resources=false` until the
-VPC, subnets, ACM certificate, immutable API image, database, and Secrets
-Manager references are ready. Plan the stack first, verify the load balancer
-health endpoint, and only then point `api.identrail.com` at the load balancer.
-Keep `app.identrail.com` on Vercel.
+VPC, subnets, ACM certificate, immutable API image, database path, and Secrets
+Manager references are ready. Use `create_api_database=true` for the no-user
+AWS RDS cutover, or provide an existing `API_DATABASE_URL_SECRET_ARN`. Plan the
+stack first, verify the load balancer health endpoint, and only then point
+`api.identrail.com` at the load balancer. Keep `app.identrail.com` on Vercel.
 
 Use the `AWS API Manual Deploy` GitHub Actions workflow for controlled API
 cutover preparation. Run `plan` first. Use `apply` only after reviewing the plan; the
@@ -139,6 +140,11 @@ hourly charges. The service security group still accepts inbound traffic only
 from the ALB security group. Revisit private task subnets plus NAT/VPC endpoints
 after the API is live and traffic or customer requirements justify the added
 cost.
+
+If `create_api_database=true`, the first apply outputs `api_database_secret_arn`.
+Use that ARN for the first migration run, then store it as
+`API_DATABASE_URL_SECRET_ARN` so routine production deploys stop depending on
+the old Neon configuration.
 
 ## 3) Rollback Sequence
 

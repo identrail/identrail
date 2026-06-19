@@ -22,6 +22,12 @@ When `create_api_hosting_resources=true`, the root can also create:
 - task execution and task IAM roles
 - a private S3 bucket for self-serve account data export bundles
 
+When `create_api_database=true`, the API hosting plan also creates:
+
+- a single-AZ encrypted RDS PostgreSQL instance for the hosted API
+- a database security group that only accepts PostgreSQL from API tasks
+- a Secrets Manager secret containing the generated `IDENTRAIL_DATABASE_URL`
+
 When `create_worker_hosting_resources=true`, the root also creates:
 
 - an ECS/Fargate worker task definition and service in the API cluster
@@ -36,8 +42,9 @@ That avoids NAT Gateway or private VPC endpoint hourly charges while preserving
 the public ingress boundary at the load balancer security group. Move back to
 private task subnets before higher-volume production use.
 
-It does not write secret values. Runtime secrets should be created by the
-operator or a dedicated secrets workflow and referenced through `api_secrets`.
+The external-secret path does not write secret values. Runtime secrets should be
+created by the operator or a dedicated secrets workflow and referenced through
+`api_secrets`.
 If those secrets use customer-managed KMS keys, list the key ARNs in
 `api_secret_kms_key_arns` so ECS secret injection can decrypt them.
 `api_secrets` may use ECS `valueFrom` selectors for JSON keys or versions, but
@@ -49,6 +56,11 @@ Identrail variables there so Terraform state does not receive secret material.
 When API hosting is enabled, Terraform also validates that the task has a
 database reference and at least one supported Identrail authentication mode
 before it will plan ECS resources.
+The managed-database path is different: Terraform generates the RDS password,
+writes the database URL to Secrets Manager, and stores the generated value in
+the encrypted Terraform state. Use the S3 backend with restricted access before
+enabling `create_api_database=true`, and do not also set
+`api_secrets.IDENTRAIL_DATABASE_URL`.
 The hosted API task also defaults to live AWS collection with
 `IDENTRAIL_AWS_SOURCE=sdk`, `IDENTRAIL_REQUIRE_LIVE_SOURCES=true`, and
 `IDENTRAIL_AWS_REGION` from `aws_region`. It binds the API process with
@@ -77,7 +89,8 @@ or session ID hashes.
 
 The default configuration sets `create_foundation_resources=false`,
 `create_api_hosting_resources=false`, and
-`create_worker_hosting_resources=false`, so CI and pull requests can run
+`create_worker_hosting_resources=false`, and `create_api_database=false`, so CI
+and pull requests can run
 `terraform init`, `terraform validate`, and `terraform plan` without creating
 billable AWS resources.
 
@@ -113,7 +126,7 @@ terraform plan \
 
 Only run this after the VPC, at least two distinct public subnets in different
 Availability Zones, task subnets, ACM certificate, immutable API image,
-database, auth configuration, and Secrets Manager references are ready. The
+database plan, auth configuration, and Secrets Manager references are ready. The
 API-hosting plan reads subnet metadata from AWS and fails before apply if the
 load balancer or task subnets are not spread across at least two Availability
 Zones or if any provided subnet is outside `api_vpc_id`. It also reads route
@@ -139,6 +152,31 @@ terraform plan \
   -var='api_secrets={"IDENTRAIL_DATABASE_URL":"<database-url-secret-arn>","IDENTRAIL_API_KEY_SCOPES":"<api-key-scopes-secret-arn>"}' \
   -var='api_secret_kms_key_arns=[]' \
   -var='api_connector_role_arns=[]'
+```
+
+To create the cost-conscious AWS-managed PostgreSQL database instead of
+referencing an external database URL secret, enable `create_api_database` and
+omit `IDENTRAIL_DATABASE_URL` from `api_secrets`:
+
+```bash
+terraform plan \
+  -input=false \
+  -var-file=environments/dev/terraform.tfvars.example \
+  -var='create_foundation_resources=true' \
+  -var='create_api_hosting_resources=true' \
+  -var='create_api_database=true' \
+  -var='api_database_instance_class=db.t4g.micro' \
+  -var='api_database_allocated_storage=20' \
+  -var='api_database_max_allocated_storage=100' \
+  -var='api_database_backup_retention_days=7' \
+  -var='api_vpc_id=<vpc-id>' \
+  -var='api_public_subnet_ids=["<public-subnet-a>","<public-subnet-b>"]' \
+  -var='api_task_subnet_ids=["<public-subnet-a>","<public-subnet-b>"]' \
+  -var='api_task_assign_public_ip=true' \
+  -var='api_certificate_arn=<api-certificate-arn>' \
+  -var='api_container_image=ghcr.io/identrail/identrail-api:<immutable-release-tag>' \
+  -var='api_environment_variables={"IDENTRAIL_FEATURE_NEW_AUTH":"true","IDENTRAIL_PUBLIC_BASE_URL":"https://api.identrail.com"}' \
+  -var='api_secrets={"IDENTRAIL_SESSION_KEY":"<session-key-secret-arn>"}'
 ```
 
 To include the hosted queue worker in the same plan, also provide an immutable

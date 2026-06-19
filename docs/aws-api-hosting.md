@@ -16,6 +16,8 @@ When `create_api_hosting_resources=true`, `deploy/aws/terraform` can create:
 - task execution and task IAM roles
 - CloudWatch logs for API runtime output
 - a private S3 bucket for self-serve account data export bundles
+- optionally, a single-AZ encrypted RDS PostgreSQL database plus a generated
+  Secrets Manager `IDENTRAIL_DATABASE_URL` secret when `create_api_database=true`
 
 When `create_worker_hosting_resources=true`, the same Terraform root also
 creates a private ECS/Fargate worker service in the API cluster. The hosted
@@ -83,7 +85,9 @@ Before a manual apply, operators must provide:
   URLs with paths, queries, fragments, or trailing slashes
 - `api_trusted_proxy_cidr_blocks`, defaulting to private VPC ranges used by ALB
   nodes in common AWS VPCs
-- `api_secrets`, including `IDENTRAIL_DATABASE_URL` as a Secrets Manager ARN
+- either `api_secrets.IDENTRAIL_DATABASE_URL` as a Secrets Manager ARN, or
+  `create_api_database=true` so Terraform creates the RDS database and generated
+  database URL secret
 - `api_secret_kms_key_arns` when any referenced secret uses a
   customer-managed KMS key
 - at least one supported API authentication mode:
@@ -134,8 +138,10 @@ Repository configuration required before the workflow can plan:
 - optional variable `API_TASK_SUBNET_IDS_JSON`: JSON array of task subnet IDs;
   leave blank for the low-cost public-task bootstrap path
 - variable `API_CERTIFICATE_ARN`: ACM certificate ARN for `api.identrail.com`
-- secret `API_DATABASE_URL_SECRET_ARN`: Secrets Manager ARN containing
-  `IDENTRAIL_DATABASE_URL`
+- either secret `API_DATABASE_URL_SECRET_ARN` containing an existing
+  `IDENTRAIL_DATABASE_URL` secret ARN, or `API_CREATE_DATABASE=true` to create
+  AWS-managed RDS PostgreSQL and have Terraform output the replacement secret
+  ARN
 - secret `API_SESSION_KEY_SECRET_ARN`: Secrets Manager ARN containing
   `IDENTRAIL_SESSION_KEY`
 
@@ -222,6 +228,15 @@ Optional repository variables:
 - `API_WORKER_DESIRED_COUNT`: defaults to `1`
 - `API_WORKER_TASK_CPU`: defaults to `256`
 - `API_WORKER_TASK_MEMORY`: defaults to `512`
+- `API_CREATE_DATABASE`: set to `true` for the first AWS cutover when replacing
+  Neon with managed RDS PostgreSQL
+- `API_DATABASE_SUBNET_IDS_JSON`: optional JSON array of database subnet IDs;
+  blank uses private API subnets when present, otherwise task subnets
+- `API_DATABASE_INSTANCE_CLASS`: defaults to `db.t4g.micro`
+- `API_DATABASE_ALLOCATED_STORAGE`: defaults to `20`
+- `API_DATABASE_MAX_ALLOCATED_STORAGE`: defaults to `100`; set to `0` to
+  disable storage autoscaling
+- `API_DATABASE_BACKUP_RETENTION_DAYS`: defaults to `7`
 - `API_EXTRA_ENVIRONMENT_JSON`: JSON object for additional non-secret runtime
   variables. Use this to enable native SAML/SCIM, for example
   `{"IDENTRAIL_FEATURE_NATIVE_SSO":"true"}`.
@@ -245,6 +260,10 @@ Do not put database URLs, API keys, cookie secrets, or OAuth credentials directl
 in tfvars files, docs, GitHub variables, or Terraform state. Use Secrets Manager
 references through `api_secrets`. Terraform rejects known secret-bearing
 Identrail variables in `api_environment_variables` when API hosting is enabled.
+When `API_CREATE_DATABASE=true`, Terraform generates the RDS password and
+database URL for you, writes the URL to Secrets Manager, and stores the
+generated value in encrypted Terraform state. Treat the S3 state bucket as
+sensitive infrastructure and keep access tightly restricted.
 
 If a referenced secret uses a customer-managed KMS key, add that key ARN to
 `api_secret_kms_key_arns` so ECS can decrypt the secret during task startup.
@@ -254,13 +273,14 @@ key.
 secret version suffix. Terraform still grants IAM access to the base Secrets
 Manager ARN so ECS can fetch the underlying secret during task startup.
 
-For the first manual AWS plan, prefer Secrets Manager references for
-`IDENTRAIL_DATABASE_URL`, `IDENTRAIL_API_KEY_SCOPES`, and, when tenant/workspace
-isolation is ready, `IDENTRAIL_API_KEY_SCOPE_BINDINGS`. The Terraform guard will
-refuse to plan API hosting without a database reference and at least one auth
-mode so ECS tasks do not boot into a known-bad configuration. It also refuses to
-plan API hosting without at least one HTTPS CORS origin and at least one trusted
-proxy CIDR.
+For the first manual AWS plan, either set `API_CREATE_DATABASE=true` or provide a
+Secrets Manager reference for `IDENTRAIL_DATABASE_URL`. Also provide the session
+secret and, when using API-key auth, `IDENTRAIL_API_KEY_SCOPES`; add
+`IDENTRAIL_API_KEY_SCOPE_BINDINGS` when tenant/workspace isolation is ready. The
+Terraform guard will refuse to plan API hosting without a database reference and
+at least one auth mode so ECS tasks do not boot into a known-bad configuration.
+It also refuses to plan API hosting without at least one HTTPS CORS origin and
+at least one trusted proxy CIDR.
 
 Terraform requires either private task egress or the explicit low-cost public
 task mode before creating API hosting resources. Use
@@ -278,6 +298,14 @@ subnets, `api_task_assign_public_ip=true`, and inbound service traffic limited
 to the load balancer security group. That avoids NAT Gateway and private VPC
 endpoint hourly charges during first launch.
 
+For the no-existing-users AWS cutover from Neon, run `AWS API Manual Deploy`
+with `operation=apply`, `create_api_database=true`, and the low-cost database
+defaults unless you have private database subnets ready. After apply, copy the
+`api_database_secret_arn` output into the repository secret
+`API_DATABASE_URL_SECRET_ARN`, replacing any old Neon ARN, and use that ARN when
+running migrations. The old Neon project can then be removed from runtime
+configuration after the AWS-hosted API is healthy.
+
 Run database migrations with the `AWS API Database Migrations` workflow before
 deploying or upgrading the hosted API service. Keep long-running API tasks
 non-migrating.
@@ -288,7 +316,9 @@ The migration workflow is intentionally manual and guarded:
 - keep the default `migrations` directory unless a release note says otherwise
 - type `run-api-migrations` in the confirmation field
 - leave `database_url_secret_arn` blank to use the repository secret
-  `API_DATABASE_URL_SECRET_ARN`
+  `API_DATABASE_URL_SECRET_ARN`, or paste the `api_database_secret_arn` Terraform
+  output directly for the first migration before the repository secret is
+  updated
 
 The workflow assumes the same `AWS_ROLE_ARN` OIDC deployment role as the manual
 deploy workflow, fetches the database URL from Secrets Manager at runtime, masks
@@ -360,7 +390,7 @@ If the failure happens after DNS cutover:
 
 ## What Still Comes Later
 
-- production database provisioning and backups
+- database rotation, private-subnet hardening, and scale-up work after launch
 - runtime secret creation and rotation workflow
 - migration job wiring
 - final `api.identrail.com` DNS cutover

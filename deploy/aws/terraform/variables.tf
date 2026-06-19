@@ -76,6 +76,12 @@ variable "create_api_hosting_resources" {
   default     = false
 }
 
+variable "create_api_database" {
+  description = "Create a cost-conscious single-AZ RDS PostgreSQL database and Secrets Manager IDENTRAIL_DATABASE_URL reference for the hosted API and worker."
+  type        = bool
+  default     = false
+}
+
 variable "api_vpc_id" {
   description = "VPC ID for the API load balancer and ECS service. Required when create_api_hosting_resources=true."
   type        = string
@@ -126,6 +132,116 @@ variable "api_task_assign_public_ip" {
   description = "Assign public IPs to API ECS tasks. Keep false for private-subnet production; set true only for the low-cost first cutover path where task subnets are public and service ingress remains restricted to the ALB security group."
   type        = bool
   default     = false
+}
+
+variable "api_database_subnet_ids" {
+  description = "Optional subnet IDs for the managed RDS PostgreSQL subnet group. Leave empty to use private API subnets when provided, otherwise the ECS task subnets."
+  type        = list(string)
+  default     = []
+  validation {
+    condition = length(var.api_database_subnet_ids) == length(distinct(var.api_database_subnet_ids)) && alltrue([
+      for subnet_id in var.api_database_subnet_ids : can(regex("^subnet-[0-9a-f]+$", subnet_id))
+    ])
+    error_message = "api_database_subnet_ids must contain distinct valid subnet IDs."
+  }
+}
+
+variable "api_database_instance_class" {
+  description = "RDS PostgreSQL instance class for the managed API database."
+  type        = string
+  default     = "db.t4g.micro"
+  validation {
+    condition     = can(regex("^db\\.[a-z0-9]+(\\.[a-z0-9]+)+$", var.api_database_instance_class))
+    error_message = "api_database_instance_class must be an RDS class such as db.t4g.micro."
+  }
+}
+
+variable "api_database_engine_version" {
+  description = "RDS PostgreSQL major or minor engine version for the managed API database."
+  type        = string
+  default     = "16"
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?$", var.api_database_engine_version))
+    error_message = "api_database_engine_version must be a PostgreSQL major or minor version such as 16 or 16.8."
+  }
+}
+
+variable "api_database_name" {
+  description = "Initial PostgreSQL database name for Identrail."
+  type        = string
+  default     = "identrail"
+  validation {
+    condition     = can(regex("^[A-Za-z][A-Za-z0-9_]{0,62}$", var.api_database_name))
+    error_message = "api_database_name must be a PostgreSQL identifier of 1-63 letters, numbers, or underscores, starting with a letter."
+  }
+}
+
+variable "api_database_username" {
+  description = "Master username for the managed Identrail PostgreSQL database."
+  type        = string
+  default     = "identrail_app"
+  validation {
+    condition     = can(regex("^[A-Za-z][A-Za-z0-9_]{0,62}$", var.api_database_username)) && !startswith(lower(var.api_database_username), "pg_")
+    error_message = "api_database_username must be a PostgreSQL username of 1-63 letters, numbers, or underscores, starting with a letter and not pg_."
+  }
+}
+
+variable "api_database_allocated_storage" {
+  description = "Allocated RDS storage in GiB for the managed API database."
+  type        = number
+  default     = 20
+  validation {
+    condition     = var.api_database_allocated_storage >= 20 && var.api_database_allocated_storage <= 65536
+    error_message = "api_database_allocated_storage must be between 20 and 65536 GiB."
+  }
+}
+
+variable "api_database_max_allocated_storage" {
+  description = "Maximum autoscaled RDS storage in GiB. Set 0 to disable storage autoscaling."
+  type        = number
+  default     = 100
+  validation {
+    condition     = var.api_database_max_allocated_storage == 0 || (var.api_database_max_allocated_storage >= 20 && var.api_database_max_allocated_storage <= 65536)
+    error_message = "api_database_max_allocated_storage must be 0 or between 20 and 65536 GiB."
+  }
+}
+
+variable "api_database_backup_retention_days" {
+  description = "Automated backup retention days for the managed API database."
+  type        = number
+  default     = 7
+  validation {
+    condition     = var.api_database_backup_retention_days >= 0 && var.api_database_backup_retention_days <= 35
+    error_message = "api_database_backup_retention_days must be between 0 and 35."
+  }
+}
+
+variable "api_database_deletion_protection" {
+  description = "Enable RDS deletion protection for the managed API database."
+  type        = bool
+  default     = false
+}
+
+variable "api_database_skip_final_snapshot" {
+  description = "Skip the final RDS snapshot when destroying the managed API database. Keep true for the no-user first cutover; set false once production data matters."
+  type        = bool
+  default     = true
+}
+
+variable "api_database_final_snapshot_identifier" {
+  description = "Optional final snapshot identifier used when api_database_skip_final_snapshot=false. Defaults to a deterministic database-specific identifier."
+  type        = string
+  default     = ""
+  validation {
+    condition     = length(trimspace(var.api_database_final_snapshot_identifier)) == 0 || can(regex("^[A-Za-z][A-Za-z0-9-]{0,254}$", trimspace(var.api_database_final_snapshot_identifier)))
+    error_message = "api_database_final_snapshot_identifier must be blank or a valid RDS snapshot identifier."
+  }
+}
+
+variable "api_database_apply_immediately" {
+  description = "Apply managed API database changes immediately instead of waiting for the maintenance window."
+  type        = bool
+  default     = true
 }
 
 variable "api_private_subnet_egress_ready" {

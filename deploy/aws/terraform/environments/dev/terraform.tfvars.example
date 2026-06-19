@@ -6,6 +6,7 @@ name_prefix = "identrail"
 create_foundation_resources = false
 create_api_hosting_resources = false
 create_worker_hosting_resources = false
+create_api_database = false
 
 create_runtime_secret = true
 log_retention_days    = 30
@@ -21,6 +22,14 @@ log_retention_days    = 30
 # restricted to the ALB security group, and move to private task subnets later.
 # api_task_subnet_ids       = ["<public-subnet-a>", "<public-subnet-b>"]
 # api_task_assign_public_ip = true
+# Optional managed AWS RDS PostgreSQL for the first AWS cutover. Leave
+# api_secrets.IDENTRAIL_DATABASE_URL unset when create_api_database=true.
+# create_api_database = true
+# api_database_subnet_ids            = ["<database-subnet-a>", "<database-subnet-b>"]
+# api_database_instance_class        = "db.t4g.micro"
+# api_database_allocated_storage     = 20
+# api_database_max_allocated_storage = 100
+# api_database_backup_retention_days = 7
 # api_certificate_arn    = "<api-certificate-arn>"
 # api_container_image    = "ghcr.io/identrail/identrail-api:<immutable-release-tag>"
 # worker_container_image = "ghcr.io/identrail/identrail-worker:<immutable-release-tag>"

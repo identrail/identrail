@@ -22,7 +22,7 @@ locals {
     local.worker_default_environment_variables,
     var.worker_environment_variables
   )
-  worker_runtime_secrets              = merge(var.api_secrets, var.worker_secrets)
+  worker_runtime_secrets              = merge(local.api_runtime_secrets, var.worker_secrets)
   worker_secret_config_names          = toset(keys(local.worker_runtime_secrets))
   worker_combined_secret_kms_key_arns = distinct(concat(var.api_secret_kms_key_arns, var.worker_secret_kms_key_arns))
   worker_secret_resource_arns = toset([
@@ -197,6 +197,10 @@ resource "aws_ecs_task_definition" "worker" {
       }
     }
   ])
+
+  depends_on = [
+    aws_secretsmanager_secret_version.api_database_url,
+  ]
 }
 
 resource "aws_ecs_service" "worker" {

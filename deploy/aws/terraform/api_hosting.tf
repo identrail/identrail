@@ -21,6 +21,10 @@ locals {
   api_cors_allowed_origins   = join(",", var.api_cors_allowed_origins)
   api_trusted_proxies        = join(",", var.api_trusted_proxy_cidr_blocks)
   api_task_subnet_ids        = length(var.api_task_subnet_ids) > 0 ? var.api_task_subnet_ids : var.api_private_subnet_ids
+  api_database_enabled       = var.create_api_hosting_resources && var.create_api_database
+  api_managed_database_secrets = local.api_database_enabled ? {
+    IDENTRAIL_DATABASE_URL = aws_secretsmanager_secret.api_database_url[0].arn
+  } : {}
   api_default_environment_variables = {
     IDENTRAIL_AWS_REGION           = var.aws_region
     IDENTRAIL_AWS_SOURCE           = "sdk"
@@ -47,10 +51,11 @@ locals {
     IDENTRAIL_USER_DATA_EXPORT_S3_REGION = var.aws_region
   } : {}
   api_runtime_environment_variables = merge(local.api_default_environment_variables, local.api_user_data_export_environment_variables, var.api_environment_variables)
-  api_config_names                  = toset(concat(keys(local.api_runtime_environment_variables), keys(var.api_secrets)))
-  api_secret_config_names           = toset(keys(var.api_secrets))
+  api_runtime_secrets               = merge(local.api_managed_database_secrets, var.api_secrets)
+  api_config_names                  = toset(concat(keys(local.api_runtime_environment_variables), keys(local.api_runtime_secrets)))
+  api_secret_config_names           = toset(keys(local.api_runtime_secrets))
   api_secret_resource_arns = toset([
-    for value_from in values(var.api_secrets) : join(":", slice(split(":", value_from), 0, 7))
+    for value_from in values(local.api_runtime_secrets) : join(":", slice(split(":", value_from), 0, 7))
   ])
   api_runtime_cors_allowed_origins = compact([
     for origin in split(",", lookup(local.api_runtime_environment_variables, "IDENTRAIL_CORS_ALLOWED_ORIGINS", "")) : trimspace(origin)
@@ -105,7 +110,7 @@ locals {
     }
   ]
   api_secrets = [
-    for name, value_from in var.api_secrets : {
+    for name, value_from in local.api_runtime_secrets : {
       name      = name
       valueFrom = value_from
     }
@@ -228,8 +233,13 @@ resource "terraform_data" "api_inputs" {
     }
 
     precondition {
+      condition     = !var.create_api_database || !contains(keys(var.api_secrets), "IDENTRAIL_DATABASE_URL")
+      error_message = "Do not set api_secrets.IDENTRAIL_DATABASE_URL when create_api_database=true; Terraform creates and wires the managed database URL secret."
+    }
+
+    precondition {
       condition     = contains(local.api_secret_config_names, "IDENTRAIL_DATABASE_URL")
-      error_message = "api_secrets must include IDENTRAIL_DATABASE_URL when create_api_hosting_resources=true."
+      error_message = "API hosting requires IDENTRAIL_DATABASE_URL from api_secrets or create_api_database=true."
     }
 
     precondition {
@@ -320,7 +330,7 @@ data "aws_iam_policy_document" "ecs_tasks_assume_role" {
 }
 
 data "aws_iam_policy_document" "api_task_execution_secrets" {
-  count = var.create_api_hosting_resources && length(var.api_secrets) > 0 ? 1 : 0
+  count = var.create_api_hosting_resources && length(local.api_runtime_secrets) > 0 ? 1 : 0
 
   statement {
     actions   = ["secretsmanager:GetSecretValue"]
@@ -402,7 +412,7 @@ resource "aws_iam_role_policy_attachment" "api_task_execution" {
 }
 
 resource "aws_iam_role_policy" "api_task_execution_secrets" {
-  count = var.create_api_hosting_resources && length(var.api_secrets) > 0 ? 1 : 0
+  count = var.create_api_hosting_resources && length(local.api_runtime_secrets) > 0 ? 1 : 0
 
   name   = "${local.api_policy_name_base}-secrets"
   role   = aws_iam_role.api_task_execution[0].id
@@ -598,6 +608,10 @@ resource "aws_ecs_task_definition" "api" {
       }
     }
   ])
+
+  depends_on = [
+    aws_secretsmanager_secret_version.api_database_url,
+  ]
 }
 
 resource "aws_ecs_service" "api" {

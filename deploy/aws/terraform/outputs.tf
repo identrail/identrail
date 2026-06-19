@@ -33,6 +33,26 @@ output "api_service_name" {
   value       = try(aws_ecs_service.api[0].name, local.api_service_name)
 }
 
+output "api_database_enabled" {
+  description = "Whether this plan creates the managed AWS RDS PostgreSQL database for the API."
+  value       = local.api_database_enabled
+}
+
+output "api_database_identifier" {
+  description = "RDS instance identifier for the managed API database when enabled."
+  value       = try(aws_db_instance.api_database[0].identifier, null)
+}
+
+output "api_database_endpoint" {
+  description = "RDS endpoint address for the managed API database when enabled."
+  value       = try(aws_db_instance.api_database[0].address, null)
+}
+
+output "api_database_secret_arn" {
+  description = "Secrets Manager ARN containing IDENTRAIL_DATABASE_URL for the managed API database when enabled."
+  value       = try(aws_secretsmanager_secret.api_database_url[0].arn, null)
+}
+
 output "user_data_export_bucket_name" {
   description = "S3 bucket used for self-serve account data export bundles when enabled."
   value       = try(aws_s3_bucket.user_data_exports[0].bucket, null)

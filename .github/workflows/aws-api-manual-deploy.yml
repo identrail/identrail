@@ -44,6 +44,35 @@ on:
         description: "Optional Secrets Manager ARN. Blank uses repository secret API_DATABASE_URL_SECRET_ARN."
         required: false
         type: string
+      create_api_database:
+        description: "Create managed AWS RDS PostgreSQL and ignore the external database URL secret."
+        required: false
+        type: boolean
+        default: false
+      api_database_subnet_ids_json:
+        description: "Optional JSON array of database subnet IDs. Blank uses private API subnets, then task subnets."
+        required: false
+        type: string
+      api_database_instance_class:
+        description: "RDS instance class for managed Postgres."
+        required: false
+        type: string
+        default: db.t4g.micro
+      api_database_allocated_storage:
+        description: "Allocated managed Postgres storage in GiB."
+        required: false
+        type: string
+        default: "20"
+      api_database_max_allocated_storage:
+        description: "Maximum managed Postgres autoscaled storage in GiB. Use 0 to disable."
+        required: false
+        type: string
+        default: "100"
+      api_database_backup_retention_days:
+        description: "Managed Postgres automated backup retention days."
+        required: false
+        type: string
+        default: "7"
       terraform_state_bucket:
         description: "S3 bucket for Terraform state. Leave blank to use repository variable AWS_TERRAFORM_STATE_BUCKET."
         required: false
@@ -99,6 +128,36 @@ on:
         required: false
         type: string
         default: ""
+      create_api_database:
+        description: "Create managed AWS RDS PostgreSQL and ignore the external database URL secret."
+        required: false
+        type: boolean
+        default: false
+      api_database_subnet_ids_json:
+        description: "Optional JSON array of database subnet IDs. Blank uses private API subnets, then task subnets."
+        required: false
+        type: string
+        default: ""
+      api_database_instance_class:
+        description: "RDS instance class for managed Postgres."
+        required: false
+        type: string
+        default: db.t4g.micro
+      api_database_allocated_storage:
+        description: "Allocated managed Postgres storage in GiB."
+        required: false
+        type: string
+        default: "20"
+      api_database_max_allocated_storage:
+        description: "Maximum managed Postgres autoscaled storage in GiB. Use 0 to disable."
+        required: false
+        type: string
+        default: "100"
+      api_database_backup_retention_days:
+        description: "Managed Postgres automated backup retention days."
+        required: false
+        type: string
+        default: "7"
       terraform_state_bucket:
         description: "S3 bucket for Terraform state. Leave blank to use repository variable AWS_TERRAFORM_STATE_BUCKET."
         required: false
@@ -142,6 +201,12 @@ jobs:
       API_WORKER_TASK_CPU: ${{ vars.API_WORKER_TASK_CPU || '256' }}
       API_WORKER_TASK_MEMORY: ${{ vars.API_WORKER_TASK_MEMORY || '512' }}
       API_DATABASE_URL_SECRET_ARN: ${{ inputs.database_url_secret_arn || secrets.API_DATABASE_URL_SECRET_ARN }}
+      API_CREATE_DATABASE: ${{ inputs.create_api_database && 'true' || vars.API_CREATE_DATABASE || 'false' }}
+      API_DATABASE_SUBNET_IDS_JSON: ${{ inputs.api_database_subnet_ids_json || vars.API_DATABASE_SUBNET_IDS_JSON || '' }}
+      API_DATABASE_INSTANCE_CLASS: ${{ inputs.api_database_instance_class || vars.API_DATABASE_INSTANCE_CLASS || 'db.t4g.micro' }}
+      API_DATABASE_ALLOCATED_STORAGE: ${{ inputs.api_database_allocated_storage || vars.API_DATABASE_ALLOCATED_STORAGE || '20' }}
+      API_DATABASE_MAX_ALLOCATED_STORAGE: ${{ inputs.api_database_max_allocated_storage || vars.API_DATABASE_MAX_ALLOCATED_STORAGE || '100' }}
+      API_DATABASE_BACKUP_RETENTION_DAYS: ${{ inputs.api_database_backup_retention_days || vars.API_DATABASE_BACKUP_RETENTION_DAYS || '7' }}
       API_SESSION_KEY_SECRET_ARN: ${{ secrets.API_SESSION_KEY_SECRET_ARN }}
       API_FEATURE_WORKOS_LOGIN: ${{ vars.API_FEATURE_WORKOS_LOGIN || '' }}
       API_FEATURE_ONBOARDING_WIZARD: ${{ vars.API_FEATURE_ONBOARDING_WIZARD || 'true' }}
@@ -199,7 +264,17 @@ jobs:
             exit 1
           fi
           echo "::add-mask::${AWS_ROLE_ARN}"
-          if [ -z "${API_DATABASE_URL_SECRET_ARN}" ]; then
+          api_create_database="$(printf '%s' "${API_CREATE_DATABASE}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+          case "${api_create_database}" in
+            true|false) ;;
+            *)
+              echo "API_CREATE_DATABASE must be true or false."
+              exit 1
+              ;;
+          esac
+          if [ "${api_create_database}" = "true" ]; then
+            echo "Managed AWS RDS PostgreSQL creation is enabled; any external database URL secret is ignored by the Terraform inputs."
+          elif [ -z "${API_DATABASE_URL_SECRET_ARN}" ]; then
             echo "Missing repository secret API_DATABASE_URL_SECRET_ARN."
             exit 1
           fi
@@ -207,7 +282,9 @@ jobs:
             echo "Missing repository secret API_SESSION_KEY_SECRET_ARN."
             exit 1
           fi
-          echo "::add-mask::${API_DATABASE_URL_SECRET_ARN}"
+          if [ -n "${API_DATABASE_URL_SECRET_ARN}" ]; then
+            echo "::add-mask::${API_DATABASE_URL_SECRET_ARN}"
+          fi
           echo "::add-mask::${API_SESSION_KEY_SECRET_ARN}"
           if [ -n "${API_WORKOS_API_KEY_SECRET_ARN}" ]; then
             echo "::add-mask::${API_WORKOS_API_KEY_SECRET_ARN}"
@@ -312,6 +389,9 @@ jobs:
           worker_service="$(terraform output -raw worker_service_name)"
           worker_enabled="$(terraform output -raw worker_hosting_enabled)"
           api_cluster="$(terraform output -raw api_ecs_cluster_name)"
+          database_enabled="$(terraform output -json api_database_enabled | jq -r '.')"
+          database_endpoint="$(terraform output -json api_database_endpoint | jq -r '. // "not-created"')"
+          database_secret_arn="$(terraform output -json api_database_secret_arn | jq -r '. // "external-secret"')"
           {
             echo "## AWS API deploy outputs"
             echo
@@ -320,6 +400,11 @@ jobs:
             echo "- ECS service: \`${api_service}\`"
             echo "- Worker hosting enabled: \`${worker_enabled}\`"
             echo "- Worker service: \`${worker_service}\`"
+            echo "- Managed database enabled: \`${database_enabled}\`"
+            if [ "${database_enabled}" = "true" ]; then
+              echo "- RDS endpoint: \`${database_endpoint}\`"
+              echo "- Database URL secret ARN: \`${database_secret_arn}\`"
+            fi
             echo "- Terraform state key: \`${{ steps.prepare.outputs.state_key }}\`"
             echo
             echo "After health checks pass, create the Namecheap CNAME for \`api.identrail.com\` to the load balancer DNS name."

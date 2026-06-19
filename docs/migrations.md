@@ -25,7 +25,11 @@ For the hosted AWS API path, the GitHub Actions workflow fetches
 `IDENTRAIL_DATABASE_URL` from AWS Secrets Manager through the configured
 `API_DATABASE_URL_SECRET_ARN`, masks the value, and runs the dedicated
 `cmd/migrate` one-shot runner. The workflow must be dispatched from `dev` with
-the confirmation phrase `run-api-migrations`.
+the confirmation phrase `run-api-migrations`. For a first cutover where
+Terraform creates managed RDS PostgreSQL, run the manual deploy apply first,
+then use the `api_database_secret_arn` Terraform output as the migration
+workflow input or store it as the repository secret
+`API_DATABASE_URL_SECRET_ARN`.
 
 ## Roll Forward (Preferred)
 

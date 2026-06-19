@@ -201,16 +201,28 @@ if [ "${api_worker_enabled}" = "true" ]; then
   fi
 fi
 
-api_database_secret="$(require_value API_DATABASE_URL_SECRET_ARN)"
+api_create_database="$(trim "${API_CREATE_DATABASE:-false}")"
+if [ -z "${api_create_database}" ]; then
+  api_create_database="false"
+fi
+optional_bool API_CREATE_DATABASE
+api_database_secret="$(trim "${API_DATABASE_URL_SECRET_ARN:-}")"
+if [ "${api_create_database}" != "true" ]; then
+  api_database_secret="$(require_value API_DATABASE_URL_SECRET_ARN)"
+fi
 api_session_secret="$(require_value API_SESSION_KEY_SECRET_ARN)"
-for secret_arn in "${api_database_secret}" "${api_session_secret}"; do
+for secret_arn in "${api_session_secret}"; do
   if ! [[ "${secret_arn}" =~ ^arn:(aws|aws-us-gov|aws-cn):secretsmanager:${aws_region}:[0-9]{12}:secret:.+ ]]; then
     fail "API secret references must be Secrets Manager ARNs in ${aws_region}"
   fi
 done
+if [ "${api_create_database}" != "true" ] && ! [[ "${api_database_secret}" =~ ^arn:(aws|aws-us-gov|aws-cn):secretsmanager:${aws_region}:[0-9]{12}:secret:.+ ]]; then
+  fail "API_DATABASE_URL_SECRET_ARN must be a Secrets Manager ARN in ${aws_region}"
+fi
 
 public_subnets="$(json_string_array API_PUBLIC_SUBNET_IDS_JSON)"
 task_subnets="$(json_string_array API_TASK_SUBNET_IDS_JSON "${public_subnets}")"
+database_subnets="$(json_string_array API_DATABASE_SUBNET_IDS_JSON)"
 allowed_cidrs="$(json_string_array API_ALLOWED_CIDR_BLOCKS_JSON '["0.0.0.0/0"]')"
 cors_origins="$(json_string_array API_CORS_ALLOWED_ORIGINS_JSON '["https://app.identrail.com","https://identrail.com","https://www.identrail.com"]')"
 trusted_proxy_cidrs="$(json_string_array API_TRUSTED_PROXY_CIDR_BLOCKS_JSON '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]')"
@@ -426,6 +438,10 @@ fi
 api_desired_count="$(trim "${API_DESIRED_COUNT:-1}")"
 api_task_cpu="$(trim "${API_TASK_CPU:-512}")"
 api_task_memory="$(trim "${API_TASK_MEMORY:-1024}")"
+api_database_instance_class="$(trim "${API_DATABASE_INSTANCE_CLASS:-db.t4g.micro}")"
+api_database_allocated_storage="$(trim "${API_DATABASE_ALLOCATED_STORAGE:-20}")"
+api_database_max_allocated_storage="$(trim "${API_DATABASE_MAX_ALLOCATED_STORAGE:-100}")"
+api_database_backup_retention_days="$(trim "${API_DATABASE_BACKUP_RETENTION_DAYS:-7}")"
 worker_desired_count="$(trim "${API_WORKER_DESIRED_COUNT:-1}")"
 worker_task_cpu="$(trim "${API_WORKER_TASK_CPU:-256}")"
 worker_task_memory="$(trim "${API_WORKER_TASK_MEMORY:-512}")"
@@ -434,6 +450,23 @@ for numeric in api_desired_count api_task_cpu api_task_memory; do
     fail "${numeric^^} must be a positive integer"
   fi
 done
+if ! [[ "${api_database_instance_class}" =~ ^db\.[a-z0-9]+(\.[a-z0-9]+)+$ ]]; then
+  fail "API_DATABASE_INSTANCE_CLASS must be an RDS class such as db.t4g.micro"
+fi
+for numeric in api_database_allocated_storage api_database_max_allocated_storage api_database_backup_retention_days; do
+  if ! [[ "${!numeric}" =~ ^[0-9]+$ ]]; then
+    fail "${numeric^^} must be a non-negative integer"
+  fi
+done
+if [ "${api_database_allocated_storage}" -lt 20 ]; then
+  fail "API_DATABASE_ALLOCATED_STORAGE must be at least 20"
+fi
+if [ "${api_database_max_allocated_storage}" -ne 0 ] && [ "${api_database_max_allocated_storage}" -lt "${api_database_allocated_storage}" ]; then
+  fail "API_DATABASE_MAX_ALLOCATED_STORAGE must be 0 or greater than or equal to API_DATABASE_ALLOCATED_STORAGE"
+fi
+if [ "${api_database_backup_retention_days}" -gt 35 ]; then
+  fail "API_DATABASE_BACKUP_RETENTION_DAYS must be between 0 and 35"
+fi
 for numeric in worker_desired_count worker_task_cpu worker_task_memory; do
   if ! [[ "${!numeric}" =~ ^[0-9]+$ ]]; then
     fail "${numeric^^} must be a positive integer"
@@ -451,11 +484,14 @@ jq -n \
   --arg api_container_image "${api_container_image}" \
   --arg api_worker_enabled "${api_worker_enabled}" \
   --arg worker_container_image "${worker_container_image}" \
+  --arg api_create_database "${api_create_database}" \
   --arg api_database_secret "${api_database_secret}" \
+  --arg api_database_instance_class "${api_database_instance_class}" \
   --arg api_session_secret "${api_session_secret}" \
   --arg onboarding_feature_enabled "${onboarding_feature_enabled}" \
   --argjson api_public_subnet_ids "${public_subnets}" \
   --argjson api_task_subnet_ids "${task_subnets}" \
+  --argjson api_database_subnet_ids "${database_subnets}" \
   --argjson api_allowed_cidr_blocks "${allowed_cidrs}" \
   --argjson api_cors_allowed_origins "${cors_origins}" \
   --argjson api_trusted_proxy_cidr_blocks "${trusted_proxy_cidrs}" \
@@ -471,6 +507,9 @@ jq -n \
   --argjson api_desired_count "${api_desired_count}" \
   --argjson api_task_cpu "${api_task_cpu}" \
   --argjson api_task_memory "${api_task_memory}" \
+  --argjson api_database_allocated_storage "${api_database_allocated_storage}" \
+  --argjson api_database_max_allocated_storage "${api_database_max_allocated_storage}" \
+  --argjson api_database_backup_retention_days "${api_database_backup_retention_days}" \
   --argjson worker_desired_count "${worker_desired_count}" \
   --argjson worker_task_cpu "${worker_task_cpu}" \
   --argjson worker_task_memory "${worker_task_memory}" \
@@ -481,10 +520,16 @@ jq -n \
     create_foundation_resources: true,
     create_api_hosting_resources: true,
     create_worker_hosting_resources: ($api_worker_enabled == "true"),
+    create_api_database: ($api_create_database == "true"),
     create_runtime_secret: true,
     api_vpc_id: $api_vpc_id,
     api_public_subnet_ids: $api_public_subnet_ids,
     api_task_subnet_ids: $api_task_subnet_ids,
+    api_database_subnet_ids: $api_database_subnet_ids,
+    api_database_instance_class: $api_database_instance_class,
+    api_database_allocated_storage: $api_database_allocated_storage,
+    api_database_max_allocated_storage: $api_database_max_allocated_storage,
+    api_database_backup_retention_days: $api_database_backup_retention_days,
     api_task_assign_public_ip: true,
     api_private_subnet_egress_ready: false,
     api_allowed_cidr_blocks: $api_allowed_cidr_blocks,
@@ -505,9 +550,10 @@ jq -n \
       IDENTRAIL_PUBLIC_BASE_URL: "https://api.identrail.com"
     }),
     api_secrets: ($extra_secrets + $workos_secrets + $github_secrets + {
-      IDENTRAIL_DATABASE_URL: $api_database_secret,
       IDENTRAIL_SESSION_KEY: $api_session_secret
-    }),
+    } + (if $api_create_database == "true" then {} else {
+      IDENTRAIL_DATABASE_URL: $api_database_secret
+    } end)),
     api_secret_kms_key_arns: $api_secret_kms_key_arns,
     api_connector_role_arns: $api_connector_role_arns,
     tags: {
