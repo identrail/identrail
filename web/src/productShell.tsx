@@ -53,6 +53,8 @@ import {
   type AWSSecretsKMSRuntimeAccessResult,
   type AWSS3RuntimeAccessRecord,
   type AWSS3RuntimeAccessResult,
+  type AWSAgentRuntimeAccessRecord,
+  type AWSAgentRuntimeAccessResult,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
@@ -10295,6 +10297,130 @@ function AWSS3RuntimeAccessContent({
   );
 }
 
+function awsAgentRuntimeAccessStatusLabel(status: string): string {
+  switch (status) {
+    case 'confirmed':
+      return 'Confirmed';
+    case 'observed_without_declaration':
+      return 'Observed · undeclared';
+    case 'declared_unused':
+      return 'Declared · unused';
+    default:
+      return formatTokenLabel(status);
+  }
+}
+
+function awsAgentRuntimeAccessStage(status: string): AWSCapabilityStage {
+  switch (status) {
+    case 'confirmed':
+      return 'wired';
+    case 'observed_without_declaration':
+      return 'coming';
+    default:
+      return 'not-available';
+  }
+}
+
+function awsAgentRuntimeAccessLabel(record: AWSAgentRuntimeAccessRecord): string {
+  const agent = record.agent_name || record.agent_id || record.agent_node_id;
+  const tool = record.tool_name ? ` · ${record.tool_name}` : '';
+  return `${agent}${tool}`;
+}
+
+function awsAgentRuntimeAccessContextLabel(record: AWSAgentRuntimeAccessRecord): string {
+  const outcomes = (record.outcomes ?? []).filter((outcome) => outcome && outcome !== 'unknown');
+  const outcomeLabel = outcomes.length > 0 ? outcomes.map((outcome) => formatTokenLabel(outcome)).join(', ') : '';
+  const caveats = (record.caveats ?? []).map((caveat) => formatTokenLabel(caveat)).join(' · ');
+  return [outcomeLabel, caveats].filter(Boolean).join(' · ') || '—';
+}
+
+function AWSAgentRuntimeAccessContent({
+  correlation,
+  loading,
+  error,
+  onRetry
+}: {
+  correlation: AWSAgentRuntimeAccessResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const records = correlation?.records ?? [];
+  const summaryLine = correlation
+    ? `${correlation.summary.confirmed_count} confirmed · ${correlation.summary.observed_without_declaration_count} undeclared · ${correlation.summary.declared_unused_count} declared unused`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="Agent runtime and tool-call correlation">
+      <h3>Agent runtime / tool-call correlation</h3>
+      <p className="idt-app-kicker">
+        Observed agent tool-calls joined with the AI-agent inventory — confirmed, observed-without-declaration (shadow
+        agent or undeclared tool), or declared-but-unused. Prompts and tool payloads are never shown. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load agent runtime correlation"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Correlating agent tool-calls"
+          body="Identrail is joining observed agent tool-calls with the AI-agent inventory."
+        />
+      ) : null}
+      {!error && !loading && correlation && records.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={correlation.status === 'blocked' ? 'Permission required' : 'No correlations'}
+          title={
+            correlation.status === 'blocked'
+              ? 'Agent runtime correlation needs read-only event access'
+              : 'No agent tool-call correlations'
+          }
+          body={
+            correlation.failure_reasons[0] ??
+            'No observed agent tool-calls or declared tools were available for the current environment.'
+          }
+        />
+      ) : null}
+      {!error && !loading && correlation && correlation.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {correlation.caveats.map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {records.length > 0 ? (
+        <DomainDataTable
+          label="Agent runtime / tool-call correlations"
+          rows={records}
+          getRowKey={(row) => row.correlation_id}
+          columns={[
+            { key: 'agent', header: 'Agent · tool', render: (row) => <strong>{awsAgentRuntimeAccessLabel(row)}</strong> },
+            { key: 'identity', header: 'Backing role', render: (row) => (row.backing_role_arns ?? []).join(', ') || row.declared_backing_role || '—' },
+            {
+              key: 'evidence',
+              header: 'Evidence',
+              render: (row) =>
+                `${row.observed_count} observed · ${row.declared_in_inventory ? 'declared' : 'undeclared'} · ${formatConfidenceScore(row.confidence)}`
+            },
+            { key: 'context', header: 'Outcome / caveats', render: (row) => awsAgentRuntimeAccessContextLabel(row) },
+            { key: 'next', header: 'Next action', render: (row) => row.next_action },
+            {
+              key: 'status',
+              header: 'Correlation',
+              render: (row) => (
+                <AWSInventoryPill stage={awsAgentRuntimeAccessStage(row.status)} label={awsAgentRuntimeAccessStatusLabel(row.status)} />
+              )
+            }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsRuntimeEventRow(record: AWSRuntimeEventRecord): AWSRiskOperationTableRow {
   const eventLabel = awsRuntimeEventLabel(record);
   const resourceLabel = record.target_resource_name || record.target_resource_type || record.target_resource_arn || 'Session event';
@@ -10789,6 +10915,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [s3RuntimeAccessLoading, setS3RuntimeAccessLoading] = useState(false);
   const [s3RuntimeAccessError, setS3RuntimeAccessError] = useState('');
   const s3RuntimeAccessRequestRef = useRef(0);
+  const [agentRuntimeAccess, setAgentRuntimeAccess] = useState<AWSAgentRuntimeAccessResult | null>(null);
+  const [agentRuntimeAccessLoading, setAgentRuntimeAccessLoading] = useState(false);
+  const [agentRuntimeAccessError, setAgentRuntimeAccessError] = useState('');
+  const agentRuntimeAccessRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -10948,6 +11078,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadS3RuntimeAccess]);
 
+  const loadAgentRuntimeAccess = useCallback(async () => {
+    const requestID = ++agentRuntimeAccessRequestRef.current;
+    setAgentRuntimeAccess(null);
+    setAgentRuntimeAccessError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setAgentRuntimeAccessLoading(false);
+      return;
+    }
+    setAgentRuntimeAccessLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectAgentRuntimeAccess(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== agentRuntimeAccessRequestRef.current) {
+        return;
+      }
+      setAgentRuntimeAccess(response.correlation);
+    } catch (error) {
+      if (requestID !== agentRuntimeAccessRequestRef.current) {
+        return;
+      }
+      setAgentRuntimeAccessError(formatAPIError(error, 'Unable to load agent runtime access correlation.'));
+    } finally {
+      if (requestID === agentRuntimeAccessRequestRef.current) {
+        setAgentRuntimeAccessLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadAgentRuntimeAccess();
+    return () => {
+      agentRuntimeAccessRequestRef.current += 1;
+    };
+  }, [loadAgentRuntimeAccess]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -11055,6 +11233,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={s3RuntimeAccessLoading}
             error={s3RuntimeAccessError}
             onRetry={loadS3RuntimeAccess}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSAgentRuntimeAccessContent
+            correlation={agentRuntimeAccess}
+            loading={agentRuntimeAccessLoading}
+            error={agentRuntimeAccessError}
+            onRetry={loadAgentRuntimeAccess}
           />
         ) : null}
         {routeID === 'graph' ? (

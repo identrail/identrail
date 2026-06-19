@@ -564,6 +564,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/agent-runtime-access
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/iam-passrole-relationships
     action: tenancy.read
     resource_type: project
@@ -4796,6 +4801,94 @@ paths:
                     $ref: "#/components/schemas/AWSS3RuntimeAccessResult"
         "400":
           description: Invalid AWS s3 runtime access request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/agent-runtime-access:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS agent runtime / tool-call access correlation
+      operationId: getAWSProjectAgentRuntimeAccess
+      description: Correlates observed, metadata-only agent runtime / tool-call events with the static AI-agent inventory Identrail discovered (declared agents, backing runtime role, and declared tools). Each (agent, tool) correlation is classified confirmed, observed_without_declaration (shadow agent or undeclared tool), or declared_unused, with a correlation confidence, backing-role-mismatch and failed-tool-call caveats, and target-resource context. Prompts, completions, tool inputs/outputs, browser pages, and code-interpreter output are never read or returned.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope the account, region, and read-only runtime evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: delivery_source
+          schema:
+            type: string
+            enum: [lookup_events, s3, eventbridge, all]
+          description: Optional CloudTrail delivery channel for the observed agent tool-call events. Defaults to `all` because these arrive as data events that the LookupEvents API does not index.
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: identity
+          schema: { type: string }
+          description: Optional backing-role principal or identity-node search.
+        - in: query
+          name: agent_id
+          schema: { type: string }
+          description: Optional agent ID, name, or agent-node search.
+        - in: query
+          name: tool
+          schema: { type: string }
+          description: Optional tool name or tool target-ref search.
+        - in: query
+          name: resource
+          schema: { type: string }
+          description: Optional target resource ARN search.
+        - in: query
+          name: outcome
+          schema:
+            type: string
+            enum: [succeeded, failed, unknown]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [confirmed, observed_without_declaration, declared_unused]
+      responses:
+        "200":
+          description: AWS agent runtime access correlation contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  correlation:
+                    $ref: "#/components/schemas/AWSAgentRuntimeAccessResult"
+        "400":
+          description: Invalid AWS agent runtime access request
           content:
             application/json:
               schema:
@@ -11455,6 +11548,168 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSS3RuntimeAccessDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSAgentRuntimeAccessRecord:
+      type: object
+      properties:
+        correlation_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        agent_node_id: { type: string }
+        agent_id: { type: string }
+        agent_name: { type: string }
+        agent_type: { type: string }
+        runtime_version: { type: string }
+        tool_name: { type: string }
+        tool_target_ref: { type: string }
+        status:
+          type: string
+          enum: [confirmed, observed_without_declaration, declared_unused]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        observed_count: { type: integer }
+        observed_event_ids:
+          type: array
+          items: { type: string }
+        backing_role_arns:
+          type: array
+          items: { type: string }
+        backing_role_node_ids:
+          type: array
+          items: { type: string }
+        declared_backing_role: { type: string }
+        target_resource_arns:
+          type: array
+          items: { type: string }
+        outcomes:
+          type: array
+          items: { type: string }
+        session_ids:
+          type: array
+          items: { type: string }
+        first_observed_at:
+          type: string
+          format: date-time
+        last_observed_at:
+          type: string
+          format: date-time
+        declared_in_inventory: { type: boolean }
+        caveats:
+          type: array
+          items: { type: string }
+        evidence_ref: { type: string }
+        evidence_refs:
+          type: array
+          items: { type: string }
+        next_action: { type: string }
+        redaction_boundary: { type: string }
+    AWSAgentRuntimeAccessRelationship:
+      type: object
+      properties:
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSAgentRuntimeAccessDiagnostic:
+      type: object
+      properties:
+        collector: { type: string }
+        source_id: { type: string }
+        code: { type: string }
+        message: { type: string }
+        remediation: { type: string }
+        retryable: { type: boolean }
+    AWSAgentRuntimeAccessCoverageGap:
+      type: object
+      properties:
+        capability: { type: string }
+        status: { type: string }
+        reason: { type: string }
+        remediation: { type: string }
+    AWSAgentRuntimeAccessSummary:
+      type: object
+      properties:
+        total_correlations: { type: integer }
+        filtered_correlations: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        confirmed_count: { type: integer }
+        observed_without_declaration_count: { type: integer }
+        declared_unused_count: { type: integer }
+        shadow_agent_count: { type: integer }
+        undeclared_tool_count: { type: integer }
+        backing_role_mismatch_count: { type: integer }
+        failed_tool_call_count: { type: integer }
+        agent_count: { type: integer }
+        tool_count: { type: integer }
+        observed_tool_call_count: { type: integer }
+        declared_tool_count: { type: integer }
+        relationship_count: { type: integer }
+    AWSAgentRuntimeAccessResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSAgentRuntimeAccessSummary"
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAgentRuntimeAccessRecord"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAgentRuntimeAccessRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAgentRuntimeAccessCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAgentRuntimeAccessDiagnostic"
         generated_at:
           type: string
           format: date-time

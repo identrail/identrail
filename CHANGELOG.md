@@ -1,6 +1,28 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS agent runtime / tool-call access correlation** (#1520). Adds
+  a metadata-only correlation engine (`internal/runtime/agentaccess`)
+  that joins observed agent `agent-tool` runtime events with the static
+  AI-agent inventory (declared agents, backing runtime role, declared
+  tools). Each `(agent, tool)` pair is classified `confirmed`,
+  `observed_without_declaration` (shadow agent or undeclared tool), or
+  `declared_unused`, with a correlation confidence, backing-role,
+  target-resource and outcome context, and caveats including
+  `observed_backing_role_differs_from_declared` and
+  `observed_tool_call_failed`. Prompts, completions, and tool payloads
+  are never read. The new endpoint
+  `GET /v1/workspaces/{ws}/projects/{p}/aws/agent-runtime-access`
+  exposes a queryable correlation timeline filterable by identity
+  (backing role), agent, tool, target resource, outcome, account,
+  region, and correlation status, with `ready`/`degraded`/`blocked`
+  states, coverage gaps, diagnostics, and graph relationships. Defaults
+  the runtime source to the CloudTrail delivery channels (`all`) since
+  agent tool-call telemetry is not indexed by LookupEvents; when the
+  inventory is unavailable in live mode it surfaces a neutral caveat
+  rather than mislabeling real agents as shadow agents. Adds no new AWS
+  permissions. Surfaced in the AWS runtime app surface. Closes #1520.
+  See [docs/aws-agent-runtime-access.md](docs/aws-agent-runtime-access.md).
 - Add **AWS S3 runtime data access correlation** (#1519). Adds a
   metadata-only correlation engine (`internal/runtime/s3access`) that
   joins observed S3 read/write/list runtime events with the static

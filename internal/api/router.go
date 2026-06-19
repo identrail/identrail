@@ -2981,6 +2981,43 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"correlation": record})
 	})
 
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/agent-runtime-access", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetAWSAgentRuntimeAccess(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSAgentRuntimeAccessRequest{
+			ConnectorID:    strings.TrimSpace(c.Query("connector_id")),
+			FixtureState:   strings.TrimSpace(c.Query("fixture_state")),
+			AccountID:      strings.TrimSpace(c.Query("account_id")),
+			Region:         strings.TrimSpace(c.Query("region")),
+			Identity:       strings.TrimSpace(c.Query("identity")),
+			AgentID:        strings.TrimSpace(c.Query("agent_id")),
+			Tool:           strings.TrimSpace(c.Query("tool")),
+			Resource:       strings.TrimSpace(c.Query("resource")),
+			Outcome:        strings.TrimSpace(c.Query("outcome")),
+			Status:         strings.TrimSpace(c.Query("status")),
+			DeliverySource: strings.TrimSpace(c.Query("delivery_source")),
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project or connector not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws agent runtime access request"})
+			default:
+				logger.Error("get aws agent runtime access",
+					zap.String("workspace_id", c.Param("workspace_id")),
+					zap.String("project_id", c.Param("project_id")),
+					telemetry.ZapError(err),
+				)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws agent runtime access"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"correlation": record})
+	})
+
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/iam-passrole-relationships", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)

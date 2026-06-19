@@ -2562,6 +2562,138 @@ export type AWSS3RuntimeAccessQuery = {
   status?: string;
 };
 
+// AWSAgentRuntimeAccess* types describe the agent runtime / tool-call
+// correlation: observed agent tool-call events joined with the static
+// AI-agent inventory (declared agents, backing roles, declared tools),
+// classified per (agent, tool) pair. Prompts, completions, and tool
+// payloads are never present.
+export type AWSAgentRuntimeAccessStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSAgentRuntimeAccessFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+export type AWSAgentRuntimeAccessCorrelationStatus =
+  | 'confirmed'
+  | 'observed_without_declaration'
+  | 'declared_unused';
+
+export type AWSAgentRuntimeAccessRecord = {
+  correlation_id: string;
+  account_id: string;
+  region: string;
+  agent_node_id: string;
+  agent_id?: string;
+  agent_name?: string;
+  agent_type?: string;
+  runtime_version?: string;
+  tool_name?: string;
+  tool_target_ref?: string;
+  status: AWSAgentRuntimeAccessCorrelationStatus | string;
+  confidence: number;
+  observed_count: number;
+  observed_event_ids?: string[];
+  backing_role_arns?: string[];
+  backing_role_node_ids?: string[];
+  declared_backing_role?: string;
+  target_resource_arns?: string[];
+  outcomes?: string[];
+  session_ids?: string[];
+  first_observed_at?: string;
+  last_observed_at?: string;
+  declared_in_inventory: boolean;
+  caveats?: string[];
+  evidence_ref: string;
+  evidence_refs?: string[];
+  next_action: string;
+  redaction_boundary: string;
+};
+
+export type AWSAgentRuntimeAccessRelationship = {
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSAgentRuntimeAccessDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSAgentRuntimeAccessCoverageGap = {
+  capability: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSAgentRuntimeAccessSummary = {
+  total_correlations: number;
+  filtered_correlations: number;
+  status_counts: Record<string, number>;
+  confirmed_count: number;
+  observed_without_declaration_count: number;
+  declared_unused_count: number;
+  shadow_agent_count: number;
+  undeclared_tool_count: number;
+  backing_role_mismatch_count: number;
+  failed_tool_call_count: number;
+  agent_count: number;
+  tool_count: number;
+  observed_tool_call_count: number;
+  declared_tool_count: number;
+  relationship_count: number;
+};
+
+export type AWSAgentRuntimeAccessResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSAgentRuntimeAccessStatus;
+  fixture_state?: AWSAgentRuntimeAccessFixtureState;
+  confidence: number;
+  applied_filters: Record<string, string>;
+  summary: AWSAgentRuntimeAccessSummary;
+  records: AWSAgentRuntimeAccessRecord[];
+  relationships: AWSAgentRuntimeAccessRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSAgentRuntimeAccessCoverageGap[];
+  diagnostics: AWSAgentRuntimeAccessDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSAgentRuntimeAccessQuery = {
+  connectorID?: string;
+  fixtureState?: AWSAgentRuntimeAccessFixtureState;
+  deliverySource?: AWSRuntimeEventDeliverySource;
+  accountID?: string;
+  region?: string;
+  identity?: string;
+  agentID?: string;
+  tool?: string;
+  resource?: string;
+  outcome?: string;
+  status?: string;
+};
+
 export type AWSBedrockAgentsInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBedrockAgentsFixtureState =
   | 'success'
@@ -5710,6 +5842,29 @@ export const apiClient = {
         access_mode: query?.accessMode,
         sensitivity: query?.sensitivity,
         exposure: query?.exposure,
+        status: query?.status
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectAgentRuntimeAccess(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSAgentRuntimeAccessQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ correlation: AWSAgentRuntimeAccessResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/agent-runtime-access${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        delivery_source: query?.deliverySource,
+        account_id: query?.accountID,
+        region: query?.region,
+        identity: query?.identity,
+        agent_id: query?.agentID,
+        tool: query?.tool,
+        resource: query?.resource,
+        outcome: query?.outcome,
         status: query?.status
       })}`,
       auth
