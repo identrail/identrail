@@ -2531,7 +2531,7 @@ export type AWSS3RuntimeAccessResult = {
   current_issue_ref: string;
   version: string;
   status: AWSS3RuntimeAccessStatus;
-  fixture_state: AWSS3RuntimeAccessFixtureState;
+  fixture_state?: AWSS3RuntimeAccessFixtureState;
   confidence: number;
   applied_filters: Record<string, string>;
   summary: AWSS3RuntimeAccessSummary;

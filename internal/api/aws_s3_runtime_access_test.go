@@ -192,6 +192,9 @@ func TestGetAWSS3RuntimeAccessDefaultLiveRequiresDeliveryFactory(t *testing.T) {
 	if len(result.Records) != 0 {
 		t.Fatalf("expected no records when live delivery is unavailable, got %+v", result.Records)
 	}
+	if result.FixtureState != "" {
+		t.Fatalf("expected no fixture state when live delivery is unavailable, got %q", result.FixtureState)
+	}
 }
 
 func TestGetAWSS3RuntimeAccessLiveRoutesDataEventsThroughDelivery(t *testing.T) {
@@ -218,6 +221,9 @@ func TestGetAWSS3RuntimeAccessLiveRoutesDataEventsThroughDelivery(t *testing.T) 
 	}
 	if fake.calls == 0 {
 		t.Fatalf("delivery factory was never used — S3 data events were not routed through delivery")
+	}
+	if result.FixtureState != "" {
+		t.Fatalf("expected no fixture state for live S3 data, got %q", result.FixtureState)
 	}
 	var found *AWSS3RuntimeAccessRecord
 	for i := range result.Records {

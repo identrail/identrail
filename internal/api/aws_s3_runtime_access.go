@@ -138,7 +138,7 @@ type AWSS3RuntimeAccessResult struct {
 	CurrentIssueRef    string                           `json:"current_issue_ref"`
 	Version            string                           `json:"version"`
 	Status             string                           `json:"status"`
-	FixtureState       string                           `json:"fixture_state"`
+	FixtureState       string                           `json:"fixture_state,omitempty"`
 	Confidence         float64                          `json:"confidence"`
 	AppliedFilters     map[string]string                `json:"applied_filters"`
 	Summary            AWSS3RuntimeAccessSummary        `json:"summary"`
@@ -219,6 +219,7 @@ func (s *Service) GetAWSS3RuntimeAccess(ctx context.Context, workspaceID string,
 		if err != nil {
 			return AWSS3RuntimeAccessResult{}, err
 		}
+		fixtureState = ""
 	} else if strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected {
 		observed, static, diagnostics, coverageGaps, failures, remediations, sourceStatus, coverageUnknown =
 			awsS3RuntimeAccessLiveUnavailableInputs(deliverySource)

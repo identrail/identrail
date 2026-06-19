@@ -8969,6 +8969,7 @@ components:
           enum: [ready, degraded, blocked]
         fixture_state:
           type: string
+          description: Present only when the response was generated from an explicit fixture state; omitted for live S3 runtime data.
           enum: [success, empty, degraded, partial_failure, permission_denied]
         confidence:
           type: number
