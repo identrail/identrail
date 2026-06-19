@@ -1443,7 +1443,11 @@ func (s *Service) getAWSRuntimeEventsFromDelivery(ctx context.Context, scope db.
 	// Wrap a fake ingester so we can reuse the existing CloudTrail
 	// envelope builder without duplicating its 80+ lines.
 	stub := &precomputedIngester{result: merged}
-	return buildAWSRuntimeEventsFromCloudTrail(ctx, scope, project, connection, stub, request, now)
+	result, err := buildAWSRuntimeEventsFromCloudTrail(ctx, scope, project, connection, stub, request, now)
+	if err != nil {
+		return result, err
+	}
+	return s.appendAWSRuntimeSignals(ctx, scope, project, connection, result, request, now)
 }
 
 // precomputedIngester satisfies AWSCloudTrailRuntimeEventIngester
