@@ -37,3 +37,8 @@ This chart is the Kubernetes deployment baseline for Identrail.
 - Optional production controls are available through `networkPolicy.enabled`, `podDisruptionBudget.api.enabled`, and `autoscaling.*.enabled`; tune them for the target cluster before enabling.
 - `IDENTRAIL_AUDIT_LOG_FILE` is empty by default. If you enable it, mount a writable path for the container user.
 - `IDENTRAIL_CONNECTOR_SECRET_KEYS` should be set for durable connector credential storage. If omitted, connector secret envelopes use an ephemeral in-memory key suitable only for local/test runs.
+- The API readiness probe defaults to `/readyz` so Kubernetes removes pods
+  from service when runtime dependencies fail. For low-traffic Neon launches
+  where the database should scale to zero, override
+  `api.readinessProbe.httpGet.path=/healthz`; otherwise Kubernetes will poll
+  `/readyz` and keep Postgres active.

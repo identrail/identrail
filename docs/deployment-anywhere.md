@@ -55,6 +55,15 @@ Use this for managed cluster deployment.
    - `kubectl -n identrail patch deployment identrail-worker --type merge -p '{"spec":{"template":{"spec":{"serviceAccountName":"identrail-scanner","automountServiceAccountToken":true}}}}'`
    - `kubectl -n identrail rollout restart deployment/identrail-api deployment/identrail-worker`
 
+For a low-traffic Neon launch, patch API readiness from `/readyz` to `/healthz`
+before relying on the static Kubernetes manifest. The default `/readyz` probe
+checks Postgres every 10 seconds and can keep Neon active:
+
+```bash
+kubectl -n identrail patch deployment identrail-api --type json \
+  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/httpGet/path","value":"/healthz"}]'
+```
+
 ## 3) Kubernetes Helm
 
 Use this for upgrade-safe cluster rollout.
@@ -64,6 +73,20 @@ Use this for upgrade-safe cluster rollout.
 2. Set production images and secrets in `/tmp/identrail-values.yaml`.
 3. Install or upgrade:
    - `helm upgrade --install identrail deploy/helm/identrail -n identrail --create-namespace -f /tmp/identrail-values.yaml`
+
+For a low-traffic Neon launch, set the API readiness probe path to `/healthz`
+in the Helm values file before installing. The default `/readyz` probe checks
+Postgres and can keep Neon active:
+
+```yaml
+api:
+  readinessProbe:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+```
 
 ## 4) Terraform
 

@@ -132,13 +132,20 @@ compute asleep matters more than background job latency:
 3. Use `GET /healthz` for load balancer and uptime monitoring.
 4. Do not point external monitors at `GET /readyz`; it verifies runtime
    dependencies and can wake Postgres.
-5. Set the API pool overrides:
+5. Kubernetes and Helm default API readiness probes still use `/readyz`, which
+   pings Postgres. For this profile, override API readiness to `/healthz` or do
+   not use the default Kubernetes/Helm manifests:
+   - Helm: set `api.readinessProbe.httpGet.path=/healthz` in the values file.
+   - Static manifest: patch `deploy/kubernetes/api-deployment.yaml` so
+     `spec.template.spec.containers[0].readinessProbe.httpGet.path` is
+     `/healthz` before applying it.
+6. Set the API pool overrides:
    - `IDENTRAIL_POSTGRES_MAX_IDLE_CONNS=0`
    - `IDENTRAIL_POSTGRES_CONN_MAX_IDLE_TIME=30s`
-6. In the Neon console, open the project, select the production branch, and
+7. In the Neon console, open the project, select the production branch, and
    check the compute status on the **Computes** tab. After a quiet window, the
    compute should report **Idle** instead of **Active**.
-7. In **Project -> Dashboard** and **Monitoring**, confirm compute/CPU/RAM stop
+8. In **Project -> Dashboard** and **Monitoring**, confirm compute/CPU/RAM stop
    increasing after the idle window. Usage metrics can lag, so use the compute
    status for immediate confirmation and usage charts for delayed confirmation.
 
