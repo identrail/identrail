@@ -23,6 +23,10 @@ Portable deployment profiles:
 ## 1) Pre-Deploy Checklist
 
 - Confirm `IDENTRAIL_DATABASE_URL` points to target environment.
+- For low-traffic Neon or other serverless Postgres launches, confirm the API
+  uses low-idle pool settings:
+  - `IDENTRAIL_POSTGRES_MAX_IDLE_CONNS=0`
+  - `IDENTRAIL_POSTGRES_CONN_MAX_IDLE_TIME=30s`
 - Confirm `IDENTRAIL_ALLOW_MEMORY_STORE=false`; only disposable local runs should opt into in-memory persistence.
 - Confirm production collectors use live sources:
   - `IDENTRAIL_REQUIRE_LIVE_SOURCES=true`
@@ -117,6 +121,36 @@ Portable deployment profiles:
    - trigger `POST /v1/repo-scans`
    - verify `GET /v1/repo-scans`
    - verify `GET /v1/repo-findings?repo_scan_id=<id>`
+
+### Low-Traffic Neon Launch
+
+Use this profile while the app has little or no user activity and keeping Neon
+compute asleep matters more than background job latency:
+
+1. Run migrations once.
+2. Deploy API and web only; leave the worker service stopped.
+3. Use `GET /healthz` for load balancer and uptime monitoring.
+4. Do not point external monitors at `GET /readyz`; it verifies runtime
+   dependencies and can wake Postgres.
+5. Kubernetes and Helm default API readiness probes still use `/readyz`, which
+   pings Postgres. For this profile, override API readiness to `/healthz` or do
+   not use the default Kubernetes/Helm manifests:
+   - Helm: set `api.readinessProbe.httpGet.path=/healthz` in the values file.
+   - Static manifest: patch `deploy/kubernetes/api-deployment.yaml` so
+     `spec.template.spec.containers[0].readinessProbe.httpGet.path` is
+     `/healthz` before applying it.
+6. Set the API pool overrides:
+   - `IDENTRAIL_POSTGRES_MAX_IDLE_CONNS=0`
+   - `IDENTRAIL_POSTGRES_CONN_MAX_IDLE_TIME=30s`
+7. In the Neon console, open the project, select the production branch, and
+   check the compute status on the **Computes** tab. After a quiet window, the
+   compute should report **Idle** instead of **Active**.
+8. In **Project -> Dashboard** and **Monitoring**, confirm compute/CPU/RAM stop
+   increasing after the idle window. Usage metrics can lag, so use the compute
+   status for immediate confirmation and usage charts for delayed confirmation.
+
+When users begin triggering scans, scheduled policies, repo scans, or export
+cleanup, start the worker and restore the needed worker loops.
 
 ### AWS API Hosting Notes
 

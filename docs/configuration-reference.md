@@ -2,7 +2,7 @@
 
 This page is the canonical runtime configuration surface for API and worker processes.
 
-Boolean values must parse as Go booleans (`true`, `false`, `1`, `0`, `t`, `f`) and duration values must be positive Go durations such as `5s`, `15m`, or `1h`. Invalid boolean or duration values are startup errors.
+Boolean values must parse as Go booleans (`true`, `false`, `1`, `0`, `t`, `f`) and duration values must be positive Go durations such as `5s`, `15m`, or `1h` unless a variable explicitly allows `0`. Invalid boolean or duration values are startup errors.
 
 ## Core Runtime
 
@@ -11,6 +11,10 @@ Boolean values must parse as Go booleans (`true`, `false`, `1`, `0`, `t`, `f`) a
 - `IDENTRAIL_HTTP_ADDR` (default: `:8080`)
 - `IDENTRAIL_PROVIDER` (`aws|kubernetes`)
 - `IDENTRAIL_DATABASE_URL` (required for API and worker persistence)
+- `IDENTRAIL_POSTGRES_MAX_OPEN_CONNS` (default: `20`; must be `>= 1`)
+- `IDENTRAIL_POSTGRES_MAX_IDLE_CONNS` (default: `5`; set `0` for low-traffic serverless Postgres deployments that should not retain idle connections)
+- `IDENTRAIL_POSTGRES_CONN_MAX_LIFETIME` (default: `30m`; set `0` to disable connection max lifetime recycling)
+- `IDENTRAIL_POSTGRES_CONN_MAX_IDLE_TIME` (default: `5m`; set a shorter value such as `30s` for low-traffic Neon-style scale-to-zero deployments)
 - `IDENTRAIL_ALLOW_MEMORY_STORE` (default: `false`; set `true` only for local tests or disposable demos without persisted state)
 - `IDENTRAIL_RUN_MIGRATIONS` (default: `true`)
 - `IDENTRAIL_RUN_MIGRATIONS_ONLY` (default: `false`)
@@ -93,6 +97,20 @@ Production deployment templates set `IDENTRAIL_REQUIRE_LIVE_SOURCES=true` with `
 - `IDENTRAIL_REPO_SCAN_QUEUE_MAX_PENDING`
 - `IDENTRAIL_LOCK_BACKEND` (`auto|inmemory|postgres`)
 - `IDENTRAIL_LOCK_NAMESPACE`
+
+For quiet launch periods on a serverless Postgres provider such as Neon, do not
+run the worker until asynchronous scans, scheduled scan policies, or export
+garbage collection are needed. If the worker must be started for diagnostics,
+disable its polling loops with:
+
+- `IDENTRAIL_WORKER_RUN_NOW=false`
+- `IDENTRAIL_WORKER_SCAN_ENABLED=false`
+- `IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED=false`
+- `IDENTRAIL_WORKER_SCAN_POLICY_SCHEDULER_ENABLED=false`
+- `IDENTRAIL_WORKER_USER_EXPORT_GC_ENABLED=false`
+- `IDENTRAIL_WORKER_REPO_SCAN_ENABLED=false`
+- `IDENTRAIL_WORKER_USER_PURGE_ENABLED=false`
+- `IDENTRAIL_WORKER_WORKSPACE_PURGE_ENABLED=false`
 
 ## User Data Export
 
