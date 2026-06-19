@@ -194,7 +194,8 @@ func TestGetAWSSecretsKMSRuntimeAccessLiveRoutesDataEventsThroughDelivery(t *tes
 	// secret-read / kms-decrypt are CloudTrail data events, so the live
 	// correlation must drive the delivery channels (not LookupEvents).
 	// This wires only the delivery factory and asserts the observed data
-	// event flows through it and confirms against a real static grant.
+	// event flows through it while static grants are intentionally suppressed
+	// in live mode to prevent fixture-collection bleed-through.
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()
 	now := time.Date(2026, 6, 19, 19, 0, 0, 0, time.UTC)
@@ -205,8 +206,8 @@ func TestGetAWSSecretsKMSRuntimeAccessLiveRoutesDataEventsThroughDelivery(t *tes
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.Now = func() time.Time { return now }
 
-	// Discover a real static KMS decrypt grant from the reachability
-	// inventory so the observed event has something to confirm against.
+	// Discover fixtures from the static reachability inventory so we can still
+	// anchor to a realistic resource identifier.
 	kms, err := svc.GetAWSKMSDecryptReachabilityInventory(ctx, "default", "project-corr-live", AWSKMSDecryptReachabilityInventoryRequest{ConnectorID: "aws-prod"})
 	if err != nil {
 		t.Fatalf("kms inventory: %v", err)
@@ -244,19 +245,19 @@ func TestGetAWSSecretsKMSRuntimeAccessLiveRoutesDataEventsThroughDelivery(t *tes
 	if fake.calls == 0 {
 		t.Fatalf("delivery factory was never used — data events were not routed through the delivery channel")
 	}
-	var confirmed *AWSSecretsKMSRuntimeAccessRecord
+	var observedWithoutGrant *AWSSecretsKMSRuntimeAccessRecord
 	for i := range result.Records {
 		record := &result.Records[i]
-		if record.ResourceARN == keyARN && record.Status == secretsaccess.StatusConfirmed {
-			confirmed = record
+		if record.ResourceARN == keyARN && record.Status == secretsaccess.StatusObservedWithoutGrant {
+			observedWithoutGrant = record
 			break
 		}
 	}
-	if confirmed == nil {
-		t.Fatalf("expected a confirmed correlation for the observed decrypt on %s, got %+v", keyARN, result.Records)
+	if observedWithoutGrant == nil {
+		t.Fatalf("expected an observed_without_grant correlation for the observed decrypt on %s, got %+v", keyARN, result.Records)
 	}
-	if confirmed.ObservedCount == 0 || len(confirmed.StaticSources) == 0 {
-		t.Fatalf("confirmed correlation must carry both observed and static evidence: %+v", confirmed)
+	if observedWithoutGrant.ObservedCount == 0 || len(observedWithoutGrant.StaticSources) != 0 {
+		t.Fatalf("observed-only correlation must carry observed evidence but no synthetic static grants: %+v", observedWithoutGrant)
 	}
 }
 

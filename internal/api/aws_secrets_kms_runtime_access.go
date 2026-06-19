@@ -12,6 +12,7 @@ import (
 const (
 	awsSecretsKMSRuntimeAccessCurrentIssue = 1518
 	awsSecretsKMSRuntimeAccessVersion      = "aws-secrets-kms-runtime-access-correlation-v1"
+	awsRuntimeCorrelationLiveNoStaticState = "empty"
 )
 
 // AWSSecretsKMSRuntimeAccessRequest is the operator-facing request. It
@@ -310,11 +311,21 @@ func (s *Service) awsSecretsKMSRuntimeAccessLiveInputs(ctx context.Context, work
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, "", false, fmt.Errorf("correlate runtime events: %w", err)
 	}
-	kms, err := s.GetAWSKMSDecryptReachabilityInventory(ctx, workspaceID, projectID, AWSKMSDecryptReachabilityInventoryRequest{ConnectorID: connectorID})
+	// In live correlation mode, avoid joining runtime events to fixture-backed
+	// static grants. The inventory readers are fixture-shaped today; forcing
+	// an empty static state keeps the observed events but suppresses synthetic
+	// grants that could create false granted_unused / observed_without_grant results.
+	kms, err := s.GetAWSKMSDecryptReachabilityInventory(ctx, workspaceID, projectID, AWSKMSDecryptReachabilityInventoryRequest{
+		ConnectorID:  connectorID,
+		FixtureState: awsRuntimeCorrelationLiveNoStaticState,
+	})
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, "", false, fmt.Errorf("correlate kms reachability: %w", err)
 	}
-	secrets, err := s.GetAWSSecretsManagerMetadataInventory(ctx, workspaceID, projectID, AWSSecretsManagerMetadataInventoryRequest{ConnectorID: connectorID})
+	secrets, err := s.GetAWSSecretsManagerMetadataInventory(ctx, workspaceID, projectID, AWSSecretsManagerMetadataInventoryRequest{
+		ConnectorID:  connectorID,
+		FixtureState: awsRuntimeCorrelationLiveNoStaticState,
+	})
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, "", false, fmt.Errorf("correlate secrets metadata: %w", err)
 	}
@@ -342,8 +353,8 @@ func (s *Service) awsSecretsKMSRuntimeAccessLiveInputs(ctx context.Context, work
 	}
 
 	// A blocked runtime source means we cannot assert any observed
-	// access, so the worst-of source status drives the envelope.
-	sourceStatus := worstAWSStatus(runtime.Status, worstAWSStatus(kms.Status, secrets.Status))
+	// access, so the runtime status drives the envelope.
+	sourceStatus := runtime.Status
 	// Runtime evidence is sourced from CloudTrail; Secrets Manager
 	// GetSecretValue and KMS Decrypt are data events, so coverage is
 	// never guaranteed complete from a management-event lookup.
