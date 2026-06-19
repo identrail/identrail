@@ -265,6 +265,23 @@ func TestIngesterReportsPermissionDeniedCoverage(t *testing.T) {
 	}
 }
 
+func TestIngesterBlocksWhenIAMAndAnalyzerFindingsAreDenied(t *testing.T) {
+	result, err := New(fakeIAMAPI{listRolesErr: errors.New("AccessDenied: not authorized")}, fakeAccessAnalyzerAPI{listFindingsErr: errors.New("AccessDeniedException")}).Ingest(context.Background(), IngestRequest{
+		AccountID:   "123456789012",
+		Region:      "us-east-1",
+		CollectedAt: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("ingest denied findings signals: %v", err)
+	}
+	if result.Status != "blocked" || len(result.Signals) != 0 {
+		t.Fatalf("expected blocked result when both sources are permission denied, got %+v", result)
+	}
+	if !hasCoverageGap(result.CoverageGaps, "iam_last_used", "permission_denied") || !hasCoverageGap(result.CoverageGaps, "access_analyzer", "permission_denied") {
+		t.Fatalf("expected IAM and Access Analyzer permission coverage gaps, got %+v", result.CoverageGaps)
+	}
+}
+
 func TestIngesterDoesNotBlockWhenOnlyOneCollectorIsDenied(t *testing.T) {
 	result, err := New(fakeIAMAPI{emptyRoles: true}, fakeAccessAnalyzerAPI{listAnalyzersErr: errors.New("AccessDeniedException")}).Ingest(context.Background(), IngestRequest{
 		AccountID:   "123456789012",

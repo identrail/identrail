@@ -476,6 +476,12 @@ func (i *Ingester) collectAccessAnalyzer(ctx context.Context, request IngestRequ
 		})
 		if findErr != nil {
 			diagnostics = append(diagnostics, permissionAwareDiagnostic("access-analyzer:"+analyzerName, "access_analyzer_permission_denied", "access_analyzer_findings_failed", fmt.Sprintf("Access Analyzer findings could not be listed for %s: %v", analyzerName, findErr), "Grant access-analyzer:ListFindings and retry.", findErr))
+			gaps = append(gaps, CoverageGap{
+				Capability:  "access_analyzer",
+				Status:      permissionAwareStatus(findErr),
+				Reason:      fmt.Sprintf("Access Analyzer findings could not be listed for %s.", analyzerName),
+				Remediation: "Grant access-analyzer:ListFindings for every analyzer used by runtime evidence collection.",
+			})
 			continue
 		}
 		for findingIdx, finding := range findings.Findings {
