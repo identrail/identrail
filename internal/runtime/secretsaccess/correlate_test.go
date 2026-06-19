@@ -606,6 +606,7 @@ func TestCorrelateStaticAllowPlusDenyWithoutAccessIsNotGrantedUnused(t *testing.
 				ResourceARN:    keyARN,
 				Source:         SourceKeyPolicy,
 				Effect:         "Allow",
+				Actions:        []string{"kms:Decrypt"},
 			},
 			{
 				IdentityNodeID: identity,
@@ -613,6 +614,7 @@ func TestCorrelateStaticAllowPlusDenyWithoutAccessIsNotGrantedUnused(t *testing.
 				ResourceARN:    keyARN,
 				Source:         SourceKeyPolicy,
 				Effect:         "Deny",
+				Actions:        []string{"kms:Decrypt"},
 			},
 		},
 	})
@@ -625,6 +627,129 @@ func TestCorrelateStaticAllowPlusDenyWithoutAccessIsNotGrantedUnused(t *testing.
 	}
 	if result.StaticGrantsConsidered != 2 {
 		t.Fatalf("expected both static grants to remain considered, got %+v", result)
+	}
+}
+
+func TestCorrelateStaticAllowPlusDifferentActionDenyRemainsGrantedUnused(t *testing.T) {
+	keyARN := "arn:aws:kms:us-east-1:111122223333:key/static-allow-deny-different-action"
+	identity := "aws:identity:role:decrypt-unused"
+	result := Correlate(CorrelateRequest{
+		Static: []StaticGrant{
+			{
+				IdentityNodeID: identity,
+				ResourceKind:   ResourceKindKMSKey,
+				ResourceARN:    keyARN,
+				Source:         SourceKeyPolicy,
+				Effect:         "Allow",
+				Actions:        []string{"kms:Decrypt"},
+			},
+			{
+				IdentityNodeID: identity,
+				ResourceKind:   ResourceKindKMSKey,
+				ResourceARN:    keyARN,
+				Source:         SourceKeyPolicy,
+				Effect:         "Deny",
+				Actions:        []string{"kms:GenerateDataKey"},
+			},
+		},
+	})
+
+	correlation := findCorrelation(t, result, keyARN)
+	if correlation.Status != StatusGrantedUnused {
+		t.Fatalf("expected decrypt allow to remain granted_unused when deny targets another action, got %q", correlation.Status)
+	}
+	if correlation.StaticEffect != "Allow" {
+		t.Fatalf("expected allow effect for usable unused grant, got %q", correlation.StaticEffect)
+	}
+	if result.GrantedUnusedCount != 1 {
+		t.Fatalf("expected one granted_unused correlation, got %+v", result)
+	}
+}
+
+func TestCorrelateStaticWildcardAllowWithSpecificDenyRemainsGrantedUnused(t *testing.T) {
+	keyARN := "arn:aws:kms:us-east-1:111122223333:key/static-wildcard-allow-specific-deny"
+	identity := "aws:identity:role:broad-unused"
+	result := Correlate(CorrelateRequest{
+		Static: []StaticGrant{
+			{
+				IdentityNodeID: identity,
+				ResourceKind:   ResourceKindKMSKey,
+				ResourceARN:    keyARN,
+				Source:         SourceKeyPolicy,
+				Effect:         "Allow",
+				Actions:        []string{"kms:*"},
+			},
+			{
+				IdentityNodeID: identity,
+				ResourceKind:   ResourceKindKMSKey,
+				ResourceARN:    keyARN,
+				Source:         SourceKeyPolicy,
+				Effect:         "Deny",
+				Actions:        []string{"kms:GenerateDataKey"},
+			},
+		},
+	})
+
+	correlation := findCorrelation(t, result, keyARN)
+	if correlation.Status != StatusGrantedUnused {
+		t.Fatalf("expected broad allow to remain granted_unused when deny covers only one action, got %q", correlation.Status)
+	}
+}
+
+func TestCorrelateStaticAllowCoveredByWildcardDenyIsSuppressed(t *testing.T) {
+	keyARN := "arn:aws:kms:us-east-1:111122223333:key/static-allow-wildcard-deny"
+	identity := "aws:identity:role:blocked-decrypt"
+	result := Correlate(CorrelateRequest{
+		Static: []StaticGrant{
+			{
+				IdentityNodeID: identity,
+				ResourceKind:   ResourceKindKMSKey,
+				ResourceARN:    keyARN,
+				Source:         SourceKeyPolicy,
+				Effect:         "Allow",
+				Actions:        []string{"kms:Decrypt"},
+			},
+			{
+				IdentityNodeID: identity,
+				ResourceKind:   ResourceKindKMSKey,
+				ResourceARN:    keyARN,
+				Source:         SourceKeyPolicy,
+				Effect:         "Deny",
+				Actions:        []string{"kms:*"},
+			},
+		},
+	})
+
+	if len(result.Correlations) != 0 || result.GrantedUnusedCount != 0 {
+		t.Fatalf("allow covered by wildcard deny should be suppressed, got %+v", result)
+	}
+}
+
+func TestCorrelateObservedActionMatchesAWSWildcardPattern(t *testing.T) {
+	secretARN := "arn:aws:secretsmanager:us-east-1:111122223333:secret:api-key-wildcard"
+	identity := "aws:identity:role:secret-pattern-match"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{{
+			EventID:        "evt-secret-pattern-match",
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindSecret,
+			ResourceARN:    secretARN,
+			Action:         "secretsmanager:GetSecretValue",
+			ObservedAt:     observedAt(1),
+		}},
+		Static: []StaticGrant{{
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindSecret,
+			ResourceARN:    secretARN,
+			Source:         SourceResourcePolicy,
+			Effect:         "Allow",
+			Actions:        []string{"*:GetSecretValu?"},
+		}},
+	})
+
+	correlation := findCorrelation(t, result, secretARN)
+	if correlation.Status != StatusConfirmed {
+		t.Fatalf("expected observed action to match AWS wildcard pattern, got %q", correlation.Status)
 	}
 }
 

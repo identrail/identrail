@@ -565,12 +565,10 @@ func staticGrantsFromSecretsRecords(records []AWSSecretsManagerMetadataRecord) [
 }
 
 // secretsActionsIncludeRead reports whether a resource-policy statement's
-// actions authorize reading the secret value. It matches the exact read
-// actions, the `*` / `secretsmanager:*` wildcards, and prefix wildcards
-// such as `secretsmanager:Get*` or `secretsmanager:BatchGet*` that the
-// collector preserves verbatim — otherwise a resource policy that really
-// allows the read via a wildcard would be dropped, mislabeling observed
-// reads as observed_without_grant and hiding unused grants.
+// actions authorize reading the secret value. AWS action patterns support
+// `*` and `?` anywhere in the action token, so match the policy action
+// pattern against each concrete secret-value read API before deciding
+// whether to preserve the static grant for correlation.
 func secretsActionsIncludeRead(actions []string) bool {
 	readActions := []string{"secretsmanager:getsecretvalue", "secretsmanager:batchgetsecretvalue"}
 	for _, action := range actions {
@@ -578,25 +576,43 @@ func secretsActionsIncludeRead(actions []string) bool {
 		if trimmed == "" {
 			continue
 		}
-		if trimmed == "*" {
-			return true
-		}
-		if strings.HasSuffix(trimmed, "*") {
-			prefix := strings.TrimSuffix(trimmed, "*")
-			for _, read := range readActions {
-				if strings.HasPrefix(read, prefix) {
-					return true
-				}
-			}
-			continue
-		}
 		for _, read := range readActions {
-			if trimmed == read {
+			if awsActionPatternMatches(trimmed, read) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func awsActionPatternMatches(pattern string, value string) bool {
+	pattern = strings.ToLower(strings.TrimSpace(pattern))
+	value = strings.ToLower(strings.TrimSpace(value))
+	if pattern == "" || value == "" {
+		return false
+	}
+	previous := make([]bool, len(value)+1)
+	previous[0] = true
+	for _, r := range pattern {
+		current := make([]bool, len(value)+1)
+		switch r {
+		case '*':
+			current[0] = previous[0]
+			for i := 1; i <= len(value); i++ {
+				current[i] = previous[i] || current[i-1]
+			}
+		case '?':
+			for i := 1; i <= len(value); i++ {
+				current[i] = previous[i-1]
+			}
+		default:
+			for i := 1; i <= len(value); i++ {
+				current[i] = previous[i-1] && rune(value[i-1]) == r
+			}
+		}
+		previous = current
+	}
+	return previous[len(value)]
 }
 
 func awsSecretsKMSRuntimeAccessRecords(correlations []secretsaccess.Correlation) []AWSSecretsKMSRuntimeAccessRecord {

@@ -357,7 +357,7 @@ func Correlate(request CorrelateRequest) Result {
 		if len(agg.observed) == 0 && len(agg.allow) == 0 {
 			continue
 		}
-		if len(agg.observed) == 0 && len(agg.deny) > 0 {
+		if len(agg.observed) == 0 && len(agg.deny) > 0 && !staticOnlyAllowHasUndeniedAction(agg) {
 			continue
 		}
 		correlation := buildCorrelation(agg, request.DataEventCoverageUnknown)
@@ -646,6 +646,74 @@ func observedResourceActionDenyAppliesToObserved(agg *correlationAgg) bool {
 	return false
 }
 
+func staticOnlyAllowHasUndeniedAction(agg *correlationAgg) bool {
+	if len(agg.allow) == 0 {
+		return false
+	}
+	if len(agg.deny) == 0 {
+		return true
+	}
+	if !resourceKindRequiresActionMatching(strings.TrimSpace(agg.resourceKind)) {
+		return false
+	}
+	for _, allow := range agg.allow {
+		if len(allow.Actions) == 0 {
+			if !staticGrantHasUnconditionalDeny(agg.deny) {
+				return true
+			}
+			continue
+		}
+		for _, allowedAction := range allow.Actions {
+			if !staticAllowedActionCoveredByDeny(allowedAction, agg.deny) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func staticGrantHasUnconditionalDeny(denies []StaticGrant) bool {
+	for _, deny := range denies {
+		if len(deny.Actions) == 0 {
+			return true
+		}
+		for _, deniedAction := range deny.Actions {
+			if strings.TrimSpace(deniedAction) == "*" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func staticAllowedActionCoveredByDeny(allowedAction string, denies []StaticGrant) bool {
+	allowed := strings.ToLower(strings.TrimSpace(allowedAction))
+	if allowed == "" {
+		return true
+	}
+	for _, deny := range denies {
+		if len(deny.Actions) == 0 {
+			return true
+		}
+		for _, deniedAction := range deny.Actions {
+			denied := strings.ToLower(strings.TrimSpace(deniedAction))
+			if denied == "" {
+				continue
+			}
+			if denied == "*" || denied == allowed {
+				return true
+			}
+			if !strings.ContainsAny(allowed, "*?") && staticGrantActionAuthorizesObservedAction(allowed, denied) {
+				return true
+			}
+			if strings.ContainsAny(allowed, "*?") && denied == allowed {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func resourceKindRequiresActionMatching(resourceKind string) bool {
 	return strings.EqualFold(strings.TrimSpace(resourceKind), ResourceKindKMSKey) ||
 		strings.EqualFold(strings.TrimSpace(resourceKind), ResourceKindSecret)
@@ -660,9 +728,8 @@ func staticGrantActionAuthorizesObservedAction(observedAction string, allowedAct
 	if allowed == "*" {
 		return true
 	}
-	if strings.HasSuffix(allowed, "*") {
-		prefix := strings.TrimSuffix(allowed, "*")
-		return strings.HasPrefix(observed, prefix)
+	if strings.ContainsAny(allowed, "*?") {
+		return actionPatternMatches(allowed, observed)
 	}
 	if observed == allowed {
 		return true
@@ -677,6 +744,36 @@ func staticGrantActionAuthorizesObservedAction(observedAction string, allowedAct
 		allowedVerb = suffix
 	}
 	return strings.EqualFold(observedVerb, allowedVerb)
+}
+
+func actionPatternMatches(pattern string, value string) bool {
+	pattern = strings.ToLower(strings.TrimSpace(pattern))
+	value = strings.ToLower(strings.TrimSpace(value))
+	if pattern == "" || value == "" {
+		return false
+	}
+	previous := make([]bool, len(value)+1)
+	previous[0] = true
+	for _, r := range pattern {
+		current := make([]bool, len(value)+1)
+		switch r {
+		case '*':
+			current[0] = previous[0]
+			for i := 1; i <= len(value); i++ {
+				current[i] = previous[i] || current[i-1]
+			}
+		case '?':
+			for i := 1; i <= len(value); i++ {
+				current[i] = previous[i-1]
+			}
+		default:
+			for i := 1; i <= len(value); i++ {
+				current[i] = previous[i-1] && rune(value[i-1]) == r
+			}
+		}
+		previous = current
+	}
+	return previous[len(value)]
 }
 
 func correlationID(agg *correlationAgg) string {

@@ -461,6 +461,9 @@ func TestStaticGrantsFromSecretsRecognizesWildcardReadActions(t *testing.T) {
 		IdentityGrants: []AWSSecretsManagerIdentityGrant{
 			{PrincipalARN: "arn:aws:iam::111122223333:role/get-star", Effect: "Allow", Actions: []string{"secretsmanager:Get*"}},
 			{PrincipalARN: "arn:aws:iam::111122223333:role/batch-star", Effect: "Allow", Actions: []string{"secretsmanager:BatchGet*"}},
+			{PrincipalARN: "arn:aws:iam::111122223333:role/suffix-star", Effect: "Allow", Actions: []string{"secretsmanager:*SecretValue"}},
+			{PrincipalARN: "arn:aws:iam::111122223333:role/question", Effect: "Allow", Actions: []string{"secretsmanager:GetSecretValu?"}},
+			{PrincipalARN: "arn:aws:iam::111122223333:role/service-star", Effect: "Allow", Actions: []string{"*:GetSecretValue"}},
 			{PrincipalARN: "arn:aws:iam::111122223333:role/describe-star", Effect: "Allow", Actions: []string{"secretsmanager:Describe*"}},
 		},
 	}}
@@ -469,8 +472,16 @@ func TestStaticGrantsFromSecretsRecognizesWildcardReadActions(t *testing.T) {
 	for _, grant := range grants {
 		got[grant.PrincipalARN] = true
 	}
-	if !got["arn:aws:iam::111122223333:role/get-star"] || !got["arn:aws:iam::111122223333:role/batch-star"] {
-		t.Fatalf("expected Get*/BatchGet* wildcard read grants to be recognized, got %+v", grants)
+	for _, principal := range []string{
+		"arn:aws:iam::111122223333:role/get-star",
+		"arn:aws:iam::111122223333:role/batch-star",
+		"arn:aws:iam::111122223333:role/suffix-star",
+		"arn:aws:iam::111122223333:role/question",
+		"arn:aws:iam::111122223333:role/service-star",
+	} {
+		if !got[principal] {
+			t.Fatalf("expected AWS wildcard read grant %s to be recognized, got %+v", principal, grants)
+		}
 	}
 	if got["arn:aws:iam::111122223333:role/describe-star"] {
 		t.Fatalf("Describe* does not authorize secret-value reads and must be dropped: %+v", grants)
