@@ -559,6 +559,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/s3-runtime-access
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/iam-passrole-relationships
     action: tenancy.read
     resource_type: project
@@ -4699,6 +4704,98 @@ paths:
                     $ref: "#/components/schemas/AWSSecretsKMSRuntimeAccessResult"
         "400":
           description: Invalid AWS secrets/kms runtime access request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/s3-runtime-access:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS S3 runtime data access correlation
+      operationId: getAWSProjectS3RuntimeAccess
+      description: Correlates observed, metadata-only S3 read/write/list runtime events with the static reachability edges Identrail discovered (S3 bucket-policy grants) and each bucket's exposure / sensitivity classification. Each (identity, bucket) correlation is classified confirmed, observed_without_grant, or granted_unused with a correlation confidence, observed access modes, and explicit caveats. Object keys and object contents are never read or returned; access is correlated at bucket granularity with bounded, sanitized safe prefixes only.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope the account, region, and read-only runtime evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: delivery_source
+          schema:
+            type: string
+            enum: [lookup_events, s3, eventbridge, all]
+          description: Optional CloudTrail delivery channel for the observed S3 data events. Defaults to `all` because these are CloudTrail data events that the LookupEvents API does not index.
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: identity
+          schema: { type: string }
+          description: Optional actor principal or identity-node search.
+        - in: query
+          name: agent_id
+          schema: { type: string }
+          description: Optional agent ID or agent-node search.
+        - in: query
+          name: resource
+          schema: { type: string }
+          description: Optional bucket ARN, name, or resource-node search.
+        - in: query
+          name: access_mode
+          schema:
+            type: string
+            enum: [read, write, list]
+        - in: query
+          name: sensitivity
+          schema: { type: string }
+          description: Optional bucket sensitivity tier filter (e.g. standard, elevated, high).
+        - in: query
+          name: exposure
+          schema: { type: string }
+          description: Optional bucket exposure filter (e.g. private, restricted, cross_account, public).
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [confirmed, observed_without_grant, granted_unused]
+      responses:
+        "200":
+          description: AWS S3 runtime access correlation contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  correlation:
+                    $ref: "#/components/schemas/AWSS3RuntimeAccessResult"
+        "400":
+          description: Invalid AWS s3 runtime access request
           content:
             application/json:
               schema:
@@ -11184,6 +11281,179 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSSecretsKMSRuntimeAccessDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSS3RuntimeAccessRecord:
+      type: object
+      properties:
+        correlation_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        identity_node_id: { type: string }
+        principal_arn: { type: string }
+        bucket_arn: { type: string }
+        bucket_name: { type: string }
+        resource_node_id: { type: string }
+        status:
+          type: string
+          enum: [confirmed, observed_without_grant, granted_unused]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        observed_count: { type: integer }
+        observed_event_ids:
+          type: array
+          items: { type: string }
+        observed_modes:
+          type: array
+          items:
+            type: string
+            enum: [read, write, list]
+        granted_modes:
+          type: array
+          items:
+            type: string
+            enum: [read, write, list]
+        safe_prefixes:
+          type: array
+          items: { type: string }
+        actions:
+          type: array
+          items: { type: string }
+        session_ids:
+          type: array
+          items: { type: string }
+        agent_id: { type: string }
+        agent_node_id: { type: string }
+        first_observed_at:
+          type: string
+          format: date-time
+        last_observed_at:
+          type: string
+          format: date-time
+        static_sources:
+          type: array
+          items: { type: string }
+        static_effect: { type: string }
+        exposure: { type: string }
+        sensitivity: { type: string }
+        conditional: { type: boolean }
+        cross_account: { type: boolean }
+        caveats:
+          type: array
+          items: { type: string }
+        evidence_ref: { type: string }
+        evidence_refs:
+          type: array
+          items: { type: string }
+        next_action: { type: string }
+        redaction_boundary: { type: string }
+    AWSS3RuntimeAccessRelationship:
+      type: object
+      properties:
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSS3RuntimeAccessDiagnostic:
+      type: object
+      properties:
+        collector: { type: string }
+        source_id: { type: string }
+        code: { type: string }
+        message: { type: string }
+        remediation: { type: string }
+        retryable: { type: boolean }
+    AWSS3RuntimeAccessCoverageGap:
+      type: object
+      properties:
+        capability: { type: string }
+        status: { type: string }
+        reason: { type: string }
+        remediation: { type: string }
+    AWSS3RuntimeAccessSummary:
+      type: object
+      properties:
+        total_correlations: { type: integer }
+        filtered_correlations: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        confirmed_count: { type: integer }
+        observed_without_grant_count: { type: integer }
+        granted_unused_count: { type: integer }
+        read_count: { type: integer }
+        write_count: { type: integer }
+        list_count: { type: integer }
+        sensitive_exposed_count: { type: integer }
+        mode_exceeds_grant_count: { type: integer }
+        identity_count: { type: integer }
+        bucket_count: { type: integer }
+        observed_access_count: { type: integer }
+        static_grant_count: { type: integer }
+        relationship_count: { type: integer }
+    AWSS3RuntimeAccessResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSS3RuntimeAccessSummary"
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSS3RuntimeAccessRecord"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSS3RuntimeAccessRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSS3RuntimeAccessCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSS3RuntimeAccessDiagnostic"
         generated_at:
           type: string
           format: date-time

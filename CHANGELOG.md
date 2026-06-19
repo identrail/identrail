@@ -1,6 +1,28 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS S3 runtime data access correlation** (#1519). Adds a
+  metadata-only correlation engine (`internal/runtime/s3access`) that
+  joins observed S3 read/write/list runtime events with the static
+  reachability edges Identrail discovered (S3 bucket-policy grants) and
+  each bucket's exposure / sensitivity classification. Each `(identity,
+  bucket)` pair is classified `confirmed`, `observed_without_grant`, or
+  `granted_unused`, with observed access modes, a correlation
+  confidence, and caveats — including `observed_mode_exceeds_grant`
+  (e.g. an observed write where only read is granted) and
+  `sensitive_bucket_publicly_or_cross_account_exposed`. Object keys and
+  object contents are never read: access is correlated at bucket
+  granularity and object keys are redacted into bounded, sanitized safe
+  prefixes. The new endpoint
+  `GET /v1/workspaces/{ws}/projects/{p}/aws/s3-runtime-access` exposes a
+  queryable correlation timeline filterable by identity, agent, bucket,
+  access mode, sensitivity, exposure, account, region, and correlation
+  status, with `ready`/`degraded`/`blocked` states, coverage gaps,
+  diagnostics, and graph relationships. Defaults the runtime source to
+  the CloudTrail delivery channels (`all`) because S3 data events are
+  not indexed by LookupEvents. Adds no new AWS permissions. Surfaced in
+  the AWS runtime app surface. Closes #1519. See
+  [docs/aws-s3-runtime-access.md](docs/aws-s3-runtime-access.md).
 - Add **AWS Secrets Manager read / KMS decrypt runtime access
   correlation** (#1518). Adds a metadata-only correlation engine
   (`internal/runtime/secretsaccess`) that joins observed `secret-read`

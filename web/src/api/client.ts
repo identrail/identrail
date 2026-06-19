@@ -2422,6 +2422,146 @@ export type AWSSecretsKMSRuntimeAccessQuery = {
   status?: string;
 };
 
+// AWSS3RuntimeAccess* types describe the S3 read/write/list runtime data
+// access correlation: observed S3 runtime events joined with the static
+// reachability edges Identrail discovered and the bucket's exposure /
+// sensitivity classification, classified per (identity, bucket) pair.
+// Object keys and contents are never present — only bucket ARNs and
+// bounded, sanitized safe prefixes.
+export type AWSS3RuntimeAccessStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSS3RuntimeAccessFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+export type AWSS3RuntimeAccessCorrelationStatus =
+  | 'confirmed'
+  | 'observed_without_grant'
+  | 'granted_unused';
+export type AWSS3RuntimeAccessMode = 'read' | 'write' | 'list';
+
+export type AWSS3RuntimeAccessRecord = {
+  correlation_id: string;
+  account_id: string;
+  region: string;
+  identity_node_id: string;
+  principal_arn?: string;
+  bucket_arn: string;
+  bucket_name?: string;
+  resource_node_id: string;
+  status: AWSS3RuntimeAccessCorrelationStatus | string;
+  confidence: number;
+  observed_count: number;
+  observed_event_ids?: string[];
+  observed_modes?: string[];
+  granted_modes?: string[];
+  safe_prefixes?: string[];
+  actions?: string[];
+  session_ids?: string[];
+  agent_id?: string;
+  agent_node_id?: string;
+  first_observed_at?: string;
+  last_observed_at?: string;
+  static_sources?: string[];
+  static_effect?: string;
+  exposure?: string;
+  sensitivity?: string;
+  conditional?: boolean;
+  cross_account?: boolean;
+  caveats?: string[];
+  evidence_ref: string;
+  evidence_refs?: string[];
+  next_action: string;
+  redaction_boundary: string;
+};
+
+export type AWSS3RuntimeAccessRelationship = {
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSS3RuntimeAccessDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSS3RuntimeAccessCoverageGap = {
+  capability: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSS3RuntimeAccessSummary = {
+  total_correlations: number;
+  filtered_correlations: number;
+  status_counts: Record<string, number>;
+  confirmed_count: number;
+  observed_without_grant_count: number;
+  granted_unused_count: number;
+  read_count: number;
+  write_count: number;
+  list_count: number;
+  sensitive_exposed_count: number;
+  mode_exceeds_grant_count: number;
+  identity_count: number;
+  bucket_count: number;
+  observed_access_count: number;
+  static_grant_count: number;
+  relationship_count: number;
+};
+
+export type AWSS3RuntimeAccessResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSS3RuntimeAccessStatus;
+  fixture_state: AWSS3RuntimeAccessFixtureState;
+  confidence: number;
+  applied_filters: Record<string, string>;
+  summary: AWSS3RuntimeAccessSummary;
+  records: AWSS3RuntimeAccessRecord[];
+  relationships: AWSS3RuntimeAccessRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSS3RuntimeAccessCoverageGap[];
+  diagnostics: AWSS3RuntimeAccessDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSS3RuntimeAccessQuery = {
+  connectorID?: string;
+  fixtureState?: AWSS3RuntimeAccessFixtureState;
+  deliverySource?: AWSRuntimeEventDeliverySource;
+  accountID?: string;
+  region?: string;
+  identity?: string;
+  agentID?: string;
+  resource?: string;
+  accessMode?: string;
+  sensitivity?: string;
+  exposure?: string;
+  status?: string;
+};
+
 export type AWSBedrockAgentsInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBedrockAgentsFixtureState =
   | 'success'
@@ -5546,6 +5686,30 @@ export const apiClient = {
         agent_id: query?.agentID,
         resource: query?.resource,
         resource_kind: query?.resourceKind,
+        status: query?.status
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectS3RuntimeAccess(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSS3RuntimeAccessQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ correlation: AWSS3RuntimeAccessResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/s3-runtime-access${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        delivery_source: query?.deliverySource,
+        account_id: query?.accountID,
+        region: query?.region,
+        identity: query?.identity,
+        agent_id: query?.agentID,
+        resource: query?.resource,
+        access_mode: query?.accessMode,
+        sensitivity: query?.sensitivity,
+        exposure: query?.exposure,
         status: query?.status
       })}`,
       auth

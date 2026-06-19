@@ -51,6 +51,8 @@ import {
   type AWSRuntimeEventResult,
   type AWSSecretsKMSRuntimeAccessRecord,
   type AWSSecretsKMSRuntimeAccessResult,
+  type AWSS3RuntimeAccessRecord,
+  type AWSS3RuntimeAccessResult,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
@@ -10194,6 +10196,105 @@ function AWSSecretsKMSRuntimeAccessContent({
   );
 }
 
+function awsS3RuntimeAccessResourceLabel(record: AWSS3RuntimeAccessRecord): string {
+  const modes = (record.observed_modes ?? []).length > 0 ? (record.observed_modes ?? []).join('/') : '—';
+  const sensitivity = record.sensitivity ? ` · ${formatTokenLabel(record.sensitivity)}` : '';
+  return `${record.bucket_name || record.bucket_arn} (${modes})${sensitivity}`;
+}
+
+function awsS3RuntimeAccessContextLabel(record: AWSS3RuntimeAccessRecord): string {
+  const prefixes = (record.safe_prefixes ?? []).length > 0 ? `prefix ${(record.safe_prefixes ?? []).join(', ')}` : 'bucket-level';
+  const caveats = (record.caveats ?? []).map((caveat) => formatTokenLabel(caveat)).join(' · ');
+  return caveats ? `${prefixes} · ${caveats}` : prefixes;
+}
+
+function AWSS3RuntimeAccessContent({
+  correlation,
+  loading,
+  error,
+  onRetry
+}: {
+  correlation: AWSS3RuntimeAccessResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const records = correlation?.records ?? [];
+  const summaryLine = correlation
+    ? `${correlation.summary.confirmed_count} confirmed · ${correlation.summary.observed_without_grant_count} observed without grant · ${correlation.summary.granted_unused_count} granted unused`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="S3 runtime data access correlation">
+      <h3>S3 runtime data access correlation</h3>
+      <p className="idt-app-kicker">
+        Observed S3 read/write/list access joined with static reachability and bucket sensitivity — confirmed,
+        observed-without-grant, or unused grant. Object keys are never shown. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load S3 runtime access correlation"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Correlating S3 runtime access"
+          body="Identrail is joining observed S3 runtime events with static reachability and bucket sensitivity."
+        />
+      ) : null}
+      {!error && !loading && correlation && records.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={correlation.status === 'blocked' ? 'Permission required' : 'No correlations'}
+          title={
+            correlation.status === 'blocked'
+              ? 'S3 runtime correlation needs read-only event access'
+              : 'No S3 runtime access correlations'
+          }
+          body={
+            correlation.failure_reasons[0] ??
+            'No observed S3 access or static grants were available for the current environment.'
+          }
+        />
+      ) : null}
+      {!error && !loading && correlation && correlation.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {correlation.caveats.map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {records.length > 0 ? (
+        <DomainDataTable
+          label="S3 runtime data access correlations"
+          rows={records}
+          getRowKey={(row) => row.correlation_id}
+          columns={[
+            { key: 'bucket', header: 'Bucket', render: (row) => <strong>{awsS3RuntimeAccessResourceLabel(row)}</strong> },
+            { key: 'identity', header: 'Identity', render: (row) => row.principal_arn || row.identity_node_id },
+            {
+              key: 'evidence',
+              header: 'Evidence',
+              render: (row) =>
+                `${row.observed_count} observed · ${(row.static_sources ?? []).map((source) => formatTokenLabel(source)).join(', ') || 'no static grant'} · ${formatConfidenceScore(row.confidence)}`
+            },
+            { key: 'context', header: 'Prefix / caveats', render: (row) => awsS3RuntimeAccessContextLabel(row) },
+            { key: 'next', header: 'Next action', render: (row) => row.next_action },
+            {
+              key: 'status',
+              header: 'Correlation',
+              render: (row) => (
+                <AWSInventoryPill stage={awsSecretsKMSCorrelationStage(row.status)} label={awsSecretsKMSCorrelationStatusLabel(row.status)} />
+              )
+            }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsRuntimeEventRow(record: AWSRuntimeEventRecord): AWSRiskOperationTableRow {
   const eventLabel = awsRuntimeEventLabel(record);
   const resourceLabel = record.target_resource_name || record.target_resource_type || record.target_resource_arn || 'Session event';
@@ -10684,6 +10785,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [secretsKMSAccessLoading, setSecretsKMSAccessLoading] = useState(false);
   const [secretsKMSAccessError, setSecretsKMSAccessError] = useState('');
   const secretsKMSAccessRequestRef = useRef(0);
+  const [s3RuntimeAccess, setS3RuntimeAccess] = useState<AWSS3RuntimeAccessResult | null>(null);
+  const [s3RuntimeAccessLoading, setS3RuntimeAccessLoading] = useState(false);
+  const [s3RuntimeAccessError, setS3RuntimeAccessError] = useState('');
+  const s3RuntimeAccessRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -10795,6 +10900,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadSecretsKMSAccess]);
 
+  const loadS3RuntimeAccess = useCallback(async () => {
+    const requestID = ++s3RuntimeAccessRequestRef.current;
+    setS3RuntimeAccess(null);
+    setS3RuntimeAccessError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setS3RuntimeAccessLoading(false);
+      return;
+    }
+    setS3RuntimeAccessLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectS3RuntimeAccess(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== s3RuntimeAccessRequestRef.current) {
+        return;
+      }
+      setS3RuntimeAccess(response.correlation);
+    } catch (error) {
+      if (requestID !== s3RuntimeAccessRequestRef.current) {
+        return;
+      }
+      setS3RuntimeAccessError(formatAPIError(error, 'Unable to load S3 runtime access correlation.'));
+    } finally {
+      if (requestID === s3RuntimeAccessRequestRef.current) {
+        setS3RuntimeAccessLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadS3RuntimeAccess();
+    return () => {
+      s3RuntimeAccessRequestRef.current += 1;
+    };
+  }, [loadS3RuntimeAccess]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -10894,6 +11047,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={secretsKMSAccessLoading}
             error={secretsKMSAccessError}
             onRetry={loadSecretsKMSAccess}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSS3RuntimeAccessContent
+            correlation={s3RuntimeAccess}
+            loading={s3RuntimeAccessLoading}
+            error={s3RuntimeAccessError}
+            onRetry={loadS3RuntimeAccess}
           />
         ) : null}
         {routeID === 'graph' ? (
