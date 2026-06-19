@@ -609,10 +609,21 @@ func awsAgentRuntimeAccessRelationships(records []AWSAgentRuntimeAccessRecord) [
 		case agentaccess.StatusDeclaredUnused:
 			edgeType = "unused_declared_tool"
 		}
-		for _, roleNode := range record.BackingRoleNodeIDs {
-			if strings.TrimSpace(roleNode) == "" {
+		roleNodes := append([]string{}, record.BackingRoleNodeIDs...)
+		if record.Status == agentaccess.StatusDeclaredUnused && strings.TrimSpace(record.DeclaredBackingRoleNode) != "" {
+			roleNodes = append(roleNodes, record.DeclaredBackingRoleNode)
+		}
+		seenRoleNodes := map[string]struct{}{}
+		for _, roleNode := range roleNodes {
+			roleNode = strings.TrimSpace(roleNode)
+			if roleNode == "" {
 				continue
 			}
+			roleKey := strings.ToLower(roleNode)
+			if _, ok := seenRoleNodes[roleKey]; ok {
+				continue
+			}
+			seenRoleNodes[roleKey] = struct{}{}
 			out = append(out, AWSAgentRuntimeAccessRelationship{
 				Type:        edgeType,
 				FromNodeID:  roleNode,

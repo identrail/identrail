@@ -367,3 +367,22 @@ func TestAWSAgentRuntimeAccessRelationshipsUseTargetResourceNodeIDs(t *testing.T
 		t.Fatalf("expected agent_tool_targeted_resource relationship, got %+v", relationships)
 	}
 }
+
+func TestAWSAgentRuntimeAccessRelationshipsUseDeclaredRoleForUnusedTools(t *testing.T) {
+	agentNode := "aws:agent:123456789012:us-east-1:agentcore_runtime/case-triage/blue"
+	roleNode := "aws:identity:123456789012:role/case-triage-runtime"
+	relationships := awsAgentRuntimeAccessRelationships([]AWSAgentRuntimeAccessRecord{{
+		AgentNodeID:             agentNode,
+		Status:                  agentaccess.StatusDeclaredUnused,
+		DeclaredBackingRoleNode: roleNode,
+		EvidenceRef:             "runtime-correlation://policy-checker",
+	}})
+
+	if len(relationships) != 1 {
+		t.Fatalf("expected one declared role relationship, got %+v", relationships)
+	}
+	rel := relationships[0]
+	if rel.Type != "unused_declared_tool" || rel.FromNodeID != roleNode || rel.ToNodeID != agentNode {
+		t.Fatalf("expected declared role to agent unused edge, got %+v", rel)
+	}
+}
