@@ -569,6 +569,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/blast-radius
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/iam-passrole-relationships
     action: tenancy.read
     resource_type: project
@@ -4889,6 +4894,84 @@ paths:
                     $ref: "#/components/schemas/AWSAgentRuntimeAccessResult"
         "400":
           description: Invalid AWS agent runtime access request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/blast-radius:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS blast radius intelligence
+      operationId: getAWSProjectBlastRadius
+      description: Calculates ranked, explainable AWS blast-radius intelligence by composing metadata-only runtime access, sensitive resource reachability, cross-account edges, and agent/tool paths. Findings carry stable IDs, calculation version, score, severity, confidence, rationale, impacted graph path, evidence refs, and read-only remediation previews. Unknown evidence lowers confidence and never upgrades severity; secret values, object contents, prompts, completions, tool payloads, browser pages, and code-interpreter output are never read or returned.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope the account, region, and read-only evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: identity
+          schema: { type: string }
+          description: Optional principal, identity-node, or display-name search.
+        - in: query
+          name: resource
+          schema: { type: string }
+          description: Optional impacted resource or graph-node search.
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [action_required, review, monitor]
+        - in: query
+          name: risk_type
+          schema: { type: string }
+          description: Optional blast-radius risk type token.
+      responses:
+        "200":
+          description: AWS blast radius intelligence contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  intelligence:
+                    $ref: "#/components/schemas/AWSBlastRadiusResult"
+        "400":
+          description: Invalid AWS blast radius request
           content:
             application/json:
               schema:
@@ -11710,6 +11793,211 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSAgentRuntimeAccessDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSBlastRadiusEvidence:
+      type: object
+      properties:
+        source: { type: string }
+        evidence_ref: { type: string }
+        label: { type: string }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        observed_at:
+          type: string
+          format: date-time
+        relationship: { type: string }
+    AWSBlastRadiusPathStep:
+      type: object
+      properties:
+        node_id: { type: string }
+        node_type: { type: string }
+        label: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+    AWSBlastRadiusRelationship:
+      type: object
+      properties:
+        finding_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSBlastRadiusRemediationCasePreview:
+      type: object
+      properties:
+        case_id: { type: string }
+        title: { type: string }
+        recommended_action: { type: string }
+        approval_required: { type: boolean }
+        blocking_evidence:
+          type: array
+          items: { type: string }
+        impacted_node_count: { type: integer }
+        estimated_risk_drop: { type: integer }
+        read_only_projection: { type: boolean }
+    AWSBlastRadiusFinding:
+      type: object
+      properties:
+        finding_id: { type: string }
+        calculation_version: { type: string }
+        risk_type: { type: string }
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status:
+          type: string
+          enum: [action_required, review, monitor]
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        account_id: { type: string }
+        region: { type: string }
+        identity_node_id: { type: string }
+        principal_arn: { type: string }
+        display_name: { type: string }
+        rationale: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSBlastRadiusPathStep"
+        sensitive_nodes:
+          type: array
+          items: { type: string }
+        cross_account_edges:
+          type: array
+          items: { type: string }
+        runtime_actions:
+          type: array
+          items: { type: string }
+        agent_tool_paths:
+          type: array
+          items: { type: string }
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSBlastRadiusEvidence"
+        next_action: { type: string }
+        remediation_case:
+          $ref: "#/components/schemas/AWSBlastRadiusRemediationCasePreview"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSBlastRadiusSummary:
+      type: object
+      properties:
+        total_findings: { type: integer }
+        filtered_findings: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        risk_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        critical_count: { type: integer }
+        high_count: { type: integer }
+        sensitive_node_count: { type: integer }
+        cross_account_edge_count: { type: integer }
+        runtime_action_count: { type: integer }
+        agent_tool_path_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+        remediation_preview_count: { type: integer }
+    AWSBlastRadiusDiagnostic:
+      type: object
+      properties:
+        collector: { type: string }
+        source_id: { type: string }
+        code: { type: string }
+        message: { type: string }
+        remediation: { type: string }
+        retryable: { type: boolean }
+    AWSBlastRadiusCoverageGap:
+      type: object
+      properties:
+        capability: { type: string }
+        status: { type: string }
+        reason: { type: string }
+        remediation: { type: string }
+    AWSBlastRadiusResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSBlastRadiusSummary"
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSBlastRadiusFinding"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSBlastRadiusRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSBlastRadiusCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSBlastRadiusDiagnostic"
         generated_at:
           type: string
           format: date-time

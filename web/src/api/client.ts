@@ -2696,6 +2696,150 @@ export type AWSAgentRuntimeAccessQuery = {
   status?: string;
 };
 
+export type AWSBlastRadiusStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSBlastRadiusFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSBlastRadiusSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
+export type AWSBlastRadiusFindingStatus = 'action_required' | 'review' | 'monitor' | string;
+
+export type AWSBlastRadiusEvidence = {
+  source: string;
+  evidence_ref: string;
+  label: string;
+  confidence: number;
+  observed_at?: string;
+  relationship?: string;
+};
+
+export type AWSBlastRadiusPathStep = {
+  node_id: string;
+  node_type: string;
+  label: string;
+  account_id?: string;
+  region?: string;
+};
+
+export type AWSBlastRadiusRelationship = {
+  finding_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSBlastRadiusRemediationCasePreview = {
+  case_id: string;
+  title: string;
+  recommended_action: string;
+  approval_required: boolean;
+  blocking_evidence?: string[];
+  impacted_node_count: number;
+  estimated_risk_drop: number;
+  read_only_projection: boolean;
+};
+
+export type AWSBlastRadiusFinding = {
+  finding_id: string;
+  calculation_version: string;
+  risk_type: string;
+  severity: AWSBlastRadiusSeverity;
+  status: AWSBlastRadiusFindingStatus;
+  score: number;
+  confidence: number;
+  account_id: string;
+  region: string;
+  identity_node_id: string;
+  principal_arn?: string;
+  display_name: string;
+  rationale: string;
+  impacted_nodes: string[];
+  impacted_path: AWSBlastRadiusPathStep[];
+  sensitive_nodes?: string[];
+  cross_account_edges?: string[];
+  runtime_actions?: string[];
+  agent_tool_paths?: string[];
+  evidence: AWSBlastRadiusEvidence[];
+  next_action: string;
+  remediation_case: AWSBlastRadiusRemediationCasePreview;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSBlastRadiusSummary = {
+  total_findings: number;
+  filtered_findings: number;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  risk_type_counts: Record<string, number>;
+  critical_count: number;
+  high_count: number;
+  sensitive_node_count: number;
+  cross_account_edge_count: number;
+  runtime_action_count: number;
+  agent_tool_path_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+  remediation_preview_count: number;
+};
+
+export type AWSBlastRadiusDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSBlastRadiusCoverageGap = {
+  capability: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSBlastRadiusResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSBlastRadiusStatus;
+  fixture_state?: AWSBlastRadiusFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSBlastRadiusSummary;
+  findings: AWSBlastRadiusFinding[];
+  relationships: AWSBlastRadiusRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSBlastRadiusCoverageGap[];
+  diagnostics: AWSBlastRadiusDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSBlastRadiusQuery = {
+  connectorID?: string;
+  fixtureState?: AWSBlastRadiusFixtureState;
+  accountID?: string;
+  region?: string;
+  identity?: string;
+  resource?: string;
+  severity?: string;
+  status?: string;
+  riskType?: string;
+};
+
 export type AWSBedrockAgentsInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBedrockAgentsFixtureState =
   | 'success'
@@ -5868,6 +6012,27 @@ export const apiClient = {
         resource: query?.resource,
         outcome: query?.outcome,
         status: query?.status
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectBlastRadius(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSBlastRadiusQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ intelligence: AWSBlastRadiusResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/blast-radius${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        identity: query?.identity,
+        resource: query?.resource,
+        severity: query?.severity,
+        status: query?.status,
+        risk_type: query?.riskType
       })}`,
       auth
     );

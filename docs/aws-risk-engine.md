@@ -11,11 +11,13 @@ The AWS risk engine evaluates normalized identities and graph relationships to p
 - `escalation_path`
 - `stale_identity`
 - `ownerless_identity`
+- `aws-blast-radius:*` intelligence records from the AWS blast radius engine
 
 ## Rule Inputs
 
 - Normalized identities from the AWS normalizer
 - Relationship edges from the graph builder (`can_assume`, `can_access`, `attached_policy`)
+- AWS runtime correlation surfaces for Secrets Manager / KMS, S3, and agent/tool paths
 
 ## Detection Logic (v1)
 
@@ -31,6 +33,11 @@ The AWS risk engine evaluates normalized identities and graph relationships to p
 - Severity ordering is stable (`critical` -> `high` -> `medium` ...)
 - Evidence-first findings with machine-readable context and clear remediation text
 - Encoded access nodes to avoid ARN delimiter parsing issues
+- Unknown runtime evidence lowers confidence instead of becoming deterministic truth
+
+## Blast Radius Intelligence
+
+The Wave 6.01 blast-radius engine is documented in [aws-blast-radius-engine.md](aws-blast-radius-engine.md). It composes existing AWS runtime and reachability signals into ranked, explainable identity findings with impacted paths, evidence references, confidence, calculation version, and read-only remediation previews.
 
 ## Tunables
 

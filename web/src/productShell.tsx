@@ -55,6 +55,8 @@ import {
   type AWSS3RuntimeAccessResult,
   type AWSAgentRuntimeAccessRecord,
   type AWSAgentRuntimeAccessResult,
+  type AWSBlastRadiusFinding,
+  type AWSBlastRadiusResult,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
@@ -10421,6 +10423,108 @@ function AWSAgentRuntimeAccessContent({
   );
 }
 
+function awsBlastRadiusSeverityStage(severity: string): AWSCapabilityStage {
+  switch (severity) {
+    case 'critical':
+    case 'high':
+      return 'coming';
+    case 'medium':
+      return 'not-available';
+    default:
+      return 'wired';
+  }
+}
+
+function awsBlastRadiusFindingLabel(finding: AWSBlastRadiusFinding): string {
+  return `${formatTokenLabel(finding.risk_type)} · score ${finding.score}`;
+}
+
+function awsBlastRadiusEvidenceLabel(finding: AWSBlastRadiusFinding): string {
+  const sources = finding.evidence.map((evidence) => evidence.label || formatTokenLabel(evidence.source));
+  return `${formatConfidenceScore(finding.confidence)} · ${sources.join(', ') || 'No evidence refs'}`;
+}
+
+function awsBlastRadiusPathLabel(finding: AWSBlastRadiusFinding): string {
+  const path = finding.impacted_path.map((step) => step.label || step.node_id).filter(Boolean);
+  if (path.length === 0) {
+    return finding.impacted_nodes.join(' → ') || '—';
+  }
+  return path.join(' → ');
+}
+
+function AWSBlastRadiusContent({
+  intelligence,
+  loading,
+  error,
+  onRetry
+}: {
+  intelligence: AWSBlastRadiusResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const findings = intelligence?.findings ?? [];
+  const summaryLine = intelligence
+    ? `${intelligence.summary.critical_count} critical · ${intelligence.summary.high_count} high · ${intelligence.summary.relationship_count} graph edges · ${intelligence.summary.remediation_preview_count} plans`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS blast radius intelligence">
+      <h3>AWS blast radius intelligence</h3>
+      <p className="idt-app-kicker">
+        Ranked identity blast radius from static reachability, sensitive resources, runtime access, and agent/tool paths.
+        {summaryLine ? ` ${summaryLine}` : ''}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load blast radius intelligence"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Calculating blast radius"
+          body="Identrail is ranking impacted identities, graph paths, evidence, confidence, and remediation plans."
+        />
+      ) : null}
+      {!error && !loading && intelligence && findings.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={intelligence.status === 'blocked' ? 'Permission required' : 'No intelligence records'}
+          title={intelligence.status === 'blocked' ? 'Blast radius needs read-only evidence access' : 'No blast-radius findings'}
+          body={intelligence.failure_reasons[0] ?? 'No reachable sensitive resources, runtime actions, or agent/tool paths matched.'}
+        />
+      ) : null}
+      {!error && !loading && intelligence && intelligence.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {intelligence.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {findings.length > 0 ? (
+        <DomainDataTable
+          label="AWS blast radius findings"
+          rows={findings}
+          getRowKey={(row) => row.finding_id}
+          columns={[
+            { key: 'finding', header: 'Finding', render: (row) => <strong>{awsBlastRadiusFindingLabel(row)}</strong> },
+            { key: 'identity', header: 'Identity', render: (row) => row.principal_arn || row.display_name || row.identity_node_id },
+            { key: 'path', header: 'Impacted path', render: (row) => awsBlastRadiusPathLabel(row) },
+            { key: 'evidence', header: 'Evidence', render: (row) => awsBlastRadiusEvidenceLabel(row) },
+            { key: 'next', header: 'Next action', render: (row) => row.next_action },
+            {
+              key: 'severity',
+              header: 'Severity',
+              render: (row) => <AWSInventoryPill stage={awsBlastRadiusSeverityStage(row.severity)} label={formatTokenLabel(row.severity)} />
+            }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsRuntimeEventRow(record: AWSRuntimeEventRecord): AWSRiskOperationTableRow {
   const eventLabel = awsRuntimeEventLabel(record);
   const resourceLabel = record.target_resource_name || record.target_resource_type || record.target_resource_arn || 'Session event';
@@ -10919,6 +11023,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [agentRuntimeAccessLoading, setAgentRuntimeAccessLoading] = useState(false);
   const [agentRuntimeAccessError, setAgentRuntimeAccessError] = useState('');
   const agentRuntimeAccessRequestRef = useRef(0);
+  const [blastRadius, setBlastRadius] = useState<AWSBlastRadiusResult | null>(null);
+  const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
+  const [blastRadiusError, setBlastRadiusError] = useState('');
+  const blastRadiusRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -11126,6 +11234,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadAgentRuntimeAccess]);
 
+  const loadBlastRadius = useCallback(async () => {
+    const requestID = ++blastRadiusRequestRef.current;
+    setBlastRadius(null);
+    setBlastRadiusError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setBlastRadiusLoading(false);
+      return;
+    }
+    setBlastRadiusLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectBlastRadius(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== blastRadiusRequestRef.current) {
+        return;
+      }
+      setBlastRadius(response.intelligence);
+    } catch (error) {
+      if (requestID !== blastRadiusRequestRef.current) {
+        return;
+      }
+      setBlastRadiusError(formatAPIError(error, 'Unable to load AWS blast radius intelligence.'));
+    } finally {
+      if (requestID === blastRadiusRequestRef.current) {
+        setBlastRadiusLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadBlastRadius();
+    return () => {
+      blastRadiusRequestRef.current += 1;
+    };
+  }, [loadBlastRadius]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -11241,6 +11397,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={agentRuntimeAccessLoading}
             error={agentRuntimeAccessError}
             onRetry={loadAgentRuntimeAccess}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSBlastRadiusContent
+            intelligence={blastRadius}
+            loading={blastRadiusLoading}
+            error={blastRadiusError}
+            onRetry={loadBlastRadius}
           />
         ) : null}
         {routeID === 'graph' ? (
