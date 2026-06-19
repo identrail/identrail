@@ -15437,8 +15437,8 @@ const SIDEBAR_MIN_EXPANDED_WIDTH = 196;
 const SIDEBAR_MAX_WIDTH = 360;
 const SIDEBAR_COLLAPSE_THRESHOLD = 140; // dragging below this snaps to collapsed
 const SIDEBAR_COLLAPSED_WIDTH = 60;
-const SCROLL_NAVIGATOR_MIN_THUMB_HEIGHT = 88;
-const SCROLL_NAVIGATOR_MAX_THUMB_HEIGHT = 168;
+const SCROLL_NAVIGATOR_MIN_THUMB_HEIGHT = 68;
+const SCROLL_NAVIGATOR_MAX_THUMB_HEIGHT = 132;
 
 type ScrollNavigatorMetrics = {
   visible: boolean;
@@ -15930,13 +15930,13 @@ export function ProductShellLayout() {
         return;
       }
 
-      const trackTop = Math.min(112, Math.max(80, viewportHeight * 0.13));
-      const trackBottom = Math.min(56, Math.max(36, viewportHeight * 0.05));
+      const trackTop = Math.min(72, Math.max(28, viewportHeight * 0.055));
+      const trackBottom = Math.min(64, Math.max(28, viewportHeight * 0.045));
       const trackHeight = Math.max(120, viewportHeight - trackTop - trackBottom);
       const thumbHeight = Math.round(
         Math.min(
           SCROLL_NAVIGATOR_MAX_THUMB_HEIGHT,
-          Math.max(SCROLL_NAVIGATOR_MIN_THUMB_HEIGHT, trackHeight * 0.22)
+          Math.max(SCROLL_NAVIGATOR_MIN_THUMB_HEIGHT, trackHeight * 0.16)
         )
       );
       const scrollProgress = Math.min(1, Math.max(0, scrollingElement.scrollTop / scrollRange));

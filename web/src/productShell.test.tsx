@@ -1963,6 +1963,7 @@ describe('ProductAppearanceSettingsPage', () => {
       customColors: 'yes',
       uiFont: 'url(https://evil.example/font.woff2)',
       codeFont: '<script>alert(1)</script>',
+      translucentSidebar: true,
       contrast: 999,
       reduceMotion: 'drop-table',
       appIcon: '../../private'
@@ -1977,6 +1978,7 @@ describe('ProductAppearanceSettingsPage', () => {
       customColors: false,
       uiFont: 'inter',
       codeFont: 'mono-system',
+      translucentSidebar: false,
       contrast: 100,
       reduceMotion: 'system'
     });

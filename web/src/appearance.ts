@@ -439,10 +439,7 @@ export function normalizeAppearancePreferences(value: unknown): AppearancePrefer
     customColors: sanitizeBoolean(source.customColors, DEFAULT_APPEARANCE_PREFERENCES.customColors),
     uiFont: sanitizeFontID(source.uiFont, DEFAULT_APPEARANCE_PREFERENCES.uiFont),
     codeFont: sanitizeFontID(source.codeFont, DEFAULT_APPEARANCE_PREFERENCES.codeFont),
-    translucentSidebar: sanitizeBoolean(
-      source.translucentSidebar,
-      DEFAULT_APPEARANCE_PREFERENCES.translucentSidebar
-    ),
+    translucentSidebar: false,
     contrast: sanitizeNumber(source.contrast, DEFAULT_APPEARANCE_PREFERENCES.contrast, 0, 100),
     pointerCursors: sanitizeBoolean(source.pointerCursors, DEFAULT_APPEARANCE_PREFERENCES.pointerCursors),
     reduceMotion: sanitizeEnum(source.reduceMotion, ['system', 'on', 'off'], DEFAULT_APPEARANCE_PREFERENCES.reduceMotion),

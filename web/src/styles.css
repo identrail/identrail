@@ -19010,7 +19010,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta .idt-final-ct
 }
 
 .idt-hero-copy h1 span {
-  color: #3ecf8e;
+  color: #823cf2;
   font-family: inherit;
 }
 
@@ -19019,7 +19019,7 @@ html[data-theme='light'] .idt-hero-copy h1 {
 }
 
 html[data-theme='light'] .idt-hero-copy h1 span {
-  color: #6d37dd;
+  color: #823cf2;
   font-family: inherit;
 }
 
@@ -27213,11 +27213,12 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   display: grid;
   grid-template-columns: 1.35rem minmax(0, 1fr);
   align-items: center;
+  align-content: center;
   gap: 0.65rem;
   width: 100%;
   min-width: 0;
-  min-height: 2.15rem;
-  padding: 0.45rem 0.6rem;
+  min-height: 2.3rem;
+  padding: 0 0.68rem;
   border-radius: 7px;
   border-color: transparent;
   background: transparent;
@@ -27286,7 +27287,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   min-width: 0;
   min-height: 1.1rem;
   overflow: hidden;
-  line-height: 1.1;
+  line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -27410,9 +27411,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   z-index: 20;
   border: 0;
   padding: 0;
-  background: #000000;
-  -webkit-backdrop-filter: blur(28px) saturate(0.84) brightness(0.48);
-  backdrop-filter: blur(28px) saturate(0.84) brightness(0.48);
+  background: transparent;
   cursor: default;
   touch-action: none;
 }
@@ -27423,7 +27422,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   z-index: 40;
   border: 0;
   padding: 0;
-  background: rgba(5, 7, 10, 0.54);
+  background: transparent;
   cursor: default;
   touch-action: none;
 }
@@ -27456,21 +27455,19 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   left: calc(100% + 0.72rem);
   z-index: 50;
   display: grid;
-  gap: 0.58rem;
-  width: min(27rem, calc(100vw - var(--idt-sidebar-width, 15.5rem) - 1.8rem));
+  gap: 0.48rem;
+  width: min(24rem, calc(100vw - var(--idt-sidebar-width, 15.5rem) - 1.8rem));
   max-height: min(78vh, 42rem);
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  border: 1px solid rgba(255, 255, 255, 0.13);
+  border: 1px solid var(--app-border-soft);
   border-radius: 8px;
-  padding: 0.68rem;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 8rem),
-    #050607;
+  padding: 0.52rem;
+  background: color-mix(in srgb, var(--app-panel) 92%, var(--app-bg));
   box-shadow:
-    0 28px 90px rgba(0, 0, 0, 0.62),
-    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+    0 20px 46px rgba(0, 0, 0, 0.28),
+    0 0 0 1px color-mix(in srgb, var(--app-border-soft) 70%, transparent) inset;
   transform-origin: top left;
   animation: idtFlyoutRevealIn var(--idt-motion-slow) var(--idt-motion-ease) both;
 }
@@ -27482,15 +27479,15 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   left: -0.45rem;
   width: 0.85rem;
   height: 0.85rem;
-  border-left: 1px solid rgba(255, 255, 255, 0.13);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.13);
-  background: #050607;
+  border-left: 1px solid var(--app-border-soft);
+  border-bottom: 1px solid var(--app-border-soft);
+  background: color-mix(in srgb, var(--app-panel) 92%, var(--app-bg));
   transform: rotate(45deg);
 }
 
 .idt-domain-flyout-section-label {
   margin: 0;
-  color: #9aa4af;
+  color: var(--app-muted);
   font-size: 0.68rem;
   font-weight: 800;
   line-height: 1.2;
@@ -27501,7 +27498,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 .idt-domain-flyout-list,
 .idt-domain-flyout-nested-body {
   display: grid;
-  gap: 0.12rem;
+  gap: 0.06rem;
 }
 
 .idt-domain-flyout-section {
@@ -27512,20 +27509,20 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 
 .idt-domain-flyout-section + .idt-domain-flyout-section,
 .idt-domain-flyout-nested + .idt-domain-flyout-section {
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
-  padding-top: 0.62rem;
+  border-top: 1px solid var(--app-border-soft);
+  padding-top: 0.52rem;
 }
 
 .idt-domain-flyout-link {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.55rem;
+  gap: 0.5rem;
   align-items: center;
-  min-height: 2.28rem;
+  min-height: 2.05rem;
   border: 1px solid transparent;
-  border-radius: 7px;
-  padding: 0.44rem 0.54rem;
-  color: #dce3eb;
+  border-radius: 6px;
+  padding: 0.34rem 0.48rem;
+  color: var(--app-muted);
   text-decoration: none;
   transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
@@ -27533,16 +27530,16 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 .idt-domain-flyout-link:hover,
 .idt-domain-flyout-link:focus-visible,
 .idt-domain-flyout-link.is-active {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: #10141a;
-  color: #ffffff;
+  border-color: transparent;
+  background: color-mix(in srgb, var(--appearance-accent) 13%, transparent);
+  color: var(--app-text);
   outline: none;
 }
 
 .idt-domain-flyout-link.is-child {
   margin-left: 0.48rem;
-  padding-left: 0.62rem;
-  border-left-color: rgba(255, 255, 255, 0.12);
+  padding-left: 0.56rem;
+  border-left-color: color-mix(in srgb, var(--app-border-soft) 72%, transparent);
 }
 
 .idt-domain-flyout-link-copy {
@@ -27552,33 +27549,33 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 
 .idt-domain-flyout-link-copy strong {
   color: inherit;
-  font-size: 0.86rem;
+  font-size: 0.82rem;
   font-weight: 750;
   line-height: 1.2;
 }
 
 .idt-domain-flyout-link-copy span,
 .idt-domain-flyout-nested small {
-  color: #8f98a4;
+  color: var(--app-muted);
   font-size: 0.72rem;
   font-weight: 650;
   line-height: 1.2;
 }
 
 .idt-domain-flyout-nested {
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 8px;
-  padding: 0.36rem;
-  background: rgba(255, 255, 255, 0.018);
+  border: 0;
+  border-radius: 6px;
+  padding: 0;
+  background: transparent;
 }
 
 .idt-domain-flyout-nested summary {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  border-radius: 7px;
-  padding: 0.45rem 0.5rem;
-  color: #f3f5f7;
+  border-radius: 6px;
+  padding: 0.34rem 0.48rem;
+  color: var(--app-text);
   cursor: pointer;
   list-style: none;
 }
@@ -27599,7 +27596,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 }
 
 .idt-domain-flyout-nested summary svg {
-  color: #8f98a4;
+  color: var(--app-muted);
   transition: transform 0.14s ease;
 }
 
@@ -27609,12 +27606,12 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 
 .idt-domain-flyout-nested summary:hover,
 .idt-domain-flyout-nested summary:focus-visible {
-  background: #10141a;
+  background: color-mix(in srgb, var(--appearance-accent) 10%, transparent);
   outline: none;
 }
 
 .idt-domain-flyout-nested-body {
-  margin-top: 0.34rem;
+  margin-top: 0.08rem;
   transform-origin: top;
   animation: idtFlyoutRevealIn var(--idt-motion-standard) var(--idt-motion-ease) both;
 }
@@ -28840,6 +28837,13 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.08),
     0 10px 24px rgba(0, 0, 0, 0.42);
+}
+
+html[data-theme='light'] .idt-app-scroll-navigator-thumb {
+  background: rgba(0, 0, 0, 0.74);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.16),
+    0 12px 26px rgba(15, 23, 42, 0.24);
 }
 
 /* Hide the drag handle on narrow viewports — the rail becomes a top bar. */
