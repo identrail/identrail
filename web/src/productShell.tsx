@@ -49,6 +49,8 @@ import {
   type AWSAIAgentIdentityRecord,
   type AWSRuntimeEventRecord,
   type AWSRuntimeEventResult,
+  type AWSSecretsKMSRuntimeAccessRecord,
+  type AWSSecretsKMSRuntimeAccessResult,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
@@ -10069,6 +10071,129 @@ function AWSRuntimeEvidenceContent({
   );
 }
 
+function awsSecretsKMSCorrelationStatusLabel(status: string): string {
+  switch (status) {
+    case 'confirmed':
+      return 'Confirmed';
+    case 'observed_without_grant':
+      return 'Observed · no static grant';
+    case 'granted_unused':
+      return 'Granted · unused';
+    default:
+      return formatTokenLabel(status);
+  }
+}
+
+function awsSecretsKMSCorrelationStage(status: string): AWSCapabilityStage {
+  switch (status) {
+    case 'confirmed':
+      return 'wired';
+    case 'observed_without_grant':
+      return 'coming';
+    default:
+      return 'not-available';
+  }
+}
+
+function awsSecretsKMSResourceLabel(record: AWSSecretsKMSRuntimeAccessRecord): string {
+  const kind = record.resource_kind === 'kms_key' ? 'KMS key' : 'Secret';
+  return `${kind}: ${record.resource_name || record.resource_arn}`;
+}
+
+function awsSecretsKMSCaveatLabel(record: AWSSecretsKMSRuntimeAccessRecord): string {
+  if (!record.caveats || record.caveats.length === 0) {
+    return '—';
+  }
+  return record.caveats.map((caveat) => formatTokenLabel(caveat)).join(' · ');
+}
+
+function AWSSecretsKMSRuntimeAccessContent({
+  correlation,
+  loading,
+  error,
+  onRetry
+}: {
+  correlation: AWSSecretsKMSRuntimeAccessResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const records = correlation?.records ?? [];
+  const summaryLine = correlation
+    ? `${correlation.summary.confirmed_count} confirmed · ${correlation.summary.observed_without_grant_count} observed without grant · ${correlation.summary.granted_unused_count} granted unused`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="Secrets Manager and KMS runtime access correlation">
+      <h3>Secrets Manager / KMS runtime access correlation</h3>
+      <p className="idt-app-kicker">
+        Observed secret reads and KMS decrypts joined with static reachability — confirmed, observed-without-grant, or
+        unused grant. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load runtime access correlation"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Correlating runtime access"
+          body="Identrail is joining observed Secrets Manager / KMS runtime events with static reachability."
+        />
+      ) : null}
+      {!error && !loading && correlation && records.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={correlation.status === 'blocked' ? 'Permission required' : 'No correlations'}
+          title={
+            correlation.status === 'blocked'
+              ? 'Runtime access correlation needs read-only event access'
+              : 'No Secrets Manager / KMS correlations'
+          }
+          body={
+            correlation.failure_reasons[0] ??
+            'No observed secret reads / KMS decrypts or static grants were available for the current environment.'
+          }
+        />
+      ) : null}
+      {!error && !loading && correlation && correlation.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {correlation.caveats.map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {records.length > 0 ? (
+        <DomainDataTable
+          label="Secrets Manager / KMS runtime access correlations"
+          rows={records}
+          getRowKey={(row) => row.correlation_id}
+          columns={[
+            { key: 'resource', header: 'Resource', render: (row) => <strong>{awsSecretsKMSResourceLabel(row)}</strong> },
+            { key: 'identity', header: 'Identity', render: (row) => row.principal_arn || row.identity_node_id },
+            {
+              key: 'evidence',
+              header: 'Evidence',
+              render: (row) =>
+                `${row.observed_count} observed · ${(row.static_sources ?? []).map((source) => formatTokenLabel(source)).join(', ') || 'no static grant'} · ${formatConfidenceScore(row.confidence)}`
+            },
+            { key: 'caveats', header: 'Caveats', render: (row) => awsSecretsKMSCaveatLabel(row) },
+            { key: 'next', header: 'Next action', render: (row) => row.next_action },
+            {
+              key: 'status',
+              header: 'Correlation',
+              render: (row) => (
+                <AWSInventoryPill stage={awsSecretsKMSCorrelationStage(row.status)} label={awsSecretsKMSCorrelationStatusLabel(row.status)} />
+              )
+            }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsRuntimeEventRow(record: AWSRuntimeEventRecord): AWSRiskOperationTableRow {
   const eventLabel = awsRuntimeEventLabel(record);
   const resourceLabel = record.target_resource_name || record.target_resource_type || record.target_resource_arn || 'Session event';
@@ -10555,6 +10680,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [runtimeEventsLoading, setRuntimeEventsLoading] = useState(false);
   const [runtimeEventsError, setRuntimeEventsError] = useState('');
   const runtimeEventsRequestRef = useRef(0);
+  const [secretsKMSAccess, setSecretsKMSAccess] = useState<AWSSecretsKMSRuntimeAccessResult | null>(null);
+  const [secretsKMSAccessLoading, setSecretsKMSAccessLoading] = useState(false);
+  const [secretsKMSAccessError, setSecretsKMSAccessError] = useState('');
+  const secretsKMSAccessRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -10617,6 +10746,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       runtimeEventsRequestRef.current += 1;
     };
   }, [loadRuntimeEvents]);
+
+  const loadSecretsKMSAccess = useCallback(async () => {
+    const requestID = ++secretsKMSAccessRequestRef.current;
+    setSecretsKMSAccess(null);
+    setSecretsKMSAccessError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setSecretsKMSAccessLoading(false);
+      return;
+    }
+    setSecretsKMSAccessLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectSecretsKMSRuntimeAccess(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== secretsKMSAccessRequestRef.current) {
+        return;
+      }
+      setSecretsKMSAccess(response.correlation);
+    } catch (error) {
+      if (requestID !== secretsKMSAccessRequestRef.current) {
+        return;
+      }
+      setSecretsKMSAccessError(formatAPIError(error, 'Unable to load Secrets Manager / KMS runtime access correlation.'));
+    } finally {
+      if (requestID === secretsKMSAccessRequestRef.current) {
+        setSecretsKMSAccessLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadSecretsKMSAccess();
+    return () => {
+      secretsKMSAccessRequestRef.current += 1;
+    };
+  }, [loadSecretsKMSAccess]);
 
   if (!scope) {
     return (
@@ -10709,6 +10886,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             filters={activeFilters}
             onFiltersChange={onFiltersChange}
             onRetry={loadRuntimeEvents}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSSecretsKMSRuntimeAccessContent
+            correlation={secretsKMSAccess}
+            loading={secretsKMSAccessLoading}
+            error={secretsKMSAccessError}
+            onRetry={loadSecretsKMSAccess}
           />
         ) : null}
         {routeID === 'graph' ? (

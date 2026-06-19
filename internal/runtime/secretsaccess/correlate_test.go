@@ -1,0 +1,328 @@
+package secretsaccess
+
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+func observedAt(min int) time.Time {
+	return time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC).Add(time.Duration(min) * time.Minute)
+}
+
+func findCorrelation(t *testing.T, result Result, resourceARN string) Correlation {
+	t.Helper()
+	for _, correlation := range result.Correlations {
+		if correlation.ResourceARN == resourceARN {
+			return correlation
+		}
+	}
+	t.Fatalf("no correlation for resource %q in %+v", resourceARN, result.Correlations)
+	return Correlation{}
+}
+
+func hasCaveat(caveats []string, want string) bool {
+	for _, caveat := range caveats {
+		if caveat == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCorrelateConfirmedJoinsObservedWithStaticGrant(t *testing.T) {
+	keyARN := "arn:aws:kms:us-east-1:111122223333:key/cmk-1"
+	identity := "aws:identity:role:payments-app"
+	result := Correlate(CorrelateRequest{
+		AccountID: "111122223333",
+		Region:    "us-east-1",
+		Observed: []ObservedAccess{{
+			EventID:        "evt-1",
+			IdentityNodeID: identity,
+			PrincipalARN:   "arn:aws:iam::111122223333:role/payments-app",
+			AccountID:      "111122223333",
+			Region:         "us-east-1",
+			ResourceKind:   ResourceKindKMSKey,
+			ResourceARN:    keyARN,
+			ResourceName:   "cmk-1",
+			Action:         "kms:Decrypt",
+			SessionID:      "ASIA-sess",
+			LineageStatus:  "resolved",
+			ObservedAt:     observedAt(5),
+			EvidenceRef:    "runtime-evidence://evt-1",
+		}},
+		Static: []StaticGrant{{
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindKMSKey,
+			ResourceARN:    keyARN,
+			Source:         SourceKeyPolicy,
+			Effect:         "Allow",
+			Confidence:     0.9,
+			EvidenceRef:    "kms-evidence://key/cmk-1",
+		}},
+	})
+
+	if len(result.Correlations) != 1 {
+		t.Fatalf("expected 1 correlation, got %d", len(result.Correlations))
+	}
+	correlation := result.Correlations[0]
+	if correlation.Status != StatusConfirmed {
+		t.Fatalf("expected confirmed, got %q", correlation.Status)
+	}
+	if correlation.Confidence != 0.95 {
+		t.Fatalf("expected 0.95 confidence, got %v", correlation.Confidence)
+	}
+	if correlation.ObservedCount != 1 || len(correlation.ObservedEventIDs) != 1 {
+		t.Fatalf("expected one observed event, got %+v", correlation)
+	}
+	if len(correlation.StaticSources) != 1 || correlation.StaticSources[0] != SourceKeyPolicy {
+		t.Fatalf("expected key_policy source, got %+v", correlation.StaticSources)
+	}
+	if len(correlation.EvidenceRefs) != 2 {
+		t.Fatalf("expected runtime+static evidence refs, got %+v", correlation.EvidenceRefs)
+	}
+	if correlation.RedactionBoundary != RedactionBoundary {
+		t.Fatalf("missing redaction boundary: %+v", correlation)
+	}
+	if result.ConfirmedCount != 1 || result.KMSKeyCorrelationCount != 1 || result.IdentityCount != 1 || result.ResourceCount != 1 {
+		t.Fatalf("unexpected result counts: %+v", result)
+	}
+}
+
+func TestCorrelateObservedWithoutGrant(t *testing.T) {
+	secretARN := "arn:aws:secretsmanager:us-east-1:111122223333:secret:prod/api-key"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{{
+			EventID:        "evt-2",
+			IdentityNodeID: "aws:identity:role:invoice-agent",
+			ResourceKind:   ResourceKindSecret,
+			ResourceARN:    secretARN,
+			Action:         "secretsmanager:GetSecretValue",
+			LineageStatus:  "resolved",
+			ObservedAt:     observedAt(1),
+		}},
+		DataEventCoverageUnknown: true,
+	})
+
+	correlation := findCorrelation(t, result, secretARN)
+	if correlation.Status != StatusObservedWithoutGrant {
+		t.Fatalf("expected observed_without_grant, got %q", correlation.Status)
+	}
+	if correlation.Confidence != 0.6 {
+		t.Fatalf("expected 0.6 confidence, got %v", correlation.Confidence)
+	}
+	if !hasCaveat(correlation.Caveats, CaveatNoStaticPath) {
+		t.Fatalf("expected no-static-path caveat, got %+v", correlation.Caveats)
+	}
+	if result.ObservedWithoutGrant != 1 {
+		t.Fatalf("expected observed_without_grant count, got %+v", result)
+	}
+	// Result-level caveat about IAM-policy authorization must be present.
+	found := false
+	for _, caveat := range result.Caveats {
+		if strings.Contains(caveat, "IAM identity policies") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected IAM-policy caveat in result, got %+v", result.Caveats)
+	}
+}
+
+func TestCorrelateGrantedUnusedCarriesMissingEventCaveat(t *testing.T) {
+	keyARN := "arn:aws:kms:us-east-1:111122223333:key/unused"
+	result := Correlate(CorrelateRequest{
+		Static: []StaticGrant{{
+			IdentityNodeID: "aws:identity:role:dormant",
+			ResourceKind:   ResourceKindKMSKey,
+			ResourceARN:    keyARN,
+			Source:         SourceKMSGrant,
+			Effect:         "Allow",
+			Confidence:     0.88,
+		}},
+		DataEventCoverageUnknown: true,
+	})
+
+	correlation := findCorrelation(t, result, keyARN)
+	if correlation.Status != StatusGrantedUnused {
+		t.Fatalf("expected granted_unused, got %q", correlation.Status)
+	}
+	if correlation.Confidence != 0.5 {
+		t.Fatalf("expected 0.5 confidence when data events unknown, got %v", correlation.Confidence)
+	}
+	if !hasCaveat(correlation.Caveats, CaveatDataEventCoverage) {
+		t.Fatalf("expected missing-event caveat, got %+v", correlation.Caveats)
+	}
+	if len(result.Caveats) == 0 {
+		t.Fatalf("expected result-level missing-event caveat")
+	}
+}
+
+func TestCorrelateGrantedUnusedHigherConfidenceWhenCoverageKnown(t *testing.T) {
+	result := Correlate(CorrelateRequest{
+		Static: []StaticGrant{{
+			PrincipalARN: "arn:aws:iam::111122223333:role/dormant",
+			ResourceKind: ResourceKindKMSKey,
+			ResourceARN:  "arn:aws:kms:us-east-1:111122223333:key/unused",
+			Source:       SourceKMSGrant,
+			Effect:       "Allow",
+		}},
+		DataEventCoverageUnknown: false,
+	})
+	correlation := result.Correlations[0]
+	if correlation.Confidence != 0.7 {
+		t.Fatalf("expected 0.7 confidence when coverage known, got %v", correlation.Confidence)
+	}
+	if hasCaveat(correlation.Caveats, CaveatDataEventCoverage) {
+		t.Fatalf("did not expect missing-event caveat when coverage known: %+v", correlation.Caveats)
+	}
+}
+
+func TestCorrelateConfirmedCappedForUnresolvedLineageAndConditionalGrant(t *testing.T) {
+	keyARN := "arn:aws:kms:us-east-1:111122223333:key/cmk-cond"
+	identity := "aws:identity:role:agent"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{{
+			EventID:        "evt-3",
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindKMSKey,
+			ResourceARN:    keyARN,
+			LineageStatus:  "source_identity_missing",
+			ObservedAt:     observedAt(1),
+		}},
+		Static: []StaticGrant{{
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindKMSKey,
+			ResourceARN:    keyARN,
+			Source:         SourceKeyPolicy,
+			Effect:         "Allow",
+			Conditional:    true,
+			CrossAccount:   true,
+		}},
+	})
+	correlation := result.Correlations[0]
+	if correlation.Status != StatusConfirmed {
+		t.Fatalf("expected confirmed, got %q", correlation.Status)
+	}
+	// 0.95 base - 0.05 conditional = 0.90, then capped to 0.85 for unresolved lineage.
+	if correlation.Confidence != 0.85 {
+		t.Fatalf("expected confidence capped to 0.85, got %v", correlation.Confidence)
+	}
+	if !hasCaveat(correlation.Caveats, CaveatConditionalGrant) || !hasCaveat(correlation.Caveats, CaveatCrossAccountGrant) || !hasCaveat(correlation.Caveats, CaveatLineageUnresolved) {
+		t.Fatalf("expected conditional/cross-account/lineage caveats, got %+v", correlation.Caveats)
+	}
+}
+
+func TestCorrelateObservedDespiteExplicitDeny(t *testing.T) {
+	keyARN := "arn:aws:kms:us-east-1:111122223333:key/denied"
+	identity := "aws:identity:role:should-not"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{{
+			EventID:        "evt-4",
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindKMSKey,
+			ResourceARN:    keyARN,
+			ObservedAt:     observedAt(1),
+		}},
+		Static: []StaticGrant{{
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindKMSKey,
+			ResourceARN:    keyARN,
+			Source:         SourceKeyPolicy,
+			Effect:         "Deny",
+		}},
+	})
+	correlation := result.Correlations[0]
+	if correlation.Status != StatusObservedWithoutGrant {
+		t.Fatalf("expected observed_without_grant (deny is not an allow), got %q", correlation.Status)
+	}
+	if !hasCaveat(correlation.Caveats, CaveatObservedDespiteDeny) {
+		t.Fatalf("expected observed-despite-deny caveat, got %+v", correlation.Caveats)
+	}
+	if correlation.StaticEffect != "Deny" {
+		t.Fatalf("expected deny static effect, got %q", correlation.StaticEffect)
+	}
+}
+
+func TestCorrelateDenyOnlyWithoutAccessIsNotSurfaced(t *testing.T) {
+	result := Correlate(CorrelateRequest{
+		Static: []StaticGrant{{
+			IdentityNodeID: "aws:identity:role:x",
+			ResourceKind:   ResourceKindKMSKey,
+			ResourceARN:    "arn:aws:kms:us-east-1:111122223333:key/deny-only",
+			Source:         SourceKeyPolicy,
+			Effect:         "Deny",
+		}},
+	})
+	if len(result.Correlations) != 0 {
+		t.Fatalf("expected deny-only grant to be dropped, got %+v", result.Correlations)
+	}
+}
+
+func TestCorrelateAggregatesRepeatedObservationsAndIsCaseInsensitive(t *testing.T) {
+	keyARN := "arn:aws:kms:us-east-1:111122223333:key/cmk-multi"
+	identity := "aws:identity:role:Repeated"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{
+			{EventID: "a", IdentityNodeID: identity, ResourceKind: ResourceKindKMSKey, ResourceARN: keyARN, Action: "kms:Decrypt", SessionID: "s1", ObservedAt: observedAt(10)},
+			{EventID: "b", IdentityNodeID: "AWS:IDENTITY:ROLE:REPEATED", ResourceKind: ResourceKindKMSKey, ResourceARN: keyARN, Action: "kms:GenerateDataKey", SessionID: "s2", ObservedAt: observedAt(2)},
+		},
+		Static: []StaticGrant{{IdentityNodeID: identity, ResourceKind: ResourceKindKMSKey, ResourceARN: keyARN, Source: SourceKeyPolicy, Effect: "Allow"}},
+	})
+	if len(result.Correlations) != 1 {
+		t.Fatalf("expected case-insensitive aggregation into 1 correlation, got %d", len(result.Correlations))
+	}
+	correlation := result.Correlations[0]
+	if correlation.ObservedCount != 2 || len(correlation.ObservedEventIDs) != 2 {
+		t.Fatalf("expected 2 observations aggregated, got %+v", correlation)
+	}
+	if len(correlation.Actions) != 2 || len(correlation.SessionIDs) != 2 {
+		t.Fatalf("expected actions/sessions aggregated, got %+v", correlation)
+	}
+	if !correlation.FirstObservedAt.Equal(observedAt(2)) || !correlation.LastObservedAt.Equal(observedAt(10)) {
+		t.Fatalf("expected first/last observed window, got first=%v last=%v", correlation.FirstObservedAt, correlation.LastObservedAt)
+	}
+}
+
+func TestCorrelateSkipsUnattributableAndResourcelessRecords(t *testing.T) {
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{
+			{EventID: "no-identity", ResourceKind: ResourceKindSecret, ResourceARN: "arn:aws:secretsmanager:us-east-1:1:secret:x"},
+		},
+		Static: []StaticGrant{
+			{IdentityNodeID: "aws:identity:role:y", ResourceKind: ResourceKindSecret, ResourceARN: ""},
+		},
+	})
+	if len(result.Correlations) != 0 {
+		t.Fatalf("expected unattributable observation and resourceless grant to be skipped, got %+v", result.Correlations)
+	}
+	if result.ObservedAccessConsidered != 0 || result.StaticGrantsConsidered != 0 {
+		t.Fatalf("expected zero considered, got %+v", result)
+	}
+}
+
+func TestCorrelateDeterministicOrdering(t *testing.T) {
+	build := func() []Correlation {
+		return Correlate(CorrelateRequest{
+			Observed: []ObservedAccess{
+				{EventID: "1", IdentityNodeID: "z", ResourceKind: ResourceKindSecret, ResourceARN: "arn:secret:b", ObservedAt: observedAt(1)},
+				{EventID: "2", IdentityNodeID: "a", ResourceKind: ResourceKindKMSKey, ResourceARN: "arn:kms:a", ObservedAt: observedAt(1)},
+				{EventID: "3", IdentityNodeID: "a", ResourceKind: ResourceKindSecret, ResourceARN: "arn:secret:a", ObservedAt: observedAt(1)},
+			},
+		}).Correlations
+	}
+	first := build()
+	second := build()
+	if len(first) != 3 {
+		t.Fatalf("expected 3 correlations, got %d", len(first))
+	}
+	for i := range first {
+		if first[i].CorrelationID != second[i].CorrelationID {
+			t.Fatalf("ordering not deterministic at %d: %q vs %q", i, first[i].CorrelationID, second[i].CorrelationID)
+		}
+	}
+	// kms_key sorts before secret; within secret, arn:secret:a before arn:secret:b.
+	if first[0].ResourceKind != ResourceKindKMSKey || first[1].ResourceARN != "arn:secret:a" || first[2].ResourceARN != "arn:secret:b" {
+		t.Fatalf("unexpected ordering: %+v", first)
+	}
+}

@@ -1,6 +1,30 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS Secrets Manager read / KMS decrypt runtime access
+  correlation** (#1518). Adds a metadata-only correlation engine
+  (`internal/runtime/secretsaccess`) that joins observed `secret-read`
+  and `kms-decrypt` runtime events with the static reachability edges
+  Identrail already discovered (KMS key-policy / grant decrypt edges
+  and Secrets Manager resource-policy grants). Each `(identity,
+  resource)` pair is classified as `confirmed` (observed + statically
+  allowed), `observed_without_grant` (observed with no modeled grant —
+  usually IAM identity-policy access, not drift), or `granted_unused`
+  (allowed but never observed), each with a correlation confidence and
+  explicit caveat codes. Because Secrets Manager `GetSecretValue` and
+  KMS `Decrypt` are CloudTrail data events, `granted_unused` carries a
+  mandatory missing-event caveat so absence is never read as proof. The
+  new endpoint
+  `GET /v1/workspaces/{ws}/projects/{p}/aws/secrets-kms-runtime-access`
+  exposes a queryable correlation timeline filterable by identity,
+  agent, resource, resource kind, account, region, and correlation
+  status, with `ready`/`degraded`/`blocked` states, coverage gaps,
+  diagnostics, and graph relationships that join back to the identity
+  and resource nodes. The capability adds no new AWS permissions and
+  never reads secret values, decrypted plaintext, or
+  encryption-context values. Surfaced in the AWS runtime app surface.
+  Closes #1518. See
+  [docs/aws-secrets-kms-runtime-access.md](docs/aws-secrets-kms-runtime-access.md).
 - Add **AWS CloudTrail S3 + EventBridge delivery ingestion** (#1515).
   Adds two bounded, metadata-only CloudTrail delivery-channel
   ingesters (`internal/runtime/cloudtraildelivery`) that read directly
