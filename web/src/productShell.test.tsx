@@ -1898,9 +1898,7 @@ describe('ProductAppearanceSettingsPage', () => {
     expect(document.documentElement.style.getPropertyValue('--appearance-contrast')).toBe('52');
     expect(screen.queryByRole('heading', { name: 'App icon' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Theme preview')).toBeInTheDocument();
-    expect(screen.getByLabelText('App preview')).toBeInTheDocument();
-    expect(screen.getByText('Repository findings')).toBeInTheDocument();
-    expect(screen.getByText('OIDC trust path exposed')).toBeInTheDocument();
+    expect(screen.queryByLabelText('App preview')).not.toBeInTheDocument();
     expect(screen.queryByRole('switch', { name: 'Translucent sidebar' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Light' }));

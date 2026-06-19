@@ -23046,37 +23046,6 @@ export function ProductAppearanceSettingsPage() {
           </div>
         </div>
 
-        <div className="idt-appearance-app-preview" aria-label="App preview">
-          <div className="idt-appearance-app-preview-rail" aria-hidden="true">
-            <span className="is-active">
-              <span />
-              GitHub
-            </span>
-            <span>
-              <span />
-              Settings
-            </span>
-          </div>
-          <div className="idt-appearance-app-preview-surface">
-            <div className="idt-appearance-app-preview-head">
-              <span>
-                <strong>Repository findings</strong>
-                <small>GitHub control center</small>
-              </span>
-              <em>Needs review</em>
-            </div>
-            <div className="idt-appearance-app-preview-card">
-              <span className="idt-appearance-app-preview-dot" aria-hidden="true" />
-              <span>
-                <strong>OIDC trust path exposed</strong>
-                <small>8 findings · 1 file</small>
-              </span>
-              <span className="idt-appearance-app-preview-button">Review</span>
-            </div>
-            <div className="idt-appearance-app-preview-input">Search repositories</div>
-          </div>
-        </div>
-
         <div className="idt-appearance-control-list">
           <label className="idt-appearance-control-row">
             <span>
