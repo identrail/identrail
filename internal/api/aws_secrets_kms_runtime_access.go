@@ -28,6 +28,12 @@ type AWSSecretsKMSRuntimeAccessRequest struct {
 	Resource     string `json:"resource,omitempty"`
 	ResourceKind string `json:"resource_kind,omitempty"`
 	Status       string `json:"status,omitempty"`
+	// DeliverySource selects the CloudTrail ingestion channel used to
+	// observe the secret-read / kms-decrypt data events: `lookup_events`,
+	// `s3`, `eventbridge`, or `all`. Empty defaults to `all` because these
+	// are data events that LookupEvents does not index. Unknown values
+	// return HTTP 400.
+	DeliverySource string `json:"delivery_source,omitempty"`
 }
 
 // AWSSecretsKMSRuntimeAccessRecord is one (identity, resource)
@@ -158,14 +164,31 @@ func (s *Service) GetAWSSecretsKMSRuntimeAccess(ctx context.Context, workspaceID
 		return AWSSecretsKMSRuntimeAccessResult{}, ErrInvalidAWSConnectionRequest
 	}
 
-	// Live composition is only attempted when the connector is healthy,
-	// the operator did not force a fixture state, and the connector's
-	// effective capability set includes runtime_evidence — the same gate
-	// the runtime-events endpoint applies before reading CloudTrail.
-	// Otherwise we use the deterministic correlation fixtures so demos,
-	// tests, and capability-gated environments keep rendering the same
-	// contract shape.
-	useLive := s.AWSCloudTrailLookupEventsFactory != nil &&
+	// secret-read and kms-decrypt are CloudTrail *data* events, which the
+	// LookupEvents API does not index — they are only delivered through
+	// the S3 trail log / EventBridge delivery channels. So this endpoint
+	// defaults its runtime source to `all` (fan out across every wired
+	// channel and dedupe by EventID) rather than the runtime-events
+	// endpoint's `lookup_events` default; otherwise the correlation would
+	// never observe the data events it correlates and would report real
+	// runtime use as granted_unused. Operators can still pin a specific
+	// channel. Unknown tokens are validated downstream by
+	// GetAWSRuntimeEvents and surface as HTTP 400.
+	deliverySource := strings.TrimSpace(request.DeliverySource)
+	if deliverySource == "" {
+		deliverySource = "all"
+	}
+
+	// Live composition is attempted when the connector is healthy, the
+	// operator did not force a fixture state, the connector's effective
+	// capability set includes runtime_evidence, and at least one
+	// CloudTrail ingestion factory is wired. The delivery factory is the
+	// load-bearing one here because it carries the data events; the
+	// LookupEvents factory is accepted too so management-event-only
+	// deployments still compose live. Otherwise we use the deterministic
+	// correlation fixtures so demos, tests, and capability-gated
+	// environments keep rendering the same contract shape.
+	useLive := (s.AWSCloudTrailLookupEventsFactory != nil || s.AWSCloudTrailDeliveryFactory != nil) &&
 		hasConnection && connection.Connected &&
 		strings.TrimSpace(request.FixtureState) == "" &&
 		awsConnectorHasRuntimeEvidence(connection)
@@ -187,7 +210,7 @@ func (s *Service) GetAWSSecretsKMSRuntimeAccess(ctx context.Context, workspaceID
 
 	if useLive {
 		observed, static, diagnostics, coverageGaps, failures, remediations, sourceStatus, coverageUnknown, err =
-			s.awsSecretsKMSRuntimeAccessLiveInputs(ctx, workspaceID, projectID, connectorID, accountID, region)
+			s.awsSecretsKMSRuntimeAccessLiveInputs(ctx, workspaceID, projectID, connectorID, accountID, region, deliverySource)
 		if err != nil {
 			return AWSSecretsKMSRuntimeAccessResult{}, err
 		}
@@ -270,7 +293,7 @@ func normalizeAWSSecretsKMSRuntimeAccessFixtureState(requested string, connectio
 // engine's observed/static inputs. Each sub-service applies its own
 // capability gating and live/fixture decision, so this method stays a
 // thin adapter that joins their results.
-func (s *Service) awsSecretsKMSRuntimeAccessLiveInputs(ctx context.Context, workspaceID, projectID, connectorID, accountID, region string) ([]secretsaccess.ObservedAccess, []secretsaccess.StaticGrant, []AWSSecretsKMSRuntimeAccessDiagnostic, []AWSSecretsKMSRuntimeAccessCoverageGap, []string, []string, string, bool, error) {
+func (s *Service) awsSecretsKMSRuntimeAccessLiveInputs(ctx context.Context, workspaceID, projectID, connectorID, accountID, region, deliverySource string) ([]secretsaccess.ObservedAccess, []secretsaccess.StaticGrant, []AWSSecretsKMSRuntimeAccessDiagnostic, []AWSSecretsKMSRuntimeAccessCoverageGap, []string, []string, string, bool, error) {
 	var (
 		diagnostics  []AWSSecretsKMSRuntimeAccessDiagnostic
 		coverageGaps []AWSSecretsKMSRuntimeAccessCoverageGap
@@ -279,9 +302,10 @@ func (s *Service) awsSecretsKMSRuntimeAccessLiveInputs(ctx context.Context, work
 	)
 
 	runtime, err := s.GetAWSRuntimeEvents(ctx, workspaceID, projectID, AWSRuntimeEventRequest{
-		ConnectorID: connectorID,
-		AccountID:   accountID,
-		Region:      region,
+		ConnectorID:    connectorID,
+		AccountID:      accountID,
+		Region:         region,
+		DeliverySource: deliverySource,
 	})
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, "", false, fmt.Errorf("correlate runtime events: %w", err)

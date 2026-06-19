@@ -2412,6 +2412,7 @@ export type AWSSecretsKMSRuntimeAccessResult = {
 export type AWSSecretsKMSRuntimeAccessQuery = {
   connectorID?: string;
   fixtureState?: AWSSecretsKMSRuntimeAccessFixtureState;
+  deliverySource?: AWSRuntimeEventDeliverySource;
   accountID?: string;
   region?: string;
   identity?: string;
@@ -5538,6 +5539,7 @@ export const apiClient = {
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/secrets-kms-runtime-access${buildQuery({
         connector_id: query?.connectorID,
         fixture_state: query?.fixtureState,
+        delivery_source: query?.deliverySource,
         account_id: query?.accountID,
         region: query?.region,
         identity: query?.identity,

@@ -4654,6 +4654,12 @@ paths:
             enum: [success, empty, degraded, partial_failure, permission_denied]
           description: Optional deterministic fixture state for UI validation and contract tests.
         - in: query
+          name: delivery_source
+          schema:
+            type: string
+            enum: [lookup_events, s3, eventbridge, all]
+          description: Optional CloudTrail delivery channel for the observed secret-read / kms-decrypt data events. Defaults to `all` because these are CloudTrail data events that the LookupEvents API does not index; `s3` and `eventbridge` read directly from the trail's delivery channels.
+        - in: query
           name: account_id
           schema: { type: string }
         - in: query

@@ -61,6 +61,12 @@ Query parameters:
   evidence to one AWS connector.
 - `fixture_state` — `success` (default), `empty`, `degraded`,
   `partial_failure`, `permission_denied` for deterministic UI validation.
+- `delivery_source` — `lookup_events`, `s3`, `eventbridge`, or `all`.
+  **Defaults to `all`.** Secrets Manager `GetSecretValue` and KMS `Decrypt`
+  are CloudTrail *data* events that the LookupEvents API does not index, so
+  the correlation defaults to fanning out across every wired delivery
+  channel (and deduping by `EventID`); `lookup_events` alone will not
+  observe these accesses.
 - `account_id`, `region` — scope filters.
 - `identity` — actor principal / identity-node search.
 - `agent_id` — agent ID / agent-node search.
@@ -78,14 +84,16 @@ the `ready` / `degraded` / `blocked` status with explicit failure reasons.
 
 ## Live vs fixture
 
-Live composition is attempted only when the connector is active and healthy,
-the operator did not pin a `fixture_state`, and the connector's effective
-capability set includes `runtime_evidence` — the same gate the
-runtime-events endpoint applies before reading CloudTrail. In that case the
-handler composes the runtime-events, KMS decrypt reachability, and Secrets
-Manager metadata services and joins their results. Otherwise it returns the
-deterministic correlation fixtures, which exercise all three statuses
-(including a cross-account `granted_unused`).
+Live composition is attempted when the connector is active and healthy, the
+operator did not pin a `fixture_state`, the connector's effective capability
+set includes `runtime_evidence`, and at least one CloudTrail ingestion
+factory (LookupEvents **or** delivery) is wired. The delivery factory is the
+load-bearing one because it carries the data events. In that case the
+handler composes the runtime-events (driven through the resolved
+`delivery_source`), KMS decrypt reachability, and Secrets Manager metadata
+services and joins their results. Otherwise it returns the deterministic
+correlation fixtures, which exercise all three statuses (including a
+cross-account `granted_unused`).
 
 ## AWS permissions
 

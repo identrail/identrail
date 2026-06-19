@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -185,6 +187,76 @@ func TestGetAWSSecretsKMSRuntimeAccessEmptyAndPartialFailure(t *testing.T) {
 	}
 	if partial.Summary.GrantedUnusedCount != 0 {
 		t.Fatalf("partial-failure has no static grants, so no granted_unused expected: %+v", partial.Summary)
+	}
+}
+
+func TestGetAWSSecretsKMSRuntimeAccessLiveRoutesDataEventsThroughDelivery(t *testing.T) {
+	// secret-read / kms-decrypt are CloudTrail data events, so the live
+	// correlation must drive the delivery channels (not LookupEvents).
+	// This wires only the delivery factory and asserts the observed data
+	// event flows through it and confirms against a real static grant.
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 19, 19, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-corr-live")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-corr-live", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-corr-live", "aws-prod")
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	// Discover a real static KMS decrypt grant from the reachability
+	// inventory so the observed event has something to confirm against.
+	kms, err := svc.GetAWSKMSDecryptReachabilityInventory(ctx, "default", "project-corr-live", AWSKMSDecryptReachabilityInventoryRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("kms inventory: %v", err)
+	}
+	var keyARN, principal string
+	for _, record := range kms.Records {
+		for _, grant := range record.IdentityGrants {
+			if strings.EqualFold(grant.Effect, "Allow") && isIAMPrincipalARNForKMSEdge(grant.PrincipalARN) && kmsCapabilitiesIncludeDecrypt(grant.Capabilities) {
+				keyARN = record.KeyARN
+				principal = grant.PrincipalARN
+				break
+			}
+		}
+		if keyARN != "" {
+			break
+		}
+	}
+	if keyARN == "" || principal == "" {
+		t.Fatalf("expected a static KMS decrypt grant in the inventory to confirm against")
+	}
+
+	deliveryRecord := liveRuntimeRecord(t, "evt-kms-corr", "kms-decrypt", "Decrypt", "kms.amazonaws.com", "kms:Decrypt", "platform", "s3-delivery", principal, keyARN, "AWS::KMS::Key", now.Add(-2*time.Minute))
+	fake := &fakeDeliveryIngester{result: AWSCloudTrailIngestResult{
+		Status:  "ready",
+		Records: []AWSRuntimeEventRecord{deliveryRecord},
+	}}
+	svc.AWSCloudTrailDeliveryFactory = func(_ context.Context, _ AWSConnectionStatus, _ AWSCloudTrailDeliverySource) (AWSCloudTrailRuntimeEventIngester, error) {
+		return fake, nil
+	}
+
+	result, err := svc.GetAWSSecretsKMSRuntimeAccess(ctx, "default", "project-corr-live", AWSSecretsKMSRuntimeAccessRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get correlation: %v", err)
+	}
+	if fake.calls == 0 {
+		t.Fatalf("delivery factory was never used — data events were not routed through the delivery channel")
+	}
+	var confirmed *AWSSecretsKMSRuntimeAccessRecord
+	for i := range result.Records {
+		record := &result.Records[i]
+		if record.ResourceARN == keyARN && record.Status == secretsaccess.StatusConfirmed {
+			confirmed = record
+			break
+		}
+	}
+	if confirmed == nil {
+		t.Fatalf("expected a confirmed correlation for the observed decrypt on %s, got %+v", keyARN, result.Records)
+	}
+	if confirmed.ObservedCount == 0 || len(confirmed.StaticSources) == 0 {
+		t.Fatalf("confirmed correlation must carry both observed and static evidence: %+v", confirmed)
 	}
 }
 
