@@ -27344,7 +27344,11 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   color: #a3a3ac;
 }
 
-.idt-app-console-layout .idt-app-nav-domain-trigger.is-active,
+.idt-app-console-layout .idt-app-nav-domain-trigger.is-active {
+  background: transparent;
+  color: #ffffff;
+}
+
 .idt-app-console-layout .idt-app-nav-domain-trigger.is-open {
   background: #1c1c22;
   color: #ffffff;
@@ -27411,7 +27415,9 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   z-index: 20;
   border: 0;
   padding: 0;
-  background: transparent;
+  background: #000000;
+  -webkit-backdrop-filter: blur(28px) saturate(0.84) brightness(0.48);
+  backdrop-filter: blur(28px) saturate(0.84) brightness(0.48);
   cursor: default;
   touch-action: none;
 }
@@ -27422,7 +27428,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   z-index: 40;
   border: 0;
   padding: 0;
-  background: transparent;
+  background: rgba(5, 7, 10, 0.54);
   cursor: default;
   touch-action: none;
 }
@@ -27455,19 +27461,21 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   left: calc(100% + 0.72rem);
   z-index: 50;
   display: grid;
-  gap: 0.48rem;
-  width: min(24rem, calc(100vw - var(--idt-sidebar-width, 15.5rem) - 1.8rem));
+  gap: 0.58rem;
+  width: min(27rem, calc(100vw - var(--idt-sidebar-width, 15.5rem) - 1.8rem));
   max-height: min(78vh, 42rem);
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  border: 1px solid var(--app-border-soft);
+  border: 1px solid rgba(255, 255, 255, 0.13);
   border-radius: 8px;
-  padding: 0.52rem;
-  background: color-mix(in srgb, var(--app-panel) 92%, var(--app-bg));
+  padding: 0.68rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 8rem),
+    #050607;
   box-shadow:
-    0 20px 46px rgba(0, 0, 0, 0.28),
-    0 0 0 1px color-mix(in srgb, var(--app-border-soft) 70%, transparent) inset;
+    0 28px 90px rgba(0, 0, 0, 0.62),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
   transform-origin: top left;
   animation: idtFlyoutRevealIn var(--idt-motion-slow) var(--idt-motion-ease) both;
 }
@@ -27479,15 +27487,15 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   left: -0.45rem;
   width: 0.85rem;
   height: 0.85rem;
-  border-left: 1px solid var(--app-border-soft);
-  border-bottom: 1px solid var(--app-border-soft);
-  background: color-mix(in srgb, var(--app-panel) 92%, var(--app-bg));
+  border-left: 1px solid rgba(255, 255, 255, 0.13);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.13);
+  background: #050607;
   transform: rotate(45deg);
 }
 
 .idt-domain-flyout-section-label {
   margin: 0;
-  color: var(--app-muted);
+  color: #9aa4af;
   font-size: 0.68rem;
   font-weight: 800;
   line-height: 1.2;
@@ -27498,7 +27506,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 .idt-domain-flyout-list,
 .idt-domain-flyout-nested-body {
   display: grid;
-  gap: 0.06rem;
+  gap: 0.12rem;
 }
 
 .idt-domain-flyout-section {
@@ -27509,20 +27517,20 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 
 .idt-domain-flyout-section + .idt-domain-flyout-section,
 .idt-domain-flyout-nested + .idt-domain-flyout-section {
-  border-top: 1px solid var(--app-border-soft);
-  padding-top: 0.52rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding-top: 0.62rem;
 }
 
 .idt-domain-flyout-link {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1fr) 1rem;
+  gap: 0.8rem;
   align-items: center;
-  min-height: 2.05rem;
+  min-height: 2.28rem;
   border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 0.34rem 0.48rem;
-  color: var(--app-muted);
+  border-radius: 7px;
+  padding: 0.44rem 0.54rem;
+  color: #dce3eb;
   text-decoration: none;
   transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
@@ -27530,16 +27538,16 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 .idt-domain-flyout-link:hover,
 .idt-domain-flyout-link:focus-visible,
 .idt-domain-flyout-link.is-active {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--appearance-accent) 13%, transparent);
-  color: var(--app-text);
+  border-color: rgba(255, 255, 255, 0.12);
+  background: #10141a;
+  color: #ffffff;
   outline: none;
 }
 
 .idt-domain-flyout-link.is-child {
   margin-left: 0.48rem;
-  padding-left: 0.56rem;
-  border-left-color: color-mix(in srgb, var(--app-border-soft) 72%, transparent);
+  padding-left: 0.62rem;
+  border-left-color: rgba(255, 255, 255, 0.12);
 }
 
 .idt-domain-flyout-link-copy {
@@ -27549,33 +27557,40 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 
 .idt-domain-flyout-link-copy strong {
   color: inherit;
-  font-size: 0.82rem;
+  font-size: 0.86rem;
   font-weight: 750;
   line-height: 1.2;
+  white-space: nowrap;
+}
+
+.idt-domain-flyout-link > svg {
+  justify-self: end;
+  width: 1rem;
+  min-width: 1rem;
 }
 
 .idt-domain-flyout-link-copy span,
 .idt-domain-flyout-nested small {
-  color: var(--app-muted);
+  color: #8f98a4;
   font-size: 0.72rem;
   font-weight: 650;
   line-height: 1.2;
 }
 
 .idt-domain-flyout-nested {
-  border: 0;
-  border-radius: 6px;
-  padding: 0;
-  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  padding: 0.36rem;
+  background: rgba(255, 255, 255, 0.018);
 }
 
 .idt-domain-flyout-nested summary {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  border-radius: 6px;
-  padding: 0.34rem 0.48rem;
-  color: var(--app-text);
+  border-radius: 7px;
+  padding: 0.45rem 0.5rem;
+  color: #f3f5f7;
   cursor: pointer;
   list-style: none;
 }
@@ -27596,7 +27611,9 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 }
 
 .idt-domain-flyout-nested summary svg {
-  color: var(--app-muted);
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #8f98a4;
   transition: transform 0.14s ease;
 }
 
@@ -27606,12 +27623,12 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 
 .idt-domain-flyout-nested summary:hover,
 .idt-domain-flyout-nested summary:focus-visible {
-  background: color-mix(in srgb, var(--appearance-accent) 10%, transparent);
+  background: #10141a;
   outline: none;
 }
 
 .idt-domain-flyout-nested-body {
-  margin-top: 0.08rem;
+  margin-top: 0.34rem;
   transform-origin: top;
   animation: idtFlyoutRevealIn var(--idt-motion-standard) var(--idt-motion-ease) both;
 }
@@ -28860,7 +28877,7 @@ html[data-theme='light'] .idt-app-scroll-navigator-thumb {
 }
 
 .idt-app-console-layout .idt-app-shell-nav a.active {
-  background: #1c1c22;
+  background: transparent;
   color: #ffffff;
 }
 
@@ -29044,7 +29061,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a:focus-visi
 
 .idt-app-console-layout .idt-app-shell-nav a.active,
 html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a.active {
-  background: var(--idt-console-rail-hover);
+  background: transparent;
   color: var(--app-text);
 }
 
@@ -31149,7 +31166,7 @@ html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a:
 }
 
 html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a.active {
-  background: var(--idt-console-rail-hover);
+  background: transparent;
   color: var(--app-text);
 }
 
