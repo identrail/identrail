@@ -352,6 +352,7 @@ func TestStaticGrantsFromS3RecordsProjectsIAMPrincipalsOnly(t *testing.T) {
 		IdentityGrants: []AWSS3IdentityGrant{
 			{PrincipalARN: "arn:aws:iam::111122223333:role/reader", Effect: "Allow", Actions: []string{"s3:GetObject", "s3:ListBucket"}},
 			{PrincipalARN: "*", WildcardPrincipal: true, Effect: "Allow", Actions: []string{"s3:GetObject"}},
+			{PrincipalARN: "arn:aws:iam::111122223333:role/not-action", Effect: "Allow", Actions: []string{"s3:GetObject"}, NotAction: true},
 			{PrincipalARN: "arn:aws:iam::111122223333:role/no-recognized-action", Effect: "Allow", Actions: []string{"s3:GetBucketTagging"}},
 		},
 	}}

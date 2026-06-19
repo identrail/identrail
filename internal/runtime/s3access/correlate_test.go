@@ -201,6 +201,25 @@ func TestCorrelateAllowPlusExplicitDenyIsNotConfirmed(t *testing.T) {
 	}
 }
 
+func TestCorrelateIgnoresDenyForUnobservedModes(t *testing.T) {
+	bucketARN := "arn:aws:s3:::read-allowed-write-denied"
+	identity := "aws:identity:role:reader"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{{EventID: "read", IdentityNodeID: identity, BucketARN: bucketARN, AccessMode: ModeRead, Action: "s3:GetObject", ObservedAt: observedAt(1)}},
+		Static: []StaticGrant{
+			{IdentityNodeID: identity, BucketARN: bucketARN, AllowedModes: []string{ModeRead}, Source: SourceBucketPolicy, Effect: "Allow"},
+			{IdentityNodeID: identity, BucketARN: bucketARN, AllowedModes: []string{ModeWrite}, Source: SourceBucketPolicy, Effect: "Deny"},
+		},
+	})
+	correlation := result.Correlations[0]
+	if correlation.Status != StatusConfirmed {
+		t.Fatalf("expected read access to stay confirmed when only write is denied, got %+v", correlation)
+	}
+	if correlation.StaticEffect != "Allow" || hasCaveat(correlation.Caveats, CaveatObservedDespiteDeny) {
+		t.Fatalf("write-only deny must not flag observed read access, got %+v", correlation)
+	}
+}
+
 func TestCorrelateWildcardDenyAppliesToObservedPrincipal(t *testing.T) {
 	bucketARN := "arn:aws:s3:::wildcard-denied"
 	result := Correlate(CorrelateRequest{

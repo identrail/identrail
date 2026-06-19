@@ -439,7 +439,6 @@ func buildCorrelation(agg *correlationAgg, dataEventCoverageUnknown bool) Correl
 	sources := map[string]struct{}{}
 	grantedModes := map[string]struct{}{}
 	hasAllow := len(agg.allow) > 0
-	hasDeny := len(agg.deny) > 0
 	conditional := false
 	crossAccount := false
 	sensitivity := ""
@@ -483,10 +482,11 @@ func buildCorrelation(agg *correlationAgg, dataEventCoverageUnknown bool) Correl
 	correlation.Sensitivity = sensitivity
 	correlation.Exposure = exposure
 	correlation.EvidenceRefs = sortedKeys(evidence)
+	hasMatchingDeny := denyMatchesObservedModes(agg.deny, correlation.ObservedModes)
 
 	caveats := map[string]struct{}{}
 	switch {
-	case correlation.ObservedCount > 0 && hasAllow && !hasDeny:
+	case correlation.ObservedCount > 0 && hasAllow && !hasMatchingDeny:
 		correlation.Status = StatusConfirmed
 		correlation.StaticEffect = "Allow"
 		correlation.Confidence = 0.95
@@ -515,10 +515,10 @@ func buildCorrelation(agg *correlationAgg, dataEventCoverageUnknown bool) Correl
 	case correlation.ObservedCount > 0:
 		// Observed but not a clean confirmation. An explicit Deny
 		// overrides any Allow in AWS, so observed access against a bucket
-		// carrying a specific Deny is anomalous, never confirmed.
+		// carrying a matching Deny is anomalous, never confirmed.
 		correlation.Status = StatusObservedWithoutGrant
 		correlation.Confidence = 0.6
-		if hasDeny {
+		if hasMatchingDeny {
 			caveats[CaveatObservedDespiteDeny] = struct{}{}
 			correlation.StaticEffect = "Deny"
 		} else {
@@ -564,8 +564,42 @@ func modesExceedGrant(observedModes []string, grantedModes map[string]struct{}) 
 	return false
 }
 
+func denyMatchesObservedModes(denies []StaticGrant, observedModes []string) bool {
+	if len(denies) == 0 || len(observedModes) == 0 {
+		return false
+	}
+	observed := map[string]struct{}{}
+	for _, mode := range observedModes {
+		if trimmed := strings.TrimSpace(mode); trimmed != "" {
+			observed[normalize(trimmed)] = struct{}{}
+		}
+	}
+	for _, deny := range denies {
+		modes := nonEmptyStrings(deny.AllowedModes)
+		if len(modes) == 0 {
+			return true
+		}
+		for _, mode := range modes {
+			if _, ok := observed[normalize(mode)]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func isWildcardPrincipalDeny(grant StaticGrant) bool {
 	return strings.EqualFold(strings.TrimSpace(grant.Effect), "Deny") && strings.TrimSpace(grant.PrincipalARN) == "*"
+}
+
+func nonEmptyStrings(values []string) []string {
+	out := []string{}
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 func isSensitive(sensitivity string) bool {

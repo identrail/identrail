@@ -558,6 +558,9 @@ func staticGrantsFromS3Records(records []AWSS3BucketReachabilityRecord) []s3acce
 	for _, record := range records {
 		sensitivity := s3BucketSensitivity(record)
 		for _, grant := range record.IdentityGrants {
+			if grant.NotAction {
+				continue
+			}
 			modes := s3GrantAllowedModes(grant.Actions)
 			if len(modes) == 0 {
 				continue
