@@ -4597,7 +4597,7 @@ paths:
           name: status
           schema:
             type: string
-            enum: [observed, delayed, permission-denied, resolved, archived, stale]
+            enum: [observed, delayed, permission-denied, resolved, archived, stale, unknown]
       responses:
         "200":
           description: AWS runtime event contract
@@ -10779,7 +10779,7 @@ components:
           format: date-time
         status:
           type: string
-          enum: [observed, delayed, permission-denied, resolved, archived, stale]
+          enum: [observed, delayed, permission-denied, resolved, archived, stale, unknown]
         next_action: { type: string }
         redaction_boundary:
           type: string

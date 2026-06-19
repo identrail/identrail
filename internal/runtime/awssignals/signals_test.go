@@ -273,6 +273,9 @@ func TestIngesterUsesFindingsV2ForInternalAccessAnalyzers(t *testing.T) {
 	if finding.EventName != string(accessanalyzertypes.FindingTypeInternalAccess) || finding.Scope != strings.ToLower(string(accessanalyzertypes.TypeAccountInternalAccess)) {
 		t.Fatalf("expected internal analyzer finding from ListFindingsV2, got %+v", finding)
 	}
+	if finding.ActorPrincipalType != "access_analyzer" || finding.ActorPrincipalARN == "access-analyzer:external-principal" {
+		t.Fatalf("expected V2 internal analyzer finding to stay analyzer-scoped, got %+v", finding)
+	}
 	if finding.TargetResourceARN != "arn:aws:iam::123456789012:role/payments-worker" || finding.TargetResourceType != string(accessanalyzertypes.ResourceTypeAwsIamRole) {
 		t.Fatalf("expected normalized V2 resource details, got %+v", finding)
 	}

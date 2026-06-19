@@ -566,6 +566,7 @@ func (i *Ingester) collectAccessAnalyzer(ctx context.Context, request IngestRequ
 				continue
 			}
 			eventName := firstNonEmpty(string(finding.FindingType), "Finding")
+			actorPrincipal, actorType := accessAnalyzerActor(finding, analyzerARN)
 			signals = append(signals, Signal{
 				EventID:            "access-analyzer:" + sanitizeToken(firstNonEmpty(finding.ID, resourceARN, analyzerARN)),
 				AccountID:          firstNonEmpty(ownerAccount, request.AccountID),
@@ -574,9 +575,9 @@ func (i *Ingester) collectAccessAnalyzer(ctx context.Context, request IngestRequ
 				Scope:              strings.ToLower(strings.TrimSpace(string(analyzer.Type))),
 				EventSource:        "access-analyzer.amazonaws.com",
 				EventName:          eventName,
-				Action:             firstNonEmpty(strings.Join(finding.Action, ","), "access-analyzer:Finding"),
-				ActorPrincipalARN:  principalFromFinding(finding.Principal),
-				ActorPrincipalType: "external_principal",
+				Action:             accessAnalyzerAction(finding),
+				ActorPrincipalARN:  actorPrincipal,
+				ActorPrincipalType: actorType,
 				TargetResourceARN:  resourceARN,
 				TargetResourceType: firstNonEmpty(string(finding.ResourceType), "access_analyzer_resource"),
 				TargetResourceName: displayNameFromARN(resourceARN),
@@ -733,6 +734,33 @@ func accessAnalyzerConfidence(finding accessAnalyzerFinding) float64 {
 		return 0.84
 	}
 	return 0.72
+}
+
+func accessAnalyzerAction(finding accessAnalyzerFinding) string {
+	if len(finding.Action) > 0 {
+		return strings.Join(finding.Action, ",")
+	}
+	eventName := strings.TrimSpace(string(finding.FindingType))
+	if eventName == "" {
+		return "access-analyzer:Finding"
+	}
+	return "access-analyzer:" + eventName
+}
+
+func accessAnalyzerActor(finding accessAnalyzerFinding, analyzerARN string) (string, string) {
+	if len(finding.Principal) > 0 || finding.FindingType == accessanalyzertypes.FindingTypeExternalAccess {
+		return principalFromFinding(finding.Principal), "external_principal"
+	}
+	switch finding.FindingType {
+	case accessanalyzertypes.FindingTypeUnusedIamRole,
+		accessanalyzertypes.FindingTypeUnusedIamUserAccessKey,
+		accessanalyzertypes.FindingTypeUnusedIamUserPassword,
+		accessanalyzertypes.FindingTypeUnusedPermission:
+		if strings.TrimSpace(finding.Resource) != "" {
+			return finding.Resource, principalTypeFromARN(finding.Resource)
+		}
+	}
+	return firstNonEmpty(analyzerARN, "access-analyzer:"+strings.ToLower(strings.TrimSpace(string(finding.FindingType)))), "access_analyzer"
 }
 
 func principalFromFinding(principal map[string]string) string {
