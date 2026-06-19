@@ -357,6 +357,9 @@ func Correlate(request CorrelateRequest) Result {
 		if len(agg.observed) == 0 && len(agg.allow) == 0 {
 			continue
 		}
+		if len(agg.observed) == 0 && len(agg.deny) > 0 {
+			continue
+		}
 		correlation := buildCorrelation(agg, request.DataEventCoverageUnknown)
 		result.Correlations = append(result.Correlations, correlation)
 		switch correlation.Status {

@@ -595,6 +595,39 @@ func TestCorrelateDenyOnlyWithoutAccessIsNotSurfaced(t *testing.T) {
 	}
 }
 
+func TestCorrelateStaticAllowPlusDenyWithoutAccessIsNotGrantedUnused(t *testing.T) {
+	keyARN := "arn:aws:kms:us-east-1:111122223333:key/static-allow-deny"
+	identity := "aws:identity:role:blocked-unused"
+	result := Correlate(CorrelateRequest{
+		Static: []StaticGrant{
+			{
+				IdentityNodeID: identity,
+				ResourceKind:   ResourceKindKMSKey,
+				ResourceARN:    keyARN,
+				Source:         SourceKeyPolicy,
+				Effect:         "Allow",
+			},
+			{
+				IdentityNodeID: identity,
+				ResourceKind:   ResourceKindKMSKey,
+				ResourceARN:    keyARN,
+				Source:         SourceKeyPolicy,
+				Effect:         "Deny",
+			},
+		},
+	})
+
+	if len(result.Correlations) != 0 {
+		t.Fatalf("static allow+deny without observed access should not surface as unused reachability, got %+v", result.Correlations)
+	}
+	if result.GrantedUnusedCount != 0 {
+		t.Fatalf("explicitly denied static pair must not count as granted_unused, got %+v", result)
+	}
+	if result.StaticGrantsConsidered != 2 {
+		t.Fatalf("expected both static grants to remain considered, got %+v", result)
+	}
+}
+
 func TestCorrelateAggregatesRepeatedObservationsAndIsCaseInsensitive(t *testing.T) {
 	keyARN := "arn:aws:kms:us-east-1:111122223333:key/cmk-multi"
 	identity := "aws:identity:role:Repeated"

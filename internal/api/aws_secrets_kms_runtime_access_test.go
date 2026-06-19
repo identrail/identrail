@@ -34,7 +34,7 @@ func TestGetAWSSecretsKMSRuntimeAccessBuildsCorrelationContract(t *testing.T) {
 	now := time.Date(2026, 6, 19, 18, 0, 0, 0, time.UTC)
 	svc, ws := newSecretsKMSRuntimeAccessService(t, "project-corr", now)
 
-	result, err := svc.GetAWSSecretsKMSRuntimeAccess(defaultScopeContext(), ws, "project-corr", AWSSecretsKMSRuntimeAccessRequest{ConnectorID: "aws-prod"})
+	result, err := svc.GetAWSSecretsKMSRuntimeAccess(defaultScopeContext(), ws, "project-corr", AWSSecretsKMSRuntimeAccessRequest{ConnectorID: "aws-prod", FixtureState: "success"})
 	if err != nil {
 		t.Fatalf("get correlation: %v", err)
 	}
@@ -81,8 +81,9 @@ func TestGetAWSSecretsKMSRuntimeAccessConfirmedCarriesObservedAndStatic(t *testi
 	svc, ws := newSecretsKMSRuntimeAccessService(t, "project-corr-confirmed", now)
 
 	result, err := svc.GetAWSSecretsKMSRuntimeAccess(defaultScopeContext(), ws, "project-corr-confirmed", AWSSecretsKMSRuntimeAccessRequest{
-		ConnectorID: "aws-prod",
-		Status:      "confirmed",
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Status:       "confirmed",
 	})
 	if err != nil {
 		t.Fatalf("get correlation: %v", err)
@@ -112,6 +113,7 @@ func TestGetAWSSecretsKMSRuntimeAccessFiltersByResourceKindAndIdentity(t *testin
 
 	secretsOnly, err := svc.GetAWSSecretsKMSRuntimeAccess(defaultScopeContext(), ws, "project-corr-filter", AWSSecretsKMSRuntimeAccessRequest{
 		ConnectorID:  "aws-prod",
+		FixtureState: "success",
 		ResourceKind: "secret",
 	})
 	if err != nil {
@@ -127,8 +129,9 @@ func TestGetAWSSecretsKMSRuntimeAccessFiltersByResourceKindAndIdentity(t *testin
 	}
 
 	invoiceOnly, err := svc.GetAWSSecretsKMSRuntimeAccess(defaultScopeContext(), ws, "project-corr-filter", AWSSecretsKMSRuntimeAccessRequest{
-		ConnectorID: "aws-prod",
-		Identity:    "invoice-agent",
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Identity:     "invoice-agent",
 	})
 	if err != nil {
 		t.Fatalf("get correlation: %v", err)
@@ -298,6 +301,34 @@ func TestGetAWSSecretsKMSRuntimeAccessDefaultLiveRequiresDeliveryFactory(t *test
 				t.Fatalf("lookup-only live event leaked into default delivery-backed correlation: %+v", record)
 			}
 		}
+	}
+}
+
+func TestGetAWSSecretsKMSRuntimeAccessSuppressesFixturesWhenLiveDeliveryUnavailable(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 19, 19, 20, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-corr-live-unavailable")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-corr-live-unavailable", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	result, err := svc.GetAWSSecretsKMSRuntimeAccess(ctx, "default", "project-corr-live-unavailable", AWSSecretsKMSRuntimeAccessRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get correlation: %v", err)
+	}
+	if result.Status != awsPlatformDependencyStatusDegraded {
+		t.Fatalf("expected degraded status when live delivery is unavailable, got %q", result.Status)
+	}
+	if len(result.Records) != 0 {
+		t.Fatalf("expected no fixture records for a real connector without live delivery, got %+v", result.Records)
+	}
+	if result.FixtureState != "" {
+		t.Fatalf("expected no fixture state when live fixtures are suppressed, got %q", result.FixtureState)
+	}
+	if len(result.Diagnostics) == 0 || result.Diagnostics[0].Code != "runtime_delivery_unavailable" {
+		t.Fatalf("expected runtime delivery diagnostic, got %+v", result.Diagnostics)
 	}
 }
 

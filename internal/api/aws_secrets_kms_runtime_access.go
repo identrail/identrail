@@ -218,6 +218,10 @@ func (s *Service) GetAWSSecretsKMSRuntimeAccess(ctx context.Context, workspaceID
 		if err != nil {
 			return AWSSecretsKMSRuntimeAccessResult{}, err
 		}
+	} else if strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected {
+		observed, static, diagnostics, coverageGaps, failures, remediations, sourceStatus, coverageUnknown =
+			awsSecretsKMSRuntimeAccessLiveUnavailableInputs(deliverySource)
+		fixtureState = ""
 	} else {
 		observed, static, diagnostics, coverageGaps, failures, remediations, sourceStatus, coverageUnknown =
 			awsSecretsKMSRuntimeAccessFixtureInputs(accountID, region, fixtureState, now)
@@ -290,6 +294,30 @@ func normalizeAWSSecretsKMSRuntimeAccessFixtureState(requested string, connectio
 	default:
 		return ""
 	}
+}
+
+func awsSecretsKMSRuntimeAccessLiveUnavailableInputs(deliverySource string) ([]secretsaccess.ObservedAccess, []secretsaccess.StaticGrant, []AWSSecretsKMSRuntimeAccessDiagnostic, []AWSSecretsKMSRuntimeAccessCoverageGap, []string, []string, string, bool) {
+	source := strings.TrimSpace(deliverySource)
+	if source == "" {
+		source = "all"
+	}
+	diagnostics := []AWSSecretsKMSRuntimeAccessDiagnostic{{
+		Collector:   secretsaccess.CollectorName,
+		SourceID:    "runtime_delivery:" + source,
+		Code:        "runtime_delivery_unavailable",
+		Message:     "Live Secrets Manager / KMS data-event delivery is unavailable for this connector; fixture correlations were suppressed.",
+		Remediation: "Configure the selected CloudTrail delivery channel and grant the runtime_evidence capability, or request a fixture_state explicitly for demo data.",
+		Retryable:   true,
+	}}
+	coverageGaps := []AWSSecretsKMSRuntimeAccessCoverageGap{{
+		Capability:  "secrets_kms_data_event_delivery",
+		Status:      "delivery_unavailable",
+		Reason:      "The selected runtime delivery source is not available, so real secret-read / kms-decrypt events cannot be correlated.",
+		Remediation: "Wire CloudTrail S3/EventBridge delivery for this connector and grant runtime_evidence before relying on live correlation output.",
+	}}
+	failures := []string{"Secrets Manager / KMS runtime delivery is unavailable; fixture correlations suppressed"}
+	remediations := []string{"Configure CloudTrail data-event delivery or request fixture_state explicitly for sample data."}
+	return nil, nil, diagnostics, coverageGaps, failures, remediations, awsPlatformDependencyStatusDegraded, true
 }
 
 // awsSecretsKMSRuntimeAccessLiveInputs composes the runtime-events, KMS
