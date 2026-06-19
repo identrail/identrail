@@ -263,6 +263,15 @@ func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest
 				StaleAt:            request.CollectedAt,
 			})
 		} else {
+			status := iamNeverUsedStatus(role.CreateDate, request.CollectedAt)
+			confidence := 0.52
+			observedAt := request.CollectedAt
+			if role.CreateDate != nil {
+				observedAt = role.CreateDate.UTC()
+			}
+			if status == "stale" {
+				confidence = 0.68
+			}
 			signals = append(signals, Signal{
 				EventID:            "iam-role-never-used:" + sanitizeToken(roleARN),
 				AccountID:          request.AccountID,
@@ -277,9 +286,9 @@ func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest
 				TargetResourceARN:  roleARN,
 				TargetResourceType: "iam_role",
 				TargetResourceName: roleName,
-				Status:             "stale",
-				Confidence:         0.68,
-				ObservedAt:         request.CollectedAt,
+				Status:             status,
+				Confidence:         confidence,
+				ObservedAt:         observedAt,
 				CollectedAt:        request.CollectedAt,
 				StaleAt:            request.CollectedAt,
 			})
@@ -432,6 +441,16 @@ func iamLastUsedStatus(observedAt time.Time, collectedAt time.Time) string {
 		return "stale"
 	}
 	return "observed"
+}
+
+func iamNeverUsedStatus(createdAt *time.Time, collectedAt time.Time) string {
+	if createdAt == nil || collectedAt.IsZero() {
+		return "unknown"
+	}
+	if collectedAt.Sub(createdAt.UTC()) >= dormantAccessAge {
+		return "stale"
+	}
+	return "unknown"
 }
 
 func serviceLastAccessedEventName(hasLastAuthenticated bool) string {

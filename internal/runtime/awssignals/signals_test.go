@@ -15,10 +15,12 @@ import (
 )
 
 type fakeIAMAPI struct {
-	listRolesErr error
-	getStatus    iamtypes.JobStatusType
-	truncated    bool
-	emptyRoles   bool
+	listRolesErr     error
+	getStatus        iamtypes.JobStatusType
+	truncated        bool
+	emptyRoles       bool
+	neverUsedRole    bool
+	roleCreationDate *time.Time
 }
 
 func (f fakeIAMAPI) ListRoles(context.Context, *iam.ListRolesInput, ...func(*iam.Options)) (*iam.ListRolesOutput, error) {
@@ -28,17 +30,19 @@ func (f fakeIAMAPI) ListRoles(context.Context, *iam.ListRolesInput, ...func(*iam
 	if f.emptyRoles {
 		return &iam.ListRolesOutput{}, nil
 	}
-	lastUsed := time.Date(2026, 6, 17, 9, 0, 0, 0, time.UTC)
-	return &iam.ListRolesOutput{
-		Roles: []iamtypes.Role{{
-			Arn:      awsv2.String("arn:aws:iam::123456789012:role/payments-worker"),
-			RoleName: awsv2.String("payments-worker"),
-			RoleLastUsed: &iamtypes.RoleLastUsed{
-				LastUsedDate: &lastUsed,
-				Region:       awsv2.String("us-east-1"),
-			},
-		}},
-	}, nil
+	role := iamtypes.Role{
+		Arn:        awsv2.String("arn:aws:iam::123456789012:role/payments-worker"),
+		RoleName:   awsv2.String("payments-worker"),
+		CreateDate: f.roleCreationDate,
+	}
+	if !f.neverUsedRole {
+		lastUsed := time.Date(2026, 6, 17, 9, 0, 0, 0, time.UTC)
+		role.RoleLastUsed = &iamtypes.RoleLastUsed{
+			LastUsedDate: &lastUsed,
+			Region:       awsv2.String("us-east-1"),
+		}
+	}
+	return &iam.ListRolesOutput{Roles: []iamtypes.Role{role}}, nil
 }
 
 func (f fakeIAMAPI) GenerateServiceLastAccessedDetails(context.Context, *iam.GenerateServiceLastAccessedDetailsInput, ...func(*iam.Options)) (*iam.GenerateServiceLastAccessedDetailsOutput, error) {
@@ -212,6 +216,35 @@ func TestIngesterSkipsCrossAccountAccessAnalyzerFindings(t *testing.T) {
 	}
 	if result.Signals[0].AccountID != "123456789012" || !strings.Contains(result.Signals[0].EventID, "same-account") {
 		t.Fatalf("expected retained finding to belong to connector account, got %+v", result.Signals[0])
+	}
+}
+
+func TestIngesterDoesNotMarkNewNeverUsedRolesStale(t *testing.T) {
+	collectedAt := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+	createdAt := collectedAt.Add(-2 * time.Hour)
+	result, err := New(fakeIAMAPI{neverUsedRole: true, roleCreationDate: &createdAt}, fakeAccessAnalyzerAPI{emptyAnalyzers: true}).Ingest(context.Background(), IngestRequest{
+		AccountID:   "123456789012",
+		Region:      "us-east-1",
+		CollectedAt: collectedAt,
+	})
+	if err != nil {
+		t.Fatalf("ingest signals: %v", err)
+	}
+	var neverUsedRole *Signal
+	for idx := range result.Signals {
+		if strings.HasPrefix(result.Signals[idx].EventID, "iam-role-never-used:") {
+			neverUsedRole = &result.Signals[idx]
+			break
+		}
+	}
+	if neverUsedRole == nil {
+		t.Fatalf("expected role-never-used signal, got %+v", result.Signals)
+	}
+	if neverUsedRole.Status != "unknown" {
+		t.Fatalf("new never-used role should remain unknown until dormant threshold, got %+v", neverUsedRole)
+	}
+	if !neverUsedRole.ObservedAt.Equal(createdAt) {
+		t.Fatalf("expected creation date as observed_at, got %+v", neverUsedRole)
 	}
 }
 

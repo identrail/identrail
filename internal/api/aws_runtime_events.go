@@ -800,7 +800,14 @@ func awsRuntimeEventSkipsObservedActionEdge(record AWSRuntimeEventRecord) bool {
 	if category == "access-analyzer" {
 		return true
 	}
-	return category == "iam-last-used" && normalizeAWSRuntimeEventFilterToken(record.SignalScope) == "role"
+	if category != "iam-last-used" {
+		return false
+	}
+	scope := normalizeAWSRuntimeEventFilterToken(record.SignalScope)
+	if scope == "role" {
+		return true
+	}
+	return scope == "service" && normalizeAWSRuntimeEventFilterToken(record.EventName) == "serviceneveraccessed"
 }
 
 func awsRuntimeEventFixtureRecords(accountID string, region string, fixtureState string, checkedAt time.Time) ([]AWSRuntimeEventRecord, []AWSRuntimeEventDiagnostic, []AWSRuntimeEventCoverageGap) {

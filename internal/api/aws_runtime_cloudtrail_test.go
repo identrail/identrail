@@ -1176,3 +1176,23 @@ func TestAWSRuntimeEventRelationshipsSkipRoleLastUsedSelfActions(t *testing.T) {
 		}
 	}
 }
+
+func TestAWSRuntimeEventRelationshipsSkipServiceNeverAccessedActions(t *testing.T) {
+	roleARN := "arn:aws:iam::123456789012:role/never-used"
+	record := AWSRuntimeEventRecord{
+		EventID:             "evt-service-never-accessed",
+		EventType:           "iam-last-used",
+		EventName:           "ServiceNeverAccessed",
+		SignalCategory:      "iam-last-used",
+		SignalScope:         "service",
+		ActorIdentityNodeID: awsIdentityNodeIDForAPI(roleARN),
+		ResourceNodeID:      awsRuntimeEventResourceNodeID("aws-service://sqs", "aws_service"),
+		EvidenceRef:         "runtime-evidence://123456789012/us-east-1/evt-service-never-accessed",
+	}
+	relationships := awsRuntimeEventRelationships([]AWSRuntimeEventRecord{record})
+	for _, relationship := range relationships {
+		if relationship.Type == "observed_runtime_action" {
+			t.Fatalf("service-never-accessed metadata must not create observed action edge, got %+v", relationships)
+		}
+	}
+}
