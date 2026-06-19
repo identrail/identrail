@@ -332,11 +332,11 @@ func (s *Service) awsSecretsKMSRuntimeAccessLiveInputs(ctx context.Context, work
 	remediations = append(remediations, runtime.RemediationHints...)
 
 	// Correlation needs usable observed events. For an explicitly blocked
-	// runtime source, or a degraded source with no returned records, static
-	// edges should not appear as confirmed, observed, or granted_unused.
-	// In those cases, suppress static correlation output so the response
-	// stays faithful to what runtime telemetry could actually prove.
-	if runtime.Status == awsPlatformDependencyStatusBlocked || (runtime.Status == awsPlatformDependencyStatusDegraded && len(runtime.Records) == 0) {
+	// runtime source, or a degraded source that projects to no relevant
+	// secret-read / kms-decrypt events, static edges should not appear as
+	// confirmed, observed, or granted_unused. This prevents over-calling
+	// static grants when only unrelated runtime channels are returning data.
+	if runtime.Status == awsPlatformDependencyStatusBlocked || (runtime.Status == awsPlatformDependencyStatusDegraded && len(observed) == 0) {
 		observed = nil
 		static = nil
 	}

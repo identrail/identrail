@@ -281,6 +281,94 @@ func TestCorrelateAllowPlusExplicitDenyIsNotConfirmed(t *testing.T) {
 	}
 }
 
+func TestCorrelateDenySpecificActionDoesNotBlockOtherKMSAction(t *testing.T) {
+	// Explicit deny rules are action-specific in AWS. A deny for a different
+	// KMS action should not downgrade a matching Decrypt access to
+	// observed-without-grant.
+	keyARN := "arn:aws:kms:us-east-1:111122223333:key/allow-decrypt-deny-generate"
+	identity := "aws:identity:role:mixed-actions"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{{
+			EventID:        "evt-mixed-action",
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindKMSKey,
+			ResourceARN:    keyARN,
+			Action:         "kms:Decrypt",
+			ObservedAt:     observedAt(1),
+		}},
+		Static: []StaticGrant{
+			{
+				IdentityNodeID: identity,
+				ResourceKind:   ResourceKindKMSKey,
+				ResourceARN:    keyARN,
+				Source:         SourceKeyPolicy,
+				Effect:         "Allow",
+				Actions:        []string{"kms:Decrypt"},
+			},
+			{
+				IdentityNodeID: identity,
+				ResourceKind:   ResourceKindKMSKey,
+				ResourceARN:    keyARN,
+				Source:         SourceKMSGrant,
+				Effect:         "Deny",
+				Actions:        []string{"kms:GenerateDataKey"},
+			},
+		},
+	})
+	correlation := result.Correlations[0]
+	if correlation.Status != StatusConfirmed {
+		t.Fatalf("expected confirmed when deny action does not match observed action, got %q", correlation.Status)
+	}
+	if hasCaveat(correlation.Caveats, CaveatObservedDespiteDeny) {
+		t.Fatalf("unexpected observed-despite-deny caveat when deny does not apply, got %+v", correlation.Caveats)
+	}
+}
+
+func TestCorrelateMatchingKMSDenyStillBlocksObservedAccess(t *testing.T) {
+	// A deny for the observed KMS action should still force observed_without_grant,
+	// even when an allow exists, because that access path is explicitly blocked.
+	keyARN := "arn:aws:kms:us-east-1:111122223333:key/allow-deny-match"
+	identity := "aws:identity:role:matching-deny"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{{
+			EventID:        "evt-matching-deny",
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindKMSKey,
+			ResourceARN:    keyARN,
+			Action:         "kms:GenerateDataKey",
+			ObservedAt:     observedAt(1),
+		}},
+		Static: []StaticGrant{
+			{
+				IdentityNodeID: identity,
+				ResourceKind:   ResourceKindKMSKey,
+				ResourceARN:    keyARN,
+				Source:         SourceKeyPolicy,
+				Effect:         "Allow",
+				Actions:        []string{"kms:Decrypt", "kms:GenerateDataKey"},
+			},
+			{
+				IdentityNodeID: identity,
+				ResourceKind:   ResourceKindKMSKey,
+				ResourceARN:    keyARN,
+				Source:         SourceKeyPolicy,
+				Effect:         "Deny",
+				Actions:        []string{"kms:GenerateDataKey"},
+			},
+		},
+	})
+	correlation := result.Correlations[0]
+	if correlation.Status != StatusObservedWithoutGrant {
+		t.Fatalf("expected observed_without_grant when observed action is denied, got %q", correlation.Status)
+	}
+	if !hasCaveat(correlation.Caveats, CaveatObservedDespiteDeny) {
+		t.Fatalf("expected observed-despite-deny caveat, got %+v", correlation.Caveats)
+	}
+	if correlation.StaticEffect != "Deny" {
+		t.Fatalf("expected deny static effect, got %q", correlation.StaticEffect)
+	}
+}
+
 func TestCorrelateObservedKMSActionRequiresMatchingStaticAuthorization(t *testing.T) {
 	keyARN := "arn:aws:kms:us-east-1:111122223333:key/observed-without-kms-decrypt"
 	identity := "aws:identity:role:action-mismatch"

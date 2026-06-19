@@ -432,6 +432,7 @@ func buildCorrelation(agg *correlationAgg, dataEventCoverageUnknown bool) Correl
 
 	sources := map[string]struct{}{}
 	hasAllow := len(agg.allow) > 0
+	hasMatchingDeny := observedKMSDenyActionAppliesToObserved(agg)
 	conditional := false
 	crossAccount := false
 	staticConfidence := 0.0
@@ -452,7 +453,6 @@ func buildCorrelation(agg *correlationAgg, dataEventCoverageUnknown bool) Correl
 			evidence[ref] = struct{}{}
 		}
 	}
-	hasDeny := len(agg.deny) > 0
 	for _, grant := range agg.deny {
 		if ref := strings.TrimSpace(grant.EvidenceRef); ref != "" {
 			evidence[ref] = struct{}{}
@@ -465,7 +465,7 @@ func buildCorrelation(agg *correlationAgg, dataEventCoverageUnknown bool) Correl
 
 	caveats := map[string]struct{}{}
 	switch {
-	case correlation.ObservedCount > 0 && hasAllow && !hasDeny && allObservedKMSActionsAuthorizedByStatic(agg):
+	case correlation.ObservedCount > 0 && hasAllow && !hasMatchingDeny && allObservedKMSActionsAuthorizedByStatic(agg):
 		correlation.Status = StatusConfirmed
 		correlation.StaticEffect = "Allow"
 		correlation.Confidence = 0.95
@@ -492,7 +492,7 @@ func buildCorrelation(agg *correlationAgg, dataEventCoverageUnknown bool) Correl
 		// allow edge (and no deny) explaining the access.
 		correlation.Status = StatusObservedWithoutGrant
 		correlation.Confidence = 0.6
-		if hasDeny {
+		if hasMatchingDeny {
 			caveats[CaveatObservedDespiteDeny] = struct{}{}
 			correlation.StaticEffect = "Deny"
 		} else {
@@ -531,14 +531,7 @@ func allObservedKMSActionsAuthorizedByStatic(agg *correlationAgg) bool {
 		return true
 	}
 
-	observedActions := map[string]struct{}{}
-	for _, observed := range agg.observed {
-		action := strings.TrimSpace(observed.Action)
-		if action == "" {
-			continue
-		}
-		observedActions[action] = struct{}{}
-	}
+	observedActions := observedKMSActions(agg)
 	if len(observedActions) == 0 {
 		return true
 	}
@@ -569,6 +562,59 @@ func allObservedKMSActionsAuthorizedByStatic(agg *correlationAgg) bool {
 		}
 	}
 	return true
+}
+
+func observedKMSActions(agg *correlationAgg) map[string]struct{} {
+	observedActions := map[string]struct{}{}
+	for _, observed := range agg.observed {
+		if !strings.EqualFold(strings.TrimSpace(agg.resourceKind), ResourceKindKMSKey) {
+			continue
+		}
+		action := strings.TrimSpace(strings.ToLower(observed.Action))
+		if action == "" {
+			continue
+		}
+		observedActions[action] = struct{}{}
+	}
+	return observedActions
+}
+
+func observedKMSDenyActionAppliesToObserved(agg *correlationAgg) bool {
+	if len(agg.observed) == 0 {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(agg.resourceKind), ResourceKindKMSKey) {
+		return len(agg.deny) > 0
+	}
+	observedActions := observedKMSActions(agg)
+	if len(agg.deny) == 0 {
+		return false
+	}
+	if len(observedActions) == 0 {
+		return true
+	}
+	for action := range observedActions {
+		denied := false
+		for _, deny := range agg.deny {
+			if len(deny.Actions) == 0 {
+				denied = true
+				break
+			}
+			for _, deniedAction := range deny.Actions {
+				if staticGrantActionAuthorizesObservedAction(action, deniedAction) {
+					denied = true
+					break
+				}
+			}
+			if denied {
+				break
+			}
+		}
+		if denied {
+			return true
+		}
+	}
+	return false
 }
 
 func staticGrantActionAuthorizesObservedAction(observedAction string, allowedAction string) bool {

@@ -332,6 +332,53 @@ func TestGetAWSSecretsKMSRuntimeAccessDegradedRuntimeWithoutRecordsSuppressesUnu
 	}
 }
 
+func TestGetAWSSecretsKMSRuntimeAccessDegradedRuntimeWithoutUsableEventsSuppressesUnusedGrants(t *testing.T) {
+	// A degraded delivery source can still return non-KMS/secret records (for
+	// example STS/API chatter). If none of those are projectable into our
+	// correlation window, static grants should not be treated as used/unused.
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 19, 20, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-corr-degraded-unusable")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-corr-degraded-unusable", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-corr-degraded-unusable", "aws-prod")
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailDeliveryFactory = func(_ context.Context, _ AWSConnectionStatus, _ AWSCloudTrailDeliverySource) (AWSCloudTrailRuntimeEventIngester, error) {
+		return &fakeDeliveryIngester{result: AWSCloudTrailIngestResult{
+			Status: "degraded",
+			Records: []AWSRuntimeEventRecord{
+				{
+					EventType:           "api-call",
+					EventID:             "evt-noise",
+					EventName:           "AssumeRole",
+					ActorIdentityNodeID: "role-noise",
+					AccountID:           "111122223333",
+					Region:              "us-east-1",
+					ObservedAt:          now.Add(-1 * time.Minute),
+					TargetResourceARN:   "",
+					TargetResourceName:  "",
+				},
+			},
+		}}, nil
+	}
+
+	result, err := svc.GetAWSSecretsKMSRuntimeAccess(ctx, "default", "project-corr-degraded-unusable", AWSSecretsKMSRuntimeAccessRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get correlation: %v", err)
+	}
+	if result.Status != awsPlatformDependencyStatusDegraded {
+		t.Fatalf("expected degraded status, got %q", result.Status)
+	}
+	if len(result.Records) != 0 {
+		t.Fatalf("expected no records when no usable secret/kms runtime events exist, got %+v", result.Records)
+	}
+	if result.Summary.GrantedUnusedCount != 0 {
+		t.Fatalf("degraded unusable-event path must suppress static grants, got %+v", result.Summary)
+	}
+}
+
 func TestStaticGrantsFromSecretsRecognizesWildcardReadActions(t *testing.T) {
 	records := []AWSSecretsManagerMetadataRecord{{
 		AccountID:  "111122223333",
