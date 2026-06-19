@@ -1042,14 +1042,17 @@ func (s *Service) appendAWSRuntimeSignals(ctx context.Context, scope db.Scope, p
 	}
 	wasEmptyFilterResult := awsRuntimeEventIsEmptyFilterResult(base)
 	filtered, _ := filterAWSRuntimeEventRecords(signalResult.Records, request)
+	signalEvidenceInScope := awsRuntimeSignalEvidenceInScope(request) || len(filtered) > 0
 	base.Records = append(base.Records, filtered...)
 	base.Relationships = awsRuntimeEventRelationships(base.Records)
-	base.Diagnostics = append(base.Diagnostics, signalResult.Diagnostics...)
-	base.CoverageGaps = append(base.CoverageGaps, signalResult.CoverageGaps...)
-	base.FailureReasons = dedupeStrings(append(base.FailureReasons, signalResult.FailureReasons...))
-	base.RemediationHints = dedupeStrings(append(base.RemediationHints, signalResult.RemediationHints...))
-	base.EvidenceLinks = dedupeStrings(append(base.EvidenceLinks, "/docs/aws-runtime-events#iam-last-used-and-access-analyzer-signals-1517"))
-	base.Summary = mergeAWSRuntimeEventSummaries(base.Summary, signalResult.Records, len(filtered), len(base.Relationships), base.Records)
+	if signalEvidenceInScope {
+		base.Diagnostics = append(base.Diagnostics, signalResult.Diagnostics...)
+		base.CoverageGaps = append(base.CoverageGaps, signalResult.CoverageGaps...)
+		base.FailureReasons = dedupeStrings(append(base.FailureReasons, signalResult.FailureReasons...))
+		base.RemediationHints = dedupeStrings(append(base.RemediationHints, signalResult.RemediationHints...))
+		base.EvidenceLinks = dedupeStrings(append(base.EvidenceLinks, "/docs/aws-runtime-events#iam-last-used-and-access-analyzer-signals-1517"))
+		base.Summary = mergeAWSRuntimeEventSummaries(base.Summary, signalResult.Records, len(filtered), len(base.Relationships), base.Records)
+	}
 	if wasEmptyFilterResult && len(filtered) > 0 {
 		base.FailureReasons = removeRuntimeEventEmptyFilterFailures(base.FailureReasons)
 		base.RemediationHints = removeRuntimeEventEmptyFilterRemediations(base.RemediationHints)
@@ -1059,7 +1062,7 @@ func (s *Service) appendAWSRuntimeSignals(ctx context.Context, scope db.Scope, p
 			base.Confidence = 0.92
 		}
 	}
-	if signalResult.Status == "blocked" {
+	if signalEvidenceInScope && signalResult.Status == "blocked" {
 		if len(base.Records) == 0 {
 			base.Status = "blocked"
 			base.Confidence = 0
@@ -1077,7 +1080,7 @@ func (s *Service) appendAWSRuntimeSignals(ctx context.Context, scope db.Scope, p
 		if base.Confidence == 0 || base.Confidence > 0.72 {
 			base.Confidence = 0.72
 		}
-	} else if signalResult.Status == "degraded" && base.Status == "ready" {
+	} else if signalEvidenceInScope && signalResult.Status == "degraded" && base.Status == "ready" {
 		base.Status = "degraded"
 		base.FixtureState = "degraded"
 		if base.Confidence > 0.78 {
@@ -1085,6 +1088,23 @@ func (s *Service) appendAWSRuntimeSignals(ctx context.Context, scope db.Scope, p
 		}
 	}
 	return base, nil
+}
+
+func awsRuntimeSignalEvidenceInScope(request AWSRuntimeEventRequest) bool {
+	eventType := normalizeAWSRuntimeEventFilterToken(request.EventType)
+	switch eventType {
+	case "", "all", "iam-last-used", "access-analyzer":
+	default:
+		return false
+	}
+
+	evidence := normalizeAWSRuntimeEventFilterToken(request.Evidence)
+	switch evidence {
+	case "", "all", "iam-last-used", "access-analyzer":
+	default:
+		return false
+	}
+	return true
 }
 
 func awsRuntimeEventIsEmptyFilterResult(result AWSRuntimeEventResult) bool {
