@@ -521,9 +521,13 @@ func (i *Ingester) collectAccessAnalyzer(ctx context.Context, request IngestRequ
 				staleAt = finding.AnalyzedAt.UTC()
 			}
 			resourceARN := awsv2.ToString(finding.Resource)
+			ownerAccount := strings.TrimSpace(awsv2.ToString(finding.ResourceOwnerAccount))
+			if ownerAccount != "" && request.AccountID != "" && ownerAccount != request.AccountID {
+				continue
+			}
 			signals = append(signals, Signal{
 				EventID:            "access-analyzer:" + sanitizeToken(firstNonEmpty(awsv2.ToString(finding.Id), resourceARN, analyzerARN)),
-				AccountID:          firstNonEmpty(awsv2.ToString(finding.ResourceOwnerAccount), request.AccountID),
+				AccountID:          firstNonEmpty(ownerAccount, request.AccountID),
 				Region:             request.Region,
 				Category:           "access-analyzer",
 				Scope:              strings.ToLower(strings.TrimSpace(string(analyzer.Type))),

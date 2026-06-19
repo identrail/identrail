@@ -70,6 +70,8 @@ type fakeAccessAnalyzerAPI struct {
 	listAnalyzersErr error
 	listFindingsErr  error
 	emptyAnalyzers   bool
+	analyzerType     accessanalyzertypes.Type
+	findings         []accessanalyzertypes.FindingSummary
 }
 
 func (f fakeAccessAnalyzerAPI) ListAnalyzers(context.Context, *accessanalyzer.ListAnalyzersInput, ...func(*accessanalyzer.Options)) (*accessanalyzer.ListAnalyzersOutput, error) {
@@ -86,7 +88,7 @@ func (f fakeAccessAnalyzerAPI) ListAnalyzers(context.Context, *accessanalyzer.Li
 			CreatedAt: &createdAt,
 			Name:      awsv2.String("account"),
 			Status:    accessanalyzertypes.AnalyzerStatusActive,
-			Type:      accessanalyzertypes.TypeAccount,
+			Type:      firstNonEmptyAnalyzerType(f.analyzerType, accessanalyzertypes.TypeAccount),
 		}},
 	}, nil
 }
@@ -94,6 +96,9 @@ func (f fakeAccessAnalyzerAPI) ListAnalyzers(context.Context, *accessanalyzer.Li
 func (f fakeAccessAnalyzerAPI) ListFindings(context.Context, *accessanalyzer.ListFindingsInput, ...func(*accessanalyzer.Options)) (*accessanalyzer.ListFindingsOutput, error) {
 	if f.listFindingsErr != nil {
 		return nil, f.listFindingsErr
+	}
+	if f.findings != nil {
+		return &accessanalyzer.ListFindingsOutput{Findings: f.findings}, nil
 	}
 	createdAt := time.Date(2026, 6, 12, 11, 0, 0, 0, time.UTC)
 	updatedAt := time.Date(2026, 6, 18, 6, 30, 0, 0, time.UTC)
@@ -113,6 +118,15 @@ func (f fakeAccessAnalyzerAPI) ListFindings(context.Context, *accessanalyzer.Lis
 			Resource:             awsv2.String("arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/payments"),
 		}},
 	}, nil
+}
+
+func firstNonEmptyAnalyzerType(values ...accessanalyzertypes.Type) accessanalyzertypes.Type {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func TestIngesterCollectsIAMLastUsedAndAccessAnalyzerSignals(t *testing.T) {
@@ -151,6 +165,53 @@ func TestIngesterCollectsIAMLastUsedAndAccessAnalyzerSignals(t *testing.T) {
 	}
 	if analyzerFinding.Category != "access-analyzer" || analyzerFinding.Scope != "account" || analyzerFinding.AnalyzerARN == "" || analyzerFinding.StaleAt.IsZero() || analyzerFinding.Confidence < 0.89 {
 		t.Fatalf("unexpected Access Analyzer signal: %+v", analyzerFinding)
+	}
+}
+
+func TestIngesterSkipsCrossAccountAccessAnalyzerFindings(t *testing.T) {
+	collectedAt := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+	createdAt := time.Date(2026, 6, 12, 11, 0, 0, 0, time.UTC)
+	findings := []accessanalyzertypes.FindingSummary{
+		{
+			CreatedAt:            &createdAt,
+			Id:                   awsv2.String("same-account"),
+			ResourceOwnerAccount: awsv2.String("123456789012"),
+			ResourceType:         accessanalyzertypes.ResourceTypeAwsSecretsmanagerSecret,
+			Status:               accessanalyzertypes.FindingStatusActive,
+			Action:               []string{"secretsmanager:GetSecretValue"},
+			Principal:            map[string]string{"AWS": "arn:aws:iam::210987654321:root"},
+			Resource:             awsv2.String("arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/payments"),
+		},
+		{
+			CreatedAt:            &createdAt,
+			Id:                   awsv2.String("member-account"),
+			ResourceOwnerAccount: awsv2.String("999999999999"),
+			ResourceType:         accessanalyzertypes.ResourceTypeAwsSecretsmanagerSecret,
+			Status:               accessanalyzertypes.FindingStatusActive,
+			Action:               []string{"secretsmanager:GetSecretValue"},
+			Principal:            map[string]string{"AWS": "arn:aws:iam::210987654321:root"},
+			Resource:             awsv2.String("arn:aws:secretsmanager:us-east-1:999999999999:secret:prod/other"),
+		},
+	}
+	result, err := New(fakeIAMAPI{emptyRoles: true}, fakeAccessAnalyzerAPI{
+		analyzerType: accessanalyzertypes.TypeOrganization,
+		findings:     findings,
+	}).Ingest(context.Background(), IngestRequest{
+		AccountID:   "123456789012",
+		Region:      "us-east-1",
+		CollectedAt: collectedAt,
+	})
+	if err != nil {
+		t.Fatalf("ingest signals: %v", err)
+	}
+	if result.Status != "ready" {
+		t.Fatalf("expected ready same-account analyzer result, got %+v", result)
+	}
+	if len(result.Signals) != 1 {
+		t.Fatalf("expected only same-account analyzer finding, got %+v", result.Signals)
+	}
+	if result.Signals[0].AccountID != "123456789012" || !strings.Contains(result.Signals[0].EventID, "same-account") {
+		t.Fatalf("expected retained finding to belong to connector account, got %+v", result.Signals[0])
 	}
 }
 
