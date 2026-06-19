@@ -405,6 +405,62 @@ func TestCorrelateObservedKMSActionRequiresMatchingStaticAuthorization(t *testin
 	}
 }
 
+func TestCorrelateObservedSecretActionRequiresMatchingStaticAuthorization(t *testing.T) {
+	secretARN := "arn:aws:secretsmanager:us-east-1:111122223333:secret:api-key"
+	identity := "aws:identity:role:secret-action-mismatch"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{{
+			EventID:        "evt-secret-action-mismatch",
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindSecret,
+			ResourceARN:    secretARN,
+			Action:         "secretsmanager:BatchGetSecretValue",
+			ObservedAt:     observedAt(1),
+		}},
+		Static: []StaticGrant{{
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindSecret,
+			ResourceARN:    secretARN,
+			Source:         SourceResourcePolicy,
+			Effect:         "Allow",
+			Actions:        []string{"secretsmanager:GetSecretValue"},
+		}},
+	})
+
+	correlation := result.Correlations[0]
+	if correlation.Status != StatusObservedWithoutGrant {
+		t.Fatalf("expected observed_without_grant when secret action does not match static authorization, got %q", correlation.Status)
+	}
+}
+
+func TestCorrelateObservedSecretActionMatchConfirmsAccess(t *testing.T) {
+	secretARN := "arn:aws:secretsmanager:us-east-1:111122223333:secret:api-key"
+	identity := "aws:identity:role:secret-action-match"
+	result := Correlate(CorrelateRequest{
+		Observed: []ObservedAccess{{
+			EventID:        "evt-secret-action-match",
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindSecret,
+			ResourceARN:    secretARN,
+			Action:         "secretsmanager:BatchGetSecretValue",
+			ObservedAt:     observedAt(1),
+		}},
+		Static: []StaticGrant{{
+			IdentityNodeID: identity,
+			ResourceKind:   ResourceKindSecret,
+			ResourceARN:    secretARN,
+			Source:         SourceResourcePolicy,
+			Effect:         "Allow",
+			Actions:        []string{"secretsmanager:BatchGetSecretValue"},
+		}},
+	})
+
+	correlation := result.Correlations[0]
+	if correlation.Status != StatusConfirmed {
+		t.Fatalf("expected confirmed when secret action matches static authorization, got %q", correlation.Status)
+	}
+}
+
 func TestCorrelateUnresolvedResourcesSeparatedByKind(t *testing.T) {
 	// Same identity, two different unresolved (empty-ARN) accesses of
 	// different kinds must not merge into one correlation.

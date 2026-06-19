@@ -128,8 +128,9 @@ type StaticGrant struct {
 	Confidence     float64
 	EvidenceRef    string
 	// Actions contains the raw action strings observed on this static edge.
-	// When present, observed KMS actions must match at least one action
-	// to be considered confirmed.
+	// When present, static actions must match each observed action
+	// before an access can be confirmed for resource kinds that require
+	// action authorization (Secrets Manager and KMS key).
 	Actions []string
 }
 
@@ -432,7 +433,7 @@ func buildCorrelation(agg *correlationAgg, dataEventCoverageUnknown bool) Correl
 
 	sources := map[string]struct{}{}
 	hasAllow := len(agg.allow) > 0
-	hasMatchingDeny := observedKMSDenyActionAppliesToObserved(agg)
+	hasMatchingDeny := observedResourceActionDenyAppliesToObserved(agg)
 	conditional := false
 	crossAccount := false
 	staticConfidence := 0.0
@@ -465,7 +466,7 @@ func buildCorrelation(agg *correlationAgg, dataEventCoverageUnknown bool) Correl
 
 	caveats := map[string]struct{}{}
 	switch {
-	case correlation.ObservedCount > 0 && hasAllow && !hasMatchingDeny && allObservedKMSActionsAuthorizedByStatic(agg):
+	case correlation.ObservedCount > 0 && hasAllow && !hasMatchingDeny && allObservedActionsAuthorizedByStatic(agg):
 		correlation.Status = StatusConfirmed
 		correlation.StaticEffect = "Allow"
 		correlation.Confidence = 0.95
@@ -523,15 +524,15 @@ func buildCorrelation(agg *correlationAgg, dataEventCoverageUnknown bool) Correl
 	return correlation
 }
 
-func allObservedKMSActionsAuthorizedByStatic(agg *correlationAgg) bool {
+func allObservedActionsAuthorizedByStatic(agg *correlationAgg) bool {
 	if len(agg.observed) == 0 || len(agg.allow) == 0 {
 		return false
 	}
-	if !strings.EqualFold(strings.TrimSpace(agg.resourceKind), ResourceKindKMSKey) {
+	if !resourceKindRequiresActionMatching(strings.TrimSpace(agg.resourceKind)) {
 		return true
 	}
 
-	observedActions := observedKMSActions(agg)
+	observedActions := observedResourceActions(agg)
 	if len(observedActions) == 0 {
 		return true
 	}
@@ -564,10 +565,10 @@ func allObservedKMSActionsAuthorizedByStatic(agg *correlationAgg) bool {
 	return true
 }
 
-func observedKMSActions(agg *correlationAgg) map[string]struct{} {
+func observedResourceActions(agg *correlationAgg) map[string]struct{} {
 	observedActions := map[string]struct{}{}
 	for _, observed := range agg.observed {
-		if !strings.EqualFold(strings.TrimSpace(agg.resourceKind), ResourceKindKMSKey) {
+		if !resourceKindRequiresActionMatching(strings.TrimSpace(agg.resourceKind)) {
 			continue
 		}
 		action := strings.TrimSpace(strings.ToLower(observed.Action))
@@ -579,14 +580,14 @@ func observedKMSActions(agg *correlationAgg) map[string]struct{} {
 	return observedActions
 }
 
-func observedKMSDenyActionAppliesToObserved(agg *correlationAgg) bool {
+func observedResourceActionDenyAppliesToObserved(agg *correlationAgg) bool {
 	if len(agg.observed) == 0 {
 		return false
 	}
-	if !strings.EqualFold(strings.TrimSpace(agg.resourceKind), ResourceKindKMSKey) {
+	if !resourceKindRequiresActionMatching(strings.TrimSpace(agg.resourceKind)) {
 		return len(agg.deny) > 0
 	}
-	observedActions := observedKMSActions(agg)
+	observedActions := observedResourceActions(agg)
 	if len(agg.deny) == 0 {
 		return false
 	}
@@ -615,6 +616,11 @@ func observedKMSDenyActionAppliesToObserved(agg *correlationAgg) bool {
 		}
 	}
 	return false
+}
+
+func resourceKindRequiresActionMatching(resourceKind string) bool {
+	return strings.EqualFold(strings.TrimSpace(resourceKind), ResourceKindKMSKey) ||
+		strings.EqualFold(strings.TrimSpace(resourceKind), ResourceKindSecret)
 }
 
 func staticGrantActionAuthorizesObservedAction(observedAction string, allowedAction string) bool {

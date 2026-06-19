@@ -405,6 +405,33 @@ func TestStaticGrantsFromSecretsRecognizesWildcardReadActions(t *testing.T) {
 	}
 }
 
+func TestStaticGrantsFromSecretsPreservesActions(t *testing.T) {
+	records := []AWSSecretsManagerMetadataRecord{{
+		AccountID:  "111122223333",
+		Region:     "us-east-1",
+		SecretARN:  "arn:aws:secretsmanager:us-east-1:111122223333:secret:s1",
+		SecretName: "s1",
+		Confidence: 0.92,
+		IdentityGrants: []AWSSecretsManagerIdentityGrant{
+			{PrincipalARN: "arn:aws:iam::111122223333:role/reader", Effect: "Allow", Actions: []string{"secretsmanager:GetSecretValue", "secretsmanager:BatchGetSecretValue"}},
+		},
+	}}
+	grants := staticGrantsFromSecretsRecords(records)
+	if len(grants) != 1 {
+		t.Fatalf("expected one readable secret grant, got %+v", grants)
+	}
+	got := map[string]struct{}{}
+	for _, action := range grants[0].Actions {
+		got[action] = struct{}{}
+	}
+	if _, ok := got["secretsmanager:GetSecretValue"]; !ok {
+		t.Fatalf("expected GetSecretValue action to be preserved, got %+v", grants[0].Actions)
+	}
+	if _, ok := got["secretsmanager:BatchGetSecretValue"]; !ok {
+		t.Fatalf("expected BatchGetSecretValue action to be preserved, got %+v", grants[0].Actions)
+	}
+}
+
 func TestObservedAccessFromRuntimeRecordsFiltersEventTypes(t *testing.T) {
 	records := []AWSRuntimeEventRecord{
 		{EventID: "a", EventType: "secret-read", ActorIdentityNodeID: "id-1", TargetResourceARN: "arn:secret", Action: "secretsmanager:GetSecretValue"},
@@ -457,6 +484,9 @@ func TestStaticGrantsFromKMSAndSecretsProjectIAMPrincipalsOnly(t *testing.T) {
 	secretGrants := staticGrantsFromSecretsRecords(secretRecords)
 	if len(secretGrants) != 1 || secretGrants[0].PrincipalARN != "arn:aws:iam::111122223333:role/reader" {
 		t.Fatalf("expected single read grant, got %+v", secretGrants)
+	}
+	if len(secretGrants[0].Actions) != 1 || secretGrants[0].Actions[0] != "secretsmanager:GetSecretValue" {
+		t.Fatalf("expected normalized read action to be preserved, got %+v", secretGrants[0].Actions)
 	}
 	if secretGrants[0].Source != secretsaccess.SourceResourcePolicy {
 		t.Fatalf("unexpected secret grant source: %+v", secretGrants[0])

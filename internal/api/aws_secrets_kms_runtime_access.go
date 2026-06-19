@@ -478,6 +478,7 @@ func staticGrantsFromSecretsRecords(records []AWSSecretsManagerMetadataRecord) [
 				CrossAccount:   grant.IsCrossAccount,
 				Confidence:     record.Confidence,
 				EvidenceRef:    record.EvidenceRef,
+				Actions:        dedupeStrings(normalizeStringList(grant.Actions)),
 			})
 		}
 	}
