@@ -50,7 +50,9 @@ This chart is the Kubernetes deployment baseline for Identrail.
   `config.IDENTRAIL_WORKER_SCAN_ENABLED=false`,
   `config.IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED=false`,
   `config.IDENTRAIL_WORKER_SCAN_POLICY_SCHEDULER_ENABLED=false`,
-  `config.IDENTRAIL_WORKER_USER_EXPORT_GC_ENABLED=false`, and
-  `config.IDENTRAIL_WORKER_REPO_SCAN_ENABLED=false`) so the worker does not
-  keep the compute active. See [docs/worker.md](../../docs/worker.md) for the
-  full disable list.
+  `config.IDENTRAIL_WORKER_USER_EXPORT_GC_ENABLED=false`,
+  `config.IDENTRAIL_WORKER_REPO_SCAN_ENABLED=false`,
+  `config.IDENTRAIL_WORKER_USER_PURGE_ENABLED=false`, and
+  `config.IDENTRAIL_WORKER_WORKSPACE_PURGE_ENABLED=false`) so the worker does
+  not keep the compute active. See [docs/worker.md](../../docs/worker.md) for
+  the full disable list.
