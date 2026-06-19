@@ -27602,6 +27602,8 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 }
 
 .idt-app-console-layout.is-sidebar-collapsed .idt-app-nav-domain-trigger {
+  grid-template-columns: 1fr;
+  justify-items: center;
   justify-content: center;
   padding: 0.55rem 0;
 }
