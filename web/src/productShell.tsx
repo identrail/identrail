@@ -22986,16 +22986,12 @@ export function ProductAppearanceSettingsPage() {
 
   return (
     <section className="idt-app-panel idt-settings-page idt-appearance-page">
-      <header className="idt-settings-header idt-appearance-header">
-        <Link className="idt-appearance-back" to={settingsPath} aria-label="Back to settings">
-          <ChevronLeft size={20} aria-hidden="true" />
-        </Link>
-        <h2>Appearance</h2>
-      </header>
-
       <section className="idt-settings-card idt-appearance-card" aria-labelledby="idt-appearance-theme-heading">
         <div className="idt-appearance-card-header">
-          <div>
+          <Link className="idt-appearance-back" to={settingsPath} aria-label="Back to settings">
+            <ChevronLeft size={20} aria-hidden="true" />
+          </Link>
+          <div className="idt-appearance-card-title">
             <h3 id="idt-appearance-theme-heading">Theme</h3>
             <p>Choose a theme or follow your system</p>
           </div>

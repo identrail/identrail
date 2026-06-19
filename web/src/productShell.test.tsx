@@ -1884,7 +1884,11 @@ describe('ProductAppearanceSettingsPage', () => {
 
     await renderProductAppearanceSettingsPage();
 
-    expect(await screen.findByRole('heading', { name: 'Appearance' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Theme' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Back to settings' })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/settings'
+    );
     expect(getWhoAmI).not.toHaveBeenCalled();
     expect(document.documentElement.dataset.theme).toBe('dark');
     expect(document.documentElement.dataset.appearancePreset).toBe('vercel');
