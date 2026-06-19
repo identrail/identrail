@@ -282,10 +282,11 @@ func TestObservedS3AccessFromRuntimeRecordsFiltersAndRedacts(t *testing.T) {
 		{EventID: "bucket-encryption", EventType: "api-call", EventSource: "s3.amazonaws.com", EventName: "GetBucketEncryption", Action: "s3:GetBucketEncryption", ActorIdentityNodeID: "id-4", TargetResourceARN: "arn:aws:s3:::bucket"},
 		{EventID: "bucket-create", EventType: "api-call", EventSource: "s3.amazonaws.com", EventName: "CreateBucket", Action: "s3:CreateBucket", ActorIdentityNodeID: "id-5", TargetResourceARN: "arn:aws:s3:::bucket"},
 		{EventID: "kms", EventType: "kms-decrypt", EventSource: "kms.amazonaws.com", Action: "kms:Decrypt", ActorIdentityNodeID: "id-6", TargetResourceARN: "arn:aws:kms:us-east-1:1:key/k"},
+		{EventID: "analyzer-s3-action", EventType: "access-analyzer", EventSource: "access-analyzer.amazonaws.com", EventName: "GetObject", Action: "s3:GetObject", ActorIdentityNodeID: "id-7", TargetResourceARN: "arn:aws:s3:::bucket/reports/analyzer.csv"},
 	}
 	observed := observedS3AccessFromRuntimeRecords(records)
 	if len(observed) != 2 {
-		t.Fatalf("expected only the two S3 events, got %d (%+v)", len(observed), observed)
+		t.Fatalf("expected only the two S3 CloudTrail data events, got %d (%+v)", len(observed), observed)
 	}
 	for _, access := range observed {
 		if strings.Contains(strings.TrimPrefix(access.BucketARN, "arn:aws:s3:::"), "/") {
@@ -387,11 +388,23 @@ func TestStaticGrantsFromS3RecordsInvertsDenyNotAction(t *testing.T) {
 	if grants[0].Effect != "Deny" {
 		t.Fatalf("expected deny effect, got %+v", grants[0])
 	}
-	if hasS3Mode(grants[0].AllowedModes, s3access.ModeRead) {
-		t.Fatalf("NotAction GetObject must exclude read from denied modes, got %+v", grants[0].AllowedModes)
+	if !hasS3Mode(grants[0].AllowedModes, s3access.ModeRead) {
+		t.Fatalf("NotAction GetObject must preserve read because other read APIs are still denied, got %+v", grants[0].AllowedModes)
 	}
 	if !hasS3Mode(grants[0].AllowedModes, s3access.ModeWrite) || !hasS3Mode(grants[0].AllowedModes, s3access.ModeList) {
-		t.Fatalf("NotAction GetObject should deny write+list modes, got %+v", grants[0].AllowedModes)
+		t.Fatalf("NotAction GetObject should deny read+write+list modes, got %+v", grants[0].AllowedModes)
+	}
+}
+
+func TestS3GrantAllowedModesForDenyNotActionDropsOnlyFullyExcludedModes(t *testing.T) {
+	if modes := s3GrantAllowedModesForEffect([]string{"s3:GetObject"}, true, "Deny"); !hasS3Mode(modes, s3access.ModeRead) {
+		t.Fatalf("single excluded read API must not drop the whole read mode, got %+v", modes)
+	}
+	if modes := s3GrantAllowedModesForEffect([]string{"s3:Get*"}, true, "Deny"); !hasS3Mode(modes, s3access.ModeRead) {
+		t.Fatalf("partial read wildcard must not drop head/select read APIs, got %+v", modes)
+	}
+	if modes := s3GrantAllowedModesForEffect([]string{"s3:*"}, true, "Deny"); len(modes) != 0 {
+		t.Fatalf("NotAction s3:* excludes all S3 data samples, got denied modes %+v", modes)
 	}
 }
 

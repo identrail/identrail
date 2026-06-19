@@ -428,8 +428,7 @@ func isS3RuntimeEvent(record AWSRuntimeEventRecord) bool {
 	if s3AccessModeForEvent(record.EventName, record.Action) == "" {
 		return false
 	}
-	return strings.EqualFold(strings.TrimSpace(record.EventSource), "s3.amazonaws.com") ||
-		strings.HasPrefix(strings.ToLower(strings.TrimSpace(record.Action)), "s3:")
+	return strings.EqualFold(strings.TrimSpace(record.EventSource), "s3.amazonaws.com")
 }
 
 // s3AccessModeForEvent reduces an S3 event name (or action) to read /
@@ -606,17 +605,37 @@ func s3GrantAllowedModesForEffect(actions []string, notAction bool, effect strin
 	if !strings.EqualFold(strings.TrimSpace(effect), "Deny") {
 		return nil
 	}
-	excluded := map[string]struct{}{}
-	for _, mode := range s3GrantAllowedModes(actions) {
-		excluded[mode] = struct{}{}
-	}
+
 	out := []string{}
-	for _, mode := range []string{s3access.ModeRead, s3access.ModeWrite, s3access.ModeList} {
-		if _, ok := excluded[mode]; !ok {
+	for _, mode := range s3DataAccessModes {
+		if !s3ModeFullyExcludedByNotAction(mode, actions) {
 			out = append(out, mode)
 		}
 	}
 	return out
+}
+
+func s3ModeFullyExcludedByNotAction(mode string, actions []string) bool {
+	hasSample := false
+	for _, sample := range s3DataAccessActionSamples {
+		if sample.mode != mode {
+			continue
+		}
+		hasSample = true
+		if !s3ActionExcludedByNotAction(sample.action, actions) {
+			return false
+		}
+	}
+	return hasSample
+}
+
+func s3ActionExcludedByNotAction(action string, notActions []string) bool {
+	for _, notAction := range notActions {
+		if awsActionPatternMatches(notAction, action) {
+			return true
+		}
+	}
+	return false
 }
 
 // s3GrantAllowedModes maps a bucket-policy statement's S3 actions to the
@@ -683,6 +702,8 @@ var s3DataAccessActionSamples = []struct {
 	{s3access.ModeList, "s3:listbucketversions"},
 	{s3access.ModeList, "s3:listmultipartuploadparts"},
 }
+
+var s3DataAccessModes = []string{s3access.ModeRead, s3access.ModeWrite, s3access.ModeList}
 
 // s3BucketSensitivity derives a coarse sensitivity tier for a bucket from
 // an operator override tag, data-classification tags, or name heuristics.
