@@ -2005,6 +2005,37 @@ describe('ProductAppearanceSettingsPage', () => {
     expect(document.documentElement.style.getPropertyValue('--appearance-code-font-size')).toBe('18px');
   });
 
+  it('defers font-size clamping until number inputs commit', async () => {
+    await renderProductAppearanceSettingsPage();
+
+    const uiFontSize = screen.getByLabelText('UI font size') as HTMLInputElement;
+    fireEvent.focus(uiFontSize);
+    fireEvent.change(uiFontSize, { target: { value: '1' } });
+
+    expect(uiFontSize.value).toBe('1');
+    expect(window.localStorage.getItem('identrail-appearance')).toBeNull();
+
+    fireEvent.change(uiFontSize, { target: { value: '18' } });
+    expect(uiFontSize.value).toBe('18');
+
+    fireEvent.blur(uiFontSize);
+    expect(JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}')).toMatchObject({
+      uiFontSize: 18
+    });
+
+    const codeFontSize = screen.getByLabelText('Code font size') as HTMLInputElement;
+    fireEvent.focus(codeFontSize);
+    fireEvent.change(codeFontSize, { target: { value: '2' } });
+
+    expect(codeFontSize.value).toBe('2');
+
+    fireEvent.blur(codeFontSize);
+    await waitFor(() => expect(codeFontSize.value).toBe('12'));
+    expect(JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}')).toMatchObject({
+      codeFontSize: 12
+    });
+  });
+
 });
 
 describe('ProductShellLayout', () => {

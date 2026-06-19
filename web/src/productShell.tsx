@@ -22831,6 +22831,63 @@ function AppearanceSwitch({ checked, label, onChange }: AppearanceSwitchProps) {
   );
 }
 
+type AppearanceNumberInputProps = {
+  label: string;
+  max: number;
+  min: number;
+  onCommit: (value: number) => void;
+  value: number;
+};
+
+function AppearanceNumberInput({
+  label,
+  max,
+  min,
+  onCommit,
+  value
+}: AppearanceNumberInputProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [draft, setDraft] = useState(() => String(value));
+
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) {
+      setDraft(String(value));
+    }
+  }, [value]);
+
+  const commitDraft = () => {
+    const parsed = Number(draft);
+    if (!Number.isFinite(parsed)) {
+      setDraft(String(value));
+      return;
+    }
+    onCommit(parsed);
+  };
+
+  return (
+    <input
+      ref={inputRef}
+      aria-label={label}
+      type="number"
+      min={min}
+      max={max}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commitDraft}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          commitDraft();
+          event.currentTarget.blur();
+        }
+        if (event.key === 'Escape') {
+          setDraft(String(value));
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
 export function ProductAppearanceSettingsPage() {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
@@ -23105,13 +23162,12 @@ export function ProductAppearanceSettingsPage() {
             <p>Adjust the base size used for the Identrail UI</p>
           </span>
           <span className="idt-appearance-number">
-            <input
-              aria-label="UI font size"
-              type="number"
-              min="14"
-              max="22"
+            <AppearanceNumberInput
+              label="UI font size"
+              min={14}
+              max={22}
               value={preferences.uiFontSize}
-              onChange={(event) => commitPreferences({ uiFontSize: Number(event.target.value) })}
+              onCommit={(uiFontSize) => commitPreferences({ uiFontSize })}
             />
             <span>px</span>
           </span>
@@ -23123,13 +23179,12 @@ export function ProductAppearanceSettingsPage() {
             <p>Adjust the base size used for code across previews and diffs</p>
           </span>
           <span className="idt-appearance-number">
-            <input
-              aria-label="Code font size"
-              type="number"
-              min="12"
-              max="22"
+            <AppearanceNumberInput
+              label="Code font size"
+              min={12}
+              max={22}
               value={preferences.codeFontSize}
-              onChange={(event) => commitPreferences({ codeFontSize: Number(event.target.value) })}
+              onCommit={(codeFontSize) => commitPreferences({ codeFontSize })}
             />
             <span>px</span>
           </span>
