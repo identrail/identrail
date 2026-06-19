@@ -20,6 +20,7 @@ type fakeIAMAPI struct {
 	truncated        bool
 	emptyRoles       bool
 	neverUsedRole    bool
+	neverUsedService bool
 	roleCreationDate *time.Time
 }
 
@@ -56,17 +57,20 @@ func (f fakeIAMAPI) GetServiceLastAccessedDetails(context.Context, *iam.GetServi
 	}
 	completedAt := time.Date(2026, 6, 18, 8, 0, 0, 0, time.UTC)
 	lastAuthenticated := time.Date(2026, 6, 16, 7, 30, 0, 0, time.UTC)
+	service := iamtypes.ServiceLastAccessed{
+		ServiceName:      awsv2.String("Amazon S3"),
+		ServiceNamespace: awsv2.String("s3"),
+	}
+	if !f.neverUsedService {
+		service.LastAuthenticated = &lastAuthenticated
+		service.LastAuthenticatedEntity = awsv2.String("arn:aws:iam::123456789012:role/payments-worker")
+		service.LastAuthenticatedRegion = awsv2.String("us-east-1")
+	}
 	return &iam.GetServiceLastAccessedDetailsOutput{
-		JobStatus:         status,
-		JobCompletionDate: &completedAt,
-		IsTruncated:       f.truncated,
-		ServicesLastAccessed: []iamtypes.ServiceLastAccessed{{
-			ServiceName:             awsv2.String("Amazon S3"),
-			ServiceNamespace:        awsv2.String("s3"),
-			LastAuthenticated:       &lastAuthenticated,
-			LastAuthenticatedEntity: awsv2.String("arn:aws:iam::123456789012:role/payments-worker"),
-			LastAuthenticatedRegion: awsv2.String("us-east-1"),
-		}},
+		JobStatus:            status,
+		JobCompletionDate:    &completedAt,
+		IsTruncated:          f.truncated,
+		ServicesLastAccessed: []iamtypes.ServiceLastAccessed{service},
 	}, nil
 }
 
@@ -245,6 +249,35 @@ func TestIngesterDoesNotMarkNewNeverUsedRolesStale(t *testing.T) {
 	}
 	if !neverUsedRole.ObservedAt.Equal(createdAt) {
 		t.Fatalf("expected creation date as observed_at, got %+v", neverUsedRole)
+	}
+}
+
+func TestIngesterDoesNotMarkNewNeverAccessedServicesStale(t *testing.T) {
+	collectedAt := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+	createdAt := collectedAt.Add(-2 * time.Hour)
+	result, err := New(fakeIAMAPI{neverUsedRole: true, neverUsedService: true, roleCreationDate: &createdAt}, fakeAccessAnalyzerAPI{emptyAnalyzers: true}).Ingest(context.Background(), IngestRequest{
+		AccountID:   "123456789012",
+		Region:      "us-east-1",
+		CollectedAt: collectedAt,
+	})
+	if err != nil {
+		t.Fatalf("ingest signals: %v", err)
+	}
+	var neverAccessedService *Signal
+	for idx := range result.Signals {
+		if result.Signals[idx].EventName == "ServiceNeverAccessed" {
+			neverAccessedService = &result.Signals[idx]
+			break
+		}
+	}
+	if neverAccessedService == nil {
+		t.Fatalf("expected service-never-accessed signal, got %+v", result.Signals)
+	}
+	if neverAccessedService.Status != "unknown" {
+		t.Fatalf("new never-accessed service should remain unknown until dormant threshold, got %+v", neverAccessedService)
+	}
+	if !neverAccessedService.ObservedAt.Equal(createdAt) {
+		t.Fatalf("expected role creation date as observed_at, got %+v", neverAccessedService)
 	}
 }
 

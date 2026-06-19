@@ -349,14 +349,21 @@ func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest
 			actor := firstNonEmpty(awsv2.ToString(service.LastAuthenticatedEntity), roleARN)
 			region := firstNonEmpty(awsv2.ToString(service.LastAuthenticatedRegion), request.Region)
 			lastAuthenticated := request.CollectedAt
-			status := "stale"
-			confidence := 0.64
+			status := iamNeverUsedStatus(role.CreateDate, request.CollectedAt)
+			confidence := 0.52
 			if service.LastAuthenticated != nil {
 				lastAuthenticated = service.LastAuthenticated.UTC()
 				status = iamLastUsedStatus(lastAuthenticated, request.CollectedAt)
 				confidence = 0.86
 				if status == "stale" {
 					confidence = 0.78
+				}
+			} else {
+				if role.CreateDate != nil {
+					lastAuthenticated = role.CreateDate.UTC()
+				}
+				if status == "stale" {
+					confidence = 0.68
 				}
 			}
 			signals = append(signals, Signal{
