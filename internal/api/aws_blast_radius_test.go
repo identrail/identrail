@@ -152,6 +152,24 @@ func TestGetAWSBlastRadiusPermissionDeniedAndEmptyStatesAreExplicit(t *testing.T
 	}
 }
 
+func TestGetAWSBlastRadiusOmitsFixtureStateForLiveDefault(t *testing.T) {
+	now := time.Date(2026, 6, 19, 20, 15, 0, 0, time.UTC)
+	svc, ws := newBlastRadiusService(t, "project-blast-radius-live-default", now)
+
+	result, err := svc.GetAWSBlastRadius(defaultScopeContext(), ws, "project-blast-radius-live-default", AWSBlastRadiusRequest{
+		ConnectorID: "aws-prod",
+	})
+	if err != nil {
+		t.Fatalf("live default: %v", err)
+	}
+	if result.FixtureState != "" {
+		t.Fatalf("expected no fixture_state when caller did not request fixtures, got %q", result.FixtureState)
+	}
+	if result.Status != awsPlatformDependencyStatusDegraded {
+		t.Fatalf("expected degraded live-unavailable state, got %q", result.Status)
+	}
+}
+
 func TestNormalizeAWSBlastRadiusFixtureState(t *testing.T) {
 	disconnected := AWSConnectionStatus{Connected: false}
 	if got := normalizeAWSBlastRadiusFixtureState("", disconnected, true); got != "permission_denied" {

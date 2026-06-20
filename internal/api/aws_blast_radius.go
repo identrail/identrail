@@ -232,7 +232,7 @@ func (s *Service) GetAWSBlastRadius(ctx context.Context, workspaceID string, pro
 		CurrentIssueRef:    awsIssueRef(awsBlastRadiusCurrentIssue),
 		Version:            awsBlastRadiusVersion,
 		Status:             status,
-		FixtureState:       fixtureState,
+		FixtureState:       sourceFixtureState,
 		Confidence:         confidence,
 		CalculationVersion: awsBlastRadiusVersion,
 		AppliedFilters:     applied,
