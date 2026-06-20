@@ -574,6 +574,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/least-privilege
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/iam-passrole-relationships
     action: tenancy.read
     resource_type: project
@@ -4972,6 +4977,89 @@ paths:
                     $ref: "#/components/schemas/AWSBlastRadiusResult"
         "400":
           description: Invalid AWS blast radius request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/least-privilege:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS least-privilege recommendations
+      operationId: getAWSProjectLeastPrivilege
+      description: Calculates deterministic, read-only AWS least-privilege keep, remove, and review recommendations by composing static grants, metadata-only runtime usage, IAM last-used signals, Access Analyzer findings, and agent/tool evidence. Recommendations carry stable IDs, calculation version, score, severity, confidence, rationale, impacted graph path, keep/remove actions, breakage prediction, evidence refs, and read-only remediation previews. Unknown or partial evidence produces review states rather than automatic remove decisions; secret values, object contents, prompts, completions, tool payloads, browser pages, and code-interpreter output are never read or returned.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope the account, region, and read-only evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: identity
+          schema: { type: string }
+          description: Optional principal, identity-node, or display-name search.
+        - in: query
+          name: resource
+          schema: { type: string }
+          description: Optional impacted resource, ARN, display label, or graph-node search.
+        - in: query
+          name: service
+          schema: { type: string }
+          description: Optional AWS service token, such as s3, secretsmanager, kms, lambda, or agent-runtime.
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [action_required, review, monitor]
+        - in: query
+          name: decision
+          schema:
+            type: string
+            enum: [keep, remove, review]
+      responses:
+        "200":
+          description: AWS least-privilege recommendation contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recommendations:
+                    $ref: "#/components/schemas/AWSLeastPrivilegeResult"
+        "400":
+          description: Invalid AWS least-privilege request
           content:
             application/json:
               schema:
@@ -11998,6 +12086,228 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSBlastRadiusDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSLeastPrivilegeEvidence:
+      type: object
+      properties:
+        source: { type: string }
+        evidence_ref: { type: string }
+        label: { type: string }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        observed_at:
+          type: string
+          format: date-time
+        relationship: { type: string }
+    AWSLeastPrivilegePathStep:
+      type: object
+      properties:
+        node_id: { type: string }
+        node_type: { type: string }
+        label: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+    AWSLeastPrivilegeRelationship:
+      type: object
+      properties:
+        recommendation_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSLeastPrivilegeRemediationCasePreview:
+      type: object
+      properties:
+        case_id: { type: string }
+        title: { type: string }
+        recommended_action: { type: string }
+        approval_required: { type: boolean }
+        blocking_evidence:
+          type: array
+          items: { type: string }
+        impacted_node_count: { type: integer }
+        estimated_risk_drop: { type: integer }
+        breakage_prediction:
+          type: string
+          enum: [low, medium, high, unknown]
+        read_only_projection: { type: boolean }
+    AWSLeastPrivilegeRecommendation:
+      type: object
+      properties:
+        recommendation_id: { type: string }
+        calculation_version: { type: string }
+        recommendation_type: { type: string }
+        decision:
+          type: string
+          enum: [keep, remove, review]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status:
+          type: string
+          enum: [action_required, review, monitor]
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        account_id: { type: string }
+        region: { type: string }
+        service: { type: string }
+        identity_node_id: { type: string }
+        principal_arn: { type: string }
+        resource_node_id: { type: string }
+        resource_arn: { type: string }
+        display_name: { type: string }
+        rationale: { type: string }
+        breakage_prediction:
+          type: string
+          enum: [low, medium, high, unknown]
+        breakage_rationale: { type: string }
+        keep_actions:
+          type: array
+          items: { type: string }
+        remove_actions:
+          type: array
+          items: { type: string }
+        observed_actions:
+          type: array
+          items: { type: string }
+        granted_actions:
+          type: array
+          items: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegePathStep"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeEvidence"
+        next_action: { type: string }
+        remediation_case:
+          $ref: "#/components/schemas/AWSLeastPrivilegeRemediationCasePreview"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSLeastPrivilegeSummary:
+      type: object
+      properties:
+        total_recommendations: { type: integer }
+        filtered_recommendations: { type: integer }
+        decision_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        service_counts:
+          type: object
+          additionalProperties: { type: integer }
+        remove_count: { type: integer }
+        keep_count: { type: integer }
+        review_count: { type: integer }
+        low_breakage_count: { type: integer }
+        unknown_breakage_count: { type: integer }
+        runtime_evidence_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+        remediation_preview_count: { type: integer }
+        permission_denied_evidence_count: { type: integer }
+    AWSLeastPrivilegeDiagnostic:
+      type: object
+      properties:
+        collector: { type: string }
+        source_id: { type: string }
+        code: { type: string }
+        message: { type: string }
+        remediation: { type: string }
+        retryable: { type: boolean }
+    AWSLeastPrivilegeCoverageGap:
+      type: object
+      properties:
+        capability: { type: string }
+        status: { type: string }
+        reason: { type: string }
+        remediation: { type: string }
+    AWSLeastPrivilegeResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSLeastPrivilegeSummary"
+        recommendations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeRecommendation"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
         generated_at:
           type: string
           format: date-time

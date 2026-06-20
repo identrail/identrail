@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS least-privilege recommendation engine** (#1522). Adds a
+  deterministic, metadata-only recommendation layer that composes static
+  grants, runtime access correlation, IAM last-used signals, Access Analyzer
+  findings, and agent/tool evidence into ranked keep, remove, and review
+  decisions. The new endpoint
+  `GET /v1/workspaces/{ws}/projects/{p}/aws/least-privilege` exposes stable
+  recommendation IDs, calculation version, severity, confidence, rationale,
+  impacted path, keep/remove actions, breakage prediction, read-only
+  remediation previews, diagnostics, coverage gaps, and filters for account,
+  region, identity, resource, service, severity, status, and decision.
+  Unknown or partial evidence becomes an explicit review state instead of an
+  automatic remove recommendation. The AWS runtime app surface now renders the
+  recommendations alongside the prerequisite runtime and blast-radius evidence.
+  Closes #1522. See
+  [docs/aws-least-privilege-engine.md](docs/aws-least-privilege-engine.md).
 - Polish in-app appearance settings: drop the dual code preview, remove the
   Code font dropdown and Diff markers toggle, compact the control rows so the
   selects no longer dominate the card, add **Manrope** as a UI font choice, and

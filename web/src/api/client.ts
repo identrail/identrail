@@ -2840,6 +2840,162 @@ export type AWSBlastRadiusQuery = {
   riskType?: string;
 };
 
+export type AWSLeastPrivilegeStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSLeastPrivilegeFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSLeastPrivilegeDecision = 'keep' | 'remove' | 'review' | string;
+export type AWSLeastPrivilegeSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
+export type AWSLeastPrivilegeFindingStatus = 'action_required' | 'review' | 'monitor' | string;
+export type AWSLeastPrivilegeBreakagePrediction = 'low' | 'medium' | 'high' | 'unknown' | string;
+
+export type AWSLeastPrivilegeEvidence = {
+  source: string;
+  evidence_ref: string;
+  label: string;
+  confidence: number;
+  observed_at?: string;
+  relationship?: string;
+};
+
+export type AWSLeastPrivilegePathStep = {
+  node_id: string;
+  node_type: string;
+  label: string;
+  account_id?: string;
+  region?: string;
+};
+
+export type AWSLeastPrivilegeRelationship = {
+  recommendation_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSLeastPrivilegeRemediationCasePreview = {
+  case_id: string;
+  title: string;
+  recommended_action: string;
+  approval_required: boolean;
+  blocking_evidence?: string[];
+  impacted_node_count: number;
+  estimated_risk_drop: number;
+  breakage_prediction: AWSLeastPrivilegeBreakagePrediction;
+  read_only_projection: boolean;
+};
+
+export type AWSLeastPrivilegeRecommendation = {
+  recommendation_id: string;
+  calculation_version: string;
+  recommendation_type: string;
+  decision: AWSLeastPrivilegeDecision;
+  severity: AWSLeastPrivilegeSeverity;
+  status: AWSLeastPrivilegeFindingStatus;
+  score: number;
+  confidence: number;
+  account_id: string;
+  region: string;
+  service: string;
+  identity_node_id: string;
+  principal_arn?: string;
+  resource_node_id?: string;
+  resource_arn?: string;
+  display_name: string;
+  rationale: string;
+  breakage_prediction: AWSLeastPrivilegeBreakagePrediction;
+  breakage_rationale: string;
+  keep_actions?: string[];
+  remove_actions?: string[];
+  observed_actions?: string[];
+  granted_actions?: string[];
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  next_action: string;
+  remediation_case: AWSLeastPrivilegeRemediationCasePreview;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSLeastPrivilegeSummary = {
+  total_recommendations: number;
+  filtered_recommendations: number;
+  decision_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  service_counts: Record<string, number>;
+  remove_count: number;
+  keep_count: number;
+  review_count: number;
+  low_breakage_count: number;
+  unknown_breakage_count: number;
+  runtime_evidence_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+  remediation_preview_count: number;
+  permission_denied_evidence_count: number;
+};
+
+export type AWSLeastPrivilegeDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSLeastPrivilegeCoverageGap = {
+  capability: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSLeastPrivilegeResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSLeastPrivilegeStatus;
+  fixture_state?: AWSLeastPrivilegeFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSLeastPrivilegeSummary;
+  recommendations: AWSLeastPrivilegeRecommendation[];
+  relationships: AWSLeastPrivilegeRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSLeastPrivilegeQuery = {
+  connectorID?: string;
+  fixtureState?: AWSLeastPrivilegeFixtureState;
+  accountID?: string;
+  region?: string;
+  identity?: string;
+  resource?: string;
+  service?: string;
+  severity?: string;
+  status?: string;
+  decision?: string;
+};
+
 export type AWSBedrockAgentsInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBedrockAgentsFixtureState =
   | 'success'
@@ -6033,6 +6189,28 @@ export const apiClient = {
         severity: query?.severity,
         status: query?.status,
         risk_type: query?.riskType
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectLeastPrivilege(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSLeastPrivilegeQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ recommendations: AWSLeastPrivilegeResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/least-privilege${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        identity: query?.identity,
+        resource: query?.resource,
+        service: query?.service,
+        severity: query?.severity,
+        status: query?.status,
+        decision: query?.decision
       })}`,
       auth
     );

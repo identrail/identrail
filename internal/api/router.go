@@ -3053,6 +3053,42 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"intelligence": record})
 	})
 
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/least-privilege", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetAWSLeastPrivilegeRecommendations(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSLeastPrivilegeRequest{
+			ConnectorID:  strings.TrimSpace(c.Query("connector_id")),
+			FixtureState: strings.TrimSpace(c.Query("fixture_state")),
+			AccountID:    strings.TrimSpace(c.Query("account_id")),
+			Region:       strings.TrimSpace(c.Query("region")),
+			Identity:     strings.TrimSpace(c.Query("identity")),
+			Resource:     strings.TrimSpace(c.Query("resource")),
+			Service:      strings.TrimSpace(c.Query("service")),
+			Severity:     strings.TrimSpace(c.Query("severity")),
+			Status:       strings.TrimSpace(c.Query("status")),
+			Decision:     strings.TrimSpace(c.Query("decision")),
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project or connector not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws least privilege request"})
+			default:
+				logger.Error("get aws least privilege",
+					zap.String("workspace_id", c.Param("workspace_id")),
+					zap.String("project_id", c.Param("project_id")),
+					telemetry.ZapError(err),
+				)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws least privilege"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"recommendations": record})
+	})
+
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/iam-passrole-relationships", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)

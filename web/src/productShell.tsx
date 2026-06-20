@@ -57,6 +57,8 @@ import {
   type AWSAgentRuntimeAccessResult,
   type AWSBlastRadiusFinding,
   type AWSBlastRadiusResult,
+  type AWSLeastPrivilegeRecommendation,
+  type AWSLeastPrivilegeResult,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
@@ -10524,6 +10526,131 @@ function AWSBlastRadiusContent({
   );
 }
 
+function awsLeastPrivilegeDecisionStage(decision: string, breakage: string): AWSCapabilityStage {
+  switch (decision) {
+    case 'remove':
+      return breakage === 'low' ? 'coming' : 'not-available';
+    case 'review':
+      return 'not-available';
+    case 'keep':
+      return 'wired';
+    default:
+      return 'coming';
+  }
+}
+
+function awsLeastPrivilegeRecommendationLabel(recommendation: AWSLeastPrivilegeRecommendation): string {
+  return `${formatTokenLabel(recommendation.recommendation_type)} · score ${recommendation.score}`;
+}
+
+function awsLeastPrivilegeEvidenceLabel(recommendation: AWSLeastPrivilegeRecommendation): string {
+  const sources = recommendation.evidence.map((evidence) => evidence.label || formatTokenLabel(evidence.source));
+  return `${formatConfidenceScore(recommendation.confidence)} · ${sources.join(', ') || 'No evidence refs'}`;
+}
+
+function awsLeastPrivilegePathLabel(recommendation: AWSLeastPrivilegeRecommendation): string {
+  const path = recommendation.impacted_path.map((step) => step.label || step.node_id).filter(Boolean);
+  if (path.length === 0) {
+    return recommendation.impacted_nodes.join(' -> ') || '-';
+  }
+  return path.join(' -> ');
+}
+
+function awsLeastPrivilegeActionLabel(recommendation: AWSLeastPrivilegeRecommendation): string {
+  const removeActions = recommendation.remove_actions ?? [];
+  const keepActions = recommendation.keep_actions ?? [];
+  if (removeActions.length > 0) {
+    return `Remove ${removeActions.slice(0, 3).join(', ')}${removeActions.length > 3 ? ` +${removeActions.length - 3}` : ''}`;
+  }
+  if (keepActions.length > 0) {
+    return `Keep ${keepActions.slice(0, 3).join(', ')}${keepActions.length > 3 ? ` +${keepActions.length - 3}` : ''}`;
+  }
+  return formatTokenLabel(recommendation.decision);
+}
+
+function AWSLeastPrivilegeContent({
+  recommendations,
+  loading,
+  error,
+  onRetry
+}: {
+  recommendations: AWSLeastPrivilegeResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = recommendations?.recommendations ?? [];
+  const summaryLine = recommendations
+    ? `${recommendations.summary.remove_count} remove · ${recommendations.summary.keep_count} keep · ${recommendations.summary.review_count} review · ${recommendations.summary.low_breakage_count} low-breakage`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS least privilege recommendations">
+      <h3>AWS least-privilege recommendations</h3>
+      <p className="idt-app-kicker">
+        Ranked keep, remove, and review decisions from static grants, runtime usage, IAM last-used, Access Analyzer, and agent/tool evidence.
+        {summaryLine ? ` ${summaryLine}` : ''}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load least-privilege recommendations"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Calculating least privilege"
+          body="Identrail is comparing static grants, runtime usage, stale signals, confidence, and breakage predictions."
+        />
+      ) : null}
+      {!error && !loading && recommendations && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={recommendations.status === 'blocked' ? 'Permission required' : 'No recommendation records'}
+          title={
+            recommendations.status === 'blocked'
+              ? 'Least privilege needs read-only evidence access'
+              : 'No least-privilege recommendations'
+          }
+          body={recommendations.failure_reasons[0] ?? 'No reducible, observed, stale, or review-required access matched this scope.'}
+        />
+      ) : null}
+      {!error && !loading && recommendations && recommendations.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {recommendations.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS least privilege recommendations"
+          rows={rows}
+          getRowKey={(row) => row.recommendation_id}
+          columns={[
+            { key: 'recommendation', header: 'Recommendation', render: (row) => <strong>{awsLeastPrivilegeRecommendationLabel(row)}</strong> },
+            { key: 'identity', header: 'Identity', render: (row) => row.principal_arn || row.display_name || row.identity_node_id },
+            { key: 'scope', header: 'Scope', render: (row) => `${formatTokenLabel(row.service)} · ${awsLeastPrivilegePathLabel(row)}` },
+            { key: 'actions', header: 'Actions', render: (row) => awsLeastPrivilegeActionLabel(row) },
+            { key: 'evidence', header: 'Evidence', render: (row) => awsLeastPrivilegeEvidenceLabel(row) },
+            {
+              key: 'breakage',
+              header: 'Breakage',
+              render: (row) => (
+                <AWSInventoryPill
+                  stage={awsLeastPrivilegeDecisionStage(row.decision, row.breakage_prediction)}
+                  label={`${formatTokenLabel(row.decision)} / ${formatTokenLabel(row.breakage_prediction)}`}
+                />
+              )
+            },
+            { key: 'next', header: 'Next action', render: (row) => row.next_action }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsRuntimeEventRow(record: AWSRuntimeEventRecord): AWSRiskOperationTableRow {
   const eventLabel = awsRuntimeEventLabel(record);
   const resourceLabel = record.target_resource_name || record.target_resource_type || record.target_resource_arn || 'Session event';
@@ -11026,6 +11153,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
   const [blastRadiusError, setBlastRadiusError] = useState('');
   const blastRadiusRequestRef = useRef(0);
+  const [leastPrivilege, setLeastPrivilege] = useState<AWSLeastPrivilegeResult | null>(null);
+  const [leastPrivilegeLoading, setLeastPrivilegeLoading] = useState(false);
+  const [leastPrivilegeError, setLeastPrivilegeError] = useState('');
+  const leastPrivilegeRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -11281,6 +11412,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadBlastRadius]);
 
+  const loadLeastPrivilege = useCallback(async () => {
+    const requestID = ++leastPrivilegeRequestRef.current;
+    setLeastPrivilege(null);
+    setLeastPrivilegeError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setLeastPrivilegeLoading(false);
+      return;
+    }
+    setLeastPrivilegeLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectLeastPrivilege(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== leastPrivilegeRequestRef.current) {
+        return;
+      }
+      setLeastPrivilege(response.recommendations);
+    } catch (error) {
+      if (requestID !== leastPrivilegeRequestRef.current) {
+        return;
+      }
+      setLeastPrivilegeError(formatAPIError(error, 'Unable to load AWS least-privilege recommendations.'));
+    } finally {
+      if (requestID === leastPrivilegeRequestRef.current) {
+        setLeastPrivilegeLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadLeastPrivilege();
+    return () => {
+      leastPrivilegeRequestRef.current += 1;
+    };
+  }, [loadLeastPrivilege]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -11404,6 +11583,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={blastRadiusLoading}
             error={blastRadiusError}
             onRetry={loadBlastRadius}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSLeastPrivilegeContent
+            recommendations={leastPrivilege}
+            loading={leastPrivilegeLoading}
+            error={leastPrivilegeError}
+            onRetry={loadLeastPrivilege}
           />
         ) : null}
         {routeID === 'graph' ? (

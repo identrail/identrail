@@ -10,6 +10,7 @@ import type {
   AWSEKSWorkloadIdentityInventoryResult,
   AWSECSTaskRoleInventoryResult,
   AWSLambdaExecutionRoleInventoryResult,
+  AWSLeastPrivilegeResult,
   AWSPlatformBaselineResult,
   AWSPlatformDependencyIndexResult,
   AWSPlatformValidationHarnessResult,
@@ -295,6 +296,128 @@ const readyAWSRuntimeEvents: AWSRuntimeEventResult = {
   failure_reasons: [],
   remediation_hints: [],
   evidence_links: ['/docs/aws-runtime-events'],
+  coverage_gaps: [],
+  diagnostics: [],
+  generated_at: '2026-06-14T17:30:00Z',
+  updated_at: '2026-06-14T17:30:00Z'
+};
+
+const readyAWSLeastPrivilege: AWSLeastPrivilegeResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  parent_issue_number: 1472,
+  parent_issue_ref: '#1472',
+  current_issue_number: 1522,
+  current_issue_ref: '#1522',
+  version: 'aws-least-privilege-recommendation-engine-v1',
+  status: 'ready',
+  fixture_state: 'success',
+  confidence: 0.9,
+  calculation_version: 'aws-least-privilege-recommendation-engine-v1',
+  applied_filters: {},
+  summary: {
+    total_recommendations: 1,
+    filtered_recommendations: 1,
+    decision_counts: { remove: 1 },
+    severity_counts: { high: 1 },
+    status_counts: { review: 1 },
+    service_counts: { secretsmanager: 1 },
+    remove_count: 1,
+    keep_count: 0,
+    review_count: 0,
+    low_breakage_count: 1,
+    unknown_breakage_count: 0,
+    runtime_evidence_count: 1,
+    relationship_count: 1,
+    highest_score: 82,
+    average_confidence_pct: 90,
+    remediation_preview_count: 1,
+    permission_denied_evidence_count: 0
+  },
+  recommendations: [
+    {
+      recommendation_id: 'aws-least-privilege:secret-unused',
+      calculation_version: 'aws-least-privilege-recommendation-engine-v1',
+      recommendation_type: 'remove-unused-secret-kms-grant',
+      decision: 'remove',
+      severity: 'high',
+      status: 'review',
+      score: 82,
+      confidence: 0.9,
+      account_id: '123456789012',
+      region: 'us-east-1',
+      service: 'secretsmanager',
+      identity_node_id: 'aws:identity:lambda-invoice-agent',
+      principal_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
+      resource_node_id: 'aws:resource:secret:openai-key',
+      resource_arn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/ai/openai-key',
+      display_name: 'lambda-invoice-agent',
+      rationale: 'Static secret grant has no matching runtime evidence in the scoped window.',
+      breakage_prediction: 'low',
+      breakage_rationale: 'No matching runtime use was observed in the scoped evidence window.',
+      remove_actions: ['secretsmanager:GetSecretValue'],
+      granted_actions: ['secretsmanager:GetSecretValue'],
+      impacted_nodes: ['aws:identity:lambda-invoice-agent', 'aws:resource:secret:openai-key'],
+      impacted_path: [
+        {
+          node_id: 'aws:identity:lambda-invoice-agent',
+          node_type: 'identity',
+          label: 'lambda-invoice-agent',
+          account_id: '123456789012',
+          region: 'us-east-1'
+        },
+        {
+          node_id: 'aws:resource:secret:openai-key',
+          node_type: 'secret',
+          label: 'prod/ai/openai-key',
+          account_id: '123456789012',
+          region: 'us-east-1'
+        }
+      ],
+      evidence: [
+        {
+          source: 'secrets_kms_runtime_access',
+          evidence_ref: 'secrets-kms-runtime-access://secret-unused',
+          label: 'Secrets Manager / KMS runtime access',
+          confidence: 0.9,
+          observed_at: '2026-06-14T17:30:00Z',
+          relationship: 'granted_unused'
+        }
+      ],
+      next_action:
+        'Open a read-only least-privilege case for secret/KMS, require owner approval, and verify low breakage prediction before policy diff generation.',
+      remediation_case: {
+        case_id: 'aws-least-privilege-preview:secret-unused',
+        title: 'remove unused secret grant',
+        recommended_action: 'Create a read-only case to remove unused grants after owner approval.',
+        approval_required: true,
+        blocking_evidence: ['secrets-kms-runtime-access://secret-unused'],
+        impacted_node_count: 1,
+        estimated_risk_drop: 40,
+        breakage_prediction: 'low',
+        read_only_projection: true
+      },
+      created_at: '2026-06-14T17:30:00Z',
+      updated_at: '2026-06-14T17:30:00Z'
+    }
+  ],
+  relationships: [
+    {
+      recommendation_id: 'aws-least-privilege:secret-unused',
+      type: 'least_privilege_scope',
+      from_node_id: 'aws:identity:lambda-invoice-agent',
+      to_node_id: 'aws:resource:secret:openai-key',
+      evidence_ref: 'secrets-kms-runtime-access://secret-unused'
+    }
+  ],
+  caveats: [],
+  failure_reasons: [],
+  remediation_hints: [],
+  evidence_links: ['/docs/aws-least-privilege-engine'],
   coverage_gaps: [],
   diagnostics: [],
   generated_at: '2026-06-14T17:30:00Z',
@@ -3108,6 +3231,28 @@ describe('Domain-first app routes', () => {
     const getRuntimeEvents = vi
       .spyOn(api.apiClient, 'getAWSProjectRuntimeEvents')
       .mockResolvedValue({ runtime: readyAWSRuntimeEvents });
+    vi.spyOn(api.apiClient, 'getAWSProjectSecretsKMSRuntimeAccess').mockResolvedValue({
+      correlation: { status: 'degraded', records: [], summary: {}, caveats: [], failure_reasons: [], remediation_hints: [] } as any
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectS3RuntimeAccess').mockResolvedValue({
+      correlation: { status: 'degraded', records: [], summary: {}, caveats: [], failure_reasons: [], remediation_hints: [] } as any
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectAgentRuntimeAccess').mockResolvedValue({
+      correlation: { status: 'degraded', records: [], summary: {}, caveats: [], failure_reasons: [], remediation_hints: [] } as any
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectBlastRadius').mockResolvedValue({
+      intelligence: {
+        status: 'degraded',
+        findings: [],
+        summary: { critical_count: 0, high_count: 0, relationship_count: 0, remediation_preview_count: 0 },
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: []
+      } as any
+    });
+    const getLeastPrivilege = vi
+      .spyOn(api.apiClient, 'getAWSProjectLeastPrivilege')
+      .mockResolvedValue({ recommendations: readyAWSLeastPrivilege });
 
     const { ProductAWSRuntimePage } = await import('./productShell');
 
@@ -3122,6 +3267,14 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('heading', { level: 2, name: 'Runtime' })).toBeInTheDocument();
     expect(await screen.findByText(/CloudTrail: GetObject/i)).toBeInTheDocument();
     expect(await screen.findByText(/Access Analyzer: Finding/i)).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS least privilege recommendations' })).toBeInTheDocument();
+    expect(screen.getByText(/Remove secretsmanager:GetSecretValue/i)).toBeInTheDocument();
+    expect(getLeastPrivilege).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Event type' }), {
       target: { value: 'cloudtrail' }
