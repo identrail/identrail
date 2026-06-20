@@ -104,7 +104,7 @@ beyond the metadata fields the existing contracts already surface.
 
 1. Confirm the upstream identity-bearing inventories return non-empty results
    under `success` fixture state.
-2. Run `GET /aws/identity-sprawl?fixture_state=success` and verify each
+2. Run `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/identity-sprawl?fixture_state=success` and verify each
    finding type produces records consistent with the underlying inventory
    data.
 3. Verify the `owner=none` sentinel filter only returns findings with
