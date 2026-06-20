@@ -204,7 +204,10 @@ func (s *Service) GetAWSLeastPrivilegeRecommendations(ctx context.Context, works
 
 	accountID := firstNonEmptyAWSValue(connection.AccountID, strings.TrimSpace(request.AccountID), "123456789012")
 	region := firstNonEmptyAWSValue(connection.Region, strings.TrimSpace(request.Region), "us-east-1")
-	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID), "aws-fixture")
+	connectorID := strings.TrimSpace(request.ConnectorID)
+	if connectorID == "" {
+		connectorID = strings.TrimSpace(connection.ConnectorID)
+	}
 
 	sourceFixtureState := fixtureState
 	if strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected {
