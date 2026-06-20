@@ -157,7 +157,6 @@ import {
   readAppearancePreferences,
   resolveAppearanceThemeMode,
   saveAppearancePreferences,
-  type AppearanceDiffMarkers,
   type AppearanceFontID,
   type AppearancePreferences,
   type AppearancePresetID,
@@ -16040,11 +16039,8 @@ export function ProductShellLayout() {
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => readSidebarWidth());
   const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
   const [isSidebarEdgeFocused, setIsSidebarEdgeFocused] = useState(false);
-  const [scrollNavigator, setScrollNavigator] = useState<ScrollNavigatorMetrics>({
-    visible: false,
-    thumbHeight: 0,
-    thumbTop: 0
-  });
+  const scrollNavigatorRef = useRef<HTMLDivElement | null>(null);
+  const scrollNavigatorThumbRef = useRef<HTMLSpanElement | null>(null);
   const [isNarrowViewport, setIsNarrowViewport] = useState<boolean>(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
       return false;
@@ -16446,6 +16442,11 @@ export function ProductShellLayout() {
     const cancelFrame = window.cancelAnimationFrame ?? window.clearTimeout;
     const updateMetrics = () => {
       frameID = undefined;
+      const navigatorEl = scrollNavigatorRef.current;
+      const thumbEl = scrollNavigatorThumbRef.current;
+      if (!navigatorEl || !thumbEl) {
+        return;
+      }
       const scrollingElement = document.scrollingElement ?? document.documentElement;
       const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
       const scrollHeight = Math.max(
@@ -16456,38 +16457,29 @@ export function ProductShellLayout() {
       const scrollRange = scrollHeight - viewportHeight;
 
       if (scrollRange <= 24 || viewportHeight <= 0) {
-        setScrollNavigator((current) =>
-          current.visible ? { visible: false, thumbHeight: 0, thumbTop: 0 } : current
-        );
+        navigatorEl.style.opacity = '0';
+        navigatorEl.style.visibility = 'hidden';
         return;
       }
 
       const trackTop = Math.min(72, Math.max(28, viewportHeight * 0.055));
       const trackBottom = Math.min(64, Math.max(28, viewportHeight * 0.045));
       const trackHeight = Math.max(120, viewportHeight - trackTop - trackBottom);
-      const thumbHeight = Math.round(
-        Math.min(
-          SCROLL_NAVIGATOR_MAX_THUMB_HEIGHT,
-          Math.max(SCROLL_NAVIGATOR_MIN_THUMB_HEIGHT, trackHeight * 0.16)
-        )
+      const thumbHeight = Math.min(
+        SCROLL_NAVIGATOR_MAX_THUMB_HEIGHT,
+        Math.max(SCROLL_NAVIGATOR_MIN_THUMB_HEIGHT, trackHeight * 0.16)
       );
       const scrollProgress = Math.min(1, Math.max(0, scrollingElement.scrollTop / scrollRange));
-      const thumbTop = Math.round(trackTop + (trackHeight - thumbHeight) * scrollProgress);
+      const thumbTop = trackTop + (trackHeight - thumbHeight) * scrollProgress;
 
-      setScrollNavigator((current) => {
-        if (
-          current.visible &&
-          current.thumbHeight === thumbHeight &&
-          Math.abs(current.thumbTop - thumbTop) <= 1
-        ) {
-          return current;
-        }
-        return { visible: true, thumbHeight, thumbTop };
-      });
+      thumbEl.style.height = `${thumbHeight}px`;
+      thumbEl.style.transform = `translate3d(0, ${thumbTop}px, 0)`;
+      navigatorEl.style.opacity = '1';
+      navigatorEl.style.visibility = 'visible';
     };
     const scheduleUpdate = () => {
       if (frameID !== undefined) {
-        cancelFrame(frameID);
+        return;
       }
       frameID = requestFrame(updateMetrics);
     };
@@ -16907,20 +16899,14 @@ export function ProductShellLayout() {
             <Outlet />
           </main>
         </div>
-        {scrollNavigator.visible ? (
-          <div
-            className="idt-app-scroll-navigator"
-            aria-hidden="true"
-            style={
-              {
-                '--idt-scroll-navigator-thumb-height': `${scrollNavigator.thumbHeight}px`,
-                '--idt-scroll-navigator-thumb-top': `${scrollNavigator.thumbTop}px`
-              } as CSSProperties
-            }
-          >
-            <span className="idt-app-scroll-navigator-thumb" />
-          </div>
-        ) : null}
+        <div
+          ref={scrollNavigatorRef}
+          className="idt-app-scroll-navigator"
+          aria-hidden="true"
+          style={{ opacity: 0, visibility: 'hidden' }}
+        >
+          <span ref={scrollNavigatorThumbRef} className="idt-app-scroll-navigator-thumb" />
+        </div>
       </div>
       <CommandPalette
         open={commandOpen}
@@ -23332,19 +23318,14 @@ const APPEARANCE_MOTION_OPTIONS: Array<{ id: AppearanceReduceMotion; label: stri
   { id: 'off', label: 'Off' }
 ];
 
-const APPEARANCE_DIFF_OPTIONS: Array<{ id: AppearanceDiffMarkers; label: string }> = [
-  { id: 'color', label: 'Color' },
-  { id: 'symbols', label: '+/-' }
-];
-
 const APPEARANCE_UI_FONT_OPTIONS: AppearanceFontID[] = [
   'inter',
   'geist',
   'system',
   'space-grotesk',
-  'barlow-condensed'
+  'barlow-condensed',
+  'manrope'
 ];
-const APPEARANCE_CODE_FONT_OPTIONS: AppearanceFontID[] = ['mono-system', 'ibm-plex-mono', 'jetbrains-mono'];
 
 function appearancePresetOptions(mode: 'light' | 'dark') {
   return APPEARANCE_PRESETS.filter((preset) =>
@@ -23547,37 +23528,6 @@ export function ProductAppearanceSettingsPage() {
           />
         </div>
 
-        <div className="idt-appearance-preview" aria-label="Theme preview">
-          <div className="idt-appearance-preview-pane" data-side="before">
-            {[1, 2, 3, 4, 5].map((line) => (
-              <div key={`before-${line}`} className="idt-appearance-code-line">
-                <span>{line}</span>
-                <code>
-                  {line === 1 ? 'const themePreview: {' : ''}
-                  {line === 2 ? '  surface: "sidebar",' : ''}
-                  {line === 3 ? '  accent: "#2563eb",' : ''}
-                  {line === 4 ? '  contrast: 42,' : ''}
-                  {line === 5 ? '};' : ''}
-                </code>
-              </div>
-            ))}
-          </div>
-          <div className="idt-appearance-preview-pane" data-side="after">
-            {[1, 2, 3, 4, 5].map((line) => (
-              <div key={`after-${line}`} className="idt-appearance-code-line">
-                <span>{line}</span>
-                <code>
-                  {line === 1 ? 'const themePreview: {' : ''}
-                  {line === 2 ? '  surface: "sidebar-edge",' : ''}
-                  {line === 3 ? `  accent: "${effectiveColors.accent}",` : ''}
-                  {line === 4 ? `  contrast: ${preferences.contrast},` : ''}
-                  {line === 5 ? '};' : ''}
-                </code>
-              </div>
-            ))}
-          </div>
-        </div>
-
         <div className="idt-appearance-control-list">
           <label className="idt-appearance-control-row">
             <span>
@@ -23648,23 +23598,6 @@ export function ProductAppearanceSettingsPage() {
               onChange={(event) => commitPreferences({ uiFont: event.target.value as AppearanceFontID })}
             >
               {APPEARANCE_UI_FONT_OPTIONS.map((fontID) => (
-                <option key={fontID} value={fontID}>
-                  {APPEARANCE_FONT_LABELS[fontID]}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="idt-appearance-control-row">
-            <span>
-              <strong>Code font</strong>
-            </span>
-            <select
-              aria-label="Code font"
-              value={preferences.codeFont}
-              onChange={(event) => commitPreferences({ codeFont: event.target.value as AppearanceFontID })}
-            >
-              {APPEARANCE_CODE_FONT_OPTIONS.map((fontID) => (
                 <option key={fontID} value={fontID}>
                   {APPEARANCE_FONT_LABELS[fontID]}
                 </option>
@@ -23750,19 +23683,6 @@ export function ProductAppearanceSettingsPage() {
             <span>px</span>
           </span>
         </label>
-
-        <div className="idt-appearance-behavior-row">
-          <div>
-            <h3>Diff markers</h3>
-            <p>Show changed lines with color or +/- symbols</p>
-          </div>
-          <AppearanceSegmentedControl
-            label="Diff markers"
-            value={preferences.diffMarkers}
-            options={APPEARANCE_DIFF_OPTIONS}
-            onChange={(diffMarkers) => commitPreferences({ diffMarkers })}
-          />
-        </div>
 
         <div className="idt-appearance-behavior-row">
           <div>

@@ -1897,7 +1897,7 @@ describe('ProductAppearanceSettingsPage', () => {
     expect(document.documentElement.style.getPropertyValue('--appearance-ui-font')).toContain('Inter');
     expect(document.documentElement.style.getPropertyValue('--appearance-contrast')).toBe('52');
     expect(screen.queryByRole('heading', { name: 'App icon' })).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Theme preview')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Theme preview')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('App preview')).not.toBeInTheDocument();
     expect(screen.queryByRole('switch', { name: 'Translucent sidebar' })).not.toBeInTheDocument();
 

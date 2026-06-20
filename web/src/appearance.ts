@@ -37,6 +37,7 @@ export type AppearanceFontID =
   | 'geist'
   | 'space-grotesk'
   | 'barlow-condensed'
+  | 'manrope'
   | 'mono-system'
   | 'ibm-plex-mono'
   | 'jetbrains-mono';
@@ -346,6 +347,7 @@ export const APPEARANCE_FONTS: Record<AppearanceFontID, string> = {
   geist: 'Geist, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   'space-grotesk': '"Space Grotesk", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   'barlow-condensed': '"Barlow Semi Condensed", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  manrope: 'Manrope, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   'mono-system': 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
   'ibm-plex-mono': '"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
   'jetbrains-mono': '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
@@ -357,6 +359,7 @@ export const APPEARANCE_FONT_LABELS: Record<AppearanceFontID, string> = {
   geist: 'Geist',
   'space-grotesk': 'Space Grotesk',
   'barlow-condensed': 'Barlow Condensed',
+  manrope: 'Manrope',
   'mono-system': 'System Mono',
   'ibm-plex-mono': 'IBM Plex Mono',
   'jetbrains-mono': 'JetBrains Mono'
