@@ -3906,8 +3906,10 @@ func TestRouterGitHubConnectionAndWebhookFlow(t *testing.T) {
 		t.Fatalf("unexpected start response: %+v", startBody.Connection)
 	}
 
+	svc.GitHubInstallationVerifier = &fakeGitHubInstallationVerifier{}
 	completePayload := struct {
 		State                  string   `json:"state"`
+		Code                   string   `json:"code"`
 		InstallationID         int64    `json:"installation_id"`
 		AccountLogin           string   `json:"account_login"`
 		TokenReference         string   `json:"token_reference"`
@@ -3916,6 +3918,7 @@ func TestRouterGitHubConnectionAndWebhookFlow(t *testing.T) {
 		SelectedRepositories   []string `json:"selected_repositories"`
 	}{
 		State:                  startBody.Connection.State,
+		Code:                   "oauth-code",
 		InstallationID:         123456,
 		AccountLogin:           "identrail",
 		TokenReference:         "vault://github/token/project-1",
@@ -4029,7 +4032,8 @@ func TestRouterGitHubWebhookRejectsInvalidSignature(t *testing.T) {
 	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
 		t.Fatalf("decode start response: %v", err)
 	}
-	completeJSON := `{"state":"` + startBody.Connection.State + `","installation_id":42,"account_login":"identrail","token_reference":"vault://token","webhook_secret":"right-secret","webhook_secret_reference":"vault://secret","selected_repositories":["owner/repo"]}`
+	svc.GitHubInstallationVerifier = &fakeGitHubInstallationVerifier{}
+	completeJSON := `{"state":"` + startBody.Connection.State + `","code":"oauth-code","installation_id":42,"account_login":"identrail","token_reference":"vault://token","webhook_secret":"right-secret","webhook_secret_reference":"vault://secret","selected_repositories":["owner/repo"]}`
 	if resp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/github/connect/complete", completeJSON); resp.Code != http.StatusOK {
 		t.Fatalf("complete connection expected 200, got %d body=%s", resp.Code, resp.Body.String())
 	}

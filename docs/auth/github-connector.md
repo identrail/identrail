@@ -28,9 +28,20 @@ GitHub's account selector (`/installations/select_target`) so GitHub, not
 Identrail, shows the personal-account or organization choice before the
 selected-repository screen. The product sends GitHub back to
 `/app/github/callback`, and that callback calls
-`POST /v1/connectors/github/complete` with the returned state and installation
-ID. The backend owns the GitHub App slug and webhook secret through environment
-variables, so users do not paste app credentials into the browser.
+`POST /v1/connectors/github/complete` with the returned state, installation ID,
+and the OAuth `code` GitHub appends to the redirect. The backend owns the GitHub
+App slug and webhook secret through environment variables, so users do not paste
+app credentials into the browser.
+
+Before binding the installation to the workspace, the backend exchanges the OAuth
+`code` for a user-to-server token and confirms the installation is one the
+authorizing user can access (`GET /user/installations`). This prevents a tenant
+from supplying another customer's installation id (GHSA-cp3j-m783-3ph5).
+Completion **fails closed** (HTTP 503) when the OAuth credentials below are unset
+and returns HTTP 403 when the caller does not own the installation. The GitHub
+App must therefore have **"Request user authorization (OAuth) during
+installation"** enabled and a Callback URL of `https://<host>/app/github/callback`
+for every environment origin.
 
 Required runtime configuration for the hosted GitHub App flow:
 
@@ -38,6 +49,8 @@ Required runtime configuration for the hosted GitHub App flow:
 - `IDENTRAIL_GITHUB_APP_NAME`
 - `IDENTRAIL_GITHUB_APP_PRIVATE_KEY`
 - `IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET`
+- `IDENTRAIL_GITHUB_APP_OAUTH_CLIENT_ID` (the App's OAuth Client ID)
+- `IDENTRAIL_GITHUB_APP_OAUTH_CLIENT_SECRET` (a generated client secret)
 - `IDENTRAIL_CONNECTOR_SECRET_KEYS` with
   `IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true` for durable connector
   credential storage
@@ -65,6 +78,10 @@ GitHub does not expose every setting through that public endpoint, so operators
 must also confirm in the GitHub App settings that:
 
 - Setup URL is `https://app.identrail.com/app/github/callback`.
+- "Request user authorization (OAuth) during installation" is enabled, and the
+  Callback URL list includes `https://app.identrail.com/app/github/callback`
+  (plus any staging/local origins). This is what makes GitHub return the OAuth
+  `code` the backend needs to verify installation ownership.
 - Redirect on update is disabled; repository-access changes sync through the
   `installation_repositories` webhook.
 - "Where can this GitHub App be installed?" is set to Any account.

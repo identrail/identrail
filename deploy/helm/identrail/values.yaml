@@ -158,6 +158,11 @@ config:
   IDENTRAIL_GITHUB_APP_NAME: ""
   IDENTRAIL_GITHUB_APP_PRIVATE_KEY: ""
   IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET: ""
+  # OAuth-during-install credentials for the hosted GitHub App flow. Required to
+  # verify the caller owns the installation; completion fails closed without them.
+  # CLIENT_SECRET is sensitive - prefer sourcing it from a Kubernetes Secret.
+  IDENTRAIL_GITHUB_APP_OAUTH_CLIENT_ID: ""
+  IDENTRAIL_GITHUB_APP_OAUTH_CLIENT_SECRET: ""
   IDENTRAIL_GITHUB_PAT_ALLOWED_BASE_URLS: "https://github.com"
   IDENTRAIL_K8S_SOURCE: kubectl
   IDENTRAIL_KUBECTL_PATH: /usr/bin/kubectl

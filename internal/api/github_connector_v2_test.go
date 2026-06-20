@@ -36,6 +36,36 @@ func (f *fakeGitHubPATValidator) ValidateGitHubPAT(ctx context.Context, baseURL 
 	return f.result, f.err
 }
 
+// fakeGitHubInstallationVerifier stands in for the OAuth ownership verifier in
+// tests. A zero value accepts any installation id (reporting account "identrail");
+// set owned to restrict which ids are considered owned, or err to force failures.
+type fakeGitHubInstallationVerifier struct {
+	owned        map[int64]bool
+	accountLogin string
+	accountType  string
+	err          error
+	seenCode     string
+}
+
+func (f *fakeGitHubInstallationVerifier) VerifyInstallationOwnership(ctx context.Context, code string, installationID int64) (githubconnector.VerifiedInstallation, error) {
+	f.seenCode = code
+	if f.err != nil {
+		return githubconnector.VerifiedInstallation{}, f.err
+	}
+	if f.owned != nil && !f.owned[installationID] {
+		return githubconnector.VerifiedInstallation{}, githubconnector.ErrInstallationNotOwned
+	}
+	login := f.accountLogin
+	if login == "" {
+		login = "identrail"
+	}
+	return githubconnector.VerifiedInstallation{
+		InstallationID: installationID,
+		AccountLogin:   login,
+		AccountType:    f.accountType,
+	}, nil
+}
+
 type fakeGitHubRepositoryLister struct {
 	seenInstallationID int64
 	repositories       []githubconnector.Repository
@@ -127,6 +157,41 @@ func TestRouterGitHubConnectorV2RejectsInvalidInstallAccountType(t *testing.T) {
 	}
 }
 
+// TestRouterGitHubConnectorV2RejectsUnownedInstallation is the V2 regression
+// test for GHSA-cp3j-m783-3ph5: completion must reject an installation the
+// authorizing GitHub user does not own, before any installation token is minted.
+func TestRouterGitHubConnectorV2RejectsUnownedInstallation(t *testing.T) {
+	lister := &fakeGitHubRepositoryLister{}
+	store := db.NewMemoryStore()
+	r, svc := newGitHubConnectorV2ConfiguredTestRouterWithStore(t, store, &fakeGitHubPATValidator{}, lister)
+	// The authorizing user owns installation 999, not the victim's 12345.
+	svc.GitHubInstallationVerifier = &fakeGitHubInstallationVerifier{owned: map[int64]bool{999: true}}
+
+	startResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1"
+	}`)
+	if startResp.Code != http.StatusOK {
+		t.Fatalf("expected github connector start 200, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	var startBody GitHubConnectorStartResponse
+	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+
+	completeResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/complete", fmt.Sprintf(`{
+		"state":%q,
+		"installation_id":12345,
+		"code":"oauth-code"
+	}`, startBody.State))
+	if completeResp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for unowned installation, got %d body=%s", completeResp.Code, completeResp.Body.String())
+	}
+	if lister.seenInstallationID != 0 {
+		t.Fatalf("repository lister must not run for an unowned installation, saw id %d", lister.seenInstallationID)
+	}
+}
+
 func TestRouterGitHubConnectorV2CompletesAppInstall(t *testing.T) {
 	lister := &fakeGitHubRepositoryLister{
 		repositories: []githubconnector.Repository{
@@ -154,6 +219,7 @@ func TestRouterGitHubConnectorV2CompletesAppInstall(t *testing.T) {
 	completeResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/complete", fmt.Sprintf(`{
 		"state":%q,
 		"installation_id":12345,
+		"code":"oauth-code",
 		"setup_action":"install"
 	}`, startBody.State))
 	if completeResp.Code != http.StatusOK {
@@ -268,7 +334,8 @@ func TestRouterGitHubConnectorV2CollectsRepositoryPosture(t *testing.T) {
 	}
 	completeResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/complete", fmt.Sprintf(`{
 		"state":%q,
-		"installation_id":12345
+		"installation_id":12345,
+		"code":"oauth-code"
 	}`, startBody.State))
 	if completeResp.Code != http.StatusOK {
 		t.Fatalf("expected github connector complete 200, got %d body=%s", completeResp.Code, completeResp.Body.String())
@@ -382,7 +449,8 @@ func TestRouterGitHubConnectorV2HydratesCustomAppConnector(t *testing.T) {
 	}
 	completeResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/complete", fmt.Sprintf(`{
 		"state":%q,
-		"installation_id":12345
+		"installation_id":12345,
+		"code":"oauth-code"
 	}`, startBody.State))
 	if completeResp.Code != http.StatusOK {
 		t.Fatalf("expected github connector complete 200, got %d body=%s", completeResp.Code, completeResp.Body.String())
@@ -427,7 +495,8 @@ func TestRouterGitHubConnectorV2DoesNotActivateWhenRepoListingFails(t *testing.T
 	}
 	completeResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/complete", fmt.Sprintf(`{
 		"state":%q,
-		"installation_id":12345
+		"installation_id":12345,
+		"code":"oauth-code"
 	}`, startBody.State))
 	if completeResp.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected repository listing failure 503, got %d body=%s", completeResp.Code, completeResp.Body.String())
@@ -471,7 +540,8 @@ func TestRouterGitHubConnectorV2WebhookQueuesAndDisconnects(t *testing.T) {
 	}
 	completeResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/complete", fmt.Sprintf(`{
 		"state":%q,
-		"installation_id":12345
+		"installation_id":12345,
+		"code":"oauth-code"
 	}`, startBody.State))
 	if completeResp.Code != http.StatusOK {
 		t.Fatalf("expected github connector complete 200, got %d body=%s", completeResp.Code, completeResp.Body.String())
@@ -583,7 +653,8 @@ func TestRouterGitHubConnectorV2ReviewCommandQueuesScan(t *testing.T) {
 	}
 	completeResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/github/complete", fmt.Sprintf(`{
 		"state":%q,
-		"installation_id":12345
+		"installation_id":12345,
+		"code":"oauth-code"
 	}`, startBody.State))
 	if completeResp.Code != http.StatusOK {
 		t.Fatalf("expected github connector complete 200, got %d body=%s", completeResp.Code, completeResp.Body.String())
@@ -867,6 +938,7 @@ func newGitHubConnectorV2ConfiguredTestRouterWithStore(t *testing.T, store db.St
 	svc.GitHubAppWebhookSecret = "global-webhook-secret"
 	svc.GitHubPATValidator = validator
 	svc.GitHubRepositoryLister = repoLister
+	svc.GitHubInstallationVerifier = &fakeGitHubInstallationVerifier{}
 	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{9}, 32)}})
 	if err != nil {
 		t.Fatalf("build connector secret manager: %v", err)

@@ -11,6 +11,7 @@
   ],
   "setup_url": "https://app.identrail.com/app/github/callback",
   "setup_on_update": false,
+  "request_oauth_on_install": true,
   "public": true,
   "default_permissions": {
     "actions": "read",

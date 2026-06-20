@@ -2222,14 +2222,6 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
-		if request.InstallationID == 0 {
-			parsed, err := parseGitHubInstallationID(c.GetHeader("X-GitHub-Installation-ID"))
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github connector request"})
-				return
-			}
-			request.InstallationID = parsed
-		}
 		response, err := svc.CompleteGitHubConnector(c.Request.Context(), request)
 		if err != nil {
 			switch {
@@ -2237,7 +2229,9 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired github connector state"})
 			case errors.Is(err, ErrInvalidGitHubConnectionRequest):
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github connector request"})
-			case errors.Is(err, ErrGitHubAppConfigUnavailable):
+			case errors.Is(err, ErrGitHubInstallationOwnershipUnverified):
+				c.JSON(http.StatusForbidden, gin.H{"error": "github installation ownership could not be verified"})
+			case errors.Is(err, ErrGitHubInstallationVerifierUnavailable), errors.Is(err, ErrGitHubAppConfigUnavailable):
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "github app connector is not configured"})
 			case errors.Is(err, ErrGitHubRepositoryListUnavailable):
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "github repositories unavailable"})
@@ -3687,14 +3681,6 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
-		if request.InstallationID == 0 {
-			parsed, err := parseGitHubInstallationID(c.GetHeader("X-GitHub-Installation-ID"))
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github connection request"})
-				return
-			}
-			request.InstallationID = parsed
-		}
 		record, err := svc.CompleteGitHubConnection(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), request)
 		if err != nil {
 			switch {
@@ -3704,6 +3690,10 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired connection state"})
 			case errors.Is(err, ErrInvalidGitHubConnectionRequest):
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid github connection request"})
+			case errors.Is(err, ErrGitHubInstallationOwnershipUnverified):
+				c.JSON(http.StatusForbidden, gin.H{"error": "github installation ownership could not be verified"})
+			case errors.Is(err, ErrGitHubInstallationVerifierUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "github app connector is not configured"})
 			default:
 				if logger != nil {
 					logger.Error("complete github connection", telemetry.ZapError(err))

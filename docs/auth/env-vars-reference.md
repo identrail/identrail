@@ -80,6 +80,8 @@ for their deployment.
 | `IDENTRAIL_GITHUB_APP_PRIVATE_KEY` | empty | Required only when the hosted GitHub App flow is configured. PEM-formatted RSA private key. Treated as a secret. | GitHub connector |
 | `IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET` | empty | Required only when the hosted GitHub App flow is configured. Used to verify webhook HMAC. | GitHub connector |
 | `IDENTRAIL_GITHUB_APP_NAME` | empty | Required only when the hosted GitHub App flow is configured. The GitHub App slug used in install URLs. | GitHub connector |
+| `IDENTRAIL_GITHUB_APP_OAUTH_CLIENT_ID` | empty | Required for the hosted GitHub App flow. The App's OAuth Client ID. Used to verify the caller owns the installation during connection completion. | GitHub connector |
+| `IDENTRAIL_GITHUB_APP_OAUTH_CLIENT_SECRET` | empty | Required for the hosted GitHub App flow. A generated OAuth client secret. Treated as a secret. Connection completion fails closed when this and the client ID are unset. | GitHub connector |
 | `IDENTRAIL_GITHUB_PAT_ALLOWED_BASE_URLS` | `https://github.com` | Comma-separated allowlist of GitHub.com or GitHub Enterprise base URLs accepted by the PAT fallback. | GitHub connector |
 
 ### Kubernetes Connector

@@ -252,12 +252,14 @@ resource "terraform_data" "api_inputs" {
       condition = !local.api_github_connector_enabled || (
         contains(local.api_config_names, "IDENTRAIL_GITHUB_APP_ID") &&
         contains(local.api_config_names, "IDENTRAIL_GITHUB_APP_NAME") &&
+        contains(local.api_config_names, "IDENTRAIL_GITHUB_APP_OAUTH_CLIENT_ID") &&
         contains(local.api_secret_config_names, "IDENTRAIL_GITHUB_APP_PRIVATE_KEY") &&
         contains(local.api_secret_config_names, "IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET") &&
+        contains(local.api_secret_config_names, "IDENTRAIL_GITHUB_APP_OAUTH_CLIENT_SECRET") &&
         contains(local.api_secret_config_names, "IDENTRAIL_CONNECTOR_SECRET_KEYS") &&
         local.api_connector_secret_keys_required
       )
-      error_message = "GitHub connector launch requires IDENTRAIL_GITHUB_APP_ID and IDENTRAIL_GITHUB_APP_NAME in api_environment_variables, IDENTRAIL_GITHUB_APP_PRIVATE_KEY, IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET, and IDENTRAIL_CONNECTOR_SECRET_KEYS in api_secrets, plus IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true."
+      error_message = "GitHub connector launch requires IDENTRAIL_GITHUB_APP_ID, IDENTRAIL_GITHUB_APP_NAME, and IDENTRAIL_GITHUB_APP_OAUTH_CLIENT_ID in api_environment_variables, IDENTRAIL_GITHUB_APP_PRIVATE_KEY, IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET, IDENTRAIL_GITHUB_APP_OAUTH_CLIENT_SECRET, and IDENTRAIL_CONNECTOR_SECRET_KEYS in api_secrets, plus IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED=true."
     }
 
     precondition {

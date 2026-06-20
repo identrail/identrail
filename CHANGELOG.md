@@ -18,6 +18,19 @@
   cluster, finding type, severity, status, account, and region. Surfaced in
   the AWS runtime app page; Closes #1524. See
   [docs/aws-identity-sprawl-engine.md](docs/aws-identity-sprawl-engine.md).
+- **Security (cross-tenant IDOR fix, GHSA-cp3j-m783-3ph5):** the GitHub App
+  connection-completion endpoints now verify that the supplied
+  `installation_id` is owned by the GitHub user who authorized the connect flow
+  before binding it to a workspace. Completion requires the OAuth `code` GitHub
+  returns on the post-install redirect ("request user authorization during
+  installation" must be enabled on the GitHub App, configured via
+  `IDENTRAIL_GITHUB_APP_OAUTH_CLIENT_ID` / `IDENTRAIL_GITHUB_APP_OAUTH_CLIENT_SECRET`);
+  identrail exchanges it for a user token and rejects any installation the user
+  cannot access (HTTP 403). Completion fails closed when the verifier is not
+  configured. The attacker-controlled `X-GitHub-Installation-ID` header fallback
+  has been removed. Fixes the issue where an authenticated tenant could link
+  another customer's GitHub App installation and read that organization's
+  private repositories.
 - Add **AWS unused and dormant access engine** (#1523). Adds a read-only,
   metadata-only intelligence layer that turns least-privilege source evidence,
   IAM last-used signals, runtime observations, scan timing, and policy scope

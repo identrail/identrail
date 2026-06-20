@@ -293,8 +293,10 @@ fi
 
 github_app_id="$(trim "${API_GITHUB_APP_ID:-}")"
 github_app_name="$(trim "${API_GITHUB_APP_NAME:-}")"
+github_app_oauth_client_id="$(trim "${API_GITHUB_APP_OAUTH_CLIENT_ID:-}")"
 github_app_private_key_secret="$(trim "${API_GITHUB_APP_PRIVATE_KEY_SECRET_ARN:-}")"
 github_app_webhook_secret="$(trim "${API_GITHUB_APP_WEBHOOK_SECRET_ARN:-}")"
+github_app_oauth_client_secret="$(trim "${API_GITHUB_APP_OAUTH_CLIENT_SECRET_ARN:-}")"
 github_connector_secret_keys_secret="$(trim "${API_CONNECTOR_SECRET_KEYS_SECRET_ARN:-}")"
 github_environment="$(
   jq -nce \
@@ -309,11 +311,17 @@ if [ "${github_feature_enabled}" = "true" ]; then
   if [ -z "${github_app_name}" ]; then
     fail "API_GITHUB_APP_NAME is required when API_FEATURE_CONNECTOR_GITHUB_V2=true"
   fi
+  if [ -z "${github_app_oauth_client_id}" ]; then
+    fail "API_GITHUB_APP_OAUTH_CLIENT_ID is required when API_FEATURE_CONNECTOR_GITHUB_V2=true"
+  fi
   if [ -z "${github_app_private_key_secret}" ]; then
     fail "API_GITHUB_APP_PRIVATE_KEY_SECRET_ARN is required when API_FEATURE_CONNECTOR_GITHUB_V2=true"
   fi
   if [ -z "${github_app_webhook_secret}" ]; then
     fail "API_GITHUB_APP_WEBHOOK_SECRET_ARN is required when API_FEATURE_CONNECTOR_GITHUB_V2=true"
+  fi
+  if [ -z "${github_app_oauth_client_secret}" ]; then
+    fail "API_GITHUB_APP_OAUTH_CLIENT_SECRET_ARN is required when API_FEATURE_CONNECTOR_GITHUB_V2=true"
   fi
   if [ -z "${github_connector_secret_keys_secret}" ]; then
     fail "API_CONNECTOR_SECRET_KEYS_SECRET_ARN is required when API_FEATURE_CONNECTOR_GITHUB_V2=true"
@@ -324,7 +332,7 @@ if [ "${github_feature_enabled}" = "true" ]; then
   if ! [[ "${github_app_name}" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,38}[A-Za-z0-9])?$ ]]; then
     fail "API_GITHUB_APP_NAME must be a valid GitHub App slug"
   fi
-  for secret_arn in "${github_app_private_key_secret}" "${github_app_webhook_secret}" "${github_connector_secret_keys_secret}"; do
+  for secret_arn in "${github_app_private_key_secret}" "${github_app_webhook_secret}" "${github_app_oauth_client_secret}" "${github_connector_secret_keys_secret}"; do
     if ! [[ "${secret_arn}" =~ ^arn:(aws|aws-us-gov|aws-cn):secretsmanager:${aws_region}:[0-9]{12}:secret:.+ ]]; then
       fail "GitHub connector secret references must be Secrets Manager ARNs in ${aws_region}"
     fi
@@ -334,10 +342,12 @@ if [ "${github_feature_enabled}" = "true" ]; then
       --arg enabled "${github_feature_enabled}" \
       --arg app_id "${github_app_id}" \
       --arg app_name "${github_app_name}" \
+      --arg oauth_client_id "${github_app_oauth_client_id}" \
       '{
         IDENTRAIL_FEATURE_CONNECTOR_GITHUB_V2: $enabled,
         IDENTRAIL_GITHUB_APP_ID: $app_id,
         IDENTRAIL_GITHUB_APP_NAME: $app_name,
+        IDENTRAIL_GITHUB_APP_OAUTH_CLIENT_ID: $oauth_client_id,
         IDENTRAIL_CONNECTOR_SECRET_KEYS_REQUIRED: "true"
       }'
   )"
@@ -345,10 +355,12 @@ if [ "${github_feature_enabled}" = "true" ]; then
     jq -nce \
       --arg private_key_secret "${github_app_private_key_secret}" \
       --arg webhook_secret "${github_app_webhook_secret}" \
+      --arg oauth_client_secret "${github_app_oauth_client_secret}" \
       --arg connector_secret_keys_secret "${github_connector_secret_keys_secret}" \
       '{
         IDENTRAIL_GITHUB_APP_PRIVATE_KEY: $private_key_secret,
         IDENTRAIL_GITHUB_APP_WEBHOOK_SECRET: $webhook_secret,
+        IDENTRAIL_GITHUB_APP_OAUTH_CLIENT_SECRET: $oauth_client_secret,
         IDENTRAIL_CONNECTOR_SECRET_KEYS: $connector_secret_keys_secret
       }'
   )"

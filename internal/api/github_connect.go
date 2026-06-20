@@ -72,6 +72,16 @@ var ErrGitHubRepositoryPostureUnavailable = errors.New("github repository postur
 // ErrGitHubPATValidatorUnavailable indicates PAT validation is not configured.
 var ErrGitHubPATValidatorUnavailable = errors.New("github pat validator unavailable")
 
+// ErrGitHubInstallationOwnershipUnverified indicates the supplied installation_id
+// could not be confirmed as owned by the GitHub user who authorized the connect
+// flow. This is the guard against binding another tenant's installation.
+var ErrGitHubInstallationOwnershipUnverified = errors.New("github installation ownership unverified")
+
+// ErrGitHubInstallationVerifierUnavailable indicates the OAuth installation
+// verifier is not configured, so completion fails closed rather than trusting a
+// client-supplied installation_id.
+var ErrGitHubInstallationVerifierUnavailable = errors.New("github installation verifier unavailable")
+
 // GitHubPATValidator validates a GitHub.com or GHES personal access token.
 type GitHubPATValidator interface {
 	ValidateGitHubPAT(ctx context.Context, baseURL string, token string) (githubconnector.PATValidationResult, error)
@@ -87,6 +97,15 @@ type GitHubRepositoryLister interface {
 type GitHubRepositoryPostureCollector interface {
 	CollectRepositoryPosture(ctx context.Context, installationID int64, repository string) (githubconnector.RepositoryPosture, error)
 	CollectOrganizationPosture(ctx context.Context, installationID int64, organization string, repository string) (githubconnector.OrganizationPosture, error)
+}
+
+// GitHubInstallationVerifier confirms, via the GitHub App "request user
+// authorization during installation" flow, that the installation_id supplied at
+// completion is accessible to the GitHub user who authorized the connect flow.
+// It binds installation_id to a human with rights on the target account,
+// preventing a caller from linking another tenant's installation.
+type GitHubInstallationVerifier interface {
+	VerifyInstallationOwnership(ctx context.Context, code string, installationID int64) (githubconnector.VerifiedInstallation, error)
 }
 
 // GitHubConnectorStartRequest captures the flat connector GitHub App bootstrap request.
@@ -114,8 +133,12 @@ type GitHubConnectorStartResponse struct {
 type GitHubConnectorCompleteRequest struct {
 	State          string `json:"state"`
 	InstallationID int64  `json:"installation_id"`
-	SetupAction    string `json:"setup_action,omitempty"`
-	AccountLogin   string `json:"account_login,omitempty"`
+	// Code is the OAuth code GitHub appends to the post-install redirect when
+	// "request user authorization during installation" is enabled. It is
+	// required and used to verify the caller owns the installation.
+	Code         string `json:"code"`
+	SetupAction  string `json:"setup_action,omitempty"`
+	AccountLogin string `json:"account_login,omitempty"`
 }
 
 // GitHubConnectorCompleteResponse returns the activated connector and app redirect target.
@@ -177,8 +200,12 @@ type GitHubConnectionStartResponse struct {
 
 // GitHubConnectionCompleteRequest captures one connect completion payload.
 type GitHubConnectionCompleteRequest struct {
-	State                  string   `json:"state"`
-	InstallationID         int64    `json:"installation_id"`
+	State          string `json:"state"`
+	InstallationID int64  `json:"installation_id"`
+	// Code is the OAuth code GitHub appends to the post-install redirect when
+	// "request user authorization during installation" is enabled. It is
+	// required and used to verify the caller owns the installation.
+	Code                   string   `json:"code"`
 	AccountLogin           string   `json:"account_login"`
 	TokenReference         string   `json:"token_reference"`
 	WebhookSecret          string   `json:"webhook_secret"`
@@ -478,16 +505,33 @@ func (s *Service) CompleteGitHubConnector(ctx context.Context, request GitHubCon
 	if pending == nil {
 		return GitHubConnectorCompleteResponse{}, ErrGitHubConnectStateNotFound
 	}
+	// Re-bind the pending connector to the caller's tenant. The state value alone
+	// is not a sufficient authorization key; require the caller to be in the same
+	// tenant that started the flow before activating it.
+	callerScope, scopeErr := db.RequireScope(s.scopeContext(ctx))
+	if scopeErr != nil {
+		return GitHubConnectorCompleteResponse{}, scopeErr
+	}
+	if !strings.EqualFold(strings.TrimSpace(pending.Connector.TenantID), callerScope.TenantID) {
+		return GitHubConnectorCompleteResponse{}, ErrGitHubConnectStateNotFound
+	}
 	expiresAt := metadataTime(pending.State.Metadata, "state_expires_at")
 	if !expiresAt.IsZero() && now.After(expiresAt) {
 		return GitHubConnectorCompleteResponse{}, ErrGitHubConnectStateNotFound
+	}
+	// Confirm the caller owns the installation before minting any token for it.
+	// This must run before ListInstallationRepositories, which is the
+	// cross-tenant read primitive.
+	verified, err := s.verifyGitHubInstallationOwnership(ctx, request.Code, request.InstallationID)
+	if err != nil {
+		return GitHubConnectorCompleteResponse{}, err
 	}
 	scope := db.Scope{TenantID: pending.Connector.TenantID, WorkspaceID: pending.Connector.WorkspaceID}
 	repositories := metadataStringSlice(pending.State.Metadata, "selected_repositories")
 	if s.GitHubRepositoryLister == nil {
 		return GitHubConnectorCompleteResponse{}, ErrGitHubRepositoryListUnavailable
 	}
-	listed, listErr := s.GitHubRepositoryLister.ListInstallationRepositories(ctx, request.InstallationID)
+	listed, listErr := s.GitHubRepositoryLister.ListInstallationRepositories(ctx, verified.InstallationID)
 	if listErr != nil {
 		return GitHubConnectorCompleteResponse{}, ErrGitHubRepositoryListUnavailable
 	}
@@ -515,9 +559,9 @@ func (s *Service) CompleteGitHubConnector(ctx context.Context, request GitHubCon
 		Status:                 domain.ConnectorStatusActive,
 		HealthStatus:           "healthy",
 		Provider:               "github_app",
-		AccountLogin:           strings.TrimSpace(request.AccountLogin),
-		InstallationID:         request.InstallationID,
-		TokenReference:         fmt.Sprintf("github-app-installation:%d", request.InstallationID),
+		AccountLogin:           firstNonEmptyString(verified.AccountLogin, strings.TrimSpace(request.AccountLogin)),
+		InstallationID:         verified.InstallationID,
+		TokenReference:         fmt.Sprintf("github-app-installation:%d", verified.InstallationID),
 		WebhookSecretReference: "github-app:webhook",
 		WebhookSecretEnvelope:  webhookEnvelope,
 		WebhookSecretRotatedAt: now,
@@ -778,6 +822,31 @@ func githubOrganizationPostureAvailable(posture githubconnector.OrganizationPost
 	return !notOrganization
 }
 
+// verifyGitHubInstallationOwnership confirms the supplied installation_id is
+// accessible to the GitHub user who authorized the connect flow (via the OAuth
+// code GitHub returns on the post-install redirect). It fails closed: a missing
+// verifier, missing code, or any verification failure rejects the completion so
+// a caller can never bind an installation they do not control.
+func (s *Service) verifyGitHubInstallationOwnership(ctx context.Context, code string, installationID int64) (githubconnector.VerifiedInstallation, error) {
+	if s.GitHubInstallationVerifier == nil {
+		return githubconnector.VerifiedInstallation{}, ErrGitHubInstallationVerifierUnavailable
+	}
+	if strings.TrimSpace(code) == "" || installationID <= 0 {
+		return githubconnector.VerifiedInstallation{}, ErrInvalidGitHubConnectionRequest
+	}
+	verified, err := s.GitHubInstallationVerifier.VerifyInstallationOwnership(ctx, code, installationID)
+	if err != nil {
+		if errors.Is(err, githubconnector.ErrInstallationNotOwned) {
+			return githubconnector.VerifiedInstallation{}, ErrGitHubInstallationOwnershipUnverified
+		}
+		return githubconnector.VerifiedInstallation{}, fmt.Errorf("verify github installation ownership: %w", err)
+	}
+	if verified.InstallationID != installationID {
+		return githubconnector.VerifiedInstallation{}, ErrGitHubInstallationOwnershipUnverified
+	}
+	return verified, nil
+}
+
 func (s *Service) CompleteGitHubConnection(ctx context.Context, workspaceID string, projectID string, request GitHubConnectionCompleteRequest) (GitHubConnectionStatus, error) {
 	project, scope, err := s.requireScopedProject(ctx, workspaceID, projectID)
 	if err != nil {
@@ -798,6 +867,13 @@ func (s *Service) CompleteGitHubConnection(ctx context.Context, workspaceID stri
 	repositories, err := normalizeGitHubRepositories(request.SelectedRepositories)
 	if err != nil {
 		return GitHubConnectionStatus{}, ErrInvalidGitHubConnectionRequest
+	}
+
+	// Confirm the caller owns the installation before binding it to the
+	// workspace. The verifier makes a network call, so it runs before the lock.
+	verified, err := s.verifyGitHubInstallationOwnership(ctx, request.Code, request.InstallationID)
+	if err != nil {
+		return GitHubConnectionStatus{}, err
 	}
 
 	now := s.Now().UTC()
@@ -836,8 +912,8 @@ func (s *Service) CompleteGitHubConnection(ctx context.Context, workspaceID stri
 		Status:                 domain.ConnectorStatusActive,
 		HealthStatus:           "healthy",
 		Provider:               "github_app",
-		AccountLogin:           strings.TrimSpace(request.AccountLogin),
-		InstallationID:         request.InstallationID,
+		AccountLogin:           firstNonEmptyString(verified.AccountLogin, strings.TrimSpace(request.AccountLogin)),
+		InstallationID:         verified.InstallationID,
 		TokenReference:         normalizedTokenRef,
 		WebhookSecretReference: normalizedSecretRef,
 		WebhookSecretEnvelope:  envelope,
@@ -2362,16 +2438,4 @@ func repositorySelected(selected []string, repository string) bool {
 		}
 	}
 	return false
-}
-
-func parseGitHubInstallationID(value string) (int64, error) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return 0, nil
-	}
-	parsed, err := strconv.ParseInt(trimmed, 10, 64)
-	if err != nil || parsed <= 0 {
-		return 0, fmt.Errorf("invalid installation id")
-	}
-	return parsed, nil
 }

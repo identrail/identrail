@@ -18,6 +18,7 @@ func TestRouterGitHubWebhookInvalidSignatureDoesNotQueueOrMutateDeliveryState(t 
 	metrics := telemetry.NewMetrics()
 	store := db.NewMemoryStore()
 	svc := NewService(store, routerScanner{}, "aws")
+	svc.GitHubInstallationVerifier = &fakeGitHubInstallationVerifier{}
 	svc.DefaultScope = db.Scope{
 		TenantID:    "tenant-a",
 		WorkspaceID: "workspace-a",
@@ -66,7 +67,7 @@ func TestRouterGitHubWebhookInvalidSignatureDoesNotQueueOrMutateDeliveryState(t 
 		t.Fatalf("decode start response: %v", err)
 	}
 
-	completePayload := `{"state":"` + startBody.Connection.State + `","installation_id":101,"account_login":"identrail","token_reference":"vault://token","webhook_secret":"expected-secret","webhook_secret_reference":"vault://secret","selected_repositories":["owner/repo"]}`
+	completePayload := `{"state":"` + startBody.Connection.State + `","code":"oauth-code","installation_id":101,"account_login":"identrail","token_reference":"vault://token","webhook_secret":"expected-secret","webhook_secret_reference":"vault://secret","selected_repositories":["owner/repo"]}`
 	completeResp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/github/connect/complete", completePayload)
 	if completeResp.Code != http.StatusOK {
 		t.Fatalf("connect complete expected 200, got %d body=%s", completeResp.Code, completeResp.Body.String())

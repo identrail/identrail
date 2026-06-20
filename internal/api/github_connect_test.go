@@ -21,37 +21,18 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestParseGitHubInstallationID(t *testing.T) {
-	tests := []struct {
-		input   string
-		wantID  int64
-		wantErr bool
-	}{
-		{"", 0, false},
-		{"  ", 0, false},
-		{"123", 123, false},
-		{" 456 ", 456, false},
-		{"0", 0, true},
-		{"-1", 0, true},
-		{"abc", 0, true},
-		{"1.5", 0, true},
-	}
-	for _, tc := range tests {
-		got, err := parseGitHubInstallationID(tc.input)
-		if tc.wantErr && err == nil {
-			t.Errorf("parseGitHubInstallationID(%q) expected error, got %d", tc.input, got)
-		}
-		if !tc.wantErr && err != nil {
-			t.Errorf("parseGitHubInstallationID(%q) unexpected error: %v", tc.input, err)
-		}
-		if got != tc.wantID {
-			t.Errorf("parseGitHubInstallationID(%q) = %d, want %d", tc.input, got, tc.wantID)
-		}
-	}
-}
-
 func githubPushWebhookPayload(repository string, installationID int64) []byte {
 	return []byte(fmt.Sprintf(`{"before":"1111111111111111111111111111111111111111","after":"2222222222222222222222222222222222222222","commits":[{"id":"2222222222222222222222222222222222222222","added":["app.env"],"modified":[".github/workflows/build.yml"],"removed":[]}],"repository":{"full_name":%q},"installation":{"id":%d}}`, repository, installationID))
+}
+
+// newGitHubConnectTestService builds a Service wired with a permissive
+// installation ownership verifier so GitHub connection completion succeeds in
+// tests. Production injects the real OAuth verifier; without one, completion
+// fails closed.
+func newGitHubConnectTestService(store db.Store) *Service {
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.GitHubInstallationVerifier = &fakeGitHubInstallationVerifier{}
+	return svc
 }
 
 func seedGitHubWebhookEventScanPolicy(t *testing.T, store db.Store, ctx context.Context, projectID string) {
@@ -221,7 +202,7 @@ func TestGitHubConnectionEncryptsAndRotatesWebhookSecret(t *testing.T) {
 	logger := zap.NewNop()
 	metrics := telemetry.NewMetrics()
 	store := db.NewMemoryStore()
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	sink := &recordingAuditSink{}
 	r := NewRouter(logger, metrics, svc, RouterOptions{
 		APIKeys:            []string{"writer-key"},
@@ -261,7 +242,7 @@ func TestGitHubConnectionEncryptsAndRotatesWebhookSecret(t *testing.T) {
 	}
 
 	secret := "very-secret-webhook-value"
-	completeJSON := `{"state":"` + startBody.Connection.State + `","installation_id":77,"account_login":"identrail","token_reference":"vault://token","webhook_secret":"` + secret + `","webhook_secret_reference":"vault://secret/v1","selected_repositories":["owner/repo"]}`
+	completeJSON := `{"state":"` + startBody.Connection.State + `","code":"oauth-code","installation_id":77,"account_login":"identrail","token_reference":"vault://token","webhook_secret":"` + secret + `","webhook_secret_reference":"vault://secret/v1","selected_repositories":["owner/repo"]}`
 	completeResp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/github/connect/complete", completeJSON)
 	if completeResp.Code != http.StatusOK {
 		t.Fatalf("complete connection expected 200, got %d body=%s", completeResp.Code, completeResp.Body.String())
@@ -425,7 +406,7 @@ func TestGitHubConnectionPersistsAcrossServiceInstances(t *testing.T) {
 		t.Fatalf("upsert project: %v", err)
 	}
 
-	svcA := NewService(store, routerScanner{}, "aws")
+	svcA := newGitHubConnectTestService(store)
 	svcA.ConnectorSecretManager = manager
 	start, err := svcA.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
 	if err != nil {
@@ -433,6 +414,7 @@ func TestGitHubConnectionPersistsAcrossServiceInstances(t *testing.T) {
 	}
 	_, err = svcA.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
 		State:                  start.State,
+		Code:                   "oauth-code",
 		InstallationID:         77,
 		AccountLogin:           "identrail",
 		TokenReference:         "vault://token",
@@ -444,7 +426,7 @@ func TestGitHubConnectionPersistsAcrossServiceInstances(t *testing.T) {
 		t.Fatalf("complete github connection: %v", err)
 	}
 
-	svcB := NewService(store, routerScanner{}, "aws")
+	svcB := newGitHubConnectTestService(store)
 	svcB.ConnectorSecretManager = manager
 	connection, err := svcB.GetGitHubConnection(ctx, "workspace-a", "project-1")
 	if err != nil {
@@ -485,7 +467,7 @@ func TestHandleGitHubWebhookRefusesInactiveWorkspace(t *testing.T) {
 	for _, state := range []string{"suspended", "deleted"} {
 		t.Run(state, func(t *testing.T) {
 			store := db.NewMemoryStore()
-			svc := NewService(store, routerScanner{}, "aws")
+			svc := newGitHubConnectTestService(store)
 			svc.RepoScanEnabled = true
 			svc.RepoScanAllowedTargets = []string{"owner/*"}
 
@@ -500,6 +482,7 @@ func TestHandleGitHubWebhookRefusesInactiveWorkspace(t *testing.T) {
 			}
 			if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
 				State:                  start.State,
+				Code:                   "oauth-code",
 				InstallationID:         77,
 				AccountLogin:           "identrail",
 				TokenReference:         "vault://token",
@@ -550,7 +533,7 @@ func TestHandleGitHubWebhookRefusesInactiveWorkspace(t *testing.T) {
 
 func TestHandleGitHubWebhookRequiresEventScanPolicyForAutomaticEvents(t *testing.T) {
 	store := db.NewMemoryStore()
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	svc.RepoScanEnabled = true
 	svc.RepoScanAllowedTargets = []string{"owner/*"}
 
@@ -565,6 +548,7 @@ func TestHandleGitHubWebhookRequiresEventScanPolicyForAutomaticEvents(t *testing
 	}
 	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
 		State:                  start.State,
+		Code:                   "oauth-code",
 		InstallationID:         77,
 		AccountLogin:           "identrail",
 		TokenReference:         "vault://token",
@@ -596,7 +580,7 @@ func TestHandleGitHubWebhookRequiresEventScanPolicyForAutomaticEvents(t *testing
 func TestHandleGitHubWebhookPolicyLookupFailureReturnsRetryableError(t *testing.T) {
 	baseStore := db.NewMemoryStore()
 	policyErr := errors.New("policy database unavailable")
-	svc := NewService(githubWebhookPolicyListErrorStore{Store: baseStore, err: policyErr}, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(githubWebhookPolicyListErrorStore{Store: baseStore, err: policyErr})
 	svc.RepoScanEnabled = true
 	svc.RepoScanAllowedTargets = []string{"owner/*"}
 
@@ -611,6 +595,7 @@ func TestHandleGitHubWebhookPolicyLookupFailureReturnsRetryableError(t *testing.
 	}
 	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
 		State:                  start.State,
+		Code:                   "oauth-code",
 		InstallationID:         77,
 		AccountLogin:           "identrail",
 		TokenReference:         "vault://token",
@@ -640,7 +625,7 @@ func TestHandleGitHubWebhookPolicyLookupFailureReturnsRetryableError(t *testing.
 
 func TestHandleGitHubWebhookReviewCommandBypassesEventPolicyGate(t *testing.T) {
 	store := db.NewMemoryStore()
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	svc.RepoScanEnabled = true
 	svc.RepoScanAllowedTargets = []string{"owner/*"}
 
@@ -655,6 +640,7 @@ func TestHandleGitHubWebhookReviewCommandBypassesEventPolicyGate(t *testing.T) {
 	}
 	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
 		State:                  start.State,
+		Code:                   "oauth-code",
 		InstallationID:         77,
 		AccountLogin:           "identrail",
 		TokenReference:         "vault://token",
@@ -678,7 +664,7 @@ func TestHandleGitHubWebhookReviewCommandBypassesEventPolicyGate(t *testing.T) {
 
 func TestHandleGitHubWebhookReplayDeliverySkipsDuplicateScan(t *testing.T) {
 	store := db.NewMemoryStore()
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	svc.Metrics = telemetry.NewMetrics()
 	svc.RepoScanEnabled = true
 	svc.RepoScanAllowedTargets = []string{"owner/*"}
@@ -716,6 +702,7 @@ func TestHandleGitHubWebhookReplayDeliverySkipsDuplicateScan(t *testing.T) {
 	}
 	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
 		State:                  start.State,
+		Code:                   "oauth-code",
 		InstallationID:         77,
 		AccountLogin:           "identrail",
 		TokenReference:         "vault://token",
@@ -777,7 +764,7 @@ func TestHandleGitHubWebhookReplayDeliverySkipsDuplicateScan(t *testing.T) {
 
 func TestHandleGitHubWebhookReplayWindowExpiresPersistedDeliveryID(t *testing.T) {
 	store := db.NewMemoryStore()
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	svc.RepoScanEnabled = true
 	svc.RepoScanAllowedTargets = []string{"owner/*"}
 	svc.GitHubWebhookReplayWindow = 1 * time.Minute
@@ -815,6 +802,7 @@ func TestHandleGitHubWebhookReplayWindowExpiresPersistedDeliveryID(t *testing.T)
 	}
 	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
 		State:                  start.State,
+		Code:                   "oauth-code",
 		InstallationID:         77,
 		AccountLogin:           "identrail",
 		TokenReference:         "vault://token",
@@ -849,7 +837,7 @@ func TestHandleGitHubWebhookReplayWindowExpiresPersistedDeliveryID(t *testing.T)
 
 func TestHandleGitHubWebhookReplayWindowUsesPersistedDeliveryTimestamp(t *testing.T) {
 	store := db.NewMemoryStore()
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	svc.RepoScanEnabled = true
 	svc.RepoScanAllowedTargets = []string{"owner/*"}
 	svc.GitHubWebhookReplayWindow = 1 * time.Minute
@@ -887,6 +875,7 @@ func TestHandleGitHubWebhookReplayWindowUsesPersistedDeliveryTimestamp(t *testin
 	}
 	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
 		State:                  start.State,
+		Code:                   "oauth-code",
 		InstallationID:         77,
 		AccountLogin:           "identrail",
 		TokenReference:         "vault://token",
@@ -950,7 +939,7 @@ func TestHandleGitHubWebhookRetryDeliveryAfterTransientEnqueueFailure(t *testing
 		MemoryStore:       baseStore,
 		failuresRemaining: 1,
 	}
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	svc.RepoScanEnabled = true
 	svc.RepoScanAllowedTargets = []string{"owner/*"}
 	now := time.Date(2026, 5, 12, 14, 0, 0, 0, time.UTC)
@@ -987,6 +976,7 @@ func TestHandleGitHubWebhookRetryDeliveryAfterTransientEnqueueFailure(t *testing
 	}
 	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
 		State:                  start.State,
+		Code:                   "oauth-code",
 		InstallationID:         77,
 		AccountLogin:           "identrail",
 		TokenReference:         "vault://token",
@@ -1035,7 +1025,7 @@ func TestHandleGitHubWebhookRetryDeliveryAfterQueueFull(t *testing.T) {
 		MemoryStore:       baseStore,
 		failuresRemaining: 1,
 	}
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	svc.RepoScanEnabled = true
 	svc.RepoScanAllowedTargets = []string{"owner/*"}
 	now := time.Date(2026, 5, 12, 14, 0, 0, 0, time.UTC)
@@ -1072,6 +1062,7 @@ func TestHandleGitHubWebhookRetryDeliveryAfterQueueFull(t *testing.T) {
 	}
 	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
 		State:                  start.State,
+		Code:                   "oauth-code",
 		InstallationID:         77,
 		AccountLogin:           "identrail",
 		TokenReference:         "vault://token",
@@ -1120,7 +1111,7 @@ func TestHandleGitHubWebhookRetryDeliveryAfterQueueFull(t *testing.T) {
 
 func TestHandleGitHubWebhookBurstControlSkipsRapidRepeatedQueues(t *testing.T) {
 	store := db.NewMemoryStore()
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	svc.RepoScanEnabled = true
 	svc.RepoScanAllowedTargets = []string{"owner/*"}
 	svc.GitHubWebhookBurstWindow = 1 * time.Minute
@@ -1158,6 +1149,7 @@ func TestHandleGitHubWebhookBurstControlSkipsRapidRepeatedQueues(t *testing.T) {
 	}
 	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
 		State:                  start.State,
+		Code:                   "oauth-code",
 		InstallationID:         88,
 		AccountLogin:           "identrail",
 		TokenReference:         "vault://token",
@@ -1264,7 +1256,7 @@ func TestHandleGitHubWebhookDoesNotHydrateConnectorsPerRequest(t *testing.T) {
 		t.Fatalf("upsert project: %v", err)
 	}
 
-	seed := NewService(baseStore, routerScanner{}, "aws")
+	seed := newGitHubConnectTestService(baseStore)
 	seed.ConnectorSecretManager = manager
 	start, err := seed.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
 	if err != nil {
@@ -1272,6 +1264,7 @@ func TestHandleGitHubWebhookDoesNotHydrateConnectorsPerRequest(t *testing.T) {
 	}
 	if _, err := seed.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
 		State:                  start.State,
+		Code:                   "oauth-code",
 		InstallationID:         88,
 		AccountLogin:           "identrail",
 		TokenReference:         "vault://token",
@@ -1282,7 +1275,7 @@ func TestHandleGitHubWebhookDoesNotHydrateConnectorsPerRequest(t *testing.T) {
 		t.Fatalf("complete github connection: %v", err)
 	}
 
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	svc.ConnectorSecretManager = manager
 	if got := store.callCount(); got != 1 {
 		t.Fatalf("expected constructor hydration exactly once, got %d calls", got)
@@ -1333,7 +1326,7 @@ func TestGitHubConnectionReloadUpdateAndRotateAfterCacheMiss(t *testing.T) {
 		t.Fatalf("upsert project: %v", err)
 	}
 
-	seed := NewService(store, routerScanner{}, "aws")
+	seed := newGitHubConnectTestService(store)
 	seed.ConnectorSecretManager = manager
 	start, err := seed.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
 	if err != nil {
@@ -1341,6 +1334,7 @@ func TestGitHubConnectionReloadUpdateAndRotateAfterCacheMiss(t *testing.T) {
 	}
 	if _, err := seed.CompleteGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionCompleteRequest{
 		State:                  start.State,
+		Code:                   "oauth-code",
 		InstallationID:         101,
 		AccountLogin:           "identrail",
 		TokenReference:         "vault://token",
@@ -1351,7 +1345,7 @@ func TestGitHubConnectionReloadUpdateAndRotateAfterCacheMiss(t *testing.T) {
 		t.Fatalf("complete github connection: %v", err)
 	}
 
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	svc.ConnectorSecretManager = manager
 
 	svc.githubConnectMu.Lock()
@@ -1470,7 +1464,7 @@ func TestGitHubMetadataHelpers(t *testing.T) {
 
 func TestGitHubConnectionMissingConnectorPaths(t *testing.T) {
 	store := db.NewMemoryStore()
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	ctx := db.WithScope(context.Background(), db.Scope{
 		TenantID:    "tenant-a",
 		WorkspaceID: "workspace-a",
@@ -1536,7 +1530,7 @@ func TestRouterGitHubWebhookNonScanEvent(t *testing.T) {
 	logger := zap.NewNop()
 	metrics := telemetry.NewMetrics()
 	store := db.NewMemoryStore()
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	svc.RepoScanAllowedTargets = []string{"owner/*"}
 	r := NewRouter(logger, metrics, svc, RouterOptions{
 		APIKeys:            []string{"writer-key"},
@@ -1574,7 +1568,7 @@ func TestRouterGitHubWebhookNonScanEvent(t *testing.T) {
 		t.Fatalf("decode start response: %v", err)
 	}
 
-	completeJSON := `{"state":"` + startBody.Connection.State + `","installation_id":99,"account_login":"identrail","token_reference":"vault://token","webhook_secret":"ping-secret","webhook_secret_reference":"vault://secret","selected_repositories":["owner/repo"]}`
+	completeJSON := `{"state":"` + startBody.Connection.State + `","code":"oauth-code","installation_id":99,"account_login":"identrail","token_reference":"vault://token","webhook_secret":"ping-secret","webhook_secret_reference":"vault://secret","selected_repositories":["owner/repo"]}`
 	if resp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/github/connect/complete", completeJSON); resp.Code != http.StatusOK {
 		t.Fatalf("complete connection expected 200, got %d body=%s", resp.Code, resp.Body.String())
 	}
@@ -1600,129 +1594,6 @@ func TestRouterGitHubWebhookNonScanEvent(t *testing.T) {
 	}
 	if webhookBody.Webhook.MatchedProjects != 1 {
 		t.Fatalf("expected 1 matched project, got %d", webhookBody.Webhook.MatchedProjects)
-	}
-}
-
-func TestRouterGitHubConnectCompleteWithInstallationIDHeader(t *testing.T) {
-	logger := zap.NewNop()
-	metrics := telemetry.NewMetrics()
-	store := db.NewMemoryStore()
-	svc := NewService(store, routerScanner{}, "aws")
-	r := NewRouter(logger, metrics, svc, RouterOptions{
-		APIKeys:            []string{"writer-key"},
-		WriteAPIKeys:       []string{"writer-key"},
-		DefaultTenantID:    "tenant-a",
-		DefaultWorkspaceID: "workspace-a",
-	})
-
-	doAPI := func(method string, path string, body string, extraHeaders map[string]string) *httptest.ResponseRecorder {
-		var requestBody *bytes.Buffer
-		if body == "" {
-			requestBody = bytes.NewBuffer(nil)
-		} else {
-			requestBody = bytes.NewBufferString(body)
-		}
-		req := httptest.NewRequest(method, path, requestBody)
-		req.Header.Set("X-API-Key", "writer-key")
-		if body != "" {
-			req.Header.Set("Content-Type", "application/json")
-		}
-		for k, v := range extraHeaders {
-			req.Header.Set(k, v)
-		}
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		return w
-	}
-
-	_ = doAPI(http.MethodPut, "/v1/organizations/current", `{"display_name":"Tenant A","slug":"tenant-a"}`, nil)
-	_ = doAPI(http.MethodPost, "/v1/workspaces", `{"workspace_id":"workspace-a","display_name":"Workspace A","slug":"workspace-a"}`, nil)
-	_ = doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects", `{"project_id":"project-1","name":"Project 1","slug":"project-1"}`, nil)
-
-	startResp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/github/connect/start", `{}`, nil)
-	var startBody struct {
-		Connection GitHubConnectionStartResponse `json:"connection"`
-	}
-	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
-		t.Fatalf("decode start response: %v", err)
-	}
-
-	completeJSON := `{"state":"` + startBody.Connection.State + `","installation_id":0,"account_login":"identrail","token_reference":"vault://token","webhook_secret":"test-secret","webhook_secret_reference":"vault://secret","selected_repositories":["owner/repo"]}`
-	resp := doAPI(
-		http.MethodPost,
-		"/v1/workspaces/workspace-a/projects/project-1/github/connect/complete",
-		completeJSON,
-		map[string]string{"X-GitHub-Installation-ID": "789"},
-	)
-	if resp.Code != http.StatusOK {
-		t.Fatalf("complete with header installation_id expected 200, got %d body=%s", resp.Code, resp.Body.String())
-	}
-
-	statusResp := doAPI(http.MethodGet, "/v1/workspaces/workspace-a/projects/project-1/github/connection", "", nil)
-	var statusBody struct {
-		Connection GitHubConnectionStatus `json:"connection"`
-	}
-	if err := json.Unmarshal(statusResp.Body.Bytes(), &statusBody); err != nil {
-		t.Fatalf("decode status response: %v", err)
-	}
-	if statusBody.Connection.InstallationID != 789 {
-		t.Fatalf("expected installation_id=789 from header, got %d", statusBody.Connection.InstallationID)
-	}
-}
-
-func TestRouterGitHubConnectCompleteWithInvalidInstallationIDHeader(t *testing.T) {
-	logger := zap.NewNop()
-	metrics := telemetry.NewMetrics()
-	store := db.NewMemoryStore()
-	svc := NewService(store, routerScanner{}, "aws")
-	r := NewRouter(logger, metrics, svc, RouterOptions{
-		APIKeys:            []string{"writer-key"},
-		WriteAPIKeys:       []string{"writer-key"},
-		DefaultTenantID:    "tenant-a",
-		DefaultWorkspaceID: "workspace-a",
-	})
-
-	doAPI := func(method string, path string, body string, extraHeaders map[string]string) *httptest.ResponseRecorder {
-		var requestBody *bytes.Buffer
-		if body == "" {
-			requestBody = bytes.NewBuffer(nil)
-		} else {
-			requestBody = bytes.NewBufferString(body)
-		}
-		req := httptest.NewRequest(method, path, requestBody)
-		req.Header.Set("X-API-Key", "writer-key")
-		if body != "" {
-			req.Header.Set("Content-Type", "application/json")
-		}
-		for k, v := range extraHeaders {
-			req.Header.Set(k, v)
-		}
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		return w
-	}
-
-	_ = doAPI(http.MethodPut, "/v1/organizations/current", `{"display_name":"Tenant A","slug":"tenant-a"}`, nil)
-	_ = doAPI(http.MethodPost, "/v1/workspaces", `{"workspace_id":"workspace-a","display_name":"Workspace A","slug":"workspace-a"}`, nil)
-	_ = doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects", `{"project_id":"project-1","name":"Project 1","slug":"project-1"}`, nil)
-
-	startResp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/github/connect/start", `{}`, nil)
-	var startBody struct {
-		Connection GitHubConnectionStartResponse `json:"connection"`
-	}
-	if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
-		t.Fatalf("decode start response: %v", err)
-	}
-
-	completeJSON := `{"state":"` + startBody.Connection.State + `","installation_id":0,"account_login":"identrail","token_reference":"vault://token","webhook_secret":"test-secret","webhook_secret_reference":"vault://secret","selected_repositories":["owner/repo"]}`
-	resp := doAPI(
-		http.MethodPost,
-		"/v1/workspaces/workspace-a/projects/project-1/github/connect/complete",
-		completeJSON,
-		map[string]string{"X-GitHub-Installation-ID": "not-a-number"},
-	)
-	if resp.Code != http.StatusBadRequest {
-		t.Fatalf("complete with invalid header installation_id expected 400, got %d body=%s", resp.Code, resp.Body.String())
 	}
 }
 
@@ -1766,7 +1637,7 @@ func TestRouterGitHubUpdateReposWithoutConnection(t *testing.T) {
 	logger := zap.NewNop()
 	metrics := telemetry.NewMetrics()
 	store := db.NewMemoryStore()
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	r := NewRouter(logger, metrics, svc, RouterOptions{
 		APIKeys:            []string{"writer-key"},
 		WriteAPIKeys:       []string{"writer-key"},
@@ -1815,7 +1686,7 @@ func TestRouterGitHubWebhookEdgeCases(t *testing.T) {
 	logger := zap.NewNop()
 	metrics := telemetry.NewMetrics()
 	store := db.NewMemoryStore()
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	r := NewRouter(logger, metrics, svc, RouterOptions{
 		APIKeys:            []string{"writer-key"},
 		WriteAPIKeys:       []string{"writer-key"},
@@ -1882,7 +1753,7 @@ func TestRouterGitHubConnectCompleteErrorPaths(t *testing.T) {
 	logger := zap.NewNop()
 	metrics := telemetry.NewMetrics()
 	store := db.NewMemoryStore()
-	svc := NewService(store, routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(store)
 	r := NewRouter(logger, metrics, svc, RouterOptions{
 		APIKeys:            []string{"writer-key"},
 		WriteAPIKeys:       []string{"writer-key"},
@@ -1912,7 +1783,7 @@ func TestRouterGitHubConnectCompleteErrorPaths(t *testing.T) {
 	_ = doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects", `{"project_id":"project-1","name":"Project 1","slug":"project-1"}`)
 
 	resp := doAPI(http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/github/connect/complete",
-		`{"state":"nonexistent-state","installation_id":123,"account_login":"test","token_reference":"ref","webhook_secret":"sec","webhook_secret_reference":"secref","selected_repositories":["owner/repo"]}`)
+		`{"state":"nonexistent-state","code":"oauth-code","installation_id":123,"account_login":"test","token_reference":"ref","webhook_secret":"sec","webhook_secret_reference":"secref","selected_repositories":["owner/repo"]}`)
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid state, got %d body=%s", resp.Code, resp.Body.String())
 	}
@@ -1957,7 +1828,7 @@ func TestToGitHubConnectionStatus(t *testing.T) {
 }
 
 func TestServiceGitHubConnectionStatusUsesServiceClockForRotation(t *testing.T) {
-	svc := NewService(db.NewMemoryStore(), routerScanner{}, "aws")
+	svc := newGitHubConnectTestService(db.NewMemoryStore())
 	now := time.Date(2035, 1, 1, 12, 0, 0, 0, time.UTC)
 	svc.Now = func() time.Time { return now }
 
@@ -1983,5 +1854,127 @@ func TestServiceGitHubConnectionStatusUsesServiceClockForRotation(t *testing.T) 
 	status := svc.toGitHubConnectionStatus(conn)
 	if !status.WebhookSecretRotationRequired {
 		t.Fatal("expected rotation to be required using service clock")
+	}
+}
+
+// seedGitHubConnectTenancy provisions a tenant/workspace/project and returns a
+// scoped context plus a secret manager for GitHub connection completion tests.
+func seedGitHubConnectTenancy(t *testing.T, store db.Store) (context.Context, *secretstore.Manager) {
+	t.Helper()
+	manager := secretstore.NewEphemeralManager()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(ctx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, db.TenancyProject{WorkspaceID: "workspace-a", ProjectID: "project-1", Name: "Project 1", Slug: "project-1"}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	return ctx, manager
+}
+
+func completeRequestForState(state string, installationID int64) GitHubConnectionCompleteRequest {
+	return GitHubConnectionCompleteRequest{
+		State:                  state,
+		Code:                   "oauth-code",
+		InstallationID:         installationID,
+		AccountLogin:           "attacker-supplied",
+		TokenReference:         "vault://token",
+		WebhookSecret:          "secret-value",
+		WebhookSecretReference: "vault://secret/v1",
+		SelectedRepositories:   []string{"owner/repo"},
+	}
+}
+
+// TestCompleteGitHubConnectionRejectsUnownedInstallation is the regression test
+// for GHSA-cp3j-m783-3ph5: an authenticated tenant may not bind an installation
+// the authorizing GitHub user does not own, even with a validly scoped state.
+func TestCompleteGitHubConnectionRejectsUnownedInstallation(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx, manager := seedGitHubConnectTenancy(t, store)
+
+	const attackerInstallation = 1001
+	const victimInstallation = 2002
+
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	// The authorizing user only owns the attacker's own installation.
+	svc.GitHubInstallationVerifier = &fakeGitHubInstallationVerifier{owned: map[int64]bool{attackerInstallation: true}}
+
+	start, err := svc.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+
+	_, err = svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", completeRequestForState(start.State, victimInstallation))
+	if !errors.Is(err, ErrGitHubInstallationOwnershipUnverified) {
+		t.Fatalf("expected ownership rejection for victim installation, got %v", err)
+	}
+}
+
+func TestCompleteGitHubConnectionRequiresOAuthCode(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx, manager := seedGitHubConnectTenancy(t, store)
+
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.GitHubInstallationVerifier = &fakeGitHubInstallationVerifier{}
+
+	start, err := svc.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+
+	request := completeRequestForState(start.State, 1001)
+	request.Code = ""
+	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", request); !errors.Is(err, ErrInvalidGitHubConnectionRequest) {
+		t.Fatalf("expected invalid request without oauth code, got %v", err)
+	}
+}
+
+// TestCompleteGitHubConnectionFailsClosedWithoutVerifier ensures completion
+// rejects rather than trusting a client-supplied installation id when no OAuth
+// verifier is configured.
+func TestCompleteGitHubConnectionFailsClosedWithoutVerifier(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx, manager := seedGitHubConnectTenancy(t, store)
+
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	// No GitHubInstallationVerifier configured.
+
+	start, err := svc.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+
+	if _, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", completeRequestForState(start.State, 1001)); !errors.Is(err, ErrGitHubInstallationVerifierUnavailable) {
+		t.Fatalf("expected fail-closed verifier-unavailable error, got %v", err)
+	}
+}
+
+// TestCompleteGitHubConnectionUsesGitHubVerifiedAccount confirms the persisted
+// account comes from GitHub's verification, not the client-supplied value.
+func TestCompleteGitHubConnectionUsesGitHubVerifiedAccount(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx, manager := seedGitHubConnectTenancy(t, store)
+
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.GitHubInstallationVerifier = &fakeGitHubInstallationVerifier{accountLogin: "verified-org"}
+
+	start, err := svc.StartGitHubConnection(ctx, "workspace-a", "project-1", GitHubConnectionStartRequest{})
+	if err != nil {
+		t.Fatalf("start github connection: %v", err)
+	}
+
+	status, err := svc.CompleteGitHubConnection(ctx, "workspace-a", "project-1", completeRequestForState(start.State, 1001))
+	if err != nil {
+		t.Fatalf("complete github connection: %v", err)
+	}
+	if status.AccountLogin != "verified-org" {
+		t.Fatalf("expected GitHub-verified account login, got %q", status.AccountLogin)
 	}
 }

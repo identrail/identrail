@@ -152,8 +152,10 @@ jobs:
       API_WORKOS_WEBHOOK_SECRET_ARN: ${{ secrets.API_WORKOS_WEBHOOK_SECRET_ARN || '' }}
       API_GITHUB_APP_ID: ${{ vars.API_GITHUB_APP_ID || '' }}
       API_GITHUB_APP_NAME: ${{ vars.API_GITHUB_APP_NAME || '' }}
+      API_GITHUB_APP_OAUTH_CLIENT_ID: ${{ vars.API_GITHUB_APP_OAUTH_CLIENT_ID || '' }}
       API_GITHUB_APP_PRIVATE_KEY_SECRET_ARN: ${{ secrets.API_GITHUB_APP_PRIVATE_KEY_SECRET_ARN || '' }}
       API_GITHUB_APP_WEBHOOK_SECRET_ARN: ${{ secrets.API_GITHUB_APP_WEBHOOK_SECRET_ARN || '' }}
+      API_GITHUB_APP_OAUTH_CLIENT_SECRET_ARN: ${{ secrets.API_GITHUB_APP_OAUTH_CLIENT_SECRET_ARN || '' }}
       API_CONNECTOR_SECRET_KEYS_SECRET_ARN: ${{ secrets.API_CONNECTOR_SECRET_KEYS_SECRET_ARN || '' }}
       API_REPO_SCAN_ENABLED: ${{ vars.API_REPO_SCAN_ENABLED || '' }}
       API_REPO_SCAN_ALLOWLIST: ${{ vars.API_REPO_SCAN_ALLOWLIST || '' }}
@@ -218,6 +220,7 @@ jobs:
           for secret_arn in \
             "${API_GITHUB_APP_PRIVATE_KEY_SECRET_ARN}" \
             "${API_GITHUB_APP_WEBHOOK_SECRET_ARN}" \
+            "${API_GITHUB_APP_OAUTH_CLIENT_SECRET_ARN}" \
             "${API_CONNECTOR_SECRET_KEYS_SECRET_ARN}"; do
             if [ -n "${secret_arn}" ]; then
               echo "::add-mask::${secret_arn}"

@@ -5324,6 +5324,7 @@ export type GitHubConnectorStartResponse = {
 export type GitHubConnectorCompleteRequest = {
   state: string;
   installation_id: number;
+  code: string;
   setup_action?: string;
   account_login?: string;
 };
@@ -5406,6 +5407,7 @@ export type GitHubRepositoryPostureResponse = {
 export type GitHubConnectionCompleteRequest = {
   state: string;
   installation_id: number;
+  code: string;
   account_login?: string;
   token_reference: string;
   webhook_secret: string;

@@ -225,6 +225,7 @@ type Service struct {
 	GitHubRepositoryLister             GitHubRepositoryLister
 	GitHubRepositoryPostureCollector   GitHubRepositoryPostureCollector
 	GitHubInstallationTokenMinter      GitHubInstallationTokenMinter
+	GitHubInstallationVerifier         GitHubInstallationVerifier
 	GitHubCodeScanningAlertCollector   GitHubCodeScanningAlertCollector
 	GitHubSecretScanningAlertCollector GitHubSecretScanningAlertCollector
 	GitHubDependabotAlertCollector     GitHubDependabotAlertCollector
