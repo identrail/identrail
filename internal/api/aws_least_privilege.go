@@ -211,7 +211,8 @@ func (s *Service) GetAWSLeastPrivilegeRecommendations(ctx context.Context, works
 		sourceFixtureState = ""
 	}
 
-	secrets, s3, agents, runtime, err := s.awsLeastPrivilegeSourceSignals(ctx, workspaceID, projectID, connectorID, sourceFixtureState)
+	suppressRuntimeFixtures := strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected
+	secrets, s3, agents, runtime, err := s.awsLeastPrivilegeSourceSignals(ctx, workspaceID, projectID, connectorID, sourceFixtureState, suppressRuntimeFixtures)
 	if err != nil {
 		return AWSLeastPrivilegeResult{}, err
 	}
@@ -284,7 +285,7 @@ func normalizeAWSLeastPrivilegeFixtureState(requested string, connection AWSConn
 	}
 }
 
-func (s *Service) awsLeastPrivilegeSourceSignals(ctx context.Context, workspaceID, projectID, connectorID, fixtureState string) (AWSSecretsKMSRuntimeAccessResult, AWSS3RuntimeAccessResult, AWSAgentRuntimeAccessResult, AWSRuntimeEventResult, error) {
+func (s *Service) awsLeastPrivilegeSourceSignals(ctx context.Context, workspaceID, projectID, connectorID, fixtureState string, suppressRuntimeFixtures bool) (AWSSecretsKMSRuntimeAccessResult, AWSS3RuntimeAccessResult, AWSAgentRuntimeAccessResult, AWSRuntimeEventResult, error) {
 	secrets, err := s.GetAWSSecretsKMSRuntimeAccess(ctx, workspaceID, projectID, AWSSecretsKMSRuntimeAccessRequest{
 		ConnectorID:  connectorID,
 		FixtureState: fixtureState,
@@ -307,8 +308,9 @@ func (s *Service) awsLeastPrivilegeSourceSignals(ctx context.Context, workspaceI
 		return AWSSecretsKMSRuntimeAccessResult{}, AWSS3RuntimeAccessResult{}, AWSAgentRuntimeAccessResult{}, AWSRuntimeEventResult{}, fmt.Errorf("calculate agent least privilege: %w", err)
 	}
 	runtime, err := s.GetAWSRuntimeEvents(ctx, workspaceID, projectID, AWSRuntimeEventRequest{
-		ConnectorID:  connectorID,
-		FixtureState: fixtureState,
+		ConnectorID:            connectorID,
+		FixtureState:           fixtureState,
+		SuppressFixtureRecords: suppressRuntimeFixtures,
 	})
 	if err != nil {
 		return AWSSecretsKMSRuntimeAccessResult{}, AWSS3RuntimeAccessResult{}, AWSAgentRuntimeAccessResult{}, AWSRuntimeEventResult{}, fmt.Errorf("calculate runtime signal least privilege: %w", err)
@@ -521,18 +523,28 @@ func awsLeastPrivilegeRecommendationFromRuntimeSignal(record AWSRuntimeEventReco
 		service := normalizeAWSRuntimeEventFilterToken(firstNonEmptyAWSValue(record.TargetResourceName, serviceFromAWSAction(record.Action), record.EventSource))
 		action := awsLeastPrivilegeServiceAction(service)
 		evidenceRef := firstNonEmptyAWSValue(record.EvidenceRef, fmt.Sprintf("runtime-evidence://%s", record.EventID))
+		decision := "remove"
+		recommendationType := "remove-stale-service-access"
+		severity := "medium"
+		score := 70
 		breakage := "low"
+		removeActions := []string{action}
 		if record.Confidence < 0.75 {
+			decision = "review"
+			recommendationType = "review-stale-service-access"
+			score = 55
 			breakage = "unknown"
+			removeActions = nil
 		}
+		keepActions, _ := awsLeastPrivilegeKeepRemoveActions(decision, []string{action})
 		return AWSLeastPrivilegeRecommendation{
 			RecommendationID:   "aws-least-privilege:" + record.EventID,
 			CalculationVersion: awsLeastPrivilegeVersion,
-			RecommendationType: "remove-stale-service-access",
-			Decision:           "remove",
-			Severity:           "medium",
+			RecommendationType: recommendationType,
+			Decision:           decision,
+			Severity:           severity,
 			Status:             "review",
-			Score:              70,
+			Score:              score,
 			Confidence:         record.Confidence,
 			AccountID:          record.AccountID,
 			Region:             record.Region,
@@ -545,7 +557,8 @@ func awsLeastPrivilegeRecommendationFromRuntimeSignal(record AWSRuntimeEventReco
 			Rationale:          fmt.Sprintf("IAM last-used reports no recent %s service access for this identity in the scoped signal window.", firstNonEmptyAWSValue(service, "AWS")),
 			BreakagePrediction: breakage,
 			BreakageRationale:  "IAM last-used is metadata-only evidence; verify business owner and CloudTrail coverage before removing service actions.",
-			RemoveActions:      []string{action},
+			KeepActions:        keepActions,
+			RemoveActions:      removeActions,
 			GrantedActions:     []string{action},
 			ImpactedNodes:      dedupeStrings([]string{record.ActorIdentityNodeID, record.ResourceNodeID}),
 			ImpactedPath: []AWSLeastPrivilegePathStep{
@@ -553,8 +566,8 @@ func awsLeastPrivilegeRecommendationFromRuntimeSignal(record AWSRuntimeEventReco
 				awsLeastPrivilegePathStep(record.ResourceNodeID, "aws_service", firstNonEmptyAWSValue(record.TargetResourceName, service), record.AccountID, record.Region),
 			},
 			Evidence:        []AWSLeastPrivilegeEvidence{{Source: "iam_last_used", EvidenceRef: evidenceRef, Label: "IAM last-used signal", Confidence: record.Confidence, ObservedAt: record.ObservedAt, Relationship: record.Status}},
-			NextAction:      awsLeastPrivilegeNextAction("remove", "IAM service", breakage),
-			RemediationCase: awsLeastPrivilegeRemediationCase("remove-stale-service-access", "remove", "medium", 70, breakage, record.ActorIdentityNodeID, []string{evidenceRef}),
+			NextAction:      awsLeastPrivilegeNextAction(decision, "IAM service", breakage),
+			RemediationCase: awsLeastPrivilegeRemediationCase(recommendationType, decision, severity, score, breakage, record.ActorIdentityNodeID, []string{evidenceRef}),
 			CreatedAt:       now,
 			UpdatedAt:       now,
 		}, true

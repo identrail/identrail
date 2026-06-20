@@ -71,6 +71,38 @@ func TestGetAWSLeastPrivilegeBuildsRecommendationContract(t *testing.T) {
 	}
 }
 
+func TestGetAWSLeastPrivilegeSuppressesImplicitRuntimeFixtures(t *testing.T) {
+	now := time.Date(2026, 6, 20, 8, 5, 0, 0, time.UTC)
+	svc, ws := newLeastPrivilegeService(t, "project-least-privilege-live-unavailable", now)
+
+	result, err := svc.GetAWSLeastPrivilegeRecommendations(defaultScopeContext(), ws, "project-least-privilege-live-unavailable", AWSLeastPrivilegeRequest{
+		ConnectorID: "aws-prod",
+	})
+	if err != nil {
+		t.Fatalf("get implicit live least privilege recommendations: %v", err)
+	}
+
+	for _, recommendation := range result.Recommendations {
+		for _, evidence := range recommendation.Evidence {
+			switch evidence.Source {
+			case "iam_last_used", "access_analyzer":
+				t.Fatalf("implicit live request must not convert runtime fixtures into recommendations: %+v", recommendation)
+			}
+		}
+	}
+
+	hasSuppressionDiagnostic := false
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.Code == "runtime_fixture_records_suppressed" {
+			hasSuppressionDiagnostic = true
+			break
+		}
+	}
+	if !hasSuppressionDiagnostic {
+		t.Fatalf("expected runtime fixture suppression diagnostic, got %+v", result.Diagnostics)
+	}
+}
+
 func TestGetAWSLeastPrivilegeFiltersByDecisionServiceAndResource(t *testing.T) {
 	now := time.Date(2026, 6, 20, 8, 10, 0, 0, time.UTC)
 	svc, ws := newLeastPrivilegeService(t, "project-least-privilege-filters", now)
@@ -146,6 +178,39 @@ func TestAWSLeastPrivilegeRecommendationFromRuntimeSignalKeepsAccessAnalyzerInRe
 	}
 	if !strings.Contains(recommendation.NextAction, "analyzer scope") {
 		t.Fatalf("expected analyzer-scope next action, got %q", recommendation.NextAction)
+	}
+}
+
+func TestAWSLeastPrivilegeRecommendationFromRuntimeSignalDowngradesLowConfidenceIAMToReview(t *testing.T) {
+	now := time.Date(2026, 6, 20, 8, 25, 0, 0, time.UTC)
+	record := AWSRuntimeEventRecord{
+		EventID:             "evt-iam-last-used-low-confidence",
+		AccountID:           "111111111111",
+		Region:              "us-east-1",
+		EventType:           "iam-last-used",
+		EventSource:         "iam.amazonaws.com",
+		EventName:           "ServiceLastAccessed",
+		Action:              "lambda:LastAuthenticated",
+		ActorPrincipalARN:   "arn:aws:iam::111111111111:role/lambda-invoice-agent",
+		ActorIdentityNodeID: "aws:identity:role:lambda-invoice-agent",
+		TargetResourceName:  "Lambda",
+		ResourceNodeID:      "aws-service://lambda",
+		SignalCategory:      "iam-last-used",
+		EvidenceRef:         "runtime-evidence://iam-low-confidence",
+		Confidence:          0.62,
+		ObservedAt:          now.Add(-120 * 24 * time.Hour),
+		Status:              "stale",
+	}
+
+	recommendation, ok := awsLeastPrivilegeRecommendationFromRuntimeSignal(record, now)
+	if !ok {
+		t.Fatal("expected IAM last-used signal to produce a recommendation")
+	}
+	if recommendation.Decision != "review" || recommendation.BreakagePrediction != "unknown" || len(recommendation.RemoveActions) != 0 {
+		t.Fatalf("low-confidence IAM last-used must stay in review without remove actions: %+v", recommendation)
+	}
+	if len(recommendation.KeepActions) == 0 || recommendation.RemediationCase.RecommendedAction == "Create a read-only case to remove unused grants after owner approval." {
+		t.Fatalf("expected review-oriented action metadata, got %+v", recommendation)
 	}
 }
 

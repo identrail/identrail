@@ -17,17 +17,18 @@ const (
 )
 
 type AWSRuntimeEventRequest struct {
-	ConnectorID  string `json:"connector_id,omitempty"`
-	FixtureState string `json:"fixture_state,omitempty"`
-	AccountID    string `json:"account_id,omitempty"`
-	Region       string `json:"region,omitempty"`
-	EventType    string `json:"event_type,omitempty"`
-	Identity     string `json:"identity,omitempty"`
-	AgentID      string `json:"agent_id,omitempty"`
-	Resource     string `json:"resource,omitempty"`
-	Evidence     string `json:"evidence,omitempty"`
-	Owner        string `json:"owner,omitempty"`
-	Status       string `json:"status,omitempty"`
+	ConnectorID            string `json:"connector_id,omitempty"`
+	FixtureState           string `json:"fixture_state,omitempty"`
+	SuppressFixtureRecords bool   `json:"-"`
+	AccountID              string `json:"account_id,omitempty"`
+	Region                 string `json:"region,omitempty"`
+	EventType              string `json:"event_type,omitempty"`
+	Identity               string `json:"identity,omitempty"`
+	AgentID                string `json:"agent_id,omitempty"`
+	Resource               string `json:"resource,omitempty"`
+	Evidence               string `json:"evidence,omitempty"`
+	Owner                  string `json:"owner,omitempty"`
+	Status                 string `json:"status,omitempty"`
 	// DeliverySource selects the CloudTrail ingestion path: empty (or
 	// `lookup_events`) uses the LookupEvents API, `s3` uses the S3
 	// trail log ingester, `eventbridge` uses the EventBridge/SQS
@@ -478,6 +479,23 @@ func buildAWSRuntimeEvents(scope db.Scope, project db.TenancyProject, connection
 	region := firstNonEmptyAWSValue(connection.Region, "us-east-1")
 	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID), "aws-fixture")
 	records, diagnostics, gaps := awsRuntimeEventFixtureRecords(accountID, region, fixtureState, checkedAt)
+	if request.SuppressFixtureRecords && strings.TrimSpace(request.FixtureState) == "" {
+		records = nil
+		diagnostics = append(diagnostics, AWSRuntimeEventDiagnostic{
+			Collector:   "aws_runtime_events",
+			SourceID:    "fixture-suppressed",
+			Code:        "runtime_fixture_records_suppressed",
+			Message:     "Synthetic runtime event fixtures were suppressed because the caller did not explicitly request fixture data.",
+			Remediation: "Wire live runtime evidence ingestion or request fixture_state explicitly for demos and tests.",
+			Retryable:   true,
+		})
+		gaps = append(gaps, AWSRuntimeEventCoverageGap{
+			Capability:  "runtime_evidence",
+			Status:      "source_unavailable",
+			Reason:      "Live runtime evidence was unavailable and synthetic fallback records were not used as evidence.",
+			Remediation: "Configure live CloudTrail, IAM last-used, and Access Analyzer ingestion before using runtime records for recommendations.",
+		})
+	}
 	filtered, applied := filterAWSRuntimeEventRecords(records, request)
 	relationships := awsRuntimeEventRelationships(filtered)
 	diagnostics = scopeAWSRuntimeEventDiagnostics(diagnostics, records, filtered)
