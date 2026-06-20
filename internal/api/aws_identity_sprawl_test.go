@@ -257,6 +257,11 @@ func TestGetAWSIdentitySprawlEmptyAndDegradedFixtureStates(t *testing.T) {
 	if len(fixtureWithoutConnector.Findings) == 0 {
 		t.Fatalf("fixture call without connector_id should still use internal fixture rows: %+v", fixtureWithoutConnector)
 	}
+	for _, diagnostic := range fixtureWithoutConnector.Diagnostics {
+		if diagnostic.Code == "permission_denied" {
+			t.Fatalf("explicit success fixture without connector must not degrade runtime sources: diagnostics=%+v", fixtureWithoutConnector.Diagnostics)
+		}
+	}
 
 	defaultWithoutConnector, err := noConnectorSvc.GetAWSIdentitySprawl(defaultScopeContext(), noConnectorWS, "project-identity-sprawl-no-connector", AWSIdentitySprawlRequest{})
 	if err != nil {

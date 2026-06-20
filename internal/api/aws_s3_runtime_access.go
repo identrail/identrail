@@ -285,10 +285,12 @@ func (s *Service) GetAWSS3RuntimeAccess(ctx context.Context, workspaceID string,
 
 func normalizeAWSS3RuntimeAccessFixtureState(requested string, connection AWSConnectionStatus, hasConnection bool) string {
 	switch strings.ToLower(strings.TrimSpace(requested)) {
-	case "", "success", "ready":
+	case "":
 		if !hasConnection || !connection.Connected {
 			return "permission_denied"
 		}
+		return "success"
+	case "success", "ready":
 		return "success"
 	case "empty", "degraded", "partial_failure", "permission_denied":
 		return strings.ToLower(strings.TrimSpace(requested))
