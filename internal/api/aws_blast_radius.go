@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"github.com/identrail/identrail/internal/runtime/agentaccess"
 	"sort"
 	"strings"
 	"time"
@@ -414,7 +415,7 @@ func awsBlastRadiusFindingFromS3(record AWSS3RuntimeAccessRecord, now time.Time)
 func awsBlastRadiusFindingFromAgent(record AWSAgentRuntimeAccessRecord, now time.Time) AWSBlastRadiusFinding {
 	roleNode := firstNonEmptyAWSValue(firstString(record.BackingRoleNodeIDs), record.DeclaredBackingRoleNode, record.AgentNodeID)
 	roleARN := firstNonEmptyAWSValue(firstString(record.BackingRoleARNs), record.DeclaredBackingRole)
-	targetNode := firstNonEmptyAWSValue(firstString(record.TargetResourceNodeIDs), firstString(record.TargetResourceARNs), record.AgentNodeID)
+	targetNode := firstNonEmptyAWSValue(firstString(record.TargetResourceNodeIDs), firstString(record.TargetResourceARNs))
 	score := 52
 	severity := "medium"
 	riskType := "agent-tool-path"
@@ -433,7 +434,7 @@ func awsBlastRadiusFindingFromAgent(record AWSAgentRuntimeAccessRecord, now time
 			riskType = "agent-tool-path-with-caveats"
 		}
 	}
-	if awsStringSliceContains(record.Caveats, "backing_role_mismatch") {
+	if awsStringSliceContains(record.Caveats, agentaccess.CaveatBackingRoleMismatch) {
 		score += 8
 	}
 	score = clampBlastRadiusScore(score)
@@ -453,11 +454,10 @@ func awsBlastRadiusFindingFromAgent(record AWSAgentRuntimeAccessRecord, now time
 		DisplayName:        firstNonEmptyAWSValue(record.AgentName, record.AgentID, shortAWSARN(roleARN), roleNode),
 		Rationale:          fmt.Sprintf("Agent %q tool %q is %s and expands the identity path to %d target node(s).", firstNonEmptyAWSValue(record.AgentName, record.AgentID, record.AgentNodeID), firstNonEmptyAWSValue(record.ToolName, "unknown-tool"), record.Status, len(record.TargetResourceNodeIDs)),
 		ImpactedNodes:      dedupeStrings(append([]string{roleNode, record.AgentNodeID}, append(record.TargetResourceNodeIDs, record.TargetResourceARNs...)...)),
-		ImpactedPath: []AWSBlastRadiusPathStep{
+		ImpactedPath: append([]AWSBlastRadiusPathStep{
 			{NodeID: roleNode, NodeType: "identity", Label: firstNonEmptyAWSValue(shortAWSARN(roleARN), roleNode), AccountID: record.AccountID, Region: record.Region},
 			{NodeID: record.AgentNodeID, NodeType: "ai_agent", Label: firstNonEmptyAWSValue(record.AgentName, record.AgentID, record.AgentNodeID), AccountID: record.AccountID, Region: record.Region},
-			{NodeID: targetNode, NodeType: "target_resource", Label: firstNonEmptyAWSValue(firstString(record.TargetResourceARNs), targetNode), AccountID: record.AccountID, Region: record.Region},
-		},
+		}, awsBlastRadiusAgentTargetSteps(targetNode, firstNonEmptyAWSValue(firstString(record.TargetResourceARNs), targetNode), record.AccountID, record.Region)...),
 		RuntimeActions: dedupeStrings(record.Outcomes),
 		AgentToolPaths: dedupeStrings([]string{
 			strings.TrimSpace(record.AgentNodeID + " -> " + firstNonEmptyAWSValue(record.ToolName, record.ToolTargetRef)),
@@ -468,6 +468,20 @@ func awsBlastRadiusFindingFromAgent(record AWSAgentRuntimeAccessRecord, now time
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
+}
+
+func awsBlastRadiusAgentTargetSteps(targetNode string, targetLabel string, accountID string, region string) []AWSBlastRadiusPathStep {
+	targetNode = strings.TrimSpace(targetNode)
+	if targetNode == "" {
+		return nil
+	}
+	return []AWSBlastRadiusPathStep{{
+		NodeID:    targetNode,
+		NodeType:  "target_resource",
+		Label:     targetLabel,
+		AccountID: strings.TrimSpace(accountID),
+		Region:    strings.TrimSpace(region),
+	}}
 }
 
 func awsBlastRadiusFindingStatus(sourceStatus string) string {

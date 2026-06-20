@@ -6,6 +6,7 @@ import (
 
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/runtime/agentaccess"
 )
 
 func newBlastRadiusService(t *testing.T, project string, now time.Time) (*Service, string) {
@@ -183,6 +184,53 @@ func TestFilterAWSBlastRadiusFindingsMatchesResourcePathLabels(t *testing.T) {
 	filtered, _ = filterAWSBlastRadiusFindings(findings, AWSBlastRadiusRequest{Resource: "arn:aws:s3:::payments-bucket"})
 	if len(filtered) != 1 || filtered[0].FindingID != "finding-2" {
 		t.Fatalf("expected resource ARN filtering to match path labels, got %+v", filtered)
+	}
+}
+
+func TestAWSBlastRadiusFindingFromAgentUsesBackingRoleMismatchCaveatToken(t *testing.T) {
+	record := AWSAgentRuntimeAccessRecord{
+		CorrelationID:           "agent-1",
+		AccountID:               "111111111111",
+		Region:                  "us-east-1",
+		AgentNodeID:             "aws:identity:agent:agent-a",
+		AgentName:               "risk-agent",
+		ToolName:                "query",
+		Status:                  "confirmed",
+		Confidence:              0.81,
+		BackingRoleNodeIDs:      []string{"aws:identity:role:agent-role"},
+		DeclaredBackingRoleNode: "aws:identity:role:declared",
+		Caveats:                 []string{agentaccess.CaveatBackingRoleMismatch},
+		EvidenceRef:             "agent-evidence://case-triage",
+	}
+
+	finding := awsBlastRadiusFindingFromAgent(record, time.Date(2026, 6, 19, 20, 30, 0, 0, time.UTC))
+	if finding.Score != 60 {
+		t.Fatalf("expected backing-role mismatch score bump to 60, got %d", finding.Score)
+	}
+}
+
+func TestAWSBlastRadiusFindingFromAgentOmitsMissingTargetPathStep(t *testing.T) {
+	record := AWSAgentRuntimeAccessRecord{
+		CorrelationID:      "agent-2",
+		AccountID:          "111111111111",
+		Region:             "us-east-1",
+		AgentNodeID:        "aws:identity:agent:agent-b",
+		AgentName:          "background-agent",
+		ToolName:           "ingest",
+		Status:             "declared-unused",
+		Confidence:         0.91,
+		BackingRoleNodeIDs: []string{"aws:identity:role:declared"},
+		EvidenceRef:        "agent-evidence://declared-unused",
+	}
+
+	finding := awsBlastRadiusFindingFromAgent(record, time.Date(2026, 6, 19, 20, 45, 0, 0, time.UTC))
+	if len(finding.ImpactedPath) != 2 {
+		t.Fatalf("expected identity-agent path only when target is missing, got %+v", finding.ImpactedPath)
+	}
+	for _, step := range finding.ImpactedPath {
+		if step.NodeType == "target_resource" {
+			t.Fatalf("expected no target_resource path when target is missing, got %+v", finding.ImpactedPath)
+		}
 	}
 }
 
