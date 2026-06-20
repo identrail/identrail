@@ -186,11 +186,13 @@ func (s *Service) GetAWSIdentitySprawl(ctx context.Context, workspaceID string, 
 	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID), "aws-fixture")
 
 	sourceFixtureState := fixtureState
+	sourceReaderFixtureState := fixtureState
 	if strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected {
 		sourceFixtureState = ""
+		sourceReaderFixtureState = "empty"
 	}
 
-	aggregates, diagnostics, coverageGaps, failureReasons, remediationHints, sourceStatuses, err := s.awsIdentitySprawlSourceSignals(ctx, workspaceID, projectID, connectorID, sourceFixtureState)
+	aggregates, diagnostics, coverageGaps, failureReasons, remediationHints, sourceStatuses, err := s.awsIdentitySprawlSourceSignals(ctx, workspaceID, projectID, connectorID, sourceReaderFixtureState)
 	if err != nil {
 		return AWSIdentitySprawlResult{}, err
 	}

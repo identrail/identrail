@@ -259,6 +259,24 @@ func TestGetAWSIdentitySprawlEmptyAndDegradedFixtureStates(t *testing.T) {
 	}
 }
 
+func TestGetAWSIdentitySprawlLiveModeSuppressesFixtureInventories(t *testing.T) {
+	now := time.Date(2026, 6, 20, 10, 0, 0, 0, time.UTC)
+	svc, ws := newIdentitySprawlService(t, "project-identity-sprawl-live", now)
+
+	result, err := svc.GetAWSIdentitySprawl(defaultScopeContext(), ws, "project-identity-sprawl-live", AWSIdentitySprawlRequest{
+		ConnectorID: "aws-prod",
+	})
+	if err != nil {
+		t.Fatalf("get live identity sprawl: %v", err)
+	}
+	if result.FixtureState != "" {
+		t.Fatalf("live identity sprawl response must not expose fixture_state, got %q", result.FixtureState)
+	}
+	if len(result.Findings) != 0 || result.Summary.TotalFindings != 0 {
+		t.Fatalf("live identity sprawl must not surface deterministic fixture findings: findings=%+v summary=%+v", result.Findings, result.Summary)
+	}
+}
+
 func TestGetAWSIdentitySprawlUsesNormalizedWorkloadNodeIDs(t *testing.T) {
 	now := time.Date(2026, 6, 20, 10, 0, 0, 0, time.UTC)
 	svc, ws := newIdentitySprawlService(t, "project-identity-sprawl-nodeids", now)
