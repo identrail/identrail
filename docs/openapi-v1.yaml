@@ -579,6 +579,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/unused-dormant-access
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/iam-passrole-relationships
     action: tenancy.read
     resource_type: project
@@ -5060,6 +5065,89 @@ paths:
                     $ref: "#/components/schemas/AWSLeastPrivilegeResult"
         "400":
           description: Invalid AWS least-privilege request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/unused-dormant-access:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS unused and dormant access findings
+      operationId: getAWSProjectUnusedDormantAccess
+      description: Calculates deterministic, read-only AWS unused and dormant access findings by composing least-privilege source evidence, metadata-only runtime usage, IAM last-used signals, scan timing, and policy scope. Findings carry stable IDs, calculation version, dormant state, score, severity, confidence, rationale, owner context, policy scope, impacted graph path, candidate actions, evidence refs, and read-only remediation previews. Unknown, degraded, partial, or permission-denied evidence remains review-only; secret values, object contents, prompts, completions, tool payloads, browser pages, and code-interpreter output are never read or returned.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope account, region, and read-only evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: identity
+          schema: { type: string }
+          description: Optional principal, identity-node, or display-name search.
+        - in: query
+          name: resource
+          schema: { type: string }
+          description: Optional impacted resource, ARN, display label, or graph-node search.
+        - in: query
+          name: service
+          schema: { type: string }
+          description: Optional AWS service token, such as s3, secretsmanager, kms, lambda, or agent-runtime.
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [cleanup_candidate, review]
+        - in: query
+          name: dormancy_state
+          schema:
+            type: string
+            enum: [never_used, stale, no_runtime_evidence, unknown]
+      responses:
+        "200":
+          description: AWS unused and dormant access finding contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  findings:
+                    $ref: "#/components/schemas/AWSUnusedDormantAccessResult"
+        "400":
+          description: Invalid AWS unused and dormant access request
           content:
             application/json:
               schema:
@@ -12288,6 +12376,173 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSLeastPrivilegeRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSUnusedDormantAccessRelationship:
+      type: object
+      properties:
+        finding_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSUnusedDormantAccessFinding:
+      type: object
+      properties:
+        finding_id: { type: string }
+        calculation_version: { type: string }
+        finding_type: { type: string }
+        dormancy_state:
+          type: string
+          enum: [never_used, stale, no_runtime_evidence, unknown]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status:
+          type: string
+          enum: [cleanup_candidate, review]
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        account_id: { type: string }
+        region: { type: string }
+        service: { type: string }
+        identity_node_id: { type: string }
+        principal_arn: { type: string }
+        resource_node_id: { type: string }
+        resource_arn: { type: string }
+        display_name: { type: string }
+        owner_context: { type: string }
+        policy_scope: { type: string }
+        rationale: { type: string }
+        last_used_at:
+          type: string
+          format: date-time
+        dormant_days: { type: integer }
+        scan_window_days: { type: integer }
+        candidate_actions:
+          type: array
+          items: { type: string }
+        observed_actions:
+          type: array
+          items: { type: string }
+        granted_actions:
+          type: array
+          items: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegePathStep"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeEvidence"
+        next_action: { type: string }
+        remediation_case:
+          $ref: "#/components/schemas/AWSLeastPrivilegeRemediationCasePreview"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSUnusedDormantAccessSummary:
+      type: object
+      properties:
+        total_findings: { type: integer }
+        filtered_findings: { type: integer }
+        dormancy_state_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        service_counts:
+          type: object
+          additionalProperties: { type: integer }
+        cleanup_candidate_count: { type: integer }
+        review_required_count: { type: integer }
+        no_runtime_evidence_count: { type: integer }
+        unknown_evidence_count: { type: integer }
+        stale_access_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+        remediation_preview_count: { type: integer }
+        permission_denied_evidence_count: { type: integer }
+    AWSUnusedDormantAccessResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSUnusedDormantAccessSummary"
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSUnusedDormantAccessFinding"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSUnusedDormantAccessRelationship"
         caveats:
           type: array
           items: { type: string }

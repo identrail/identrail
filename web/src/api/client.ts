@@ -2996,6 +2996,121 @@ export type AWSLeastPrivilegeQuery = {
   decision?: string;
 };
 
+export type AWSUnusedDormantAccessStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSUnusedDormantAccessFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+export type AWSUnusedDormantAccessDormancyState = 'never_used' | 'stale' | 'no_runtime_evidence' | 'unknown' | string;
+export type AWSUnusedDormantAccessFindingStatus = 'cleanup_candidate' | 'review' | string;
+
+export type AWSUnusedDormantAccessRelationship = {
+  finding_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSUnusedDormantAccessFinding = {
+  finding_id: string;
+  calculation_version: string;
+  finding_type: string;
+  dormancy_state: AWSUnusedDormantAccessDormancyState;
+  severity: AWSLeastPrivilegeSeverity;
+  status: AWSUnusedDormantAccessFindingStatus;
+  score: number;
+  confidence: number;
+  account_id: string;
+  region: string;
+  service: string;
+  identity_node_id: string;
+  principal_arn?: string;
+  resource_node_id?: string;
+  resource_arn?: string;
+  display_name: string;
+  owner_context: string;
+  policy_scope: string;
+  rationale: string;
+  last_used_at?: string;
+  dormant_days: number;
+  scan_window_days: number;
+  candidate_actions?: string[];
+  observed_actions?: string[];
+  granted_actions?: string[];
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  next_action: string;
+  remediation_case: AWSLeastPrivilegeRemediationCasePreview;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSUnusedDormantAccessSummary = {
+  total_findings: number;
+  filtered_findings: number;
+  dormancy_state_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  service_counts: Record<string, number>;
+  cleanup_candidate_count: number;
+  review_required_count: number;
+  no_runtime_evidence_count: number;
+  unknown_evidence_count: number;
+  stale_access_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+  remediation_preview_count: number;
+  permission_denied_evidence_count: number;
+};
+
+export type AWSUnusedDormantAccessResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSUnusedDormantAccessStatus;
+  fixture_state?: AWSUnusedDormantAccessFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSUnusedDormantAccessSummary;
+  findings: AWSUnusedDormantAccessFinding[];
+  relationships: AWSUnusedDormantAccessRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSUnusedDormantAccessQuery = {
+  connectorID?: string;
+  fixtureState?: AWSUnusedDormantAccessFixtureState;
+  accountID?: string;
+  region?: string;
+  identity?: string;
+  resource?: string;
+  service?: string;
+  severity?: string;
+  status?: string;
+  dormancyState?: string;
+};
+
 export type AWSBedrockAgentsInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBedrockAgentsFixtureState =
   | 'success'
@@ -6211,6 +6326,28 @@ export const apiClient = {
         severity: query?.severity,
         status: query?.status,
         decision: query?.decision
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectUnusedDormantAccess(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSUnusedDormantAccessQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ findings: AWSUnusedDormantAccessResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/unused-dormant-access${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        identity: query?.identity,
+        resource: query?.resource,
+        service: query?.service,
+        severity: query?.severity,
+        status: query?.status,
+        dormancy_state: query?.dormancyState
       })}`,
       auth
     );

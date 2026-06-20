@@ -59,6 +59,8 @@ import {
   type AWSBlastRadiusResult,
   type AWSLeastPrivilegeRecommendation,
   type AWSLeastPrivilegeResult,
+  type AWSUnusedDormantAccessFinding,
+  type AWSUnusedDormantAccessResult,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
@@ -10651,6 +10653,116 @@ function AWSLeastPrivilegeContent({
   );
 }
 
+function awsUnusedDormantAccessStage(finding: AWSUnusedDormantAccessFinding): AWSCapabilityStage {
+  if (finding.status === 'cleanup_candidate') {
+    return 'coming';
+  }
+  if (finding.dormancy_state === 'unknown') {
+    return 'not-available';
+  }
+  return 'wired';
+}
+
+function awsUnusedDormantAccessLabel(finding: AWSUnusedDormantAccessFinding): string {
+  return `${formatTokenLabel(finding.finding_type)} · score ${finding.score}`;
+}
+
+function awsUnusedDormantAccessEvidenceLabel(finding: AWSUnusedDormantAccessFinding): string {
+  const sources = finding.evidence.map((evidence) => evidence.label || formatTokenLabel(evidence.source));
+  return `${formatConfidenceScore(finding.confidence)} · ${sources.join(', ') || 'No evidence refs'}`;
+}
+
+function awsUnusedDormantAccessPathLabel(finding: AWSUnusedDormantAccessFinding): string {
+  const path = finding.impacted_path.map((step) => step.label || step.node_id).filter(Boolean);
+  if (path.length === 0) {
+    return finding.impacted_nodes.join(' -> ') || '-';
+  }
+  return path.join(' -> ');
+}
+
+function awsUnusedDormantAccessActionLabel(finding: AWSUnusedDormantAccessFinding): string {
+  const actions = finding.candidate_actions ?? [];
+  if (actions.length > 0) {
+    return `${actions.slice(0, 3).join(', ')}${actions.length > 3 ? ` +${actions.length - 3}` : ''}`;
+  }
+  return finding.policy_scope || formatTokenLabel(finding.dormancy_state);
+}
+
+function AWSUnusedDormantAccessContent({
+  findings,
+  loading,
+  error,
+  onRetry
+}: {
+  findings: AWSUnusedDormantAccessResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = findings?.findings ?? [];
+  const summaryLine = findings
+    ? `${findings.summary.cleanup_candidate_count} cleanup · ${findings.summary.review_required_count} review · ${findings.summary.stale_access_count} stale · ${findings.summary.unknown_evidence_count} unknown`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS unused and dormant access findings">
+      <h3>AWS unused and dormant access</h3>
+      <p className="idt-app-kicker">
+        Ranked cleanup and review findings for never-used, stale, no-runtime-evidence, and unknown access states.
+        {summaryLine ? ` ${summaryLine}` : ''}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load unused and dormant access findings"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Calculating dormant access"
+          body="Identrail is ranking unused grants, stale identities, owner context, confidence, and evidence boundaries."
+        />
+      ) : null}
+      {!error && !loading && findings && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={findings.status === 'blocked' ? 'Permission required' : 'No dormant access findings'}
+          title={findings.status === 'blocked' ? 'Dormant access needs read-only evidence access' : 'No unused or dormant access'}
+          body={findings.failure_reasons[0] ?? 'No never-used, stale, unknown, or no-runtime-evidence access matched this scope.'}
+        />
+      ) : null}
+      {!error && !loading && findings && findings.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {findings.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS unused and dormant access findings"
+          rows={rows}
+          getRowKey={(row) => row.finding_id}
+          columns={[
+            { key: 'finding', header: 'Finding', render: (row) => <strong>{awsUnusedDormantAccessLabel(row)}</strong> },
+            { key: 'identity', header: 'Identity', render: (row) => row.principal_arn || row.display_name || row.identity_node_id },
+            { key: 'state', header: 'Dormancy', render: (row) => formatTokenLabel(row.dormancy_state) },
+            { key: 'scope', header: 'Scope', render: (row) => `${formatTokenLabel(row.service)} · ${awsUnusedDormantAccessPathLabel(row)}` },
+            { key: 'actions', header: 'Candidate actions', render: (row) => awsUnusedDormantAccessActionLabel(row) },
+            { key: 'evidence', header: 'Evidence', render: (row) => awsUnusedDormantAccessEvidenceLabel(row) },
+            {
+              key: 'status',
+              header: 'Status',
+              render: (row) => <AWSInventoryPill stage={awsUnusedDormantAccessStage(row)} label={formatTokenLabel(row.status)} />
+            },
+            { key: 'next', header: 'Next action', render: (row) => row.next_action }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsRuntimeEventRow(record: AWSRuntimeEventRecord): AWSRiskOperationTableRow {
   const eventLabel = awsRuntimeEventLabel(record);
   const resourceLabel = record.target_resource_name || record.target_resource_type || record.target_resource_arn || 'Session event';
@@ -11157,6 +11269,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [leastPrivilegeLoading, setLeastPrivilegeLoading] = useState(false);
   const [leastPrivilegeError, setLeastPrivilegeError] = useState('');
   const leastPrivilegeRequestRef = useRef(0);
+  const [unusedDormantAccess, setUnusedDormantAccess] = useState<AWSUnusedDormantAccessResult | null>(null);
+  const [unusedDormantAccessLoading, setUnusedDormantAccessLoading] = useState(false);
+  const [unusedDormantAccessError, setUnusedDormantAccessError] = useState('');
+  const unusedDormantAccessRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -11460,6 +11576,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadLeastPrivilege]);
 
+  const loadUnusedDormantAccess = useCallback(async () => {
+    const requestID = ++unusedDormantAccessRequestRef.current;
+    setUnusedDormantAccess(null);
+    setUnusedDormantAccessError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setUnusedDormantAccessLoading(false);
+      return;
+    }
+    setUnusedDormantAccessLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectUnusedDormantAccess(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== unusedDormantAccessRequestRef.current) {
+        return;
+      }
+      setUnusedDormantAccess(response.findings);
+    } catch (error) {
+      if (requestID !== unusedDormantAccessRequestRef.current) {
+        return;
+      }
+      setUnusedDormantAccessError(formatAPIError(error, 'Unable to load AWS unused and dormant access findings.'));
+    } finally {
+      if (requestID === unusedDormantAccessRequestRef.current) {
+        setUnusedDormantAccessLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadUnusedDormantAccess();
+    return () => {
+      unusedDormantAccessRequestRef.current += 1;
+    };
+  }, [loadUnusedDormantAccess]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -11591,6 +11755,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={leastPrivilegeLoading}
             error={leastPrivilegeError}
             onRetry={loadLeastPrivilege}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSUnusedDormantAccessContent
+            findings={unusedDormantAccess}
+            loading={unusedDormantAccessLoading}
+            error={unusedDormantAccessError}
+            onRetry={loadUnusedDormantAccess}
           />
         ) : null}
         {routeID === 'graph' ? (

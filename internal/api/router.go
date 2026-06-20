@@ -3089,6 +3089,42 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"recommendations": record})
 	})
 
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/unused-dormant-access", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetAWSUnusedDormantAccessFindings(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSUnusedDormantAccessRequest{
+			ConnectorID:   strings.TrimSpace(c.Query("connector_id")),
+			FixtureState:  strings.TrimSpace(c.Query("fixture_state")),
+			AccountID:     strings.TrimSpace(c.Query("account_id")),
+			Region:        strings.TrimSpace(c.Query("region")),
+			Identity:      strings.TrimSpace(c.Query("identity")),
+			Resource:      strings.TrimSpace(c.Query("resource")),
+			Service:       strings.TrimSpace(c.Query("service")),
+			Severity:      strings.TrimSpace(c.Query("severity")),
+			Status:        strings.TrimSpace(c.Query("status")),
+			DormancyState: strings.TrimSpace(c.Query("dormancy_state")),
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project or connector not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws unused dormant access request"})
+			default:
+				logger.Error("get aws unused dormant access",
+					zap.String("workspace_id", c.Param("workspace_id")),
+					zap.String("project_id", c.Param("project_id")),
+					telemetry.ZapError(err),
+				)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws unused dormant access"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"findings": record})
+	})
+
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/iam-passrole-relationships", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)

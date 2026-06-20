@@ -16,6 +16,7 @@ import type {
   AWSPlatformValidationHarnessResult,
   AWSRuntimeEventResult,
   AWSServiceCollectorContractResult,
+  AWSUnusedDormantAccessResult,
   CurrentUserContext,
   Finding,
   GitHubConnectionStatus,
@@ -418,6 +419,104 @@ const readyAWSLeastPrivilege: AWSLeastPrivilegeResult = {
   failure_reasons: [],
   remediation_hints: [],
   evidence_links: ['/docs/aws-least-privilege-engine'],
+  coverage_gaps: [],
+  diagnostics: [],
+  generated_at: '2026-06-14T17:30:00Z',
+  updated_at: '2026-06-14T17:30:00Z'
+};
+
+const readyAWSUnusedDormantAccess: AWSUnusedDormantAccessResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  parent_issue_number: 1472,
+  parent_issue_ref: '#1472',
+  current_issue_number: 1523,
+  current_issue_ref: '#1523',
+  version: 'aws-unused-dormant-access-engine-v1',
+  status: 'ready',
+  fixture_state: 'success',
+  confidence: 0.9,
+  calculation_version: 'aws-unused-dormant-access-engine-v1',
+  applied_filters: {},
+  summary: {
+    total_findings: 1,
+    filtered_findings: 1,
+    dormancy_state_counts: { never_used: 1 },
+    severity_counts: { high: 1 },
+    status_counts: { cleanup_candidate: 1 },
+    service_counts: { secretsmanager: 1 },
+    cleanup_candidate_count: 1,
+    review_required_count: 0,
+    no_runtime_evidence_count: 0,
+    unknown_evidence_count: 0,
+    stale_access_count: 0,
+    relationship_count: 1,
+    highest_score: 82,
+    average_confidence_pct: 90,
+    remediation_preview_count: 1,
+    permission_denied_evidence_count: 0
+  },
+  findings: [
+    {
+      finding_id: 'aws-unused-dormant-access:secret-unused',
+      calculation_version: 'aws-unused-dormant-access-engine-v1',
+      finding_type: 'cleanup_candidate',
+      dormancy_state: 'never_used',
+      severity: 'high',
+      status: 'cleanup_candidate',
+      score: 82,
+      confidence: 0.9,
+      account_id: '123456789012',
+      region: 'us-east-1',
+      service: 'secretsmanager',
+      identity_node_id: 'aws:identity:lambda-invoice-agent',
+      principal_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
+      resource_node_id: 'aws:resource:secret:openai-key',
+      resource_arn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/ai/openai-key',
+      display_name: 'lambda-invoice-agent',
+      owner_context: 'resource-owner-review',
+      policy_scope: 'secretsmanager:GetSecretValue',
+      rationale: 'lambda-invoice-agent has granted secretsmanager access with no matching runtime evidence.',
+      dormant_days: 90,
+      scan_window_days: 90,
+      candidate_actions: ['secretsmanager:GetSecretValue'],
+      granted_actions: ['secretsmanager:GetSecretValue'],
+      impacted_nodes: ['aws:identity:lambda-invoice-agent', 'aws:resource:secret:openai-key'],
+      impacted_path: readyAWSLeastPrivilege.recommendations[0].impacted_path,
+      evidence: readyAWSLeastPrivilege.recommendations[0].evidence,
+      next_action: 'Create a read-only cleanup case, confirm owner approval, and verify policy scope before generating an IAM diff.',
+      remediation_case: {
+        case_id: 'aws-unused-dormant-preview:secret-unused',
+        title: 'never used dormant-access remove',
+        recommended_action: 'Create a read-only case to remove unused grants after owner approval.',
+        approval_required: true,
+        blocking_evidence: ['secrets-kms-runtime-access://secret-unused'],
+        impacted_node_count: 1,
+        estimated_risk_drop: 40,
+        breakage_prediction: 'low',
+        read_only_projection: true
+      },
+      created_at: '2026-06-14T17:30:00Z',
+      updated_at: '2026-06-14T17:30:00Z'
+    }
+  ],
+  relationships: [
+    {
+      finding_id: 'aws-unused-dormant-access:secret-unused',
+      type: 'unused_dormant_access_scope',
+      from_node_id: 'aws:identity:lambda-invoice-agent',
+      to_node_id: 'aws:resource:secret:openai-key',
+      evidence_ref: 'secrets-kms-runtime-access://secret-unused'
+    }
+  ],
+  caveats: [],
+  failure_reasons: [],
+  remediation_hints: [],
+  evidence_links: ['/docs/aws-unused-dormant-access-engine'],
   coverage_gaps: [],
   diagnostics: [],
   generated_at: '2026-06-14T17:30:00Z',
@@ -3253,6 +3352,9 @@ describe('Domain-first app routes', () => {
     const getLeastPrivilege = vi
       .spyOn(api.apiClient, 'getAWSProjectLeastPrivilege')
       .mockResolvedValue({ recommendations: readyAWSLeastPrivilege });
+    const getUnusedDormantAccess = vi
+      .spyOn(api.apiClient, 'getAWSProjectUnusedDormantAccess')
+      .mockResolvedValue({ findings: readyAWSUnusedDormantAccess });
 
     const { ProductAWSRuntimePage } = await import('./productShell');
 
@@ -3269,7 +3371,15 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText(/Access Analyzer: Finding/i)).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS least privilege recommendations' })).toBeInTheDocument();
     expect(screen.getByText(/Remove secretsmanager:GetSecretValue/i)).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS unused and dormant access findings' })).toBeInTheDocument();
+    expect(screen.getAllByText(/Cleanup candidate/i).length).toBeGreaterThan(0);
     expect(getLeastPrivilege).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getUnusedDormantAccess).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       expect.objectContaining({ connectorID: 'aws-connector-1' }),

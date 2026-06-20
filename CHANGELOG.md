@@ -1,6 +1,20 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS unused and dormant access engine** (#1523). Adds a read-only,
+  metadata-only intelligence layer that turns least-privilege source evidence,
+  IAM last-used signals, runtime observations, scan timing, and policy scope
+  into ranked cleanup and review findings for `never_used`, `stale`,
+  `no_runtime_evidence`, and `unknown` access states. The new endpoint
+  `GET /v1/workspaces/{ws}/projects/{p}/aws/unused-dormant-access` exposes
+  stable finding IDs, calculation version, severity, confidence, owner context,
+  policy scope, candidate actions, impacted graph path, evidence refs,
+  diagnostics, coverage gaps, and read-only remediation previews. Unknown,
+  degraded, or permission-denied evidence remains review-only instead of a
+  cleanup candidate. The AWS runtime app surface now renders unused/dormant
+  findings alongside the source evidence and least-privilege recommendations.
+  Closes #1523. See
+  [docs/aws-unused-dormant-access-engine.md](docs/aws-unused-dormant-access-engine.md).
 - Add **AWS least-privilege recommendation engine** (#1522). Adds a
   deterministic, metadata-only recommendation layer that composes static
   grants, runtime access correlation, IAM last-used signals, Access Analyzer
