@@ -277,7 +277,7 @@ func (s *Service) awsIdentitySprawlSourceSignals(ctx context.Context, workspaceI
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("identity sprawl ec2 inventory: %w", err)
 	}
 	for _, record := range ec2.Records {
-		mergeIdentitySprawlRecord(aggregates, record.RoleARN, record.RoleName, record.AccountID, record.Region, record.WorkloadType, record.WorkloadName, record.WorkloadID, record.Tags, record.EvidenceRef)
+		mergeIdentitySprawlRecord(aggregates, record.RoleARN, record.RoleName, record.AccountID, record.Region, record.WorkloadType, record.WorkloadName, record.FromNodeID, record.Tags, record.EvidenceRef)
 	}
 	sourceStatuses = append(sourceStatuses, ec2.Status)
 	failureReasons = append(failureReasons, ec2.FailureReasons...)
@@ -288,7 +288,7 @@ func (s *Service) awsIdentitySprawlSourceSignals(ctx context.Context, workspaceI
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("identity sprawl lambda inventory: %w", err)
 	}
 	for _, record := range lambda.Records {
-		mergeIdentitySprawlRecord(aggregates, record.RoleARN, record.RoleName, record.AccountID, record.Region, record.WorkloadType, record.WorkloadName, record.WorkloadID, record.Tags, record.EvidenceRef)
+		mergeIdentitySprawlRecord(aggregates, record.RoleARN, record.RoleName, record.AccountID, record.Region, record.WorkloadType, record.WorkloadName, record.FromNodeID, record.Tags, record.EvidenceRef)
 	}
 	sourceStatuses = append(sourceStatuses, lambda.Status)
 	failureReasons = append(failureReasons, lambda.FailureReasons...)
@@ -301,9 +301,9 @@ func (s *Service) awsIdentitySprawlSourceSignals(ctx context.Context, workspaceI
 	for _, record := range ecs.Records {
 		// ECS records can carry both a task role and an execution role; both
 		// are independent identity attachments worth surfacing.
-		mergeIdentitySprawlRecord(aggregates, firstNonEmptyAWSValue(record.TaskRoleARN, record.RoleARN), record.RoleName, record.AccountID, record.Region, record.WorkloadType, record.WorkloadName, record.WorkloadID, record.Tags, record.EvidenceRef)
+		mergeIdentitySprawlRecord(aggregates, firstNonEmptyAWSValue(record.TaskRoleARN, record.RoleARN), record.RoleName, record.AccountID, record.Region, record.WorkloadType, record.WorkloadName, record.FromNodeID, record.Tags, record.EvidenceRef)
 		if strings.TrimSpace(record.ExecutionRoleARN) != "" {
-			mergeIdentitySprawlRecord(aggregates, record.ExecutionRoleARN, "", record.AccountID, record.Region, record.WorkloadType, record.WorkloadName, record.WorkloadID, record.Tags, record.EvidenceRef)
+			mergeIdentitySprawlRecord(aggregates, record.ExecutionRoleARN, "", record.AccountID, record.Region, record.WorkloadType, record.WorkloadName, record.FromNodeID, record.Tags, record.EvidenceRef)
 		}
 	}
 	sourceStatuses = append(sourceStatuses, ecs.Status)
@@ -360,7 +360,7 @@ func (s *Service) awsIdentitySprawlSourceSignals(ctx context.Context, workspaceI
 	return aggregates, diagnostics, coverageGaps, failureReasons, remediationHints, sourceStatuses, nil
 }
 
-func mergeIdentitySprawlRecord(aggregates map[string]*identitySprawlAggregate, roleARN, roleName, accountID, region, workloadType, workloadName, workloadID string, tags map[string]string, evidenceRef string) {
+func mergeIdentitySprawlRecord(aggregates map[string]*identitySprawlAggregate, roleARN, roleName, accountID, region, workloadType, workloadName, workloadNodeID string, tags map[string]string, evidenceRef string) {
 	roleARN = strings.TrimSpace(roleARN)
 	if roleARN == "" {
 		return
@@ -393,7 +393,7 @@ func mergeIdentitySprawlRecord(aggregates map[string]*identitySprawlAggregate, r
 	if t := strings.TrimSpace(workloadType); t != "" {
 		aggregate.workloadTypes[strings.ToLower(t)] = struct{}{}
 	}
-	if id := strings.TrimSpace(workloadID); id != "" {
+	if id := strings.TrimSpace(workloadNodeID); id != "" {
 		aggregate.workloadNodeIDs[id] = struct{}{}
 	}
 	if label := strings.TrimSpace(workloadName); label != "" {
@@ -901,9 +901,9 @@ func filterAWSIdentitySprawlFindings(findings []AWSIdentitySprawlFinding, reques
 func awsIdentitySprawlRelationships(findings []AWSIdentitySprawlFinding) []AWSIdentitySprawlRelationship {
 	relationships := []AWSIdentitySprawlRelationship{}
 	for _, finding := range findings {
-		for i := 0; i+1 < len(finding.ImpactedPath); i++ {
-			from := strings.TrimSpace(finding.ImpactedPath[i].NodeID)
-			to := strings.TrimSpace(finding.ImpactedPath[i+1].NodeID)
+		from := strings.TrimSpace(finding.IdentityNodeID)
+		for _, step := range finding.ImpactedPath[1:] {
+			to := strings.TrimSpace(step.NodeID)
 			if from == "" || to == "" {
 				continue
 			}

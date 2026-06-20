@@ -259,6 +259,63 @@ func TestGetAWSIdentitySprawlEmptyAndDegradedFixtureStates(t *testing.T) {
 	}
 }
 
+func TestGetAWSIdentitySprawlUsesNormalizedWorkloadNodeIDs(t *testing.T) {
+	now := time.Date(2026, 6, 20, 10, 0, 0, 0, time.UTC)
+	svc, ws := newIdentitySprawlService(t, "project-identity-sprawl-nodeids", now)
+
+	result, err := svc.GetAWSIdentitySprawl(defaultScopeContext(), ws, "project-identity-sprawl-nodeids", AWSIdentitySprawlRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+	})
+	if err != nil {
+		t.Fatalf("get identity sprawl: %v", err)
+	}
+
+	foundWorkloadNode := false
+	for _, finding := range result.Findings {
+		for _, nodeID := range finding.WorkloadNodeIDs {
+			foundWorkloadNode = true
+			if !strings.HasPrefix(nodeID, "aws:workload:") {
+				t.Fatalf("expected normalized workload graph node id, got %q", nodeID)
+			}
+		}
+	}
+	if !foundWorkloadNode {
+		t.Fatalf("expected findings to include workload node ids: %+v", result.Findings)
+	}
+}
+
+func TestAWSIdentitySprawlRelationshipsFanOutFromIdentity(t *testing.T) {
+	relationships := awsIdentitySprawlRelationships([]AWSIdentitySprawlFinding{{
+		FindingID:      "finding-1",
+		IdentityNodeID: "aws:identity:arn:aws:iam::123456789012:role/example",
+		ImpactedPath: []AWSIdentitySprawlPathStep{
+			{NodeID: "aws:identity:arn:aws:iam::123456789012:role/example", NodeType: "identity"},
+			{NodeID: "aws:workload:lambda-function:fn-1", NodeType: "workload"},
+			{NodeID: "aws:workload:ecs-service:svc-1", NodeType: "workload"},
+		},
+		Evidence: []AWSIdentitySprawlEvidence{{EvidenceRef: "evidence://identity-sprawl"}},
+	}})
+
+	if len(relationships) != 2 {
+		t.Fatalf("expected two attachment relationships, got %+v", relationships)
+	}
+	for _, relationship := range relationships {
+		if relationship.Type != "identity_sprawl_attachment" {
+			t.Fatalf("expected attachment relationship, got %+v", relationship)
+		}
+		if relationship.FromNodeID != "aws:identity:arn:aws:iam::123456789012:role/example" {
+			t.Fatalf("expected identity fan-out source, got %+v", relationship)
+		}
+		if relationship.ToNodeID == "aws:identity:arn:aws:iam::123456789012:role/example" {
+			t.Fatalf("expected workload target, got %+v", relationship)
+		}
+	}
+	if relationships[0].ToNodeID == relationships[1].ToNodeID {
+		t.Fatalf("expected distinct workload targets, got %+v", relationships)
+	}
+}
+
 func TestIdentitySprawlOwnerFromTagsCoversCommonKeys(t *testing.T) {
 	cases := []struct {
 		tags      map[string]string
