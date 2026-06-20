@@ -4,11 +4,23 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/identrail/identrail/internal/db"
 )
 
 func newIdentitySprawlService(t *testing.T, project string, now time.Time) (*Service, string) {
 	t.Helper()
 	return newBlastRadiusService(t, project, now)
+}
+
+func newIdentitySprawlServiceWithoutConnector(t *testing.T, project string, now time.Time) (*Service, string) {
+	t.Helper()
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, project)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	return svc, "default"
 }
 
 func sprawlFindingTypeSet(findings []AWSIdentitySprawlFinding) map[string]bool {
@@ -231,8 +243,9 @@ func TestGetAWSIdentitySprawlPermissionDeniedFixtureState(t *testing.T) {
 func TestGetAWSIdentitySprawlEmptyAndDegradedFixtureStates(t *testing.T) {
 	now := time.Date(2026, 6, 20, 10, 0, 0, 0, time.UTC)
 	svc, ws := newIdentitySprawlService(t, "project-identity-sprawl-states", now)
+	noConnectorSvc, noConnectorWS := newIdentitySprawlServiceWithoutConnector(t, "project-identity-sprawl-no-connector", now)
 
-	fixtureWithoutConnector, err := svc.GetAWSIdentitySprawl(defaultScopeContext(), ws, "project-identity-sprawl-states", AWSIdentitySprawlRequest{
+	fixtureWithoutConnector, err := noConnectorSvc.GetAWSIdentitySprawl(defaultScopeContext(), noConnectorWS, "project-identity-sprawl-no-connector", AWSIdentitySprawlRequest{
 		FixtureState: "success",
 	})
 	if err != nil {
@@ -243,6 +256,14 @@ func TestGetAWSIdentitySprawlEmptyAndDegradedFixtureStates(t *testing.T) {
 	}
 	if len(fixtureWithoutConnector.Findings) == 0 {
 		t.Fatalf("fixture call without connector_id should still use internal fixture rows: %+v", fixtureWithoutConnector)
+	}
+
+	defaultWithoutConnector, err := noConnectorSvc.GetAWSIdentitySprawl(defaultScopeContext(), noConnectorWS, "project-identity-sprawl-no-connector", AWSIdentitySprawlRequest{})
+	if err != nil {
+		t.Fatalf("get default without connector: %v", err)
+	}
+	if defaultWithoutConnector.FixtureState != "permission_denied" || len(defaultWithoutConnector.Findings) != 0 {
+		t.Fatalf("default call without connector must not use success fixture rows: %+v", defaultWithoutConnector)
 	}
 
 	empty, err := svc.GetAWSIdentitySprawl(defaultScopeContext(), ws, "project-identity-sprawl-states", AWSIdentitySprawlRequest{
