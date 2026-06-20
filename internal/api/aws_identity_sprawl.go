@@ -187,14 +187,34 @@ func (s *Service) GetAWSIdentitySprawl(ctx context.Context, workspaceID string, 
 
 	sourceFixtureState := fixtureState
 	sourceReaderFixtureState := fixtureState
+	liveInventoryUnavailable := false
 	if strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected {
 		sourceFixtureState = ""
 		sourceReaderFixtureState = "empty"
+		liveInventoryUnavailable = true
 	}
 
 	aggregates, diagnostics, coverageGaps, failureReasons, remediationHints, sourceStatuses, err := s.awsIdentitySprawlSourceSignals(ctx, workspaceID, projectID, connectorID, sourceReaderFixtureState)
 	if err != nil {
 		return AWSIdentitySprawlResult{}, err
+	}
+	if liveInventoryUnavailable {
+		diagnostics = append(diagnostics, AWSIdentitySprawlDiagnostic{
+			Collector:   "aws_identity_sprawl",
+			SourceID:    connectorID,
+			Code:        "identity_inventory_live_unavailable",
+			Message:     "Live identity-bearing inventory is not available yet, so identity-sprawl findings are suppressed instead of using deterministic fixture rows.",
+			Remediation: "Enable persisted EC2/Lambda/ECS identity inventory ingestion for this connector before treating an empty identity-sprawl response as no sprawl.",
+			Retryable:   true,
+		})
+		coverageGaps = append(coverageGaps, AWSIdentitySprawlCoverageGap{
+			Capability:  "identity_sprawl_live_inventory",
+			Status:      "unavailable",
+			Reason:      "Connected live calls do not compose deterministic fixture inventories; live identity inventory must be present before sprawl findings can be calculated.",
+			Remediation: "Run or enable the identity-bearing inventory collectors for EC2 instance profiles, Lambda execution roles, and ECS task roles.",
+		})
+		failureReasons = append(failureReasons, "live identity-bearing inventory is unavailable")
+		remediationHints = append(remediationHints, "Enable live identity inventory ingestion before interpreting an empty identity-sprawl response as no sprawl.")
 	}
 
 	findings, clusters := awsIdentitySprawlFindingsAndClusters(aggregates, now)

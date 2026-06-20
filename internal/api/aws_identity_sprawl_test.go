@@ -298,6 +298,19 @@ func TestGetAWSIdentitySprawlLiveModeSuppressesFixtureInventories(t *testing.T) 
 	if len(result.Findings) != 0 || result.Summary.TotalFindings != 0 {
 		t.Fatalf("live identity sprawl must not surface deterministic fixture findings: findings=%+v summary=%+v", result.Findings, result.Summary)
 	}
+	if result.Status != "degraded" {
+		t.Fatalf("live identity sprawl without inventory must be degraded, got %q", result.Status)
+	}
+	foundDiagnostic := false
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.Code == "identity_inventory_live_unavailable" {
+			foundDiagnostic = true
+			break
+		}
+	}
+	if !foundDiagnostic || len(result.CoverageGaps) == 0 {
+		t.Fatalf("live identity sprawl must explain unavailable inventory: diagnostics=%+v gaps=%+v", result.Diagnostics, result.CoverageGaps)
+	}
 }
 
 func TestGetAWSIdentitySprawlUsesNormalizedWorkloadNodeIDs(t *testing.T) {
