@@ -232,6 +232,19 @@ func TestGetAWSIdentitySprawlEmptyAndDegradedFixtureStates(t *testing.T) {
 	now := time.Date(2026, 6, 20, 10, 0, 0, 0, time.UTC)
 	svc, ws := newIdentitySprawlService(t, "project-identity-sprawl-states", now)
 
+	fixtureWithoutConnector, err := svc.GetAWSIdentitySprawl(defaultScopeContext(), ws, "project-identity-sprawl-states", AWSIdentitySprawlRequest{
+		FixtureState: "success",
+	})
+	if err != nil {
+		t.Fatalf("get fixture without connector: %v", err)
+	}
+	if fixtureWithoutConnector.ConnectorID == "aws-fixture" {
+		t.Fatalf("fixture call without connector_id must not use synthetic connector id: %+v", fixtureWithoutConnector)
+	}
+	if len(fixtureWithoutConnector.Findings) == 0 {
+		t.Fatalf("fixture call without connector_id should still use internal fixture rows: %+v", fixtureWithoutConnector)
+	}
+
 	empty, err := svc.GetAWSIdentitySprawl(defaultScopeContext(), ws, "project-identity-sprawl-states", AWSIdentitySprawlRequest{
 		ConnectorID:  "aws-prod",
 		FixtureState: "empty",

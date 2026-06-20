@@ -183,7 +183,7 @@ func (s *Service) GetAWSIdentitySprawl(ctx context.Context, workspaceID string, 
 
 	accountID := firstNonEmptyAWSValue(connection.AccountID, strings.TrimSpace(request.AccountID), "123456789012")
 	region := firstNonEmptyAWSValue(connection.Region, strings.TrimSpace(request.Region), "us-east-1")
-	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID), "aws-fixture")
+	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID))
 
 	sourceFixtureState := fixtureState
 	sourceReaderFixtureState := fixtureState
