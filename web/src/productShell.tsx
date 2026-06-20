@@ -16903,7 +16903,6 @@ export function ProductShellLayout() {
           ref={scrollNavigatorRef}
           className="idt-app-scroll-navigator"
           aria-hidden="true"
-          style={{ opacity: 0, visibility: 'hidden' }}
         >
           <span ref={scrollNavigatorThumbRef} className="idt-app-scroll-navigator-thumb" />
         </div>

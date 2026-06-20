@@ -28848,6 +28848,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   z-index: 70;
   width: 0.82rem;
   pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
   transition: opacity 160ms ease;
 }
 
