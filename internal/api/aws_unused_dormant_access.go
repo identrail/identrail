@@ -206,13 +206,29 @@ func awsUnusedDormantFindingsFromRecommendations(recommendations []AWSLeastPrivi
 
 func awsUnusedDormantRecommendationQualifies(recommendation AWSLeastPrivilegeRecommendation) bool {
 	recommendationType := normalizeAWSRuntimeEventFilterToken(recommendation.RecommendationType)
-	if strings.Contains(recommendationType, "unused") || strings.Contains(recommendationType, "stale") {
+	if strings.Contains(recommendationType, "unused") || strings.Contains(recommendationType, "stale") || strings.Contains(recommendationType, "no-runtime") || strings.Contains(recommendationType, "dormant") {
 		return true
 	}
-	if recommendation.Decision == "remove" {
+	if recommendation.Decision == "remove" && awsUnusedDormantRecommendationHasDormantEvidence(recommendation) {
 		return true
 	}
-	return recommendation.Decision == "review" && recommendation.BreakagePrediction == "unknown"
+	return recommendation.Decision == "review" && recommendation.BreakagePrediction == "unknown" && awsUnusedDormantRecommendationHasDormantEvidence(recommendation)
+}
+
+func awsUnusedDormantRecommendationHasDormantEvidence(recommendation AWSLeastPrivilegeRecommendation) bool {
+	for _, evidence := range recommendation.Evidence {
+		relationship := normalizeAWSRuntimeEventFilterToken(evidence.Relationship)
+		source := normalizeAWSRuntimeEventFilterToken(evidence.Source)
+		switch {
+		case strings.Contains(relationship, "unused"), strings.Contains(relationship, "stale"), strings.Contains(relationship, "no-runtime"):
+			return true
+		case relationship == "permission-denied" || relationship == "partial-failure" || relationship == "degraded" || relationship == "unsupported" || relationship == "unavailable":
+			return true
+		case source == "coverage-gap" || source == "runtime-evidence-gap":
+			return true
+		}
+	}
+	return false
 }
 
 func awsUnusedDormantFindingFromRecommendation(recommendation AWSLeastPrivilegeRecommendation, now time.Time) AWSUnusedDormantAccessFinding {

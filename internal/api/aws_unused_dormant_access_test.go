@@ -104,6 +104,34 @@ func TestGetAWSUnusedDormantAccessFiltersDormancyState(t *testing.T) {
 	}
 }
 
+func TestAWSUnusedDormantAccessQualificationSkipsActiveReviewSignals(t *testing.T) {
+	now := time.Date(2026, 6, 20, 9, 15, 0, 0, time.UTC)
+	activeAnalyzer := AWSLeastPrivilegeRecommendation{
+		RecommendationID:   "aws-least-privilege:access-analyzer",
+		RecommendationType: "review-external-access",
+		Decision:           "review",
+		BreakagePrediction: "unknown",
+		ObservedActions:    []string{"secretsmanager:GetSecretValue"},
+		Evidence:           []AWSLeastPrivilegeEvidence{{Source: "access_analyzer", Relationship: "observed", ObservedAt: now}},
+		CalculationVersion: awsLeastPrivilegeVersion,
+	}
+	if awsUnusedDormantRecommendationQualifies(activeAnalyzer) {
+		t.Fatalf("active Access Analyzer review signal must not qualify as dormant access: %+v", activeAnalyzer)
+	}
+
+	staleIAM := AWSLeastPrivilegeRecommendation{
+		RecommendationID:   "aws-least-privilege:iam-last-used",
+		RecommendationType: "review-stale-service-access",
+		Decision:           "review",
+		BreakagePrediction: "unknown",
+		Evidence:           []AWSLeastPrivilegeEvidence{{Source: "iam_last_used", Relationship: "stale", ObservedAt: now.Add(-120 * 24 * time.Hour)}},
+		CalculationVersion: awsLeastPrivilegeVersion,
+	}
+	if !awsUnusedDormantRecommendationQualifies(staleIAM) {
+		t.Fatalf("stale IAM review signal should qualify as dormant access: %+v", staleIAM)
+	}
+}
+
 func TestGetAWSUnusedDormantAccessPermissionDeniedAndEmptyStatesAreExplicit(t *testing.T) {
 	now := time.Date(2026, 6, 20, 9, 20, 0, 0, time.UTC)
 	svc, ws := newLeastPrivilegeService(t, "project-unused-dormant-states", now)
