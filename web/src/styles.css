@@ -21505,6 +21505,13 @@ html[data-theme='light'] .idt-executive-report-shell .idt-app-panel {
   background: #080809;
 }
 
+.idt-app-console-layout .idt-settings-page > .idt-settings-header {
+  border: 0;
+  border-radius: 0;
+  padding: 0.25rem 0.25rem 0.5rem;
+  background: transparent;
+}
+
 .idt-app-console-layout .idt-overview-header {
   padding: 1rem 1.1rem;
 }
@@ -28841,19 +28848,24 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
   z-index: 70;
   width: 0.82rem;
   pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 160ms ease;
 }
 
 .idt-app-scroll-navigator-thumb {
   position: absolute;
-  top: var(--idt-scroll-navigator-thumb-top);
+  top: 0;
   right: 0.18rem;
   width: 0.38rem;
-  height: var(--idt-scroll-navigator-thumb-height);
+  height: 0;
   border-radius: 999px;
   background: rgba(236, 241, 247, 0.54);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.08),
     0 10px 24px rgba(0, 0, 0, 0.42);
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
 }
 
 html[data-theme='light'] .idt-app-scroll-navigator-thumb {
@@ -31393,8 +31405,8 @@ html[data-diff-markers='symbols'] .idt-appearance-preview-pane[data-side='after'
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 1rem;
-  min-height: 3rem;
-  padding: 0.58rem 1.2rem;
+  min-height: 2.25rem;
+  padding: 0.4rem 1rem;
   border-bottom: 1px solid var(--app-border-soft);
   color: var(--app-text);
 }
@@ -31416,17 +31428,18 @@ html[data-diff-markers='symbols'] .idt-appearance-preview-pane[data-side='after'
 
 .idt-appearance-control-row select,
 .idt-appearance-number input {
-  min-height: 1.95rem;
+  min-height: 1.75rem;
   border: 1px solid var(--app-border-soft);
-  border-radius: 8px;
-  padding: 0 0.72rem;
+  border-radius: 7px;
+  padding: 0 0.6rem;
   background: var(--app-panel);
   color: var(--app-text);
   font: inherit;
+  font-size: 0.9rem;
 }
 
 .idt-appearance-control-row select {
-  min-width: 12rem;
+  min-width: 8.5rem;
 }
 
 html[data-appearance-ready='true'] .idt-app-console-layout :is(

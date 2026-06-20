@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- Polish in-app appearance settings: drop the dual code preview, remove the
+  Code font dropdown and Diff markers toggle, compact the control rows so the
+  selects no longer dominate the card, add **Manrope** as a UI font choice, and
+  rebuild the right-side scroll navigator to update the thumb directly on the
+  compositor via `transform` (eliminating per-scroll React state and the
+  jumpiness it caused). Also pulls the top-level Settings page heading out of
+  its boxed container so it reads as a plain page title.
 - Add **AWS agent runtime / tool-call access correlation** (#1520). Adds
   a metadata-only correlation engine (`internal/runtime/agentaccess`)
   that joins observed agent `agent-tool` runtime events with the static
