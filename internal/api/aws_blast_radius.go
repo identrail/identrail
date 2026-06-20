@@ -545,12 +545,20 @@ func filterAWSBlastRadiusFindings(findings []AWSBlastRadiusFinding, request AWSB
 		if filters["identity"] != "" && !awsRuntimeEventMatchesAny(filters["identity"], finding.IdentityNodeID, finding.PrincipalARN, finding.DisplayName) {
 			continue
 		}
-		if filters["resource"] != "" && !awsRuntimeEventMatchesAny(filters["resource"], append(append([]string{}, finding.ImpactedNodes...), finding.SensitiveNodes...)...) {
+		if filters["resource"] != "" && !awsRuntimeEventMatchesAny(filters["resource"], awsBlastRadiusResourceMatchValues(finding)...) {
 			continue
 		}
 		filtered = append(filtered, finding)
 	}
 	return filtered, applied
+}
+
+func awsBlastRadiusResourceMatchValues(finding AWSBlastRadiusFinding) []string {
+	candidates := append(append([]string{}, finding.ImpactedNodes...), finding.SensitiveNodes...)
+	for _, step := range finding.ImpactedPath {
+		candidates = append(candidates, step.NodeID, step.Label)
+	}
+	return dedupeStrings(candidates)
 }
 
 func awsBlastRadiusRelationships(findings []AWSBlastRadiusFinding) []AWSBlastRadiusRelationship {

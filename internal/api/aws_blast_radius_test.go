@@ -122,6 +122,70 @@ func TestGetAWSBlastRadiusFiltersBySeverityStatusRiskAndIdentity(t *testing.T) {
 	}
 }
 
+func TestFilterAWSBlastRadiusFindingsMatchesResourcePathLabels(t *testing.T) {
+	findings := []AWSBlastRadiusFinding{
+		{
+			FindingID:      "finding-1",
+			Severity:       "high",
+			Status:         "action_required",
+			RiskType:       "sensitive_resource",
+			AccountID:      "111111111111",
+			Region:         "us-east-1",
+			IdentityNodeID: "iam-role/case-triage-runtime",
+			PrincipalARN:   "arn:aws:iam::111111111111:role/case-triage-runtime",
+			DisplayName:    "case-triage-runtime",
+			ImpactedNodes:  []string{"aws:identity:iam:case-triage-runtime"},
+			SensitiveNodes: []string{"aws:resource:secret:legacy-database"},
+			ImpactedPath: []AWSBlastRadiusPathStep{
+				{
+					NodeID:   "aws:identity:iam:case-triage-runtime",
+					NodeType: "identity",
+					Label:    "case-triage-runtime",
+				},
+				{
+					NodeID:   "aws:resource:secret:legacy-database",
+					NodeType: "secret",
+					Label:    "legacy-database-secret",
+				},
+			},
+		},
+		{
+			FindingID:      "finding-2",
+			Severity:       "medium",
+			Status:         "action_required",
+			RiskType:       "agent_tool_target",
+			AccountID:      "222222222222",
+			Region:         "us-west-2",
+			IdentityNodeID: "iam-role/agent-worker",
+			PrincipalARN:   "arn:aws:iam::222222222222:role/agent-worker",
+			DisplayName:    "agent-worker",
+			ImpactedNodes:  []string{"aws:identity:iam:agent-worker"},
+			ImpactedPath: []AWSBlastRadiusPathStep{
+				{
+					NodeID:   "aws:identity:iam:agent-worker",
+					NodeType: "identity",
+					Label:    "agent-worker",
+				},
+				{
+					NodeID:   "aws:resource:s3:payments-bucket",
+					NodeType: "s3_bucket",
+					Label:    "arn:aws:s3:::payments-bucket",
+				},
+			},
+		},
+	}
+
+	filtered, _ := filterAWSBlastRadiusFindings(findings, AWSBlastRadiusRequest{Resource: "legacy-database-secret"})
+	if len(filtered) != 1 || filtered[0].FindingID != "finding-1" {
+		t.Fatalf("expected resource label filtering to match path labels, got %+v", filtered)
+	}
+
+	filtered, _ = filterAWSBlastRadiusFindings(findings, AWSBlastRadiusRequest{Resource: "arn:aws:s3:::payments-bucket"})
+	if len(filtered) != 1 || filtered[0].FindingID != "finding-2" {
+		t.Fatalf("expected resource ARN filtering to match path labels, got %+v", filtered)
+	}
+}
+
 func TestGetAWSBlastRadiusPermissionDeniedAndEmptyStatesAreExplicit(t *testing.T) {
 	now := time.Date(2026, 6, 19, 20, 10, 0, 0, time.UTC)
 	svc, ws := newBlastRadiusService(t, "project-blast-radius-states", now)
