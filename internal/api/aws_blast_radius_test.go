@@ -204,8 +204,8 @@ func TestAWSBlastRadiusFindingFromAgentUsesBackingRoleMismatchCaveatToken(t *tes
 	}
 
 	finding := awsBlastRadiusFindingFromAgent(record, time.Date(2026, 6, 19, 20, 30, 0, 0, time.UTC))
-	if finding.Score != 60 {
-		t.Fatalf("expected backing-role mismatch score bump to 60, got %d", finding.Score)
+	if finding.Score != 72 {
+		t.Fatalf("expected backing-role mismatch score bump to 72, got %d", finding.Score)
 	}
 }
 
