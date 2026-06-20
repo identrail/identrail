@@ -143,7 +143,6 @@ func (s *Service) GetAWSUnusedDormantAccessFindings(ctx context.Context, workspa
 		Resource:     request.Resource,
 		Service:      request.Service,
 		Severity:     request.Severity,
-		Status:       request.Status,
 	})
 	if err != nil {
 		return AWSUnusedDormantAccessResult{}, err

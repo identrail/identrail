@@ -82,6 +82,26 @@ func TestGetAWSUnusedDormantAccessFiltersDormancyState(t *testing.T) {
 	if result.AppliedFilters["dormancy_state"] != "never-used" {
 		t.Fatalf("expected applied dormancy filter, got %+v", result.AppliedFilters)
 	}
+
+	cleanup, err := svc.GetAWSUnusedDormantAccessFindings(defaultScopeContext(), ws, "project-unused-dormant-filters", AWSUnusedDormantAccessRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Status:       "cleanup_candidate",
+	})
+	if err != nil {
+		t.Fatalf("filter cleanup candidates: %v", err)
+	}
+	if len(cleanup.Findings) == 0 {
+		t.Fatal("expected cleanup candidate findings")
+	}
+	for _, finding := range cleanup.Findings {
+		if finding.Status != "cleanup_candidate" {
+			t.Fatalf("cleanup status filter leaked %+v", finding)
+		}
+	}
+	if cleanup.AppliedFilters["status"] != "cleanup-candidate" {
+		t.Fatalf("expected applied cleanup status filter, got %+v", cleanup.AppliedFilters)
+	}
 }
 
 func TestGetAWSUnusedDormantAccessPermissionDeniedAndEmptyStatesAreExplicit(t *testing.T) {
