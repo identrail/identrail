@@ -61,6 +61,8 @@ import {
   type AWSLeastPrivilegeResult,
   type AWSUnusedDormantAccessFinding,
   type AWSUnusedDormantAccessResult,
+  type AWSIdentitySprawlFinding,
+  type AWSIdentitySprawlResult,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
@@ -10653,6 +10655,114 @@ function AWSLeastPrivilegeContent({
   );
 }
 
+function awsIdentitySprawlStage(finding: AWSIdentitySprawlFinding): AWSCapabilityStage {
+  if (finding.status === 'cleanup_candidate') {
+    return 'coming';
+  }
+  if (finding.finding_type === 'stale_identity' || finding.finding_type === 'ownerless_identity') {
+    return 'not-available';
+  }
+  return 'wired';
+}
+
+function awsIdentitySprawlLabel(finding: AWSIdentitySprawlFinding): string {
+  return `${formatTokenLabel(finding.finding_type)} · score ${finding.score}`;
+}
+
+function awsIdentitySprawlOwnerLabel(finding: AWSIdentitySprawlFinding): string {
+  if (finding.owner_label) {
+    return `${finding.owner_label} · ${formatTokenLabel(finding.owner_source)}`;
+  }
+  return formatTokenLabel(finding.owner_source);
+}
+
+function awsIdentitySprawlWorkloadLabel(finding: AWSIdentitySprawlFinding): string {
+  const types = finding.workload_types ?? [];
+  if (types.length === 0) {
+    return finding.cluster_kind ? formatTokenLabel(finding.cluster_kind) : '-';
+  }
+  return types.map((token) => formatTokenLabel(token)).join(', ');
+}
+
+function awsIdentitySprawlEvidenceLabel(finding: AWSIdentitySprawlFinding): string {
+  const sources = finding.evidence.map((evidence) => evidence.label || formatTokenLabel(evidence.source));
+  return `${formatConfidenceScore(finding.confidence)} · ${sources.join(', ') || 'No evidence refs'}`;
+}
+
+function AWSIdentitySprawlContent({
+  findings,
+  loading,
+  error,
+  onRetry
+}: {
+  findings: AWSIdentitySprawlResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = findings?.findings ?? [];
+  const summaryLine = findings
+    ? `${findings.summary.stale_identity_count} stale · ${findings.summary.ownerless_identity_count} ownerless · ${findings.summary.duplicate_cluster_count} duplicate clusters · ${findings.summary.shared_role_count} shared`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS identity sprawl findings">
+      <h3>AWS identity sprawl (stale, ownerless, duplicate, shared)</h3>
+      <p className="idt-app-kicker">
+        Ranked cleanup and consolidation findings for IAM roles clustered by attachment surface, owner tags, and observed
+        runtime usage.{summaryLine ? ` ${summaryLine}` : ''}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load identity sprawl findings"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Calculating identity sprawl"
+          body="Identrail is ranking stale, ownerless, duplicate, and shared roles across IAM-bearing inventories."
+        />
+      ) : null}
+      {!error && !loading && findings && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={findings.status === 'blocked' ? 'Permission required' : 'No sprawl findings'}
+          title={findings.status === 'blocked' ? 'Identity sprawl needs read-only evidence access' : 'No identity sprawl detected'}
+          body={findings.failure_reasons[0] ?? 'No stale, ownerless, duplicate, or shared roles matched this scope.'}
+        />
+      ) : null}
+      {!error && !loading && findings && findings.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {findings.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS identity sprawl findings"
+          rows={rows}
+          getRowKey={(row) => row.finding_id}
+          columns={[
+            { key: 'finding', header: 'Finding', render: (row) => <strong>{awsIdentitySprawlLabel(row)}</strong> },
+            { key: 'identity', header: 'Role', render: (row) => row.role_name || row.principal_arn || row.display_name },
+            { key: 'owner', header: 'Owner', render: (row) => awsIdentitySprawlOwnerLabel(row) },
+            { key: 'workload', header: 'Attachments', render: (row) => awsIdentitySprawlWorkloadLabel(row) },
+            { key: 'evidence', header: 'Evidence', render: (row) => awsIdentitySprawlEvidenceLabel(row) },
+            {
+              key: 'status',
+              header: 'Status',
+              render: (row) => <AWSInventoryPill stage={awsIdentitySprawlStage(row)} label={formatTokenLabel(row.status)} />
+            },
+            { key: 'next', header: 'Next action', render: (row) => row.next_action }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsUnusedDormantAccessStage(finding: AWSUnusedDormantAccessFinding): AWSCapabilityStage {
   if (finding.status === 'cleanup_candidate') {
     return 'coming';
@@ -11273,6 +11383,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [unusedDormantAccessLoading, setUnusedDormantAccessLoading] = useState(false);
   const [unusedDormantAccessError, setUnusedDormantAccessError] = useState('');
   const unusedDormantAccessRequestRef = useRef(0);
+  const [identitySprawl, setIdentitySprawl] = useState<AWSIdentitySprawlResult | null>(null);
+  const [identitySprawlLoading, setIdentitySprawlLoading] = useState(false);
+  const [identitySprawlError, setIdentitySprawlError] = useState('');
+  const identitySprawlRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -11624,6 +11738,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadUnusedDormantAccess]);
 
+  const loadIdentitySprawl = useCallback(async () => {
+    const requestID = ++identitySprawlRequestRef.current;
+    setIdentitySprawl(null);
+    setIdentitySprawlError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setIdentitySprawlLoading(false);
+      return;
+    }
+    setIdentitySprawlLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectIdentitySprawl(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== identitySprawlRequestRef.current) {
+        return;
+      }
+      setIdentitySprawl(response.findings);
+    } catch (error) {
+      if (requestID !== identitySprawlRequestRef.current) {
+        return;
+      }
+      setIdentitySprawlError(formatAPIError(error, 'Unable to load AWS identity sprawl findings.'));
+    } finally {
+      if (requestID === identitySprawlRequestRef.current) {
+        setIdentitySprawlLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadIdentitySprawl();
+    return () => {
+      identitySprawlRequestRef.current += 1;
+    };
+  }, [loadIdentitySprawl]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -11763,6 +11925,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={unusedDormantAccessLoading}
             error={unusedDormantAccessError}
             onRetry={loadUnusedDormantAccess}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSIdentitySprawlContent
+            findings={identitySprawl}
+            loading={identitySprawlLoading}
+            error={identitySprawlError}
+            onRetry={loadIdentitySprawl}
           />
         ) : null}
         {routeID === 'graph' ? (

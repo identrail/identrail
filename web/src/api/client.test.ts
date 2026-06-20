@@ -1322,6 +1322,52 @@ describe('apiClient', () => {
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 
+  it('gets AWS identity sprawl findings with scoped headers and filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        findings: {
+          status: 'ready',
+          summary: { total_findings: 0, filtered_findings: 0 },
+          findings: []
+        }
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectIdentitySprawl(
+      'workspace/a',
+      'project 1',
+      {
+        connectorID: 'aws-prod',
+        fixtureState: 'success',
+        accountID: '123456789012',
+        region: 'us-east-1',
+        identity: 'payments-lambda-execution',
+        owner: 'platform',
+        cluster: 'duplicate_role_signature',
+        findingType: 'stale_identity',
+        severity: 'medium',
+        status: 'review'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(
+      '/v1/workspaces/workspace%2Fa/projects/project%201/aws/identity-sprawl?connector_id=aws-prod&fixture_state=success&account_id=123456789012&region=us-east-1&identity=payments-lambda-execution&owner=platform&cluster=duplicate_role_signature&finding_type=stale_identity&severity=medium&status=review'
+    );
+    expect(options.method ?? 'GET').toBe('GET');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
+
   it('gets AWS Secrets Manager metadata inventory with scoped headers and fixture state', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

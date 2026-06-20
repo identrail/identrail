@@ -1,6 +1,23 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS identity sprawl engine** (#1524). Adds a read-only,
+  metadata-only intelligence layer that ranks IAM identity sprawl into four
+  finding types — **stale_identity**, **ownerless_identity**,
+  **duplicate_identity**, and **shared_role** — by joining the EC2 instance
+  profile, Lambda execution role, and ECS task/execution role inventories
+  with the Wave 5.06–5.08 runtime-access correlations. Each finding carries
+  a stable id, calculation version, severity, score, confidence, rationale,
+  impacted nodes/path, evidence references, owner context, duplicate cluster
+  index, and a read-only `remediation_case` preview so downstream graph and
+  remediation surfaces consume one shape. The engine never reads role
+  permission documents, customer payloads, prompts/completions, or any data
+  beyond the metadata fields the upstream contracts already surface. New API
+  endpoint `GET /v1/workspaces/{ws}/projects/{proj}/aws/identity-sprawl` with
+  filters by identity, owner (including the `none`/`ownerless` sentinel),
+  cluster, finding type, severity, status, account, and region. Surfaced in
+  the AWS runtime app page; Closes #1524. See
+  [docs/aws-identity-sprawl-engine.md](docs/aws-identity-sprawl-engine.md).
 - Add **AWS unused and dormant access engine** (#1523). Adds a read-only,
   metadata-only intelligence layer that turns least-privilege source evidence,
   IAM last-used signals, runtime observations, scan timing, and policy scope

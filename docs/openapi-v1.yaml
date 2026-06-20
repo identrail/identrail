@@ -584,6 +584,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/identity-sprawl
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/iam-passrole-relationships
     action: tenancy.read
     resource_type: project
@@ -5148,6 +5153,88 @@ paths:
                     $ref: "#/components/schemas/AWSUnusedDormantAccessResult"
         "400":
           description: Invalid AWS unused and dormant access request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/identity-sprawl:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS identity sprawl findings
+      operationId: getAWSProjectIdentitySprawl
+      description: Ranked, explainable findings for stale, ownerless, duplicate, and shared IAM roles, clustered by policy/workload attachment surface, owner tags, and runtime usage. The engine reads only metadata-only IAM identity inventories plus the existing runtime-access correlations; it never reads role permission documents, secret values, prompts, completions, browser pages, code-interpreter output, or customer payloads. Each finding carries a calculation version, severity, confidence, rationale, impacted nodes/path, evidence, and a read-only remediation case preview so downstream graph and remediation surfaces consume one stable shape.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope the calculation.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: identity
+          schema: { type: string }
+          description: Filter by IAM role ARN, name, identity node id, or display name.
+        - in: query
+          name: owner
+          schema: { type: string }
+          description: Filter by owner label, owner-source tag key, or the literal sentinel `none`/`ownerless` to return only roles without a documented owner tag.
+        - in: query
+          name: cluster
+          schema: { type: string }
+          description: Filter by duplicate-cluster ID or cluster kind.
+        - in: query
+          name: finding_type
+          schema:
+            type: string
+            enum: [stale_identity, ownerless_identity, duplicate_identity, shared_role]
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [review, cleanup_candidate]
+      responses:
+        "200":
+          description: AWS identity sprawl findings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  findings:
+                    $ref: "#/components/schemas/AWSIdentitySprawlResult"
+        "400":
+          description: Invalid AWS identity sprawl request
           content:
             application/json:
               schema:
@@ -12543,6 +12630,167 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSUnusedDormantAccessRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSIdentitySprawlRelationship:
+      type: object
+      properties:
+        finding_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSIdentitySprawlCluster:
+      type: object
+      properties:
+        cluster_id: { type: string }
+        cluster_kind: { type: string }
+        identity_node_ids:
+          type: array
+          items: { type: string }
+        workload_types:
+          type: array
+          items: { type: string }
+        signature_hint: { type: string }
+    AWSIdentitySprawlFinding:
+      type: object
+      properties:
+        finding_id: { type: string }
+        calculation_version: { type: string }
+        finding_type:
+          type: string
+          enum: [stale_identity, ownerless_identity, duplicate_identity, shared_role]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status:
+          type: string
+          enum: [review, cleanup_candidate]
+        score: { type: integer }
+        confidence: { type: number }
+        account_id: { type: string }
+        region: { type: string }
+        identity_node_id: { type: string }
+        principal_arn: { type: string }
+        role_name: { type: string }
+        display_name: { type: string }
+        owner_label: { type: string }
+        owner_source: { type: string }
+        workload_types:
+          type: array
+          items: { type: string }
+        workload_node_ids:
+          type: array
+          items: { type: string }
+        cluster_id: { type: string }
+        cluster_kind: { type: string }
+        rationale: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegePathStep"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeEvidence"
+        next_action: { type: string }
+        remediation_case:
+          $ref: "#/components/schemas/AWSLeastPrivilegeRemediationCasePreview"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSIdentitySprawlSummary:
+      type: object
+      properties:
+        total_findings: { type: integer }
+        filtered_findings: { type: integer }
+        finding_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        owner_source_counts:
+          type: object
+          additionalProperties: { type: integer }
+        stale_identity_count: { type: integer }
+        ownerless_identity_count: { type: integer }
+        duplicate_cluster_count: { type: integer }
+        shared_role_count: { type: integer }
+        unique_identity_count: { type: integer }
+        unique_workload_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+        remediation_preview_count: { type: integer }
+    AWSIdentitySprawlResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status: { type: string }
+        fixture_state: { type: string }
+        confidence: { type: number }
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSIdentitySprawlSummary"
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIdentitySprawlFinding"
+        clusters:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIdentitySprawlCluster"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIdentitySprawlRelationship"
         caveats:
           type: array
           items: { type: string }

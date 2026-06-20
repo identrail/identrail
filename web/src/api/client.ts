@@ -3111,6 +3111,133 @@ export type AWSUnusedDormantAccessQuery = {
   dormancyState?: string;
 };
 
+// AWSIdentitySprawl* types describe Wave 6.04 sprawl findings: stale,
+// ownerless, duplicate, and shared IAM roles clustered by attachment
+// surface and runtime usage.
+export type AWSIdentitySprawlStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSIdentitySprawlFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+export type AWSIdentitySprawlFindingType =
+  | 'stale_identity'
+  | 'ownerless_identity'
+  | 'duplicate_identity'
+  | 'shared_role'
+  | string;
+export type AWSIdentitySprawlFindingStatus = 'review' | 'cleanup_candidate' | string;
+
+export type AWSIdentitySprawlRelationship = {
+  finding_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSIdentitySprawlCluster = {
+  cluster_id: string;
+  cluster_kind: string;
+  identity_node_ids: string[];
+  workload_types?: string[];
+  signature_hint?: string;
+};
+
+export type AWSIdentitySprawlFinding = {
+  finding_id: string;
+  calculation_version: string;
+  finding_type: AWSIdentitySprawlFindingType;
+  severity: string;
+  status: AWSIdentitySprawlFindingStatus;
+  score: number;
+  confidence: number;
+  account_id: string;
+  region: string;
+  identity_node_id: string;
+  principal_arn?: string;
+  role_name?: string;
+  display_name: string;
+  owner_label?: string;
+  owner_source: string;
+  workload_types?: string[];
+  workload_node_ids?: string[];
+  cluster_id?: string;
+  cluster_kind?: string;
+  rationale: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  next_action: string;
+  remediation_case: AWSLeastPrivilegeRemediationCasePreview;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSIdentitySprawlSummary = {
+  total_findings: number;
+  filtered_findings: number;
+  finding_type_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  owner_source_counts: Record<string, number>;
+  stale_identity_count: number;
+  ownerless_identity_count: number;
+  duplicate_cluster_count: number;
+  shared_role_count: number;
+  unique_identity_count: number;
+  unique_workload_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+  remediation_preview_count: number;
+};
+
+export type AWSIdentitySprawlResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSIdentitySprawlStatus;
+  fixture_state?: AWSIdentitySprawlFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSIdentitySprawlSummary;
+  findings: AWSIdentitySprawlFinding[];
+  clusters: AWSIdentitySprawlCluster[];
+  relationships: AWSIdentitySprawlRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSIdentitySprawlQuery = {
+  connectorID?: string;
+  fixtureState?: AWSIdentitySprawlFixtureState;
+  accountID?: string;
+  region?: string;
+  identity?: string;
+  owner?: string;
+  cluster?: string;
+  findingType?: AWSIdentitySprawlFindingType;
+  severity?: string;
+  status?: string;
+};
+
 export type AWSBedrockAgentsInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBedrockAgentsFixtureState =
   | 'success'
@@ -6348,6 +6475,28 @@ export const apiClient = {
         severity: query?.severity,
         status: query?.status,
         dormancy_state: query?.dormancyState
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectIdentitySprawl(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSIdentitySprawlQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ findings: AWSIdentitySprawlResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/identity-sprawl${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        identity: query?.identity,
+        owner: query?.owner,
+        cluster: query?.cluster,
+        finding_type: query?.findingType,
+        severity: query?.severity,
+        status: query?.status
       })}`,
       auth
     );
