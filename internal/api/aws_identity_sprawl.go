@@ -1029,7 +1029,7 @@ func summarizeAWSIdentitySprawlStatus(sourceStatuses []string, filtered []AWSIde
 	if allBlocked {
 		return awsPlatformDependencyStatusBlocked, 0
 	}
-	if len(filtered) == 0 || anyDegraded {
+	if anyDegraded {
 		return awsPlatformDependencyStatusDegraded, 0.7
 	}
 	return awsPlatformDependencyStatusReady, 0.9

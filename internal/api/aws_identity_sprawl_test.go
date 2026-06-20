@@ -163,6 +163,9 @@ func TestGetAWSIdentitySprawlOwnerlessDetectorAndFilters(t *testing.T) {
 			t.Fatalf("owner=none must only return ownerless findings: %+v", finding)
 		}
 	}
+	if len(noneSentinel.Findings) == 0 && noneSentinel.Status != "ready" {
+		t.Fatalf("healthy empty filtered result must stay ready, got %q with diagnostics=%+v", noneSentinel.Status, noneSentinel.Diagnostics)
+	}
 
 	// Owner detector unit-tests: confirms the engine produces an ownerless
 	// finding when an aggregate has no owner tag, independent of the seed
