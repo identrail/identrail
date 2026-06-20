@@ -413,9 +413,13 @@ func awsBlastRadiusFindingFromS3(record AWSS3RuntimeAccessRecord, now time.Time)
 }
 
 func awsBlastRadiusFindingFromAgent(record AWSAgentRuntimeAccessRecord, now time.Time) AWSBlastRadiusFinding {
-	roleNode := firstNonEmptyAWSValue(firstString(record.BackingRoleNodeIDs), record.DeclaredBackingRoleNode, record.AgentNodeID)
+	roleNodes := dedupeStrings(append(append([]string{}, record.BackingRoleNodeIDs...), record.DeclaredBackingRoleNode))
+	if len(roleNodes) == 0 {
+		roleNodes = dedupeStrings([]string{record.AgentNodeID})
+	}
+	roleNode := firstNonEmptyAWSValue(firstString(roleNodes), record.AgentNodeID)
 	roleARN := firstNonEmptyAWSValue(firstString(record.BackingRoleARNs), record.DeclaredBackingRole)
-	targetNode := firstNonEmptyAWSValue(firstString(record.TargetResourceNodeIDs), firstString(record.TargetResourceARNs))
+	targetSteps := awsBlastRadiusAgentTargetSteps(record.TargetResourceNodeIDs, record.TargetResourceARNs, record.AccountID, record.Region)
 	score := 52
 	severity := "medium"
 	riskType := "agent-tool-path"
@@ -439,6 +443,7 @@ func awsBlastRadiusFindingFromAgent(record AWSAgentRuntimeAccessRecord, now time
 	}
 	score = clampBlastRadiusScore(score)
 	evidenceRef := firstNonEmptyAWSValue(record.EvidenceRef, fmt.Sprintf("agent-runtime-access://%s", record.CorrelationID))
+	impactedNodes := dedupeStrings(append(append(roleNodes, record.AgentNodeID), append(record.TargetResourceNodeIDs, record.TargetResourceARNs...)...))
 	return AWSBlastRadiusFinding{
 		FindingID:          "aws-blast-radius:" + record.CorrelationID,
 		CalculationVersion: awsBlastRadiusVersion,
@@ -452,12 +457,18 @@ func awsBlastRadiusFindingFromAgent(record AWSAgentRuntimeAccessRecord, now time
 		IdentityNodeID:     roleNode,
 		PrincipalARN:       roleARN,
 		DisplayName:        firstNonEmptyAWSValue(record.AgentName, record.AgentID, shortAWSARN(roleARN), roleNode),
-		Rationale:          fmt.Sprintf("Agent %q tool %q is %s and expands the identity path to %d target node(s).", firstNonEmptyAWSValue(record.AgentName, record.AgentID, record.AgentNodeID), firstNonEmptyAWSValue(record.ToolName, "unknown-tool"), record.Status, len(record.TargetResourceNodeIDs)),
-		ImpactedNodes:      dedupeStrings(append([]string{roleNode, record.AgentNodeID}, append(record.TargetResourceNodeIDs, record.TargetResourceARNs...)...)),
-		ImpactedPath: append([]AWSBlastRadiusPathStep{
-			{NodeID: roleNode, NodeType: "identity", Label: firstNonEmptyAWSValue(shortAWSARN(roleARN), roleNode), AccountID: record.AccountID, Region: record.Region},
-			{NodeID: record.AgentNodeID, NodeType: "ai_agent", Label: firstNonEmptyAWSValue(record.AgentName, record.AgentID, record.AgentNodeID), AccountID: record.AccountID, Region: record.Region},
-		}, awsBlastRadiusAgentTargetSteps(targetNode, firstNonEmptyAWSValue(firstString(record.TargetResourceARNs), targetNode), record.AccountID, record.Region)...),
+		Rationale:          fmt.Sprintf("Agent %q tool %q is %s and expands the identity path to %d target node(s).", firstNonEmptyAWSValue(record.AgentName, record.AgentID, record.AgentNodeID), firstNonEmptyAWSValue(record.ToolName, "unknown-tool"), record.Status, len(targetSteps)),
+		ImpactedNodes:      impactedNodes,
+		ImpactedPath: awsBlastRadiusAgentIdentityRolePath(
+			roleNodes,
+			targetSteps,
+			firstNonEmptyAWSValue(shortAWSARN(roleARN), record.AgentNodeID),
+			record.AgentNodeID,
+			record.AgentName,
+			record.AgentID,
+			record.AccountID,
+			record.Region,
+		),
 		RuntimeActions: dedupeStrings(record.Outcomes),
 		AgentToolPaths: dedupeStrings([]string{
 			strings.TrimSpace(record.AgentNodeID + " -> " + firstNonEmptyAWSValue(record.ToolName, record.ToolTargetRef)),
@@ -470,18 +481,53 @@ func awsBlastRadiusFindingFromAgent(record AWSAgentRuntimeAccessRecord, now time
 	}
 }
 
-func awsBlastRadiusAgentTargetSteps(targetNode string, targetLabel string, accountID string, region string) []AWSBlastRadiusPathStep {
-	targetNode = strings.TrimSpace(targetNode)
-	if targetNode == "" {
+func awsBlastRadiusAgentTargetSteps(targetResourceNodeIDs []string, targetResourceARNs []string, accountID string, region string) []AWSBlastRadiusPathStep {
+	targetSteps := dedupeStrings(append(append([]string{}, targetResourceNodeIDs...), targetResourceARNs...))
+	if len(targetSteps) == 0 {
 		return nil
 	}
-	return []AWSBlastRadiusPathStep{{
-		NodeID:    targetNode,
-		NodeType:  "target_resource",
-		Label:     targetLabel,
+	steps := make([]AWSBlastRadiusPathStep, 0, len(targetSteps))
+	for _, targetNode := range targetSteps {
+		steps = append(steps, AWSBlastRadiusPathStep{
+			NodeID:    targetNode,
+			NodeType:  "target_resource",
+			Label:     strings.TrimSpace(targetNode),
+			AccountID: strings.TrimSpace(accountID),
+			Region:    strings.TrimSpace(region),
+		})
+	}
+	return steps
+}
+
+func awsBlastRadiusAgentIdentityRolePath(roleNodes []string, targetSteps []AWSBlastRadiusPathStep, roleLabel string, agentNodeID string, agentName string, agentID string, accountID string, region string) []AWSBlastRadiusPathStep {
+	if len(roleNodes) == 0 {
+		return nil
+	}
+	agentStep := AWSBlastRadiusPathStep{
+		NodeID:    agentNodeID,
+		NodeType:  "ai_agent",
+		Label:     firstNonEmptyAWSValue(agentName, agentID, agentNodeID),
 		AccountID: strings.TrimSpace(accountID),
 		Region:    strings.TrimSpace(region),
-	}}
+	}
+	paths := make([]AWSBlastRadiusPathStep, 0, len(roleNodes)*(len(targetSteps)+1))
+	for _, roleNode := range roleNodes {
+		paths = append(paths, AWSBlastRadiusPathStep{
+			NodeID:    roleNode,
+			NodeType:  "identity",
+			Label:     firstNonEmptyAWSValue(shortAWSARN(roleNode), roleLabel),
+			AccountID: strings.TrimSpace(accountID),
+			Region:    strings.TrimSpace(region),
+		})
+		if len(targetSteps) == 0 {
+			paths = append(paths, agentStep)
+			continue
+		}
+		for _, targetStep := range targetSteps {
+			paths = append(paths, agentStep, targetStep)
+		}
+	}
+	return paths
 }
 
 func awsBlastRadiusFindingStatus(sourceStatus string) string {
@@ -556,7 +602,7 @@ func filterAWSBlastRadiusFindings(findings []AWSBlastRadiusFinding, request AWSB
 		if filters["risk_type"] != "" && filters["risk_type"] != normalizeAWSRuntimeEventFilterToken(finding.RiskType) {
 			continue
 		}
-		if filters["identity"] != "" && !awsRuntimeEventMatchesAny(filters["identity"], finding.IdentityNodeID, finding.PrincipalARN, finding.DisplayName) {
+		if filters["identity"] != "" && !awsRuntimeEventMatchesAny(filters["identity"], awsBlastRadiusIdentityMatchValues(finding)...) {
 			continue
 		}
 		if filters["resource"] != "" && !awsRuntimeEventMatchesAny(filters["resource"], awsBlastRadiusResourceMatchValues(finding)...) {
@@ -575,13 +621,30 @@ func awsBlastRadiusResourceMatchValues(finding AWSBlastRadiusFinding) []string {
 	return dedupeStrings(candidates)
 }
 
+func awsBlastRadiusIdentityMatchValues(finding AWSBlastRadiusFinding) []string {
+	candidates := []string{finding.IdentityNodeID, finding.PrincipalARN, finding.DisplayName}
+	for _, step := range finding.ImpactedPath {
+		if strings.EqualFold(strings.TrimSpace(step.NodeType), "identity") {
+			candidates = append(candidates, step.NodeID, step.Label)
+		}
+	}
+	return dedupeStrings(candidates)
+}
+
 func awsBlastRadiusRelationships(findings []AWSBlastRadiusFinding) []AWSBlastRadiusRelationship {
 	relationships := []AWSBlastRadiusRelationship{}
 	for _, finding := range findings {
 		for i := 0; i+1 < len(finding.ImpactedPath); i++ {
-			from := strings.TrimSpace(finding.ImpactedPath[i].NodeID)
-			to := strings.TrimSpace(finding.ImpactedPath[i+1].NodeID)
+			fromNode := finding.ImpactedPath[i]
+			toNode := finding.ImpactedPath[i+1]
+			from := strings.TrimSpace(fromNode.NodeID)
+			to := strings.TrimSpace(toNode.NodeID)
 			if from == "" || to == "" {
+				continue
+			}
+			fromType := strings.TrimSpace(fromNode.NodeType)
+			toType := strings.TrimSpace(toNode.NodeType)
+			if !awsBlastRadiusAllowsPathTransition(finding.RiskType, fromType, toType) {
 				continue
 			}
 			relationships = append(relationships, AWSBlastRadiusRelationship{
@@ -607,6 +670,15 @@ func awsBlastRadiusRelationships(findings []AWSBlastRadiusFinding) []AWSBlastRad
 		}
 	}
 	return relationships
+}
+
+func awsBlastRadiusAllowsPathTransition(findingType string, fromType string, toType string) bool {
+	switch normalizeAWSRuntimeEventFilterToken(findingType) {
+	case "agent-tool-path", "agent-tool-path-with-caveats", "undeclared-agent-tool-path", "unused-agent-tool-path":
+		return (fromType == "identity" && toType == "ai_agent") || (fromType == "ai_agent" && toType == "target_resource")
+	default:
+		return true
+	}
 }
 
 func summarizeAWSBlastRadius(allFindings []AWSBlastRadiusFinding, filtered []AWSBlastRadiusFinding, relationships []AWSBlastRadiusRelationship) AWSBlastRadiusSummary {

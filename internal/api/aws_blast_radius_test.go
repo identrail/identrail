@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -231,6 +232,80 @@ func TestAWSBlastRadiusFindingFromAgentOmitsMissingTargetPathStep(t *testing.T) 
 		if step.NodeType == "target_resource" {
 			t.Fatalf("expected no target_resource path when target is missing, got %+v", finding.ImpactedPath)
 		}
+	}
+}
+
+func TestAWSBlastRadiusFindingFromAgentPreservesAllBackingRolesAndTargets(t *testing.T) {
+	record := AWSAgentRuntimeAccessRecord{
+		CorrelationID:         "agent-3",
+		AccountID:             "111111111111",
+		Region:                "us-east-1",
+		AgentNodeID:           "aws:identity:agent:agent-c",
+		AgentName:             "search-agent",
+		ToolName:              "scan",
+		Status:                "confirmed",
+		Confidence:            0.93,
+		BackingRoleNodeIDs:    []string{"aws:identity:role:agent-role-b", "aws:identity:role:agent-role-a"},
+		BackingRoleARNs:       []string{"arn:aws:iam::111111111111:role/agent-role-a", "arn:aws:iam::111111111111:role/agent-role-b"},
+		TargetResourceNodeIDs: []string{"aws:resource:secret:api-key-a", "aws:resource:secret:api-key-b"},
+		TargetResourceARNs:    []string{"arn:aws:secretsmanager:us-east-1:111111111111:secret:api-key-a", "arn:aws:secretsmanager:us-east-1:111111111111:secret:api-key-b"},
+		EvidenceRef:           "agent-evidence://multi-role-target",
+	}
+
+	record.BackingRoleNodeIDs = dedupeStrings(record.BackingRoleNodeIDs)
+	record.TargetResourceNodeIDs = dedupeStrings(record.TargetResourceNodeIDs)
+	record.TargetResourceARNs = dedupeStrings(record.TargetResourceARNs)
+
+	finding := awsBlastRadiusFindingFromAgent(record, time.Date(2026, 6, 19, 20, 50, 0, 0, time.UTC))
+
+	expectedRoleNodes := map[string]bool{
+		"aws:identity:role:agent-role-a": false,
+		"aws:identity:role:agent-role-b": false,
+	}
+	expectedTargetNodes := map[string]bool{
+		"aws:resource:secret:api-key-a":                                  false,
+		"aws:resource:secret:api-key-b":                                  false,
+		"arn:aws:secretsmanager:us-east-1:111111111111:secret:api-key-a": false,
+		"arn:aws:secretsmanager:us-east-1:111111111111:secret:api-key-b": false,
+	}
+	foundImpactedNodes := map[string]bool{}
+	for _, node := range finding.ImpactedNodes {
+		foundImpactedNodes[node] = true
+	}
+	for node := range expectedRoleNodes {
+		if !foundImpactedNodes[node] {
+			t.Fatalf("missing backing role in impacted_nodes: %s", node)
+		}
+	}
+	for node := range expectedTargetNodes {
+		if !foundImpactedNodes[node] {
+			t.Fatalf("missing target in impacted_nodes: %s", node)
+		}
+	}
+
+	paths := finding.ImpactedPath
+	hasEdge := func(fromNode, toNode string) bool {
+		for i := 0; i+1 < len(paths); i++ {
+			if strings.TrimSpace(paths[i].NodeID) == fromNode && strings.TrimSpace(paths[i+1].NodeID) == toNode {
+				return true
+			}
+		}
+		return false
+	}
+	for role := range expectedRoleNodes {
+		if !hasEdge(role, record.AgentNodeID) {
+			t.Fatalf("expected identity path edge for role %s to agent %s", role, record.AgentNodeID)
+		}
+	}
+	for target := range expectedTargetNodes {
+		if !hasEdge(record.AgentNodeID, target) {
+			t.Fatalf("expected agent path edge for target %s", target)
+		}
+	}
+
+	filtered, _ := filterAWSBlastRadiusFindings([]AWSBlastRadiusFinding{finding}, AWSBlastRadiusRequest{Identity: "agent-role-b"})
+	if len(filtered) != 1 {
+		t.Fatalf("expected second backing role to match identity filter, got %d findings", len(filtered))
 	}
 }
 
