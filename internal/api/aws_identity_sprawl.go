@@ -282,6 +282,9 @@ func (s *Service) awsIdentitySprawlSourceSignals(ctx context.Context, workspaceI
 		mergeIdentitySprawlRecord(aggregates, record.RoleARN, record.RoleName, record.AccountID, record.Region, record.WorkloadType, record.WorkloadName, record.FromNodeID, record.Tags, record.EvidenceRef)
 	}
 	sourceStatuses = append(sourceStatuses, ec2.Status)
+	for _, diagnostic := range ec2.Diagnostics {
+		diagnostics = append(diagnostics, AWSIdentitySprawlDiagnostic(diagnostic))
+	}
 	failureReasons = append(failureReasons, ec2.FailureReasons...)
 	remediationHints = append(remediationHints, ec2.RemediationHints...)
 
@@ -293,6 +296,9 @@ func (s *Service) awsIdentitySprawlSourceSignals(ctx context.Context, workspaceI
 		mergeIdentitySprawlRecord(aggregates, record.RoleARN, record.RoleName, record.AccountID, record.Region, record.WorkloadType, record.WorkloadName, record.FromNodeID, record.Tags, record.EvidenceRef)
 	}
 	sourceStatuses = append(sourceStatuses, lambda.Status)
+	for _, diagnostic := range lambda.Diagnostics {
+		diagnostics = append(diagnostics, AWSIdentitySprawlDiagnostic(diagnostic))
+	}
 	failureReasons = append(failureReasons, lambda.FailureReasons...)
 	remediationHints = append(remediationHints, lambda.RemediationHints...)
 
@@ -309,6 +315,9 @@ func (s *Service) awsIdentitySprawlSourceSignals(ctx context.Context, workspaceI
 		}
 	}
 	sourceStatuses = append(sourceStatuses, ecs.Status)
+	for _, diagnostic := range ecs.Diagnostics {
+		diagnostics = append(diagnostics, AWSIdentitySprawlDiagnostic(diagnostic))
+	}
 	failureReasons = append(failureReasons, ecs.FailureReasons...)
 	remediationHints = append(remediationHints, ecs.RemediationHints...)
 

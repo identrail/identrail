@@ -257,6 +257,16 @@ func TestGetAWSIdentitySprawlEmptyAndDegradedFixtureStates(t *testing.T) {
 	if degraded.Status == "ready" && len(degraded.Diagnostics) == 0 {
 		t.Fatalf("degraded fixture must report degraded status or diagnostics: %+v", degraded)
 	}
+	foundInventoryDiagnostic := false
+	for _, diagnostic := range degraded.Diagnostics {
+		if strings.HasPrefix(diagnostic.Collector, "aws_ec2/") || strings.HasPrefix(diagnostic.Collector, "aws_lambda/") || strings.HasPrefix(diagnostic.Collector, "aws_ecs/") {
+			foundInventoryDiagnostic = true
+			break
+		}
+	}
+	if !foundInventoryDiagnostic {
+		t.Fatalf("degraded fixture must forward inventory diagnostics: %+v", degraded.Diagnostics)
+	}
 }
 
 func TestGetAWSIdentitySprawlLiveModeSuppressesFixtureInventories(t *testing.T) {
