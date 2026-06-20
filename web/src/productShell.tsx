@@ -10710,6 +10710,28 @@ function AWSIdentitySprawlContent({
   const summaryLine = findings
     ? `${findings.summary.stale_identity_count} stale · ${findings.summary.ownerless_identity_count} ownerless · ${findings.summary.duplicate_cluster_count} duplicate clusters · ${findings.summary.shared_role_count} shared`
     : '';
+  const emptyState = findings
+    ? findings.status === 'blocked'
+      ? {
+          eyebrow: 'Permission required',
+          title: 'Identity sprawl needs read-only evidence access',
+          body: findings.failure_reasons[0] ?? 'Identity sprawl cannot run until read-only IAM evidence is available.'
+        }
+      : findings.status === 'degraded'
+        ? {
+            eyebrow: 'Evidence incomplete',
+            title: 'Identity sprawl could not be calculated',
+            body:
+              findings.failure_reasons[0] ??
+              findings.remediation_hints[0] ??
+              'Live identity inventory is incomplete, so Identrail cannot confirm whether identity sprawl exists yet.'
+          }
+        : {
+            eyebrow: 'No sprawl findings',
+            title: 'No identity sprawl detected',
+            body: 'No stale, ownerless, duplicate, or shared roles matched this scope.'
+          }
+    : null;
   return (
     <section className="idt-aws-runtime-correlation" aria-label="AWS identity sprawl findings">
       <h3>AWS identity sprawl (stale, ownerless, duplicate, shared)</h3>
@@ -10733,9 +10755,9 @@ function AWSIdentitySprawlContent({
       ) : null}
       {!error && !loading && findings && rows.length === 0 ? (
         <DomainEmptyState
-          eyebrow={findings.status === 'blocked' ? 'Permission required' : 'No sprawl findings'}
-          title={findings.status === 'blocked' ? 'Identity sprawl needs read-only evidence access' : 'No identity sprawl detected'}
-          body={findings.failure_reasons[0] ?? 'No stale, ownerless, duplicate, or shared roles matched this scope.'}
+          eyebrow={emptyState?.eyebrow ?? 'No sprawl findings'}
+          title={emptyState?.title ?? 'No identity sprawl detected'}
+          body={emptyState?.body ?? 'No stale, ownerless, duplicate, or shared roles matched this scope.'}
         />
       ) : null}
       {!error && !loading && findings && findings.caveats.length > 0 ? (

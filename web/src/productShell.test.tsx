@@ -3355,6 +3355,33 @@ describe('Domain-first app routes', () => {
     const getUnusedDormantAccess = vi
       .spyOn(api.apiClient, 'getAWSProjectUnusedDormantAccess')
       .mockResolvedValue({ findings: readyAWSUnusedDormantAccess });
+    vi.spyOn(api.apiClient, 'getAWSProjectIdentitySprawl').mockResolvedValue({
+      findings: {
+        status: 'degraded',
+        findings: [],
+        summary: {
+          total_findings: 0,
+          stale_identity_count: 0,
+          ownerless_identity_count: 0,
+          duplicate_identity_count: 0,
+          duplicate_cluster_count: 0,
+          shared_role_count: 0,
+          unique_identity_count: 0,
+          unique_workload_count: 0,
+          relationship_count: 0,
+          highest_score: 0,
+          average_confidence_pct: 0,
+          remediation_preview_count: 0
+        },
+        clusters: [],
+        relationships: [],
+        caveats: [],
+        failure_reasons: ['live identity-bearing inventory is unavailable'],
+        remediation_hints: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
 
     const { ProductAWSRuntimePage } = await import('./productShell');
 
@@ -3373,6 +3400,9 @@ describe('Domain-first app routes', () => {
     expect(screen.getByText(/Remove secretsmanager:GetSecretValue/i)).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS unused and dormant access findings' })).toBeInTheDocument();
     expect(screen.getAllByText(/Cleanup candidate/i).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/Identity sprawl could not be calculated/i)).toBeInTheDocument();
+    expect(screen.getByText(/live identity-bearing inventory is unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No identity sprawl detected/i)).not.toBeInTheDocument();
     expect(getLeastPrivilege).toHaveBeenCalledWith(
       'workspace-a',
       'production',
