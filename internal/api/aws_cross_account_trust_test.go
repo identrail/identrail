@@ -106,6 +106,7 @@ func TestAWSCrossAccountTrustFindingsSuppressExplicitDenyOverrides(t *testing.T)
 	now := time.Date(2026, 6, 21, 13, 7, 0, 0, time.UTC)
 	fullyDeniedPrincipal := "arn:aws:iam::999999999999:role/fully-denied"
 	partiallyDeniedPrincipal := "arn:aws:iam::999999999999:role/partially-denied"
+	conditionallyDeniedPrincipal := "arn:aws:iam::999999999999:role/conditionally-denied"
 	publicBucket := "arn:aws:s3:::public-denied"
 	findings := awsCrossAccountTrustFindings(awsCrossAccountTrustSources{
 		s3: AWSS3BucketReachabilityInventoryResult{Records: []AWSS3BucketReachabilityRecord{
@@ -140,6 +141,20 @@ func TestAWSCrossAccountTrustFindingsSuppressExplicitDenyOverrides(t *testing.T)
 			{
 				AccountID:   "123456789012",
 				Region:      "us-east-1",
+				BucketARN:   "arn:aws:s3:::conditionally-denied",
+				BucketName:  "conditionally-denied",
+				FromNodeID:  "aws:s3:conditionally-denied",
+				EvidenceRef: "aws-evidence://s3/conditionally-denied",
+				Confidence:  0.9,
+				CollectedAt: now,
+				IdentityGrants: []AWSS3IdentityGrant{
+					{PrincipalARN: conditionallyDeniedPrincipal, Effect: "Allow", Actions: []string{"s3:GetObject"}, IsCrossAccount: true},
+					{PrincipalARN: conditionallyDeniedPrincipal, Effect: "Deny", Actions: []string{"s3:GetObject"}, HasCondition: true, ConditionKeys: []string{"aws:SecureTransport"}},
+				},
+			},
+			{
+				AccountID:   "123456789012",
+				Region:      "us-east-1",
 				BucketARN:   publicBucket,
 				BucketName:  "public-denied",
 				FromNodeID:  "aws:s3:public-denied",
@@ -163,13 +178,20 @@ func TestAWSCrossAccountTrustFindingsSuppressExplicitDenyOverrides(t *testing.T)
 		}
 	}
 	foundPartial := false
+	foundConditional := false
 	for _, finding := range findings {
 		if finding.ExternalPrincipalARN == partiallyDeniedPrincipal {
 			foundPartial = true
 		}
+		if finding.ExternalPrincipalARN == conditionallyDeniedPrincipal {
+			foundConditional = true
+		}
 	}
 	if !foundPartial {
 		t.Fatalf("partial Deny should not suppress the remaining allowed cross-account grant: %+v", findings)
+	}
+	if !foundConditional {
+		t.Fatalf("conditional Deny should not suppress the cross-account grant outside the denied condition: %+v", findings)
 	}
 }
 

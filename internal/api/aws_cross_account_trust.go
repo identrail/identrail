@@ -180,6 +180,7 @@ type awsCrossAccountTrustExplicitDenyGrant struct {
 	actions           []string
 	capabilities      []string
 	notAction         bool
+	hasCondition      bool
 }
 
 func (s *Service) GetAWSCrossAccountTrust(ctx context.Context, workspaceID string, projectID string, request AWSCrossAccountTrustRequest) (AWSCrossAccountTrustResult, error) {
@@ -465,6 +466,9 @@ func awsCrossAccountTrustGrantHasExplicitDeny(input awsCrossAccountTrustGrantInp
 		return false
 	}
 	for _, deny := range input.denyGrants {
+		if deny.hasCondition {
+			continue
+		}
 		if !awsPrivilegeEscalationIdentityGrantPrincipalsMatch(input.principalARN, deny.principalARN, deny.wildcardPrincipal) {
 			continue
 		}
@@ -543,6 +547,7 @@ func awsCrossAccountTrustDenyGrantsFromS3(grants []AWSS3IdentityGrant) []awsCros
 				wildcardPrincipal: grant.WildcardPrincipal,
 				actions:           grant.Actions,
 				notAction:         grant.NotAction,
+				hasCondition:      grant.HasCondition || len(grant.ConditionKeys) > 0,
 			})
 		}
 	}
@@ -559,6 +564,7 @@ func awsCrossAccountTrustDenyGrantsFromKMS(grants []AWSKMSIdentityGrant) []awsCr
 				actions:           grant.Actions,
 				capabilities:      grant.Capabilities,
 				notAction:         grant.NotAction,
+				hasCondition:      grant.HasCondition || len(grant.ConditionKeys) > 0,
 			})
 		}
 	}
@@ -573,6 +579,7 @@ func awsCrossAccountTrustDenyGrantsFromSecrets(grants []AWSSecretsManagerIdentit
 				principalARN:      grant.PrincipalARN,
 				wildcardPrincipal: grant.WildcardPrincipal,
 				actions:           grant.Actions,
+				hasCondition:      grant.HasCondition || len(grant.ConditionKeys) > 0,
 			})
 		}
 	}
@@ -589,6 +596,7 @@ func awsCrossAccountTrustDenyGrantsFromSQSSNS(grants []AWSSQSSNSIdentityGrant) [
 				actions:           grant.Actions,
 				capabilities:      grant.Capabilities,
 				notAction:         grant.NotAction,
+				hasCondition:      grant.HasCondition || len(grant.ConditionKeys) > 0,
 			})
 		}
 	}
@@ -605,6 +613,7 @@ func awsCrossAccountTrustDenyGrantsFromDynamoRDS(grants []AWSDynamoDBRDSIdentity
 				actions:           grant.Actions,
 				capabilities:      grant.Capabilities,
 				notAction:         grant.NotAction,
+				hasCondition:      grant.HasCondition || len(grant.ConditionKeys) > 0,
 			})
 		}
 	}
