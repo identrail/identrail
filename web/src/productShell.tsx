@@ -15423,6 +15423,7 @@ export function ProductGitHubConnectPage() {
     if (!scope || !selectedEnvironmentID || !availability.available) {
       scanPolicyRequestRef.current += 1;
       setScanPolicies([]);
+      setPolicyForm(createDefaultScanPolicyForm());
       setScanPolicyLoading(false);
       return;
     }
@@ -15467,6 +15468,7 @@ export function ProductGitHubConnectPage() {
         return;
       }
       setScanPolicies([]);
+      setPolicyForm(createDefaultScanPolicyForm());
       setScanPolicyError(formatAPIError(error, 'Unable to load scan policies.'));
     } finally {
       if (scanPolicyRequestRef.current === requestID) {
