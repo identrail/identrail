@@ -627,7 +627,7 @@ func awsCrossAccountTrustDenyGrantsFromDynamoRDS(grants []AWSDynamoDBRDSIdentity
 }
 
 func awsCrossAccountTrustFindingFromRuntimeAssumption(record AWSRuntimeEventRecord, accounts map[string]AWSOrganizationsTopologyAccount, now time.Time) (AWSCrossAccountTrustFinding, bool) {
-	if !strings.EqualFold(record.Action, "sts:AssumeRole") && !strings.EqualFold(record.EventName, "AssumeRole") {
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(record.Action)), "sts:assumerole") && !strings.HasPrefix(strings.ToLower(strings.TrimSpace(record.EventName)), "assumerole") {
 		return AWSCrossAccountTrustFinding{}, false
 	}
 	targetARN := firstNonEmptyAWSValue(record.Session.AssumedRoleARN, record.TargetResourceARN)

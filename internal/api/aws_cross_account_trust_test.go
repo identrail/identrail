@@ -269,6 +269,14 @@ func TestAWSCrossAccountTrustRuntimeAssumptionFinding(t *testing.T) {
 	if !finding.HasCondition || len(finding.ConditionKeys) == 0 {
 		t.Fatalf("expected SourceIdentity to be surfaced as trust context, got %+v", finding)
 	}
+
+	federated := record
+	federated.EventID = "evt-cross-account-assume-saml"
+	federated.EventName = "AssumeRoleWithSAML"
+	federated.Action = "sts:AssumeRoleWithSAML"
+	if _, ok := awsCrossAccountTrustFindingFromRuntimeAssumption(federated, nil, now); !ok {
+		t.Fatalf("expected cross-account federated AssumeRole event to produce finding")
+	}
 }
 
 func TestGetAWSCrossAccountTrustRequestsSTSSessionRuntimeEvidence(t *testing.T) {
