@@ -6778,6 +6778,58 @@ describe('GitHub domain pages (#1382)', () => {
     expect(within(policyPanel).queryByText('Production stale policy')).not.toBeInTheDocument();
   });
 
+  it('Connect page resets scan policy drafts for empty environments', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const productionPolicy: ScanPolicyRecord = {
+      ...defaultScanPolicy,
+      policy_id: 'production-event-policy',
+      name: 'Production event policy',
+      trigger_mode: 'event'
+    };
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ items: projectID === 'staging-platform' ? [] : [productionPolicy] })
+    );
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByDisplayValue('Production event policy')).toBeInTheDocument();
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+
+    await waitFor(() =>
+      expect(within(screen.getByRole('region', { name: 'Scan policy management' })).getByLabelText(/Policy name/i))
+        .toHaveValue('Default policy')
+    );
+    const currentPolicyPanel = screen.getByRole('region', { name: 'Scan policy management' });
+    expect(screen.queryByDisplayValue('Production event policy')).not.toBeInTheDocument();
+    expect(within(currentPolicyPanel).getByLabelText(/Trigger mode/i)).toHaveValue('manual');
+  });
+
   it('Connect page hides the install/manage body when the connection status request fails', async () => {
     const api = await import('./api/client');
     mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });

@@ -350,6 +350,16 @@ const DOMAIN_NAV_ORDER: SourceProvider[] = ['aws', 'github', 'kubernetes'];
 const SHOULD_LOAD_CONNECTOR_BACKEND_FEATURES = FEATURE_CONNECTOR_GITHUB_V2 || FEATURE_CONNECTOR_K8S;
 const SOURCE_STACK: SourceProvider[] = [...SOURCE_ORDER];
 const SCAN_POLICY_TRIGGER_MODES: ScanTriggerMode[] = ['manual', 'scheduled', 'event', 'hybrid'];
+const createDefaultScanPolicyForm = () => ({
+  policyID: 'default',
+  name: 'Default policy',
+  enabled: true,
+  triggerMode: 'manual' as ScanTriggerMode,
+  cron: '',
+  maxConcurrentScans: '1',
+  historyLimit: '500',
+  maxFindings: '200'
+});
 const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low', 'info'] as const;
 const REPO_FINDING_TYPE_FILTERS = ['all', 'secret_exposure', 'repo_misconfiguration'] as const;
 const REPO_FINDING_SORT_FIELDS = ['severity', 'created_at', 'type', 'title'] as const;
@@ -15408,16 +15418,7 @@ export function ProductGitHubConnectPage() {
   const [scanPolicySuccess, setScanPolicySuccess] = useState('');
   const [policySaving, setPolicySaving] = useState(false);
   const [policyDeletingID, setPolicyDeletingID] = useState('');
-  const [policyForm, setPolicyForm] = useState({
-    policyID: 'default',
-    name: 'Default policy',
-    enabled: true,
-    triggerMode: 'manual' as ScanTriggerMode,
-    cron: '',
-    maxConcurrentScans: '1',
-    historyLimit: '500',
-    maxFindings: '200'
-  });
+  const [policyForm, setPolicyForm] = useState(createDefaultScanPolicyForm);
   const loadScanPolicies = useCallback(async () => {
     if (!scope || !selectedEnvironmentID || !availability.available) {
       scanPolicyRequestRef.current += 1;
@@ -15447,7 +15448,7 @@ export function ProductGitHubConnectPage() {
       setScanPolicies(items);
       setPolicyForm((current) => {
         if (items.length === 0) {
-          return current;
+          return createDefaultScanPolicyForm();
         }
         const selected = items.find((item) => item.policy_id === current.policyID) ?? items[0];
         return {
