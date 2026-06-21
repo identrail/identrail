@@ -6143,6 +6143,78 @@ describe('GitHub domain pages (#1382)', () => {
     expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue('');
   });
 
+  it('Repositories page resets one-off scan state when the workspace scope changes', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app',
+      provider: 'github_app',
+      posture: defaultRepositoryPosture,
+      organization_posture: defaultOrganizationPosture
+    });
+    const oneOffScan = deferred<{ repo_scan: RepoScanRecord }>();
+    const runRepoScan = vi.spyOn(api.apiClient, 'runRepoScan').mockImplementation(() => oneOffScan.promise);
+
+    const { ProductGitHubRepositoriesPage } = await import('./productShell');
+    function WorkspaceSwitchHarness() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => navigate('/app/tenant-a/workspace-b/github/repositories?environment=production-platform')}
+          >
+            Switch workspace
+          </button>
+          <ProductGitHubRepositoriesPage />
+        </>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/repositories?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/repositories" element={<WorkspaceSwitchHarness />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const oneOffPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/^Repository$/i), { target: { value: 'acme/workspace-a-repo' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/History limit/i), { target: { value: '75' } });
+    fireEvent.click(within(oneOffPanel).getByRole('button', { name: /Run scan/i }));
+
+    await waitFor(() =>
+      expect(runRepoScan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repository: 'acme/workspace-a-repo',
+          project_id: 'production-platform',
+          connector_id: 'github-app'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch workspace' }));
+    const resetPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    await waitFor(() => expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue(''));
+    expect(within(resetPanel).getByLabelText(/History limit/i)).toHaveValue('500');
+
+    await act(async () => {
+      oneOffScan.resolve({ repo_scan: queuedRepoScan });
+    });
+
+    expect(screen.queryByText(/Repository scan queued for acme\/workspace-a-repo/i)).not.toBeInTheDocument();
+    expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue('');
+  });
+
   it('Repositories page keeps repository posture checks reachable', async () => {
     const mocks = await renderGitHubPage('repositories', { scans: [succeededRepoScan] });
 
