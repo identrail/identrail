@@ -3460,6 +3460,93 @@ describe('Domain-first app routes', () => {
         diagnostics: []
       } as any
     });
+    const getCrossAccountTrust = vi.spyOn(api.apiClient, 'getAWSProjectCrossAccountTrust').mockResolvedValue({
+      findings: {
+        status: 'ready',
+        findings: [
+          {
+            finding_id: 'aws-cross-account-trust:partner-feed',
+            calculation_version: 'aws-cross-account-trust-engine-v1',
+            finding_type: 'cross_account_resource_access',
+            severity: 'high',
+            status: 'review',
+            score: 86,
+            confidence: 0.9,
+            account_id: '123456789012',
+            region: 'us-east-1',
+            service: 'kms',
+            resource_type: 'kms_key',
+            resource_arn: 'arn:aws:kms:us-east-1:123456789012:key/partner-feed',
+            resource_node_id: 'aws:resource:kms-key/partner-feed',
+            resource_label: 'partner-feed',
+            external_principal_arn: 'arn:aws:iam::999999999999:role/partner-ingest',
+            external_principal_account: '999999999999',
+            trusted_within_organization: false,
+            public_principal: false,
+            has_condition: false,
+            policy_sources: ['kms:Decrypt'],
+            runtime_observed: false,
+            analyzer_backed: false,
+            rationale: 'KMS key trusts a partner role without condition scoping.',
+            hardening_direction: 'Add external ID or source conditions.',
+            impacted_nodes: ['aws:identity:arn:aws:iam::999999999999:role/partner-ingest', 'aws:resource:kms-key/partner-feed'],
+            impacted_path: [
+              { node_id: 'aws:identity:arn:aws:iam::999999999999:role/partner-ingest', node_type: 'external_principal', label: 'partner-ingest' },
+              { node_id: 'aws:resource:kms-key/partner-feed', node_type: 'kms_key', label: 'partner-feed' }
+            ],
+            evidence: [
+              {
+                source: 'kms_decrypt_reachability',
+                evidence_ref: 'evidence://kms/partner-feed',
+                label: 'External resource trust',
+                confidence: 0.9,
+                observed_at: '2026-06-21T13:00:00Z',
+                relationship: 'cross_account_resource_access'
+              }
+            ],
+            next_action: 'Confirm the external principal owner before hardening.',
+            remediation_case: {
+              case_id: 'aws-cross-account-trust-preview:partner-feed',
+              title: 'Cross-account trust hardening',
+              recommended_action: 'Create an owner-approved trust hardening preview.',
+              approval_required: true,
+              blocking_evidence: ['evidence://kms/partner-feed'],
+              impacted_node_count: 2,
+              estimated_risk_drop: 35,
+              breakage_prediction: 'unknown',
+              read_only_projection: true
+            },
+            created_at: '2026-06-21T13:00:00Z',
+            updated_at: '2026-06-21T13:00:00Z'
+          }
+        ],
+        summary: {
+          total_findings: 1,
+          filtered_findings: 1,
+          critical_count: 0,
+          high_count: 1,
+          public_principal_count: 0,
+          cross_account_grant_count: 1,
+          runtime_observed_count: 0,
+          analyzer_backed_count: 0,
+          unconditional_grant_count: 1,
+          relationship_count: 1,
+          highest_score: 86,
+          average_confidence_pct: 90,
+          remediation_preview_count: 1,
+          severity_counts: { high: 1 },
+          status_counts: { review: 1 },
+          finding_type_counts: { cross_account_resource_access: 1 },
+          service_counts: { kms: 1 }
+        },
+        relationships: [],
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
 
     const { ProductAWSRuntimePage } = await import('./productShell');
 
@@ -3483,6 +3570,8 @@ describe('Domain-first app routes', () => {
     expect(screen.queryByText(/No identity sprawl detected/i)).not.toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS privilege escalation findings' })).toBeInTheDocument();
     expect(screen.getByText(/Passrole unscoped trust path/i)).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS cross-account trust findings' })).toBeInTheDocument();
+    expect(screen.getByText(/Cross account resource access/i)).toBeInTheDocument();
     expect(getLeastPrivilege).toHaveBeenCalledWith(
       'workspace-a',
       'production',
@@ -3490,6 +3579,12 @@ describe('Domain-first app routes', () => {
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
     expect(getPrivilegeEscalation).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getCrossAccountTrust).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       expect.objectContaining({ connectorID: 'aws-connector-1' }),

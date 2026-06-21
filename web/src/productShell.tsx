@@ -65,6 +65,8 @@ import {
   type AWSIdentitySprawlResult,
   type AWSPrivilegeEscalationFinding,
   type AWSPrivilegeEscalationResult,
+  type AWSCrossAccountTrustFinding,
+  type AWSCrossAccountTrustResult,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
@@ -10825,6 +10827,139 @@ function AWSPrivilegeEscalationContent({
   );
 }
 
+function awsCrossAccountTrustStage(finding: AWSCrossAccountTrustFinding): AWSCapabilityStage {
+  if (finding.status === 'action_required' || finding.severity === 'critical' || finding.public_principal) {
+    return 'not-available';
+  }
+  if (finding.severity === 'high' || !finding.has_condition) {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsCrossAccountTrustLabel(finding: AWSCrossAccountTrustFinding): string {
+  return `${formatTokenLabel(finding.finding_type)} · score ${finding.score}`;
+}
+
+function awsCrossAccountTrustPrincipalLabel(finding: AWSCrossAccountTrustFinding): string {
+  if (finding.public_principal) {
+    return 'Public principal';
+  }
+  return finding.external_principal_arn || finding.external_principal_account || '-';
+}
+
+function awsCrossAccountTrustContextLabel(finding: AWSCrossAccountTrustFinding): string {
+  const condition = finding.has_condition ? `conditioned: ${(finding.condition_keys ?? []).join(', ') || 'yes'}` : 'unconditional';
+  const org = finding.trusted_within_organization
+    ? `org: ${finding.external_principal_ou_path || 'known account'}`
+    : 'external account';
+  return `${formatTokenLabel(finding.service)} · ${condition} · ${org}`;
+}
+
+function AWSCrossAccountTrustContent({
+  findings,
+  loading,
+  error,
+  onRetry
+}: {
+  findings: AWSCrossAccountTrustResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = findings?.findings ?? [];
+  const summaryLine = findings
+    ? `${findings.summary.public_principal_count} public · ${findings.summary.cross_account_grant_count} cross-account · ${findings.summary.runtime_observed_count} runtime-observed · ${findings.summary.analyzer_backed_count} analyzer-backed`
+    : '';
+  const emptyState = findings
+    ? findings.status === 'blocked'
+      ? {
+          eyebrow: 'Permission required',
+          title: 'Cross-account trust analysis needs read-only evidence access',
+          body: findings.failure_reasons[0] ?? 'Cross-account trust cannot be calculated until AWS metadata access is available.'
+        }
+      : findings.status === 'degraded'
+        ? {
+            eyebrow: 'Evidence incomplete',
+            title: 'Cross-account trust findings are incomplete',
+            body:
+              findings.failure_reasons[0] ??
+              findings.remediation_hints[0] ??
+              'Some source evidence is unavailable, so Identrail cannot prove every external access path yet.'
+          }
+        : {
+            eyebrow: 'No external trust',
+            title: 'No cross-account trust findings detected',
+            body: 'No public principals, external resource grants, Access Analyzer findings, or runtime cross-account assumptions matched this scope.'
+          }
+    : null;
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS cross-account trust findings">
+      <h3>AWS cross-account trust</h3>
+      <p className="idt-app-kicker">
+        Ranked external access decisions across Organizations context, resource policies, runtime assumptions, Access
+        Analyzer, and graph evidence.{summaryLine ? ` ${summaryLine}` : ''}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load cross-account trust findings"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Calculating cross-account trust"
+          body="Identrail is ranking metadata-only external access paths from trust, resource policy, runtime, organization, and graph evidence."
+        />
+      ) : null}
+      {!error && !loading && findings && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={emptyState?.eyebrow ?? 'No external trust'}
+          title={emptyState?.title ?? 'No cross-account trust findings detected'}
+          body={
+            emptyState?.body ??
+            'No public principals, external resource grants, Access Analyzer findings, or runtime cross-account assumptions matched this scope.'
+          }
+        />
+      ) : null}
+      {!error && !loading && findings && findings.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {findings.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS cross-account trust findings"
+          rows={rows}
+          getRowKey={(row) => row.finding_id}
+          columns={[
+            { key: 'finding', header: 'Finding', render: (row) => <strong>{awsCrossAccountTrustLabel(row)}</strong> },
+            { key: 'principal', header: 'Principal', render: (row) => awsCrossAccountTrustPrincipalLabel(row) },
+            { key: 'resource', header: 'Resource', render: (row) => row.resource_label || row.resource_arn || row.resource_node_id || '-' },
+            { key: 'context', header: 'Context', render: (row) => awsCrossAccountTrustContextLabel(row) },
+            { key: 'evidence', header: 'Evidence', render: (row) => `${formatConfidenceScore(row.confidence)} · ${row.evidence.map((evidence) => evidence.label || formatTokenLabel(evidence.source)).join(', ') || 'No evidence refs'}` },
+            {
+              key: 'severity',
+              header: 'Risk',
+              render: (row) => (
+                <AWSInventoryPill
+                  stage={awsCrossAccountTrustStage(row)}
+                  label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.status)}`}
+                />
+              )
+            },
+            { key: 'next', header: 'Next action', render: (row) => row.next_action }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function AWSIdentitySprawlContent({
   findings,
   loading,
@@ -11549,6 +11684,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [privilegeEscalationLoading, setPrivilegeEscalationLoading] = useState(false);
   const [privilegeEscalationError, setPrivilegeEscalationError] = useState('');
   const privilegeEscalationRequestRef = useRef(0);
+  const [crossAccountTrust, setCrossAccountTrust] = useState<AWSCrossAccountTrustResult | null>(null);
+  const [crossAccountTrustLoading, setCrossAccountTrustLoading] = useState(false);
+  const [crossAccountTrustError, setCrossAccountTrustError] = useState('');
+  const crossAccountTrustRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -11996,6 +12135,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadPrivilegeEscalation]);
 
+  const loadCrossAccountTrust = useCallback(async () => {
+    const requestID = ++crossAccountTrustRequestRef.current;
+    setCrossAccountTrust(null);
+    setCrossAccountTrustError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setCrossAccountTrustLoading(false);
+      return;
+    }
+    setCrossAccountTrustLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectCrossAccountTrust(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== crossAccountTrustRequestRef.current) {
+        return;
+      }
+      setCrossAccountTrust(response.findings);
+    } catch (error) {
+      if (requestID !== crossAccountTrustRequestRef.current) {
+        return;
+      }
+      setCrossAccountTrustError(formatAPIError(error, 'Unable to load AWS cross-account trust findings.'));
+    } finally {
+      if (requestID === crossAccountTrustRequestRef.current) {
+        setCrossAccountTrustLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadCrossAccountTrust();
+    return () => {
+      crossAccountTrustRequestRef.current += 1;
+    };
+  }, [loadCrossAccountTrust]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -12151,6 +12338,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={privilegeEscalationLoading}
             error={privilegeEscalationError}
             onRetry={loadPrivilegeEscalation}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSCrossAccountTrustContent
+            findings={crossAccountTrust}
+            loading={crossAccountTrustLoading}
+            error={crossAccountTrustError}
+            onRetry={loadCrossAccountTrust}
           />
         ) : null}
         {routeID === 'graph' ? (
