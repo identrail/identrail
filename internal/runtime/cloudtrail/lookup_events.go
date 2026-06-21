@@ -711,6 +711,7 @@ var payloadAllowedKeys = struct {
 	UserType          string
 	UserARN           string
 	UserPrincipalID   string
+	IdentityProvider  string
 	SessionContext    string
 	SessionAttributes string
 	SessionIssuer     string
@@ -721,6 +722,8 @@ var payloadAllowedKeys = struct {
 	RequestParameters string
 	RoleARN           string
 	RoleSessionName   string
+	PrincipalARN      string
+	ProviderID        string
 	Tags              string
 	TransitiveTagKeys string
 	TagKey            string
@@ -733,6 +736,7 @@ var payloadAllowedKeys = struct {
 	UserType:          "type",
 	UserARN:           "arn",
 	UserPrincipalID:   "principalId",
+	IdentityProvider:  "identityProvider",
 	SessionContext:    "sessionContext",
 	SessionAttributes: "attributes",
 	SessionIssuer:     "sessionIssuer",
@@ -743,6 +747,8 @@ var payloadAllowedKeys = struct {
 	RequestParameters: "requestParameters",
 	RoleARN:           "roleArn",
 	RoleSessionName:   "roleSessionName",
+	PrincipalARN:      "principalArn",
+	ProviderID:        "providerId",
 	Tags:              "tags",
 	TransitiveTagKeys: "transitiveTagKeys",
 	TagKey:            "key",
@@ -819,6 +825,9 @@ func normalizeEvent(raw Event, accountID string, region string, collectedAt time
 			base.UserAgent = meta.UserAgent
 			if meta.UserARN != "" {
 				base.ActorPrincipalARN = meta.UserARN
+			}
+			if base.ActorPrincipalARN == "" && isSTSAssumeRoleEvent(base.EventSource, base.EventName) {
+				base.ActorPrincipalARN = stsAssumeRoleActor(meta, base.EventSource, base.EventName)
 			}
 			if meta.UserType != "" {
 				base.ActorPrincipalType = mapPrincipalType(meta.UserType)
@@ -905,7 +914,7 @@ func applySessionLineage(ev *NormalizedEvent, meta extractedMetadata) {
 		return
 	}
 
-	ev.OriginalActorARN = strings.TrimSpace(meta.UserARN)
+	ev.OriginalActorARN = strings.TrimSpace(firstNonEmpty(meta.UserARN, stsAssumeRoleActor(meta, ev.EventSource, ev.EventName)))
 	if isAssumeRole {
 		if meta.RequestRoleARN != "" {
 			ev.AssumedRoleARN = meta.RequestRoleARN
@@ -943,6 +952,21 @@ func isSTSAssumeRoleEvent(eventSource string, eventName string) bool {
 	return strings.EqualFold(strings.TrimSpace(eventSource), "sts.amazonaws.com") && strings.HasPrefix(strings.TrimSpace(eventName), "AssumeRole")
 }
 
+func stsAssumeRoleActor(meta extractedMetadata, eventSource string, eventName string) string {
+	if !isSTSAssumeRoleEvent(eventSource, eventName) {
+		return ""
+	}
+	normalizedName := strings.ToLower(strings.TrimSpace(eventName))
+	switch normalizedName {
+	case "assumerolewithsaml":
+		return firstNonEmpty(meta.IdentityProvider, meta.SessionPrincipalID, meta.RequestPrincipalARN)
+	case "assumerolewithwebidentity":
+		return firstNonEmpty(meta.IdentityProvider, meta.RequestProviderID, meta.SessionPrincipalID, meta.RequestPrincipalARN)
+	default:
+		return meta.RequestPrincipalARN
+	}
+}
+
 // extractedMetadata is the small allow-listed slice of CloudTrailEvent
 // JSON the ingester reads. Every field is metadata-only.
 type extractedMetadata struct {
@@ -953,10 +977,13 @@ type extractedMetadata struct {
 	UserARN             string
 	UserType            string
 	SessionPrincipalID  string
+	IdentityProvider    string
 	IssuerARN           string
 	SessionSourceID     string
 	RequestRoleARN      string
 	RequestSessionName  string
+	RequestPrincipalARN string
+	RequestProviderID   string
 	RequestSourceID     string
 	SessionTagKeys      []string
 	TransitiveTagKeys   []string
@@ -983,6 +1010,7 @@ func extractAllowedMetadata(raw string, eventSource string, eventName string) (e
 			out.UserARN = decodeString(identity[payloadAllowedKeys.UserARN])
 			out.UserType = decodeString(identity[payloadAllowedKeys.UserType])
 			out.SessionPrincipalID = decodeString(identity[payloadAllowedKeys.UserPrincipalID])
+			out.IdentityProvider = decodeString(identity[payloadAllowedKeys.IdentityProvider])
 			if sessionCtx, ok := identity[payloadAllowedKeys.SessionContext]; ok {
 				var session map[string]json.RawMessage
 				if err := json.Unmarshal(sessionCtx, &session); err == nil {
@@ -1012,6 +1040,8 @@ func extractAllowedMetadata(raw string, eventSource string, eventName string) (e
 		if err := json.Unmarshal(requestParams, &params); err == nil {
 			out.RequestRoleARN = decodeString(params[payloadAllowedKeys.RoleARN])
 			out.RequestSessionName = decodeString(params[payloadAllowedKeys.RoleSessionName])
+			out.RequestPrincipalARN = decodeString(params[payloadAllowedKeys.PrincipalARN])
+			out.RequestProviderID = decodeString(params[payloadAllowedKeys.ProviderID])
 			out.RequestSourceID = decodeString(params[payloadAllowedKeys.SourceIdentity])
 			out.SessionTagKeys = decodeSessionTagKeys(params[payloadAllowedKeys.Tags])
 			out.TransitiveTagKeys = decodeStringSlice(params[payloadAllowedKeys.TransitiveTagKeys])

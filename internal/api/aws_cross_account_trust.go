@@ -627,14 +627,25 @@ func awsCrossAccountTrustDenyGrantsFromDynamoRDS(grants []AWSDynamoDBRDSIdentity
 }
 
 func awsCrossAccountTrustFindingFromRuntimeAssumption(record AWSRuntimeEventRecord, accounts map[string]AWSOrganizationsTopologyAccount, now time.Time) (AWSCrossAccountTrustFinding, bool) {
-	if !strings.EqualFold(record.Action, "sts:AssumeRole") && !strings.EqualFold(record.EventName, "AssumeRole") {
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(record.Action)), "sts:assumerole") && !strings.HasPrefix(strings.ToLower(strings.TrimSpace(record.EventName)), "assumerole") {
 		return AWSCrossAccountTrustFinding{}, false
 	}
 	targetARN := firstNonEmptyAWSValue(record.Session.AssumedRoleARN, record.TargetResourceARN)
 	targetAccount := awsCrossAccountTrustPrincipalAccount(targetARN)
-	actorAccount := awsCrossAccountTrustPrincipalAccount(firstNonEmptyAWSValue(record.Session.OriginalActorARN, record.ActorPrincipalARN))
-	if targetAccount == "" || actorAccount == "" || targetAccount == actorAccount {
+	principal := firstNonEmptyAWSValue(record.Session.OriginalActorARN, record.ActorPrincipalARN)
+	actorAccount := awsCrossAccountTrustPrincipalAccount(principal)
+	if targetAccount == "" || principal == "" {
 		return AWSCrossAccountTrustFinding{}, false
+	}
+	if actorAccount == "" {
+		if !awsCrossAccountTrustRuntimeAllowsAccountlessActor(record) {
+			return AWSCrossAccountTrustFinding{}, false
+		}
+	} else if targetAccount == actorAccount {
+		if !awsCrossAccountTrustRuntimeAllowsSameAccountProviderARN(record, principal) {
+			return AWSCrossAccountTrustFinding{}, false
+		}
+		actorAccount = ""
 	}
 	accountContext := accounts[actorAccount]
 	score := 82
@@ -643,7 +654,6 @@ func awsCrossAccountTrustFindingFromRuntimeAssumption(record AWSRuntimeEventReco
 	}
 	score = clampBlastRadiusScore(score)
 	evidenceRef := firstNonEmptyAWSValue(record.EvidenceRef, fmt.Sprintf("runtime-evidence://%s", record.EventID))
-	principal := firstNonEmptyAWSValue(record.Session.OriginalActorARN, record.ActorPrincipalARN)
 	return AWSCrossAccountTrustFinding{
 		FindingID:                 "aws-cross-account-trust:" + stableAWSBlastRadiusToken("runtime_cross_account_assumption", record.EventID, principal, targetARN),
 		CalculationVersion:        awsCrossAccountTrustVersion,
@@ -679,6 +689,27 @@ func awsCrossAccountTrustFindingFromRuntimeAssumption(record AWSRuntimeEventReco
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}, true
+}
+
+func awsCrossAccountTrustRuntimeAllowsAccountlessActor(record AWSRuntimeEventRecord) bool {
+	action := strings.ToLower(strings.TrimSpace(record.Action))
+	eventName := strings.ToLower(strings.TrimSpace(record.EventName))
+	return strings.Contains(action, "assumerolewithsaml") ||
+		strings.Contains(eventName, "assumerolewithsaml") ||
+		strings.Contains(action, "assumerolewithwebidentity") ||
+		strings.Contains(eventName, "assumerolewithwebidentity")
+}
+
+func awsCrossAccountTrustRuntimeAllowsSameAccountProviderARN(record AWSRuntimeEventRecord, principal string) bool {
+	if !awsCrossAccountTrustRuntimeAllowsAccountlessActor(record) {
+		return false
+	}
+	parts := strings.SplitN(strings.TrimSpace(principal), ":", 6)
+	if len(parts) < 6 {
+		return false
+	}
+	resource := strings.ToLower(strings.TrimSpace(parts[5]))
+	return strings.HasPrefix(resource, "saml-provider/") || strings.HasPrefix(resource, "oidc-provider/")
 }
 
 func awsCrossAccountTrustFindingFromLeastPrivilege(recommendation AWSLeastPrivilegeRecommendation, accounts map[string]AWSOrganizationsTopologyAccount, now time.Time) (AWSCrossAccountTrustFinding, bool) {

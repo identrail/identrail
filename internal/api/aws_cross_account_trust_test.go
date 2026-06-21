@@ -269,6 +269,38 @@ func TestAWSCrossAccountTrustRuntimeAssumptionFinding(t *testing.T) {
 	if !finding.HasCondition || len(finding.ConditionKeys) == 0 {
 		t.Fatalf("expected SourceIdentity to be surfaced as trust context, got %+v", finding)
 	}
+
+	federated := record
+	federated.EventID = "evt-cross-account-assume-saml"
+	federated.EventName = "AssumeRoleWithSAML"
+	federated.Action = "sts:AssumeRoleWithSAML"
+	federated.ActorPrincipalARN = "saml:namequalifier:corp"
+	federated.ActorIdentityNodeID = "aws:identity:saml:namequalifier:corp"
+	federated.Session.OriginalActorARN = "saml:namequalifier:corp"
+	federated.Session.AssumedRoleARN = "arn:aws:iam::222222222222:role/prod-deploy"
+	finding, ok = awsCrossAccountTrustFindingFromRuntimeAssumption(federated, nil, now)
+	if !ok {
+		t.Fatalf("expected cross-account federated AssumeRole event to produce finding")
+	}
+	if finding.ExternalPrincipalARN != "saml:namequalifier:corp" || finding.ExternalPrincipalAccount != "" {
+		t.Fatalf("expected SAML provider identity without AWS account, got %+v", finding)
+	}
+
+	webIdentity := record
+	webIdentity.EventID = "evt-cross-account-assume-web-identity"
+	webIdentity.EventName = "AssumeRoleWithWebIdentity"
+	webIdentity.Action = "sts:AssumeRoleWithWebIdentity"
+	webIdentity.ActorPrincipalARN = "arn:aws:iam::222222222222:oidc-provider/accounts.google.com"
+	webIdentity.ActorIdentityNodeID = "aws:identity:arn:aws:iam::222222222222:oidc-provider/accounts.google.com"
+	webIdentity.Session.OriginalActorARN = "arn:aws:iam::222222222222:oidc-provider/accounts.google.com"
+	webIdentity.Session.SourceIdentity = "oidc:alice"
+	finding, ok = awsCrossAccountTrustFindingFromRuntimeAssumption(webIdentity, nil, now)
+	if !ok {
+		t.Fatalf("expected same-account WebIdentity provider ARN to produce runtime finding")
+	}
+	if finding.ExternalPrincipalARN != "arn:aws:iam::222222222222:oidc-provider/accounts.google.com" || finding.ExternalPrincipalAccount != "" {
+		t.Fatalf("expected WebIdentity provider ARN without AWS account attribution, got %+v", finding)
+	}
 }
 
 func TestGetAWSCrossAccountTrustRequestsSTSSessionRuntimeEvidence(t *testing.T) {
