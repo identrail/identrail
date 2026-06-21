@@ -200,13 +200,18 @@ func (s *Service) GetAWSCrossAccountTrust(ctx context.Context, workspaceID strin
 	accountID := firstNonEmptyAWSValue(connection.AccountID, strings.TrimSpace(request.AccountID), "123456789012")
 	region := firstNonEmptyAWSValue(connection.Region, strings.TrimSpace(request.Region), "us-east-1")
 	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID))
-	sourceFixtureState := fixtureState
+	fixtureBackedSourceState := fixtureState
+	runtimeFixtureState := fixtureState
+	responseFixtureState := fixtureState
+	suppressRuntimeFixtures := false
 	if strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected {
-		sourceFixtureState = ""
+		fixtureBackedSourceState = "empty"
+		runtimeFixtureState = ""
+		responseFixtureState = ""
+		suppressRuntimeFixtures = true
 	}
-	suppressRuntimeFixtures := strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected
 
-	sources, err := s.awsCrossAccountTrustSourceSignals(ctx, workspaceID, projectID, connectorID, sourceFixtureState, suppressRuntimeFixtures)
+	sources, err := s.awsCrossAccountTrustSourceSignals(ctx, workspaceID, projectID, connectorID, fixtureBackedSourceState, runtimeFixtureState, suppressRuntimeFixtures)
 	if err != nil {
 		return AWSCrossAccountTrustResult{}, err
 	}
@@ -236,7 +241,7 @@ func (s *Service) GetAWSCrossAccountTrust(ctx context.Context, workspaceID strin
 		CurrentIssueRef:    awsIssueRef(awsCrossAccountTrustCurrentIssue),
 		Version:            awsCrossAccountTrustVersion,
 		Status:             status,
-		FixtureState:       sourceFixtureState,
+		FixtureState:       responseFixtureState,
 		Confidence:         confidence,
 		CalculationVersion: awsCrossAccountTrustVersion,
 		AppliedFilters:     applied,
@@ -278,40 +283,40 @@ func normalizeAWSCrossAccountTrustFixtureState(requested string, connection AWSC
 	}
 }
 
-func (s *Service) awsCrossAccountTrustSourceSignals(ctx context.Context, workspaceID, projectID, connectorID, fixtureState string, suppressRuntimeFixtures bool) (awsCrossAccountTrustSources, error) {
-	organizations, err := s.GetAWSOrganizationsTopology(ctx, workspaceID, projectID, AWSOrganizationsTopologyRequest{ConnectorID: connectorID, FixtureState: fixtureState})
+func (s *Service) awsCrossAccountTrustSourceSignals(ctx context.Context, workspaceID, projectID, connectorID, fixtureBackedSourceState string, runtimeFixtureState string, suppressRuntimeFixtures bool) (awsCrossAccountTrustSources, error) {
+	organizations, err := s.GetAWSOrganizationsTopology(ctx, workspaceID, projectID, AWSOrganizationsTopologyRequest{ConnectorID: connectorID, FixtureState: fixtureBackedSourceState})
 	if err != nil {
 		return awsCrossAccountTrustSources{}, fmt.Errorf("cross-account trust organizations topology: %w", err)
 	}
-	s3, err := s.GetAWSS3BucketReachabilityInventory(ctx, workspaceID, projectID, AWSS3BucketReachabilityInventoryRequest{ConnectorID: connectorID, FixtureState: fixtureState})
+	s3, err := s.GetAWSS3BucketReachabilityInventory(ctx, workspaceID, projectID, AWSS3BucketReachabilityInventoryRequest{ConnectorID: connectorID, FixtureState: fixtureBackedSourceState})
 	if err != nil {
 		return awsCrossAccountTrustSources{}, fmt.Errorf("cross-account trust s3 reachability: %w", err)
 	}
-	kms, err := s.GetAWSKMSDecryptReachabilityInventory(ctx, workspaceID, projectID, AWSKMSDecryptReachabilityInventoryRequest{ConnectorID: connectorID, FixtureState: fixtureState})
+	kms, err := s.GetAWSKMSDecryptReachabilityInventory(ctx, workspaceID, projectID, AWSKMSDecryptReachabilityInventoryRequest{ConnectorID: connectorID, FixtureState: fixtureBackedSourceState})
 	if err != nil {
 		return awsCrossAccountTrustSources{}, fmt.Errorf("cross-account trust kms reachability: %w", err)
 	}
-	secrets, err := s.GetAWSSecretsManagerMetadataInventory(ctx, workspaceID, projectID, AWSSecretsManagerMetadataInventoryRequest{ConnectorID: connectorID, FixtureState: fixtureState})
+	secrets, err := s.GetAWSSecretsManagerMetadataInventory(ctx, workspaceID, projectID, AWSSecretsManagerMetadataInventoryRequest{ConnectorID: connectorID, FixtureState: fixtureBackedSourceState})
 	if err != nil {
 		return awsCrossAccountTrustSources{}, fmt.Errorf("cross-account trust secrets metadata: %w", err)
 	}
-	sqsSNS, err := s.GetAWSSQSSNSReachabilityInventory(ctx, workspaceID, projectID, AWSSQSSNSReachabilityInventoryRequest{ConnectorID: connectorID, FixtureState: fixtureState})
+	sqsSNS, err := s.GetAWSSQSSNSReachabilityInventory(ctx, workspaceID, projectID, AWSSQSSNSReachabilityInventoryRequest{ConnectorID: connectorID, FixtureState: fixtureBackedSourceState})
 	if err != nil {
 		return awsCrossAccountTrustSources{}, fmt.Errorf("cross-account trust sqs/sns reachability: %w", err)
 	}
-	dynamoRDS, err := s.GetAWSDynamoDBRDSReachabilityInventory(ctx, workspaceID, projectID, AWSDynamoDBRDSReachabilityInventoryRequest{ConnectorID: connectorID, FixtureState: fixtureState})
+	dynamoRDS, err := s.GetAWSDynamoDBRDSReachabilityInventory(ctx, workspaceID, projectID, AWSDynamoDBRDSReachabilityInventoryRequest{ConnectorID: connectorID, FixtureState: fixtureBackedSourceState})
 	if err != nil {
 		return awsCrossAccountTrustSources{}, fmt.Errorf("cross-account trust dynamodb/rds reachability: %w", err)
 	}
-	runtime, err := s.GetAWSRuntimeEvents(ctx, workspaceID, projectID, AWSRuntimeEventRequest{ConnectorID: connectorID, FixtureState: fixtureState, EventType: "sts-session", SuppressFixtureRecords: suppressRuntimeFixtures})
+	runtime, err := s.GetAWSRuntimeEvents(ctx, workspaceID, projectID, AWSRuntimeEventRequest{ConnectorID: connectorID, FixtureState: runtimeFixtureState, EventType: "sts-session", SuppressFixtureRecords: suppressRuntimeFixtures})
 	if err != nil {
 		return awsCrossAccountTrustSources{}, fmt.Errorf("cross-account trust runtime events: %w", err)
 	}
-	least, err := s.GetAWSLeastPrivilegeRecommendations(ctx, workspaceID, projectID, AWSLeastPrivilegeRequest{ConnectorID: connectorID, FixtureState: fixtureState})
+	least, err := s.GetAWSLeastPrivilegeRecommendations(ctx, workspaceID, projectID, AWSLeastPrivilegeRequest{ConnectorID: connectorID, FixtureState: fixtureBackedSourceState})
 	if err != nil {
 		return awsCrossAccountTrustSources{}, fmt.Errorf("cross-account trust least privilege: %w", err)
 	}
-	blast, err := s.GetAWSBlastRadius(ctx, workspaceID, projectID, AWSBlastRadiusRequest{ConnectorID: connectorID, FixtureState: fixtureState})
+	blast, err := s.GetAWSBlastRadius(ctx, workspaceID, projectID, AWSBlastRadiusRequest{ConnectorID: connectorID, FixtureState: fixtureBackedSourceState})
 	if err != nil {
 		return awsCrossAccountTrustSources{}, fmt.Errorf("cross-account trust blast radius: %w", err)
 	}

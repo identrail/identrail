@@ -337,7 +337,7 @@ func TestGetAWSCrossAccountTrustRequestsSTSSessionRuntimeEvidence(t *testing.T) 
 	}
 }
 
-func TestGetAWSCrossAccountTrustSuppressesRuntimeFixturesForLiveRequests(t *testing.T) {
+func TestGetAWSCrossAccountTrustSuppressesFixturesForLiveRequests(t *testing.T) {
 	now := time.Date(2026, 6, 21, 13, 25, 0, 0, time.UTC)
 	svc, ws := newCrossAccountTrustService(t, "project-cross-account-trust-no-runtime-fixtures", now)
 
@@ -346,6 +346,12 @@ func TestGetAWSCrossAccountTrustSuppressesRuntimeFixturesForLiveRequests(t *test
 	})
 	if err != nil {
 		t.Fatalf("get cross-account trust: %v", err)
+	}
+	if result.FixtureState != "" {
+		t.Fatalf("live request should not report an explicit fixture state, got %q", result.FixtureState)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("live request without live trust sources should not promote fixture findings: %+v", result.Findings)
 	}
 	for _, finding := range result.Findings {
 		if finding.FindingType == "runtime_cross_account_assumption" {
