@@ -14982,14 +14982,6 @@ function GitHubControlCenterBannerView({ banner }: { banner: GitHubControlCenter
   );
 }
 
-function legacyProjectSetupPath(scope: ProductSession, projectID: string | undefined): string {
-  const trimmed = normalizeValue(projectID);
-  if (!trimmed) {
-    return appendSourceQuery(buildProjectsPath(scope), 'github');
-  }
-  return appendSourceQuery(buildProjectPath(scope, trimmed), 'github');
-}
-
 function GitHubUnavailableShell({
   title,
   scope,
@@ -15205,6 +15197,11 @@ export function ProductGitHubConnectPage() {
   const [installError, setInstallError] = useState('');
   const [installing, setInstalling] = useState(false);
   const [pendingInstallURL, setPendingInstallURL] = useState('');
+  const [enterpriseOpen, setEnterpriseOpen] = useState(false);
+  const [patForm, setPATForm] = useState({ displayName: '', baseURL: '', token: '', repositories: '' });
+  const [patError, setPATError] = useState('');
+  const [patSuccess, setPATSuccess] = useState('');
+  const [patSubmitting, setPATSubmitting] = useState(false);
 
   if (!scope) {
     return (
@@ -15256,7 +15253,6 @@ export function ProductGitHubConnectPage() {
   }
 
   const basePath = appendEnvironmentQuery(buildScopedPath(scope, 'github'), selectedEnvironmentID);
-  const legacyPath = legacyProjectSetupPath(scope, selectedEnvironmentID);
   const repositoriesPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/repositories'), selectedEnvironmentID);
 
   const handleInstall = async () => {
@@ -15289,6 +15285,39 @@ export function ProductGitHubConnectPage() {
       setInstallError(formatAPIError(error, 'Unable to start GitHub App installation.'));
     } finally {
       setInstalling(false);
+    }
+  };
+
+  // Self-hosted GitHub Enterprise / restricted environments cannot use the
+  // hosted App install, so they save a personal access token connector here.
+  // This replaces the form that lived on the retired legacy project page.
+  const handleEnterprisePATSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPATSubmitting(true);
+    setPATError('');
+    setPATSuccess('');
+    try {
+      const token = normalizeValue(patForm.token);
+      if (!token) {
+        throw new Error('Enter a GitHub personal access token for the self-hosted fallback.');
+      }
+      await apiClient.upsertGitHubPATConnector(
+        {
+          project_id: selectedEnvironmentID,
+          display_name: normalizeValue(patForm.displayName) || undefined,
+          base_url: normalizeValue(patForm.baseURL) || undefined,
+          token,
+          selected_repositories: parseGitHubRepositories(patForm.repositories)
+        },
+        buildProductAuthContext(scope)
+      );
+      setPATForm((current) => ({ ...current, token: '' }));
+      setPATSuccess('GitHub Enterprise connector validated and saved.');
+      data.reload();
+    } catch (error) {
+      setPATError(formatAPIError(error, 'Unable to save GitHub Enterprise connector.'));
+    } finally {
+      setPATSubmitting(false);
     }
   };
 
@@ -15411,9 +15440,13 @@ export function ProductGitHubConnectPage() {
             >
               {installing ? 'Opening install...' : 'Reinstall on GitHub'}
             </button>
-            <Link to={legacyPath} className="idt-btn idt-btn-ghost">
+            <button
+              type="button"
+              className="idt-btn idt-btn-ghost"
+              onClick={() => setEnterpriseOpen(true)}
+            >
               Manage Enterprise / PAT
-            </Link>
+            </button>
             <Link to={basePath} className="idt-btn idt-btn-ghost">
               GitHub home
             </Link>
@@ -15438,11 +15471,72 @@ export function ProductGitHubConnectPage() {
             >
               {installing ? 'Opening install...' : 'Install GitHub App'}
             </button>
-            <Link to={legacyPath} className="idt-btn idt-btn-dark">
+            <button
+              type="button"
+              className="idt-btn idt-btn-dark"
+              onClick={() => setEnterpriseOpen(true)}
+            >
               Manage Enterprise / PAT
-            </Link>
+            </button>
           </footer>
         </section>
+      ) : null}
+      {showBody ? (
+        <details
+          className="idt-source-advanced idt-source-enterprise-fallback"
+          open={enterpriseOpen}
+          onToggle={(event) => setEnterpriseOpen((event.target as HTMLDetailsElement).open)}
+        >
+          <summary>
+            <span>
+              <strong>GitHub Enterprise fallback</strong>
+              <small>Use only for self-hosted GitHub Server or restricted app-install environments.</small>
+            </span>
+          </summary>
+          <form className="idt-app-form" onSubmit={handleEnterprisePATSubmit}>
+            <div className="idt-source-inline-fields">
+              <label>
+                Enterprise base URL
+                <input
+                  value={patForm.baseURL}
+                  onChange={(event) => setPATForm((current) => ({ ...current, baseURL: event.target.value }))}
+                  placeholder="https://github.company.com"
+                />
+              </label>
+              <label>
+                Display name
+                <input
+                  value={patForm.displayName}
+                  onChange={(event) => setPATForm((current) => ({ ...current, displayName: event.target.value }))}
+                  placeholder="GitHub Enterprise"
+                />
+              </label>
+            </div>
+            <label>
+              Personal access token
+              <input
+                type="password"
+                value={patForm.token}
+                onChange={(event) => setPATForm((current) => ({ ...current, token: event.target.value }))}
+                placeholder="GitHub Enterprise fallback token"
+                required
+              />
+            </label>
+            <label>
+              Repository allowlist
+              <textarea
+                value={patForm.repositories}
+                onChange={(event) => setPATForm((current) => ({ ...current, repositories: event.target.value }))}
+                placeholder="owner/repo, owner/security-platform"
+              />
+            </label>
+            {patError ? <p role="alert">{patError}</p> : null}
+            {patSuccess ? <p>{patSuccess}</p> : null}
+            <button className="idt-btn idt-btn-primary" type="submit" disabled={patSubmitting}>
+              {patSubmitting ? 'Validating...' : 'Save enterprise fallback'}
+            </button>
+          </form>
+        </details>
       ) : null}
     </DomainPageShell>
   );

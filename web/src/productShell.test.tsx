@@ -5519,11 +5519,11 @@ describe('GitHub domain pages (#1382)', () => {
       )
     );
 
-    const enterpriseLinks = screen
-      .getAllByRole('link', { name: /Manage Enterprise \/ PAT/i })
-      .filter((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/projects/production-platform'));
-    expect(enterpriseLinks.length).toBeGreaterThan(0);
-    expect(enterpriseLinks[0].getAttribute('href')).toContain('source=github');
+    // Enterprise/PAT management now lives inline on the connect page (the
+    // legacy per-project page was retired); the control opens the fallback form.
+    const enterpriseButtons = screen.getAllByRole('button', { name: /Manage Enterprise \/ PAT/i });
+    expect(enterpriseButtons.length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /Save enterprise fallback/i })).toBeInTheDocument();
     openSpy.mockRestore();
   });
 
@@ -6461,10 +6461,10 @@ describe('GitHub domain pages (#1382)', () => {
     expect(within(installation).getByText('Account')).toBeInTheDocument();
     expect(within(installation).getByText('identrail')).toBeInTheDocument();
     expect(within(installation).getByText('Selected repositories')).toBeInTheDocument();
-    // The reinstall affordance and the legacy Enterprise/PAT link are both
-    // reachable from the manage view.
+    // The reinstall affordance and the Enterprise/PAT management control are
+    // both reachable from the manage view.
     expect(within(installation).getByRole('button', { name: 'Install GitHub App' })).toBeInTheDocument();
-    expect(within(installation).getByRole('link', { name: /Manage Enterprise \/ PAT/i })).toBeInTheDocument();
+    expect(within(installation).getByRole('button', { name: /Manage Enterprise \/ PAT/i })).toBeInTheDocument();
     // The page must not also render the disconnected "Install the Identrail
     // GitHub App" install card on top of the manage view.
     expect(screen.queryByRole('region', { name: 'Install GitHub App' })).not.toBeInTheDocument();
