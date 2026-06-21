@@ -25,6 +25,7 @@ import type {
   RepoFindingRemediationPreview,
   RepoFindingRemediationPublishResponse,
   RepoScanRecord,
+  ScanPolicyRecord,
   WhoAmIResponse
 } from './api/client';
 import type { BackendFeatureState } from './hooks/useBackendFeatures';
@@ -5117,6 +5118,21 @@ describe('GitHub domain pages (#1382)', () => {
     scan_mode: 'quick'
   };
 
+  const defaultScanPolicy: ScanPolicyRecord = {
+    tenant_id: 'tenant-a',
+    workspace_id: 'workspace-a',
+    project_id: 'production-platform',
+    policy_id: 'default',
+    name: 'Default policy',
+    enabled: true,
+    trigger_mode: 'event',
+    max_concurrent_scans: 1,
+    history_limit: 500,
+    max_findings: 200,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z'
+  };
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.doUnmock('./hooks/useBackendFeatures');
@@ -5129,6 +5145,7 @@ describe('GitHub domain pages (#1382)', () => {
     options: {
       githubConnection?: GitHubConnectionStatus | null;
       scans?: RepoScanRecord[];
+      scanPolicies?: ScanPolicyRecord[];
       repoFindings?: Finding[];
       remediationPreview?: RepoFindingRemediationPreview;
       remediationPublish?: RepoFindingRemediationPublishResponse;
@@ -5155,6 +5172,13 @@ describe('GitHub domain pages (#1382)', () => {
     } else {
       listRepoScans.mockResolvedValue({ items: options.scans ?? [] });
     }
+    const listProjectScanPolicies = vi
+      .spyOn(api.apiClient, 'listProjectScanPolicies')
+      .mockResolvedValue({ items: options.scanPolicies ?? [] });
+    const upsertProjectScanPolicy = vi
+      .spyOn(api.apiClient, 'upsertProjectScanPolicy')
+      .mockResolvedValue({ policy: options.scanPolicies?.[0] ?? defaultScanPolicy });
+    const deleteProjectScanPolicy = vi.spyOn(api.apiClient, 'deleteProjectScanPolicy').mockResolvedValue(undefined);
     const listRepoFindings = vi
       .spyOn(api.apiClient, 'listRepoFindings')
       .mockResolvedValue({ items: options.repoFindings ?? [], summary: undefined });
@@ -5292,7 +5316,10 @@ describe('GitHub domain pages (#1382)', () => {
       publishRepoFindingRemediation,
       runRepoScan,
       cancelRepoScan,
-      startGitHubConnector
+      startGitHubConnector,
+      listProjectScanPolicies,
+      upsertProjectScanPolicy,
+      deleteProjectScanPolicy
     };
   }
 
@@ -6468,6 +6495,54 @@ describe('GitHub domain pages (#1382)', () => {
     // The page must not also render the disconnected "Install the Identrail
     // GitHub App" install card on top of the manage view.
     expect(screen.queryByRole('region', { name: 'Install GitHub App' })).not.toBeInTheDocument();
+  });
+
+  it('Connect page keeps scan policy management reachable', async () => {
+    const mocks = await renderGitHubPage('connect', {
+      githubConnection: connectedGitHub,
+      scanPolicies: [defaultScanPolicy]
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'Connect GitHub' });
+    const policyPanel = await screen.findByRole('region', { name: 'Scan policy management' });
+    expect(within(policyPanel).getByRole('heading', { level: 3, name: 'Scan policy' })).toBeInTheDocument();
+    expect(within(policyPanel).getByText('Default policy')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.listProjectScanPolicies).toHaveBeenCalledWith(
+        'workspace-a',
+        'production-platform',
+        expect.objectContaining({ limit: 50, sort_by: 'updated_at', sort_order: 'desc' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.change(within(policyPanel).getByLabelText(/Trigger mode/i), { target: { value: 'hybrid' } });
+    fireEvent.change(within(policyPanel).getByLabelText(/Cron schedule/i), { target: { value: '0 * * * *' } });
+    fireEvent.click(within(policyPanel).getByRole('button', { name: /Save scan policy/i }));
+
+    await waitFor(() =>
+      expect(mocks.upsertProjectScanPolicy).toHaveBeenCalledWith(
+        'workspace-a',
+        'production-platform',
+        expect.objectContaining({
+          policy_id: 'default',
+          trigger_mode: 'hybrid',
+          cron: '0 * * * *'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.click(within(policyPanel).getByRole('button', { name: /^Delete$/i }));
+
+    await waitFor(() =>
+      expect(mocks.deleteProjectScanPolicy).toHaveBeenCalledWith(
+        'workspace-a',
+        'production-platform',
+        'default',
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
   });
 
   it('Connect page hides the install/manage body when the connection status request fails', async () => {

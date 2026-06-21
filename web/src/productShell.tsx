@@ -1163,6 +1163,15 @@ function normalizeProjectToken(value: string): string {
     .slice(0, 64);
 }
 
+function parsePositiveInteger(value: string, label: string): number {
+  const normalized = normalizeValue(value);
+  const parsed = Number.parseInt(normalized, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0 || String(parsed) !== normalized) {
+    throw new Error(`${label} must be a positive whole number.`);
+  }
+  return parsed;
+}
+
 function tokenWithNumericSuffix(base: string, suffix: number): string {
   const suffixToken = `-${suffix}`;
   return `${base.slice(0, Math.max(1, 64 - suffixToken.length))}${suffixToken}`;
@@ -15202,6 +15211,70 @@ export function ProductGitHubConnectPage() {
   const [patError, setPATError] = useState('');
   const [patSuccess, setPATSuccess] = useState('');
   const [patSubmitting, setPATSubmitting] = useState(false);
+  const [scanPolicies, setScanPolicies] = useState<ScanPolicyRecord[]>([]);
+  const [scanPolicyLoading, setScanPolicyLoading] = useState(false);
+  const [scanPolicyError, setScanPolicyError] = useState('');
+  const [scanPolicySuccess, setScanPolicySuccess] = useState('');
+  const [policySaving, setPolicySaving] = useState(false);
+  const [policyDeletingID, setPolicyDeletingID] = useState('');
+  const [policyForm, setPolicyForm] = useState({
+    policyID: 'default',
+    name: 'Default policy',
+    enabled: true,
+    triggerMode: 'manual' as ScanTriggerMode,
+    cron: '',
+    maxConcurrentScans: '1',
+    historyLimit: '500',
+    maxFindings: '200'
+  });
+  const loadScanPolicies = useCallback(async () => {
+    if (!scope || !selectedEnvironmentID || !availability.available) {
+      setScanPolicies([]);
+      setScanPolicyLoading(false);
+      return;
+    }
+    setScanPolicyLoading(true);
+    setScanPolicyError('');
+    try {
+      const response = await apiClient.listProjectScanPolicies(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          limit: 50,
+          sort_by: 'updated_at',
+          sort_order: 'desc'
+        },
+        buildProductAuthContext(scope)
+      );
+      const items = response.items ?? [];
+      setScanPolicies(items);
+      setPolicyForm((current) => {
+        if (items.length === 0) {
+          return current;
+        }
+        const selected = items.find((item) => item.policy_id === current.policyID) ?? items[0];
+        return {
+          policyID: selected.policy_id,
+          name: selected.name,
+          enabled: selected.enabled,
+          triggerMode: selected.trigger_mode,
+          cron: selected.cron ?? '',
+          maxConcurrentScans: String(selected.max_concurrent_scans),
+          historyLimit: String(selected.history_limit),
+          maxFindings: String(selected.max_findings)
+        };
+      });
+    } catch (error) {
+      setScanPolicies([]);
+      setScanPolicyError(formatAPIError(error, 'Unable to load scan policies.'));
+    } finally {
+      setScanPolicyLoading(false);
+    }
+  }, [availability.available, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
+  useEffect(() => {
+    void loadScanPolicies();
+  }, [loadScanPolicies]);
 
   if (!scope) {
     return (
@@ -15318,6 +15391,84 @@ export function ProductGitHubConnectPage() {
       setPATError(formatAPIError(error, 'Unable to save GitHub Enterprise connector.'));
     } finally {
       setPATSubmitting(false);
+    }
+  };
+
+  const handleScanPolicySubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPolicySaving(true);
+    setScanPolicyError('');
+    setScanPolicySuccess('');
+    try {
+      const policyID = normalizeProjectToken(policyForm.policyID);
+      if (!policyID) {
+        throw new Error('Policy ID is required.');
+      }
+      const name = normalizeValue(policyForm.name);
+      if (!name) {
+        throw new Error('Policy name is required.');
+      }
+      const triggerMode = policyForm.triggerMode;
+      const cron = normalizeValue(policyForm.cron);
+      if ((triggerMode === 'scheduled' || triggerMode === 'hybrid') && !cron) {
+        throw new Error('Cron is required when trigger mode is scheduled or hybrid.');
+      }
+      const response = await apiClient.upsertProjectScanPolicy(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          policy_id: policyID,
+          name,
+          enabled: policyForm.enabled,
+          trigger_mode: triggerMode,
+          cron: cron || undefined,
+          max_concurrent_scans: parsePositiveInteger(policyForm.maxConcurrentScans, 'Max concurrent scans'),
+          history_limit: parsePositiveInteger(policyForm.historyLimit, 'History limit'),
+          max_findings: parsePositiveInteger(policyForm.maxFindings, 'Max findings')
+        },
+        buildProductAuthContext(scope)
+      );
+      const policy = response.policy;
+      setPolicyForm({
+        policyID: policy.policy_id,
+        name: policy.name,
+        enabled: policy.enabled,
+        triggerMode: policy.trigger_mode,
+        cron: policy.cron ?? '',
+        maxConcurrentScans: String(policy.max_concurrent_scans),
+        historyLimit: String(policy.history_limit),
+        maxFindings: String(policy.max_findings)
+      });
+      setScanPolicySuccess('Scan policy saved.');
+      await loadScanPolicies();
+    } catch (error) {
+      setScanPolicyError(error instanceof Error ? error.message : 'Unable to save scan policy.');
+    } finally {
+      setPolicySaving(false);
+    }
+  };
+
+  const handleScanPolicyDelete = async (policyID: string) => {
+    const normalizedPolicyID = normalizeValue(policyID);
+    if (!normalizedPolicyID) {
+      return;
+    }
+    setPolicyDeletingID(normalizedPolicyID);
+    setScanPolicyError('');
+    setScanPolicySuccess('');
+    try {
+      await apiClient.deleteProjectScanPolicy(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        normalizedPolicyID,
+        buildProductAuthContext(scope)
+      );
+      setScanPolicySuccess(`Scan policy ${normalizedPolicyID} deleted.`);
+      await loadScanPolicies();
+    } catch (error) {
+      setScanPolicyError(error instanceof Error ? error.message : 'Unable to delete scan policy.');
+    } finally {
+      setPolicyDeletingID('');
     }
   };
 
@@ -15537,6 +15688,195 @@ export function ProductGitHubConnectPage() {
             </button>
           </form>
         </details>
+      ) : null}
+      {showBody ? (
+        <section className="idt-domain-status-panel idt-source-policy-panel" aria-label="Scan policy management">
+          <header>
+            <div>
+              <p className="idt-app-kicker">Automation policies</p>
+              <h3>Scan policy</h3>
+              <p>Define trigger mode, cadence, and limits for GitHub scans in this environment.</p>
+            </div>
+            <span className="idt-source-status-pill is-warning">Advanced</span>
+          </header>
+
+          {scanPolicyError ? (
+            <p role="alert" className="idt-app-alert idt-app-alert-error">
+              {scanPolicyError}
+            </p>
+          ) : null}
+          {scanPolicySuccess ? (
+            <p role="status" className="idt-app-alert idt-app-alert-success">
+              {scanPolicySuccess}
+            </p>
+          ) : null}
+
+          <div className="idt-source-summary" aria-label="scan policy summary">
+            <article>
+              <span>{scanPolicyLoading ? '...' : scanPolicies.length}</span>
+              <p>Policies</p>
+            </article>
+            <article>
+              <span>{scanPolicies.filter((item) => item.enabled).length}</span>
+              <p>Enabled</p>
+            </article>
+            <article>
+              <span>{policyForm.triggerMode}</span>
+              <p>Editing mode</p>
+            </article>
+          </div>
+
+          {scanPolicies.length > 0 ? (
+            <div className="idt-source-diagnostics">
+              {scanPolicies.map((policy) => (
+                <article key={policy.policy_id}>
+                  <strong>{policy.name}</strong>
+                  <span>{policy.enabled ? 'Enabled' : 'Disabled'}</span>
+                  <p>
+                    {formatScanTriggerModeLabel(policy.trigger_mode)} · concurrency {policy.max_concurrent_scans} ·
+                    history {policy.history_limit} · findings {policy.max_findings}
+                  </p>
+                  <div className="idt-source-inline-fields">
+                    <button
+                      type="button"
+                      className="idt-btn idt-btn-ghost"
+                      onClick={() =>
+                        setPolicyForm({
+                          policyID: policy.policy_id,
+                          name: policy.name,
+                          enabled: policy.enabled,
+                          triggerMode: policy.trigger_mode,
+                          cron: policy.cron ?? '',
+                          maxConcurrentScans: String(policy.max_concurrent_scans),
+                          historyLimit: String(policy.history_limit),
+                          maxFindings: String(policy.max_findings)
+                        })
+                      }
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="idt-btn idt-btn-ghost"
+                      onClick={() => {
+                        void handleScanPolicyDelete(policy.policy_id);
+                      }}
+                      disabled={policyDeletingID === policy.policy_id}
+                    >
+                      {policyDeletingID === policy.policy_id ? 'Deleting...' : 'Delete'}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
+
+          <form className="idt-app-form" onSubmit={handleScanPolicySubmit}>
+            <div className="idt-source-inline-fields">
+              <label>
+                Policy ID
+                <input
+                  value={policyForm.policyID}
+                  onChange={(event) =>
+                    setPolicyForm((current) => ({ ...current, policyID: normalizeProjectToken(event.target.value) }))
+                  }
+                  placeholder="default"
+                  required
+                />
+              </label>
+              <label>
+                Policy name
+                <input
+                  value={policyForm.name}
+                  onChange={(event) => setPolicyForm((current) => ({ ...current, name: event.target.value }))}
+                  placeholder="Default policy"
+                  required
+                />
+              </label>
+            </div>
+            <div className="idt-source-inline-fields">
+              <label>
+                Trigger mode
+                <select
+                  value={policyForm.triggerMode}
+                  onChange={(event) =>
+                    setPolicyForm((current) => ({ ...current, triggerMode: event.target.value as ScanTriggerMode }))
+                  }
+                >
+                  {SCAN_POLICY_TRIGGER_MODES.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {formatScanTriggerModeLabel(mode)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Enabled
+                <select
+                  value={policyForm.enabled ? 'true' : 'false'}
+                  onChange={(event) =>
+                    setPolicyForm((current) => ({ ...current, enabled: event.target.value === 'true' }))
+                  }
+                >
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </select>
+              </label>
+            </div>
+            <p className="idt-form-note">
+              Manual keeps GitHub events from starting scans. Event and hybrid modes allow selected-repository webhooks
+              to queue scans.
+            </p>
+            {policyForm.triggerMode === 'scheduled' || policyForm.triggerMode === 'hybrid' ? (
+              <label>
+                Cron schedule
+                <input
+                  value={policyForm.cron}
+                  onChange={(event) => setPolicyForm((current) => ({ ...current, cron: event.target.value }))}
+                  placeholder="0 * * * *"
+                  required
+                />
+              </label>
+            ) : null}
+            <div className="idt-source-inline-fields">
+              <label>
+                Max concurrent scans
+                <input
+                  inputMode="numeric"
+                  value={policyForm.maxConcurrentScans}
+                  onChange={(event) =>
+                    setPolicyForm((current) => ({ ...current, maxConcurrentScans: event.target.value }))
+                  }
+                  placeholder="1"
+                  required
+                />
+              </label>
+              <label>
+                History limit
+                <input
+                  inputMode="numeric"
+                  value={policyForm.historyLimit}
+                  onChange={(event) => setPolicyForm((current) => ({ ...current, historyLimit: event.target.value }))}
+                  placeholder="500"
+                  required
+                />
+              </label>
+              <label>
+                Max findings
+                <input
+                  inputMode="numeric"
+                  value={policyForm.maxFindings}
+                  onChange={(event) => setPolicyForm((current) => ({ ...current, maxFindings: event.target.value }))}
+                  placeholder="200"
+                  required
+                />
+              </label>
+            </div>
+            <button className="idt-btn idt-btn-primary" type="submit" disabled={policySaving || scanPolicyLoading}>
+              {policySaving ? 'Saving policy...' : 'Save scan policy'}
+            </button>
+          </form>
+        </section>
       ) : null}
     </DomainPageShell>
   );
