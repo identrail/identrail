@@ -355,3 +355,177 @@ func TestAWSPrivilegeEscalationFindingsRespectsExplicitDenyOnPassRole(t *testing
 		}
 	})
 }
+
+func TestAWSPrivilegeEscalationFindingsRespectsExplicitDenyOnKMSIdentityGrant(t *testing.T) {
+	now := time.Date(2026, 6, 21, 12, 30, 0, 0, time.UTC)
+	accountID := "123456789012"
+	region := "us-east-1"
+	keyARN := "arn:aws:kms:us-east-1:123456789012:key/99990000-1111-2222-3333-444455556666"
+	roleARN := "arn:aws:iam::123456789012:role/source"
+
+	deniedGrant := AWSKMSIdentityGrant{
+		PrincipalARN:  roleARN,
+		PrincipalType: "aws",
+		Effect:        "Allow",
+		Actions:       []string{"kms:Decrypt"},
+		Capabilities:  []string{"decrypt"},
+		StatementSid:  "AllowDecryptOnly",
+	}
+	denyAllGrant := AWSKMSIdentityGrant{
+		PrincipalARN:      "*",
+		Effect:            "Deny",
+		Actions:           []string{"kms:*"},
+		Capabilities:      []string{"admin", "decrypt", "encrypt"},
+		WildcardPrincipal: true,
+		StatementSid:      "DenyAll",
+	}
+
+	t.Run("wildcard deny blocks matching identity grant", func(t *testing.T) {
+		kms := AWSKMSDecryptReachabilityInventoryResult{
+			Records: []AWSKMSDecryptReachabilityRecord{{
+				AccountID:              accountID,
+				Region:                 region,
+				KeyARN:                 keyARN,
+				KeyID:                  "restrictive-example",
+				Description:            "restricted key",
+				ExposureClassification: "private",
+				FromNodeID:             "aws:resource:kms-key/" + keyARN,
+				Confidence:             0.91,
+				EvidenceRef:            "evidence://kms-grant",
+				CollectedAt:            now,
+				IdentityGrants: []AWSKMSIdentityGrant{{
+					PrincipalARN:  roleARN,
+					PrincipalType: "aws",
+					Effect:        "Allow",
+					Actions:       []string{"kms:*"},
+					Capabilities:  []string{"admin", "decrypt", "encrypt", "grant", "sign"},
+					StatementSid:  "AllowAll",
+				}, denyAllGrant},
+			}},
+		}
+		findings := awsPrivilegeEscalationFindings(AWSIAMPassRoleRelationshipInventoryResult{}, kms, AWSSecretsManagerMetadataInventoryResult{}, AWSLeastPrivilegeResult{}, AWSBlastRadiusResult{}, now)
+		if len(findings) != 0 {
+			t.Fatalf("expected explicit wildcard deny to suppress matching KMS grant finding, got %+v", findings)
+		}
+	})
+
+	t.Run("non-overlapping deny action preserves KMS grant finding", func(t *testing.T) {
+		kms := AWSKMSDecryptReachabilityInventoryResult{
+			Records: []AWSKMSDecryptReachabilityRecord{{
+				AccountID:              accountID,
+				Region:                 region,
+				KeyARN:                 keyARN,
+				KeyID:                  "allow-only",
+				Description:            "selectively accessible key",
+				ExposureClassification: "private",
+				FromNodeID:             "aws:resource:kms-key/" + keyARN,
+				Confidence:             0.91,
+				EvidenceRef:            "evidence://kms-grant",
+				CollectedAt:            now,
+				IdentityGrants: []AWSKMSIdentityGrant{deniedGrant, {
+					PrincipalARN:      roleARN,
+					PrincipalType:     "aws",
+					Effect:            "Deny",
+					Actions:           []string{"kms:GenerateDataKey"},
+					Capabilities:      []string{"decrypt", "encrypt"},
+					WildcardPrincipal: false,
+					StatementSid:      "UnrelatedDeny",
+				}},
+			}},
+		}
+		findings := awsPrivilegeEscalationFindings(AWSIAMPassRoleRelationshipInventoryResult{}, kms, AWSSecretsManagerMetadataInventoryResult{}, AWSLeastPrivilegeResult{}, AWSBlastRadiusResult{}, now)
+		if len(findings) != 1 {
+			t.Fatalf("expected decrypt allow finding to remain, got %+v", findings)
+		}
+		if findings[0].PrincipalARN != deniedGrant.PrincipalARN {
+			t.Fatalf("expected finding for deniedGrant principal, got %+v", findings[0])
+		}
+	})
+
+	t.Run("non-matching deny principal preserves finding", func(t *testing.T) {
+		kms := AWSKMSDecryptReachabilityInventoryResult{
+			Records: []AWSKMSDecryptReachabilityRecord{{
+				AccountID:              accountID,
+				Region:                 region,
+				KeyARN:                 keyARN,
+				KeyID:                  "different-principal",
+				Description:            "other-principal key",
+				ExposureClassification: "private",
+				FromNodeID:             "aws:resource:kms-key/" + keyARN,
+				Confidence:             0.91,
+				EvidenceRef:            "evidence://kms-grant",
+				CollectedAt:            now,
+				IdentityGrants: []AWSKMSIdentityGrant{{
+					PrincipalARN:  roleARN,
+					PrincipalType: "aws",
+					Effect:        "Allow",
+					Actions:       []string{"kms:*"},
+					Capabilities:  []string{"admin", "decrypt"},
+					StatementSid:  "AllowAll",
+				}, {
+					PrincipalARN:  "arn:aws:iam::123456789012:role/other",
+					PrincipalType: "aws",
+					Effect:        "Deny",
+					Actions:       []string{"kms:*"},
+					Capabilities:  []string{"admin", "decrypt"},
+					StatementSid:  "UnrelatedPrincipalDeny",
+				}},
+			}},
+		}
+		findings := awsPrivilegeEscalationFindings(AWSIAMPassRoleRelationshipInventoryResult{}, kms, AWSSecretsManagerMetadataInventoryResult{}, AWSLeastPrivilegeResult{}, AWSBlastRadiusResult{}, now)
+		if len(findings) != 1 {
+			t.Fatalf("expected allow finding for unmatched deny principal, got %+v", findings)
+		}
+	})
+
+	t.Run("deny from a different key does not suppress grant", func(t *testing.T) {
+		kms := AWSKMSDecryptReachabilityInventoryResult{
+			Records: []AWSKMSDecryptReachabilityRecord{{
+				AccountID:              accountID,
+				Region:                 region,
+				KeyARN:                 keyARN,
+				KeyID:                  "allow-key",
+				Description:            "target key",
+				ExposureClassification: "private",
+				FromNodeID:             "aws:resource:kms-key/" + keyARN,
+				Confidence:             0.91,
+				EvidenceRef:            "evidence://kms-grant-allow",
+				CollectedAt:            now,
+				IdentityGrants: []AWSKMSIdentityGrant{{
+					PrincipalARN:  roleARN,
+					PrincipalType: "aws",
+					Effect:        "Allow",
+					Actions:       []string{"kms:*"},
+					Capabilities:  []string{"admin", "decrypt"},
+					StatementSid:  "AllowAll",
+				}},
+			}, {
+				AccountID:              accountID,
+				Region:                 region,
+				KeyARN:                 "arn:aws:kms:us-east-1:123456789012:key/00000000-1111-2222-3333-444455556666",
+				KeyID:                  "deny-key",
+				Description:            "deny-only key",
+				ExposureClassification: "private",
+				FromNodeID:             "aws:resource:kms-key/arn:aws:kms:us-east-1:123456789012:key/00000000-1111-2222-3333-444455556666",
+				Confidence:             0.91,
+				EvidenceRef:            "evidence://kms-grant-deny",
+				CollectedAt:            now,
+				IdentityGrants: []AWSKMSIdentityGrant{{
+					PrincipalARN:  roleARN,
+					PrincipalType: "aws",
+					Effect:        "Deny",
+					Actions:       []string{"kms:*"},
+					Capabilities:  []string{"admin", "decrypt"},
+					StatementSid:  "BlockOtherKey",
+				}},
+			}},
+		}
+		findings := awsPrivilegeEscalationFindings(AWSIAMPassRoleRelationshipInventoryResult{}, kms, AWSSecretsManagerMetadataInventoryResult{}, AWSLeastPrivilegeResult{}, AWSBlastRadiusResult{}, now)
+		if len(findings) != 1 {
+			t.Fatalf("expected only the allow key to yield a finding, got %+v", findings)
+		}
+		if findings[0].TargetNodeID != "aws:resource:kms-key/"+keyARN {
+			t.Fatalf("expected finding to target first key, got %+v", findings[0])
+		}
+	})
+}

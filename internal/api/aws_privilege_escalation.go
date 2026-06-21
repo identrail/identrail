@@ -258,8 +258,16 @@ func awsPrivilegeEscalationFindings(passRole AWSIAMPassRoleRelationshipInventory
 		}
 	}
 	for _, record := range kms.Records {
+		denyKMSIdentityGrants := []AWSKMSIdentityGrant{}
 		for _, grant := range record.IdentityGrants {
-			if strings.EqualFold(grant.Effect, "Allow") && awsPrivilegeEscalationGrantHasAdminSignal(grant.Actions, grant.Capabilities) {
+			if strings.EqualFold(grant.Effect, "Deny") {
+				denyKMSIdentityGrants = append(denyKMSIdentityGrants, grant)
+			}
+		}
+		for _, grant := range record.IdentityGrants {
+			if strings.EqualFold(grant.Effect, "Allow") &&
+				awsPrivilegeEscalationGrantHasAdminSignal(grant.Actions, grant.Capabilities) &&
+				!awsPrivilegeEscalationKMSIdentityGrantHasExplicitDeny(grant, denyKMSIdentityGrants) {
 				findings = append(findings, awsPrivilegeEscalationFindingFromKMSGrant(record, grant, now))
 			}
 		}
@@ -300,6 +308,52 @@ func awsPrivilegeEscalationPassRoleIsDenied(record AWSIAMPassRoleRelationshipRec
 		}
 		if awsPrivilegeEscalationPassRoleActionsOverlap(record.ActionExpression, deny.ActionExpression) {
 			return true
+		}
+	}
+	return false
+}
+
+func awsPrivilegeEscalationKMSIdentityGrantHasExplicitDeny(allowGrant AWSKMSIdentityGrant, denyGrants []AWSKMSIdentityGrant) bool {
+	for _, deny := range denyGrants {
+		if !strings.EqualFold(deny.Effect, "Deny") {
+			continue
+		}
+		if !awsPrivilegeEscalationKMSIdentityGrantPrincipalsMatch(allowGrant, deny) {
+			continue
+		}
+		if awsPrivilegeEscalationKMSIdentityGrantActionsOverlap(allowGrant.Actions, deny.Actions) {
+			return true
+		}
+	}
+	return false
+}
+
+func awsPrivilegeEscalationKMSIdentityGrantPrincipalsMatch(allowGrant AWSKMSIdentityGrant, denyGrant AWSKMSIdentityGrant) bool {
+	allowPrincipal := strings.TrimSpace(strings.ToLower(allowGrant.PrincipalARN))
+	denyPrincipal := strings.TrimSpace(strings.ToLower(denyGrant.PrincipalARN))
+	if allowPrincipal == "" || denyPrincipal == "" {
+		return false
+	}
+	if denyGrant.WildcardPrincipal || denyPrincipal == "*" {
+		return true
+	}
+	return allowPrincipal == denyPrincipal
+}
+
+func awsPrivilegeEscalationKMSIdentityGrantActionsOverlap(allowActions, denyActions []string) bool {
+	if len(allowActions) == 0 || len(denyActions) == 0 {
+		return len(allowActions) == 0 && len(denyActions) == 0
+	}
+	for _, allow := range allowActions {
+		for _, deny := range denyActions {
+			trimmedAllow := strings.ToLower(strings.TrimSpace(allow))
+			trimmedDeny := strings.ToLower(strings.TrimSpace(deny))
+			if trimmedAllow == "" || trimmedDeny == "" {
+				continue
+			}
+			if awsActionPatternMatches(trimmedAllow, trimmedDeny) || awsActionPatternMatches(trimmedDeny, trimmedAllow) {
+				return true
+			}
 		}
 	}
 	return false
