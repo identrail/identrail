@@ -290,16 +290,16 @@ func TestAWSCrossAccountTrustRuntimeAssumptionFinding(t *testing.T) {
 	webIdentity.EventID = "evt-cross-account-assume-web-identity"
 	webIdentity.EventName = "AssumeRoleWithWebIdentity"
 	webIdentity.Action = "sts:AssumeRoleWithWebIdentity"
-	webIdentity.ActorPrincipalARN = "accounts.google.com"
-	webIdentity.ActorIdentityNodeID = "aws:identity:accounts.google.com"
-	webIdentity.Session.OriginalActorARN = "accounts.google.com"
+	webIdentity.ActorPrincipalARN = "arn:aws:iam::222222222222:oidc-provider/accounts.google.com"
+	webIdentity.ActorIdentityNodeID = "aws:identity:arn:aws:iam::222222222222:oidc-provider/accounts.google.com"
+	webIdentity.Session.OriginalActorARN = "arn:aws:iam::222222222222:oidc-provider/accounts.google.com"
 	webIdentity.Session.SourceIdentity = "oidc:alice"
 	finding, ok = awsCrossAccountTrustFindingFromRuntimeAssumption(webIdentity, nil, now)
 	if !ok {
-		t.Fatalf("expected accountless WebIdentity provider to produce runtime finding")
+		t.Fatalf("expected same-account WebIdentity provider ARN to produce runtime finding")
 	}
-	if finding.ExternalPrincipalARN != "accounts.google.com" || finding.ExternalPrincipalAccount != "" {
-		t.Fatalf("expected WebIdentity provider ID without AWS account, got %+v", finding)
+	if finding.ExternalPrincipalARN != "arn:aws:iam::222222222222:oidc-provider/accounts.google.com" || finding.ExternalPrincipalAccount != "" {
+		t.Fatalf("expected WebIdentity provider ARN without AWS account attribution, got %+v", finding)
 	}
 }
 

@@ -316,9 +316,9 @@ func TestIngestResolvesAssumeRoleSourceIdentityLineage(t *testing.T) {
 func TestIngestMapsFederatedAssumeRoleActorLineage(t *testing.T) {
 	now := time.Date(2026, 6, 15, 10, 20, 0, 0, time.UTC)
 	samlProvider := "saml:namequalifier:corp"
-	oidcProvider := "accounts.google.com"
 	targetRole := "arn:aws:iam::123456789012:role/federated-prod"
 	samlProviderARN := "arn:aws:iam::123456789012:saml-provider/ExampleIdP"
+	oidcProviderARN := "arn:aws:iam::123456789012:oidc-provider/accounts.google.com"
 	api := &fakeLookupEventsAPI{pages: []LookupEventsPage{{
 		Events: []Event{{
 			EventID:     "evt-assume-saml",
@@ -331,7 +331,7 @@ func TestIngestMapsFederatedAssumeRoleActorLineage(t *testing.T) {
 			EventName:   "AssumeRoleWithWebIdentity",
 			EventSource: "sts.amazonaws.com",
 			EventTime:   now.Add(-2 * time.Minute),
-			RawEvent:    cloudTrailWebIdentityAssumeRoleEventJSON(oidcProvider, "accounts.google.com:app:user-id", targetRole, "web-identity-session", "oidc:alice"),
+			RawEvent:    cloudTrailWebIdentityAssumeRoleEventJSON(oidcProviderARN, "arn:aws:iam::123456789012:oidc-provider/accounts.google.com:app:user-id", targetRole, "web-identity-session", "oidc:alice"),
 		}},
 	}}}
 	ing, _ := newIngester(api, now)
@@ -344,7 +344,7 @@ func TestIngestMapsFederatedAssumeRoleActorLineage(t *testing.T) {
 	}
 	wantActors := map[string]string{
 		"evt-assume-saml":         samlProvider,
-		"evt-assume-web-identity": oidcProvider,
+		"evt-assume-web-identity": oidcProviderARN,
 	}
 	for _, event := range result.Events {
 		wantActor := wantActors[event.EventID]
