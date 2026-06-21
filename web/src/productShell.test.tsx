@@ -5373,14 +5373,18 @@ describe('GitHub domain pages (#1382)', () => {
       runRepoScanError?: { message: string; status: number };
       cancelRepoScanError?: { message: string; status: number };
       initialEntry?: string;
+      projects?: Array<typeof productionProject>;
     } = {}
   ) {
     mockConnectorFeatureFlags({ aws: false, github: options.githubFeatureFlag ?? true, kubernetes: false });
     mockBackendFeatures({ github: options.githubBackend ?? true });
 
     const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
+    const projects = options.projects ?? [productionProject];
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: projects });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projects.find((project) => project.project_id === projectID) ?? projects[0] ?? productionProject })
+    );
     const getGitHubConnectorStatus = vi
       .spyOn(api.apiClient, 'getGitHubConnectorStatus')
       .mockResolvedValue({ connection: options.githubConnection ?? connectedGitHub });
@@ -6061,6 +6065,82 @@ describe('GitHub domain pages (#1382)', () => {
       )
     );
     await screen.findByText(/Repository scan queued for identrail\/identrail/i);
+  });
+
+  it('Repositories page resets one-off scan drafts when environments change', async () => {
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    await renderGitHubPage('repositories', {
+      projects: [productionProject, stagingProject],
+      scans: [],
+      initialEntry: '/app/tenant-a/workspace-a/github/repositories?environment=production-platform'
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const oneOffPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/^Repository$/i), { target: { value: 'acme/production-repo' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/Scan mode/i), { target: { value: 'quick' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/History limit/i), { target: { value: '75' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/Max findings/i), { target: { value: '25' } });
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+
+    const resetPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    await waitFor(() => expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue(''));
+    expect(within(resetPanel).getByLabelText(/Scan mode/i)).toHaveValue('deep');
+    expect(within(resetPanel).getByLabelText(/History limit/i)).toHaveValue('500');
+    expect(within(resetPanel).getByLabelText(/Max findings/i)).toHaveValue('200');
+  });
+
+  it('Repositories page ignores stale one-off scan completions after environment changes', async () => {
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const mocks = await renderGitHubPage('repositories', {
+      projects: [productionProject, stagingProject],
+      scans: [],
+      initialEntry: '/app/tenant-a/workspace-a/github/repositories?environment=production-platform'
+    });
+    const oneOffScan = deferred<{ repo_scan: RepoScanRecord }>();
+    mocks.runRepoScan.mockImplementation(() => oneOffScan.promise);
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const oneOffPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/^Repository$/i), { target: { value: 'acme/production-repo' } });
+    fireEvent.click(within(oneOffPanel).getByRole('button', { name: /Run scan/i }));
+
+    await waitFor(() =>
+      expect(mocks.runRepoScan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repository: 'acme/production-repo',
+          project_id: 'production-platform',
+          connector_id: 'github-app'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+    const resetPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    await waitFor(() => expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue(''));
+
+    await act(async () => {
+      oneOffScan.resolve({ repo_scan: queuedRepoScan });
+    });
+
+    expect(screen.queryByText(/Repository scan queued for acme\/production-repo/i)).not.toBeInTheDocument();
+    expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue('');
   });
 
   it('Repositories page keeps repository posture checks reachable', async () => {

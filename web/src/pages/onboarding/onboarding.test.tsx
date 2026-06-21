@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OnboardingState, ScanRecord } from '../../api/client';
 
@@ -30,6 +30,11 @@ function scan(overrides: Partial<ScanRecord> = {}): ScanRecord {
 
 function renderOnboarding(ui: ReactElement, path: string) {
   return render(<MemoryRouter initialEntries={[path]}>{ui}</MemoryRouter>);
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return <p data-testid="location">{`${location.pathname}${location.search}`}</p>;
 }
 
 function setFeatureFlagEnv(enabled: boolean) {
@@ -284,6 +289,56 @@ describe('onboarding pages', () => {
         connector_type: 'github',
         connector_skipped: false
       });
+    });
+  });
+
+  it.each([
+    ['AWS', 'aws'],
+    ['Kubernetes', 'kubernetes']
+  ])('opens %s setup with the selected onboarding source preserved', async (_label, provider) => {
+    const { apiClient, ConnectPage } = await loadOnboardingModules();
+    vi.spyOn(apiClient, 'getOnboardingState').mockResolvedValue({
+      state: state({
+        current_step: 'connect',
+        org_id: 'tenant-a',
+        workspace_id: 'production',
+        project_id: 'production'
+      }),
+      redirect_path: '/onboarding/connect'
+    });
+    const update = vi.spyOn(apiClient, 'updateOnboardingState').mockResolvedValue({
+      state: state({
+        current_step: 'scan',
+        org_id: 'tenant-a',
+        workspace_id: 'production',
+        project_id: 'production',
+        connector_type: provider as 'aws' | 'kubernetes'
+      }),
+      redirect_path: '/onboarding/scan'
+    });
+
+    renderOnboarding(
+      <>
+        <LocationProbe />
+        <ConnectPage />
+      </>,
+      '/onboarding/connect'
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(_label, 'i') }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open setup' }));
+
+    await waitFor(() => {
+      expect(update).toHaveBeenCalledWith({
+        current_step: 'connect',
+        connector_type: provider,
+        connector_skipped: false
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        `/app/tenant-a/production/projects/production?source=${provider}`
+      );
     });
   });
 

@@ -16403,7 +16403,10 @@ export function ProductGitHubRepositoriesPage() {
   const [cancelingScanID, setCancelingScanID] = useState('');
   const [oneOffScanForm, setOneOffScanForm] = useState(createDefaultOneOffRepoScanForm);
   const [oneOffScanSubmitting, setOneOffScanSubmitting] = useState(false);
+  const oneOffScanRequestRef = useRef(0);
+  const selectedOneOffScanEnvironmentRef = useRef(selectedEnvironmentID);
   const postureRequestRef = useRef(0);
+  selectedOneOffScanEnvironmentRef.current = selectedEnvironmentID;
   const selectedRepositories = uniqueGitHubRepositories(data.connection?.selected_repositories ?? []);
   const selectedRepositoriesKey = selectedRepositories.join('\n');
   const [postureRepository, setPostureRepository] = useState('');
@@ -16421,6 +16424,15 @@ export function ProductGitHubRepositoriesPage() {
       setPostureRepository(nextRepository);
     }
   }, [postureRepository, selectedRepositoriesKey]);
+
+  useEffect(() => {
+    selectedOneOffScanEnvironmentRef.current = selectedEnvironmentID;
+    oneOffScanRequestRef.current += 1;
+    setOneOffScanForm(createDefaultOneOffRepoScanForm());
+    setOneOffScanSubmitting(false);
+    setScanError('');
+    setScanInfo('');
+  }, [selectedEnvironmentID]);
 
   useEffect(() => {
     const connection = data.connection;
@@ -16618,6 +16630,9 @@ export function ProductGitHubRepositoriesPage() {
       setScanError('Connect GitHub before queueing a repository scan.');
       return;
     }
+    const environmentID = selectedEnvironmentID;
+    const requestID = oneOffScanRequestRef.current + 1;
+    oneOffScanRequestRef.current = requestID;
     setScanError('');
     setScanInfo('');
     setOneOffScanSubmitting(true);
@@ -16633,16 +16648,28 @@ export function ProductGitHubRepositoriesPage() {
         max_findings: parsePositiveInteger(oneOffScanForm.maxFindings, 'Max findings')
       };
       if (data.connection.provider === 'github_app') {
-        request.project_id = selectedEnvironmentID;
+        request.project_id = environmentID;
         if (data.connection.connector_id) {
           request.connector_id = data.connection.connector_id;
         }
       }
       await apiClient.runRepoScan(request, buildProductAuthContext(scope));
+      if (
+        oneOffScanRequestRef.current !== requestID ||
+        selectedOneOffScanEnvironmentRef.current !== environmentID
+      ) {
+        return;
+      }
       setOneOffScanForm((current) => ({ ...current, repository: '' }));
       setScanInfo(`Repository scan queued for ${repository}.`);
       data.reload();
     } catch (error) {
+      if (
+        oneOffScanRequestRef.current !== requestID ||
+        selectedOneOffScanEnvironmentRef.current !== environmentID
+      ) {
+        return;
+      }
       setScanError(
         error instanceof ApiError
           ? formatRepoScanSubmitError(error)
@@ -16651,7 +16678,12 @@ export function ProductGitHubRepositoriesPage() {
             : formatRepoScanSubmitError(error)
       );
     } finally {
-      setOneOffScanSubmitting(false);
+      if (
+        oneOffScanRequestRef.current === requestID &&
+        selectedOneOffScanEnvironmentRef.current === environmentID
+      ) {
+        setOneOffScanSubmitting(false);
+      }
     }
   };
 
