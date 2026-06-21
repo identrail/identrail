@@ -257,6 +257,15 @@ func awsPrivilegeEscalationFindings(passRole AWSIAMPassRoleRelationshipInventory
 				findings = append(findings, awsPrivilegeEscalationFindingFromKMSGrant(record, grant, now))
 			}
 		}
+		for _, grant := range record.Grants {
+			if strings.TrimSpace(grant.GranteePrincipal) == "" {
+				continue
+			}
+			if !awsPrivilegeEscalationGrantHasAdminSignal(grant.Operations, grant.Capabilities) {
+				continue
+			}
+			findings = append(findings, awsPrivilegeEscalationFindingFromKMSLiveGrant(record, grant, now))
+		}
 	}
 	for _, record := range secrets.Records {
 		for _, grant := range record.IdentityGrants {
@@ -276,6 +285,60 @@ func awsPrivilegeEscalationFindings(passRole AWSIAMPassRoleRelationshipInventory
 		}
 	}
 	return findings
+}
+
+func awsPrivilegeEscalationFindingFromKMSLiveGrant(record AWSKMSDecryptReachabilityRecord, grant AWSKMSGrant, now time.Time) AWSPrivilegeEscalationFinding {
+	score := 74
+	if grant.IsCrossAccount || record.ExposureClassification == "cross_account" {
+		score += 12
+	}
+	if record.ExposureClassification == "public" {
+		score += 10
+	}
+	if !grant.HasConstraints {
+		score += 4
+	}
+	score = clampBlastRadiusScore(score)
+	principal := firstNonEmptyAWSValue(grant.GranteePrincipal, "wildcard-principal")
+	evidenceRef := firstNonEmptyAWSValue(record.EvidenceRef, "kms-decrypt-reachability:"+record.KeyARN)
+	capabilities := append([]string{}, grant.Capabilities...)
+	actions := append([]string{}, grant.Operations...)
+	return awsPrivilegeEscalationFinding(AWSPrivilegeEscalationFinding{
+		FindingID:          "aws-privilege-escalation:" + stableAWSBlastRadiusToken(principal, record.KeyARN, strings.Join(actions, ",")),
+		CalculationVersion: awsPrivilegeEscalationVersion,
+		EscalationType:     "kms_admin_equivalence",
+		Severity:           awsPrivilegeEscalationSeverity(score),
+		Status:             awsPrivilegeEscalationFindingStatus(score, record.Confidence),
+		Score:              score,
+		Confidence:         minFloat(record.Confidence, 0.88),
+		AccountID:          record.AccountID,
+		Region:             record.Region,
+		IdentityNodeID:     awsIdentityNodeIDForAPI(principal),
+		PrincipalARN:       principal,
+		TargetNodeID:       record.FromNodeID,
+		TargetLabel:        firstNonEmptyAWSValue(record.Description, record.KeyARN, record.KeyID),
+		DisplayName:        shortAWSARN(principal),
+		Rationale:          fmt.Sprintf("Principal has KMS grant operations %s and capabilities %s on %s; exposure=%s.", strings.Join(actions, ", "), strings.Join(capabilities, ", "), firstNonEmptyAWSValue(record.Description, record.KeyID), record.ExposureClassification),
+		Exploitability:     awsPrivilegeEscalationExploitability(score),
+		RuntimeContext:     "KMS grant/admin equivalence",
+		PolicySources:      dedupeStrings(append(actions, capabilities...)),
+		ImpactedNodes:      dedupeStrings([]string{awsIdentityNodeIDForAPI(principal), record.FromNodeID}),
+		ImpactedPath: []AWSPrivilegeEscalationPathStep{
+			{NodeID: awsIdentityNodeIDForAPI(principal), NodeType: "identity", Label: shortAWSARN(principal), AccountID: record.AccountID, Region: record.Region},
+			{NodeID: record.FromNodeID, NodeType: "kms_key", Label: firstNonEmptyAWSValue(record.Description, record.KeyARN), AccountID: record.AccountID, Region: record.Region},
+		},
+		Evidence: []AWSPrivilegeEscalationEvidence{{
+			Source:       "kms_decrypt_reachability",
+			EvidenceRef:  evidenceRef,
+			Label:        "KMS grant/admin reachability",
+			Confidence:   record.Confidence,
+			ObservedAt:   record.CollectedAt,
+			Relationship: "can_admin_or_decrypt_key",
+		}},
+		NextAction: "Review live KMS grants and remove broad or cross-account admin-equivalent grants in the grant list before remediation.",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	})
 }
 
 func awsPrivilegeEscalationFindingFromPassRole(record AWSIAMPassRoleRelationshipRecord, now time.Time) AWSPrivilegeEscalationFinding {

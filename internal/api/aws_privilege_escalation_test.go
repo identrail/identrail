@@ -214,3 +214,45 @@ func TestAWSPrivilegeEscalationRelationshipsSkipWildcardPassroleTargets(t *testi
 		t.Fatalf("expected wildcard passrole target to skip graph edge emission, got %+v", relationships)
 	}
 }
+
+func TestAWSPrivilegeEscalationFindingsIncludesLiveKMSGrant(t *testing.T) {
+	now := time.Date(2026, 6, 21, 12, 15, 0, 0, time.UTC)
+	kms := AWSKMSDecryptReachabilityInventoryResult{
+		Records: []AWSKMSDecryptReachabilityRecord{{
+			AccountID:              "123456789012",
+			Region:                 "us-east-1",
+			KeyARN:                 "arn:aws:kms:us-east-1:123456789012:key/live-grant",
+			KeyID:                  "live-grant",
+			Description:            "payments key",
+			ExposureClassification: "restricted",
+			FromNodeID:             "aws:resource:kms-key/arn:aws:kms:us-east-1:123456789012:key/live-grant",
+			Confidence:             0.88,
+			EvidenceRef:            "evidence://kms-grant",
+			CollectedAt:            now,
+			Grants: []AWSKMSGrant{{
+				GranteePrincipal:     "arn:aws:iam::123456789012:role/live-grant-role",
+				GranteePrincipalType: "aws",
+				Operations:           []string{"Decrypt"},
+				Capabilities:         []string{"decrypt"},
+				HasConstraints:       true,
+			}},
+		}},
+	}
+
+	findings := awsPrivilegeEscalationFindings(AWSIAMPassRoleRelationshipInventoryResult{}, kms, AWSSecretsManagerMetadataInventoryResult{}, AWSLeastPrivilegeResult{}, AWSBlastRadiusResult{}, now)
+	if len(findings) == 0 {
+		t.Fatalf("expected at least one privilege-escalation finding for live KMS grant")
+	}
+	foundLiveGrant := false
+	for _, finding := range findings {
+		if finding.EscalationType == "kms_admin_equivalence" && finding.PrincipalARN == "arn:aws:iam::123456789012:role/live-grant-role" {
+			foundLiveGrant = true
+			if finding.RuntimeContext != "KMS grant/admin equivalence" {
+				t.Fatalf("unexpected runtime context for live KMS grant finding: %s", finding.RuntimeContext)
+			}
+		}
+	}
+	if !foundLiveGrant {
+		t.Fatalf("expected live KMS grant to be converted to kms_admin_equivalence: %+v", findings)
+	}
+}
