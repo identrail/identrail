@@ -528,6 +528,83 @@ func TestAWSPrivilegeEscalationFindingsRespectsExplicitDenyOnKMSIdentityGrant(t 
 			t.Fatalf("expected finding to target first key, got %+v", findings[0])
 		}
 	})
+
+	t.Run("live grant is suppressed when explicit deny matches grantee", func(t *testing.T) {
+		kms := AWSKMSDecryptReachabilityInventoryResult{
+			Records: []AWSKMSDecryptReachabilityRecord{{
+				AccountID:              accountID,
+				Region:                 region,
+				KeyARN:                 keyARN,
+				KeyID:                  "live-denied",
+				Description:            "live grant with key policy deny",
+				ExposureClassification: "private",
+				FromNodeID:             "aws:resource:kms-key/" + keyARN,
+				Confidence:             0.91,
+				EvidenceRef:            "evidence://kms-live-grant",
+				CollectedAt:            now,
+				IdentityGrants: []AWSKMSIdentityGrant{{
+					PrincipalARN:      "*",
+					Effect:            "Deny",
+					Actions:           []string{"kms:*"},
+					Capabilities:      []string{"admin", "decrypt"},
+					WildcardPrincipal: true,
+					StatementSid:      "DenyAllLive",
+				}},
+				Grants: []AWSKMSGrant{{
+					GrantID:              "grant-live-1",
+					GranteePrincipal:     roleARN,
+					GranteePrincipalType: "aws",
+					Operations:           []string{"Decrypt"},
+					Capabilities:         []string{"decrypt"},
+					HasConstraints:       true,
+				}},
+			}},
+		}
+		findings := awsPrivilegeEscalationFindings(AWSIAMPassRoleRelationshipInventoryResult{}, kms, AWSSecretsManagerMetadataInventoryResult{}, AWSLeastPrivilegeResult{}, AWSBlastRadiusResult{}, now)
+		if len(findings) != 0 {
+			t.Fatalf("expected live grant to be suppressed by matching explicit deny, got %+v", findings)
+		}
+	})
+
+	t.Run("live grant with non-overlapping explicit deny remains", func(t *testing.T) {
+		kms := AWSKMSDecryptReachabilityInventoryResult{
+			Records: []AWSKMSDecryptReachabilityRecord{{
+				AccountID:              accountID,
+				Region:                 region,
+				KeyARN:                 keyARN,
+				KeyID:                  "live-allowed",
+				Description:            "live grant without matching deny",
+				ExposureClassification: "private",
+				FromNodeID:             "aws:resource:kms-key/" + keyARN,
+				Confidence:             0.91,
+				EvidenceRef:            "evidence://kms-live-grant",
+				CollectedAt:            now,
+				IdentityGrants: []AWSKMSIdentityGrant{{
+					PrincipalARN:      "*",
+					Effect:            "Deny",
+					Actions:           []string{"kms:GenerateDataKey"},
+					Capabilities:      []string{"decrypt", "encrypt"},
+					WildcardPrincipal: true,
+					StatementSid:      "DenyOtherOperation",
+				}},
+				Grants: []AWSKMSGrant{{
+					GrantID:              "grant-live-2",
+					GranteePrincipal:     roleARN,
+					GranteePrincipalType: "aws",
+					Operations:           []string{"Decrypt"},
+					Capabilities:         []string{"decrypt"},
+					HasConstraints:       true,
+				}},
+			}},
+		}
+		findings := awsPrivilegeEscalationFindings(AWSIAMPassRoleRelationshipInventoryResult{}, kms, AWSSecretsManagerMetadataInventoryResult{}, AWSLeastPrivilegeResult{}, AWSBlastRadiusResult{}, now)
+		if len(findings) != 1 {
+			t.Fatalf("expected live grant finding to remain when deny does not overlap actions, got %+v", findings)
+		}
+		if findings[0].EscalationType != "kms_admin_equivalence" || findings[0].PrincipalARN != roleARN {
+			t.Fatalf("expected live KMS admin finding for role principal, got %+v", findings[0])
+		}
+	})
 }
 
 func TestAWSPrivilegeEscalationFindingsRespectsExplicitDenyOnSecretIdentityGrant(t *testing.T) {
@@ -636,6 +713,58 @@ func TestAWSPrivilegeEscalationFindingsRespectsExplicitDenyOnSecretIdentityGrant
 		findings := awsPrivilegeEscalationFindings(AWSIAMPassRoleRelationshipInventoryResult{}, AWSKMSDecryptReachabilityInventoryResult{}, secrets, AWSLeastPrivilegeResult{}, AWSBlastRadiusResult{}, now)
 		if len(findings) != 1 {
 			t.Fatalf("expected unrelated deny principal to preserve secret grant finding, got %+v", findings)
+		}
+	})
+}
+
+func TestAWSPrivilegeEscalationRecommendationQualifiesLeastPrivilegeWildcards(t *testing.T) {
+	t.Run("wildcard escalation actions qualify for remove decisions", func(t *testing.T) {
+		recommendation := AWSLeastPrivilegeRecommendation{
+			Decision:       "remove",
+			GrantedActions: []string{"sts:*"},
+		}
+		if !awsPrivilegeEscalationRecommendationQualifies(recommendation) {
+			t.Fatalf("expected wildcard sts:* to qualify")
+		}
+	})
+
+	t.Run("wildcard pass role patterns qualify for remove decisions", func(t *testing.T) {
+		recommendation := AWSLeastPrivilegeRecommendation{
+			Decision:       "remove",
+			GrantedActions: []string{"iam:Pass*"},
+		}
+		if !awsPrivilegeEscalationRecommendationQualifies(recommendation) {
+			t.Fatalf("expected wildcard iam:Pass* to qualify")
+		}
+	})
+
+	t.Run("wildcard attach role patterns qualify for remove decisions", func(t *testing.T) {
+		recommendation := AWSLeastPrivilegeRecommendation{
+			Decision:       "review",
+			GrantedActions: []string{"iam:Attach*"},
+		}
+		if !awsPrivilegeEscalationRecommendationQualifies(recommendation) {
+			t.Fatalf("expected wildcard iam:Attach* to qualify")
+		}
+	})
+
+	t.Run("non-escalation wildcard actions do not qualify", func(t *testing.T) {
+		recommendation := AWSLeastPrivilegeRecommendation{
+			Decision:       "remove",
+			GrantedActions: []string{"ec2:startinstances"},
+		}
+		if awsPrivilegeEscalationRecommendationQualifies(recommendation) {
+			t.Fatalf("expected non-escalation action to not qualify")
+		}
+	})
+
+	t.Run("wildcard escalations only require review/remove decisions", func(t *testing.T) {
+		recommendation := AWSLeastPrivilegeRecommendation{
+			Decision:       "keep",
+			GrantedActions: []string{"sts:*"},
+		}
+		if awsPrivilegeEscalationRecommendationQualifies(recommendation) {
+			t.Fatalf("expected keep decision not to qualify even for escalation action")
 		}
 	})
 }

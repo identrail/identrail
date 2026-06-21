@@ -278,6 +278,9 @@ func awsPrivilegeEscalationFindings(passRole AWSIAMPassRoleRelationshipInventory
 			if !awsPrivilegeEscalationGrantHasAdminSignal(grant.Operations, grant.Capabilities) {
 				continue
 			}
+			if awsPrivilegeEscalationKMSLiveGrantHasExplicitDeny(grant, denyKMSIdentityGrants) {
+				continue
+			}
 			findings = append(findings, awsPrivilegeEscalationFindingFromKMSLiveGrant(record, grant, now))
 		}
 	}
@@ -334,6 +337,34 @@ func awsPrivilegeEscalationKMSIdentityGrantHasExplicitDeny(allowGrant AWSKMSIden
 		}
 	}
 	return false
+}
+
+func awsPrivilegeEscalationKMSLiveGrantHasExplicitDeny(grant AWSKMSGrant, denyGrants []AWSKMSIdentityGrant) bool {
+	if strings.TrimSpace(grant.GranteePrincipal) == "" {
+		return false
+	}
+	allowActions := awsPrivilegeEscalationNormalizeKMSLiveGrantActions(grant.Operations, grant.Capabilities)
+	allowGrant := AWSKMSIdentityGrant{
+		PrincipalARN:  grant.GranteePrincipal,
+		PrincipalType: grant.GranteePrincipalType,
+		Actions:       allowActions,
+	}
+	return awsPrivilegeEscalationKMSIdentityGrantHasExplicitDeny(allowGrant, denyGrants)
+}
+
+func awsPrivilegeEscalationNormalizeKMSLiveGrantActions(operations, capabilities []string) []string {
+	out := make([]string, 0, len(operations)+len(capabilities))
+	for _, action := range append(append([]string{}, operations...), capabilities...) {
+		trimmed := strings.ToLower(strings.TrimSpace(action))
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+		if !strings.Contains(trimmed, ":") {
+			out = append(out, "kms:"+trimmed)
+		}
+	}
+	return dedupeStrings(out)
 }
 
 func awsPrivilegeEscalationSecretIdentityGrantHasExplicitDeny(allowGrant AWSSecretsManagerIdentityGrant, denyGrants []AWSSecretsManagerIdentityGrant) bool {
@@ -948,8 +979,24 @@ func awsPrivilegeEscalationRecommendationQualifies(recommendation AWSLeastPrivil
 	actions := append(append([]string{}, recommendation.GrantedActions...), recommendation.RemoveActions...)
 	for _, action := range actions {
 		token := strings.ToLower(strings.TrimSpace(action))
-		if token == "*" || token == "iam:*" || token == "iam:passrole" || token == "iam:attachrolepolicy" || token == "sts:assumerole" {
+		if awsPrivilegeEscalationLeastPrivilegeActionSignalsEscalation(token) {
 			return recommendation.Decision == "remove" || recommendation.Decision == "review"
+		}
+	}
+	return false
+}
+
+func awsPrivilegeEscalationLeastPrivilegeActionSignalsEscalation(token string) bool {
+	if token == "" {
+		return false
+	}
+	if token == "*" {
+		return true
+	}
+	escalationActions := []string{"iam:*", "iam:passrole", "iam:attachrolepolicy", "sts:assumerole"}
+	for _, escalationAction := range escalationActions {
+		if awsActionPatternMatches(token, escalationAction) || awsActionPatternMatches(escalationAction, token) {
+			return true
 		}
 	}
 	return false
