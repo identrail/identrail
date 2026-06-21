@@ -3354,6 +3354,132 @@ export type AWSPrivilegeEscalationQuery = {
   status?: string;
 };
 
+// AWSCrossAccountTrust* types describe Wave 6.06 external access decisions
+// composed from Organizations, resource-policy, runtime, Access Analyzer, and
+// graph evidence.
+export type AWSCrossAccountTrustStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSCrossAccountTrustFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+export type AWSCrossAccountTrustFindingType =
+  | 'cross_account_resource_access'
+  | 'public_resource_trust'
+  | 'runtime_cross_account_assumption'
+  | 'access_analyzer_external_access'
+  | 'cross_account_graph_path'
+  | string;
+
+export type AWSCrossAccountTrustRelationship = {
+  finding_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSCrossAccountTrustFinding = {
+  finding_id: string;
+  calculation_version: string;
+  finding_type: AWSCrossAccountTrustFindingType;
+  severity: string;
+  status: string;
+  score: number;
+  confidence: number;
+  account_id: string;
+  region: string;
+  service: string;
+  resource_type: string;
+  resource_arn?: string;
+  resource_node_id?: string;
+  resource_label: string;
+  external_principal_arn?: string;
+  external_principal_account?: string;
+  external_principal_ou_path?: string;
+  trusted_within_organization: boolean;
+  public_principal: boolean;
+  has_condition: boolean;
+  condition_keys?: string[];
+  policy_sources?: string[];
+  runtime_observed: boolean;
+  analyzer_backed: boolean;
+  rationale: string;
+  hardening_direction: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  next_action: string;
+  remediation_case: AWSLeastPrivilegeRemediationCasePreview;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSCrossAccountTrustSummary = {
+  total_findings: number;
+  filtered_findings: number;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  finding_type_counts: Record<string, number>;
+  service_counts: Record<string, number>;
+  critical_count: number;
+  high_count: number;
+  public_principal_count: number;
+  cross_account_grant_count: number;
+  runtime_observed_count: number;
+  analyzer_backed_count: number;
+  unconditional_grant_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+  remediation_preview_count: number;
+};
+
+export type AWSCrossAccountTrustResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSCrossAccountTrustStatus;
+  fixture_state?: AWSCrossAccountTrustFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSCrossAccountTrustSummary;
+  findings: AWSCrossAccountTrustFinding[];
+  relationships: AWSCrossAccountTrustRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSCrossAccountTrustQuery = {
+  connectorID?: string;
+  fixtureState?: AWSCrossAccountTrustFixtureState;
+  accountID?: string;
+  region?: string;
+  service?: string;
+  principal?: string;
+  resource?: string;
+  findingType?: AWSCrossAccountTrustFindingType;
+  severity?: string;
+  status?: string;
+  ou?: string;
+};
+
 export type AWSBedrockAgentsInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBedrockAgentsFixtureState =
   | 'success'
@@ -6636,6 +6762,29 @@ export const apiClient = {
         escalation_type: query?.escalationType,
         severity: query?.severity,
         status: query?.status
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectCrossAccountTrust(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSCrossAccountTrustQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ findings: AWSCrossAccountTrustResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/cross-account-trust${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        service: query?.service,
+        principal: query?.principal,
+        resource: query?.resource,
+        finding_type: query?.findingType,
+        severity: query?.severity,
+        status: query?.status,
+        ou: query?.ou
       })}`,
       auth
     );

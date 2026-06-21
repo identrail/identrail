@@ -3190,6 +3190,43 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"findings": record})
 	})
 
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/cross-account-trust", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetAWSCrossAccountTrust(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSCrossAccountTrustRequest{
+			ConnectorID:  strings.TrimSpace(c.Query("connector_id")),
+			FixtureState: strings.TrimSpace(c.Query("fixture_state")),
+			AccountID:    strings.TrimSpace(c.Query("account_id")),
+			Region:       strings.TrimSpace(c.Query("region")),
+			Service:      strings.TrimSpace(c.Query("service")),
+			Principal:    strings.TrimSpace(c.Query("principal")),
+			Resource:     strings.TrimSpace(c.Query("resource")),
+			FindingType:  strings.TrimSpace(c.Query("finding_type")),
+			Severity:     strings.TrimSpace(c.Query("severity")),
+			Status:       strings.TrimSpace(c.Query("status")),
+			OU:           strings.TrimSpace(c.Query("ou")),
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project or connector not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws cross-account trust request"})
+			default:
+				logger.Error("get aws cross-account trust",
+					zap.String("workspace_id", c.Param("workspace_id")),
+					zap.String("project_id", c.Param("project_id")),
+					telemetry.ZapError(err),
+				)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws cross-account trust"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"findings": record})
+	})
+
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/iam-passrole-relationships", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)
