@@ -256,3 +256,77 @@ func TestAWSPrivilegeEscalationFindingsIncludesLiveKMSGrant(t *testing.T) {
 		t.Fatalf("expected live KMS grant to be converted to kms_admin_equivalence: %+v", findings)
 	}
 }
+
+func TestAWSPrivilegeEscalationFindingsRespectsExplicitDenyOnPassRole(t *testing.T) {
+	now := time.Date(2026, 6, 21, 12, 20, 0, 0, time.UTC)
+	sourceNode := "aws:identity:arn:aws:iam::123456789012:role/source"
+	targetNode := "aws:identity:arn:aws:iam::123456789012:role/target"
+	targetARN := "arn:aws:iam::123456789012:role/target"
+
+	allowRecord := AWSIAMPassRoleRelationshipRecord{
+		FromNodeID:         sourceNode,
+		ToNodeID:           targetNode,
+		SourceRoleARN:      "arn:aws:iam::123456789012:role/source",
+		TargetResource:     targetARN,
+		TargetWildcardKind: "specific",
+		ActionExpression:   "iam:PassRole",
+		Effect:             "Allow",
+		PolicyName:         "AllowPass",
+		StatementSid:       "PassAllowed",
+		CollectedAt:        now,
+		Confidence:         0.88,
+	}
+
+	t.Run("exact action match deny suppresses finding", func(t *testing.T) {
+		passRole := AWSIAMPassRoleRelationshipInventoryResult{
+			Records: []AWSIAMPassRoleRelationshipRecord{
+				allowRecord,
+				{
+					FromNodeID:         sourceNode,
+					ToNodeID:           targetNode,
+					SourceRoleARN:      "arn:aws:iam::123456789012:role/source",
+					TargetResource:     targetARN,
+					TargetWildcardKind: "specific",
+					ActionExpression:   "iam:PassRole",
+					Effect:             "Deny",
+					PolicyName:         "DenyPass",
+					StatementSid:       "PassDenied",
+					CollectedAt:        now,
+					Confidence:         0.88,
+				},
+			},
+		}
+		findings := awsPrivilegeEscalationFindings(passRole, AWSKMSDecryptReachabilityInventoryResult{}, AWSSecretsManagerMetadataInventoryResult{}, AWSLeastPrivilegeResult{}, AWSBlastRadiusResult{}, now)
+		if len(findings) != 0 {
+			t.Fatalf("expected allowfinding to be suppressed by explicit deny, got %+v", findings)
+		}
+	})
+
+	t.Run("non-overlapping deny action preserves passrole finding", func(t *testing.T) {
+		passRole := AWSIAMPassRoleRelationshipInventoryResult{
+			Records: []AWSIAMPassRoleRelationshipRecord{
+				allowRecord,
+				{
+					FromNodeID:         sourceNode,
+					ToNodeID:           targetNode,
+					SourceRoleARN:      "arn:aws:iam::123456789012:role/source",
+					TargetResource:     targetARN,
+					TargetWildcardKind: "specific",
+					ActionExpression:   "ec2:StartInstances",
+					Effect:             "Deny",
+					PolicyName:         "DenyStartInstances",
+					StatementSid:       "DenyNonPass",
+					CollectedAt:        now,
+					Confidence:         0.88,
+				},
+			},
+		}
+		findings := awsPrivilegeEscalationFindings(passRole, AWSKMSDecryptReachabilityInventoryResult{}, AWSSecretsManagerMetadataInventoryResult{}, AWSLeastPrivilegeResult{}, AWSBlastRadiusResult{}, now)
+		if len(findings) != 1 {
+			t.Fatalf("expected passrole finding to remain when deny action does not overlap allow, got %+v", findings)
+		}
+		if !strings.HasPrefix(findings[0].EscalationType, "passrole_") {
+			t.Fatalf("expected passrole escalation type when only passrole allow remains, got %+v", findings[0].EscalationType)
+		}
+	})
+}

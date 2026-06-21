@@ -246,8 +246,14 @@ func (s *Service) awsPrivilegeEscalationSourceSignals(ctx context.Context, works
 
 func awsPrivilegeEscalationFindings(passRole AWSIAMPassRoleRelationshipInventoryResult, kms AWSKMSDecryptReachabilityInventoryResult, secrets AWSSecretsManagerMetadataInventoryResult, leastPrivilege AWSLeastPrivilegeResult, blastRadius AWSBlastRadiusResult, now time.Time) []AWSPrivilegeEscalationFinding {
 	findings := []AWSPrivilegeEscalationFinding{}
+	denyPassRoleRecords := []AWSIAMPassRoleRelationshipRecord{}
 	for _, record := range passRole.Records {
-		if strings.EqualFold(record.Effect, "Allow") {
+		if strings.EqualFold(record.Effect, "Deny") {
+			denyPassRoleRecords = append(denyPassRoleRecords, record)
+		}
+	}
+	for _, record := range passRole.Records {
+		if strings.EqualFold(record.Effect, "Allow") && !awsPrivilegeEscalationPassRoleIsDenied(record, denyPassRoleRecords) {
 			findings = append(findings, awsPrivilegeEscalationFindingFromPassRole(record, now))
 		}
 	}
@@ -285,6 +291,54 @@ func awsPrivilegeEscalationFindings(passRole AWSIAMPassRoleRelationshipInventory
 		}
 	}
 	return findings
+}
+
+func awsPrivilegeEscalationPassRoleIsDenied(record AWSIAMPassRoleRelationshipRecord, denyRecords []AWSIAMPassRoleRelationshipRecord) bool {
+	for _, deny := range denyRecords {
+		if !awsPrivilegeEscalationPassRoleKeysMatch(record, deny) {
+			continue
+		}
+		if awsPrivilegeEscalationPassRoleActionsOverlap(record.ActionExpression, deny.ActionExpression) {
+			return true
+		}
+	}
+	return false
+}
+
+func awsPrivilegeEscalationPassRoleKeysMatch(record AWSIAMPassRoleRelationshipRecord, deny AWSIAMPassRoleRelationshipRecord) bool {
+	recordSource := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(record.FromNodeID, record.SourceRoleARN)))
+	recordTarget := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(record.ToNodeID, record.TargetResource)))
+	denySource := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(deny.FromNodeID, deny.SourceRoleARN)))
+	denyTarget := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(deny.ToNodeID, deny.TargetResource)))
+	return recordSource != "" && recordTarget != "" && recordSource == denySource && recordTarget == denyTarget
+}
+
+func awsPrivilegeEscalationPassRoleActionsOverlap(allowActions, denyActions string) bool {
+	normalizedAllow := awsPrivilegeEscalationPassRoleNormalizeActions(allowActions)
+	normalizedDeny := awsPrivilegeEscalationPassRoleNormalizeActions(denyActions)
+	if len(normalizedAllow) == 0 || len(normalizedDeny) == 0 {
+		return strings.EqualFold(strings.TrimSpace(allowActions), strings.TrimSpace(denyActions))
+	}
+	for _, allow := range normalizedAllow {
+		for _, deny := range normalizedDeny {
+			if awsActionPatternMatches(allow, deny) || awsActionPatternMatches(deny, allow) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func awsPrivilegeEscalationPassRoleNormalizeActions(actions string) []string {
+	out := make([]string, 0, 4)
+	for _, action := range strings.Split(actions, ",") {
+		trimmed := strings.ToLower(strings.TrimSpace(action))
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return dedupeStrings(out)
 }
 
 func awsPrivilegeEscalationFindingFromKMSLiveGrant(record AWSKMSDecryptReachabilityRecord, grant AWSKMSGrant, now time.Time) AWSPrivilegeEscalationFinding {
