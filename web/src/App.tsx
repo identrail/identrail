@@ -59,7 +59,6 @@ import {
   ProductLoginPage,
   ProductLogoutPage,
   ProductOverviewPage,
-  ProductProjectDetailPage,
   ProductProjectsPage,
   ProductReportsPage,
   RequireProductAuth,
@@ -4780,7 +4779,7 @@ export function RoutedSite() {
             <Route path="workspaces" element={<ProductWorkspacesPage />} />
             {/* Hidden aliases for pre-domain onboarding and callback URLs. */}
             <Route path="projects" element={<ProductProjectsPage />} />
-            <Route path="projects/:projectID" element={<ProductProjectDetailPage />} />
+            <Route path="projects/:projectID" element={<LegacyScopedAppRedirect target="github/repositories" />} />
             <Route path="findings" element={<LegacyScopedAppRedirect target="github/findings" />} />
             <Route path="ai-risks" element={<LegacyScopedAppRedirect target="github/agentic-risk" />} />
             <Route path="aws" element={<ProductAWSControlCenterPage />} />

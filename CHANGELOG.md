@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- **Post-install GitHub UX:** after completing a GitHub App installation,
+  users now land on the dedicated GitHub section (`/github/repositories`)
+  instead of the legacy per-project "Connect environment sources" page. That
+  monolithic legacy page (`ProductProjectDetailPage`) has been retired and its
+  route now redirects to the GitHub section. The GitHub connect callback error
+  state was also fixed (its heading was invisible in light mode) and its
+  messages made more specific.
 - Add **AWS identity sprawl engine** (#1524). Adds a read-only,
   metadata-only intelligence layer that ranks IAM identity sprawl into four
   finding types — **stale_identity**, **ownerless_identity**,

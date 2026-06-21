@@ -28999,7 +28999,7 @@ html[data-theme='light'] .idt-executive-report-shell {
 
 .idt-app-shell-screen .idt-app-panel h1,
 html[data-theme='light'] .idt-app-shell-screen .idt-app-panel h1 {
-  color: #ffffff;
+  color: var(--app-text);
   font-size: clamp(1.85rem, 5vw, 3.1rem);
   line-height: 1.02;
   letter-spacing: 0;
