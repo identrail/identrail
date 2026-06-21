@@ -274,8 +274,16 @@ func TestAWSCrossAccountTrustRuntimeAssumptionFinding(t *testing.T) {
 	federated.EventID = "evt-cross-account-assume-saml"
 	federated.EventName = "AssumeRoleWithSAML"
 	federated.Action = "sts:AssumeRoleWithSAML"
-	if _, ok := awsCrossAccountTrustFindingFromRuntimeAssumption(federated, nil, now); !ok {
+	federated.ActorPrincipalARN = "saml:namequalifier:corp"
+	federated.ActorIdentityNodeID = "aws:identity:saml:namequalifier:corp"
+	federated.Session.OriginalActorARN = "saml:namequalifier:corp"
+	federated.Session.AssumedRoleARN = "arn:aws:iam::222222222222:role/prod-deploy"
+	finding, ok = awsCrossAccountTrustFindingFromRuntimeAssumption(federated, nil, now)
+	if !ok {
 		t.Fatalf("expected cross-account federated AssumeRole event to produce finding")
+	}
+	if finding.ExternalPrincipalARN != "saml:namequalifier:corp" || finding.ExternalPrincipalAccount != "" {
+		t.Fatalf("expected SAML provider identity without AWS account, got %+v", finding)
 	}
 
 	webIdentity := record

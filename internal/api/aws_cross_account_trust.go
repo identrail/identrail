@@ -691,7 +691,10 @@ func awsCrossAccountTrustFindingFromRuntimeAssumption(record AWSRuntimeEventReco
 func awsCrossAccountTrustRuntimeAllowsAccountlessActor(record AWSRuntimeEventRecord) bool {
 	action := strings.ToLower(strings.TrimSpace(record.Action))
 	eventName := strings.ToLower(strings.TrimSpace(record.EventName))
-	return strings.Contains(action, "assumerolewithwebidentity") || strings.Contains(eventName, "assumerolewithwebidentity")
+	return strings.Contains(action, "assumerolewithsaml") ||
+		strings.Contains(eventName, "assumerolewithsaml") ||
+		strings.Contains(action, "assumerolewithwebidentity") ||
+		strings.Contains(eventName, "assumerolewithwebidentity")
 }
 
 func awsCrossAccountTrustFindingFromLeastPrivilege(recommendation AWSLeastPrivilegeRecommendation, accounts map[string]AWSOrganizationsTopologyAccount, now time.Time) (AWSCrossAccountTrustFinding, bool) {
