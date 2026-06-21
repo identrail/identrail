@@ -5785,6 +5785,87 @@ describe('GitHub domain pages (#1382)', () => {
     openSpy.mockRestore();
   });
 
+  it('Connect page ignores stale GitHub App install starts after environment changes', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const installStart = deferred<{
+      connection: GitHubConnectionStatus;
+      connector_id: string;
+      state: string;
+      install_url: string;
+      install_account_type: 'any';
+      webhook_url: string;
+      expires_at: string;
+    }>();
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({
+      connection: {
+        ...connectedGitHub,
+        connected: false,
+        account_login: undefined,
+        installation_id: undefined,
+        selected_repositories: []
+      }
+    });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockResolvedValue({ items: [] });
+    const startGitHubConnector = vi
+      .spyOn(api.apiClient, 'startGitHubConnector')
+      .mockImplementation(() => installStart.promise);
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Install GitHub App' }))[0]);
+    await waitFor(() =>
+      expect(startGitHubConnector).toHaveBeenCalledWith(
+        expect.objectContaining({ project_id: 'production-platform' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Environment' })).toHaveValue('staging-platform'));
+
+    await act(async () => {
+      installStart.resolve({
+        connection: connectedGitHub,
+        connector_id: 'github-app',
+        state: 'production-state',
+        install_url: 'https://github.com/apps/identrail/installations/select_target?state=production-state',
+        install_account_type: 'any',
+        webhook_url: '/auth/webhooks/github',
+        expires_at: '2026-05-17T10:10:00Z'
+      });
+    });
+
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(screen.queryByRole('link', { name: 'Open GitHub' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/production-state/i)).not.toBeInTheDocument();
+    openSpy.mockRestore();
+  });
+
   it('Connect page resets Enterprise PAT drafts when environments change before submit', async () => {
     vi.resetModules();
     mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });

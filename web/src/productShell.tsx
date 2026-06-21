@@ -15614,7 +15614,10 @@ export function ProductGitHubConnectPage() {
   const selectedScanPolicyEnvironmentRef = useRef(selectedEnvironmentID);
   const patSubmitRequestRef = useRef(0);
   const selectedPATEnvironmentRef = useRef(selectedEnvironmentID);
+  const installRequestRef = useRef(0);
+  const selectedInstallEnvironmentRef = useRef(selectedEnvironmentID);
   selectedScanPolicyEnvironmentRef.current = selectedEnvironmentID;
+  selectedInstallEnvironmentRef.current = selectedEnvironmentID;
   const [installError, setInstallError] = useState('');
   const [installing, setInstalling] = useState(false);
   const [pendingInstallURL, setPendingInstallURL] = useState('');
@@ -15702,6 +15705,14 @@ export function ProductGitHubConnectPage() {
     setPATSubmitting(false);
   }, [selectedEnvironmentID]);
 
+  useEffect(() => {
+    selectedInstallEnvironmentRef.current = selectedEnvironmentID;
+    installRequestRef.current += 1;
+    setInstallError('');
+    setPendingInstallURL('');
+    setInstalling(false);
+  }, [selectedEnvironmentID]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -15755,6 +15766,9 @@ export function ProductGitHubConnectPage() {
   const repositoriesPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/repositories'), selectedEnvironmentID);
 
   const handleInstall = async () => {
+    const environmentID = selectedEnvironmentID;
+    const requestID = installRequestRef.current + 1;
+    installRequestRef.current = requestID;
     setInstallError('');
     setPendingInstallURL('');
     setInstalling(true);
@@ -15763,12 +15777,15 @@ export function ProductGitHubConnectPage() {
         typeof window !== 'undefined' ? `${window.location.origin}/app/github/callback` : undefined;
       const response = await apiClient.startGitHubConnector(
         {
-          project_id: selectedEnvironmentID,
+          project_id: environmentID,
           install_account_type: 'any',
           redirect_uri: redirectURI
         },
         buildProductAuthContext(scope)
       );
+      if (installRequestRef.current !== requestID || selectedInstallEnvironmentRef.current !== environmentID) {
+        return;
+      }
       const installURL = response.install_url ?? '';
       if (installURL) {
         let opened: Window | null = null;
@@ -15781,9 +15798,14 @@ export function ProductGitHubConnectPage() {
       }
       data.reload();
     } catch (error) {
+      if (installRequestRef.current !== requestID || selectedInstallEnvironmentRef.current !== environmentID) {
+        return;
+      }
       setInstallError(formatAPIError(error, 'Unable to start GitHub App installation.'));
     } finally {
-      setInstalling(false);
+      if (installRequestRef.current === requestID && selectedInstallEnvironmentRef.current === environmentID) {
+        setInstalling(false);
+      }
     }
   };
 
