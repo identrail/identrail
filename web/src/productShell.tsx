@@ -15608,15 +15608,16 @@ export function ProductGitHubConnectPage() {
   const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useGitHubDomainScope();
   const availability = useGitHubAvailability();
   const data = useGitHubDomainData(scope, selectedEnvironmentID, availability.available, 0);
+  const scopedEnvironmentID = scope ? `${scope.tenantID}|${scope.workspaceID}|${selectedEnvironmentID}` : selectedEnvironmentID;
   const scanPolicyRequestRef = useRef(0);
   const scanPolicySaveRequestRef = useRef(0);
   const scanPolicyDeleteRequestRef = useRef(0);
-  const selectedScanPolicyEnvironmentRef = useRef(selectedEnvironmentID);
+  const selectedScanPolicyScopeRef = useRef(scopedEnvironmentID);
   const patSubmitRequestRef = useRef(0);
-  const selectedPATEnvironmentRef = useRef(selectedEnvironmentID);
+  const selectedPATScopeRef = useRef(scopedEnvironmentID);
   const installRequestRef = useRef(0);
   const selectedInstallEnvironmentRef = useRef(selectedEnvironmentID);
-  selectedScanPolicyEnvironmentRef.current = selectedEnvironmentID;
+  selectedScanPolicyScopeRef.current = scopedEnvironmentID;
   selectedInstallEnvironmentRef.current = selectedEnvironmentID;
   const [installError, setInstallError] = useState('');
   const [installing, setInstalling] = useState(false);
@@ -15697,13 +15698,13 @@ export function ProductGitHubConnectPage() {
   }, [loadScanPolicies]);
 
   useEffect(() => {
-    selectedPATEnvironmentRef.current = selectedEnvironmentID;
+    selectedPATScopeRef.current = scopedEnvironmentID;
     patSubmitRequestRef.current += 1;
     setPATForm(createDefaultGitHubPATForm());
     setPATError('');
     setPATSuccess('');
     setPATSubmitting(false);
-  }, [selectedEnvironmentID]);
+  }, [scopedEnvironmentID]);
 
   useEffect(() => {
     selectedInstallEnvironmentRef.current = selectedEnvironmentID;
@@ -15835,19 +15836,19 @@ export function ProductGitHubConnectPage() {
         },
         buildProductAuthContext(scope)
       );
-      if (patSubmitRequestRef.current !== patRequestID || selectedPATEnvironmentRef.current !== environmentID) {
+      if (patSubmitRequestRef.current !== patRequestID || selectedPATScopeRef.current !== scopedEnvironmentID) {
         return;
       }
       setPATForm((current) => ({ ...current, token: '' }));
       setPATSuccess('GitHub Enterprise connector validated and saved.');
       data.reload();
     } catch (error) {
-      if (patSubmitRequestRef.current !== patRequestID || selectedPATEnvironmentRef.current !== environmentID) {
+      if (patSubmitRequestRef.current !== patRequestID || selectedPATScopeRef.current !== scopedEnvironmentID) {
         return;
       }
       setPATError(formatAPIError(error, 'Unable to save GitHub Enterprise connector.'));
     } finally {
-      if (patSubmitRequestRef.current === patRequestID) {
+      if (patSubmitRequestRef.current === patRequestID && selectedPATScopeRef.current === scopedEnvironmentID) {
         setPATSubmitting(false);
       }
     }
@@ -15892,7 +15893,7 @@ export function ProductGitHubConnectPage() {
       );
       if (
         scanPolicySaveRequestRef.current !== saveRequestID ||
-        selectedScanPolicyEnvironmentRef.current !== environmentID
+        selectedScanPolicyScopeRef.current !== scopedEnvironmentID
       ) {
         return;
       }
@@ -15912,13 +15913,13 @@ export function ProductGitHubConnectPage() {
     } catch (error) {
       if (
         scanPolicySaveRequestRef.current !== saveRequestID ||
-        selectedScanPolicyEnvironmentRef.current !== environmentID
+        selectedScanPolicyScopeRef.current !== scopedEnvironmentID
       ) {
         return;
       }
       setScanPolicyError(error instanceof Error ? error.message : 'Unable to save scan policy.');
     } finally {
-      if (scanPolicySaveRequestRef.current === saveRequestID) {
+      if (scanPolicySaveRequestRef.current === saveRequestID && selectedScanPolicyScopeRef.current === scopedEnvironmentID) {
         setPolicySaving(false);
       }
     }
@@ -15944,7 +15945,7 @@ export function ProductGitHubConnectPage() {
       );
       if (
         scanPolicyDeleteRequestRef.current !== deleteRequestID ||
-        selectedScanPolicyEnvironmentRef.current !== environmentID
+        selectedScanPolicyScopeRef.current !== scopedEnvironmentID
       ) {
         return;
       }
@@ -15953,13 +15954,16 @@ export function ProductGitHubConnectPage() {
     } catch (error) {
       if (
         scanPolicyDeleteRequestRef.current !== deleteRequestID ||
-        selectedScanPolicyEnvironmentRef.current !== environmentID
+        selectedScanPolicyScopeRef.current !== scopedEnvironmentID
       ) {
         return;
       }
       setScanPolicyError(error instanceof Error ? error.message : 'Unable to delete scan policy.');
     } finally {
-      if (scanPolicyDeleteRequestRef.current === deleteRequestID) {
+      if (
+        scanPolicyDeleteRequestRef.current === deleteRequestID &&
+        selectedScanPolicyScopeRef.current === scopedEnvironmentID
+      ) {
         setPolicyDeletingID('');
       }
     }
