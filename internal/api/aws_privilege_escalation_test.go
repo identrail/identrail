@@ -198,3 +198,19 @@ func TestAWSPrivilegeEscalationRelationshipsUsePathEdges(t *testing.T) {
 		t.Fatalf("second edge should preserve path order: %+v", relationships)
 	}
 }
+
+func TestAWSPrivilegeEscalationRelationshipsSkipWildcardPassroleTargets(t *testing.T) {
+	relationships := awsPrivilegeEscalationRelationships([]AWSPrivilegeEscalationFinding{{
+		FindingID:      "finding-2",
+		IdentityNodeID: "aws:identity:role/source",
+		ImpactedPath: []AWSPrivilegeEscalationPathStep{
+			{NodeID: "aws:identity:role/source", NodeType: "identity", Label: "security-admin"},
+			{NodeID: "*", NodeType: "iam_role", Label: "wildcard role target"},
+		},
+		Evidence: []AWSPrivilegeEscalationEvidence{{EvidenceRef: "evidence://privilege-escalation"}},
+	}})
+
+	if len(relationships) != 0 {
+		t.Fatalf("expected wildcard passrole target to skip graph edge emission, got %+v", relationships)
+	}
+}

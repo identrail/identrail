@@ -547,13 +547,21 @@ func awsPrivilegeEscalationRelationships(findings []AWSPrivilegeEscalationFindin
 		for i := 0; i+1 < len(finding.ImpactedPath); i++ {
 			from := strings.TrimSpace(finding.ImpactedPath[i].NodeID)
 			to := strings.TrimSpace(finding.ImpactedPath[i+1].NodeID)
-			if from == "" || to == "" {
+			if !awsPrivilegeEscalationPathNodeIDIsConcrete(from) || !awsPrivilegeEscalationPathNodeIDIsConcrete(to) {
 				continue
 			}
 			relationships = append(relationships, AWSPrivilegeEscalationRelationship{FindingID: finding.FindingID, Type: "privilege_escalation_path", FromNodeID: from, ToNodeID: to, EvidenceRef: evidenceRef})
 		}
 	}
 	return relationships
+}
+
+func awsPrivilegeEscalationPathNodeIDIsConcrete(nodeID string) bool {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" || nodeID == "*" {
+		return false
+	}
+	return !strings.Contains(nodeID, "*")
 }
 
 func summarizeAWSPrivilegeEscalation(allFindings []AWSPrivilegeEscalationFinding, filtered []AWSPrivilegeEscalationFinding, relationships []AWSPrivilegeEscalationRelationship) AWSPrivilegeEscalationSummary {
