@@ -5831,6 +5831,36 @@ describe('GitHub domain pages (#1382)', () => {
     await screen.findByText(/Repository scan queued for identrail\/identrail/i);
   });
 
+  it('Repositories page runs one-off scans with explicit limits when no repositories are selected', async () => {
+    const mocks = await renderGitHubPage('repositories', {
+      githubConnection: { ...connectedGitHubPAT, selected_repositories: [] },
+      scans: []
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const oneOffPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/^Repository$/i), { target: { value: 'acme/private-repo' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/Scan mode/i), { target: { value: 'quick' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/History limit/i), { target: { value: '75' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/Max findings/i), { target: { value: '25' } });
+    fireEvent.click(within(oneOffPanel).getByRole('button', { name: /Run scan/i }));
+
+    await waitFor(() =>
+      expect(mocks.runRepoScan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repository: 'acme/private-repo',
+          scan_mode: 'quick',
+          history_limit: 75,
+          max_findings: 25
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(mocks.runRepoScan.mock.calls[0][0]).not.toHaveProperty('project_id');
+    expect(mocks.runRepoScan.mock.calls[0][0]).not.toHaveProperty('connector_id');
+    await screen.findByText(/Repository scan queued for acme\/private-repo/i);
+  });
+
   it('Repositories page keeps repository posture checks reachable', async () => {
     const mocks = await renderGitHubPage('repositories', { scans: [succeededRepoScan] });
 

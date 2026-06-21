@@ -14469,6 +14469,14 @@ const GITHUB_REMEDIATION_FINDINGS_LIMIT = 100;
 const GITHUB_MAX_SCAN_PAGE_FETCHES = 50;
 const GITHUB_DOMAIN_DATA_CACHE_LIMIT = 24;
 const GITHUB_ACTIVE_SCAN_POLL_MS = 8000;
+type OneOffRepoScanMode = Extract<NonNullable<RepoScanRequest['scan_mode']>, 'quick' | 'deep'>;
+const ONE_OFF_REPO_SCAN_MODES: OneOffRepoScanMode[] = ['quick', 'deep'];
+const createDefaultOneOffRepoScanForm = () => ({
+  repository: '',
+  scanMode: 'deep' as OneOffRepoScanMode,
+  historyLimit: '500',
+  maxFindings: '200'
+});
 
 type GitHubAvailability = {
   loading: boolean;
@@ -16176,6 +16184,8 @@ export function ProductGitHubRepositoriesPage() {
   const [scanInfo, setScanInfo] = useState('');
   const [submittingRepository, setSubmittingRepository] = useState('');
   const [cancelingScanID, setCancelingScanID] = useState('');
+  const [oneOffScanForm, setOneOffScanForm] = useState(createDefaultOneOffRepoScanForm);
+  const [oneOffScanSubmitting, setOneOffScanSubmitting] = useState(false);
   const postureRequestRef = useRef(0);
   const selectedRepositories = uniqueGitHubRepositories(data.connection?.selected_repositories ?? []);
   const selectedRepositoriesKey = selectedRepositories.join('\n');
@@ -16385,6 +16395,43 @@ export function ProductGitHubRepositoriesPage() {
     }
   };
 
+  const launchOneOffScan = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!data.connection?.connected) {
+      setScanError('Connect GitHub before queueing a repository scan.');
+      return;
+    }
+    setScanError('');
+    setScanInfo('');
+    setOneOffScanSubmitting(true);
+    try {
+      const repository = normalizeValue(oneOffScanForm.repository);
+      if (!repository) {
+        throw new Error('Repository is required.');
+      }
+      const request: RepoScanRequest = {
+        repository,
+        scan_mode: oneOffScanForm.scanMode,
+        history_limit: parsePositiveInteger(oneOffScanForm.historyLimit, 'History limit'),
+        max_findings: parsePositiveInteger(oneOffScanForm.maxFindings, 'Max findings')
+      };
+      await apiClient.runRepoScan(request, buildProductAuthContext(scope));
+      setOneOffScanForm((current) => ({ ...current, repository: '' }));
+      setScanInfo(`Repository scan queued for ${repository}.`);
+      data.reload();
+    } catch (error) {
+      setScanError(
+        error instanceof ApiError
+          ? formatRepoScanSubmitError(error)
+          : error instanceof Error
+            ? error.message
+            : formatRepoScanSubmitError(error)
+      );
+    } finally {
+      setOneOffScanSubmitting(false);
+    }
+  };
+
   const cancelScan = async (scan: RepoScanRecord) => {
     if (!isActiveScanStatus(scan.status)) {
       setScanError('Only queued or running repository scans can be canceled.');
@@ -16474,6 +16521,68 @@ export function ProductGitHubRepositoriesPage() {
           body="Pick repositories on the connection page so Identrail can queue scans and detect risk."
           nextAction={{ label: 'Select repositories', to: connectPath }}
         />
+      ) : null}
+      {showBody && connected ? (
+        <section className="idt-domain-status-panel idt-github-one-off-scan-panel" aria-label="One-off repository scan">
+          <header>
+            <div>
+              <h3>One-off scan</h3>
+              <p>Run a repository scan with explicit depth and finding limits.</p>
+            </div>
+            <span className="idt-source-status-pill is-warning">Advanced</span>
+          </header>
+          <form className="idt-app-form" onSubmit={launchOneOffScan}>
+            <label>
+              Repository
+              <input
+                value={oneOffScanForm.repository}
+                onChange={(event) => setOneOffScanForm((current) => ({ ...current, repository: event.target.value }))}
+                placeholder="owner/repo"
+                required
+              />
+            </label>
+            <div className="idt-source-inline-fields">
+              <label>
+                Scan mode
+                <select
+                  value={oneOffScanForm.scanMode}
+                  onChange={(event) =>
+                    setOneOffScanForm((current) => ({ ...current, scanMode: event.target.value as OneOffRepoScanMode }))
+                  }
+                >
+                  {ONE_OFF_REPO_SCAN_MODES.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {formatTokenLabel(mode)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                History limit
+                <input
+                  inputMode="numeric"
+                  value={oneOffScanForm.historyLimit}
+                  onChange={(event) => setOneOffScanForm((current) => ({ ...current, historyLimit: event.target.value }))}
+                  placeholder="500"
+                  required
+                />
+              </label>
+              <label>
+                Max findings
+                <input
+                  inputMode="numeric"
+                  value={oneOffScanForm.maxFindings}
+                  onChange={(event) => setOneOffScanForm((current) => ({ ...current, maxFindings: event.target.value }))}
+                  placeholder="200"
+                  required
+                />
+              </label>
+            </div>
+            <button className="idt-btn idt-btn-primary" type="submit" disabled={oneOffScanSubmitting || data.loading}>
+              {oneOffScanSubmitting ? 'Queuing scan...' : 'Run scan'}
+            </button>
+          </form>
+        </section>
       ) : null}
       {showBody && connected && hasRepositories ? (
         <section className="idt-domain-status-panel idt-github-repository-panel" aria-label="Selected repositories">
