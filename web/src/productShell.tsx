@@ -16415,6 +16415,12 @@ export function ProductGitHubRepositoriesPage() {
         history_limit: parsePositiveInteger(oneOffScanForm.historyLimit, 'History limit'),
         max_findings: parsePositiveInteger(oneOffScanForm.maxFindings, 'Max findings')
       };
+      if (data.connection.provider === 'github_app') {
+        request.project_id = selectedEnvironmentID;
+        if (data.connection.connector_id) {
+          request.connector_id = data.connection.connector_id;
+        }
+      }
       await apiClient.runRepoScan(request, buildProductAuthContext(scope));
       setOneOffScanForm((current) => ({ ...current, repository: '' }));
       setScanInfo(`Repository scan queued for ${repository}.`);

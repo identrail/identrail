@@ -5861,6 +5861,32 @@ describe('GitHub domain pages (#1382)', () => {
     await screen.findByText(/Repository scan queued for acme\/private-repo/i);
   });
 
+  it('Repositories page scopes one-off scans to the GitHub App connector when available', async () => {
+    const mocks = await renderGitHubPage('repositories', { scans: [] });
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const oneOffPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/^Repository$/i), { target: { value: 'identrail/identrail' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/History limit/i), { target: { value: '125' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/Max findings/i), { target: { value: '50' } });
+    fireEvent.click(within(oneOffPanel).getByRole('button', { name: /Run scan/i }));
+
+    await waitFor(() =>
+      expect(mocks.runRepoScan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repository: 'identrail/identrail',
+          scan_mode: 'deep',
+          history_limit: 125,
+          max_findings: 50,
+          project_id: 'production-platform',
+          connector_id: 'github-app'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    await screen.findByText(/Repository scan queued for identrail\/identrail/i);
+  });
+
   it('Repositories page keeps repository posture checks reachable', async () => {
     const mocks = await renderGitHubPage('repositories', { scans: [succeededRepoScan] });
 
