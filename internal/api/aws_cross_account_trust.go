@@ -204,8 +204,9 @@ func (s *Service) GetAWSCrossAccountTrust(ctx context.Context, workspaceID strin
 	if strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected {
 		sourceFixtureState = ""
 	}
+	suppressRuntimeFixtures := strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected
 
-	sources, err := s.awsCrossAccountTrustSourceSignals(ctx, workspaceID, projectID, connectorID, sourceFixtureState)
+	sources, err := s.awsCrossAccountTrustSourceSignals(ctx, workspaceID, projectID, connectorID, sourceFixtureState, suppressRuntimeFixtures)
 	if err != nil {
 		return AWSCrossAccountTrustResult{}, err
 	}
@@ -277,7 +278,7 @@ func normalizeAWSCrossAccountTrustFixtureState(requested string, connection AWSC
 	}
 }
 
-func (s *Service) awsCrossAccountTrustSourceSignals(ctx context.Context, workspaceID, projectID, connectorID, fixtureState string) (awsCrossAccountTrustSources, error) {
+func (s *Service) awsCrossAccountTrustSourceSignals(ctx context.Context, workspaceID, projectID, connectorID, fixtureState string, suppressRuntimeFixtures bool) (awsCrossAccountTrustSources, error) {
 	organizations, err := s.GetAWSOrganizationsTopology(ctx, workspaceID, projectID, AWSOrganizationsTopologyRequest{ConnectorID: connectorID, FixtureState: fixtureState})
 	if err != nil {
 		return awsCrossAccountTrustSources{}, fmt.Errorf("cross-account trust organizations topology: %w", err)
@@ -302,7 +303,7 @@ func (s *Service) awsCrossAccountTrustSourceSignals(ctx context.Context, workspa
 	if err != nil {
 		return awsCrossAccountTrustSources{}, fmt.Errorf("cross-account trust dynamodb/rds reachability: %w", err)
 	}
-	runtime, err := s.GetAWSRuntimeEvents(ctx, workspaceID, projectID, AWSRuntimeEventRequest{ConnectorID: connectorID, FixtureState: fixtureState, EventType: "sts-session"})
+	runtime, err := s.GetAWSRuntimeEvents(ctx, workspaceID, projectID, AWSRuntimeEventRequest{ConnectorID: connectorID, FixtureState: fixtureState, EventType: "sts-session", SuppressFixtureRecords: suppressRuntimeFixtures})
 	if err != nil {
 		return awsCrossAccountTrustSources{}, fmt.Errorf("cross-account trust runtime events: %w", err)
 	}

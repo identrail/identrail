@@ -336,3 +336,20 @@ func TestGetAWSCrossAccountTrustRequestsSTSSessionRuntimeEvidence(t *testing.T) 
 		t.Fatalf("expected live STS session to produce a runtime cross-account finding, got summary=%+v", result.Summary)
 	}
 }
+
+func TestGetAWSCrossAccountTrustSuppressesRuntimeFixturesForLiveRequests(t *testing.T) {
+	now := time.Date(2026, 6, 21, 13, 25, 0, 0, time.UTC)
+	svc, ws := newCrossAccountTrustService(t, "project-cross-account-trust-no-runtime-fixtures", now)
+
+	result, err := svc.GetAWSCrossAccountTrust(defaultScopeContext(), ws, "project-cross-account-trust-no-runtime-fixtures", AWSCrossAccountTrustRequest{
+		ConnectorID: "aws-prod",
+	})
+	if err != nil {
+		t.Fatalf("get cross-account trust: %v", err)
+	}
+	for _, finding := range result.Findings {
+		if finding.FindingType == "runtime_cross_account_assumption" {
+			t.Fatalf("live request without CloudTrail ingester should not promote runtime fixtures: %+v", finding)
+		}
+	}
+}
