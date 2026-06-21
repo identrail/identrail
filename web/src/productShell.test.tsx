@@ -5792,6 +5792,26 @@ describe('GitHub domain pages (#1382)', () => {
     await screen.findByText(/Repository scan canceled for identrail\/identrail/i);
   });
 
+  it('Repositories page polls while repository scans are active', async () => {
+    const setIntervalSpy = vi.spyOn(window, 'setInterval');
+    const mocks = await renderGitHubPage('repositories', { scans: [queuedRepoScan] });
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    await screen.findByText(/scan in flight/i);
+    await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 8000)
+    );
+    const pollCallback = setIntervalSpy.mock.calls.find((call) => call[1] === 8000)?.[0];
+    expect(pollCallback).toEqual(expect.any(Function));
+
+    act(() => {
+      (pollCallback as () => void)();
+    });
+
+    await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(2));
+  });
+
   it('Repositories page shows the empty state when no repositories are selected', async () => {
     await renderGitHubPage('repositories', {
       githubConnection: { ...connectedGitHub, selected_repositories: [] }

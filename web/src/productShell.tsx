@@ -14467,6 +14467,7 @@ const GITHUB_REPOSITORIES_SCANS_LIMIT = 50;
 const GITHUB_REMEDIATION_FINDINGS_LIMIT = 100;
 const GITHUB_MAX_SCAN_PAGE_FETCHES = 50;
 const GITHUB_DOMAIN_DATA_CACHE_LIMIT = 24;
+const GITHUB_ACTIVE_SCAN_POLL_MS = 8000;
 
 type GitHubAvailability = {
   loading: boolean;
@@ -16160,6 +16161,7 @@ export function ProductGitHubRepositoriesPage() {
   const [githubOrganizationPosture, setGitHubOrganizationPosture] = useState<GitHubOrganizationPosture | null>(null);
   const [githubPostureLoading, setGitHubPostureLoading] = useState(false);
   const [githubPostureError, setGitHubPostureError] = useState('');
+  const hasActiveRepositoryScan = data.scans.some((scan) => isActiveScanStatus(scan.status));
 
   useEffect(() => {
     const nextRepository = selectedRepositories.includes(postureRepository)
@@ -16234,6 +16236,24 @@ export function ProductGitHubRepositoriesPage() {
     data.connection?.connector_id,
     data.connection?.provider,
     postureRepository,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID
+  ]);
+
+  useEffect(() => {
+    if (!scope || !selectedEnvironmentID || !availability.available || !data.connection?.connected || !hasActiveRepositoryScan) {
+      return undefined;
+    }
+    const pollID = window.setInterval(() => {
+      data.reload();
+    }, GITHUB_ACTIVE_SCAN_POLL_MS);
+    return () => window.clearInterval(pollID);
+  }, [
+    availability.available,
+    data.connection?.connected,
+    data.reload,
+    hasActiveRepositoryScan,
     scope?.tenantID,
     scope?.workspaceID,
     selectedEnvironmentID
