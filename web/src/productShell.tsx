@@ -15393,6 +15393,7 @@ export function ProductGitHubConnectPage() {
   const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useGitHubDomainScope();
   const availability = useGitHubAvailability();
   const data = useGitHubDomainData(scope, selectedEnvironmentID, availability.available, 0);
+  const scanPolicyRequestRef = useRef(0);
   const [installError, setInstallError] = useState('');
   const [installing, setInstalling] = useState(false);
   const [pendingInstallURL, setPendingInstallURL] = useState('');
@@ -15419,10 +15420,13 @@ export function ProductGitHubConnectPage() {
   });
   const loadScanPolicies = useCallback(async () => {
     if (!scope || !selectedEnvironmentID || !availability.available) {
+      scanPolicyRequestRef.current += 1;
       setScanPolicies([]);
       setScanPolicyLoading(false);
       return;
     }
+    const requestID = scanPolicyRequestRef.current + 1;
+    scanPolicyRequestRef.current = requestID;
     setScanPolicyLoading(true);
     setScanPolicyError('');
     try {
@@ -15436,6 +15440,9 @@ export function ProductGitHubConnectPage() {
         },
         buildProductAuthContext(scope)
       );
+      if (scanPolicyRequestRef.current !== requestID) {
+        return;
+      }
       const items = response.items ?? [];
       setScanPolicies(items);
       setPolicyForm((current) => {
@@ -15455,10 +15462,15 @@ export function ProductGitHubConnectPage() {
         };
       });
     } catch (error) {
+      if (scanPolicyRequestRef.current !== requestID) {
+        return;
+      }
       setScanPolicies([]);
       setScanPolicyError(formatAPIError(error, 'Unable to load scan policies.'));
     } finally {
-      setScanPolicyLoading(false);
+      if (scanPolicyRequestRef.current === requestID) {
+        setScanPolicyLoading(false);
+      }
     }
   }, [availability.available, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
 

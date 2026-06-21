@@ -6699,6 +6699,85 @@ describe('GitHub domain pages (#1382)', () => {
     );
   });
 
+  it('Connect page ignores stale scan policy responses after environment changes', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const productionPolicyLoad = deferred<{ items: ScanPolicyRecord[] }>();
+    const stagingPolicyLoad = deferred<{ items: ScanPolicyRecord[] }>();
+    const productionPolicy: ScanPolicyRecord = {
+      ...defaultScanPolicy,
+      policy_id: 'production-only',
+      name: 'Production stale policy'
+    };
+    const stagingPolicy: ScanPolicyRecord = {
+      ...defaultScanPolicy,
+      project_id: 'staging-platform',
+      policy_id: 'staging-only',
+      name: 'Staging policy'
+    };
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    const listProjectScanPolicies = vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation(
+      (_workspaceID, projectID) =>
+        projectID === 'staging-platform' ? stagingPolicyLoad.promise : productionPolicyLoad.promise
+    );
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() =>
+      expect(listProjectScanPolicies).toHaveBeenCalledWith(
+        'workspace-a',
+        'production-platform',
+        expect.anything(),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+    await waitFor(() =>
+      expect(listProjectScanPolicies).toHaveBeenCalledWith(
+        'workspace-a',
+        'staging-platform',
+        expect.anything(),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    await act(async () => {
+      stagingPolicyLoad.resolve({ items: [stagingPolicy] });
+    });
+    const policyPanel = await screen.findByRole('region', { name: 'Scan policy management' });
+    expect(await within(policyPanel).findByText('Staging policy')).toBeInTheDocument();
+
+    await act(async () => {
+      productionPolicyLoad.resolve({ items: [productionPolicy] });
+    });
+
+    expect(within(policyPanel).getByText('Staging policy')).toBeInTheDocument();
+    expect(within(policyPanel).queryByText('Production stale policy')).not.toBeInTheDocument();
+  });
+
   it('Connect page hides the install/manage body when the connection status request fails', async () => {
     const api = await import('./api/client');
     mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
