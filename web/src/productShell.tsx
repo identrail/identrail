@@ -15404,6 +15404,10 @@ export function ProductGitHubConnectPage() {
   const availability = useGitHubAvailability();
   const data = useGitHubDomainData(scope, selectedEnvironmentID, availability.available, 0);
   const scanPolicyRequestRef = useRef(0);
+  const scanPolicySaveRequestRef = useRef(0);
+  const scanPolicyDeleteRequestRef = useRef(0);
+  const selectedScanPolicyEnvironmentRef = useRef(selectedEnvironmentID);
+  selectedScanPolicyEnvironmentRef.current = selectedEnvironmentID;
   const [installError, setInstallError] = useState('');
   const [installing, setInstalling] = useState(false);
   const [pendingInstallURL, setPendingInstallURL] = useState('');
@@ -15431,6 +15435,7 @@ export function ProductGitHubConnectPage() {
     scanPolicyRequestRef.current = requestID;
     setScanPolicyLoading(true);
     setScanPolicyError('');
+    setScanPolicies([]);
     try {
       const response = await apiClient.listProjectScanPolicies(
         scope.workspaceID,
@@ -15601,6 +15606,9 @@ export function ProductGitHubConnectPage() {
 
   const handleScanPolicySubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const environmentID = selectedEnvironmentID;
+    const saveRequestID = scanPolicySaveRequestRef.current + 1;
+    scanPolicySaveRequestRef.current = saveRequestID;
     setPolicySaving(true);
     setScanPolicyError('');
     setScanPolicySuccess('');
@@ -15620,7 +15628,7 @@ export function ProductGitHubConnectPage() {
       }
       const response = await apiClient.upsertProjectScanPolicy(
         scope.workspaceID,
-        selectedEnvironmentID,
+        environmentID,
         {
           policy_id: policyID,
           name,
@@ -15633,6 +15641,12 @@ export function ProductGitHubConnectPage() {
         },
         buildProductAuthContext(scope)
       );
+      if (
+        scanPolicySaveRequestRef.current !== saveRequestID ||
+        selectedScanPolicyEnvironmentRef.current !== environmentID
+      ) {
+        return;
+      }
       const policy = response.policy;
       setPolicyForm({
         policyID: policy.policy_id,
@@ -15647,9 +15661,17 @@ export function ProductGitHubConnectPage() {
       setScanPolicySuccess('Scan policy saved.');
       await loadScanPolicies();
     } catch (error) {
+      if (
+        scanPolicySaveRequestRef.current !== saveRequestID ||
+        selectedScanPolicyEnvironmentRef.current !== environmentID
+      ) {
+        return;
+      }
       setScanPolicyError(error instanceof Error ? error.message : 'Unable to save scan policy.');
     } finally {
-      setPolicySaving(false);
+      if (scanPolicySaveRequestRef.current === saveRequestID) {
+        setPolicySaving(false);
+      }
     }
   };
 
@@ -15658,22 +15680,39 @@ export function ProductGitHubConnectPage() {
     if (!normalizedPolicyID) {
       return;
     }
+    const environmentID = selectedEnvironmentID;
+    const deleteRequestID = scanPolicyDeleteRequestRef.current + 1;
+    scanPolicyDeleteRequestRef.current = deleteRequestID;
     setPolicyDeletingID(normalizedPolicyID);
     setScanPolicyError('');
     setScanPolicySuccess('');
     try {
       await apiClient.deleteProjectScanPolicy(
         scope.workspaceID,
-        selectedEnvironmentID,
+        environmentID,
         normalizedPolicyID,
         buildProductAuthContext(scope)
       );
+      if (
+        scanPolicyDeleteRequestRef.current !== deleteRequestID ||
+        selectedScanPolicyEnvironmentRef.current !== environmentID
+      ) {
+        return;
+      }
       setScanPolicySuccess(`Scan policy ${normalizedPolicyID} deleted.`);
       await loadScanPolicies();
     } catch (error) {
+      if (
+        scanPolicyDeleteRequestRef.current !== deleteRequestID ||
+        selectedScanPolicyEnvironmentRef.current !== environmentID
+      ) {
+        return;
+      }
       setScanPolicyError(error instanceof Error ? error.message : 'Unable to delete scan policy.');
     } finally {
-      setPolicyDeletingID('');
+      if (scanPolicyDeleteRequestRef.current === deleteRequestID) {
+        setPolicyDeletingID('');
+      }
     }
   };
 
@@ -15945,6 +15984,7 @@ export function ProductGitHubConnectPage() {
                     <button
                       type="button"
                       className="idt-btn idt-btn-ghost"
+                      disabled={scanPolicyLoading}
                       onClick={() =>
                         setPolicyForm({
                           policyID: policy.policy_id,
@@ -15966,7 +16006,7 @@ export function ProductGitHubConnectPage() {
                       onClick={() => {
                         void handleScanPolicyDelete(policy.policy_id);
                       }}
-                      disabled={policyDeletingID === policy.policy_id}
+                      disabled={scanPolicyLoading || policyDeletingID === policy.policy_id}
                     >
                       {policyDeletingID === policy.policy_id ? 'Deleting...' : 'Delete'}
                     </button>
@@ -23275,50 +23315,18 @@ export function ProductAppearanceSettingsPage() {
             </select>
           </label>
 
-          <label className="idt-appearance-control-row idt-appearance-slider-row">
-            <span>
-              <strong>Contrast</strong>
-            </span>
-            <span className="idt-appearance-slider">
-              <input
-                aria-label="Contrast"
-                type="range"
-                min="0"
-                max="100"
-                value={preferences.contrast}
-                onChange={(event) => commitPreferences({ contrast: Number(event.target.value) })}
-              />
-              <strong>{preferences.contrast}</strong>
-            </span>
-          </label>
-        </div>
-      </section>
-
-      <section className="idt-settings-card idt-appearance-card idt-appearance-behavior-card">
-        <div className="idt-appearance-behavior-row">
-          <div>
-            <h3>Use pointer cursors</h3>
-            <p>Show pointer cursors on interactive controls</p>
+          <div className="idt-appearance-behavior-row">
+            <div>
+              <h3>Reduce motion</h3>
+              <p>Reduce animations or match your system</p>
+            </div>
+            <AppearanceSegmentedControl
+              label="Reduce motion"
+              value={preferences.reduceMotion}
+              options={APPEARANCE_MOTION_OPTIONS}
+              onChange={(reduceMotion) => commitPreferences({ reduceMotion })}
+            />
           </div>
-          <AppearanceSwitch
-            checked={preferences.pointerCursors}
-            label="Use pointer cursors"
-            onChange={(pointerCursors) => commitPreferences({ pointerCursors })}
-          />
-        </div>
-
-        <div className="idt-appearance-behavior-row">
-          <div>
-            <h3>Reduce motion</h3>
-            <p>Reduce animations or match your system</p>
-          </div>
-          <AppearanceSegmentedControl
-            label="Reduce motion"
-            value={preferences.reduceMotion}
-            options={APPEARANCE_MOTION_OPTIONS}
-            onChange={(reduceMotion) => commitPreferences({ reduceMotion })}
-          />
-        </div>
 
         <label className="idt-appearance-behavior-row">
           <span>
@@ -23337,23 +23345,6 @@ export function ProductAppearanceSettingsPage() {
           </span>
         </label>
 
-        <label className="idt-appearance-behavior-row">
-          <span>
-            <h3>Code font size</h3>
-            <p>Adjust the base size used for code across previews and diffs</p>
-          </span>
-          <span className="idt-appearance-number">
-            <AppearanceNumberInput
-              label="Code font size"
-              min={12}
-              max={22}
-              value={preferences.codeFontSize}
-              onCommit={(codeFontSize) => commitPreferences({ codeFontSize })}
-            />
-            <span>px</span>
-          </span>
-        </label>
-
         <div className="idt-appearance-behavior-row">
           <div>
             <h3>Font smoothing</h3>
@@ -23365,8 +23356,8 @@ export function ProductAppearanceSettingsPage() {
             onChange={(fontSmoothing) => commitPreferences({ fontSmoothing })}
           />
         </div>
+        </div>
       </section>
-
     </section>
   );
 }

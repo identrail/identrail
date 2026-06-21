@@ -1999,17 +1999,17 @@ describe('ProductAppearanceSettingsPage', () => {
 
     fireEvent.change(screen.getByLabelText('Light theme'), { target: { value: 'xcode' } });
     fireEvent.change(screen.getByLabelText('Accent color'), { target: { value: '#123456' } });
-    fireEvent.click(screen.getByRole('switch', { name: 'Use pointer cursors' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Font smoothing' }));
 
     const stored = JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}');
     expect(stored).toMatchObject({
       lightPreset: 'xcode',
       accent: '#123456',
       customColors: true,
-      pointerCursors: true
+      fontSmoothing: false
     });
     expect(document.documentElement.style.getPropertyValue('--appearance-accent')).toBe('#123456');
-    expect(document.documentElement.dataset.pointerCursors).toBe('true');
+    expect(document.documentElement.dataset.fontSmoothing).toBe('false');
     expect(document.documentElement.dataset.appearanceAppIcon).toBeUndefined();
   });
 
@@ -2167,16 +2167,13 @@ describe('ProductAppearanceSettingsPage', () => {
       uiFontSize: 18
     });
 
-    const codeFontSize = screen.getByLabelText('Code font size') as HTMLInputElement;
-    fireEvent.focus(codeFontSize);
-    fireEvent.change(codeFontSize, { target: { value: '2' } });
-
-    expect(codeFontSize.value).toBe('2');
-
-    fireEvent.blur(codeFontSize);
-    await waitFor(() => expect(codeFontSize.value).toBe('12'));
+    // Below the minimum clamps to the floor on commit.
+    fireEvent.focus(uiFontSize);
+    fireEvent.change(uiFontSize, { target: { value: '1' } });
+    fireEvent.blur(uiFontSize);
+    await waitFor(() => expect(uiFontSize.value).toBe('14'));
     expect(JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}')).toMatchObject({
-      codeFontSize: 12
+      uiFontSize: 14
     });
   });
 
@@ -6880,6 +6877,215 @@ describe('GitHub domain pages (#1382)', () => {
     expect(screen.queryByDisplayValue('Production event policy')).not.toBeInTheDocument();
     expect(within(currentPolicyPanel).getByLabelText(/Policy name/i)).toHaveValue('Default policy');
     expect(within(currentPolicyPanel).getByLabelText(/Trigger mode/i)).toHaveValue('manual');
+  });
+
+  it('Connect page ignores stale scan policy saves after environment changes', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const productionPolicy: ScanPolicyRecord = {
+      ...defaultScanPolicy,
+      policy_id: 'production-event-policy',
+      name: 'Production event policy',
+      trigger_mode: 'event'
+    };
+    const stagingPolicyLoad = deferred<{ items: ScanPolicyRecord[] }>();
+    const savePolicy = deferred<{ policy: ScanPolicyRecord }>();
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    const listProjectScanPolicies = vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation(
+      (_workspaceID, projectID) =>
+        projectID === 'staging-platform' ? stagingPolicyLoad.promise : Promise.resolve({ items: [productionPolicy] })
+    );
+    const upsertProjectScanPolicy = vi
+      .spyOn(api.apiClient, 'upsertProjectScanPolicy')
+      .mockImplementation(() => savePolicy.promise);
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const policyPanel = await screen.findByRole('region', { name: 'Scan policy management' });
+    expect(await within(policyPanel).findByDisplayValue('Production event policy')).toBeInTheDocument();
+    fireEvent.click(within(policyPanel).getByRole('button', { name: /Save scan policy/i }));
+
+    await waitFor(() =>
+      expect(upsertProjectScanPolicy).toHaveBeenCalledWith(
+        'workspace-a',
+        'production-platform',
+        expect.objectContaining({ policy_id: 'production-event-policy' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+    await waitFor(() =>
+      expect(listProjectScanPolicies).toHaveBeenCalledWith(
+        'workspace-a',
+        'staging-platform',
+        expect.anything(),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    await act(async () => {
+      stagingPolicyLoad.resolve({ items: [] });
+    });
+    await waitFor(() => expect(screen.getByLabelText(/Policy name/i)).toHaveValue('Default policy'));
+
+    await act(async () => {
+      savePolicy.resolve({ policy: { ...productionPolicy, name: 'Saved production policy' } });
+    });
+
+    expect(screen.queryByText('Scan policy saved.')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('Saved production policy')).not.toBeInTheDocument();
+    expect(listProjectScanPolicies.mock.calls.filter((call) => call[1] === 'production-platform')).toHaveLength(1);
+  });
+
+  it('Connect page ignores stale scan policy deletes after environment changes', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const productionPolicy: ScanPolicyRecord = {
+      ...defaultScanPolicy,
+      policy_id: 'production-event-policy',
+      name: 'Production event policy',
+      trigger_mode: 'event'
+    };
+    const stagingPolicyLoad = deferred<{ items: ScanPolicyRecord[] }>();
+    const deletePolicy = deferred<void>();
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    const listProjectScanPolicies = vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation(
+      (_workspaceID, projectID) =>
+        projectID === 'staging-platform' ? stagingPolicyLoad.promise : Promise.resolve({ items: [productionPolicy] })
+    );
+    const deleteProjectScanPolicy = vi
+      .spyOn(api.apiClient, 'deleteProjectScanPolicy')
+      .mockImplementation(() => deletePolicy.promise);
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const policyPanel = await screen.findByRole('region', { name: 'Scan policy management' });
+    expect(await within(policyPanel).findByText('Production event policy')).toBeInTheDocument();
+    fireEvent.click(within(policyPanel).getByRole('button', { name: /^Delete$/i }));
+
+    await waitFor(() =>
+      expect(deleteProjectScanPolicy).toHaveBeenCalledWith(
+        'workspace-a',
+        'production-platform',
+        'production-event-policy',
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+    await waitFor(() =>
+      expect(listProjectScanPolicies).toHaveBeenCalledWith(
+        'workspace-a',
+        'staging-platform',
+        expect.anything(),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    await act(async () => {
+      stagingPolicyLoad.resolve({ items: [] });
+    });
+    await waitFor(() => expect(screen.getByLabelText(/Policy name/i)).toHaveValue('Default policy'));
+
+    await act(async () => {
+      deletePolicy.resolve();
+    });
+
+    expect(screen.queryByText('Scan policy production-event-policy deleted.')).not.toBeInTheDocument();
+    expect(listProjectScanPolicies.mock.calls.filter((call) => call[1] === 'production-platform')).toHaveLength(1);
+  });
+
+  it('Connect page clears old scan policy rows while loading a new environment', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const productionPolicy: ScanPolicyRecord = {
+      ...defaultScanPolicy,
+      policy_id: 'production-event-policy',
+      name: 'Production event policy',
+      trigger_mode: 'event'
+    };
+    const stagingPolicyLoad = deferred<{ items: ScanPolicyRecord[] }>();
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation((_workspaceID, projectID) =>
+      projectID === 'staging-platform' ? stagingPolicyLoad.promise : Promise.resolve({ items: [productionPolicy] })
+    );
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Production event policy')).toBeInTheDocument();
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+
+    await waitFor(() => expect(screen.queryByText('Production event policy')).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /^Delete$/i })).not.toBeInTheDocument();
   });
 
   it('Connect page hides the install/manage body when the connection status request fails', async () => {

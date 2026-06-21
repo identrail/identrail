@@ -31439,7 +31439,10 @@ html[data-diff-markers='symbols'] .idt-appearance-preview-pane[data-side='after'
 }
 
 .idt-appearance-control-row select {
-  min-width: 8.5rem;
+  width: fit-content;
+  min-width: 0;
+  max-width: 100%;
+  justify-self: end;
 }
 
 html[data-appearance-ready='true'] .idt-app-console-layout :is(
