@@ -61,7 +61,6 @@ import {
   ProductOverviewPage,
   ProductProjectDetailPage,
   ProductProjectsPage,
-  ProductReportsPage,
   RequireProductAuth,
   ProductAppearanceSettingsPage,
   ProductSettingsPage,
@@ -4817,7 +4816,7 @@ export function RoutedSite() {
             <Route path="kubernetes/service-accounts" element={<ProductKubernetesServiceAccountsPage />} />
             <Route path="kubernetes/findings" element={<ProductKubernetesFindingsPage />} />
             <Route path="kubernetes/remediation" element={<ProductKubernetesRemediationPage />} />
-            <Route path="reports" element={<ProductReportsPage />} />
+            <Route path="reports" element={<ProductExecutiveReportPage />} />
             <Route path="settings" element={<ProductSettingsPage />} />
             <Route path="settings/appearance" element={<ProductAppearanceSettingsPage />} />
           </Route>

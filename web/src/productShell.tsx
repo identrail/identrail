@@ -104,6 +104,7 @@ import {
   type AWSPermissionPreviewItem,
   type CurrentUserContext,
   type ExecutiveReport,
+  type ExecutiveReportDomain,
   type Finding as ApiFinding,
   type FindingLifecycleStatus,
   type GitHubConnectorStartResponse,
@@ -16823,54 +16824,6 @@ export function ProductGitHubRemediationPage() {
   );
 }
 
-export function ProductReportsPage() {
-  const params = useParams<ScopeRouteParams>();
-  const scope = resolveScopeFromParams(params);
-  const reportPath = scope ? buildScopedPath(scope, 'reports') : '/app';
-
-  return (
-    <section className="idt-app-panel idt-reports-page">
-      <header className="idt-settings-header">
-        <div>
-          <p className="idt-app-kicker">Reports</p>
-          <h2>Reports</h2>
-          <p>
-            Executive posture, trend narratives, and domain outcome reporting now live inside the scoped app instead of
-            being treated as a detached workspace artifact.
-          </p>
-        </div>
-        <div className="idt-inline-actions">
-          <Link className="idt-btn idt-btn-primary" to="/reports/executive">
-            Open executive report
-          </Link>
-        </div>
-      </header>
-      <div className="idt-domain-kpi-strip" aria-label="Report route readiness">
-        <article className="idt-domain-kpi is-success">
-          <span>Route</span>
-          <strong>Live</strong>
-          <p>{reportPath}</p>
-        </article>
-        <article className="idt-domain-kpi">
-          <span>Scope</span>
-          <strong>Domain</strong>
-          <p>AWS, GitHub, Kubernetes, and executive reporting can land here in later PRs.</p>
-        </article>
-        <article className="idt-domain-kpi">
-          <span>Output</span>
-          <strong>Board</strong>
-          <p>Designed for executive posture and remediation outcome summaries.</p>
-        </article>
-      </div>
-      <DomainStatusPanel eyebrow="Reporting foundation" title="Outcome views are staged" status="Staged" tone="success">
-        <p>
-          This route keeps the IA complete while the deeper executive outcome, domain coverage, and remediation reporting
-          experiences arrive in their planned sequence.
-        </p>
-      </DomainStatusPanel>
-    </section>
-  );
-}
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'idt:sidebar:collapsed';
 const SIDEBAR_WIDTH_STORAGE_KEY = 'idt:sidebar:width';
@@ -18561,11 +18514,38 @@ export function ProductOverviewPage() {
   );
 }
 
+// Domains the executive report can be scoped to. Empty string means "All".
+// Kept aligned with ExecutiveReportDomain in the API client + the server's
+// parseExecutiveReportDomain allowlist; unknown values are rejected server-side.
+const EXECUTIVE_REPORT_DOMAIN_OPTIONS: Array<{ value: ExecutiveReportDomain; label: string }> = [
+  { value: '', label: 'All' },
+  { value: 'aws', label: 'AWS' },
+  { value: 'github', label: 'GitHub' },
+  { value: 'kubernetes', label: 'Kubernetes' }
+];
+
+function normalizeExecutiveReportDomain(raw: string | null | undefined): ExecutiveReportDomain {
+  switch ((raw ?? '').toLowerCase()) {
+    case 'aws':
+      return 'aws';
+    case 'github':
+      return 'github';
+    case 'kubernetes':
+      return 'kubernetes';
+    default:
+      return '';
+  }
+}
+
 export function ProductExecutiveReportPage() {
   const { me, loading: sessionLoading, error: sessionError, unauthenticated } = useMe();
   const [report, setReport] = useState<ExecutiveReport | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const [reportError, setReportError] = useState('');
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Drive the active domain off the URL so deep links / refreshes preserve it.
+  const selectedDomain = normalizeExecutiveReportDomain(new URLSearchParams(location.search).get('domain'));
 
   useEffect(() => {
     if (!me?.org_id || !me.workspace_id) {
@@ -18577,10 +18557,10 @@ export function ProductExecutiveReportPage() {
       setLoadingReport(true);
       setReportError('');
       try {
-        const response = await apiClient.getExecutiveReport({
-          tenantID: me.org_id,
-          workspaceID: me.workspace_id
-        });
+        const response = await apiClient.getExecutiveReport(
+          { domain: selectedDomain },
+          { tenantID: me.org_id, workspaceID: me.workspace_id }
+        );
         if (mounted) {
           setReport(response);
         }
@@ -18606,7 +18586,21 @@ export function ProductExecutiveReportPage() {
     return () => {
       mounted = false;
     };
-  }, [me?.org_id, me?.workspace_id]);
+  }, [me?.org_id, me?.workspace_id, selectedDomain]);
+
+  const handleDomainChange = (next: ExecutiveReportDomain) => {
+    if (next === selectedDomain) {
+      return;
+    }
+    const params = new URLSearchParams(location.search);
+    if (next === '') {
+      params.delete('domain');
+    } else {
+      params.set('domain', next);
+    }
+    const search = params.toString();
+    navigate({ pathname: location.pathname, search: search ? `?${search}` : '' }, { replace: true });
+  };
 
   if (sessionLoading || loadingReport) {
     return <AppShellLoading message="Loading executive report" />;
@@ -18677,6 +18671,28 @@ export function ProductExecutiveReportPage() {
               <span aria-hidden="true">·</span>
               <span>Generated {formatDateLabel(report.generated_at)}</span>
             </p>
+          </div>
+          <div
+            className="idt-exec-report__domain"
+            role="tablist"
+            aria-label="Report domain"
+          >
+            {EXECUTIVE_REPORT_DOMAIN_OPTIONS.map((option) => {
+              const active = option.value === selectedDomain;
+              return (
+                <button
+                  key={option.value || 'all'}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className={`idt-exec-report__domain-tab${active ? ' is-active' : ''}`}
+                  onClick={() => handleDomainChange(option.value)}
+                  disabled={loadingReport && active}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
           </div>
           <div className="idt-exec-report__actions">
             <Link className="idt-btn idt-btn-ghost" to={appPath}>

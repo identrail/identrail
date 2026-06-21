@@ -270,6 +270,10 @@ export type TrendPoint = {
   by_severity: Record<string, number>;
 };
 
+// Domain filter accepted by /v1/enterprise/reports/executive. Empty string
+// means "all domains" (the default). Unknown values are rejected server-side.
+export type ExecutiveReportDomain = '' | 'aws' | 'github' | 'kubernetes';
+
 export type ExecutiveReport = {
   organization_id: string;
   generated_at: string;
@@ -6028,8 +6032,10 @@ export const apiClient = {
   ) {
     return request<{ items: TrendPoint[] }>(`/v1/repo-findings/trends${buildQuery(filters)}`, auth);
   },
-  getExecutiveReport(auth?: RequestAuthContext) {
-    return request<ExecutiveReport>('/v1/enterprise/reports/executive', auth);
+  getExecutiveReport(options?: { domain?: ExecutiveReportDomain }, auth?: RequestAuthContext) {
+    const domain = options?.domain ?? '';
+    const suffix = domain ? `?domain=${encodeURIComponent(domain)}` : '';
+    return request<ExecutiveReport>(`/v1/enterprise/reports/executive${suffix}`, auth);
   },
   listScans(auth?: RequestAuthContext) {
     return request<{ items: ScanRecord[] }>('/v1/scans?sort_by=started_at&sort_order=desc', auth);
