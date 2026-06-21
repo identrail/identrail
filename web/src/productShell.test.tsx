@@ -3382,6 +3382,84 @@ describe('Domain-first app routes', () => {
         diagnostics: []
       } as any
     });
+    const getPrivilegeEscalation = vi.spyOn(api.apiClient, 'getAWSProjectPrivilegeEscalation').mockResolvedValue({
+      findings: {
+        status: 'ready',
+        findings: [
+          {
+            finding_id: 'aws-privilege-escalation:security-admin',
+            calculation_version: 'aws-privilege-escalation-engine-v1',
+            escalation_type: 'passrole_unscoped_trust_path',
+            severity: 'critical',
+            status: 'action_required',
+            score: 92,
+            confidence: 0.92,
+            account_id: '123456789012',
+            region: 'us-east-1',
+            identity_node_id: 'aws:identity:security-admin',
+            principal_arn: 'arn:aws:iam::123456789012:role/security-admin',
+            target_node_id: '*',
+            target_label: '*',
+            display_name: 'security-admin',
+            rationale: 'Role can pass any role without iam:PassedToService scoping.',
+            exploitability: 'high',
+            runtime_context: 'static PassRole grant',
+            policy_sources: ['PassAny'],
+            impacted_nodes: ['aws:identity:security-admin', '*'],
+            impacted_path: [
+              { node_id: 'aws:identity:security-admin', node_type: 'identity', label: 'security-admin' },
+              { node_id: '*', node_type: 'iam_role', label: '*' }
+            ],
+            evidence: [
+              {
+                source: 'iam_passrole_relationship',
+                evidence_ref: 'evidence://passrole/security-admin',
+                label: 'IAM PassRole relationship',
+                confidence: 0.92,
+                observed_at: '2026-06-21T12:00:00Z',
+                relationship: 'can_pass_role'
+              }
+            ],
+            next_action: 'Constrain iam:PassRole to specific approved role ARNs and iam:PassedToService conditions.',
+            remediation_case: {
+              case_id: 'aws-privilege-escalation-preview:security-admin',
+              title: 'PassRole review',
+              recommended_action: 'Constrain iam:PassRole.',
+              approval_required: true,
+              blocking_evidence: ['evidence://passrole/security-admin'],
+              impacted_node_count: 2,
+              estimated_risk_drop: 40,
+              breakage_prediction: 'unknown',
+              read_only_projection: true
+            },
+            created_at: '2026-06-21T12:00:00Z',
+            updated_at: '2026-06-21T12:00:00Z'
+          }
+        ],
+        summary: {
+          total_findings: 1,
+          filtered_findings: 1,
+          critical_count: 1,
+          high_count: 0,
+          passrole_path_count: 1,
+          admin_equivalent_count: 0,
+          cross_account_path_count: 0,
+          relationship_count: 1,
+          highest_score: 92,
+          average_confidence_pct: 92,
+          remediation_preview_count: 1,
+          severity_counts: { critical: 1 },
+          status_counts: { action_required: 1 },
+          escalation_type_counts: { passrole_unscoped_trust_path: 1 }
+        },
+        relationships: [],
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
 
     const { ProductAWSRuntimePage } = await import('./productShell');
 
@@ -3403,7 +3481,15 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText(/Identity sprawl could not be calculated/i)).toBeInTheDocument();
     expect(screen.getByText(/live identity-bearing inventory is unavailable/i)).toBeInTheDocument();
     expect(screen.queryByText(/No identity sprawl detected/i)).not.toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS privilege escalation findings' })).toBeInTheDocument();
+    expect(screen.getByText(/Passrole unscoped trust path/i)).toBeInTheDocument();
     expect(getLeastPrivilege).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getPrivilegeEscalation).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       expect.objectContaining({ connectorID: 'aws-connector-1' }),

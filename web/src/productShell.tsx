@@ -63,6 +63,8 @@ import {
   type AWSUnusedDormantAccessResult,
   type AWSIdentitySprawlFinding,
   type AWSIdentitySprawlResult,
+  type AWSPrivilegeEscalationFinding,
+  type AWSPrivilegeEscalationResult,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
@@ -10695,6 +10697,134 @@ function awsIdentitySprawlEvidenceLabel(finding: AWSIdentitySprawlFinding): stri
   return `${formatConfidenceScore(finding.confidence)} · ${sources.join(', ') || 'No evidence refs'}`;
 }
 
+function awsPrivilegeEscalationStage(finding: AWSPrivilegeEscalationFinding): AWSCapabilityStage {
+  if (finding.status === 'action_required' || finding.severity === 'critical') {
+    return 'not-available';
+  }
+  if (finding.severity === 'high') {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsPrivilegeEscalationLabel(finding: AWSPrivilegeEscalationFinding): string {
+  return `${formatTokenLabel(finding.escalation_type)} · score ${finding.score}`;
+}
+
+function awsPrivilegeEscalationPathLabel(finding: AWSPrivilegeEscalationFinding): string {
+  const labels = finding.impacted_path.map((step) => step.label || step.node_id).filter(Boolean);
+  if (labels.length >= 2) {
+    return labels.slice(0, 3).join(' -> ');
+  }
+  return finding.target_label || finding.target_node_id || '-';
+}
+
+function awsPrivilegeEscalationEvidenceLabel(finding: AWSPrivilegeEscalationFinding): string {
+  const sources = finding.evidence.map((evidence) => evidence.label || formatTokenLabel(evidence.source));
+  return `${formatConfidenceScore(finding.confidence)} · ${sources.join(', ') || 'No evidence refs'}`;
+}
+
+function AWSPrivilegeEscalationContent({
+  findings,
+  loading,
+  error,
+  onRetry
+}: {
+  findings: AWSPrivilegeEscalationResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = findings?.findings ?? [];
+  const summaryLine = findings
+    ? `${findings.summary.critical_count} critical · ${findings.summary.passrole_path_count} PassRole · ${findings.summary.admin_equivalent_count} admin-equivalent · ${findings.summary.cross_account_path_count} cross-account`
+    : '';
+  const emptyState = findings
+    ? findings.status === 'blocked'
+      ? {
+          eyebrow: 'Permission required',
+          title: 'Privilege escalation analysis needs read-only evidence access',
+          body: findings.failure_reasons[0] ?? 'Privilege escalation paths cannot be calculated until read-only AWS evidence is available.'
+        }
+      : findings.status === 'degraded'
+        ? {
+            eyebrow: 'Evidence incomplete',
+            title: 'Privilege escalation paths are incomplete',
+            body:
+              findings.failure_reasons[0] ??
+              findings.remediation_hints[0] ??
+              'Some source evidence is unavailable, so Identrail cannot prove whether all escalation paths are covered yet.'
+          }
+        : {
+            eyebrow: 'No escalation paths',
+            title: 'No privilege escalation paths detected',
+            body: 'No PassRole, admin-equivalent, policy attachment, trust, or cross-account paths matched this scope.'
+          }
+    : null;
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS privilege escalation findings">
+      <h3>AWS privilege escalation paths</h3>
+      <p className="idt-app-kicker">
+        Ranked escalation paths across PassRole, policy attachment, trust, admin-equivalent KMS/secrets grants, and
+        cross-account graph evidence.{summaryLine ? ` ${summaryLine}` : ''}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load privilege escalation findings"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Calculating privilege escalation paths"
+          body="Identrail is ranking metadata-only escalation paths from IAM, resource policy, runtime, and graph evidence."
+        />
+      ) : null}
+      {!error && !loading && findings && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={emptyState?.eyebrow ?? 'No escalation paths'}
+          title={emptyState?.title ?? 'No privilege escalation paths detected'}
+          body={emptyState?.body ?? 'No PassRole, admin-equivalent, policy attachment, trust, or cross-account paths matched this scope.'}
+        />
+      ) : null}
+      {!error && !loading && findings && findings.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {findings.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS privilege escalation findings"
+          rows={rows}
+          getRowKey={(row) => row.finding_id}
+          columns={[
+            { key: 'finding', header: 'Finding', render: (row) => <strong>{awsPrivilegeEscalationLabel(row)}</strong> },
+            { key: 'identity', header: 'Identity', render: (row) => row.principal_arn || row.display_name || row.identity_node_id },
+            { key: 'target', header: 'Target', render: (row) => row.target_label || row.target_node_id || '-' },
+            { key: 'path', header: 'Path', render: (row) => awsPrivilegeEscalationPathLabel(row) },
+            { key: 'evidence', header: 'Evidence', render: (row) => awsPrivilegeEscalationEvidenceLabel(row) },
+            {
+              key: 'exploitability',
+              header: 'Exploitability',
+              render: (row) => (
+                <AWSInventoryPill
+                  stage={awsPrivilegeEscalationStage(row)}
+                  label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.exploitability)}`}
+                />
+              )
+            },
+            { key: 'next', header: 'Next action', render: (row) => row.next_action }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function AWSIdentitySprawlContent({
   findings,
   loading,
@@ -11415,6 +11545,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [identitySprawlLoading, setIdentitySprawlLoading] = useState(false);
   const [identitySprawlError, setIdentitySprawlError] = useState('');
   const identitySprawlRequestRef = useRef(0);
+  const [privilegeEscalation, setPrivilegeEscalation] = useState<AWSPrivilegeEscalationResult | null>(null);
+  const [privilegeEscalationLoading, setPrivilegeEscalationLoading] = useState(false);
+  const [privilegeEscalationError, setPrivilegeEscalationError] = useState('');
+  const privilegeEscalationRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -11814,6 +11948,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadIdentitySprawl]);
 
+  const loadPrivilegeEscalation = useCallback(async () => {
+    const requestID = ++privilegeEscalationRequestRef.current;
+    setPrivilegeEscalation(null);
+    setPrivilegeEscalationError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setPrivilegeEscalationLoading(false);
+      return;
+    }
+    setPrivilegeEscalationLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectPrivilegeEscalation(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== privilegeEscalationRequestRef.current) {
+        return;
+      }
+      setPrivilegeEscalation(response.findings);
+    } catch (error) {
+      if (requestID !== privilegeEscalationRequestRef.current) {
+        return;
+      }
+      setPrivilegeEscalationError(formatAPIError(error, 'Unable to load AWS privilege escalation findings.'));
+    } finally {
+      if (requestID === privilegeEscalationRequestRef.current) {
+        setPrivilegeEscalationLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadPrivilegeEscalation();
+    return () => {
+      privilegeEscalationRequestRef.current += 1;
+    };
+  }, [loadPrivilegeEscalation]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -11961,6 +12143,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={identitySprawlLoading}
             error={identitySprawlError}
             onRetry={loadIdentitySprawl}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSPrivilegeEscalationContent
+            findings={privilegeEscalation}
+            loading={privilegeEscalationLoading}
+            error={privilegeEscalationError}
+            onRetry={loadPrivilegeEscalation}
           />
         ) : null}
         {routeID === 'graph' ? (
