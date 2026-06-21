@@ -160,16 +160,26 @@ type awsCrossAccountTrustGrantInput struct {
 	effect            string
 	actions           []string
 	capabilities      []string
+	notAction         bool
 	conditionKeys     []string
 	hasCondition      bool
 	publicPrincipal   bool
 	crossAccount      bool
 	wildcardPrincipal bool
 	statementSid      string
+	denyGrants        []awsCrossAccountTrustExplicitDenyGrant
 	evidenceRef       string
 	confidence        float64
 	observedAt        time.Time
 	status            string
+}
+
+type awsCrossAccountTrustExplicitDenyGrant struct {
+	principalARN      string
+	wildcardPrincipal bool
+	actions           []string
+	capabilities      []string
+	notAction         bool
 }
 
 func (s *Service) GetAWSCrossAccountTrust(ctx context.Context, workspaceID string, projectID string, request AWSCrossAccountTrustRequest) (AWSCrossAccountTrustResult, error) {
@@ -310,42 +320,47 @@ func awsCrossAccountTrustFindings(sources awsCrossAccountTrustSources, now time.
 	accounts := awsCrossAccountTrustOrganizationAccounts(sources.organizations)
 	findings := []AWSCrossAccountTrustFinding{}
 	for _, record := range sources.s3.Records {
+		denyGrants := awsCrossAccountTrustDenyGrantsFromS3(record.IdentityGrants)
 		for _, grant := range record.IdentityGrants {
 			findings = append(findings, awsCrossAccountTrustFindingFromGrant(awsCrossAccountTrustGrantInput{
-				source: "s3_bucket_reachability", service: "s3", resourceType: "s3_bucket", resourceARN: record.BucketARN, resourceNodeID: record.FromNodeID, resourceLabel: firstNonEmptyAWSValue(record.BucketName, record.BucketARN), accountID: record.AccountID, region: record.Region, principalARN: grant.PrincipalARN, effect: grant.Effect, actions: grant.Actions, conditionKeys: grant.ConditionKeys, hasCondition: grant.HasCondition, publicPrincipal: grant.IsPublic, crossAccount: grant.IsCrossAccount, wildcardPrincipal: grant.WildcardPrincipal, statementSid: grant.StatementSid, evidenceRef: record.EvidenceRef, confidence: record.Confidence, observedAt: record.CollectedAt, status: record.Status,
+				source: "s3_bucket_reachability", service: "s3", resourceType: "s3_bucket", resourceARN: record.BucketARN, resourceNodeID: record.FromNodeID, resourceLabel: firstNonEmptyAWSValue(record.BucketName, record.BucketARN), accountID: record.AccountID, region: record.Region, principalARN: grant.PrincipalARN, effect: grant.Effect, actions: grant.Actions, notAction: grant.NotAction, conditionKeys: grant.ConditionKeys, hasCondition: grant.HasCondition, publicPrincipal: grant.IsPublic, crossAccount: grant.IsCrossAccount, wildcardPrincipal: grant.WildcardPrincipal, statementSid: grant.StatementSid, denyGrants: denyGrants, evidenceRef: record.EvidenceRef, confidence: record.Confidence, observedAt: record.CollectedAt, status: record.Status,
 			}, accounts, now)...)
 		}
 	}
 	for _, record := range sources.kms.Records {
+		denyGrants := awsCrossAccountTrustDenyGrantsFromKMS(record.IdentityGrants)
 		for _, grant := range record.IdentityGrants {
 			findings = append(findings, awsCrossAccountTrustFindingFromGrant(awsCrossAccountTrustGrantInput{
-				source: "kms_decrypt_reachability", service: "kms", resourceType: "kms_key", resourceARN: record.KeyARN, resourceNodeID: record.FromNodeID, resourceLabel: firstNonEmptyAWSValue(record.Description, firstString(record.Aliases), record.KeyARN, record.KeyID), accountID: record.AccountID, region: record.Region, principalARN: grant.PrincipalARN, effect: grant.Effect, actions: grant.Actions, capabilities: grant.Capabilities, conditionKeys: grant.ConditionKeys, hasCondition: grant.HasCondition, publicPrincipal: grant.IsPublic, crossAccount: grant.IsCrossAccount, wildcardPrincipal: grant.WildcardPrincipal, statementSid: grant.StatementSid, evidenceRef: record.EvidenceRef, confidence: record.Confidence, observedAt: record.CollectedAt, status: record.Status,
+				source: "kms_decrypt_reachability", service: "kms", resourceType: "kms_key", resourceARN: record.KeyARN, resourceNodeID: record.FromNodeID, resourceLabel: firstNonEmptyAWSValue(record.Description, firstString(record.Aliases), record.KeyARN, record.KeyID), accountID: record.AccountID, region: record.Region, principalARN: grant.PrincipalARN, effect: grant.Effect, actions: grant.Actions, capabilities: grant.Capabilities, notAction: grant.NotAction, conditionKeys: grant.ConditionKeys, hasCondition: grant.HasCondition, publicPrincipal: grant.IsPublic, crossAccount: grant.IsCrossAccount, wildcardPrincipal: grant.WildcardPrincipal, statementSid: grant.StatementSid, denyGrants: denyGrants, evidenceRef: record.EvidenceRef, confidence: record.Confidence, observedAt: record.CollectedAt, status: record.Status,
 			}, accounts, now)...)
 		}
 		for _, grant := range record.Grants {
 			findings = append(findings, awsCrossAccountTrustFindingFromGrant(awsCrossAccountTrustGrantInput{
-				source: "kms_live_grant", service: "kms", resourceType: "kms_key", resourceARN: record.KeyARN, resourceNodeID: record.FromNodeID, resourceLabel: firstNonEmptyAWSValue(record.Description, firstString(record.Aliases), record.KeyARN, record.KeyID), accountID: record.AccountID, region: record.Region, principalARN: grant.GranteePrincipal, effect: "Allow", actions: grant.Operations, capabilities: grant.Capabilities, conditionKeys: append(append([]string{}, grant.EncryptionContextKeys...), grant.EncryptionContextSubsetKeys...), hasCondition: grant.HasConstraints, crossAccount: grant.IsCrossAccount, evidenceRef: record.EvidenceRef, confidence: record.Confidence, observedAt: record.CollectedAt, status: record.Status,
+				source: "kms_live_grant", service: "kms", resourceType: "kms_key", resourceARN: record.KeyARN, resourceNodeID: record.FromNodeID, resourceLabel: firstNonEmptyAWSValue(record.Description, firstString(record.Aliases), record.KeyARN, record.KeyID), accountID: record.AccountID, region: record.Region, principalARN: grant.GranteePrincipal, effect: "Allow", actions: grant.Operations, capabilities: grant.Capabilities, conditionKeys: append(append([]string{}, grant.EncryptionContextKeys...), grant.EncryptionContextSubsetKeys...), hasCondition: grant.HasConstraints, crossAccount: grant.IsCrossAccount, denyGrants: denyGrants, evidenceRef: record.EvidenceRef, confidence: record.Confidence, observedAt: record.CollectedAt, status: record.Status,
 			}, accounts, now)...)
 		}
 	}
 	for _, record := range sources.secrets.Records {
+		denyGrants := awsCrossAccountTrustDenyGrantsFromSecrets(record.IdentityGrants)
 		for _, grant := range record.IdentityGrants {
 			findings = append(findings, awsCrossAccountTrustFindingFromGrant(awsCrossAccountTrustGrantInput{
-				source: "secrets_manager_metadata", service: "secretsmanager", resourceType: "secret", resourceARN: record.SecretARN, resourceNodeID: record.FromNodeID, resourceLabel: firstNonEmptyAWSValue(record.SecretName, record.SecretARN), accountID: record.AccountID, region: record.Region, principalARN: grant.PrincipalARN, effect: grant.Effect, actions: grant.Actions, conditionKeys: grant.ConditionKeys, hasCondition: grant.HasCondition, publicPrincipal: grant.IsPublic, crossAccount: grant.IsCrossAccount, wildcardPrincipal: grant.WildcardPrincipal, statementSid: grant.StatementSid, evidenceRef: record.EvidenceRef, confidence: record.Confidence, observedAt: record.CollectedAt, status: record.Status,
+				source: "secrets_manager_metadata", service: "secretsmanager", resourceType: "secret", resourceARN: record.SecretARN, resourceNodeID: record.FromNodeID, resourceLabel: firstNonEmptyAWSValue(record.SecretName, record.SecretARN), accountID: record.AccountID, region: record.Region, principalARN: grant.PrincipalARN, effect: grant.Effect, actions: grant.Actions, conditionKeys: grant.ConditionKeys, hasCondition: grant.HasCondition, publicPrincipal: grant.IsPublic, crossAccount: grant.IsCrossAccount, wildcardPrincipal: grant.WildcardPrincipal, statementSid: grant.StatementSid, denyGrants: denyGrants, evidenceRef: record.EvidenceRef, confidence: record.Confidence, observedAt: record.CollectedAt, status: record.Status,
 			}, accounts, now)...)
 		}
 	}
 	for _, record := range sources.sqsSNS.Records {
+		denyGrants := awsCrossAccountTrustDenyGrantsFromSQSSNS(record.IdentityGrants)
 		for _, grant := range record.IdentityGrants {
 			findings = append(findings, awsCrossAccountTrustFindingFromGrant(awsCrossAccountTrustGrantInput{
-				source: "sqs_sns_reachability", service: record.Service, resourceType: record.ResourceType, resourceARN: record.ResourceARN, resourceNodeID: record.FromNodeID, resourceLabel: firstNonEmptyAWSValue(record.ResourceName, record.ResourceARN), accountID: record.AccountID, region: record.Region, principalARN: grant.PrincipalARN, effect: grant.Effect, actions: grant.Actions, capabilities: grant.Capabilities, conditionKeys: grant.ConditionKeys, hasCondition: grant.HasCondition, publicPrincipal: grant.IsPublic, crossAccount: grant.IsCrossAccount, wildcardPrincipal: grant.WildcardPrincipal, statementSid: grant.StatementSid, evidenceRef: record.EvidenceRef, confidence: record.Confidence, observedAt: record.CollectedAt, status: record.Status,
+				source: "sqs_sns_reachability", service: record.Service, resourceType: record.ResourceType, resourceARN: record.ResourceARN, resourceNodeID: record.FromNodeID, resourceLabel: firstNonEmptyAWSValue(record.ResourceName, record.ResourceARN), accountID: record.AccountID, region: record.Region, principalARN: grant.PrincipalARN, effect: grant.Effect, actions: grant.Actions, capabilities: grant.Capabilities, notAction: grant.NotAction, conditionKeys: grant.ConditionKeys, hasCondition: grant.HasCondition, publicPrincipal: grant.IsPublic, crossAccount: grant.IsCrossAccount, wildcardPrincipal: grant.WildcardPrincipal, statementSid: grant.StatementSid, denyGrants: denyGrants, evidenceRef: record.EvidenceRef, confidence: record.Confidence, observedAt: record.CollectedAt, status: record.Status,
 			}, accounts, now)...)
 		}
 	}
 	for _, record := range sources.dynamoRDS.Records {
+		denyGrants := awsCrossAccountTrustDenyGrantsFromDynamoRDS(record.IdentityGrants)
 		for _, grant := range record.IdentityGrants {
 			findings = append(findings, awsCrossAccountTrustFindingFromGrant(awsCrossAccountTrustGrantInput{
-				source: "dynamodb_rds_reachability", service: record.Service, resourceType: record.ResourceType, resourceARN: record.ResourceARN, resourceNodeID: record.FromNodeID, resourceLabel: firstNonEmptyAWSValue(record.ResourceName, record.ResourceARN), accountID: record.AccountID, region: record.Region, principalARN: grant.PrincipalARN, effect: grant.Effect, actions: grant.Actions, capabilities: grant.Capabilities, conditionKeys: grant.ConditionKeys, hasCondition: grant.HasCondition, publicPrincipal: grant.IsPublic, crossAccount: grant.IsCrossAccount, wildcardPrincipal: grant.WildcardPrincipal, statementSid: grant.StatementSid, evidenceRef: record.EvidenceRef, confidence: record.Confidence, observedAt: record.CollectedAt, status: record.Status,
+				source: "dynamodb_rds_reachability", service: record.Service, resourceType: record.ResourceType, resourceARN: record.ResourceARN, resourceNodeID: record.FromNodeID, resourceLabel: firstNonEmptyAWSValue(record.ResourceName, record.ResourceARN), accountID: record.AccountID, region: record.Region, principalARN: grant.PrincipalARN, effect: grant.Effect, actions: grant.Actions, capabilities: grant.Capabilities, notAction: grant.NotAction, conditionKeys: grant.ConditionKeys, hasCondition: grant.HasCondition, publicPrincipal: grant.IsPublic, crossAccount: grant.IsCrossAccount, wildcardPrincipal: grant.WildcardPrincipal, statementSid: grant.StatementSid, denyGrants: denyGrants, evidenceRef: record.EvidenceRef, confidence: record.Confidence, observedAt: record.CollectedAt, status: record.Status,
 			}, accounts, now)...)
 		}
 	}
@@ -369,6 +384,9 @@ func awsCrossAccountTrustFindings(sources awsCrossAccountTrustSources, now time.
 
 func awsCrossAccountTrustFindingFromGrant(input awsCrossAccountTrustGrantInput, accounts map[string]AWSOrganizationsTopologyAccount, now time.Time) []AWSCrossAccountTrustFinding {
 	if !strings.EqualFold(firstNonEmptyAWSValue(input.effect, "Allow"), "Allow") {
+		return nil
+	}
+	if awsCrossAccountTrustGrantHasExplicitDeny(input) {
 		return nil
 	}
 	input.publicPrincipal = input.publicPrincipal || input.wildcardPrincipal || strings.TrimSpace(input.principalARN) == "*"
@@ -440,6 +458,157 @@ func awsCrossAccountTrustFindingFromGrant(input awsCrossAccountTrustGrantInput, 
 		UpdatedAt:       now,
 	}
 	return []AWSCrossAccountTrustFinding{finding}
+}
+
+func awsCrossAccountTrustGrantHasExplicitDeny(input awsCrossAccountTrustGrantInput) bool {
+	if input.notAction {
+		return false
+	}
+	for _, deny := range input.denyGrants {
+		if !awsPrivilegeEscalationIdentityGrantPrincipalsMatch(input.principalARN, deny.principalARN, deny.wildcardPrincipal) {
+			continue
+		}
+		if awsCrossAccountTrustActionsFullyDenied(input.service, input.actions, input.capabilities, deny.actions, deny.capabilities, deny.notAction) {
+			return true
+		}
+	}
+	return false
+}
+
+func awsCrossAccountTrustActionsFullyDenied(service string, allowActions []string, allowCapabilities []string, denyActions []string, denyCapabilities []string, denyNotAction bool) bool {
+	allow := awsCrossAccountTrustNormalizePolicyActions(service, allowActions, allowCapabilities)
+	deny := awsCrossAccountTrustNormalizePolicyActions(service, denyActions, denyCapabilities)
+	if len(allow) == 0 {
+		return len(deny) == 0 || (denyNotAction && !awsCrossAccountTrustActionCoveredByAny("", deny))
+	}
+	for _, action := range allow {
+		if denyNotAction {
+			if awsCrossAccountTrustActionCoveredByAny(action, deny) {
+				return false
+			}
+			continue
+		}
+		if !awsCrossAccountTrustActionCoveredByAny(action, deny) {
+			return false
+		}
+	}
+	return true
+}
+
+func awsCrossAccountTrustNormalizePolicyActions(service string, actions []string, capabilities []string) []string {
+	out := []string{}
+	normalizedService := normalizeAWSRuntimeEventFilterToken(service)
+	appendAction := func(action string) {
+		trimmed := strings.ToLower(strings.TrimSpace(action))
+		if trimmed == "" {
+			return
+		}
+		out = append(out, trimmed)
+		if normalizedService != "" && !strings.Contains(trimmed, ":") {
+			out = append(out, normalizedService+":"+trimmed)
+		}
+	}
+	for _, action := range actions {
+		appendAction(action)
+	}
+	for _, capability := range capabilities {
+		appendAction(capability)
+	}
+	return dedupeStrings(out)
+}
+
+func awsCrossAccountTrustActionCoveredByAny(action string, patterns []string) bool {
+	for _, pattern := range patterns {
+		trimmedPattern := strings.ToLower(strings.TrimSpace(pattern))
+		trimmedAction := strings.ToLower(strings.TrimSpace(action))
+		if trimmedPattern == "" {
+			continue
+		}
+		if trimmedAction == "" {
+			return trimmedPattern == "*"
+		}
+		if awsActionPatternMatches(trimmedPattern, trimmedAction) {
+			return true
+		}
+	}
+	return false
+}
+
+func awsCrossAccountTrustDenyGrantsFromS3(grants []AWSS3IdentityGrant) []awsCrossAccountTrustExplicitDenyGrant {
+	out := []awsCrossAccountTrustExplicitDenyGrant{}
+	for _, grant := range grants {
+		if strings.EqualFold(grant.Effect, "Deny") {
+			out = append(out, awsCrossAccountTrustExplicitDenyGrant{
+				principalARN:      grant.PrincipalARN,
+				wildcardPrincipal: grant.WildcardPrincipal,
+				actions:           grant.Actions,
+				notAction:         grant.NotAction,
+			})
+		}
+	}
+	return out
+}
+
+func awsCrossAccountTrustDenyGrantsFromKMS(grants []AWSKMSIdentityGrant) []awsCrossAccountTrustExplicitDenyGrant {
+	out := []awsCrossAccountTrustExplicitDenyGrant{}
+	for _, grant := range grants {
+		if strings.EqualFold(grant.Effect, "Deny") {
+			out = append(out, awsCrossAccountTrustExplicitDenyGrant{
+				principalARN:      grant.PrincipalARN,
+				wildcardPrincipal: grant.WildcardPrincipal,
+				actions:           grant.Actions,
+				capabilities:      grant.Capabilities,
+				notAction:         grant.NotAction,
+			})
+		}
+	}
+	return out
+}
+
+func awsCrossAccountTrustDenyGrantsFromSecrets(grants []AWSSecretsManagerIdentityGrant) []awsCrossAccountTrustExplicitDenyGrant {
+	out := []awsCrossAccountTrustExplicitDenyGrant{}
+	for _, grant := range grants {
+		if strings.EqualFold(grant.Effect, "Deny") {
+			out = append(out, awsCrossAccountTrustExplicitDenyGrant{
+				principalARN:      grant.PrincipalARN,
+				wildcardPrincipal: grant.WildcardPrincipal,
+				actions:           grant.Actions,
+			})
+		}
+	}
+	return out
+}
+
+func awsCrossAccountTrustDenyGrantsFromSQSSNS(grants []AWSSQSSNSIdentityGrant) []awsCrossAccountTrustExplicitDenyGrant {
+	out := []awsCrossAccountTrustExplicitDenyGrant{}
+	for _, grant := range grants {
+		if strings.EqualFold(grant.Effect, "Deny") {
+			out = append(out, awsCrossAccountTrustExplicitDenyGrant{
+				principalARN:      grant.PrincipalARN,
+				wildcardPrincipal: grant.WildcardPrincipal,
+				actions:           grant.Actions,
+				capabilities:      grant.Capabilities,
+				notAction:         grant.NotAction,
+			})
+		}
+	}
+	return out
+}
+
+func awsCrossAccountTrustDenyGrantsFromDynamoRDS(grants []AWSDynamoDBRDSIdentityGrant) []awsCrossAccountTrustExplicitDenyGrant {
+	out := []awsCrossAccountTrustExplicitDenyGrant{}
+	for _, grant := range grants {
+		if strings.EqualFold(grant.Effect, "Deny") {
+			out = append(out, awsCrossAccountTrustExplicitDenyGrant{
+				principalARN:      grant.PrincipalARN,
+				wildcardPrincipal: grant.WildcardPrincipal,
+				actions:           grant.Actions,
+				capabilities:      grant.Capabilities,
+				notAction:         grant.NotAction,
+			})
+		}
+	}
+	return out
 }
 
 func awsCrossAccountTrustFindingFromRuntimeAssumption(record AWSRuntimeEventRecord, accounts map[string]AWSOrganizationsTopologyAccount, now time.Time) (AWSCrossAccountTrustFinding, bool) {

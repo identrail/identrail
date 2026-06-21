@@ -102,6 +102,77 @@ func TestGetAWSCrossAccountTrustFiltersByTypeServicePrincipalAndResource(t *test
 	}
 }
 
+func TestAWSCrossAccountTrustFindingsSuppressExplicitDenyOverrides(t *testing.T) {
+	now := time.Date(2026, 6, 21, 13, 7, 0, 0, time.UTC)
+	fullyDeniedPrincipal := "arn:aws:iam::999999999999:role/fully-denied"
+	partiallyDeniedPrincipal := "arn:aws:iam::999999999999:role/partially-denied"
+	publicBucket := "arn:aws:s3:::public-denied"
+	findings := awsCrossAccountTrustFindings(awsCrossAccountTrustSources{
+		s3: AWSS3BucketReachabilityInventoryResult{Records: []AWSS3BucketReachabilityRecord{
+			{
+				AccountID:   "123456789012",
+				Region:      "us-east-1",
+				BucketARN:   "arn:aws:s3:::fully-denied",
+				BucketName:  "fully-denied",
+				FromNodeID:  "aws:s3:fully-denied",
+				EvidenceRef: "aws-evidence://s3/fully-denied",
+				Confidence:  0.9,
+				CollectedAt: now,
+				IdentityGrants: []AWSS3IdentityGrant{
+					{PrincipalARN: fullyDeniedPrincipal, Effect: "Allow", Actions: []string{"s3:GetObject"}, IsCrossAccount: true},
+					{PrincipalARN: fullyDeniedPrincipal, Effect: "Deny", Actions: []string{"s3:GetObject"}},
+				},
+			},
+			{
+				AccountID:   "123456789012",
+				Region:      "us-east-1",
+				BucketARN:   "arn:aws:s3:::partially-denied",
+				BucketName:  "partially-denied",
+				FromNodeID:  "aws:s3:partially-denied",
+				EvidenceRef: "aws-evidence://s3/partially-denied",
+				Confidence:  0.9,
+				CollectedAt: now,
+				IdentityGrants: []AWSS3IdentityGrant{
+					{PrincipalARN: partiallyDeniedPrincipal, Effect: "Allow", Actions: []string{"s3:GetObject", "s3:PutObject"}, IsCrossAccount: true},
+					{PrincipalARN: partiallyDeniedPrincipal, Effect: "Deny", Actions: []string{"s3:GetObject"}},
+				},
+			},
+			{
+				AccountID:   "123456789012",
+				Region:      "us-east-1",
+				BucketARN:   publicBucket,
+				BucketName:  "public-denied",
+				FromNodeID:  "aws:s3:public-denied",
+				EvidenceRef: "aws-evidence://s3/public-denied",
+				Confidence:  0.9,
+				CollectedAt: now,
+				IdentityGrants: []AWSS3IdentityGrant{
+					{PrincipalARN: "*", Effect: "Allow", Actions: []string{"s3:GetObject"}, IsPublic: true, WildcardPrincipal: true},
+					{PrincipalARN: "*", Effect: "Deny", Actions: []string{"s3:*"}, WildcardPrincipal: true},
+				},
+			},
+		}},
+	}, now)
+
+	for _, finding := range findings {
+		if finding.ExternalPrincipalARN == fullyDeniedPrincipal {
+			t.Fatalf("fully denied external grant should not produce a finding: %+v", finding)
+		}
+		if finding.ResourceARN == publicBucket {
+			t.Fatalf("wildcard public grant fully denied by wildcard Deny should not produce a finding: %+v", finding)
+		}
+	}
+	foundPartial := false
+	for _, finding := range findings {
+		if finding.ExternalPrincipalARN == partiallyDeniedPrincipal {
+			foundPartial = true
+		}
+	}
+	if !foundPartial {
+		t.Fatalf("partial Deny should not suppress the remaining allowed cross-account grant: %+v", findings)
+	}
+}
+
 func TestGetAWSCrossAccountTrustFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 21, 13, 10, 0, 0, time.UTC)
 	svc, ws := newCrossAccountTrustService(t, "project-cross-account-trust-states", now)
