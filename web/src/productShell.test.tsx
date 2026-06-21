@@ -5415,6 +5415,9 @@ describe('GitHub domain pages (#1382)', () => {
       webhook_url: '/auth/webhooks/github',
       expires_at: '2026-05-17T10:10:00Z'
     });
+    const upsertGitHubPATConnector = vi
+      .spyOn(api.apiClient, 'upsertGitHubPATConnector')
+      .mockResolvedValue({ connection: connectedGitHubPAT });
 
     const productShell = await import('./productShell');
     const page =
@@ -5451,6 +5454,7 @@ describe('GitHub domain pages (#1382)', () => {
       listProjectScanPolicies,
       upsertProjectScanPolicy,
       deleteProjectScanPolicy,
+      upsertGitHubPATConnector,
       getGitHubConnectorRepositoryPosture
     };
   }
@@ -5684,6 +5688,127 @@ describe('GitHub domain pages (#1382)', () => {
     expect(enterpriseButtons.length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /Save enterprise fallback/i })).toBeInTheDocument();
     openSpy.mockRestore();
+  });
+
+  it('Connect page resets Enterprise PAT drafts when environments change before submit', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockResolvedValue({ items: [] });
+    const upsertGitHubPATConnector = vi
+      .spyOn(api.apiClient, 'upsertGitHubPATConnector')
+      .mockResolvedValue({ connection: connectedGitHubPAT });
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click((await screen.findAllByRole('button', { name: /Manage Enterprise \/ PAT/i }))[0]);
+    fireEvent.change(await screen.findByLabelText(/Enterprise base URL/i), {
+      target: { value: 'https://github.production.example' }
+    });
+    fireEvent.change(screen.getByLabelText(/Display name/i), { target: { value: 'Production GHES' } });
+    fireEvent.change(screen.getByLabelText(/Personal access token/i), { target: { value: 'production-token' } });
+    fireEvent.change(screen.getByLabelText(/Repository allowlist/i), { target: { value: 'prod/repo' } });
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+
+    await waitFor(() => expect(screen.getByLabelText(/Personal access token/i)).toHaveValue(''));
+    expect(screen.getByLabelText(/Enterprise base URL/i)).toHaveValue('');
+    expect(screen.getByLabelText(/Display name/i)).toHaveValue('');
+    expect(screen.getByLabelText(/Repository allowlist/i)).toHaveValue('');
+
+    fireEvent.click(screen.getByRole('button', { name: /Save enterprise fallback/i }));
+
+    expect(upsertGitHubPATConnector).not.toHaveBeenCalled();
+  });
+
+  it('Connect page ignores stale Enterprise PAT saves after environment changes', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const patSave = deferred<{ connection: GitHubConnectionStatus }>();
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockResolvedValue({ items: [] });
+    const upsertGitHubPATConnector = vi
+      .spyOn(api.apiClient, 'upsertGitHubPATConnector')
+      .mockImplementation(() => patSave.promise);
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click((await screen.findAllByRole('button', { name: /Manage Enterprise \/ PAT/i }))[0]);
+    fireEvent.change(await screen.findByLabelText(/Enterprise base URL/i), {
+      target: { value: 'https://github.production.example' }
+    });
+    fireEvent.change(screen.getByLabelText(/Display name/i), { target: { value: 'Production GHES' } });
+    fireEvent.change(screen.getByLabelText(/Personal access token/i), { target: { value: 'production-token' } });
+    fireEvent.change(screen.getByLabelText(/Repository allowlist/i), { target: { value: 'prod/repo' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save enterprise fallback/i }));
+
+    await waitFor(() =>
+      expect(upsertGitHubPATConnector).toHaveBeenCalledWith(
+        expect.objectContaining({
+          project_id: 'production-platform',
+          base_url: 'https://github.production.example',
+          token: 'production-token',
+          selected_repositories: ['prod/repo']
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+    await waitFor(() => expect(screen.getByLabelText(/Personal access token/i)).toHaveValue(''));
+
+    await act(async () => {
+      patSave.resolve({ connection: connectedGitHubPAT });
+    });
+
+    expect(screen.queryByText(/GitHub Enterprise connector validated and saved/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Personal access token/i)).toHaveValue('');
   });
 
   it('Repositories page launches a scan via the existing API', async () => {

@@ -350,6 +350,7 @@ const DOMAIN_NAV_ORDER: SourceProvider[] = ['aws', 'github', 'kubernetes'];
 const SHOULD_LOAD_CONNECTOR_BACKEND_FEATURES = FEATURE_CONNECTOR_GITHUB_V2 || FEATURE_CONNECTOR_K8S;
 const SOURCE_STACK: SourceProvider[] = [...SOURCE_ORDER];
 const SCAN_POLICY_TRIGGER_MODES: ScanTriggerMode[] = ['manual', 'scheduled', 'event', 'hybrid'];
+const createDefaultGitHubPATForm = () => ({ displayName: '', baseURL: '', token: '', repositories: '' });
 const createDefaultScanPolicyForm = () => ({
   policyID: 'default',
   name: 'Default policy',
@@ -15408,12 +15409,14 @@ export function ProductGitHubConnectPage() {
   const scanPolicySaveRequestRef = useRef(0);
   const scanPolicyDeleteRequestRef = useRef(0);
   const selectedScanPolicyEnvironmentRef = useRef(selectedEnvironmentID);
+  const patSubmitRequestRef = useRef(0);
+  const selectedPATEnvironmentRef = useRef(selectedEnvironmentID);
   selectedScanPolicyEnvironmentRef.current = selectedEnvironmentID;
   const [installError, setInstallError] = useState('');
   const [installing, setInstalling] = useState(false);
   const [pendingInstallURL, setPendingInstallURL] = useState('');
   const [enterpriseOpen, setEnterpriseOpen] = useState(false);
-  const [patForm, setPATForm] = useState({ displayName: '', baseURL: '', token: '', repositories: '' });
+  const [patForm, setPATForm] = useState(createDefaultGitHubPATForm);
   const [patError, setPATError] = useState('');
   const [patSuccess, setPATSuccess] = useState('');
   const [patSubmitting, setPATSubmitting] = useState(false);
@@ -15486,6 +15489,15 @@ export function ProductGitHubConnectPage() {
   useEffect(() => {
     void loadScanPolicies();
   }, [loadScanPolicies]);
+
+  useEffect(() => {
+    selectedPATEnvironmentRef.current = selectedEnvironmentID;
+    patSubmitRequestRef.current += 1;
+    setPATForm(createDefaultGitHubPATForm());
+    setPATError('');
+    setPATSuccess('');
+    setPATSubmitting(false);
+  }, [selectedEnvironmentID]);
 
   if (!scope) {
     return (
@@ -15577,6 +15589,9 @@ export function ProductGitHubConnectPage() {
   // This replaces the form that lived on the retired legacy project page.
   const handleEnterprisePATSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const environmentID = selectedEnvironmentID;
+    const patRequestID = patSubmitRequestRef.current + 1;
+    patSubmitRequestRef.current = patRequestID;
     setPATSubmitting(true);
     setPATError('');
     setPATSuccess('');
@@ -15587,7 +15602,7 @@ export function ProductGitHubConnectPage() {
       }
       await apiClient.upsertGitHubPATConnector(
         {
-          project_id: selectedEnvironmentID,
+          project_id: environmentID,
           display_name: normalizeValue(patForm.displayName) || undefined,
           base_url: normalizeValue(patForm.baseURL) || undefined,
           token,
@@ -15595,13 +15610,21 @@ export function ProductGitHubConnectPage() {
         },
         buildProductAuthContext(scope)
       );
+      if (patSubmitRequestRef.current !== patRequestID || selectedPATEnvironmentRef.current !== environmentID) {
+        return;
+      }
       setPATForm((current) => ({ ...current, token: '' }));
       setPATSuccess('GitHub Enterprise connector validated and saved.');
       data.reload();
     } catch (error) {
+      if (patSubmitRequestRef.current !== patRequestID || selectedPATEnvironmentRef.current !== environmentID) {
+        return;
+      }
       setPATError(formatAPIError(error, 'Unable to save GitHub Enterprise connector.'));
     } finally {
-      setPATSubmitting(false);
+      if (patSubmitRequestRef.current === patRequestID) {
+        setPATSubmitting(false);
+      }
     }
   };
 
