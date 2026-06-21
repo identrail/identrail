@@ -3238,6 +3238,122 @@ export type AWSIdentitySprawlQuery = {
   status?: string;
 };
 
+// AWSPrivilegeEscalation* types describe Wave 6.05 escalation paths composed
+// from PassRole, policy attachment, trust, admin-equivalence, KMS/secrets, and
+// cross-account graph evidence.
+export type AWSPrivilegeEscalationStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSPrivilegeEscalationFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+export type AWSPrivilegeEscalationType =
+  | 'passrole_service_escalation'
+  | 'passrole_wildcard_escalation'
+  | 'passrole_unscoped_trust_path'
+  | 'policy_attachment_escalation'
+  | 'kms_admin_equivalence'
+  | 'secrets_admin_equivalence'
+  | 'cross_account_escalation_path'
+  | string;
+export type AWSPrivilegeEscalationFindingStatus = 'review' | 'action_required' | string;
+
+export type AWSPrivilegeEscalationRelationship = {
+  finding_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSPrivilegeEscalationFinding = {
+  finding_id: string;
+  calculation_version: string;
+  escalation_type: AWSPrivilegeEscalationType;
+  severity: string;
+  status: AWSPrivilegeEscalationFindingStatus;
+  score: number;
+  confidence: number;
+  account_id: string;
+  region: string;
+  identity_node_id: string;
+  principal_arn?: string;
+  target_node_id?: string;
+  target_label: string;
+  display_name: string;
+  rationale: string;
+  exploitability: string;
+  runtime_context: string;
+  policy_sources?: string[];
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  next_action: string;
+  remediation_case: AWSLeastPrivilegeRemediationCasePreview;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSPrivilegeEscalationSummary = {
+  total_findings: number;
+  filtered_findings: number;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  escalation_type_counts: Record<string, number>;
+  critical_count: number;
+  high_count: number;
+  cross_account_path_count: number;
+  passrole_path_count: number;
+  admin_equivalent_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+  remediation_preview_count: number;
+};
+
+export type AWSPrivilegeEscalationResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSPrivilegeEscalationStatus;
+  fixture_state?: AWSPrivilegeEscalationFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSPrivilegeEscalationSummary;
+  findings: AWSPrivilegeEscalationFinding[];
+  relationships: AWSPrivilegeEscalationRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSPrivilegeEscalationQuery = {
+  connectorID?: string;
+  fixtureState?: AWSPrivilegeEscalationFixtureState;
+  accountID?: string;
+  region?: string;
+  identity?: string;
+  target?: string;
+  escalationType?: AWSPrivilegeEscalationType;
+  severity?: string;
+  status?: string;
+};
+
 export type AWSBedrockAgentsInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBedrockAgentsFixtureState =
   | 'success'
@@ -6497,6 +6613,27 @@ export const apiClient = {
         owner: query?.owner,
         cluster: query?.cluster,
         finding_type: query?.findingType,
+        severity: query?.severity,
+        status: query?.status
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectPrivilegeEscalation(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSPrivilegeEscalationQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ findings: AWSPrivilegeEscalationResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/privilege-escalation${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        identity: query?.identity,
+        target: query?.target,
+        escalation_type: query?.escalationType,
         severity: query?.severity,
         status: query?.status
       })}`,

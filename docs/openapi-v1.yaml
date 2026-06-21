@@ -589,6 +589,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/privilege-escalation
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/iam-passrole-relationships
     action: tenancy.read
     resource_type: project
@@ -5235,6 +5240,84 @@ paths:
                     $ref: "#/components/schemas/AWSIdentitySprawlResult"
         "400":
           description: Invalid AWS identity sprawl request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/privilege-escalation:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS privilege escalation path findings
+      operationId: getAWSProjectPrivilegeEscalation
+      description: Ranked, explainable privilege escalation paths composed from read-only PassRole, policy attachment, trust, KMS, Secrets Manager, least-privilege, and blast-radius evidence. The engine emits stable finding IDs, graph paths, evidence pointers, confidence, status, and read-only remediation previews; it does not mutate AWS resources or read secret values, plaintext, prompts, completions, object bodies, database rows, browser pages, or customer payloads.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope the calculation.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: identity
+          schema: { type: string }
+          description: Filter by principal ARN, identity-node id, or display name.
+        - in: query
+          name: target
+          schema: { type: string }
+          description: Filter by target node id, target label, or impacted-node text.
+        - in: query
+          name: escalation_type
+          schema:
+            type: string
+            enum: [passrole_service_escalation, passrole_wildcard_escalation, passrole_unscoped_trust_path, policy_attachment_escalation, kms_admin_equivalence, secrets_admin_equivalence, cross_account_escalation_path]
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [review, action_required]
+      responses:
+        "200":
+          description: AWS privilege escalation path findings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  findings:
+                    $ref: "#/components/schemas/AWSPrivilegeEscalationResult"
+        "400":
+          description: Invalid AWS privilege escalation request
           content:
             application/json:
               schema:
@@ -12791,6 +12874,143 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSIdentitySprawlRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSPrivilegeEscalationRelationship:
+      type: object
+      properties:
+        finding_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSPrivilegeEscalationFinding:
+      type: object
+      properties:
+        finding_id: { type: string }
+        calculation_version: { type: string }
+        escalation_type:
+          type: string
+          enum: [passrole_service_escalation, passrole_wildcard_escalation, passrole_unscoped_trust_path, policy_attachment_escalation, kms_admin_equivalence, secrets_admin_equivalence, cross_account_escalation_path]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status:
+          type: string
+          enum: [review, action_required]
+        score: { type: integer }
+        confidence: { type: number }
+        account_id: { type: string }
+        region: { type: string }
+        identity_node_id: { type: string }
+        principal_arn: { type: string }
+        target_node_id: { type: string }
+        target_label: { type: string }
+        display_name: { type: string }
+        rationale: { type: string }
+        exploitability: { type: string }
+        runtime_context: { type: string }
+        policy_sources:
+          type: array
+          items: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegePathStep"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeEvidence"
+        next_action: { type: string }
+        remediation_case:
+          $ref: "#/components/schemas/AWSLeastPrivilegeRemediationCasePreview"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSPrivilegeEscalationSummary:
+      type: object
+      properties:
+        total_findings: { type: integer }
+        filtered_findings: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        escalation_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        critical_count: { type: integer }
+        high_count: { type: integer }
+        cross_account_path_count: { type: integer }
+        passrole_path_count: { type: integer }
+        admin_equivalent_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+        remediation_preview_count: { type: integer }
+    AWSPrivilegeEscalationResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status: { type: string }
+        fixture_state: { type: string }
+        confidence: { type: number }
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSPrivilegeEscalationSummary"
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSPrivilegeEscalationFinding"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSPrivilegeEscalationRelationship"
         caveats:
           type: array
           items: { type: string }
