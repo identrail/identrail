@@ -310,7 +310,19 @@ func awsPrivilegeEscalationPassRoleKeysMatch(record AWSIAMPassRoleRelationshipRe
 	recordTarget := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(record.ToNodeID, record.TargetResource)))
 	denySource := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(deny.FromNodeID, deny.SourceRoleARN)))
 	denyTarget := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(deny.ToNodeID, deny.TargetResource)))
-	return recordSource != "" && recordTarget != "" && recordSource == denySource && recordTarget == denyTarget
+	return recordSource != "" && recordTarget != "" &&
+		recordSource == denySource &&
+		awsPrivilegeEscalationPassRoleTargetsMatch(recordTarget, denyTarget)
+}
+
+func awsPrivilegeEscalationPassRoleTargetsMatch(recordTarget, denyTarget string) bool {
+	if recordTarget == "" || denyTarget == "" {
+		return false
+	}
+	if strings.EqualFold(recordTarget, denyTarget) {
+		return true
+	}
+	return awsActionPatternMatches(denyTarget, recordTarget)
 }
 
 func awsPrivilegeEscalationPassRoleActionsOverlap(allowActions, denyActions string) bool {

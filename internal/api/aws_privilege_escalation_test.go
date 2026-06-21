@@ -329,4 +329,29 @@ func TestAWSPrivilegeEscalationFindingsRespectsExplicitDenyOnPassRole(t *testing
 			t.Fatalf("expected passrole escalation type when only passrole allow remains, got %+v", findings[0].EscalationType)
 		}
 	})
+
+	t.Run("wildcard deny target suppresses matching passrole finding", func(t *testing.T) {
+		passRole := AWSIAMPassRoleRelationshipInventoryResult{
+			Records: []AWSIAMPassRoleRelationshipRecord{
+				allowRecord,
+				{
+					FromNodeID:         sourceNode,
+					ToNodeID:           targetNode,
+					SourceRoleARN:      "arn:aws:iam::123456789012:role/source",
+					TargetResource:     "*",
+					TargetWildcardKind: "all",
+					ActionExpression:   "iam:PassRole",
+					Effect:             "Deny",
+					PolicyName:         "DenyPassAll",
+					StatementSid:       "PassDeniedAll",
+					CollectedAt:        now,
+					Confidence:         0.88,
+				},
+			},
+		}
+		findings := awsPrivilegeEscalationFindings(passRole, AWSKMSDecryptReachabilityInventoryResult{}, AWSSecretsManagerMetadataInventoryResult{}, AWSLeastPrivilegeResult{}, AWSBlastRadiusResult{}, now)
+		if len(findings) != 0 {
+			t.Fatalf("expected wildcard deny to suppress passrole finding, got %+v", findings)
+		}
+	})
 }
