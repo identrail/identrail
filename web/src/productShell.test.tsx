@@ -20,6 +20,8 @@ import type {
   CurrentUserContext,
   Finding,
   GitHubConnectionStatus,
+  GitHubOrganizationPosture,
+  GitHubRepositoryPosture,
   KubernetesConnectorStartResponse,
   KubernetesConnectionStatus,
   RepoFindingRemediationPreview,
@@ -5133,6 +5135,42 @@ describe('GitHub domain pages (#1382)', () => {
     updated_at: '2026-01-02T00:00:00Z'
   };
 
+  const defaultRepositoryPosture: GitHubRepositoryPosture = {
+    repository: 'identrail/identrail',
+    installation_id: 12345,
+    collected_at: '2026-05-17T10:55:00Z',
+    rate_limit: { limit: 5000, remaining: 4990 },
+    checks: [
+      {
+        id: 'branch-protection',
+        category: 'branch protection',
+        state: 'insecure',
+        reason: 'missing_required_reviews',
+        summary: 'Default branch is missing required pull request reviews.'
+      },
+      {
+        id: 'secret-scanning',
+        category: 'security',
+        state: 'secure',
+        summary: 'Secret scanning is enabled.'
+      }
+    ]
+  };
+
+  const defaultOrganizationPosture: GitHubOrganizationPosture = {
+    organization: 'identrail',
+    installation_id: 12345,
+    collected_at: '2026-05-17T10:56:00Z',
+    checks: [
+      {
+        id: 'org-two-factor',
+        category: 'organization security',
+        state: 'secure',
+        summary: 'Organization two-factor authentication is enforced.'
+      }
+    ]
+  };
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.doUnmock('./hooks/useBackendFeatures');
@@ -5146,6 +5184,8 @@ describe('GitHub domain pages (#1382)', () => {
       githubConnection?: GitHubConnectionStatus | null;
       scans?: RepoScanRecord[];
       scanPolicies?: ScanPolicyRecord[];
+      repositoryPosture?: GitHubRepositoryPosture;
+      organizationPosture?: GitHubOrganizationPosture;
       repoFindings?: Finding[];
       remediationPreview?: RepoFindingRemediationPreview;
       remediationPublish?: RepoFindingRemediationPublishResponse;
@@ -5179,6 +5219,14 @@ describe('GitHub domain pages (#1382)', () => {
       .spyOn(api.apiClient, 'upsertProjectScanPolicy')
       .mockResolvedValue({ policy: options.scanPolicies?.[0] ?? defaultScanPolicy });
     const deleteProjectScanPolicy = vi.spyOn(api.apiClient, 'deleteProjectScanPolicy').mockResolvedValue(undefined);
+    const getGitHubConnectorRepositoryPosture = vi
+      .spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture')
+      .mockResolvedValue({
+        connector_id: 'github-app',
+        provider: 'github_app',
+        posture: options.repositoryPosture ?? defaultRepositoryPosture,
+        organization_posture: options.organizationPosture ?? defaultOrganizationPosture
+      });
     const listRepoFindings = vi
       .spyOn(api.apiClient, 'listRepoFindings')
       .mockResolvedValue({ items: options.repoFindings ?? [], summary: undefined });
@@ -5319,7 +5367,8 @@ describe('GitHub domain pages (#1382)', () => {
       startGitHubConnector,
       listProjectScanPolicies,
       upsertProjectScanPolicy,
-      deleteProjectScanPolicy
+      deleteProjectScanPolicy,
+      getGitHubConnectorRepositoryPosture
     };
   }
 
@@ -5572,6 +5621,25 @@ describe('GitHub domain pages (#1382)', () => {
       )
     );
     await screen.findByText(/Repository scan queued for identrail\/identrail/i);
+  });
+
+  it('Repositories page keeps repository posture checks reachable', async () => {
+    const mocks = await renderGitHubPage('repositories', { scans: [succeededRepoScan] });
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const posturePanel = await screen.findByRole('region', { name: 'Repository posture' });
+    expect(await within(posturePanel).findByText('Default branch is missing required pull request reviews.')).toBeInTheDocument();
+    expect(within(posturePanel).getByLabelText('GitHub posture summary')).toHaveTextContent('Secure1');
+    expect(within(posturePanel).getByText('Organization posture')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.getGitHubConnectorRepositoryPosture).toHaveBeenCalledWith(
+        'github-app',
+        'workspace-a',
+        'production-platform',
+        'identrail/identrail',
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
   });
 
   it('Repositories page bypasses in-flight refreshes after queueing a scan', async () => {

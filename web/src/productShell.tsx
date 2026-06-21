@@ -15907,6 +15907,92 @@ export function ProductGitHubRepositoriesPage() {
   const [scanInfo, setScanInfo] = useState('');
   const [submittingRepository, setSubmittingRepository] = useState('');
   const [cancelingScanID, setCancelingScanID] = useState('');
+  const postureRequestRef = useRef(0);
+  const selectedRepositories = uniqueGitHubRepositories(data.connection?.selected_repositories ?? []);
+  const selectedRepositoriesKey = selectedRepositories.join('\n');
+  const [postureRepository, setPostureRepository] = useState('');
+  const [githubPosture, setGitHubPosture] = useState<GitHubRepositoryPosture | null>(null);
+  const [githubOrganizationPosture, setGitHubOrganizationPosture] = useState<GitHubOrganizationPosture | null>(null);
+  const [githubPostureLoading, setGitHubPostureLoading] = useState(false);
+  const [githubPostureError, setGitHubPostureError] = useState('');
+
+  useEffect(() => {
+    const nextRepository = selectedRepositories.includes(postureRepository)
+      ? postureRepository
+      : (selectedRepositories[0] ?? '');
+    if (nextRepository !== postureRepository) {
+      setPostureRepository(nextRepository);
+    }
+  }, [postureRepository, selectedRepositoriesKey]);
+
+  useEffect(() => {
+    const connection = data.connection;
+    const repository = canonicalGitHubRepositoryDisplay(postureRepository);
+    const requestID = postureRequestRef.current + 1;
+    postureRequestRef.current = requestID;
+
+    if (
+      !scope ||
+      !selectedEnvironmentID ||
+      !connection?.connected ||
+      connection.provider !== 'github_app' ||
+      !connection.connector_id ||
+      !repository
+    ) {
+      setGitHubPosture(null);
+      setGitHubOrganizationPosture(null);
+      setGitHubPostureLoading(false);
+      setGitHubPostureError('');
+      return undefined;
+    }
+
+    setGitHubPostureLoading(true);
+    setGitHubPostureError('');
+    setGitHubPosture(null);
+    setGitHubOrganizationPosture(null);
+    void apiClient
+      .getGitHubConnectorRepositoryPosture(
+        connection.connector_id,
+        scope.workspaceID,
+        selectedEnvironmentID,
+        repository,
+        buildProductAuthContext(scope)
+      )
+      .then((response) => {
+        if (postureRequestRef.current !== requestID) {
+          return;
+        }
+        setGitHubPosture(response.posture);
+        setGitHubOrganizationPosture(response.organization_posture ?? null);
+      })
+      .catch((error) => {
+        if (postureRequestRef.current !== requestID) {
+          return;
+        }
+        setGitHubPosture(null);
+        setGitHubOrganizationPosture(null);
+        setGitHubPostureError(formatAPIError(error, 'Unable to load GitHub repository posture.'));
+      })
+      .finally(() => {
+        if (postureRequestRef.current === requestID) {
+          setGitHubPostureLoading(false);
+        }
+      });
+
+    return () => {
+      if (postureRequestRef.current === requestID) {
+        postureRequestRef.current += 1;
+      }
+    };
+  }, [
+    data.connection?.connected,
+    data.connection?.connector_id,
+    data.connection?.provider,
+    postureRepository,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID
+  ]);
 
   if (!scope) {
     return (
@@ -15959,9 +16045,27 @@ export function ProductGitHubRepositoriesPage() {
 
   const connectPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/connect'), selectedEnvironmentID);
   const findingsPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/findings'), selectedEnvironmentID);
-  const selectedRepositories = uniqueGitHubRepositories(data.connection?.selected_repositories ?? []);
   const rows = buildGitHubRepositoryRows(selectedRepositories, data.scans);
   const selectedRepositoryScans = gitHubScansForSelectedRepositories(data.scans, selectedRepositories);
+  const githubPostureSecureCount = countGitHubPostureChecks(githubPosture, 'secure');
+  const githubPostureAttentionCount = countGitHubPostureChecks(githubPosture, 'insecure');
+  const githubPostureLimitedCount = countGitHubPostureChecks(githubPosture, 'permission_limited');
+  const githubPostureUnavailableCount = countGitHubPostureChecks(githubPosture, 'unavailable');
+  const githubPostureUnsupportedCount = countGitHubPostureChecks(githubPosture, 'unsupported');
+  const githubPostureUnknownCount = countGitHubPostureChecks(githubPosture, 'unknown');
+  const githubPostureNeedsAttentionCount =
+    githubPostureAttentionCount +
+    githubPostureLimitedCount +
+    githubPostureUnavailableCount +
+    githubPostureUnsupportedCount +
+    githubPostureUnknownCount;
+  const githubPostureDetailChecks = githubPosture?.checks.filter((check) => check.state !== 'secure') ?? [];
+  const postureChecksToRender = githubPostureDetailChecks.length > 0 ? githubPostureDetailChecks : (githubPosture?.checks ?? []);
+  const githubOrganizationPostureSecureCount = countGitHubPostureChecks(githubOrganizationPosture, 'secure');
+  const githubOrganizationPostureAttentionCount = countGitHubPostureChecks(githubOrganizationPosture, 'insecure');
+  const githubOrganizationPostureLimitedCount = countGitHubPostureChecks(githubOrganizationPosture, 'permission_limited');
+  const githubOrganizationPostureUnavailableCount = countGitHubPostureChecks(githubOrganizationPosture, 'unavailable');
+  const githubOrganizationPostureChecks = githubOrganizationPosture?.checks.filter((check) => check.state !== 'secure') ?? [];
 
   const connected = Boolean(data.connection?.connected);
   const statusVariant = gitHubConnectionStatusVariantFor(data.connection, data.loading);
@@ -16140,6 +16244,138 @@ export function ProductGitHubRepositoriesPage() {
               );
             })}
           </div>
+        </section>
+      ) : null}
+      {showBody && connected && hasRepositories ? (
+        <section className="idt-domain-status-panel idt-github-posture-panel" aria-label="Repository posture">
+          <header>
+            <div>
+              <h3>Repository posture</h3>
+              <p>Branch protection, Actions permissions, security settings, and organization posture for a selected repository.</p>
+            </div>
+            {selectedRepositories.length > 1 ? (
+              <label>
+                Repository
+                <select value={postureRepository} onChange={(event) => setPostureRepository(event.target.value)}>
+                  {selectedRepositories.map((repository) => (
+                    <option key={repository} value={repository}>
+                      {repository}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </header>
+          {githubPostureLoading ? (
+            <DomainLoadingState label="Loading repository posture" />
+          ) : githubPostureError ? (
+            <DomainErrorState title="Unable to load repository posture" body={githubPostureError} />
+          ) : githubPosture ? (
+            <>
+              <article className="idt-github-posture-card">
+                <div className="idt-github-posture-card-head">
+                  <div>
+                    <strong>{githubPosture.repository}</strong>
+                    <p>Collected {formatConnectionTime(githubPosture.collected_at)}</p>
+                  </div>
+                  <span className={`idt-source-status-pill is-${githubPostureNeedsAttentionCount > 0 ? 'warning' : 'success'}`}>
+                    {githubPostureNeedsAttentionCount > 0
+                      ? formatCountLabel(githubPostureNeedsAttentionCount, 'check', 'checks')
+                      : 'Secure'}
+                  </span>
+                </div>
+                <dl className="idt-github-posture-stats" aria-label="GitHub posture summary">
+                  <div>
+                    <dt>Secure</dt>
+                    <dd>{githubPostureSecureCount}</dd>
+                  </div>
+                  <div>
+                    <dt>Attention</dt>
+                    <dd>{githubPostureAttentionCount}</dd>
+                  </div>
+                  <div>
+                    <dt>Limited</dt>
+                    <dd>{githubPostureLimitedCount}</dd>
+                  </div>
+                  <div>
+                    <dt>Unavailable</dt>
+                    <dd>{githubPostureUnavailableCount}</dd>
+                  </div>
+                </dl>
+              </article>
+              <details className="idt-source-advanced idt-github-posture-details" open={githubPostureNeedsAttentionCount > 0}>
+                <summary>
+                  <span>
+                    <strong>
+                      {githubPostureNeedsAttentionCount > 0
+                        ? `Review ${formatCountLabel(githubPostureNeedsAttentionCount, 'check', 'checks')}`
+                        : 'Review checks'}
+                    </strong>
+                    <small>
+                      {githubPostureNeedsAttentionCount > 0 ? 'Branch, Actions, security' : 'Collected GitHub signals'}
+                    </small>
+                  </span>
+                </summary>
+                {githubPosture.rate_limit?.remaining !== undefined ? (
+                  <p className="idt-github-posture-rate-limit">
+                    GitHub API remaining {githubPosture.rate_limit.remaining}
+                    {githubPosture.rate_limit.limit ? ` of ${githubPosture.rate_limit.limit}` : ''}
+                  </p>
+                ) : null}
+                <div className="idt-github-posture-checks">
+                  {postureChecksToRender.slice(0, 6).map((check) => (
+                    <article key={check.id}>
+                      <strong>{formatTokenLabel(check.category || check.id)}</strong>
+                      <span className={`idt-source-status-pill is-${githubPostureStateTone(check.state)}`}>
+                        {formatTokenLabel(check.state)}
+                      </span>
+                      <p>{check.summary}</p>
+                      {check.reason ? <small>{formatTokenLabel(check.reason)}</small> : null}
+                    </article>
+                  ))}
+                  {postureChecksToRender.length > 6 ? (
+                    <p>{formatCountLabel(postureChecksToRender.length - 6, 'additional check', 'additional checks')} hidden.</p>
+                  ) : null}
+                  {githubOrganizationPosture ? (
+                    <article>
+                      <strong>Organization posture</strong>
+                      <span>{formatConnectionTime(githubOrganizationPosture.collected_at)}</span>
+                      <p>
+                        {githubOrganizationPostureSecureCount} secure · {githubOrganizationPostureAttentionCount} attention ·{' '}
+                        {githubOrganizationPostureLimitedCount} permission limited · {githubOrganizationPostureUnavailableCount}{' '}
+                        unavailable
+                      </p>
+                    </article>
+                  ) : null}
+                  {githubOrganizationPostureChecks.slice(0, 5).map((check) => (
+                    <article key={`org-${check.id}`}>
+                      <strong>{formatTokenLabel(check.category || check.id)}</strong>
+                      <span className={`idt-source-status-pill is-${githubPostureStateTone(check.state)}`}>
+                        {formatTokenLabel(check.state)}
+                      </span>
+                      <p>{check.summary}</p>
+                      {check.reason ? <small>{formatTokenLabel(check.reason)}</small> : null}
+                    </article>
+                  ))}
+                  {githubOrganizationPostureChecks.length > 5 ? (
+                    <p>
+                      {formatCountLabel(
+                        githubOrganizationPostureChecks.length - 5,
+                        'additional organization check',
+                        'additional organization checks'
+                      )}{' '}
+                      hidden.
+                    </p>
+                  ) : null}
+                </div>
+              </details>
+            </>
+          ) : (
+            <DomainEmptyState
+              title="No repository posture collected yet"
+              body="Posture checks appear here after Identrail can read the selected repository through the GitHub App."
+            />
+          )}
         </section>
       ) : null}
       {showBody && connected && hasRepositories ? (
