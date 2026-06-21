@@ -529,3 +529,113 @@ func TestAWSPrivilegeEscalationFindingsRespectsExplicitDenyOnKMSIdentityGrant(t 
 		}
 	})
 }
+
+func TestAWSPrivilegeEscalationFindingsRespectsExplicitDenyOnSecretIdentityGrant(t *testing.T) {
+	now := time.Date(2026, 6, 21, 12, 45, 0, 0, time.UTC)
+	accountID := "123456789012"
+	region := "us-east-1"
+	secretARN := "arn:aws:secretsmanager:us-east-1:123456789012:secret:restricted-secret"
+	roleARN := "arn:aws:iam::123456789012:role/source"
+	secretNodeID := "aws:resource:secret:" + secretARN
+
+	t.Run("wildcard deny suppresses matching secret grant", func(t *testing.T) {
+		secrets := AWSSecretsManagerMetadataInventoryResult{
+			Records: []AWSSecretsManagerMetadataRecord{{
+				AccountID:              accountID,
+				Region:                 region,
+				SecretARN:              secretARN,
+				SecretName:             "restricted-secret",
+				ExposureClassification: "private",
+				FromNodeID:             secretNodeID,
+				Confidence:             0.9,
+				EvidenceRef:            "evidence://secrets",
+				CollectedAt:            now,
+				IdentityGrants: []AWSSecretsManagerIdentityGrant{
+					{
+						PrincipalARN:  roleARN,
+						PrincipalType: "aws",
+						Effect:        "Allow",
+						Actions:       []string{"secretsmanager:GetSecretValue"},
+						StatementSid:  "AllowSecretRead",
+					},
+					{
+						PrincipalARN:      "*",
+						Effect:            "Deny",
+						Actions:           []string{"secretsmanager:Get*"},
+						WildcardPrincipal: true,
+						StatementSid:      "DenyAllSecretRead",
+					},
+				},
+			}},
+		}
+		findings := awsPrivilegeEscalationFindings(AWSIAMPassRoleRelationshipInventoryResult{}, AWSKMSDecryptReachabilityInventoryResult{}, secrets, AWSLeastPrivilegeResult{}, AWSBlastRadiusResult{}, now)
+		if len(findings) != 0 {
+			t.Fatalf("expected explicit wildcard deny to suppress secret grant finding, got %+v", findings)
+		}
+	})
+
+	t.Run("wildcard secret read actions are recognized", func(t *testing.T) {
+		secrets := AWSSecretsManagerMetadataInventoryResult{
+			Records: []AWSSecretsManagerMetadataRecord{{
+				AccountID:              accountID,
+				Region:                 region,
+				SecretARN:              secretARN,
+				SecretName:             "restricted-secret",
+				ExposureClassification: "private",
+				FromNodeID:             secretNodeID,
+				Confidence:             0.9,
+				EvidenceRef:            "evidence://secrets",
+				CollectedAt:            now,
+				IdentityGrants: []AWSSecretsManagerIdentityGrant{{
+					PrincipalARN:  roleARN,
+					PrincipalType: "aws",
+					Effect:        "Allow",
+					Actions:       []string{"secretsmanager:Get*"},
+					StatementSid:  "AllowSecretReadWildcard",
+				}},
+			}},
+		}
+		findings := awsPrivilegeEscalationFindings(AWSIAMPassRoleRelationshipInventoryResult{}, AWSKMSDecryptReachabilityInventoryResult{}, secrets, AWSLeastPrivilegeResult{}, AWSBlastRadiusResult{}, now)
+		if len(findings) != 1 {
+			t.Fatalf("expected wildcard read action to produce a secret escalation finding, got %+v", findings)
+		}
+		if findings[0].TargetNodeID != secretNodeID || findings[0].EscalationType != "secrets_admin_equivalence" {
+			t.Fatalf("expected secret escalation finding with target node id, got %+v", findings[0])
+		}
+	})
+
+	t.Run("non-overlapping deny does not suppress secret grant", func(t *testing.T) {
+		secrets := AWSSecretsManagerMetadataInventoryResult{
+			Records: []AWSSecretsManagerMetadataRecord{{
+				AccountID:              accountID,
+				Region:                 region,
+				SecretARN:              secretARN,
+				SecretName:             "restricted-secret",
+				ExposureClassification: "private",
+				FromNodeID:             secretNodeID,
+				Confidence:             0.9,
+				EvidenceRef:            "evidence://secrets",
+				CollectedAt:            now,
+				IdentityGrants: []AWSSecretsManagerIdentityGrant{
+					{
+						PrincipalARN:  roleARN,
+						PrincipalType: "aws",
+						Effect:        "Allow",
+						Actions:       []string{"secretsmanager:Get*"},
+						StatementSid:  "AllowSecretRead",
+					},
+					{
+						PrincipalARN: "arn:aws:iam::123456789012:role/other",
+						Effect:       "Deny",
+						Actions:      []string{"secretsmanager:*"},
+						StatementSid: "UnrelatedDeny",
+					},
+				},
+			}},
+		}
+		findings := awsPrivilegeEscalationFindings(AWSIAMPassRoleRelationshipInventoryResult{}, AWSKMSDecryptReachabilityInventoryResult{}, secrets, AWSLeastPrivilegeResult{}, AWSBlastRadiusResult{}, now)
+		if len(findings) != 1 {
+			t.Fatalf("expected unrelated deny principal to preserve secret grant finding, got %+v", findings)
+		}
+	})
+}

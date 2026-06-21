@@ -282,8 +282,16 @@ func awsPrivilegeEscalationFindings(passRole AWSIAMPassRoleRelationshipInventory
 		}
 	}
 	for _, record := range secrets.Records {
+		denySecretIdentityGrants := []AWSSecretsManagerIdentityGrant{}
 		for _, grant := range record.IdentityGrants {
-			if strings.EqualFold(grant.Effect, "Allow") && awsPrivilegeEscalationGrantHasAdminSignal(grant.Actions, nil) {
+			if strings.EqualFold(grant.Effect, "Deny") {
+				denySecretIdentityGrants = append(denySecretIdentityGrants, grant)
+			}
+		}
+		for _, grant := range record.IdentityGrants {
+			if strings.EqualFold(grant.Effect, "Allow") &&
+				awsPrivilegeEscalationGrantHasAdminSignal(grant.Actions, nil) &&
+				!awsPrivilegeEscalationSecretIdentityGrantHasExplicitDeny(grant, denySecretIdentityGrants) {
 				findings = append(findings, awsPrivilegeEscalationFindingFromSecretGrant(record, grant, now))
 			}
 		}
@@ -318,7 +326,7 @@ func awsPrivilegeEscalationKMSIdentityGrantHasExplicitDeny(allowGrant AWSKMSIden
 		if !strings.EqualFold(deny.Effect, "Deny") {
 			continue
 		}
-		if !awsPrivilegeEscalationKMSIdentityGrantPrincipalsMatch(allowGrant, deny) {
+		if !awsPrivilegeEscalationIdentityGrantPrincipalsMatch(allowGrant.PrincipalARN, deny.PrincipalARN, deny.WildcardPrincipal) {
 			continue
 		}
 		if awsPrivilegeEscalationKMSIdentityGrantActionsOverlap(allowGrant.Actions, deny.Actions) {
@@ -328,13 +336,28 @@ func awsPrivilegeEscalationKMSIdentityGrantHasExplicitDeny(allowGrant AWSKMSIden
 	return false
 }
 
-func awsPrivilegeEscalationKMSIdentityGrantPrincipalsMatch(allowGrant AWSKMSIdentityGrant, denyGrant AWSKMSIdentityGrant) bool {
-	allowPrincipal := strings.TrimSpace(strings.ToLower(allowGrant.PrincipalARN))
-	denyPrincipal := strings.TrimSpace(strings.ToLower(denyGrant.PrincipalARN))
+func awsPrivilegeEscalationSecretIdentityGrantHasExplicitDeny(allowGrant AWSSecretsManagerIdentityGrant, denyGrants []AWSSecretsManagerIdentityGrant) bool {
+	for _, deny := range denyGrants {
+		if !strings.EqualFold(deny.Effect, "Deny") {
+			continue
+		}
+		if !awsPrivilegeEscalationIdentityGrantPrincipalsMatch(allowGrant.PrincipalARN, deny.PrincipalARN, deny.WildcardPrincipal) {
+			continue
+		}
+		if awsPrivilegeEscalationKMSIdentityGrantActionsOverlap(allowGrant.Actions, deny.Actions) {
+			return true
+		}
+	}
+	return false
+}
+
+func awsPrivilegeEscalationIdentityGrantPrincipalsMatch(allowPrincipal string, denyPrincipal string, denyWildcardPrincipal bool) bool {
+	allowPrincipal = strings.TrimSpace(strings.ToLower(allowPrincipal))
+	denyPrincipal = strings.TrimSpace(strings.ToLower(denyPrincipal))
 	if allowPrincipal == "" || denyPrincipal == "" {
 		return false
 	}
-	if denyGrant.WildcardPrincipal || denyPrincipal == "*" {
+	if denyWildcardPrincipal || denyPrincipal == "*" {
 		return true
 	}
 	return allowPrincipal == denyPrincipal
@@ -936,6 +959,18 @@ func awsPrivilegeEscalationGrantHasAdminSignal(actions []string, capabilities []
 	for _, value := range append(append([]string{}, actions...), capabilities...) {
 		token := strings.ToLower(strings.TrimSpace(value))
 		if token == "*" || strings.HasSuffix(token, ":*") || strings.Contains(token, "admin") || strings.Contains(token, "decrypt") || strings.Contains(token, "getsecretvalue") || strings.Contains(token, "putresourcepolicy") {
+			return true
+		}
+		if awsPrivilegeEscalationGrantIncludesSecretReadAction(token) {
+			return true
+		}
+	}
+	return false
+}
+
+func awsPrivilegeEscalationGrantIncludesSecretReadAction(token string) bool {
+	for _, readAction := range []string{"secretsmanager:getsecretvalue", "secretsmanager:batchgetsecretvalue"} {
+		if awsActionPatternMatches(token, readAction) {
 			return true
 		}
 	}
