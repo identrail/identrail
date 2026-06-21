@@ -632,8 +632,16 @@ func awsCrossAccountTrustFindingFromRuntimeAssumption(record AWSRuntimeEventReco
 	}
 	targetARN := firstNonEmptyAWSValue(record.Session.AssumedRoleARN, record.TargetResourceARN)
 	targetAccount := awsCrossAccountTrustPrincipalAccount(targetARN)
-	actorAccount := awsCrossAccountTrustPrincipalAccount(firstNonEmptyAWSValue(record.Session.OriginalActorARN, record.ActorPrincipalARN))
-	if targetAccount == "" || actorAccount == "" || targetAccount == actorAccount {
+	principal := firstNonEmptyAWSValue(record.Session.OriginalActorARN, record.ActorPrincipalARN)
+	actorAccount := awsCrossAccountTrustPrincipalAccount(principal)
+	if targetAccount == "" || principal == "" {
+		return AWSCrossAccountTrustFinding{}, false
+	}
+	if actorAccount == "" {
+		if !awsCrossAccountTrustRuntimeAllowsAccountlessActor(record) {
+			return AWSCrossAccountTrustFinding{}, false
+		}
+	} else if targetAccount == actorAccount {
 		return AWSCrossAccountTrustFinding{}, false
 	}
 	accountContext := accounts[actorAccount]
@@ -643,7 +651,6 @@ func awsCrossAccountTrustFindingFromRuntimeAssumption(record AWSRuntimeEventReco
 	}
 	score = clampBlastRadiusScore(score)
 	evidenceRef := firstNonEmptyAWSValue(record.EvidenceRef, fmt.Sprintf("runtime-evidence://%s", record.EventID))
-	principal := firstNonEmptyAWSValue(record.Session.OriginalActorARN, record.ActorPrincipalARN)
 	return AWSCrossAccountTrustFinding{
 		FindingID:                 "aws-cross-account-trust:" + stableAWSBlastRadiusToken("runtime_cross_account_assumption", record.EventID, principal, targetARN),
 		CalculationVersion:        awsCrossAccountTrustVersion,
@@ -679,6 +686,12 @@ func awsCrossAccountTrustFindingFromRuntimeAssumption(record AWSRuntimeEventReco
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}, true
+}
+
+func awsCrossAccountTrustRuntimeAllowsAccountlessActor(record AWSRuntimeEventRecord) bool {
+	action := strings.ToLower(strings.TrimSpace(record.Action))
+	eventName := strings.ToLower(strings.TrimSpace(record.EventName))
+	return strings.Contains(action, "assumerolewithwebidentity") || strings.Contains(eventName, "assumerolewithwebidentity")
 }
 
 func awsCrossAccountTrustFindingFromLeastPrivilege(recommendation AWSLeastPrivilegeRecommendation, accounts map[string]AWSOrganizationsTopologyAccount, now time.Time) (AWSCrossAccountTrustFinding, bool) {

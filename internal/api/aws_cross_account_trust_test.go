@@ -277,6 +277,22 @@ func TestAWSCrossAccountTrustRuntimeAssumptionFinding(t *testing.T) {
 	if _, ok := awsCrossAccountTrustFindingFromRuntimeAssumption(federated, nil, now); !ok {
 		t.Fatalf("expected cross-account federated AssumeRole event to produce finding")
 	}
+
+	webIdentity := record
+	webIdentity.EventID = "evt-cross-account-assume-web-identity"
+	webIdentity.EventName = "AssumeRoleWithWebIdentity"
+	webIdentity.Action = "sts:AssumeRoleWithWebIdentity"
+	webIdentity.ActorPrincipalARN = "accounts.google.com"
+	webIdentity.ActorIdentityNodeID = "aws:identity:accounts.google.com"
+	webIdentity.Session.OriginalActorARN = "accounts.google.com"
+	webIdentity.Session.SourceIdentity = "oidc:alice"
+	finding, ok = awsCrossAccountTrustFindingFromRuntimeAssumption(webIdentity, nil, now)
+	if !ok {
+		t.Fatalf("expected accountless WebIdentity provider to produce runtime finding")
+	}
+	if finding.ExternalPrincipalARN != "accounts.google.com" || finding.ExternalPrincipalAccount != "" {
+		t.Fatalf("expected WebIdentity provider ID without AWS account, got %+v", finding)
+	}
 }
 
 func TestGetAWSCrossAccountTrustRequestsSTSSessionRuntimeEvidence(t *testing.T) {

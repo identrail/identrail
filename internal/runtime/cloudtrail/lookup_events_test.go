@@ -115,6 +115,20 @@ func cloudTrailFederatedAssumeRoleEventJSON(principalARN string, roleARN string,
 	}`, principalARN, roleARN, roleSessionName, sourceIdentity)
 }
 
+func cloudTrailWebIdentityAssumeRoleEventJSON(providerID string, roleARN string, roleSessionName string, sourceIdentity string) string {
+	return fmt.Sprintf(`{
+		"recipientAccountId": "123456789012",
+		"awsRegion": "us-east-1",
+		"userIdentity": {"type": "WebIdentityUser"},
+		"requestParameters": {
+			"providerId": %q,
+			"roleArn": %q,
+			"roleSessionName": %q,
+			"sourceIdentity": %q
+		}
+	}`, providerID, roleARN, roleSessionName, sourceIdentity)
+}
+
 func cloudTrailTaggedResourceEventJSON(callerARN string, sessionID string, issuerARN string, creation time.Time) string {
 	return fmt.Sprintf(`{
 		"sourceIPAddress": "10.0.0.8",
@@ -295,6 +309,7 @@ func TestIngestResolvesAssumeRoleSourceIdentityLineage(t *testing.T) {
 func TestIngestMapsFederatedAssumeRoleActorLineage(t *testing.T) {
 	now := time.Date(2026, 6, 15, 10, 20, 0, 0, time.UTC)
 	principalARN := "arn:aws:iam::111111111111:saml-provider/ExampleIdP"
+	providerID := "accounts.google.com"
 	targetRole := "arn:aws:iam::123456789012:role/federated-prod"
 	api := &fakeLookupEventsAPI{pages: []LookupEventsPage{{
 		Events: []Event{{
@@ -308,7 +323,7 @@ func TestIngestMapsFederatedAssumeRoleActorLineage(t *testing.T) {
 			EventName:   "AssumeRoleWithWebIdentity",
 			EventSource: "sts.amazonaws.com",
 			EventTime:   now.Add(-2 * time.Minute),
-			RawEvent:    cloudTrailFederatedAssumeRoleEventJSON(principalARN, targetRole, "web-identity-session", "oidc:alice"),
+			RawEvent:    cloudTrailWebIdentityAssumeRoleEventJSON(providerID, targetRole, "web-identity-session", "oidc:alice"),
 		}},
 	}}}
 	ing, _ := newIngester(api, now)
@@ -319,9 +334,14 @@ func TestIngestMapsFederatedAssumeRoleActorLineage(t *testing.T) {
 	if len(result.Events) != 2 {
 		t.Fatalf("expected two normalized events, got %+v", result.Events)
 	}
+	wantActors := map[string]string{
+		"evt-assume-saml":         principalARN,
+		"evt-assume-web-identity": providerID,
+	}
 	for _, event := range result.Events {
-		if event.ActorPrincipalARN != principalARN || event.OriginalActorARN != principalARN {
-			t.Fatalf("expected federated actor lineage from principalArn, got %+v", event)
+		wantActor := wantActors[event.EventID]
+		if event.ActorPrincipalARN != wantActor || event.OriginalActorARN != wantActor {
+			t.Fatalf("expected federated actor lineage from %q, got %+v", wantActor, event)
 		}
 		if event.TargetResourceARN != targetRole || event.AssumedRoleARN != targetRole {
 			t.Fatalf("expected federated target role normalization, got %+v", event)
