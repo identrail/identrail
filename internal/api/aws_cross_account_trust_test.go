@@ -1,9 +1,13 @@
 package api
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/identrail/identrail/internal/db"
+	"github.com/identrail/identrail/internal/domain"
 )
 
 func newCrossAccountTrustService(t *testing.T, project string, now time.Time) (*Service, string) {
@@ -171,5 +175,71 @@ func TestAWSCrossAccountTrustRuntimeAssumptionFinding(t *testing.T) {
 	}
 	if !finding.HasCondition || len(finding.ConditionKeys) == 0 {
 		t.Fatalf("expected SourceIdentity to be surfaced as trust context, got %+v", finding)
+	}
+}
+
+func TestGetAWSCrossAccountTrustRequestsSTSSessionRuntimeEvidence(t *testing.T) {
+	now := time.Date(2026, 6, 21, 13, 20, 0, 0, time.UTC)
+	projectID := "project-cross-account-trust-live-runtime"
+	ctx := defaultScopeContext()
+	store := db.NewMemoryStore()
+	seedDefaultProject(t, store, ctx, projectID)
+	seedAWSConnectorForScanTest(t, store, ctx, projectID, "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, projectID, "aws-prod")
+
+	actorARN := "arn:aws:iam::111111111111:role/partner-deployer"
+	targetARN := "arn:aws:iam::222222222222:role/prod-deploy"
+	fake := &fakeCloudTrailIngester{result: AWSCloudTrailIngestResult{
+		Status: "ready",
+		Records: []AWSRuntimeEventRecord{{
+			EventID:             "evt-live-cross-account-assume",
+			AccountID:           "222222222222",
+			Region:              "us-east-1",
+			EventType:           "sts-session",
+			EventSource:         "sts.amazonaws.com",
+			EventName:           "AssumeRole",
+			Action:              "sts:AssumeRole",
+			ActorPrincipalARN:   actorARN,
+			ActorPrincipalType:  "assumed_role",
+			ActorIdentityNodeID: awsIdentityNodeIDForAPI(actorARN),
+			Session: AWSRuntimeEventSession{
+				SessionID:        "ASIAEXAMPLESESSION",
+				PrincipalARN:     actorARN,
+				AssumedRoleARN:   targetARN,
+				OriginalActorARN: actorARN,
+				SourceIdentity:   "partner-change-123",
+				StartedAt:        now.Add(-5 * time.Minute),
+			},
+			TargetResourceARN:  targetARN,
+			TargetResourceType: "AWS::IAM::Role",
+			TargetResourceName: "prod-deploy",
+			ResourceNodeID:     awsRuntimeEventResourceNodeID(targetARN, "AWS::IAM::Role"),
+			Owner:              "security",
+			EvidenceCategory:   "cloudtrail",
+			EvidenceRef:        "runtime-evidence://222222222222/us-east-1/evt-live-cross-account-assume",
+			Confidence:         0.9,
+			ObservedAt:         now.Add(-3 * time.Minute),
+			CollectedAt:        now,
+			Status:             "observed",
+			NextAction:         awsRuntimeEventNextAction("sts-session"),
+			RedactionBoundary:  "metadata_only_no_payloads_no_secret_values",
+		}},
+	}}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailLookupEventsFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error) {
+		return fake, nil
+	}
+
+	result, err := svc.GetAWSCrossAccountTrust(ctx, "default", projectID, AWSCrossAccountTrustRequest{ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("get cross-account trust: %v", err)
+	}
+	if len(fake.calls) == 0 || fake.calls[0].EventSourceFilter != "sts.amazonaws.com" {
+		t.Fatalf("expected cross-account trust runtime source to request STS sessions, got %+v", fake.calls)
+	}
+	if result.Summary.RuntimeObservedCount == 0 || result.Summary.FindingTypeCounts["runtime_cross_account_assumption"] == 0 {
+		t.Fatalf("expected live STS session to produce a runtime cross-account finding, got summary=%+v", result.Summary)
 	}
 }

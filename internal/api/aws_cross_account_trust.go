@@ -291,7 +291,7 @@ func (s *Service) awsCrossAccountTrustSourceSignals(ctx context.Context, workspa
 	if err != nil {
 		return awsCrossAccountTrustSources{}, fmt.Errorf("cross-account trust dynamodb/rds reachability: %w", err)
 	}
-	runtime, err := s.GetAWSRuntimeEvents(ctx, workspaceID, projectID, AWSRuntimeEventRequest{ConnectorID: connectorID, FixtureState: fixtureState, EventType: "api-call"})
+	runtime, err := s.GetAWSRuntimeEvents(ctx, workspaceID, projectID, AWSRuntimeEventRequest{ConnectorID: connectorID, FixtureState: fixtureState, EventType: "sts-session"})
 	if err != nil {
 		return awsCrossAccountTrustSources{}, fmt.Errorf("cross-account trust runtime events: %w", err)
 	}
