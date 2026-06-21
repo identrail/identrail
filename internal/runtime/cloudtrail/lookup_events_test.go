@@ -101,6 +101,20 @@ func cloudTrailAssumeRoleEventJSON(callerARN string, principalType string, sessi
 	}`, principalType, callerARN, sessionID, sourceIdentity, creation.UTC().Format(time.RFC3339), issuerARN, roleARN, roleSessionName, sourceIdentity)
 }
 
+func cloudTrailFederatedAssumeRoleEventJSON(principalARN string, roleARN string, roleSessionName string, sourceIdentity string) string {
+	return fmt.Sprintf(`{
+		"recipientAccountId": "123456789012",
+		"awsRegion": "us-east-1",
+		"userIdentity": {"type": "FederatedUser"},
+		"requestParameters": {
+			"principalArn": %q,
+			"roleArn": %q,
+			"roleSessionName": %q,
+			"sourceIdentity": %q
+		}
+	}`, principalARN, roleARN, roleSessionName, sourceIdentity)
+}
+
 func cloudTrailTaggedResourceEventJSON(callerARN string, sessionID string, issuerARN string, creation time.Time) string {
 	return fmt.Sprintf(`{
 		"sourceIPAddress": "10.0.0.8",
@@ -275,6 +289,46 @@ func TestIngestResolvesAssumeRoleSourceIdentityLineage(t *testing.T) {
 	}
 	if got := strings.Join(event.TransitiveTagKeys, ","); got != "environment,owner" {
 		t.Fatalf("expected sorted transitive tag keys, got %q", got)
+	}
+}
+
+func TestIngestMapsFederatedAssumeRoleActorLineage(t *testing.T) {
+	now := time.Date(2026, 6, 15, 10, 20, 0, 0, time.UTC)
+	principalARN := "arn:aws:iam::111111111111:saml-provider/ExampleIdP"
+	targetRole := "arn:aws:iam::123456789012:role/federated-prod"
+	api := &fakeLookupEventsAPI{pages: []LookupEventsPage{{
+		Events: []Event{{
+			EventID:     "evt-assume-saml",
+			EventName:   "AssumeRoleWithSAML",
+			EventSource: "sts.amazonaws.com",
+			EventTime:   now.Add(-3 * time.Minute),
+			RawEvent:    cloudTrailFederatedAssumeRoleEventJSON(principalARN, targetRole, "saml-session", "saml:alice"),
+		}, {
+			EventID:     "evt-assume-web-identity",
+			EventName:   "AssumeRoleWithWebIdentity",
+			EventSource: "sts.amazonaws.com",
+			EventTime:   now.Add(-2 * time.Minute),
+			RawEvent:    cloudTrailFederatedAssumeRoleEventJSON(principalARN, targetRole, "web-identity-session", "oidc:alice"),
+		}},
+	}}}
+	ing, _ := newIngester(api, now)
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1"})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 2 {
+		t.Fatalf("expected two normalized events, got %+v", result.Events)
+	}
+	for _, event := range result.Events {
+		if event.ActorPrincipalARN != principalARN || event.OriginalActorARN != principalARN {
+			t.Fatalf("expected federated actor lineage from principalArn, got %+v", event)
+		}
+		if event.TargetResourceARN != targetRole || event.AssumedRoleARN != targetRole {
+			t.Fatalf("expected federated target role normalization, got %+v", event)
+		}
+		if event.LineageStatus != "resolved" {
+			t.Fatalf("expected resolved federated lineage, got %+v", event)
+		}
 	}
 }
 

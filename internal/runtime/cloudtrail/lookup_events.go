@@ -721,6 +721,7 @@ var payloadAllowedKeys = struct {
 	RequestParameters string
 	RoleARN           string
 	RoleSessionName   string
+	PrincipalARN      string
 	Tags              string
 	TransitiveTagKeys string
 	TagKey            string
@@ -743,6 +744,7 @@ var payloadAllowedKeys = struct {
 	RequestParameters: "requestParameters",
 	RoleARN:           "roleArn",
 	RoleSessionName:   "roleSessionName",
+	PrincipalARN:      "principalArn",
 	Tags:              "tags",
 	TransitiveTagKeys: "transitiveTagKeys",
 	TagKey:            "key",
@@ -819,6 +821,9 @@ func normalizeEvent(raw Event, accountID string, region string, collectedAt time
 			base.UserAgent = meta.UserAgent
 			if meta.UserARN != "" {
 				base.ActorPrincipalARN = meta.UserARN
+			}
+			if base.ActorPrincipalARN == "" && isSTSAssumeRoleEvent(base.EventSource, base.EventName) {
+				base.ActorPrincipalARN = meta.RequestPrincipalARN
 			}
 			if meta.UserType != "" {
 				base.ActorPrincipalType = mapPrincipalType(meta.UserType)
@@ -905,7 +910,7 @@ func applySessionLineage(ev *NormalizedEvent, meta extractedMetadata) {
 		return
 	}
 
-	ev.OriginalActorARN = strings.TrimSpace(meta.UserARN)
+	ev.OriginalActorARN = strings.TrimSpace(firstNonEmpty(meta.UserARN, meta.RequestPrincipalARN))
 	if isAssumeRole {
 		if meta.RequestRoleARN != "" {
 			ev.AssumedRoleARN = meta.RequestRoleARN
@@ -957,6 +962,7 @@ type extractedMetadata struct {
 	SessionSourceID     string
 	RequestRoleARN      string
 	RequestSessionName  string
+	RequestPrincipalARN string
 	RequestSourceID     string
 	SessionTagKeys      []string
 	TransitiveTagKeys   []string
@@ -1012,6 +1018,7 @@ func extractAllowedMetadata(raw string, eventSource string, eventName string) (e
 		if err := json.Unmarshal(requestParams, &params); err == nil {
 			out.RequestRoleARN = decodeString(params[payloadAllowedKeys.RoleARN])
 			out.RequestSessionName = decodeString(params[payloadAllowedKeys.RoleSessionName])
+			out.RequestPrincipalARN = decodeString(params[payloadAllowedKeys.PrincipalARN])
 			out.RequestSourceID = decodeString(params[payloadAllowedKeys.SourceIdentity])
 			out.SessionTagKeys = decodeSessionTagKeys(params[payloadAllowedKeys.Tags])
 			out.TransitiveTagKeys = decodeStringSlice(params[payloadAllowedKeys.TransitiveTagKeys])
