@@ -3227,6 +3227,42 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"findings": record})
 	})
 
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/secret-permission-equivalence", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetAWSSecretPermissionEquivalence(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSSecretPermissionEquivalenceRequest{
+			ConnectorID:     strings.TrimSpace(c.Query("connector_id")),
+			FixtureState:    strings.TrimSpace(c.Query("fixture_state")),
+			AccountID:       strings.TrimSpace(c.Query("account_id")),
+			Region:          strings.TrimSpace(c.Query("region")),
+			Identity:        strings.TrimSpace(c.Query("identity")),
+			Secret:          strings.TrimSpace(c.Query("secret")),
+			Provider:        strings.TrimSpace(c.Query("provider")),
+			EquivalenceType: strings.TrimSpace(c.Query("equivalence_type")),
+			Severity:        strings.TrimSpace(c.Query("severity")),
+			Status:          strings.TrimSpace(c.Query("status")),
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project or connector not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws secret permission equivalence request"})
+			default:
+				logger.Error("get aws secret permission equivalence",
+					zap.String("workspace_id", c.Param("workspace_id")),
+					zap.String("project_id", c.Param("project_id")),
+					telemetry.ZapError(err),
+				)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws secret permission equivalence"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"findings": record})
+	})
+
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/iam-passrole-relationships", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)

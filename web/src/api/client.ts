@@ -3480,6 +3480,130 @@ export type AWSCrossAccountTrustQuery = {
   ou?: string;
 };
 
+// AWSSecretPermissionEquivalence* types describe Wave 6.07 decisions where a
+// readable secret/provider key is treated as a permission-bearing capability.
+export type AWSSecretPermissionEquivalenceStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSSecretPermissionEquivalenceFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+export type AWSSecretPermissionEquivalenceType =
+  | 'workload_provider_key_equivalence'
+  | 'secret_read_policy_equivalence'
+  | 'kms_decrypt_secret_equivalence'
+  | 'kms_live_grant_secret_equivalence'
+  | 'runtime_secret_access_equivalence'
+  | 'agent_provider_key_equivalence'
+  | 'blast_radius_secret_equivalence'
+  | 'admin_equivalent_secret_permission'
+  | string;
+
+export type AWSSecretPermissionEquivalenceRelationship = {
+  finding_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSSecretPermissionEquivalenceFinding = {
+  finding_id: string;
+  calculation_version: string;
+  equivalence_type: AWSSecretPermissionEquivalenceType;
+  severity: string;
+  status: string;
+  score: number;
+  confidence: number;
+  account_id: string;
+  region: string;
+  identity_node_id: string;
+  principal_arn?: string;
+  workload_id?: string;
+  workload_name?: string;
+  agent_id?: string;
+  agent_name?: string;
+  secret_node_id: string;
+  secret_arn?: string;
+  secret_label: string;
+  provider: string;
+  provider_key_reference?: string;
+  equivalent_permissions: string[];
+  implied_actions?: string[];
+  source_signals: string[];
+  rationale: string;
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  next_action: string;
+  remediation_case: AWSLeastPrivilegeRemediationCasePreview;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSSecretPermissionEquivalenceSummary = {
+  total_findings: number;
+  filtered_findings: number;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  equivalence_type_counts: Record<string, number>;
+  provider_counts: Record<string, number>;
+  external_provider_key_count: number;
+  aws_managed_secret_count: number;
+  runtime_observed_count: number;
+  kms_backed_count: number;
+  unresolved_reference_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+  remediation_preview_count: number;
+};
+
+export type AWSSecretPermissionEquivalenceResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSSecretPermissionEquivalenceStatus;
+  fixture_state?: AWSSecretPermissionEquivalenceFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSSecretPermissionEquivalenceSummary;
+  findings: AWSSecretPermissionEquivalenceFinding[];
+  relationships: AWSSecretPermissionEquivalenceRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSSecretPermissionEquivalenceQuery = {
+  connectorID?: string;
+  fixtureState?: AWSSecretPermissionEquivalenceFixtureState;
+  accountID?: string;
+  region?: string;
+  identity?: string;
+  secret?: string;
+  provider?: string;
+  equivalenceType?: AWSSecretPermissionEquivalenceType;
+  severity?: string;
+  status?: string;
+};
+
 export type AWSBedrockAgentsInventoryStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBedrockAgentsFixtureState =
   | 'success'
@@ -6785,6 +6909,28 @@ export const apiClient = {
         severity: query?.severity,
         status: query?.status,
         ou: query?.ou
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectSecretPermissionEquivalence(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSSecretPermissionEquivalenceQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ findings: AWSSecretPermissionEquivalenceResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/secret-permission-equivalence${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        identity: query?.identity,
+        secret: query?.secret,
+        provider: query?.provider,
+        equivalence_type: query?.equivalenceType,
+        severity: query?.severity,
+        status: query?.status
       })}`,
       auth
     );

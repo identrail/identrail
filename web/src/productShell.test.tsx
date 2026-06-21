@@ -3408,6 +3408,93 @@ describe('Domain-first app routes', () => {
         diagnostics: []
       } as any
     });
+    const getSecretPermissionEquivalence = vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockResolvedValue({
+      findings: {
+        status: 'ready',
+        findings: [
+          {
+            finding_id: 'aws-secret-permission-equivalence:openai-agent',
+            calculation_version: 'aws-secret-permission-equivalence-engine-v1',
+            equivalence_type: 'agent_provider_key_equivalence',
+            severity: 'high',
+            status: 'review',
+            score: 82,
+            confidence: 0.9,
+            account_id: '123456789012',
+            region: 'us-east-1',
+            identity_node_id: 'aws:identity:arn:aws:iam::123456789012:role/case-triage-runtime',
+            principal_arn: 'arn:aws:iam::123456789012:role/case-triage-runtime',
+            agent_id: 'case-triage',
+            agent_name: 'case-triage',
+            secret_node_id: 'aws:resource:secrets-manager-secret:openai/api-key',
+            secret_arn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:openai/api-key',
+            secret_label: 'openai/api-key',
+            provider: 'openai',
+            provider_key_reference: 'OPENAI_API_KEY',
+            equivalent_permissions: ['openai:api_request', 'openai:model_inference'],
+            source_signals: ['ai_agent_identities'],
+            rationale: 'Agent has OpenAI provider-key metadata without exposing the key value.',
+            evidence_boundary: 'metadata_only_no_secret_values_no_payloads',
+            impacted_nodes: [
+              'aws:identity:arn:aws:iam::123456789012:role/case-triage-runtime',
+              'aws:resource:secrets-manager-secret:openai/api-key'
+            ],
+            impacted_path: [
+              { node_id: 'aws:identity:arn:aws:iam::123456789012:role/case-triage-runtime', node_type: 'identity', label: 'case-triage-runtime' },
+              { node_id: 'aws:agent:case-triage', node_type: 'ai_agent', label: 'case-triage' },
+              { node_id: 'aws:resource:secrets-manager-secret:openai/api-key', node_type: 'permission_bearing_secret', label: 'openai/api-key' }
+            ],
+            evidence: [
+              {
+                source: 'ai_agent_identities',
+                evidence_ref: 'evidence://agent/case-triage/openai',
+                label: 'Agent provider-key metadata',
+                confidence: 0.9,
+                observed_at: '2026-06-21T13:30:00Z',
+                relationship: 'agent_uses_permission_bearing_secret'
+              }
+            ],
+            next_action: 'Rotate or scope the provider credential and restrict every identity that can read it.',
+            remediation_case: {
+              case_id: 'aws-secret-permission-equivalence-preview:openai-agent',
+              title: 'Provider key review',
+              recommended_action: 'Restrict secret readers.',
+              approval_required: true,
+              blocking_evidence: ['evidence://agent/case-triage/openai'],
+              impacted_node_count: 2,
+              estimated_risk_drop: 40,
+              breakage_prediction: 'unknown',
+              read_only_projection: true
+            },
+            created_at: '2026-06-21T13:30:00Z',
+            updated_at: '2026-06-21T13:30:00Z'
+          }
+        ],
+        summary: {
+          total_findings: 1,
+          filtered_findings: 1,
+          external_provider_key_count: 1,
+          aws_managed_secret_count: 0,
+          runtime_observed_count: 0,
+          kms_backed_count: 0,
+          unresolved_reference_count: 0,
+          relationship_count: 1,
+          highest_score: 82,
+          average_confidence_pct: 90,
+          remediation_preview_count: 1,
+          severity_counts: { high: 1 },
+          status_counts: { review: 1 },
+          equivalence_type_counts: { agent_provider_key_equivalence: 1 },
+          provider_counts: { openai: 1 }
+        },
+        relationships: [],
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
 
     const { ProductAWSRuntimePage } = await import('./productShell');
 
@@ -3433,6 +3520,8 @@ describe('Domain-first app routes', () => {
     expect(screen.getByText(/Passrole unscoped trust path/i)).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS cross-account trust findings' })).toBeInTheDocument();
     expect(screen.getByText(/Cross account resource access/i)).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS secret-to-permission equivalence findings' })).toBeInTheDocument();
+    expect(screen.getByText(/Agent provider key equivalence/i)).toBeInTheDocument();
     expect(getLeastPrivilege).toHaveBeenCalledWith(
       'workspace-a',
       'production',
@@ -3446,6 +3535,12 @@ describe('Domain-first app routes', () => {
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
     expect(getCrossAccountTrust).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getSecretPermissionEquivalence).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       expect.objectContaining({ connectorID: 'aws-connector-1' }),

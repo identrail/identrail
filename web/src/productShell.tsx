@@ -67,6 +67,8 @@ import {
   type AWSPrivilegeEscalationResult,
   type AWSCrossAccountTrustFinding,
   type AWSCrossAccountTrustResult,
+  type AWSSecretPermissionEquivalenceFinding,
+  type AWSSecretPermissionEquivalenceResult,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
   type AWSEC2InstanceProfileInventoryResult,
@@ -10987,6 +10989,157 @@ function AWSCrossAccountTrustContent({
   );
 }
 
+function awsSecretPermissionEquivalenceStage(finding: AWSSecretPermissionEquivalenceFinding): AWSCapabilityStage {
+  if (finding.status === 'action_required' || finding.severity === 'critical') {
+    return 'not-available';
+  }
+  if (finding.severity === 'high' || finding.status === 'review') {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsSecretPermissionEquivalenceLabel(finding: AWSSecretPermissionEquivalenceFinding): string {
+  return `${formatTokenLabel(finding.equivalence_type)} · score ${finding.score}`;
+}
+
+function awsSecretPermissionEquivalenceIdentityLabel(finding: AWSSecretPermissionEquivalenceFinding): string {
+  return (
+    finding.principal_arn ||
+    finding.agent_name ||
+    finding.agent_id ||
+    finding.workload_name ||
+    finding.workload_id ||
+    finding.identity_node_id
+  );
+}
+
+function awsSecretPermissionEquivalencePathLabel(finding: AWSSecretPermissionEquivalenceFinding): string {
+  const labels = finding.impacted_path.map((step) => step.label || step.node_id).filter(Boolean);
+  if (labels.length >= 2) {
+    return labels.slice(0, 4).join(' -> ');
+  }
+  return finding.secret_label || finding.secret_node_id || '-';
+}
+
+function awsSecretPermissionEquivalenceEvidenceLabel(finding: AWSSecretPermissionEquivalenceFinding): string {
+  const sources = finding.evidence.map((evidence) => evidence.label || formatTokenLabel(evidence.source));
+  return `${formatConfidenceScore(finding.confidence)} · ${sources.join(', ') || 'No evidence refs'}`;
+}
+
+function awsSecretPermissionEquivalencePermissionLabel(finding: AWSSecretPermissionEquivalenceFinding): string {
+  const permissions = finding.equivalent_permissions ?? [];
+  if (permissions.length === 0) {
+    return formatTokenLabel(finding.provider);
+  }
+  return `${formatTokenLabel(finding.provider)} · ${permissions.slice(0, 2).join(', ')}${permissions.length > 2 ? ` +${permissions.length - 2}` : ''}`;
+}
+
+function AWSSecretPermissionEquivalenceContent({
+  findings,
+  loading,
+  error,
+  onRetry
+}: {
+  findings: AWSSecretPermissionEquivalenceResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = findings?.findings ?? [];
+  const summaryLine = findings
+    ? `${findings.summary.external_provider_key_count} provider keys · ${findings.summary.aws_managed_secret_count} AWS secrets · ${findings.summary.runtime_observed_count} runtime-observed · ${findings.summary.kms_backed_count} KMS-backed`
+    : '';
+  const emptyState = findings
+    ? findings.status === 'blocked'
+      ? {
+          eyebrow: 'Permission required',
+          title: 'Secret-permission analysis needs read-only evidence access',
+          body: findings.failure_reasons[0] ?? 'Secret-to-permission equivalence cannot be calculated until AWS metadata access is available.'
+        }
+      : findings.status === 'degraded'
+        ? {
+            eyebrow: 'Evidence incomplete',
+            title: 'Secret-permission findings are incomplete',
+            body:
+              findings.failure_reasons[0] ??
+              findings.remediation_hints[0] ??
+              'Some source evidence is unavailable, so Identrail cannot prove every credential permission boundary yet.'
+          }
+        : {
+            eyebrow: 'No permission-bearing secrets',
+            title: 'No secret-to-permission equivalence findings detected',
+            body: 'No readable provider keys, AWS secrets, KMS-backed credentials, runtime access, or agent references matched this scope.'
+          }
+    : null;
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS secret-to-permission equivalence findings">
+      <h3>AWS secret-to-permission equivalence</h3>
+      <p className="idt-app-kicker">
+        Ranked decisions that treat readable provider keys, AWS secrets, and decryptable KMS-backed credentials as
+        permission-bearing capabilities.{summaryLine ? ` ${summaryLine}` : ''}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load secret-to-permission equivalence"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Calculating secret-permission equivalence"
+          body="Identrail is ranking metadata-only credential references, secret policies, KMS grants, runtime access, and graph evidence."
+        />
+      ) : null}
+      {!error && !loading && findings && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={emptyState?.eyebrow ?? 'No permission-bearing secrets'}
+          title={emptyState?.title ?? 'No secret-to-permission equivalence findings detected'}
+          body={
+            emptyState?.body ??
+            'No readable provider keys, AWS secrets, KMS-backed credentials, runtime access, or agent references matched this scope.'
+          }
+        />
+      ) : null}
+      {!error && !loading && findings && findings.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {findings.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS secret-to-permission equivalence findings"
+          rows={rows}
+          getRowKey={(row) => row.finding_id}
+          columns={[
+            { key: 'finding', header: 'Finding', render: (row) => <strong>{awsSecretPermissionEquivalenceLabel(row)}</strong> },
+            { key: 'identity', header: 'Identity', render: (row) => awsSecretPermissionEquivalenceIdentityLabel(row) },
+            { key: 'secret', header: 'Secret', render: (row) => row.secret_label || row.secret_arn || row.secret_node_id },
+            { key: 'permission', header: 'Equivalent permission', render: (row) => awsSecretPermissionEquivalencePermissionLabel(row) },
+            { key: 'path', header: 'Path', render: (row) => awsSecretPermissionEquivalencePathLabel(row) },
+            { key: 'evidence', header: 'Evidence', render: (row) => awsSecretPermissionEquivalenceEvidenceLabel(row) },
+            {
+              key: 'risk',
+              header: 'Risk',
+              render: (row) => (
+                <AWSInventoryPill
+                  stage={awsSecretPermissionEquivalenceStage(row)}
+                  label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.status)}`}
+                />
+              )
+            },
+            { key: 'next', header: 'Next action', render: (row) => row.next_action }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function AWSIdentitySprawlContent({
   findings,
   loading,
@@ -11715,6 +11868,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [crossAccountTrustLoading, setCrossAccountTrustLoading] = useState(false);
   const [crossAccountTrustError, setCrossAccountTrustError] = useState('');
   const crossAccountTrustRequestRef = useRef(0);
+  const [secretPermissionEquivalence, setSecretPermissionEquivalence] = useState<AWSSecretPermissionEquivalenceResult | null>(null);
+  const [secretPermissionEquivalenceLoading, setSecretPermissionEquivalenceLoading] = useState(false);
+  const [secretPermissionEquivalenceError, setSecretPermissionEquivalenceError] = useState('');
+  const secretPermissionEquivalenceRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -11723,6 +11880,8 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   useEffect(() => {
     setActiveFilters({ ...AWS_RISK_OPERATION_FILTER_DEFAULTS[routeID] });
   }, [routeID]);
+
+  const showSecretPermissionEquivalence = routeID === 'runtime' || routeID === 'findings';
 
   const loadRuntimeEvents = useCallback(async () => {
     const requestID = ++runtimeEventsRequestRef.current;
@@ -12210,6 +12369,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadCrossAccountTrust]);
 
+  const loadSecretPermissionEquivalence = useCallback(async () => {
+    const requestID = ++secretPermissionEquivalenceRequestRef.current;
+    setSecretPermissionEquivalence(null);
+    setSecretPermissionEquivalenceError('');
+    if (!showSecretPermissionEquivalence || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setSecretPermissionEquivalenceLoading(false);
+      return;
+    }
+    setSecretPermissionEquivalenceLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectSecretPermissionEquivalence(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== secretPermissionEquivalenceRequestRef.current) {
+        return;
+      }
+      setSecretPermissionEquivalence(response.findings);
+    } catch (error) {
+      if (requestID !== secretPermissionEquivalenceRequestRef.current) {
+        return;
+      }
+      setSecretPermissionEquivalenceError(formatAPIError(error, 'Unable to load AWS secret-to-permission equivalence.'));
+    } finally {
+      if (requestID === secretPermissionEquivalenceRequestRef.current) {
+        setSecretPermissionEquivalenceLoading(false);
+      }
+    }
+  }, [
+    showSecretPermissionEquivalence,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadSecretPermissionEquivalence();
+    return () => {
+      secretPermissionEquivalenceRequestRef.current += 1;
+    };
+  }, [loadSecretPermissionEquivalence]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -12373,6 +12580,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={crossAccountTrustLoading}
             error={crossAccountTrustError}
             onRetry={loadCrossAccountTrust}
+          />
+        ) : null}
+        {showSecretPermissionEquivalence ? (
+          <AWSSecretPermissionEquivalenceContent
+            findings={secretPermissionEquivalence}
+            loading={secretPermissionEquivalenceLoading}
+            error={secretPermissionEquivalenceError}
+            onRetry={loadSecretPermissionEquivalence}
           />
         ) : null}
         {routeID === 'graph' ? (

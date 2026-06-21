@@ -39,6 +39,12 @@ The AWS risk engine evaluates normalized identities and graph relationships to p
 
 The Wave 6.01 blast-radius engine is documented in [aws-blast-radius-engine.md](aws-blast-radius-engine.md). It composes existing AWS runtime and reachability signals into ranked, explainable identity findings with impacted paths, evidence references, confidence, calculation version, and read-only remediation previews.
 
+The Wave 6.07 secret-to-permission equivalence engine is documented in
+[aws-secret-permission-equivalence-engine.md](aws-secret-permission-equivalence-engine.md).
+It treats readable secrets, provider keys, and KMS-backed credentials as
+permission-bearing capabilities while preserving the metadata-only evidence
+boundary.
+
 ## Tunables
 
 - `WithStaleAfter(duration)`
