@@ -26,7 +26,14 @@ jobs:
       VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Production deploys run on the merged base branch, not on the PR
+          # head, so check out the base ref explicitly. checkout@v7 rejects
+          # the default merge-commit checkout for fork PRs on
+          # pull_request_target unless allow-unsafe-pr-checkout is set, which
+          # would otherwise break production deploys for accepted fork PRs.
+          ref: ${{ github.event.pull_request.base.ref || github.ref }}
 
       - name: Gate deployment by PR approval
         id: deploy-gate
