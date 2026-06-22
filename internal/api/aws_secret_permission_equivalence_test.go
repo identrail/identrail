@@ -118,6 +118,29 @@ func TestGetAWSSecretPermissionEquivalenceFilters(t *testing.T) {
 	}
 }
 
+func TestAWSSecretPermissionProviderFilterCanonicalizesAWSStoreAliases(t *testing.T) {
+	findings := []AWSSecretPermissionEquivalenceFinding{
+		{FindingID: "ssm", Provider: credentialProviderSSM},
+		{FindingID: "secrets-manager", Provider: credentialProviderSecretsManager},
+	}
+
+	ssm, applied := filterAWSSecretPermissionEquivalenceFindings(findings, AWSSecretPermissionEquivalenceRequest{Provider: "ssm"})
+	if len(ssm) != 1 || ssm[0].Provider != credentialProviderSSM {
+		t.Fatalf("expected ssm alias to match canonical SSM provider, got findings=%+v applied=%+v", ssm, applied)
+	}
+	if applied["provider"] != "aws-ssm" {
+		t.Fatalf("expected normalized SSM provider filter, got %+v", applied)
+	}
+
+	secretsManager, applied := filterAWSSecretPermissionEquivalenceFindings(findings, AWSSecretPermissionEquivalenceRequest{Provider: "secrets_manager"})
+	if len(secretsManager) != 1 || secretsManager[0].Provider != credentialProviderSecretsManager {
+		t.Fatalf("expected secrets_manager alias to match canonical Secrets Manager provider, got findings=%+v applied=%+v", secretsManager, applied)
+	}
+	if applied["provider"] != "aws-secrets-manager" {
+		t.Fatalf("expected normalized Secrets Manager provider filter, got %+v", applied)
+	}
+}
+
 func TestAWSSecretPermissionKMSGrantRespectsCapabilityDeny(t *testing.T) {
 	now := time.Date(2026, 6, 22, 8, 50, 0, 0, time.UTC)
 	accountID := "123456789012"
@@ -161,6 +184,13 @@ func TestAWSSecretPermissionKMSGrantRespectsCapabilityDeny(t *testing.T) {
 
 	if _, ok := awsSecretPermissionFindingFromKMSGrant(key, secret, allow, nil, now); !ok {
 		t.Fatalf("expected capability-only KMS decrypt allow to produce a finding without a deny")
+	}
+	if _, ok := awsSecretPermissionFindingFromKMSGrant(key, secret, AWSKMSIdentityGrant{
+		PrincipalARN: roleARN,
+		Effect:       "Allow",
+		Actions:      []string{"kms:*"},
+	}, nil, now); !ok {
+		t.Fatalf("expected kms:* KMS grant to produce a decrypt-equivalence finding")
 	}
 	if finding, ok := awsSecretPermissionFindingFromKMSGrant(key, secret, allow, deny, now); ok {
 		t.Fatalf("expected explicit deny on kms:Decrypt to suppress capability-only KMS finding, got %+v", finding)

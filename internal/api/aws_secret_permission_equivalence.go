@@ -735,7 +735,7 @@ func filterAWSSecretPermissionEquivalenceFindings(findings []AWSSecretPermission
 		"region":           strings.TrimSpace(request.Region),
 		"identity":         strings.TrimSpace(request.Identity),
 		"secret":           strings.TrimSpace(request.Secret),
-		"provider":         normalizeAWSRuntimeEventFilterToken(request.Provider),
+		"provider":         awsSecretPermissionProviderFilterToken(request.Provider),
 		"equivalence_type": normalizeAWSRuntimeEventFilterToken(request.EquivalenceType),
 		"severity":         normalizeAWSRuntimeEventFilterToken(request.Severity),
 		"status":           normalizeAWSRuntimeEventFilterToken(request.Status),
@@ -757,7 +757,7 @@ func filterAWSSecretPermissionEquivalenceFindings(findings []AWSSecretPermission
 		if filters["region"] != "" && !strings.EqualFold(filters["region"], finding.Region) {
 			continue
 		}
-		if filters["provider"] != "" && filters["provider"] != normalizeAWSRuntimeEventFilterToken(finding.Provider) {
+		if filters["provider"] != "" && filters["provider"] != awsSecretPermissionProviderFilterToken(finding.Provider) {
 			continue
 		}
 		if filters["equivalence_type"] != "" && filters["equivalence_type"] != normalizeAWSRuntimeEventFilterToken(finding.EquivalenceType) {
@@ -1078,7 +1078,7 @@ func awsSecretPermissionSecretGrantCanRead(grant AWSSecretsManagerIdentityGrant)
 func awsSecretPermissionKMSGrantCanDecrypt(actions []string, capabilities []string) bool {
 	for _, action := range append(append([]string{}, actions...), capabilities...) {
 		action = strings.ToLower(strings.TrimSpace(action))
-		if action == "*" || action == "decrypt" || action == "kms:decrypt" || strings.Contains(action, "decrypt") || strings.Contains(action, "admin") || strings.Contains(action, "manage") {
+		if action == "*" || action == "decrypt" || awsActionPatternMatches(action, "kms:decrypt") || strings.Contains(action, "decrypt") || strings.Contains(action, "admin") || strings.Contains(action, "manage") {
 			return true
 		}
 	}
@@ -1125,6 +1125,10 @@ func awsSecretPermissionCanonicalProvider(provider string) string {
 	default:
 		return provider
 	}
+}
+
+func awsSecretPermissionProviderFilterToken(provider string) string {
+	return normalizeAWSRuntimeEventFilterToken(awsSecretPermissionCanonicalProvider(provider))
 }
 
 func awsSecretPermissionProviderIsPermissionBearing(provider string, sensitivity string) bool {
