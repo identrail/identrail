@@ -14847,13 +14847,15 @@ async function listRepoScansForSelectedRepositories(
   auth: RequestAuthContext,
   options: { pageLimit?: number; maxPages?: number } = {}
 ): Promise<RepoScanRecord[]> {
-  if (!selectedRepositories.length || scanLimit <= 0) {
+  if (scanLimit <= 0) {
     return [];
   }
 
   const pageLimit = Math.max(scanLimit, options.pageLimit ?? scanLimit);
   const maxPages = Math.max(1, options.maxPages ?? GITHUB_MAX_SCAN_PAGE_FETCHES);
-  const allowed = new Set(selectedRepositories.map((repository) => canonicalGitHubRepositoryDisplay(repository).toLowerCase()));
+  const allowed = selectedRepositories.length > 0
+    ? new Set(selectedRepositories.map((repository) => canonicalGitHubRepositoryDisplay(repository).toLowerCase()))
+    : null;
   const matches: RepoScanRecord[] = [];
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
@@ -14876,7 +14878,7 @@ async function listRepoScansForSelectedRepositories(
     )) as { items: RepoScanRecord[]; next_cursor?: string };
 
     for (const scan of response.items) {
-      if (allowed.has(canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase())) {
+      if (!allowed || allowed.has(canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase())) {
         matches.push(scan);
       }
     }
@@ -15616,9 +15618,9 @@ export function ProductGitHubConnectPage() {
   const patSubmitRequestRef = useRef(0);
   const selectedPATScopeRef = useRef(scopedEnvironmentID);
   const installRequestRef = useRef(0);
-  const selectedInstallEnvironmentRef = useRef(selectedEnvironmentID);
+  const selectedInstallScopeRef = useRef(scopedEnvironmentID);
   selectedScanPolicyScopeRef.current = scopedEnvironmentID;
-  selectedInstallEnvironmentRef.current = selectedEnvironmentID;
+  selectedInstallScopeRef.current = scopedEnvironmentID;
   const [installError, setInstallError] = useState('');
   const [installing, setInstalling] = useState(false);
   const [pendingInstallURL, setPendingInstallURL] = useState('');
@@ -15707,12 +15709,12 @@ export function ProductGitHubConnectPage() {
   }, [scopedEnvironmentID]);
 
   useEffect(() => {
-    selectedInstallEnvironmentRef.current = selectedEnvironmentID;
+    selectedInstallScopeRef.current = scopedEnvironmentID;
     installRequestRef.current += 1;
     setInstallError('');
     setPendingInstallURL('');
     setInstalling(false);
-  }, [selectedEnvironmentID]);
+  }, [selectedEnvironmentID, scopedEnvironmentID]);
 
   if (!scope) {
     return (
@@ -15768,6 +15770,7 @@ export function ProductGitHubConnectPage() {
 
   const handleInstall = async () => {
     const environmentID = selectedEnvironmentID;
+    const installScope = scopedEnvironmentID;
     const requestID = installRequestRef.current + 1;
     installRequestRef.current = requestID;
     setInstallError('');
@@ -15784,7 +15787,7 @@ export function ProductGitHubConnectPage() {
         },
         buildProductAuthContext(scope)
       );
-      if (installRequestRef.current !== requestID || selectedInstallEnvironmentRef.current !== environmentID) {
+      if (installRequestRef.current !== requestID || selectedInstallScopeRef.current !== installScope) {
         return;
       }
       const installURL = response.install_url ?? '';
@@ -15799,12 +15802,12 @@ export function ProductGitHubConnectPage() {
       }
       data.reload();
     } catch (error) {
-      if (installRequestRef.current !== requestID || selectedInstallEnvironmentRef.current !== environmentID) {
+      if (installRequestRef.current !== requestID || selectedInstallScopeRef.current !== installScope) {
         return;
       }
       setInstallError(formatAPIError(error, 'Unable to start GitHub App installation.'));
     } finally {
-      if (installRequestRef.current === requestID && selectedInstallEnvironmentRef.current === environmentID) {
+      if (installRequestRef.current === requestID && selectedInstallScopeRef.current === installScope) {
         setInstalling(false);
       }
     }
@@ -16580,8 +16583,11 @@ export function ProductGitHubRepositoriesPage() {
 
   const connectPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/connect'), selectedEnvironmentID);
   const findingsPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/findings'), selectedEnvironmentID);
+  const hasRepositories = selectedRepositories.length > 0;
   const rows = buildGitHubRepositoryRows(selectedRepositories, data.scans);
-  const selectedRepositoryScans = gitHubScansForSelectedRepositories(data.scans, selectedRepositories);
+  const selectedRepositoryScans = hasRepositories
+    ? gitHubScansForSelectedRepositories(data.scans, selectedRepositories)
+    : data.scans;
   const githubPostureSecureCount = countGitHubPostureChecks(githubPosture, 'secure');
   const githubPostureAttentionCount = countGitHubPostureChecks(githubPosture, 'insecure');
   const githubPostureLimitedCount = countGitHubPostureChecks(githubPosture, 'permission_limited');
@@ -16604,7 +16610,6 @@ export function ProductGitHubRepositoriesPage() {
 
   const connected = Boolean(data.connection?.connected);
   const statusVariant = gitHubConnectionStatusVariantFor(data.connection, data.loading);
-  const hasRepositories = selectedRepositories.length > 0;
 
   const launchScan = async (repository: string) => {
     if (!data.connection?.connected) {
@@ -17042,7 +17047,7 @@ export function ProductGitHubRepositoriesPage() {
           )}
         </section>
       ) : null}
-      {showBody && connected && hasRepositories ? (
+      {showBody && connected ? (
         <section className="idt-domain-status-panel" aria-label="Recent repository scan activity">
           <header>
             <div>
