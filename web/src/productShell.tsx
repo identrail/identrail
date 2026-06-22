@@ -18763,8 +18763,16 @@ export function ProductExecutiveReportPage() {
     }
     // Skip the fetch entirely when the URL carries an unrecognized domain
     // value; the error panel below already explains the recovery path.
+    //
+    // Clear loadingReport AND reportError because if the URL transitions from
+    // valid to invalid while a prior request is still in flight, that
+    // request's `finally` is gated by the cleaned-up `mounted` closure and
+    // will never clear the loading flag. Without this clear, the render path
+    // would stay on the loading spinner instead of showing the recovery panel.
     if (invalidDomainRaw !== null) {
       setReport(null);
+      setLoadingReport(false);
+      setReportError('');
       return;
     }
 
@@ -18841,10 +18849,11 @@ export function ProductExecutiveReportPage() {
     </div>
   );
 
-  if (sessionLoading || loadingReport) {
-    return <AppShellLoading message="Loading executive report" />;
-  }
-
+  // Order matters: unauthenticated must win (we cannot render anything without
+  // a session), then invalidDomainRaw, then loading. Putting invalidDomainRaw
+  // above loadingReport guarantees a bad URL shows the recovery panel even if
+  // a prior in-flight request left loadingReport stuck (its `finally` was
+  // gated by the cleaned-up `mounted` closure and never cleared).
   if (unauthenticated) {
     return <Navigate to="/signin?return_to=%2Freports%2Fexecutive" replace />;
   }
@@ -18866,6 +18875,10 @@ export function ProductExecutiveReportPage() {
         </article>
       </section>
     );
+  }
+
+  if (sessionLoading || loadingReport) {
+    return <AppShellLoading message="Loading executive report" />;
   }
 
   if (sessionError || reportError) {
