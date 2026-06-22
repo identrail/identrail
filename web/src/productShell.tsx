@@ -19713,6 +19713,8 @@ export function ProductExecutiveReportPage() {
   const [reportError, setReportError] = useState('');
   const location = useLocation();
   const navigate = useNavigate();
+  const tenantID = scope?.tenantID ?? me?.org_id;
+  const workspaceID = scope?.workspaceID ?? me?.workspace_id;
   // Drive the active domain off the URL so deep links / refreshes preserve it.
   // parseExecutiveReportDomainParam tells us whether the URL is bad so we can
   // surface that as an error rather than silently widen to All.
@@ -19721,10 +19723,7 @@ export function ProductExecutiveReportPage() {
   );
 
   useEffect(() => {
-    if (!scope) {
-      return;
-    }
-    if (!me?.org_id || !me.workspace_id) {
+    if (!tenantID || !workspaceID) {
       return;
     }
     // Skip the fetch entirely when the URL carries an unrecognized domain
@@ -19749,7 +19748,7 @@ export function ProductExecutiveReportPage() {
       try {
         const response = await apiClient.getExecutiveReport(
           { domain: selectedDomain },
-          { tenantID: scope.tenantID, workspaceID: scope.workspaceID }
+          { tenantID, workspaceID }
         );
         if (mounted) {
           setReport(response);
@@ -19776,7 +19775,7 @@ export function ProductExecutiveReportPage() {
     return () => {
       mounted = false;
     };
-  }, [scope?.tenantID, scope?.workspaceID, me?.org_id, me?.workspace_id, selectedDomain, invalidDomainRaw]);
+  }, [tenantID, workspaceID, selectedDomain, invalidDomainRaw]);
 
   const handleDomainChange = (next: ExecutiveReportDomain) => {
     if (next === selectedDomain && invalidDomainRaw === null) {
