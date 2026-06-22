@@ -101,6 +101,41 @@ func cloudTrailAssumeRoleEventJSON(callerARN string, principalType string, sessi
 	}`, principalType, callerARN, sessionID, sourceIdentity, creation.UTC().Format(time.RFC3339), issuerARN, roleARN, roleSessionName, sourceIdentity)
 }
 
+func cloudTrailFederatedAssumeRoleEventJSON(identityProvider string, principalID string, principalARN string, roleARN string, roleSessionName string, sourceIdentity string) string {
+	return fmt.Sprintf(`{
+		"recipientAccountId": "123456789012",
+		"awsRegion": "us-east-1",
+		"userIdentity": {
+			"type": "SAMLUser",
+			"principalId": %q,
+			"identityProvider": %q
+		},
+		"requestParameters": {
+			"principalArn": %q,
+			"roleArn": %q,
+			"roleSessionName": %q,
+			"sourceIdentity": %q
+		}
+	}`, principalID, identityProvider, principalARN, roleARN, roleSessionName, sourceIdentity)
+}
+
+func cloudTrailWebIdentityAssumeRoleEventJSON(identityProvider string, principalID string, roleARN string, roleSessionName string, sourceIdentity string) string {
+	return fmt.Sprintf(`{
+		"recipientAccountId": "123456789012",
+		"awsRegion": "us-east-1",
+		"userIdentity": {
+			"type": "WebIdentityUser",
+			"principalId": %q,
+			"identityProvider": %q
+		},
+		"requestParameters": {
+			"roleArn": %q,
+			"roleSessionName": %q,
+			"sourceIdentity": %q
+		}
+	}`, principalID, identityProvider, roleARN, roleSessionName, sourceIdentity)
+}
+
 func cloudTrailTaggedResourceEventJSON(callerARN string, sessionID string, issuerARN string, creation time.Time) string {
 	return fmt.Sprintf(`{
 		"sourceIPAddress": "10.0.0.8",
@@ -275,6 +310,53 @@ func TestIngestResolvesAssumeRoleSourceIdentityLineage(t *testing.T) {
 	}
 	if got := strings.Join(event.TransitiveTagKeys, ","); got != "environment,owner" {
 		t.Fatalf("expected sorted transitive tag keys, got %q", got)
+	}
+}
+
+func TestIngestMapsFederatedAssumeRoleActorLineage(t *testing.T) {
+	now := time.Date(2026, 6, 15, 10, 20, 0, 0, time.UTC)
+	samlProvider := "saml:namequalifier:corp"
+	targetRole := "arn:aws:iam::123456789012:role/federated-prod"
+	samlProviderARN := "arn:aws:iam::123456789012:saml-provider/ExampleIdP"
+	oidcProviderARN := "arn:aws:iam::123456789012:oidc-provider/accounts.google.com"
+	api := &fakeLookupEventsAPI{pages: []LookupEventsPage{{
+		Events: []Event{{
+			EventID:     "evt-assume-saml",
+			EventName:   "AssumeRoleWithSAML",
+			EventSource: "sts.amazonaws.com",
+			EventTime:   now.Add(-3 * time.Minute),
+			RawEvent:    cloudTrailFederatedAssumeRoleEventJSON(samlProvider, "saml:namequalifier:corp:alice", samlProviderARN, targetRole, "saml-session", "saml:alice"),
+		}, {
+			EventID:     "evt-assume-web-identity",
+			EventName:   "AssumeRoleWithWebIdentity",
+			EventSource: "sts.amazonaws.com",
+			EventTime:   now.Add(-2 * time.Minute),
+			RawEvent:    cloudTrailWebIdentityAssumeRoleEventJSON(oidcProviderARN, "arn:aws:iam::123456789012:oidc-provider/accounts.google.com:app:user-id", targetRole, "web-identity-session", "oidc:alice"),
+		}},
+	}}}
+	ing, _ := newIngester(api, now)
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1"})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 2 {
+		t.Fatalf("expected two normalized events, got %+v", result.Events)
+	}
+	wantActors := map[string]string{
+		"evt-assume-saml":         samlProvider,
+		"evt-assume-web-identity": oidcProviderARN,
+	}
+	for _, event := range result.Events {
+		wantActor := wantActors[event.EventID]
+		if event.ActorPrincipalARN != wantActor || event.OriginalActorARN != wantActor {
+			t.Fatalf("expected federated actor lineage from %q, got %+v", wantActor, event)
+		}
+		if event.TargetResourceARN != targetRole || event.AssumedRoleARN != targetRole {
+			t.Fatalf("expected federated target role normalization, got %+v", event)
+		}
+		if event.LineageStatus != "resolved" {
+			t.Fatalf("expected resolved federated lineage, got %+v", event)
+		}
 	}
 }
 
