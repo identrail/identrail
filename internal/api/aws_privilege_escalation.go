@@ -325,6 +325,7 @@ func awsPrivilegeEscalationPassRoleIsDenied(record AWSIAMPassRoleRelationshipRec
 }
 
 func awsPrivilegeEscalationKMSIdentityGrantHasExplicitDeny(allowGrant AWSKMSIdentityGrant, denyGrants []AWSKMSIdentityGrant) bool {
+	allowActions := awsPrivilegeEscalationNormalizeKMSGrantActions(allowGrant.Actions, allowGrant.Capabilities)
 	for _, deny := range denyGrants {
 		if !strings.EqualFold(deny.Effect, "Deny") {
 			continue
@@ -332,7 +333,7 @@ func awsPrivilegeEscalationKMSIdentityGrantHasExplicitDeny(allowGrant AWSKMSIden
 		if !awsPrivilegeEscalationIdentityGrantPrincipalsMatch(allowGrant.PrincipalARN, deny.PrincipalARN, deny.WildcardPrincipal) {
 			continue
 		}
-		if awsPrivilegeEscalationKMSIdentityGrantActionsOverlap(allowGrant.Actions, deny.Actions) {
+		if awsPrivilegeEscalationKMSIdentityGrantActionsOverlap(allowActions, deny.Actions) {
 			return true
 		}
 	}
@@ -343,7 +344,7 @@ func awsPrivilegeEscalationKMSLiveGrantHasExplicitDeny(grant AWSKMSGrant, denyGr
 	if strings.TrimSpace(grant.GranteePrincipal) == "" {
 		return false
 	}
-	allowActions := awsPrivilegeEscalationNormalizeKMSLiveGrantActions(grant.Operations, grant.Capabilities)
+	allowActions := awsPrivilegeEscalationNormalizeKMSGrantActions(grant.Operations, grant.Capabilities)
 	allowGrant := AWSKMSIdentityGrant{
 		PrincipalARN:  grant.GranteePrincipal,
 		PrincipalType: grant.GranteePrincipalType,
@@ -352,9 +353,9 @@ func awsPrivilegeEscalationKMSLiveGrantHasExplicitDeny(grant AWSKMSGrant, denyGr
 	return awsPrivilegeEscalationKMSIdentityGrantHasExplicitDeny(allowGrant, denyGrants)
 }
 
-func awsPrivilegeEscalationNormalizeKMSLiveGrantActions(operations, capabilities []string) []string {
-	out := make([]string, 0, len(operations)+len(capabilities))
-	for _, action := range append(append([]string{}, operations...), capabilities...) {
+func awsPrivilegeEscalationNormalizeKMSGrantActions(actions, capabilities []string) []string {
+	out := make([]string, 0, len(actions)+len(capabilities))
+	for _, action := range append(append([]string{}, actions...), capabilities...) {
 		trimmed := strings.ToLower(strings.TrimSpace(action))
 		if trimmed == "" {
 			continue

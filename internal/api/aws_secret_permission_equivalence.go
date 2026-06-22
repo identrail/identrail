@@ -1086,7 +1086,7 @@ func awsSecretPermissionKMSGrantCanDecrypt(actions []string, capabilities []stri
 }
 
 func awsSecretPermissionProvider(provider, name, ref, sensitivity string) string {
-	provider = normalizeAWSRuntimeEventFilterToken(provider)
+	provider = awsSecretPermissionCanonicalProvider(provider)
 	if provider != "" && provider != "generic" {
 		return provider
 	}
@@ -1110,6 +1110,20 @@ func awsSecretPermissionProvider(provider, name, ref, sensitivity string) string
 		return "aws_secret"
 	default:
 		return credentialProviderGeneric
+	}
+}
+
+func awsSecretPermissionCanonicalProvider(provider string) string {
+	provider = normalizeAWSRuntimeEventFilterToken(provider)
+	switch provider {
+	case "secretsmanager", "secrets-manager", "aws-secretsmanager", "aws-secrets-manager":
+		return credentialProviderSecretsManager
+	case "ssm", "aws-ssm", "parameter-store", "parameterstore", "ssm-parameter":
+		return credentialProviderSSM
+	case "aws-secret":
+		return "aws_secret"
+	default:
+		return provider
 	}
 }
 

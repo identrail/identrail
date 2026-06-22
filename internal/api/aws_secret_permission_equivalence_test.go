@@ -118,6 +118,83 @@ func TestGetAWSSecretPermissionEquivalenceFilters(t *testing.T) {
 	}
 }
 
+func TestAWSSecretPermissionKMSGrantRespectsCapabilityDeny(t *testing.T) {
+	now := time.Date(2026, 6, 22, 8, 50, 0, 0, time.UTC)
+	accountID := "123456789012"
+	region := "us-east-1"
+	roleARN := "arn:aws:iam::123456789012:role/source"
+	keyARN := "arn:aws:kms:us-east-1:123456789012:key/99990000-1111-2222-3333-444455556666"
+	key := AWSKMSDecryptReachabilityRecord{
+		AccountID:   accountID,
+		Region:      region,
+		KeyARN:      keyARN,
+		KeyID:       "restricted-key",
+		FromNodeID:  "aws:resource:kms-key/" + keyARN,
+		Confidence:  0.91,
+		EvidenceRef: "evidence://kms/restricted-key",
+		CollectedAt: now,
+	}
+	secret := AWSSecretsManagerMetadataRecord{
+		AccountID:                       accountID,
+		Region:                          region,
+		SecretARN:                       "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/api/key",
+		SecretName:                      "prod/api/key",
+		KMSKeyARN:                       keyARN,
+		Sensitive:                       true,
+		SensitivityClassification:       "aws_managed_secret",
+		FromNodeID:                      "aws:resource:secrets-manager-secret/prod/api/key",
+		EvidenceRef:                     "evidence://secret/prod-api-key",
+		Confidence:                      0.9,
+		CollectedAt:                     now,
+		SensitivityClassificationSource: "fixture",
+	}
+	allow := AWSKMSIdentityGrant{
+		PrincipalARN: roleARN,
+		Effect:       "Allow",
+		Capabilities: []string{"decrypt"},
+	}
+	deny := []AWSKMSIdentityGrant{{
+		PrincipalARN: roleARN,
+		Effect:       "Deny",
+		Actions:      []string{"kms:Decrypt"},
+	}}
+
+	if _, ok := awsSecretPermissionFindingFromKMSGrant(key, secret, allow, nil, now); !ok {
+		t.Fatalf("expected capability-only KMS decrypt allow to produce a finding without a deny")
+	}
+	if finding, ok := awsSecretPermissionFindingFromKMSGrant(key, secret, allow, deny, now); ok {
+		t.Fatalf("expected explicit deny on kms:Decrypt to suppress capability-only KMS finding, got %+v", finding)
+	}
+}
+
+func TestAWSSecretPermissionProviderCanonicalizesAWSStoreAliases(t *testing.T) {
+	cases := []struct {
+		name           string
+		provider       string
+		wantProvider   string
+		wantPermission string
+	}{
+		{name: "secrets manager compact alias", provider: "secretsmanager", wantProvider: credentialProviderSecretsManager, wantPermission: "secretsmanager:GetSecretValue"},
+		{name: "secrets manager underscored alias", provider: "aws_secrets_manager", wantProvider: credentialProviderSecretsManager, wantPermission: "secretsmanager:GetSecretValue"},
+		{name: "ssm alias", provider: "ssm", wantProvider: credentialProviderSSM, wantPermission: "ssm:GetParameter"},
+		{name: "ssm parameter alias", provider: "ssm_parameter", wantProvider: credentialProviderSSM, wantPermission: "ssm:GetParameter"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := awsSecretPermissionProvider(tc.provider, "", "", "generic_secret")
+			if got != tc.wantProvider {
+				t.Fatalf("expected canonical provider %q, got %q", tc.wantProvider, got)
+			}
+			if !awsStringSliceContains(awsSecretPermissionProviderPermissions(got), tc.wantPermission) {
+				t.Fatalf("expected permissions for %q to include %q", got, tc.wantPermission)
+			}
+			if !awsSecretPermissionProviderIsPermissionBearing(got, "") {
+				t.Fatalf("expected %q to remain permission-bearing", got)
+			}
+		})
+	}
+}
+
 func TestGetAWSSecretPermissionEquivalenceFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 21, 13, 10, 0, 0, time.UTC)
 	svc, ws := newSecretPermissionEquivalenceService(t, "project-secret-permission-equivalence-states", now)
