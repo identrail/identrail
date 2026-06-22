@@ -9,27 +9,27 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.24
 	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.49.5
 	github.com/aws/aws-sdk-go-v2/service/apprunner v1.40.6
-	github.com/aws/aws-sdk-go-v2/service/batch v1.65.6
-	github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.44.0
+	github.com/aws/aws-sdk-go-v2/service/batch v1.66.0
+	github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.45.0
 	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.56.4
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.69.4
 	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.47.4
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.59.0
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.307.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.307.1
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.58.4
-	github.com/aws/aws-sdk-go-v2/service/ecs v1.83.0
-	github.com/aws/aws-sdk-go-v2/service/eks v1.86.0
+	github.com/aws/aws-sdk-go-v2/service/ecs v1.85.0
+	github.com/aws/aws-sdk-go-v2/service/eks v1.87.0
 	github.com/aws/aws-sdk-go-v2/service/emr v1.61.1
 	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.46.6
-	github.com/aws/aws-sdk-go-v2/service/glue v1.144.0
+	github.com/aws/aws-sdk-go-v2/service/glue v1.146.0
 	github.com/aws/aws-sdk-go-v2/service/iam v1.54.5
 	github.com/aws/aws-sdk-go-v2/service/kms v1.53.4
-	github.com/aws/aws-sdk-go-v2/service/lambda v1.92.3
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.93.0
 	github.com/aws/aws-sdk-go-v2/service/pipes v1.24.6
-	github.com/aws/aws-sdk-go-v2/service/rds v1.119.2
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.103.3
+	github.com/aws/aws-sdk-go-v2/service/rds v1.119.3
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.104.0
 	github.com/aws/aws-sdk-go-v2/service/s3control v1.71.5
-	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.254.0
+	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.256.0
 	github.com/aws/aws-sdk-go-v2/service/scheduler v1.18.7
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.42.3
 	github.com/aws/aws-sdk-go-v2/service/sfn v1.43.0
@@ -39,7 +39,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.43.3
 	github.com/aws/smithy-go v1.27.2
 	github.com/beevik/etree v1.6.0
-	github.com/coreos/go-oidc/v3 v3.18.0
+	github.com/coreos/go-oidc/v3 v3.19.0
 	github.com/crewjam/saml v0.5.1
 	github.com/gin-gonic/gin v1.12.0
 	github.com/goccy/go-yaml v1.19.2
