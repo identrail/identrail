@@ -355,17 +355,6 @@ const DOMAIN_NAV_ORDER: SourceProvider[] = ['aws', 'github', 'kubernetes'];
 const SHOULD_LOAD_CONNECTOR_BACKEND_FEATURES = FEATURE_CONNECTOR_GITHUB_V2 || FEATURE_CONNECTOR_K8S;
 const SOURCE_STACK: SourceProvider[] = [...SOURCE_ORDER];
 const SCAN_POLICY_TRIGGER_MODES: ScanTriggerMode[] = ['manual', 'scheduled', 'event', 'hybrid'];
-const createDefaultGitHubPATForm = () => ({ displayName: '', baseURL: '', token: '', repositories: '' });
-const createDefaultScanPolicyForm = () => ({
-  policyID: 'default',
-  name: 'Default policy',
-  enabled: true,
-  triggerMode: 'manual' as ScanTriggerMode,
-  cron: '',
-  maxConcurrentScans: '1',
-  historyLimit: '500',
-  maxFindings: '200'
-});
 const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low', 'info'] as const;
 const REPO_FINDING_TYPE_FILTERS = ['all', 'secret_exposure', 'repo_misconfiguration'] as const;
 const REPO_FINDING_SORT_FIELDS = ['severity', 'created_at', 'type', 'title'] as const;
@@ -1179,15 +1168,6 @@ function normalizeProjectToken(value: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 64);
-}
-
-function parsePositiveInteger(value: string, label: string): number {
-  const normalized = normalizeValue(value);
-  const parsed = Number.parseInt(normalized, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0 || String(parsed) !== normalized) {
-    throw new Error(`${label} must be a positive whole number.`);
-  }
-  return parsed;
 }
 
 function tokenWithNumericSuffix(base: string, suffix: number): string {
@@ -2208,15 +2188,11 @@ export function ProductGitHubCallbackPage() {
 
     const run = async () => {
       if (!state || !Number.isFinite(installationID) || installationID <= 0) {
-        setError(
-          'GitHub did not finish the installation — the installation details were missing from its response. This usually means setup was cancelled before completing. Start the GitHub connection again to retry.'
-        );
+        setError('GitHub did not return a valid installation callback.');
         return;
       }
       if (!code) {
-        setError(
-          'GitHub did not return an authorization code, so we could not verify the installation. Start the GitHub connection again to retry. If this keeps happening, contact support.'
-        );
+        setError('GitHub did not return an authorization code. Please retry the installation.');
         return;
       }
       try {
@@ -2234,10 +2210,7 @@ export function ProductGitHubCallbackPage() {
         }
       } catch (callbackError) {
         if (mounted) {
-          const message =
-            callbackError instanceof Error && callbackError.message.trim()
-              ? callbackError.message
-              : 'We could not complete the GitHub installation. Start the GitHub connection again to retry, and contact support if it persists.';
+          const message = callbackError instanceof Error ? callbackError.message : 'Unable to complete GitHub installation.';
           setError(message);
         }
       }
@@ -2255,7 +2228,7 @@ export function ProductGitHubCallbackPage() {
       <section className="idt-app-shell-screen" role="alert">
         <article className="idt-app-panel idt-app-panel-error">
           <p className="idt-app-kicker">GitHub setup failed</p>
-          <h1>Couldn't finish connecting GitHub</h1>
+          <h1>Unable to complete GitHub</h1>
           <p>{error}</p>
           <Link className="idt-btn idt-btn-primary" to="/app">
             Return to app
@@ -14948,15 +14921,6 @@ const GITHUB_REPOSITORIES_SCANS_LIMIT = 50;
 const GITHUB_REMEDIATION_FINDINGS_LIMIT = 100;
 const GITHUB_MAX_SCAN_PAGE_FETCHES = 50;
 const GITHUB_DOMAIN_DATA_CACHE_LIMIT = 24;
-const GITHUB_ACTIVE_SCAN_POLL_MS = 8000;
-type OneOffRepoScanMode = Extract<NonNullable<RepoScanRequest['scan_mode']>, 'quick' | 'deep'>;
-const ONE_OFF_REPO_SCAN_MODES: OneOffRepoScanMode[] = ['quick', 'deep'];
-const createDefaultOneOffRepoScanForm = () => ({
-  repository: '',
-  scanMode: 'deep' as OneOffRepoScanMode,
-  historyLimit: '500',
-  maxFindings: '200'
-});
 
 type GitHubAvailability = {
   loading: boolean;
@@ -15132,15 +15096,13 @@ async function listRepoScansForSelectedRepositories(
   auth: RequestAuthContext,
   options: { pageLimit?: number; maxPages?: number } = {}
 ): Promise<RepoScanRecord[]> {
-  if (scanLimit <= 0) {
+  if (!selectedRepositories.length || scanLimit <= 0) {
     return [];
   }
 
   const pageLimit = Math.max(scanLimit, options.pageLimit ?? scanLimit);
   const maxPages = Math.max(1, options.maxPages ?? GITHUB_MAX_SCAN_PAGE_FETCHES);
-  const allowed = selectedRepositories.length > 0
-    ? new Set(selectedRepositories.map((repository) => canonicalGitHubRepositoryDisplay(repository).toLowerCase()))
-    : null;
+  const allowed = new Set(selectedRepositories.map((repository) => canonicalGitHubRepositoryDisplay(repository).toLowerCase()));
   const matches: RepoScanRecord[] = [];
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
@@ -15163,7 +15125,7 @@ async function listRepoScansForSelectedRepositories(
     )) as { items: RepoScanRecord[]; next_cursor?: string };
 
     for (const scan of response.items) {
-      if (!allowed || allowed.has(canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase())) {
+      if (allowed.has(canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase())) {
         matches.push(scan);
       }
     }
@@ -15683,6 +15645,14 @@ function GitHubControlCenterBannerView({ banner }: { banner: GitHubControlCenter
   );
 }
 
+function legacyProjectSetupPath(scope: ProductSession, projectID: string | undefined): string {
+  const trimmed = normalizeValue(projectID);
+  if (!trimmed) {
+    return appendSourceQuery(buildProjectsPath(scope), 'github');
+  }
+  return appendSourceQuery(buildProjectPath(scope, trimmed), 'github');
+}
+
 function GitHubUnavailableShell({
   title,
   scope,
@@ -15895,111 +15865,9 @@ export function ProductGitHubConnectPage() {
   const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useGitHubDomainScope();
   const availability = useGitHubAvailability();
   const data = useGitHubDomainData(scope, selectedEnvironmentID, availability.available, 0);
-  const scopedEnvironmentID = scope ? `${scope.tenantID}|${scope.workspaceID}|${selectedEnvironmentID}` : selectedEnvironmentID;
-  const scanPolicyRequestRef = useRef(0);
-  const scanPolicySaveRequestRef = useRef(0);
-  const scanPolicyDeleteRequestRef = useRef(0);
-  const selectedScanPolicyScopeRef = useRef(scopedEnvironmentID);
-  const patSubmitRequestRef = useRef(0);
-  const selectedPATScopeRef = useRef(scopedEnvironmentID);
-  const installRequestRef = useRef(0);
-  const selectedInstallScopeRef = useRef(scopedEnvironmentID);
-  selectedScanPolicyScopeRef.current = scopedEnvironmentID;
-  selectedInstallScopeRef.current = scopedEnvironmentID;
   const [installError, setInstallError] = useState('');
   const [installing, setInstalling] = useState(false);
   const [pendingInstallURL, setPendingInstallURL] = useState('');
-  const [enterpriseOpen, setEnterpriseOpen] = useState(false);
-  const [patForm, setPATForm] = useState(createDefaultGitHubPATForm);
-  const [patError, setPATError] = useState('');
-  const [patSuccess, setPATSuccess] = useState('');
-  const [patSubmitting, setPATSubmitting] = useState(false);
-  const [scanPolicies, setScanPolicies] = useState<ScanPolicyRecord[]>([]);
-  const [scanPolicyLoading, setScanPolicyLoading] = useState(false);
-  const [scanPolicyError, setScanPolicyError] = useState('');
-  const [scanPolicySuccess, setScanPolicySuccess] = useState('');
-  const [policySaving, setPolicySaving] = useState(false);
-  const [policyDeletingID, setPolicyDeletingID] = useState('');
-  const [policyForm, setPolicyForm] = useState(createDefaultScanPolicyForm);
-  const loadScanPolicies = useCallback(async () => {
-    if (!scope || !selectedEnvironmentID || !availability.available) {
-      scanPolicyRequestRef.current += 1;
-      setScanPolicies([]);
-      setPolicyForm(createDefaultScanPolicyForm());
-      setScanPolicyLoading(false);
-      return;
-    }
-    const requestID = scanPolicyRequestRef.current + 1;
-    scanPolicyRequestRef.current = requestID;
-    setScanPolicyLoading(true);
-    setScanPolicyError('');
-    setScanPolicies([]);
-    try {
-      const response = await apiClient.listProjectScanPolicies(
-        scope.workspaceID,
-        selectedEnvironmentID,
-        {
-          limit: 50,
-          sort_by: 'updated_at',
-          sort_order: 'desc'
-        },
-        buildProductAuthContext(scope)
-      );
-      if (scanPolicyRequestRef.current !== requestID) {
-        return;
-      }
-      const items = response.items ?? [];
-      setScanPolicies(items);
-      setPolicyForm((current) => {
-        if (items.length === 0) {
-          return createDefaultScanPolicyForm();
-        }
-        const selected = items.find((item) => item.policy_id === current.policyID) ?? items[0];
-        return {
-          policyID: selected.policy_id,
-          name: selected.name,
-          enabled: selected.enabled,
-          triggerMode: selected.trigger_mode,
-          cron: selected.cron ?? '',
-          maxConcurrentScans: String(selected.max_concurrent_scans),
-          historyLimit: String(selected.history_limit),
-          maxFindings: String(selected.max_findings)
-        };
-      });
-    } catch (error) {
-      if (scanPolicyRequestRef.current !== requestID) {
-        return;
-      }
-      setScanPolicies([]);
-      setPolicyForm(createDefaultScanPolicyForm());
-      setScanPolicyError(formatAPIError(error, 'Unable to load scan policies.'));
-    } finally {
-      if (scanPolicyRequestRef.current === requestID) {
-        setScanPolicyLoading(false);
-      }
-    }
-  }, [availability.available, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
-
-  useEffect(() => {
-    void loadScanPolicies();
-  }, [loadScanPolicies]);
-
-  useEffect(() => {
-    selectedPATScopeRef.current = scopedEnvironmentID;
-    patSubmitRequestRef.current += 1;
-    setPATForm(createDefaultGitHubPATForm());
-    setPATError('');
-    setPATSuccess('');
-    setPATSubmitting(false);
-  }, [scopedEnvironmentID]);
-
-  useEffect(() => {
-    selectedInstallScopeRef.current = scopedEnvironmentID;
-    installRequestRef.current += 1;
-    setInstallError('');
-    setPendingInstallURL('');
-    setInstalling(false);
-  }, [selectedEnvironmentID, scopedEnvironmentID]);
 
   if (!scope) {
     return (
@@ -16051,13 +15919,10 @@ export function ProductGitHubConnectPage() {
   }
 
   const basePath = appendEnvironmentQuery(buildScopedPath(scope, 'github'), selectedEnvironmentID);
+  const legacyPath = legacyProjectSetupPath(scope, selectedEnvironmentID);
   const repositoriesPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/repositories'), selectedEnvironmentID);
 
   const handleInstall = async () => {
-    const environmentID = selectedEnvironmentID;
-    const installScope = scopedEnvironmentID;
-    const requestID = installRequestRef.current + 1;
-    installRequestRef.current = requestID;
     setInstallError('');
     setPendingInstallURL('');
     setInstalling(true);
@@ -16066,15 +15931,12 @@ export function ProductGitHubConnectPage() {
         typeof window !== 'undefined' ? `${window.location.origin}/app/github/callback` : undefined;
       const response = await apiClient.startGitHubConnector(
         {
-          project_id: environmentID,
+          project_id: selectedEnvironmentID,
           install_account_type: 'any',
           redirect_uri: redirectURI
         },
         buildProductAuthContext(scope)
       );
-      if (installRequestRef.current !== requestID || selectedInstallScopeRef.current !== installScope) {
-        return;
-      }
       const installURL = response.install_url ?? '';
       if (installURL) {
         let opened: Window | null = null;
@@ -16087,173 +15949,9 @@ export function ProductGitHubConnectPage() {
       }
       data.reload();
     } catch (error) {
-      if (installRequestRef.current !== requestID || selectedInstallScopeRef.current !== installScope) {
-        return;
-      }
       setInstallError(formatAPIError(error, 'Unable to start GitHub App installation.'));
     } finally {
-      if (installRequestRef.current === requestID && selectedInstallScopeRef.current === installScope) {
-        setInstalling(false);
-      }
-    }
-  };
-
-  // Self-hosted GitHub Enterprise / restricted environments cannot use the
-  // hosted App install, so they save a personal access token connector here.
-  // This replaces the form that lived on the retired legacy project page.
-  const handleEnterprisePATSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const environmentID = selectedEnvironmentID;
-    const patRequestID = patSubmitRequestRef.current + 1;
-    patSubmitRequestRef.current = patRequestID;
-    setPATSubmitting(true);
-    setPATError('');
-    setPATSuccess('');
-    try {
-      const token = normalizeValue(patForm.token);
-      if (!token) {
-        throw new Error('Enter a GitHub personal access token for the self-hosted fallback.');
-      }
-      await apiClient.upsertGitHubPATConnector(
-        {
-          project_id: environmentID,
-          display_name: normalizeValue(patForm.displayName) || undefined,
-          base_url: normalizeValue(patForm.baseURL) || undefined,
-          token,
-          selected_repositories: parseGitHubRepositories(patForm.repositories)
-        },
-        buildProductAuthContext(scope)
-      );
-      if (patSubmitRequestRef.current !== patRequestID || selectedPATScopeRef.current !== scopedEnvironmentID) {
-        return;
-      }
-      setPATForm((current) => ({ ...current, token: '' }));
-      setPATSuccess('GitHub Enterprise connector validated and saved.');
-      data.reload();
-    } catch (error) {
-      if (patSubmitRequestRef.current !== patRequestID || selectedPATScopeRef.current !== scopedEnvironmentID) {
-        return;
-      }
-      setPATError(formatAPIError(error, 'Unable to save GitHub Enterprise connector.'));
-    } finally {
-      if (patSubmitRequestRef.current === patRequestID && selectedPATScopeRef.current === scopedEnvironmentID) {
-        setPATSubmitting(false);
-      }
-    }
-  };
-
-  const handleScanPolicySubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const environmentID = selectedEnvironmentID;
-    const saveRequestID = scanPolicySaveRequestRef.current + 1;
-    scanPolicySaveRequestRef.current = saveRequestID;
-    setPolicySaving(true);
-    setScanPolicyError('');
-    setScanPolicySuccess('');
-    try {
-      const policyID = normalizeProjectToken(policyForm.policyID);
-      if (!policyID) {
-        throw new Error('Policy ID is required.');
-      }
-      const name = normalizeValue(policyForm.name);
-      if (!name) {
-        throw new Error('Policy name is required.');
-      }
-      const triggerMode = policyForm.triggerMode;
-      const cron = normalizeValue(policyForm.cron);
-      if ((triggerMode === 'scheduled' || triggerMode === 'hybrid') && !cron) {
-        throw new Error('Cron is required when trigger mode is scheduled or hybrid.');
-      }
-      const response = await apiClient.upsertProjectScanPolicy(
-        scope.workspaceID,
-        environmentID,
-        {
-          policy_id: policyID,
-          name,
-          enabled: policyForm.enabled,
-          trigger_mode: triggerMode,
-          cron: cron || undefined,
-          max_concurrent_scans: parsePositiveInteger(policyForm.maxConcurrentScans, 'Max concurrent scans'),
-          history_limit: parsePositiveInteger(policyForm.historyLimit, 'History limit'),
-          max_findings: parsePositiveInteger(policyForm.maxFindings, 'Max findings')
-        },
-        buildProductAuthContext(scope)
-      );
-      if (
-        scanPolicySaveRequestRef.current !== saveRequestID ||
-        selectedScanPolicyScopeRef.current !== scopedEnvironmentID
-      ) {
-        return;
-      }
-      const policy = response.policy;
-      setPolicyForm({
-        policyID: policy.policy_id,
-        name: policy.name,
-        enabled: policy.enabled,
-        triggerMode: policy.trigger_mode,
-        cron: policy.cron ?? '',
-        maxConcurrentScans: String(policy.max_concurrent_scans),
-        historyLimit: String(policy.history_limit),
-        maxFindings: String(policy.max_findings)
-      });
-      setScanPolicySuccess('Scan policy saved.');
-      await loadScanPolicies();
-    } catch (error) {
-      if (
-        scanPolicySaveRequestRef.current !== saveRequestID ||
-        selectedScanPolicyScopeRef.current !== scopedEnvironmentID
-      ) {
-        return;
-      }
-      setScanPolicyError(error instanceof Error ? error.message : 'Unable to save scan policy.');
-    } finally {
-      if (scanPolicySaveRequestRef.current === saveRequestID && selectedScanPolicyScopeRef.current === scopedEnvironmentID) {
-        setPolicySaving(false);
-      }
-    }
-  };
-
-  const handleScanPolicyDelete = async (policyID: string) => {
-    const normalizedPolicyID = normalizeValue(policyID);
-    if (!normalizedPolicyID) {
-      return;
-    }
-    const environmentID = selectedEnvironmentID;
-    const deleteRequestID = scanPolicyDeleteRequestRef.current + 1;
-    scanPolicyDeleteRequestRef.current = deleteRequestID;
-    setPolicyDeletingID(normalizedPolicyID);
-    setScanPolicyError('');
-    setScanPolicySuccess('');
-    try {
-      await apiClient.deleteProjectScanPolicy(
-        scope.workspaceID,
-        environmentID,
-        normalizedPolicyID,
-        buildProductAuthContext(scope)
-      );
-      if (
-        scanPolicyDeleteRequestRef.current !== deleteRequestID ||
-        selectedScanPolicyScopeRef.current !== scopedEnvironmentID
-      ) {
-        return;
-      }
-      setScanPolicySuccess(`Scan policy ${normalizedPolicyID} deleted.`);
-      await loadScanPolicies();
-    } catch (error) {
-      if (
-        scanPolicyDeleteRequestRef.current !== deleteRequestID ||
-        selectedScanPolicyScopeRef.current !== scopedEnvironmentID
-      ) {
-        return;
-      }
-      setScanPolicyError(error instanceof Error ? error.message : 'Unable to delete scan policy.');
-    } finally {
-      if (
-        scanPolicyDeleteRequestRef.current === deleteRequestID &&
-        selectedScanPolicyScopeRef.current === scopedEnvironmentID
-      ) {
-        setPolicyDeletingID('');
-      }
+      setInstalling(false);
     }
   };
 
@@ -16376,13 +16074,9 @@ export function ProductGitHubConnectPage() {
             >
               {installing ? 'Opening install...' : 'Reinstall on GitHub'}
             </button>
-            <button
-              type="button"
-              className="idt-btn idt-btn-ghost"
-              onClick={() => setEnterpriseOpen(true)}
-            >
+            <Link to={legacyPath} className="idt-btn idt-btn-ghost">
               Manage Enterprise / PAT
-            </button>
+            </Link>
             <Link to={basePath} className="idt-btn idt-btn-ghost">
               GitHub home
             </Link>
@@ -16407,261 +16101,10 @@ export function ProductGitHubConnectPage() {
             >
               {installing ? 'Opening install...' : 'Install GitHub App'}
             </button>
-            <button
-              type="button"
-              className="idt-btn idt-btn-dark"
-              onClick={() => setEnterpriseOpen(true)}
-            >
+            <Link to={legacyPath} className="idt-btn idt-btn-dark">
               Manage Enterprise / PAT
-            </button>
+            </Link>
           </footer>
-        </section>
-      ) : null}
-      {showBody ? (
-        <details
-          className="idt-source-advanced idt-source-enterprise-fallback"
-          open={enterpriseOpen}
-          onToggle={(event) => setEnterpriseOpen((event.target as HTMLDetailsElement).open)}
-        >
-          <summary>
-            <span>
-              <strong>GitHub Enterprise fallback</strong>
-              <small>Use only for self-hosted GitHub Server or restricted app-install environments.</small>
-            </span>
-          </summary>
-          <form className="idt-app-form" onSubmit={handleEnterprisePATSubmit}>
-            <div className="idt-source-inline-fields">
-              <label>
-                Enterprise base URL
-                <input
-                  value={patForm.baseURL}
-                  onChange={(event) => setPATForm((current) => ({ ...current, baseURL: event.target.value }))}
-                  placeholder="https://github.company.com"
-                />
-              </label>
-              <label>
-                Display name
-                <input
-                  value={patForm.displayName}
-                  onChange={(event) => setPATForm((current) => ({ ...current, displayName: event.target.value }))}
-                  placeholder="GitHub Enterprise"
-                />
-              </label>
-            </div>
-            <label>
-              Personal access token
-              <input
-                type="password"
-                value={patForm.token}
-                onChange={(event) => setPATForm((current) => ({ ...current, token: event.target.value }))}
-                placeholder="GitHub Enterprise fallback token"
-                required
-              />
-            </label>
-            <label>
-              Repository allowlist
-              <textarea
-                value={patForm.repositories}
-                onChange={(event) => setPATForm((current) => ({ ...current, repositories: event.target.value }))}
-                placeholder="owner/repo, owner/security-platform"
-              />
-            </label>
-            {patError ? <p role="alert">{patError}</p> : null}
-            {patSuccess ? <p>{patSuccess}</p> : null}
-            <button className="idt-btn idt-btn-primary" type="submit" disabled={patSubmitting}>
-              {patSubmitting ? 'Validating...' : 'Save enterprise fallback'}
-            </button>
-          </form>
-        </details>
-      ) : null}
-      {showBody ? (
-        <section className="idt-domain-status-panel idt-source-policy-panel" aria-label="Scan policy management">
-          <header>
-            <div>
-              <p className="idt-app-kicker">Automation policies</p>
-              <h3>Scan policy</h3>
-              <p>Define trigger mode, cadence, and limits for GitHub scans in this environment.</p>
-            </div>
-            <span className="idt-source-status-pill is-warning">Advanced</span>
-          </header>
-
-          {scanPolicyError ? (
-            <p role="alert" className="idt-app-alert idt-app-alert-error">
-              {scanPolicyError}
-            </p>
-          ) : null}
-          {scanPolicySuccess ? (
-            <p role="status" className="idt-app-alert idt-app-alert-success">
-              {scanPolicySuccess}
-            </p>
-          ) : null}
-
-          <div className="idt-source-summary" aria-label="scan policy summary">
-            <article>
-              <span>{scanPolicyLoading ? '...' : scanPolicies.length}</span>
-              <p>Policies</p>
-            </article>
-            <article>
-              <span>{scanPolicies.filter((item) => item.enabled).length}</span>
-              <p>Enabled</p>
-            </article>
-            <article>
-              <span>{policyForm.triggerMode}</span>
-              <p>Editing mode</p>
-            </article>
-          </div>
-
-          {scanPolicies.length > 0 ? (
-            <div className="idt-source-diagnostics">
-              {scanPolicies.map((policy) => (
-                <article key={policy.policy_id}>
-                  <strong>{policy.name}</strong>
-                  <span>{policy.enabled ? 'Enabled' : 'Disabled'}</span>
-                  <p>
-                    {formatScanTriggerModeLabel(policy.trigger_mode)} · concurrency {policy.max_concurrent_scans} ·
-                    history {policy.history_limit} · findings {policy.max_findings}
-                  </p>
-                  <div className="idt-source-inline-fields">
-                    <button
-                      type="button"
-                      className="idt-btn idt-btn-ghost"
-                      disabled={scanPolicyLoading}
-                      onClick={() =>
-                        setPolicyForm({
-                          policyID: policy.policy_id,
-                          name: policy.name,
-                          enabled: policy.enabled,
-                          triggerMode: policy.trigger_mode,
-                          cron: policy.cron ?? '',
-                          maxConcurrentScans: String(policy.max_concurrent_scans),
-                          historyLimit: String(policy.history_limit),
-                          maxFindings: String(policy.max_findings)
-                        })
-                      }
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="idt-btn idt-btn-ghost"
-                      onClick={() => {
-                        void handleScanPolicyDelete(policy.policy_id);
-                      }}
-                      disabled={scanPolicyLoading || policyDeletingID === policy.policy_id}
-                    >
-                      {policyDeletingID === policy.policy_id ? 'Deleting...' : 'Delete'}
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : null}
-
-          <form className="idt-app-form" onSubmit={handleScanPolicySubmit}>
-            <div className="idt-source-inline-fields">
-              <label>
-                Policy ID
-                <input
-                  value={policyForm.policyID}
-                  onChange={(event) =>
-                    setPolicyForm((current) => ({ ...current, policyID: normalizeProjectToken(event.target.value) }))
-                  }
-                  placeholder="default"
-                  required
-                />
-              </label>
-              <label>
-                Policy name
-                <input
-                  value={policyForm.name}
-                  onChange={(event) => setPolicyForm((current) => ({ ...current, name: event.target.value }))}
-                  placeholder="Default policy"
-                  required
-                />
-              </label>
-            </div>
-            <div className="idt-source-inline-fields">
-              <label>
-                Trigger mode
-                <select
-                  value={policyForm.triggerMode}
-                  onChange={(event) =>
-                    setPolicyForm((current) => ({ ...current, triggerMode: event.target.value as ScanTriggerMode }))
-                  }
-                >
-                  {SCAN_POLICY_TRIGGER_MODES.map((mode) => (
-                    <option key={mode} value={mode}>
-                      {formatScanTriggerModeLabel(mode)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Enabled
-                <select
-                  value={policyForm.enabled ? 'true' : 'false'}
-                  onChange={(event) =>
-                    setPolicyForm((current) => ({ ...current, enabled: event.target.value === 'true' }))
-                  }
-                >
-                  <option value="true">Enabled</option>
-                  <option value="false">Disabled</option>
-                </select>
-              </label>
-            </div>
-            <p className="idt-form-note">
-              Manual keeps GitHub events from starting scans. Event and hybrid modes allow selected-repository webhooks
-              to queue scans.
-            </p>
-            {policyForm.triggerMode === 'scheduled' || policyForm.triggerMode === 'hybrid' ? (
-              <label>
-                Cron schedule
-                <input
-                  value={policyForm.cron}
-                  onChange={(event) => setPolicyForm((current) => ({ ...current, cron: event.target.value }))}
-                  placeholder="0 * * * *"
-                  required
-                />
-              </label>
-            ) : null}
-            <div className="idt-source-inline-fields">
-              <label>
-                Max concurrent scans
-                <input
-                  inputMode="numeric"
-                  value={policyForm.maxConcurrentScans}
-                  onChange={(event) =>
-                    setPolicyForm((current) => ({ ...current, maxConcurrentScans: event.target.value }))
-                  }
-                  placeholder="1"
-                  required
-                />
-              </label>
-              <label>
-                History limit
-                <input
-                  inputMode="numeric"
-                  value={policyForm.historyLimit}
-                  onChange={(event) => setPolicyForm((current) => ({ ...current, historyLimit: event.target.value }))}
-                  placeholder="500"
-                  required
-                />
-              </label>
-              <label>
-                Max findings
-                <input
-                  inputMode="numeric"
-                  value={policyForm.maxFindings}
-                  onChange={(event) => setPolicyForm((current) => ({ ...current, maxFindings: event.target.value }))}
-                  placeholder="200"
-                  required
-                />
-              </label>
-            </div>
-            <button className="idt-btn idt-btn-primary" type="submit" disabled={policySaving || scanPolicyLoading}>
-              {policySaving ? 'Saving policy...' : 'Save scan policy'}
-            </button>
-          </form>
         </section>
       ) : null}
     </DomainPageShell>
@@ -16693,129 +16136,6 @@ export function ProductGitHubRepositoriesPage() {
   const [scanInfo, setScanInfo] = useState('');
   const [submittingRepository, setSubmittingRepository] = useState('');
   const [cancelingScanID, setCancelingScanID] = useState('');
-  const [oneOffScanForm, setOneOffScanForm] = useState(createDefaultOneOffRepoScanForm);
-  const [oneOffScanSubmitting, setOneOffScanSubmitting] = useState(false);
-  const oneOffScanScopeKey = scope ? `${scope.tenantID}\n${scope.workspaceID}` : '';
-  const oneOffScanRequestRef = useRef(0);
-  const selectedOneOffScanEnvironmentRef = useRef(selectedEnvironmentID);
-  const selectedOneOffScanScopeRef = useRef(oneOffScanScopeKey);
-  const postureRequestRef = useRef(0);
-  selectedOneOffScanEnvironmentRef.current = selectedEnvironmentID;
-  selectedOneOffScanScopeRef.current = oneOffScanScopeKey;
-  const selectedRepositories = uniqueGitHubRepositories(data.connection?.selected_repositories ?? []);
-  const selectedRepositoriesKey = selectedRepositories.join('\n');
-  const [postureRepository, setPostureRepository] = useState('');
-  const [githubPosture, setGitHubPosture] = useState<GitHubRepositoryPosture | null>(null);
-  const [githubOrganizationPosture, setGitHubOrganizationPosture] = useState<GitHubOrganizationPosture | null>(null);
-  const [githubPostureLoading, setGitHubPostureLoading] = useState(false);
-  const [githubPostureError, setGitHubPostureError] = useState('');
-  const hasActiveRepositoryScan = data.scans.some((scan) => isActiveScanStatus(scan.status));
-
-  useEffect(() => {
-    const nextRepository = selectedRepositories.includes(postureRepository)
-      ? postureRepository
-      : (selectedRepositories[0] ?? '');
-    if (nextRepository !== postureRepository) {
-      setPostureRepository(nextRepository);
-    }
-  }, [postureRepository, selectedRepositoriesKey]);
-
-  useEffect(() => {
-    selectedOneOffScanEnvironmentRef.current = selectedEnvironmentID;
-    selectedOneOffScanScopeRef.current = oneOffScanScopeKey;
-    oneOffScanRequestRef.current += 1;
-    setOneOffScanForm(createDefaultOneOffRepoScanForm());
-    setOneOffScanSubmitting(false);
-    setScanError('');
-    setScanInfo('');
-  }, [oneOffScanScopeKey, selectedEnvironmentID]);
-
-  useEffect(() => {
-    const connection = data.connection;
-    const repository = canonicalGitHubRepositoryDisplay(postureRepository);
-    const requestID = postureRequestRef.current + 1;
-    postureRequestRef.current = requestID;
-
-    if (
-      !scope ||
-      !selectedEnvironmentID ||
-      !connection?.connected ||
-      connection.provider !== 'github_app' ||
-      !connection.connector_id ||
-      !repository
-    ) {
-      setGitHubPosture(null);
-      setGitHubOrganizationPosture(null);
-      setGitHubPostureLoading(false);
-      setGitHubPostureError('');
-      return undefined;
-    }
-
-    setGitHubPostureLoading(true);
-    setGitHubPostureError('');
-    setGitHubPosture(null);
-    setGitHubOrganizationPosture(null);
-    void apiClient
-      .getGitHubConnectorRepositoryPosture(
-        connection.connector_id,
-        scope.workspaceID,
-        selectedEnvironmentID,
-        repository,
-        buildProductAuthContext(scope)
-      )
-      .then((response) => {
-        if (postureRequestRef.current !== requestID) {
-          return;
-        }
-        setGitHubPosture(response.posture);
-        setGitHubOrganizationPosture(response.organization_posture ?? null);
-      })
-      .catch((error) => {
-        if (postureRequestRef.current !== requestID) {
-          return;
-        }
-        setGitHubPosture(null);
-        setGitHubOrganizationPosture(null);
-        setGitHubPostureError(formatAPIError(error, 'Unable to load GitHub repository posture.'));
-      })
-      .finally(() => {
-        if (postureRequestRef.current === requestID) {
-          setGitHubPostureLoading(false);
-        }
-      });
-
-    return () => {
-      if (postureRequestRef.current === requestID) {
-        postureRequestRef.current += 1;
-      }
-    };
-  }, [
-    data.connection?.connected,
-    data.connection?.connector_id,
-    data.connection?.provider,
-    postureRepository,
-    scope?.tenantID,
-    scope?.workspaceID,
-    selectedEnvironmentID
-  ]);
-
-  useEffect(() => {
-    if (!scope || !selectedEnvironmentID || !availability.available || !data.connection?.connected || !hasActiveRepositoryScan) {
-      return undefined;
-    }
-    const pollID = window.setInterval(() => {
-      data.reload();
-    }, GITHUB_ACTIVE_SCAN_POLL_MS);
-    return () => window.clearInterval(pollID);
-  }, [
-    availability.available,
-    data.connection?.connected,
-    data.reload,
-    hasActiveRepositoryScan,
-    scope?.tenantID,
-    scope?.workspaceID,
-    selectedEnvironmentID
-  ]);
 
   if (!scope) {
     return (
@@ -16868,33 +16188,13 @@ export function ProductGitHubRepositoriesPage() {
 
   const connectPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/connect'), selectedEnvironmentID);
   const findingsPath = appendEnvironmentQuery(buildScopedPath(scope, 'github/findings'), selectedEnvironmentID);
-  const hasRepositories = selectedRepositories.length > 0;
+  const selectedRepositories = uniqueGitHubRepositories(data.connection?.selected_repositories ?? []);
   const rows = buildGitHubRepositoryRows(selectedRepositories, data.scans);
-  const selectedRepositoryScans = hasRepositories
-    ? gitHubScansForSelectedRepositories(data.scans, selectedRepositories)
-    : data.scans;
-  const githubPostureSecureCount = countGitHubPostureChecks(githubPosture, 'secure');
-  const githubPostureAttentionCount = countGitHubPostureChecks(githubPosture, 'insecure');
-  const githubPostureLimitedCount = countGitHubPostureChecks(githubPosture, 'permission_limited');
-  const githubPostureUnavailableCount = countGitHubPostureChecks(githubPosture, 'unavailable');
-  const githubPostureUnsupportedCount = countGitHubPostureChecks(githubPosture, 'unsupported');
-  const githubPostureUnknownCount = countGitHubPostureChecks(githubPosture, 'unknown');
-  const githubPostureNeedsAttentionCount =
-    githubPostureAttentionCount +
-    githubPostureLimitedCount +
-    githubPostureUnavailableCount +
-    githubPostureUnsupportedCount +
-    githubPostureUnknownCount;
-  const githubPostureDetailChecks = githubPosture?.checks.filter((check) => check.state !== 'secure') ?? [];
-  const postureChecksToRender = githubPostureDetailChecks.length > 0 ? githubPostureDetailChecks : (githubPosture?.checks ?? []);
-  const githubOrganizationPostureSecureCount = countGitHubPostureChecks(githubOrganizationPosture, 'secure');
-  const githubOrganizationPostureAttentionCount = countGitHubPostureChecks(githubOrganizationPosture, 'insecure');
-  const githubOrganizationPostureLimitedCount = countGitHubPostureChecks(githubOrganizationPosture, 'permission_limited');
-  const githubOrganizationPostureUnavailableCount = countGitHubPostureChecks(githubOrganizationPosture, 'unavailable');
-  const githubOrganizationPostureChecks = githubOrganizationPosture?.checks.filter((check) => check.state !== 'secure') ?? [];
+  const selectedRepositoryScans = gitHubScansForSelectedRepositories(data.scans, selectedRepositories);
 
   const connected = Boolean(data.connection?.connected);
   const statusVariant = gitHubConnectionStatusVariantFor(data.connection, data.loading);
+  const hasRepositories = selectedRepositories.length > 0;
 
   const launchScan = async (repository: string) => {
     if (!data.connection?.connected) {
@@ -16919,73 +16219,6 @@ export function ProductGitHubRepositoriesPage() {
       setScanError(formatRepoScanSubmitError(error));
     } finally {
       setSubmittingRepository((current) => (current === repository ? '' : current));
-    }
-  };
-
-  const launchOneOffScan = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!data.connection?.connected) {
-      setScanError('Connect GitHub before queueing a repository scan.');
-      return;
-    }
-    const environmentID = selectedEnvironmentID;
-    const scopeKey = oneOffScanScopeKey;
-    const requestID = oneOffScanRequestRef.current + 1;
-    oneOffScanRequestRef.current = requestID;
-    setScanError('');
-    setScanInfo('');
-    setOneOffScanSubmitting(true);
-    try {
-      const repository = normalizeValue(oneOffScanForm.repository);
-      if (!repository) {
-        throw new Error('Repository is required.');
-      }
-      const request: RepoScanRequest = {
-        repository,
-        scan_mode: oneOffScanForm.scanMode,
-        history_limit: parsePositiveInteger(oneOffScanForm.historyLimit, 'History limit'),
-        max_findings: parsePositiveInteger(oneOffScanForm.maxFindings, 'Max findings')
-      };
-      if (data.connection.provider === 'github_app') {
-        request.project_id = environmentID;
-        if (data.connection.connector_id) {
-          request.connector_id = data.connection.connector_id;
-        }
-      }
-      await apiClient.runRepoScan(request, buildProductAuthContext(scope));
-      if (
-        oneOffScanRequestRef.current !== requestID ||
-        selectedOneOffScanEnvironmentRef.current !== environmentID ||
-        selectedOneOffScanScopeRef.current !== scopeKey
-      ) {
-        return;
-      }
-      setOneOffScanForm((current) => ({ ...current, repository: '' }));
-      setScanInfo(`Repository scan queued for ${repository}.`);
-      data.reload();
-    } catch (error) {
-      if (
-        oneOffScanRequestRef.current !== requestID ||
-        selectedOneOffScanEnvironmentRef.current !== environmentID ||
-        selectedOneOffScanScopeRef.current !== scopeKey
-      ) {
-        return;
-      }
-      setScanError(
-        error instanceof ApiError
-          ? formatRepoScanSubmitError(error)
-          : error instanceof Error
-            ? error.message
-            : formatRepoScanSubmitError(error)
-      );
-    } finally {
-      if (
-        oneOffScanRequestRef.current === requestID &&
-        selectedOneOffScanEnvironmentRef.current === environmentID &&
-        selectedOneOffScanScopeRef.current === scopeKey
-      ) {
-        setOneOffScanSubmitting(false);
-      }
     }
   };
 
@@ -17079,68 +16312,6 @@ export function ProductGitHubRepositoriesPage() {
           nextAction={{ label: 'Select repositories', to: connectPath }}
         />
       ) : null}
-      {showBody && connected ? (
-        <section className="idt-domain-status-panel idt-github-one-off-scan-panel" aria-label="One-off repository scan">
-          <header>
-            <div>
-              <h3>One-off scan</h3>
-              <p>Run a repository scan with explicit depth and finding limits.</p>
-            </div>
-            <span className="idt-source-status-pill is-warning">Advanced</span>
-          </header>
-          <form className="idt-app-form" onSubmit={launchOneOffScan}>
-            <label>
-              Repository
-              <input
-                value={oneOffScanForm.repository}
-                onChange={(event) => setOneOffScanForm((current) => ({ ...current, repository: event.target.value }))}
-                placeholder="owner/repo"
-                required
-              />
-            </label>
-            <div className="idt-source-inline-fields">
-              <label>
-                Scan mode
-                <select
-                  value={oneOffScanForm.scanMode}
-                  onChange={(event) =>
-                    setOneOffScanForm((current) => ({ ...current, scanMode: event.target.value as OneOffRepoScanMode }))
-                  }
-                >
-                  {ONE_OFF_REPO_SCAN_MODES.map((mode) => (
-                    <option key={mode} value={mode}>
-                      {formatTokenLabel(mode)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                History limit
-                <input
-                  inputMode="numeric"
-                  value={oneOffScanForm.historyLimit}
-                  onChange={(event) => setOneOffScanForm((current) => ({ ...current, historyLimit: event.target.value }))}
-                  placeholder="500"
-                  required
-                />
-              </label>
-              <label>
-                Max findings
-                <input
-                  inputMode="numeric"
-                  value={oneOffScanForm.maxFindings}
-                  onChange={(event) => setOneOffScanForm((current) => ({ ...current, maxFindings: event.target.value }))}
-                  placeholder="200"
-                  required
-                />
-              </label>
-            </div>
-            <button className="idt-btn idt-btn-primary" type="submit" disabled={oneOffScanSubmitting || data.loading}>
-              {oneOffScanSubmitting ? 'Queuing scan...' : 'Run scan'}
-            </button>
-          </form>
-        </section>
-      ) : null}
       {showBody && connected && hasRepositories ? (
         <section className="idt-domain-status-panel idt-github-repository-panel" aria-label="Selected repositories">
           <header>
@@ -17201,138 +16372,6 @@ export function ProductGitHubRepositoriesPage() {
         </section>
       ) : null}
       {showBody && connected && hasRepositories ? (
-        <section className="idt-domain-status-panel idt-github-posture-panel" aria-label="Repository posture">
-          <header>
-            <div>
-              <h3>Repository posture</h3>
-              <p>Branch protection, Actions permissions, security settings, and organization posture for a selected repository.</p>
-            </div>
-            {selectedRepositories.length > 1 ? (
-              <label>
-                Repository
-                <select value={postureRepository} onChange={(event) => setPostureRepository(event.target.value)}>
-                  {selectedRepositories.map((repository) => (
-                    <option key={repository} value={repository}>
-                      {repository}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-          </header>
-          {githubPostureLoading ? (
-            <DomainLoadingState label="Loading repository posture" />
-          ) : githubPostureError ? (
-            <DomainErrorState title="Unable to load repository posture" body={githubPostureError} />
-          ) : githubPosture ? (
-            <>
-              <article className="idt-github-posture-card">
-                <div className="idt-github-posture-card-head">
-                  <div>
-                    <strong>{githubPosture.repository}</strong>
-                    <p>Collected {formatConnectionTime(githubPosture.collected_at)}</p>
-                  </div>
-                  <span className={`idt-source-status-pill is-${githubPostureNeedsAttentionCount > 0 ? 'warning' : 'success'}`}>
-                    {githubPostureNeedsAttentionCount > 0
-                      ? formatCountLabel(githubPostureNeedsAttentionCount, 'check', 'checks')
-                      : 'Secure'}
-                  </span>
-                </div>
-                <dl className="idt-github-posture-stats" aria-label="GitHub posture summary">
-                  <div>
-                    <dt>Secure</dt>
-                    <dd>{githubPostureSecureCount}</dd>
-                  </div>
-                  <div>
-                    <dt>Attention</dt>
-                    <dd>{githubPostureAttentionCount}</dd>
-                  </div>
-                  <div>
-                    <dt>Limited</dt>
-                    <dd>{githubPostureLimitedCount}</dd>
-                  </div>
-                  <div>
-                    <dt>Unavailable</dt>
-                    <dd>{githubPostureUnavailableCount}</dd>
-                  </div>
-                </dl>
-              </article>
-              <details className="idt-source-advanced idt-github-posture-details" open={githubPostureNeedsAttentionCount > 0}>
-                <summary>
-                  <span>
-                    <strong>
-                      {githubPostureNeedsAttentionCount > 0
-                        ? `Review ${formatCountLabel(githubPostureNeedsAttentionCount, 'check', 'checks')}`
-                        : 'Review checks'}
-                    </strong>
-                    <small>
-                      {githubPostureNeedsAttentionCount > 0 ? 'Branch, Actions, security' : 'Collected GitHub signals'}
-                    </small>
-                  </span>
-                </summary>
-                {githubPosture.rate_limit?.remaining !== undefined ? (
-                  <p className="idt-github-posture-rate-limit">
-                    GitHub API remaining {githubPosture.rate_limit.remaining}
-                    {githubPosture.rate_limit.limit ? ` of ${githubPosture.rate_limit.limit}` : ''}
-                  </p>
-                ) : null}
-                <div className="idt-github-posture-checks">
-                  {postureChecksToRender.slice(0, 6).map((check) => (
-                    <article key={check.id}>
-                      <strong>{formatTokenLabel(check.category || check.id)}</strong>
-                      <span className={`idt-source-status-pill is-${githubPostureStateTone(check.state)}`}>
-                        {formatTokenLabel(check.state)}
-                      </span>
-                      <p>{check.summary}</p>
-                      {check.reason ? <small>{formatTokenLabel(check.reason)}</small> : null}
-                    </article>
-                  ))}
-                  {postureChecksToRender.length > 6 ? (
-                    <p>{formatCountLabel(postureChecksToRender.length - 6, 'additional check', 'additional checks')} hidden.</p>
-                  ) : null}
-                  {githubOrganizationPosture ? (
-                    <article>
-                      <strong>Organization posture</strong>
-                      <span>{formatConnectionTime(githubOrganizationPosture.collected_at)}</span>
-                      <p>
-                        {githubOrganizationPostureSecureCount} secure · {githubOrganizationPostureAttentionCount} attention ·{' '}
-                        {githubOrganizationPostureLimitedCount} permission limited · {githubOrganizationPostureUnavailableCount}{' '}
-                        unavailable
-                      </p>
-                    </article>
-                  ) : null}
-                  {githubOrganizationPostureChecks.slice(0, 5).map((check) => (
-                    <article key={`org-${check.id}`}>
-                      <strong>{formatTokenLabel(check.category || check.id)}</strong>
-                      <span className={`idt-source-status-pill is-${githubPostureStateTone(check.state)}`}>
-                        {formatTokenLabel(check.state)}
-                      </span>
-                      <p>{check.summary}</p>
-                      {check.reason ? <small>{formatTokenLabel(check.reason)}</small> : null}
-                    </article>
-                  ))}
-                  {githubOrganizationPostureChecks.length > 5 ? (
-                    <p>
-                      {formatCountLabel(
-                        githubOrganizationPostureChecks.length - 5,
-                        'additional organization check',
-                        'additional organization checks'
-                      )}{' '}
-                      hidden.
-                    </p>
-                  ) : null}
-                </div>
-              </details>
-            </>
-          ) : (
-            <DomainEmptyState
-              title="No repository posture collected yet"
-              body="Posture checks appear here after Identrail can read the selected repository through the GitHub App."
-            />
-          )}
-        </section>
-      ) : null}
-      {showBody && connected ? (
         <section className="idt-domain-status-panel" aria-label="Recent repository scan activity">
           <header>
             <div>
@@ -21121,6 +20160,1967 @@ export function ProductProjectsPage() {
   );
 }
 
+export function ProductProjectDetailPage() {
+  const params = useParams<ScopeRouteParams>();
+  const scope = resolveScopeFromParams(params);
+  const projectID = normalizeValue(params.projectID ?? '');
+  const location = useLocation();
+  const { features: backendFeatures, loading: backendFeaturesLoading } = useBackendFeatures({
+    enabled: SHOULD_LOAD_CONNECTOR_BACKEND_FEATURES
+  });
+  const refreshSequenceRef = useRef(0);
+  const repoScanSubmitSequenceRef = useRef(0);
+  const githubPostureRequestRef = useRef(0);
+  const sourceAvailability = useMemo(() => buildSourceAvailability(backendFeatures), [backendFeatures]);
+  const selectedSourceFromConnect = useMemo(() => {
+    return normalizeSourceProvider(new URLSearchParams(location.search).get('source'));
+  }, [location.search]);
+  const sourceScope = useMemo(() => {
+    if (!selectedSourceFromConnect || !sourceAvailability[selectedSourceFromConnect]?.visible) {
+      return null;
+    }
+    return selectedSourceFromConnect;
+  }, [selectedSourceFromConnect, sourceAvailability]);
+  const sourceOrder = useMemo(
+    () => (sourceScope ? [sourceScope] : SOURCE_ORDER.filter((provider) => sourceAvailability[provider].visible)),
+    [sourceAvailability, sourceScope]
+  );
+  const actionableSourceOrder = useMemo(
+    () => sourceOrder.filter((provider) => sourceAvailability[provider].available),
+    [sourceAvailability, sourceOrder]
+  );
+
+  const [connections, setConnections] = useState<SourceConnectionMap>({});
+  const [sourceErrors, setSourceErrors] = useState<Partial<Record<SourceProvider, string>>>({});
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [submitting, setSubmitting] = useState<SourceProvider | ''>('');
+  const [selectedSource, setSelectedSource] = useState<SourceProvider>(
+    selectedSourceFromConnect ?? SOURCE_ORDER[0] ?? 'aws'
+  );
+  const [successMessage, setSuccessMessage] = useState('');
+  const [githubStart, setGitHubStart] = useState<GitHubConnectorStartResponse | null>(null);
+  const [githubAppForm, setGitHubAppForm] = useState({
+    displayName: 'Identrail'
+  });
+  const [githubPATForm, setGitHubPATForm] = useState({
+    displayName: 'GitHub Enterprise',
+    baseURL: '',
+    token: '',
+    repositories: ''
+  });
+  const [repoScanForm, setRepoScanForm] = useState({
+    repository: '',
+    historyLimit: '',
+    maxFindings: ''
+  });
+  const [recentRepoScans, setRecentRepoScans] = useState<RepoScanRecord[]>([]);
+  const [repoScanSubmitting, setRepoScanSubmitting] = useState(false);
+  const [repoScanCancelingID, setRepoScanCancelingID] = useState('');
+  const [repoScanError, setRepoScanError] = useState('');
+  const [githubPosture, setGitHubPosture] = useState<GitHubRepositoryPosture | null>(null);
+  const [githubOrganizationPosture, setGitHubOrganizationPosture] = useState<GitHubOrganizationPosture | null>(null);
+  const [githubPostureLoading, setGitHubPostureLoading] = useState(false);
+  const [githubPostureError, setGitHubPostureError] = useState('');
+  const [awsForm, setAWSForm] = useState({
+    roleARN: '',
+    externalID: '',
+    region: 'us-east-1',
+    displayName: '',
+    sessionName: 'identrail-connector-validation',
+    roleName: 'IdentrailReadOnly',
+    stackName: 'identrail-readonly-connector'
+  });
+  const [awsCloudFormationStart, setAWSCloudFormationStart] = useState<AWSConnectorStartResponse | null>(null);
+  const [awsPermissionPreview, setAWSPermissionPreview] = useState<AWSPermissionPreviewItem[]>([]);
+  const [awsPermissionTiers, setAWSPermissionTiers] = useState<AWSCapabilityPermissionTier[]>([]);
+  const [awsPreviewOpen, setAWSPreviewOpen] = useState(false);
+  const [kubernetesForm, setKubernetesForm] = useState({
+    displayName: '',
+    context: '',
+    mode: 'agent' as 'agent' | 'kubeconfig',
+    apiURL: '',
+    kubeconfig: ''
+  });
+  const [kubernetesEnrollment, setKubernetesEnrollment] = useState<KubernetesConnectorStartResponse | null>(null);
+  const [scanPolicies, setScanPolicies] = useState<ScanPolicyRecord[]>([]);
+  const [scanPolicyError, setScanPolicyError] = useState('');
+  const [policySaving, setPolicySaving] = useState(false);
+  const [policyDeletingID, setPolicyDeletingID] = useState('');
+  const scopedEnvironmentKey = scope ? `${scope.tenantID}::${scope.workspaceID}::${projectID}` : '';
+  const scopedEnvironmentKeyRef = useRef(scopedEnvironmentKey);
+  scopedEnvironmentKeyRef.current = scopedEnvironmentKey;
+  const [policyForm, setPolicyForm] = useState({
+    policyID: 'default',
+    name: 'Default policy',
+    enabled: true,
+    triggerMode: 'manual' as ScanTriggerMode,
+    cron: '',
+    maxConcurrentScans: '1',
+    historyLimit: '500',
+    maxFindings: '200'
+  });
+  const githubSelectedRepositories = useMemo(
+    () => uniqueGitHubRepositories(connections.github?.selected_repositories ?? []),
+    [connections.github?.selected_repositories]
+  );
+  const githubSelectedRepositoriesKey = githubSelectedRepositories.join('\n');
+  const githubSelectedRepositoryKeys = useMemo(
+    () => new Set(githubSelectedRepositories.map((repository) => repository.toLowerCase())),
+    [githubSelectedRepositories]
+  );
+  const githubRecentRepoScans = useMemo(() => {
+    if (githubSelectedRepositoryKeys.size === 0) {
+      return [];
+    }
+    return recentRepoScans.filter((scan) =>
+      githubSelectedRepositoryKeys.has(canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase())
+    );
+  }, [githubSelectedRepositoryKeys, recentRepoScans]);
+  const repoScanRepository = normalizeValue(repoScanForm.repository);
+  const effectiveRepoScanRepository = repoScanRepository || githubSelectedRepositories[0] || '';
+  const effectiveRepoScanRepositoryKey = canonicalGitHubRepositoryDisplay(effectiveRepoScanRepository).toLowerCase();
+  const githubPostureSecureCount = countGitHubPostureChecks(githubPosture, 'secure');
+  const githubPostureAttentionCount = countGitHubPostureChecks(githubPosture, 'insecure');
+  const githubPostureLimitedCount = countGitHubPostureChecks(githubPosture, 'permission_limited');
+  const githubPostureUnavailableCount = countGitHubPostureChecks(githubPosture, 'unavailable');
+  const githubPostureUnsupportedCount = countGitHubPostureChecks(githubPosture, 'unsupported');
+  const githubPostureUnknownCount = countGitHubPostureChecks(githubPosture, 'unknown');
+  const githubOrganizationPostureSecureCount = countGitHubPostureChecks(githubOrganizationPosture, 'secure');
+  const githubOrganizationPostureAttentionCount = countGitHubPostureChecks(githubOrganizationPosture, 'insecure');
+  const githubOrganizationPostureLimitedCount = countGitHubPostureChecks(githubOrganizationPosture, 'permission_limited');
+  const githubOrganizationPostureUnavailableCount = countGitHubPostureChecks(githubOrganizationPosture, 'unavailable');
+  const githubOrganizationPostureUnsupportedCount = countGitHubPostureChecks(githubOrganizationPosture, 'unsupported');
+  const githubOrganizationPostureUnknownCount = countGitHubPostureChecks(githubOrganizationPosture, 'unknown');
+  const githubPostureAttentionChecks = useMemo(
+    () => githubPosture?.checks.filter((check) => check.state !== 'secure') ?? [],
+    [githubPosture]
+  );
+  const githubPostureDetailChecks =
+    githubPostureAttentionChecks.length > 0 ? githubPostureAttentionChecks : (githubPosture?.checks ?? []);
+  const githubPostureNeedsAttentionCount =
+    githubPostureAttentionCount +
+    githubPostureLimitedCount +
+    githubPostureUnavailableCount +
+    githubPostureUnsupportedCount +
+    githubPostureUnknownCount;
+  const githubOrganizationPostureAttentionChecks = useMemo(
+    () => githubOrganizationPosture?.checks.filter((check) => check.state !== 'secure') ?? [],
+    [githubOrganizationPosture]
+  );
+  const githubOrganizationPostureDetailChecks =
+    githubOrganizationPostureAttentionChecks.length > 0
+      ? githubOrganizationPostureAttentionChecks
+      : (githubOrganizationPosture?.checks ?? []);
+  const githubHasActiveRepoScan = githubRecentRepoScans.some((scan) => isActiveScanStatus(scan.status));
+  const githubHasActiveSelectedRepoScan =
+    effectiveRepoScanRepositoryKey !== '' &&
+    githubRecentRepoScans.some(
+      (scan) =>
+        isActiveScanStatus(scan.status) &&
+        canonicalGitHubRepositoryDisplay(scan.repository).toLowerCase() === effectiveRepoScanRepositoryKey
+    );
+  const repoScanFindingsPath = scope ? buildScopedPath(scope, 'github/findings') : '/app';
+
+  const nextRequestSequence = () => {
+    const nextSequence = refreshSequenceRef.current + 1;
+    refreshSequenceRef.current = nextSequence;
+    return nextSequence;
+  };
+
+  const isStaleRequestSequence = (sequence: number) => refreshSequenceRef.current !== sequence;
+
+  const nextRepoScanSubmitSequence = () => {
+    const nextSequence = repoScanSubmitSequenceRef.current + 1;
+    repoScanSubmitSequenceRef.current = nextSequence;
+    return nextSequence;
+  };
+
+  const isLatestRepoScanSubmitSequence = (sequence: number) => repoScanSubmitSequenceRef.current === sequence;
+
+  const refreshConnections = async (quiet = false) => {
+    const refreshSequence = nextRequestSequence();
+    const requestPolicyScope = scopedEnvironmentKeyRef.current;
+
+    if (backendFeaturesLoading) {
+      setLoading(true);
+      setRefreshing(false);
+      return;
+    }
+
+    if (!scope || !projectID) {
+      setConnections({});
+      setSourceErrors({});
+      setRecentRepoScans([]);
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
+    if (quiet) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+    setSourceErrors({});
+    const auth = buildProductAuthContext(scope);
+
+    const results = await Promise.allSettled([
+      sourceAvailability.github.available
+        ? apiClient.getGitHubConnectorStatus(scope.workspaceID, projectID, auth)
+        : Promise.resolve({ connection: undefined as unknown as GitHubConnectionStatus }),
+      apiClient.getAWSProjectConnection(scope.workspaceID, projectID, auth),
+      sourceAvailability.kubernetes.available
+        ? apiClient.getKubernetesConnectorStatus(scope.workspaceID, projectID, auth)
+        : Promise.resolve({ connection: undefined as unknown as KubernetesConnectionStatus }),
+      apiClient.listProjectScanPolicies(
+        scope.workspaceID,
+        projectID,
+        {
+          limit: 50,
+          sort_by: 'updated_at',
+          sort_order: 'desc'
+        },
+        auth
+      ),
+      apiClient.listRepoScans({ limit: 8 }, auth)
+    ]);
+
+    if (isStaleRequestSequence(refreshSequence)) {
+      return;
+    }
+
+    const nextConnections: SourceConnectionMap = {};
+    const nextErrors: Partial<Record<SourceProvider, string>> = {};
+    const [githubResult, awsResult, kubernetesResult, scanPolicyResult, repoScanResult] = results;
+
+    if (githubResult.status === 'fulfilled' && githubResult.value.connection) {
+      nextConnections.github = githubResult.value.connection;
+    } else {
+      if (sourceAvailability.github.available) {
+        nextErrors.github =
+          githubResult.status === 'rejected' && githubResult.reason instanceof Error
+            ? githubResult.reason.message
+            : `Unable to load ${SOURCE_PROFILES.github.name} status.`;
+      }
+    }
+    if (awsResult.status === 'fulfilled') {
+      nextConnections.aws = awsResult.value.connection;
+    } else {
+      nextErrors.aws =
+        awsResult.reason instanceof Error ? awsResult.reason.message : `Unable to load ${SOURCE_PROFILES.aws.name} status.`;
+    }
+    if (kubernetesResult.status === 'fulfilled' && kubernetesResult.value.connection) {
+      nextConnections.kubernetes = kubernetesResult.value.connection;
+    } else {
+      if (sourceAvailability.kubernetes.available) {
+        nextErrors.kubernetes =
+          kubernetesResult.status === 'rejected' && kubernetesResult.reason instanceof Error
+            ? kubernetesResult.reason.message
+            : `Unable to load ${SOURCE_PROFILES.kubernetes.name} status.`;
+      }
+    }
+
+    setConnections(nextConnections);
+    setSourceErrors(nextErrors);
+    if (scanPolicyResult?.status === 'fulfilled') {
+      const isCurrentPolicyScope = scopedEnvironmentKeyRef.current === requestPolicyScope;
+      const items = scanPolicyResult.value.items ?? [];
+      if (isCurrentPolicyScope) {
+        setScanPolicies(items);
+        setScanPolicyError('');
+        setPolicyForm((current) => {
+          if (items.length === 0) {
+            return {
+              policyID: current.policyID || 'default',
+              name: current.name || 'Default policy',
+              enabled: current.enabled,
+              triggerMode: current.triggerMode,
+              cron: current.cron,
+              maxConcurrentScans: current.maxConcurrentScans,
+              historyLimit: current.historyLimit,
+              maxFindings: current.maxFindings
+            };
+          }
+          const selected = items.find((item) => item.policy_id === current.policyID) ?? items[0];
+          return {
+            policyID: selected.policy_id,
+            name: selected.name,
+            enabled: selected.enabled,
+            triggerMode: selected.trigger_mode,
+            cron: selected.cron ?? '',
+            maxConcurrentScans: String(selected.max_concurrent_scans),
+            historyLimit: String(selected.history_limit),
+            maxFindings: String(selected.max_findings)
+          };
+        });
+      }
+    } else if (scanPolicyResult?.status === 'rejected') {
+      if (scopedEnvironmentKeyRef.current === requestPolicyScope) {
+        setScanPolicyError(
+          scanPolicyResult.reason instanceof Error
+            ? scanPolicyResult.reason.message
+            : 'Unable to load scan policies for this source.'
+        );
+        setScanPolicies([]);
+      }
+    }
+    if (repoScanResult?.status === 'fulfilled') {
+      setRecentRepoScans(repoScanResult.value.items ?? []);
+    }
+    setLoading(false);
+    setRefreshing(false);
+  };
+
+  const refreshRecentRepoScans = async (targetScope: ProductSession, mode: 'silent' | 'interactive' = 'silent') => {
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const auth = buildProductAuthContext(targetScope);
+      const response = await apiClient.listRepoScans({ limit: 8 }, auth);
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setRecentRepoScans(response.items ?? []);
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      if (mode === 'interactive') {
+        setRepoScanError(formatAPIError(error, 'Unable to refresh recent repository scans.'));
+      }
+    }
+  };
+
+  useEffect(() => {
+    setConnections({});
+    setSourceErrors({});
+    setScanPolicies([]);
+    setScanPolicyError('');
+    setGitHubPATForm({
+      displayName: 'GitHub Enterprise',
+      baseURL: '',
+      token: '',
+      repositories: ''
+    });
+    setPolicyForm({
+      policyID: 'default',
+      name: 'Default policy',
+      enabled: true,
+      triggerMode: 'manual',
+      cron: '',
+      maxConcurrentScans: '1',
+      historyLimit: '500',
+      maxFindings: '200'
+    });
+    setPolicySaving(false);
+    setPolicyDeletingID('');
+    setSubmitting('');
+    setSuccessMessage('');
+    setGitHubStart(null);
+    setRepoScanForm({ repository: '', historyLimit: '', maxFindings: '' });
+    setRecentRepoScans([]);
+    repoScanSubmitSequenceRef.current += 1;
+    githubPostureRequestRef.current += 1;
+    setRepoScanSubmitting(false);
+    setRepoScanCancelingID('');
+    setRepoScanError('');
+    setGitHubPosture(null);
+    setGitHubPostureLoading(false);
+    setGitHubPostureError('');
+    setAWSCloudFormationStart(null);
+    setAWSPermissionPreview([]);
+    setAWSPermissionTiers([]);
+    setAWSPreviewOpen(false);
+    setAWSForm((current) => ({ ...current, externalID: '' }));
+    if (backendFeaturesLoading) {
+      setLoading(true);
+      return undefined;
+    }
+    void refreshConnections(false);
+
+    return () => {
+      refreshSequenceRef.current += 1;
+    };
+  }, [
+    scope?.tenantID,
+    scope?.workspaceID,
+    projectID,
+    backendFeaturesLoading,
+    sourceAvailability.github.available,
+    sourceAvailability.kubernetes.available
+  ]);
+
+  useEffect(() => {
+    if (backendFeaturesLoading || sourceScope || sourceAvailability[selectedSource]?.available) {
+      return;
+    }
+    setSelectedSource(actionableSourceOrder[0] ?? 'aws');
+  }, [actionableSourceOrder, backendFeaturesLoading, selectedSource, sourceAvailability, sourceScope]);
+
+  useEffect(() => {
+    if (!selectedSourceFromConnect || backendFeaturesLoading) {
+      return;
+    }
+
+    if (sourceAvailability[selectedSourceFromConnect]?.visible) {
+      setSelectedSource(selectedSourceFromConnect);
+    }
+  }, [backendFeaturesLoading, selectedSourceFromConnect, sourceAvailability]);
+
+  useEffect(() => {
+    if (!connections.github?.connected) {
+      return;
+    }
+    setRepoScanForm((current) => {
+      const currentRepository = canonicalGitHubRepositoryDisplay(current.repository);
+      if (
+        currentRepository &&
+        (githubSelectedRepositories.length === 0 ||
+          githubSelectedRepositories.some((repository) => repository.toLowerCase() === currentRepository.toLowerCase()))
+      ) {
+        return current;
+      }
+      return { ...current, repository: githubSelectedRepositories[0] ?? current.repository };
+    });
+  }, [connections.github?.connected, githubSelectedRepositories, githubSelectedRepositoriesKey]);
+
+  useEffect(() => {
+    const connection = connections.github;
+    const repository = canonicalGitHubRepositoryDisplay(effectiveRepoScanRepository);
+    const requestID = githubPostureRequestRef.current + 1;
+    githubPostureRequestRef.current = requestID;
+
+    if (
+      !scope ||
+      !projectID ||
+      selectedSource !== 'github' ||
+      !connection?.connected ||
+      connection.provider !== 'github_app' ||
+      !connection.connector_id ||
+      !repository
+    ) {
+      setGitHubPosture(null);
+      setGitHubPostureLoading(false);
+      setGitHubPostureError('');
+      setGitHubOrganizationPosture(null);
+      return undefined;
+    }
+
+    setGitHubPostureLoading(true);
+    setGitHubPostureError('');
+    setGitHubPosture(null);
+    setGitHubOrganizationPosture(null);
+    void apiClient
+      .getGitHubConnectorRepositoryPosture(
+        connection.connector_id,
+        scope.workspaceID,
+        projectID,
+        repository,
+        buildProductAuthContext(scope)
+      )
+      .then((response) => {
+        if (githubPostureRequestRef.current !== requestID) {
+          return;
+        }
+        setGitHubPosture(response.posture);
+        setGitHubOrganizationPosture(response.organization_posture ?? null);
+      })
+      .catch((error) => {
+        if (githubPostureRequestRef.current !== requestID) {
+          return;
+        }
+        setGitHubPosture(null);
+        setGitHubOrganizationPosture(null);
+        setGitHubPostureError(error instanceof Error ? error.message : 'Unable to load GitHub repository posture.');
+      })
+      .finally(() => {
+        if (githubPostureRequestRef.current === requestID) {
+          setGitHubPostureLoading(false);
+        }
+      });
+
+    return () => {
+      if (githubPostureRequestRef.current === requestID) {
+        githubPostureRequestRef.current += 1;
+      }
+    };
+  }, [
+    connections.github?.connected,
+    connections.github?.connector_id,
+    connections.github?.provider,
+    effectiveRepoScanRepository,
+    projectID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedSource
+  ]);
+
+  useEffect(() => {
+    if (!scope || !githubHasActiveRepoScan) {
+      return undefined;
+    }
+    const activeScope = scope;
+    const intervalID = window.setInterval(() => {
+      void refreshRecentRepoScans(activeScope);
+    }, 8000);
+    return () => window.clearInterval(intervalID);
+  }, [githubHasActiveRepoScan, scope?.tenantID, scope?.workspaceID]);
+
+  if (!scope || !projectID) {
+    return <AppShellLoading message="Resolving environment scope" />;
+  }
+
+  if (loading) {
+    return (
+      <AppRouteLoadingState
+        title="Preparing source connections"
+        body="Keeping the environment visible while connector status refreshes."
+      />
+    );
+  }
+
+  const selectedStatus = sourceConnection(connections, selectedSource);
+  const selectedProfile = SOURCE_PROFILES[selectedSource];
+  const selectedAvailability = sourceAvailability[selectedSource] ?? { visible: true, available: true };
+  const selectedUnavailable = !selectedAvailability.available;
+  const sourceScopeProfile = sourceScope ? SOURCE_PROFILES[sourceScope] : null;
+  const sourcePageTitle = sourceScopeProfile ? `Connect ${sourceScopeProfile.name}` : 'Connect environment sources';
+  const sourcePageBody =
+    sourceScopeProfile?.summary ?? 'Install source connections to collect repository, workflow, and cloud identity signals.';
+
+  const handleGitHubStart = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!sourceAvailability.github.available) {
+      setSourceErrors((current) => ({
+        ...current,
+        github: sourceAvailability.github.unavailableMessage ?? 'GitHub connector is not available.'
+      }));
+      return;
+    }
+    setSubmitting('github');
+    setSuccessMessage('');
+    setSourceErrors((current) => ({ ...current, github: undefined }));
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const auth = buildProductAuthContext(scope);
+      const redirectURI =
+        typeof window !== 'undefined' ? `${window.location.origin}/app/github/callback` : undefined;
+      const response = await apiClient.startGitHubConnector(
+        {
+          workspace_id: scope.workspaceID,
+          project_id: projectID,
+          display_name: normalizeValue(githubAppForm.displayName) || undefined,
+          redirect_uri: redirectURI
+        },
+        auth
+      );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setGitHubStart(response);
+      setConnections((current) => ({ ...current, github: response.connection }));
+      const opened = openGitHubInstallURL(response.install_url);
+      setSuccessMessage(
+        opened
+          ? 'GitHub opened in a new tab. Finish the installation there to complete setup.'
+          : 'GitHub installation is ready. Continue with the GitHub button below.'
+      );
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Unable to start GitHub connection.';
+      setSourceErrors((current) => ({ ...current, github: message }));
+    } finally {
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
+    }
+  };
+
+  const handleGitHubPATSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!sourceAvailability.github.available) {
+      setSourceErrors((current) => ({
+        ...current,
+        github: sourceAvailability.github.unavailableMessage ?? 'GitHub connector is not available.'
+      }));
+      return;
+    }
+    setSubmitting('github');
+    setSuccessMessage('');
+    setSourceErrors((current) => ({ ...current, github: undefined }));
+    const requestSequence = refreshSequenceRef.current;
+    const requestScope = scopedEnvironmentKeyRef.current;
+    try {
+      const token = normalizeValue(githubPATForm.token);
+      if (!token) {
+        throw new Error('Enter a GitHub personal access token for the self-hosted fallback.');
+      }
+      const repositories = parseGitHubRepositories(githubPATForm.repositories);
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.upsertGitHubPATConnector(
+        {
+          workspace_id: scope.workspaceID,
+          project_id: projectID,
+          display_name: normalizeValue(githubPATForm.displayName) || undefined,
+          base_url: normalizeValue(githubPATForm.baseURL) || undefined,
+          token,
+          selected_repositories: repositories
+        },
+        auth
+      );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      if (scopedEnvironmentKeyRef.current !== requestScope) {
+        return;
+      }
+      setConnections((current) => ({ ...current, github: response.connection }));
+      setGitHubStart(null);
+      setGitHubPATForm((current) => ({ ...current, token: '' }));
+      setSuccessMessage('GitHub Enterprise connector validated and saved.');
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Unable to save GitHub Enterprise connector.';
+      setSourceErrors((current) => ({ ...current, github: message }));
+    } finally {
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
+    }
+  };
+
+  const handleAWSSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting('aws');
+    setSuccessMessage('');
+    setSourceErrors((current) => ({ ...current, aws: undefined }));
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const roleARN = normalizeValue(awsForm.roleARN);
+      if (!AWS_ROLE_ARN_PATTERN.test(roleARN)) {
+        throw new Error('Enter a valid IAM role ARN, for example arn:aws:iam::123456789012:role/IdentrailReadOnly.');
+      }
+      const auth = buildProductAuthContext(scope);
+      const payload = {
+          role_arn: roleARN,
+          external_id: normalizeValue(awsForm.externalID) || undefined,
+          region: normalizeValue(awsForm.region) || 'us-east-1',
+          display_name: normalizeValue(awsForm.displayName) || undefined,
+          session_name: normalizeValue(awsForm.sessionName) || undefined
+        };
+      const response =
+        FEATURE_CONNECTOR_AWS && awsCloudFormationStart?.connector_id
+          ? await apiClient.validateAWSConnector(
+              awsCloudFormationStart.connector_id,
+              {
+                workspace_id: scope.workspaceID,
+                project_id: projectID,
+                role_arn: payload.role_arn,
+                external_id: payload.external_id,
+                region: payload.region,
+                session_name: payload.session_name
+              },
+              auth
+            )
+          : await apiClient.upsertAWSProjectConnection(scope.workspaceID, projectID, payload, auth);
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setConnections((current) => ({ ...current, aws: response.connection }));
+      setSuccessMessage(
+        response.connection.connected ? 'AWS connector is active.' : 'AWS connector saved with diagnostics to resolve.'
+      );
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Unable to validate AWS connection.';
+      setSourceErrors((current) => ({ ...current, aws: message }));
+    } finally {
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
+    }
+  };
+
+  const handleAWSCloudFormationStart = async () => {
+    if (!scope || !projectID) {
+      return;
+    }
+    setSubmitting('aws');
+    setSuccessMessage('');
+    setSourceErrors((current) => ({ ...current, aws: undefined }));
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.startAWSConnector(
+        {
+          workspace_id: scope.workspaceID,
+          project_id: projectID,
+          display_name: normalizeValue(awsForm.displayName) || undefined,
+          region: normalizeValue(awsForm.region) || 'us-east-1',
+          role_name: normalizeValue(awsForm.roleName) || undefined,
+          stack_name: normalizeValue(awsForm.stackName) || undefined
+        },
+        auth
+      );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setAWSCloudFormationStart(response);
+      setAWSPermissionPreview(response.permission_preview);
+      setAWSPermissionTiers(response.permission_tiers ?? []);
+      setAWSForm((current) => ({ ...current, externalID: response.external_id }));
+      setConnections((current) => ({ ...current, aws: response.connection }));
+      setSuccessMessage('AWS stack launch is ready.');
+      window.open(response.launch_url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Unable to start AWS connector setup.';
+      setSourceErrors((current) => ({ ...current, aws: message }));
+    } finally {
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
+    }
+  };
+
+  const handleAWSPoll = async () => {
+    if (!scope || !projectID || !awsCloudFormationStart?.connector_id) {
+      return;
+    }
+    setSubmitting('aws');
+    setSourceErrors((current) => ({ ...current, aws: undefined }));
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.pollAWSConnector(
+        awsCloudFormationStart.connector_id,
+        scope.workspaceID,
+        projectID,
+        auth
+      );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setConnections((current) => ({ ...current, aws: response.connection }));
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Unable to poll AWS connector setup.';
+      setSourceErrors((current) => ({ ...current, aws: message }));
+    } finally {
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
+    }
+  };
+
+  const handleKubernetesSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!sourceAvailability.kubernetes.available) {
+      setSourceErrors((current) => ({
+        ...current,
+        kubernetes: sourceAvailability.kubernetes.unavailableMessage ?? 'Connector disabled.'
+      }));
+      return;
+    }
+    setSubmitting('kubernetes');
+    setSuccessMessage('');
+    setSourceErrors((current) => ({ ...current, kubernetes: undefined }));
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const auth = buildProductAuthContext(scope);
+      if (kubernetesForm.mode === 'kubeconfig') {
+        const response = await apiClient.upsertKubernetesKubeconfigConnector(
+          {
+            workspace_id: scope.workspaceID,
+            project_id: projectID,
+            display_name: normalizeValue(kubernetesForm.displayName) || undefined,
+            context: normalizeValue(kubernetesForm.context) || undefined,
+            kubeconfig: kubernetesForm.kubeconfig
+          },
+          auth
+        );
+        if (isStaleRequestSequence(requestSequence)) {
+          return;
+        }
+        setConnections((current) => ({ ...current, kubernetes: response.connection }));
+        setKubernetesEnrollment(null);
+        setSuccessMessage('Kubeconfig saved.');
+        return;
+      }
+      const response = await apiClient.startKubernetesConnector(
+        {
+          workspace_id: scope.workspaceID,
+          project_id: projectID,
+          display_name: normalizeValue(kubernetesForm.displayName) || undefined,
+          api_url: normalizeValue(kubernetesForm.apiURL) || undefined
+        },
+        auth
+      );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setConnections((current) => ({ ...current, kubernetes: response.connection }));
+      setKubernetesEnrollment(response);
+      setSuccessMessage('Enrollment token ready.');
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Unable to validate Kubernetes connection.';
+      setSourceErrors((current) => ({ ...current, kubernetes: message }));
+    } finally {
+      if (!isStaleRequestSequence(requestSequence)) {
+        setSubmitting('');
+      }
+    }
+  };
+
+  const parsePositiveInteger = (value: string, field: string): number => {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error(`${field} must be a positive integer.`);
+    }
+    return parsed;
+  };
+
+  const parseOptionalPositiveInteger = (value: string, field: string): number | undefined => {
+    const normalized = normalizeValue(value);
+    return normalized ? parsePositiveInteger(normalized, field) : undefined;
+  };
+
+  const handleRepoScanSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!scope) {
+      setRepoScanError('Workspace route context is missing.');
+      return;
+    }
+    if (!connections.github?.connected) {
+      setRepoScanError('Connect GitHub before queueing a repository scan.');
+      return;
+    }
+    const repository = canonicalGitHubRepositoryDisplay(effectiveRepoScanRepository);
+    if (!repository) {
+      setRepoScanError('Choose a selected GitHub repository before queueing a scan.');
+      return;
+    }
+    setRepoScanSubmitting(true);
+    setRepoScanError('');
+    setSuccessMessage('');
+    const requestSequence = refreshSequenceRef.current;
+    const submitSequence = nextRepoScanSubmitSequence();
+    try {
+      const githubConnection = connections.github;
+      const request: RepoScanRequest = { repository };
+      if (githubConnection?.provider === 'github_app') {
+        request.project_id = projectID;
+        if (githubConnection.connector_id) {
+          request.connector_id = githubConnection.connector_id;
+        }
+      }
+      const historyLimit = parseOptionalPositiveInteger(repoScanForm.historyLimit, 'History limit');
+      const maxFindings = parseOptionalPositiveInteger(repoScanForm.maxFindings, 'Max findings');
+      if (historyLimit) {
+        request.history_limit = historyLimit;
+      }
+      if (maxFindings) {
+        request.max_findings = maxFindings;
+      }
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.runRepoScan(request, auth);
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setRecentRepoScans((current) =>
+        [response.repo_scan, ...current.filter((scan) => scan.id !== response.repo_scan.id)].slice(0, 8)
+      );
+      setSuccessMessage(`Repository scan queued for ${canonicalGitHubRepositoryDisplay(response.repo_scan.repository)}.`);
+      void refreshRecentRepoScans(scope);
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setRepoScanError(formatRepoScanSubmitError(error));
+    } finally {
+      if (isLatestRepoScanSubmitSequence(submitSequence)) {
+        setRepoScanSubmitting(false);
+      }
+    }
+  };
+
+  const handleRepoScanCancel = async (scan: RepoScanRecord) => {
+    if (!scope) {
+      setRepoScanError('Workspace route context is missing.');
+      return;
+    }
+    if (!isActiveScanStatus(scan.status)) {
+      setRepoScanError('Only queued or running repository scans can be canceled.');
+      return;
+    }
+    setRepoScanCancelingID(scan.id);
+    setRepoScanError('');
+    setSuccessMessage('');
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.cancelRepoScan(scan.id, auth);
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setRecentRepoScans((current) => current.map((item) => (item.id === response.repo_scan.id ? response.repo_scan : item)));
+      setSuccessMessage(`Repository scan canceled for ${canonicalGitHubRepositoryDisplay(response.repo_scan.repository)}.`);
+      void refreshRecentRepoScans(scope, 'interactive');
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setRepoScanError(formatRepoScanCancelError(error));
+    } finally {
+      setRepoScanCancelingID((current) => (current === scan.id ? '' : current));
+    }
+  };
+
+  const handleScanPolicySubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPolicySaving(true);
+    setScanPolicyError('');
+    setSuccessMessage('');
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const policyID = normalizeProjectToken(policyForm.policyID);
+      if (!policyID) {
+        throw new Error('Policy ID is required.');
+      }
+      const name = normalizeValue(policyForm.name);
+      if (!name) {
+        throw new Error('Policy name is required.');
+      }
+      const triggerMode = policyForm.triggerMode;
+      const cron = normalizeValue(policyForm.cron);
+      if ((triggerMode === 'scheduled' || triggerMode === 'hybrid') && !cron) {
+        throw new Error('Cron is required when trigger mode is scheduled or hybrid.');
+      }
+      const auth = buildProductAuthContext(scope);
+      const response = await apiClient.upsertProjectScanPolicy(
+        scope.workspaceID,
+        projectID,
+        {
+          policy_id: policyID,
+          name,
+          enabled: policyForm.enabled,
+          trigger_mode: triggerMode,
+          cron: cron || undefined,
+          max_concurrent_scans: parsePositiveInteger(policyForm.maxConcurrentScans, 'Max concurrent scans'),
+          history_limit: parsePositiveInteger(policyForm.historyLimit, 'History limit'),
+          max_findings: parsePositiveInteger(policyForm.maxFindings, 'Max findings')
+        },
+        auth
+      );
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      const policy = response.policy;
+      setPolicyForm({
+        policyID: policy.policy_id,
+        name: policy.name,
+        enabled: policy.enabled,
+        triggerMode: policy.trigger_mode,
+        cron: policy.cron ?? '',
+        maxConcurrentScans: String(policy.max_concurrent_scans),
+        historyLimit: String(policy.history_limit),
+        maxFindings: String(policy.max_findings)
+      });
+      setSuccessMessage('Scan policy saved.');
+      setPolicySaving(false);
+      void refreshConnections(true);
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setScanPolicyError(error instanceof Error ? error.message : 'Unable to save scan policy.');
+    } finally {
+      if (!isStaleRequestSequence(requestSequence)) {
+        setPolicySaving(false);
+      }
+    }
+  };
+
+  const handleScanPolicyDelete = async (policyID: string) => {
+    const normalizedPolicyID = normalizeValue(policyID);
+    if (!normalizedPolicyID) {
+      return;
+    }
+    setPolicyDeletingID(normalizedPolicyID);
+    setScanPolicyError('');
+    setSuccessMessage('');
+    const requestSequence = refreshSequenceRef.current;
+    try {
+      const auth = buildProductAuthContext(scope);
+      await apiClient.deleteProjectScanPolicy(scope.workspaceID, projectID, normalizedPolicyID, auth);
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setSuccessMessage(`Scan policy ${normalizedPolicyID} deleted.`);
+      setPolicyDeletingID('');
+      void refreshConnections(true);
+    } catch (error) {
+      if (isStaleRequestSequence(requestSequence)) {
+        return;
+      }
+      setScanPolicyError(error instanceof Error ? error.message : 'Unable to delete scan policy.');
+    } finally {
+      if (!isStaleRequestSequence(requestSequence)) {
+        setPolicyDeletingID('');
+      }
+    }
+  };
+
+  return (
+    <section className={`idt-app-panel idt-source-onboarding${sourceScope ? ' is-source-scoped' : ''}`}>
+      <div className="idt-source-onboarding-header">
+        {sourceScopeProfile ? (
+          <div className="idt-source-onboarding-title-row">
+            <SourceLogoMark provider={selectedSource} className="is-hero" />
+            <div>
+              <h1>{sourcePageTitle}</h1>
+              <p>{sourcePageBody}</p>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p className="idt-app-kicker">Environment sources</p>
+            <h2>{sourcePageTitle}</h2>
+            <p>
+              {sourcePageBody} Environment <strong>{environmentFallbackLabel(projectID)}</strong>.
+            </p>
+          </div>
+        )}
+        <div className="idt-source-onboarding-actions">
+          {sourceScopeProfile ? (
+            <span className={`idt-source-status-pill is-${sourceAvailabilityTone(selectedAvailability, selectedStatus)}`}>
+              {selectedUnavailable ? 'Unavailable' : connectionLifecycle(selectedStatus)}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="idt-btn idt-btn-ghost"
+            onClick={() => {
+              void refreshConnections(true);
+            }}
+            disabled={backendFeaturesLoading || refreshing || submitting !== '' || repoScanSubmitting}
+          >
+            {refreshing ? 'Refreshing...' : 'Refresh status'}
+          </button>
+        </div>
+      </div>
+
+      {successMessage ? (
+        <p role="status" className="idt-app-alert idt-app-alert-success">
+          {successMessage}
+        </p>
+      ) : null}
+
+      <div className="idt-source-wizard-grid">
+        {sourceScopeProfile ? null : (
+          <aside className="idt-source-picker" aria-label="Source types">
+            {sourceOrder.map((provider) => {
+              const profile = SOURCE_PROFILES[provider];
+              const status = sourceConnection(connections, provider);
+              const error = sourceErrors[provider];
+              const availability = sourceAvailability[provider];
+              return (
+                <button
+                  key={provider}
+                  type="button"
+                  className={`idt-source-card is-provider-${provider} ${selectedSource === provider ? 'is-selected' : ''} ${
+                    availability.available ? '' : 'is-unavailable'
+                  }`}
+                  aria-pressed={selectedSource === provider}
+                  aria-disabled={!availability.available}
+                  onClick={() => setSelectedSource(provider)}
+                  disabled={!availability.available}
+                >
+                  <span className="idt-source-card-topline">
+                    <span className="idt-source-card-identity">
+                      <SourceLogoMark provider={provider} />
+                      <span>{profile.eyebrow}</span>
+                    </span>
+                    <span className={`idt-source-status-pill is-${sourceAvailabilityTone(availability, status)}`}>
+                      {!availability.available ? 'Unavailable' : error ? 'Needs retry' : connectionLifecycle(status)}
+                    </span>
+                  </span>
+                  <strong>{profile.name}</strong>
+                  <small>{availability.unavailableMessage ?? profile.primarySignal}</small>
+                </button>
+              );
+            })}
+          </aside>
+        )}
+
+        <div className="idt-source-config">
+          {sourceScopeProfile ? null : (
+            <div className="idt-source-config-header">
+              <div className="idt-source-config-title">
+                <SourceLogoMark provider={selectedSource} className="is-hero" />
+                <div>
+                  <p className="idt-app-kicker">{selectedProfile.eyebrow}</p>
+                  <h3>{selectedProfile.name}</h3>
+                  <p>{selectedProfile.summary}</p>
+                </div>
+              </div>
+              <span className={`idt-source-status-pill is-${sourceAvailabilityTone(selectedAvailability, selectedStatus)}`}>
+                {selectedUnavailable ? 'Unavailable' : connectionLifecycle(selectedStatus)}
+              </span>
+            </div>
+          )}
+
+          <dl className="idt-source-meta">
+            <div>
+              <dt>Required access</dt>
+              <dd>{selectedProfile.requiredAccess}</dd>
+            </div>
+            <div>
+              <dt>Health</dt>
+              <dd>{selectedUnavailable ? 'unavailable' : connectionHealth(selectedStatus)}</dd>
+            </div>
+            <div>
+              <dt>Last validation</dt>
+              <dd>
+                {selectedStatus && 'last_validated_at' in selectedStatus
+                  ? formatConnectionTime(selectedStatus.last_validated_at)
+                  : formatConnectionTime(selectedStatus?.updated_at)}
+              </dd>
+            </div>
+          </dl>
+
+          {selectedUnavailable ? (
+            <p role="status" className="idt-app-alert">
+              {selectedAvailability.unavailableMessage ?? `${selectedProfile.name} connector is not available.`}
+            </p>
+          ) : sourceErrors[selectedSource] ? (
+            <p role="alert" className="idt-app-alert idt-app-alert-error">
+              {sourceErrors[selectedSource]}
+            </p>
+          ) : null}
+
+          {selectedSource === 'github' && !selectedUnavailable ? (
+            <div className="idt-source-form-stack">
+              <article className="idt-source-install-card idt-source-primary-action">
+                <div className="idt-source-primary-copy">
+                  <p className="idt-app-kicker">Setup</p>
+                  <h4>Install Identrail on GitHub</h4>
+                  <p>Choose the account and repositories to scan.</p>
+                </div>
+                <form className="idt-app-form" onSubmit={handleGitHubStart}>
+                  <label>
+                    Installation name
+                    <input
+                      value={githubAppForm.displayName}
+                      onChange={(event) =>
+                        setGitHubAppForm((current) => ({ ...current, displayName: event.target.value }))
+                      }
+                      placeholder="Identrail"
+                    />
+                  </label>
+                  <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
+                    {submitting === 'github' ? 'Preparing GitHub...' : 'Install GitHub App'}
+                  </button>
+                </form>
+              </article>
+
+              {githubStart ? (
+                <article className="idt-source-install-card">
+                  <div>
+                    <h4>GitHub did not open?</h4>
+                    <p>
+                      Open the account picker manually. This link expires {formatConnectionTime(githubStart.expires_at)}.
+                    </p>
+                  </div>
+                  <a className="idt-btn idt-btn-dark" href={githubStart.install_url} target="_blank" rel="noreferrer">
+                    Open GitHub
+                  </a>
+                </article>
+              ) : null}
+
+              <details className="idt-source-advanced idt-source-enterprise-fallback">
+                <summary>
+                  <span>
+                    <strong>GitHub Enterprise fallback</strong>
+                    <small>Use only for self-hosted GitHub Server or restricted app-install environments.</small>
+                  </span>
+                </summary>
+                <form className="idt-app-form" onSubmit={handleGitHubPATSubmit}>
+                  <div className="idt-source-inline-fields">
+                    <label>
+                      Enterprise base URL
+                      <input
+                        value={githubPATForm.baseURL}
+                        onChange={(event) => setGitHubPATForm((current) => ({ ...current, baseURL: event.target.value }))}
+                        placeholder="https://github.company.com"
+                      />
+                    </label>
+                    <label>
+                      Display name
+                      <input
+                        value={githubPATForm.displayName}
+                        onChange={(event) =>
+                          setGitHubPATForm((current) => ({ ...current, displayName: event.target.value }))
+                        }
+                        placeholder="GitHub Enterprise"
+                      />
+                    </label>
+                  </div>
+                  <label>
+                    Personal access token
+                    <input
+                      type="password"
+                      value={githubPATForm.token}
+                      onChange={(event) => setGitHubPATForm((current) => ({ ...current, token: event.target.value }))}
+                      placeholder="GitHub Enterprise fallback token"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Repository allowlist
+                    <textarea
+                      value={githubPATForm.repositories}
+                      onChange={(event) =>
+                        setGitHubPATForm((current) => ({ ...current, repositories: event.target.value }))
+                      }
+                      placeholder="owner/repo, owner/security-platform"
+                    />
+                  </label>
+                  <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
+                    {submitting === 'github' ? 'Validating...' : 'Save enterprise fallback'}
+                  </button>
+                </form>
+              </details>
+
+              {connections.github?.connected ? (
+                <form className="idt-app-form idt-repo-scan-launch" onSubmit={handleRepoScanSubmit}>
+                  <article className="idt-source-install-card idt-repo-scan-launch-card">
+                    <div>
+                      <h4>Run scan</h4>
+                      <p>Scan a selected repository and route results to GitHub findings.</p>
+                    </div>
+                    <Link className="idt-btn idt-btn-ghost" to={repoScanFindingsPath}>
+                      View findings
+                    </Link>
+                  </article>
+
+                  {repoScanError ? (
+                    <article role="alert" className="idt-source-recovery-card">
+                      <strong>Scan could not start</strong>
+                      <p>{repoScanError}</p>
+                      <button className="idt-btn idt-btn-ghost" type="button" onClick={() => setRepoScanError('')}>
+                        Dismiss
+                      </button>
+                    </article>
+                  ) : null}
+
+                  <div className="idt-source-inline-fields">
+                    {githubSelectedRepositories.length > 0 ? (
+                      <label>
+                        Repository
+                        <select
+                          value={effectiveRepoScanRepository}
+                          onChange={(event) => {
+                            setRepoScanForm((current) => ({ ...current, repository: event.target.value }));
+                            setRepoScanError('');
+                          }}
+                        >
+                          {githubSelectedRepositories.map((repository) => (
+                            <option key={repository} value={repository}>
+                              {repository}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <label>
+                        Repository
+                        <input
+                          value={repoScanForm.repository}
+                          onChange={(event) => {
+                            setRepoScanForm((current) => ({ ...current, repository: event.target.value }));
+                            setRepoScanError('');
+                          }}
+                          placeholder="owner/repo"
+                          required
+                        />
+                      </label>
+                    )}
+                  </div>
+
+                  <details className="idt-source-advanced idt-scan-limits-details">
+                    <summary>
+                      <span>
+                        <strong>Scan limits</strong>
+                        <small>Optional</small>
+                      </span>
+                    </summary>
+                    <div className="idt-source-inline-fields">
+                      <label>
+                        History limit
+                        <input
+                          inputMode="numeric"
+                          value={repoScanForm.historyLimit}
+                          onChange={(event) => setRepoScanForm((current) => ({ ...current, historyLimit: event.target.value }))}
+                          placeholder="default"
+                        />
+                      </label>
+                      <label>
+                        Max findings
+                        <input
+                          inputMode="numeric"
+                          value={repoScanForm.maxFindings}
+                          onChange={(event) => setRepoScanForm((current) => ({ ...current, maxFindings: event.target.value }))}
+                          placeholder="default"
+                        />
+                      </label>
+                    </div>
+                  </details>
+
+                  <button
+                    className="idt-btn idt-btn-primary"
+                    type="submit"
+                    disabled={
+                      repoScanSubmitting || submitting !== '' || !effectiveRepoScanRepository || githubHasActiveSelectedRepoScan
+                    }
+                  >
+                    {repoScanSubmitting ? 'Queueing...' : githubHasActiveSelectedRepoScan ? 'Scan already active' : 'Queue first scan'}
+                  </button>
+
+                  <div className="idt-source-diagnostics idt-repo-scan-activity" aria-label="recent repository scan activity">
+                    <p>Scan activity</p>
+                    {githubRecentRepoScans.length > 0 ? (
+                      githubRecentRepoScans.map((scan) => (
+                        <article key={scan.id}>
+                          <strong>{canonicalGitHubRepositoryDisplay(scan.repository) || scan.repository}</strong>
+                          <span className={`idt-source-status-pill is-${repoScanStatusTone(scan.status)}`}>
+                            {formatTokenLabel(scan.status)}
+                          </span>
+                          <p>
+                            {scan.finding_count} findings · {scan.files_scanned} files · {formatDateLabel(scan.started_at)}
+                          </p>
+                          {scan.error_message ? <small>{scan.error_message}</small> : null}
+                          {isActiveScanStatus(scan.status) ? (
+                            <button
+                              className="idt-btn idt-btn-ghost idt-repo-scan-cancel"
+                              type="button"
+                              disabled={repoScanCancelingID === scan.id || submitting !== ''}
+                              onClick={() => void handleRepoScanCancel(scan)}
+                            >
+                              {repoScanCancelingID === scan.id ? 'Canceling...' : 'Cancel scan'}
+                            </button>
+                          ) : null}
+                        </article>
+                      ))
+                    ) : (
+                      <article>
+                        <strong>No scans yet</strong>
+                        <p>Run the first scan to populate history.</p>
+                      </article>
+                    )}
+                    {githubHasActiveRepoScan ? <p>Refreshing while a scan is queued or running.</p> : null}
+                  </div>
+                </form>
+              ) : null}
+            </div>
+          ) : null}
+
+          {selectedSource === 'aws' && !selectedUnavailable ? (
+            <form className="idt-app-form" onSubmit={handleAWSSubmit}>
+              {FEATURE_CONNECTOR_AWS ? (
+                <article className="idt-source-install-card idt-aws-launch-card">
+                  <div>
+                    <h4>Launch read-only stack</h4>
+                    <p>{awsCloudFormationStart ? 'Stack launch generated.' : 'Generate the read-only role and trust policy.'}</p>
+                  </div>
+                  <div className="idt-source-actions">
+                    <button className="idt-btn idt-btn-dark" type="button" onClick={handleAWSCloudFormationStart} disabled={submitting !== ''}>
+                      {submitting === 'aws' ? 'Preparing...' : 'Launch stack'}
+                    </button>
+                    {awsCloudFormationStart ? (
+                      <a className="idt-btn idt-btn-dark" href={awsCloudFormationStart.launch_url} target="_blank" rel="noreferrer">
+                        Open stack
+                      </a>
+                    ) : null}
+                    {awsPermissionPreview.length > 0 ? (
+                      <button className="idt-btn idt-btn-ghost" type="button" onClick={() => setAWSPreviewOpen(true)}>
+                        Preview permissions
+                      </button>
+                    ) : null}
+                    {awsCloudFormationStart ? (
+                      <button className="idt-btn idt-btn-ghost" type="button" onClick={handleAWSPoll} disabled={submitting !== ''}>
+                        Refresh status
+                      </button>
+                    ) : null}
+                  </div>
+                </article>
+              ) : null}
+              <label>
+                Role ARN
+                <input
+                  value={awsForm.roleARN}
+                  onChange={(event) => setAWSForm((current) => ({ ...current, roleARN: event.target.value }))}
+                  placeholder="arn:aws:iam::123456789012:role/IdentrailReadOnly"
+                  required
+                />
+              </label>
+              <div className="idt-source-inline-fields">
+                <label>
+                  External ID
+                  <input
+                    value={awsForm.externalID}
+                    onChange={(event) => setAWSForm((current) => ({ ...current, externalID: event.target.value }))}
+                    placeholder="optional trust-policy guard"
+                  />
+                </label>
+                <label>
+                  Region
+                  <input
+                    value={awsForm.region}
+                    onChange={(event) => setAWSForm((current) => ({ ...current, region: event.target.value }))}
+                    placeholder="us-east-1"
+                  />
+                </label>
+              </div>
+              <div className="idt-source-inline-fields">
+                {FEATURE_CONNECTOR_AWS ? (
+                  <>
+                    <label>
+                      Role name
+                      <input
+                        value={awsForm.roleName}
+                        onChange={(event) => setAWSForm((current) => ({ ...current, roleName: event.target.value }))}
+                        placeholder="IdentrailReadOnly"
+                      />
+                    </label>
+                    <label>
+                      Stack name
+                      <input
+                        value={awsForm.stackName}
+                        onChange={(event) => setAWSForm((current) => ({ ...current, stackName: event.target.value }))}
+                        placeholder="identrail-readonly-connector"
+                      />
+                    </label>
+                  </>
+                ) : null}
+                <label>
+                  Display name
+                  <input
+                    value={awsForm.displayName}
+                    onChange={(event) => setAWSForm((current) => ({ ...current, displayName: event.target.value }))}
+                    placeholder="Production AWS"
+                  />
+                </label>
+                <label>
+                  Session name
+                  <input
+                    value={awsForm.sessionName}
+                    onChange={(event) => setAWSForm((current) => ({ ...current, sessionName: event.target.value }))}
+                    placeholder="identrail-connector-validation"
+                  />
+                </label>
+              </div>
+              <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
+                {submitting === 'aws' ? 'Validating...' : 'Validate and save AWS'}
+              </button>
+            </form>
+          ) : null}
+
+          {selectedSource === 'kubernetes' && !selectedUnavailable ? (
+            <form className="idt-app-form" onSubmit={handleKubernetesSubmit}>
+              <div className="idt-source-inline-fields">
+                <label>
+                  Mode
+                  <select
+                    value={kubernetesForm.mode}
+                    onChange={(event) =>
+                      setKubernetesForm((current) => ({
+                        ...current,
+                        mode: event.target.value === 'kubeconfig' ? 'kubeconfig' : 'agent'
+                      }))
+                    }
+                  >
+                    <option value="agent">Agent</option>
+                    <option value="kubeconfig">Kubeconfig</option>
+                  </select>
+                </label>
+              </div>
+              <div className="idt-source-inline-fields">
+                <label>
+                  Display name
+                  <input
+                    value={kubernetesForm.displayName}
+                    onChange={(event) =>
+                      setKubernetesForm((current) => ({ ...current, displayName: event.target.value }))
+                    }
+                    placeholder="Production cluster"
+                  />
+                </label>
+                {kubernetesForm.mode === 'agent' ? (
+                  <label>
+                    API URL
+                    <input
+                      value={kubernetesForm.apiURL}
+                      onChange={(event) =>
+                        setKubernetesForm((current) => ({ ...current, apiURL: event.target.value }))
+                      }
+                      placeholder="https://api.identrail.com"
+                    />
+                  </label>
+                ) : (
+                  <label>
+                    Kubeconfig context
+                    <input
+                      value={kubernetesForm.context}
+                      onChange={(event) =>
+                        setKubernetesForm((current) => ({ ...current, context: event.target.value }))
+                      }
+                      placeholder="current-context"
+                    />
+                  </label>
+                )}
+              </div>
+              {kubernetesForm.mode === 'kubeconfig' ? (
+                <label>
+                  kubeconfig
+                  <textarea
+                    value={kubernetesForm.kubeconfig}
+                    onChange={(event) =>
+                      setKubernetesForm((current) => ({ ...current, kubeconfig: event.target.value }))
+                    }
+                    placeholder="Paste kubeconfig YAML"
+                    rows={8}
+                  />
+                </label>
+              ) : null}
+              <button className="idt-btn idt-btn-primary" type="submit" disabled={submitting !== ''}>
+                {submitting === 'kubernetes'
+                  ? 'Preparing...'
+                  : kubernetesForm.mode === 'agent'
+                    ? 'Generate token'
+                    : 'Save kubeconfig'}
+              </button>
+              {kubernetesEnrollment ? (
+                <div className="idt-source-diagnostics">
+                  <article>
+                    <strong>Install command</strong>
+                    <span>Expires {formatConnectionTime(kubernetesEnrollment.enrollment_expires_at)}</span>
+                    <p>
+                      <code>{kubernetesEnrollment.helm_command}</code>
+                    </p>
+                  </article>
+                </div>
+              ) : null}
+            </form>
+          ) : null}
+
+          {selectedSource === 'aws' && connections.aws ? (
+            <div className="idt-source-diagnostics">
+              {connections.aws.account_id ? <p>Account {connections.aws.account_id}</p> : null}
+              {connections.aws.principal_arn ? <p>Principal {connections.aws.principal_arn}</p> : null}
+              {connections.aws.permission_checks.map((check) => (
+                <article key={check.name}>
+                  <strong>{check.name}</strong>
+                  <span>{check.passed ? 'Passed' : 'Needs attention'}</span>
+                  <p>{check.message}</p>
+                  {check.remediation ? <small>{check.remediation}</small> : null}
+                </article>
+              ))}
+              {connections.aws.diagnostics.map((diagnostic) => (
+                <article key={diagnostic.code}>
+                  <strong>{diagnostic.code}</strong>
+                  <span>Diagnostic</span>
+                  <p>{diagnostic.message}</p>
+                  {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+
+          {selectedSource === 'kubernetes' && connections.kubernetes ? (
+            <div className="idt-source-diagnostics">
+              {connections.kubernetes.connection_mode ? <p>Mode {connections.kubernetes.connection_mode}</p> : null}
+              {connections.kubernetes.agent_id ? <p>Agent {connections.kubernetes.agent_id}</p> : null}
+              {connections.kubernetes.last_heartbeat_at ? (
+                <p>Last heartbeat {formatConnectionTime(connections.kubernetes.last_heartbeat_at)}</p>
+              ) : null}
+              {connections.kubernetes.cluster ? <p>Cluster {connections.kubernetes.cluster}</p> : null}
+              {connections.kubernetes.server ? <p>Server {connections.kubernetes.server}</p> : null}
+              {connections.kubernetes.permission_checks.map((check) => (
+                <article key={`${check.verb}-${check.resource}-${check.scope}`}>
+                  <strong>
+                    {check.verb} {check.resource}
+                  </strong>
+                  <span>{check.allowed ? 'Allowed' : 'Blocked'}</span>
+                  {check.diagnostic ? <p>{check.diagnostic}</p> : null}
+                  {check.remediation ? <small>{check.remediation}</small> : null}
+                </article>
+              ))}
+              {connections.kubernetes.diagnostics.map((diagnostic) => (
+                <article key={diagnostic.code}>
+                  <strong>{diagnostic.code}</strong>
+                  <span>{diagnostic.severity}</span>
+                  <p>{diagnostic.message}</p>
+                  {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+
+          {selectedSource === 'github' && connections.github ? (
+            <div className="idt-source-diagnostics">
+              <details className="idt-source-advanced idt-source-compact-details idt-source-connection-details">
+                <summary>
+                  <span>
+                    <strong>GitHub installation</strong>
+                    <small>
+                      {githubSelectedRepositories.length > 0
+                        ? formatCountLabel(githubSelectedRepositories.length, 'repository', 'repositories')
+                        : 'Connected'}
+                    </small>
+                  </span>
+                </summary>
+                <div className="idt-source-connection-body">
+                  <p>
+                    {connections.github.account_login ? `Installed on ${connections.github.account_login}` : 'Installation active'}
+                    {connections.github.installation_id ? ` · Installation ${connections.github.installation_id}` : ''}
+                  </p>
+                  {githubSelectedRepositories.length > 0 ? (
+                    <div className="idt-source-chip-list">
+                      {githubSelectedRepositories.map((repository) => (
+                        <span key={repository}>{repository}</span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </details>
+              {connections.github.webhook_secret_rotation_due_at ? (
+                <p>Webhook rotation due {formatConnectionTime(connections.github.webhook_secret_rotation_due_at)}</p>
+              ) : null}
+              {githubPostureLoading ? (
+                <article>
+                  <strong>{effectiveRepoScanRepository || 'Selected repository'}</strong>
+                  <span>Loading posture</span>
+                  <p>Collecting GitHub repository posture signals.</p>
+                </article>
+              ) : null}
+              {githubPostureError ? (
+                <p role="alert" className="idt-app-alert idt-app-alert-error">
+                  {githubPostureError}
+                </p>
+              ) : null}
+              {githubPosture ? (
+                <>
+                  <article className="idt-github-posture-card">
+                    <div className="idt-github-posture-card-head">
+                      <div>
+                        <strong>Repository posture</strong>
+                        <p>Collected {formatConnectionTime(githubPosture.collected_at)}</p>
+                      </div>
+                      <span className={`idt-source-status-pill is-${githubPostureNeedsAttentionCount > 0 ? 'warning' : 'success'}`}>
+                        {githubPostureNeedsAttentionCount > 0
+                          ? formatCountLabel(githubPostureNeedsAttentionCount, 'check', 'checks')
+                          : 'Secure'}
+                      </span>
+                    </div>
+                    <dl className="idt-github-posture-stats" aria-label="GitHub posture summary">
+                      <div>
+                        <dt>Secure</dt>
+                        <dd>{githubPostureSecureCount}</dd>
+                      </div>
+                      <div>
+                        <dt>Attention</dt>
+                        <dd>{githubPostureAttentionCount}</dd>
+                      </div>
+                      <div>
+                        <dt>Limited</dt>
+                        <dd>{githubPostureLimitedCount}</dd>
+                      </div>
+                      <div>
+                        <dt>Unavailable</dt>
+                        <dd>{githubPostureUnavailableCount}</dd>
+                      </div>
+                    </dl>
+                  </article>
+                  <details className="idt-source-advanced idt-github-posture-details">
+                    <summary>
+                      <span>
+                        <strong>
+                          {githubPostureNeedsAttentionCount > 0
+                            ? `Review ${formatCountLabel(githubPostureNeedsAttentionCount, 'check', 'checks')}`
+                            : 'Review checks'}
+                        </strong>
+                        <small>
+                          {githubPostureNeedsAttentionCount > 0 ? 'Branch, Actions, security' : 'Collected GitHub signals'}
+                        </small>
+                      </span>
+                    </summary>
+                    {githubPosture.rate_limit?.remaining !== undefined ? (
+                      <p className="idt-github-posture-rate-limit">
+                        GitHub API remaining {githubPosture.rate_limit.remaining}
+                        {githubPosture.rate_limit.limit ? ` of ${githubPosture.rate_limit.limit}` : ''}
+                      </p>
+                    ) : null}
+                    <div className="idt-github-posture-checks">
+                      {githubPostureDetailChecks.slice(0, 6).map((check) => (
+                        <article key={check.id}>
+                          <strong>{formatTokenLabel(check.category || check.id)}</strong>
+                          <span className={`idt-source-status-pill is-${githubPostureStateTone(check.state)}`}>
+                            {formatTokenLabel(check.state)}
+                          </span>
+                          <p>{check.summary}</p>
+                          {check.reason ? <small>{formatTokenLabel(check.reason)}</small> : null}
+                        </article>
+                      ))}
+                      {githubPostureDetailChecks.length > 6 ? (
+                        <p>{formatCountLabel(githubPostureDetailChecks.length - 6, 'additional check', 'additional checks')} hidden.</p>
+                      ) : null}
+                      {githubOrganizationPosture ? (
+                        <>
+                          <article>
+                            <strong>Organization posture</strong>
+                            <span>{formatConnectionTime(githubOrganizationPosture.collected_at)}</span>
+                            <p>
+                              {githubOrganizationPostureSecureCount} secure · {githubOrganizationPostureAttentionCount}{' '}
+                              attention · {githubOrganizationPostureLimitedCount} permission limited ·{' '}
+                              {githubOrganizationPostureUnavailableCount} unavailable
+                            </p>
+                            <small>
+                              {githubOrganizationPostureUnsupportedCount} unsupported ·{' '}
+                              {githubOrganizationPostureUnknownCount} unknown
+                            </small>
+                          </article>
+                          {githubOrganizationPostureDetailChecks.slice(0, 5).map((check) => (
+                            <article key={`org-${check.id}`}>
+                              <strong>{formatTokenLabel(check.category || check.id)}</strong>
+                              <span className={`idt-source-status-pill is-${githubPostureStateTone(check.state)}`}>
+                                {formatTokenLabel(check.state)}
+                              </span>
+                              <p>{check.summary}</p>
+                              {check.reason ? <small>{formatTokenLabel(check.reason)}</small> : null}
+                            </article>
+                          ))}
+                          {githubOrganizationPostureDetailChecks.length > 5 ? (
+                            <p>
+                              {formatCountLabel(
+                                githubOrganizationPostureDetailChecks.length - 5,
+                                'additional organization check',
+                                'additional organization checks'
+                              )}{' '}
+                              hidden.
+                            </p>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </div>
+                  </details>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <article className="idt-app-panel idt-source-policy-panel">
+        <details>
+          <summary className="idt-source-policy-summary">
+            <div>
+              <p className="idt-app-kicker">Automation policies</p>
+              <h3>Scan policy</h3>
+              <p>Define trigger mode, cadence, and limits for this source.</p>
+            </div>
+            <span className="idt-source-status-pill is-warning">Advanced</span>
+          </summary>
+          <div className="idt-source-policy-body">
+
+        {scanPolicyError ? (
+          <p role="alert" className="idt-app-alert idt-app-alert-error">
+            {scanPolicyError}
+          </p>
+        ) : null}
+
+        <div className="idt-source-summary" aria-label="scan policy summary">
+          <article>
+            <span>{scanPolicies.length}</span>
+            <p>Policies</p>
+          </article>
+          <article>
+            <span>{scanPolicies.filter((item) => item.enabled).length}</span>
+            <p>Enabled</p>
+          </article>
+          <article>
+            <span>{policyForm.triggerMode}</span>
+            <p>Editing mode</p>
+          </article>
+        </div>
+
+        {scanPolicies.length > 0 ? (
+          <div className="idt-source-diagnostics">
+            {scanPolicies.map((policy) => (
+              <article key={policy.policy_id}>
+                <strong>{policy.name}</strong>
+                <span>{policy.enabled ? 'Enabled' : 'Disabled'}</span>
+                <p>
+                  {formatScanTriggerModeLabel(policy.trigger_mode)} · concurrency {policy.max_concurrent_scans} · history{' '}
+                  {policy.history_limit} · findings {policy.max_findings}
+                </p>
+                <div className="idt-source-inline-fields">
+                  <button
+                    type="button"
+                    className="idt-btn idt-btn-ghost"
+                    onClick={() =>
+                      setPolicyForm({
+                        policyID: policy.policy_id,
+                        name: policy.name,
+                        enabled: policy.enabled,
+                        triggerMode: policy.trigger_mode,
+                        cron: policy.cron ?? '',
+                        maxConcurrentScans: String(policy.max_concurrent_scans),
+                        historyLimit: String(policy.history_limit),
+                        maxFindings: String(policy.max_findings)
+                      })
+                    }
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="idt-btn idt-btn-ghost"
+                    onClick={() => {
+                      void handleScanPolicyDelete(policy.policy_id);
+                    }}
+                    disabled={policyDeletingID === policy.policy_id}
+                  >
+                    {policyDeletingID === policy.policy_id ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : null}
+
+        <form className="idt-app-form" onSubmit={handleScanPolicySubmit}>
+          <div className="idt-source-inline-fields">
+            <label>
+              Policy ID
+              <input
+                value={policyForm.policyID}
+                onChange={(event) => setPolicyForm((current) => ({ ...current, policyID: normalizeProjectToken(event.target.value) }))}
+                placeholder="default"
+                required
+              />
+            </label>
+            <label>
+              Policy name
+              <input
+                value={policyForm.name}
+                onChange={(event) => setPolicyForm((current) => ({ ...current, name: event.target.value }))}
+                placeholder="Default policy"
+                required
+              />
+            </label>
+          </div>
+          <div className="idt-source-inline-fields">
+            <label>
+              Trigger mode
+              <select
+                value={policyForm.triggerMode}
+                onChange={(event) => setPolicyForm((current) => ({ ...current, triggerMode: event.target.value as ScanTriggerMode }))}
+              >
+                {SCAN_POLICY_TRIGGER_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {formatScanTriggerModeLabel(mode)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Enabled
+              <select
+                value={policyForm.enabled ? 'true' : 'false'}
+                onChange={(event) => setPolicyForm((current) => ({ ...current, enabled: event.target.value === 'true' }))}
+              >
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </label>
+          </div>
+          <p className="idt-form-note">
+            Manual keeps GitHub events from starting scans. Event and hybrid modes allow selected-repository webhooks to queue scans.
+          </p>
+          {policyForm.triggerMode === 'scheduled' || policyForm.triggerMode === 'hybrid' ? (
+            <label>
+              Cron schedule
+              <input
+                value={policyForm.cron}
+                onChange={(event) => setPolicyForm((current) => ({ ...current, cron: event.target.value }))}
+                placeholder="0 * * * *"
+                required
+              />
+            </label>
+          ) : null}
+          <div className="idt-source-inline-fields">
+            <label>
+              Max concurrent scans
+              <input
+                inputMode="numeric"
+                value={policyForm.maxConcurrentScans}
+                onChange={(event) => setPolicyForm((current) => ({ ...current, maxConcurrentScans: event.target.value }))}
+                placeholder="1"
+                required
+              />
+            </label>
+            <label>
+              History limit
+              <input
+                inputMode="numeric"
+                value={policyForm.historyLimit}
+                onChange={(event) => setPolicyForm((current) => ({ ...current, historyLimit: event.target.value }))}
+                placeholder="500"
+                required
+              />
+            </label>
+            <label>
+              Max findings
+              <input
+                inputMode="numeric"
+                value={policyForm.maxFindings}
+                onChange={(event) => setPolicyForm((current) => ({ ...current, maxFindings: event.target.value }))}
+                placeholder="200"
+                required
+              />
+            </label>
+          </div>
+          <button className="idt-btn idt-btn-primary" type="submit" disabled={policySaving}>
+            {policySaving ? 'Saving policy...' : 'Save scan policy'}
+          </button>
+        </form>
+          </div>
+        </details>
+      </article>
+      <PermissionPreviewModal
+        open={awsPreviewOpen}
+        title="AWS read-only connector policy"
+        items={awsPermissionPreview}
+        tiers={awsPermissionTiers}
+        onClose={() => setAWSPreviewOpen(false)}
+      />
+    </section>
+  );
+}
 
 type GitHubIntelligenceCategory = {
   id: string;
@@ -24024,18 +25024,50 @@ export function ProductAppearanceSettingsPage() {
             </select>
           </label>
 
-          <div className="idt-appearance-behavior-row">
-            <div>
-              <h3>Reduce motion</h3>
-              <p>Reduce animations or match your system</p>
-            </div>
-            <AppearanceSegmentedControl
-              label="Reduce motion"
-              value={preferences.reduceMotion}
-              options={APPEARANCE_MOTION_OPTIONS}
-              onChange={(reduceMotion) => commitPreferences({ reduceMotion })}
-            />
+          <label className="idt-appearance-control-row idt-appearance-slider-row">
+            <span>
+              <strong>Contrast</strong>
+            </span>
+            <span className="idt-appearance-slider">
+              <input
+                aria-label="Contrast"
+                type="range"
+                min="0"
+                max="100"
+                value={preferences.contrast}
+                onChange={(event) => commitPreferences({ contrast: Number(event.target.value) })}
+              />
+              <strong>{preferences.contrast}</strong>
+            </span>
+          </label>
+        </div>
+      </section>
+
+      <section className="idt-settings-card idt-appearance-card idt-appearance-behavior-card">
+        <div className="idt-appearance-behavior-row">
+          <div>
+            <h3>Use pointer cursors</h3>
+            <p>Show pointer cursors on interactive controls</p>
           </div>
+          <AppearanceSwitch
+            checked={preferences.pointerCursors}
+            label="Use pointer cursors"
+            onChange={(pointerCursors) => commitPreferences({ pointerCursors })}
+          />
+        </div>
+
+        <div className="idt-appearance-behavior-row">
+          <div>
+            <h3>Reduce motion</h3>
+            <p>Reduce animations or match your system</p>
+          </div>
+          <AppearanceSegmentedControl
+            label="Reduce motion"
+            value={preferences.reduceMotion}
+            options={APPEARANCE_MOTION_OPTIONS}
+            onChange={(reduceMotion) => commitPreferences({ reduceMotion })}
+          />
+        </div>
 
         <label className="idt-appearance-behavior-row">
           <span>
@@ -24054,6 +25086,23 @@ export function ProductAppearanceSettingsPage() {
           </span>
         </label>
 
+        <label className="idt-appearance-behavior-row">
+          <span>
+            <h3>Code font size</h3>
+            <p>Adjust the base size used for code across previews and diffs</p>
+          </span>
+          <span className="idt-appearance-number">
+            <AppearanceNumberInput
+              label="Code font size"
+              min={12}
+              max={22}
+              value={preferences.codeFontSize}
+              onCommit={(codeFontSize) => commitPreferences({ codeFontSize })}
+            />
+            <span>px</span>
+          </span>
+        </label>
+
         <div className="idt-appearance-behavior-row">
           <div>
             <h3>Font smoothing</h3>
@@ -24065,8 +25114,8 @@ export function ProductAppearanceSettingsPage() {
             onChange={(fontSmoothing) => commitPreferences({ fontSmoothing })}
           />
         </div>
-        </div>
       </section>
+
     </section>
   );
 }
