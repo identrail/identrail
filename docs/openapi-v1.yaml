@@ -13252,6 +13252,7 @@ components:
         secret_label: { type: string }
         provider: { type: string }
         provider_key_reference: { type: string }
+        unresolved_reference: { type: boolean }
         equivalent_permissions:
           type: array
           items: { type: string }

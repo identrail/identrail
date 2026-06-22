@@ -3529,6 +3529,7 @@ export type AWSSecretPermissionEquivalenceFinding = {
   secret_label: string;
   provider: string;
   provider_key_reference?: string;
+  unresolved_reference?: boolean;
   equivalent_permissions: string[];
   implied_actions?: string[];
   source_signals: string[];

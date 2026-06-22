@@ -68,6 +68,7 @@ import {
   type AWSCrossAccountTrustFinding,
   type AWSCrossAccountTrustResult,
   type AWSSecretPermissionEquivalenceFinding,
+  type AWSSecretPermissionEquivalenceQuery,
   type AWSSecretPermissionEquivalenceResult,
   type AWSStepFunctionsStateMachineRoleInventoryResult,
   type AWSStepFunctionsStateMachineRoleRecord,
@@ -11508,6 +11509,66 @@ function awsRuntimeEventDisplayFilters(filters: AWSInventoryFilterState): AWSInv
   };
 }
 
+function awsSecretPermissionEquivalenceFilterToken(value: string | undefined): string | undefined {
+  const normalized = normalizeFilterValue(value ?? '');
+  return normalized && normalized !== 'all' ? normalized : undefined;
+}
+
+function awsSecretPermissionEquivalenceStatusFilterToken(value: string | undefined): string | undefined {
+  switch (awsSecretPermissionEquivalenceFilterToken(value)) {
+    case 'open':
+      return 'action_required';
+    case 'queued':
+      return 'review';
+    case 'blocked':
+      return 'action_required';
+    case 'unavailable':
+      return undefined;
+    default:
+      return awsSecretPermissionEquivalenceFilterToken(value);
+  }
+}
+
+function awsSecretPermissionEquivalenceAccountFilterToken(
+  value: string | undefined,
+  connection: AWSConnectionStatus | null
+): string | undefined {
+  switch (awsSecretPermissionEquivalenceFilterToken(value)) {
+    case 'connected':
+      return connection?.account_id || undefined;
+    case 'unknown':
+      return 'unknown';
+    default:
+      return awsSecretPermissionEquivalenceFilterToken(value);
+  }
+}
+
+function awsSecretPermissionEquivalenceRegionFilterToken(
+  value: string | undefined,
+  connection: AWSConnectionStatus | null
+): string | undefined {
+  switch (awsSecretPermissionEquivalenceFilterToken(value)) {
+    case 'current':
+      return connection?.region || undefined;
+    case 'unknown':
+      return 'unknown';
+    default:
+      return awsSecretPermissionEquivalenceFilterToken(value);
+  }
+}
+
+function awsSecretPermissionEquivalenceFindingsQuery(
+  filters: AWSInventoryFilterState,
+  connection: AWSConnectionStatus | null
+): Partial<AWSSecretPermissionEquivalenceQuery> {
+  return {
+    accountID: awsSecretPermissionEquivalenceAccountFilterToken(filters.account, connection),
+    region: awsSecretPermissionEquivalenceRegionFilterToken(filters.region, connection),
+    severity: awsSecretPermissionEquivalenceFilterToken(filters.severity),
+    status: awsSecretPermissionEquivalenceStatusFilterToken(filters.status)
+  };
+}
+
 function AWSGraphExplorerContent({
   connection,
   filters,
@@ -12378,12 +12439,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       return;
     }
     setSecretPermissionEquivalenceLoading(true);
+    const requestFilters = routeID === 'findings' ? awsSecretPermissionEquivalenceFindingsQuery(activeFilters, connection) : {};
     try {
       const response = await apiClient.getAWSProjectSecretPermissionEquivalence(
         scope.workspaceID,
         selectedEnvironmentID,
         {
-          connectorID: connection.connector_id
+          connectorID: connection.connector_id,
+          ...requestFilters
         },
         buildProductAuthContext(scope)
       );
@@ -12406,8 +12469,15 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     scope?.tenantID,
     scope?.workspaceID,
     selectedEnvironmentID,
+    routeID,
+    activeFilters.account,
+    activeFilters.region,
+    activeFilters.severity,
+    activeFilters.status,
     connection?.connected,
-    connection?.connector_id
+    connection?.connector_id,
+    connection?.account_id,
+    connection?.region
   ]);
 
   useEffect(() => {

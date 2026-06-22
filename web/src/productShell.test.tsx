@@ -3582,6 +3582,82 @@ describe('Domain-first app routes', () => {
     );
   });
 
+  it('passes AWS findings filters to secret-permission equivalence queries', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const getSecretPermissionEquivalence = vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockResolvedValue({
+      findings: {
+        status: 'ready',
+        findings: [],
+        summary: {
+          external_provider_key_count: 0,
+          aws_managed_secret_count: 0,
+          runtime_observed_count: 0,
+          kms_backed_count: 0
+        },
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
+
+    const { ProductAWSFindingsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Findings' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Severity' }), { target: { value: 'high' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), { target: { value: 'connected' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Region' }), { target: { value: 'current' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Remediation' }), { target: { value: 'open' } });
+
+    await waitFor(() =>
+      expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({
+          connectorID: 'aws-connector-1',
+          accountID: '123456789012',
+          region: 'us-east-1',
+          severity: 'high',
+          status: 'action_required'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+  });
+
   it('keeps AWS resources inventory metadata-only when no environment exists', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });

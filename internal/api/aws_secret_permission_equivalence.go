@@ -77,6 +77,7 @@ type AWSSecretPermissionEquivalenceFinding struct {
 	Evidence              []AWSSecretPermissionEquivalenceEvidence             `json:"evidence"`
 	NextAction            string                                               `json:"next_action"`
 	RemediationCase       AWSSecretPermissionEquivalenceRemediationCasePreview `json:"remediation_case"`
+	UnresolvedReference   bool                                                 `json:"unresolved_reference,omitempty"`
 	CreatedAt             time.Time                                            `json:"created_at"`
 	UpdatedAt             time.Time                                            `json:"updated_at"`
 }
@@ -365,6 +366,7 @@ func awsSecretPermissionFindingFromCredentialReference(record AWSCredentialRefer
 		SourceSignals:         []string{"credential_references"},
 		Rationale:             fmt.Sprintf("%s references %s credential metadata for %s; the engine treats the referenced credential as permission-bearing without reading its value.", firstNonEmptyAWSValue(record.WorkloadName, record.WorkloadID), formatAWSBlastRadiusLabel(provider), secretLabel),
 		EvidenceBoundary:      awsSecretPermissionEvidenceBoundary(),
+		UnresolvedReference:   record.Unresolved,
 		ImpactedNodes:         dedupeStrings([]string{identity, secretNodeID}),
 		ImpactedPath: []AWSSecretPermissionEquivalencePathStep{
 			awsLeastPrivilegePathStep(identity, record.ResourceType, firstNonEmptyAWSValue(record.WorkloadName, record.WorkloadID), record.AccountID, record.Region),
@@ -624,10 +626,11 @@ func awsSecretPermissionFindingsFromAgent(agent AWSAIAgentIdentityRecord, secret
 				awsLeastPrivilegePathStep(agent.AgentNodeID, "ai_agent", firstNonEmptyAWSValue(agent.AgentName, agent.AgentID), agent.AccountID, agent.Region),
 				awsLeastPrivilegePathStep(secretNode, "permission_bearing_secret", secretLabel, agent.AccountID, agent.Region),
 			},
-			Evidence:   []AWSSecretPermissionEquivalenceEvidence{{Source: "ai_agent_identities", EvidenceRef: firstNonEmptyAWSValue(ref.EvidenceRef, agent.EvidenceRef), Label: "Agent provider-key metadata", Confidence: confidence, ObservedAt: agent.CollectedAt, Relationship: "agent_uses_permission_bearing_secret"}},
-			NextAction: awsSecretPermissionNextAction(provider, !ref.Resolved),
-			CreatedAt:  now,
-			UpdatedAt:  now,
+			UnresolvedReference: !ref.Resolved,
+			Evidence:            []AWSSecretPermissionEquivalenceEvidence{{Source: "ai_agent_identities", EvidenceRef: firstNonEmptyAWSValue(ref.EvidenceRef, agent.EvidenceRef), Label: "Agent provider-key metadata", Confidence: confidence, ObservedAt: agent.CollectedAt, Relationship: "agent_uses_permission_bearing_secret"}},
+			NextAction:          awsSecretPermissionNextAction(provider, !ref.Resolved),
+			CreatedAt:           now,
+			UpdatedAt:           now,
 		}))
 	}
 	return findings
@@ -766,7 +769,7 @@ func filterAWSSecretPermissionEquivalenceFindings(findings []AWSSecretPermission
 		if filters["status"] != "" && filters["status"] != normalizeAWSRuntimeEventFilterToken(finding.Status) {
 			continue
 		}
-		if filters["identity"] != "" && !strings.Contains(strings.ToLower(finding.IdentityNodeID+" "+finding.PrincipalARN+" "+finding.WorkloadID+" "+finding.AgentID), strings.ToLower(filters["identity"])) {
+		if filters["identity"] != "" && !strings.Contains(strings.ToLower(finding.IdentityNodeID+" "+finding.PrincipalARN+" "+finding.WorkloadID+" "+finding.WorkloadName+" "+finding.AgentID+" "+finding.AgentName), strings.ToLower(filters["identity"])) {
 			continue
 		}
 		if filters["secret"] != "" && !strings.Contains(strings.ToLower(finding.SecretNodeID+" "+finding.SecretARN+" "+finding.SecretLabel+" "+finding.ProviderKeyReference), strings.ToLower(filters["secret"])) {
@@ -826,7 +829,7 @@ func summarizeAWSSecretPermissionEquivalence(allFindings []AWSSecretPermissionEq
 		if strings.Contains(finding.EquivalenceType, "kms") {
 			summary.KMSBackedCount++
 		}
-		if strings.Contains(finding.Status, "review") && strings.Contains(strings.ToLower(finding.Rationale), "unresolved") {
+		if finding.UnresolvedReference {
 			summary.UnresolvedReferenceCount++
 		}
 		if finding.RemediationCase.CaseID != "" {
@@ -1214,6 +1217,7 @@ func awsSecretPermissionDedupeFindings(findings []AWSSecretPermissionEquivalence
 				merged.SourceSignals = dedupeStrings(append(merged.SourceSignals, out[idx].SourceSignals...))
 				merged.Evidence = append(merged.Evidence, out[idx].Evidence...)
 				merged.ImpactedNodes = dedupeStrings(append(merged.ImpactedNodes, out[idx].ImpactedNodes...))
+				merged.UnresolvedReference = merged.UnresolvedReference || out[idx].UnresolvedReference
 				out[idx] = awsSecretPermissionFinding(merged)
 			}
 			continue

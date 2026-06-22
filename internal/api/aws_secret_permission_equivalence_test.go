@@ -39,6 +39,9 @@ func TestGetAWSSecretPermissionEquivalenceBuildsFindingContract(t *testing.T) {
 	if result.Summary.RemediationPreviewCount == 0 || len(result.Caveats) == 0 || len(result.CoverageGaps) == 0 {
 		t.Fatalf("expected remediation previews, caveats, and coverage gaps: summary=%+v caveats=%v gaps=%v", result.Summary, result.Caveats, result.CoverageGaps)
 	}
+	if result.Summary.UnresolvedReferenceCount == 0 {
+		t.Fatalf("expected unresolved references to be counted from structured finding state: %+v", result.Summary)
+	}
 	for i := 1; i < len(result.Findings); i++ {
 		if result.Findings[i-1].Score < result.Findings[i].Score {
 			t.Fatalf("findings are not ranked by descending score: %+v", result.Findings)
@@ -97,7 +100,7 @@ func TestGetAWSSecretPermissionEquivalenceFilters(t *testing.T) {
 		ConnectorID:     "aws-prod",
 		FixtureState:    "success",
 		EquivalenceType: "agent_provider_key_equivalence",
-		Identity:        "external-support-agent",
+		Identity:        "support-assistant",
 	})
 	if err != nil {
 		t.Fatalf("agent equivalence filter: %v", err)
@@ -109,7 +112,7 @@ func TestGetAWSSecretPermissionEquivalenceFilters(t *testing.T) {
 		if finding.EquivalenceType != "agent_provider_key_equivalence" {
 			t.Fatalf("equivalence_type filter leaked: %+v", finding)
 		}
-		if !strings.Contains(strings.ToLower(finding.AgentID+" "+finding.AgentName+" "+finding.IdentityNodeID), "external-support-agent") {
+		if !strings.Contains(strings.ToLower(finding.AgentName), "support-assistant") {
 			t.Fatalf("identity filter leaked: %+v", finding)
 		}
 	}
