@@ -19706,6 +19706,8 @@ function parseExecutiveReportDomainParam(raw: string | null | undefined): {
 
 export function ProductExecutiveReportPage() {
   const { me, loading: sessionLoading, error: sessionError, unauthenticated } = useMe();
+  const params = useParams<ScopeRouteParams>();
+  const scope = resolveScopeFromParams(params);
   const [report, setReport] = useState<ExecutiveReport | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const [reportError, setReportError] = useState('');
@@ -19719,6 +19721,9 @@ export function ProductExecutiveReportPage() {
   );
 
   useEffect(() => {
+    if (!scope) {
+      return;
+    }
     if (!me?.org_id || !me.workspace_id) {
       return;
     }
@@ -19744,7 +19749,7 @@ export function ProductExecutiveReportPage() {
       try {
         const response = await apiClient.getExecutiveReport(
           { domain: selectedDomain },
-          { tenantID: me.org_id, workspaceID: me.workspace_id }
+          { tenantID: scope.tenantID, workspaceID: scope.workspaceID }
         );
         if (mounted) {
           setReport(response);
@@ -19771,7 +19776,7 @@ export function ProductExecutiveReportPage() {
     return () => {
       mounted = false;
     };
-  }, [me?.org_id, me?.workspace_id, selectedDomain, invalidDomainRaw]);
+  }, [scope?.tenantID, scope?.workspaceID, me?.org_id, me?.workspace_id, selectedDomain, invalidDomainRaw]);
 
   const handleDomainChange = (next: ExecutiveReportDomain) => {
     if (next === selectedDomain) {
