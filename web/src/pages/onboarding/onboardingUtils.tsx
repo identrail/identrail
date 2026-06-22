@@ -53,10 +53,8 @@ export function onboardingAppPath(state: OnboardingState | null): string {
 
 export function onboardingProjectPath(state: OnboardingState | null): string {
   const base = onboardingAppPath(state);
-  if (!state?.project_id) {
-    return `${base}/projects`;
-  }
-  return `${base}/projects/${encodeURIComponent(state.project_id)}`;
+  const projectPath = state?.project_id ? `${base}/projects/${encodeURIComponent(state.project_id)}` : `${base}/projects`;
+  return state?.connector_type ? `${projectPath}?source=${encodeURIComponent(state.connector_type)}` : projectPath;
 }
 
 export function normalizeMemberToken(value: string): string {

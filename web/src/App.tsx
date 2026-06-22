@@ -59,7 +59,6 @@ import {
   ProductLoginPage,
   ProductLogoutPage,
   ProductOverviewPage,
-  ProductProjectDetailPage,
   ProductProjectsPage,
   RequireProductAuth,
   ProductAppearanceSettingsPage,
@@ -104,6 +103,40 @@ function LegacyScopedAppRedirect({ target }: { target: string }) {
   }
 
   return <Navigate to={`/app/${encodeURIComponent(tenantID)}/${encodeURIComponent(workspaceID)}/${target}`} replace />;
+}
+
+const LEGACY_PROJECT_SOURCE_TARGETS: Record<string, string> = {
+  aws: 'aws/connect',
+  github: 'github/connect',
+  kubernetes: 'kubernetes/connect'
+};
+
+function LegacyProjectSourceRedirect() {
+  const params = useParams<{ tenantID?: string; workspaceID?: string; projectID?: string }>();
+  const location = useLocation();
+  const tenantID = params.tenantID?.trim();
+  const workspaceID = params.workspaceID?.trim();
+  const projectID = params.projectID?.trim();
+
+  if (!tenantID || !workspaceID) {
+    return <Navigate to="/app" replace />;
+  }
+
+  const query = new URLSearchParams(location.search);
+  const requestedSource = query.get('source')?.trim().toLowerCase() ?? '';
+  const target = LEGACY_PROJECT_SOURCE_TARGETS[requestedSource] ?? 'github/repositories';
+  query.delete('source');
+  if (projectID) {
+    query.set('environment', projectID);
+  }
+  const search = query.toString();
+
+  return (
+    <Navigate
+      to={`/app/${encodeURIComponent(tenantID)}/${encodeURIComponent(workspaceID)}/${target}${search ? `?${search}` : ''}`}
+      replace
+    />
+  );
 }
 const SCAN_CTA_LABEL = 'Request Trust Path Review';
 const INTAKE_TOTAL_STEPS = 4;
@@ -4779,7 +4812,7 @@ export function RoutedSite() {
             <Route path="workspaces" element={<ProductWorkspacesPage />} />
             {/* Hidden aliases for pre-domain onboarding and callback URLs. */}
             <Route path="projects" element={<ProductProjectsPage />} />
-            <Route path="projects/:projectID" element={<ProductProjectDetailPage />} />
+            <Route path="projects/:projectID" element={<LegacyProjectSourceRedirect />} />
             <Route path="findings" element={<LegacyScopedAppRedirect target="github/findings" />} />
             <Route path="ai-risks" element={<LegacyScopedAppRedirect target="github/agentic-risk" />} />
             <Route path="aws" element={<ProductAWSControlCenterPage />} />

@@ -20,11 +20,14 @@ import type {
   CurrentUserContext,
   Finding,
   GitHubConnectionStatus,
+  GitHubOrganizationPosture,
+  GitHubRepositoryPosture,
   KubernetesConnectorStartResponse,
   KubernetesConnectionStatus,
   RepoFindingRemediationPreview,
   RepoFindingRemediationPublishResponse,
   RepoScanRecord,
+  ScanPolicyRecord,
   WhoAmIResponse
 } from './api/client';
 import type { BackendFeatureState } from './hooks/useBackendFeatures';
@@ -1659,145 +1662,6 @@ async function renderProductAppearanceSettingsPage() {
   );
 }
 
-async function renderProjectDetail(
-  githubBackend: BackendFeatureState,
-  githubConnection = connectedGitHub,
-  options: {
-    initialEntry?: string;
-    repoScanError?: { message: string; status: number; code?: string; detail?: string };
-    repoScans?: RepoScanRecord[];
-    listRepoScans?: () => Promise<{ items: RepoScanRecord[] }>;
-    withProjectSwitcher?: boolean;
-  } = {}
-) {
-  vi.resetModules();
-  vi.doMock('./pages/onboarding/onboardingUtils', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('./pages/onboarding/onboardingUtils')>();
-    return {
-      ...actual,
-      FEATURE_ONBOARDING_CONNECTOR_AWS: false,
-      FEATURE_ONBOARDING_CONNECTOR_GITHUB: true,
-      FEATURE_ONBOARDING_CONNECTOR_K8S: false
-    };
-  });
-  vi.doMock('./hooks/useBackendFeatures', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('./hooks/useBackendFeatures')>();
-    return {
-      ...actual,
-      useBackendFeatures: () => ({
-        features: {
-          onboardingWizard: undefined,
-          connectors: { github: githubBackend, aws: undefined, kubernetes: undefined },
-          configReachable: true
-        },
-        loading: false
-      })
-    };
-  });
-
-  const api = await import('./api/client');
-  const getGitHubConnectorStatus = vi
-    .spyOn(api.apiClient, 'getGitHubConnectorStatus')
-    .mockResolvedValue({ connection: githubConnection });
-  vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-  vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockResolvedValue({ items: [] });
-  const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans');
-  if (options.listRepoScans) {
-    listRepoScans.mockImplementation(() => options.listRepoScans?.() ?? Promise.resolve({ items: [] }));
-  } else {
-    listRepoScans.mockResolvedValue({ items: options.repoScans ?? [] });
-  }
-  const runRepoScan = vi.spyOn(api.apiClient, 'runRepoScan');
-  if (options.repoScanError) {
-    runRepoScan.mockRejectedValue(
-      new api.ApiError(options.repoScanError.message, options.repoScanError.status, {
-        code: options.repoScanError.code,
-        detail: options.repoScanError.detail
-      })
-    );
-  } else {
-    runRepoScan.mockResolvedValue({ repo_scan: queuedRepoScan });
-  }
-  const cancelRepoScan = vi.spyOn(api.apiClient, 'cancelRepoScan').mockResolvedValue({ repo_scan: canceledRepoScan });
-  const getGitHubConnectorRepositoryPosture = vi
-    .spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture')
-    .mockResolvedValue({
-      connector_id: 'github-app',
-      provider: 'github_app',
-      posture: {
-        repository: 'identrail/identrail',
-        installation_id: 12345,
-        collected_at: '2026-05-17T10:02:00Z',
-        checks: [
-          {
-            id: 'default_branch_protection',
-            category: 'branch_protection',
-            state: 'secure',
-            reason: 'protection_enforced',
-            summary: 'Default branch requires pull request reviews.'
-          },
-          {
-            id: 'actions_permissions',
-            category: 'actions',
-            state: 'insecure',
-            reason: 'write_workflow_token',
-            summary: 'Actions token can write by default.'
-          }
-        ],
-        rate_limit: { limit: 5000, remaining: 4990 }
-      }
-    });
-  const startGitHubConnector = vi.spyOn(api.apiClient, 'startGitHubConnector').mockImplementation(async (payload) => ({
-    connection: {
-      provider: 'github_app',
-      connected: false,
-      connector_id: 'github-app',
-      display_name: 'Identrail',
-      status: 'pending',
-      health_status: 'unknown',
-      webhook_secret_rotation_required: false,
-      selected_repositories: []
-    },
-    connector_id: 'github-app',
-    state: 'github-state',
-    install_url: 'https://github.com/apps/identrail/installations/select_target?state=github-state',
-    install_account_type: payload.install_account_type ?? 'any',
-    webhook_url: '/auth/webhooks/github',
-    expires_at: '2026-05-17T10:10:00Z'
-  }));
-
-  const { ProductProjectDetailPage } = await import('./productShell');
-  function ProjectDetailHarness() {
-    const navigate = useNavigate();
-    return (
-      <>
-        <ProductProjectDetailPage />
-        {options.withProjectSwitcher ? (
-          <button type="button" onClick={() => navigate('/app/tenant-a/workspace-a/projects/project-2')}>
-            Open environment 2
-          </button>
-        ) : null}
-      </>
-    );
-  }
-
-  render(
-    <MemoryRouter initialEntries={[options.initialEntry ?? '/app/tenant-a/workspace-a/projects/project-1']}>
-      <Routes>
-        <Route path="/app/:tenantID/:workspaceID/projects/:projectID" element={<ProjectDetailHarness />} />
-      </Routes>
-    </MemoryRouter>
-  );
-
-  return {
-    getGitHubConnectorStatus,
-    getGitHubConnectorRepositoryPosture,
-    startGitHubConnector,
-    listRepoScans,
-    runRepoScan,
-    cancelRepoScan
-  };
-}
 
 describe('ProductAppIndexRedirect', () => {
   afterEach(() => {
@@ -2135,17 +1999,17 @@ describe('ProductAppearanceSettingsPage', () => {
 
     fireEvent.change(screen.getByLabelText('Light theme'), { target: { value: 'xcode' } });
     fireEvent.change(screen.getByLabelText('Accent color'), { target: { value: '#123456' } });
-    fireEvent.click(screen.getByRole('switch', { name: 'Use pointer cursors' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Font smoothing' }));
 
     const stored = JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}');
     expect(stored).toMatchObject({
       lightPreset: 'xcode',
       accent: '#123456',
       customColors: true,
-      pointerCursors: true
+      fontSmoothing: false
     });
     expect(document.documentElement.style.getPropertyValue('--appearance-accent')).toBe('#123456');
-    expect(document.documentElement.dataset.pointerCursors).toBe('true');
+    expect(document.documentElement.dataset.fontSmoothing).toBe('false');
     expect(document.documentElement.dataset.appearanceAppIcon).toBeUndefined();
   });
 
@@ -2303,16 +2167,13 @@ describe('ProductAppearanceSettingsPage', () => {
       uiFontSize: 18
     });
 
-    const codeFontSize = screen.getByLabelText('Code font size') as HTMLInputElement;
-    fireEvent.focus(codeFontSize);
-    fireEvent.change(codeFontSize, { target: { value: '2' } });
-
-    expect(codeFontSize.value).toBe('2');
-
-    fireEvent.blur(codeFontSize);
-    await waitFor(() => expect(codeFontSize.value).toBe('12'));
+    // Below the minimum clamps to the floor on commit.
+    fireEvent.focus(uiFontSize);
+    fireEvent.change(uiFontSize, { target: { value: '1' } });
+    fireEvent.blur(uiFontSize);
+    await waitFor(() => expect(uiFontSize.value).toBe('14'));
     expect(JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}')).toMatchObject({
-      codeFontSize: 12
+      uiFontSize: 14
     });
   });
 
@@ -5008,379 +4869,6 @@ describe('Domain-first app routes', () => {
   });
 });
 
-describe('ProductProjectDetailPage', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-    vi.doUnmock('./hooks/useBackendFeatures');
-    vi.doUnmock('./pages/onboarding/onboardingUtils');
-    vi.resetModules();
-    vi.unstubAllEnvs();
-  });
-
-  it('marks GitHub unavailable without calling its status endpoint when the API disables the connector', async () => {
-    const { getGitHubConnectorStatus } = await renderProjectDetail(false);
-
-    expect(await screen.findByRole('heading', { level: 3, name: 'AWS' })).toBeInTheDocument();
-    const githubButton = screen.getByRole('button', { name: /GitHub/i });
-    expect(githubButton).toBeDisabled();
-    expect(githubButton).toHaveTextContent('Unavailable');
-    expect(githubButton).toHaveTextContent('Not available on this API server.');
-    expect(getGitHubConnectorStatus).not.toHaveBeenCalled();
-  });
-
-  it('loads the GitHub connection and selected repositories when the bundle and API both enable it', async () => {
-    const { getGitHubConnectorStatus } = await renderProjectDetail(true);
-
-    expect((await screen.findAllByText('identrail/identrail')).length).toBeGreaterThan(0);
-    expect(within(screen.getByLabelText('Source types')).getByRole('button', { name: /GitHub/i })).not.toBeDisabled();
-    expect(screen.getByText(/Installation 12345/i)).toBeInTheDocument();
-    expect(getGitHubConnectorStatus).toHaveBeenCalledWith(
-      'workspace-a',
-      'project-1',
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    );
-  });
-
-  it('scopes domain connect pages to the requested provider', async () => {
-    await renderProjectDetail(true, connectedGitHub, {
-      initialEntry: '/app/tenant-a/workspace-a/projects/project-1?source=github'
-    });
-
-    expect(await screen.findByRole('heading', { level: 1, name: 'Connect GitHub' })).toBeInTheDocument();
-    expect(screen.queryByLabelText('GitHub source')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Source types')).not.toBeInTheDocument();
-    expect(screen.queryByText('This page is scoped to GitHub.')).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { level: 3, name: 'GitHub' })).not.toBeInTheDocument();
-    expect(screen.getByText('Setup')).toBeInTheDocument();
-    expect(screen.queryByText('Recommended setup')).not.toBeInTheDocument();
-  });
-
-  it('opens GitHub installation in a new tab through GitHub account picker', async () => {
-    const userAgent = vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0');
-    const open = vi.spyOn(window, 'open').mockReturnValue({} as Window);
-    const { startGitHubConnector } = await renderProjectDetail(true);
-
-    expect(await screen.findByText('Install Identrail on GitHub')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Install GitHub App/i }));
-
-    await waitFor(() =>
-      expect(startGitHubConnector).toHaveBeenCalledWith(
-        expect.not.objectContaining({ install_account_type: expect.anything() }),
-        expect.any(Object)
-      )
-    );
-    expect(open).toHaveBeenCalledWith(
-      'https://github.com/apps/identrail/installations/select_target?state=github-state',
-      '_blank',
-      'noopener,noreferrer'
-    );
-    expect(open).not.toHaveBeenCalledWith('', '_blank');
-    expect(await screen.findByText(/GitHub opened in a new tab/i)).toBeInTheDocument();
-
-    userAgent.mockRestore();
-  });
-
-  it('keeps advanced GitHub and scan policy controls collapsed until requested', async () => {
-    await renderProjectDetail(true);
-
-    expect(await screen.findByText('GitHub Enterprise fallback')).toBeInTheDocument();
-    expect(screen.getByLabelText(/Personal access token/i)).not.toBeVisible();
-
-    fireEvent.click(screen.getByText('GitHub Enterprise fallback'));
-    expect(screen.getByLabelText(/Personal access token/i)).toBeVisible();
-
-    const scanLimits = screen.getByText('Scan limits').closest('details');
-    expect(scanLimits).not.toBeNull();
-    expect(within(scanLimits as HTMLElement).getByLabelText(/History limit/i)).not.toBeVisible();
-
-    fireEvent.click(within(scanLimits as HTMLElement).getByText('Scan limits'));
-    expect(within(scanLimits as HTMLElement).getByLabelText(/History limit/i)).toBeVisible();
-
-    expect(screen.getByText('Scan policy')).toBeInTheDocument();
-    expect(screen.getByLabelText(/Trigger mode/i)).not.toBeVisible();
-
-    fireEvent.click(screen.getByText('Scan policy'));
-    expect(screen.getByLabelText(/Trigger mode/i)).toBeVisible();
-  });
-
-  it('loads GitHub repository posture for the selected app repository', async () => {
-    const { getGitHubConnectorRepositoryPosture } = await renderProjectDetail(true);
-
-    expect(await screen.findByText('Repository posture')).toBeInTheDocument();
-    const postureDetails = await screen.findByText(/Review 1 check/i);
-    expect(screen.getByText(/Actions token can write by default/i)).not.toBeVisible();
-    fireEvent.click(postureDetails);
-    expect(screen.getByText(/Actions token can write by default/i)).toBeVisible();
-    expect(getGitHubConnectorRepositoryPosture).toHaveBeenCalledWith(
-      'github-app',
-      'workspace-a',
-      'project-1',
-      'identrail/identrail',
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    );
-  });
-
-  it('queues the first repository scan from the selected GitHub repository', async () => {
-    let listCalls = 0;
-    const { runRepoScan } = await renderProjectDetail(true, connectedGitHub, {
-      listRepoScans: () => {
-        listCalls += 1;
-        return Promise.resolve({ items: listCalls === 1 ? [] : [queuedRepoScan] });
-      }
-    });
-
-    const queueButton = await screen.findByRole('button', { name: /Queue first scan/i });
-    await waitFor(() => expect(queueButton).not.toBeDisabled());
-
-    fireEvent.click(queueButton);
-
-    await waitFor(() =>
-      expect(runRepoScan).toHaveBeenCalledWith(
-        { repository: 'identrail/identrail', project_id: 'project-1', connector_id: 'github-app' },
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    expect(await screen.findByText(/Repository scan queued for identrail\/identrail/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /View findings/i })).toHaveAttribute(
-      'href',
-      '/app/tenant-a/workspace-a/github/findings'
-    );
-    expect(screen.getByLabelText(/recent repository scan activity/i)).toHaveTextContent('Queued');
-  });
-
-  it('preserves the generic scan payload for GitHub PAT connections', async () => {
-    let listCalls = 0;
-    const { runRepoScan } = await renderProjectDetail(true, connectedGitHubPAT, {
-      listRepoScans: () => {
-        listCalls += 1;
-        return Promise.resolve({ items: listCalls === 1 ? [] : [queuedRepoScan] });
-      }
-    });
-
-    const queueButton = await screen.findByRole('button', { name: /Queue first scan/i });
-    await waitFor(() => expect(queueButton).not.toBeDisabled());
-
-    fireEvent.click(queueButton);
-
-    await waitFor(() =>
-      expect(runRepoScan).toHaveBeenCalledWith(
-        { repository: 'identrail/identrail' },
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-  });
-
-  it('cancels an active repository scan before retrying', async () => {
-    let listCalls = 0;
-    const { cancelRepoScan } = await renderProjectDetail(true, connectedGitHub, {
-      listRepoScans: () => {
-        listCalls += 1;
-        return Promise.resolve({ items: listCalls === 1 ? [queuedRepoScan] : [canceledRepoScan] });
-      }
-    });
-
-    expect(await screen.findByRole('button', { name: /Scan already active/i })).toBeDisabled();
-    const cancelButton = screen.getByRole('button', { name: /Cancel scan/i });
-    fireEvent.click(cancelButton);
-
-    await waitFor(() =>
-      expect(cancelRepoScan).toHaveBeenCalledWith(
-        queuedRepoScan.id,
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-    expect(await screen.findByText(/Repository scan canceled for identrail\/identrail/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/recent repository scan activity/i)).toHaveTextContent('repository scan canceled by user');
-  });
-
-  it('clears canceling state when the cancel response is stale after refresh', async () => {
-    const pendingCancel = deferred<{ repo_scan: RepoScanRecord }>();
-    const { cancelRepoScan, listRepoScans } = await renderProjectDetail(true, connectedGitHub, {
-      listRepoScans: () => Promise.resolve({ items: [queuedRepoScan] })
-    });
-    cancelRepoScan.mockReturnValueOnce(pendingCancel.promise);
-
-    const cancelButton = await screen.findByRole('button', { name: /Cancel scan/i });
-    fireEvent.click(cancelButton);
-
-    expect(await screen.findByRole('button', { name: /Canceling/i })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: /Refresh status/i }));
-    await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(2));
-
-    await act(async () => {
-      pendingCancel.resolve({ repo_scan: canceledRepoScan });
-      await pendingCancel.promise;
-    });
-
-    await waitFor(() => expect(screen.queryByRole('button', { name: /Canceling/i })).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: /Cancel scan/i })).not.toBeDisabled();
-  });
-
-  it('allows queueing another selected repository while a different repository is active', async () => {
-    const multiRepoConnection: GitHubConnectionStatus = {
-      ...connectedGitHub,
-      selected_repositories: ['identrail/identrail', 'identrail/docs']
-    };
-    const { runRepoScan } = await renderProjectDetail(true, multiRepoConnection, {
-      repoScans: [queuedRepoScan]
-    });
-
-    expect(await screen.findByRole('button', { name: /Scan already active/i })).toBeDisabled();
-
-    fireEvent.change(screen.getByLabelText(/^Repository$/i), { target: { value: 'identrail/docs' } });
-
-    const queueButton = await screen.findByRole('button', { name: /Queue first scan/i });
-    await waitFor(() => expect(queueButton).not.toBeDisabled());
-    fireEvent.click(queueButton);
-
-    await waitFor(() =>
-      expect(runRepoScan).toHaveBeenCalledWith(
-        { repository: 'identrail/docs', project_id: 'project-1', connector_id: 'github-app' },
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
-    );
-  });
-
-  it('keeps stale repo scan refresh responses from overwriting refreshed activity', async () => {
-    const staleRefresh = deferred<{ items: RepoScanRecord[] }>();
-    const refreshedRepoScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-refreshed',
-      status: 'completed',
-      files_scanned: 12,
-      finding_count: 3,
-      finished_at: '2026-05-17T11:03:00Z'
-    };
-    const staleRepoScan: RepoScanRecord = {
-      ...queuedRepoScan,
-      id: 'repo-scan-stale',
-      status: 'failed',
-      files_scanned: 9,
-      finding_count: 7,
-      error_message: 'stale response'
-    };
-    let listRepoScanCalls = 0;
-    const { listRepoScans } = await renderProjectDetail(true, connectedGitHub, {
-      listRepoScans: () => {
-        listRepoScanCalls += 1;
-        if (listRepoScanCalls === 1) {
-          return Promise.resolve({ items: [] });
-        }
-        if (listRepoScanCalls === 2) {
-          return staleRefresh.promise;
-        }
-        return Promise.resolve({ items: [refreshedRepoScan] });
-      }
-    });
-
-    const queueButton = await screen.findByRole('button', { name: /Queue first scan/i });
-    await waitFor(() => expect(queueButton).not.toBeDisabled());
-    fireEvent.click(queueButton);
-
-    expect(await screen.findByText(/Repository scan queued for identrail\/identrail/i)).toBeInTheDocument();
-    await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(2));
-
-    fireEvent.click(screen.getByRole('button', { name: /Refresh status/i }));
-
-    const activity = screen.getByLabelText(/recent repository scan activity/i);
-    await waitFor(() => expect(activity).toHaveTextContent('3 findings'));
-
-    await act(async () => {
-      staleRefresh.resolve({ items: [staleRepoScan] });
-      await staleRefresh.promise;
-    });
-
-    expect(activity).toHaveTextContent('3 findings');
-    expect(activity).not.toHaveTextContent('7 findings');
-  });
-
-  it('keeps refresh disabled while the first repository scan is queueing', async () => {
-    const pendingSubmit = deferred<{ repo_scan: RepoScanRecord }>();
-    const { runRepoScan } = await renderProjectDetail(true);
-    runRepoScan.mockReturnValueOnce(pendingSubmit.promise);
-
-    const queueButton = await screen.findByRole('button', { name: /Queue first scan/i });
-    await waitFor(() => expect(queueButton).not.toBeDisabled());
-    fireEvent.click(queueButton);
-
-    expect(await screen.findByRole('button', { name: /Queueing/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Refresh status/i })).toBeDisabled();
-
-    await act(async () => {
-      pendingSubmit.resolve({ repo_scan: queuedRepoScan });
-      await pendingSubmit.promise;
-    });
-
-    await waitFor(() => expect(screen.getByRole('button', { name: /Queue first scan/i })).not.toBeDisabled());
-  });
-
-  it('keeps an old route submit from clearing a newer repo scan submit', async () => {
-    const firstSubmit = deferred<{ repo_scan: RepoScanRecord }>();
-    const secondSubmit = deferred<{ repo_scan: RepoScanRecord }>();
-    const { runRepoScan } = await renderProjectDetail(true, connectedGitHub, { withProjectSwitcher: true });
-    runRepoScan.mockReturnValueOnce(firstSubmit.promise).mockReturnValueOnce(secondSubmit.promise);
-
-    const firstQueueButton = await screen.findByRole('button', { name: /Queue first scan/i });
-    await waitFor(() => expect(firstQueueButton).not.toBeDisabled());
-    fireEvent.click(firstQueueButton);
-    expect(await screen.findByRole('button', { name: /Queueing/i })).toBeDisabled();
-
-    fireEvent.click(screen.getByRole('button', { name: /Open environment 2/i }));
-    expect(await screen.findByRole('heading', { name: /Connect environment sources/i })).toBeInTheDocument();
-    const secondQueueButton = await screen.findByRole('button', { name: /Queue first scan/i });
-    await waitFor(() => expect(secondQueueButton).not.toBeDisabled());
-    fireEvent.click(secondQueueButton);
-    expect(await screen.findByRole('button', { name: /Queueing/i })).toBeDisabled();
-
-    await act(async () => {
-      firstSubmit.resolve({ repo_scan: queuedRepoScan });
-      await firstSubmit.promise;
-    });
-
-    expect(screen.getByRole('button', { name: /Queueing/i })).toBeDisabled();
-
-    await act(async () => {
-      secondSubmit.resolve({ repo_scan: queuedRepoScan });
-      await secondSubmit.promise;
-    });
-
-    await waitFor(() => expect(screen.getByRole('button', { name: /Queue first scan/i })).not.toBeDisabled());
-  });
-
-  it('explains selected-repository and allowlist failures when the first repository scan is not permitted', async () => {
-    const { runRepoScan } = await renderProjectDetail(true, connectedGitHub, {
-      repoScanError: { message: 'repo target not allowed', status: 403 }
-    });
-
-    const queueButton = await screen.findByRole('button', { name: /Queue first scan/i });
-    await waitFor(() => expect(queueButton).not.toBeDisabled());
-    fireEvent.click(queueButton);
-
-    await waitFor(() => expect(runRepoScan).toHaveBeenCalled());
-    expect(
-      await screen.findByText(/select it during installation and refresh status/i)
-    ).toBeInTheDocument();
-    expect(screen.getByText(/ask an operator to allow that owner\/repo target/i)).toBeInTheDocument();
-  });
-
-  it('surfaces hosted repository scan diagnostics from the API response', async () => {
-    const { runRepoScan } = await renderProjectDetail(true, connectedGitHub, {
-      repoScanError: {
-        message: 'failed to enqueue repo scan',
-        status: 500,
-        code: 'repo_scan_migration_missing',
-        detail: 'Repository scan persistence failed; the hosted database may be missing migrations.'
-      }
-    });
-
-    const queueButton = await screen.findByRole('button', { name: /Queue first scan/i });
-    await waitFor(() => expect(queueButton).not.toBeDisabled());
-    fireEvent.click(queueButton);
-
-    await waitFor(() => expect(runRepoScan).toHaveBeenCalled());
-    expect(await screen.findByText(/hosted database may be missing migrations/i)).toBeInTheDocument();
-  });
-});
 
 async function renderFindings(options: { repoScans?: RepoScanRecord[]; repoFindings?: Finding[] } = {}) {
   vi.resetModules();
@@ -5810,6 +5298,57 @@ describe('GitHub domain pages (#1382)', () => {
     scan_mode: 'quick'
   };
 
+  const defaultScanPolicy: ScanPolicyRecord = {
+    tenant_id: 'tenant-a',
+    workspace_id: 'workspace-a',
+    project_id: 'production-platform',
+    policy_id: 'default',
+    name: 'Default policy',
+    enabled: true,
+    trigger_mode: 'event',
+    max_concurrent_scans: 1,
+    history_limit: 500,
+    max_findings: 200,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z'
+  };
+
+  const defaultRepositoryPosture: GitHubRepositoryPosture = {
+    repository: 'identrail/identrail',
+    installation_id: 12345,
+    collected_at: '2026-05-17T10:55:00Z',
+    rate_limit: { limit: 5000, remaining: 4990 },
+    checks: [
+      {
+        id: 'branch-protection',
+        category: 'branch protection',
+        state: 'insecure',
+        reason: 'missing_required_reviews',
+        summary: 'Default branch is missing required pull request reviews.'
+      },
+      {
+        id: 'secret-scanning',
+        category: 'security',
+        state: 'secure',
+        summary: 'Secret scanning is enabled.'
+      }
+    ]
+  };
+
+  const defaultOrganizationPosture: GitHubOrganizationPosture = {
+    organization: 'identrail',
+    installation_id: 12345,
+    collected_at: '2026-05-17T10:56:00Z',
+    checks: [
+      {
+        id: 'org-two-factor',
+        category: 'organization security',
+        state: 'secure',
+        summary: 'Organization two-factor authentication is enforced.'
+      }
+    ]
+  };
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.doUnmock('./hooks/useBackendFeatures');
@@ -5822,6 +5361,9 @@ describe('GitHub domain pages (#1382)', () => {
     options: {
       githubConnection?: GitHubConnectionStatus | null;
       scans?: RepoScanRecord[];
+      scanPolicies?: ScanPolicyRecord[];
+      repositoryPosture?: GitHubRepositoryPosture;
+      organizationPosture?: GitHubOrganizationPosture;
       repoFindings?: Finding[];
       remediationPreview?: RepoFindingRemediationPreview;
       remediationPublish?: RepoFindingRemediationPublishResponse;
@@ -5831,14 +5373,18 @@ describe('GitHub domain pages (#1382)', () => {
       runRepoScanError?: { message: string; status: number };
       cancelRepoScanError?: { message: string; status: number };
       initialEntry?: string;
+      projects?: Array<typeof productionProject>;
     } = {}
   ) {
     mockConnectorFeatureFlags({ aws: false, github: options.githubFeatureFlag ?? true, kubernetes: false });
     mockBackendFeatures({ github: options.githubBackend ?? true });
 
     const api = await import('./api/client');
-    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
-    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
+    const projects = options.projects ?? [productionProject];
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: projects });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projects.find((project) => project.project_id === projectID) ?? projects[0] ?? productionProject })
+    );
     const getGitHubConnectorStatus = vi
       .spyOn(api.apiClient, 'getGitHubConnectorStatus')
       .mockResolvedValue({ connection: options.githubConnection ?? connectedGitHub });
@@ -5848,6 +5394,21 @@ describe('GitHub domain pages (#1382)', () => {
     } else {
       listRepoScans.mockResolvedValue({ items: options.scans ?? [] });
     }
+    const listProjectScanPolicies = vi
+      .spyOn(api.apiClient, 'listProjectScanPolicies')
+      .mockResolvedValue({ items: options.scanPolicies ?? [] });
+    const upsertProjectScanPolicy = vi
+      .spyOn(api.apiClient, 'upsertProjectScanPolicy')
+      .mockResolvedValue({ policy: options.scanPolicies?.[0] ?? defaultScanPolicy });
+    const deleteProjectScanPolicy = vi.spyOn(api.apiClient, 'deleteProjectScanPolicy').mockResolvedValue(undefined);
+    const getGitHubConnectorRepositoryPosture = vi
+      .spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture')
+      .mockResolvedValue({
+        connector_id: 'github-app',
+        provider: 'github_app',
+        posture: options.repositoryPosture ?? defaultRepositoryPosture,
+        organization_posture: options.organizationPosture ?? defaultOrganizationPosture
+      });
     const listRepoFindings = vi
       .spyOn(api.apiClient, 'listRepoFindings')
       .mockResolvedValue({ items: options.repoFindings ?? [], summary: undefined });
@@ -5953,6 +5514,9 @@ describe('GitHub domain pages (#1382)', () => {
       webhook_url: '/auth/webhooks/github',
       expires_at: '2026-05-17T10:10:00Z'
     });
+    const upsertGitHubPATConnector = vi
+      .spyOn(api.apiClient, 'upsertGitHubPATConnector')
+      .mockResolvedValue({ connection: connectedGitHubPAT });
 
     const productShell = await import('./productShell');
     const page =
@@ -5985,7 +5549,12 @@ describe('GitHub domain pages (#1382)', () => {
       publishRepoFindingRemediation,
       runRepoScan,
       cancelRepoScan,
-      startGitHubConnector
+      startGitHubConnector,
+      listProjectScanPolicies,
+      upsertProjectScanPolicy,
+      deleteProjectScanPolicy,
+      upsertGitHubPATConnector,
+      getGitHubConnectorRepositoryPosture
     };
   }
 
@@ -6212,12 +5781,214 @@ describe('GitHub domain pages (#1382)', () => {
       )
     );
 
-    const enterpriseLinks = screen
-      .getAllByRole('link', { name: /Manage Enterprise \/ PAT/i })
-      .filter((link) => link.getAttribute('href')?.startsWith('/app/tenant-a/workspace-a/projects/production-platform'));
-    expect(enterpriseLinks.length).toBeGreaterThan(0);
-    expect(enterpriseLinks[0].getAttribute('href')).toContain('source=github');
+    // Enterprise/PAT management now lives inline on the connect page (the
+    // legacy per-project page was retired); the control opens the fallback form.
+    const enterpriseButtons = screen.getAllByRole('button', { name: /Manage Enterprise \/ PAT/i });
+    expect(enterpriseButtons.length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /Save enterprise fallback/i })).toBeInTheDocument();
     openSpy.mockRestore();
+  });
+
+  it('Connect page ignores stale GitHub App install starts after environment changes', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const installStart = deferred<{
+      connection: GitHubConnectionStatus;
+      connector_id: string;
+      state: string;
+      install_url: string;
+      install_account_type: 'any';
+      webhook_url: string;
+      expires_at: string;
+    }>();
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({
+      connection: {
+        ...connectedGitHub,
+        connected: false,
+        account_login: undefined,
+        installation_id: undefined,
+        selected_repositories: []
+      }
+    });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockResolvedValue({ items: [] });
+    const startGitHubConnector = vi
+      .spyOn(api.apiClient, 'startGitHubConnector')
+      .mockImplementation(() => installStart.promise);
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Install GitHub App' }))[0]);
+    await waitFor(() =>
+      expect(startGitHubConnector).toHaveBeenCalledWith(
+        expect.objectContaining({ project_id: 'production-platform' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Environment' })).toHaveValue('staging-platform'));
+
+    await act(async () => {
+      installStart.resolve({
+        connection: connectedGitHub,
+        connector_id: 'github-app',
+        state: 'production-state',
+        install_url: 'https://github.com/apps/identrail/installations/select_target?state=production-state',
+        install_account_type: 'any',
+        webhook_url: '/auth/webhooks/github',
+        expires_at: '2026-05-17T10:10:00Z'
+      });
+    });
+
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(screen.queryByRole('link', { name: 'Open GitHub' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/production-state/i)).not.toBeInTheDocument();
+    openSpy.mockRestore();
+  });
+
+  it('Connect page resets Enterprise PAT drafts when environments change before submit', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockResolvedValue({ items: [] });
+    const upsertGitHubPATConnector = vi
+      .spyOn(api.apiClient, 'upsertGitHubPATConnector')
+      .mockResolvedValue({ connection: connectedGitHubPAT });
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click((await screen.findAllByRole('button', { name: /Manage Enterprise \/ PAT/i }))[0]);
+    fireEvent.change(await screen.findByLabelText(/Enterprise base URL/i), {
+      target: { value: 'https://github.production.example' }
+    });
+    fireEvent.change(screen.getByLabelText(/Display name/i), { target: { value: 'Production GHES' } });
+    fireEvent.change(screen.getByLabelText(/Personal access token/i), { target: { value: 'production-token' } });
+    fireEvent.change(screen.getByLabelText(/Repository allowlist/i), { target: { value: 'prod/repo' } });
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+
+    await waitFor(() => expect(screen.getByLabelText(/Personal access token/i)).toHaveValue(''));
+    expect(screen.getByLabelText(/Enterprise base URL/i)).toHaveValue('');
+    expect(screen.getByLabelText(/Display name/i)).toHaveValue('');
+    expect(screen.getByLabelText(/Repository allowlist/i)).toHaveValue('');
+
+    fireEvent.click(screen.getByRole('button', { name: /Save enterprise fallback/i }));
+
+    expect(upsertGitHubPATConnector).not.toHaveBeenCalled();
+  });
+
+  it('Connect page ignores stale Enterprise PAT saves after environment changes', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const patSave = deferred<{ connection: GitHubConnectionStatus }>();
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockResolvedValue({ items: [] });
+    const upsertGitHubPATConnector = vi
+      .spyOn(api.apiClient, 'upsertGitHubPATConnector')
+      .mockImplementation(() => patSave.promise);
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click((await screen.findAllByRole('button', { name: /Manage Enterprise \/ PAT/i }))[0]);
+    fireEvent.change(await screen.findByLabelText(/Enterprise base URL/i), {
+      target: { value: 'https://github.production.example' }
+    });
+    fireEvent.change(screen.getByLabelText(/Display name/i), { target: { value: 'Production GHES' } });
+    fireEvent.change(screen.getByLabelText(/Personal access token/i), { target: { value: 'production-token' } });
+    fireEvent.change(screen.getByLabelText(/Repository allowlist/i), { target: { value: 'prod/repo' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save enterprise fallback/i }));
+
+    await waitFor(() =>
+      expect(upsertGitHubPATConnector).toHaveBeenCalledWith(
+        expect.objectContaining({
+          project_id: 'production-platform',
+          base_url: 'https://github.production.example',
+          token: 'production-token',
+          selected_repositories: ['prod/repo']
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+    await waitFor(() => expect(screen.getByLabelText(/Personal access token/i)).toHaveValue(''));
+
+    await act(async () => {
+      patSave.resolve({ connection: connectedGitHubPAT });
+    });
+
+    expect(screen.queryByText(/GitHub Enterprise connector validated and saved/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Personal access token/i)).toHaveValue('');
   });
 
   it('Repositories page launches a scan via the existing API', async () => {
@@ -6238,6 +6009,229 @@ describe('GitHub domain pages (#1382)', () => {
       )
     );
     await screen.findByText(/Repository scan queued for identrail\/identrail/i);
+  });
+
+  it('Repositories page runs one-off scans with explicit limits when no repositories are selected', async () => {
+    const mocks = await renderGitHubPage('repositories', {
+      githubConnection: { ...connectedGitHubPAT, selected_repositories: [] },
+      scans: []
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const oneOffPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/^Repository$/i), { target: { value: 'acme/private-repo' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/Scan mode/i), { target: { value: 'quick' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/History limit/i), { target: { value: '75' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/Max findings/i), { target: { value: '25' } });
+    fireEvent.click(within(oneOffPanel).getByRole('button', { name: /Run scan/i }));
+
+    await waitFor(() =>
+      expect(mocks.runRepoScan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repository: 'acme/private-repo',
+          scan_mode: 'quick',
+          history_limit: 75,
+          max_findings: 25
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(mocks.runRepoScan.mock.calls[0][0]).not.toHaveProperty('project_id');
+    expect(mocks.runRepoScan.mock.calls[0][0]).not.toHaveProperty('connector_id');
+    await screen.findByText(/Repository scan queued for acme\/private-repo/i);
+  });
+
+  it('Repositories page scopes one-off scans to the GitHub App connector when available', async () => {
+    const mocks = await renderGitHubPage('repositories', { scans: [] });
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const oneOffPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/^Repository$/i), { target: { value: 'identrail/identrail' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/History limit/i), { target: { value: '125' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/Max findings/i), { target: { value: '50' } });
+    fireEvent.click(within(oneOffPanel).getByRole('button', { name: /Run scan/i }));
+
+    await waitFor(() =>
+      expect(mocks.runRepoScan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repository: 'identrail/identrail',
+          scan_mode: 'deep',
+          history_limit: 125,
+          max_findings: 50,
+          project_id: 'production-platform',
+          connector_id: 'github-app'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    await screen.findByText(/Repository scan queued for identrail\/identrail/i);
+  });
+
+  it('Repositories page resets one-off scan drafts when environments change', async () => {
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    await renderGitHubPage('repositories', {
+      projects: [productionProject, stagingProject],
+      scans: [],
+      initialEntry: '/app/tenant-a/workspace-a/github/repositories?environment=production-platform'
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const oneOffPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/^Repository$/i), { target: { value: 'acme/production-repo' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/Scan mode/i), { target: { value: 'quick' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/History limit/i), { target: { value: '75' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/Max findings/i), { target: { value: '25' } });
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+
+    const resetPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    await waitFor(() => expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue(''));
+    expect(within(resetPanel).getByLabelText(/Scan mode/i)).toHaveValue('deep');
+    expect(within(resetPanel).getByLabelText(/History limit/i)).toHaveValue('500');
+    expect(within(resetPanel).getByLabelText(/Max findings/i)).toHaveValue('200');
+  });
+
+  it('Repositories page ignores stale one-off scan completions after environment changes', async () => {
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const mocks = await renderGitHubPage('repositories', {
+      projects: [productionProject, stagingProject],
+      scans: [],
+      initialEntry: '/app/tenant-a/workspace-a/github/repositories?environment=production-platform'
+    });
+    const oneOffScan = deferred<{ repo_scan: RepoScanRecord }>();
+    mocks.runRepoScan.mockImplementation(() => oneOffScan.promise);
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const oneOffPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/^Repository$/i), { target: { value: 'acme/production-repo' } });
+    fireEvent.click(within(oneOffPanel).getByRole('button', { name: /Run scan/i }));
+
+    await waitFor(() =>
+      expect(mocks.runRepoScan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repository: 'acme/production-repo',
+          project_id: 'production-platform',
+          connector_id: 'github-app'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+    const resetPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    await waitFor(() => expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue(''));
+
+    await act(async () => {
+      oneOffScan.resolve({ repo_scan: queuedRepoScan });
+    });
+
+    expect(screen.queryByText(/Repository scan queued for acme\/production-repo/i)).not.toBeInTheDocument();
+    expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue('');
+  });
+
+  it('Repositories page resets one-off scan state when the workspace scope changes', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({ project: productionProject });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app',
+      provider: 'github_app',
+      posture: defaultRepositoryPosture,
+      organization_posture: defaultOrganizationPosture
+    });
+    const oneOffScan = deferred<{ repo_scan: RepoScanRecord }>();
+    const runRepoScan = vi.spyOn(api.apiClient, 'runRepoScan').mockImplementation(() => oneOffScan.promise);
+
+    const { ProductGitHubRepositoriesPage } = await import('./productShell');
+    function WorkspaceSwitchHarness() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => navigate('/app/tenant-a/workspace-b/github/repositories?environment=production-platform')}
+          >
+            Switch workspace
+          </button>
+          <ProductGitHubRepositoriesPage />
+        </>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/repositories?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/repositories" element={<WorkspaceSwitchHarness />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const oneOffPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/^Repository$/i), { target: { value: 'acme/workspace-a-repo' } });
+    fireEvent.change(within(oneOffPanel).getByLabelText(/History limit/i), { target: { value: '75' } });
+    fireEvent.click(within(oneOffPanel).getByRole('button', { name: /Run scan/i }));
+
+    await waitFor(() =>
+      expect(runRepoScan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          repository: 'acme/workspace-a-repo',
+          project_id: 'production-platform',
+          connector_id: 'github-app'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch workspace' }));
+    const resetPanel = await screen.findByRole('region', { name: 'One-off repository scan' });
+    await waitFor(() => expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue(''));
+    expect(within(resetPanel).getByLabelText(/History limit/i)).toHaveValue('500');
+
+    await act(async () => {
+      oneOffScan.resolve({ repo_scan: queuedRepoScan });
+    });
+
+    expect(screen.queryByText(/Repository scan queued for acme\/workspace-a-repo/i)).not.toBeInTheDocument();
+    expect(within(resetPanel).getByLabelText(/^Repository$/i)).toHaveValue('');
+  });
+
+  it('Repositories page keeps repository posture checks reachable', async () => {
+    const mocks = await renderGitHubPage('repositories', { scans: [succeededRepoScan] });
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const posturePanel = await screen.findByRole('region', { name: 'Repository posture' });
+    expect(await within(posturePanel).findByText('Default branch is missing required pull request reviews.')).toBeInTheDocument();
+    expect(within(posturePanel).getByLabelText('GitHub posture summary')).toHaveTextContent('Secure1');
+    expect(within(posturePanel).getByText('Organization posture')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.getGitHubConnectorRepositoryPosture).toHaveBeenCalledWith(
+        'github-app',
+        'workspace-a',
+        'production-platform',
+        'identrail/identrail',
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
   });
 
   it('Repositories page bypasses in-flight refreshes after queueing a scan', async () => {
@@ -6305,6 +6299,26 @@ describe('GitHub domain pages (#1382)', () => {
       )
     );
     await screen.findByText(/Repository scan canceled for identrail\/identrail/i);
+  });
+
+  it('Repositories page polls while repository scans are active', async () => {
+    const setIntervalSpy = vi.spyOn(window, 'setInterval');
+    const mocks = await renderGitHubPage('repositories', { scans: [queuedRepoScan] });
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    await screen.findByText(/scan in flight/i);
+    await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 8000)
+    );
+    const pollCallback = setIntervalSpy.mock.calls.find((call) => call[1] === 8000)?.[0];
+    expect(pollCallback).toEqual(expect.any(Function));
+
+    act(() => {
+      (pollCallback as () => void)();
+    });
+
+    await waitFor(() => expect(mocks.listRepoScans).toHaveBeenCalledTimes(2));
   });
 
   it('Repositories page shows the empty state when no repositories are selected', async () => {
@@ -7154,13 +7168,453 @@ describe('GitHub domain pages (#1382)', () => {
     expect(within(installation).getByText('Account')).toBeInTheDocument();
     expect(within(installation).getByText('identrail')).toBeInTheDocument();
     expect(within(installation).getByText('Selected repositories')).toBeInTheDocument();
-    // The reinstall affordance and the legacy Enterprise/PAT link are both
-    // reachable from the manage view.
+    // The reinstall affordance and the Enterprise/PAT management control are
+    // both reachable from the manage view.
     expect(within(installation).getByRole('button', { name: 'Install GitHub App' })).toBeInTheDocument();
-    expect(within(installation).getByRole('link', { name: /Manage Enterprise \/ PAT/i })).toBeInTheDocument();
+    expect(within(installation).getByRole('button', { name: /Manage Enterprise \/ PAT/i })).toBeInTheDocument();
     // The page must not also render the disconnected "Install the Identrail
     // GitHub App" install card on top of the manage view.
     expect(screen.queryByRole('region', { name: 'Install GitHub App' })).not.toBeInTheDocument();
+  });
+
+  it('Connect page keeps scan policy management reachable', async () => {
+    const mocks = await renderGitHubPage('connect', {
+      githubConnection: connectedGitHub,
+      scanPolicies: [defaultScanPolicy]
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'Connect GitHub' });
+    const policyPanel = await screen.findByRole('region', { name: 'Scan policy management' });
+    expect(within(policyPanel).getByRole('heading', { level: 3, name: 'Scan policy' })).toBeInTheDocument();
+    expect(within(policyPanel).getByText('Default policy')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.listProjectScanPolicies).toHaveBeenCalledWith(
+        'workspace-a',
+        'production-platform',
+        expect.objectContaining({ limit: 50, sort_by: 'updated_at', sort_order: 'desc' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.change(within(policyPanel).getByLabelText(/Trigger mode/i), { target: { value: 'hybrid' } });
+    fireEvent.change(within(policyPanel).getByLabelText(/Cron schedule/i), { target: { value: '0 * * * *' } });
+    fireEvent.click(within(policyPanel).getByRole('button', { name: /Save scan policy/i }));
+
+    await waitFor(() =>
+      expect(mocks.upsertProjectScanPolicy).toHaveBeenCalledWith(
+        'workspace-a',
+        'production-platform',
+        expect.objectContaining({
+          policy_id: 'default',
+          trigger_mode: 'hybrid',
+          cron: '0 * * * *'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.click(within(policyPanel).getByRole('button', { name: /^Delete$/i }));
+
+    await waitFor(() =>
+      expect(mocks.deleteProjectScanPolicy).toHaveBeenCalledWith(
+        'workspace-a',
+        'production-platform',
+        'default',
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+  });
+
+  it('Connect page ignores stale scan policy responses after environment changes', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const productionPolicyLoad = deferred<{ items: ScanPolicyRecord[] }>();
+    const stagingPolicyLoad = deferred<{ items: ScanPolicyRecord[] }>();
+    const productionPolicy: ScanPolicyRecord = {
+      ...defaultScanPolicy,
+      policy_id: 'production-only',
+      name: 'Production stale policy'
+    };
+    const stagingPolicy: ScanPolicyRecord = {
+      ...defaultScanPolicy,
+      project_id: 'staging-platform',
+      policy_id: 'staging-only',
+      name: 'Staging policy'
+    };
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    const listProjectScanPolicies = vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation(
+      (_workspaceID, projectID) =>
+        projectID === 'staging-platform' ? stagingPolicyLoad.promise : productionPolicyLoad.promise
+    );
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() =>
+      expect(listProjectScanPolicies).toHaveBeenCalledWith(
+        'workspace-a',
+        'production-platform',
+        expect.anything(),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+    await waitFor(() =>
+      expect(listProjectScanPolicies).toHaveBeenCalledWith(
+        'workspace-a',
+        'staging-platform',
+        expect.anything(),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    await act(async () => {
+      stagingPolicyLoad.resolve({ items: [stagingPolicy] });
+    });
+    const policyPanel = await screen.findByRole('region', { name: 'Scan policy management' });
+    expect(await within(policyPanel).findByText('Staging policy')).toBeInTheDocument();
+
+    await act(async () => {
+      productionPolicyLoad.resolve({ items: [productionPolicy] });
+    });
+
+    expect(within(policyPanel).getByText('Staging policy')).toBeInTheDocument();
+    expect(within(policyPanel).queryByText('Production stale policy')).not.toBeInTheDocument();
+  });
+
+  it('Connect page resets scan policy drafts for empty environments', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const productionPolicy: ScanPolicyRecord = {
+      ...defaultScanPolicy,
+      policy_id: 'production-event-policy',
+      name: 'Production event policy',
+      trigger_mode: 'event'
+    };
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ items: projectID === 'staging-platform' ? [] : [productionPolicy] })
+    );
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByDisplayValue('Production event policy')).toBeInTheDocument();
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+
+    await waitFor(() =>
+      expect(within(screen.getByRole('region', { name: 'Scan policy management' })).getByLabelText(/Policy name/i))
+        .toHaveValue('Default policy')
+    );
+    const currentPolicyPanel = screen.getByRole('region', { name: 'Scan policy management' });
+    expect(screen.queryByDisplayValue('Production event policy')).not.toBeInTheDocument();
+    expect(within(currentPolicyPanel).getByLabelText(/Trigger mode/i)).toHaveValue('manual');
+  });
+
+  it('Connect page resets scan policy drafts when environment policy loading fails', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const productionPolicy: ScanPolicyRecord = {
+      ...defaultScanPolicy,
+      policy_id: 'production-event-policy',
+      name: 'Production event policy',
+      trigger_mode: 'event'
+    };
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation((_workspaceID, projectID) =>
+      projectID === 'staging-platform'
+        ? Promise.reject(new api.ApiError('scan policy unavailable', 503))
+        : Promise.resolve({ items: [productionPolicy] })
+    );
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByDisplayValue('Production event policy')).toBeInTheDocument();
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+
+    await screen.findByRole('alert');
+    const currentPolicyPanel = screen.getByRole('region', { name: 'Scan policy management' });
+    expect(screen.queryByDisplayValue('Production event policy')).not.toBeInTheDocument();
+    expect(within(currentPolicyPanel).getByLabelText(/Policy name/i)).toHaveValue('Default policy');
+    expect(within(currentPolicyPanel).getByLabelText(/Trigger mode/i)).toHaveValue('manual');
+  });
+
+  it('Connect page ignores stale scan policy saves after environment changes', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const productionPolicy: ScanPolicyRecord = {
+      ...defaultScanPolicy,
+      policy_id: 'production-event-policy',
+      name: 'Production event policy',
+      trigger_mode: 'event'
+    };
+    const stagingPolicyLoad = deferred<{ items: ScanPolicyRecord[] }>();
+    const savePolicy = deferred<{ policy: ScanPolicyRecord }>();
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    const listProjectScanPolicies = vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation(
+      (_workspaceID, projectID) =>
+        projectID === 'staging-platform' ? stagingPolicyLoad.promise : Promise.resolve({ items: [productionPolicy] })
+    );
+    const upsertProjectScanPolicy = vi
+      .spyOn(api.apiClient, 'upsertProjectScanPolicy')
+      .mockImplementation(() => savePolicy.promise);
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const policyPanel = await screen.findByRole('region', { name: 'Scan policy management' });
+    expect(await within(policyPanel).findByDisplayValue('Production event policy')).toBeInTheDocument();
+    fireEvent.click(within(policyPanel).getByRole('button', { name: /Save scan policy/i }));
+
+    await waitFor(() =>
+      expect(upsertProjectScanPolicy).toHaveBeenCalledWith(
+        'workspace-a',
+        'production-platform',
+        expect.objectContaining({ policy_id: 'production-event-policy' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+    await waitFor(() =>
+      expect(listProjectScanPolicies).toHaveBeenCalledWith(
+        'workspace-a',
+        'staging-platform',
+        expect.anything(),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    await act(async () => {
+      stagingPolicyLoad.resolve({ items: [] });
+    });
+    await waitFor(() => expect(screen.getByLabelText(/Policy name/i)).toHaveValue('Default policy'));
+
+    await act(async () => {
+      savePolicy.resolve({ policy: { ...productionPolicy, name: 'Saved production policy' } });
+    });
+
+    expect(screen.queryByText('Scan policy saved.')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('Saved production policy')).not.toBeInTheDocument();
+    expect(listProjectScanPolicies.mock.calls.filter((call) => call[1] === 'production-platform')).toHaveLength(1);
+  });
+
+  it('Connect page ignores stale scan policy deletes after environment changes', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const productionPolicy: ScanPolicyRecord = {
+      ...defaultScanPolicy,
+      policy_id: 'production-event-policy',
+      name: 'Production event policy',
+      trigger_mode: 'event'
+    };
+    const stagingPolicyLoad = deferred<{ items: ScanPolicyRecord[] }>();
+    const deletePolicy = deferred<void>();
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    const listProjectScanPolicies = vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation(
+      (_workspaceID, projectID) =>
+        projectID === 'staging-platform' ? stagingPolicyLoad.promise : Promise.resolve({ items: [productionPolicy] })
+    );
+    const deleteProjectScanPolicy = vi
+      .spyOn(api.apiClient, 'deleteProjectScanPolicy')
+      .mockImplementation(() => deletePolicy.promise);
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const policyPanel = await screen.findByRole('region', { name: 'Scan policy management' });
+    expect(await within(policyPanel).findByText('Production event policy')).toBeInTheDocument();
+    fireEvent.click(within(policyPanel).getByRole('button', { name: /^Delete$/i }));
+
+    await waitFor(() =>
+      expect(deleteProjectScanPolicy).toHaveBeenCalledWith(
+        'workspace-a',
+        'production-platform',
+        'production-event-policy',
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+    await waitFor(() =>
+      expect(listProjectScanPolicies).toHaveBeenCalledWith(
+        'workspace-a',
+        'staging-platform',
+        expect.anything(),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    await act(async () => {
+      stagingPolicyLoad.resolve({ items: [] });
+    });
+    await waitFor(() => expect(screen.getByLabelText(/Policy name/i)).toHaveValue('Default policy'));
+
+    await act(async () => {
+      deletePolicy.resolve();
+    });
+
+    expect(screen.queryByText('Scan policy production-event-policy deleted.')).not.toBeInTheDocument();
+    expect(listProjectScanPolicies.mock.calls.filter((call) => call[1] === 'production-platform')).toHaveLength(1);
+  });
+
+  it('Connect page clears old scan policy rows while loading a new environment', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    const stagingProject = {
+      ...productionProject,
+      project_id: 'staging-platform',
+      name: 'Staging Platform',
+      slug: 'staging-platform'
+    };
+    const productionPolicy: ScanPolicyRecord = {
+      ...defaultScanPolicy,
+      policy_id: 'production-event-policy',
+      name: 'Production event policy',
+      trigger_mode: 'event'
+    };
+    const stagingPolicyLoad = deferred<{ items: ScanPolicyRecord[] }>();
+
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [productionProject, stagingProject] });
+    vi.spyOn(api.apiClient, 'getProject').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ project: projectID === 'staging-platform' ? stagingProject : productionProject })
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listProjectScanPolicies').mockImplementation((_workspaceID, projectID) =>
+      projectID === 'staging-platform' ? stagingPolicyLoad.promise : Promise.resolve({ items: [productionPolicy] })
+    );
+
+    const { ProductGitHubConnectPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/connect?environment=production-platform']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/connect" element={<ProductGitHubConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Production event policy')).toBeInTheDocument();
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), {
+      target: { value: 'staging-platform' }
+    });
+
+    await waitFor(() => expect(screen.queryByText('Production event policy')).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /^Delete$/i })).not.toBeInTheDocument();
   });
 
   it('Connect page hides the install/manage body when the connection status request fails', async () => {

@@ -29038,7 +29038,7 @@ html[data-theme='light'] .idt-executive-report-shell {
 
 .idt-app-shell-screen .idt-app-panel h1,
 html[data-theme='light'] .idt-app-shell-screen .idt-app-panel h1 {
-  color: #ffffff;
+  color: var(--app-text);
   font-size: clamp(1.85rem, 5vw, 3.1rem);
   line-height: 1.02;
   letter-spacing: 0;
@@ -31478,7 +31478,10 @@ html[data-diff-markers='symbols'] .idt-appearance-preview-pane[data-side='after'
 }
 
 .idt-appearance-control-row select {
-  min-width: 8.5rem;
+  width: fit-content;
+  min-width: 0;
+  max-width: 100%;
+  justify-self: end;
 }
 
 html[data-appearance-ready='true'] .idt-app-console-layout :is(

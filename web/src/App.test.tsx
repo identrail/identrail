@@ -1626,16 +1626,45 @@ describe('App', () => {
       if (url.includes('/v1/repo-scans')) {
         return okJSON({ items: [] });
       }
-      throw new Error(`Unexpected URL ${url}`);
+      return okJSON({});
     });
     vi.stubGlobal('fetch', fetchMock);
 
     setCurrentPath('/app/tenant-a/workspace-a/projects/project-1');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Connect environment sources/i })).toBeInTheDocument();
-    expect(screen.getByRole('navigation', { name: /App sections/i })).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Projects' })).not.toBeInTheDocument();
+    // The legacy per-project sources page is retired; this route now redirects
+    // to the dedicated GitHub section while preserving environment scope.
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/app/tenant-a/workspace-a/github/repositories');
+      expect(window.location.search).toBe('?environment=project-1');
+    });
+  });
+
+  it.each([
+    ['aws', '/app/tenant-a/workspace-a/aws/connect'],
+    ['kubernetes', '/app/tenant-a/workspace-a/kubernetes/connect'],
+    ['github', '/app/tenant-a/workspace-a/github/connect']
+  ])('keeps legacy %s project setup routes source-aware', async (source, expectedPath) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a'));
+      }
+      if (url.endsWith('/v1/auth/config')) {
+        return authConfig(false, true);
+      }
+      return okJSON({});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath(`/app/tenant-a/workspace-a/projects/project-1?source=${source}`);
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe(expectedPath);
+      expect(window.location.search).toBe('?environment=project-1');
+    });
   });
 
   it('gates the GitHub connect domain entry when the connector is not enabled in the bundle', async () => {
