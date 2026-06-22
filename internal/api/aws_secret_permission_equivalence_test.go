@@ -192,6 +192,13 @@ func TestAWSSecretPermissionKMSGrantRespectsCapabilityDeny(t *testing.T) {
 	}, nil, now); !ok {
 		t.Fatalf("expected kms:* KMS grant to produce a decrypt-equivalence finding")
 	}
+	if finding, ok := awsSecretPermissionFindingFromKMSGrant(key, secret, AWSKMSIdentityGrant{
+		PrincipalARN: roleARN,
+		Effect:       "Allow",
+		Capabilities: []string{"admin"},
+	}, nil, now); ok {
+		t.Fatalf("expected admin-only KMS capability to stay out of decrypt-equivalence findings, got %+v", finding)
+	}
 	if finding, ok := awsSecretPermissionFindingFromKMSGrant(key, secret, allow, deny, now); ok {
 		t.Fatalf("expected explicit deny on kms:Decrypt to suppress capability-only KMS finding, got %+v", finding)
 	}

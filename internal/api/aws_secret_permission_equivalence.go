@@ -1078,7 +1078,7 @@ func awsSecretPermissionSecretGrantCanRead(grant AWSSecretsManagerIdentityGrant)
 func awsSecretPermissionKMSGrantCanDecrypt(actions []string, capabilities []string) bool {
 	for _, action := range append(append([]string{}, actions...), capabilities...) {
 		action = strings.ToLower(strings.TrimSpace(action))
-		if action == "*" || action == "decrypt" || awsActionPatternMatches(action, "kms:decrypt") || strings.Contains(action, "decrypt") || strings.Contains(action, "admin") || strings.Contains(action, "manage") {
+		if action == "*" || action == "decrypt" || awsActionPatternMatches(action, "kms:decrypt") || strings.Contains(action, "decrypt") {
 			return true
 		}
 	}
