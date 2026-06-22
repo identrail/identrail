@@ -18719,17 +18719,28 @@ const EXECUTIVE_REPORT_DOMAIN_OPTIONS: Array<{ value: ExecutiveReportDomain; lab
   { value: 'kubernetes', label: 'Kubernetes' }
 ];
 
-function normalizeExecutiveReportDomain(raw: string | null | undefined): ExecutiveReportDomain {
-  switch ((raw ?? '').toLowerCase()) {
-    case 'aws':
-      return 'aws';
-    case 'github':
-      return 'github';
-    case 'kubernetes':
-      return 'kubernetes';
-    default:
-      return '';
+// parseExecutiveReportDomainParam separates "no domain in URL" (effective = '',
+// invalidRaw = null) from "URL has a domain value that is not allowlisted"
+// (effective = '', invalidRaw = the raw string). Without this distinction the
+// page would silently widen a stale or typo'd value like ?domain=awss to "All",
+// which defeats the server-side typo protection added in this PR.
+function parseExecutiveReportDomainParam(raw: string | null | undefined): {
+  effective: ExecutiveReportDomain;
+  invalidRaw: string | null;
+} {
+  if (raw === null || raw === undefined) {
+    return { effective: '', invalidRaw: null };
   }
+  const trimmed = raw.trim();
+  if (trimmed === '') {
+    // ?domain= with an empty value behaves as "no filter".
+    return { effective: '', invalidRaw: null };
+  }
+  const lower = trimmed.toLowerCase();
+  if (lower === 'aws' || lower === 'github' || lower === 'kubernetes') {
+    return { effective: lower, invalidRaw: null };
+  }
+  return { effective: '', invalidRaw: trimmed };
 }
 
 export function ProductExecutiveReportPage() {
@@ -18740,10 +18751,20 @@ export function ProductExecutiveReportPage() {
   const location = useLocation();
   const navigate = useNavigate();
   // Drive the active domain off the URL so deep links / refreshes preserve it.
-  const selectedDomain = normalizeExecutiveReportDomain(new URLSearchParams(location.search).get('domain'));
+  // parseExecutiveReportDomainParam tells us whether the URL is bad so we can
+  // surface that as an error rather than silently widen to All.
+  const { effective: selectedDomain, invalidRaw: invalidDomainRaw } = parseExecutiveReportDomainParam(
+    new URLSearchParams(location.search).get('domain')
+  );
 
   useEffect(() => {
     if (!me?.org_id || !me.workspace_id) {
+      return;
+    }
+    // Skip the fetch entirely when the URL carries an unrecognized domain
+    // value; the error panel below already explains the recovery path.
+    if (invalidDomainRaw !== null) {
+      setReport(null);
       return;
     }
 
@@ -18781,7 +18802,7 @@ export function ProductExecutiveReportPage() {
     return () => {
       mounted = false;
     };
-  }, [me?.org_id, me?.workspace_id, selectedDomain]);
+  }, [me?.org_id, me?.workspace_id, selectedDomain, invalidDomainRaw]);
 
   const handleDomainChange = (next: ExecutiveReportDomain) => {
     if (next === selectedDomain) {
@@ -18797,12 +18818,54 @@ export function ProductExecutiveReportPage() {
     navigate({ pathname: location.pathname, search: search ? `?${search}` : '' }, { replace: true });
   };
 
+  // The segmented switch is rendered both on the report itself and inside the
+  // invalid-domain error panel, so the user can recover from a bad URL.
+  const renderDomainSwitch = () => (
+    <div className="idt-exec-report__domain" role="tablist" aria-label="Report domain">
+      {EXECUTIVE_REPORT_DOMAIN_OPTIONS.map((option) => {
+        const active = option.value === selectedDomain && invalidDomainRaw === null;
+        return (
+          <button
+            key={option.value || 'all'}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            className={`idt-exec-report__domain-tab${active ? ' is-active' : ''}`}
+            onClick={() => handleDomainChange(option.value)}
+            disabled={loadingReport && active}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   if (sessionLoading || loadingReport) {
     return <AppShellLoading message="Loading executive report" />;
   }
 
   if (unauthenticated) {
     return <Navigate to="/signin?return_to=%2Freports%2Fexecutive" replace />;
+  }
+
+  if (invalidDomainRaw !== null) {
+    return (
+      <section className="idt-app-shell-screen idt-executive-report-shell" role="alert">
+        <article className="idt-app-panel idt-app-panel-error">
+          <p className="idt-app-kicker">Executive report</p>
+          <h1>Unknown report domain</h1>
+          <p>
+            <code>{invalidDomainRaw}</code> is not a recognized report domain. Choose AWS, GitHub, Kubernetes, or All to
+            continue.
+          </p>
+          {renderDomainSwitch()}
+          <Link className="idt-btn idt-btn-ghost" to="/app">
+            Return to app
+          </Link>
+        </article>
+      </section>
+    );
   }
 
   if (sessionError || reportError) {
@@ -18867,28 +18930,7 @@ export function ProductExecutiveReportPage() {
               <span>Generated {formatDateLabel(report.generated_at)}</span>
             </p>
           </div>
-          <div
-            className="idt-exec-report__domain"
-            role="tablist"
-            aria-label="Report domain"
-          >
-            {EXECUTIVE_REPORT_DOMAIN_OPTIONS.map((option) => {
-              const active = option.value === selectedDomain;
-              return (
-                <button
-                  key={option.value || 'all'}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  className={`idt-exec-report__domain-tab${active ? ' is-active' : ''}`}
-                  onClick={() => handleDomainChange(option.value)}
-                  disabled={loadingReport && active}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
+          {renderDomainSwitch()}
           <div className="idt-exec-report__actions">
             <Link className="idt-btn idt-btn-ghost" to={appPath}>
               Back to workspace

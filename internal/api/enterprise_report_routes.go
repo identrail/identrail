@@ -292,20 +292,47 @@ func executiveReportHandler(logger *zap.Logger, svc *Service, cache *executiveRe
 // scan, or whose scan was run by a different provider, are dropped. Used to
 // split the graph finding stream into AWS- vs Kubernetes-only views for the
 // per-domain executive report.
+//
+// The lookup resolves scans by ID rather than calling ListScans, because
+// ListScans coerces a non-positive limit to 100 in both store backends. A
+// workspace with more than 100 scans would silently drop findings whose
+// owning scan is older than that, so the AWS/Kubernetes report would undercount
+// while the All report still included them. Looking up only the scan IDs the
+// findings actually reference avoids the cap and keeps the work proportional
+// to the finding set, not to scan history.
 func filterFindingsByScanProvider(ctx context.Context, svc *Service, findings []domain.Finding, provider string) ([]domain.Finding, error) {
 	if len(findings) == 0 {
 		return findings, nil
 	}
-	scans, err := svc.Store.ListScans(ctx, 0)
-	if err != nil {
-		return nil, err
-	}
-	keep := make(map[string]struct{}, len(scans))
-	for _, scan := range scans {
-		if strings.EqualFold(strings.TrimSpace(scan.Provider), provider) {
-			keep[scan.ID] = struct{}{}
+
+	// Deduplicate scan IDs so we issue at most one GetScan per distinct scan.
+	scanIDs := make(map[string]struct{})
+	for _, finding := range findings {
+		if id := strings.TrimSpace(finding.ScanID); id != "" {
+			scanIDs[id] = struct{}{}
 		}
 	}
+
+	wantProvider := strings.TrimSpace(provider)
+	keep := make(map[string]struct{}, len(scanIDs))
+	for id := range scanIDs {
+		scan, err := svc.Store.GetScan(ctx, id)
+		if err != nil {
+			// A finding's scan can legitimately be missing (e.g. retention/
+			// purge has dropped the scan row while findings persist). Drop the
+			// finding from the per-domain report rather than failing the whole
+			// request, matching the spirit of "filter by provider, exclude
+			// what we cannot classify".
+			if errors.Is(err, db.ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		if strings.EqualFold(strings.TrimSpace(scan.Provider), wantProvider) {
+			keep[id] = struct{}{}
+		}
+	}
+
 	filtered := findings[:0:0]
 	for _, finding := range findings {
 		if _, ok := keep[finding.ScanID]; ok {

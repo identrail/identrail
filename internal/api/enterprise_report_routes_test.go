@@ -631,3 +631,41 @@ func TestExecutiveReport_CacheIsolatesDomains(t *testing.T) {
 		t.Errorf("all-domain total after AWS prime: want 3, got %d", allReport.TotalOpenFindings)
 	}
 }
+
+// TestExecutiveReport_DomainAWSCountsFindingsBeyondScanListCap is the
+// regression test for the P1 review finding: ListScans coerces a non-positive
+// limit to 100 in both backends, so the original implementation silently
+// dropped findings whose owning scan was outside the latest 100. This test
+// seeds 150+ scans plus an AWS finding on the oldest one and asserts the
+// AWS-domain report still counts that finding.
+func TestExecutiveReport_DomainAWSCountsFindingsBeyondScanListCap(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	clock := now
+	_, r, store := execReportRig(t, "org-a", &clock)
+	scope := execReportScope("org-a")
+
+	// Seed the AWS scan as the oldest. ListScans returns scans newest-first,
+	// so the AWS finding's scan would fall outside any 100-row cap.
+	awsScan := seedExecReportScanWithProvider(t, store, scope, "aws", now.Add(-200*time.Hour))
+	seedExecReportFinding(t, store, scope, awsScan, "aws-old", domain.SeverityHigh, domain.FindingOverPrivileged, now.Add(-2*time.Hour), nil)
+
+	// Push the AWS finding's scan past the 100-row ListScans cap by seeding
+	// 150 newer kubernetes scans. They have no findings, so they should not
+	// affect any per-domain count, but they would dominate any capped scan
+	// listing.
+	for i := 0; i < 150; i++ {
+		_ = seedExecReportScanWithProvider(t, store, scope, "kubernetes", now.Add(-time.Duration(i+1)*time.Hour))
+	}
+
+	w := doJSON(t, r, http.MethodGet, "/v1/enterprise/reports/executive?domain=aws", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	var report enterprise.ExecutiveReport
+	if err := json.Unmarshal(w.Body.Bytes(), &report); err != nil {
+		t.Fatalf("decode report: %v", err)
+	}
+	if report.TotalOpenFindings != 1 {
+		t.Errorf("AWS-domain total must include the finding whose scan is past the 100-row cap; want 1, got %d", report.TotalOpenFindings)
+	}
+}
