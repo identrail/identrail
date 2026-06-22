@@ -1500,6 +1500,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
       - $ref: "#/components/parameters/scopeWorkspaceID"
+      - $ref: "#/components/parameters/executiveReportDomain"
     get:
       tags: [EnterpriseAuth]
       summary: Executive security report for the current organization
@@ -7644,6 +7645,17 @@ components:
         format: int64
         minimum: 1
       description: Optional installation ID fallback when the completion request body omits `installation_id`.
+    executiveReportDomain:
+      in: query
+      name: domain
+      schema:
+        type: string
+        enum:
+          - all
+          - aws
+          - github
+          - kubernetes
+      description: Restrict executive report findings by provider domain (`all` omitted).
   responses:
     BadRequest:
       description: Bad request
