@@ -19779,7 +19779,7 @@ export function ProductExecutiveReportPage() {
   }, [scope?.tenantID, scope?.workspaceID, me?.org_id, me?.workspace_id, selectedDomain, invalidDomainRaw]);
 
   const handleDomainChange = (next: ExecutiveReportDomain) => {
-    if (next === selectedDomain) {
+    if (next === selectedDomain && invalidDomainRaw === null) {
       return;
     }
     const params = new URLSearchParams(location.search);
