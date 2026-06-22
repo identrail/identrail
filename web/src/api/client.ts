@@ -3601,6 +3601,8 @@ export type AWSSecretPermissionEquivalenceQuery = {
   secret?: string;
   provider?: string;
   equivalenceType?: AWSSecretPermissionEquivalenceType;
+  evidence?: string;
+  search?: string;
   severity?: string;
   status?: string;
 };

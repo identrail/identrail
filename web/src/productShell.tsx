@@ -11537,6 +11537,8 @@ function awsSecretPermissionEquivalenceFindingsQuery(
   return {
     accountID: awsSecretPermissionEquivalenceAccountFilterToken(filters.account, connection),
     region: awsSecretPermissionEquivalenceRegionFilterToken(filters.region, connection),
+    evidence: awsSecretPermissionEquivalenceFilterToken(filters.evidence),
+    search: normalizeFilterValue(filters.search ?? '') || undefined,
     severity: awsSecretPermissionEquivalenceFilterToken(filters.severity),
     status: awsSecretPermissionEquivalenceStatusFilterToken(filters.status)
   };
@@ -12445,7 +12447,9 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     routeID,
     activeFilters.account,
     activeFilters.region,
+    activeFilters.evidence,
     activeFilters.severity,
+    activeFilters.search,
     activeFilters.status,
     connection?.connected,
     connection?.connector_id,
