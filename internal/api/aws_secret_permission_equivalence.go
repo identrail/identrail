@@ -27,6 +27,8 @@ type AWSSecretPermissionEquivalenceRequest struct {
 	EquivalenceType string `json:"equivalence_type,omitempty"`
 	Severity        string `json:"severity,omitempty"`
 	Status          string `json:"status,omitempty"`
+	Evidence        string `json:"evidence,omitempty"`
+	Search          string `json:"search,omitempty"`
 }
 
 type AWSSecretPermissionEquivalenceEvidence = AWSLeastPrivilegeEvidence
@@ -739,6 +741,8 @@ func filterAWSSecretPermissionEquivalenceFindings(findings []AWSSecretPermission
 		"equivalence_type": normalizeAWSRuntimeEventFilterToken(request.EquivalenceType),
 		"severity":         normalizeAWSRuntimeEventFilterToken(request.Severity),
 		"status":           normalizeAWSRuntimeEventFilterToken(request.Status),
+		"evidence":         strings.TrimSpace(request.Evidence),
+		"search":           strings.TrimSpace(request.Search),
 	}
 	for key, value := range filters {
 		if strings.TrimSpace(value) == "" || strings.EqualFold(value, "all") {
@@ -775,9 +779,101 @@ func filterAWSSecretPermissionEquivalenceFindings(findings []AWSSecretPermission
 		if filters["secret"] != "" && !strings.Contains(strings.ToLower(finding.SecretNodeID+" "+finding.SecretARN+" "+finding.SecretLabel+" "+finding.ProviderKeyReference), strings.ToLower(filters["secret"])) {
 			continue
 		}
+		if filters["evidence"] != "" && !awsSecretPermissionEvidenceFilterMatch(finding, filters["evidence"]) {
+			continue
+		}
+		if filters["search"] != "" && !awsSecretPermissionSearchFilterMatch(finding, filters["search"]) {
+			continue
+		}
 		filtered = append(filtered, finding)
 	}
 	return filtered, applied
+}
+
+func awsSecretPermissionEvidenceFilterMatch(finding AWSSecretPermissionEquivalenceFinding, evidenceFilter string) bool {
+	switch normalizeAWSRuntimeEventFilterToken(evidenceFilter) {
+	case "runtime-backed":
+		return awsSecretPermissionFindingHasRuntimeEvidence(finding)
+	case "inventory-backed":
+		return awsSecretPermissionFindingHasInventoryEvidence(finding)
+	case "unavailable":
+		return len(finding.Evidence) == 0
+	default:
+		for _, item := range finding.Evidence {
+			if awsRuntimeEventMatchesAny(evidenceFilter, item.Source, item.Label, item.EvidenceRef, item.Relationship) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+func awsSecretPermissionFindingHasRuntimeEvidence(finding AWSSecretPermissionEquivalenceFinding) bool {
+	for _, item := range finding.Evidence {
+		if strings.EqualFold(strings.TrimSpace(item.Source), "secrets_kms_runtime_access") {
+			return true
+		}
+	}
+	return false
+}
+
+func awsSecretPermissionFindingHasInventoryEvidence(finding AWSSecretPermissionEquivalenceFinding) bool {
+	for _, item := range finding.Evidence {
+		if strings.EqualFold(strings.TrimSpace(item.Source), "secrets_kms_runtime_access") {
+			continue
+		}
+		if strings.TrimSpace(item.Source) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func awsSecretPermissionSearchFilterMatch(finding AWSSecretPermissionEquivalenceFinding, query string) bool {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return true
+	}
+	for _, item := range awsSecretPermissionSearchValues(finding) {
+		if strings.Contains(strings.ToLower(item), query) {
+			return true
+		}
+	}
+	return false
+}
+
+func awsSecretPermissionSearchValues(finding AWSSecretPermissionEquivalenceFinding) []string {
+	candidates := []string{
+		finding.AccountID,
+		finding.Region,
+		finding.IdentityNodeID,
+		finding.PrincipalARN,
+		finding.WorkloadID,
+		finding.WorkloadName,
+		finding.AgentID,
+		finding.AgentName,
+		finding.SecretNodeID,
+		finding.SecretARN,
+		finding.SecretLabel,
+		finding.Provider,
+		finding.ProviderKeyReference,
+		finding.EquivalenceType,
+		finding.Severity,
+		finding.Status,
+		finding.Rationale,
+		finding.EvidenceBoundary,
+	}
+	candidates = append(candidates, finding.EquivalentPermissions...)
+	candidates = append(candidates, finding.ImpliedActions...)
+	candidates = append(candidates, finding.SourceSignals...)
+	candidates = append(candidates, finding.ImpactedNodes...)
+	for _, item := range finding.Evidence {
+		candidates = append(candidates, item.Source, item.EvidenceRef, item.Label, item.Relationship)
+	}
+	for _, item := range finding.ImpactedPath {
+		candidates = append(candidates, item.NodeID, item.NodeType, item.Label, item.AccountID, item.Region)
+	}
+	return dedupeStrings(candidates)
 }
 
 func awsSecretPermissionEquivalenceRelationships(findings []AWSSecretPermissionEquivalenceFinding) []AWSSecretPermissionEquivalenceRelationship {
@@ -1068,7 +1164,7 @@ func awsSecretPermissionSecretGrantCanRead(grant AWSSecretsManagerIdentityGrant)
 		if action == "*" || awsActionPatternMatches(action, "secretsmanager:getsecretvalue") || awsActionPatternMatches(action, "secretsmanager:*") {
 			return true
 		}
-		if strings.Contains(action, "getsecretvalue") || strings.Contains(action, "batchgetsecretvalue") || strings.Contains(action, "replicatesecrettoregions") {
+		if strings.Contains(action, "getsecretvalue") || strings.Contains(action, "batchgetsecretvalue") {
 			return true
 		}
 	}

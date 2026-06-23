@@ -6932,6 +6932,8 @@ export const apiClient = {
         secret: query?.secret,
         provider: query?.provider,
         equivalence_type: query?.equivalenceType,
+        evidence: query?.evidence,
+        search: query?.search,
         severity: query?.severity,
         status: query?.status
       })}`,

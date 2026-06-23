@@ -141,6 +141,61 @@ func TestAWSSecretPermissionProviderFilterCanonicalizesAWSStoreAliases(t *testin
 	}
 }
 
+func TestAWSSecretPermissionCanReadExcludesReplicationGrant(t *testing.T) {
+	if awsSecretPermissionSecretGrantCanRead(AWSSecretsManagerIdentityGrant{Actions: []string{"secretsmanager:ReplicateSecretToRegions"}}) {
+		t.Fatalf("replicate-only secret grants should not be treated as read access")
+	}
+}
+
+func TestAWSSecretPermissionEquivalenceFiltersEvidenceAndSearch(t *testing.T) {
+	findings := []AWSSecretPermissionEquivalenceFinding{
+		{
+			FindingID:             "runtime-backed",
+			IdentityNodeID:        "arn:aws:iam::123456789012:role/runtime-reader",
+			SecretNodeID:          "secret:runtime",
+			SecretLabel:           "runtime-secret",
+			Evidence:              []AWSSecretPermissionEquivalenceEvidence{{Source: "secrets_kms_runtime_access", Label: "Observed runtime access", EvidenceRef: "runtime://secret-access"}},
+			EquivalentPermissions: []string{"secretsmanager:GetSecretValue"},
+			ImpactedNodes:         []string{"arn:aws:iam::123456789012:role/runtime-reader"},
+		},
+		{
+			FindingID:             "inventory-backed",
+			IdentityNodeID:        "arn:aws:iam::123456789012:role/inventory-reader",
+			SecretNodeID:          "secret:inventory",
+			SecretLabel:           "inventory-secret",
+			Evidence:              []AWSSecretPermissionEquivalenceEvidence{{Source: "secrets_manager_metadata", Label: "Secret metadata", EvidenceRef: "inventory://secret"}},
+			EquivalentPermissions: []string{"secretsmanager:GetSecretValue"},
+			ImpactedNodes:         []string{"arn:aws:iam::123456789012:role/inventory-reader"},
+		},
+		{
+			FindingID:      "unavailable",
+			IdentityNodeID: "arn:aws:iam::123456789012:role/no-evidence",
+			SecretNodeID:   "secret:none",
+			SecretLabel:    "no-evidence-secret",
+		},
+	}
+
+	runtime, _ := filterAWSSecretPermissionEquivalenceFindings(findings, AWSSecretPermissionEquivalenceRequest{Evidence: "runtime-backed"})
+	if len(runtime) != 1 || runtime[0].FindingID != "runtime-backed" {
+		t.Fatalf("expected only runtime-backed finding, got %+v", runtime)
+	}
+
+	inventory, _ := filterAWSSecretPermissionEquivalenceFindings(findings, AWSSecretPermissionEquivalenceRequest{Evidence: "inventory-backed"})
+	if len(inventory) != 1 || inventory[0].FindingID != "inventory-backed" {
+		t.Fatalf("expected only inventory-backed finding, got %+v", inventory)
+	}
+
+	unavailable, _ := filterAWSSecretPermissionEquivalenceFindings(findings, AWSSecretPermissionEquivalenceRequest{Evidence: "unavailable"})
+	if len(unavailable) != 1 || unavailable[0].FindingID != "unavailable" {
+		t.Fatalf("expected only unavailable finding, got %+v", unavailable)
+	}
+
+	search, _ := filterAWSSecretPermissionEquivalenceFindings(findings, AWSSecretPermissionEquivalenceRequest{Search: "inventory-secret"})
+	if len(search) != 1 || search[0].FindingID != "inventory-backed" {
+		t.Fatalf("expected search to match the inventory secret label, got %+v", search)
+	}
+}
+
 func TestAWSSecretPermissionKMSGrantRespectsCapabilityDeny(t *testing.T) {
 	now := time.Date(2026, 6, 22, 8, 50, 0, 0, time.UTC)
 	accountID := "123456789012"

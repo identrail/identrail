@@ -3243,6 +3243,8 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			EquivalenceType: strings.TrimSpace(c.Query("equivalence_type")),
 			Severity:        strings.TrimSpace(c.Query("severity")),
 			Status:          strings.TrimSpace(c.Query("status")),
+			Evidence:        strings.TrimSpace(c.Query("evidence")),
+			Search:          strings.TrimSpace(c.Query("search")),
 		})
 		if err != nil {
 			switch {

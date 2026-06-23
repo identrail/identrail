@@ -1485,6 +1485,8 @@ describe('apiClient', () => {
         secret: 'openai/api-key',
         provider: 'openai',
         equivalenceType: 'agent_provider_key_equivalence',
+        evidence: 'runtime-backed',
+        search: 'role',
         severity: 'high',
         status: 'review'
       },
@@ -1497,7 +1499,7 @@ describe('apiClient', () => {
 
     const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toContain(
-      '/v1/workspaces/workspace%2Fa/projects/project%201/aws/secret-permission-equivalence?connector_id=aws-prod&fixture_state=success&account_id=123456789012&region=us-east-1&identity=case-triage-runtime&secret=openai%2Fapi-key&provider=openai&equivalence_type=agent_provider_key_equivalence&severity=high&status=review'
+      '/v1/workspaces/workspace%2Fa/projects/project%201/aws/secret-permission-equivalence?connector_id=aws-prod&fixture_state=success&account_id=123456789012&region=us-east-1&identity=case-triage-runtime&secret=openai%2Fapi-key&provider=openai&equivalence_type=agent_provider_key_equivalence&evidence=runtime-backed&search=role&severity=high&status=review'
     );
     expect(options.method ?? 'GET').toBe('GET');
     const headers = new Headers(options.headers);
