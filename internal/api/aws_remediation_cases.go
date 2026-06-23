@@ -358,7 +358,7 @@ func awsRemediationCaseFromAIAgentRisk(finding AWSAIAgentRiskFinding, now time.T
 	approvalRequired := awsRemediationApprovalRequired(finding.Severity, diff.Kind)
 	owner, ownerAssigned := awsRemediationOwnerFromAgent(finding)
 	approvalState := awsRemediationApprovalState(approvalRequired, ownerAssigned, finding.Status)
-	lifecycle := awsRemediationLifecycle(finding.Status, finding.Confidence, ownerAssigned, approvalState)
+	lifecycle := awsRemediationLifecycle(finding.Status, finding.Confidence, ownerAssigned, approvalState, diff)
 	identityType := "ai_agent"
 	identityNodeID := finding.AgentNodeID
 	identityARN := finding.RuntimeRoleARN
@@ -435,7 +435,7 @@ func awsRemediationCaseFromLeastPrivilege(recommendation AWSLeastPrivilegeRecomm
 	approvalRequired := awsRemediationApprovalRequired(recommendation.Severity, diff.Kind)
 	owner, ownerAssigned := "iam-platform", true
 	approvalState := awsRemediationApprovalState(approvalRequired, ownerAssigned, recommendation.Status)
-	lifecycle := awsRemediationLifecycle(recommendation.Status, recommendation.Confidence, ownerAssigned, approvalState)
+	lifecycle := awsRemediationLifecycle(recommendation.Status, recommendation.Confidence, ownerAssigned, approvalState, diff)
 	c := AWSRemediationCase{
 		CaseID:             caseID,
 		CalculationVersion: awsRemediationCaseVersion,
@@ -484,7 +484,7 @@ func awsRemediationCaseFromSecretEquivalence(finding AWSSecretPermissionEquivale
 	approvalRequired := awsRemediationApprovalRequired(finding.Severity, diff.Kind)
 	owner, ownerAssigned := awsRemediationOwnerFromEquivalence(finding)
 	approvalState := awsRemediationApprovalState(approvalRequired, ownerAssigned, finding.Status)
-	lifecycle := awsRemediationLifecycle(finding.Status, finding.Confidence, ownerAssigned, approvalState)
+	lifecycle := awsRemediationLifecycle(finding.Status, finding.Confidence, ownerAssigned, approvalState, diff)
 	c := AWSRemediationCase{
 		CaseID:             caseID,
 		CalculationVersion: awsRemediationCaseVersion,
@@ -542,7 +542,7 @@ func awsRemediationCaseFromBlastRadius(finding AWSBlastRadiusFinding, now time.T
 	}
 	approvalRequired := awsRemediationApprovalRequired(finding.Severity, diff.Kind)
 	approvalState := awsRemediationApprovalState(approvalRequired, false, finding.Status)
-	lifecycle := awsRemediationLifecycle(finding.Status, finding.Confidence, false, approvalState)
+	lifecycle := awsRemediationLifecycle(finding.Status, finding.Confidence, false, approvalState, diff)
 	c := AWSRemediationCase{
 		CaseID:             caseID,
 		CalculationVersion: awsRemediationCaseVersion,
@@ -732,16 +732,17 @@ func awsRemediationApprovalState(required, ownerAssigned bool, status string) st
 	return "pending_owner_review"
 }
 
-func awsRemediationLifecycle(status string, confidence float64, ownerAssigned bool, approvalState string) string {
+func awsRemediationLifecycle(status string, confidence float64, ownerAssigned bool, approvalState string, diff AWSRemediationDiffIntent) string {
 	if confidence > 0 && confidence < 0.55 {
 		return "proposed"
 	}
+	executable := awsRemediationDiffIsExecutable(diff)
 	switch normalizeAWSRuntimeEventFilterToken(status) {
 	case "action-required":
 		if !ownerAssigned {
 			return "in_review"
 		}
-		if approvalState == "pending_approver" {
+		if executable && approvalState == "pending_approver" {
 			return "approved"
 		}
 		return "in_review"
@@ -751,6 +752,16 @@ func awsRemediationLifecycle(status string, confidence float64, ownerAssigned bo
 		return "proposed"
 	}
 	return "proposed"
+}
+
+func awsRemediationDiffIsExecutable(diff AWSRemediationDiffIntent) bool {
+	if diff.NoOp {
+		return false
+	}
+	if diff.Kind == "manual_review" {
+		return false
+	}
+	return true
 }
 
 func awsRemediationTitleForRiskType(riskType, agentName, agentID string) string {

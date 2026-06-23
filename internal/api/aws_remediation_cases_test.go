@@ -272,6 +272,57 @@ func TestAWSRemediationCaseBackingRoleAnchorsOnRole(t *testing.T) {
 	}
 }
 
+func TestAWSRemediationCaseLeastPrivilegeReviewStaysInReviewLifecycle(t *testing.T) {
+	now := time.Date(2026, 6, 23, 10, 30, 0, 0, time.UTC)
+	review := AWSLeastPrivilegeRecommendation{
+		RecommendationID:   "least-priv:review-action-required",
+		CalculationVersion: "aws-least-privilege-v1",
+		Decision:           "review",
+		Severity:           "high",
+		Status:             "action_required",
+		Score:              82,
+		Confidence:         0.86,
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		IdentityNodeID:     "aws:identity:arn:aws:iam::123456789012:role/review-role",
+		PrincipalARN:       "arn:aws:iam::123456789012:role/review-role",
+		DisplayName:        "review-role",
+		Rationale:          "Observed-without-declaration evidence raised status to action_required.",
+		KeepActions:        []string{"s3:GetObject"},
+		ImpactedNodes:      []string{"aws:identity:arn:aws:iam::123456789012:role/review-role"},
+	}
+	c, ok := awsRemediationCaseFromLeastPrivilege(review, now)
+	if !ok {
+		t.Fatalf("expected review case")
+	}
+	if c.Lifecycle == "approved" {
+		t.Fatalf("review-decision case must never advance to approved lifecycle, got %s (status=%s, diff=%+v)", c.Lifecycle, c.Status, c.DiffIntent)
+	}
+	if c.Lifecycle != "in_review" {
+		t.Fatalf("review-decision case with action_required status must stay in_review, got %s", c.Lifecycle)
+	}
+}
+
+func TestAWSRemediationDiffIsExecutable(t *testing.T) {
+	cases := []struct {
+		name string
+		diff AWSRemediationDiffIntent
+		want bool
+	}{
+		{"executable iam_policy_diff", AWSRemediationDiffIntent{Kind: "iam_policy_diff"}, true},
+		{"executable secret_rotation", AWSRemediationDiffIntent{Kind: "secret_rotation"}, true},
+		{"manual review", AWSRemediationDiffIntent{Kind: "manual_review"}, false},
+		{"no-op owner assignment", AWSRemediationDiffIntent{Kind: "owner_assignment", NoOp: true}, false},
+		{"no-op fallthrough", AWSRemediationDiffIntent{Kind: "iam_policy_diff", NoOp: true}, false},
+	}
+	for _, tc := range cases {
+		got := awsRemediationDiffIsExecutable(tc.diff)
+		if got != tc.want {
+			t.Fatalf("awsRemediationDiffIsExecutable(%s) = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestAWSRemediationCaseLeastPrivilegeReviewIsNonExecutable(t *testing.T) {
 	now := time.Date(2026, 6, 23, 10, 13, 0, 0, time.UTC)
 	review := AWSLeastPrivilegeRecommendation{
