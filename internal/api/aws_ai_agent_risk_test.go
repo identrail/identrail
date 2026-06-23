@@ -267,6 +267,39 @@ func TestAWSAIAgentRiskDedupesExternalCredentialExposureAcrossSources(t *testing
 	}
 }
 
+func TestAWSAIAgentRiskRuntimeFindingIncludesDeclaredBackingRole(t *testing.T) {
+	now := time.Date(2026, 6, 23, 9, 16, 0, 0, time.UTC)
+	record := AWSAgentRuntimeAccessRecord{
+		CorrelationID:           "agent-declared-unused",
+		AccountID:               "123456789012",
+		Region:                  "us-east-1",
+		AgentNodeID:             "aws:agent:123456789012:us-east-1:custom_agent/billing-agent",
+		AgentName:               "billing-agent",
+		AgentID:                 "billing-agent",
+		ToolName:                "issue-refund",
+		Status:                  "declared_unused",
+		Confidence:              0.84,
+		DeclaredBackingRoleNode: "aws:identity:role:declared-billing-agent",
+		EvidenceRef:             "agent-evidence://billing-agent/declared-unused",
+	}
+	finding, ok := awsAIAgentRiskFindingFromRuntime(record, now)
+	if !ok {
+		t.Fatalf("expected runtime finding to be emitted for declared_unused status")
+	}
+	if !awsStringSliceContains(finding.ImpactedNodes, record.DeclaredBackingRoleNode) {
+		t.Fatalf("declared backing role must appear in impacted nodes for graph edges: %+v", finding.ImpactedNodes)
+	}
+	var sawBackingRoleStep bool
+	for _, step := range finding.ImpactedPath {
+		if step.NodeType == "backing_role" && step.NodeID == record.DeclaredBackingRoleNode {
+			sawBackingRoleStep = true
+		}
+	}
+	if !sawBackingRoleStep {
+		t.Fatalf("declared backing role must appear as a path step: %+v", finding.ImpactedPath)
+	}
+}
+
 func TestAWSAIAgentRiskRuntimeSecretEquivalenceRequiresAgentNode(t *testing.T) {
 	now := time.Date(2026, 6, 23, 9, 14, 0, 0, time.UTC)
 	agent := awsAIAgentFixtureRecord(

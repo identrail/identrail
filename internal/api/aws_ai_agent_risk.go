@@ -480,6 +480,15 @@ func awsAIAgentRiskFindingFromRuntime(record AWSAgentRuntimeAccessRecord, now ti
 	}
 	score = clampBlastRadiusScore(score)
 	target := firstString(record.TargetResourceNodeIDs)
+	backingRoleNode := firstNonEmptyAWSValue(firstString(record.BackingRoleNodeIDs), record.DeclaredBackingRoleNode)
+	backingRoleARN := firstString(record.BackingRoleARNs)
+	impactedPath := []AWSAIAgentRiskPathStep{
+		awsLeastPrivilegePathStep(record.AgentNodeID, "ai_agent", firstNonEmptyAWSValue(record.AgentName, record.AgentID), record.AccountID, record.Region),
+	}
+	if backingRoleNode != "" {
+		impactedPath = append(impactedPath, awsLeastPrivilegePathStep(backingRoleNode, "backing_role", firstNonEmptyAWSValue(shortAWSARN(backingRoleARN), backingRoleARN, backingRoleNode), record.AccountID, record.Region))
+	}
+	impactedPath = append(impactedPath, awsLeastPrivilegePathStep(firstNonEmptyAWSValue(target, firstString(record.TargetResourceARNs), record.ToolTargetRef), "runtime_target", firstNonEmptyAWSValue(record.ToolName, record.ToolTargetRef, target), record.AccountID, record.Region))
 	return awsAIAgentRiskFinding(AWSAIAgentRiskFinding{
 		FindingID:          "aws-ai-agent-risk:" + stableAWSBlastRadiusToken(riskType, record.CorrelationID),
 		CalculationVersion: awsAIAgentRiskVersion,
@@ -494,22 +503,19 @@ func awsAIAgentRiskFindingFromRuntime(record AWSAgentRuntimeAccessRecord, now ti
 		AgentID:            record.AgentID,
 		AgentName:          record.AgentName,
 		AgentType:          record.AgentType,
-		RuntimeRoleARN:     firstString(record.BackingRoleARNs),
-		RuntimeRoleNodeID:  firstNonEmptyAWSValue(firstString(record.BackingRoleNodeIDs), record.DeclaredBackingRoleNode),
+		RuntimeRoleARN:     backingRoleARN,
+		RuntimeRoleNodeID:  backingRoleNode,
 		ToolNames:          []string{record.ToolName},
 		SensitiveResources: []string{target},
 		SourceSignals:      []string{"agent_runtime_access"},
 		Rationale:          fmt.Sprintf("Runtime correlation for %s/%s returned status=%s with caveats %s.", firstNonEmptyAWSValue(record.AgentName, record.AgentID), firstNonEmptyAWSValue(record.ToolName, "agent invocation"), record.Status, strings.Join(record.Caveats, ", ")),
 		EvidenceBoundary:   awsAIAgentRiskEvidenceBoundary(),
-		ImpactedNodes:      awsAIAgentRiskImpactedNodes(record.AgentNodeID, firstString(record.BackingRoleNodeIDs), target),
-		ImpactedPath: []AWSAIAgentRiskPathStep{
-			awsLeastPrivilegePathStep(record.AgentNodeID, "ai_agent", firstNonEmptyAWSValue(record.AgentName, record.AgentID), record.AccountID, record.Region),
-			awsLeastPrivilegePathStep(firstNonEmptyAWSValue(target, firstString(record.TargetResourceARNs), record.ToolTargetRef), "runtime_target", firstNonEmptyAWSValue(record.ToolName, record.ToolTargetRef, target), record.AccountID, record.Region),
-		},
-		Evidence:   []AWSAIAgentRiskEvidence{{Source: "agent_runtime_access", EvidenceRef: record.EvidenceRef, Label: "Agent runtime/tool-call correlation", Confidence: record.Confidence, ObservedAt: record.LastObservedAt, Relationship: record.Status}},
-		NextAction: record.NextAction,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ImpactedNodes:      awsAIAgentRiskImpactedNodes(record.AgentNodeID, backingRoleNode, target),
+		ImpactedPath:       impactedPath,
+		Evidence:           []AWSAIAgentRiskEvidence{{Source: "agent_runtime_access", EvidenceRef: record.EvidenceRef, Label: "Agent runtime/tool-call correlation", Confidence: record.Confidence, ObservedAt: record.LastObservedAt, Relationship: record.Status}},
+		NextAction:         record.NextAction,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}), true
 }
 

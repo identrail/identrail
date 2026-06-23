@@ -5010,7 +5010,7 @@ paths:
                 type: object
                 properties:
                   findings:
-                    type: object
+                    $ref: "#/components/schemas/AWSAIAgentRiskResult"
         "400":
           description: Invalid AWS AI agent risk request
           content:
@@ -12823,6 +12823,167 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSLeastPrivilegeRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSAIAgentRiskRelationship:
+      type: object
+      properties:
+        finding_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSAIAgentRiskFinding:
+      type: object
+      properties:
+        finding_id: { type: string }
+        calculation_version: { type: string }
+        risk_type:
+          type: string
+          enum: [broad_tool_access, sensitive_data_reachability, ownerless_agent, external_credential_exposure, undeclared_tool_runtime, backing_role_mismatch, declared_unused_tool, backing_role_scope, runtime_tool_anomaly]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status:
+          type: string
+          enum: [action_required, review, monitor]
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        account_id: { type: string }
+        region: { type: string }
+        agent_node_id: { type: string }
+        agent_id: { type: string }
+        agent_name: { type: string }
+        agent_type: { type: string }
+        runtime_role_arn: { type: string }
+        runtime_role_node_id: { type: string }
+        provider: { type: string }
+        tool_names:
+          type: array
+          items: { type: string }
+        capability_names:
+          type: array
+          items: { type: string }
+        sensitive_resources:
+          type: array
+          items: { type: string }
+        source_signals:
+          type: array
+          items: { type: string }
+        rationale: { type: string }
+        evidence_boundary: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegePathStep"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeEvidence"
+        next_action: { type: string }
+        remediation_case:
+          $ref: "#/components/schemas/AWSLeastPrivilegeRemediationCasePreview"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSAIAgentRiskSummary:
+      type: object
+      properties:
+        total_findings: { type: integer }
+        filtered_findings: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        risk_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        external_credential_count: { type: integer }
+        broad_tool_access_count: { type: integer }
+        sensitive_reachability_count: { type: integer }
+        ownerless_agent_count: { type: integer }
+        runtime_observed_count: { type: integer }
+        backing_role_scope_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+        remediation_preview_count: { type: integer }
+    AWSAIAgentRiskResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSAIAgentRiskSummary"
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAIAgentRiskFinding"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAIAgentRiskRelationship"
         caveats:
           type: array
           items: { type: string }
