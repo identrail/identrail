@@ -393,6 +393,12 @@ func TestAWSRemediationCaseLeastPrivilegeReviewIsNonExecutable(t *testing.T) {
 	if c.RollbackPlan.Strategy != "manual_review" {
 		t.Fatalf("review-decision case must use manual_review rollback, got %s", c.RollbackPlan.Strategy)
 	}
+	if c.VerificationPlan.Strategy != "manual_review" {
+		t.Fatalf("review-decision case must use manual_review verification, got %s", c.VerificationPlan.Strategy)
+	}
+	if len(c.VerificationPlan.SuccessSignals) != 0 || len(c.VerificationPlan.FailureSignals) != 0 {
+		t.Fatalf("review-decision verification must not advertise simulatable signals: %+v", c.VerificationPlan)
+	}
 }
 
 func TestAWSRemediationCaseBlastRadiusDiffKindMatchesEmittedTokens(t *testing.T) {
@@ -402,6 +408,7 @@ func TestAWSRemediationCaseBlastRadiusDiffKindMatchesEmittedTokens(t *testing.T)
 	}{
 		{"cross-account-secret-runtime-access", "iam_trust_diff"},
 		{"cross-account-s3-runtime-access", "iam_trust_diff"},
+		{"secret-runtime-access", "role_scope_diff"},
 		{"agent-tool-path", "ai_agent_scope_change"},
 		{"undeclared-agent-tool-path", "ai_agent_scope_change"},
 		{"unused-agent-tool-path", "ai_agent_scope_change"},

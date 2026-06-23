@@ -704,10 +704,7 @@ func awsRemediationBlastRadiusDiffKind(riskType string) string {
 	if strings.Contains(normalized, "kms") {
 		return "kms_grant_diff"
 	}
-	if strings.Contains(normalized, "secret") {
-		return "secret_rotation"
-	}
-	if strings.Contains(normalized, "s3-runtime-access") || strings.Contains(normalized, "sensitive-resource-reach") {
+	if strings.Contains(normalized, "secret-runtime-access") || strings.Contains(normalized, "s3-runtime-access") || strings.Contains(normalized, "sensitive-resource-reach") {
 		return "role_scope_diff"
 	}
 	return "iam_policy_diff"
@@ -929,7 +926,14 @@ func awsRemediationVerificationForRiskType(riskType, evidenceRef string) AWSReme
 	}
 }
 
-func awsRemediationVerificationForLeastPrivilege(_ AWSLeastPrivilegeRecommendation, evidenceRef string) AWSRemediationVerificationPlan {
+func awsRemediationVerificationForLeastPrivilege(recommendation AWSLeastPrivilegeRecommendation, evidenceRef string) AWSRemediationVerificationPlan {
+	if recommendation.Decision != "remove" {
+		return AWSRemediationVerificationPlan{
+			Strategy:    "manual_review",
+			Steps:       []string{"Least-privilege evidence is inconclusive; no projected diff to simulate.", "Re-run least-privilege after upstream evidence settles into a remove/keep decision."},
+			EvidenceRef: evidenceRef,
+		}
+	}
 	return AWSRemediationVerificationPlan{
 		Strategy:       "policy_simulate",
 		Steps:          []string{"Run IAM policy simulator with observed actions to confirm none regress.", "Re-run least-privilege to confirm the recommendation flips to keep."},
