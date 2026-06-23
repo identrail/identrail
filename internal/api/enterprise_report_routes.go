@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sort"
 	"strings"
@@ -104,15 +105,47 @@ func authorizedReportWorkspaceIDs(ctx context.Context, svc *Service, userUUID st
 	return ordered, nil
 }
 
-// executiveReportCacheKey derives a cache key from the tenant and the exact
-// set of workspaces the report was built from. Sorting makes the key stable
-// regardless of resolution order, and including the set guarantees a caller
-// can only read a cached report built from the same authorized scope.
-func executiveReportCacheKey(tenantID string, workspaceIDs []string) string {
+// executiveReportCacheKey derives a cache key from the tenant, the exact set
+// of workspaces the report was built from, and the active domain filter.
+// Sorting makes the key stable regardless of resolution order, and including
+// the set guarantees a caller can only read a cached report built from the
+// same authorized scope. The domain segment isolates per-domain reports so an
+// "All" caller cannot receive an AWS-only cached entry, or vice versa.
+func executiveReportCacheKey(tenantID string, workspaceIDs []string, domain string) string {
 	sorted := append([]string(nil), workspaceIDs...)
 	sort.Strings(sorted)
-	return tenantID + "\x00" + strings.Join(sorted, "\x1f")
+	return tenantID + "\x00" + strings.Join(sorted, "\x1f") + "\x00" + domain
 }
+
+// executiveReportDomain represents the optional ?domain= filter on the
+// executive report endpoint. The empty value means "all domains".
+type executiveReportDomain string
+
+const (
+	executiveReportDomainAll        executiveReportDomain = ""
+	executiveReportDomainAWS        executiveReportDomain = "aws"
+	executiveReportDomainGitHub     executiveReportDomain = "github"
+	executiveReportDomainKubernetes executiveReportDomain = "kubernetes"
+)
+
+// parseExecutiveReportDomain validates the ?domain= query value. Unknown
+// values are rejected so a typo can never silently widen to "all".
+func parseExecutiveReportDomain(raw string) (executiveReportDomain, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "":
+		return executiveReportDomainAll, nil
+	case "aws":
+		return executiveReportDomainAWS, nil
+	case "github":
+		return executiveReportDomainGitHub, nil
+	case "kubernetes":
+		return executiveReportDomainKubernetes, nil
+	default:
+		return executiveReportDomainAll, errInvalidExecutiveReportDomain
+	}
+}
+
+var errInvalidExecutiveReportDomain = errors.New("invalid domain")
 
 func registerExecutiveReportRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service) {
 	if svc == nil {
@@ -131,6 +164,12 @@ func executiveReportHandler(logger *zap.Logger, svc *Service, cache *executiveRe
 		orgID := strings.TrimSpace(current.Session.CurrentOrgID)
 		if orgID == "" {
 			c.JSON(http.StatusForbidden, gin.H{"error": "org context required"})
+			return
+		}
+
+		reportDomain, err := parseExecutiveReportDomain(c.Query("domain"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid domain", "allowed": []string{"aws", "github", "kubernetes"}})
 			return
 		}
 
@@ -162,55 +201,81 @@ func executiveReportHandler(logger *zap.Logger, svc *Service, cache *executiveRe
 		// callers with the same membership set legitimately share one report;
 		// a narrower-access caller can never receive a broader caller's cached
 		// data, because their key differs.
-		cacheKey := executiveReportCacheKey(scope.TenantID, workspaceIDs)
+		cacheKey := executiveReportCacheKey(scope.TenantID, workspaceIDs, string(reportDomain))
 
 		if report, ok := cache.get(cacheKey, now); ok {
 			c.JSON(http.StatusOK, report)
 			return
 		}
 
+		// Graph findings (AWS + Kubernetes) come from ListFindingsAll; repo
+		// findings (GitHub) come from ListRepoFindings. The domain filter
+		// determines which sources contribute and, for graph findings, which
+		// scan provider is kept.
+		includeGraph := reportDomain == executiveReportDomainAll || reportDomain == executiveReportDomainAWS || reportDomain == executiveReportDomainKubernetes
+		includeRepo := reportDomain == executiveReportDomainAll || reportDomain == executiveReportDomainGitHub
+
 		var findings []domain.Finding
 		for _, wsID := range workspaceIDs {
 			wsCtx := db.WithScope(reqCtx, db.Scope{TenantID: scope.TenantID, WorkspaceID: wsID})
-			// ListFindingsAll is uncapped; triage (including the trustworthy
-			// ResolvedAt that MTTR depends on) is hydrated separately since the
-			// raw finding rows do not carry it.
-			wsFindings, err := svc.Store.ListFindingsAll(wsCtx)
-			if err != nil {
-				if logger != nil {
-					logger.Error("list findings for executive report", telemetry.ZapError(err))
-				}
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
-				return
-			}
-			wsFindings, err = svc.applyFindingTriageStates(wsCtx, wsFindings)
-			if err != nil {
-				if logger != nil {
-					logger.Error("hydrate triage for executive report", telemetry.ZapError(err))
-				}
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
-				return
-			}
-			findings = append(findings, wsFindings...)
 
-			repoFindings, err := svc.Store.ListRepoFindings(wsCtx, db.RepoFindingFilter{}, 0)
-			if err != nil {
-				if logger != nil {
-					logger.Error("list repo findings for executive report", telemetry.ZapError(err))
+			if includeGraph {
+				// ListFindingsAll is uncapped; triage (including the trustworthy
+				// ResolvedAt that MTTR depends on) is hydrated separately since the
+				// raw finding rows do not carry it.
+				wsFindings, err := svc.Store.ListFindingsAll(wsCtx)
+				if err != nil {
+					if logger != nil {
+						logger.Error("list findings for executive report", telemetry.ZapError(err))
+					}
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
+					return
 				}
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
-				return
-			}
-			repoFindings = enrichFindingsWithRepoContext(repoFindings)
-			repoFindings, err = svc.applyRepoFindingTriageStates(wsCtx, repoFindings)
-			if err != nil {
-				if logger != nil {
-					logger.Error("hydrate repo finding triage for executive report", telemetry.ZapError(err))
+				if reportDomain == executiveReportDomainAWS || reportDomain == executiveReportDomainKubernetes {
+					provider := string(domain.ProviderAWS)
+					if reportDomain == executiveReportDomainKubernetes {
+						provider = string(domain.ProviderKubernetes)
+					}
+					wsFindings, err = filterFindingsByScanProvider(wsCtx, svc, wsFindings, provider)
+					if err != nil {
+						if logger != nil {
+							logger.Error("filter findings by scan provider", telemetry.ZapError(err))
+						}
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
+						return
+					}
 				}
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
-				return
+				wsFindings, err = svc.applyFindingTriageStates(wsCtx, wsFindings)
+				if err != nil {
+					if logger != nil {
+						logger.Error("hydrate triage for executive report", telemetry.ZapError(err))
+					}
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
+					return
+				}
+				findings = append(findings, wsFindings...)
 			}
-			findings = append(findings, repoFindings...)
+
+			if includeRepo {
+				repoFindings, err := svc.Store.ListRepoFindings(wsCtx, db.RepoFindingFilter{}, 0)
+				if err != nil {
+					if logger != nil {
+						logger.Error("list repo findings for executive report", telemetry.ZapError(err))
+					}
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
+					return
+				}
+				repoFindings = enrichFindingsWithRepoContext(repoFindings)
+				repoFindings, err = svc.applyRepoFindingTriageStates(wsCtx, repoFindings)
+				if err != nil {
+					if logger != nil {
+						logger.Error("hydrate repo finding triage for executive report", telemetry.ZapError(err))
+					}
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build executive report"})
+					return
+				}
+				findings = append(findings, repoFindings...)
+			}
 		}
 
 		report := enterprise.BuildExecutiveReport(findings, enterprise.ReportOptions{
@@ -220,4 +285,59 @@ func executiveReportHandler(logger *zap.Logger, svc *Service, cache *executiveRe
 		cache.set(cacheKey, report, now)
 		c.JSON(http.StatusOK, report)
 	}
+}
+
+// filterFindingsByScanProvider keeps only findings whose owning scan was run
+// by the requested provider (aws or kubernetes). Findings without a known
+// scan, or whose scan was run by a different provider, are dropped. Used to
+// split the graph finding stream into AWS- vs Kubernetes-only views for the
+// per-domain executive report.
+//
+// The lookup resolves scans by ID rather than calling ListScans, because
+// ListScans coerces a non-positive limit to 100 in both store backends. A
+// workspace with more than 100 scans would silently drop findings whose
+// owning scan is older than that, so the AWS/Kubernetes report would undercount
+// while the All report still included them. Looking up only the scan IDs the
+// findings actually reference avoids the cap and keeps the work proportional
+// to the finding set, not to scan history.
+func filterFindingsByScanProvider(ctx context.Context, svc *Service, findings []domain.Finding, provider string) ([]domain.Finding, error) {
+	if len(findings) == 0 {
+		return findings, nil
+	}
+
+	// Deduplicate scan IDs so we issue at most one GetScan per distinct scan.
+	scanIDs := make(map[string]struct{})
+	for _, finding := range findings {
+		if id := strings.TrimSpace(finding.ScanID); id != "" {
+			scanIDs[id] = struct{}{}
+		}
+	}
+
+	wantProvider := strings.TrimSpace(provider)
+	keep := make(map[string]struct{}, len(scanIDs))
+	for id := range scanIDs {
+		scan, err := svc.Store.GetScan(ctx, id)
+		if err != nil {
+			// A finding's scan can legitimately be missing (e.g. retention/
+			// purge has dropped the scan row while findings persist). Drop the
+			// finding from the per-domain report rather than failing the whole
+			// request, matching the spirit of "filter by provider, exclude
+			// what we cannot classify".
+			if errors.Is(err, db.ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		if strings.EqualFold(strings.TrimSpace(scan.Provider), wantProvider) {
+			keep[id] = struct{}{}
+		}
+	}
+
+	filtered := findings[:0:0]
+	for _, finding := range findings {
+		if _, ok := keep[finding.ScanID]; ok {
+			filtered = append(filtered, finding)
+		}
+	}
+	return filtered, nil
 }

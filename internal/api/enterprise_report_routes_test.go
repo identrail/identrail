@@ -470,3 +470,202 @@ func TestExecutiveReport_CacheKeyIsolatesByAuthorizedWorkspaceSet(t *testing.T) 
 		t.Fatalf("narrow user must not receive broad user's cached report; want 1, got %d", repNarrow.TotalOpenFindings)
 	}
 }
+
+// seedExecReportScanWithProvider mirrors seedExecReportScan but lets the test
+// pick the scan provider, so AWS vs Kubernetes filtering can be exercised.
+func seedExecReportScanWithProvider(t *testing.T, store db.Store, scope db.Scope, provider string, startedAt time.Time) string {
+	t.Helper()
+	scan, err := store.CreateScan(db.WithScope(context.Background(), scope), provider, startedAt)
+	if err != nil {
+		t.Fatalf("create %s scan: %v", provider, err)
+	}
+	return scan.ID
+}
+
+// seedExecReportMixedDomains seeds one finding per domain (AWS, Kubernetes,
+// GitHub) into the given scope and returns the now-clock the caller should use.
+func seedExecReportMixedDomains(t *testing.T, store db.Store, scope db.Scope, now time.Time) {
+	t.Helper()
+	awsScan := seedExecReportScanWithProvider(t, store, scope, "aws", now.Add(-24*time.Hour))
+	seedExecReportFinding(t, store, scope, awsScan, "aws-1", domain.SeverityHigh, domain.FindingOverPrivileged, now.Add(-2*time.Hour), nil)
+	k8sScan := seedExecReportScanWithProvider(t, store, scope, "kubernetes", now.Add(-24*time.Hour))
+	seedExecReportFinding(t, store, scope, k8sScan, "k8s-1", domain.SeverityCritical, domain.FindingEscalationPath, now.Add(-2*time.Hour), nil)
+	seedExecReportRepoFinding(t, store, scope, "owner/repo", "gh-1", domain.SeverityMedium, domain.FindingRepoMisconfig, now.Add(-2*time.Hour), nil)
+}
+
+func TestExecutiveReport_DomainAllReturnsAllSources(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	clock := now
+	_, r, store := execReportRig(t, "org-a", &clock)
+	seedExecReportMixedDomains(t, store, execReportScope("org-a"), now)
+
+	w := doJSON(t, r, http.MethodGet, "/v1/enterprise/reports/executive", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	var report enterprise.ExecutiveReport
+	if err := json.Unmarshal(w.Body.Bytes(), &report); err != nil {
+		t.Fatalf("decode report: %v", err)
+	}
+	if report.TotalOpenFindings != 3 {
+		t.Errorf("all-domain total: want 3, got %d", report.TotalOpenFindings)
+	}
+}
+
+func TestExecutiveReport_DomainAWSExcludesGitHubAndKubernetes(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	clock := now
+	_, r, store := execReportRig(t, "org-a", &clock)
+	seedExecReportMixedDomains(t, store, execReportScope("org-a"), now)
+
+	w := doJSON(t, r, http.MethodGet, "/v1/enterprise/reports/executive?domain=aws", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	var report enterprise.ExecutiveReport
+	if err := json.Unmarshal(w.Body.Bytes(), &report); err != nil {
+		t.Fatalf("decode report: %v", err)
+	}
+	if report.TotalOpenFindings != 1 {
+		t.Errorf("AWS-only total: want 1, got %d", report.TotalOpenFindings)
+	}
+	if report.OpenByType[domain.FindingOverPrivileged] != 1 {
+		t.Errorf("AWS-only must keep the AWS finding type; got %+v", report.OpenByType)
+	}
+	if report.OpenByType[domain.FindingEscalationPath] != 0 {
+		t.Errorf("AWS-only must drop the Kubernetes finding; got %+v", report.OpenByType)
+	}
+	if report.OpenByType[domain.FindingRepoMisconfig] != 0 {
+		t.Errorf("AWS-only must drop the GitHub finding; got %+v", report.OpenByType)
+	}
+}
+
+func TestExecutiveReport_DomainKubernetesExcludesAWSAndGitHub(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	clock := now
+	_, r, store := execReportRig(t, "org-a", &clock)
+	seedExecReportMixedDomains(t, store, execReportScope("org-a"), now)
+
+	w := doJSON(t, r, http.MethodGet, "/v1/enterprise/reports/executive?domain=kubernetes", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	var report enterprise.ExecutiveReport
+	if err := json.Unmarshal(w.Body.Bytes(), &report); err != nil {
+		t.Fatalf("decode report: %v", err)
+	}
+	if report.TotalOpenFindings != 1 {
+		t.Errorf("Kubernetes-only total: want 1, got %d", report.TotalOpenFindings)
+	}
+	if report.OpenByType[domain.FindingEscalationPath] != 1 {
+		t.Errorf("Kubernetes-only must keep the Kubernetes finding type; got %+v", report.OpenByType)
+	}
+}
+
+func TestExecutiveReport_DomainGitHubExcludesGraphFindings(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	clock := now
+	_, r, store := execReportRig(t, "org-a", &clock)
+	seedExecReportMixedDomains(t, store, execReportScope("org-a"), now)
+
+	w := doJSON(t, r, http.MethodGet, "/v1/enterprise/reports/executive?domain=github", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	var report enterprise.ExecutiveReport
+	if err := json.Unmarshal(w.Body.Bytes(), &report); err != nil {
+		t.Fatalf("decode report: %v", err)
+	}
+	if report.TotalOpenFindings != 1 {
+		t.Errorf("GitHub-only total: want 1, got %d", report.TotalOpenFindings)
+	}
+	if report.OpenByType[domain.FindingRepoMisconfig] != 1 {
+		t.Errorf("GitHub-only must keep the repo finding type; got %+v", report.OpenByType)
+	}
+}
+
+func TestExecutiveReport_DomainInvalidReturnsBadRequest(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	clock := now
+	_, r, _ := execReportRig(t, "org-a", &clock)
+
+	w := doJSON(t, r, http.MethodGet, "/v1/enterprise/reports/executive?domain=azure", nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unknown domain, got %d (%s)", w.Code, w.Body.String())
+	}
+}
+
+// TestExecutiveReport_CacheIsolatesDomains guards against an "all" caller
+// returning a cached AWS-only report (or vice versa). The cache key must
+// include the domain so a per-domain request never reuses an all-domain entry.
+func TestExecutiveReport_CacheIsolatesDomains(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	clock := now
+	_, r, store := execReportRig(t, "org-a", &clock)
+	seedExecReportMixedDomains(t, store, execReportScope("org-a"), now)
+
+	// Prime the AWS-only cache entry.
+	first := doJSON(t, r, http.MethodGet, "/v1/enterprise/reports/executive?domain=aws", nil)
+	if first.Code != http.StatusOK {
+		t.Fatalf("aws priming call failed: %d (%s)", first.Code, first.Body.String())
+	}
+	var awsReport enterprise.ExecutiveReport
+	if err := json.Unmarshal(first.Body.Bytes(), &awsReport); err != nil {
+		t.Fatalf("decode aws report: %v", err)
+	}
+
+	// An "all" request must NOT return the cached AWS-only count (1); it must
+	// recompute and include the GitHub + Kubernetes findings.
+	second := doJSON(t, r, http.MethodGet, "/v1/enterprise/reports/executive", nil)
+	if second.Code != http.StatusOK {
+		t.Fatalf("all-domain call failed: %d (%s)", second.Code, second.Body.String())
+	}
+	var allReport enterprise.ExecutiveReport
+	if err := json.Unmarshal(second.Body.Bytes(), &allReport); err != nil {
+		t.Fatalf("decode all report: %v", err)
+	}
+	if allReport.TotalOpenFindings == awsReport.TotalOpenFindings {
+		t.Errorf("cache leaked across domains: all=%d aws=%d", allReport.TotalOpenFindings, awsReport.TotalOpenFindings)
+	}
+	if allReport.TotalOpenFindings != 3 {
+		t.Errorf("all-domain total after AWS prime: want 3, got %d", allReport.TotalOpenFindings)
+	}
+}
+
+// TestExecutiveReport_DomainAWSCountsFindingsBeyondScanListCap is the
+// regression test for the P1 review finding: ListScans coerces a non-positive
+// limit to 100 in both backends, so the original implementation silently
+// dropped findings whose owning scan was outside the latest 100. This test
+// seeds 150+ scans plus an AWS finding on the oldest one and asserts the
+// AWS-domain report still counts that finding.
+func TestExecutiveReport_DomainAWSCountsFindingsBeyondScanListCap(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	clock := now
+	_, r, store := execReportRig(t, "org-a", &clock)
+	scope := execReportScope("org-a")
+
+	// Seed the AWS scan as the oldest. ListScans returns scans newest-first,
+	// so the AWS finding's scan would fall outside any 100-row cap.
+	awsScan := seedExecReportScanWithProvider(t, store, scope, "aws", now.Add(-200*time.Hour))
+	seedExecReportFinding(t, store, scope, awsScan, "aws-old", domain.SeverityHigh, domain.FindingOverPrivileged, now.Add(-2*time.Hour), nil)
+
+	// Push the AWS finding's scan past the 100-row ListScans cap by seeding
+	// 150 newer kubernetes scans. They have no findings, so they should not
+	// affect any per-domain count, but they would dominate any capped scan
+	// listing.
+	for i := 0; i < 150; i++ {
+		_ = seedExecReportScanWithProvider(t, store, scope, "kubernetes", now.Add(-time.Duration(i+1)*time.Hour))
+	}
+
+	w := doJSON(t, r, http.MethodGet, "/v1/enterprise/reports/executive?domain=aws", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	var report enterprise.ExecutiveReport
+	if err := json.Unmarshal(w.Body.Bytes(), &report); err != nil {
+		t.Fatalf("decode report: %v", err)
+	}
+	if report.TotalOpenFindings != 1 {
+		t.Errorf("AWS-domain total must include the finding whose scan is past the 100-row cap; want 1, got %d", report.TotalOpenFindings)
+	}
+}

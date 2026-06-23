@@ -4067,4 +4067,85 @@ describe('App', () => {
       })
     );
   });
+
+  it('shows the recovery panel for an invalid ?domain= without firing a report request', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a', 'viewer'));
+      }
+      return errorJSON(404, `unexpected ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/reports/executive?domain=awss');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Unknown report domain/i })).toBeInTheDocument();
+    expect(screen.getByText('awss')).toBeInTheDocument();
+    // The segmented switch stays interactive so the user can recover.
+    expect(screen.getByRole('tab', { name: 'All' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'AWS' })).toBeInTheDocument();
+    // No executive-report fetch was issued for the bad URL.
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/v1/enterprise/reports/executive'),
+      expect.anything()
+    );
+  });
+
+  // Regression test for the race the reviewer caught: if the URL transitions
+  // from a valid ?domain= to an invalid one while the valid request is still
+  // in flight, the previous effect cleanup makes the in-flight finally skip
+  // clearing loadingReport. With the fix in place the bail-out branch clears
+  // loading state AND the render path checks invalidDomainRaw before loading,
+  // so the recovery panel renders instead of a stuck spinner.
+  it('renders the recovery panel even when an earlier valid report request never resolved', async () => {
+    // Initialize with a no-op so TS narrows the call site below; the real
+    // resolver is captured inside the fetch mock when the request lands.
+    let resolveValidRequest: (value: Response) => void = () => {
+      /* will be replaced by the fetch mock */
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/v1/me')) {
+        return okJSON(currentMePayload('tenant-a', 'workspace-a', 'viewer'));
+      }
+      if (url.includes('/v1/enterprise/reports/executive')) {
+        // Hang the executive-report request — this simulates the race where
+        // the valid request is still in flight when the URL becomes invalid.
+        return new Promise<Response>((resolve) => {
+          resolveValidRequest = resolve;
+        });
+      }
+      return errorJSON(404, `unexpected ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setCurrentPath('/reports/executive?domain=aws');
+    render(<App />);
+
+    // The valid request kicks off; the page is on its loading state.
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://localhost:8080/v1/enterprise/reports/executive?domain=aws',
+        expect.any(Object)
+      )
+    );
+
+    // Now navigate to an invalid ?domain= while the prior fetch is still
+    // hanging. pushState alone does not notify React Router; firing popstate
+    // makes its history listener re-read the URL, matching real navigation.
+    act(() => {
+      window.history.pushState({}, '', '/reports/executive?domain=awss');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Unknown report domain/i })).toBeInTheDocument();
+    expect(screen.getByText('awss')).toBeInTheDocument();
+
+    // Resolve the stranded request after the fact to be a polite test citizen.
+    resolveValidRequest(
+      new Response(JSON.stringify({}), { status: 200, headers: { 'content-type': 'application/json' } })
+    );
+  });
 });

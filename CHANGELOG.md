@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- **Per-domain executive reports.** `/v1/enterprise/reports/executive` now
+  accepts `?domain=aws|github|kubernetes`; the report aggregates only the
+  matching finding source (GitHub = repo findings, AWS / Kubernetes = graph
+  findings filtered by scan provider). Unknown domain values return HTTP 400.
+  The cache key includes the domain so per-domain entries cannot leak across
+  filters. The placeholder Reports landing has been retired — the scoped
+  `/app/<tenant>/<workspace>/reports` route now renders the executive report
+  directly, with a compact All / AWS / GitHub / Kubernetes segmented switch
+  that drives a `?domain=` query so deep links and refreshes preserve scope.
 - **Post-install GitHub UX:** after completing a GitHub App installation,
   users now land on the dedicated GitHub section (`/github/repositories`)
   instead of the legacy per-project "Connect environment sources" page. That
