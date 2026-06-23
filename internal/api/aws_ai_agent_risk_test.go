@@ -188,6 +188,91 @@ func TestAWSAIAgentRiskFansOutBackingRoleScopeForSharedRoleAgents(t *testing.T) 
 	}
 }
 
+func TestAWSAIAgentRiskDedupesExternalCredentialExposureAcrossSources(t *testing.T) {
+	now := time.Date(2026, 6, 23, 9, 13, 0, 0, time.UTC)
+	agent := awsAIAgentFixtureRecord(
+		"123456789012",
+		"us-east-1",
+		"custom_agent",
+		"support-agent",
+		"support-agent",
+		"arn:aws:ecs:us-east-1:123456789012:service/prod/support-agent",
+		"arn:aws:iam::123456789012:role/support-agent",
+		now,
+		func(r *AWSAIAgentIdentityRecord) {
+			r.ProviderKeyReferences = []AWSAIAgentProviderKeyReference{{
+				ReferenceName: "support-openai-key",
+				ReferenceKind: "secret",
+				Reference:     "arn:aws:secretsmanager:us-east-1:123456789012:secret:support-openai-key",
+				TargetNodeID:  "aws:resource:secrets-manager-secret/support-openai-key",
+				Provider:      "openai",
+				Resolved:      true,
+				Confidence:    0.94,
+				EvidenceRef:   "evidence://agent/support-agent/provider-key",
+			}}
+		},
+	)
+	providerFinding := AWSSecretPermissionEquivalenceFinding{
+		FindingID:             "aws-secret-permission-equivalence:agent-provider-key-support-agent-support-openai-key",
+		CalculationVersion:    awsSecretPermissionEquivalenceVersion,
+		EquivalenceType:       "agent_provider_key_equivalence",
+		Severity:              "high",
+		Status:                "review",
+		Score:                 84,
+		Confidence:            0.94,
+		AccountID:             "123456789012",
+		Region:                "us-east-1",
+		IdentityNodeID:        agent.RuntimeRoleNodeID,
+		PrincipalARN:          agent.RuntimeRoleARN,
+		AgentID:               agent.AgentID,
+		AgentName:             agent.AgentName,
+		SecretNodeID:          "aws:resource:secrets-manager-secret/support-openai-key",
+		SecretARN:             "arn:aws:secretsmanager:us-east-1:123456789012:secret:support-openai-key",
+		SecretLabel:           "support-openai-key",
+		Provider:              "openai",
+		ProviderKeyReference:  "support-openai-key",
+		EquivalentPermissions: []string{"read"},
+		SourceSignals:         []string{"secret_permission_equivalence"},
+		Rationale:             "Agent has a provider key reference that can authorize OpenAI API access.",
+		EvidenceBoundary:      awsSecretPermissionEvidenceBoundary(),
+		ImpactedNodes:         []string{agent.RuntimeRoleNodeID, agent.AgentNodeID, "aws:resource:secrets-manager-secret/support-openai-key"},
+		ImpactedPath: []AWSAIAgentRiskPathStep{
+			awsLeastPrivilegePathStep(agent.RuntimeRoleNodeID, "identity", "support-agent-role", agent.AccountID, agent.Region),
+			awsLeastPrivilegePathStep(agent.AgentNodeID, "ai_agent", "support-agent", agent.AccountID, agent.Region),
+			awsLeastPrivilegePathStep("aws:resource:secrets-manager-secret/support-openai-key", "permission_bearing_secret", "support-openai-key", agent.AccountID, agent.Region),
+		},
+		Evidence:   []AWSSecretPermissionEquivalenceEvidence{{Source: "secret_permission_equivalence", EvidenceRef: "evidence://agent/support-agent/provider-key"}},
+		NextAction: "Rotate or scope the provider key reference and role path.",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+
+	findings := awsAIAgentRiskFindings(awsAIAgentRiskSources{
+		agents:      AWSAIAgentIdentityInventoryResult{Records: []AWSAIAgentIdentityRecord{agent}},
+		equivalence: AWSSecretPermissionEquivalenceResult{Findings: []AWSSecretPermissionEquivalenceFinding{providerFinding}},
+	}, now)
+
+	externalCredentialFindings := []AWSAIAgentRiskFinding{}
+	for _, finding := range findings {
+		if finding.RiskType == "external_credential_exposure" {
+			externalCredentialFindings = append(externalCredentialFindings, finding)
+		}
+	}
+	if len(externalCredentialFindings) != 1 {
+		t.Fatalf("expected one deduplicated external credential finding, got %d: %+v", len(externalCredentialFindings), externalCredentialFindings)
+	}
+	finding := externalCredentialFindings[0]
+	if !awsStringSliceContains(finding.SourceSignals, "ai_agent_identities") {
+		t.Fatalf("expected identity signal merged into external credential finding: %+v", finding.SourceSignals)
+	}
+	if !awsStringSliceContains(finding.SourceSignals, "secret_permission_equivalence") {
+		t.Fatalf("expected secret-permission signal merged into external credential finding: %+v", finding.SourceSignals)
+	}
+	if len(finding.Evidence) < 2 {
+		t.Fatalf("expected merged evidence from both sources, got %d: %+v", len(finding.Evidence), finding.Evidence)
+	}
+}
+
 func TestGetAWSAIAgentRiskFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 23, 9, 15, 0, 0, time.UTC)
 	svc, ws := newAIAgentRiskService(t, "project-ai-agent-risk-states", now)

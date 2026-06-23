@@ -407,13 +407,14 @@ func awsAIAgentRiskFindingsFromAgent(agent AWSAIAgentIdentityRecord, now time.Ti
 		if !awsAIAgentProviderIsExternalAI(ref.Provider) {
 			continue
 		}
+		secretRef := firstNonEmptyAWSValue(ref.TargetNodeID, ref.ReferenceName, ref.Reference)
 		score := 78
 		if !ref.Resolved {
 			score += 4
 		}
 		score = clampBlastRadiusScore(score)
 		findings = append(findings, awsAIAgentRiskFinding(AWSAIAgentRiskFinding{
-			FindingID:          "aws-ai-agent-risk:" + stableAWSBlastRadiusToken("external-credential-exposure", agent.AgentNodeID, ref.Provider, ref.ReferenceName),
+			FindingID:          "aws-ai-agent-risk:" + stableAWSBlastRadiusToken("external-credential-exposure", agent.AgentNodeID, ref.Provider, secretRef),
 			CalculationVersion: awsAIAgentRiskVersion,
 			RiskType:           "external_credential_exposure",
 			Severity:           awsPrivilegeEscalationSeverity(score),
@@ -508,8 +509,9 @@ func awsAIAgentRiskFindingFromSecretEquivalence(finding AWSSecretPermissionEquiv
 	}
 	score := clampBlastRadiusScore(finding.Score + 4)
 	agentNode := firstNonEmptyAWSValue(awsAIAgentRiskAgentNodeFromPath(finding.ImpactedPath), finding.AgentID, finding.IdentityNodeID)
+	secretRef := firstNonEmptyAWSValue(finding.SecretNodeID, finding.SecretARN, firstString(finding.ImpactedNodes), finding.IdentityNodeID)
 	return awsAIAgentRiskFinding(AWSAIAgentRiskFinding{
-		FindingID:          "aws-ai-agent-risk:" + stableAWSBlastRadiusToken("secret-equivalence", finding.FindingID),
+		FindingID:          "aws-ai-agent-risk:" + stableAWSBlastRadiusToken("external-credential-exposure", agentNode, finding.Provider, secretRef),
 		CalculationVersion: awsAIAgentRiskVersion,
 		RiskType:           "external_credential_exposure",
 		Severity:           awsPrivilegeEscalationSeverity(score),
@@ -612,14 +614,12 @@ func awsAIAgentRiskDedupeFindings(findings []AWSAIAgentRiskFinding) []AWSAIAgent
 	seen := map[string]AWSAIAgentRiskFinding{}
 	order := []string{}
 	for _, finding := range findings {
-		key := finding.FindingID
-		if key == "" {
+		if finding.FindingID == "" {
 			continue
 		}
+		key := strings.ToLower(strings.TrimSpace(finding.FindingID))
 		if existing, ok := seen[key]; ok {
-			if finding.Score > existing.Score {
-				seen[key] = finding
-			}
+			seen[key] = awsAIAgentRiskMergeFindings(existing, finding)
 			continue
 		}
 		seen[key] = finding
@@ -630,6 +630,26 @@ func awsAIAgentRiskDedupeFindings(findings []AWSAIAgentRiskFinding) []AWSAIAgent
 		out = append(out, seen[key])
 	}
 	return out
+}
+
+func awsAIAgentRiskMergeFindings(existing, incoming AWSAIAgentRiskFinding) AWSAIAgentRiskFinding {
+	merged := existing
+	if incoming.Score > merged.Score {
+		merged = incoming
+	}
+	if incoming.Confidence > merged.Confidence {
+		merged.Confidence = incoming.Confidence
+	}
+	merged.SourceSignals = dedupeStrings(append(merged.SourceSignals, incoming.SourceSignals...))
+	merged.ToolNames = dedupeStrings(append(merged.ToolNames, incoming.ToolNames...))
+	merged.CapabilityNames = dedupeStrings(append(merged.CapabilityNames, incoming.CapabilityNames...))
+	merged.SensitiveResources = dedupeStrings(append(merged.SensitiveResources, incoming.SensitiveResources...))
+	merged.Evidence = append(append([]AWSAIAgentRiskEvidence{}, merged.Evidence...), incoming.Evidence...)
+	merged.ImpactedNodes = awsAIAgentRiskImpactedNodes(append(merged.ImpactedNodes, incoming.ImpactedNodes...)...)
+	if merged.Status == "" {
+		merged.Status = incoming.Status
+	}
+	return awsAIAgentRiskFinding(merged)
 }
 
 func filterAWSAIAgentRiskFindings(findings []AWSAIAgentRiskFinding, request AWSAIAgentRiskRequest) ([]AWSAIAgentRiskFinding, map[string]string) {
