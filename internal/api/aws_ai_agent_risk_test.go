@@ -200,20 +200,15 @@ func TestAWSAIAgentRiskDedupesExternalCredentialExposureAcrossSources(t *testing
 		"arn:aws:iam::123456789012:role/support-agent",
 		now,
 		func(r *AWSAIAgentIdentityRecord) {
-			r.ProviderKeyReferences = []AWSAIAgentProviderKeyReference{{
-				ReferenceName: "support-openai-key",
-				ReferenceKind: "secret",
-				Reference:     "arn:aws:secretsmanager:us-east-1:123456789012:secret:support-openai-key",
-				TargetNodeID:  "aws:resource:secrets-manager-secret/support-openai-key",
-				Provider:      "openai",
-				Resolved:      true,
-				Confidence:    0.94,
-				EvidenceRef:   "evidence://agent/support-agent/provider-key",
-			}}
+			r.CredentialReferenceRefs = []string{"OPENAI_API_KEY=secretsmanager:prod/support/openai-key"}
 		},
 	)
+	if len(agent.ProviderKeyReferences) == 0 {
+		t.Fatalf("fixture should derive ProviderKeyReferences from CredentialReferenceRefs: %+v", agent)
+	}
+	ref := agent.ProviderKeyReferences[0]
 	providerFinding := AWSSecretPermissionEquivalenceFinding{
-		FindingID:             "aws-secret-permission-equivalence:agent-provider-key-support-agent-support-openai-key",
+		FindingID:             "aws-secret-permission-equivalence:agent-provider-key-support-agent-openai",
 		CalculationVersion:    awsSecretPermissionEquivalenceVersion,
 		EquivalenceType:       "agent_provider_key_equivalence",
 		Severity:              "high",
@@ -226,20 +221,19 @@ func TestAWSAIAgentRiskDedupesExternalCredentialExposureAcrossSources(t *testing
 		PrincipalARN:          agent.RuntimeRoleARN,
 		AgentID:               agent.AgentID,
 		AgentName:             agent.AgentName,
-		SecretNodeID:          "aws:resource:secrets-manager-secret/support-openai-key",
-		SecretARN:             "arn:aws:secretsmanager:us-east-1:123456789012:secret:support-openai-key",
-		SecretLabel:           "support-openai-key",
-		Provider:              "openai",
-		ProviderKeyReference:  "support-openai-key",
+		SecretNodeID:          ref.TargetNodeID,
+		SecretLabel:           ref.ReferenceName,
+		Provider:              ref.Provider,
+		ProviderKeyReference:  ref.ReferenceName,
 		EquivalentPermissions: []string{"read"},
 		SourceSignals:         []string{"secret_permission_equivalence"},
 		Rationale:             "Agent has a provider key reference that can authorize OpenAI API access.",
 		EvidenceBoundary:      awsSecretPermissionEvidenceBoundary(),
-		ImpactedNodes:         []string{agent.RuntimeRoleNodeID, agent.AgentNodeID, "aws:resource:secrets-manager-secret/support-openai-key"},
+		ImpactedNodes:         []string{agent.RuntimeRoleNodeID, agent.AgentNodeID, ref.TargetNodeID},
 		ImpactedPath: []AWSAIAgentRiskPathStep{
 			awsLeastPrivilegePathStep(agent.RuntimeRoleNodeID, "identity", "support-agent-role", agent.AccountID, agent.Region),
 			awsLeastPrivilegePathStep(agent.AgentNodeID, "ai_agent", "support-agent", agent.AccountID, agent.Region),
-			awsLeastPrivilegePathStep("aws:resource:secrets-manager-secret/support-openai-key", "permission_bearing_secret", "support-openai-key", agent.AccountID, agent.Region),
+			awsLeastPrivilegePathStep(ref.TargetNodeID, "permission_bearing_secret", ref.ReferenceName, agent.AccountID, agent.Region),
 		},
 		Evidence:   []AWSSecretPermissionEquivalenceEvidence{{Source: "secret_permission_equivalence", EvidenceRef: "evidence://agent/support-agent/provider-key"}},
 		NextAction: "Rotate or scope the provider key reference and role path.",
@@ -270,6 +264,76 @@ func TestAWSAIAgentRiskDedupesExternalCredentialExposureAcrossSources(t *testing
 	}
 	if len(finding.Evidence) < 2 {
 		t.Fatalf("expected merged evidence from both sources, got %d: %+v", len(finding.Evidence), finding.Evidence)
+	}
+}
+
+func TestAWSAIAgentRiskRuntimeSecretEquivalenceRequiresAgentNode(t *testing.T) {
+	now := time.Date(2026, 6, 23, 9, 14, 0, 0, time.UTC)
+	agent := awsAIAgentFixtureRecord(
+		"123456789012",
+		"us-east-1",
+		"custom_agent",
+		"case-triage",
+		"case-triage",
+		"arn:aws:lambda:us-east-1:123456789012:function:case-triage",
+		"arn:aws:iam::123456789012:role/case-triage",
+		now,
+		nil,
+	)
+	runtimeFinding := AWSSecretPermissionEquivalenceFinding{
+		FindingID:          "aws-secret-permission-equivalence:runtime-case-triage-openai",
+		CalculationVersion: awsSecretPermissionEquivalenceVersion,
+		EquivalenceType:    "runtime_secret_access_equivalence",
+		Severity:           "high",
+		Status:             "review",
+		Score:              78,
+		Confidence:         0.88,
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		IdentityNodeID:     agent.RuntimeRoleNodeID,
+		PrincipalARN:       agent.RuntimeRoleARN,
+		AgentID:            agent.AgentID,
+		SecretNodeID:       "aws:resource:secrets-manager-secret/case-triage-openai",
+		SecretARN:          "arn:aws:secretsmanager:us-east-1:123456789012:secret:case-triage-openai",
+		SecretLabel:        "case-triage-openai",
+		Provider:           "openai",
+		SourceSignals:      []string{"secrets_kms_runtime_access"},
+		EvidenceBoundary:   awsSecretPermissionEvidenceBoundary(),
+		ImpactedPath: []AWSSecretPermissionEquivalencePathStep{
+			awsLeastPrivilegePathStep(agent.RuntimeRoleNodeID, "identity", "case-triage-role", agent.AccountID, agent.Region),
+			awsLeastPrivilegePathStep("aws:resource:secrets-manager-secret/case-triage-openai", "permission_bearing_secret", "case-triage-openai", agent.AccountID, agent.Region),
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	resolved := awsAIAgentRiskFindings(awsAIAgentRiskSources{
+		agents:      AWSAIAgentIdentityInventoryResult{Records: []AWSAIAgentIdentityRecord{agent}},
+		equivalence: AWSSecretPermissionEquivalenceResult{Findings: []AWSSecretPermissionEquivalenceFinding{runtimeFinding}},
+	}, now)
+	var derived *AWSAIAgentRiskFinding
+	for i, finding := range resolved {
+		if finding.RiskType == "external_credential_exposure" {
+			derived = &resolved[i]
+		}
+	}
+	if derived == nil {
+		t.Fatalf("expected external credential finding when agent inventory resolves the runtime AgentID, got %+v", resolved)
+	}
+	if derived.AgentNodeID != agent.AgentNodeID {
+		t.Fatalf("expected AgentNodeID to be the inventory graph node %q, got %q", agent.AgentNodeID, derived.AgentNodeID)
+	}
+	if derived.AgentNodeID == runtimeFinding.AgentID {
+		t.Fatalf("AgentNodeID must not be the raw runtime AgentID string %q", runtimeFinding.AgentID)
+	}
+
+	orphaned := awsAIAgentRiskFindings(awsAIAgentRiskSources{
+		equivalence: AWSSecretPermissionEquivalenceResult{Findings: []AWSSecretPermissionEquivalenceFinding{runtimeFinding}},
+	}, now)
+	for _, finding := range orphaned {
+		if finding.RiskType == "external_credential_exposure" {
+			t.Fatalf("expected runtime secret-equivalence without an ai_agent path or inventory match to be suppressed, got %+v", finding)
+		}
 	}
 }
 

@@ -16,9 +16,10 @@ The engine emits `AWSAIAgentRiskFinding` records for these risk types:
   degraded ownership coverage.
 - **`external_credential_exposure`** - an agent references external provider
   credential metadata or secret-permission equivalence evidence.
-- **`undeclared_tool_runtime`**, **`backing_role_mismatch`**, and
-  **`declared_unused_tool`** - runtime/tool-call correlation found an
-  undeclared tool, role drift, or declared-but-unused tool surface.
+- **`undeclared_tool_runtime`**, **`backing_role_mismatch`**,
+  **`declared_unused_tool`**, and **`runtime_tool_anomaly`** -
+  runtime/tool-call correlation found an undeclared tool, role drift,
+  a declared-but-unused tool surface, or another runtime caveat.
 - **`backing_role_scope`** - least-privilege analysis found removable or
   review-required scope on the agent backing role.
 

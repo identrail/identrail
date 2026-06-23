@@ -4982,7 +4982,7 @@ paths:
           name: risk_type
           schema:
             type: string
-            enum: [broad_tool_access, sensitive_data_reachability, ownerless_agent, external_credential_exposure, undeclared_tool_runtime, backing_role_mismatch, declared_unused_tool, backing_role_scope]
+            enum: [broad_tool_access, sensitive_data_reachability, ownerless_agent, external_credential_exposure, undeclared_tool_runtime, backing_role_mismatch, declared_unused_tool, backing_role_scope, runtime_tool_anomaly]
         - in: query
           name: severity
           schema:

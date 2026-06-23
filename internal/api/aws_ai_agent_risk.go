@@ -255,6 +255,7 @@ func (s *Service) awsAIAgentRiskSourceSignals(ctx context.Context, workspaceID, 
 func awsAIAgentRiskFindings(sources awsAIAgentRiskSources, now time.Time) []AWSAIAgentRiskFinding {
 	findings := []AWSAIAgentRiskFinding{}
 	agentsByRuntimeRole := map[string][]AWSAIAgentIdentityRecord{}
+	agentNodeByID := map[string]string{}
 	for _, agent := range sources.agents.Records {
 		for _, roleKey := range []string{agent.RuntimeRoleNodeID, awsIdentityNodeIDForAPI(agent.RuntimeRoleARN)} {
 			normalizedRoleKey := strings.ToLower(strings.TrimSpace(roleKey))
@@ -262,6 +263,15 @@ func awsAIAgentRiskFindings(sources awsAIAgentRiskSources, now time.Time) []AWSA
 				continue
 			}
 			agentsByRuntimeRole[normalizedRoleKey] = appendAWSAIAgentRiskRoleAgent(agentsByRuntimeRole[normalizedRoleKey], agent)
+		}
+		for _, agentKey := range []string{agent.AgentID, agent.AgentARN, agent.AgentNodeID} {
+			normalizedAgentKey := strings.ToLower(strings.TrimSpace(agentKey))
+			if normalizedAgentKey == "" || agent.AgentNodeID == "" {
+				continue
+			}
+			if _, ok := agentNodeByID[normalizedAgentKey]; !ok {
+				agentNodeByID[normalizedAgentKey] = agent.AgentNodeID
+			}
 		}
 		findings = append(findings, awsAIAgentRiskFindingsFromAgent(agent, now)...)
 	}
@@ -271,7 +281,7 @@ func awsAIAgentRiskFindings(sources awsAIAgentRiskSources, now time.Time) []AWSA
 		}
 	}
 	for _, finding := range sources.equivalence.Findings {
-		if derived, ok := awsAIAgentRiskFindingFromSecretEquivalence(finding, now); ok {
+		if derived, ok := awsAIAgentRiskFindingFromSecretEquivalence(finding, agentNodeByID, now); ok {
 			findings = append(findings, derived)
 		}
 	}
@@ -503,12 +513,18 @@ func awsAIAgentRiskFindingFromRuntime(record AWSAgentRuntimeAccessRecord, now ti
 	}), true
 }
 
-func awsAIAgentRiskFindingFromSecretEquivalence(finding AWSSecretPermissionEquivalenceFinding, now time.Time) (AWSAIAgentRiskFinding, bool) {
+func awsAIAgentRiskFindingFromSecretEquivalence(finding AWSSecretPermissionEquivalenceFinding, agentNodeByID map[string]string, now time.Time) (AWSAIAgentRiskFinding, bool) {
 	if strings.TrimSpace(finding.AgentID) == "" && !strings.Contains(finding.EquivalenceType, "agent") {
 		return AWSAIAgentRiskFinding{}, false
 	}
 	score := clampBlastRadiusScore(finding.Score + 4)
-	agentNode := firstNonEmptyAWSValue(awsAIAgentRiskAgentNodeFromPath(finding.ImpactedPath), finding.AgentID, finding.IdentityNodeID)
+	agentNode := awsAIAgentRiskAgentNodeFromPath(finding.ImpactedPath)
+	if agentNode == "" {
+		agentNode = awsAIAgentRiskResolveAgentNode(finding.AgentID, agentNodeByID)
+	}
+	if agentNode == "" {
+		return AWSAIAgentRiskFinding{}, false
+	}
 	secretRef := firstNonEmptyAWSValue(finding.SecretNodeID, finding.SecretARN, firstString(finding.ImpactedNodes), finding.IdentityNodeID)
 	return awsAIAgentRiskFinding(AWSAIAgentRiskFinding{
 		FindingID:          "aws-ai-agent-risk:" + stableAWSBlastRadiusToken("external-credential-exposure", agentNode, finding.Provider, secretRef),
@@ -975,6 +991,14 @@ func awsAIAgentRiskAgentNodeFromPath(path []AWSSecretPermissionEquivalencePathSt
 		}
 	}
 	return ""
+}
+
+func awsAIAgentRiskResolveAgentNode(agentID string, agentNodeByID map[string]string) string {
+	key := strings.ToLower(strings.TrimSpace(agentID))
+	if key == "" {
+		return ""
+	}
+	return agentNodeByID[key]
 }
 
 func awsAIAgentRiskEvidenceBoundary() string {
