@@ -458,7 +458,7 @@ func awsAIAgentRiskFindingsFromAgent(agent AWSAIAgentIdentityRecord, now time.Ti
 }
 
 func awsAIAgentRiskFindingFromRuntime(record AWSAgentRuntimeAccessRecord, now time.Time) (AWSAIAgentRiskFinding, bool) {
-	if record.Status == "confirmed" && !awsStringSliceContains(record.Caveats, "observed_backing_role_differs_from_declared") && !awsStringSliceContains(record.Caveats, "observed_tool_call_failed") {
+	if record.Status == "confirmed" && len(normalizeStringList(record.Caveats)) == 0 {
 		return AWSAIAgentRiskFinding{}, false
 	}
 	riskType := "runtime_tool_anomaly"
@@ -524,7 +524,8 @@ func awsAIAgentRiskFindingFromSecretEquivalence(finding AWSSecretPermissionEquiv
 		return AWSAIAgentRiskFinding{}, false
 	}
 	score := clampBlastRadiusScore(finding.Score + 4)
-	agentNode := awsAIAgentRiskAgentNodeFromPath(finding.ImpactedPath)
+	pathAgentNode := awsAIAgentRiskAgentNodeFromPath(finding.ImpactedPath)
+	agentNode := pathAgentNode
 	if agentNode == "" {
 		agentNode = awsAIAgentRiskResolveAgentNode(finding.AgentID, agentNodeByID)
 	}
@@ -532,6 +533,10 @@ func awsAIAgentRiskFindingFromSecretEquivalence(finding AWSSecretPermissionEquiv
 		return AWSAIAgentRiskFinding{}, false
 	}
 	secretRef := firstNonEmptyAWSValue(finding.SecretNodeID, finding.SecretARN, firstString(finding.ImpactedNodes), finding.IdentityNodeID)
+	impactedPath := finding.ImpactedPath
+	if pathAgentNode == "" {
+		impactedPath = append([]AWSAIAgentRiskPathStep{awsLeastPrivilegePathStep(agentNode, "ai_agent", firstNonEmptyAWSValue(finding.AgentName, finding.AgentID), finding.AccountID, finding.Region)}, impactedPath...)
+	}
 	return awsAIAgentRiskFinding(AWSAIAgentRiskFinding{
 		FindingID:          "aws-ai-agent-risk:" + stableAWSBlastRadiusToken("external-credential-exposure", agentNode, finding.Provider, secretRef),
 		CalculationVersion: awsAIAgentRiskVersion,
@@ -553,7 +558,7 @@ func awsAIAgentRiskFindingFromSecretEquivalence(finding AWSSecretPermissionEquiv
 		Rationale:          finding.Rationale,
 		EvidenceBoundary:   awsAIAgentRiskEvidenceBoundary(),
 		ImpactedNodes:      awsAIAgentRiskImpactedNodes(append([]string{agentNode, finding.IdentityNodeID, finding.SecretNodeID}, finding.ImpactedNodes...)...),
-		ImpactedPath:       finding.ImpactedPath,
+		ImpactedPath:       impactedPath,
 		Evidence:           finding.Evidence,
 		NextAction:         finding.NextAction,
 		CreatedAt:          now,
