@@ -3200,6 +3200,94 @@ describe('Domain-first app routes', () => {
     vi.spyOn(api.apiClient, 'getAWSProjectAgentRuntimeAccess').mockResolvedValue({
       correlation: { status: 'degraded', records: [], summary: {}, caveats: [], failure_reasons: [], remediation_hints: [] } as any
     });
+    const getAIAgentRisk = vi.spyOn(api.apiClient, 'getAWSProjectAIAgentRisk').mockResolvedValue({
+      findings: {
+        status: 'ready',
+        findings: [
+          {
+            finding_id: 'aws-ai-agent-risk:support-provider-key',
+            calculation_version: 'aws-ai-agent-risk-engine-v1',
+            risk_type: 'external_credential_exposure',
+            severity: 'high',
+            status: 'review',
+            score: 86,
+            confidence: 0.9,
+            account_id: '123456789012',
+            region: 'us-east-1',
+            agent_node_id: 'aws:agent:external-support-agent',
+            agent_id: 'external-support-agent',
+            agent_name: 'support-assistant',
+            agent_type: 'external_provider_agent',
+            runtime_role_arn: 'arn:aws:iam::123456789012:role/ecs-support-agent-task',
+            runtime_role_node_id: 'aws:identity:arn:aws:iam::123456789012:role/ecs-support-agent-task',
+            provider: 'anthropic',
+            tool_names: ['support-search'],
+            capability_names: ['tool_use'],
+            sensitive_resources: ['aws:resource:credential-reference:support-anthropic-key'],
+            source_signals: ['ai_agent_identities', 'secret_permission_equivalence'],
+            rationale: 'Agent references Anthropic provider credential metadata without exposing the key value.',
+            evidence_boundary: 'metadata_only_no_secret_values_no_prompts_no_completions_no_tool_payloads',
+            impacted_nodes: [
+              'aws:agent:external-support-agent',
+              'aws:identity:arn:aws:iam::123456789012:role/ecs-support-agent-task',
+              'aws:resource:credential-reference:support-anthropic-key'
+            ],
+            impacted_path: [
+              { node_id: 'aws:agent:external-support-agent', node_type: 'ai_agent', label: 'support-assistant' },
+              { node_id: 'aws:identity:arn:aws:iam::123456789012:role/ecs-support-agent-task', node_type: 'runtime_role', label: 'ecs-support-agent-task' },
+              { node_id: 'aws:resource:credential-reference:support-anthropic-key', node_type: 'provider_key_reference', label: 'ANTHROPIC_API_KEY' }
+            ],
+            evidence: [
+              {
+                source: 'ai_agent_identities',
+                evidence_ref: 'evidence://agent/support-assistant/anthropic',
+                label: 'Agent provider-key metadata',
+                confidence: 0.9,
+                observed_at: '2026-06-23T09:00:00Z',
+                relationship: 'references_external_provider_key'
+              }
+            ],
+            next_action: 'Rotate or scope the external provider credential and restrict every AWS identity that can read its reference.',
+            remediation_case: {
+              case_id: 'aws-ai-agent-risk-preview:support-provider-key',
+              title: 'External credential exposure AI agent risk review',
+              recommended_action: 'Rotate or scope the external provider credential.',
+              approval_required: true,
+              blocking_evidence: ['evidence://agent/support-assistant/anthropic'],
+              impacted_node_count: 3,
+              estimated_risk_drop: 40,
+              breakage_prediction: 'unknown',
+              read_only_projection: true
+            },
+            created_at: '2026-06-23T09:00:00Z',
+            updated_at: '2026-06-23T09:00:00Z'
+          }
+        ],
+        summary: {
+          total_findings: 1,
+          filtered_findings: 1,
+          external_credential_count: 1,
+          broad_tool_access_count: 0,
+          sensitive_reachability_count: 0,
+          ownerless_agent_count: 0,
+          runtime_observed_count: 0,
+          backing_role_scope_count: 0,
+          relationship_count: 1,
+          highest_score: 86,
+          average_confidence_pct: 90,
+          remediation_preview_count: 1,
+          severity_counts: { high: 1 },
+          status_counts: { review: 1 },
+          risk_type_counts: { external_credential_exposure: 1 }
+        },
+        relationships: [],
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
     vi.spyOn(api.apiClient, 'getAWSProjectBlastRadius').mockResolvedValue({
       intelligence: {
         status: 'degraded',
@@ -3509,6 +3597,8 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('heading', { level: 2, name: 'Runtime' })).toBeInTheDocument();
     expect(await screen.findByText(/CloudTrail: GetObject/i)).toBeInTheDocument();
     expect(await screen.findByText(/Access Analyzer: Finding/i)).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS AI agent risk findings' })).toBeInTheDocument();
+    expect(screen.getAllByText(/External credential exposure/i).length).toBeGreaterThan(0);
     expect(await screen.findByRole('table', { name: 'AWS least privilege recommendations' })).toBeInTheDocument();
     expect(screen.getByText(/Remove secretsmanager:GetSecretValue/i)).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS unused and dormant access findings' })).toBeInTheDocument();
@@ -3523,6 +3613,12 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('table', { name: 'AWS secret-to-permission equivalence findings' })).toBeInTheDocument();
     expect(screen.getByText(/Agent provider key equivalence/i)).toBeInTheDocument();
     expect(getLeastPrivilege).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getAIAgentRisk).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       expect.objectContaining({ connectorID: 'aws-connector-1' }),

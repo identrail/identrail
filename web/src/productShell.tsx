@@ -55,6 +55,8 @@ import {
   type AWSS3RuntimeAccessResult,
   type AWSAgentRuntimeAccessRecord,
   type AWSAgentRuntimeAccessResult,
+  type AWSAIAgentRiskFinding,
+  type AWSAIAgentRiskResult,
   type AWSBlastRadiusFinding,
   type AWSBlastRadiusResult,
   type AWSLeastPrivilegeRecommendation,
@@ -10469,6 +10471,113 @@ function AWSAgentRuntimeAccessContent({
   );
 }
 
+function awsAIAgentRiskStage(finding: AWSAIAgentRiskFinding): AWSCapabilityStage {
+  if (finding.status === 'action_required' || finding.severity === 'critical') {
+    return 'not-available';
+  }
+  if (finding.severity === 'high') {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsAIAgentRiskLabel(finding: AWSAIAgentRiskFinding): string {
+  return `${formatTokenLabel(finding.risk_type)} · score ${finding.score}`;
+}
+
+function awsAIAgentRiskEvidenceLabel(finding: AWSAIAgentRiskFinding): string {
+  const sources = finding.evidence.map((evidence) => evidence.label || formatTokenLabel(evidence.source));
+  return `${formatConfidenceScore(finding.confidence)} · ${sources.join(', ') || 'No evidence refs'}`;
+}
+
+function awsAIAgentRiskScopeLabel(finding: AWSAIAgentRiskFinding): string {
+  const tools = finding.tool_names ?? [];
+  const sensitive = finding.sensitive_resources ?? [];
+  if (tools.length > 0) {
+    return `${tools.slice(0, 3).join(', ')}${tools.length > 3 ? ` +${tools.length - 3}` : ''}`;
+  }
+  if (sensitive.length > 0) {
+    return `${sensitive.slice(0, 2).join(', ')}${sensitive.length > 2 ? ` +${sensitive.length - 2}` : ''}`;
+  }
+  return finding.provider || '-';
+}
+
+function AWSAIAgentRiskContent({
+  findings,
+  loading,
+  error,
+  onRetry
+}: {
+  findings: AWSAIAgentRiskResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = findings?.findings ?? [];
+  const summaryLine = findings
+    ? `${findings.summary.external_credential_count} credential · ${findings.summary.broad_tool_access_count} broad-tool · ${findings.summary.sensitive_reachability_count} sensitive · ${findings.summary.runtime_observed_count} runtime-backed`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS AI agent risk findings">
+      <h3>AWS AI agent risk engine</h3>
+      <p className="idt-app-kicker">
+        Ranked agent risk findings from tool access, external credential exposure, runtime calls, sensitive capabilities,
+        and backing-role scope. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load AI agent risk findings"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Calculating AI agent risk"
+          body="Identrail is ranking metadata-only agent inventory, runtime, credential, and role-scope evidence."
+        />
+      ) : null}
+      {!error && !loading && findings && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={findings.status === 'blocked' ? 'Permission required' : 'No agent risk findings'}
+          title={findings.status === 'blocked' ? 'AI agent risk needs read-only evidence access' : 'No AI agent risks detected'}
+          body={findings.failure_reasons[0] ?? 'No broad tools, external credentials, sensitive capabilities, runtime anomalies, or backing-role scope findings matched this environment.'}
+        />
+      ) : null}
+      {!error && !loading && findings && findings.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {findings.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS AI agent risk findings"
+          rows={rows}
+          getRowKey={(row) => row.finding_id}
+          columns={[
+            { key: 'finding', header: 'Finding', render: (row) => <strong>{awsAIAgentRiskLabel(row)}</strong> },
+            { key: 'agent', header: 'Agent', render: (row) => row.agent_name || row.agent_id || row.agent_node_id },
+            { key: 'role', header: 'Backing role', render: (row) => row.runtime_role_arn || row.runtime_role_node_id || '-' },
+            { key: 'scope', header: 'Scope', render: (row) => awsAIAgentRiskScopeLabel(row) },
+            { key: 'evidence', header: 'Evidence', render: (row) => awsAIAgentRiskEvidenceLabel(row) },
+            {
+              key: 'severity',
+              header: 'Severity',
+              render: (row) => (
+                <AWSInventoryPill stage={awsAIAgentRiskStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.status)}`} />
+              )
+            },
+            { key: 'next', header: 'Next action', render: (row) => row.next_action }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsBlastRadiusSeverityStage(severity: string): AWSCapabilityStage {
   switch (severity) {
     case 'critical':
@@ -11908,6 +12017,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [agentRuntimeAccessLoading, setAgentRuntimeAccessLoading] = useState(false);
   const [agentRuntimeAccessError, setAgentRuntimeAccessError] = useState('');
   const agentRuntimeAccessRequestRef = useRef(0);
+  const [aiAgentRisk, setAIAgentRisk] = useState<AWSAIAgentRiskResult | null>(null);
+  const [aiAgentRiskLoading, setAIAgentRiskLoading] = useState(false);
+  const [aiAgentRiskError, setAIAgentRiskError] = useState('');
+  const aiAgentRiskRequestRef = useRef(0);
   const [blastRadius, setBlastRadius] = useState<AWSBlastRadiusResult | null>(null);
   const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
   const [blastRadiusError, setBlastRadiusError] = useState('');
@@ -12144,6 +12257,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       agentRuntimeAccessRequestRef.current += 1;
     };
   }, [loadAgentRuntimeAccess]);
+
+  const loadAIAgentRisk = useCallback(async () => {
+    const requestID = ++aiAgentRiskRequestRef.current;
+    setAIAgentRisk(null);
+    setAIAgentRiskError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setAIAgentRiskLoading(false);
+      return;
+    }
+    setAIAgentRiskLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectAIAgentRisk(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== aiAgentRiskRequestRef.current) {
+        return;
+      }
+      setAIAgentRisk(response.findings);
+    } catch (error) {
+      if (requestID !== aiAgentRiskRequestRef.current) {
+        return;
+      }
+      setAIAgentRiskError(formatAPIError(error, 'Unable to load AWS AI agent risk findings.'));
+    } finally {
+      if (requestID === aiAgentRiskRequestRef.current) {
+        setAIAgentRiskLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadAIAgentRisk();
+    return () => {
+      aiAgentRiskRequestRef.current += 1;
+    };
+  }, [loadAIAgentRisk]);
 
   const loadBlastRadius = useCallback(async () => {
     const requestID = ++blastRadiusRequestRef.current;
@@ -12607,6 +12768,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={agentRuntimeAccessLoading}
             error={agentRuntimeAccessError}
             onRetry={loadAgentRuntimeAccess}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSAIAgentRiskContent
+            findings={aiAgentRisk}
+            loading={aiAgentRiskLoading}
+            error={aiAgentRiskError}
+            onRetry={loadAIAgentRisk}
           />
         ) : null}
         {routeID === 'runtime' ? (

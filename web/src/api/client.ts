@@ -2700,6 +2700,112 @@ export type AWSAgentRuntimeAccessQuery = {
   status?: string;
 };
 
+export type AWSAIAgentRiskStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSAIAgentRiskFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSAIAgentRiskSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
+export type AWSAIAgentRiskFindingStatus = 'action_required' | 'review' | 'monitor' | string;
+
+export type AWSAIAgentRiskRelationship = {
+  finding_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref: string;
+};
+
+export type AWSAIAgentRiskFinding = {
+  finding_id: string;
+  calculation_version: string;
+  risk_type: string;
+  severity: AWSAIAgentRiskSeverity;
+  status: AWSAIAgentRiskFindingStatus;
+  score: number;
+  confidence: number;
+  account_id: string;
+  region: string;
+  agent_node_id: string;
+  agent_id?: string;
+  agent_name?: string;
+  agent_type?: string;
+  runtime_role_arn?: string;
+  runtime_role_node_id?: string;
+  provider?: string;
+  tool_names?: string[];
+  capability_names?: string[];
+  sensitive_resources?: string[];
+  source_signals: string[];
+  rationale: string;
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  next_action: string;
+  remediation_case: AWSLeastPrivilegeRemediationCasePreview;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSAIAgentRiskSummary = {
+  total_findings: number;
+  filtered_findings: number;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  risk_type_counts: Record<string, number>;
+  external_credential_count: number;
+  broad_tool_access_count: number;
+  sensitive_reachability_count: number;
+  ownerless_agent_count: number;
+  runtime_observed_count: number;
+  backing_role_scope_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+  remediation_preview_count: number;
+};
+
+export type AWSAIAgentRiskResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSAIAgentRiskStatus;
+  fixture_state?: AWSAIAgentRiskFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSAIAgentRiskSummary;
+  findings: AWSAIAgentRiskFinding[];
+  relationships: AWSAIAgentRiskRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSAIAgentRiskQuery = {
+  connectorID?: string;
+  fixtureState?: AWSAIAgentRiskFixtureState;
+  accountID?: string;
+  region?: string;
+  agentID?: string;
+  riskType?: string;
+  severity?: string;
+  status?: string;
+  evidence?: string;
+  search?: string;
+};
+
 export type AWSBlastRadiusStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBlastRadiusFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSBlastRadiusSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
@@ -6787,6 +6893,28 @@ export const apiClient = {
         resource: query?.resource,
         outcome: query?.outcome,
         status: query?.status
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectAIAgentRisk(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSAIAgentRiskQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ findings: AWSAIAgentRiskResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/ai-agent-risk${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        agent_id: query?.agentID,
+        risk_type: query?.riskType,
+        severity: query?.severity,
+        status: query?.status,
+        evidence: query?.evidence,
+        search: query?.search
       })}`,
       auth
     );

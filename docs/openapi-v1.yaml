@@ -569,6 +569,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/ai-agent-risk
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/blast-radius
     action: tenancy.read
     resource_type: project
@@ -4925,6 +4930,89 @@ paths:
                     $ref: "#/components/schemas/AWSAgentRuntimeAccessResult"
         "400":
           description: Invalid AWS agent runtime access request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/ai-agent-risk:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS AI agent risk findings
+      operationId: getAWSProjectAIAgentRisk
+      description: Calculates ranked, explainable AWS AI agent risk findings by composing metadata-only AI agent inventory, runtime/tool-call correlation, secret-permission equivalence, and least-privilege backing-role evidence. Findings carry stable IDs, calculation version, severity, confidence, rationale, impacted graph path, evidence refs, source signals, and read-only remediation previews. Secret values, prompts, completions, tool payloads, browser pages, code-interpreter output, database rows, object contents, and customer payloads are never read or returned.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope account, region, and read-only evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: agent_id
+          schema: { type: string }
+          description: Optional agent id, name, node id, or backing-role search.
+        - in: query
+          name: risk_type
+          schema:
+            type: string
+            enum: [broad_tool_access, sensitive_data_reachability, ownerless_agent, external_credential_exposure, undeclared_tool_runtime, backing_role_mismatch, declared_unused_tool, backing_role_scope]
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [action_required, review, monitor]
+        - in: query
+          name: evidence
+          schema: { type: string }
+          description: Optional evidence filter such as runtime-backed, inventory-backed, secret-backed, or evidence text search.
+        - in: query
+          name: search
+          schema: { type: string }
+          description: Optional free-text search across agent, role, provider, resource, evidence, and rationale fields.
+      responses:
+        "200":
+          description: AWS AI agent risk finding contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  findings:
+                    type: object
+        "400":
+          description: Invalid AWS AI agent risk request
           content:
             application/json:
               schema:
