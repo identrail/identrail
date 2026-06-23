@@ -272,6 +272,41 @@ func TestAWSRemediationCaseBackingRoleAnchorsOnRole(t *testing.T) {
 	}
 }
 
+func TestAWSRemediationCaseReachesApprovedWhenApprovalNotRequired(t *testing.T) {
+	now := time.Date(2026, 6, 23, 10, 35, 0, 0, time.UTC)
+	ready := AWSLeastPrivilegeRecommendation{
+		RecommendationID:   "least-priv:ready-medium",
+		CalculationVersion: "aws-least-privilege-v1",
+		Decision:           "remove",
+		Severity:           "medium",
+		Status:             "action_required",
+		Score:              68,
+		Confidence:         0.82,
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		IdentityNodeID:     "aws:identity:arn:aws:iam::123456789012:role/ready-role",
+		PrincipalARN:       "arn:aws:iam::123456789012:role/ready-role",
+		DisplayName:        "ready-role",
+		RemoveActions:      []string{"s3:DeleteObject"},
+		KeepActions:        []string{"s3:GetObject"},
+		Rationale:          "Observed actions exclude the granted s3:DeleteObject permission.",
+		ImpactedNodes:      []string{"aws:identity:arn:aws:iam::123456789012:role/ready-role"},
+	}
+	c, ok := awsRemediationCaseFromLeastPrivilege(ready, now)
+	if !ok {
+		t.Fatalf("expected ready remove case")
+	}
+	if c.ApprovalRequired {
+		t.Fatalf("medium-severity iam_policy_diff should not require approval (severity=%s diff=%+v)", c.Severity, c.DiffIntent)
+	}
+	if c.ApprovalState != "not_required" {
+		t.Fatalf("expected approval_state=not_required, got %s", c.ApprovalState)
+	}
+	if c.Lifecycle != "approved" {
+		t.Fatalf("executable action_required case with no approval gate should reach approved lifecycle, got %s", c.Lifecycle)
+	}
+}
+
 func TestAWSRemediationCaseLeastPrivilegeReviewStaysInReviewLifecycle(t *testing.T) {
 	now := time.Date(2026, 6, 23, 10, 30, 0, 0, time.UTC)
 	review := AWSLeastPrivilegeRecommendation{

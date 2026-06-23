@@ -748,7 +748,7 @@ func awsRemediationLifecycle(status string, confidence float64, ownerAssigned bo
 		if !ownerAssigned {
 			return "in_review"
 		}
-		if executable && approvalState == "pending_approver" {
+		if executable && (approvalState == "pending_approver" || approvalState == "not_required" || approvalState == "approved") {
 			return "approved"
 		}
 		return "in_review"
