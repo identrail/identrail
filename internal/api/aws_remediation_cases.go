@@ -360,8 +360,13 @@ func awsRemediationCaseFromAIAgentRisk(finding AWSAIAgentRiskFinding, now time.T
 	approvalState := awsRemediationApprovalState(approvalRequired, ownerAssigned, finding.Status)
 	lifecycle := awsRemediationLifecycle(finding.Status, finding.Confidence, ownerAssigned, approvalState)
 	identityType := "ai_agent"
+	identityNodeID := finding.AgentNodeID
+	identityARN := finding.RuntimeRoleARN
+	identityName := firstNonEmptyAWSValue(finding.AgentName, finding.AgentID)
 	if strings.HasPrefix(finding.RiskType, "backing_role") {
 		identityType = "iam_role"
+		identityNodeID = firstNonEmptyAWSValue(finding.RuntimeRoleNodeID, awsIdentityNodeIDForAPI(finding.RuntimeRoleARN), finding.AgentNodeID)
+		identityName = firstNonEmptyAWSValue(shortAWSARN(finding.RuntimeRoleARN), finding.RuntimeRoleARN, finding.RuntimeRoleNodeID, finding.AgentName, finding.AgentID)
 	}
 	c := AWSRemediationCase{
 		CaseID:             caseID,
@@ -377,9 +382,9 @@ func awsRemediationCaseFromAIAgentRisk(finding AWSAIAgentRiskFinding, now time.T
 		Summary:            finding.Rationale,
 		AccountID:          finding.AccountID,
 		Region:             finding.Region,
-		IdentityNodeID:     finding.AgentNodeID,
-		IdentityARN:        firstNonEmptyAWSValue(finding.RuntimeRoleARN),
-		IdentityName:       firstNonEmptyAWSValue(finding.AgentName, finding.AgentID),
+		IdentityNodeID:     identityNodeID,
+		IdentityARN:        identityARN,
+		IdentityName:       identityName,
 		IdentityType:       identityType,
 		Provider:           finding.Provider,
 		ResourceNodeIDs:    awsRemediationResourceNodes(finding.SensitiveResources, finding.ImpactedNodes, finding.AgentNodeID, finding.RuntimeRoleNodeID),

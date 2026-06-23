@@ -233,6 +233,45 @@ func TestAWSRemediationCaseDerivesLifecycleAndApproval(t *testing.T) {
 	}
 }
 
+func TestAWSRemediationCaseBackingRoleAnchorsOnRole(t *testing.T) {
+	now := time.Date(2026, 6, 23, 10, 12, 0, 0, time.UTC)
+	backingRole := AWSAIAgentRiskFinding{
+		FindingID:         "aws-ai-agent-risk:backing-role-scope-test",
+		RiskType:          "backing_role_scope",
+		Severity:          "high",
+		Status:            "review",
+		Score:             80,
+		Confidence:        0.86,
+		AccountID:         "123456789012",
+		Region:            "us-east-1",
+		AgentNodeID:       "aws:agent:123456789012:us-east-1:custom_agent/payments-agent",
+		AgentID:           "payments-agent",
+		AgentName:         "payments-agent",
+		AgentType:         "custom_agent",
+		RuntimeRoleARN:    "arn:aws:iam::123456789012:role/payments-agent-task",
+		RuntimeRoleNodeID: "aws:identity:arn:aws:iam::123456789012:role/payments-agent-task",
+		SourceSignals:     []string{"least_privilege"},
+		Rationale:         "Backing role for payments-agent has removable least-privilege scope.",
+		EvidenceBoundary:  awsAIAgentRiskEvidenceBoundary(),
+	}
+	c, ok := awsRemediationCaseFromAIAgentRisk(backingRole, now)
+	if !ok {
+		t.Fatalf("expected backing-role case to be emitted")
+	}
+	if c.IdentityType != "iam_role" {
+		t.Fatalf("expected iam_role identity type, got %s", c.IdentityType)
+	}
+	if c.IdentityNodeID != backingRole.RuntimeRoleNodeID {
+		t.Fatalf("backing-role case must anchor identity_node_id on the role, got %q (want %q)", c.IdentityNodeID, backingRole.RuntimeRoleNodeID)
+	}
+	if c.IdentityARN != backingRole.RuntimeRoleARN {
+		t.Fatalf("backing-role case must anchor identity_arn on the role ARN, got %q (want %q)", c.IdentityARN, backingRole.RuntimeRoleARN)
+	}
+	if strings.Contains(c.IdentityName, "payments-agent") && c.IdentityName == backingRole.AgentName {
+		t.Fatalf("backing-role case identity_name must surface the role, not the agent name, got %q", c.IdentityName)
+	}
+}
+
 func TestAWSRemediationCaseDedupesAcrossSources(t *testing.T) {
 	now := time.Date(2026, 6, 23, 10, 15, 0, 0, time.UTC)
 	base := AWSRemediationCase{
