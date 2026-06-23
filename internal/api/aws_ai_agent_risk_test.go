@@ -133,6 +133,61 @@ func TestAWSAIAgentRiskIdentifiesOwnerlessAgent(t *testing.T) {
 	}
 }
 
+func TestAWSAIAgentRiskFansOutBackingRoleScopeForSharedRoleAgents(t *testing.T) {
+	now := time.Date(2026, 6, 23, 9, 12, 0, 0, time.UTC)
+	roleARN := "arn:aws:iam::123456789012:role/shared-agent-runtime"
+	agentA := awsAIAgentFixtureRecord("123456789012", "us-east-1", "custom_agent", "support-agent", "support-agent", "arn:aws:lambda:us-east-1:123456789012:function:support-agent", roleARN, now, nil)
+	agentB := awsAIAgentFixtureRecord("123456789012", "us-east-1", "custom_agent", "billing-agent", "billing-agent", "arn:aws:lambda:us-east-1:123456789012:function:billing-agent", roleARN, now, nil)
+	recommendation := AWSLeastPrivilegeRecommendation{
+		RecommendationID:   "aws-least-privilege:shared-runtime-role",
+		CalculationVersion: awsLeastPrivilegeVersion,
+		RecommendationType: "static_grant_unused",
+		Decision:           "review",
+		Severity:           "high",
+		Status:             "review",
+		Score:              78,
+		Confidence:         0.88,
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		Service:            "secretsmanager",
+		IdentityNodeID:     awsIdentityNodeIDForAPI(roleARN),
+		ResourceNodeID:     "aws:resource:secrets-manager-secret/shared-provider-key",
+		ResourceARN:        "arn:aws:secretsmanager:us-east-1:123456789012:secret:shared-provider-key",
+		DisplayName:        "shared-provider-key",
+		Rationale:          "Shared runtime role can read a provider key.",
+		ImpactedNodes:      []string{awsIdentityNodeIDForAPI(roleARN), "aws:resource:secrets-manager-secret/shared-provider-key"},
+		ImpactedPath: []AWSLeastPrivilegePathStep{
+			awsLeastPrivilegePathStep(awsIdentityNodeIDForAPI(roleARN), "identity", "shared-agent-runtime", "123456789012", "us-east-1"),
+			awsLeastPrivilegePathStep("aws:resource:secrets-manager-secret/shared-provider-key", "secret", "shared-provider-key", "123456789012", "us-east-1"),
+		},
+		Evidence: []AWSLeastPrivilegeEvidence{{
+			Source:      "least_privilege",
+			EvidenceRef: "evidence://least-privilege/shared-runtime-role",
+			Label:       "Least-privilege role-scope decision",
+			Confidence:  0.88,
+			ObservedAt:  now,
+		}},
+		NextAction: "Review the shared role before removing access.",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+
+	findings := awsAIAgentRiskFindings(awsAIAgentRiskSources{
+		agents: AWSAIAgentIdentityInventoryResult{Records: []AWSAIAgentIdentityRecord{agentA, agentB}},
+		least:  AWSLeastPrivilegeResult{Recommendations: []AWSLeastPrivilegeRecommendation{recommendation}},
+	}, now)
+
+	backingRoleScopeByAgent := map[string]bool{}
+	for _, finding := range findings {
+		if finding.RiskType == "backing_role_scope" {
+			backingRoleScopeByAgent[finding.AgentID] = true
+		}
+	}
+	if !backingRoleScopeByAgent["support-agent"] || !backingRoleScopeByAgent["billing-agent"] {
+		t.Fatalf("expected backing role scope finding for each shared-role agent, got %+v", backingRoleScopeByAgent)
+	}
+}
+
 func TestGetAWSAIAgentRiskFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 23, 9, 15, 0, 0, time.UTC)
 	svc, ws := newAIAgentRiskService(t, "project-ai-agent-risk-states", now)

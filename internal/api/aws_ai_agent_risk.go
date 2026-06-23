@@ -254,10 +254,15 @@ func (s *Service) awsAIAgentRiskSourceSignals(ctx context.Context, workspaceID, 
 
 func awsAIAgentRiskFindings(sources awsAIAgentRiskSources, now time.Time) []AWSAIAgentRiskFinding {
 	findings := []AWSAIAgentRiskFinding{}
-	agentByRuntimeRole := map[string]AWSAIAgentIdentityRecord{}
+	agentsByRuntimeRole := map[string][]AWSAIAgentIdentityRecord{}
 	for _, agent := range sources.agents.Records {
-		agentByRuntimeRole[strings.ToLower(strings.TrimSpace(agent.RuntimeRoleNodeID))] = agent
-		agentByRuntimeRole[strings.ToLower(strings.TrimSpace(awsIdentityNodeIDForAPI(agent.RuntimeRoleARN)))] = agent
+		for _, roleKey := range []string{agent.RuntimeRoleNodeID, awsIdentityNodeIDForAPI(agent.RuntimeRoleARN)} {
+			normalizedRoleKey := strings.ToLower(strings.TrimSpace(roleKey))
+			if normalizedRoleKey == "" {
+				continue
+			}
+			agentsByRuntimeRole[normalizedRoleKey] = appendAWSAIAgentRiskRoleAgent(agentsByRuntimeRole[normalizedRoleKey], agent)
+		}
 		findings = append(findings, awsAIAgentRiskFindingsFromAgent(agent, now)...)
 	}
 	for _, record := range sources.runtime.Records {
@@ -271,11 +276,19 @@ func awsAIAgentRiskFindings(sources awsAIAgentRiskSources, now time.Time) []AWSA
 		}
 	}
 	for _, recommendation := range sources.least.Recommendations {
-		if derived, ok := awsAIAgentRiskFindingFromLeastPrivilege(recommendation, agentByRuntimeRole, now); ok {
-			findings = append(findings, derived)
-		}
+		findings = append(findings, awsAIAgentRiskFindingsFromLeastPrivilege(recommendation, agentsByRuntimeRole, now)...)
 	}
 	return awsAIAgentRiskDedupeFindings(findings)
+}
+
+func appendAWSAIAgentRiskRoleAgent(agents []AWSAIAgentIdentityRecord, candidate AWSAIAgentIdentityRecord) []AWSAIAgentIdentityRecord {
+	candidateKey := firstNonEmptyAWSValue(candidate.AgentNodeID, candidate.AgentID, candidate.AgentARN)
+	for _, agent := range agents {
+		if firstNonEmptyAWSValue(agent.AgentNodeID, agent.AgentID, agent.AgentARN) == candidateKey {
+			return agents
+		}
+	}
+	return append(agents, candidate)
 }
 
 func awsAIAgentRiskFindingsFromAgent(agent AWSAIAgentIdentityRecord, now time.Time) []AWSAIAgentRiskFinding {
@@ -524,45 +537,49 @@ func awsAIAgentRiskFindingFromSecretEquivalence(finding AWSSecretPermissionEquiv
 	}), true
 }
 
-func awsAIAgentRiskFindingFromLeastPrivilege(recommendation AWSLeastPrivilegeRecommendation, agents map[string]AWSAIAgentIdentityRecord, now time.Time) (AWSAIAgentRiskFinding, bool) {
-	agent, ok := agents[strings.ToLower(strings.TrimSpace(recommendation.IdentityNodeID))]
-	if !ok {
-		return AWSAIAgentRiskFinding{}, false
-	}
+func awsAIAgentRiskFindingsFromLeastPrivilege(recommendation AWSLeastPrivilegeRecommendation, agents map[string][]AWSAIAgentIdentityRecord, now time.Time) []AWSAIAgentRiskFinding {
 	if recommendation.Decision == "keep" {
-		return AWSAIAgentRiskFinding{}, false
+		return nil
 	}
+	affectedAgents := agents[strings.ToLower(strings.TrimSpace(recommendation.IdentityNodeID))]
+	if len(affectedAgents) == 0 {
+		return nil
+	}
+	findings := make([]AWSAIAgentRiskFinding, 0, len(affectedAgents))
 	score := clampBlastRadiusScore(recommendation.Score + 3)
-	return awsAIAgentRiskFinding(AWSAIAgentRiskFinding{
-		FindingID:          "aws-ai-agent-risk:" + stableAWSBlastRadiusToken("backing-role-scope", recommendation.RecommendationID),
-		CalculationVersion: awsAIAgentRiskVersion,
-		RiskType:           "backing_role_scope",
-		Severity:           awsPrivilegeEscalationSeverity(score),
-		Status:             recommendation.Status,
-		Score:              score,
-		Confidence:         minFloat(recommendation.Confidence, 0.9),
-		AccountID:          recommendation.AccountID,
-		Region:             recommendation.Region,
-		AgentNodeID:        agent.AgentNodeID,
-		AgentID:            agent.AgentID,
-		AgentName:          agent.AgentName,
-		AgentType:          agent.AgentType,
-		RuntimeRoleARN:     agent.RuntimeRoleARN,
-		RuntimeRoleNodeID:  recommendation.IdentityNodeID,
-		Provider:           agent.Provider,
-		ToolNames:          agent.ToolNames,
-		CapabilityNames:    agent.CapabilityNames,
-		SensitiveResources: []string{recommendation.ResourceNodeID, recommendation.ResourceARN},
-		SourceSignals:      []string{"least_privilege"},
-		Rationale:          fmt.Sprintf("The backing role for %s has least-privilege decision=%s for %s; agent risk inherits that role scope.", firstNonEmptyAWSValue(agent.AgentName, agent.AgentID), recommendation.Decision, recommendation.DisplayName),
-		EvidenceBoundary:   awsAIAgentRiskEvidenceBoundary(),
-		ImpactedNodes:      awsAIAgentRiskImpactedNodes(append([]string{agent.AgentNodeID, recommendation.IdentityNodeID, recommendation.ResourceNodeID}, recommendation.ImpactedNodes...)...),
-		ImpactedPath:       append([]AWSAIAgentRiskPathStep{awsLeastPrivilegePathStep(agent.AgentNodeID, "ai_agent", firstNonEmptyAWSValue(agent.AgentName, agent.AgentID), agent.AccountID, agent.Region)}, recommendation.ImpactedPath...),
-		Evidence:           recommendation.Evidence,
-		NextAction:         recommendation.NextAction,
-		CreatedAt:          now,
-		UpdatedAt:          now,
-	}), true
+	for _, agent := range affectedAgents {
+		findings = append(findings, awsAIAgentRiskFinding(AWSAIAgentRiskFinding{
+			FindingID:          "aws-ai-agent-risk:" + stableAWSBlastRadiusToken("backing-role-scope", recommendation.RecommendationID, agent.AgentNodeID),
+			CalculationVersion: awsAIAgentRiskVersion,
+			RiskType:           "backing_role_scope",
+			Severity:           awsPrivilegeEscalationSeverity(score),
+			Status:             recommendation.Status,
+			Score:              score,
+			Confidence:         minFloat(recommendation.Confidence, 0.9),
+			AccountID:          recommendation.AccountID,
+			Region:             recommendation.Region,
+			AgentNodeID:        agent.AgentNodeID,
+			AgentID:            agent.AgentID,
+			AgentName:          agent.AgentName,
+			AgentType:          agent.AgentType,
+			RuntimeRoleARN:     agent.RuntimeRoleARN,
+			RuntimeRoleNodeID:  recommendation.IdentityNodeID,
+			Provider:           agent.Provider,
+			ToolNames:          agent.ToolNames,
+			CapabilityNames:    agent.CapabilityNames,
+			SensitiveResources: []string{recommendation.ResourceNodeID, recommendation.ResourceARN},
+			SourceSignals:      []string{"least_privilege"},
+			Rationale:          fmt.Sprintf("The backing role for %s has least-privilege decision=%s for %s; agent risk inherits that role scope.", firstNonEmptyAWSValue(agent.AgentName, agent.AgentID), recommendation.Decision, recommendation.DisplayName),
+			EvidenceBoundary:   awsAIAgentRiskEvidenceBoundary(),
+			ImpactedNodes:      awsAIAgentRiskImpactedNodes(append([]string{agent.AgentNodeID, recommendation.IdentityNodeID, recommendation.ResourceNodeID}, recommendation.ImpactedNodes...)...),
+			ImpactedPath:       append([]AWSAIAgentRiskPathStep{awsLeastPrivilegePathStep(agent.AgentNodeID, "ai_agent", firstNonEmptyAWSValue(agent.AgentName, agent.AgentID), agent.AccountID, agent.Region)}, recommendation.ImpactedPath...),
+			Evidence:           recommendation.Evidence,
+			NextAction:         recommendation.NextAction,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		}))
+	}
+	return findings
 }
 
 func awsAIAgentRiskFinding(finding AWSAIAgentRiskFinding) AWSAIAgentRiskFinding {
