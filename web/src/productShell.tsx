@@ -19884,7 +19884,12 @@ export function ProductExecutiveReportPage() {
     severity,
     count: report.open_by_severity[severity] ?? 0
   }));
-  const appPath = buildCurrentUserAppPath(me);
+  // "Back to workspace" must return to the workspace whose report is shown.
+  // For a scoped route (/app/:tenantID/:workspaceID/reports) that is the route
+  // scope, which can differ from the user's current/default workspace; only
+  // fall back to the current-user path for the unscoped legacy route.
+  const appPath =
+    tenantID && workspaceID ? buildTenantWorkspacePath(tenantID, workspaceID) : buildCurrentUserAppPath(me);
 
   const totalOpen = report.total_open_findings;
   const sharePct = (count: number) => (totalOpen > 0 ? Math.round((count / totalOpen) * 100) : 0);
