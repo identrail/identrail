@@ -414,12 +414,22 @@ func awsRemediationCaseFromLeastPrivilege(recommendation AWSLeastPrivilegeRecomm
 	}
 	caseID := "aws-remediation-case:" + stableAWSBlastRadiusToken("least-privilege", recommendation.RecommendationID)
 	evidenceRef := firstString(awsRemediationEvidenceRefs(recommendation.Evidence))
+	diffKind := awsRemediationLeastPrivilegeDiffKind(recommendation)
+	noOp := recommendation.Decision != "remove"
+	diffSummary := fmt.Sprintf("Decision=%s on %s; remove %d granted action(s) and keep %d observed action(s).", recommendation.Decision, recommendation.DisplayName, len(recommendation.RemoveActions), len(recommendation.KeepActions))
+	if recommendation.Decision == "review" {
+		diffSummary = fmt.Sprintf("Decision=review on %s; least-privilege evidence is not yet conclusive — manual review required before any diff is projected.", recommendation.DisplayName)
+	}
+	afterRef := "least-privilege://" + recommendation.RecommendationID + "/intended-scope"
+	if recommendation.Decision == "review" {
+		afterRef = ""
+	}
 	diff := AWSRemediationDiffIntent{
-		Kind:               awsRemediationLeastPrivilegeDiffKind(recommendation),
+		Kind:               diffKind,
 		BeforeRef:          evidenceRef,
-		AfterRef:           "least-privilege://" + recommendation.RecommendationID + "/intended-scope",
-		DiffSummary:        fmt.Sprintf("Decision=%s on %s; remove %d granted action(s) and keep %d observed action(s).", recommendation.Decision, recommendation.DisplayName, len(recommendation.RemoveActions), len(recommendation.KeepActions)),
-		NoOp:               recommendation.Decision == "keep",
+		AfterRef:           afterRef,
+		DiffSummary:        diffSummary,
+		NoOp:               noOp,
 		ReadOnlyProjection: true,
 	}
 	approvalRequired := awsRemediationApprovalRequired(recommendation.Severity, diff.Kind)
@@ -654,10 +664,14 @@ func awsRemediationDiffIntentForRiskType(riskType string) AWSRemediationDiffInte
 }
 
 func awsRemediationLeastPrivilegeDiffKind(recommendation AWSLeastPrivilegeRecommendation) string {
-	if recommendation.Decision == "remove" {
+	switch recommendation.Decision {
+	case "remove":
 		return "iam_policy_diff"
+	case "review":
+		return "manual_review"
+	default:
+		return "role_scope_diff"
 	}
-	return "role_scope_diff"
 }
 
 func awsRemediationDiffIntentForEquivalence(finding AWSSecretPermissionEquivalenceFinding) AWSRemediationDiffIntent {
@@ -674,16 +688,23 @@ func awsRemediationDiffIntentForEquivalence(finding AWSSecretPermissionEquivalen
 }
 
 func awsRemediationBlastRadiusDiffKind(riskType string) string {
-	switch riskType {
-	case "cross_account_trust", "cross_account_reach":
+	normalized := normalizeAWSRuntimeEventFilterToken(riskType)
+	if strings.Contains(normalized, "cross-account") {
 		return "iam_trust_diff"
-	case "agent_tool_path", "ai_agent_blast_radius":
-		return "ai_agent_scope_change"
-	case "sensitive_resource_reach":
-		return "role_scope_diff"
-	default:
-		return "iam_policy_diff"
 	}
+	if strings.Contains(normalized, "agent-tool-path") || strings.Contains(normalized, "ai-agent") {
+		return "ai_agent_scope_change"
+	}
+	if strings.Contains(normalized, "kms") {
+		return "kms_grant_diff"
+	}
+	if strings.Contains(normalized, "secret") {
+		return "secret_rotation"
+	}
+	if strings.Contains(normalized, "s3-runtime-access") || strings.Contains(normalized, "sensitive-resource-reach") {
+		return "role_scope_diff"
+	}
+	return "iam_policy_diff"
 }
 
 func awsRemediationApprovalRequired(severity, diffKind string) bool {

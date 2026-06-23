@@ -272,6 +272,65 @@ func TestAWSRemediationCaseBackingRoleAnchorsOnRole(t *testing.T) {
 	}
 }
 
+func TestAWSRemediationCaseLeastPrivilegeReviewIsNonExecutable(t *testing.T) {
+	now := time.Date(2026, 6, 23, 10, 13, 0, 0, time.UTC)
+	review := AWSLeastPrivilegeRecommendation{
+		RecommendationID:   "least-priv:review-pending",
+		CalculationVersion: "aws-least-privilege-v1",
+		Decision:           "review",
+		Severity:           "medium",
+		Status:             "review",
+		Score:              60,
+		Confidence:         0.7,
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		IdentityNodeID:     "aws:identity:arn:aws:iam::123456789012:role/review-role",
+		PrincipalARN:       "arn:aws:iam::123456789012:role/review-role",
+		DisplayName:        "review-role",
+		Rationale:          "Least-privilege evidence is inconclusive; manual review required.",
+		KeepActions:        []string{"s3:GetObject"},
+		ImpactedNodes:      []string{"aws:identity:arn:aws:iam::123456789012:role/review-role"},
+	}
+	c, ok := awsRemediationCaseFromLeastPrivilege(review, now)
+	if !ok {
+		t.Fatalf("expected review case to be emitted")
+	}
+	if c.DiffIntent.Kind != "manual_review" {
+		t.Fatalf("review-decision case must route to manual_review diff kind, got %s", c.DiffIntent.Kind)
+	}
+	if !c.DiffIntent.NoOp {
+		t.Fatalf("review-decision case must be NoOp until the upstream decision is conclusive: %+v", c.DiffIntent)
+	}
+	if c.DiffIntent.AfterRef != "" {
+		t.Fatalf("review-decision case must not project a scoped after_ref, got %q", c.DiffIntent.AfterRef)
+	}
+	if c.RollbackPlan.Strategy != "manual_review" {
+		t.Fatalf("review-decision case must use manual_review rollback, got %s", c.RollbackPlan.Strategy)
+	}
+}
+
+func TestAWSRemediationCaseBlastRadiusDiffKindMatchesEmittedTokens(t *testing.T) {
+	cases := []struct {
+		riskType string
+		want     string
+	}{
+		{"cross-account-secret-runtime-access", "iam_trust_diff"},
+		{"cross-account-s3-runtime-access", "iam_trust_diff"},
+		{"agent-tool-path", "ai_agent_scope_change"},
+		{"undeclared-agent-tool-path", "ai_agent_scope_change"},
+		{"unused-agent-tool-path", "ai_agent_scope_change"},
+		{"agent-tool-path-with-caveats", "ai_agent_scope_change"},
+		{"s3-runtime-access", "role_scope_diff"},
+		{"sensitive-s3-runtime-access", "role_scope_diff"},
+	}
+	for _, tc := range cases {
+		got := awsRemediationBlastRadiusDiffKind(tc.riskType)
+		if got != tc.want {
+			t.Fatalf("awsRemediationBlastRadiusDiffKind(%q) = %q, want %q", tc.riskType, got, tc.want)
+		}
+	}
+}
+
 func TestAWSRemediationCaseDedupesAcrossSources(t *testing.T) {
 	now := time.Date(2026, 6, 23, 10, 15, 0, 0, time.UTC)
 	base := AWSRemediationCase{
