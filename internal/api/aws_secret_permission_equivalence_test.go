@@ -257,6 +257,81 @@ func TestAWSSecretPermissionKMSGrantRespectsCapabilityDeny(t *testing.T) {
 	if finding, ok := awsSecretPermissionFindingFromKMSGrant(key, secret, allow, deny, now); ok {
 		t.Fatalf("expected explicit deny on kms:Decrypt to suppress capability-only KMS finding, got %+v", finding)
 	}
+
+	unrelatedDeny := []AWSKMSIdentityGrant{{
+		PrincipalARN: roleARN,
+		Effect:       "Deny",
+		Actions:      []string{"kms:Encrypt"},
+	}}
+	if _, ok := awsSecretPermissionFindingFromKMSGrant(key, secret, AWSKMSIdentityGrant{
+		PrincipalARN: roleARN,
+		Effect:       "Allow",
+		Actions:      []string{"kms:*"},
+	}, unrelatedDeny, now); !ok {
+		t.Fatalf("expected kms:* allow with an unrelated kms:Encrypt deny to still emit a decrypt-equivalence finding")
+	}
+
+	liveGrant := AWSKMSGrant{
+		GranteePrincipal: roleARN,
+		Operations:       []string{"Decrypt"},
+	}
+	if _, ok := awsSecretPermissionFindingFromKMSLiveGrant(key, secret, liveGrant, unrelatedDeny, now); !ok {
+		t.Fatalf("expected live KMS decrypt grant to survive an unrelated kms:Encrypt deny")
+	}
+	if finding, ok := awsSecretPermissionFindingFromKMSLiveGrant(key, secret, liveGrant, deny, now); ok {
+		t.Fatalf("expected explicit deny on kms:Decrypt to suppress the live KMS grant finding, got %+v", finding)
+	}
+}
+
+func TestAWSSecretPermissionSecretGrantDeniedRequiresAllReadAPIs(t *testing.T) {
+	allowAll := AWSSecretsManagerIdentityGrant{
+		PrincipalARN: "arn:aws:iam::123456789012:role/reader",
+		Effect:       "Allow",
+		Actions:      []string{"secretsmanager:*"},
+	}
+	denyBatchOnly := []AWSSecretsManagerIdentityGrant{{
+		PrincipalARN: "arn:aws:iam::123456789012:role/reader",
+		Effect:       "Deny",
+		Actions:      []string{"secretsmanager:BatchGetSecretValue"},
+	}}
+	if awsSecretPermissionSecretGrantDenied(allowAll, denyBatchOnly) {
+		t.Fatalf("deny on BatchGetSecretValue alone must not suppress a secretsmanager:* allow that still grants GetSecretValue")
+	}
+
+	denyBothReads := append([]AWSSecretsManagerIdentityGrant{}, denyBatchOnly...)
+	denyBothReads = append(denyBothReads, AWSSecretsManagerIdentityGrant{
+		PrincipalARN: "arn:aws:iam::123456789012:role/reader",
+		Effect:       "Deny",
+		Actions:      []string{"secretsmanager:GetSecretValue"},
+	})
+	if !awsSecretPermissionSecretGrantDenied(allowAll, denyBothReads) {
+		t.Fatalf("denying every concrete read API should suppress a wildcard secrets-manager allow")
+	}
+
+	denyWildcard := []AWSSecretsManagerIdentityGrant{{
+		PrincipalARN: "arn:aws:iam::123456789012:role/reader",
+		Effect:       "Deny",
+		Actions:      []string{"secretsmanager:*"},
+	}}
+	if !awsSecretPermissionSecretGrantDenied(allowAll, denyWildcard) {
+		t.Fatalf("wildcard deny should suppress a wildcard allow")
+	}
+
+	narrowAllow := AWSSecretsManagerIdentityGrant{
+		PrincipalARN: "arn:aws:iam::123456789012:role/reader",
+		Effect:       "Allow",
+		Actions:      []string{"secretsmanager:GetSecretValue"},
+	}
+	if awsSecretPermissionSecretGrantDenied(narrowAllow, denyBatchOnly) {
+		t.Fatalf("a deny on a different read API must not suppress a narrow GetSecretValue allow")
+	}
+	if !awsSecretPermissionSecretGrantDenied(narrowAllow, []AWSSecretsManagerIdentityGrant{{
+		PrincipalARN: "arn:aws:iam::123456789012:role/reader",
+		Effect:       "Deny",
+		Actions:      []string{"secretsmanager:GetSecretValue"},
+	}}) {
+		t.Fatalf("a matching deny on GetSecretValue must suppress a narrow GetSecretValue allow")
+	}
 }
 
 func TestAWSSecretPermissionProviderCanonicalizesAWSStoreAliases(t *testing.T) {

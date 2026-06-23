@@ -443,7 +443,7 @@ func awsSecretPermissionFindingFromKMSGrant(key AWSKMSDecryptReachabilityRecord,
 	if !strings.EqualFold(firstNonEmptyAWSValue(grant.Effect, "Allow"), "Allow") {
 		return AWSSecretPermissionEquivalenceFinding{}, false
 	}
-	if awsPrivilegeEscalationKMSIdentityGrantHasExplicitDeny(grant, denyGrants) || !awsSecretPermissionKMSGrantCanDecrypt(grant.Actions, grant.Capabilities) {
+	if awsSecretPermissionKMSDenyBlocksDecrypt(grant.PrincipalARN, grant.WildcardPrincipal, denyGrants) || !awsSecretPermissionKMSGrantCanDecrypt(grant.Actions, grant.Capabilities) {
 		return AWSSecretPermissionEquivalenceFinding{}, false
 	}
 	score := 64
@@ -462,7 +462,7 @@ func awsSecretPermissionFindingFromKMSLiveGrant(key AWSKMSDecryptReachabilityRec
 	if strings.TrimSpace(grant.GranteePrincipal) == "" || !awsSecretPermissionKMSGrantCanDecrypt(grant.Operations, grant.Capabilities) {
 		return AWSSecretPermissionEquivalenceFinding{}, false
 	}
-	if awsPrivilegeEscalationKMSLiveGrantHasExplicitDeny(grant, denyGrants) {
+	if awsSecretPermissionKMSDenyBlocksDecrypt(grant.GranteePrincipal, false, denyGrants) {
 		return AWSSecretPermissionEquivalenceFinding{}, false
 	}
 	score := 66
@@ -1146,12 +1146,101 @@ func awsSecretPermissionKMSDenyGrants(grants []AWSKMSIdentityGrant) []AWSKMSIden
 	return out
 }
 
+// awsSecretPermissionSecretReadAPIs is the closed set of secrets-manager read
+// APIs that, on their own, are sufficient to read a secret value.
+var awsSecretPermissionSecretReadAPIs = []string{
+	"secretsmanager:getsecretvalue",
+	"secretsmanager:batchgetsecretvalue",
+}
+
+// awsSecretPermissionSecretGrantReadAPIs returns the concrete read APIs the
+// grant's action list authorizes. A wildcard or secretsmanager:* grant
+// expands to every read API; a narrower grant only contributes the APIs it
+// actually matches. The returned set is what callers must verify is covered
+// by denies before treating the grant as fully suppressed.
+func awsSecretPermissionSecretGrantReadAPIs(grant AWSSecretsManagerIdentityGrant) []string {
+	allowed := map[string]bool{}
+	for _, raw := range grant.Actions {
+		action := strings.ToLower(strings.TrimSpace(raw))
+		if action == "" {
+			continue
+		}
+		if action == "*" {
+			for _, api := range awsSecretPermissionSecretReadAPIs {
+				allowed[api] = true
+			}
+			continue
+		}
+		for _, api := range awsSecretPermissionSecretReadAPIs {
+			if action == api || awsActionPatternMatches(action, api) {
+				allowed[api] = true
+			}
+		}
+	}
+	if len(allowed) == 0 && len(grant.Actions) == 0 && grant.WildcardPrincipal {
+		for _, api := range awsSecretPermissionSecretReadAPIs {
+			allowed[api] = true
+		}
+	}
+	out := make([]string, 0, len(allowed))
+	for api := range allowed {
+		out = append(out, api)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// awsSecretPermissionSecretGrantDenied returns true only when every read API
+// the allow grant authorizes is denied for the same principal. A deny that
+// only covers BatchGetSecretValue must not suppress a finding when
+// GetSecretValue would still be enough to read the secret.
 func awsSecretPermissionSecretGrantDenied(grant AWSSecretsManagerIdentityGrant, denyGrants []AWSSecretsManagerIdentityGrant) bool {
+	readAPIs := awsSecretPermissionSecretGrantReadAPIs(grant)
+	if len(readAPIs) == 0 {
+		return false
+	}
+	for _, api := range readAPIs {
+		if !awsSecretPermissionAnyDenyCoversSecretAction(grant, denyGrants, api) {
+			return false
+		}
+	}
+	return true
+}
+
+func awsSecretPermissionAnyDenyCoversSecretAction(grant AWSSecretsManagerIdentityGrant, denyGrants []AWSSecretsManagerIdentityGrant, action string) bool {
 	for _, deny := range denyGrants {
 		if !awsPrivilegeEscalationIdentityGrantPrincipalsMatch(grant.PrincipalARN, deny.PrincipalARN, deny.WildcardPrincipal) {
 			continue
 		}
-		if awsPrivilegeEscalationKMSIdentityGrantActionsOverlap(grant.Actions, deny.Actions) {
+		for _, raw := range deny.Actions {
+			da := strings.ToLower(strings.TrimSpace(raw))
+			if da == "" {
+				continue
+			}
+			if da == "*" || da == action || awsActionPatternMatches(da, action) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// awsSecretPermissionKMSDenyBlocksDecrypt returns true only when a deny grant
+// for the same principal denies a decrypt action concretely. A broad allow
+// (kms:*) combined with a deny on an unrelated action (kms:Encrypt) must not
+// suppress the decrypt-equivalence finding because kms:Decrypt remains
+// reachable for the principal.
+func awsSecretPermissionKMSDenyBlocksDecrypt(principalARN string, wildcardPrincipal bool, denyGrants []AWSKMSIdentityGrant) bool {
+	for _, deny := range denyGrants {
+		if !strings.EqualFold(firstNonEmptyAWSValue(deny.Effect, "Deny"), "Deny") {
+			continue
+		}
+		if !awsPrivilegeEscalationIdentityGrantPrincipalsMatch(principalARN, deny.PrincipalARN, deny.WildcardPrincipal) {
+			if !wildcardPrincipal {
+				continue
+			}
+		}
+		if awsSecretPermissionKMSGrantCanDecrypt(deny.Actions, deny.Capabilities) {
 			return true
 		}
 	}
