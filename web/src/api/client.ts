@@ -2806,6 +2806,184 @@ export type AWSAIAgentRiskQuery = {
   search?: string;
 };
 
+export type AWSRemediationCaseStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSRemediationCaseFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSRemediationCaseSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
+export type AWSRemediationCaseLifecycle =
+  | 'proposed'
+  | 'in_review'
+  | 'approved'
+  | 'executed'
+  | 'verified'
+  | 'closed'
+  | 'rolled_back'
+  | string;
+export type AWSRemediationCaseSourceType =
+  | 'ai_agent_risk'
+  | 'least_privilege'
+  | 'secret_permission_equivalence'
+  | 'blast_radius'
+  | string;
+export type AWSRemediationCaseApprovalState =
+  | 'not_required'
+  | 'pending_owner'
+  | 'pending_owner_review'
+  | 'pending_approver'
+  | 'approved'
+  | 'rejected'
+  | string;
+
+export type AWSRemediationDiffIntent = {
+  kind: string;
+  before_ref?: string;
+  after_ref?: string;
+  diff_summary: string;
+  no_op: boolean;
+  read_only_projection: boolean;
+};
+
+export type AWSRemediationTradeoff = {
+  dimension: string;
+  direction: 'improves' | 'worsens' | 'neutral' | string;
+  description: string;
+  severity: string;
+};
+
+export type AWSRemediationRollbackPlan = {
+  strategy: string;
+  steps: string[];
+  evidence_ref?: string;
+};
+
+export type AWSRemediationVerificationPlan = {
+  strategy: string;
+  steps: string[];
+  success_signals?: string[];
+  failure_signals?: string[];
+  evidence_ref?: string;
+};
+
+export type AWSRemediationAuditEntry = {
+  event_id: string;
+  actor: string;
+  event_type: string;
+  occurred_at: string;
+  evidence_ref?: string;
+  notes?: string;
+};
+
+export type AWSRemediationRelationship = {
+  case_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSRemediationCase = {
+  case_id: string;
+  calculation_version: string;
+  source_type: AWSRemediationCaseSourceType;
+  source_finding_id: string;
+  lifecycle: AWSRemediationCaseLifecycle;
+  severity: AWSRemediationCaseSeverity;
+  status: string;
+  score: number;
+  confidence: number;
+  title: string;
+  summary: string;
+  account_id: string;
+  region: string;
+  identity_node_id?: string;
+  identity_arn?: string;
+  identity_name?: string;
+  identity_type?: string;
+  provider?: string;
+  resource_node_ids?: string[];
+  owner?: string;
+  owner_assigned: boolean;
+  approval_required: boolean;
+  approval_state: AWSRemediationCaseApprovalState;
+  diff_intent: AWSRemediationDiffIntent;
+  tradeoffs: AWSRemediationTradeoff[];
+  rollback_plan: AWSRemediationRollbackPlan;
+  verification_plan: AWSRemediationVerificationPlan;
+  source_signals: string[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  next_actions: string[];
+  audit_trail: AWSRemediationAuditEntry[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSRemediationCaseSummary = {
+  total_cases: number;
+  filtered_cases: number;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  lifecycle_counts: Record<string, number>;
+  source_type_counts: Record<string, number>;
+  approval_state_counts: Record<string, number>;
+  owner_assigned_count: number;
+  ownerless_count: number;
+  approval_required_count: number;
+  read_only_projection_count: number;
+  rollback_plan_count: number;
+  verification_plan_count: number;
+  relationship_count: number;
+  audit_entry_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSRemediationCaseResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSRemediationCaseStatus;
+  fixture_state?: AWSRemediationCaseFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSRemediationCaseSummary;
+  cases: AWSRemediationCase[];
+  relationships: AWSRemediationRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSRemediationCaseQuery = {
+  connectorID?: string;
+  fixtureState?: AWSRemediationCaseFixtureState;
+  accountID?: string;
+  region?: string;
+  identity?: string;
+  sourceType?: string;
+  lifecycle?: string;
+  severity?: string;
+  status?: string;
+  approvalState?: string;
+  ownerAssigned?: string;
+  search?: string;
+};
+
 export type AWSBlastRadiusStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBlastRadiusFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSBlastRadiusSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
@@ -6914,6 +7092,30 @@ export const apiClient = {
         severity: query?.severity,
         status: query?.status,
         evidence: query?.evidence,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectRemediationCases(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSRemediationCaseQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ cases: AWSRemediationCaseResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/remediation-cases${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        identity: query?.identity,
+        source_type: query?.sourceType,
+        lifecycle: query?.lifecycle,
+        severity: query?.severity,
+        status: query?.status,
+        approval_state: query?.approvalState,
+        owner_assigned: query?.ownerAssigned,
         search: query?.search
       })}`,
       auth

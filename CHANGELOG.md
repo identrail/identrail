@@ -1,6 +1,29 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS remediation case model** (#1529). Adds a read-only, metadata-only
+  engine that composes upstream AI agent risk (#1528), least-privilege
+  (#1522), secret-permission equivalence (#1527), and blast-radius (#1521)
+  findings into ranked, explainable remediation cases. Cases carry a stable
+  `case_id`, source type, lifecycle (`proposed` → `in_review` → `approved`
+  derived deterministically), severity/status/score/confidence, identity and
+  resource context, owner and approval state, a read-only `diff_intent`
+  (before/after refs only — no rendered policy bodies), tradeoffs across
+  breakage, blast radius, observability, and rotation, a rollback plan, a
+  verification plan, source signals, evidence refs, impacted graph nodes/path,
+  next actions, and a deterministic `proposed` audit entry. Adds
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/remediation-cases`
+  with filters for connector, account, region, identity, source type,
+  lifecycle, severity, status, approval state, owner-assigned, and free-text
+  search; OpenAPI schemas and authz wiring follow the neighboring AWS
+  intelligence engines. The AWS Runtime app surface now shows an **AWS
+  remediation case model** panel with case, source/lifecycle, identity, diff
+  intent, tradeoffs, owner/approval, severity/status, and verification
+  strategy. The engine never mutates AWS, never reads or returns secret
+  values, prompts, completions, tool payloads, browser pages, code-interpreter
+  output, database rows, object contents, customer payloads, or rendered
+  policy bodies; approve/execute/verify transitions belong to later wave
+  issues.
 - **Per-domain executive reports.** `/v1/enterprise/reports/executive` now
   accepts `?domain=aws|github|kubernetes`; the report aggregates only the
   matching finding source (GitHub = repo findings, AWS / Kubernetes = graph

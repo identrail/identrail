@@ -57,6 +57,8 @@ import {
   type AWSAgentRuntimeAccessResult,
   type AWSAIAgentRiskFinding,
   type AWSAIAgentRiskResult,
+  type AWSRemediationCase,
+  type AWSRemediationCaseResult,
   type AWSBlastRadiusFinding,
   type AWSBlastRadiusResult,
   type AWSLeastPrivilegeRecommendation,
@@ -10578,6 +10580,115 @@ function AWSAIAgentRiskContent({
   );
 }
 
+function awsRemediationCaseStage(remediationCase: AWSRemediationCase): AWSCapabilityStage {
+  if (remediationCase.severity === 'critical' || remediationCase.approval_state === 'pending_approver') {
+    return 'not-available';
+  }
+  if (remediationCase.severity === 'high' || remediationCase.lifecycle === 'in_review') {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsRemediationCaseDiffLabel(remediationCase: AWSRemediationCase): string {
+  return `${formatTokenLabel(remediationCase.diff_intent.kind)}${remediationCase.diff_intent.no_op ? ' (no-op)' : ''}`;
+}
+
+function awsRemediationCaseTradeoffLabel(remediationCase: AWSRemediationCase): string {
+  if (!remediationCase.tradeoffs || remediationCase.tradeoffs.length === 0) {
+    return 'none';
+  }
+  return remediationCase.tradeoffs
+    .slice(0, 2)
+    .map((tradeoff) => `${formatTokenLabel(tradeoff.dimension)} ${tradeoff.direction}`)
+    .join(', ') + (remediationCase.tradeoffs.length > 2 ? ` +${remediationCase.tradeoffs.length - 2}` : '');
+}
+
+function awsRemediationCaseOwnerLabel(remediationCase: AWSRemediationCase): string {
+  if (remediationCase.owner_assigned) {
+    return `${remediationCase.owner || 'assigned'} · ${formatTokenLabel(remediationCase.approval_state)}`;
+  }
+  return `ownerless · ${formatTokenLabel(remediationCase.approval_state)}`;
+}
+
+function AWSRemediationCaseContent({
+  cases,
+  loading,
+  error,
+  onRetry
+}: {
+  cases: AWSRemediationCaseResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = cases?.cases ?? [];
+  const summaryLine = cases
+    ? `${cases.summary.total_cases} total · ${cases.summary.approval_required_count} need approval · ${cases.summary.rollback_plan_count} with rollback · ${cases.summary.verification_plan_count} with verification`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS remediation cases">
+      <h3>AWS remediation case model</h3>
+      <p className="idt-app-kicker">
+        Read-only remediation cases composed from AI agent risk, least-privilege, secret-permission equivalence, and
+        blast-radius findings. Diff intent, tradeoffs, rollback, and verification are projected; the engine never
+        mutates AWS state. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load AWS remediation cases"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Composing remediation cases"
+          body="Identrail is composing metadata-only AI agent risk, least-privilege, secret-permission, and blast-radius evidence into ranked cases."
+        />
+      ) : null}
+      {!error && !loading && cases && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={cases.status === 'blocked' ? 'Permission required' : 'No remediation cases'}
+          title={cases.status === 'blocked' ? 'Remediation cases need read-only intelligence access' : 'No remediation cases proposed'}
+          body={cases.failure_reasons[0] ?? 'No upstream findings produced a remediation case for this environment.'}
+        />
+      ) : null}
+      {!error && !loading && cases && cases.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {cases.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS remediation cases"
+          rows={rows}
+          getRowKey={(row) => row.case_id}
+          columns={[
+            { key: 'case', header: 'Case', render: (row) => <strong>{row.title}</strong> },
+            { key: 'source', header: 'Source', render: (row) => `${formatTokenLabel(row.source_type)} · ${formatTokenLabel(row.lifecycle)}` },
+            { key: 'identity', header: 'Identity', render: (row) => row.identity_name || row.identity_arn || row.identity_node_id || '-' },
+            { key: 'diff', header: 'Diff intent', render: (row) => awsRemediationCaseDiffLabel(row) },
+            { key: 'tradeoffs', header: 'Tradeoffs', render: (row) => awsRemediationCaseTradeoffLabel(row) },
+            { key: 'owner', header: 'Owner / approval', render: (row) => awsRemediationCaseOwnerLabel(row) },
+            {
+              key: 'severity',
+              header: 'Severity',
+              render: (row) => (
+                <AWSInventoryPill stage={awsRemediationCaseStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.status)}`} />
+              )
+            },
+            { key: 'verification', header: 'Verification', render: (row) => formatTokenLabel(row.verification_plan.strategy) }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsBlastRadiusSeverityStage(severity: string): AWSCapabilityStage {
   switch (severity) {
     case 'critical':
@@ -12021,6 +12132,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [aiAgentRiskLoading, setAIAgentRiskLoading] = useState(false);
   const [aiAgentRiskError, setAIAgentRiskError] = useState('');
   const aiAgentRiskRequestRef = useRef(0);
+  const [remediationCases, setRemediationCases] = useState<AWSRemediationCaseResult | null>(null);
+  const [remediationCasesLoading, setRemediationCasesLoading] = useState(false);
+  const [remediationCasesError, setRemediationCasesError] = useState('');
+  const remediationCasesRequestRef = useRef(0);
   const [blastRadius, setBlastRadius] = useState<AWSBlastRadiusResult | null>(null);
   const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
   const [blastRadiusError, setBlastRadiusError] = useState('');
@@ -12305,6 +12420,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       aiAgentRiskRequestRef.current += 1;
     };
   }, [loadAIAgentRisk]);
+
+  const loadRemediationCases = useCallback(async () => {
+    const requestID = ++remediationCasesRequestRef.current;
+    setRemediationCases(null);
+    setRemediationCasesError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setRemediationCasesLoading(false);
+      return;
+    }
+    setRemediationCasesLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectRemediationCases(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== remediationCasesRequestRef.current) {
+        return;
+      }
+      setRemediationCases(response.cases);
+    } catch (error) {
+      if (requestID !== remediationCasesRequestRef.current) {
+        return;
+      }
+      setRemediationCasesError(formatAPIError(error, 'Unable to load AWS remediation cases.'));
+    } finally {
+      if (requestID === remediationCasesRequestRef.current) {
+        setRemediationCasesLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadRemediationCases();
+    return () => {
+      remediationCasesRequestRef.current += 1;
+    };
+  }, [loadRemediationCases]);
 
   const loadBlastRadius = useCallback(async () => {
     const requestID = ++blastRadiusRequestRef.current;
@@ -12776,6 +12939,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={aiAgentRiskLoading}
             error={aiAgentRiskError}
             onRetry={loadAIAgentRisk}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSRemediationCaseContent
+            cases={remediationCases}
+            loading={remediationCasesLoading}
+            error={remediationCasesError}
+            onRetry={loadRemediationCases}
           />
         ) : null}
         {routeID === 'runtime' ? (

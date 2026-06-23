@@ -3288,6 +3288,119 @@ describe('Domain-first app routes', () => {
         diagnostics: []
       } as any
     });
+    vi.spyOn(api.apiClient, 'getAWSProjectRemediationCases').mockResolvedValue({
+      cases: {
+        status: 'ready',
+        cases: [
+          {
+            case_id: 'aws-remediation-case:rotation-test',
+            calculation_version: 'aws-remediation-case-model-v1',
+            source_type: 'ai_agent_risk',
+            source_finding_id: 'aws-ai-agent-risk:support-provider-key',
+            lifecycle: 'approved',
+            severity: 'high',
+            status: 'action_required',
+            score: 86,
+            confidence: 0.9,
+            title: 'Rotate external credential for support-assistant',
+            summary: 'Rotate the Anthropic provider key used by support-assistant.',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            identity_node_id: 'aws:agent:external-support-agent',
+            identity_arn: 'arn:aws:iam::123456789012:role/ecs-support-agent-task',
+            identity_name: 'support-assistant',
+            identity_type: 'ai_agent',
+            provider: 'anthropic',
+            resource_node_ids: ['aws:resource:credential-reference:support-anthropic-key'],
+            owner: 'ai-platform',
+            owner_assigned: true,
+            approval_required: true,
+            approval_state: 'pending_approver',
+            diff_intent: {
+              kind: 'secret_rotation',
+              before_ref: 'evidence://agent/support-assistant/anthropic',
+              after_ref: 'secret://aws:resource:credential-reference:support-anthropic-key/scoped-projection',
+              diff_summary: 'Rotate the agent provider key reference and scope downstream secret reads.',
+              no_op: false,
+              read_only_projection: true
+            },
+            tradeoffs: [
+              {
+                dimension: 'downstream_blast_radius',
+                direction: 'improves',
+                description: 'Rotating the external key revokes any leaked equivalents.',
+                severity: 'high'
+              }
+            ],
+            rollback_plan: {
+              strategy: 're_create_secret_reference',
+              steps: ['Reissue the prior credential if the workload regressed.'],
+              evidence_ref: 'evidence://agent/support-assistant/anthropic'
+            },
+            verification_plan: {
+              strategy: 'secret_access_re_evaluate',
+              steps: ['Re-run secret-permission equivalence.'],
+              success_signals: ['secret-permission-equivalence:no-equivalence'],
+              failure_signals: ['secret-permission-equivalence:still-equivalent'],
+              evidence_ref: 'evidence://agent/support-assistant/anthropic'
+            },
+            source_signals: ['ai_agent_identities'],
+            evidence: [
+              {
+                source: 'ai_agent_identities',
+                evidence_ref: 'evidence://agent/support-assistant/anthropic',
+                label: 'Agent provider-key metadata',
+                confidence: 0.9,
+                observed_at: '2026-06-23T09:00:00Z',
+                relationship: 'references_external_provider_key'
+              }
+            ],
+            evidence_boundary: 'metadata_only_no_secret_values_no_prompts_no_completions_no_tool_payloads_no_rendered_policy_bodies',
+            impacted_nodes: ['aws:agent:external-support-agent', 'aws:resource:credential-reference:support-anthropic-key'],
+            impacted_path: [],
+            next_actions: ['Rotate the external provider credential and refresh dependent identities.'],
+            audit_trail: [
+              {
+                event_id: 'aws-remediation-case:rotation-test/proposed',
+                actor: 'system',
+                event_type: 'proposed',
+                occurred_at: '2026-06-23T09:00:00Z',
+                evidence_ref: 'evidence://agent/support-assistant/anthropic',
+                notes: 'Deterministic case proposed from ai_agent_risk evidence at lifecycle=approved.'
+              }
+            ],
+            created_at: '2026-06-23T09:00:00Z',
+            updated_at: '2026-06-23T09:00:00Z'
+          }
+        ],
+        summary: {
+          total_cases: 1,
+          filtered_cases: 1,
+          severity_counts: { high: 1 },
+          status_counts: { action_required: 1 },
+          lifecycle_counts: { approved: 1 },
+          source_type_counts: { ai_agent_risk: 1 },
+          approval_state_counts: { pending_approver: 1 },
+          owner_assigned_count: 1,
+          ownerless_count: 0,
+          approval_required_count: 1,
+          read_only_projection_count: 1,
+          rollback_plan_count: 1,
+          verification_plan_count: 1,
+          relationship_count: 0,
+          audit_entry_count: 1,
+          highest_score: 86,
+          average_confidence_pct: 90
+        },
+        relationships: [],
+        caveats: ['Remediation cases are read-only projections; the engine never applies an AWS change.'],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
     vi.spyOn(api.apiClient, 'getAWSProjectBlastRadius').mockResolvedValue({
       intelligence: {
         status: 'degraded',
@@ -3599,6 +3712,9 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText(/Access Analyzer: Finding/i)).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS AI agent risk findings' })).toBeInTheDocument();
     expect(screen.getAllByText(/External credential exposure/i).length).toBeGreaterThan(0);
+    expect(await screen.findByRole('table', { name: 'AWS remediation cases' })).toBeInTheDocument();
+    expect(screen.getByText(/Rotate external credential for support-assistant/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Secret rotation/i).length).toBeGreaterThan(0);
     expect(await screen.findByRole('table', { name: 'AWS least privilege recommendations' })).toBeInTheDocument();
     expect(screen.getByText(/Remove secretsmanager:GetSecretValue/i)).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS unused and dormant access findings' })).toBeInTheDocument();

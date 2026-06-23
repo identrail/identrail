@@ -574,6 +574,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/remediation-cases
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/blast-radius
     action: tenancy.read
     resource_type: project
@@ -5013,6 +5018,100 @@ paths:
                     $ref: "#/components/schemas/AWSAIAgentRiskResult"
         "400":
           description: Invalid AWS AI agent risk request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/remediation-cases:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS remediation cases
+      operationId: getAWSProjectRemediationCases
+      description: Composes ranked, explainable remediation cases from upstream AWS AI agent risk, least-privilege, secret-permission equivalence, and blast-radius findings. Cases carry stable IDs, calculation version, lifecycle, severity, confidence, owner/approval state, diff intent (before/after refs only), tradeoffs, rollback plan, verification plan, evidence refs, source signals, and a deterministic audit trail. The engine is read-only and never mutates AWS state, never reads or returns secret values, prompts, completions, tool payloads, browser pages, code-interpreter output, database rows, object contents, customer payloads, or rendered policy bodies.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope account, region, and read-only evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: identity
+          schema: { type: string }
+          description: Optional substring search across identity node, ARN, name, type, or owner.
+        - in: query
+          name: source_type
+          schema:
+            type: string
+            enum: [ai_agent_risk, least_privilege, secret_permission_equivalence, blast_radius]
+        - in: query
+          name: lifecycle
+          schema:
+            type: string
+            enum: [proposed, in_review, approved, executed, verified, closed, rolled_back]
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [action_required, review, monitor]
+        - in: query
+          name: approval_state
+          schema:
+            type: string
+            enum: [not_required, pending_owner, pending_owner_review, pending_approver, approved, rejected]
+        - in: query
+          name: owner_assigned
+          schema:
+            type: string
+            enum: ["true", "false", "yes", "no"]
+        - in: query
+          name: search
+          schema: { type: string }
+          description: Optional free-text search across case, diff, tradeoff, rollback, verification, evidence, and audit-trail fields.
+      responses:
+        "200":
+          description: AWS remediation case contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cases:
+                    $ref: "#/components/schemas/AWSRemediationCaseResult"
+        "400":
+          description: Invalid AWS remediation case request
           content:
             application/json:
               schema:
@@ -12984,6 +13083,251 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSAIAgentRiskRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSRemediationDiffIntent:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [iam_policy_diff, iam_trust_diff, role_scope_diff, secret_rotation, kms_grant_diff, ai_agent_scope_change, owner_assignment, manual_review]
+        before_ref: { type: string }
+        after_ref: { type: string }
+        diff_summary: { type: string }
+        no_op: { type: boolean }
+        read_only_projection: { type: boolean }
+    AWSRemediationTradeoff:
+      type: object
+      properties:
+        dimension:
+          type: string
+          enum: [breakage_risk, observability_impact, downstream_blast_radius, rotation_risk]
+        direction:
+          type: string
+          enum: [improves, worsens, neutral]
+        description: { type: string }
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+    AWSRemediationRollbackPlan:
+      type: object
+      properties:
+        strategy: { type: string }
+        steps:
+          type: array
+          items: { type: string }
+        evidence_ref: { type: string }
+    AWSRemediationVerificationPlan:
+      type: object
+      properties:
+        strategy: { type: string }
+        steps:
+          type: array
+          items: { type: string }
+        success_signals:
+          type: array
+          items: { type: string }
+        failure_signals:
+          type: array
+          items: { type: string }
+        evidence_ref: { type: string }
+    AWSRemediationAuditEntry:
+      type: object
+      properties:
+        event_id: { type: string }
+        actor:
+          type: string
+          enum: [system, owner, approver]
+        event_type:
+          type: string
+          enum: [proposed, reviewed, approved, executed, verified, closed, rolled_back]
+        occurred_at:
+          type: string
+          format: date-time
+        evidence_ref: { type: string }
+        notes: { type: string }
+    AWSRemediationRelationship:
+      type: object
+      properties:
+        case_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSRemediationCase:
+      type: object
+      properties:
+        case_id: { type: string }
+        calculation_version: { type: string }
+        source_type:
+          type: string
+          enum: [ai_agent_risk, least_privilege, secret_permission_equivalence, blast_radius]
+        source_finding_id: { type: string }
+        lifecycle:
+          type: string
+          enum: [proposed, in_review, approved, executed, verified, closed, rolled_back]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status:
+          type: string
+          enum: [action_required, review, monitor]
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        title: { type: string }
+        summary: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        identity_node_id: { type: string }
+        identity_arn: { type: string }
+        identity_name: { type: string }
+        identity_type: { type: string }
+        provider: { type: string }
+        resource_node_ids:
+          type: array
+          items: { type: string }
+        owner: { type: string }
+        owner_assigned: { type: boolean }
+        approval_required: { type: boolean }
+        approval_state:
+          type: string
+          enum: [not_required, pending_owner, pending_owner_review, pending_approver, approved, rejected]
+        diff_intent:
+          $ref: "#/components/schemas/AWSRemediationDiffIntent"
+        tradeoffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationTradeoff"
+        rollback_plan:
+          $ref: "#/components/schemas/AWSRemediationRollbackPlan"
+        verification_plan:
+          $ref: "#/components/schemas/AWSRemediationVerificationPlan"
+        source_signals:
+          type: array
+          items: { type: string }
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeEvidence"
+        evidence_boundary: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegePathStep"
+        next_actions:
+          type: array
+          items: { type: string }
+        audit_trail:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationAuditEntry"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSRemediationCaseSummary:
+      type: object
+      properties:
+        total_cases: { type: integer }
+        filtered_cases: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        lifecycle_counts:
+          type: object
+          additionalProperties: { type: integer }
+        source_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        approval_state_counts:
+          type: object
+          additionalProperties: { type: integer }
+        owner_assigned_count: { type: integer }
+        ownerless_count: { type: integer }
+        approval_required_count: { type: integer }
+        read_only_projection_count: { type: integer }
+        rollback_plan_count: { type: integer }
+        verification_plan_count: { type: integer }
+        relationship_count: { type: integer }
+        audit_entry_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSRemediationCaseResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSRemediationCaseSummary"
+        cases:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationCase"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationRelationship"
         caveats:
           type: array
           items: { type: string }
