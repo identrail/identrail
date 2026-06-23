@@ -382,6 +382,31 @@ func TestAWSRemediationCaseBlastRadiusDiffKindMatchesEmittedTokens(t *testing.T)
 	}
 }
 
+func TestAWSRemediationCaseEquivalenceDiffIntentMatchesEmittedTypes(t *testing.T) {
+	cases := []struct {
+		equivalenceType string
+		wantKind        string
+	}{
+		{"kms_decrypt_secret_equivalence", "kms_grant_diff"},
+		{"kms_live_grant_secret_equivalence", "kms_grant_diff"},
+		{"agent_provider_key_equivalence", "secret_rotation"},
+		{"workload_provider_key_equivalence", "secret_rotation"},
+		{"admin_equivalent_secret_permission", "iam_policy_diff"},
+		{"blast_radius_secret_equivalence", "iam_policy_diff"},
+		{"runtime_secret_access_equivalence", "iam_policy_diff"},
+		{"secret_read_policy_equivalence", "iam_policy_diff"},
+	}
+	for _, tc := range cases {
+		diff := awsRemediationDiffIntentForEquivalence(AWSSecretPermissionEquivalenceFinding{
+			EquivalenceType: tc.equivalenceType,
+			SecretNodeID:    "aws:resource:secrets-manager-secret/test",
+		})
+		if diff.Kind != tc.wantKind {
+			t.Fatalf("awsRemediationDiffIntentForEquivalence(%q) kind = %q, want %q", tc.equivalenceType, diff.Kind, tc.wantKind)
+		}
+	}
+}
+
 func TestAWSRemediationCaseDedupesAcrossSources(t *testing.T) {
 	now := time.Date(2026, 6, 23, 10, 15, 0, 0, time.UTC)
 	base := AWSRemediationCase{

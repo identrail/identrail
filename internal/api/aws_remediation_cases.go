@@ -675,15 +675,21 @@ func awsRemediationLeastPrivilegeDiffKind(recommendation AWSLeastPrivilegeRecomm
 }
 
 func awsRemediationDiffIntentForEquivalence(finding AWSSecretPermissionEquivalenceFinding) AWSRemediationDiffIntent {
-	switch finding.EquivalenceType {
-	case "agent_provider_key_equivalence":
-		return AWSRemediationDiffIntent{Kind: "secret_rotation", BeforeRef: evidenceRefFromEquivalence(finding), AfterRef: "secret://" + finding.SecretNodeID + "/scoped-projection", DiffSummary: "Rotate the agent provider key reference and scope downstream secret reads.", ReadOnlyProjection: true}
-	case "kms_decrypt_equivalence", "kms_grant_equivalence":
-		return AWSRemediationDiffIntent{Kind: "kms_grant_diff", BeforeRef: evidenceRefFromEquivalence(finding), AfterRef: "kms://" + finding.SecretNodeID + "/scoped-grants", DiffSummary: "Remove broad KMS decrypt/admin reachability that equates to secret read.", ReadOnlyProjection: true}
-	case "runtime_secret_access_equivalence":
-		return AWSRemediationDiffIntent{Kind: "iam_policy_diff", BeforeRef: evidenceRefFromEquivalence(finding), AfterRef: "secret://" + finding.SecretNodeID + "/scoped-read", DiffSummary: "Scope the identity's secret read permission to observed access and add monitoring.", ReadOnlyProjection: true}
+	evidenceRef := evidenceRefFromEquivalence(finding)
+	normalized := strings.ToLower(strings.TrimSpace(finding.EquivalenceType))
+	switch {
+	case strings.Contains(normalized, "kms"):
+		return AWSRemediationDiffIntent{Kind: "kms_grant_diff", BeforeRef: evidenceRef, AfterRef: "kms://" + finding.SecretNodeID + "/scoped-grants", DiffSummary: "Remove broad KMS decrypt/admin reachability that equates to secret read.", ReadOnlyProjection: true}
+	case strings.Contains(normalized, "provider_key"):
+		return AWSRemediationDiffIntent{Kind: "secret_rotation", BeforeRef: evidenceRef, AfterRef: "secret://" + finding.SecretNodeID + "/scoped-projection", DiffSummary: "Rotate the provider key reference and scope downstream secret reads.", ReadOnlyProjection: true}
+	case strings.Contains(normalized, "admin"):
+		return AWSRemediationDiffIntent{Kind: "iam_policy_diff", BeforeRef: evidenceRef, AfterRef: "secret://" + finding.SecretNodeID + "/scoped-admin", DiffSummary: "Remove the admin-equivalent secret-permission path; keep only scoped read for owner-approved callers.", ReadOnlyProjection: true}
+	case strings.Contains(normalized, "blast_radius"):
+		return AWSRemediationDiffIntent{Kind: "iam_policy_diff", BeforeRef: evidenceRef, AfterRef: "secret://" + finding.SecretNodeID + "/scoped-read", DiffSummary: "Reduce the blast-radius-derived secret reachability to the minimum observed reader set.", ReadOnlyProjection: true}
+	case strings.Contains(normalized, "runtime_secret_access"), strings.Contains(normalized, "secret_read_policy"):
+		return AWSRemediationDiffIntent{Kind: "iam_policy_diff", BeforeRef: evidenceRef, AfterRef: "secret://" + finding.SecretNodeID + "/scoped-read", DiffSummary: "Scope the identity's secret read permission to observed access and add monitoring.", ReadOnlyProjection: true}
 	default:
-		return AWSRemediationDiffIntent{Kind: "secret_rotation", BeforeRef: evidenceRefFromEquivalence(finding), DiffSummary: "Rotate or scope the equivalent secret-permission path.", ReadOnlyProjection: true}
+		return AWSRemediationDiffIntent{Kind: "secret_rotation", BeforeRef: evidenceRef, DiffSummary: "Rotate or scope the equivalent secret-permission path.", ReadOnlyProjection: true}
 	}
 }
 
