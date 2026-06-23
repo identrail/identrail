@@ -300,6 +300,31 @@ func TestAWSAIAgentRiskRuntimeFindingIncludesDeclaredBackingRole(t *testing.T) {
 	}
 }
 
+func TestAWSAIAgentRiskRuntimeFindingIncludesLineageOnlyCaveat(t *testing.T) {
+	now := time.Date(2026, 6, 23, 9, 17, 0, 0, time.UTC)
+	record := AWSAgentRuntimeAccessRecord{
+		CorrelationID:         "agent-lineage-unresolved",
+		AccountID:             "123456789012",
+		Region:                "us-east-1",
+		AgentNodeID:           "aws:agent:123456789012:us-east-1:custom_agent/support-agent",
+		AgentName:             "support-agent",
+		AgentID:               "support-agent",
+		ToolName:              "lookup-case",
+		Status:                "confirmed",
+		Caveats:               []string{"session_lineage_unresolved"},
+		Confidence:            0.82,
+		TargetResourceNodeIDs: []string{"aws:resource:dynamodb-table/cases"},
+		EvidenceRef:           "agent-evidence://support-agent/lineage-unresolved",
+	}
+	finding, ok := awsAIAgentRiskFindingFromRuntime(record, now)
+	if !ok {
+		t.Fatalf("expected confirmed runtime record with lineage caveat to emit a finding")
+	}
+	if finding.RiskType != "runtime_tool_anomaly" {
+		t.Fatalf("expected lineage-only caveat to use runtime_tool_anomaly, got %q", finding.RiskType)
+	}
+}
+
 func TestAWSAIAgentRiskRuntimeSecretEquivalenceRequiresAgentNode(t *testing.T) {
 	now := time.Date(2026, 6, 23, 9, 14, 0, 0, time.UTC)
 	agent := awsAIAgentFixtureRecord(
@@ -358,6 +383,9 @@ func TestAWSAIAgentRiskRuntimeSecretEquivalenceRequiresAgentNode(t *testing.T) {
 	}
 	if derived.AgentNodeID == runtimeFinding.AgentID {
 		t.Fatalf("AgentNodeID must not be the raw runtime AgentID string %q", runtimeFinding.AgentID)
+	}
+	if len(derived.ImpactedPath) == 0 || derived.ImpactedPath[0].NodeType != "ai_agent" || derived.ImpactedPath[0].NodeID != agent.AgentNodeID {
+		t.Fatalf("expected resolved AI agent to prefix impacted path, got %+v", derived.ImpactedPath)
 	}
 
 	orphaned := awsAIAgentRiskFindings(awsAIAgentRiskSources{
