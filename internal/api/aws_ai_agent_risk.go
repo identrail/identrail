@@ -633,6 +633,13 @@ func awsAIAgentRiskDedupeFindings(findings []AWSAIAgentRiskFinding) []AWSAIAgent
 }
 
 func awsAIAgentRiskMergeFindings(existing, incoming AWSAIAgentRiskFinding) AWSAIAgentRiskFinding {
+	mergedSourceSignals := dedupeStrings(append(append([]string{}, existing.SourceSignals...), incoming.SourceSignals...))
+	mergedToolNames := dedupeStrings(append(append([]string{}, existing.ToolNames...), incoming.ToolNames...))
+	mergedCapabilityNames := dedupeStrings(append(append([]string{}, existing.CapabilityNames...), incoming.CapabilityNames...))
+	mergedSensitiveResources := dedupeStrings(append(append([]string{}, existing.SensitiveResources...), incoming.SensitiveResources...))
+	mergedEvidence := append(append([]AWSAIAgentRiskEvidence{}, existing.Evidence...), incoming.Evidence...)
+	mergedImpactedNodes := awsAIAgentRiskImpactedNodes(append(append([]string{}, existing.ImpactedNodes...), incoming.ImpactedNodes...)...)
+
 	merged := existing
 	if incoming.Score > merged.Score {
 		merged = incoming
@@ -640,12 +647,12 @@ func awsAIAgentRiskMergeFindings(existing, incoming AWSAIAgentRiskFinding) AWSAI
 	if incoming.Confidence > merged.Confidence {
 		merged.Confidence = incoming.Confidence
 	}
-	merged.SourceSignals = dedupeStrings(append(merged.SourceSignals, incoming.SourceSignals...))
-	merged.ToolNames = dedupeStrings(append(merged.ToolNames, incoming.ToolNames...))
-	merged.CapabilityNames = dedupeStrings(append(merged.CapabilityNames, incoming.CapabilityNames...))
-	merged.SensitiveResources = dedupeStrings(append(merged.SensitiveResources, incoming.SensitiveResources...))
-	merged.Evidence = append(append([]AWSAIAgentRiskEvidence{}, merged.Evidence...), incoming.Evidence...)
-	merged.ImpactedNodes = awsAIAgentRiskImpactedNodes(append(merged.ImpactedNodes, incoming.ImpactedNodes...)...)
+	merged.SourceSignals = mergedSourceSignals
+	merged.ToolNames = mergedToolNames
+	merged.CapabilityNames = mergedCapabilityNames
+	merged.SensitiveResources = mergedSensitiveResources
+	merged.Evidence = mergedEvidence
+	merged.ImpactedNodes = mergedImpactedNodes
 	if merged.Status == "" {
 		merged.Status = incoming.Status
 	}
