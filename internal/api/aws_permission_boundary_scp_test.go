@@ -426,6 +426,16 @@ func TestAWSSCPTargetScopeForResourcePolicyFindings(t *testing.T) {
 	}
 }
 
+func TestAWSCPCandidateSkipsUnscopedRuntimeAssumption(t *testing.T) {
+	if awsSCPCandidate(AWSCrossAccountTrustFinding{
+		FindingType:               "runtime_cross_account_assumption",
+		TrustedWithinOrganization: false,
+		ExternalPrincipalOUPath:   "",
+	}) {
+		t.Fatalf("runtime assumption from out-of-org principal should not be projected without an OU scope")
+	}
+}
+
 func TestAWSPermissionBoundarySCPMostCommonKeyIsDeterministic(t *testing.T) {
 	severity := awsPermissionBoundarySCPMostCommonKeyWithPriority(map[string]int{"high": 1, "critical": 1}, "medium", awsPermissionBoundarySCPSeverityPriority)
 	if severity != "critical" {
