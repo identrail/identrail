@@ -271,6 +271,17 @@ func TestAWSSCPDeniedActionsForResourcePolicyFindings(t *testing.T) {
 			expected: []string{"*"},
 		},
 		{
+			name: "kms live grant resource access",
+			finding: AWSCrossAccountTrustFinding{
+				FindingType:  "cross_account_resource_access",
+				ResourceType: "kms_key",
+				Evidence: []AWSCrossAccountTrustEvidence{{
+					Source: "kms_live_grant",
+				}},
+			},
+			expected: []string{"kms:CreateGrant"},
+		},
+		{
 			name:     "access analyzer external access",
 			finding:  AWSCrossAccountTrustFinding{FindingType: "access_analyzer_external_access", ResourceType: "s3"},
 			expected: []string{"s3:PutBucketPolicy"},
@@ -312,7 +323,7 @@ func TestAWSPermissionBoundaryPlansFromLeastPrivilegeHonorsUpstreamBreakage(t *t
 				BreakagePrediction: "medium",
 			},
 			{
-				RecommendationID:   "least-priv:low",
+				RecommendationID:   "least-priv:low-one",
 				Decision:           "remove",
 				Severity:           "medium",
 				Status:             "action_required",
@@ -321,6 +332,19 @@ func TestAWSPermissionBoundaryPlansFromLeastPrivilegeHonorsUpstreamBreakage(t *t
 				AccountID:          "222222222222",
 				Region:             "us-east-1",
 				IdentityNodeID:     "aws:identity:arn:aws:iam::222222222222:role/loader-b",
+				RemoveActions:      []string{"s3:PutObject"},
+				BreakagePrediction: "low",
+			},
+			{
+				RecommendationID:   "least-priv:low-two",
+				Decision:           "remove",
+				Severity:           "medium",
+				Status:             "action_required",
+				Score:              70,
+				Confidence:         0.93,
+				AccountID:          "222222222222",
+				Region:             "us-east-1",
+				IdentityNodeID:     "aws:identity:arn:aws:iam::222222222222:role/loader-c",
 				RemoveActions:      []string{"s3:PutObject"},
 				BreakagePrediction: "low",
 			},

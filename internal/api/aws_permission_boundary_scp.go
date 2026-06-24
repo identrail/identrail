@@ -536,7 +536,7 @@ func awsSCPCandidate(finding AWSCrossAccountTrustFinding) bool {
 func awsSCPDeniedActions(finding AWSCrossAccountTrustFinding) []string {
 	switch finding.FindingType {
 	case "public_resource_trust":
-		action := awsSCPDenyActionForResource(finding.ResourceType, "Put")
+		action := awsSCPDenyActionForResourceWithSource(finding, "Put")
 		if action == "" {
 			return nil
 		}
@@ -544,13 +544,13 @@ func awsSCPDeniedActions(finding AWSCrossAccountTrustFinding) []string {
 	case "runtime_cross_account_assumption":
 		return []string{"sts:AssumeRole"}
 	case "cross_account_resource_access":
-		action := awsSCPDenyActionForResource(finding.ResourceType, "Put")
+		action := awsSCPDenyActionForResourceWithSource(finding, "Put")
 		if action == "" {
 			return nil
 		}
 		return []string{action}
 	case "access_analyzer_external_access":
-		action := awsSCPDenyActionForResource(finding.ResourceType, "Put")
+		action := awsSCPDenyActionForResourceWithSource(finding, "Put")
 		if action == "" {
 			return nil
 		}
@@ -560,6 +560,36 @@ func awsSCPDeniedActions(finding AWSCrossAccountTrustFinding) []string {
 	default:
 		return []string{"*"}
 	}
+}
+
+func awsSCPDenyActionForResourceWithSource(finding AWSCrossAccountTrustFinding, modePrefix string) string {
+	if finding.ResourceType == "" {
+		return ""
+	}
+	resourceType := normalizeAWSRuntimeEventFilterToken(finding.ResourceType)
+	if resourceType == "" {
+		return ""
+	}
+	switch resourceType {
+	case "kms", "kms-key", "kms_key":
+		if awsSCPFindingHasEvidenceSource(finding, "kms_live_grant") {
+			return "kms:CreateGrant"
+		}
+	}
+	return awsSCPDenyActionForResource(finding.ResourceType, modePrefix)
+}
+
+func awsSCPFindingHasEvidenceSource(finding AWSCrossAccountTrustFinding, source string) bool {
+	target := normalizeAWSRuntimeEventFilterToken(source)
+	if target == "" {
+		return false
+	}
+	for _, evidence := range finding.Evidence {
+		if normalizeAWSRuntimeEventFilterToken(evidence.Source) == target {
+			return true
+		}
+	}
+	return false
 }
 
 func awsSCPDenyActionForResource(resourceType, modePrefix string) string {
@@ -691,11 +721,30 @@ func awsPermissionBoundarySCPBoundaryBreakage(identityCount, accountCount, ouCou
 }
 
 func awsPermissionBoundarySCPMostSeverePrediction(predictions map[string]int, fallback string, priorities map[string]int) string {
-	prediction := awsPermissionBoundarySCPMostCommonKeyWithPriority(predictions, fallback, priorities)
-	if prediction == "" {
+	bestPrediction := ""
+	bestPriority := -1
+	for prediction, count := range predictions {
+		prediction = normalizeAWSRuntimeEventFilterToken(prediction)
+		if count <= 0 || prediction == "" {
+			continue
+		}
+		priority, ok := priorities[prediction]
+		if !ok {
+			continue
+		}
+		if priority > bestPriority {
+			bestPrediction = prediction
+			bestPriority = priority
+			continue
+		}
+		if priority == bestPriority && (bestPrediction == "" || prediction < bestPrediction) {
+			bestPrediction = prediction
+		}
+	}
+	if bestPrediction == "" {
 		return fallback
 	}
-	return prediction
+	return bestPrediction
 }
 
 func awsPermissionBoundarySCPBreakageWithUpstreamPrediction(breakage AWSPermissionBoundarySCPBreakageProjection, upstreamBreakage string) AWSPermissionBoundarySCPBreakageProjection {
