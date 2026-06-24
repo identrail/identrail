@@ -3320,6 +3320,156 @@ export type AWSTrustPolicyHardeningQuery = {
   search?: string;
 };
 
+export type AWSPermissionBoundarySCPStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSPermissionBoundarySCPFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSPermissionBoundarySCPSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
+export type AWSPermissionBoundarySCPKind = 'permission_boundary' | 'scp' | string;
+export type AWSPermissionBoundarySCPTargetScope = 'identity' | 'account' | 'ou' | 'org_root' | string;
+export type AWSPermissionBoundarySCPBreakageLevel = 'low' | 'medium' | 'high' | 'unknown' | string;
+
+export type AWSPermissionBoundarySCPStatementSnippet = {
+  statement_sid: string;
+  effect: string;
+  change_kind: string;
+  before_ref?: string;
+  after_ref?: string;
+  denied_actions?: string[];
+  allowed_actions?: string[];
+  resource_scope?: string[];
+  condition_keys?: string[];
+  rationale: string;
+};
+
+export type AWSPermissionBoundarySCPBreakageProjection = {
+  level: AWSPermissionBoundarySCPBreakageLevel;
+  rationale: string;
+  affected_identities: number;
+  affected_accounts: number;
+  affected_ous: number;
+  signals?: string[];
+};
+
+export type AWSPermissionBoundarySCPRollbackPlan = {
+  strategy: string;
+  steps: string[];
+  evidence_ref?: string;
+};
+
+export type AWSPermissionBoundarySCPVerificationPlan = {
+  strategy: string;
+  steps: string[];
+  success_signals?: string[];
+  failure_signals?: string[];
+  evidence_ref?: string;
+};
+
+export type AWSPermissionBoundarySCPRelationship = {
+  plan_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSPermissionBoundarySCPPlan = {
+  plan_id: string;
+  calculation_version: string;
+  kind: AWSPermissionBoundarySCPKind;
+  target_scope: AWSPermissionBoundarySCPTargetScope;
+  severity: AWSPermissionBoundarySCPSeverity;
+  status: string;
+  score: number;
+  confidence: number;
+  title: string;
+  summary: string;
+  account_id?: string;
+  region?: string;
+  service?: string;
+  target_account_ids?: string[];
+  target_ou_paths?: string[];
+  target_identity_node_ids?: string[];
+  prevented_behavior: string;
+  source_finding_ids: string[];
+  statement_snippets: AWSPermissionBoundarySCPStatementSnippet[];
+  breakage_projection: AWSPermissionBoundarySCPBreakageProjection;
+  rollback_plan: AWSPermissionBoundarySCPRollbackPlan;
+  verification_plan: AWSPermissionBoundarySCPVerificationPlan;
+  ready_for_apply: boolean;
+  read_only_projection: boolean;
+  source_signals: string[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  next_action: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSPermissionBoundarySCPSummary = {
+  total_plans: number;
+  filtered_plans: number;
+  kind_counts: Record<string, number>;
+  target_scope_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  breakage_level_counts: Record<string, number>;
+  boundary_plan_count: number;
+  scp_plan_count: number;
+  ready_for_apply_count: number;
+  affected_identity_count: number;
+  affected_account_count: number;
+  affected_ou_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSPermissionBoundarySCPResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSPermissionBoundarySCPStatus;
+  fixture_state?: AWSPermissionBoundarySCPFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSPermissionBoundarySCPSummary;
+  plans: AWSPermissionBoundarySCPPlan[];
+  relationships: AWSPermissionBoundarySCPRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSPermissionBoundarySCPQuery = {
+  connectorID?: string;
+  fixtureState?: AWSPermissionBoundarySCPFixtureState;
+  accountID?: string;
+  region?: string;
+  service?: string;
+  kind?: string;
+  targetScope?: string;
+  severity?: string;
+  status?: string;
+  breakageLevel?: string;
+  readyForApply?: string;
+  search?: string;
+};
+
 export type AWSBlastRadiusStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBlastRadiusFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSBlastRadiusSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
@@ -7500,6 +7650,30 @@ export const apiClient = {
         breakage_level: query?.breakageLevel,
         severity: query?.severity,
         status: query?.status,
+        ready_for_apply: query?.readyForApply,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectPermissionBoundarySCPPlans(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSPermissionBoundarySCPQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ plans: AWSPermissionBoundarySCPResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/permission-boundary-scp${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        service: query?.service,
+        kind: query?.kind,
+        target_scope: query?.targetScope,
+        severity: query?.severity,
+        status: query?.status,
+        breakage_level: query?.breakageLevel,
         ready_for_apply: query?.readyForApply,
         search: query?.search
       })}`,

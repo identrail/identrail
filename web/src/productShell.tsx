@@ -63,6 +63,8 @@ import {
   type AWSIAMPolicyDiffResult,
   type AWSTrustPolicyHardeningPlan,
   type AWSTrustPolicyHardeningResult,
+  type AWSPermissionBoundarySCPPlan,
+  type AWSPermissionBoundarySCPResult,
   type AWSBlastRadiusFinding,
   type AWSBlastRadiusResult,
   type AWSLeastPrivilegeRecommendation,
@@ -10923,6 +10925,120 @@ function AWSTrustPolicyHardeningContent({
   );
 }
 
+function awsPermissionBoundarySCPStage(plan: AWSPermissionBoundarySCPPlan): AWSCapabilityStage {
+  if (plan.severity === 'critical' || plan.breakage_projection.level === 'high') {
+    return 'not-available';
+  }
+  if (plan.severity === 'high' || plan.breakage_projection.level === 'medium' || plan.breakage_projection.level === 'unknown') {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsPermissionBoundarySCPTargetLabel(plan: AWSPermissionBoundarySCPPlan): string {
+  if (plan.kind === 'permission_boundary') {
+    const identities = plan.target_identity_node_ids?.length ?? 0;
+    const accounts = plan.target_account_ids?.length ?? 0;
+    return `${identities} identities · ${accounts} accounts`;
+  }
+  const accounts = plan.target_account_ids?.length ?? 0;
+  const ous = plan.target_ou_paths?.length ?? 0;
+  return `${formatTokenLabel(plan.target_scope)} · ${accounts} accounts · ${ous} OUs`;
+}
+
+function awsPermissionBoundarySCPDenyLabel(plan: AWSPermissionBoundarySCPPlan): string {
+  const denied = plan.statement_snippets?.[0]?.denied_actions ?? [];
+  if (denied.length === 0) {
+    return 'manual review';
+  }
+  return denied.slice(0, 2).join(', ') + (denied.length > 2 ? ` +${denied.length - 2}` : '');
+}
+
+function awsPermissionBoundarySCPReadinessLabel(plan: AWSPermissionBoundarySCPPlan): string {
+  if (plan.ready_for_apply) {
+    return `ready · ${formatTokenLabel(plan.breakage_projection.level)} breakage`;
+  }
+  return `gate · ${formatTokenLabel(plan.breakage_projection.level)} breakage`;
+}
+
+function AWSPermissionBoundarySCPContent({
+  plans,
+  loading,
+  error,
+  onRetry
+}: {
+  plans: AWSPermissionBoundarySCPResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = plans?.plans ?? [];
+  const summaryLine = plans
+    ? `${plans.summary.total_plans} total · ${plans.summary.boundary_plan_count} boundaries · ${plans.summary.scp_plan_count} SCPs · ${plans.summary.ready_for_apply_count} ready`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS permission boundary and SCP plans">
+      <h3>AWS permission boundary / SCP planner</h3>
+      <p className="idt-app-kicker">
+        Read-only IAM permission boundary and SCP recommendations projected from least-privilege, cross-account-trust,
+        and AWS Organizations evidence. Target scope, denied actions, prevented behavior, breakage, rollback, and
+        verification are derived deterministically; the engine never mutates IAM or Organizations. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load AWS permission boundary and SCP plans"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Composing permission boundary and SCP plans"
+          body="Identrail is composing least-privilege, cross-account-trust, and Organizations evidence into ranked boundary and SCP recommendations."
+        />
+      ) : null}
+      {!error && !loading && plans && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={plans.status === 'blocked' ? 'Permission required' : 'No boundary or SCP plans'}
+          title={plans.status === 'blocked' ? 'Boundary/SCP plans need read-only intelligence access' : 'No boundary or SCP plans projected'}
+          body={plans.failure_reasons[0] ?? 'No upstream evidence produced a permission boundary or SCP plan for this environment.'}
+        />
+      ) : null}
+      {!error && !loading && plans && plans.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {plans.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS permission boundary and SCP plans"
+          rows={rows}
+          getRowKey={(row) => row.plan_id}
+          columns={[
+            { key: 'plan', header: 'Plan', render: (row) => <strong>{row.title}</strong> },
+            { key: 'kind', header: 'Kind', render: (row) => formatTokenLabel(row.kind) },
+            { key: 'target', header: 'Target', render: (row) => awsPermissionBoundarySCPTargetLabel(row) },
+            { key: 'deny', header: 'Denies', render: (row) => awsPermissionBoundarySCPDenyLabel(row) },
+            { key: 'prevents', header: 'Prevents', render: (row) => row.prevented_behavior },
+            { key: 'breakage', header: 'Readiness', render: (row) => awsPermissionBoundarySCPReadinessLabel(row) },
+            {
+              key: 'severity',
+              header: 'Severity',
+              render: (row) => (
+                <AWSInventoryPill stage={awsPermissionBoundarySCPStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.status)}`} />
+              )
+            },
+            { key: 'verification', header: 'Verification', render: (row) => formatTokenLabel(row.verification_plan.strategy) }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsBlastRadiusSeverityStage(severity: string): AWSCapabilityStage {
   switch (severity) {
     case 'critical':
@@ -12378,6 +12494,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [trustPolicyHardeningLoading, setTrustPolicyHardeningLoading] = useState(false);
   const [trustPolicyHardeningError, setTrustPolicyHardeningError] = useState('');
   const trustPolicyHardeningRequestRef = useRef(0);
+  const [permissionBoundarySCP, setPermissionBoundarySCP] = useState<AWSPermissionBoundarySCPResult | null>(null);
+  const [permissionBoundarySCPLoading, setPermissionBoundarySCPLoading] = useState(false);
+  const [permissionBoundarySCPError, setPermissionBoundarySCPError] = useState('');
+  const permissionBoundarySCPRequestRef = useRef(0);
   const [blastRadius, setBlastRadius] = useState<AWSBlastRadiusResult | null>(null);
   const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
   const [blastRadiusError, setBlastRadiusError] = useState('');
@@ -12806,6 +12926,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       trustPolicyHardeningRequestRef.current += 1;
     };
   }, [loadTrustPolicyHardening]);
+
+  const loadPermissionBoundarySCP = useCallback(async () => {
+    const requestID = ++permissionBoundarySCPRequestRef.current;
+    setPermissionBoundarySCP(null);
+    setPermissionBoundarySCPError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setPermissionBoundarySCPLoading(false);
+      return;
+    }
+    setPermissionBoundarySCPLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectPermissionBoundarySCPPlans(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== permissionBoundarySCPRequestRef.current) {
+        return;
+      }
+      setPermissionBoundarySCP(response.plans);
+    } catch (error) {
+      if (requestID !== permissionBoundarySCPRequestRef.current) {
+        return;
+      }
+      setPermissionBoundarySCPError(formatAPIError(error, 'Unable to load AWS permission boundary and SCP plans.'));
+    } finally {
+      if (requestID === permissionBoundarySCPRequestRef.current) {
+        setPermissionBoundarySCPLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadPermissionBoundarySCP();
+    return () => {
+      permissionBoundarySCPRequestRef.current += 1;
+    };
+  }, [loadPermissionBoundarySCP]);
 
   const loadBlastRadius = useCallback(async () => {
     const requestID = ++blastRadiusRequestRef.current;
@@ -13301,6 +13469,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={trustPolicyHardeningLoading}
             error={trustPolicyHardeningError}
             onRetry={loadTrustPolicyHardening}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSPermissionBoundarySCPContent
+            plans={permissionBoundarySCP}
+            loading={permissionBoundarySCPLoading}
+            error={permissionBoundarySCPError}
+            onRetry={loadPermissionBoundarySCP}
           />
         ) : null}
         {routeID === 'runtime' ? (

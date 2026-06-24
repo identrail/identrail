@@ -589,6 +589,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/permission-boundary-scp
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/blast-radius
     action: tenancy.read
     resource_type: project
@@ -5310,6 +5315,99 @@ paths:
                     $ref: "#/components/schemas/AWSTrustPolicyHardeningResult"
         "400":
           description: Invalid AWS trust policy hardening request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/permission-boundary-scp:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS permission boundary and SCP plans
+      operationId: getAWSProjectPermissionBoundarySCPPlans
+      description: Generates ranked, read-only IAM permission boundary and Service Control Policy (SCP) recommendations from upstream least-privilege, cross-account-trust, and AWS Organizations topology evidence. Each plan carries the projected target scope (identity / OU / account / org_root), affected accounts and OU paths, statement-level deny/allow action sets, condition-key labels, prevented behavior, expected breakage projection, rollback plan, verification plan, ready_for_apply, evidence refs, source signals, impacted graph nodes/path, and next action. The engine is read-only and never mutates AWS state, never reads or returns rendered policy bodies, secret values, prompts, completions, tool payloads, browser pages, code-interpreter output, database rows, object contents, customer payloads, or workload payloads.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope account, region, and read-only evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: service
+          schema: { type: string }
+        - in: query
+          name: kind
+          schema:
+            type: string
+            enum: [permission_boundary, scp]
+        - in: query
+          name: target_scope
+          schema:
+            type: string
+            enum: [identity, account, ou, org_root]
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [action_required, review, monitor]
+        - in: query
+          name: breakage_level
+          schema:
+            type: string
+            enum: [low, medium, high, unknown]
+        - in: query
+          name: ready_for_apply
+          schema:
+            type: string
+            enum: ["true", "false", "yes", "no"]
+        - in: query
+          name: search
+          schema: { type: string }
+          description: Optional free-text search across plan, statement snippet (denied/allowed actions, condition keys, resource scope), breakage projection, rollback, and verification fields.
+      responses:
+        "200":
+          description: AWS permission boundary and SCP contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    $ref: "#/components/schemas/AWSPermissionBoundarySCPResult"
+        "400":
+          description: Invalid AWS permission boundary and SCP request
           content:
             application/json:
               schema:
@@ -14037,6 +14135,244 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSTrustPolicyHardeningRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSPermissionBoundarySCPStatementSnippet:
+      type: object
+      properties:
+        statement_sid: { type: string }
+        effect:
+          type: string
+          enum: [Allow, Deny]
+        change_kind:
+          type: string
+          enum: [deny_repeated_action, deny_public_principal_creation, require_org_condition, deny_org_unsafe_pattern, manual_review]
+        before_ref: { type: string }
+        after_ref: { type: string }
+        denied_actions:
+          type: array
+          items: { type: string }
+        allowed_actions:
+          type: array
+          items: { type: string }
+        resource_scope:
+          type: array
+          items: { type: string }
+        condition_keys:
+          type: array
+          items: { type: string }
+        rationale: { type: string }
+    AWSPermissionBoundarySCPBreakageProjection:
+      type: object
+      properties:
+        level:
+          type: string
+          enum: [low, medium, high, unknown]
+        rationale: { type: string }
+        affected_identities: { type: integer }
+        affected_accounts: { type: integer }
+        affected_ous: { type: integer }
+        signals:
+          type: array
+          items: { type: string }
+    AWSPermissionBoundarySCPRollbackPlan:
+      type: object
+      properties:
+        strategy: { type: string }
+        steps:
+          type: array
+          items: { type: string }
+        evidence_ref: { type: string }
+    AWSPermissionBoundarySCPVerificationPlan:
+      type: object
+      properties:
+        strategy: { type: string }
+        steps:
+          type: array
+          items: { type: string }
+        success_signals:
+          type: array
+          items: { type: string }
+        failure_signals:
+          type: array
+          items: { type: string }
+        evidence_ref: { type: string }
+    AWSPermissionBoundarySCPRelationship:
+      type: object
+      properties:
+        plan_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSPermissionBoundarySCPPlan:
+      type: object
+      properties:
+        plan_id: { type: string }
+        calculation_version: { type: string }
+        kind:
+          type: string
+          enum: [permission_boundary, scp]
+        target_scope:
+          type: string
+          enum: [identity, account, ou, org_root]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status:
+          type: string
+          enum: [action_required, review, monitor]
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        title: { type: string }
+        summary: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        service: { type: string }
+        target_account_ids:
+          type: array
+          items: { type: string }
+        target_ou_paths:
+          type: array
+          items: { type: string }
+        target_identity_node_ids:
+          type: array
+          items: { type: string }
+        prevented_behavior: { type: string }
+        source_finding_ids:
+          type: array
+          items: { type: string }
+        statement_snippets:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSPermissionBoundarySCPStatementSnippet"
+        breakage_projection:
+          $ref: "#/components/schemas/AWSPermissionBoundarySCPBreakageProjection"
+        rollback_plan:
+          $ref: "#/components/schemas/AWSPermissionBoundarySCPRollbackPlan"
+        verification_plan:
+          $ref: "#/components/schemas/AWSPermissionBoundarySCPVerificationPlan"
+        ready_for_apply: { type: boolean }
+        read_only_projection: { type: boolean }
+        source_signals:
+          type: array
+          items: { type: string }
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeEvidence"
+        evidence_boundary: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegePathStep"
+        next_action: { type: string }
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSPermissionBoundarySCPSummary:
+      type: object
+      properties:
+        total_plans: { type: integer }
+        filtered_plans: { type: integer }
+        kind_counts:
+          type: object
+          additionalProperties: { type: integer }
+        target_scope_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        breakage_level_counts:
+          type: object
+          additionalProperties: { type: integer }
+        boundary_plan_count: { type: integer }
+        scp_plan_count: { type: integer }
+        ready_for_apply_count: { type: integer }
+        affected_identity_count: { type: integer }
+        affected_account_count: { type: integer }
+        affected_ou_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSPermissionBoundarySCPResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSPermissionBoundarySCPSummary"
+        plans:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSPermissionBoundarySCPPlan"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSPermissionBoundarySCPRelationship"
         caveats:
           type: array
           items: { type: string }

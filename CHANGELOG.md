@@ -1,6 +1,40 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS permission boundary and SCP recommendation planner** (#1532).
+  Adds a read-only, metadata-only engine that turns upstream least-privilege
+  (#1522), cross-account-trust (#1526), and AWS Organizations topology
+  (#1498) evidence into ranked IAM permission boundary and Service Control
+  Policy recommendations. Permission boundaries are emitted only when at
+  least two identities share a least-privilege `remove` recommendation for
+  the same action (so single-identity findings never get hoisted to
+  org-level boundaries). SCPs are emitted per cross-account-trust finding
+  that should be blocked at the org/OU level (public principal, missing
+  condition, Access Analyzer external access, or cross-account graph path).
+  Each plan carries `kind` (`permission_boundary` / `scp`), `target_scope`
+  (`identity` / `account` / `ou` / `org_root`), `target_account_ids`,
+  `target_ou_paths`, `target_identity_node_ids`, deny/allow action lists,
+  condition-key labels, resource-scope refs, prevented-behavior string,
+  breakage projection (low/medium/high/unknown plus affected identity /
+  account / OU counts and signal counts), rollback plan, verification
+  plan, deterministic `ready_for_apply` flag (true only when
+  `breakage_level=low`, `confidence>=0.75`, and the plan has non-empty
+  targets for its kind), and the standard evidence, source-signal,
+  impacted-node, and audit metadata. Public-principal SCPs always project
+  `high` breakage and stay non-executable. Adds
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/permission-boundary-scp`
+  with filters for connector, account, region, service, kind, target
+  scope, severity, status, breakage level, ready-for-apply, and free-text
+  search. OpenAPI schemas and authz wiring follow the neighboring AWS
+  intelligence engines. The AWS Runtime app surface now shows an **AWS
+  permission boundary / SCP planner** panel with plan, kind, target
+  scope, denied actions, prevented behavior, breakage level,
+  ready-for-apply badge, severity/status, and verification strategy. The
+  engine never mutates AWS, never reads or returns rendered policy
+  bodies, secret values, prompts, completions, tool payloads, browser
+  pages, code-interpreter output, database rows, object contents,
+  customer payloads, or workload payloads; apply/verify transitions
+  belong to later wave issues.
 - Add **AWS trust policy hardening planner** (#1531). Adds a read-only,
   metadata-only engine that turns upstream cross-account-trust findings
   (#1526) into ranked trust-policy hardening plans. Each plan carries a

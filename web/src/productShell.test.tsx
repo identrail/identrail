@@ -3663,6 +3663,116 @@ describe('Domain-first app routes', () => {
         diagnostics: []
       } as any
     });
+    vi.spyOn(api.apiClient, 'getAWSProjectPermissionBoundarySCPPlans').mockResolvedValue({
+      plans: {
+        status: 'ready',
+        plans: [
+          {
+            plan_id: 'aws-permission-boundary-scp:s3-delete-object',
+            calculation_version: 'aws-permission-boundary-scp-planner-v1',
+            kind: 'permission_boundary',
+            target_scope: 'identity',
+            severity: 'high',
+            status: 'action_required',
+            score: 74,
+            confidence: 0.86,
+            title: 'Permission boundary: deny s3:DeleteObject across 3 identities',
+            summary: '3 least-privilege recommendations agree that s3:DeleteObject is unused.',
+            service: 's3',
+            target_account_ids: ['111111111111', '222222222222'],
+            target_ou_paths: ['/root/security'],
+            target_identity_node_ids: [
+              'aws:identity:arn:aws:iam::111111111111:role/loader-a',
+              'aws:identity:arn:aws:iam::222222222222:role/loader-b',
+              'aws:identity:arn:aws:iam::111111111111:role/loader-c'
+            ],
+            prevented_behavior: 'Re-grant or future use of s3:DeleteObject by any boundary-bound identity.',
+            source_finding_ids: ['least-priv:a', 'least-priv:b', 'least-priv:c'],
+            statement_snippets: [
+              {
+                statement_sid: 'permission-boundary-projection',
+                effect: 'Deny',
+                change_kind: 'deny_repeated_action',
+                before_ref: 'evidence://least/loader',
+                after_ref: 'permission-boundary://repeated-action/s3%3Adeleteobject',
+                denied_actions: ['s3:DeleteObject'],
+                allowed_actions: [],
+                resource_scope: ['*'],
+                rationale: '3 identities across 2 account(s) all have least-privilege removal for s3:DeleteObject.'
+              }
+            ],
+            breakage_projection: {
+              level: 'low',
+              rationale: 'All affected identities already have a least-privilege remove decision.',
+              affected_identities: 3,
+              affected_accounts: 2,
+              affected_ous: 1,
+              signals: ['affected_identities:3', 'affected_accounts:2', 'affected_ous:1']
+            },
+            rollback_plan: {
+              strategy: 'detach_permission_boundary',
+              steps: ['Detach the projected permission boundary from each captured identity.'],
+              evidence_ref: 'evidence://least/loader'
+            },
+            verification_plan: {
+              strategy: 'policy_simulate',
+              steps: ['Use IAM policy simulator to confirm the boundary denies the action.'],
+              success_signals: ['policy_simulate:no-regression', 'least_privilege:decision-keep'],
+              failure_signals: ['policy_simulate:denied-observed-action'],
+              evidence_ref: 'evidence://least/loader'
+            },
+            ready_for_apply: true,
+            read_only_projection: true,
+            source_signals: ['least_privilege'],
+            evidence: [
+              {
+                source: 'least_privilege',
+                evidence_ref: 'evidence://least/loader',
+                label: 'Repeated least-privilege evidence',
+                confidence: 0.86,
+                observed_at: '2026-06-24T14:00:00Z',
+                relationship: 'remove'
+              }
+            ],
+            evidence_boundary: 'metadata_only_no_rendered_policy_bodies_no_secret_values_no_workload_payloads',
+            impacted_nodes: [
+              'aws:identity:arn:aws:iam::111111111111:role/loader-a',
+              'aws:identity:arn:aws:iam::222222222222:role/loader-b',
+              'aws:identity:arn:aws:iam::111111111111:role/loader-c'
+            ],
+            impacted_path: [],
+            next_action: 'Confirm the affected identities, then publish the boundary via the IAM remediation executor.',
+            created_at: '2026-06-24T14:00:00Z',
+            updated_at: '2026-06-24T14:00:00Z'
+          }
+        ],
+        summary: {
+          total_plans: 1,
+          filtered_plans: 1,
+          kind_counts: { permission_boundary: 1 },
+          target_scope_counts: { identity: 1 },
+          severity_counts: { high: 1 },
+          status_counts: { action_required: 1 },
+          breakage_level_counts: { low: 1 },
+          boundary_plan_count: 1,
+          scp_plan_count: 0,
+          ready_for_apply_count: 1,
+          affected_identity_count: 3,
+          affected_account_count: 2,
+          affected_ou_count: 1,
+          relationship_count: 3,
+          highest_score: 74,
+          average_confidence_pct: 86
+        },
+        relationships: [],
+        caveats: ['Permission boundary and SCP plans are read-only projections; the engine never applies an AWS change.'],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
     vi.spyOn(api.apiClient, 'getAWSProjectBlastRadius').mockResolvedValue({
       intelligence: {
         status: 'degraded',
@@ -3983,6 +4093,9 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('table', { name: 'AWS trust policy hardening plans' })).toBeInTheDocument();
     expect(screen.getByText(/Add org\/source condition to payments-cross-account trust/i)).toBeInTheDocument();
     expect(screen.getAllByText(/sts:ExternalId/i).length).toBeGreaterThan(0);
+    expect(await screen.findByRole('table', { name: 'AWS permission boundary and SCP plans' })).toBeInTheDocument();
+    expect(screen.getByText(/Permission boundary: deny s3:DeleteObject across 3 identities/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Permission boundary/i).length).toBeGreaterThan(0);
     expect(await screen.findByRole('table', { name: 'AWS least privilege recommendations' })).toBeInTheDocument();
     expect(screen.getByText(/Remove secretsmanager:GetSecretValue/i)).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS unused and dormant access findings' })).toBeInTheDocument();
