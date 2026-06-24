@@ -579,6 +579,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/iam-policy-diffs
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/blast-radius
     action: tenancy.read
     resource_type: project
@@ -5112,6 +5117,98 @@ paths:
                     $ref: "#/components/schemas/AWSRemediationCaseResult"
         "400":
           description: Invalid AWS remediation case request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/iam-policy-diffs:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS IAM policy least-privilege diffs
+      operationId: getAWSProjectIAMPolicyDiffs
+      description: Generates ranked, read-only IAM policy least-privilege diffs from upstream least-privilege recommendations. Diffs carry stable IDs, calculation version, decision/severity/status/confidence, statement-level removed/kept actions, resource scope before/after, expected breakage projection, rollback plan, verification plan, ready_for_apply, evidence refs, source signals, impacted graph nodes/path, and next action. The engine is read-only and never mutates AWS state, never reads or returns rendered policy bodies, secret values, prompts, completions, tool payloads, browser pages, code-interpreter output, database rows, object contents, customer payloads, or workload payloads.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope account, region, and read-only evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: identity
+          schema: { type: string }
+          description: Optional substring search across identity node, ARN, or name.
+        - in: query
+          name: service
+          schema: { type: string }
+        - in: query
+          name: decision
+          schema:
+            type: string
+            enum: [keep, remove, review]
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [action_required, review, monitor]
+        - in: query
+          name: breakage_level
+          schema:
+            type: string
+            enum: [low, medium, high, unknown]
+        - in: query
+          name: ready_for_apply
+          schema:
+            type: string
+            enum: ["true", "false", "yes", "no"]
+        - in: query
+          name: search
+          schema: { type: string }
+          description: Optional free-text search across diff, statement, action, resource, evidence, and plan fields.
+      responses:
+        "200":
+          description: AWS IAM policy least-privilege diff contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  diffs:
+                    $ref: "#/components/schemas/AWSIAMPolicyDiffResult"
+        "400":
+          description: Invalid AWS IAM policy diff request
           content:
             application/json:
               schema:
@@ -13328,6 +13425,253 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSRemediationRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSIAMPolicyStatementDiff:
+      type: object
+      properties:
+        statement_sid: { type: string }
+        effect:
+          type: string
+          enum: [Allow, Deny]
+        change_kind:
+          type: string
+          enum: [scope_removed, statement_removed, manual_review]
+        removed_actions:
+          type: array
+          items: { type: string }
+        kept_actions:
+          type: array
+          items: { type: string }
+        resource_before:
+          type: array
+          items: { type: string }
+        resource_after:
+          type: array
+          items: { type: string }
+        condition_before:
+          type: array
+          items: { type: string }
+        condition_after:
+          type: array
+          items: { type: string }
+        rationale: { type: string }
+    AWSIAMPolicyDiffBreakageProjection:
+      type: object
+      properties:
+        level:
+          type: string
+          enum: [low, medium, high, unknown]
+        rationale: { type: string }
+        signals:
+          type: array
+          items: { type: string }
+    AWSIAMPolicyDiffRollbackPlan:
+      type: object
+      properties:
+        strategy: { type: string }
+        steps:
+          type: array
+          items: { type: string }
+        evidence_ref: { type: string }
+    AWSIAMPolicyDiffVerificationPlan:
+      type: object
+      properties:
+        strategy: { type: string }
+        steps:
+          type: array
+          items: { type: string }
+        success_signals:
+          type: array
+          items: { type: string }
+        failure_signals:
+          type: array
+          items: { type: string }
+        evidence_ref: { type: string }
+    AWSIAMPolicyDiffRelationship:
+      type: object
+      properties:
+        diff_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSIAMPolicyDiff:
+      type: object
+      properties:
+        diff_id: { type: string }
+        calculation_version: { type: string }
+        source_recommendation_id: { type: string }
+        decision:
+          type: string
+          enum: [keep, remove, review]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status:
+          type: string
+          enum: [action_required, review, monitor]
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        title: { type: string }
+        summary: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        service: { type: string }
+        identity_node_id: { type: string }
+        identity_arn: { type: string }
+        identity_name: { type: string }
+        resource_node_id: { type: string }
+        resource_arn: { type: string }
+        statement_changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIAMPolicyStatementDiff"
+        removed_actions:
+          type: array
+          items: { type: string }
+        kept_actions:
+          type: array
+          items: { type: string }
+        observed_actions:
+          type: array
+          items: { type: string }
+        granted_actions:
+          type: array
+          items: { type: string }
+        resource_scope_before:
+          type: array
+          items: { type: string }
+        resource_scope_after:
+          type: array
+          items: { type: string }
+        breakage_projection:
+          $ref: "#/components/schemas/AWSIAMPolicyDiffBreakageProjection"
+        rollback_plan:
+          $ref: "#/components/schemas/AWSIAMPolicyDiffRollbackPlan"
+        verification_plan:
+          $ref: "#/components/schemas/AWSIAMPolicyDiffVerificationPlan"
+        ready_for_apply: { type: boolean }
+        read_only_projection: { type: boolean }
+        source_signals:
+          type: array
+          items: { type: string }
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeEvidence"
+        evidence_boundary: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegePathStep"
+        next_action: { type: string }
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSIAMPolicyDiffSummary:
+      type: object
+      properties:
+        total_diffs: { type: integer }
+        filtered_diffs: { type: integer }
+        decision_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        breakage_level_counts:
+          type: object
+          additionalProperties: { type: integer }
+        service_counts:
+          type: object
+          additionalProperties: { type: integer }
+        removed_action_count: { type: integer }
+        kept_action_count: { type: integer }
+        statement_change_count: { type: integer }
+        ready_for_apply_count: { type: integer }
+        manual_review_count: { type: integer }
+        no_op_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSIAMPolicyDiffResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSIAMPolicyDiffSummary"
+        diffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIAMPolicyDiff"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIAMPolicyDiffRelationship"
         caveats:
           type: array
           items: { type: string }

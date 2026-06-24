@@ -1,6 +1,27 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS IAM policy least-privilege diff generator** (#1530). Adds a
+  read-only, metadata-only engine that turns least-privilege recommendations
+  (#1522) into ranked IAM policy diffs. Each diff carries statement-level
+  removed/kept actions, resource scope before/after, an expected breakage
+  projection (`low` / `medium` / `high` / `unknown` plus rationale and
+  signals), a rollback plan, a verification plan, a deterministic
+  `ready_for_apply` flag (true only when `decision=remove` +
+  `breakage_level=low` + `confidence >= 0.75`), and the standard evidence,
+  source-signal, impacted-node, and audit metadata. Adds
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/iam-policy-diffs`
+  with filters for connector, account, region, identity, service,
+  decision, severity, status, breakage level, ready-for-apply, and free-text
+  search. OpenAPI schemas and authz wiring follow the neighboring AWS
+  intelligence engines. The AWS Runtime app surface now shows an **AWS IAM
+  policy least-privilege diff** panel with identity, decision, statement
+  change kind, removed/kept counts, breakage level, ready-for-apply,
+  verification strategy, and evidence. The engine never mutates AWS, never
+  reads or returns rendered policy bodies, secret values, prompts,
+  completions, tool payloads, browser pages, code-interpreter output,
+  database rows, object contents, customer payloads, or workload payloads;
+  apply/verify transitions belong to later wave issues.
 - Add **AWS remediation case model** (#1529). Adds a read-only, metadata-only
   engine that composes upstream AI agent risk (#1528), least-privilege
   (#1522), secret-permission equivalence (#1527), and blast-radius (#1521)

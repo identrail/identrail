@@ -3401,6 +3401,123 @@ describe('Domain-first app routes', () => {
         diagnostics: []
       } as any
     });
+    vi.spyOn(api.apiClient, 'getAWSProjectIAMPolicyDiffs').mockResolvedValue({
+      diffs: {
+        status: 'ready',
+        diffs: [
+          {
+            diff_id: 'aws-iam-policy-diff:data-loader-remove',
+            calculation_version: 'aws-iam-policy-least-privilege-diff-v1',
+            source_recommendation_id: 'least-priv:data-loader-remove',
+            decision: 'remove',
+            severity: 'medium',
+            status: 'action_required',
+            score: 74,
+            confidence: 0.86,
+            title: 'Scope data-loader: remove 2 action(s)',
+            summary: 'Remove unused s3 actions from data-loader role.',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            service: 's3',
+            identity_node_id: 'aws:identity:arn:aws:iam::123456789012:role/data-loader',
+            identity_arn: 'arn:aws:iam::123456789012:role/data-loader',
+            identity_name: 'data-loader',
+            resource_node_id: 'aws:resource:s3-bucket/data-loader',
+            resource_arn: 'arn:aws:s3:::data-loader',
+            statement_changes: [
+              {
+                statement_sid: 'least-privilege-projection',
+                effect: 'Allow',
+                change_kind: 'scope_removed',
+                removed_actions: ['s3:DeleteObject', 's3:DeleteBucket'],
+                kept_actions: ['s3:GetObject'],
+                resource_before: ['arn:aws:s3:::data-loader'],
+                resource_after: ['arn:aws:s3:::data-loader'],
+                rationale: 'Remove 2 unused action(s) and keep 1 observed action(s) on data-loader.'
+              }
+            ],
+            removed_actions: ['s3:DeleteObject', 's3:DeleteBucket'],
+            kept_actions: ['s3:GetObject'],
+            observed_actions: ['s3:GetObject'],
+            granted_actions: ['s3:DeleteObject', 's3:DeleteBucket', 's3:GetObject'],
+            resource_scope_before: ['arn:aws:s3:::data-loader'],
+            resource_scope_after: ['arn:aws:s3:::data-loader'],
+            breakage_projection: {
+              level: 'low',
+              rationale: 'Removed actions have no observed callers.',
+              signals: ['observed_actions:1', 'removed_actions:2', 'kept_actions:1']
+            },
+            rollback_plan: {
+              strategy: 're_attach_policy',
+              steps: ['Re-attach the captured before_ref policy statement.', 'Re-run least-privilege.'],
+              evidence_ref: 'evidence://least/data-loader'
+            },
+            verification_plan: {
+              strategy: 'policy_simulate',
+              steps: ['Run IAM policy simulator.', 'Re-run least-privilege.'],
+              success_signals: ['policy_simulate:no-regression', 'least_privilege:decision-keep'],
+              failure_signals: ['policy_simulate:denied-observed-action'],
+              evidence_ref: 'evidence://least/data-loader'
+            },
+            ready_for_apply: true,
+            read_only_projection: true,
+            source_signals: ['least_privilege'],
+            evidence: [
+              {
+                source: 'least_privilege',
+                evidence_ref: 'evidence://least/data-loader',
+                label: 'Least-privilege scope recommendation',
+                confidence: 0.86,
+                observed_at: '2026-06-24T09:00:00Z',
+                relationship: 'remove'
+              }
+            ],
+            evidence_boundary: 'metadata_only_no_rendered_policy_bodies_no_secret_values_no_workload_payloads',
+            impacted_nodes: [
+              'aws:identity:arn:aws:iam::123456789012:role/data-loader',
+              'aws:resource:s3-bucket/data-loader'
+            ],
+            impacted_path: [],
+            next_action: 'Approve the diff, then apply via the IAM remediation executor.',
+            created_at: '2026-06-24T09:00:00Z',
+            updated_at: '2026-06-24T09:00:00Z'
+          }
+        ],
+        summary: {
+          total_diffs: 1,
+          filtered_diffs: 1,
+          decision_counts: { remove: 1 },
+          severity_counts: { medium: 1 },
+          status_counts: { action_required: 1 },
+          breakage_level_counts: { low: 1 },
+          service_counts: { s3: 1 },
+          removed_action_count: 2,
+          kept_action_count: 1,
+          statement_change_count: 1,
+          ready_for_apply_count: 1,
+          manual_review_count: 0,
+          no_op_count: 0,
+          relationship_count: 1,
+          highest_score: 74,
+          average_confidence_pct: 86
+        },
+        relationships: [
+          {
+            diff_id: 'aws-iam-policy-diff:data-loader-remove',
+            type: 'iam_policy_diff_path',
+            from_node_id: 'aws:identity:arn:aws:iam::123456789012:role/data-loader',
+            to_node_id: 'aws:resource:s3-bucket/data-loader',
+            evidence_ref: 'evidence://least/data-loader'
+          }
+        ],
+        caveats: ['IAM policy diffs are read-only projections; the engine never applies an AWS change.'],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
     vi.spyOn(api.apiClient, 'getAWSProjectBlastRadius').mockResolvedValue({
       intelligence: {
         status: 'degraded',
@@ -3715,6 +3832,9 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('table', { name: 'AWS remediation cases' })).toBeInTheDocument();
     expect(screen.getByText(/Rotate external credential for support-assistant/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Secret rotation/i).length).toBeGreaterThan(0);
+    expect(await screen.findByRole('table', { name: 'AWS IAM policy diffs' })).toBeInTheDocument();
+    expect(screen.getByText(/Scope data-loader: remove 2 action\(s\)/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/ready · Low breakage/i).length).toBeGreaterThan(0);
     expect(await screen.findByRole('table', { name: 'AWS least privilege recommendations' })).toBeInTheDocument();
     expect(screen.getByText(/Remove secretsmanager:GetSecretValue/i)).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS unused and dormant access findings' })).toBeInTheDocument();

@@ -2984,6 +2984,158 @@ export type AWSRemediationCaseQuery = {
   search?: string;
 };
 
+export type AWSIAMPolicyDiffStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSIAMPolicyDiffFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSIAMPolicyDiffSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
+export type AWSIAMPolicyDiffDecision = 'keep' | 'remove' | 'review' | string;
+export type AWSIAMPolicyDiffBreakageLevel = 'low' | 'medium' | 'high' | 'unknown' | string;
+
+export type AWSIAMPolicyStatementDiff = {
+  statement_sid: string;
+  effect: string;
+  change_kind: 'scope_removed' | 'statement_removed' | 'manual_review' | string;
+  removed_actions?: string[];
+  kept_actions?: string[];
+  resource_before?: string[];
+  resource_after?: string[];
+  condition_before?: string[];
+  condition_after?: string[];
+  rationale: string;
+};
+
+export type AWSIAMPolicyDiffBreakageProjection = {
+  level: AWSIAMPolicyDiffBreakageLevel;
+  rationale: string;
+  signals?: string[];
+};
+
+export type AWSIAMPolicyDiffRollbackPlan = {
+  strategy: string;
+  steps: string[];
+  evidence_ref?: string;
+};
+
+export type AWSIAMPolicyDiffVerificationPlan = {
+  strategy: string;
+  steps: string[];
+  success_signals?: string[];
+  failure_signals?: string[];
+  evidence_ref?: string;
+};
+
+export type AWSIAMPolicyDiffRelationship = {
+  diff_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSIAMPolicyDiff = {
+  diff_id: string;
+  calculation_version: string;
+  source_recommendation_id: string;
+  decision: AWSIAMPolicyDiffDecision;
+  severity: AWSIAMPolicyDiffSeverity;
+  status: string;
+  score: number;
+  confidence: number;
+  title: string;
+  summary: string;
+  account_id: string;
+  region: string;
+  service?: string;
+  identity_node_id: string;
+  identity_arn?: string;
+  identity_name?: string;
+  resource_node_id?: string;
+  resource_arn?: string;
+  statement_changes: AWSIAMPolicyStatementDiff[];
+  removed_actions?: string[];
+  kept_actions?: string[];
+  observed_actions?: string[];
+  granted_actions?: string[];
+  resource_scope_before?: string[];
+  resource_scope_after?: string[];
+  breakage_projection: AWSIAMPolicyDiffBreakageProjection;
+  rollback_plan: AWSIAMPolicyDiffRollbackPlan;
+  verification_plan: AWSIAMPolicyDiffVerificationPlan;
+  ready_for_apply: boolean;
+  read_only_projection: boolean;
+  source_signals: string[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  next_action: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSIAMPolicyDiffSummary = {
+  total_diffs: number;
+  filtered_diffs: number;
+  decision_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  breakage_level_counts: Record<string, number>;
+  service_counts: Record<string, number>;
+  removed_action_count: number;
+  kept_action_count: number;
+  statement_change_count: number;
+  ready_for_apply_count: number;
+  manual_review_count: number;
+  no_op_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSIAMPolicyDiffResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSIAMPolicyDiffStatus;
+  fixture_state?: AWSIAMPolicyDiffFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSIAMPolicyDiffSummary;
+  diffs: AWSIAMPolicyDiff[];
+  relationships: AWSIAMPolicyDiffRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSIAMPolicyDiffQuery = {
+  connectorID?: string;
+  fixtureState?: AWSIAMPolicyDiffFixtureState;
+  accountID?: string;
+  region?: string;
+  identity?: string;
+  service?: string;
+  decision?: string;
+  severity?: string;
+  status?: string;
+  breakageLevel?: string;
+  readyForApply?: string;
+  search?: string;
+};
+
 export type AWSBlastRadiusStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBlastRadiusFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSBlastRadiusSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
@@ -7116,6 +7268,30 @@ export const apiClient = {
         status: query?.status,
         approval_state: query?.approvalState,
         owner_assigned: query?.ownerAssigned,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectIAMPolicyDiffs(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSIAMPolicyDiffQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ diffs: AWSIAMPolicyDiffResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/iam-policy-diffs${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        identity: query?.identity,
+        service: query?.service,
+        decision: query?.decision,
+        severity: query?.severity,
+        status: query?.status,
+        breakage_level: query?.breakageLevel,
+        ready_for_apply: query?.readyForApply,
         search: query?.search
       })}`,
       auth

@@ -59,6 +59,8 @@ import {
   type AWSAIAgentRiskResult,
   type AWSRemediationCase,
   type AWSRemediationCaseResult,
+  type AWSIAMPolicyDiff,
+  type AWSIAMPolicyDiffResult,
   type AWSBlastRadiusFinding,
   type AWSBlastRadiusResult,
   type AWSLeastPrivilegeRecommendation,
@@ -10689,6 +10691,119 @@ function AWSRemediationCaseContent({
   );
 }
 
+function awsIAMPolicyDiffStage(diff: AWSIAMPolicyDiff): AWSCapabilityStage {
+  if (diff.severity === 'critical' || diff.breakage_projection.level === 'high') {
+    return 'not-available';
+  }
+  if (diff.severity === 'high' || diff.breakage_projection.level === 'medium' || diff.decision === 'review') {
+    return 'coming';
+  }
+  if (diff.ready_for_apply) {
+    return 'wired';
+  }
+  return 'wired';
+}
+
+function awsIAMPolicyDiffActionLabel(diff: AWSIAMPolicyDiff): string {
+  const removed = diff.removed_actions?.length ?? 0;
+  const kept = diff.kept_actions?.length ?? 0;
+  return `${removed} removed · ${kept} kept`;
+}
+
+function awsIAMPolicyDiffStatementLabel(diff: AWSIAMPolicyDiff): string {
+  if (!diff.statement_changes || diff.statement_changes.length === 0) {
+    return 'no projection';
+  }
+  return diff.statement_changes
+    .slice(0, 2)
+    .map((statement) => formatTokenLabel(statement.change_kind))
+    .join(', ') + (diff.statement_changes.length > 2 ? ` +${diff.statement_changes.length - 2}` : '');
+}
+
+function awsIAMPolicyDiffReadinessLabel(diff: AWSIAMPolicyDiff): string {
+  if (diff.ready_for_apply) {
+    return `ready · ${formatTokenLabel(diff.breakage_projection.level)} breakage`;
+  }
+  return `gate · ${formatTokenLabel(diff.breakage_projection.level)} breakage`;
+}
+
+function AWSIAMPolicyDiffContent({
+  diffs,
+  loading,
+  error,
+  onRetry
+}: {
+  diffs: AWSIAMPolicyDiffResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = diffs?.diffs ?? [];
+  const summaryLine = diffs
+    ? `${diffs.summary.total_diffs} total · ${diffs.summary.ready_for_apply_count} ready · ${diffs.summary.manual_review_count} manual review · ${diffs.summary.removed_action_count} removed action(s)`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS IAM policy least-privilege diffs">
+      <h3>AWS IAM policy least-privilege diff</h3>
+      <p className="idt-app-kicker">
+        Read-only IAM policy diffs projected from least-privilege evidence. Removed/kept actions, breakage projection,
+        rollback, and verification are all derived deterministically; the engine never mutates IAM. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load AWS IAM policy diffs"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Projecting IAM policy diffs"
+          body="Identrail is composing least-privilege evidence into statement-level removed/kept action projections."
+        />
+      ) : null}
+      {!error && !loading && diffs && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={diffs.status === 'blocked' ? 'Permission required' : 'No IAM policy diffs'}
+          title={diffs.status === 'blocked' ? 'IAM policy diffs need read-only least-privilege evidence' : 'No IAM policy diffs projected'}
+          body={diffs.failure_reasons[0] ?? 'No upstream least-privilege recommendations produced a diff for this environment.'}
+        />
+      ) : null}
+      {!error && !loading && diffs && diffs.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {diffs.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS IAM policy diffs"
+          rows={rows}
+          getRowKey={(row) => row.diff_id}
+          columns={[
+            { key: 'diff', header: 'Diff', render: (row) => <strong>{row.title}</strong> },
+            { key: 'identity', header: 'Identity', render: (row) => row.identity_name || row.identity_arn || row.identity_node_id },
+            { key: 'decision', header: 'Decision', render: (row) => formatTokenLabel(row.decision) },
+            { key: 'actions', header: 'Actions', render: (row) => awsIAMPolicyDiffActionLabel(row) },
+            { key: 'statements', header: 'Statement change', render: (row) => awsIAMPolicyDiffStatementLabel(row) },
+            { key: 'breakage', header: 'Readiness', render: (row) => awsIAMPolicyDiffReadinessLabel(row) },
+            {
+              key: 'severity',
+              header: 'Severity',
+              render: (row) => (
+                <AWSInventoryPill stage={awsIAMPolicyDiffStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.status)}`} />
+              )
+            },
+            { key: 'verification', header: 'Verification', render: (row) => formatTokenLabel(row.verification_plan.strategy) }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsBlastRadiusSeverityStage(severity: string): AWSCapabilityStage {
   switch (severity) {
     case 'critical':
@@ -12136,6 +12251,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [remediationCasesLoading, setRemediationCasesLoading] = useState(false);
   const [remediationCasesError, setRemediationCasesError] = useState('');
   const remediationCasesRequestRef = useRef(0);
+  const [iamPolicyDiffs, setIAMPolicyDiffs] = useState<AWSIAMPolicyDiffResult | null>(null);
+  const [iamPolicyDiffsLoading, setIAMPolicyDiffsLoading] = useState(false);
+  const [iamPolicyDiffsError, setIAMPolicyDiffsError] = useState('');
+  const iamPolicyDiffsRequestRef = useRef(0);
   const [blastRadius, setBlastRadius] = useState<AWSBlastRadiusResult | null>(null);
   const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
   const [blastRadiusError, setBlastRadiusError] = useState('');
@@ -12468,6 +12587,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       remediationCasesRequestRef.current += 1;
     };
   }, [loadRemediationCases]);
+
+  const loadIAMPolicyDiffs = useCallback(async () => {
+    const requestID = ++iamPolicyDiffsRequestRef.current;
+    setIAMPolicyDiffs(null);
+    setIAMPolicyDiffsError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setIAMPolicyDiffsLoading(false);
+      return;
+    }
+    setIAMPolicyDiffsLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectIAMPolicyDiffs(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== iamPolicyDiffsRequestRef.current) {
+        return;
+      }
+      setIAMPolicyDiffs(response.diffs);
+    } catch (error) {
+      if (requestID !== iamPolicyDiffsRequestRef.current) {
+        return;
+      }
+      setIAMPolicyDiffsError(formatAPIError(error, 'Unable to load AWS IAM policy diffs.'));
+    } finally {
+      if (requestID === iamPolicyDiffsRequestRef.current) {
+        setIAMPolicyDiffsLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadIAMPolicyDiffs();
+    return () => {
+      iamPolicyDiffsRequestRef.current += 1;
+    };
+  }, [loadIAMPolicyDiffs]);
 
   const loadBlastRadius = useCallback(async () => {
     const requestID = ++blastRadiusRequestRef.current;
@@ -12947,6 +13114,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={remediationCasesLoading}
             error={remediationCasesError}
             onRetry={loadRemediationCases}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSIAMPolicyDiffContent
+            diffs={iamPolicyDiffs}
+            loading={iamPolicyDiffsLoading}
+            error={iamPolicyDiffsError}
+            onRetry={loadIAMPolicyDiffs}
           />
         ) : null}
         {routeID === 'runtime' ? (
