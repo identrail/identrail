@@ -216,6 +216,82 @@ func TestAWSSCPPlanFromCrossAccountTrust(t *testing.T) {
 	}
 }
 
+func TestAWSSCPDeniedActionsForResourcePolicyFindings(t *testing.T) {
+	tests := []struct {
+		name     string
+		finding  AWSCrossAccountTrustFinding
+		expected string
+	}{
+		{
+			name:     "cross-account resource access",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "s3_bucket"},
+			expected: "s3:PutBucketPolicy",
+		},
+		{
+			name:     "fallback action",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "other_cross_account_grant", ResourceType: "s3_bucket"},
+			expected: "*",
+		},
+	}
+	for _, tc := range tests {
+		actions := awsSCPDeniedActions(tc.finding)
+		if len(actions) != 1 {
+			t.Fatalf("%s expected 1 denied action, got %+v", tc.name, actions)
+		}
+		if actions[0] != tc.expected {
+			t.Fatalf("%s expected denied action %q, got %q", tc.name, tc.expected, actions[0])
+		}
+	}
+}
+
+func TestAWSSCPTargetScopeForResourcePolicyFindings(t *testing.T) {
+	orgs := AWSOrganizationsTopologyResult{
+		Accounts: []AWSOrganizationsTopologyAccount{
+			{AccountID: "111111111111", OUPath: "/root/finance"},
+			{AccountID: "222222222222", OUPath: "/root/other"},
+		},
+	}
+	tests := []struct {
+		name        string
+		findingType string
+	}{
+		{name: "cross-account resource access", findingType: "cross_account_resource_access"},
+		{name: "access analyzer external access", findingType: "access_analyzer_external_access"},
+	}
+	for _, tc := range tests {
+		scope, accounts, ouPaths := awsSCPTargetScope(AWSCrossAccountTrustFinding{
+			FindingType:             tc.findingType,
+			PublicPrincipal:         false,
+			ExternalPrincipalOUPath: "/root/principal-ou",
+			AccountID:               "111111111111",
+		}, orgs)
+		if scope != "account" {
+			t.Fatalf("%s expected account scope for resource-policy finding, got %s", tc.name, scope)
+		}
+		if len(accounts) != 1 || accounts[0] != "111111111111" {
+			t.Fatalf("%s expected account target to use finding account, got %+v", tc.name, accounts)
+		}
+		if len(ouPaths) != 1 || ouPaths[0] != "/root/finance" {
+			t.Fatalf("%s expected resource OU path, got %+v", tc.name, ouPaths)
+		}
+	}
+}
+
+func TestAWSPermissionBoundarySCPMostCommonKeyIsDeterministic(t *testing.T) {
+	severity := awsPermissionBoundarySCPMostCommonKeyWithPriority(map[string]int{"high": 1, "critical": 1}, "medium", awsPermissionBoundarySCPSeverityPriority)
+	if severity != "critical" {
+		t.Fatalf("expected deterministic critical tie-break, got %s", severity)
+	}
+	status := awsPermissionBoundarySCPMostCommonKeyWithPriority(map[string]int{"ready": 2, "action_required": 2}, "review", awsPermissionBoundarySCPStatusPriority)
+	if status != "action_required" {
+		t.Fatalf("expected deterministic action_required tie-break, got %s", status)
+	}
+	manual := awsPermissionBoundarySCPMostCommonKeyWithPriority(map[string]int{"zz": 1, "aa": 1}, "fallback", nil)
+	if manual != "aa" {
+		t.Fatalf("expected lexical tie-break, got %s", manual)
+	}
+}
+
 func TestAWSPermissionBoundarySCPSearchMatchesPlanDetails(t *testing.T) {
 	plan := AWSPermissionBoundarySCPPlan{
 		PlanID:            "aws-permission-boundary-scp:search-test",

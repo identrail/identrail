@@ -382,8 +382,8 @@ func awsPermissionBoundaryPlansFromLeastPrivilege(least AWSLeastPrivilegeResult,
 		accounts := emptyStrings(dedupeStrings(b.accountIDs))
 		ouPaths := awsPermissionBoundarySCPOUPathsForAccounts(orgs, accounts)
 		service := firstString(dedupeStrings(b.services))
-		severity := awsPermissionBoundarySCPMostCommonKey(b.severities, "medium")
-		status := awsPermissionBoundarySCPMostCommonKey(b.statuses, "review")
+		severity := awsPermissionBoundarySCPMostCommonKeyWithPriority(b.severities, "medium", awsPermissionBoundarySCPSeverityPriority)
+		status := awsPermissionBoundarySCPMostCommonKeyWithPriority(b.statuses, "review", awsPermissionBoundarySCPStatusPriority)
 		score := 0
 		if b.scoreCount > 0 {
 			score = b.scoreSum / b.scoreCount
@@ -525,6 +525,8 @@ func awsSCPDeniedActions(finding AWSCrossAccountTrustFinding) []string {
 		return []string{awsSCPDenyActionForResource(finding.ResourceType, "Put")}
 	case "runtime_cross_account_assumption":
 		return []string{"sts:AssumeRole"}
+	case "cross_account_resource_access":
+		return []string{awsSCPDenyActionForResource(finding.ResourceType, "Put")}
 	case "access_analyzer_external_access":
 		return []string{awsSCPDenyActionForResource(finding.ResourceType, "Allow")}
 	case "cross_account_graph_path":
@@ -577,6 +579,9 @@ func awsSCPTargetScope(finding AWSCrossAccountTrustFinding, orgs AWSOrganization
 	if finding.PublicPrincipal {
 		return "org_root", awsPermissionBoundarySCPAllAccounts(orgs), awsPermissionBoundarySCPAllOUPaths(orgs)
 	}
+	if awsSCPIsResourcePolicyFinding(finding.FindingType) && finding.AccountID != "" {
+		return "account", []string{finding.AccountID}, awsPermissionBoundarySCPOUPathsForAccounts(orgs, []string{finding.AccountID})
+	}
 	if finding.ExternalPrincipalOUPath != "" {
 		paths := []string{finding.ExternalPrincipalOUPath}
 		return "ou", awsPermissionBoundarySCPAccountsForOUPath(orgs, finding.ExternalPrincipalOUPath), paths
@@ -585,6 +590,15 @@ func awsSCPTargetScope(finding AWSCrossAccountTrustFinding, orgs AWSOrganization
 		return "account", []string{finding.AccountID}, awsPermissionBoundarySCPOUPathsForAccounts(orgs, []string{finding.AccountID})
 	}
 	return "org_root", awsPermissionBoundarySCPAllAccounts(orgs), awsPermissionBoundarySCPAllOUPaths(orgs)
+}
+
+func awsSCPIsResourcePolicyFinding(findingType string) bool {
+	switch normalizeAWSRuntimeEventFilterToken(findingType) {
+	case "cross_account_resource_access", "access_analyzer_external_access":
+		return true
+	default:
+		return false
+	}
 }
 
 func awsSCPTitle(finding AWSCrossAccountTrustFinding, scope string) string {
@@ -730,21 +744,62 @@ func awsPermissionBoundarySCPReadyForApply(kind string, breakage AWSPermissionBo
 }
 
 func awsPermissionBoundarySCPMostCommonKey(counts map[string]int, fallback string) string {
+	return awsPermissionBoundarySCPMostCommonKeyWithPriority(counts, fallback, nil)
+}
+
+func awsPermissionBoundarySCPMostCommonKeyWithPriority(counts map[string]int, fallback string, priorities map[string]int) string {
 	best := ""
 	bestCount := -1
+	bestPriority := -1
 	for key, count := range counts {
-		if key == "" {
+		if count <= 0 || key == "" {
 			continue
+		}
+		priority := -1
+		if priorities != nil {
+			priority = priorities[normalizeAWSRuntimeEventFilterToken(key)]
 		}
 		if count > bestCount {
 			best = key
 			bestCount = count
+			bestPriority = priority
+			continue
 		}
+		if count < bestCount {
+			continue
+		}
+		if priority > bestPriority {
+			best = key
+			bestPriority = priority
+			continue
+		}
+		if priority < bestPriority {
+			continue
+		}
+		if normalizeAWSRuntimeEventFilterToken(key) >= normalizeAWSRuntimeEventFilterToken(best) {
+			continue
+		}
+		best = key
 	}
 	if best == "" {
 		return fallback
 	}
 	return best
+}
+
+var awsPermissionBoundarySCPStatusPriority = map[string]int{
+	"action_required": 2,
+	"review":          1,
+	"ready":           0,
+	"deferred":        -1,
+}
+
+var awsPermissionBoundarySCPSeverityPriority = map[string]int{
+	"critical": 4,
+	"high":     3,
+	"medium":   2,
+	"low":      1,
+	"info":     0,
 }
 
 func awsPermissionBoundarySCPOUPathsForAccounts(orgs AWSOrganizationsTopologyResult, accounts []string) []string {
