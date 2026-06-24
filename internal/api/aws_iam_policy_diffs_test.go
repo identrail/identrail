@@ -198,6 +198,53 @@ func TestAWSIAMPolicyDiffFromRecommendation(t *testing.T) {
 	}
 }
 
+func TestAWSIAMPolicyDiffSearchMatchesPlanDetails(t *testing.T) {
+	diff := AWSIAMPolicyDiff{
+		DiffID: "aws-iam-policy-diff:search-test",
+		Title:  "Scope sample-role: remove 1 action(s)",
+		BreakageProjection: AWSIAMPolicyDiffBreakageProjection{
+			Level:   "low",
+			Signals: []string{"observed_actions:5"},
+		},
+		RollbackPlan: AWSIAMPolicyDiffRollbackPlan{
+			Strategy:    "re_attach_policy",
+			Steps:       []string{"Re-attach the captured before_ref policy statement."},
+			EvidenceRef: "evidence://least/sample-role",
+		},
+		VerificationPlan: AWSIAMPolicyDiffVerificationPlan{
+			Strategy:       "policy_simulate",
+			Steps:          []string{"Run IAM policy simulator against kept actions to confirm no regression."},
+			SuccessSignals: []string{"policy_simulate:no-regression"},
+			FailureSignals: []string{"policy_simulate:denied-observed-action"},
+			EvidenceRef:    "evidence://least/sample-role",
+		},
+		StatementChanges: []AWSIAMPolicyStatementDiff{{
+			ResourceBefore:  []string{"arn:aws:s3:::bucket-x"},
+			ResourceAfter:   []string{"arn:aws:s3:::bucket-x"},
+			ConditionBefore: []string{"aws:SourceVpce"},
+			ConditionAfter:  []string{"aws:SourceVpce"},
+		}},
+	}
+	cases := []struct {
+		name   string
+		needle string
+	}{
+		{"rollback step", "re-attach"},
+		{"verification step", "simulator"},
+		{"verification success signal", "no-regression"},
+		{"verification failure signal", "denied-observed-action"},
+		{"breakage signal", "observed_actions:5"},
+		{"plan evidence ref", "evidence://least/sample-role"},
+		{"statement resource", "bucket-x"},
+		{"statement condition", "aws:SourceVpce"},
+	}
+	for _, tc := range cases {
+		if !awsIAMPolicyDiffSearchMatch(diff, tc.needle) {
+			t.Fatalf("search did not match %s needle %q", tc.name, tc.needle)
+		}
+	}
+}
+
 func TestAWSIAMPolicyDiffReadyForApplyGuards(t *testing.T) {
 	now := time.Date(2026, 6, 24, 9, 15, 0, 0, time.UTC)
 	base := AWSLeastPrivilegeRecommendation{

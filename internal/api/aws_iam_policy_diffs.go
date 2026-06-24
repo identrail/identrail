@@ -648,17 +648,26 @@ func awsIAMPolicyDiffSearchMatch(d AWSIAMPolicyDiff, needle string) bool {
 	if needle == "" {
 		return true
 	}
-	values := []string{d.DiffID, d.Title, d.Summary, d.SourceRecommendationID, d.Service, d.Decision, d.Severity, d.Status, d.IdentityNodeID, d.IdentityARN, d.IdentityName, d.ResourceNodeID, d.ResourceARN, d.BreakageProjection.Level, d.BreakageProjection.Rationale, d.RollbackPlan.Strategy, d.VerificationPlan.Strategy, d.NextAction}
+	values := []string{d.DiffID, d.Title, d.Summary, d.SourceRecommendationID, d.Service, d.Decision, d.Severity, d.Status, d.IdentityNodeID, d.IdentityARN, d.IdentityName, d.ResourceNodeID, d.ResourceARN, d.BreakageProjection.Level, d.BreakageProjection.Rationale, d.RollbackPlan.Strategy, d.RollbackPlan.EvidenceRef, d.VerificationPlan.Strategy, d.VerificationPlan.EvidenceRef, d.NextAction}
 	values = append(values, d.RemovedActions...)
 	values = append(values, d.KeptActions...)
 	values = append(values, d.ObservedActions...)
 	values = append(values, d.GrantedActions...)
 	values = append(values, d.ResourceScopeBefore...)
 	values = append(values, d.ResourceScopeAfter...)
+	values = append(values, d.BreakageProjection.Signals...)
+	values = append(values, d.RollbackPlan.Steps...)
+	values = append(values, d.VerificationPlan.Steps...)
+	values = append(values, d.VerificationPlan.SuccessSignals...)
+	values = append(values, d.VerificationPlan.FailureSignals...)
 	for _, statement := range d.StatementChanges {
 		values = append(values, statement.StatementSID, statement.Effect, statement.ChangeKind, statement.Rationale)
 		values = append(values, statement.RemovedActions...)
 		values = append(values, statement.KeptActions...)
+		values = append(values, statement.ResourceBefore...)
+		values = append(values, statement.ResourceAfter...)
+		values = append(values, statement.ConditionBefore...)
+		values = append(values, statement.ConditionAfter...)
 	}
 	for _, evidence := range d.Evidence {
 		values = append(values, evidence.Source, evidence.Label, evidence.EvidenceRef, evidence.Relationship)
