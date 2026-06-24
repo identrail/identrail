@@ -238,52 +238,104 @@ func TestAWSSCPDeniedActionsForResourcePolicyFindings(t *testing.T) {
 	tests := []struct {
 		name     string
 		finding  AWSCrossAccountTrustFinding
-		expected string
+		expected []string
 	}{
 		{
 			name:     "cross-account resource access",
 			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "s3_bucket"},
-			expected: "s3:PutBucketPolicy",
+			expected: []string{"s3:PutBucketPolicy"},
 		},
 		{
 			name:     "cross-account resource access using service token s3",
 			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "s3"},
-			expected: "s3:PutBucketPolicy",
+			expected: []string{"s3:PutBucketPolicy"},
 		},
 		{
 			name:     "cross-account resource access using normalized s3 token",
 			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "s3-bucket"},
-			expected: "s3:PutBucketPolicy",
+			expected: []string{"s3:PutBucketPolicy"},
 		},
 		{
 			name:     "cross-account resource access using service token kms",
 			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "kms"},
-			expected: "kms:PutKeyPolicy",
+			expected: []string{"kms:PutKeyPolicy"},
 		},
 		{
 			name:     "cross-account resource access using service token secretsmanager",
 			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "secretsmanager"},
-			expected: "secretsmanager:PutResourcePolicy",
+			expected: []string{"secretsmanager:PutResourcePolicy"},
 		},
 		{
 			name:     "fallback action",
 			finding:  AWSCrossAccountTrustFinding{FindingType: "other_cross_account_grant", ResourceType: "s3_bucket"},
-			expected: "*",
+			expected: []string{"*"},
 		},
 		{
 			name:     "access analyzer external access",
 			finding:  AWSCrossAccountTrustFinding{FindingType: "access_analyzer_external_access", ResourceType: "s3"},
-			expected: "s3:PutBucketPolicy",
+			expected: []string{"s3:PutBucketPolicy"},
+		},
+		{
+			name:     "unsupported resource type",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "sqs_queue"},
+			expected: nil,
 		},
 	}
 	for _, tc := range tests {
 		actions := awsSCPDeniedActions(tc.finding)
-		if len(actions) != 1 {
-			t.Fatalf("%s expected 1 denied action, got %+v", tc.name, actions)
+		if len(actions) != len(tc.expected) {
+			t.Fatalf("%s expected denied actions %v, got %v", tc.name, tc.expected, actions)
 		}
-		if actions[0] != tc.expected {
-			t.Fatalf("%s expected denied action %q, got %q", tc.name, tc.expected, actions[0])
+		for i := range tc.expected {
+			if actions[i] != tc.expected[i] {
+				t.Fatalf("%s expected denied action %q at index %d, got %q", tc.name, tc.expected[i], i, actions[i])
+			}
 		}
+	}
+}
+
+func TestAWSPermissionBoundaryPlansFromLeastPrivilegeHonorsUpstreamBreakage(t *testing.T) {
+	now := time.Date(2026, 6, 24, 14, 30, 0, 0, time.UTC)
+	least := AWSLeastPrivilegeResult{
+		Recommendations: []AWSLeastPrivilegeRecommendation{
+			{
+				RecommendationID:   "least-priv:high",
+				Decision:           "remove",
+				Severity:           "medium",
+				Status:             "action_required",
+				Score:              74,
+				Confidence:         0.93,
+				AccountID:          "111111111111",
+				Region:             "us-east-1",
+				IdentityNodeID:     "aws:identity:arn:aws:iam::111111111111:role/loader-a",
+				RemoveActions:      []string{"s3:PutObject"},
+				BreakagePrediction: "medium",
+			},
+			{
+				RecommendationID:   "least-priv:low",
+				Decision:           "remove",
+				Severity:           "medium",
+				Status:             "action_required",
+				Score:              72,
+				Confidence:         0.93,
+				AccountID:          "222222222222",
+				Region:             "us-east-1",
+				IdentityNodeID:     "aws:identity:arn:aws:iam::222222222222:role/loader-b",
+				RemoveActions:      []string{"s3:PutObject"},
+				BreakagePrediction: "low",
+			},
+		},
+	}
+	plans := awsPermissionBoundaryPlansFromLeastPrivilege(least, AWSOrganizationsTopologyResult{}, now)
+	if len(plans) != 1 {
+		t.Fatalf("expected one boundary plan for repeated action, got %d", len(plans))
+	}
+	plan := plans[0]
+	if plan.BreakageProjection.Level != "medium" {
+		t.Fatalf("expected medium upstream-influenced breakage projection, got %s", plan.BreakageProjection.Level)
+	}
+	if plan.ReadyForApply {
+		t.Fatalf("upstream medium breakage must block ready_for_apply: %+v", plan)
 	}
 }
 

@@ -334,6 +334,7 @@ func awsPermissionBoundaryPlansFromLeastPrivilege(least AWSLeastPrivilegeResult,
 		impactedRefs []string
 		severities   map[string]int
 		statuses     map[string]int
+		breakage     map[string]int
 		scoreSum     int
 		scoreCount   int
 		confidence   float64
@@ -352,7 +353,7 @@ func awsPermissionBoundaryPlansFromLeastPrivilege(least AWSLeastPrivilegeResult,
 			}
 			b := buckets[key]
 			if b == nil {
-				b = &bucket{action: action, severities: map[string]int{}, statuses: map[string]int{}}
+				b = &bucket{action: action, severities: map[string]int{}, statuses: map[string]int{}, breakage: map[string]int{}}
 				buckets[key] = b
 			}
 			b.recommendIDs = append(b.recommendIDs, recommendation.RecommendationID)
@@ -369,6 +370,7 @@ func awsPermissionBoundaryPlansFromLeastPrivilege(least AWSLeastPrivilegeResult,
 			b.impactedRefs = append(b.impactedRefs, recommendation.ImpactedNodes...)
 			b.severities[recommendation.Severity]++
 			b.statuses[recommendation.Status]++
+			b.breakage[strings.ToLower(strings.TrimSpace(recommendation.BreakagePrediction))]++
 			b.scoreSum += recommendation.Score
 			b.scoreCount++
 			b.confidence += recommendation.Confidence
@@ -404,6 +406,7 @@ func awsPermissionBoundaryPlansFromLeastPrivilege(least AWSLeastPrivilegeResult,
 		}
 		evidenceRef := firstString(awsPermissionBoundarySCPEvidenceRefs(b.evidence))
 		breakage := awsPermissionBoundarySCPBoundaryBreakage(len(identityIDs), len(accounts), len(ouPaths))
+		breakage = awsPermissionBoundarySCPBreakageWithUpstreamPrediction(breakage, awsPermissionBoundarySCPMostSeverePrediction(b.breakage, "low", awsPermissionBoundarySCPBreakagePredictionPriority))
 		statement := AWSPermissionBoundarySCPStatementSnippet{
 			StatementSID:   "permission-boundary-projection",
 			Effect:         "Deny",
@@ -464,6 +467,9 @@ func awsSCPPlansFromCrossAccountTrust(trust AWSCrossAccountTrustResult, orgs AWS
 		targetScope, accounts, ouPaths := awsSCPTargetScope(finding, orgs)
 		breakage := awsPermissionBoundarySCPSCPBreakage(finding, len(accounts), len(ouPaths))
 		denied := awsSCPDeniedActions(finding)
+		if len(denied) == 0 {
+			continue
+		}
 		statement := AWSPermissionBoundarySCPStatementSnippet{
 			StatementSID:  "scp-projection",
 			Effect:        "Deny",
@@ -530,13 +536,25 @@ func awsSCPCandidate(finding AWSCrossAccountTrustFinding) bool {
 func awsSCPDeniedActions(finding AWSCrossAccountTrustFinding) []string {
 	switch finding.FindingType {
 	case "public_resource_trust":
-		return []string{awsSCPDenyActionForResource(finding.ResourceType, "Put")}
+		action := awsSCPDenyActionForResource(finding.ResourceType, "Put")
+		if action == "" {
+			return nil
+		}
+		return []string{action}
 	case "runtime_cross_account_assumption":
 		return []string{"sts:AssumeRole"}
 	case "cross_account_resource_access":
-		return []string{awsSCPDenyActionForResource(finding.ResourceType, "Put")}
+		action := awsSCPDenyActionForResource(finding.ResourceType, "Put")
+		if action == "" {
+			return nil
+		}
+		return []string{action}
 	case "access_analyzer_external_access":
-		return []string{awsSCPDenyActionForResource(finding.ResourceType, "Put")}
+		action := awsSCPDenyActionForResource(finding.ResourceType, "Put")
+		if action == "" {
+			return nil
+		}
+		return []string{action}
 	case "cross_account_graph_path":
 		return []string{"iam:PassRole", "sts:AssumeRole"}
 	default:
@@ -563,7 +581,7 @@ func awsSCPDenyActionForResource(resourceType, modePrefix string) string {
 	case "secret", "secret-manager", "secrets", "secrets-manager", "secrets_manager", "secretsmanager":
 		return "secretsmanager:PutResourcePolicy"
 	default:
-		return "*"
+		return ""
 	}
 }
 
@@ -670,6 +688,27 @@ func awsPermissionBoundarySCPBoundaryBreakage(identityCount, accountCount, ouCou
 		AffectedOUs:        ouCount,
 		Signals:            signals,
 	}
+}
+
+func awsPermissionBoundarySCPMostSeverePrediction(predictions map[string]int, fallback string, priorities map[string]int) string {
+	prediction := awsPermissionBoundarySCPMostCommonKeyWithPriority(predictions, fallback, priorities)
+	if prediction == "" {
+		return fallback
+	}
+	return prediction
+}
+
+func awsPermissionBoundarySCPBreakageWithUpstreamPrediction(breakage AWSPermissionBoundarySCPBreakageProjection, upstreamBreakage string) AWSPermissionBoundarySCPBreakageProjection {
+	upstreamBreakage = normalizeAWSRuntimeEventFilterToken(upstreamBreakage)
+	switch upstreamBreakage {
+	case "", "low":
+		return breakage
+	case "medium", "high", "unknown":
+		breakage.Level = upstreamBreakage
+		breakage.Rationale = fmt.Sprintf("Upstream least-privilege evidence indicates %s breakage; review before apply.", upstreamBreakage)
+		breakage.Signals = append(breakage.Signals, "upstream_breakage_prediction:"+upstreamBreakage)
+	}
+	return breakage
 }
 
 func awsPermissionBoundarySCPSCPBreakage(finding AWSCrossAccountTrustFinding, accountCount, ouCount int) AWSPermissionBoundarySCPBreakageProjection {
@@ -816,6 +855,12 @@ var awsPermissionBoundarySCPSeverityPriority = map[string]int{
 	"medium":   2,
 	"low":      1,
 	"info":     0,
+}
+var awsPermissionBoundarySCPBreakagePredictionPriority = map[string]int{
+	"low":     0,
+	"medium":  1,
+	"high":    2,
+	"unknown": 3,
 }
 
 func awsPermissionBoundarySCPOUPathsForAccounts(orgs AWSOrganizationsTopologyResult, accounts []string) []string {
