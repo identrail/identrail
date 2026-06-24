@@ -328,6 +328,7 @@ func awsPermissionBoundaryPlansFromLeastPrivilege(least AWSLeastPrivilegeResult,
 		recommendIDs []string
 		identityIDs  []string
 		accountIDs   []string
+		regions      []string
 		services     []string
 		evidence     []AWSPermissionBoundarySCPEvidence
 		impactedRefs []string
@@ -357,6 +358,7 @@ func awsPermissionBoundaryPlansFromLeastPrivilege(least AWSLeastPrivilegeResult,
 			b.recommendIDs = append(b.recommendIDs, recommendation.RecommendationID)
 			b.identityIDs = append(b.identityIDs, recommendation.IdentityNodeID)
 			b.accountIDs = append(b.accountIDs, recommendation.AccountID)
+			b.regions = append(b.regions, recommendation.Region)
 			if recommendation.Service != "" {
 				b.services = append(b.services, recommendation.Service)
 			}
@@ -380,6 +382,11 @@ func awsPermissionBoundaryPlansFromLeastPrivilege(least AWSLeastPrivilegeResult,
 			continue
 		}
 		accounts := emptyStrings(dedupeStrings(b.accountIDs))
+		regions := emptyStrings(dedupeStrings(b.regions))
+		region := ""
+		if len(regions) == 1 {
+			region = regions[0]
+		}
 		ouPaths := awsPermissionBoundarySCPOUPathsForAccounts(orgs, accounts)
 		service := firstString(dedupeStrings(b.services))
 		severity := awsPermissionBoundarySCPMostCommonKeyWithPriority(b.severities, "medium", awsPermissionBoundarySCPSeverityPriority)
@@ -415,6 +422,7 @@ func awsPermissionBoundaryPlansFromLeastPrivilege(least AWSLeastPrivilegeResult,
 			TargetScope:           "identity",
 			Severity:              severity,
 			Status:                status,
+			Region:                region,
 			Score:                 score,
 			Confidence:            confidence,
 			Title:                 fmt.Sprintf("Permission boundary: deny %s across %d identities", b.action, len(identityIDs)),
@@ -528,7 +536,7 @@ func awsSCPDeniedActions(finding AWSCrossAccountTrustFinding) []string {
 	case "cross_account_resource_access":
 		return []string{awsSCPDenyActionForResource(finding.ResourceType, "Put")}
 	case "access_analyzer_external_access":
-		return []string{awsSCPDenyActionForResource(finding.ResourceType, "Allow")}
+		return []string{awsSCPDenyActionForResource(finding.ResourceType, "Put")}
 	case "cross_account_graph_path":
 		return []string{"iam:PassRole", "sts:AssumeRole"}
 	default:
@@ -537,14 +545,22 @@ func awsSCPDeniedActions(finding AWSCrossAccountTrustFinding) []string {
 }
 
 func awsSCPDenyActionForResource(resourceType, modePrefix string) string {
-	switch strings.ToLower(strings.TrimSpace(resourceType)) {
-	case "s3_bucket":
+	resourceType = normalizeAWSRuntimeEventFilterToken(resourceType)
+	modePrefix = normalizeAWSRuntimeEventFilterToken(modePrefix)
+	if modePrefix == "" || modePrefix == "allow" {
+		modePrefix = "put"
+	}
+	if modePrefix != "" {
+		modePrefix = strings.ToUpper(modePrefix[:1]) + modePrefix[1:]
+	}
+	switch resourceType {
+	case "s3", "s3-bucket", "s3_bucket":
 		return "s3:" + modePrefix + "BucketPolicy"
-	case "iam_role":
+	case "iam", "iam-role", "iam_role":
 		return "iam:UpdateAssumeRolePolicy"
-	case "kms_key":
+	case "kms", "kms-key", "kms_key":
 		return "kms:PutKeyPolicy"
-	case "secret":
+	case "secret", "secret-manager", "secrets", "secrets-manager", "secrets_manager", "secretsmanager":
 		return "secretsmanager:PutResourcePolicy"
 	default:
 		return "*"
@@ -979,7 +995,7 @@ func filterAWSPermissionBoundarySCPPlans(plans []AWSPermissionBoundarySCPPlan, r
 		if filters["account_id"] != "" && filters["account_id"] != p.AccountID && !awsStringSliceContains(p.TargetAccountIDs, filters["account_id"]) {
 			continue
 		}
-		if filters["region"] != "" && !strings.EqualFold(filters["region"], p.Region) {
+		if filters["region"] != "" && p.Region != "" && !strings.EqualFold(filters["region"], p.Region) {
 			continue
 		}
 		if filters["service"] != "" && !strings.EqualFold(filters["service"], p.Service) {

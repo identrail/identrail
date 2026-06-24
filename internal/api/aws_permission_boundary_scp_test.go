@@ -135,6 +135,7 @@ func TestAWSPermissionBoundaryPlanRequiresRepeatedAction(t *testing.T) {
 				Confidence:       0.86,
 				AccountID:        "111111111111",
 				Service:          "s3",
+				Region:           "us-east-1",
 				IdentityNodeID:   "aws:identity:arn:aws:iam::111111111111:role/loader-a",
 				RemoveActions:    []string{"s3:DeleteObject"},
 			},
@@ -147,6 +148,7 @@ func TestAWSPermissionBoundaryPlanRequiresRepeatedAction(t *testing.T) {
 				Confidence:       0.82,
 				AccountID:        "222222222222",
 				Service:          "s3",
+				Region:           "us-east-1",
 				IdentityNodeID:   "aws:identity:arn:aws:iam::222222222222:role/loader-b",
 				RemoveActions:    []string{"s3:DeleteObject"},
 			},
@@ -168,6 +170,9 @@ func TestAWSPermissionBoundaryPlanRequiresRepeatedAction(t *testing.T) {
 	}
 	if p.StatementSnippets[0].DeniedActions[0] != "s3:DeleteObject" {
 		t.Fatalf("statement must deny the repeated action: %+v", p.StatementSnippets[0])
+	}
+	if p.Region != "us-east-1" {
+		t.Fatalf("expected repeated-action boundary to preserve region, got %q", p.Region)
 	}
 }
 
@@ -216,6 +221,19 @@ func TestAWSSCPPlanFromCrossAccountTrust(t *testing.T) {
 	}
 }
 
+func TestAWSPermissionBoundarySCPPlanFilterSupportsRegion(t *testing.T) {
+	plans := []AWSPermissionBoundarySCPPlan{
+		{PlanID: "aws-permission-boundary-scp:region-us-east-1", Kind: awsPermissionBoundaryKind, Region: "us-east-1", TargetScope: "identity"},
+		{PlanID: "aws-permission-boundary-scp:region-unknown", Kind: awsPermissionBoundaryKind, Region: "", TargetScope: "identity"},
+		{PlanID: "aws-permission-boundary-scp:region-us-west-2", Kind: awsSCPKind, Region: "us-west-2", TargetScope: "account"},
+	}
+
+	filtered, _ := filterAWSPermissionBoundarySCPPlans(plans, AWSPermissionBoundarySCPRequest{Region: "us-east-1"})
+	if len(filtered) != 2 {
+		t.Fatalf("expected two plans when filtering region: %+v", filtered)
+	}
+}
+
 func TestAWSSCPDeniedActionsForResourcePolicyFindings(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -228,9 +246,34 @@ func TestAWSSCPDeniedActionsForResourcePolicyFindings(t *testing.T) {
 			expected: "s3:PutBucketPolicy",
 		},
 		{
+			name:     "cross-account resource access using service token s3",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "s3"},
+			expected: "s3:PutBucketPolicy",
+		},
+		{
+			name:     "cross-account resource access using normalized s3 token",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "s3-bucket"},
+			expected: "s3:PutBucketPolicy",
+		},
+		{
+			name:     "cross-account resource access using service token kms",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "kms"},
+			expected: "kms:PutKeyPolicy",
+		},
+		{
+			name:     "cross-account resource access using service token secretsmanager",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "secretsmanager"},
+			expected: "secretsmanager:PutResourcePolicy",
+		},
+		{
 			name:     "fallback action",
 			finding:  AWSCrossAccountTrustFinding{FindingType: "other_cross_account_grant", ResourceType: "s3_bucket"},
 			expected: "*",
+		},
+		{
+			name:     "access analyzer external access",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "access_analyzer_external_access", ResourceType: "s3"},
+			expected: "s3:PutBucketPolicy",
 		},
 	}
 	for _, tc := range tests {
