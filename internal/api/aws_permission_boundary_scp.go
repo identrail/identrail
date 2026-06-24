@@ -593,7 +593,7 @@ func awsSCPTargetScope(finding AWSCrossAccountTrustFinding, orgs AWSOrganization
 }
 
 func awsSCPIsResourcePolicyFinding(findingType string) bool {
-	switch normalizeAWSRuntimeEventFilterToken(findingType) {
+	switch strings.ToLower(strings.TrimSpace(strings.ReplaceAll(normalizeAWSRuntimeEventFilterToken(findingType), "-", "_"))) {
 	case "cross_account_resource_access", "access_analyzer_external_access":
 		return true
 	default:
