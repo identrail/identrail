@@ -3470,6 +3470,157 @@ export type AWSPermissionBoundarySCPQuery = {
   search?: string;
 };
 
+export type AWSSecretKeyRotationStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSSecretKeyRotationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSSecretKeyRotationType = 'provider_key' | 'secrets_manager_secret' | 'kms_related' | string;
+
+export type AWSSecretKeyRotationOwnerHandoff = {
+  owner: string;
+  assigned: boolean;
+  approval_state: string;
+  required_actors?: string[];
+  instructions?: string[];
+};
+
+export type AWSSecretKeyRotationTargetRef = {
+  ref_type: string;
+  node_id?: string;
+  arn?: string;
+  label: string;
+  provider?: string;
+  metadata_ref?: string;
+};
+
+export type AWSSecretKeyRotationWorkload = {
+  workload_id?: string;
+  workload_name?: string;
+  workload_type?: string;
+  resource_arn?: string;
+  owner?: string;
+  refresh_order: number;
+};
+
+export type AWSSecretKeyRotationStep = {
+  order: number;
+  phase: string;
+  action: string;
+  actor?: string;
+  evidence_ref?: string;
+  blocks_on?: string[];
+};
+
+export type AWSSecretKeyRotationReadinessGate = {
+  name: string;
+  status: string;
+  rationale: string;
+};
+
+export type AWSSecretKeyRotationPlan = {
+  plan_id: string;
+  calculation_version: string;
+  rotation_type: AWSSecretKeyRotationType;
+  severity: string;
+  status: string;
+  score: number;
+  confidence: number;
+  title: string;
+  summary: string;
+  account_id: string;
+  region: string;
+  provider?: string;
+  owner_handoff: AWSSecretKeyRotationOwnerHandoff;
+  source_finding_ids: string[];
+  target_secrets?: AWSSecretKeyRotationTargetRef[];
+  target_keys?: AWSSecretKeyRotationTargetRef[];
+  dependent_workloads?: AWSSecretKeyRotationWorkload[];
+  rotation_order: AWSSecretKeyRotationStep[];
+  diff_intent: AWSRemediationDiffIntent;
+  tradeoffs: AWSRemediationTradeoff[];
+  rollback_plan: AWSRemediationRollbackPlan;
+  verification_plan: AWSRemediationVerificationPlan;
+  readiness_gates: AWSSecretKeyRotationReadinessGate[];
+  ready_for_apply: boolean;
+  read_only_projection: boolean;
+  source_signals: string[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  next_action: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSSecretKeyRotationRelationship = {
+  plan_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSSecretKeyRotationSummary = {
+  total_plans: number;
+  filtered_plans: number;
+  rotation_type_counts: Record<string, number>;
+  provider_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  owner_assigned_count: number;
+  ownerless_count: number;
+  ready_for_apply_count: number;
+  target_secret_count: number;
+  target_key_count: number;
+  dependent_workload_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSSecretKeyRotationResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSSecretKeyRotationStatus;
+  fixture_state?: AWSSecretKeyRotationFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSSecretKeyRotationSummary;
+  plans: AWSSecretKeyRotationPlan[];
+  relationships: AWSSecretKeyRotationRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSSecretKeyRotationQuery = {
+  connectorID?: string;
+  fixtureState?: AWSSecretKeyRotationFixtureState;
+  accountID?: string;
+  region?: string;
+  rotationType?: string;
+  provider?: string;
+  owner?: string;
+  severity?: string;
+  status?: string;
+  readyForApply?: string;
+  search?: string;
+};
+
 export type AWSBlastRadiusStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBlastRadiusFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSBlastRadiusSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
@@ -7674,6 +7825,29 @@ export const apiClient = {
         severity: query?.severity,
         status: query?.status,
         breakage_level: query?.breakageLevel,
+        ready_for_apply: query?.readyForApply,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectSecretKeyRotationPlans(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSSecretKeyRotationQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ plans: AWSSecretKeyRotationResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/secret-key-rotation${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        rotation_type: query?.rotationType,
+        provider: query?.provider,
+        owner: query?.owner,
+        severity: query?.severity,
+        status: query?.status,
         ready_for_apply: query?.readyForApply,
         search: query?.search
       })}`,

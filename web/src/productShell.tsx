@@ -65,6 +65,8 @@ import {
   type AWSTrustPolicyHardeningResult,
   type AWSPermissionBoundarySCPPlan,
   type AWSPermissionBoundarySCPResult,
+  type AWSSecretKeyRotationPlan,
+  type AWSSecretKeyRotationResult,
   type AWSBlastRadiusFinding,
   type AWSBlastRadiusResult,
   type AWSLeastPrivilegeRecommendation,
@@ -11039,6 +11041,116 @@ function AWSPermissionBoundarySCPContent({
   );
 }
 
+function awsSecretKeyRotationStage(plan: AWSSecretKeyRotationPlan): AWSCapabilityStage {
+  if (!plan.owner_handoff.assigned || plan.severity === 'critical') {
+    return 'not-available';
+  }
+  if (!plan.ready_for_apply || plan.severity === 'high') {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsSecretKeyRotationTargetLabel(plan: AWSSecretKeyRotationPlan): string {
+  const secretCount = plan.target_secrets?.length ?? 0;
+  const keyCount = plan.target_keys?.length ?? 0;
+  const workloadCount = plan.dependent_workloads?.length ?? 0;
+  return `${secretCount} secrets · ${keyCount} keys · ${workloadCount} workloads`;
+}
+
+function awsSecretKeyRotationOrderLabel(plan: AWSSecretKeyRotationPlan): string {
+  const phases = plan.rotation_order.map((step) => formatTokenLabel(step.phase));
+  if (phases.length === 0) {
+    return 'manual review';
+  }
+  return phases.slice(0, 4).join(' → ') + (phases.length > 4 ? ` +${phases.length - 4}` : '');
+}
+
+function awsSecretKeyRotationReadinessLabel(plan: AWSSecretKeyRotationPlan): string {
+  if (plan.ready_for_apply) {
+    return `ready · ${plan.owner_handoff.owner}`;
+  }
+  return `gate · ${formatTokenLabel(plan.owner_handoff.approval_state)}`;
+}
+
+function AWSSecretKeyRotationContent({
+  plans,
+  loading,
+  error,
+  onRetry
+}: {
+  plans: AWSSecretKeyRotationResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = plans?.plans ?? [];
+  const summaryLine = plans
+    ? `${plans.summary.total_plans} total · ${plans.summary.ready_for_apply_count} ready · ${plans.summary.owner_assigned_count} owned · ${plans.summary.dependent_workload_count} workloads`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS secret and key rotation plans">
+      <h3>AWS secret/key rotation planner</h3>
+      <p className="idt-app-kicker">
+        Read-only provider-key, Secrets Manager, and KMS-related rotation workflows composed from metadata-only
+        evidence. Owner handoff, dependent workload order, rollback, verification, and readiness gates are projected
+        without reading or rotating secret values. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load AWS secret/key rotation plans"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Composing secret/key rotation plans"
+          body="Identrail is composing secret-permission, Secrets Manager, KMS, and remediation case evidence into ranked rotation workflows."
+        />
+      ) : null}
+      {!error && !loading && plans && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={plans.status === 'blocked' ? 'Permission required' : 'No rotation plans'}
+          title={plans.status === 'blocked' ? 'Rotation plans need read-only secret and key metadata' : 'No secret/key rotation plans projected'}
+          body={plans.failure_reasons[0] ?? 'No upstream secret or KMS evidence produced a rotation plan for this environment.'}
+        />
+      ) : null}
+      {!error && !loading && plans && plans.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {plans.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS secret/key rotation plans"
+          rows={rows}
+          getRowKey={(row) => row.plan_id}
+          columns={[
+            { key: 'plan', header: 'Plan', render: (row) => <strong>{row.title}</strong> },
+            { key: 'type', header: 'Type', render: (row) => formatTokenLabel(row.rotation_type) },
+            { key: 'owner', header: 'Owner handoff', render: (row) => `${row.owner_handoff.owner} · ${formatTokenLabel(row.owner_handoff.approval_state)}` },
+            { key: 'targets', header: 'Targets', render: (row) => awsSecretKeyRotationTargetLabel(row) },
+            { key: 'order', header: 'Order', render: (row) => awsSecretKeyRotationOrderLabel(row) },
+            { key: 'readiness', header: 'Readiness', render: (row) => awsSecretKeyRotationReadinessLabel(row) },
+            {
+              key: 'severity',
+              header: 'Severity',
+              render: (row) => (
+                <AWSInventoryPill stage={awsSecretKeyRotationStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.status)}`} />
+              )
+            },
+            { key: 'verification', header: 'Verification', render: (row) => formatTokenLabel(row.verification_plan.strategy) }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsBlastRadiusSeverityStage(severity: string): AWSCapabilityStage {
   switch (severity) {
     case 'critical':
@@ -12319,14 +12431,14 @@ function AWSRemediationContent({
       id: 'secret-rotation',
       title: 'Secret rotation planner',
       category: 'Secret rotation',
-      evidence: 'Secret metadata',
+      evidence: 'Secret/key metadata',
       owner: 'Application',
-      blastRadius: 'Secret metadata pending',
+      blastRadius: connection?.account_id ? `Account ${connection.account_id}` : 'Account pending',
       nextAction: 'Plan rotation',
-      status: 'not active',
-      stage: 'not-available',
-      filters: { change: 'secret-rotation', approval: 'owner-required', stage: 'not-active', search: '' },
-      searchText: inventorySearchText(['secret rotation', 'planner', 'metadata'])
+      status: 'active',
+      stage: 'wired',
+      filters: { change: 'secret-rotation', approval: 'owner-required', stage: 'active', search: '' },
+      searchText: inventorySearchText(['secret rotation', 'key rotation', 'planner', 'metadata'])
     },
     {
       id: 'iac-pr-plan',
@@ -12498,6 +12610,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [permissionBoundarySCPLoading, setPermissionBoundarySCPLoading] = useState(false);
   const [permissionBoundarySCPError, setPermissionBoundarySCPError] = useState('');
   const permissionBoundarySCPRequestRef = useRef(0);
+  const [secretKeyRotation, setSecretKeyRotation] = useState<AWSSecretKeyRotationResult | null>(null);
+  const [secretKeyRotationLoading, setSecretKeyRotationLoading] = useState(false);
+  const [secretKeyRotationError, setSecretKeyRotationError] = useState('');
+  const secretKeyRotationRequestRef = useRef(0);
   const [blastRadius, setBlastRadius] = useState<AWSBlastRadiusResult | null>(null);
   const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
   const [blastRadiusError, setBlastRadiusError] = useState('');
@@ -12974,6 +13090,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       permissionBoundarySCPRequestRef.current += 1;
     };
   }, [loadPermissionBoundarySCP]);
+
+  const loadSecretKeyRotation = useCallback(async () => {
+    const requestID = ++secretKeyRotationRequestRef.current;
+    setSecretKeyRotation(null);
+    setSecretKeyRotationError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setSecretKeyRotationLoading(false);
+      return;
+    }
+    setSecretKeyRotationLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectSecretKeyRotationPlans(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== secretKeyRotationRequestRef.current) {
+        return;
+      }
+      setSecretKeyRotation(response.plans);
+    } catch (error) {
+      if (requestID !== secretKeyRotationRequestRef.current) {
+        return;
+      }
+      setSecretKeyRotationError(formatAPIError(error, 'Unable to load AWS secret/key rotation plans.'));
+    } finally {
+      if (requestID === secretKeyRotationRequestRef.current) {
+        setSecretKeyRotationLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadSecretKeyRotation();
+    return () => {
+      secretKeyRotationRequestRef.current += 1;
+    };
+  }, [loadSecretKeyRotation]);
 
   const loadBlastRadius = useCallback(async () => {
     const requestID = ++blastRadiusRequestRef.current;
@@ -13477,6 +13641,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={permissionBoundarySCPLoading}
             error={permissionBoundarySCPError}
             onRetry={loadPermissionBoundarySCP}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSSecretKeyRotationContent
+            plans={secretKeyRotation}
+            loading={secretKeyRotationLoading}
+            error={secretKeyRotationError}
+            onRetry={loadSecretKeyRotation}
           />
         ) : null}
         {routeID === 'runtime' ? (

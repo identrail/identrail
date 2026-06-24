@@ -89,6 +89,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - AWS IAM policy least-privilege diff: `aws-iam-policy-least-privilege-diff.md`
 - AWS trust policy hardening planner: `aws-trust-policy-hardening-planner.md`
 - AWS permission boundary and SCP planner: `aws-permission-boundary-scp-planner.md`
+- AWS secret and key rotation planner: `aws-secret-key-rotation-planner.md`
 - AWS normalizer and graph: `aws-normalizer-graph.md`
 - AWS risk engine: `aws-risk-engine.md`
 

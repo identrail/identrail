@@ -3773,6 +3773,137 @@ describe('Domain-first app routes', () => {
         diagnostics: []
       } as any
     });
+    const getSecretKeyRotation = vi.spyOn(api.apiClient, 'getAWSProjectSecretKeyRotationPlans').mockResolvedValue({
+      plans: {
+        status: 'ready',
+        plans: [
+          {
+            plan_id: 'aws-secret-key-rotation:openai-api-key',
+            calculation_version: 'aws-credential-rotation-planner-v1',
+            rotation_type: 'provider_key',
+            severity: 'high',
+            status: 'action_required',
+            score: 88,
+            confidence: 0.9,
+            title: 'Provider key rotation: openai/api-key',
+            summary: 'Rotate the OpenAI provider key and refresh dependent workloads.',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            provider: 'openai',
+            owner_handoff: {
+              owner: 'ai-platform',
+              assigned: true,
+              approval_state: 'pending_approver',
+              required_actors: ['application-owner', 'security-reviewer'],
+              instructions: ['Confirm dependent workload refresh.']
+            },
+            source_finding_ids: ['aws-secret-permission-equivalence:openai-agent'],
+            target_secrets: [
+              {
+                ref_type: 'secret',
+                node_id: 'aws:resource:secrets-manager-secret:openai/api-key',
+                arn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:openai/api-key',
+                label: 'openai/api-key',
+                provider: 'openai',
+                metadata_ref: 'evidence://agent/case-triage/openai'
+              }
+            ],
+            target_keys: [],
+            dependent_workloads: [
+              {
+                workload_id: 'aws:agent:case-triage',
+                workload_name: 'case-triage',
+                workload_type: 'ai_agent',
+                owner: 'ai-platform',
+                refresh_order: 1
+              }
+            ],
+            rotation_order: [
+              { order: 1, phase: 'prepare', action: 'Confirm owner and fallback.', actor: 'ai-platform' },
+              { order: 2, phase: 'dry_run', action: 'Dry-run workload refresh.', actor: 'ai-platform' },
+              { order: 3, phase: 'apply', action: 'Rotate the provider key outside Identrail.', actor: 'ai-platform' },
+              { order: 4, phase: 'refresh', action: 'Refresh dependent workload.', actor: 'ai-platform' },
+              { order: 5, phase: 'verify', action: 'Re-run metadata checks.', actor: 'security' }
+            ],
+            diff_intent: {
+              kind: 'secret_rotation',
+              before_ref: 'evidence://agent/case-triage/openai',
+              after_ref: 'rotation://openai-api-key/new-version-reference',
+              diff_summary: 'Rotate without reading or storing the value.',
+              no_op: false,
+              read_only_projection: true
+            },
+            tradeoffs: [
+              {
+                dimension: 'credential_exposure',
+                direction: 'improves',
+                description: 'Rotation invalidates the previous provider key.',
+                severity: 'high'
+              }
+            ],
+            rollback_plan: {
+              strategy: 'restore_previous_secret_version',
+              steps: ['Restore the previous secret reference if workload refresh regresses.'],
+              evidence_ref: 'evidence://agent/case-triage/openai'
+            },
+            verification_plan: {
+              strategy: 'rotation_re_evaluate',
+              steps: ['Re-run secret-permission equivalence.'],
+              success_signals: ['secret_permission_equivalence:no-equivalent-stale-access'],
+              failure_signals: ['secret_permission_equivalence:stale-reference-observed'],
+              evidence_ref: 'evidence://agent/case-triage/openai'
+            },
+            readiness_gates: [
+              { name: 'no_secret_values', status: 'passed', rationale: 'Metadata refs only.' },
+              { name: 'owner_handoff', status: 'passed', rationale: 'Owner assigned.' }
+            ],
+            ready_for_apply: true,
+            read_only_projection: true,
+            source_signals: ['secret_permission_equivalence'],
+            evidence: [
+              {
+                source: 'secret_permission_equivalence',
+                evidence_ref: 'evidence://agent/case-triage/openai',
+                label: 'Agent provider-key metadata',
+                confidence: 0.9,
+                observed_at: '2026-06-24T15:00:00Z',
+                relationship: 'agent_uses_permission_bearing_secret'
+              }
+            ],
+            evidence_boundary: 'metadata_only_no_secret_values_no_payloads',
+            impacted_nodes: ['aws:agent:case-triage', 'aws:resource:secrets-manager-secret:openai/api-key'],
+            impacted_path: [],
+            next_action: 'Assign owner handoff, execute rotation, then link verification evidence.',
+            created_at: '2026-06-24T15:00:00Z',
+            updated_at: '2026-06-24T15:00:00Z'
+          }
+        ],
+        summary: {
+          total_plans: 1,
+          filtered_plans: 1,
+          rotation_type_counts: { provider_key: 1 },
+          provider_counts: { openai: 1 },
+          severity_counts: { high: 1 },
+          status_counts: { action_required: 1 },
+          owner_assigned_count: 1,
+          ownerless_count: 0,
+          ready_for_apply_count: 1,
+          target_secret_count: 1,
+          target_key_count: 0,
+          dependent_workload_count: 1,
+          relationship_count: 2,
+          highest_score: 88,
+          average_confidence_pct: 90
+        },
+        relationships: [],
+        caveats: ['Plans never read, expose, log, rotate, or persist secret values.'],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
     vi.spyOn(api.apiClient, 'getAWSProjectBlastRadius').mockResolvedValue({
       intelligence: {
         status: 'degraded',
@@ -4096,6 +4227,9 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('table', { name: 'AWS permission boundary and SCP plans' })).toBeInTheDocument();
     expect(screen.getByText(/Permission boundary: deny s3:DeleteObject across 3 identities/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Permission boundary/i).length).toBeGreaterThan(0);
+    expect(await screen.findByRole('table', { name: 'AWS secret/key rotation plans' })).toBeInTheDocument();
+    expect(screen.getByText(/Provider key rotation: openai\/api-key/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/ai-platform · Pending approver/i).length).toBeGreaterThan(0);
     expect(await screen.findByRole('table', { name: 'AWS least privilege recommendations' })).toBeInTheDocument();
     expect(screen.getByText(/Remove secretsmanager:GetSecretValue/i)).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS unused and dormant access findings' })).toBeInTheDocument();
@@ -4134,6 +4268,12 @@ describe('Domain-first app routes', () => {
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
     expect(getSecretPermissionEquivalence).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getSecretKeyRotation).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       expect.objectContaining({ connectorID: 'aws-connector-1' }),

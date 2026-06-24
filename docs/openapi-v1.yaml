@@ -594,6 +594,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/secret-key-rotation
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/blast-radius
     action: tenancy.read
     resource_type: project
@@ -5408,6 +5413,89 @@ paths:
                     $ref: "#/components/schemas/AWSPermissionBoundarySCPResult"
         "400":
           description: Invalid AWS permission boundary and SCP request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/secret-key-rotation:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS secret and key rotation plans
+      operationId: getAWSProjectSecretKeyRotationPlans
+      description: Generates ranked, read-only provider-key, Secrets Manager, and KMS-related rotation workflows from secret-permission equivalence, Secrets Manager metadata, KMS decrypt reachability, and remediation case evidence. Each plan carries owner handoff, target metadata refs, dependent workload refresh order, before/after intent, tradeoffs, rollback, verification, readiness gates, source evidence refs, relationships, and next action. The engine never reads, exposes, logs, rotates, or persists secret values, provider key material, rendered policies, prompts, completions, browser pages, code-interpreter output, database rows, object contents, customer payloads, or workload payloads.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: rotation_type
+          schema:
+            type: string
+            enum: [provider_key, secrets_manager_secret, kms_related]
+        - in: query
+          name: provider
+          schema: { type: string }
+        - in: query
+          name: owner
+          schema: { type: string }
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [action_required, review, monitor]
+        - in: query
+          name: ready_for_apply
+          schema:
+            type: string
+            enum: ["true", "false", "yes", "no"]
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS secret and key rotation plan contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    $ref: "#/components/schemas/AWSSecretKeyRotationResult"
+        "400":
+          description: Invalid AWS secret/key rotation request
           content:
             application/json:
               schema:
@@ -14373,6 +14461,237 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSPermissionBoundarySCPRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSSecretKeyRotationOwnerHandoff:
+      type: object
+      properties:
+        owner: { type: string }
+        assigned: { type: boolean }
+        approval_state: { type: string }
+        required_actors:
+          type: array
+          items: { type: string }
+        instructions:
+          type: array
+          items: { type: string }
+    AWSSecretKeyRotationTargetRef:
+      type: object
+      properties:
+        ref_type: { type: string }
+        node_id: { type: string }
+        arn: { type: string }
+        label: { type: string }
+        provider: { type: string }
+        metadata_ref: { type: string }
+    AWSSecretKeyRotationWorkload:
+      type: object
+      properties:
+        workload_id: { type: string }
+        workload_name: { type: string }
+        workload_type: { type: string }
+        resource_arn: { type: string }
+        owner: { type: string }
+        refresh_order: { type: integer }
+    AWSSecretKeyRotationStep:
+      type: object
+      properties:
+        order: { type: integer }
+        phase: { type: string }
+        action: { type: string }
+        actor: { type: string }
+        evidence_ref: { type: string }
+        blocks_on:
+          type: array
+          items: { type: string }
+    AWSSecretKeyRotationReadinessGate:
+      type: object
+      properties:
+        name: { type: string }
+        status: { type: string }
+        rationale: { type: string }
+    AWSSecretKeyRotationRelationship:
+      type: object
+      properties:
+        plan_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSSecretKeyRotationPlan:
+      type: object
+      properties:
+        plan_id: { type: string }
+        calculation_version: { type: string }
+        rotation_type:
+          type: string
+          enum: [provider_key, secrets_manager_secret, kms_related]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status:
+          type: string
+          enum: [action_required, review, monitor]
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        title: { type: string }
+        summary: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        provider: { type: string }
+        owner_handoff:
+          $ref: "#/components/schemas/AWSSecretKeyRotationOwnerHandoff"
+        source_finding_ids:
+          type: array
+          items: { type: string }
+        target_secrets:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSSecretKeyRotationTargetRef"
+        target_keys:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSSecretKeyRotationTargetRef"
+        dependent_workloads:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSSecretKeyRotationWorkload"
+        rotation_order:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSSecretKeyRotationStep"
+        diff_intent:
+          $ref: "#/components/schemas/AWSRemediationDiffIntent"
+        tradeoffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationTradeoff"
+        rollback_plan:
+          $ref: "#/components/schemas/AWSRemediationRollbackPlan"
+        verification_plan:
+          $ref: "#/components/schemas/AWSRemediationVerificationPlan"
+        readiness_gates:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSSecretKeyRotationReadinessGate"
+        ready_for_apply: { type: boolean }
+        read_only_projection: { type: boolean }
+        source_signals:
+          type: array
+          items: { type: string }
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeEvidence"
+        evidence_boundary: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegePathStep"
+        next_action: { type: string }
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSSecretKeyRotationSummary:
+      type: object
+      properties:
+        total_plans: { type: integer }
+        filtered_plans: { type: integer }
+        rotation_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        provider_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        owner_assigned_count: { type: integer }
+        ownerless_count: { type: integer }
+        ready_for_apply_count: { type: integer }
+        target_secret_count: { type: integer }
+        target_key_count: { type: integer }
+        dependent_workload_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSSecretKeyRotationResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSSecretKeyRotationSummary"
+        plans:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSSecretKeyRotationPlan"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSSecretKeyRotationRelationship"
         caveats:
           type: array
           items: { type: string }
