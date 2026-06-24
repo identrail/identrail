@@ -61,6 +61,8 @@ import {
   type AWSRemediationCaseResult,
   type AWSIAMPolicyDiff,
   type AWSIAMPolicyDiffResult,
+  type AWSTrustPolicyHardeningPlan,
+  type AWSTrustPolicyHardeningResult,
   type AWSBlastRadiusFinding,
   type AWSBlastRadiusResult,
   type AWSLeastPrivilegeRecommendation,
@@ -10804,6 +10806,123 @@ function AWSIAMPolicyDiffContent({
   );
 }
 
+function awsTrustPolicyHardeningStage(plan: AWSTrustPolicyHardeningPlan): AWSCapabilityStage {
+  if (plan.public_principal || plan.severity === 'critical' || plan.breakage_projection.level === 'high') {
+    return 'not-available';
+  }
+  if (plan.severity === 'high' || plan.breakage_projection.level === 'medium' || plan.breakage_projection.level === 'unknown') {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsTrustPolicyHardeningPrincipalLabel(plan: AWSTrustPolicyHardeningPlan): string {
+  if (plan.principal_change.public_principal_removed) {
+    return 'public → explicit';
+  }
+  const after = plan.principal_change.after_principals ?? [];
+  if (after.length === 0) {
+    return 'principal unchanged';
+  }
+  return after.slice(0, 2).join(', ') + (after.length > 2 ? ` +${after.length - 2}` : '');
+}
+
+function awsTrustPolicyHardeningConditionsLabel(plan: AWSTrustPolicyHardeningPlan): string {
+  const conditions = plan.condition_recommendations ?? [];
+  if (conditions.length === 0) {
+    return 'manual review';
+  }
+  return conditions
+    .slice(0, 2)
+    .map((condition) => condition.key)
+    .join(', ') + (conditions.length > 2 ? ` +${conditions.length - 2}` : '');
+}
+
+function awsTrustPolicyHardeningReadinessLabel(plan: AWSTrustPolicyHardeningPlan): string {
+  if (plan.ready_for_apply) {
+    return `ready · ${formatTokenLabel(plan.breakage_projection.level)} breakage`;
+  }
+  return `gate · ${formatTokenLabel(plan.breakage_projection.level)} breakage`;
+}
+
+function AWSTrustPolicyHardeningContent({
+  plans,
+  loading,
+  error,
+  onRetry
+}: {
+  plans: AWSTrustPolicyHardeningResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = plans?.plans ?? [];
+  const summaryLine = plans
+    ? `${plans.summary.total_plans} total · ${plans.summary.ready_for_apply_count} ready · ${plans.summary.public_principal_count} public · ${plans.summary.cross_account_count} cross-account`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS trust policy hardening plans">
+      <h3>AWS trust policy hardening planner</h3>
+      <p className="idt-app-kicker">
+        Read-only trust-policy hardening plans projected from cross-account-trust evidence. Principal narrowing,
+        condition recommendations, affected callers, breakage projection, rollback, and verification are derived
+        deterministically; the engine never mutates IAM. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load AWS trust policy hardening plans"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Projecting trust policy hardening plans"
+          body="Identrail is composing cross-account-trust evidence into principal-narrowing and condition recommendations."
+        />
+      ) : null}
+      {!error && !loading && plans && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={plans.status === 'blocked' ? 'Permission required' : 'No trust policy hardening plans'}
+          title={plans.status === 'blocked' ? 'Trust policy hardening needs read-only cross-account-trust evidence' : 'No trust policy hardening plans projected'}
+          body={plans.failure_reasons[0] ?? 'No upstream cross-account-trust findings produced a plan for this environment.'}
+        />
+      ) : null}
+      {!error && !loading && plans && plans.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {plans.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS trust policy hardening plans"
+          rows={rows}
+          getRowKey={(row) => row.plan_id}
+          columns={[
+            { key: 'plan', header: 'Plan', render: (row) => <strong>{row.title}</strong> },
+            { key: 'resource', header: 'Resource', render: (row) => row.resource_label || row.resource_arn || row.resource_node_id || '-' },
+            { key: 'direction', header: 'Direction', render: (row) => formatTokenLabel(row.hardening_direction) },
+            { key: 'principals', header: 'Principal', render: (row) => awsTrustPolicyHardeningPrincipalLabel(row) },
+            { key: 'conditions', header: 'Conditions', render: (row) => awsTrustPolicyHardeningConditionsLabel(row) },
+            { key: 'breakage', header: 'Readiness', render: (row) => awsTrustPolicyHardeningReadinessLabel(row) },
+            {
+              key: 'severity',
+              header: 'Severity',
+              render: (row) => (
+                <AWSInventoryPill stage={awsTrustPolicyHardeningStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.status)}`} />
+              )
+            },
+            { key: 'verification', header: 'Verification', render: (row) => formatTokenLabel(row.verification_plan.strategy) }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsBlastRadiusSeverityStage(severity: string): AWSCapabilityStage {
   switch (severity) {
     case 'critical':
@@ -12255,6 +12374,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [iamPolicyDiffsLoading, setIAMPolicyDiffsLoading] = useState(false);
   const [iamPolicyDiffsError, setIAMPolicyDiffsError] = useState('');
   const iamPolicyDiffsRequestRef = useRef(0);
+  const [trustPolicyHardening, setTrustPolicyHardening] = useState<AWSTrustPolicyHardeningResult | null>(null);
+  const [trustPolicyHardeningLoading, setTrustPolicyHardeningLoading] = useState(false);
+  const [trustPolicyHardeningError, setTrustPolicyHardeningError] = useState('');
+  const trustPolicyHardeningRequestRef = useRef(0);
   const [blastRadius, setBlastRadius] = useState<AWSBlastRadiusResult | null>(null);
   const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
   const [blastRadiusError, setBlastRadiusError] = useState('');
@@ -12635,6 +12758,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       iamPolicyDiffsRequestRef.current += 1;
     };
   }, [loadIAMPolicyDiffs]);
+
+  const loadTrustPolicyHardening = useCallback(async () => {
+    const requestID = ++trustPolicyHardeningRequestRef.current;
+    setTrustPolicyHardening(null);
+    setTrustPolicyHardeningError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setTrustPolicyHardeningLoading(false);
+      return;
+    }
+    setTrustPolicyHardeningLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectTrustPolicyHardeningPlans(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== trustPolicyHardeningRequestRef.current) {
+        return;
+      }
+      setTrustPolicyHardening(response.plans);
+    } catch (error) {
+      if (requestID !== trustPolicyHardeningRequestRef.current) {
+        return;
+      }
+      setTrustPolicyHardeningError(formatAPIError(error, 'Unable to load AWS trust policy hardening plans.'));
+    } finally {
+      if (requestID === trustPolicyHardeningRequestRef.current) {
+        setTrustPolicyHardeningLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadTrustPolicyHardening();
+    return () => {
+      trustPolicyHardeningRequestRef.current += 1;
+    };
+  }, [loadTrustPolicyHardening]);
 
   const loadBlastRadius = useCallback(async () => {
     const requestID = ++blastRadiusRequestRef.current;
@@ -13122,6 +13293,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={iamPolicyDiffsLoading}
             error={iamPolicyDiffsError}
             onRetry={loadIAMPolicyDiffs}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSTrustPolicyHardeningContent
+            plans={trustPolicyHardening}
+            loading={trustPolicyHardeningLoading}
+            error={trustPolicyHardeningError}
+            onRetry={loadTrustPolicyHardening}
           />
         ) : null}
         {routeID === 'runtime' ? (

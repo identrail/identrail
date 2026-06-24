@@ -3518,6 +3518,151 @@ describe('Domain-first app routes', () => {
         diagnostics: []
       } as any
     });
+    vi.spyOn(api.apiClient, 'getAWSProjectTrustPolicyHardeningPlans').mockResolvedValue({
+      plans: {
+        status: 'ready',
+        plans: [
+          {
+            plan_id: 'aws-trust-policy-hardening:payments-cross-account',
+            calculation_version: 'aws-trust-policy-hardening-planner-v1',
+            source_finding_id: 'aws-cross-account-trust:payments-cross-account',
+            finding_type: 'runtime_cross_account_assumption',
+            hardening_direction: 'add_org_or_source_condition',
+            severity: 'high',
+            status: 'action_required',
+            score: 84,
+            confidence: 0.88,
+            title: 'Add org/source condition to payments-cross-account trust',
+            summary: 'Runtime AssumeRole observed without sts:ExternalId.',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            service: 'iam',
+            resource_type: 'iam_role',
+            resource_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-cross-account',
+            resource_arn: 'arn:aws:iam::123456789012:role/payments-cross-account',
+            resource_label: 'payments-cross-account',
+            public_principal: false,
+            trusted_within_organization: false,
+            runtime_observed: true,
+            analyzer_backed: true,
+            principal_change: {
+              before_principals: ['arn:aws:iam::555555555555:role/billing-runner'],
+              after_principals: ['arn:aws:iam::555555555555:role/billing-runner'],
+              public_principal_removed: false,
+              rationale: 'Keep the explicit external principal and harden via conditions.'
+            },
+            condition_recommendations: [
+              {
+                operator: 'StringEquals',
+                key: 'sts:ExternalId',
+                value: '<owner-approved-external-id>',
+                rationale: 'Require shared external id for cross-account assumption.',
+                evidence_ref: 'evidence://trust/payments-cross-account'
+              },
+              {
+                operator: 'StringEquals',
+                key: 'aws:SourceIdentity',
+                value: '<workload-identity>',
+                rationale: 'Preserve workload attribution in audit logs.'
+              }
+            ],
+            statement_snippets: [
+              {
+                statement_sid: 'trust-policy-hardening-projection',
+                effect: 'Allow',
+                change_kind: 'condition_added',
+                before_ref: 'evidence://trust/payments-cross-account',
+                after_ref: 'trust-policy://payments/scoped-projection',
+                condition_before: [],
+                condition_after: ['sts:ExternalId', 'aws:SourceIdentity'],
+                rationale: 'Keep the explicit principal and add the recommended condition boundary.'
+              }
+            ],
+            affected_callers: [
+              {
+                principal_arn: 'arn:aws:iam::555555555555:role/billing-runner',
+                principal_account_id: '555555555555',
+                trusted_within_organization: false,
+                runtime_observed: true,
+                analyzer_backed: true,
+                evidence_ref: 'evidence://trust/payments-cross-account'
+              }
+            ],
+            breakage_projection: {
+              level: 'low',
+              rationale: 'Runtime correlation and Access Analyzer both confirm the caller set.',
+              signals: ['runtime_observed:true', 'analyzer_backed:true', 'affected_callers:1']
+            },
+            rollback_plan: {
+              strategy: 'restore_trust_policy',
+              steps: ['Restore the previous trust statement from the captured before_ref.'],
+              evidence_ref: 'evidence://trust/payments-cross-account'
+            },
+            verification_plan: {
+              strategy: 'trust_policy_re_evaluate',
+              steps: ['Re-run cross-account-trust.'],
+              success_signals: ['cross_account_trust:finding-resolved'],
+              failure_signals: ['cross_account_trust:finding-unchanged'],
+              evidence_ref: 'evidence://trust/payments-cross-account'
+            },
+            ready_for_apply: true,
+            read_only_projection: true,
+            source_signals: ['cross_account_trust'],
+            evidence: [
+              {
+                source: 'cross_account_trust',
+                evidence_ref: 'evidence://trust/payments-cross-account',
+                label: 'Cross-account trust evidence',
+                confidence: 0.88,
+                observed_at: '2026-06-24T10:00:00Z',
+                relationship: 'cross_account_assumption'
+              }
+            ],
+            evidence_boundary: 'metadata_only_no_rendered_policy_bodies_no_secret_values_no_workload_payloads',
+            impacted_nodes: ['aws:identity:arn:aws:iam::123456789012:role/payments-cross-account'],
+            impacted_path: [],
+            next_action: 'Confirm caller, then apply the condition boundary via the trust-policy executor.',
+            created_at: '2026-06-24T10:00:00Z',
+            updated_at: '2026-06-24T10:00:00Z'
+          }
+        ],
+        summary: {
+          total_plans: 1,
+          filtered_plans: 1,
+          severity_counts: { high: 1 },
+          status_counts: { action_required: 1 },
+          finding_type_counts: { runtime_cross_account_assumption: 1 },
+          hardening_direction_counts: { add_org_or_source_condition: 1 },
+          breakage_level_counts: { low: 1 },
+          public_principal_count: 0,
+          cross_account_count: 1,
+          conditioned_count: 1,
+          runtime_observed_count: 1,
+          analyzer_backed_count: 1,
+          ready_for_apply_count: 1,
+          manual_review_count: 0,
+          affected_caller_count: 1,
+          relationship_count: 1,
+          highest_score: 84,
+          average_confidence_pct: 88
+        },
+        relationships: [
+          {
+            plan_id: 'aws-trust-policy-hardening:payments-cross-account',
+            type: 'trust_policy_hardening_affected_caller',
+            from_node_id: 'aws:identity:arn:aws:iam::123456789012:role/payments-cross-account',
+            to_node_id: 'arn:aws:iam::555555555555:role/billing-runner',
+            evidence_ref: 'evidence://trust/payments-cross-account'
+          }
+        ],
+        caveats: ['Trust policy hardening plans are read-only projections; the engine never applies an AWS change.'],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
     vi.spyOn(api.apiClient, 'getAWSProjectBlastRadius').mockResolvedValue({
       intelligence: {
         status: 'degraded',
@@ -3835,6 +3980,9 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('table', { name: 'AWS IAM policy diffs' })).toBeInTheDocument();
     expect(screen.getByText(/Scope data-loader: remove 2 action\(s\)/i)).toBeInTheDocument();
     expect(screen.getAllByText(/ready · Low breakage/i).length).toBeGreaterThan(0);
+    expect(await screen.findByRole('table', { name: 'AWS trust policy hardening plans' })).toBeInTheDocument();
+    expect(screen.getByText(/Add org\/source condition to payments-cross-account trust/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/sts:ExternalId/i).length).toBeGreaterThan(0);
     expect(await screen.findByRole('table', { name: 'AWS least privilege recommendations' })).toBeInTheDocument();
     expect(screen.getByText(/Remove secretsmanager:GetSecretValue/i)).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS unused and dormant access findings' })).toBeInTheDocument();

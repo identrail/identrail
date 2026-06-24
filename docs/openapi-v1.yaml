@@ -584,6 +584,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/trust-policy-hardening
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/blast-radius
     action: tenancy.read
     resource_type: project
@@ -5209,6 +5214,102 @@ paths:
                     $ref: "#/components/schemas/AWSIAMPolicyDiffResult"
         "400":
           description: Invalid AWS IAM policy diff request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/trust-policy-hardening:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS trust policy hardening plans
+      operationId: getAWSProjectTrustPolicyHardeningPlans
+      description: Generates ranked, read-only trust-policy hardening plans from upstream cross-account-trust findings. Plans carry stable IDs, calculation version, hardening direction, severity/status/score/confidence, principal change intent, condition recommendations, before/after statement snippet refs, affected callers, expected breakage projection, rollback plan, verification plan, ready_for_apply, evidence refs, source signals, impacted graph nodes/path, and next action. The engine is read-only and never mutates AWS state, never reads or returns rendered policy bodies, secret values, prompts, completions, tool payloads, browser pages, code-interpreter output, database rows, object contents, customer payloads, or workload payloads.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope account, region, and read-only evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: service
+          schema: { type: string }
+        - in: query
+          name: resource
+          schema: { type: string }
+          description: Optional substring search across resource node, ARN, label, type, and service.
+        - in: query
+          name: principal
+          schema: { type: string }
+          description: Optional substring search across affected caller and proposed principal lists.
+        - in: query
+          name: hardening_direction
+          schema:
+            type: string
+            enum: [remove_public_principal, add_org_or_source_condition, scope_to_known_external_principal, tighten_existing_condition]
+        - in: query
+          name: breakage_level
+          schema:
+            type: string
+            enum: [low, medium, high, unknown]
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [action_required, review, monitor]
+        - in: query
+          name: ready_for_apply
+          schema:
+            type: string
+            enum: ["true", "false", "yes", "no"]
+        - in: query
+          name: search
+          schema: { type: string }
+          description: Optional free-text search across plan, principal change, condition recommendations, statement snippet, affected caller, breakage projection, rollback, and verification fields.
+      responses:
+        "200":
+          description: AWS trust policy hardening contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    $ref: "#/components/schemas/AWSTrustPolicyHardeningResult"
+        "400":
+          description: Invalid AWS trust policy hardening request
           content:
             application/json:
               schema:
@@ -13672,6 +13773,270 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSIAMPolicyDiffRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSTrustPolicyPrincipalChange:
+      type: object
+      properties:
+        before_principals:
+          type: array
+          items: { type: string }
+        after_principals:
+          type: array
+          items: { type: string }
+        public_principal_removed: { type: boolean }
+        rationale: { type: string }
+    AWSTrustPolicyConditionRecommendation:
+      type: object
+      properties:
+        operator: { type: string }
+        key: { type: string }
+        value: { type: string }
+        rationale: { type: string }
+        evidence_ref: { type: string }
+    AWSTrustPolicyStatementSnippet:
+      type: object
+      properties:
+        statement_sid: { type: string }
+        effect:
+          type: string
+          enum: [Allow, Deny]
+        change_kind:
+          type: string
+          enum: [public_principal_removed, principal_added, condition_added, principal_and_condition_tightened, manual_review]
+        before_ref: { type: string }
+        after_ref: { type: string }
+        condition_before:
+          type: array
+          items: { type: string }
+        condition_after:
+          type: array
+          items: { type: string }
+        rationale: { type: string }
+    AWSTrustPolicyAffectedCaller:
+      type: object
+      properties:
+        principal_arn: { type: string }
+        principal_account_id: { type: string }
+        ou_path: { type: string }
+        trusted_within_organization: { type: boolean }
+        runtime_observed: { type: boolean }
+        analyzer_backed: { type: boolean }
+        evidence_ref: { type: string }
+    AWSTrustPolicyHardeningBreakageProjection:
+      type: object
+      properties:
+        level:
+          type: string
+          enum: [low, medium, high, unknown]
+        rationale: { type: string }
+        signals:
+          type: array
+          items: { type: string }
+    AWSTrustPolicyHardeningRollbackPlan:
+      type: object
+      properties:
+        strategy: { type: string }
+        steps:
+          type: array
+          items: { type: string }
+        evidence_ref: { type: string }
+    AWSTrustPolicyHardeningVerificationPlan:
+      type: object
+      properties:
+        strategy: { type: string }
+        steps:
+          type: array
+          items: { type: string }
+        success_signals:
+          type: array
+          items: { type: string }
+        failure_signals:
+          type: array
+          items: { type: string }
+        evidence_ref: { type: string }
+    AWSTrustPolicyHardeningRelationship:
+      type: object
+      properties:
+        plan_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSTrustPolicyHardeningPlan:
+      type: object
+      properties:
+        plan_id: { type: string }
+        calculation_version: { type: string }
+        source_finding_id: { type: string }
+        finding_type: { type: string }
+        hardening_direction:
+          type: string
+          enum: [remove_public_principal, add_org_or_source_condition, scope_to_known_external_principal, tighten_existing_condition]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status:
+          type: string
+          enum: [action_required, review, monitor]
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        title: { type: string }
+        summary: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        service: { type: string }
+        resource_type: { type: string }
+        resource_node_id: { type: string }
+        resource_arn: { type: string }
+        resource_label: { type: string }
+        public_principal: { type: boolean }
+        trusted_within_organization: { type: boolean }
+        runtime_observed: { type: boolean }
+        analyzer_backed: { type: boolean }
+        principal_change:
+          $ref: "#/components/schemas/AWSTrustPolicyPrincipalChange"
+        condition_recommendations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSTrustPolicyConditionRecommendation"
+        statement_snippets:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSTrustPolicyStatementSnippet"
+        affected_callers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSTrustPolicyAffectedCaller"
+        breakage_projection:
+          $ref: "#/components/schemas/AWSTrustPolicyHardeningBreakageProjection"
+        rollback_plan:
+          $ref: "#/components/schemas/AWSTrustPolicyHardeningRollbackPlan"
+        verification_plan:
+          $ref: "#/components/schemas/AWSTrustPolicyHardeningVerificationPlan"
+        ready_for_apply: { type: boolean }
+        read_only_projection: { type: boolean }
+        source_signals:
+          type: array
+          items: { type: string }
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeEvidence"
+        evidence_boundary: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegePathStep"
+        next_action: { type: string }
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSTrustPolicyHardeningSummary:
+      type: object
+      properties:
+        total_plans: { type: integer }
+        filtered_plans: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        finding_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        hardening_direction_counts:
+          type: object
+          additionalProperties: { type: integer }
+        breakage_level_counts:
+          type: object
+          additionalProperties: { type: integer }
+        public_principal_count: { type: integer }
+        cross_account_count: { type: integer }
+        conditioned_count: { type: integer }
+        runtime_observed_count: { type: integer }
+        analyzer_backed_count: { type: integer }
+        ready_for_apply_count: { type: integer }
+        manual_review_count: { type: integer }
+        affected_caller_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSTrustPolicyHardeningResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSTrustPolicyHardeningSummary"
+        plans:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSTrustPolicyHardeningPlan"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSTrustPolicyHardeningRelationship"
         caveats:
           type: array
           items: { type: string }

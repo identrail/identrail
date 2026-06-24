@@ -1650,6 +1650,55 @@ describe('apiClient', () => {
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 
+  it('gets AWS trust policy hardening plans with scoped headers and filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        plans: {
+          status: 'ready',
+          summary: { total_plans: 0, filtered_plans: 0 },
+          plans: []
+        }
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectTrustPolicyHardeningPlans(
+      'workspace/a',
+      'project 1',
+      {
+        connectorID: 'aws-prod',
+        fixtureState: 'success',
+        accountID: '123456789012',
+        region: 'us-east-1',
+        service: 'iam',
+        resource: 'payments-cross-account',
+        principal: 'billing-runner',
+        hardeningDirection: 'add_org_or_source_condition',
+        breakageLevel: 'low',
+        severity: 'high',
+        status: 'action_required',
+        readyForApply: 'true',
+        search: 'sts:ExternalId'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(
+      '/v1/workspaces/workspace%2Fa/projects/project%201/aws/trust-policy-hardening?connector_id=aws-prod&fixture_state=success&account_id=123456789012&region=us-east-1&service=iam&resource=payments-cross-account&principal=billing-runner&hardening_direction=add_org_or_source_condition&breakage_level=low&severity=high&status=action_required&ready_for_apply=true&search=sts%3AExternalId'
+    );
+    expect(options.method ?? 'GET').toBe('GET');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
+
   it('gets AWS Secrets Manager metadata inventory with scoped headers and fixture state', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

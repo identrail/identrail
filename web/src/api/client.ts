@@ -3136,6 +3136,190 @@ export type AWSIAMPolicyDiffQuery = {
   search?: string;
 };
 
+export type AWSTrustPolicyHardeningStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSTrustPolicyHardeningFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSTrustPolicyHardeningSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
+export type AWSTrustPolicyHardeningDirection =
+  | 'remove_public_principal'
+  | 'add_org_or_source_condition'
+  | 'scope_to_known_external_principal'
+  | 'tighten_existing_condition'
+  | string;
+export type AWSTrustPolicyHardeningBreakageLevel = 'low' | 'medium' | 'high' | 'unknown' | string;
+
+export type AWSTrustPolicyPrincipalChange = {
+  before_principals?: string[];
+  after_principals?: string[];
+  public_principal_removed: boolean;
+  rationale: string;
+};
+
+export type AWSTrustPolicyConditionRecommendation = {
+  operator: string;
+  key: string;
+  value: string;
+  rationale: string;
+  evidence_ref?: string;
+};
+
+export type AWSTrustPolicyStatementSnippet = {
+  statement_sid: string;
+  effect: string;
+  change_kind: string;
+  before_ref?: string;
+  after_ref?: string;
+  condition_before?: string[];
+  condition_after?: string[];
+  rationale: string;
+};
+
+export type AWSTrustPolicyAffectedCaller = {
+  principal_arn: string;
+  principal_account_id?: string;
+  ou_path?: string;
+  trusted_within_organization: boolean;
+  runtime_observed: boolean;
+  analyzer_backed: boolean;
+  evidence_ref?: string;
+};
+
+export type AWSTrustPolicyHardeningBreakageProjection = {
+  level: AWSTrustPolicyHardeningBreakageLevel;
+  rationale: string;
+  signals?: string[];
+};
+
+export type AWSTrustPolicyHardeningRollbackPlan = {
+  strategy: string;
+  steps: string[];
+  evidence_ref?: string;
+};
+
+export type AWSTrustPolicyHardeningVerificationPlan = {
+  strategy: string;
+  steps: string[];
+  success_signals?: string[];
+  failure_signals?: string[];
+  evidence_ref?: string;
+};
+
+export type AWSTrustPolicyHardeningRelationship = {
+  plan_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSTrustPolicyHardeningPlan = {
+  plan_id: string;
+  calculation_version: string;
+  source_finding_id: string;
+  finding_type: string;
+  hardening_direction: AWSTrustPolicyHardeningDirection;
+  severity: AWSTrustPolicyHardeningSeverity;
+  status: string;
+  score: number;
+  confidence: number;
+  title: string;
+  summary: string;
+  account_id: string;
+  region: string;
+  service?: string;
+  resource_type?: string;
+  resource_node_id?: string;
+  resource_arn?: string;
+  resource_label?: string;
+  public_principal: boolean;
+  trusted_within_organization: boolean;
+  runtime_observed: boolean;
+  analyzer_backed: boolean;
+  principal_change: AWSTrustPolicyPrincipalChange;
+  condition_recommendations: AWSTrustPolicyConditionRecommendation[];
+  statement_snippets: AWSTrustPolicyStatementSnippet[];
+  affected_callers: AWSTrustPolicyAffectedCaller[];
+  breakage_projection: AWSTrustPolicyHardeningBreakageProjection;
+  rollback_plan: AWSTrustPolicyHardeningRollbackPlan;
+  verification_plan: AWSTrustPolicyHardeningVerificationPlan;
+  ready_for_apply: boolean;
+  read_only_projection: boolean;
+  source_signals: string[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  next_action: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSTrustPolicyHardeningSummary = {
+  total_plans: number;
+  filtered_plans: number;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  finding_type_counts: Record<string, number>;
+  hardening_direction_counts: Record<string, number>;
+  breakage_level_counts: Record<string, number>;
+  public_principal_count: number;
+  cross_account_count: number;
+  conditioned_count: number;
+  runtime_observed_count: number;
+  analyzer_backed_count: number;
+  ready_for_apply_count: number;
+  manual_review_count: number;
+  affected_caller_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSTrustPolicyHardeningResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSTrustPolicyHardeningStatus;
+  fixture_state?: AWSTrustPolicyHardeningFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSTrustPolicyHardeningSummary;
+  plans: AWSTrustPolicyHardeningPlan[];
+  relationships: AWSTrustPolicyHardeningRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSTrustPolicyHardeningQuery = {
+  connectorID?: string;
+  fixtureState?: AWSTrustPolicyHardeningFixtureState;
+  accountID?: string;
+  region?: string;
+  service?: string;
+  resource?: string;
+  principal?: string;
+  hardeningDirection?: string;
+  breakageLevel?: string;
+  severity?: string;
+  status?: string;
+  readyForApply?: string;
+  search?: string;
+};
+
 export type AWSBlastRadiusStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBlastRadiusFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSBlastRadiusSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
@@ -7291,6 +7475,31 @@ export const apiClient = {
         severity: query?.severity,
         status: query?.status,
         breakage_level: query?.breakageLevel,
+        ready_for_apply: query?.readyForApply,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectTrustPolicyHardeningPlans(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSTrustPolicyHardeningQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ plans: AWSTrustPolicyHardeningResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/trust-policy-hardening${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        service: query?.service,
+        resource: query?.resource,
+        principal: query?.principal,
+        hardening_direction: query?.hardeningDirection,
+        breakage_level: query?.breakageLevel,
+        severity: query?.severity,
+        status: query?.status,
         ready_for_apply: query?.readyForApply,
         search: query?.search
       })}`,

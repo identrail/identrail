@@ -1,6 +1,36 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS trust policy hardening planner** (#1531). Adds a read-only,
+  metadata-only engine that turns upstream cross-account-trust findings
+  (#1526) into ranked trust-policy hardening plans. Each plan carries a
+  hardening direction (`remove_public_principal`,
+  `add_org_or_source_condition`, `scope_to_known_external_principal`,
+  `tighten_existing_condition`), principal-change intent (before/after
+  principal identifiers, `public_principal_removed` flag), condition
+  recommendations (`aws:PrincipalOrgID`, `aws:PrincipalAccount`,
+  `sts:ExternalId`, `aws:SourceIdentity`, `aws:SourceArn`,
+  `aws:SecureTransport` per finding type, never duplicating an existing
+  condition), before/after statement snippet refs, affected callers (with
+  org / runtime / Access Analyzer attribution), expected breakage
+  projection (low/medium/high/unknown plus rationale and signals),
+  rollback plan, verification plan, deterministic `ready_for_apply` flag
+  (true only when the principal is not public, breakage is low, at least
+  one condition is recommended, and confidence >= 0.80), and the standard
+  evidence, source-signal, impacted-node, and audit metadata. Adds
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/trust-policy-hardening`
+  with filters for connector, account, region, service, resource,
+  principal, hardening direction, breakage level, severity, status,
+  ready-for-apply, and free-text search. OpenAPI schemas and authz wiring
+  follow the neighboring AWS intelligence engines. The AWS Runtime app
+  surface now shows an **AWS trust policy hardening planner** panel with
+  resource, hardening direction, principal change, condition
+  recommendation count, breakage level, ready-for-apply, severity/status,
+  and verification strategy. The engine never mutates AWS, never reads or
+  returns rendered policy bodies, secret values, prompts, completions,
+  tool payloads, browser pages, code-interpreter output, database rows,
+  object contents, customer payloads, or workload payloads;
+  apply/verify transitions belong to later wave issues.
 - Add **AWS IAM policy least-privilege diff generator** (#1530). Adds a
   read-only, metadata-only engine that turns least-privilege recommendations
   (#1522) into ranked IAM policy diffs. Each diff carries statement-level
