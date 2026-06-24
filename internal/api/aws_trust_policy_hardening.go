@@ -352,10 +352,7 @@ func awsTrustPolicyHardeningPlanFromFinding(finding AWSCrossAccountTrustFinding,
 	}
 	planID := "aws-trust-policy-hardening:" + stableAWSBlastRadiusToken("trust-hardening", finding.FindingID)
 	evidenceRef := firstString(awsTrustPolicyHardeningEvidenceRefs(finding.Evidence))
-	direction := strings.TrimSpace(finding.HardeningDirection)
-	if direction == "" {
-		direction = awsTrustPolicyHardeningDirection(finding)
-	}
+	direction := awsTrustPolicyHardeningDirectionFromFinding(finding)
 	principalChange := awsTrustPolicyHardeningPrincipalChange(finding)
 	conditions := awsTrustPolicyHardeningConditions(finding, evidenceRef)
 	statements := awsTrustPolicyHardeningStatementSnippets(finding, principalChange, conditions, evidenceRef)
@@ -407,6 +404,21 @@ func awsTrustPolicyHardeningPlanFromFinding(finding AWSCrossAccountTrustFinding,
 		UpdatedAt:                 now,
 	}
 	return plan, true
+}
+
+var awsTrustPolicyHardeningDirectionTokens = map[string]struct{}{
+	"remove_public_principal":           {},
+	"add_org_or_source_condition":       {},
+	"scope_to_known_external_principal": {},
+	"tighten_existing_condition":        {},
+}
+
+func awsTrustPolicyHardeningDirectionFromFinding(finding AWSCrossAccountTrustFinding) string {
+	candidate := strings.ToLower(strings.TrimSpace(finding.HardeningDirection))
+	if _, ok := awsTrustPolicyHardeningDirectionTokens[candidate]; ok {
+		return candidate
+	}
+	return awsTrustPolicyHardeningDirection(finding)
 }
 
 func awsTrustPolicyHardeningDirection(finding AWSCrossAccountTrustFinding) string {

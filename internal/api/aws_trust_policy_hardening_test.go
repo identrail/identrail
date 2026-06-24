@@ -135,6 +135,31 @@ func TestAWSTrustPolicyHardeningPlanFromFinding(t *testing.T) {
 		t.Fatalf("public principal plan must project high breakage, got %s", p.BreakageProjection.Level)
 	}
 
+	proseDirection := AWSCrossAccountTrustFinding{
+		FindingID:                 "aws-cross-account-trust:prose-direction",
+		FindingType:               "runtime_cross_account_assumption",
+		Status:                    "action_required",
+		Severity:                  "high",
+		ExternalPrincipalAccount:  "555555555555",
+		ExternalPrincipalARN:      "arn:aws:iam::555555555555:role/billing-runner",
+		TrustedWithinOrganization: false,
+		HasCondition:              true,
+		RuntimeObserved:           true,
+		AnalyzerBacked:            true,
+		HardeningDirection:        "Review trust policy principal scope, source identity, external ID, and session-tag requirements for this observed cross-account assumption.",
+		Rationale:                 "Runtime AssumeRole observed without sts:ExternalId.",
+		ResourceType:              "iam_role",
+		ResourceARN:               "arn:aws:iam::123456789012:role/payments-cross-account",
+		ResourceNodeID:            "aws:identity:arn:aws:iam::123456789012:role/payments-cross-account",
+	}
+	prosePlan, ok := awsTrustPolicyHardeningPlanFromFinding(proseDirection, now)
+	if !ok {
+		t.Fatalf("expected plan for prose direction fallback case")
+	}
+	if prosePlan.HardeningDirection != "scope_to_known_external_principal" {
+		t.Fatalf("expected derived enum direction for prose input, got %s", prosePlan.HardeningDirection)
+	}
+
 	knownCaller := AWSCrossAccountTrustFinding{
 		FindingID:                 "aws-cross-account-trust:known-caller",
 		CalculationVersion:        "aws-cross-account-trust-engine-v1",
