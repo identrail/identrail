@@ -266,6 +266,26 @@ func TestAWSSCPDeniedActionsForResourcePolicyFindings(t *testing.T) {
 			expected: []string{"secretsmanager:PutResourcePolicy"},
 		},
 		{
+			name:     "cross-account resource access using service token s3",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "s3"},
+			expected: "s3:PutBucketPolicy",
+		},
+		{
+			name:     "cross-account resource access using normalized s3 token",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "s3-bucket"},
+			expected: "s3:PutBucketPolicy",
+		},
+		{
+			name:     "cross-account resource access using service token kms",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "kms"},
+			expected: "kms:PutKeyPolicy",
+		},
+		{
+			name:     "cross-account resource access using service token secretsmanager",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "secretsmanager"},
+			expected: "secretsmanager:PutResourcePolicy",
+		},
+		{
 			name:     "fallback action",
 			finding:  AWSCrossAccountTrustFinding{FindingType: "other_cross_account_grant", ResourceType: "s3_bucket"},
 			expected: []string{"*"},
@@ -290,6 +310,11 @@ func TestAWSSCPDeniedActionsForResourcePolicyFindings(t *testing.T) {
 			name:     "unsupported resource type",
 			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "sqs_queue"},
 			expected: nil,
+		},
+		{
+			name:     "access analyzer external access",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "access_analyzer_external_access", ResourceType: "s3"},
+			expected: "s3:PutBucketPolicy",
 		},
 	}
 	for _, tc := range tests {
