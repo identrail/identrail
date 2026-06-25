@@ -154,6 +154,55 @@ func TestAWSSecretKeyRotationPlanFromMetadataIncludesKMSAndWorkloads(t *testing.
 	}
 }
 
+func TestAWSSecretKeyRotationPlanFromMetadataPreservesKMSKeyID(t *testing.T) {
+	now := time.Date(2026, 6, 24, 15, 11, 0, 0, time.UTC)
+	secret := AWSSecretsManagerMetadataRecord{
+		AccountID:     "123456789012",
+		Region:        "us-east-1",
+		Service:       "secretsmanager",
+		SecretARN:     "arn:aws:secretsmanager:us-east-1:123456789012:secret:billing/api-key",
+		SecretName:    "billing/api-key",
+		KMSKeyID:      "alias/billing-secrets",
+		OwningService: "billing",
+		SecretStatus:  "active",
+		EvidenceRef:   "evidence://secret/billing",
+		FromNodeID:    "aws:resource:secrets-manager-secret:billing/api-key",
+		Confidence:    0.81,
+		Tags:          map[string]string{"owner": "billing-platform"},
+	}
+	_, _, secretsByKMS := awsSecretPermissionSecretIndexes(AWSSecretsManagerMetadataInventoryResult{Records: []AWSSecretsManagerMetadataRecord{
+		secret,
+		{SecretARN: "arn:aws:secretsmanager:us-east-1:123456789012:secret:billing/webhook", KMSKeyID: "alias/billing-secrets"},
+	}})
+	kms := awsSecretKeyRotationKMSIndex(AWSKMSDecryptReachabilityInventoryResult{Records: []AWSKMSDecryptReachabilityRecord{{
+		KeyID:       "key-billing",
+		Aliases:     []string{"alias/billing-secrets"},
+		FromNodeID:  "aws:resource:kms-key:key-billing",
+		EvidenceRef: "evidence://kms/billing",
+	}}})
+
+	plan := awsSecretKeyRotationPlanFromMetadata(secret, secretsByKMS, kms, now)
+	if len(plan.TargetKeys) != 1 {
+		t.Fatalf("metadata plan must preserve kms key id target without resolved arn: %+v", plan)
+	}
+	if plan.TargetKeys[0].Label != "alias/billing-secrets" || plan.TargetKeys[0].MetadataRef != "evidence://kms/billing" {
+		t.Fatalf("kms key target should use alias lookup and kms evidence: %+v", plan.TargetKeys[0])
+	}
+	if !awsSecretKeyRotationSearchMatch(plan, "shared_kms_key") {
+		t.Fatalf("expected KMSKeyID-only shared KMS readiness gate: %+v", plan.ReadinessGates)
+	}
+	relationships := awsSecretKeyRotationRelationships([]AWSSecretKeyRotationPlan{plan})
+	if !hasAWSSecretKeyRotationRelationship(relationships, "rotation_targets_kms_key", "aws:resource:kms-key:key-billing") {
+		t.Fatalf("expected KMS target relationship from key id lookup: %+v", relationships)
+	}
+
+	noRecordPlan := awsSecretKeyRotationPlanFromMetadata(secret, secretsByKMS, nil, now)
+	relationships = awsSecretKeyRotationRelationships([]AWSSecretKeyRotationPlan{noRecordPlan})
+	if !hasAWSSecretKeyRotationRelationship(relationships, "rotation_targets_kms_key", "alias/billing-secrets") {
+		t.Fatalf("expected KMS target relationship to fall back to key id: %+v", relationships)
+	}
+}
+
 func TestAWSSecretKeyRotationPlanFromMetadataDoesNotAssignFallbackOwner(t *testing.T) {
 	now := time.Date(2026, 6, 24, 15, 12, 0, 0, time.UTC)
 	secret := AWSSecretsManagerMetadataRecord{
@@ -181,6 +230,15 @@ func TestAWSSecretKeyRotationPlanFromMetadataDoesNotAssignFallbackOwner(t *testi
 	if plan.Provider != "secretsmanager" {
 		t.Fatalf("metadata plan must populate provider from service fallback, got %q", plan.Provider)
 	}
+}
+
+func hasAWSSecretKeyRotationRelationship(relationships []AWSSecretKeyRotationRelationship, relationshipType string, toNodeID string) bool {
+	for _, relationship := range relationships {
+		if relationship.Type == relationshipType && relationship.ToNodeID == toNodeID {
+			return true
+		}
+	}
+	return false
 }
 
 func TestAWSSecretKeyRotationWorkloadsIncludeFindingConsumer(t *testing.T) {

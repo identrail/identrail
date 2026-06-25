@@ -1078,9 +1078,11 @@ func awsSecretPermissionSecretIndexes(secrets AWSSecretsManagerMetadataInventory
 		if secret.FromNodeID != "" {
 			byNode[strings.ToLower(secret.FromNodeID)] = secret
 		}
-		if secret.KMSKeyARN != "" {
-			key := strings.ToLower(strings.TrimSpace(secret.KMSKeyARN))
-			byKMS[key] = append(byKMS[key], secret)
+		for _, ref := range []string{secret.KMSKeyARN, secret.KMSKeyID} {
+			key := strings.ToLower(strings.TrimSpace(ref))
+			if key != "" {
+				byKMS[key] = append(byKMS[key], secret)
+			}
 		}
 	}
 	return byARN, byNode, byKMS

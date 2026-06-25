@@ -452,7 +452,8 @@ func awsSecretKeyRotationPlanFromMetadata(secret AWSSecretsManagerMetadataRecord
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
-	if len(secret.KMSKeyARN) > 0 && len(secretsByKMS[strings.ToLower(secret.KMSKeyARN)]) > 1 {
+	kmsRef := awsSecretKeyRotationKMSRef(secret)
+	if kmsRef != "" && len(secretsByKMS[kmsRef]) > 1 {
 		plan.ReadinessGates = append(plan.ReadinessGates, AWSSecretKeyRotationReadinessGate{Name: "shared_kms_key", Status: "review", Rationale: "Multiple secrets use the same KMS key; stage rotation and verification per dependent secret."})
 	}
 	return finalizeAWSSecretKeyRotationPlan(plan)
@@ -519,15 +520,17 @@ func awsSecretKeyRotationTargetFromSecret(secret AWSSecretsManagerMetadataRecord
 }
 
 func awsSecretKeyRotationTargetsForKMS(secret AWSSecretsManagerMetadataRecord, kmsByARN map[string]AWSKMSDecryptReachabilityRecord) []AWSSecretKeyRotationTargetRef {
-	if strings.TrimSpace(secret.KMSKeyARN) == "" {
+	kmsRef := awsSecretKeyRotationKMSRef(secret)
+	if kmsRef == "" {
 		return nil
 	}
-	record := kmsByARN[strings.ToLower(strings.TrimSpace(secret.KMSKeyARN))]
+	record := kmsByARN[kmsRef]
+	arn := firstNonEmptyAWSValue(secret.KMSKeyARN, record.KeyARN)
 	return []AWSSecretKeyRotationTargetRef{{
 		RefType:     "kms_key",
 		NodeID:      record.FromNodeID,
-		ARN:         secret.KMSKeyARN,
-		Label:       firstNonEmptyAWSValue(firstString(record.Aliases), record.KeyID, shortAWSARN(secret.KMSKeyARN), "kms key"),
+		ARN:         arn,
+		Label:       firstNonEmptyAWSValue(firstString(record.Aliases), record.KeyID, secret.KMSKeyID, shortAWSARN(arn), "kms key"),
 		MetadataRef: firstNonEmptyAWSValue(record.EvidenceRef, secret.EvidenceRef),
 	}}
 }
@@ -683,11 +686,26 @@ func awsSecretKeyRotationScoreForSecret(secret AWSSecretsManagerMetadataRecord) 
 func awsSecretKeyRotationKMSIndex(kms AWSKMSDecryptReachabilityInventoryResult) map[string]AWSKMSDecryptReachabilityRecord {
 	out := map[string]AWSKMSDecryptReachabilityRecord{}
 	for _, record := range kms.Records {
-		if record.KeyARN != "" {
-			out[strings.ToLower(strings.TrimSpace(record.KeyARN))] = record
+		for _, ref := range awsSecretKeyRotationKMSRecordRefs(record) {
+			out[ref] = record
 		}
 	}
 	return out
+}
+
+func awsSecretKeyRotationKMSRef(secret AWSSecretsManagerMetadataRecord) string {
+	return strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(secret.KMSKeyARN, secret.KMSKeyID)))
+}
+
+func awsSecretKeyRotationKMSRecordRefs(record AWSKMSDecryptReachabilityRecord) []string {
+	refs := []string{}
+	for _, ref := range append([]string{record.KeyARN, record.KeyID}, record.Aliases...) {
+		ref = strings.ToLower(strings.TrimSpace(ref))
+		if ref != "" {
+			refs = append(refs, ref)
+		}
+	}
+	return dedupeStrings(refs)
 }
 
 func awsSecretKeyRotationCaseIndex(cases AWSRemediationCaseResult) map[string]AWSRemediationCase {
@@ -703,7 +721,7 @@ func awsSecretKeyRotationCaseIndex(cases AWSRemediationCaseResult) map[string]AW
 func awsSecretKeyRotationTargetNodeIDs(targets []AWSSecretKeyRotationTargetRef) []string {
 	out := []string{}
 	for _, target := range targets {
-		out = append(out, target.NodeID, target.ARN)
+		out = append(out, target.NodeID, target.ARN, target.Label)
 	}
 	return out
 }
@@ -726,10 +744,11 @@ func awsSecretKeyRotationRelationships(plans []AWSSecretKeyRotationPlan) []AWSSe
 			out = append(out, AWSSecretKeyRotationRelationship{PlanID: plan.PlanID, Type: "rotation_targets_secret", FromNodeID: plan.PlanID, ToNodeID: target.NodeID, EvidenceRef: evidenceRef})
 		}
 		for _, target := range plan.TargetKeys {
-			if target.NodeID == "" && target.ARN == "" {
+			toNodeID := firstNonEmptyAWSValue(target.NodeID, target.ARN, target.Label)
+			if toNodeID == "" {
 				continue
 			}
-			out = append(out, AWSSecretKeyRotationRelationship{PlanID: plan.PlanID, Type: "rotation_targets_kms_key", FromNodeID: plan.PlanID, ToNodeID: firstNonEmptyAWSValue(target.NodeID, target.ARN), EvidenceRef: evidenceRef})
+			out = append(out, AWSSecretKeyRotationRelationship{PlanID: plan.PlanID, Type: "rotation_targets_kms_key", FromNodeID: plan.PlanID, ToNodeID: toNodeID, EvidenceRef: evidenceRef})
 		}
 		for _, workload := range plan.DependentWorkloads {
 			if workload.WorkloadID == "" {
