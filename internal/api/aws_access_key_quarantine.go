@@ -264,17 +264,7 @@ func awsAccessKeyQuarantinePlansFromDormant(findings []AWSUnusedDormantAccessFin
 }
 
 func awsAccessKeyQuarantineFindingQualifies(finding AWSUnusedDormantAccessFinding) bool {
-	haystack := strings.ToLower(strings.Join(append([]string{finding.FindingType, finding.DormancyState, finding.PolicyScope, finding.DisplayName, finding.IdentityNodeID, finding.PrincipalARN, finding.ResourceARN}, finding.CandidateActions...), " "))
-	if strings.Contains(haystack, "access-key") || strings.Contains(haystack, "access key") || strings.Contains(haystack, "accesskey") || strings.Contains(haystack, "akia") {
-		return true
-	}
-	for _, evidence := range finding.Evidence {
-		ref := strings.ToLower(strings.Join([]string{evidence.Source, evidence.Label, evidence.EvidenceRef, evidence.Relationship}, " "))
-		if strings.Contains(ref, "access-key") || strings.Contains(ref, "access key") || strings.Contains(ref, "accesskey") || strings.Contains(ref, "akia") {
-			return true
-		}
-	}
-	return false
+	return awsAccessKeyQuarantineAccessKeyID(finding) != ""
 }
 
 func awsAccessKeyQuarantinePlanFromFinding(finding AWSUnusedDormantAccessFinding, now time.Time) AWSAccessKeyQuarantinePlan {
@@ -414,12 +404,12 @@ func awsAccessKeyQuarantineAccessKeyID(finding AWSUnusedDormantAccessFinding) st
 		}) {
 			token = strings.TrimSpace(token)
 			normalized := strings.ToUpper(token)
-			if strings.HasPrefix(normalized, "AKIA") || strings.HasPrefix(normalized, "ASIA") {
+			if strings.HasPrefix(normalized, "AKIA") {
 				return normalized
 			}
 		}
 	}
-	return firstNonEmptyAWSValue(finding.ResourceNodeID, finding.ResourceARN, finding.DisplayName)
+	return ""
 }
 
 func awsAccessKeyQuarantinePrincipalTarget(finding AWSUnusedDormantAccessFinding, evidenceRef string) AWSAccessKeyQuarantineTarget {

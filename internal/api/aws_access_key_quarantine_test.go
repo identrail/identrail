@@ -193,6 +193,52 @@ func TestAWSAccessKeyQuarantineAccessKeyIDCanonicalizesCasing(t *testing.T) {
 	}
 }
 
+func TestAWSAccessKeyQuarantinePlansRequireLongLivedIAMAccessKey(t *testing.T) {
+	now := time.Date(2026, 6, 25, 9, 38, 0, 0, time.UTC)
+	sessionKeyID := "ASIA" + "SESSION123456"
+	findings := []AWSUnusedDormantAccessFinding{
+		{
+			FindingID:     "aws-unused-dormant-access:sts-session-key",
+			DormancyState: "stale",
+			Status:        "cleanup_candidate",
+			Confidence:    0.9,
+			DisplayName:   sessionKeyID,
+			PolicyScope:   sessionKeyID + ":*",
+			OwnerContext:  "orders-platform",
+			Evidence: []AWSUnusedDormantAccessEvidence{{
+				Source:      "cloudtrail",
+				EvidenceRef: "runtime-evidence://session-key/" + sessionKeyID,
+				Label:       sessionKeyID,
+			}},
+		},
+		{
+			FindingID:      "aws-unused-dormant-access:shakia-user",
+			DormancyState:  "stale",
+			Status:         "cleanup_candidate",
+			Confidence:     0.9,
+			DisplayName:    "shakia-ci",
+			IdentityNodeID: "aws:identity:user/shakia-ci",
+			ResourceNodeID: "aws:identity:user/shakia-ci",
+			OwnerContext:   "orders-platform",
+			CandidateActions: []string{
+				"iam:DisableAccessKey",
+			},
+			Evidence: []AWSUnusedDormantAccessEvidence{{
+				Source:      "iam_last_used",
+				EvidenceRef: "runtime-evidence://principal/shakia-ci",
+				Label:       "shakia-ci",
+			}},
+		},
+	}
+
+	if got := awsAccessKeyQuarantineAccessKeyID(findings[0]); got != "" {
+		t.Fatalf("STS session key must not be treated as an IAM access key, got %q", got)
+	}
+	if plans := awsAccessKeyQuarantinePlansFromDormant(findings, now); len(plans) != 0 {
+		t.Fatalf("expected non-IAM-key findings to be excluded from quarantine plans: %+v", plans)
+	}
+}
+
 func TestGetAWSAccessKeyQuarantinePlansFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 25, 9, 40, 0, 0, time.UTC)
 	svc, ws := newAccessKeyQuarantineService(t, "project-access-key-quarantine-states", now)
