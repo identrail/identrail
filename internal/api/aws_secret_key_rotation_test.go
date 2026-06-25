@@ -272,6 +272,51 @@ func TestAWSSecretKeyRotationPlanFromMetadataDoesNotDuplicateCanonicalKMSRefs(t 
 	}
 }
 
+func TestAWSSecretKeyRotationPlanFromMetadataScopesBareKMSAliases(t *testing.T) {
+	now := time.Date(2026, 6, 24, 15, 11, 50, 0, time.UTC)
+	secret := AWSSecretsManagerMetadataRecord{
+		AccountID:     "111111111111",
+		Region:        "us-east-1",
+		Service:       "secretsmanager",
+		SecretARN:     "arn:aws:secretsmanager:us-east-1:111111111111:secret:billing/api-key",
+		SecretName:    "billing/api-key",
+		KMSKeyID:      "alias/aws/secretsmanager",
+		OwningService: "billing",
+		SecretStatus:  "active",
+		EvidenceRef:   "evidence://secret/billing",
+		FromNodeID:    "aws:resource:secrets-manager-secret:billing/api-key",
+		Confidence:    0.81,
+		Tags:          map[string]string{"owner": "billing-platform"},
+	}
+	otherAccountSecret := AWSSecretsManagerMetadataRecord{
+		AccountID:  "222222222222",
+		Region:     "us-east-1",
+		SecretARN:  "arn:aws:secretsmanager:us-east-1:222222222222:secret:billing/webhook",
+		SecretName: "billing/webhook",
+		KMSKeyID:   "alias/aws/secretsmanager",
+	}
+	_, _, secretsByKMS := awsSecretPermissionSecretIndexes(AWSSecretsManagerMetadataInventoryResult{Records: []AWSSecretsManagerMetadataRecord{
+		secret,
+		otherAccountSecret,
+	}})
+	kms := awsSecretKeyRotationKMSIndex(AWSKMSDecryptReachabilityInventoryResult{Records: []AWSKMSDecryptReachabilityRecord{
+		{AccountID: "111111111111", Region: "us-east-1", KeyARN: "arn:aws:kms:us-east-1:111111111111:key/primary", Aliases: []string{"alias/aws/secretsmanager"}},
+		{AccountID: "222222222222", Region: "us-east-1", KeyARN: "arn:aws:kms:us-east-1:222222222222:key/primary", Aliases: []string{"alias/aws/secretsmanager"}},
+	}})
+
+	canonicalSecretsByKMS := awsSecretKeyRotationCanonicalSecretsByKMS(secretsByKMS, kms)
+	if got := len(canonicalSecretsByKMS["arn:aws:kms:us-east-1:111111111111:key/primary"]); got != 1 {
+		t.Fatalf("expected account-scoped alias bucket for first account, got %d: %+v", got, canonicalSecretsByKMS)
+	}
+	if got := len(canonicalSecretsByKMS["arn:aws:kms:us-east-1:222222222222:key/primary"]); got != 1 {
+		t.Fatalf("expected account-scoped alias bucket for second account, got %d: %+v", got, canonicalSecretsByKMS)
+	}
+	plan := awsSecretKeyRotationPlanFromMetadata(secret, canonicalSecretsByKMS, kms, now)
+	if awsSecretKeyRotationSearchMatch(plan, "shared_kms_key") {
+		t.Fatalf("same bare alias in another account must not get shared KMS gate: %+v", plan.ReadinessGates)
+	}
+}
+
 func TestAWSSecretKeyRotationPlanFromMetadataDoesNotAssignFallbackOwner(t *testing.T) {
 	now := time.Date(2026, 6, 24, 15, 12, 0, 0, time.UTC)
 	secret := AWSSecretsManagerMetadataRecord{

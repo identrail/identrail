@@ -454,7 +454,7 @@ func awsSecretKeyRotationPlanFromMetadata(secret AWSSecretsManagerMetadataRecord
 		UpdatedAt:        now,
 	}
 	kmsRef := awsSecretKeyRotationKMSRef(secret)
-	canonicalKMSRef := awsSecretKeyRotationCanonicalKMSRef(kmsRef, kmsByARN)
+	canonicalKMSRef := awsSecretKeyRotationCanonicalKMSRefForSecret(kmsRef, secret, kmsByARN)
 	if canonicalKMSRef != "" && (len(secretsByKMS[canonicalKMSRef]) > 1 || len(secretsByKMS[kmsRef]) > 1) {
 		plan.ReadinessGates = append(plan.ReadinessGates, AWSSecretKeyRotationReadinessGate{Name: "shared_kms_key", Status: "review", Rationale: "Multiple secrets use the same KMS key; stage rotation and verification per dependent secret."})
 	}
@@ -694,8 +694,20 @@ func awsSecretKeyRotationScoreForSecret(secret AWSSecretsManagerMetadataRecord) 
 
 func awsSecretKeyRotationKMSIndex(kms AWSKMSDecryptReachabilityInventoryResult) map[string]AWSKMSDecryptReachabilityRecord {
 	out := map[string]AWSKMSDecryptReachabilityRecord{}
+	ambiguous := map[string]struct{}{}
 	for _, record := range kms.Records {
 		for _, ref := range awsSecretKeyRotationKMSRecordRefs(record) {
+			if scoped := awsSecretKeyRotationScopedKMSRef(record.AccountID, record.Region, ref); scoped != "" {
+				out[scoped] = record
+			}
+			if existing, ok := out[ref]; ok && (existing.KeyARN != record.KeyARN || existing.AccountID != record.AccountID || existing.Region != record.Region) {
+				ambiguous[ref] = struct{}{}
+				delete(out, ref)
+				continue
+			}
+			if _, ok := ambiguous[ref]; ok {
+				continue
+			}
 			out[ref] = record
 		}
 	}
@@ -713,14 +725,14 @@ func awsSecretKeyRotationCanonicalSecretsByKMS(secretsByKMS map[string][]AWSSecr
 	out := map[string][]AWSSecretsManagerMetadataRecord{}
 	seen := map[string]map[string]struct{}{}
 	for ref, secrets := range secretsByKMS {
-		canonical := awsSecretKeyRotationCanonicalKMSRef(ref, kmsByARN)
-		if canonical == "" {
-			continue
-		}
-		if seen[canonical] == nil {
-			seen[canonical] = map[string]struct{}{}
-		}
 		for _, secret := range secrets {
+			canonical := awsSecretKeyRotationCanonicalKMSRefForSecret(ref, secret, kmsByARN)
+			if canonical == "" {
+				continue
+			}
+			if seen[canonical] == nil {
+				seen[canonical] = map[string]struct{}{}
+			}
 			key := awsSecretKeyRotationSecretDedupeKey(secret)
 			if key != "" {
 				if _, ok := seen[canonical][key]; ok {
@@ -738,20 +750,52 @@ func awsSecretKeyRotationSecretDedupeKey(secret AWSSecretsManagerMetadataRecord)
 	return strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(secret.SecretARN, secret.FromNodeID, secret.SecretName, secret.EvidenceRef)))
 }
 
-func awsSecretKeyRotationCanonicalKMSRef(ref string, kmsByARN map[string]AWSKMSDecryptReachabilityRecord) string {
-	ref = strings.ToLower(strings.TrimSpace(ref))
+func awsSecretKeyRotationCanonicalKMSRefForSecret(ref string, secret AWSSecretsManagerMetadataRecord, kmsByARN map[string]AWSKMSDecryptReachabilityRecord) string {
+	ref = awsSecretKeyRotationNormalizeKMSLookupRef(ref)
 	if ref == "" {
 		return ""
 	}
+	if scoped := awsSecretKeyRotationScopedKMSRef(secret.AccountID, secret.Region, ref); scoped != "" {
+		if record, ok := kmsByARN[scoped]; ok {
+			return awsSecretKeyRotationCanonicalKMSRecordRef(record, ref)
+		}
+	}
+	return awsSecretKeyRotationCanonicalKMSRef(ref, kmsByARN)
+}
+
+func awsSecretKeyRotationCanonicalKMSRef(ref string, kmsByARN map[string]AWSKMSDecryptReachabilityRecord) string {
+	ref = awsSecretKeyRotationNormalizeKMSLookupRef(ref)
+	if ref == "" {
+		return ""
+	}
+	record := kmsByARN[ref]
+	return awsSecretKeyRotationCanonicalKMSRecordRef(record, ref)
+}
+
+func awsSecretKeyRotationCanonicalKMSRecordRef(record AWSKMSDecryptReachabilityRecord, fallback string) string {
+	canonical := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(record.KeyARN, record.KeyID, firstString(record.Aliases), fallback)))
+	if canonical == "" {
+		return fallback
+	}
+	return canonical
+}
+
+func awsSecretKeyRotationNormalizeKMSLookupRef(ref string) string {
+	ref = strings.ToLower(strings.TrimSpace(ref))
 	if strings.Contains(ref, ":alias/") {
 		ref = ref[strings.LastIndex(ref, ":alias/")+1:]
 	}
-	record := kmsByARN[ref]
-	canonical := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(record.KeyARN, record.KeyID, firstString(record.Aliases), ref)))
-	if canonical == "" {
-		return ref
+	return ref
+}
+
+func awsSecretKeyRotationScopedKMSRef(accountID, region, ref string) string {
+	accountID = strings.ToLower(strings.TrimSpace(accountID))
+	region = strings.ToLower(strings.TrimSpace(region))
+	ref = awsSecretKeyRotationNormalizeKMSLookupRef(ref)
+	if accountID == "" || region == "" || ref == "" {
+		return ""
 	}
-	return canonical
+	return accountID + "|" + region + "|" + ref
 }
 
 func awsSecretKeyRotationKMSRecordRefs(record AWSKMSDecryptReachabilityRecord) []string {
