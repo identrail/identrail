@@ -203,6 +203,40 @@ func TestAWSSecretKeyRotationPlanFromMetadataPreservesKMSKeyID(t *testing.T) {
 	}
 }
 
+func TestAWSSecretKeyRotationPlanFromMetadataCanonicalizesSharedKMSRefs(t *testing.T) {
+	now := time.Date(2026, 6, 24, 15, 11, 30, 0, time.UTC)
+	keyARN := "arn:aws:kms:us-east-1:123456789012:key/billing"
+	secret := AWSSecretsManagerMetadataRecord{
+		AccountID:     "123456789012",
+		Region:        "us-east-1",
+		Service:       "secretsmanager",
+		SecretARN:     "arn:aws:secretsmanager:us-east-1:123456789012:secret:billing/api-key",
+		SecretName:    "billing/api-key",
+		KMSKeyARN:     keyARN,
+		OwningService: "billing",
+		SecretStatus:  "active",
+		EvidenceRef:   "evidence://secret/billing",
+		FromNodeID:    "aws:resource:secrets-manager-secret:billing/api-key",
+		Confidence:    0.81,
+		Tags:          map[string]string{"owner": "billing-platform"},
+	}
+	_, _, secretsByKMS := awsSecretPermissionSecretIndexes(AWSSecretsManagerMetadataInventoryResult{Records: []AWSSecretsManagerMetadataRecord{
+		secret,
+		{SecretARN: "arn:aws:secretsmanager:us-east-1:123456789012:secret:billing/webhook", KMSKeyID: "alias/billing-secrets"},
+	}})
+	kms := awsSecretKeyRotationKMSIndex(AWSKMSDecryptReachabilityInventoryResult{Records: []AWSKMSDecryptReachabilityRecord{{
+		KeyARN:     keyARN,
+		KeyID:      "billing",
+		Aliases:    []string{"alias/billing-secrets"},
+		FromNodeID: "aws:resource:kms-key:billing",
+	}}})
+
+	plan := awsSecretKeyRotationPlanFromMetadata(secret, awsSecretKeyRotationCanonicalSecretsByKMS(secretsByKMS, kms), kms, now)
+	if !awsSecretKeyRotationSearchMatch(plan, "shared_kms_key") {
+		t.Fatalf("expected shared KMS readiness gate for canonical arn/alias refs: %+v", plan.ReadinessGates)
+	}
+}
+
 func TestAWSSecretKeyRotationPlanFromMetadataDoesNotAssignFallbackOwner(t *testing.T) {
 	now := time.Date(2026, 6, 24, 15, 12, 0, 0, time.UTC)
 	secret := AWSSecretsManagerMetadataRecord{
@@ -279,6 +313,12 @@ func TestAWSSecretKeyRotationTypeKeepsAWSNativeSecretFindings(t *testing.T) {
 	external.Provider = credentialProviderOpenAI
 	if got := awsSecretKeyRotationType(external, AWSSecretsManagerMetadataRecord{}); got != "provider_key" {
 		t.Fatalf("external provider finding should remain provider_key, got %q", got)
+	}
+
+	aliasBackedSecret := secret
+	aliasBackedSecret.KMSKeyID = "alias/orders-secrets"
+	if got := awsSecretKeyRotationType(finding, aliasBackedSecret); got != "kms_related" {
+		t.Fatalf("AWS-native secret finding with KMSKeyID should be kms_related, got %q", got)
 	}
 }
 

@@ -303,6 +303,7 @@ func awsSecretKeyRotationPlans(sources awsSecretKeyRotationSources, now time.Tim
 	plans := []AWSSecretKeyRotationPlan{}
 	secretsByARN, secretsByNode, secretsByKMS := awsSecretPermissionSecretIndexes(sources.secrets)
 	kmsByARN := awsSecretKeyRotationKMSIndex(sources.kms)
+	secretsByKMS = awsSecretKeyRotationCanonicalSecretsByKMS(secretsByKMS, kmsByARN)
 	caseByFinding := awsSecretKeyRotationCaseIndex(sources.cases)
 	for _, finding := range sources.equivalence.Findings {
 		if p, ok := awsSecretKeyRotationPlanFromEquivalence(finding, secretsByARN, secretsByNode, kmsByARN, caseByFinding, now); ok {
@@ -453,7 +454,8 @@ func awsSecretKeyRotationPlanFromMetadata(secret AWSSecretsManagerMetadataRecord
 		UpdatedAt:        now,
 	}
 	kmsRef := awsSecretKeyRotationKMSRef(secret)
-	if kmsRef != "" && len(secretsByKMS[kmsRef]) > 1 {
+	canonicalKMSRef := awsSecretKeyRotationCanonicalKMSRef(kmsRef, kmsByARN)
+	if canonicalKMSRef != "" && (len(secretsByKMS[canonicalKMSRef]) > 1 || len(secretsByKMS[kmsRef]) > 1) {
 		plan.ReadinessGates = append(plan.ReadinessGates, AWSSecretKeyRotationReadinessGate{Name: "shared_kms_key", Status: "review", Rationale: "Multiple secrets use the same KMS key; stage rotation and verification per dependent secret."})
 	}
 	return finalizeAWSSecretKeyRotationPlan(plan)
@@ -484,8 +486,8 @@ func finalizeAWSSecretKeyRotationPlan(plan AWSSecretKeyRotationPlan) AWSSecretKe
 
 func awsSecretKeyRotationType(finding AWSSecretPermissionEquivalenceFinding, secret AWSSecretsManagerMetadataRecord) string {
 	normalized := normalizeAWSRuntimeEventFilterToken(finding.EquivalenceType)
-	secretRef := strings.ToLower(strings.Join([]string{finding.SecretNodeID, finding.SecretARN, finding.SecretLabel, secret.KMSKeyARN, strings.Join(finding.SourceSignals, " ")}, " "))
-	if strings.Contains(normalized, "kms") || strings.Contains(secretRef, "kms") {
+	secretRef := strings.ToLower(strings.Join([]string{finding.SecretNodeID, finding.SecretARN, finding.SecretLabel, secret.KMSKeyARN, secret.KMSKeyID, strings.Join(finding.SourceSignals, " ")}, " "))
+	if strings.Contains(normalized, "kms") || strings.Contains(secretRef, "kms") || strings.TrimSpace(secret.KMSKeyARN) != "" || strings.TrimSpace(secret.KMSKeyID) != "" {
 		return "kms_related"
 	}
 	if awsSecretKeyRotationIsProviderKeyFinding(normalized, finding.Provider) {
@@ -702,6 +704,34 @@ func awsSecretKeyRotationKMSIndex(kms AWSKMSDecryptReachabilityInventoryResult) 
 
 func awsSecretKeyRotationKMSRef(secret AWSSecretsManagerMetadataRecord) string {
 	return strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(secret.KMSKeyARN, secret.KMSKeyID)))
+}
+
+func awsSecretKeyRotationCanonicalSecretsByKMS(secretsByKMS map[string][]AWSSecretsManagerMetadataRecord, kmsByARN map[string]AWSKMSDecryptReachabilityRecord) map[string][]AWSSecretsManagerMetadataRecord {
+	if len(secretsByKMS) == 0 {
+		return secretsByKMS
+	}
+	out := map[string][]AWSSecretsManagerMetadataRecord{}
+	for ref, secrets := range secretsByKMS {
+		canonical := awsSecretKeyRotationCanonicalKMSRef(ref, kmsByARN)
+		if canonical == "" {
+			continue
+		}
+		out[canonical] = append(out[canonical], secrets...)
+	}
+	return out
+}
+
+func awsSecretKeyRotationCanonicalKMSRef(ref string, kmsByARN map[string]AWSKMSDecryptReachabilityRecord) string {
+	ref = strings.ToLower(strings.TrimSpace(ref))
+	if ref == "" {
+		return ""
+	}
+	record := kmsByARN[ref]
+	canonical := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(record.KeyARN, record.KeyID, firstString(record.Aliases), ref)))
+	if canonical == "" {
+		return ref
+	}
+	return canonical
 }
 
 func awsSecretKeyRotationKMSRecordRefs(record AWSKMSDecryptReachabilityRecord) []string {
