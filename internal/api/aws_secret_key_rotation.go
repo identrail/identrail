@@ -711,14 +711,31 @@ func awsSecretKeyRotationCanonicalSecretsByKMS(secretsByKMS map[string][]AWSSecr
 		return secretsByKMS
 	}
 	out := map[string][]AWSSecretsManagerMetadataRecord{}
+	seen := map[string]map[string]struct{}{}
 	for ref, secrets := range secretsByKMS {
 		canonical := awsSecretKeyRotationCanonicalKMSRef(ref, kmsByARN)
 		if canonical == "" {
 			continue
 		}
-		out[canonical] = append(out[canonical], secrets...)
+		if seen[canonical] == nil {
+			seen[canonical] = map[string]struct{}{}
+		}
+		for _, secret := range secrets {
+			key := awsSecretKeyRotationSecretDedupeKey(secret)
+			if key != "" {
+				if _, ok := seen[canonical][key]; ok {
+					continue
+				}
+				seen[canonical][key] = struct{}{}
+			}
+			out[canonical] = append(out[canonical], secret)
+		}
 	}
 	return out
+}
+
+func awsSecretKeyRotationSecretDedupeKey(secret AWSSecretsManagerMetadataRecord) string {
+	return strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(secret.SecretARN, secret.FromNodeID, secret.SecretName, secret.EvidenceRef)))
 }
 
 func awsSecretKeyRotationCanonicalKMSRef(ref string, kmsByARN map[string]AWSKMSDecryptReachabilityRecord) string {

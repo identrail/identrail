@@ -237,6 +237,41 @@ func TestAWSSecretKeyRotationPlanFromMetadataCanonicalizesSharedKMSRefs(t *testi
 	}
 }
 
+func TestAWSSecretKeyRotationPlanFromMetadataDoesNotDuplicateCanonicalKMSRefs(t *testing.T) {
+	now := time.Date(2026, 6, 24, 15, 11, 45, 0, time.UTC)
+	keyARN := "arn:aws:kms:us-east-1:123456789012:key/billing"
+	secret := AWSSecretsManagerMetadataRecord{
+		AccountID:     "123456789012",
+		Region:        "us-east-1",
+		Service:       "secretsmanager",
+		SecretARN:     "arn:aws:secretsmanager:us-east-1:123456789012:secret:billing/api-key",
+		SecretName:    "billing/api-key",
+		KMSKeyARN:     keyARN,
+		KMSKeyID:      "alias/billing-secrets",
+		OwningService: "billing",
+		SecretStatus:  "active",
+		EvidenceRef:   "evidence://secret/billing",
+		FromNodeID:    "aws:resource:secrets-manager-secret:billing/api-key",
+		Confidence:    0.81,
+		Tags:          map[string]string{"owner": "billing-platform"},
+	}
+	_, _, secretsByKMS := awsSecretPermissionSecretIndexes(AWSSecretsManagerMetadataInventoryResult{Records: []AWSSecretsManagerMetadataRecord{secret}})
+	kms := awsSecretKeyRotationKMSIndex(AWSKMSDecryptReachabilityInventoryResult{Records: []AWSKMSDecryptReachabilityRecord{{
+		KeyARN:  keyARN,
+		KeyID:   "billing",
+		Aliases: []string{"alias/billing-secrets"},
+	}}})
+
+	canonicalSecretsByKMS := awsSecretKeyRotationCanonicalSecretsByKMS(secretsByKMS, kms)
+	if got := len(canonicalSecretsByKMS[strings.ToLower(keyARN)]); got != 1 {
+		t.Fatalf("expected canonical KMS bucket to dedupe same secret, got %d: %+v", got, canonicalSecretsByKMS)
+	}
+	plan := awsSecretKeyRotationPlanFromMetadata(secret, canonicalSecretsByKMS, kms, now)
+	if awsSecretKeyRotationSearchMatch(plan, "shared_kms_key") {
+		t.Fatalf("single secret with arn and alias refs must not get shared KMS gate: %+v", plan.ReadinessGates)
+	}
+}
+
 func TestAWSSecretKeyRotationPlanFromMetadataDoesNotAssignFallbackOwner(t *testing.T) {
 	now := time.Date(2026, 6, 24, 15, 12, 0, 0, time.UTC)
 	secret := AWSSecretsManagerMetadataRecord{
