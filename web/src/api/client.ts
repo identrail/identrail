@@ -3621,6 +3621,148 @@ export type AWSSecretKeyRotationQuery = {
   search?: string;
 };
 
+export type AWSAccessKeyQuarantineStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSAccessKeyQuarantineFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSAccessKeyQuarantineState = 'disable_candidate' | 'quarantine_candidate' | 'grace_period_required' | 'needs_review' | string;
+
+export type AWSAccessKeyQuarantineOwnerNotice = {
+  owner: string;
+  assigned: boolean;
+  notification: string;
+  grace_period: string;
+  required_actors?: string[];
+  instructions?: string[];
+};
+
+export type AWSAccessKeyQuarantineTarget = {
+  ref_type: string;
+  access_key_id?: string;
+  node_id?: string;
+  principal?: string;
+  label: string;
+  metadata_ref?: string;
+};
+
+export type AWSAccessKeyQuarantineStep = {
+  order: number;
+  phase: string;
+  action: string;
+  actor?: string;
+  evidence_ref?: string;
+  blocks_on?: string[];
+};
+
+export type AWSAccessKeyQuarantineGate = {
+  name: string;
+  status: string;
+  rationale: string;
+};
+
+export type AWSAccessKeyQuarantinePlan = {
+  plan_id: string;
+  calculation_version: string;
+  quarantine_state: AWSAccessKeyQuarantineState;
+  severity: string;
+  status: string;
+  score: number;
+  confidence: number;
+  title: string;
+  summary: string;
+  account_id: string;
+  region: string;
+  owner_notice: AWSAccessKeyQuarantineOwnerNotice;
+  source_finding_ids: string[];
+  target_access_keys: AWSAccessKeyQuarantineTarget[];
+  affected_principals?: AWSAccessKeyQuarantineTarget[];
+  last_used_at?: string;
+  dormant_days: number;
+  grace_period_days: number;
+  quarantine_order: AWSAccessKeyQuarantineStep[];
+  diff_intent: AWSRemediationDiffIntent;
+  tradeoffs: AWSRemediationTradeoff[];
+  rollback_plan: AWSRemediationRollbackPlan;
+  verification_plan: AWSRemediationVerificationPlan;
+  readiness_gates: AWSAccessKeyQuarantineGate[];
+  ready_for_apply: boolean;
+  read_only_projection: boolean;
+  source_signals: string[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  next_action: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSAccessKeyQuarantineRelationship = {
+  plan_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSAccessKeyQuarantineSummary = {
+  total_plans: number;
+  filtered_plans: number;
+  quarantine_state_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  owner_assigned_count: number;
+  ownerless_count: number;
+  ready_for_apply_count: number;
+  access_key_count: number;
+  affected_principal_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSAccessKeyQuarantineResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSAccessKeyQuarantineStatus;
+  fixture_state?: AWSAccessKeyQuarantineFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSAccessKeyQuarantineSummary;
+  plans: AWSAccessKeyQuarantinePlan[];
+  relationships: AWSAccessKeyQuarantineRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSAccessKeyQuarantineQuery = {
+  connectorID?: string;
+  fixtureState?: AWSAccessKeyQuarantineFixtureState;
+  accountID?: string;
+  region?: string;
+  identity?: string;
+  quarantineState?: string;
+  owner?: string;
+  severity?: string;
+  status?: string;
+  readyForApply?: string;
+  search?: string;
+};
+
 export type AWSBlastRadiusStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBlastRadiusFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSBlastRadiusSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
@@ -7845,6 +7987,29 @@ export const apiClient = {
         region: query?.region,
         rotation_type: query?.rotationType,
         provider: query?.provider,
+        owner: query?.owner,
+        severity: query?.severity,
+        status: query?.status,
+        ready_for_apply: query?.readyForApply,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectAccessKeyQuarantinePlans(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSAccessKeyQuarantineQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ plans: AWSAccessKeyQuarantineResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/access-key-quarantine${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        identity: query?.identity,
+        quarantine_state: query?.quarantineState,
         owner: query?.owner,
         severity: query?.severity,
         status: query?.status,

@@ -67,6 +67,8 @@ import {
   type AWSPermissionBoundarySCPResult,
   type AWSSecretKeyRotationPlan,
   type AWSSecretKeyRotationResult,
+  type AWSAccessKeyQuarantinePlan,
+  type AWSAccessKeyQuarantineResult,
   type AWSBlastRadiusFinding,
   type AWSBlastRadiusResult,
   type AWSLeastPrivilegeRecommendation,
@@ -11151,6 +11153,115 @@ function AWSSecretKeyRotationContent({
   );
 }
 
+function awsAccessKeyQuarantineStage(plan: AWSAccessKeyQuarantinePlan): AWSCapabilityStage {
+  if (!plan.owner_notice.assigned || plan.status === 'review') {
+    return 'not-available';
+  }
+  if (!plan.ready_for_apply || plan.severity === 'high') {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsAccessKeyQuarantineTargetLabel(plan: AWSAccessKeyQuarantinePlan): string {
+  const keyLabel = plan.target_access_keys.map((target) => target.access_key_id || target.label).filter(Boolean).join(', ');
+  const principalCount = plan.affected_principals?.length ?? 0;
+  return `${keyLabel || 'Access key'} · ${principalCount} principal${principalCount === 1 ? '' : 's'}`;
+}
+
+function awsAccessKeyQuarantineOrderLabel(plan: AWSAccessKeyQuarantinePlan): string {
+  const phases = plan.quarantine_order.map((step) => formatTokenLabel(step.phase));
+  if (phases.length === 0) {
+    return 'manual review';
+  }
+  return phases.slice(0, 4).join(' → ') + (phases.length > 4 ? ` +${phases.length - 4}` : '');
+}
+
+function awsAccessKeyQuarantineReadinessLabel(plan: AWSAccessKeyQuarantinePlan): string {
+  if (plan.ready_for_apply) {
+    return `ready · ${plan.grace_period_days}d grace`;
+  }
+  const blockedGate = plan.readiness_gates.find((gate) => gate.status === 'blocked');
+  return `gate · ${formatTokenLabel(blockedGate?.name ?? plan.status)}`;
+}
+
+function AWSAccessKeyQuarantineContent({
+  plans,
+  loading,
+  error,
+  onRetry
+}: {
+  plans: AWSAccessKeyQuarantineResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = plans?.plans ?? [];
+  const summaryLine = plans
+    ? `${plans.summary.total_plans} total · ${plans.summary.ready_for_apply_count} ready · ${plans.summary.access_key_count} keys · ${plans.summary.owner_assigned_count} owned`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS access key quarantine plans">
+      <h3>AWS access key quarantine planner</h3>
+      <p className="idt-app-kicker">
+        Read-only disable/quarantine workflows for stale or risky IAM access keys with owner notice, grace period,
+        rollback, verification, and explicit readiness gates. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load AWS access key quarantine plans"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Composing access key quarantine plans"
+          body="Identrail is joining dormant access, IAM last-used evidence, owner context, and remediation-case metadata into ranked quarantine workflows."
+        />
+      ) : null}
+      {!error && !loading && plans && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={plans.status === 'blocked' ? 'Permission required' : 'No quarantine plans'}
+          title={plans.status === 'blocked' ? 'Quarantine plans need read-only access-key evidence' : 'No access key quarantine plans projected'}
+          body={plans.failure_reasons[0] ?? 'No upstream dormant access evidence produced an access-key quarantine plan for this environment.'}
+        />
+      ) : null}
+      {!error && !loading && plans && plans.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {plans.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS access key quarantine plans"
+          rows={rows}
+          getRowKey={(row) => row.plan_id}
+          columns={[
+            { key: 'plan', header: 'Plan', render: (row) => <strong>{row.title}</strong> },
+            { key: 'state', header: 'State', render: (row) => formatTokenLabel(row.quarantine_state) },
+            { key: 'owner', header: 'Owner notice', render: (row) => `${row.owner_notice.owner} · ${formatTokenLabel(row.owner_notice.notification)}` },
+            { key: 'target', header: 'Target', render: (row) => awsAccessKeyQuarantineTargetLabel(row) },
+            { key: 'order', header: 'Order', render: (row) => awsAccessKeyQuarantineOrderLabel(row) },
+            { key: 'readiness', header: 'Readiness', render: (row) => awsAccessKeyQuarantineReadinessLabel(row) },
+            {
+              key: 'severity',
+              header: 'Severity',
+              render: (row) => (
+                <AWSInventoryPill stage={awsAccessKeyQuarantineStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.status)}`} />
+              )
+            },
+            { key: 'verification', header: 'Verification', render: (row) => formatTokenLabel(row.verification_plan.strategy) }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsBlastRadiusSeverityStage(severity: string): AWSCapabilityStage {
   switch (severity) {
     case 'critical':
@@ -12614,6 +12725,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [secretKeyRotationLoading, setSecretKeyRotationLoading] = useState(false);
   const [secretKeyRotationError, setSecretKeyRotationError] = useState('');
   const secretKeyRotationRequestRef = useRef(0);
+  const [accessKeyQuarantine, setAccessKeyQuarantine] = useState<AWSAccessKeyQuarantineResult | null>(null);
+  const [accessKeyQuarantineLoading, setAccessKeyQuarantineLoading] = useState(false);
+  const [accessKeyQuarantineError, setAccessKeyQuarantineError] = useState('');
+  const accessKeyQuarantineRequestRef = useRef(0);
   const [blastRadius, setBlastRadius] = useState<AWSBlastRadiusResult | null>(null);
   const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
   const [blastRadiusError, setBlastRadiusError] = useState('');
@@ -13139,6 +13254,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadSecretKeyRotation]);
 
+  const loadAccessKeyQuarantine = useCallback(async () => {
+    const requestID = ++accessKeyQuarantineRequestRef.current;
+    setAccessKeyQuarantine(null);
+    setAccessKeyQuarantineError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setAccessKeyQuarantineLoading(false);
+      return;
+    }
+    setAccessKeyQuarantineLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectAccessKeyQuarantinePlans(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== accessKeyQuarantineRequestRef.current) {
+        return;
+      }
+      setAccessKeyQuarantine(response.plans);
+    } catch (error) {
+      if (requestID !== accessKeyQuarantineRequestRef.current) {
+        return;
+      }
+      setAccessKeyQuarantineError(formatAPIError(error, 'Unable to load AWS access key quarantine plans.'));
+    } finally {
+      if (requestID === accessKeyQuarantineRequestRef.current) {
+        setAccessKeyQuarantineLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadAccessKeyQuarantine();
+    return () => {
+      accessKeyQuarantineRequestRef.current += 1;
+    };
+  }, [loadAccessKeyQuarantine]);
+
   const loadBlastRadius = useCallback(async () => {
     const requestID = ++blastRadiusRequestRef.current;
     setBlastRadius(null);
@@ -13649,6 +13812,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={secretKeyRotationLoading}
             error={secretKeyRotationError}
             onRetry={loadSecretKeyRotation}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSAccessKeyQuarantineContent
+            plans={accessKeyQuarantine}
+            loading={accessKeyQuarantineLoading}
+            error={accessKeyQuarantineError}
+            onRetry={loadAccessKeyQuarantine}
           />
         ) : null}
         {routeID === 'runtime' ? (

@@ -599,6 +599,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/access-key-quarantine
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/blast-radius
     action: tenancy.read
     resource_type: project
@@ -5496,6 +5501,89 @@ paths:
                     $ref: "#/components/schemas/AWSSecretKeyRotationResult"
         "400":
           description: Invalid AWS secret/key rotation request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/access-key-quarantine:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS access key disable and quarantine plans
+      operationId: getAWSProjectAccessKeyQuarantinePlans
+      description: Generates ranked, read-only IAM access key disable and quarantine workflows from dormant access findings, last-used evidence, and runtime signals. Each plan carries owner notification, grace period, ordered quarantine steps, before/after intent, tradeoffs, rollback, verification, readiness gates, and evidence refs. The endpoint never disables AWS access keys and never reads, exposes, logs, or persists secret access key values, customer payloads, rendered policies, prompts, completions, browser pages, code-interpreter output, database rows, or object contents.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: identity
+          schema: { type: string }
+        - in: query
+          name: quarantine_state
+          schema:
+            type: string
+            enum: [disable_candidate, quarantine_candidate, grace_period_required, needs_review]
+        - in: query
+          name: owner
+          schema: { type: string }
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [ready_for_quarantine, pending_owner, review]
+        - in: query
+          name: ready_for_apply
+          schema:
+            type: string
+            enum: ["true", "false", "yes", "no"]
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS access key disable and quarantine plan contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    $ref: "#/components/schemas/AWSAccessKeyQuarantineResult"
+        "400":
+          description: Invalid AWS access key quarantine request
           content:
             application/json:
               schema:
@@ -14692,6 +14780,225 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSSecretKeyRotationRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSAccessKeyQuarantineOwnerNotice:
+      type: object
+      properties:
+        owner: { type: string }
+        assigned: { type: boolean }
+        notification: { type: string }
+        grace_period: { type: string }
+        required_actors:
+          type: array
+          items: { type: string }
+        instructions:
+          type: array
+          items: { type: string }
+    AWSAccessKeyQuarantineTarget:
+      type: object
+      properties:
+        ref_type: { type: string }
+        access_key_id: { type: string }
+        node_id: { type: string }
+        principal: { type: string }
+        label: { type: string }
+        metadata_ref: { type: string }
+    AWSAccessKeyQuarantineStep:
+      type: object
+      properties:
+        order: { type: integer }
+        phase: { type: string }
+        action: { type: string }
+        actor: { type: string }
+        evidence_ref: { type: string }
+        blocks_on:
+          type: array
+          items: { type: string }
+    AWSAccessKeyQuarantineGate:
+      type: object
+      properties:
+        name: { type: string }
+        status: { type: string }
+        rationale: { type: string }
+    AWSAccessKeyQuarantineRelationship:
+      type: object
+      properties:
+        plan_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSAccessKeyQuarantinePlan:
+      type: object
+      properties:
+        plan_id: { type: string }
+        calculation_version: { type: string }
+        quarantine_state:
+          type: string
+          enum: [disable_candidate, quarantine_candidate, grace_period_required, needs_review]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status:
+          type: string
+          enum: [ready_for_quarantine, pending_owner, review]
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        title: { type: string }
+        summary: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        owner_notice:
+          $ref: "#/components/schemas/AWSAccessKeyQuarantineOwnerNotice"
+        source_finding_ids:
+          type: array
+          items: { type: string }
+        target_access_keys:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAccessKeyQuarantineTarget"
+        affected_principals:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAccessKeyQuarantineTarget"
+        last_used_at:
+          type: string
+          format: date-time
+        dormant_days: { type: integer }
+        grace_period_days: { type: integer }
+        quarantine_order:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAccessKeyQuarantineStep"
+        diff_intent:
+          $ref: "#/components/schemas/AWSRemediationDiffIntent"
+        tradeoffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationTradeoff"
+        rollback_plan:
+          $ref: "#/components/schemas/AWSRemediationRollbackPlan"
+        verification_plan:
+          $ref: "#/components/schemas/AWSRemediationVerificationPlan"
+        readiness_gates:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAccessKeyQuarantineGate"
+        ready_for_apply: { type: boolean }
+        read_only_projection: { type: boolean }
+        source_signals:
+          type: array
+          items: { type: string }
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeEvidence"
+        evidence_boundary: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegePathStep"
+        next_action: { type: string }
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSAccessKeyQuarantineSummary:
+      type: object
+      properties:
+        total_plans: { type: integer }
+        filtered_plans: { type: integer }
+        quarantine_state_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        owner_assigned_count: { type: integer }
+        ownerless_count: { type: integer }
+        ready_for_apply_count: { type: integer }
+        access_key_count: { type: integer }
+        affected_principal_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSAccessKeyQuarantineResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSAccessKeyQuarantineSummary"
+        plans:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAccessKeyQuarantinePlan"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAccessKeyQuarantineRelationship"
         caveats:
           type: array
           items: { type: string }

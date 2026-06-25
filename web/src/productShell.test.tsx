@@ -3904,6 +3904,139 @@ describe('Domain-first app routes', () => {
         diagnostics: []
       } as any
     });
+    const accessKeyID = 'AKIA' + 'ORDERS123456';
+    const getAccessKeyQuarantine = vi.spyOn(api.apiClient, 'getAWSProjectAccessKeyQuarantinePlans').mockResolvedValue({
+      plans: {
+        status: 'ready',
+        plans: [
+          {
+            plan_id: 'aws-access-key-quarantine:orders-ci',
+            calculation_version: 'aws-access-key-quarantine-planner-v1',
+            quarantine_state: 'quarantine_candidate',
+            severity: 'high',
+            status: 'ready_for_quarantine',
+            score: 82,
+            confidence: 0.86,
+            title: `Access key quarantine: ${accessKeyID}`,
+            summary: 'Plan a stale access key quarantine workflow.',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            owner_notice: {
+              owner: 'orders-platform',
+              assigned: true,
+              notification: 'owner_notification_required',
+              grace_period: 'P7D',
+              required_actors: ['identity-owner', 'security-reviewer'],
+              instructions: ['Notify owner before quarantine.']
+            },
+            source_finding_ids: ['aws-unused-dormant-access:orders-key'],
+            target_access_keys: [
+              {
+                ref_type: 'iam_access_key',
+                access_key_id: accessKeyID,
+                node_id: `aws:iam-access-key:${accessKeyID}`,
+                principal: 'arn:aws:iam::123456789012:user/orders-ci',
+                label: accessKeyID,
+                metadata_ref: `runtime-evidence://access-key/${accessKeyID}`
+              }
+            ],
+            affected_principals: [
+              {
+                ref_type: 'iam_principal',
+                node_id: 'aws:identity:user/orders-ci',
+                principal: 'arn:aws:iam::123456789012:user/orders-ci',
+                label: 'orders-ci',
+                metadata_ref: `runtime-evidence://access-key/${accessKeyID}`
+              }
+            ],
+            last_used_at: '2026-03-17T09:35:00Z',
+            dormant_days: 100,
+            grace_period_days: 7,
+            quarantine_order: [
+              { order: 1, phase: 'notify', action: 'Notify owner.', actor: 'orders-platform' },
+              { order: 2, phase: 'grace_period', action: 'Monitor runtime use.', actor: 'security-reviewer' },
+              { order: 3, phase: 'dry_run', action: 'Confirm workload replacement.', actor: 'platform-operator' },
+              { order: 4, phase: 'apply', action: 'Disable outside Identrail.', actor: 'platform-operator' },
+              { order: 5, phase: 'verify', action: 'Verify no key use.', actor: 'security-reviewer' }
+            ],
+            diff_intent: {
+              kind: 'access_key_quarantine',
+              before_ref: `runtime-evidence://access-key/${accessKeyID}`,
+              after_ref: 'quarantine://orders-key/disable-after-grace',
+              diff_summary: 'Plan DisableAccessKey after owner notice and grace-period verification.',
+              no_op: false,
+              read_only_projection: true
+            },
+            tradeoffs: [
+              {
+                dimension: 'credential_exposure',
+                direction: 'improves',
+                description: 'Disabling key removes long-lived credential path.',
+                severity: 'high'
+              }
+            ],
+            rollback_plan: {
+              strategy: 'reactivate_access_key_or_swap_credential',
+              steps: ['Re-enable only with emergency owner approval.'],
+              evidence_ref: `runtime-evidence://access-key/${accessKeyID}`
+            },
+            verification_plan: {
+              strategy: 'quarantine_re_evaluate',
+              steps: ['Check CloudTrail and IAM last-used evidence.'],
+              success_signals: ['cloudtrail:no-access-key-use'],
+              failure_signals: ['cloudtrail:access-key-use-observed'],
+              evidence_ref: `runtime-evidence://access-key/${accessKeyID}`
+            },
+            readiness_gates: [
+              { name: 'read_only_projection', status: 'passed', rationale: 'Metadata refs only.' },
+              { name: 'owner_notice', status: 'passed', rationale: 'Owner assigned.' },
+              { name: 'runtime_evidence', status: 'passed', rationale: 'Last-used evidence exists.' }
+            ],
+            ready_for_apply: true,
+            read_only_projection: true,
+            source_signals: ['unused_dormant_access', 'iam_last_used'],
+            evidence: [
+              {
+                source: 'iam_last_used',
+                evidence_ref: `runtime-evidence://access-key/${accessKeyID}`,
+                label: accessKeyID,
+                confidence: 0.86,
+                observed_at: '2026-03-17T09:35:00Z',
+                relationship: 'stale_access_key'
+              }
+            ],
+            evidence_boundary: 'metadata_only_no_secret_values_no_payloads',
+            impacted_nodes: [`aws:iam-access-key:${accessKeyID}`, 'aws:identity:user/orders-ci'],
+            impacted_path: [],
+            next_action: 'Notify the owner and wait through the grace window.',
+            created_at: '2026-06-25T09:35:00Z',
+            updated_at: '2026-06-25T09:35:00Z'
+          }
+        ],
+        summary: {
+          total_plans: 1,
+          filtered_plans: 1,
+          quarantine_state_counts: { quarantine_candidate: 1 },
+          severity_counts: { high: 1 },
+          status_counts: { ready_for_quarantine: 1 },
+          owner_assigned_count: 1,
+          ownerless_count: 0,
+          ready_for_apply_count: 1,
+          access_key_count: 1,
+          affected_principal_count: 1,
+          relationship_count: 2,
+          highest_score: 82,
+          average_confidence_pct: 86
+        },
+        relationships: [],
+        caveats: ['Plans never disable IAM access keys directly.'],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
     vi.spyOn(api.apiClient, 'getAWSProjectBlastRadius').mockResolvedValue({
       intelligence: {
         status: 'degraded',
@@ -4230,6 +4363,9 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('table', { name: 'AWS secret/key rotation plans' })).toBeInTheDocument();
     expect(screen.getByText(/Provider key rotation: openai\/api-key/i)).toBeInTheDocument();
     expect(screen.getAllByText(/ai-platform · Pending approver/i).length).toBeGreaterThan(0);
+    expect(await screen.findByRole('table', { name: 'AWS access key quarantine plans' })).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`Access key quarantine: ${accessKeyID}`, 'i'))).toBeInTheDocument();
+    expect(screen.getAllByText(/orders-platform · Owner notification required/i).length).toBeGreaterThan(0);
     expect(await screen.findByRole('table', { name: 'AWS least privilege recommendations' })).toBeInTheDocument();
     expect(screen.getByText(/Remove secretsmanager:GetSecretValue/i)).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS unused and dormant access findings' })).toBeInTheDocument();
@@ -4274,6 +4410,12 @@ describe('Domain-first app routes', () => {
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
     expect(getSecretKeyRotation).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getAccessKeyQuarantine).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       expect.objectContaining({ connectorID: 'aws-connector-1' }),

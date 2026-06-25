@@ -29,13 +29,13 @@ func TestGetAWSRuntimeEventsBuildsMetadataOnlyContract(t *testing.T) {
 	if result.CurrentIssueRef != "#1517" || result.Version != awsRuntimeEventsVersion || result.Status != "ready" {
 		t.Fatalf("unexpected runtime event contract metadata: %+v", result)
 	}
-	if result.Summary.TotalEvents != 7 || result.Summary.FilteredEvents != 7 || result.Summary.RelationshipCount != len(result.Relationships) {
+	if result.Summary.TotalEvents != 8 || result.Summary.FilteredEvents != 8 || result.Summary.RelationshipCount != len(result.Relationships) {
 		t.Fatalf("unexpected runtime event summary: %+v relationships=%d", result.Summary, len(result.Relationships))
 	}
-	if result.Summary.SecretReadCount != 1 || result.Summary.KMSDecryptCount != 1 || result.Summary.AgentEventCount != 1 || result.Summary.STSSessionCount == 0 || result.Summary.IAMLastUsedSignalCount != 1 || result.Summary.AccessAnalyzerCount != 1 {
+	if result.Summary.SecretReadCount != 1 || result.Summary.KMSDecryptCount != 1 || result.Summary.AgentEventCount != 1 || result.Summary.STSSessionCount == 0 || result.Summary.IAMLastUsedSignalCount != 2 || result.Summary.AccessAnalyzerCount != 1 {
 		t.Fatalf("expected runtime event type counts, got %+v", result.Summary)
 	}
-	if result.Summary.DormantAccessCount != 1 {
+	if result.Summary.DormantAccessCount != 2 {
 		t.Fatalf("expected dormant access count from stale IAM last-used signal, got %+v", result.Summary)
 	}
 	if result.Summary.LineageResolvedCount == 0 || result.Summary.MissingSourceIDCount == 0 {
@@ -77,6 +77,7 @@ func TestGetAWSRuntimeEventsFiltersIAMAccessSignals(t *testing.T) {
 		wantSignal    string
 		wantAnalyzer  bool
 		wantEventType string
+		wantFiltered  int
 	}{
 		{
 			name:          "iam last-used",
@@ -84,6 +85,7 @@ func TestGetAWSRuntimeEventsFiltersIAMAccessSignals(t *testing.T) {
 			evidence:      "iam-last-used",
 			wantSignal:    "iam-last-used",
 			wantEventType: "iam-last-used",
+			wantFiltered:  2,
 		},
 		{
 			name:          "access analyzer",
@@ -92,6 +94,7 @@ func TestGetAWSRuntimeEventsFiltersIAMAccessSignals(t *testing.T) {
 			wantSignal:    "access-analyzer",
 			wantAnalyzer:  true,
 			wantEventType: "access-analyzer",
+			wantFiltered:  1,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -103,18 +106,19 @@ func TestGetAWSRuntimeEventsFiltersIAMAccessSignals(t *testing.T) {
 			if err != nil {
 				t.Fatalf("get filtered signal runtime events: %v", err)
 			}
-			if result.Summary.TotalEvents != 7 || result.Summary.FilteredEvents != 1 || len(result.Records) != 1 {
+			if result.Summary.TotalEvents != 8 || result.Summary.FilteredEvents != tc.wantFiltered || len(result.Records) != tc.wantFiltered {
 				t.Fatalf("expected one filtered signal with retained total count, got summary=%+v records=%+v", result.Summary, result.Records)
 			}
-			record := result.Records[0]
-			if record.EventType != tc.wantEventType || record.SignalCategory != tc.wantSignal || record.EvidenceCategory != tc.evidence {
-				t.Fatalf("expected filtered signal metadata, got %+v", record)
-			}
-			if record.SignalStaleAt.IsZero() || record.SignalScope == "" {
-				t.Fatalf("expected signal stale timestamp and scope, got %+v", record)
-			}
-			if tc.wantAnalyzer && record.AnalyzerARN == "" {
-				t.Fatalf("expected analyzer ARN, got %+v", record)
+			for _, record := range result.Records {
+				if record.EventType != tc.wantEventType || record.SignalCategory != tc.wantSignal || record.EvidenceCategory != tc.evidence {
+					t.Fatalf("expected filtered signal metadata, got %+v", record)
+				}
+				if record.SignalStaleAt.IsZero() || record.SignalScope == "" {
+					t.Fatalf("expected signal stale timestamp and scope, got %+v", record)
+				}
+				if tc.wantAnalyzer && record.AnalyzerARN == "" {
+					t.Fatalf("expected analyzer ARN, got %+v", record)
+				}
 			}
 		})
 	}

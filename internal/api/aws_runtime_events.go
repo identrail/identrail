@@ -833,6 +833,8 @@ func awsRuntimeEventFixtureRecords(accountID string, region string, fixtureState
 	role := fmt.Sprintf("arn:aws:iam::%s:role/identrail-runtime-reader", accountID)
 	lambdaRole := fmt.Sprintf("arn:aws:iam::%s:role/lambda-invoice-agent", accountID)
 	agentRole := fmt.Sprintf("arn:aws:iam::%s:role/agentcore-case-triage-runtime", accountID)
+	ciUser := fmt.Sprintf("arn:aws:iam::%s:user/orders-ci", accountID)
+	accessKeyID := "AKIA" + "ORDERS123456"
 	session := func(id string, principal string, started time.Time) AWSRuntimeEventSession {
 		sourceIdentity := "identrail-fixture"
 		lineageStatus := "resolved"
@@ -869,6 +871,7 @@ func awsRuntimeEventFixtureRecords(accountID string, region string, fixtureState
 		awsRuntimeEventFixtureRecord(accountID, region, "evt-s3-access", "api-call", "s3.amazonaws.com", "GetObject", "s3:GetObject", lambdaRole, fmt.Sprintf("arn:aws:s3:::billing-artifacts-%s/reports/redacted", accountID), "s3_object_metadata", "application", "cloudtrail", base.Add(14*time.Minute), session("sess-invoice-agent", lambdaRole, base.Add(6*time.Minute))),
 		awsRuntimeEventFixtureRecord(accountID, region, "evt-agent-tool", "agent-tool", "bedrock-agentcore.amazonaws.com", "InvokeTool", "bedrock-agentcore:InvokeTool", agentRole, fmt.Sprintf("arn:aws:bedrock-agentcore:%s:%s:agent-runtime-endpoint/runtime-case-triage/blue", region, accountID), "agent_tool_target", "security", "agent-runtime", base.Add(19*time.Minute), session("sess-agentcore-runtime", agentRole, base.Add(18*time.Minute))),
 		awsRuntimeSignalFixtureRecord(accountID, region, "evt-iam-last-used-lambda", "iam-last-used", "iam.amazonaws.com", "ServiceLastAccessed", "lambda:LastAuthenticated", lambdaRole, "aws-service://lambda", "aws_service", "Lambda", "iam-last-used", checkedAt.Add(-120*24*time.Hour), base.Add(34*time.Minute), "stale", 0.78, "service", ""),
+		awsRuntimeSignalFixtureRecord(accountID, region, "evt-iam-last-used-access-key", "iam-last-used", "iam.amazonaws.com", "AccessKeyLastUsed", "iam:AccessKeyLastUsed", ciUser, "aws:iam-access-key:"+accessKeyID, "iam_access_key", accessKeyID, "iam-last-used", checkedAt.Add(-100*24*time.Hour), base.Add(35*time.Minute), "stale", 0.86, "role", ""),
 		awsRuntimeSignalFixtureRecord(accountID, region, "evt-access-analyzer-open-secret", "access-analyzer", "access-analyzer.amazonaws.com", "Finding", "secretsmanager:GetSecretValue", "access-analyzer:external-principal", fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:prod/ai/openai-key", region, accountID), "AWS::SecretsManager::Secret", "prod/ai/openai-key", "access-analyzer", base.Add(24*time.Minute), base.Add(33*time.Minute), "observed", 0.9, "account", fmt.Sprintf("arn:aws:access-analyzer:%s:%s:analyzer/identrail-fixture", region, accountID)),
 	}
 	records[4].AgentID = "runtime-case-triage"
