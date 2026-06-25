@@ -222,7 +222,7 @@ func TestAWSSecretKeyRotationPlanFromMetadataCanonicalizesSharedKMSRefs(t *testi
 	}
 	_, _, secretsByKMS := awsSecretPermissionSecretIndexes(AWSSecretsManagerMetadataInventoryResult{Records: []AWSSecretsManagerMetadataRecord{
 		secret,
-		{SecretARN: "arn:aws:secretsmanager:us-east-1:123456789012:secret:billing/webhook", KMSKeyID: "alias/billing-secrets"},
+		{SecretARN: "arn:aws:secretsmanager:us-east-1:123456789012:secret:billing/webhook", KMSKeyARN: "arn:aws:kms:us-east-1:123456789012:alias/billing-secrets"},
 	}})
 	kms := awsSecretKeyRotationKMSIndex(AWSKMSDecryptReachabilityInventoryResult{Records: []AWSKMSDecryptReachabilityRecord{{
 		KeyARN:     keyARN,
@@ -348,6 +348,12 @@ func TestAWSSecretKeyRotationTypeKeepsAWSNativeSecretFindings(t *testing.T) {
 	external.Provider = credentialProviderOpenAI
 	if got := awsSecretKeyRotationType(external, AWSSecretsManagerMetadataRecord{}); got != "provider_key" {
 		t.Fatalf("external provider finding should remain provider_key, got %q", got)
+	}
+	external.EquivalenceType = "workload_provider_key_equivalence"
+	providerKeySecret := secret
+	providerKeySecret.KMSKeyID = "alias/orders-secrets"
+	if got := awsSecretKeyRotationType(external, providerKeySecret); got != "provider_key" {
+		t.Fatalf("external provider finding with KMS metadata should remain provider_key, got %q", got)
 	}
 
 	aliasBackedSecret := secret

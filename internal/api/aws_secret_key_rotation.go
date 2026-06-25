@@ -486,12 +486,12 @@ func finalizeAWSSecretKeyRotationPlan(plan AWSSecretKeyRotationPlan) AWSSecretKe
 
 func awsSecretKeyRotationType(finding AWSSecretPermissionEquivalenceFinding, secret AWSSecretsManagerMetadataRecord) string {
 	normalized := normalizeAWSRuntimeEventFilterToken(finding.EquivalenceType)
+	if awsSecretKeyRotationIsProviderKeyFinding(normalized, finding.Provider) {
+		return "provider_key"
+	}
 	secretRef := strings.ToLower(strings.Join([]string{finding.SecretNodeID, finding.SecretARN, finding.SecretLabel, secret.KMSKeyARN, secret.KMSKeyID, strings.Join(finding.SourceSignals, " ")}, " "))
 	if strings.Contains(normalized, "kms") || strings.Contains(secretRef, "kms") || strings.TrimSpace(secret.KMSKeyARN) != "" || strings.TrimSpace(secret.KMSKeyID) != "" {
 		return "kms_related"
-	}
-	if awsSecretKeyRotationIsProviderKeyFinding(normalized, finding.Provider) {
-		return "provider_key"
 	}
 	return "secrets_manager_secret"
 }
@@ -742,6 +742,9 @@ func awsSecretKeyRotationCanonicalKMSRef(ref string, kmsByARN map[string]AWSKMSD
 	ref = strings.ToLower(strings.TrimSpace(ref))
 	if ref == "" {
 		return ""
+	}
+	if strings.Contains(ref, ":alias/") {
+		ref = ref[strings.LastIndex(ref, ":alias/")+1:]
 	}
 	record := kmsByARN[ref]
 	canonical := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(record.KeyARN, record.KeyID, firstString(record.Aliases), ref)))
