@@ -533,7 +533,7 @@ func awsSecretKeyRotationTargetsForKMS(secret AWSSecretsManagerMetadataRecord, k
 	if kmsRef == "" {
 		return nil
 	}
-	record := kmsByARN[kmsRef]
+	record, _ := awsSecretKeyRotationKMSRecordForSecret(secret, kmsByARN)
 	arn := firstNonEmptyAWSValue(secret.KMSKeyARN, record.KeyARN)
 	return []AWSSecretKeyRotationTargetRef{{
 		RefType:     "kms_key",
@@ -755,12 +755,25 @@ func awsSecretKeyRotationCanonicalKMSRefForSecret(ref string, secret AWSSecretsM
 	if ref == "" {
 		return ""
 	}
-	if scoped := awsSecretKeyRotationScopedKMSRef(secret.AccountID, secret.Region, ref); scoped != "" {
-		if record, ok := kmsByARN[scoped]; ok {
-			return awsSecretKeyRotationCanonicalKMSRecordRef(record, ref)
-		}
+	if record, ok := awsSecretKeyRotationKMSRecordForRefAndScope(ref, secret.AccountID, secret.Region, kmsByARN); ok {
+		return awsSecretKeyRotationCanonicalKMSRecordRef(record, ref)
 	}
 	return awsSecretKeyRotationCanonicalKMSRef(ref, kmsByARN)
+}
+
+func awsSecretKeyRotationKMSRecordForSecret(secret AWSSecretsManagerMetadataRecord, kmsByARN map[string]AWSKMSDecryptReachabilityRecord) (AWSKMSDecryptReachabilityRecord, bool) {
+	return awsSecretKeyRotationKMSRecordForRefAndScope(awsSecretKeyRotationKMSRef(secret), secret.AccountID, secret.Region, kmsByARN)
+}
+
+func awsSecretKeyRotationKMSRecordForRefAndScope(ref string, accountID string, region string, kmsByARN map[string]AWSKMSDecryptReachabilityRecord) (AWSKMSDecryptReachabilityRecord, bool) {
+	ref = awsSecretKeyRotationNormalizeKMSLookupRef(ref)
+	if scoped := awsSecretKeyRotationScopedKMSRef(accountID, region, ref); scoped != "" {
+		if record, ok := kmsByARN[scoped]; ok {
+			return record, true
+		}
+	}
+	record, ok := kmsByARN[ref]
+	return record, ok
 }
 
 func awsSecretKeyRotationCanonicalKMSRef(ref string, kmsByARN map[string]AWSKMSDecryptReachabilityRecord) string {

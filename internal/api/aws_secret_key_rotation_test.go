@@ -300,8 +300,8 @@ func TestAWSSecretKeyRotationPlanFromMetadataScopesBareKMSAliases(t *testing.T) 
 		otherAccountSecret,
 	}})
 	kms := awsSecretKeyRotationKMSIndex(AWSKMSDecryptReachabilityInventoryResult{Records: []AWSKMSDecryptReachabilityRecord{
-		{AccountID: "111111111111", Region: "us-east-1", KeyARN: "arn:aws:kms:us-east-1:111111111111:key/primary", Aliases: []string{"alias/aws/secretsmanager"}},
-		{AccountID: "222222222222", Region: "us-east-1", KeyARN: "arn:aws:kms:us-east-1:222222222222:key/primary", Aliases: []string{"alias/aws/secretsmanager"}},
+		{AccountID: "111111111111", Region: "us-east-1", KeyARN: "arn:aws:kms:us-east-1:111111111111:key/primary", Aliases: []string{"alias/aws/secretsmanager"}, FromNodeID: "aws:resource:kms-key:111111111111/primary", EvidenceRef: "evidence://kms/111111111111"},
+		{AccountID: "222222222222", Region: "us-east-1", KeyARN: "arn:aws:kms:us-east-1:222222222222:key/primary", Aliases: []string{"alias/aws/secretsmanager"}, FromNodeID: "aws:resource:kms-key:222222222222/primary", EvidenceRef: "evidence://kms/222222222222"},
 	}})
 
 	canonicalSecretsByKMS := awsSecretKeyRotationCanonicalSecretsByKMS(secretsByKMS, kms)
@@ -312,6 +312,9 @@ func TestAWSSecretKeyRotationPlanFromMetadataScopesBareKMSAliases(t *testing.T) 
 		t.Fatalf("expected account-scoped alias bucket for second account, got %d: %+v", got, canonicalSecretsByKMS)
 	}
 	plan := awsSecretKeyRotationPlanFromMetadata(secret, canonicalSecretsByKMS, kms, now)
+	if len(plan.TargetKeys) != 1 || plan.TargetKeys[0].NodeID != "aws:resource:kms-key:111111111111/primary" || plan.TargetKeys[0].ARN != "arn:aws:kms:us-east-1:111111111111:key/primary" || plan.TargetKeys[0].MetadataRef != "evidence://kms/111111111111" {
+		t.Fatalf("expected scoped KMS target metadata for first account: %+v", plan.TargetKeys)
+	}
 	if awsSecretKeyRotationSearchMatch(plan, "shared_kms_key") {
 		t.Fatalf("same bare alias in another account must not get shared KMS gate: %+v", plan.ReadinessGates)
 	}
