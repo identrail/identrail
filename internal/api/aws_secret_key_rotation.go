@@ -488,10 +488,17 @@ func awsSecretKeyRotationType(finding AWSSecretPermissionEquivalenceFinding, sec
 	if strings.Contains(normalized, "kms") || strings.Contains(secretRef, "kms") {
 		return "kms_related"
 	}
-	if strings.Contains(normalized, "provider-key") || strings.TrimSpace(finding.Provider) != "" {
+	if awsSecretKeyRotationIsProviderKeyFinding(normalized, finding.Provider) {
 		return "provider_key"
 	}
 	return "secrets_manager_secret"
+}
+
+func awsSecretKeyRotationIsProviderKeyFinding(normalizedEquivalenceType string, provider string) bool {
+	if strings.Contains(normalizedEquivalenceType, "provider-key") {
+		return true
+	}
+	return awsSecretPermissionProviderIsExternal(awsSecretPermissionCanonicalProvider(provider))
 }
 
 func awsSecretKeyRotationTargetFromFinding(finding AWSSecretPermissionEquivalenceFinding, secret AWSSecretsManagerMetadataRecord) AWSSecretKeyRotationTargetRef {

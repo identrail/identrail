@@ -232,6 +232,56 @@ func TestAWSSecretKeyRotationPlanFromMetadataDoesNotAssignFallbackOwner(t *testi
 	}
 }
 
+func TestAWSSecretKeyRotationTypeKeepsAWSNativeSecretFindings(t *testing.T) {
+	now := time.Date(2026, 6, 24, 15, 13, 0, 0, time.UTC)
+	secret := AWSSecretsManagerMetadataRecord{
+		AccountID:    "123456789012",
+		Region:       "us-east-1",
+		Service:      "secretsmanager",
+		SecretARN:    "arn:aws:secretsmanager:us-east-1:123456789012:secret:orders/api-key",
+		SecretName:   "orders/api-key",
+		SecretStatus: "active",
+		EvidenceRef:  "evidence://secret/orders",
+		FromNodeID:   "aws:resource:secrets-manager-secret:orders/api-key",
+		Confidence:   0.82,
+	}
+	finding := AWSSecretPermissionEquivalenceFinding{
+		FindingID:       "aws-secret-permission-equivalence:orders-reader",
+		EquivalenceType: "secret_read_policy_equivalence",
+		Severity:        "medium",
+		Status:          "review",
+		Score:           70,
+		Confidence:      0.82,
+		AccountID:       "123456789012",
+		Region:          "us-east-1",
+		IdentityNodeID:  "aws:identity:role/orders-reader",
+		SecretNodeID:    secret.FromNodeID,
+		SecretARN:       secret.SecretARN,
+		SecretLabel:     secret.SecretName,
+		Provider:        "aws_secret",
+		Rationale:       "Role can read permission-bearing Secrets Manager metadata.",
+		Evidence:        []AWSSecretPermissionEquivalenceEvidence{{Source: "secrets_manager_metadata", EvidenceRef: secret.EvidenceRef}},
+	}
+
+	plan, ok := awsSecretKeyRotationPlanFromEquivalence(finding, map[string]AWSSecretsManagerMetadataRecord{strings.ToLower(secret.SecretARN): secret}, map[string]AWSSecretsManagerMetadataRecord{strings.ToLower(secret.FromNodeID): secret}, nil, nil, now)
+	if !ok {
+		t.Fatalf("expected AWS-native secret finding to produce a rotation plan")
+	}
+	if plan.RotationType != "secrets_manager_secret" {
+		t.Fatalf("AWS-native secret finding must stay a secret rotation, got %+v", plan)
+	}
+	filtered, _ := filterAWSSecretKeyRotationPlans([]AWSSecretKeyRotationPlan{plan}, AWSSecretKeyRotationRequest{RotationType: "secrets_manager_secret"})
+	if len(filtered) != 1 {
+		t.Fatalf("secret rotation filter should include AWS-native secret finding plan: %+v", plan)
+	}
+
+	external := finding
+	external.Provider = credentialProviderOpenAI
+	if got := awsSecretKeyRotationType(external, AWSSecretsManagerMetadataRecord{}); got != "provider_key" {
+		t.Fatalf("external provider finding should remain provider_key, got %q", got)
+	}
+}
+
 func hasAWSSecretKeyRotationRelationship(relationships []AWSSecretKeyRotationRelationship, relationshipType string, toNodeID string) bool {
 	for _, relationship := range relationships {
 		if relationship.Type == relationshipType && relationship.ToNodeID == toNodeID {
