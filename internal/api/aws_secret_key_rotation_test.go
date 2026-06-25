@@ -320,6 +320,50 @@ func TestAWSSecretKeyRotationPlanFromMetadataScopesBareKMSAliases(t *testing.T) 
 	}
 }
 
+func TestAWSSecretKeyRotationPlanFromMetadataAvoidsCrossScopeAliasFallback(t *testing.T) {
+	now := time.Date(2026, 6, 24, 15, 11, 55, 0, time.UTC)
+	secret := AWSSecretsManagerMetadataRecord{
+		AccountID:     "111111111111",
+		Region:        "us-east-1",
+		Service:       "secretsmanager",
+		SecretARN:     "arn:aws:secretsmanager:us-east-1:111111111111:secret:billing/api-key",
+		SecretName:    "billing/api-key",
+		KMSKeyID:      "alias/aws/secretsmanager",
+		OwningService: "billing",
+		SecretStatus:  "active",
+		EvidenceRef:   "evidence://secret/billing",
+		FromNodeID:    "aws:resource:secrets-manager-secret:billing/api-key",
+		Confidence:    0.81,
+		Tags:          map[string]string{"owner": "billing-platform"},
+	}
+	otherAccountSecret := AWSSecretsManagerMetadataRecord{
+		AccountID:  "222222222222",
+		Region:     "us-east-1",
+		SecretARN:  "arn:aws:secretsmanager:us-east-1:222222222222:secret:billing/webhook",
+		SecretName: "billing/webhook",
+		KMSKeyID:   "alias/aws/secretsmanager",
+	}
+	_, _, secretsByKMS := awsSecretPermissionSecretIndexes(AWSSecretsManagerMetadataInventoryResult{Records: []AWSSecretsManagerMetadataRecord{
+		secret,
+		otherAccountSecret,
+	}})
+	kms := awsSecretKeyRotationKMSIndex(AWSKMSDecryptReachabilityInventoryResult{Records: []AWSKMSDecryptReachabilityRecord{
+		{AccountID: "222222222222", Region: "us-east-1", KeyARN: "arn:aws:kms:us-east-1:222222222222:key/primary", Aliases: []string{"alias/aws/secretsmanager"}, FromNodeID: "aws:resource:kms-key:222222222222/primary", EvidenceRef: "evidence://kms/222222222222"},
+	}})
+
+	canonicalSecretsByKMS := awsSecretKeyRotationCanonicalSecretsByKMS(secretsByKMS, kms)
+	if got := len(canonicalSecretsByKMS["alias/aws/secretsmanager"]); got != 1 {
+		t.Fatalf("expected unresolved first-account alias bucket to stay local, got %d: %+v", got, canonicalSecretsByKMS)
+	}
+	plan := awsSecretKeyRotationPlanFromMetadata(secret, canonicalSecretsByKMS, kms, now)
+	if len(plan.TargetKeys) != 1 || plan.TargetKeys[0].NodeID == "aws:resource:kms-key:222222222222/primary" || plan.TargetKeys[0].MetadataRef == "evidence://kms/222222222222" {
+		t.Fatalf("first-account secret must not borrow second-account KMS target: %+v", plan.TargetKeys)
+	}
+	if awsSecretKeyRotationSearchMatch(plan, "shared_kms_key") {
+		t.Fatalf("missing scoped KMS record must not use another account for shared gate: %+v", plan.ReadinessGates)
+	}
+}
+
 func TestAWSSecretKeyRotationPlanFromMetadataDoesNotAssignFallbackOwner(t *testing.T) {
 	now := time.Date(2026, 6, 24, 15, 12, 0, 0, time.UTC)
 	secret := AWSSecretsManagerMetadataRecord{
@@ -396,6 +440,10 @@ func TestAWSSecretKeyRotationTypeKeepsAWSNativeSecretFindings(t *testing.T) {
 	external.Provider = credentialProviderOpenAI
 	if got := awsSecretKeyRotationType(external, AWSSecretsManagerMetadataRecord{}); got != "provider_key" {
 		t.Fatalf("external provider finding should remain provider_key, got %q", got)
+	}
+	external.EquivalenceType = "kms_decrypt_secret_equivalence"
+	if got := awsSecretKeyRotationType(external, AWSSecretsManagerMetadataRecord{}); got != "kms_related" {
+		t.Fatalf("external provider KMS finding should remain kms_related, got %q", got)
 	}
 	external.EquivalenceType = "workload_provider_key_equivalence"
 	providerKeySecret := secret

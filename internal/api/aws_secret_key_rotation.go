@@ -486,11 +486,14 @@ func finalizeAWSSecretKeyRotationPlan(plan AWSSecretKeyRotationPlan) AWSSecretKe
 
 func awsSecretKeyRotationType(finding AWSSecretPermissionEquivalenceFinding, secret AWSSecretsManagerMetadataRecord) string {
 	normalized := normalizeAWSRuntimeEventFilterToken(finding.EquivalenceType)
+	if strings.Contains(normalized, "kms") {
+		return "kms_related"
+	}
 	if awsSecretKeyRotationIsProviderKeyFinding(normalized, finding.Provider) {
 		return "provider_key"
 	}
 	secretRef := strings.ToLower(strings.Join([]string{finding.SecretNodeID, finding.SecretARN, finding.SecretLabel, secret.KMSKeyARN, secret.KMSKeyID, strings.Join(finding.SourceSignals, " ")}, " "))
-	if strings.Contains(normalized, "kms") || strings.Contains(secretRef, "kms") || strings.TrimSpace(secret.KMSKeyARN) != "" || strings.TrimSpace(secret.KMSKeyID) != "" {
+	if strings.Contains(secretRef, "kms") || strings.TrimSpace(secret.KMSKeyARN) != "" || strings.TrimSpace(secret.KMSKeyID) != "" {
 		return "kms_related"
 	}
 	return "secrets_manager_secret"
@@ -758,7 +761,7 @@ func awsSecretKeyRotationCanonicalKMSRefForSecret(ref string, secret AWSSecretsM
 	if record, ok := awsSecretKeyRotationKMSRecordForRefAndScope(ref, secret.AccountID, secret.Region, kmsByARN); ok {
 		return awsSecretKeyRotationCanonicalKMSRecordRef(record, ref)
 	}
-	return awsSecretKeyRotationCanonicalKMSRef(ref, kmsByARN)
+	return ref
 }
 
 func awsSecretKeyRotationKMSRecordForSecret(secret AWSSecretsManagerMetadataRecord, kmsByARN map[string]AWSKMSDecryptReachabilityRecord) (AWSKMSDecryptReachabilityRecord, bool) {
@@ -770,6 +773,12 @@ func awsSecretKeyRotationKMSRecordForRefAndScope(ref string, accountID string, r
 	if scoped := awsSecretKeyRotationScopedKMSRef(accountID, region, ref); scoped != "" {
 		if record, ok := kmsByARN[scoped]; ok {
 			return record, true
+		}
+		if !awsSecretKeyRotationIsKeyARNRef(ref) {
+			if record, ok := kmsByARN[ref]; ok && record.AccountID == "" && record.Region == "" {
+				return record, true
+			}
+			return AWSKMSDecryptReachabilityRecord{}, false
 		}
 	}
 	record, ok := kmsByARN[ref]
@@ -799,6 +808,10 @@ func awsSecretKeyRotationNormalizeKMSLookupRef(ref string) string {
 		ref = ref[strings.LastIndex(ref, ":alias/")+1:]
 	}
 	return ref
+}
+
+func awsSecretKeyRotationIsKeyARNRef(ref string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(ref)), ":key/")
 }
 
 func awsSecretKeyRotationScopedKMSRef(accountID, region, ref string) string {
