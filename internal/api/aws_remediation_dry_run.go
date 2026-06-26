@@ -342,88 +342,168 @@ func awsRemediationDryRunEntryFromApproval(approval AWSRemediationApprovalEntry,
 }
 
 func awsRemediationDryRunIntendedAPICalls(approval AWSRemediationApprovalEntry) []AWSRemediationDryRunIntendedAPICall {
-	switch strings.ToLower(strings.TrimSpace(approval.SourceType)) {
-	case "least_privilege", "aws_iac_remediation", "aws_iam_policy_diff":
-		return []AWSRemediationDryRunIntendedAPICall{{
-			Service:          "iam",
-			Operation:        "PutRolePolicy",
-			TargetResource:   awsRemediationDryRunPrimaryTarget(approval),
-			ParameterRefs:    []string{approval.IdempotencyKey, "policy_document_ref://" + approval.CaseID + "/after"},
-			Idempotent:       true,
-			RequiresApproval: true,
-		}}
-	case "trust_policy_hardening":
-		return []AWSRemediationDryRunIntendedAPICall{{
-			Service:          "iam",
-			Operation:        "UpdateAssumeRolePolicy",
-			TargetResource:   awsRemediationDryRunPrimaryTarget(approval),
-			ParameterRefs:    []string{approval.IdempotencyKey, "trust_policy_ref://" + approval.CaseID + "/after"},
-			Idempotent:       true,
-			RequiresApproval: true,
-		}}
-	case "aws_permission_boundary_scp":
-		return []AWSRemediationDryRunIntendedAPICall{{
-			Service:          "iam",
-			Operation:        "PutRolePermissionsBoundary",
-			TargetResource:   awsRemediationDryRunPrimaryTarget(approval),
-			ParameterRefs:    []string{approval.IdempotencyKey, "boundary_ref://" + approval.CaseID + "/after"},
-			Idempotent:       true,
-			RequiresApproval: true,
-		}}
-	case "aws_secret_key_rotation":
-		return []AWSRemediationDryRunIntendedAPICall{{
-			Service:          "secretsmanager",
-			Operation:        "RotateSecret",
-			TargetResource:   awsRemediationDryRunPrimaryTarget(approval),
-			ParameterRefs:    []string{approval.IdempotencyKey},
-			Idempotent:       true,
-			RequiresApproval: true,
-		}}
-	case "aws_access_key_quarantine":
-		return []AWSRemediationDryRunIntendedAPICall{{
-			Service:          "iam",
-			Operation:        "UpdateAccessKey",
-			TargetResource:   awsRemediationDryRunPrimaryTarget(approval),
-			ParameterRefs:    []string{approval.IdempotencyKey, "status://inactive"},
-			Idempotent:       true,
-			RequiresApproval: true,
-		}}
-	case "secret_permission_equivalence":
-		return []AWSRemediationDryRunIntendedAPICall{{
-			Service:          "kms",
-			Operation:        "PutKeyPolicy",
-			TargetResource:   awsRemediationDryRunPrimaryTarget(approval),
-			ParameterRefs:    []string{approval.IdempotencyKey, "key_policy_ref://" + approval.CaseID + "/after"},
-			Idempotent:       true,
-			RequiresApproval: true,
-		}}
-	case "ai_agent_risk":
-		return []AWSRemediationDryRunIntendedAPICall{{
-			Service:          "bedrock-agent",
-			Operation:        "UpdateAgent",
-			TargetResource:   awsRemediationDryRunPrimaryTarget(approval),
-			ParameterRefs:    []string{approval.IdempotencyKey, "scope_ref://" + approval.CaseID + "/after"},
-			Idempotent:       true,
-			RequiresApproval: true,
-		}}
-	case "blast_radius":
-		return []AWSRemediationDryRunIntendedAPICall{{
-			Service:          "iam",
-			Operation:        "DetachRolePolicy",
-			TargetResource:   awsRemediationDryRunPrimaryTarget(approval),
-			ParameterRefs:    []string{approval.IdempotencyKey},
-			Idempotent:       true,
-			RequiresApproval: true,
-		}}
+	target := awsRemediationDryRunPrimaryTarget(approval)
+	caseID := approval.CaseID
+	if call, ok := awsRemediationDryRunCallForDiffKind(approval.DiffIntent, target, approval.IdempotencyKey, caseID); ok {
+		return []AWSRemediationDryRunIntendedAPICall{call}
+	}
+	if call, ok := awsRemediationDryRunCallForSourceType(approval.SourceType, target, approval.IdempotencyKey, caseID); ok {
+		return []AWSRemediationDryRunIntendedAPICall{call}
 	}
 	return []AWSRemediationDryRunIntendedAPICall{{
 		Service:          "manual_review",
 		Operation:        "noop",
-		TargetResource:   awsRemediationDryRunPrimaryTarget(approval),
+		TargetResource:   target,
 		ParameterRefs:    []string{approval.IdempotencyKey},
 		Idempotent:       true,
 		RequiresApproval: true,
 	}}
+}
+
+// awsRemediationDryRunCallForDiffKind routes to an AWS API call based on the
+// case's projected diff intent. Source-type-only routing can mis-pick the API
+// for sources whose diff intent varies — for example a
+// `secret_permission_equivalence` case with `Kind=secret_rotation` is a
+// Secrets Manager rotation, not a KMS key-policy change.
+func awsRemediationDryRunCallForDiffKind(diff AWSRemediationDiffIntent, target, idempotencyKey, caseID string) (AWSRemediationDryRunIntendedAPICall, bool) {
+	if diff.NoOp {
+		return AWSRemediationDryRunIntendedAPICall{}, false
+	}
+	switch strings.ToLower(strings.TrimSpace(diff.Kind)) {
+	case "iam_policy_diff", "role_scope_diff", "iac_iam_policy_pr":
+		return AWSRemediationDryRunIntendedAPICall{
+			Service:          "iam",
+			Operation:        "PutRolePolicy",
+			TargetResource:   target,
+			ParameterRefs:    []string{idempotencyKey, "policy_document_ref://" + caseID + "/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}, true
+	case "iam_trust_diff", "iac_trust_policy_pr":
+		return AWSRemediationDryRunIntendedAPICall{
+			Service:          "iam",
+			Operation:        "UpdateAssumeRolePolicy",
+			TargetResource:   target,
+			ParameterRefs:    []string{idempotencyKey, "trust_policy_ref://" + caseID + "/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}, true
+	case "kms_grant_diff":
+		return AWSRemediationDryRunIntendedAPICall{
+			Service:          "kms",
+			Operation:        "PutKeyPolicy",
+			TargetResource:   target,
+			ParameterRefs:    []string{idempotencyKey, "key_policy_ref://" + caseID + "/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}, true
+	case "secret_rotation":
+		return AWSRemediationDryRunIntendedAPICall{
+			Service:          "secretsmanager",
+			Operation:        "RotateSecret",
+			TargetResource:   target,
+			ParameterRefs:    []string{idempotencyKey, "secret_ref://" + caseID + "/rotate"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}, true
+	case "access_key_quarantine":
+		return AWSRemediationDryRunIntendedAPICall{
+			Service:          "iam",
+			Operation:        "UpdateAccessKey",
+			TargetResource:   target,
+			ParameterRefs:    []string{idempotencyKey, "status://inactive"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}, true
+	case "ai_agent_scope_change":
+		return AWSRemediationDryRunIntendedAPICall{
+			Service:          "bedrock-agent",
+			Operation:        "UpdateAgent",
+			TargetResource:   target,
+			ParameterRefs:    []string{idempotencyKey, "scope_ref://" + caseID + "/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}, true
+	}
+	return AWSRemediationDryRunIntendedAPICall{}, false
+}
+
+func awsRemediationDryRunCallForSourceType(sourceType, target, idempotencyKey, caseID string) (AWSRemediationDryRunIntendedAPICall, bool) {
+	switch strings.ToLower(strings.TrimSpace(sourceType)) {
+	case "least_privilege", "aws_iac_remediation", "aws_iam_policy_diff":
+		return AWSRemediationDryRunIntendedAPICall{
+			Service:          "iam",
+			Operation:        "PutRolePolicy",
+			TargetResource:   target,
+			ParameterRefs:    []string{idempotencyKey, "policy_document_ref://" + caseID + "/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}, true
+	case "trust_policy_hardening":
+		return AWSRemediationDryRunIntendedAPICall{
+			Service:          "iam",
+			Operation:        "UpdateAssumeRolePolicy",
+			TargetResource:   target,
+			ParameterRefs:    []string{idempotencyKey, "trust_policy_ref://" + caseID + "/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}, true
+	case "aws_permission_boundary_scp":
+		return AWSRemediationDryRunIntendedAPICall{
+			Service:          "iam",
+			Operation:        "PutRolePermissionsBoundary",
+			TargetResource:   target,
+			ParameterRefs:    []string{idempotencyKey, "boundary_ref://" + caseID + "/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}, true
+	case "aws_secret_key_rotation":
+		return AWSRemediationDryRunIntendedAPICall{
+			Service:          "secretsmanager",
+			Operation:        "RotateSecret",
+			TargetResource:   target,
+			ParameterRefs:    []string{idempotencyKey},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}, true
+	case "aws_access_key_quarantine":
+		return AWSRemediationDryRunIntendedAPICall{
+			Service:          "iam",
+			Operation:        "UpdateAccessKey",
+			TargetResource:   target,
+			ParameterRefs:    []string{idempotencyKey, "status://inactive"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}, true
+	case "secret_permission_equivalence":
+		return AWSRemediationDryRunIntendedAPICall{
+			Service:          "kms",
+			Operation:        "PutKeyPolicy",
+			TargetResource:   target,
+			ParameterRefs:    []string{idempotencyKey, "key_policy_ref://" + caseID + "/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}, true
+	case "ai_agent_risk":
+		return AWSRemediationDryRunIntendedAPICall{
+			Service:          "bedrock-agent",
+			Operation:        "UpdateAgent",
+			TargetResource:   target,
+			ParameterRefs:    []string{idempotencyKey, "scope_ref://" + caseID + "/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}, true
+	case "blast_radius":
+		return AWSRemediationDryRunIntendedAPICall{
+			Service:          "iam",
+			Operation:        "DetachRolePolicy",
+			TargetResource:   target,
+			ParameterRefs:    []string{idempotencyKey},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}, true
+	}
+	return AWSRemediationDryRunIntendedAPICall{}, false
 }
 
 func awsRemediationDryRunPrimaryTarget(approval AWSRemediationApprovalEntry) string {

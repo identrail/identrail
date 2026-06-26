@@ -248,6 +248,49 @@ func TestAWSRemediationDryRunIntendedAPICallVariesBySourceType(t *testing.T) {
 	}
 }
 
+func TestAWSRemediationDryRunIntendedAPICallPrefersDiffIntentKind(t *testing.T) {
+	cases := []struct {
+		name       string
+		sourceType string
+		diffKind   string
+		service    string
+		operation  string
+	}{
+		{name: "equivalence with secret_rotation diff", sourceType: "secret_permission_equivalence", diffKind: "secret_rotation", service: "secretsmanager", operation: "RotateSecret"},
+		{name: "equivalence with iam_policy_diff", sourceType: "secret_permission_equivalence", diffKind: "iam_policy_diff", service: "iam", operation: "PutRolePolicy"},
+		{name: "equivalence with kms grant diff", sourceType: "secret_permission_equivalence", diffKind: "kms_grant_diff", service: "kms", operation: "PutKeyPolicy"},
+		{name: "blast radius with trust diff", sourceType: "blast_radius", diffKind: "iam_trust_diff", service: "iam", operation: "UpdateAssumeRolePolicy"},
+		{name: "blast radius with ai agent scope", sourceType: "blast_radius", diffKind: "ai_agent_scope_change", service: "bedrock-agent", operation: "UpdateAgent"},
+		{name: "iac trust pr", sourceType: "aws_iac_remediation", diffKind: "iac_trust_policy_pr", service: "iam", operation: "UpdateAssumeRolePolicy"},
+	}
+	for _, tc := range cases {
+		approval := AWSRemediationApprovalEntry{
+			SourceType:     tc.sourceType,
+			CaseID:         "case-" + tc.name,
+			IdempotencyKey: "idk",
+			DiffIntent:     AWSRemediationDiffIntent{Kind: tc.diffKind},
+		}
+		calls := awsRemediationDryRunIntendedAPICalls(approval)
+		if len(calls) == 0 || calls[0].Service != tc.service || calls[0].Operation != tc.operation {
+			t.Fatalf("%s: expected %s.%s, got %+v", tc.name, tc.service, tc.operation, calls)
+		}
+	}
+
+	// No-op diff intents (manual_review, owner_assignment) must not consume the
+	// diff-kind branch; the source-type fallback (or manual_review default)
+	// keeps the routing honest.
+	noop := AWSRemediationApprovalEntry{
+		SourceType:     "least_privilege",
+		CaseID:         "case-noop",
+		IdempotencyKey: "idk",
+		DiffIntent:     AWSRemediationDiffIntent{Kind: "manual_review", NoOp: true},
+	}
+	calls := awsRemediationDryRunIntendedAPICalls(noop)
+	if len(calls) == 0 || calls[0].Service != "iam" || calls[0].Operation != "PutRolePolicy" {
+		t.Fatalf("no-op diff intent must fall through to source-type routing for least_privilege, got %+v", calls)
+	}
+}
+
 func TestGetAWSRemediationDryRunFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
 	svc, ws := newRemediationDryRunService(t, "project-remediation-dry-run-states", now)
