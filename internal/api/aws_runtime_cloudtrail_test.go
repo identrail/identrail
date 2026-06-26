@@ -422,6 +422,65 @@ func TestGetAWSRuntimeEventsFactoryErrorAttachesDiagnosticAndFallsBackToFixture(
 	}
 }
 
+func TestGetAWSRuntimeEventsAppendsSignalsWhenCloudTrailFactoryFailsAndFixturesSuppressed(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 20, 5, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-factory-error-signals")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-factory-error-signals", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	grantRuntimeEvidenceCapability(t, store, ctx, "project-runtime-factory-error-signals", "aws-prod")
+
+	accessKeyID := "AKIA" + "ORDERS123456"
+	signals := &fakeRuntimeSignalIngester{result: AWSRuntimeSignalIngestResult{
+		Status: "ready",
+		Records: []AWSRuntimeEventRecord{{
+			EventID:             "iam-access-key-last-used:" + strings.ToLower(accessKeyID),
+			AccountID:           "123456789012",
+			Region:              "us-east-1",
+			EventType:           "iam-last-used",
+			EventSource:         "iam.amazonaws.com",
+			EventName:           "AccessKeyLastUsed",
+			Action:              "iam:AccessKeyLastUsed",
+			ActorPrincipalARN:   "arn:aws:iam::123456789012:user/orders-ci",
+			ActorIdentityNodeID: "aws:identity:user/orders-ci",
+			TargetResourceARN:   "aws:iam-access-key:" + accessKeyID,
+			TargetResourceType:  "iam_access_key",
+			TargetResourceName:  accessKeyID,
+			ResourceNodeID:      "aws:iam-access-key:" + accessKeyID,
+			SignalCategory:      "iam-last-used",
+			SignalScope:         "access-key",
+			EvidenceRef:         "runtime-evidence://access-key/" + accessKeyID,
+			Confidence:          0.86,
+			ObservedAt:          now.Add(-100 * 24 * time.Hour),
+			CollectedAt:         now,
+			Status:              "stale",
+		}},
+	}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSCloudTrailLookupEventsFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSCloudTrailRuntimeEventIngester, error) {
+		return nil, errors.New("lookup events unavailable")
+	}
+	svc.AWSRuntimeSignalFactory = func(_ context.Context, _ AWSConnectionStatus) (AWSRuntimeSignalIngester, error) {
+		return signals, nil
+	}
+
+	result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-factory-error-signals", AWSRuntimeEventRequest{
+		ConnectorID:            "aws-prod",
+		EventType:              "iam-last-used",
+		SuppressFixtureRecords: true,
+	})
+	if err != nil {
+		t.Fatalf("get runtime events: %v", err)
+	}
+	if len(result.Records) != 1 || result.Records[0].EventID != "iam-access-key-last-used:"+strings.ToLower(accessKeyID) {
+		t.Fatalf("expected live IAM access-key signal without fixture records, got %+v", result.Records)
+	}
+	if len(signals.calls) != 1 {
+		t.Fatalf("expected IAM signal ingester to run after CloudTrail factory failure, got %d calls", len(signals.calls))
+	}
+}
+
 func TestRuntimeEventRecordFromNormalizedUsesCanonicalAgentNodeID(t *testing.T) {
 	// The runtime evidence graph must key agent nodes on the same
 	// shape (aws:agent:<account>:<region>:<type>/<id>) the

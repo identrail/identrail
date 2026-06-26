@@ -498,7 +498,7 @@ func TestIngesterPropagatesContextCancellation(t *testing.T) {
 }
 
 func TestIngesterReportsPermissionDeniedCoverage(t *testing.T) {
-	result, err := New(fakeIAMAPI{listRolesErr: errors.New("AccessDenied: not authorized")}, fakeAccessAnalyzerAPI{listAnalyzersErr: errors.New("AccessDeniedException")}).Ingest(context.Background(), IngestRequest{
+	result, err := New(fakeIAMAPI{listRolesErr: errors.New("AccessDenied: not authorized"), listUsersErr: errors.New("AccessDenied: not authorized")}, fakeAccessAnalyzerAPI{listAnalyzersErr: errors.New("AccessDeniedException")}).Ingest(context.Background(), IngestRequest{
 		AccountID:   "123456789012",
 		Region:      "us-east-1",
 		CollectedAt: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC),
@@ -509,7 +509,7 @@ func TestIngesterReportsPermissionDeniedCoverage(t *testing.T) {
 	if result.Status != "blocked" || len(result.Signals) != 0 {
 		t.Fatalf("expected blocked result without partial signal leakage, got %+v", result)
 	}
-	if len(result.Diagnostics) != 2 || len(result.CoverageGaps) != 2 {
+	if len(result.Diagnostics) != 3 || len(result.CoverageGaps) != 3 {
 		t.Fatalf("expected IAM and Access Analyzer diagnostics/gaps, got %+v", result)
 	}
 	for _, diagnostic := range result.Diagnostics {
@@ -519,8 +519,28 @@ func TestIngesterReportsPermissionDeniedCoverage(t *testing.T) {
 	}
 }
 
+func TestIngesterCollectsAccessKeysWhenRoleListingDenied(t *testing.T) {
+	result, err := New(fakeIAMAPI{listRolesErr: errors.New("AccessDenied: not authorized")}, fakeAccessAnalyzerAPI{emptyAnalyzers: true}).Ingest(context.Background(), IngestRequest{
+		AccountID:   "123456789012",
+		Region:      "us-east-1",
+		CollectedAt: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("ingest role-denied signals: %v", err)
+	}
+	if result.Status != "degraded" || len(result.Signals) == 0 {
+		t.Fatalf("expected degraded result with access-key signals, got %+v", result)
+	}
+	for _, signal := range result.Signals {
+		if signal.Scope == "access-key" && signal.TargetResourceType == "iam_access_key" {
+			return
+		}
+	}
+	t.Fatalf("expected access-key signal despite role listing denial, got %+v", result.Signals)
+}
+
 func TestIngesterBlocksWhenIAMAndAnalyzerFindingsAreDenied(t *testing.T) {
-	result, err := New(fakeIAMAPI{listRolesErr: errors.New("AccessDenied: not authorized")}, fakeAccessAnalyzerAPI{listFindingsErr: errors.New("AccessDeniedException")}).Ingest(context.Background(), IngestRequest{
+	result, err := New(fakeIAMAPI{listRolesErr: errors.New("AccessDenied: not authorized"), listUsersErr: errors.New("AccessDenied: not authorized")}, fakeAccessAnalyzerAPI{listFindingsErr: errors.New("AccessDeniedException")}).Ingest(context.Background(), IngestRequest{
 		AccountID:   "123456789012",
 		Region:      "us-east-1",
 		CollectedAt: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC),

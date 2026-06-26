@@ -275,7 +275,7 @@ func (s *Service) GetAWSRuntimeEvents(ctx context.Context, workspaceID string, p
 			result.FailureReasons = dedupeStrings(append(result.FailureReasons, "CloudTrail LookupEvents ingester is not available for this connector"))
 			result.RemediationHints = dedupeStrings(append(result.RemediationHints, "Confirm the CloudTrail role grants metadata-only cloudtrail:LookupEvents and retry."))
 		}
-		return result, nil
+		return s.appendAWSRuntimeSignals(ctx, scope, project, connection, result, request, now)
 	}
 	// Capability-gated fallback: when a factory is wired and the
 	// connector is otherwise live but the connector's effective
@@ -321,7 +321,11 @@ func (s *Service) GetAWSRuntimeEvents(ctx context.Context, workspaceID string, p
 		result.RemediationHints = dedupeStrings(append(result.RemediationHints, "Grant the runtime_evidence connector capability and confirm the AWS role policy allows cloudtrail:LookupEvents."))
 		return result, nil
 	}
-	return buildAWSRuntimeEvents(scope, project, connection, hasConnection, request, now)
+	result, err := buildAWSRuntimeEvents(scope, project, connection, hasConnection, request, now)
+	if err != nil {
+		return result, err
+	}
+	return s.appendAWSRuntimeSignals(ctx, scope, project, connection, result, request, now)
 }
 
 // awsConnectorHasRuntimeEvidence reports whether the connector's

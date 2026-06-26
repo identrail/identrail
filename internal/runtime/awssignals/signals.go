@@ -252,178 +252,180 @@ func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest
 		if isContextCancellation(err) {
 			return nil, nil, nil, err
 		}
-		return nil, []Diagnostic{permissionAwareDiagnostic("iam", "iam_last_used_permission_denied", "iam_last_used_failed", fmt.Sprintf("IAM role listing failed: %v", err), "Grant metadata-only iam:ListRoles and retry.", err)}, []CoverageGap{{
+		diagnostics = append(diagnostics, permissionAwareDiagnostic("iam", "iam_last_used_permission_denied", "iam_last_used_failed", fmt.Sprintf("IAM role listing failed: %v", err), "Grant metadata-only iam:ListRoles and retry.", err))
+		gaps = append(gaps, CoverageGap{
 			Capability:  "iam_last_used",
 			Status:      permissionAwareStatus(err),
 			Reason:      "IAM roles could not be listed for last-used collection.",
 			Remediation: "Grant iam:ListRoles plus service last-accessed read APIs.",
-		}}, nil
-	}
-	for idx, role := range out.Roles {
-		if int32(idx) >= request.MaxRoles {
-			break
-		}
-		roleARN := awsv2.ToString(role.Arn)
-		roleName := awsv2.ToString(role.RoleName)
-		if roleARN == "" {
-			continue
-		}
-		if role.RoleLastUsed != nil && role.RoleLastUsed.LastUsedDate != nil {
-			region := firstNonEmpty(awsv2.ToString(role.RoleLastUsed.Region), request.Region)
-			lastUsed := role.RoleLastUsed.LastUsedDate.UTC()
-			signals = append(signals, Signal{
-				EventID:            "iam-role-last-used:" + sanitizeToken(roleARN),
-				AccountID:          request.AccountID,
-				Region:             region,
-				Category:           "iam-last-used",
-				Scope:              "role",
-				EventSource:        "iam.amazonaws.com",
-				EventName:          "RoleLastUsed",
-				Action:             "iam:RoleLastUsed",
-				ActorPrincipalARN:  roleARN,
-				ActorPrincipalType: "iam_role",
-				TargetResourceARN:  roleARN,
-				TargetResourceType: "iam_role",
-				TargetResourceName: roleName,
-				Status:             iamLastUsedStatus(lastUsed, request.CollectedAt),
-				Confidence:         0.82,
-				ObservedAt:         lastUsed,
-				CollectedAt:        request.CollectedAt,
-				StaleAt:            request.CollectedAt,
-			})
-		} else {
-			status := iamNeverUsedStatus(role.CreateDate, request.CollectedAt)
-			confidence := 0.52
-			observedAt := request.CollectedAt
-			if role.CreateDate != nil {
-				observedAt = role.CreateDate.UTC()
-			}
-			if status == "stale" {
-				confidence = 0.68
-			}
-			signals = append(signals, Signal{
-				EventID:            "iam-role-never-used:" + sanitizeToken(roleARN),
-				AccountID:          request.AccountID,
-				Region:             request.Region,
-				Category:           "iam-last-used",
-				Scope:              "role",
-				EventSource:        "iam.amazonaws.com",
-				EventName:          "RoleNeverUsed",
-				Action:             "iam:RoleNeverUsed",
-				ActorPrincipalARN:  roleARN,
-				ActorPrincipalType: "iam_role",
-				TargetResourceARN:  roleARN,
-				TargetResourceType: "iam_role",
-				TargetResourceName: roleName,
-				Status:             status,
-				Confidence:         confidence,
-				ObservedAt:         observedAt,
-				CollectedAt:        request.CollectedAt,
-				StaleAt:            request.CollectedAt,
-			})
-		}
-		job, genErr := i.IAM.GenerateServiceLastAccessedDetails(ctx, &iam.GenerateServiceLastAccessedDetailsInput{
-			Arn:         awsv2.String(roleARN),
-			Granularity: iamtypes.AccessAdvisorUsageGranularityTypeServiceLevel,
 		})
-		if genErr != nil {
-			if isContextCancellation(genErr) {
-				return nil, nil, nil, genErr
-			}
-			diagnostics = append(diagnostics, permissionAwareDiagnostic("iam:"+roleName, "iam_last_used_permission_denied", "iam_last_used_generation_failed", fmt.Sprintf("IAM service last-used report could not be generated for %s: %v", roleName, genErr), "Grant iam:GenerateServiceLastAccessedDetails and retry.", genErr))
-			continue
-		}
-		details, truncated, getErr := i.getServiceLastAccessedDetails(ctx, job.JobId, request)
-		if getErr != nil {
-			if isContextCancellation(getErr) {
-				return nil, nil, nil, getErr
-			}
-			diagnostics = append(diagnostics, permissionAwareDiagnostic("iam:"+roleName, "iam_last_used_permission_denied", "iam_last_used_report_failed", fmt.Sprintf("IAM service last-used report could not be read for %s: %v", roleName, getErr), "Grant iam:GetServiceLastAccessedDetails and retry.", getErr))
-			continue
-		}
-		if details.JobStatus != iamtypes.JobStatusTypeCompleted {
-			diagnostics = append(diagnostics, Diagnostic{
-				SourceID:    "iam:" + roleName,
-				Code:        "iam_last_used_report_pending",
-				Message:     fmt.Sprintf("IAM service last-used report for %s is %s.", roleName, details.JobStatus),
-				Remediation: "Retry collection after IAM finishes the report; existing role-last-used evidence remains visible.",
-				Retryable:   true,
-			})
-			gaps = append(gaps, CoverageGap{
-				Capability:  "iam_last_used",
-				Status:      "partial_failure",
-				Reason:      fmt.Sprintf("Service last-used report for %s was not complete.", roleName),
-				Remediation: "Retry collection after IAM report completion.",
-			})
-			continue
-		}
-		staleAt := request.CollectedAt
-		if details.JobCompletionDate != nil {
-			staleAt = details.JobCompletionDate.UTC()
-		}
-		if truncated {
-			gaps = append(gaps, CoverageGap{
-				Capability:  "iam_last_used",
-				Status:      "history_truncated",
-				Reason:      fmt.Sprintf("Service last-used report for %s exceeded the bounded per-role service budget.", roleName),
-				Remediation: "Rerun with a larger IAM last-used service budget or add paginated report reuse.",
-			})
-		}
-		for svcIdx, service := range details.ServicesLastAccessed {
-			if int32(svcIdx) >= request.MaxServicesPerRole {
+	} else {
+		for idx, role := range out.Roles {
+			if int32(idx) >= request.MaxRoles {
 				break
 			}
-			serviceNamespace := awsv2.ToString(service.ServiceNamespace)
-			serviceName := firstNonEmpty(awsv2.ToString(service.ServiceName), serviceNamespace)
-			actor := firstNonEmpty(awsv2.ToString(service.LastAuthenticatedEntity), roleARN)
-			region := firstNonEmpty(awsv2.ToString(service.LastAuthenticatedRegion), request.Region)
-			lastAuthenticated := request.CollectedAt
-			status := iamNeverUsedStatus(role.CreateDate, request.CollectedAt)
-			confidence := 0.52
-			if service.LastAuthenticated != nil {
-				lastAuthenticated = service.LastAuthenticated.UTC()
-				status = iamLastUsedStatus(lastAuthenticated, request.CollectedAt)
-				confidence = 0.86
-				if status == "stale" {
-					confidence = 0.78
-				}
+			roleARN := awsv2.ToString(role.Arn)
+			roleName := awsv2.ToString(role.RoleName)
+			if roleARN == "" {
+				continue
+			}
+			if role.RoleLastUsed != nil && role.RoleLastUsed.LastUsedDate != nil {
+				region := firstNonEmpty(awsv2.ToString(role.RoleLastUsed.Region), request.Region)
+				lastUsed := role.RoleLastUsed.LastUsedDate.UTC()
+				signals = append(signals, Signal{
+					EventID:            "iam-role-last-used:" + sanitizeToken(roleARN),
+					AccountID:          request.AccountID,
+					Region:             region,
+					Category:           "iam-last-used",
+					Scope:              "role",
+					EventSource:        "iam.amazonaws.com",
+					EventName:          "RoleLastUsed",
+					Action:             "iam:RoleLastUsed",
+					ActorPrincipalARN:  roleARN,
+					ActorPrincipalType: "iam_role",
+					TargetResourceARN:  roleARN,
+					TargetResourceType: "iam_role",
+					TargetResourceName: roleName,
+					Status:             iamLastUsedStatus(lastUsed, request.CollectedAt),
+					Confidence:         0.82,
+					ObservedAt:         lastUsed,
+					CollectedAt:        request.CollectedAt,
+					StaleAt:            request.CollectedAt,
+				})
 			} else {
+				status := iamNeverUsedStatus(role.CreateDate, request.CollectedAt)
+				confidence := 0.52
+				observedAt := request.CollectedAt
 				if role.CreateDate != nil {
-					lastAuthenticated = role.CreateDate.UTC()
+					observedAt = role.CreateDate.UTC()
 				}
 				if status == "stale" {
 					confidence = 0.68
 				}
+				signals = append(signals, Signal{
+					EventID:            "iam-role-never-used:" + sanitizeToken(roleARN),
+					AccountID:          request.AccountID,
+					Region:             request.Region,
+					Category:           "iam-last-used",
+					Scope:              "role",
+					EventSource:        "iam.amazonaws.com",
+					EventName:          "RoleNeverUsed",
+					Action:             "iam:RoleNeverUsed",
+					ActorPrincipalARN:  roleARN,
+					ActorPrincipalType: "iam_role",
+					TargetResourceARN:  roleARN,
+					TargetResourceType: "iam_role",
+					TargetResourceName: roleName,
+					Status:             status,
+					Confidence:         confidence,
+					ObservedAt:         observedAt,
+					CollectedAt:        request.CollectedAt,
+					StaleAt:            request.CollectedAt,
+				})
 			}
-			signals = append(signals, Signal{
-				EventID:            "iam-service-last-used:" + sanitizeToken(roleARN) + ":" + sanitizeToken(serviceNamespace),
-				AccountID:          request.AccountID,
-				Region:             region,
-				Category:           "iam-last-used",
-				Scope:              "service",
-				EventSource:        "iam.amazonaws.com",
-				EventName:          serviceLastAccessedEventName(service.LastAuthenticated != nil),
-				Action:             serviceLastAccessedAction(serviceNamespace, service.LastAuthenticated != nil),
-				ActorPrincipalARN:  actor,
-				ActorPrincipalType: principalTypeFromARN(actor),
-				TargetResourceARN:  "aws-service://" + serviceNamespace,
-				TargetResourceType: "aws_service",
-				TargetResourceName: serviceName,
-				Status:             status,
-				Confidence:         confidence,
-				ObservedAt:         lastAuthenticated,
-				CollectedAt:        request.CollectedAt,
-				StaleAt:            staleAt,
+			job, genErr := i.IAM.GenerateServiceLastAccessedDetails(ctx, &iam.GenerateServiceLastAccessedDetailsInput{
+				Arn:         awsv2.String(roleARN),
+				Granularity: iamtypes.AccessAdvisorUsageGranularityTypeServiceLevel,
+			})
+			if genErr != nil {
+				if isContextCancellation(genErr) {
+					return nil, nil, nil, genErr
+				}
+				diagnostics = append(diagnostics, permissionAwareDiagnostic("iam:"+roleName, "iam_last_used_permission_denied", "iam_last_used_generation_failed", fmt.Sprintf("IAM service last-used report could not be generated for %s: %v", roleName, genErr), "Grant iam:GenerateServiceLastAccessedDetails and retry.", genErr))
+				continue
+			}
+			details, truncated, getErr := i.getServiceLastAccessedDetails(ctx, job.JobId, request)
+			if getErr != nil {
+				if isContextCancellation(getErr) {
+					return nil, nil, nil, getErr
+				}
+				diagnostics = append(diagnostics, permissionAwareDiagnostic("iam:"+roleName, "iam_last_used_permission_denied", "iam_last_used_report_failed", fmt.Sprintf("IAM service last-used report could not be read for %s: %v", roleName, getErr), "Grant iam:GetServiceLastAccessedDetails and retry.", getErr))
+				continue
+			}
+			if details.JobStatus != iamtypes.JobStatusTypeCompleted {
+				diagnostics = append(diagnostics, Diagnostic{
+					SourceID:    "iam:" + roleName,
+					Code:        "iam_last_used_report_pending",
+					Message:     fmt.Sprintf("IAM service last-used report for %s is %s.", roleName, details.JobStatus),
+					Remediation: "Retry collection after IAM finishes the report; existing role-last-used evidence remains visible.",
+					Retryable:   true,
+				})
+				gaps = append(gaps, CoverageGap{
+					Capability:  "iam_last_used",
+					Status:      "partial_failure",
+					Reason:      fmt.Sprintf("Service last-used report for %s was not complete.", roleName),
+					Remediation: "Retry collection after IAM report completion.",
+				})
+				continue
+			}
+			staleAt := request.CollectedAt
+			if details.JobCompletionDate != nil {
+				staleAt = details.JobCompletionDate.UTC()
+			}
+			if truncated {
+				gaps = append(gaps, CoverageGap{
+					Capability:  "iam_last_used",
+					Status:      "history_truncated",
+					Reason:      fmt.Sprintf("Service last-used report for %s exceeded the bounded per-role service budget.", roleName),
+					Remediation: "Rerun with a larger IAM last-used service budget or add paginated report reuse.",
+				})
+			}
+			for svcIdx, service := range details.ServicesLastAccessed {
+				if int32(svcIdx) >= request.MaxServicesPerRole {
+					break
+				}
+				serviceNamespace := awsv2.ToString(service.ServiceNamespace)
+				serviceName := firstNonEmpty(awsv2.ToString(service.ServiceName), serviceNamespace)
+				actor := firstNonEmpty(awsv2.ToString(service.LastAuthenticatedEntity), roleARN)
+				region := firstNonEmpty(awsv2.ToString(service.LastAuthenticatedRegion), request.Region)
+				lastAuthenticated := request.CollectedAt
+				status := iamNeverUsedStatus(role.CreateDate, request.CollectedAt)
+				confidence := 0.52
+				if service.LastAuthenticated != nil {
+					lastAuthenticated = service.LastAuthenticated.UTC()
+					status = iamLastUsedStatus(lastAuthenticated, request.CollectedAt)
+					confidence = 0.86
+					if status == "stale" {
+						confidence = 0.78
+					}
+				} else {
+					if role.CreateDate != nil {
+						lastAuthenticated = role.CreateDate.UTC()
+					}
+					if status == "stale" {
+						confidence = 0.68
+					}
+				}
+				signals = append(signals, Signal{
+					EventID:            "iam-service-last-used:" + sanitizeToken(roleARN) + ":" + sanitizeToken(serviceNamespace),
+					AccountID:          request.AccountID,
+					Region:             region,
+					Category:           "iam-last-used",
+					Scope:              "service",
+					EventSource:        "iam.amazonaws.com",
+					EventName:          serviceLastAccessedEventName(service.LastAuthenticated != nil),
+					Action:             serviceLastAccessedAction(serviceNamespace, service.LastAuthenticated != nil),
+					ActorPrincipalARN:  actor,
+					ActorPrincipalType: principalTypeFromARN(actor),
+					TargetResourceARN:  "aws-service://" + serviceNamespace,
+					TargetResourceType: "aws_service",
+					TargetResourceName: serviceName,
+					Status:             status,
+					Confidence:         confidence,
+					ObservedAt:         lastAuthenticated,
+					CollectedAt:        request.CollectedAt,
+					StaleAt:            staleAt,
+				})
+			}
+		}
+		if out.IsTruncated {
+			gaps = append(gaps, CoverageGap{
+				Capability:  "iam_last_used",
+				Status:      "history_truncated",
+				Reason:      "IAM role listing exceeded the bounded per-run role budget.",
+				Remediation: "Rerun with a larger IAM last-used role budget or shard by path prefix.",
 			})
 		}
-	}
-	if out.IsTruncated {
-		gaps = append(gaps, CoverageGap{
-			Capability:  "iam_last_used",
-			Status:      "history_truncated",
-			Reason:      "IAM role listing exceeded the bounded per-run role budget.",
-			Remediation: "Rerun with a larger IAM last-used role budget or shard by path prefix.",
-		})
 	}
 	keySignals, keyDiagnostics, keyGaps, keyErr := i.collectIAMAccessKeyLastUsed(ctx, request)
 	if keyErr != nil {
