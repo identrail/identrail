@@ -609,6 +609,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/remediation-approval-queue
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/blast-radius
     action: tenancy.read
     resource_type: project
@@ -5672,6 +5677,102 @@ paths:
                     $ref: "#/components/schemas/AWSIaCRemediationResult"
         "400":
           description: Invalid AWS IaC remediation plans request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/remediation-approval-queue:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS remediation approval queue with RBAC gates
+      operationId: getAWSProjectRemediationApprovalQueue
+      description: Projects a deterministic, read-only AWS remediation approval queue from upstream remediation cases. Each entry carries source-case ID, idempotency key, dry-run reference, risk tier, requestor, required approver roles, scope (account/region/connector/identity/resource), RBAC gates, feature flags (including the tenant-scoped remediation kill switch), state (`requested`/`under_review`/`approved`/`denied`/`expired`/`blocked`), expiry, audit trail, rollback, verification, and evidence refs. The endpoint never opens, applies, or rolls back any AWS change and never reads, exposes, logs, or persists rendered policies, secret values, customer payloads, prompts, completions, browser pages, code-interpreter output, database rows, or object contents. Live IAM/STS/Organizations write APIs are gated to later wave 8 executors.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: case_id
+          schema: { type: string }
+        - in: query
+          name: state
+          schema:
+            type: string
+            enum: [requested, under_review, approved, denied, expired, blocked]
+        - in: query
+          name: risk_tier
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: scope_type
+          schema:
+            type: string
+            enum: [identity, resource, account, ou, org_root]
+        - in: query
+          name: requestor
+          schema: { type: string }
+        - in: query
+          name: approver_role
+          schema: { type: string }
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: ready_for_execution
+          schema:
+            type: string
+            enum: ["true", "false", "yes", "no"]
+        - in: query
+          name: kill_switch_engaged
+          schema:
+            type: string
+            enum: ["true", "false", "yes", "no"]
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS remediation approval queue contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queue:
+                    $ref: "#/components/schemas/AWSRemediationApprovalResult"
+        "400":
+          description: Invalid AWS remediation approval queue request
           content:
             application/json:
               schema:
@@ -13820,6 +13921,18 @@ components:
         updated_at:
           type: string
           format: date-time
+    AWSRemediationCaseEvidence:
+      allOf:
+        - $ref: "#/components/schemas/AWSLeastPrivilegeEvidence"
+    AWSRemediationCasePathStep:
+      allOf:
+        - $ref: "#/components/schemas/AWSLeastPrivilegePathStep"
+    AWSRemediationCaseCoverageGap:
+      allOf:
+        - $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+    AWSRemediationCaseDiagnostic:
+      allOf:
+        - $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
     AWSRemediationCaseSummary:
       type: object
       properties:
@@ -15332,6 +15445,252 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSRemediationApprovalActor:
+      type: object
+      properties:
+        role: { type: string }
+        label: { type: string }
+        required: { type: boolean }
+        acknowledged: { type: boolean }
+    AWSRemediationApprovalScope:
+      type: object
+      properties:
+        scope_type:
+          type: string
+          enum: [identity, resource, account, ou, org_root]
+        account_ids:
+          type: array
+          items: { type: string }
+        regions:
+          type: array
+          items: { type: string }
+        connector_ids:
+          type: array
+          items: { type: string }
+        identity_node_ids:
+          type: array
+          items: { type: string }
+        resource_node_ids:
+          type: array
+          items: { type: string }
+    AWSRemediationApprovalRBACGate:
+      type: object
+      properties:
+        name: { type: string }
+        status: { type: string }
+        required_role: { type: string }
+        rationale: { type: string }
+    AWSRemediationApprovalFeatureFlag:
+      type: object
+      properties:
+        name: { type: string }
+        enabled: { type: boolean }
+        scope: { type: string }
+        rationale: { type: string }
+    AWSRemediationApprovalRelationship:
+      type: object
+      properties:
+        approval_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSRemediationApprovalAuditEntry:
+      type: object
+      description: |
+        Audit row attached to an approval queue entry. Actor labels are operator
+        roles or owner identifiers, and event types include the approval workflow
+        transitions in addition to the remediation-case lifecycle transitions.
+      properties:
+        event_id: { type: string }
+        actor: { type: string }
+        event_type: { type: string }
+        occurred_at:
+          type: string
+          format: date-time
+        evidence_ref: { type: string }
+        notes: { type: string }
+    AWSRemediationApprovalEntry:
+      type: object
+      properties:
+        approval_id: { type: string }
+        calculation_version: { type: string }
+        case_id: { type: string }
+        source_artifact_id: { type: string }
+        source_type: { type: string }
+        state:
+          type: string
+          enum: [requested, under_review, approved, denied, expired, blocked]
+        risk_tier:
+          type: string
+          enum: [critical, high, medium, low]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        title: { type: string }
+        summary: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        requestor:
+          $ref: "#/components/schemas/AWSRemediationApprovalActor"
+        required_approvers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationApprovalActor"
+        scope:
+          $ref: "#/components/schemas/AWSRemediationApprovalScope"
+        rbac_gates:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationApprovalRBACGate"
+        feature_flags:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationApprovalFeatureFlag"
+        idempotency_key: { type: string }
+        dry_run_ref: { type: string }
+        diff_intent:
+          $ref: "#/components/schemas/AWSRemediationDiffIntent"
+        tradeoffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationTradeoff"
+        rollback_plan:
+          $ref: "#/components/schemas/AWSRemediationRollbackPlan"
+        verification_plan:
+          $ref: "#/components/schemas/AWSRemediationVerificationPlan"
+        audit_trail:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationApprovalAuditEntry"
+        ready_for_execution: { type: boolean }
+        kill_switch_engaged: { type: boolean }
+        read_only_projection: { type: boolean }
+        source_signals:
+          type: array
+          items: { type: string }
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationCaseEvidence"
+        evidence_boundary: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationCasePathStep"
+        next_action: { type: string }
+        requested_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSRemediationApprovalSummary:
+      type: object
+      properties:
+        total_entries: { type: integer }
+        filtered_entries: { type: integer }
+        state_counts:
+          type: object
+          additionalProperties: { type: integer }
+        risk_tier_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        scope_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        required_approver_count: { type: integer }
+        ready_for_execution_count: { type: integer }
+        kill_switch_engaged_count: { type: integer }
+        rbac_gate_blocked_count: { type: integer }
+        audit_entry_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSRemediationApprovalResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSRemediationApprovalSummary"
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationApprovalEntry"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationApprovalRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationCaseCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationCaseDiagnostic"
         generated_at:
           type: string
           format: date-time

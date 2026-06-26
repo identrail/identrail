@@ -3913,6 +3913,155 @@ export type AWSIaCRemediationQuery = {
   readyForApply?: string;
   search?: string;
 };
+export type AWSRemediationApprovalStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSRemediationApprovalFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSRemediationApprovalState = 'requested' | 'under_review' | 'approved' | 'denied' | 'expired' | 'blocked' | string;
+export type AWSRemediationApprovalRiskTier = 'critical' | 'high' | 'medium' | 'low' | string;
+export type AWSRemediationApprovalScopeType = 'identity' | 'resource' | 'account' | 'ou' | 'org_root' | string;
+
+export type AWSRemediationApprovalActor = {
+  role: string;
+  label: string;
+  required: boolean;
+  acknowledged: boolean;
+};
+
+export type AWSRemediationApprovalScope = {
+  scope_type: AWSRemediationApprovalScopeType;
+  account_ids?: string[];
+  regions?: string[];
+  connector_ids?: string[];
+  identity_node_ids?: string[];
+  resource_node_ids?: string[];
+};
+
+export type AWSRemediationApprovalRBACGate = {
+  name: string;
+  status: string;
+  required_role: string;
+  rationale: string;
+};
+
+export type AWSRemediationApprovalFeatureFlag = {
+  name: string;
+  enabled: boolean;
+  scope: string;
+  rationale: string;
+};
+
+export type AWSRemediationApprovalRelationship = {
+  approval_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSRemediationApprovalEntry = {
+  approval_id: string;
+  calculation_version: string;
+  case_id: string;
+  source_artifact_id: string;
+  source_type: string;
+  state: AWSRemediationApprovalState;
+  risk_tier: AWSRemediationApprovalRiskTier;
+  severity: string;
+  score: number;
+  confidence: number;
+  title: string;
+  summary: string;
+  account_id: string;
+  region: string;
+  requestor: AWSRemediationApprovalActor;
+  required_approvers: AWSRemediationApprovalActor[];
+  scope: AWSRemediationApprovalScope;
+  rbac_gates: AWSRemediationApprovalRBACGate[];
+  feature_flags: AWSRemediationApprovalFeatureFlag[];
+  idempotency_key: string;
+  dry_run_ref?: string;
+  diff_intent: AWSRemediationDiffIntent;
+  tradeoffs: AWSRemediationTradeoff[];
+  rollback_plan: AWSRemediationRollbackPlan;
+  verification_plan: AWSRemediationVerificationPlan;
+  audit_trail: AWSRemediationAuditEntry[];
+  ready_for_execution: boolean;
+  kill_switch_engaged: boolean;
+  read_only_projection: boolean;
+  source_signals: string[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  next_action: string;
+  requested_at: string;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSRemediationApprovalSummary = {
+  total_entries: number;
+  filtered_entries: number;
+  state_counts: Record<string, number>;
+  risk_tier_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  scope_type_counts: Record<string, number>;
+  required_approver_count: number;
+  ready_for_execution_count: number;
+  kill_switch_engaged_count: number;
+  rbac_gate_blocked_count: number;
+  audit_entry_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSRemediationApprovalResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSRemediationApprovalStatus;
+  fixture_state?: AWSRemediationApprovalFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSRemediationApprovalSummary;
+  entries: AWSRemediationApprovalEntry[];
+  relationships: AWSRemediationApprovalRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSRemediationApprovalQuery = {
+  connectorID?: string;
+  fixtureState?: AWSRemediationApprovalFixtureState;
+  accountID?: string;
+  region?: string;
+  caseID?: string;
+  state?: string;
+  riskTier?: string;
+  scopeType?: string;
+  requestor?: string;
+  approverRole?: string;
+  severity?: string;
+  readyForExecution?: string;
+  killSwitchEngaged?: string;
+  search?: string;
+};
 
 export type AWSBlastRadiusStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBlastRadiusFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
@@ -8188,6 +8337,32 @@ export const apiClient = {
         severity: query?.severity,
         status: query?.status,
         ready_for_apply: query?.readyForApply,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectRemediationApprovalQueue(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSRemediationApprovalQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ queue: AWSRemediationApprovalResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/remediation-approval-queue${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        case_id: query?.caseID,
+        state: query?.state,
+        risk_tier: query?.riskTier,
+        scope_type: query?.scopeType,
+        requestor: query?.requestor,
+        approver_role: query?.approverRole,
+        severity: query?.severity,
+        ready_for_execution: query?.readyForExecution,
+        kill_switch_engaged: query?.killSwitchEngaged,
         search: query?.search
       })}`,
       auth

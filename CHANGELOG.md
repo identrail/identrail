@@ -1,6 +1,36 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS remediation approval workflow and RBAC gates** (#1536). Adds a
+  read-only, metadata-only approval-queue projection that turns remediation
+  cases (#1529) into RBAC-gated approval entries. Each entry records a
+  deterministic `approval_id`, source `case_id`, idempotency key, dry-run
+  reference, risk tier (critical/high/medium/low scaled from severity),
+  requestor (role/label/required/acknowledged), required approver roles
+  (with incident-commander added for critical/high and data-protection-reviewer
+  for AI-agent and secret-equivalence sources), explicit scope
+  (scope_type, account, region, connector, identity, resource nodes), RBAC
+  gates (tenant scope, read-only projection, requestor assignment, approver
+  quorum, confidence floor, approval-required), feature flags (always-on
+  workflow flag, tenant-scoped remediation kill switch, live-AWS-mutation
+  gate, critical-risk dual control, IaC-PR-required when the case originates
+  from the IaC PR generator), state (`requested`/`under_review`/`approved`/
+  `denied`/`expired`/`blocked`), expiry (12h critical / 24h high / 48h medium
+  / 72h default), tradeoffs, rollback plan, verification plan, audit trail
+  (`approval_requested` plus per-approver `approval_required` entries), and
+  evidence refs. `ready_for_execution` is true only when state is `approved`,
+  no kill switch is engaged, and every RBAC gate is passed. Identrail never
+  calls IAM/STS/Organizations write APIs at this layer; controlled execution
+  is reserved for wave-8 executors. Adds
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/remediation-approval-queue`
+  with filters for connector, account, region, case ID, state, risk tier,
+  scope type, requestor, approver role, severity, ready-for-execution,
+  kill-switch-engaged, and free-text search. OpenAPI schemas and authz wiring
+  follow the neighboring wave 7 planners. The AWS Runtime app surface now
+  shows an **AWS remediation approval workflow and RBAC gates** panel with
+  approval title, state, risk tier, requestor, required approvers, scope,
+  gate label, and severity/state pill, with explicit loading, empty,
+  degraded, blocked, and error states.
 - Add **AWS IaC remediation PR and verification plan generator** (#1535). Adds
   a read-only, metadata-only generator that turns IAM least-privilege diffs
   (#1530) and trust-policy hardening plans (#1531) into ranked IaC remediation
