@@ -132,6 +132,29 @@ func TestAWSUnusedDormantAccessQualificationSkipsActiveReviewSignals(t *testing.
 	}
 }
 
+func TestAWSUnusedDormantAccessSuppressesAccessKeyFixturesOnlyForLiveLookups(t *testing.T) {
+	live := awsUnusedDormantSuppressAccessKeyFixtures(AWSUnusedDormantAccessRequest{}, AWSLeastPrivilegeResult{})
+	if !live {
+		t.Fatal("expected live dormant access lookups to suppress fallback runtime fixtures")
+	}
+
+	explicitFixture := awsUnusedDormantSuppressAccessKeyFixtures(
+		AWSUnusedDormantAccessRequest{FixtureState: "success"},
+		AWSLeastPrivilegeResult{FixtureState: "success"},
+	)
+	if explicitFixture {
+		t.Fatal("explicit fixture_state requests must keep deterministic fixture access-key evidence")
+	}
+
+	sourceFixture := awsUnusedDormantSuppressAccessKeyFixtures(
+		AWSUnusedDormantAccessRequest{},
+		AWSLeastPrivilegeResult{FixtureState: "permission_denied"},
+	)
+	if sourceFixture {
+		t.Fatal("non-live least-privilege source states must not force runtime fixture suppression")
+	}
+}
+
 func TestGetAWSUnusedDormantAccessPermissionDeniedAndEmptyStatesAreExplicit(t *testing.T) {
 	now := time.Date(2026, 6, 20, 9, 20, 0, 0, time.UTC)
 	svc, ws := newLeastPrivilegeService(t, "project-unused-dormant-states", now)

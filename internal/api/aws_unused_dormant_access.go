@@ -150,11 +150,12 @@ func (s *Service) GetAWSUnusedDormantAccessFindings(ctx context.Context, workspa
 
 	findings := awsUnusedDormantFindingsFromRecommendations(leastPrivilege.Recommendations, leastPrivilege.GeneratedAt)
 	accessKeySignals, err := s.GetAWSRuntimeEvents(ctx, workspaceID, projectID, AWSRuntimeEventRequest{
-		ConnectorID:  request.ConnectorID,
-		FixtureState: request.FixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
-		EventType:    "iam-last-used",
+		ConnectorID:            request.ConnectorID,
+		FixtureState:           request.FixtureState,
+		AccountID:              request.AccountID,
+		Region:                 request.Region,
+		EventType:              "iam-last-used",
+		SuppressFixtureRecords: awsUnusedDormantSuppressAccessKeyFixtures(request, leastPrivilege),
 	})
 	if err != nil {
 		return AWSUnusedDormantAccessResult{}, err
@@ -213,6 +214,10 @@ func awsUnusedDormantFindingsFromRecommendations(recommendations []AWSLeastPrivi
 		findings = append(findings, awsUnusedDormantFindingFromRecommendation(recommendation, now))
 	}
 	return findings
+}
+
+func awsUnusedDormantSuppressAccessKeyFixtures(request AWSUnusedDormantAccessRequest, leastPrivilege AWSLeastPrivilegeResult) bool {
+	return strings.TrimSpace(request.FixtureState) == "" && strings.TrimSpace(leastPrivilege.FixtureState) == ""
 }
 
 func awsUnusedDormantFindingsFromAccessKeySignals(records []AWSRuntimeEventRecord, now time.Time) []AWSUnusedDormantAccessFinding {
