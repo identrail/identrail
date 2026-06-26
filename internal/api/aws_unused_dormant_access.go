@@ -149,6 +149,17 @@ func (s *Service) GetAWSUnusedDormantAccessFindings(ctx context.Context, workspa
 	}
 
 	findings := awsUnusedDormantFindingsFromRecommendations(leastPrivilege.Recommendations, leastPrivilege.GeneratedAt)
+	accessKeySignals, err := s.GetAWSRuntimeEvents(ctx, workspaceID, projectID, AWSRuntimeEventRequest{
+		ConnectorID:  request.ConnectorID,
+		FixtureState: request.FixtureState,
+		AccountID:    request.AccountID,
+		Region:       request.Region,
+		EventType:    "iam-last-used",
+	})
+	if err != nil {
+		return AWSUnusedDormantAccessResult{}, err
+	}
+	findings = append(findings, awsUnusedDormantFindingsFromAccessKeySignals(accessKeySignals.Records, accessKeySignals.GeneratedAt)...)
 	sort.SliceStable(findings, func(i, j int) bool {
 		if findings[i].Score == findings[j].Score {
 			return findings[i].FindingID < findings[j].FindingID
@@ -202,6 +213,104 @@ func awsUnusedDormantFindingsFromRecommendations(recommendations []AWSLeastPrivi
 		findings = append(findings, awsUnusedDormantFindingFromRecommendation(recommendation, now))
 	}
 	return findings
+}
+
+func awsUnusedDormantFindingsFromAccessKeySignals(records []AWSRuntimeEventRecord, now time.Time) []AWSUnusedDormantAccessFinding {
+	findings := []AWSUnusedDormantAccessFinding{}
+	for _, record := range records {
+		if normalizeAWSRuntimeEventFilterToken(record.SignalCategory) != "iam-last-used" || normalizeAWSRuntimeEventFilterToken(record.TargetResourceType) != "iam-access-key" {
+			continue
+		}
+		if normalizeAWSRuntimeEventFilterToken(record.Status) != "stale" && normalizeAWSRuntimeEventFilterToken(record.Status) != "never-used" {
+			continue
+		}
+		accessKeyID := awsAccessKeyIDFromRuntimeRecord(record)
+		if accessKeyID == "" {
+			continue
+		}
+		observedAt := record.ObservedAt
+		dormantDays := 0
+		if !observedAt.IsZero() {
+			dormantDays = int(now.Sub(observedAt).Hours() / 24)
+			if dormantDays < 0 {
+				dormantDays = 0
+			}
+		}
+		state := "stale"
+		if normalizeAWSRuntimeEventFilterToken(record.Status) == "never-used" {
+			state = "never_used"
+		}
+		evidenceRef := firstNonEmptyAWSValue(record.EvidenceRef, "runtime-evidence://access-key/"+accessKeyID)
+		findings = append(findings, AWSUnusedDormantAccessFinding{
+			FindingID:          "aws-unused-dormant-access:" + stableAWSBlastRadiusToken(record.EventID, accessKeyID, state),
+			CalculationVersion: awsUnusedDormantAccessVersion,
+			FindingType:        "dormant_access",
+			DormancyState:      state,
+			Severity:           "high",
+			Status:             "cleanup_candidate",
+			Score:              82,
+			Confidence:         record.Confidence,
+			AccountID:          record.AccountID,
+			Region:             record.Region,
+			Service:            "iam",
+			IdentityNodeID:     record.ActorIdentityNodeID,
+			PrincipalARN:       record.ActorPrincipalARN,
+			ResourceNodeID:     firstNonEmptyAWSValue(record.ResourceNodeID, "aws:iam-access-key:"+accessKeyID),
+			ResourceARN:        record.TargetResourceARN,
+			DisplayName:        accessKeyID,
+			OwnerContext:       "identity-owner-review",
+			PolicyScope:        accessKeyID + ":*",
+			Rationale:          "IAM access-key last-used metadata reports stale key activity and needs owner confirmation before quarantine.",
+			LastUsedAt:         observedAt,
+			DormantDays:        dormantDays,
+			ScanWindowDays:     awsUnusedDormantScanWindowDays(state, dormantDays),
+			CandidateActions:   []string{"iam:DisableAccessKey"},
+			ObservedActions:    []string{record.Action},
+			GrantedActions:     []string{"iam:DisableAccessKey"},
+			ImpactedNodes:      dedupeStrings([]string{firstNonEmptyAWSValue(record.ResourceNodeID, "aws:iam-access-key:"+accessKeyID), record.ActorIdentityNodeID, record.ActorPrincipalARN}),
+			ImpactedPath: []AWSUnusedDormantAccessPathStep{
+				awsLeastPrivilegePathStep(record.ActorIdentityNodeID, "identity", firstNonEmptyAWSValue(shortAWSARN(record.ActorPrincipalARN), record.ActorIdentityNodeID), record.AccountID, record.Region),
+				awsLeastPrivilegePathStep(firstNonEmptyAWSValue(record.ResourceNodeID, "aws:iam-access-key:"+accessKeyID), "iam_access_key", accessKeyID, record.AccountID, record.Region),
+			},
+			Evidence: []AWSUnusedDormantAccessEvidence{{
+				Source:       "iam_last_used",
+				EvidenceRef:  evidenceRef,
+				Label:        accessKeyID,
+				Confidence:   record.Confidence,
+				ObservedAt:   observedAt,
+				Relationship: "stale_access_key",
+			}},
+			NextAction: "Ask the key owner to confirm whether stale access is still required before planning quarantine.",
+			RemediationCase: AWSUnusedDormantAccessRemediationCasePreview{
+				CaseID:             "aws-unused-dormant-preview:" + stableAWSBlastRadiusToken(record.EventID, accessKeyID, state),
+				Title:              "Stale access-key quarantine review",
+				RecommendedAction:  "Create a read-only case to coordinate owner-approved access-key quarantine.",
+				ApprovalRequired:   true,
+				BlockingEvidence:   []string{evidenceRef},
+				ImpactedNodeCount:  2,
+				EstimatedRiskDrop:  68,
+				BreakagePrediction: "low",
+				ReadOnlyProjection: true,
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
+		})
+	}
+	return findings
+}
+
+func awsAccessKeyIDFromRuntimeRecord(record AWSRuntimeEventRecord) string {
+	for _, candidate := range []string{record.TargetResourceName, record.ResourceNodeID, record.TargetResourceARN, record.EvidenceRef} {
+		for _, token := range strings.FieldsFunc(candidate, func(r rune) bool {
+			return r == '/' || r == ':' || r == '|' || r == ' ' || r == ',' || r == ';'
+		}) {
+			normalized := strings.ToUpper(strings.TrimSpace(token))
+			if strings.HasPrefix(normalized, "AKIA") {
+				return normalized
+			}
+		}
+	}
+	return ""
 }
 
 func awsUnusedDormantRecommendationQualifies(recommendation AWSLeastPrivilegeRecommendation) bool {

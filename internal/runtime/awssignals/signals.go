@@ -23,6 +23,9 @@ const (
 
 type IAMAPI interface {
 	ListRoles(context.Context, *iam.ListRolesInput, ...func(*iam.Options)) (*iam.ListRolesOutput, error)
+	ListUsers(context.Context, *iam.ListUsersInput, ...func(*iam.Options)) (*iam.ListUsersOutput, error)
+	ListAccessKeys(context.Context, *iam.ListAccessKeysInput, ...func(*iam.Options)) (*iam.ListAccessKeysOutput, error)
+	GetAccessKeyLastUsed(context.Context, *iam.GetAccessKeyLastUsedInput, ...func(*iam.Options)) (*iam.GetAccessKeyLastUsedOutput, error)
 	GenerateServiceLastAccessedDetails(context.Context, *iam.GenerateServiceLastAccessedDetailsInput, ...func(*iam.Options)) (*iam.GenerateServiceLastAccessedDetailsOutput, error)
 	GetServiceLastAccessedDetails(context.Context, *iam.GetServiceLastAccessedDetailsInput, ...func(*iam.Options)) (*iam.GetServiceLastAccessedDetailsOutput, error)
 }
@@ -37,6 +40,8 @@ type IngestRequest struct {
 	AccountID          string
 	Region             string
 	MaxRoles           int32
+	MaxUsers           int32
+	MaxAccessKeys      int32
 	MaxServicesPerRole int32
 	MaxAnalyzers       int32
 	MaxFindings        int32
@@ -133,6 +138,12 @@ func (i *Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestRes
 	if request.MaxRoles <= 0 {
 		request.MaxRoles = 8
 	}
+	if request.MaxUsers <= 0 {
+		request.MaxUsers = 8
+	}
+	if request.MaxAccessKeys <= 0 {
+		request.MaxAccessKeys = 16
+	}
 	if request.MaxServicesPerRole <= 0 {
 		request.MaxServicesPerRole = 8
 	}
@@ -226,12 +237,16 @@ func (i *Ingester) Ingest(ctx context.Context, request IngestRequest) (IngestRes
 	if len(result.Signals) == 0 && allSignalCollectorsPermissionDenied(result.CoverageGaps) {
 		result.Status = "blocked"
 		result.FailureReasons = []string{"IAM last-used and Access Analyzer permissions are unavailable"}
-		result.RemediationHints = []string{"Grant metadata-only iam:ListRoles, iam:GenerateServiceLastAccessedDetails, iam:GetServiceLastAccessedDetails, access-analyzer:ListAnalyzers, and access-analyzer:ListFindings."}
+		result.RemediationHints = []string{"Grant metadata-only iam:ListRoles, iam:ListUsers, iam:ListAccessKeys, iam:GetAccessKeyLastUsed, iam:GenerateServiceLastAccessedDetails, iam:GetServiceLastAccessedDetails, access-analyzer:ListAnalyzers, and access-analyzer:ListFindings."}
 	}
 	return result, nil
 }
 
 func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest) ([]Signal, []Diagnostic, []CoverageGap, error) {
+	signals := []Signal{}
+	diagnostics := []Diagnostic{}
+	gaps := []CoverageGap{}
+
 	out, err := i.IAM.ListRoles(ctx, &iam.ListRolesInput{MaxItems: awsv2.Int32(request.MaxRoles)})
 	if err != nil {
 		if isContextCancellation(err) {
@@ -244,9 +259,6 @@ func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest
 			Remediation: "Grant iam:ListRoles plus service last-accessed read APIs.",
 		}}, nil
 	}
-	signals := []Signal{}
-	diagnostics := []Diagnostic{}
-	gaps := []CoverageGap{}
 	for idx, role := range out.Roles {
 		if int32(idx) >= request.MaxRoles {
 			break
@@ -411,6 +423,136 @@ func (i *Ingester) collectIAMLastUsed(ctx context.Context, request IngestRequest
 			Status:      "history_truncated",
 			Reason:      "IAM role listing exceeded the bounded per-run role budget.",
 			Remediation: "Rerun with a larger IAM last-used role budget or shard by path prefix.",
+		})
+	}
+	keySignals, keyDiagnostics, keyGaps, keyErr := i.collectIAMAccessKeyLastUsed(ctx, request)
+	if keyErr != nil {
+		return nil, nil, nil, keyErr
+	}
+	signals = append(signals, keySignals...)
+	diagnostics = append(diagnostics, keyDiagnostics...)
+	gaps = append(gaps, keyGaps...)
+	return signals, diagnostics, gaps, nil
+}
+
+func (i *Ingester) collectIAMAccessKeyLastUsed(ctx context.Context, request IngestRequest) ([]Signal, []Diagnostic, []CoverageGap, error) {
+	users, err := i.IAM.ListUsers(ctx, &iam.ListUsersInput{MaxItems: awsv2.Int32(request.MaxUsers)})
+	if err != nil {
+		if isContextCancellation(err) {
+			return nil, nil, nil, err
+		}
+		return nil, []Diagnostic{permissionAwareDiagnostic("iam:access-keys", "iam_access_key_last_used_permission_denied", "iam_access_key_last_used_failed", fmt.Sprintf("IAM user listing failed for access-key last-used collection: %v", err), "Grant metadata-only iam:ListUsers, iam:ListAccessKeys, and iam:GetAccessKeyLastUsed.", err)}, []CoverageGap{{
+			Capability:  "iam_access_key_last_used",
+			Status:      permissionAwareStatus(err),
+			Reason:      "IAM users could not be listed for access-key last-used collection.",
+			Remediation: "Grant iam:ListUsers plus access-key metadata read APIs.",
+		}}, nil
+	}
+
+	signals := []Signal{}
+	diagnostics := []Diagnostic{}
+	gaps := []CoverageGap{}
+	totalKeys := int32(0)
+	for userIdx, user := range users.Users {
+		if int32(userIdx) >= request.MaxUsers || totalKeys >= request.MaxAccessKeys {
+			break
+		}
+		userName := awsv2.ToString(user.UserName)
+		userARN := awsv2.ToString(user.Arn)
+		if userName == "" {
+			continue
+		}
+		keys, listErr := i.IAM.ListAccessKeys(ctx, &iam.ListAccessKeysInput{
+			UserName: awsv2.String(userName),
+			MaxItems: awsv2.Int32(request.MaxAccessKeys - totalKeys),
+		})
+		if listErr != nil {
+			if isContextCancellation(listErr) {
+				return nil, nil, nil, listErr
+			}
+			diagnostics = append(diagnostics, permissionAwareDiagnostic("iam:user:"+userName, "iam_access_key_last_used_permission_denied", "iam_access_key_list_failed", fmt.Sprintf("IAM access keys could not be listed for %s: %v", userName, listErr), "Grant iam:ListAccessKeys for metadata-only access-key evidence.", listErr))
+			gaps = append(gaps, CoverageGap{
+				Capability:  "iam_access_key_last_used",
+				Status:      permissionAwareStatus(listErr),
+				Reason:      fmt.Sprintf("Access keys could not be listed for IAM user %s.", userName),
+				Remediation: "Grant iam:ListAccessKeys and retry collection.",
+			})
+			continue
+		}
+		for _, key := range keys.AccessKeyMetadata {
+			if totalKeys >= request.MaxAccessKeys {
+				break
+			}
+			keyID := awsv2.ToString(key.AccessKeyId)
+			if keyID == "" || key.Status == iamtypes.StatusTypeInactive {
+				continue
+			}
+			lastUsed, getErr := i.IAM.GetAccessKeyLastUsed(ctx, &iam.GetAccessKeyLastUsedInput{AccessKeyId: awsv2.String(keyID)})
+			if getErr != nil {
+				if isContextCancellation(getErr) {
+					return nil, nil, nil, getErr
+				}
+				diagnostics = append(diagnostics, permissionAwareDiagnostic("iam:access-key:"+keyID, "iam_access_key_last_used_permission_denied", "iam_access_key_last_used_lookup_failed", fmt.Sprintf("IAM access-key last-used metadata could not be read for %s: %v", keyID, getErr), "Grant iam:GetAccessKeyLastUsed for metadata-only access-key evidence.", getErr))
+				continue
+			}
+			totalKeys++
+			keyUser := firstNonEmpty(awsv2.ToString(lastUsed.UserName), awsv2.ToString(key.UserName), userName)
+			if userARN == "" {
+				userARN = fmt.Sprintf("arn:aws:iam::%s:user/%s", request.AccountID, keyUser)
+			}
+			observedAt := request.CollectedAt
+			region := request.Region
+			status := "never_used"
+			confidence := 0.74
+			action := "iam:AccessKeyNeverUsed"
+			eventName := "AccessKeyNeverUsed"
+			if lastUsed.AccessKeyLastUsed != nil && lastUsed.AccessKeyLastUsed.LastUsedDate != nil {
+				observedAt = lastUsed.AccessKeyLastUsed.LastUsedDate.UTC()
+				region = firstNonEmpty(awsv2.ToString(lastUsed.AccessKeyLastUsed.Region), request.Region)
+				status = iamLastUsedStatus(observedAt, request.CollectedAt)
+				confidence = 0.86
+				action = "iam:AccessKeyLastUsed"
+				eventName = "AccessKeyLastUsed"
+			} else if key.CreateDate != nil {
+				observedAt = key.CreateDate.UTC()
+				status = iamNeverUsedStatus(key.CreateDate, request.CollectedAt)
+			}
+			signals = append(signals, Signal{
+				EventID:            "iam-access-key-last-used:" + sanitizeToken(keyID),
+				AccountID:          request.AccountID,
+				Region:             region,
+				Category:           "iam-last-used",
+				Scope:              "access-key",
+				EventSource:        "iam.amazonaws.com",
+				EventName:          eventName,
+				Action:             action,
+				ActorPrincipalARN:  userARN,
+				ActorPrincipalType: "iam_user",
+				TargetResourceARN:  "aws:iam-access-key:" + keyID,
+				TargetResourceType: "iam_access_key",
+				TargetResourceName: keyID,
+				Status:             status,
+				Confidence:         confidence,
+				ObservedAt:         observedAt,
+				CollectedAt:        request.CollectedAt,
+				StaleAt:            request.CollectedAt,
+			})
+		}
+		if keys.IsTruncated {
+			gaps = append(gaps, CoverageGap{
+				Capability:  "iam_access_key_last_used",
+				Status:      "history_truncated",
+				Reason:      fmt.Sprintf("Access key listing for IAM user %s exceeded the bounded per-run key budget.", userName),
+				Remediation: "Rerun with a larger access-key budget or shard by IAM path prefix.",
+			})
+		}
+	}
+	if users.IsTruncated || totalKeys >= request.MaxAccessKeys {
+		gaps = append(gaps, CoverageGap{
+			Capability:  "iam_access_key_last_used",
+			Status:      "history_truncated",
+			Reason:      "IAM user or access-key listing exceeded the bounded per-run budget.",
+			Remediation: "Rerun with larger IAM user/access-key budgets or shard by IAM path prefix.",
 		})
 	}
 	return signals, diagnostics, gaps, nil

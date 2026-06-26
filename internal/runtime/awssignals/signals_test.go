@@ -16,12 +16,17 @@ import (
 
 type fakeIAMAPI struct {
 	listRolesErr     error
+	listUsersErr     error
+	listAccessKeyErr error
+	getAccessKeyErr  error
 	getStatus        iamtypes.JobStatusType
 	truncated        bool
 	emptyRoles       bool
+	emptyUsers       bool
 	neverUsedRole    bool
 	neverUsedService bool
 	roleCreationDate *time.Time
+	keyLastUsedDate  *time.Time
 }
 
 func (f fakeIAMAPI) ListRoles(context.Context, *iam.ListRolesInput, ...func(*iam.Options)) (*iam.ListRolesOutput, error) {
@@ -71,6 +76,52 @@ func (f fakeIAMAPI) GetServiceLastAccessedDetails(context.Context, *iam.GetServi
 		JobCompletionDate:    &completedAt,
 		IsTruncated:          f.truncated,
 		ServicesLastAccessed: []iamtypes.ServiceLastAccessed{service},
+	}, nil
+}
+
+func (f fakeIAMAPI) ListUsers(context.Context, *iam.ListUsersInput, ...func(*iam.Options)) (*iam.ListUsersOutput, error) {
+	if f.listUsersErr != nil {
+		return nil, f.listUsersErr
+	}
+	if f.emptyUsers {
+		return &iam.ListUsersOutput{}, nil
+	}
+	return &iam.ListUsersOutput{Users: []iamtypes.User{{
+		Arn:      awsv2.String("arn:aws:iam::123456789012:user/orders-ci"),
+		UserName: awsv2.String("orders-ci"),
+	}}}, nil
+}
+
+func (f fakeIAMAPI) ListAccessKeys(context.Context, *iam.ListAccessKeysInput, ...func(*iam.Options)) (*iam.ListAccessKeysOutput, error) {
+	if f.listAccessKeyErr != nil {
+		return nil, f.listAccessKeyErr
+	}
+	createdAt := time.Date(2026, 1, 8, 9, 0, 0, 0, time.UTC)
+	accessKeyID := "AKIA" + "ORDERS123456"
+	return &iam.ListAccessKeysOutput{AccessKeyMetadata: []iamtypes.AccessKeyMetadata{{
+		AccessKeyId: awsv2.String(accessKeyID),
+		CreateDate:  &createdAt,
+		Status:      iamtypes.StatusTypeActive,
+		UserName:    awsv2.String("orders-ci"),
+	}}}, nil
+}
+
+func (f fakeIAMAPI) GetAccessKeyLastUsed(context.Context, *iam.GetAccessKeyLastUsedInput, ...func(*iam.Options)) (*iam.GetAccessKeyLastUsedOutput, error) {
+	if f.getAccessKeyErr != nil {
+		return nil, f.getAccessKeyErr
+	}
+	lastUsed := f.keyLastUsedDate
+	if lastUsed == nil {
+		defaultLastUsed := time.Date(2026, 2, 20, 10, 0, 0, 0, time.UTC)
+		lastUsed = &defaultLastUsed
+	}
+	return &iam.GetAccessKeyLastUsedOutput{
+		UserName: awsv2.String("orders-ci"),
+		AccessKeyLastUsed: &iamtypes.AccessKeyLastUsed{
+			LastUsedDate: lastUsed,
+			Region:       awsv2.String("us-east-1"),
+			ServiceName:  awsv2.String("Amazon S3"),
+		},
 	}, nil
 }
 
@@ -177,7 +228,7 @@ func TestIngesterCollectsIAMLastUsedAndAccessAnalyzerSignals(t *testing.T) {
 	if result.Status != "ready" || len(result.Diagnostics) != 0 || len(result.CoverageGaps) != 0 {
 		t.Fatalf("expected ready metadata-only signal result, got %+v", result)
 	}
-	var roleLastUsed, serviceLastUsed, analyzerFinding *Signal
+	var roleLastUsed, serviceLastUsed, accessKeyLastUsed, analyzerFinding *Signal
 	for idx := range result.Signals {
 		signal := &result.Signals[idx]
 		switch {
@@ -185,18 +236,23 @@ func TestIngesterCollectsIAMLastUsedAndAccessAnalyzerSignals(t *testing.T) {
 			roleLastUsed = signal
 		case signal.EventID == "iam-service-last-used:arn-aws-iam-123456789012-role-payments-worker:s3":
 			serviceLastUsed = signal
+		case signal.EventID == "iam-access-key-last-used:"+"akia"+"orders123456":
+			accessKeyLastUsed = signal
 		case strings.HasPrefix(signal.EventID, "access-analyzer:"):
 			analyzerFinding = signal
 		}
 	}
-	if roleLastUsed == nil || serviceLastUsed == nil || analyzerFinding == nil {
-		t.Fatalf("expected role, service, and analyzer signals, got %+v", result.Signals)
+	if roleLastUsed == nil || serviceLastUsed == nil || accessKeyLastUsed == nil || analyzerFinding == nil {
+		t.Fatalf("expected role, service, access-key, and analyzer signals, got %+v", result.Signals)
 	}
 	if roleLastUsed.Category != "iam-last-used" || roleLastUsed.Scope != "role" || !roleLastUsed.StaleAt.Equal(collectedAt) {
 		t.Fatalf("unexpected role last-used signal: %+v", roleLastUsed)
 	}
 	if serviceLastUsed.TargetResourceARN != "aws-service://s3" || serviceLastUsed.Scope != "service" || serviceLastUsed.StaleAt.IsZero() {
 		t.Fatalf("unexpected service last-used signal: %+v", serviceLastUsed)
+	}
+	if accessKeyLastUsed.Scope != "access-key" || accessKeyLastUsed.TargetResourceType != "iam_access_key" || accessKeyLastUsed.TargetResourceName != "AKIA"+"ORDERS123456" {
+		t.Fatalf("unexpected access-key last-used signal: %+v", accessKeyLastUsed)
 	}
 	if analyzerFinding.Category != "access-analyzer" || analyzerFinding.Scope != "account" || analyzerFinding.AnalyzerARN == "" || analyzerFinding.StaleAt.IsZero() || analyzerFinding.Confidence < 0.89 {
 		t.Fatalf("unexpected Access Analyzer signal: %+v", analyzerFinding)
@@ -228,7 +284,7 @@ func TestIngesterSkipsCrossAccountAccessAnalyzerFindings(t *testing.T) {
 			Resource:             awsv2.String("arn:aws:secretsmanager:us-east-1:999999999999:secret:prod/other"),
 		},
 	}
-	result, err := New(fakeIAMAPI{emptyRoles: true}, fakeAccessAnalyzerAPI{
+	result, err := New(fakeIAMAPI{emptyRoles: true, emptyUsers: true}, fakeAccessAnalyzerAPI{
 		analyzerType: accessanalyzertypes.TypeOrganization,
 		findings:     findings,
 	}).Ingest(context.Background(), IngestRequest{
@@ -252,7 +308,7 @@ func TestIngesterSkipsCrossAccountAccessAnalyzerFindings(t *testing.T) {
 
 func TestIngesterUsesFindingsV2ForInternalAccessAnalyzers(t *testing.T) {
 	collectedAt := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
-	result, err := New(fakeIAMAPI{emptyRoles: true}, fakeAccessAnalyzerAPI{
+	result, err := New(fakeIAMAPI{emptyRoles: true, emptyUsers: true}, fakeAccessAnalyzerAPI{
 		analyzerType:    accessanalyzertypes.TypeAccountInternalAccess,
 		listFindingsErr: errors.New("legacy ListFindings should not be called"),
 	}).Ingest(context.Background(), IngestRequest{
@@ -481,7 +537,7 @@ func TestIngesterBlocksWhenIAMAndAnalyzerFindingsAreDenied(t *testing.T) {
 }
 
 func TestIngesterDoesNotBlockWhenOnlyOneCollectorIsDenied(t *testing.T) {
-	result, err := New(fakeIAMAPI{emptyRoles: true}, fakeAccessAnalyzerAPI{listAnalyzersErr: errors.New("AccessDeniedException")}).Ingest(context.Background(), IngestRequest{
+	result, err := New(fakeIAMAPI{emptyRoles: true, emptyUsers: true}, fakeAccessAnalyzerAPI{listAnalyzersErr: errors.New("AccessDeniedException")}).Ingest(context.Background(), IngestRequest{
 		AccountID:   "123456789012",
 		Region:      "us-east-1",
 		CollectedAt: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC),

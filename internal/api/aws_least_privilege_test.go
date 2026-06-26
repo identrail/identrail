@@ -214,6 +214,35 @@ func TestAWSLeastPrivilegeRecommendationFromRuntimeSignalDowngradesLowConfidence
 	}
 }
 
+func TestAWSLeastPrivilegeRecommendationFromRuntimeSignalSkipsAccessKeyLastUsed(t *testing.T) {
+	now := time.Date(2026, 6, 20, 8, 26, 0, 0, time.UTC)
+	accessKeyID := "AKIA" + "ORDERS123456"
+	record := AWSRuntimeEventRecord{
+		EventID:             "evt-iam-last-used-access-key",
+		AccountID:           "111111111111",
+		Region:              "us-east-1",
+		EventType:           "iam-last-used",
+		EventSource:         "iam.amazonaws.com",
+		EventName:           "AccessKeyLastUsed",
+		Action:              "iam:AccessKeyLastUsed",
+		ActorPrincipalARN:   "arn:aws:iam::111111111111:user/orders-ci",
+		ActorIdentityNodeID: "aws:identity:user/orders-ci",
+		TargetResourceName:  accessKeyID,
+		TargetResourceType:  "iam_access_key",
+		ResourceNodeID:      "aws:iam-access-key:" + accessKeyID,
+		SignalCategory:      "iam-last-used",
+		EvidenceRef:         "runtime-evidence://access-key/" + accessKeyID,
+		Confidence:          0.86,
+		ObservedAt:          now.Add(-120 * 24 * time.Hour),
+		Status:              "stale",
+		SignalScope:         "access-key",
+	}
+
+	if recommendation, ok := awsLeastPrivilegeRecommendationFromRuntimeSignal(record, now); ok {
+		t.Fatalf("access-key last-used signals must stay out of service-action diffs: %+v", recommendation)
+	}
+}
+
 func TestGetAWSLeastPrivilegePermissionDeniedAndEmptyStatesAreExplicit(t *testing.T) {
 	now := time.Date(2026, 6, 20, 8, 30, 0, 0, time.UTC)
 	svc, ws := newLeastPrivilegeService(t, "project-least-privilege-states", now)

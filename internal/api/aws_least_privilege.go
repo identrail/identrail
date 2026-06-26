@@ -523,6 +523,9 @@ func awsLeastPrivilegeRecommendationFromRuntimeSignal(record AWSRuntimeEventReco
 		if normalizeAWSRuntimeEventFilterToken(record.Status) != "stale" {
 			return AWSLeastPrivilegeRecommendation{}, false
 		}
+		if normalizeAWSRuntimeEventFilterToken(record.TargetResourceType) == "iam-access-key" || normalizeAWSRuntimeEventFilterToken(record.SignalScope) == "access-key" {
+			return AWSLeastPrivilegeRecommendation{}, false
+		}
 		service := normalizeAWSRuntimeEventFilterToken(firstNonEmptyAWSValue(record.TargetResourceName, serviceFromAWSAction(record.Action), record.EventSource))
 		action := awsLeastPrivilegeServiceAction(service)
 		evidenceRef := firstNonEmptyAWSValue(record.EvidenceRef, fmt.Sprintf("runtime-evidence://%s", record.EventID))
