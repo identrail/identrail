@@ -266,6 +266,26 @@ func TestAWSSCPDeniedActionsForResourcePolicyFindings(t *testing.T) {
 			expected: []string{"secretsmanager:PutResourcePolicy"},
 		},
 		{
+			name:     "cross-account resource access using service token s3",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "s3"},
+			expected: []string{"s3:PutBucketPolicy"},
+		},
+		{
+			name:     "cross-account resource access using normalized s3 token",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "s3-bucket"},
+			expected: []string{"s3:PutBucketPolicy"},
+		},
+		{
+			name:     "cross-account resource access using service token kms",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "kms"},
+			expected: []string{"kms:PutKeyPolicy"},
+		},
+		{
+			name:     "cross-account resource access using service token secretsmanager",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "secretsmanager"},
+			expected: []string{"secretsmanager:PutResourcePolicy"},
+		},
+		{
 			name:     "fallback action",
 			finding:  AWSCrossAccountTrustFinding{FindingType: "other_cross_account_grant", ResourceType: "s3_bucket"},
 			expected: []string{"*"},
@@ -280,6 +300,16 @@ func TestAWSSCPDeniedActionsForResourcePolicyFindings(t *testing.T) {
 				}},
 			},
 			expected: []string{"kms:CreateGrant"},
+		},
+		{
+			name:     "access analyzer external access",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "access_analyzer_external_access", ResourceType: "s3"},
+			expected: []string{"s3:PutBucketPolicy"},
+		},
+		{
+			name:     "unsupported resource type",
+			finding:  AWSCrossAccountTrustFinding{FindingType: "cross_account_resource_access", ResourceType: "sqs_queue"},
+			expected: nil,
 		},
 		{
 			name:     "access analyzer external access",
@@ -393,6 +423,16 @@ func TestAWSSCPTargetScopeForResourcePolicyFindings(t *testing.T) {
 		if len(ouPaths) != 1 || ouPaths[0] != "/root/finance" {
 			t.Fatalf("%s expected resource OU path, got %+v", tc.name, ouPaths)
 		}
+	}
+}
+
+func TestAWSCPCandidateSkipsUnscopedRuntimeAssumption(t *testing.T) {
+	if awsSCPCandidate(AWSCrossAccountTrustFinding{
+		FindingType:               "runtime_cross_account_assumption",
+		TrustedWithinOrganization: false,
+		ExternalPrincipalOUPath:   "",
+	}) {
+		t.Fatalf("runtime assumption from out-of-org principal should not be projected without an OU scope")
 	}
 }
 

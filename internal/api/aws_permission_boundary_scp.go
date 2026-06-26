@@ -520,6 +520,9 @@ func awsSCPPlansFromCrossAccountTrust(trust AWSCrossAccountTrustResult, orgs AWS
 }
 
 func awsSCPCandidate(finding AWSCrossAccountTrustFinding) bool {
+	if finding.FindingType == "runtime_cross_account_assumption" && !finding.TrustedWithinOrganization && strings.TrimSpace(finding.ExternalPrincipalOUPath) == "" {
+		return false
+	}
 	if finding.PublicPrincipal {
 		return true
 	}
