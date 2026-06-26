@@ -339,7 +339,7 @@ func awsIaCRemediationPlanFromIAMDiff(diff AWSIAMPolicyDiff, now time.Time) (AWS
 	resourceSlug := awsIaCResourceSlug(firstNonEmptyAWSValue(diff.IdentityName, diff.IdentityNodeID, diff.DiffID))
 	evidenceRef := firstString(awsIAMPolicyDiffEvidenceRefs(diff.Evidence))
 	files := awsIaCFileChangesForIAMDiff(diff, target, resourceSlug, evidenceRef)
-	validation := awsIaCValidationHintsForTarget(target)
+	validation := awsIaCValidationHintsForTarget(target, files)
 	verification := awsIaCCloudVerificationForIAMDiff(diff)
 	gates := awsIaCReadinessGatesForIAMDiff(diff)
 	pr := awsIaCPRNotesForIAMDiff(diff)
@@ -400,7 +400,7 @@ func awsIaCRemediationPlanFromTrustHardening(hardening AWSTrustPolicyHardeningPl
 	resourceSlug := awsIaCResourceSlug(firstNonEmptyAWSValue(hardening.ResourceLabel, hardening.ResourceNodeID, hardening.PlanID))
 	evidenceRef := firstString(awsIAMPolicyDiffEvidenceRefs(hardening.Evidence))
 	files := awsIaCFileChangesForTrustHardening(hardening, target, resourceSlug, evidenceRef)
-	validation := awsIaCValidationHintsForTarget(target)
+	validation := awsIaCValidationHintsForTarget(target, files)
 	verification := awsIaCCloudVerificationForTrustHardening(hardening)
 	gates := awsIaCReadinessGatesForTrustHardening(hardening)
 	pr := awsIaCPRNotesForTrustHardening(hardening)
@@ -628,13 +628,23 @@ func awsIaCResourceTypeForTrustPolicy(target string) string {
 	}
 }
 
-func awsIaCValidationHintsForTarget(target string) []AWSIaCValidationHint {
+func awsIaCValidationHintsForTarget(target string, fileChanges []AWSIaCFileChange) []AWSIaCValidationHint {
 	switch target {
 	case awsIaCTargetCloudFormation:
-		return []AWSIaCValidationHint{
-			{Tool: "cfn-lint", Command: "cfn-lint cloudformation/identrail/**/*.yaml", Description: "Lint the CloudFormation template before opening the PR."},
-			{Tool: "aws cloudformation validate-template", Command: "aws cloudformation validate-template --template-body file://template.yaml", Description: "Validate the template against the CloudFormation schema."},
+		cloudTemplateCommands := []AWSIaCValidationHint{}
+		for _, file := range fileChanges {
+			if !strings.HasSuffix(file.Path, ".yaml") {
+				continue
+			}
+			cloudTemplateCommands = append(cloudTemplateCommands, AWSIaCValidationHint{
+				Tool:        "aws cloudformation validate-template",
+				Command:     fmt.Sprintf("aws cloudformation validate-template --template-body file://%s", file.Path),
+				Description: "Validate each generated CloudFormation template before opening the PR.",
+			})
 		}
+		return append([]AWSIaCValidationHint{
+			{Tool: "cfn-lint", Command: "cfn-lint cloudformation/identrail/**/*.yaml", Description: "Lint the generated CloudFormation templates before opening the PR."},
+		}, cloudTemplateCommands...)
 	case awsIaCTargetCDK:
 		return []AWSIaCValidationHint{
 			{Tool: "cdk synth", Command: "cdk synth --strict", Description: "Synthesize the CDK app and fail on warnings before opening the PR."},
