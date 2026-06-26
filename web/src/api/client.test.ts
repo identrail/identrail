@@ -1922,6 +1922,48 @@ describe('apiClient', () => {
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 
+  it('gets AWS remediation dry-run with scoped headers and filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ dry_run: { status: 'ready', entries: [] } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectRemediationDryRun(
+      'workspace/a',
+      'project 1',
+      {
+        connectorID: 'aws-prod',
+        fixtureState: 'success',
+        accountID: '123456789012',
+        region: 'us-east-1',
+        approvalID: 'aws-remediation-approval:orders-ci',
+        caseID: 'aws-remediation-case:orders-ci',
+        sourceType: 'least_privilege',
+        outcome: 'would_succeed',
+        riskTier: 'medium',
+        severity: 'medium',
+        search: 'PutRolePolicy'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/workspaces/workspace%2Fa/projects/project%201/aws/remediation-dry-run?');
+    expect(url).toContain('source_type=least_privilege');
+    expect(url).toContain('outcome=would_succeed');
+    expect(url).toContain('risk_tier=medium');
+    expect(options.method ?? 'GET').toBe('GET');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
+
   it('gets AWS Secrets Manager metadata inventory with scoped headers and fixture state', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

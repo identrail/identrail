@@ -1,0 +1,251 @@
+package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/identrail/identrail/internal/telemetry"
+	"go.uber.org/zap"
+)
+
+func newRemediationDryRunService(t *testing.T, project string, now time.Time) (*Service, string) {
+	t.Helper()
+	return newBlastRadiusService(t, project, now)
+}
+
+func TestGetAWSRemediationDryRunBuildsContract(t *testing.T) {
+	now := time.Date(2026, 6, 27, 10, 0, 0, 0, time.UTC)
+	svc, ws := newRemediationDryRunService(t, "project-remediation-dry-run", now)
+
+	result, err := svc.GetAWSRemediationDryRun(defaultScopeContext(), ws, "project-remediation-dry-run", AWSRemediationDryRunRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+	})
+	if err != nil {
+		t.Fatalf("get remediation dry-run: %v", err)
+	}
+	if result.CurrentIssueRef != "#1537" || result.Version != awsRemediationDryRunVersion {
+		t.Fatalf("unexpected contract metadata: %+v", result)
+	}
+	if len(result.Entries) == 0 || result.Summary.TotalEntries != len(result.Entries) {
+		t.Fatalf("expected dry-run entries and matching summary: %+v", result)
+	}
+	if result.Summary.RelationshipCount != len(result.Relationships) {
+		t.Fatalf("expected relationship count to match: summary=%+v relationships=%+v", result.Summary, result.Relationships)
+	}
+	if len(result.Caveats) == 0 || len(result.CoverageGaps) == 0 {
+		t.Fatalf("expected caveats and coverage gaps: %+v", result)
+	}
+	for i := 1; i < len(result.Entries); i++ {
+		if result.Entries[i-1].Score < result.Entries[i].Score {
+			t.Fatalf("entries are not ranked by descending score: %+v", result.Entries)
+		}
+	}
+	for _, entry := range result.Entries {
+		if entry.DryRunID == "" || entry.CalculationVersion != awsRemediationDryRunVersion || entry.ApprovalID == "" || entry.CaseID == "" {
+			t.Fatalf("entry missing stable metadata: %+v", entry)
+		}
+		if entry.IdempotencyKey == "" || entry.DryRunRef == "" {
+			t.Fatalf("entry missing idempotency key or dry_run_ref: %+v", entry)
+		}
+		if !entry.ReadOnlyProjection {
+			t.Fatalf("entry must remain a read-only projection: %+v", entry)
+		}
+		if len(entry.IntendedAPICalls) == 0 {
+			t.Fatalf("entry missing intended API calls: %+v", entry)
+		}
+		for _, call := range entry.IntendedAPICalls {
+			if call.Service == "" || call.Operation == "" {
+				t.Fatalf("intended API call missing service/operation: %+v", call)
+			}
+		}
+		if len(entry.SatisfiedPrereqs)+len(entry.FailedPrereqs) == 0 {
+			t.Fatalf("entry missing prerequisites: %+v", entry)
+		}
+		if len(entry.VerificationChecks) == 0 {
+			t.Fatalf("entry missing verification checks: %+v", entry)
+		}
+		if entry.EvidenceBoundary != awsRemediationDryRunEvidenceBoundary() {
+			t.Fatalf("entry crossed evidence boundary: %+v", entry)
+		}
+		if entry.Outcome == "" {
+			t.Fatalf("entry missing outcome: %+v", entry)
+		}
+	}
+
+	serialized, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	lower := strings.ToLower(string(serialized))
+	for _, forbidden := range []string{"\"secret_access_key\"", "\"private_key\"", "\"policy_document_body\"", "\"rendered_policy\""} {
+		if strings.Contains(lower, forbidden) {
+			t.Fatalf("dry-run serialized forbidden sensitive payload marker %q", forbidden)
+		}
+	}
+}
+
+func TestFilterAWSRemediationDryRunEntriesAppliesFilters(t *testing.T) {
+	entries := []AWSRemediationDryRunEntry{
+		{
+			DryRunID:   "ready",
+			ApprovalID: "approval-a",
+			CaseID:     "case-a",
+			AccountID:  "123456789012",
+			Region:     "us-east-1",
+			SourceType: "least_privilege",
+			Outcome:    awsRemediationDryRunOutcomeWouldSucceed,
+			RiskTier:   awsRemediationApprovalRiskLow,
+			Severity:   "low",
+		},
+		{
+			DryRunID:   "kill",
+			ApprovalID: "approval-b",
+			CaseID:     "case-b",
+			AccountID:  "123456789012",
+			Region:     "us-east-1",
+			SourceType: "trust_policy_hardening",
+			Outcome:    awsRemediationDryRunOutcomeKillSwitched,
+			RiskTier:   awsRemediationApprovalRiskCritical,
+			Severity:   "critical",
+		},
+	}
+
+	succeed, succeedApplied := filterAWSRemediationDryRunEntries(entries, AWSRemediationDryRunRequest{Outcome: awsRemediationDryRunOutcomeWouldSucceed})
+	if succeedApplied["outcome"] != "would-succeed" || len(succeed) != 1 || succeed[0].DryRunID != "ready" {
+		t.Fatalf("expected outcome=would_succeed filter: applied=%+v entries=%+v", succeedApplied, succeed)
+	}
+
+	trust, trustApplied := filterAWSRemediationDryRunEntries(entries, AWSRemediationDryRunRequest{SourceType: "trust_policy_hardening"})
+	if trustApplied["source_type"] != "trust-policy-hardening" || len(trust) != 1 || trust[0].DryRunID != "kill" {
+		t.Fatalf("expected source_type filter: applied=%+v entries=%+v", trustApplied, trust)
+	}
+}
+
+func TestAWSRemediationDryRunOutcomeHonorsApprovalGates(t *testing.T) {
+	now := time.Date(2026, 6, 27, 11, 0, 0, 0, time.UTC)
+
+	approved := AWSRemediationApprovalEntry{
+		ApprovalID:        "approval-approved",
+		CaseID:            "case-approved",
+		State:             awsRemediationApprovalStateApproved,
+		ReadyForExecution: true,
+		FeatureFlags:      []AWSRemediationApprovalFeatureFlag{{Name: "live_aws_mutation", Enabled: false, Rationale: "off"}},
+		RBACGates:         []AWSRemediationApprovalRBACGate{{Name: "approver_quorum", Status: "passed"}},
+		Scope:             AWSRemediationApprovalScope{IdentityNodeIDs: []string{"aws:identity:role/orders-ci"}},
+	}
+	if got := awsRemediationDryRunEntryFromApproval(approved, now).Outcome; got != awsRemediationDryRunOutcomeWouldSucceed {
+		t.Fatalf("approved+ready entry must project would_succeed, got %q", got)
+	}
+
+	blocked := approved
+	blocked.State = awsRemediationApprovalStateBlocked
+	if got := awsRemediationDryRunEntryFromApproval(blocked, now).Outcome; got != awsRemediationDryRunOutcomeBlocked {
+		t.Fatalf("blocked approval must project blocked outcome, got %q", got)
+	}
+
+	killSwitch := approved
+	killSwitch.KillSwitchEngaged = true
+	if got := awsRemediationDryRunEntryFromApproval(killSwitch, now).Outcome; got != awsRemediationDryRunOutcomeKillSwitched {
+		t.Fatalf("kill switch must override outcome, got %q", got)
+	}
+
+	pending := approved
+	pending.State = awsRemediationApprovalStateRequested
+	if got := awsRemediationDryRunEntryFromApproval(pending, now).Outcome; got != awsRemediationDryRunOutcomeRequiresReview {
+		t.Fatalf("pending approval must project requires_review, got %q", got)
+	}
+
+	failedGate := approved
+	failedGate.RBACGates = []AWSRemediationApprovalRBACGate{{Name: "approver_quorum", Status: "blocked"}}
+	entry := awsRemediationDryRunEntryFromApproval(failedGate, now)
+	if entry.Outcome != awsRemediationDryRunOutcomeWouldFail {
+		t.Fatalf("failed prerequisite must project would_fail, got %q", entry.Outcome)
+	}
+	if len(entry.FailedPrereqs) == 0 {
+		t.Fatalf("failed prereqs must be populated when gate is blocked: %+v", entry.FailedPrereqs)
+	}
+	if entry.ReadyForApply {
+		t.Fatalf("would_fail entry must not be ready_for_apply: %+v", entry)
+	}
+}
+
+func TestAWSRemediationDryRunIntendedAPICallVariesBySourceType(t *testing.T) {
+	cases := []struct {
+		sourceType string
+		service    string
+		operation  string
+	}{
+		{"least_privilege", "iam", "PutRolePolicy"},
+		{"trust_policy_hardening", "iam", "UpdateAssumeRolePolicy"},
+		{"aws_permission_boundary_scp", "iam", "PutRolePermissionsBoundary"},
+		{"aws_secret_key_rotation", "secretsmanager", "RotateSecret"},
+		{"aws_access_key_quarantine", "iam", "UpdateAccessKey"},
+		{"secret_permission_equivalence", "kms", "PutKeyPolicy"},
+		{"ai_agent_risk", "bedrock-agent", "UpdateAgent"},
+		{"blast_radius", "iam", "DetachRolePolicy"},
+	}
+	for _, tc := range cases {
+		calls := awsRemediationDryRunIntendedAPICalls(AWSRemediationApprovalEntry{SourceType: tc.sourceType, CaseID: "case", IdempotencyKey: "idk"})
+		if len(calls) == 0 || calls[0].Service != tc.service || calls[0].Operation != tc.operation {
+			t.Fatalf("source_type=%q: expected %s.%s, got %+v", tc.sourceType, tc.service, tc.operation, calls)
+		}
+	}
+}
+
+func TestGetAWSRemediationDryRunFailureStates(t *testing.T) {
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	svc, ws := newRemediationDryRunService(t, "project-remediation-dry-run-states", now)
+
+	denied, err := svc.GetAWSRemediationDryRun(defaultScopeContext(), ws, "project-remediation-dry-run-states", AWSRemediationDryRunRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "permission_denied",
+	})
+	if err != nil {
+		t.Fatalf("permission denied: %v", err)
+	}
+	if denied.Status != "blocked" || len(denied.Entries) != 0 {
+		t.Fatalf("permission denied must be explicit and suppress entries: %+v", denied)
+	}
+
+	empty, err := svc.GetAWSRemediationDryRun(defaultScopeContext(), ws, "project-remediation-dry-run-states", AWSRemediationDryRunRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "empty",
+	})
+	if err != nil {
+		t.Fatalf("empty: %v", err)
+	}
+	if empty.Status == "blocked" {
+		t.Fatalf("empty fixture should not produce a blocked status: %+v", empty)
+	}
+
+	if _, err := svc.GetAWSRemediationDryRun(defaultScopeContext(), ws, "project-remediation-dry-run-states", AWSRemediationDryRunRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "garbage",
+	}); err == nil {
+		t.Fatalf("invalid fixture state should fail validation")
+	}
+}
+
+func TestRouterAWSRemediationDryRun(t *testing.T) {
+	now := time.Date(2026, 6, 27, 13, 0, 0, 0, time.UTC)
+	svc, _ := newRemediationDryRunService(t, "project-remediation-dry-run-route", now)
+	r := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{})
+
+	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-remediation-dry-run-route/aws/remediation-dry-run?connector_id=aws-prod&fixture_state=success&outcome=would_succeed", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		DryRun AWSRemediationDryRunResult `json:"dry_run"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.DryRun.CurrentIssueRef != "#1537" || body.DryRun.AppliedFilters["outcome"] != "would-succeed" {
+		t.Fatalf("unexpected route payload: %+v", body.DryRun)
+	}
+}

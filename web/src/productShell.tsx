@@ -73,6 +73,8 @@ import {
   type AWSIaCRemediationResult,
   type AWSRemediationApprovalEntry,
   type AWSRemediationApprovalResult,
+  type AWSRemediationDryRunEntry,
+  type AWSRemediationDryRunResult,
   type AWSBlastRadiusFinding,
   type AWSBlastRadiusResult,
   type AWSLeastPrivilegeRecommendation,
@@ -11491,6 +11493,114 @@ function AWSRemediationApprovalContent({
   );
 }
 
+function awsRemediationDryRunStage(entry: AWSRemediationDryRunEntry): AWSCapabilityStage {
+  if (entry.kill_switch_engaged || entry.outcome === 'blocked' || entry.outcome === 'kill_switch_engaged') {
+    return 'not-available';
+  }
+  if (entry.outcome !== 'would_succeed') {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsRemediationDryRunAPICallLabel(entry: AWSRemediationDryRunEntry): string {
+  if (entry.intended_api_calls.length === 0) {
+    return 'manual review';
+  }
+  const labels = entry.intended_api_calls.map((call) => `${call.service}:${call.operation}`);
+  return labels.slice(0, 2).join(' · ') + (labels.length > 2 ? ` +${labels.length - 2}` : '');
+}
+
+function awsRemediationDryRunPrereqLabel(entry: AWSRemediationDryRunEntry): string {
+  const failed = entry.failed_prerequisites.length;
+  const satisfied = entry.satisfied_prerequisites.length;
+  return `${satisfied} passed · ${failed} blocked`;
+}
+
+function awsRemediationDryRunOutcomeLabel(entry: AWSRemediationDryRunEntry): string {
+  if (entry.ready_for_apply) {
+    return `ready · ${entry.verification_checks.length} checks`;
+  }
+  return formatTokenLabel(entry.outcome);
+}
+
+function AWSRemediationDryRunContent({
+  dryRun,
+  loading,
+  error,
+  onRetry
+}: {
+  dryRun: AWSRemediationDryRunResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = dryRun?.entries ?? [];
+  const summaryLine = dryRun
+    ? `${dryRun.summary.total_entries} total · ${dryRun.summary.ready_for_apply_count} ready · ${dryRun.summary.api_call_count} intended API calls · ${dryRun.summary.failed_prerequisite_count} blocked prereqs`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS remediation dry-run executor">
+      <h3>AWS remediation dry-run executor</h3>
+      <p className="idt-app-kicker">
+        Read-only dry-run projection from approved remediation cases. Each entry carries the intended AWS API calls,
+        affected resources, satisfied/failed prerequisites, and cloud verification checks — Identrail never calls AWS
+        write APIs at this layer. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load AWS remediation dry-run"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Simulating dry-run"
+          body="Identrail is simulating the approved remediation cases against the AWS API surface to project intended calls and verification checks."
+        />
+      ) : null}
+      {!error && !loading && dryRun && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={dryRun.status === 'blocked' ? 'Permission required' : 'No dry-run entries'}
+          title={dryRun.status === 'blocked' ? 'Dry-run needs approved remediation evidence' : 'No dry-run entries projected'}
+          body={dryRun.failure_reasons[0] ?? 'No upstream approval queue evidence produced a dry-run entry for this environment.'}
+        />
+      ) : null}
+      {!error && !loading && dryRun && dryRun.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {dryRun.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS remediation dry-run entries"
+          rows={rows}
+          getRowKey={(row) => row.dry_run_id}
+          columns={[
+            { key: 'dry_run', header: 'Dry-run', render: (row) => <strong>{row.title}</strong> },
+            { key: 'source', header: 'Source', render: (row) => formatTokenLabel(row.source_type) },
+            { key: 'api_calls', header: 'Intended calls', render: (row) => awsRemediationDryRunAPICallLabel(row) },
+            { key: 'prereqs', header: 'Prerequisites', render: (row) => awsRemediationDryRunPrereqLabel(row) },
+            { key: 'outcome', header: 'Outcome', render: (row) => awsRemediationDryRunOutcomeLabel(row) },
+            {
+              key: 'severity',
+              header: 'Severity',
+              render: (row) => (
+                <AWSInventoryPill stage={awsRemediationDryRunStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.outcome)}`} />
+              )
+            },
+            { key: 'verification', header: 'Verification', render: (row) => `${row.verification_checks.length} check${row.verification_checks.length === 1 ? '' : 's'}` }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsBlastRadiusSeverityStage(severity: string): AWSCapabilityStage {
   switch (severity) {
     case 'critical':
@@ -12966,6 +13076,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [remediationApprovalLoading, setRemediationApprovalLoading] = useState(false);
   const [remediationApprovalError, setRemediationApprovalError] = useState('');
   const remediationApprovalRequestRef = useRef(0);
+  const [remediationDryRun, setRemediationDryRun] = useState<AWSRemediationDryRunResult | null>(null);
+  const [remediationDryRunLoading, setRemediationDryRunLoading] = useState(false);
+  const [remediationDryRunError, setRemediationDryRunError] = useState('');
+  const remediationDryRunRequestRef = useRef(0);
   const [blastRadius, setBlastRadius] = useState<AWSBlastRadiusResult | null>(null);
   const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
   const [blastRadiusError, setBlastRadiusError] = useState('');
@@ -13635,6 +13749,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadRemediationApproval]);
 
+  const loadRemediationDryRun = useCallback(async () => {
+    const requestID = ++remediationDryRunRequestRef.current;
+    setRemediationDryRun(null);
+    setRemediationDryRunError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setRemediationDryRunLoading(false);
+      return;
+    }
+    setRemediationDryRunLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectRemediationDryRun(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== remediationDryRunRequestRef.current) {
+        return;
+      }
+      setRemediationDryRun(response.dry_run);
+    } catch (error) {
+      if (requestID !== remediationDryRunRequestRef.current) {
+        return;
+      }
+      setRemediationDryRunError(formatAPIError(error, 'Unable to load AWS remediation dry-run.'));
+    } finally {
+      if (requestID === remediationDryRunRequestRef.current) {
+        setRemediationDryRunLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadRemediationDryRun();
+    return () => {
+      remediationDryRunRequestRef.current += 1;
+    };
+  }, [loadRemediationDryRun]);
+
   const loadBlastRadius = useCallback(async () => {
     const requestID = ++blastRadiusRequestRef.current;
     setBlastRadius(null);
@@ -14169,6 +14331,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={remediationApprovalLoading}
             error={remediationApprovalError}
             onRetry={loadRemediationApproval}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSRemediationDryRunContent
+            dryRun={remediationDryRun}
+            loading={remediationDryRunLoading}
+            error={remediationDryRunError}
+            onRetry={loadRemediationDryRun}
           />
         ) : null}
         {routeID === 'runtime' ? (

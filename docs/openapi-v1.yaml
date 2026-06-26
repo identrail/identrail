@@ -614,6 +614,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/remediation-dry-run
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/blast-radius
     action: tenancy.read
     resource_type: project
@@ -5773,6 +5778,87 @@ paths:
                     $ref: "#/components/schemas/AWSRemediationApprovalResult"
         "400":
           description: Invalid AWS remediation approval queue request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/remediation-dry-run:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS remediation dry-run executor output
+      operationId: getAWSProjectRemediationDryRun
+      description: Projects a deterministic, read-only dry-run for approved AWS remediation cases. Each entry carries source approval/case IDs, idempotency key, intended AWS API calls (service, operation, target, parameter refs), affected resources, satisfied/failed prerequisites, verification checks, rollback plan, and audit metadata. The endpoint never calls IAM/STS/Secrets Manager/KMS/Organizations write APIs and never reads, exposes, logs, or persists rendered policies, secret values, customer payloads, prompts, completions, browser pages, code-interpreter output, database rows, or object contents. Live apply belongs to wave 8 executors.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: approval_id
+          schema: { type: string }
+        - in: query
+          name: case_id
+          schema: { type: string }
+        - in: query
+          name: source_type
+          schema: { type: string }
+        - in: query
+          name: outcome
+          schema:
+            type: string
+            enum: [would_succeed, would_fail, requires_review, blocked, kill_switch_engaged]
+        - in: query
+          name: risk_tier
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS remediation dry-run executor contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dry_run:
+                    $ref: "#/components/schemas/AWSRemediationDryRunResult"
+        "400":
+          description: Invalid AWS remediation dry-run request
           content:
             application/json:
               schema:
@@ -15671,6 +15757,230 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSRemediationApprovalRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationCaseCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationCaseDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSRemediationDryRunIntendedAPICall:
+      type: object
+      properties:
+        service: { type: string }
+        operation: { type: string }
+        target_resource: { type: string }
+        parameter_refs:
+          type: array
+          items: { type: string }
+        idempotent: { type: boolean }
+        requires_approval: { type: boolean }
+    AWSRemediationDryRunAffectedResource:
+      type: object
+      properties:
+        node_id: { type: string }
+        resource_arn: { type: string }
+        resource_type: { type: string }
+        change_kind: { type: string }
+        before_ref: { type: string }
+        after_ref: { type: string }
+    AWSRemediationDryRunPrerequisite:
+      type: object
+      properties:
+        name: { type: string }
+        status: { type: string }
+        rationale: { type: string }
+    AWSRemediationDryRunVerificationCheck:
+      type: object
+      properties:
+        source: { type: string }
+        signal: { type: string }
+        description: { type: string }
+    AWSRemediationDryRunRelationship:
+      type: object
+      properties:
+        dry_run_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSRemediationDryRunEntry:
+      type: object
+      properties:
+        dry_run_id: { type: string }
+        calculation_version: { type: string }
+        approval_id: { type: string }
+        case_id: { type: string }
+        source_artifact_id: { type: string }
+        source_type: { type: string }
+        outcome:
+          type: string
+          enum: [would_succeed, would_fail, requires_review, blocked, kill_switch_engaged]
+        risk_tier:
+          type: string
+          enum: [critical, high, medium, low]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        title: { type: string }
+        summary: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        idempotency_key: { type: string }
+        dry_run_ref: { type: string }
+        diff_intent:
+          $ref: "#/components/schemas/AWSRemediationDiffIntent"
+        intended_api_calls:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationDryRunIntendedAPICall"
+        affected_resources:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationDryRunAffectedResource"
+        satisfied_prerequisites:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationDryRunPrerequisite"
+        failed_prerequisites:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationDryRunPrerequisite"
+        verification_checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationDryRunVerificationCheck"
+        rollback_plan:
+          $ref: "#/components/schemas/AWSRemediationRollbackPlan"
+        verification_plan:
+          $ref: "#/components/schemas/AWSRemediationVerificationPlan"
+        tradeoffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationTradeoff"
+        audit_trail:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationApprovalAuditEntry"
+        kill_switch_engaged: { type: boolean }
+        ready_for_apply: { type: boolean }
+        read_only_projection: { type: boolean }
+        source_signals:
+          type: array
+          items: { type: string }
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationCaseEvidence"
+        evidence_boundary: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationCasePathStep"
+        next_action: { type: string }
+        simulated_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSRemediationDryRunSummary:
+      type: object
+      properties:
+        total_entries: { type: integer }
+        filtered_entries: { type: integer }
+        outcome_counts:
+          type: object
+          additionalProperties: { type: integer }
+        source_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        risk_tier_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        api_call_count: { type: integer }
+        affected_resource_count: { type: integer }
+        failed_prerequisite_count: { type: integer }
+        verification_check_count: { type: integer }
+        ready_for_apply_count: { type: integer }
+        kill_switch_engaged_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSRemediationDryRunResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSRemediationDryRunSummary"
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationDryRunEntry"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationDryRunRelationship"
         caveats:
           type: array
           items: { type: string }

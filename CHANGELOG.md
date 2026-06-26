@@ -1,6 +1,34 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS remediation dry-run executor** (#1537). Adds a read-only,
+  metadata-only dry-run projection that turns approved remediation cases
+  (#1536) into deterministic dry-run records. Each entry carries source
+  approval/case IDs, idempotency key, dry-run reference, intended AWS API
+  calls (IAM `PutRolePolicy`/`UpdateAssumeRolePolicy`/`UpdateAccessKey`,
+  Secrets Manager `RotateSecret`, KMS `PutKeyPolicy`, bedrock-agent
+  `UpdateAgent`, etc. — chosen deterministically by source type),
+  affected resources, satisfied/failed prerequisites (approval state,
+  kill switch, ready-for-execution, every RBAC gate, every feature flag
+  including the `live_aws_mutation` gate that must stay off here),
+  verification checks (CloudTrail, IAM policy simulator, Access Analyzer,
+  IAM last-used), rollback plan, verification plan, tradeoffs, and a
+  composed audit trail with a `dry_run_simulated` row. The deterministic
+  outcome (`would_succeed` / `would_fail` / `requires_review` / `blocked`
+  / `kill_switch_engaged`) drives `ready_for_apply`, which is true only
+  when the upstream approval is `ready_for_execution` and no prerequisite
+  is blocked. Identrail never calls IAM/STS/Secrets Manager/KMS/
+  Organizations write APIs at this layer; controlled live apply is
+  reserved for wave-8 apply executors. Adds
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/remediation-dry-run`
+  with filters for connector, account, region, approval ID, case ID,
+  source type, outcome, risk tier, severity, and free-text search.
+  OpenAPI schemas and authz wiring follow the neighboring wave 7/8
+  endpoints. The AWS Runtime app surface now shows an **AWS remediation
+  dry-run executor** panel with dry-run title, source type, intended
+  calls, satisfied/failed prerequisites, outcome label, and
+  severity/outcome pill, with explicit loading, empty, degraded,
+  blocked, and error states.
 - Add **AWS remediation approval workflow and RBAC gates** (#1536). Adds a
   read-only, metadata-only approval-queue projection that turns remediation
   cases (#1529) into RBAC-gated approval entries. Each entry records a

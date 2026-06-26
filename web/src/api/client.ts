@@ -4063,6 +4063,152 @@ export type AWSRemediationApprovalQuery = {
   search?: string;
 };
 
+export type AWSRemediationDryRunStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSRemediationDryRunFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSRemediationDryRunOutcome = 'would_succeed' | 'would_fail' | 'requires_review' | 'blocked' | 'kill_switch_engaged' | string;
+
+export type AWSRemediationDryRunIntendedAPICall = {
+  service: string;
+  operation: string;
+  target_resource?: string;
+  parameter_refs?: string[];
+  idempotent: boolean;
+  requires_approval: boolean;
+};
+
+export type AWSRemediationDryRunAffectedResource = {
+  node_id: string;
+  resource_arn?: string;
+  resource_type?: string;
+  change_kind: string;
+  before_ref?: string;
+  after_ref?: string;
+};
+
+export type AWSRemediationDryRunPrerequisite = {
+  name: string;
+  status: string;
+  rationale: string;
+};
+
+export type AWSRemediationDryRunVerificationCheck = {
+  source: string;
+  signal: string;
+  description: string;
+};
+
+export type AWSRemediationDryRunRelationship = {
+  dry_run_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSRemediationDryRunEntry = {
+  dry_run_id: string;
+  calculation_version: string;
+  approval_id: string;
+  case_id: string;
+  source_artifact_id: string;
+  source_type: string;
+  outcome: AWSRemediationDryRunOutcome;
+  risk_tier: string;
+  severity: string;
+  score: number;
+  confidence: number;
+  title: string;
+  summary: string;
+  account_id: string;
+  region: string;
+  idempotency_key: string;
+  dry_run_ref: string;
+  diff_intent: AWSRemediationDiffIntent;
+  intended_api_calls: AWSRemediationDryRunIntendedAPICall[];
+  affected_resources: AWSRemediationDryRunAffectedResource[];
+  satisfied_prerequisites: AWSRemediationDryRunPrerequisite[];
+  failed_prerequisites: AWSRemediationDryRunPrerequisite[];
+  verification_checks: AWSRemediationDryRunVerificationCheck[];
+  rollback_plan: AWSRemediationRollbackPlan;
+  verification_plan: AWSRemediationVerificationPlan;
+  tradeoffs: AWSRemediationTradeoff[];
+  audit_trail: AWSRemediationAuditEntry[];
+  kill_switch_engaged: boolean;
+  ready_for_apply: boolean;
+  read_only_projection: boolean;
+  source_signals: string[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  next_action: string;
+  simulated_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSRemediationDryRunSummary = {
+  total_entries: number;
+  filtered_entries: number;
+  outcome_counts: Record<string, number>;
+  source_type_counts: Record<string, number>;
+  risk_tier_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  api_call_count: number;
+  affected_resource_count: number;
+  failed_prerequisite_count: number;
+  verification_check_count: number;
+  ready_for_apply_count: number;
+  kill_switch_engaged_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSRemediationDryRunResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSRemediationDryRunStatus;
+  fixture_state?: AWSRemediationDryRunFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSRemediationDryRunSummary;
+  entries: AWSRemediationDryRunEntry[];
+  relationships: AWSRemediationDryRunRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSRemediationDryRunQuery = {
+  connectorID?: string;
+  fixtureState?: AWSRemediationDryRunFixtureState;
+  accountID?: string;
+  region?: string;
+  approvalID?: string;
+  caseID?: string;
+  sourceType?: string;
+  outcome?: string;
+  riskTier?: string;
+  severity?: string;
+  search?: string;
+};
+
 export type AWSBlastRadiusStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBlastRadiusFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSBlastRadiusSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
@@ -8363,6 +8509,29 @@ export const apiClient = {
         severity: query?.severity,
         ready_for_execution: query?.readyForExecution,
         kill_switch_engaged: query?.killSwitchEngaged,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectRemediationDryRun(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSRemediationDryRunQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ dry_run: AWSRemediationDryRunResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/remediation-dry-run${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        approval_id: query?.approvalID,
+        case_id: query?.caseID,
+        source_type: query?.sourceType,
+        outcome: query?.outcome,
+        risk_tier: query?.riskTier,
+        severity: query?.severity,
         search: query?.search
       })}`,
       auth
