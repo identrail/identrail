@@ -514,7 +514,7 @@ func awsRemediationApprovalDeriveState(source AWSRemediationCase, gates []AWSRem
 	switch strings.ToLower(strings.TrimSpace(source.Lifecycle)) {
 	case "proposed", "pending":
 		return awsRemediationApprovalStateRequested
-	case "under_review", "review":
+	case "in_review", "under_review", "review":
 		return awsRemediationApprovalStateReview
 	case "approved":
 		return awsRemediationApprovalStateApproved

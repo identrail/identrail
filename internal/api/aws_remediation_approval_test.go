@@ -213,6 +213,33 @@ func TestAWSRemediationApprovalScopeUsesAccountForBlastRadiusSource(t *testing.T
 	}
 }
 
+func TestAWSRemediationApprovalDeriveStatePreservesInReviewLifecycle(t *testing.T) {
+	cases := []struct {
+		lifecycle string
+		want      string
+	}{
+		{lifecycle: "in_review", want: awsRemediationApprovalStateReview},
+		{lifecycle: "under_review", want: awsRemediationApprovalStateReview},
+		{lifecycle: "review", want: awsRemediationApprovalStateReview},
+		{lifecycle: "proposed", want: awsRemediationApprovalStateRequested},
+	}
+	for _, tc := range cases {
+		source := AWSRemediationCase{
+			CaseID:           "case-lifecycle-" + tc.lifecycle,
+			Lifecycle:        tc.lifecycle,
+			Owner:            "orders-platform",
+			OwnerAssigned:    true,
+			ApprovalRequired: true,
+			Confidence:       0.92,
+		}
+		gates := awsRemediationApprovalRBACGates(source, awsRemediationApprovalRequiredApprovers(source, awsRemediationApprovalRiskLow))
+		got := awsRemediationApprovalDeriveState(source, gates, false)
+		if got != tc.want {
+			t.Fatalf("lifecycle=%q: state=%q want=%q gates=%+v", tc.lifecycle, got, tc.want, gates)
+		}
+	}
+}
+
 func TestAWSRemediationApprovalIdempotencyKeyIsDeterministic(t *testing.T) {
 	source := AWSRemediationCase{CaseID: "case-determinism", CalculationVersion: "deterministic"}
 	first := awsRemediationApprovalIdempotencyKey(source)
