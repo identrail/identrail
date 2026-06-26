@@ -604,6 +604,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/iac-remediation-plans
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/blast-radius
     action: tenancy.read
     resource_type: project
@@ -5584,6 +5589,89 @@ paths:
                     $ref: "#/components/schemas/AWSAccessKeyQuarantineResult"
         "400":
           description: Invalid AWS access key quarantine request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/iac-remediation-plans:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS IaC remediation PR and verification plans
+      operationId: getAWSProjectIaCRemediationPlans
+      description: Generates ranked, read-only IaC remediation PR plans from IAM policy least-privilege diffs and trust-policy hardening plans. Each plan carries IaC target (Terraform, CloudFormation, CDK, or policy-as-code), file change intent, local validation hints, cloud verification checks, PR notes, tradeoffs, rollback, verification, readiness gates, and evidence refs. The endpoint never opens or pushes a PR, never mutates AWS, and never reads, exposes, logs, or persists rendered IaC bodies, rendered policy bodies, secret values, customer payloads, prompts, completions, browser pages, code-interpreter output, database rows, or object contents.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: identity
+          schema: { type: string }
+        - in: query
+          name: iac_target
+          schema:
+            type: string
+            enum: [terraform, cloudformation, cdk, policy_as_code]
+        - in: query
+          name: change_kind
+          schema:
+            type: string
+            enum: [iam_policy_diff, trust_policy_hardening]
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: ready_for_apply
+          schema:
+            type: string
+            enum: ["true", "false", "yes", "no"]
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS IaC remediation PR plan contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    $ref: "#/components/schemas/AWSIaCRemediationResult"
+        "400":
+          description: Invalid AWS IaC remediation plans request
           content:
             application/json:
               schema:
@@ -14999,6 +15087,231 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSAccessKeyQuarantineRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSIaCFileChange:
+      type: object
+      properties:
+        path: { type: string }
+        change_intent: { type: string }
+        resource_type: { type: string }
+        before_ref: { type: string }
+        after_ref: { type: string }
+        rationale: { type: string }
+    AWSIaCValidationHint:
+      type: object
+      properties:
+        tool: { type: string }
+        command: { type: string }
+        description: { type: string }
+    AWSIaCCloudVerificationCheck:
+      type: object
+      properties:
+        source: { type: string }
+        signal: { type: string }
+        description: { type: string }
+    AWSIaCPRNotes:
+      type: object
+      properties:
+        title: { type: string }
+        summary: { type: string }
+        labels:
+          type: array
+          items: { type: string }
+        evidence_refs:
+          type: array
+          items: { type: string }
+        reviewers:
+          type: array
+          items: { type: string }
+    AWSIaCReadinessGate:
+      type: object
+      properties:
+        name: { type: string }
+        status: { type: string }
+        rationale: { type: string }
+    AWSIaCRemediationRelationship:
+      type: object
+      properties:
+        plan_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSIaCRemediationPlan:
+      type: object
+      properties:
+        plan_id: { type: string }
+        calculation_version: { type: string }
+        change_kind:
+          type: string
+          enum: [iam_policy_diff, trust_policy_hardening]
+        iac_target:
+          type: string
+          enum: [terraform, cloudformation, cdk, policy_as_code]
+        source_artifact_id: { type: string }
+        source_case_id: { type: string }
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        status: { type: string }
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        title: { type: string }
+        summary: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        service: { type: string }
+        identity_node_id: { type: string }
+        identity_arn: { type: string }
+        identity_name: { type: string }
+        resource_node_id: { type: string }
+        resource_arn: { type: string }
+        file_changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIaCFileChange"
+        validation_hints:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIaCValidationHint"
+        cloud_verification:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIaCCloudVerificationCheck"
+        pr_notes:
+          $ref: "#/components/schemas/AWSIaCPRNotes"
+        diff_intent:
+          $ref: "#/components/schemas/AWSRemediationDiffIntent"
+        tradeoffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationTradeoff"
+        rollback_plan:
+          $ref: "#/components/schemas/AWSRemediationRollbackPlan"
+        verification_plan:
+          $ref: "#/components/schemas/AWSRemediationVerificationPlan"
+        readiness_gates:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIaCReadinessGate"
+        ready_for_apply: { type: boolean }
+        read_only_projection: { type: boolean }
+        source_signals:
+          type: array
+          items: { type: string }
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeEvidence"
+        evidence_boundary: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegePathStep"
+        next_action: { type: string }
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSIaCRemediationSummary:
+      type: object
+      properties:
+        total_plans: { type: integer }
+        filtered_plans: { type: integer }
+        change_kind_counts:
+          type: object
+          additionalProperties: { type: integer }
+        iac_target_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        ready_for_apply_count: { type: integer }
+        manual_review_count: { type: integer }
+        file_change_count: { type: integer }
+        validation_hint_count: { type: integer }
+        verification_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSIaCRemediationResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSIaCRemediationSummary"
+        plans:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIaCRemediationPlan"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSIaCRemediationRelationship"
         caveats:
           type: array
           items: { type: string }

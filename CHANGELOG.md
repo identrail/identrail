@@ -1,6 +1,28 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS IaC remediation PR and verification plan generator** (#1535). Adds
+  a read-only, metadata-only generator that turns IAM least-privilege diffs
+  (#1530) and trust-policy hardening plans (#1531) into ranked IaC remediation
+  PR plans for Terraform, CloudFormation, CDK, and policy-as-code. Each plan
+  carries `change_kind` (`iam_policy_diff` / `trust_policy_hardening`),
+  `iac_target` (`terraform` / `cloudformation` / `cdk` / `policy_as_code`),
+  file change intent (with deterministic per-target paths and IaC resource
+  type), local validation hints, cloud verification checks, PR notes (title,
+  summary, labels, evidence refs, reviewers), tradeoffs, rollback plan,
+  verification plan, readiness gates (read-only projection, upstream readiness,
+  and a public-principal review gate for trust hardening), and a deterministic
+  `ready_for_apply` flag. Identrail never opens, pushes, or merges a PR, never
+  calls AWS IAM write APIs, and never inlines rendered IaC bodies, policy
+  bodies, secret values, or workload payloads. Adds
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/iac-remediation-plans`
+  with filters for connector, account, region, identity, IaC target, change
+  kind, severity, status, ready-for-apply, and free-text search. OpenAPI
+  schemas and authz wiring follow the neighboring Wave 7 planners. The AWS
+  Runtime app surface now shows an **AWS IaC remediation PR generator** panel
+  with plan title, change kind, IaC target, validation tools, readiness gate,
+  severity/status pill, and cloud verification count, with explicit loading,
+  empty, degraded, blocked, and error states.
 - Add **AWS permission boundary and SCP recommendation planner** (#1532).
   Adds a read-only, metadata-only engine that turns upstream least-privilege
   (#1522), cross-account-trust (#1526), and AWS Organizations topology

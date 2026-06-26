@@ -69,6 +69,8 @@ import {
   type AWSSecretKeyRotationResult,
   type AWSAccessKeyQuarantinePlan,
   type AWSAccessKeyQuarantineResult,
+  type AWSIaCRemediationPlan,
+  type AWSIaCRemediationResult,
   type AWSBlastRadiusFinding,
   type AWSBlastRadiusResult,
   type AWSLeastPrivilegeRecommendation,
@@ -11262,6 +11264,114 @@ function AWSAccessKeyQuarantineContent({
   );
 }
 
+function awsIaCRemediationStage(plan: AWSIaCRemediationPlan): AWSCapabilityStage {
+  if (plan.status === 'review' || plan.status === 'manual_review') {
+    return 'not-available';
+  }
+  if (!plan.ready_for_apply) {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsIaCRemediationTargetLabel(plan: AWSIaCRemediationPlan): string {
+  const fileCount = plan.file_changes.length;
+  return `${formatTokenLabel(plan.iac_target)} · ${fileCount} file${fileCount === 1 ? '' : 's'}`;
+}
+
+function awsIaCRemediationValidationLabel(plan: AWSIaCRemediationPlan): string {
+  const tools = plan.validation_hints.map((hint) => hint.tool);
+  if (tools.length === 0) {
+    return 'manual review';
+  }
+  return tools.slice(0, 3).join(' · ') + (tools.length > 3 ? ` +${tools.length - 3}` : '');
+}
+
+function awsIaCRemediationReadinessLabel(plan: AWSIaCRemediationPlan): string {
+  if (plan.ready_for_apply) {
+    return `ready · ${plan.cloud_verification.length} cloud checks`;
+  }
+  const blockedGate = plan.readiness_gates.find((gate) => gate.status === 'blocked');
+  return `gate · ${formatTokenLabel(blockedGate?.name ?? plan.status)}`;
+}
+
+function AWSIaCRemediationContent({
+  plans,
+  loading,
+  error,
+  onRetry
+}: {
+  plans: AWSIaCRemediationResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = plans?.plans ?? [];
+  const summaryLine = plans
+    ? `${plans.summary.total_plans} total · ${plans.summary.ready_for_apply_count} ready · ${plans.summary.file_change_count} files · ${plans.summary.verification_count} cloud checks`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS IaC remediation PR plans">
+      <h3>AWS IaC remediation PR generator</h3>
+      <p className="idt-app-kicker">
+        Read-only IaC remediation PR plans composed from IAM least-privilege diffs and trust-policy hardening, with file
+        change intent, local validation hints, cloud verification, rollback, and readiness gates. Identrail never opens
+        or pushes the PR for you. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load AWS IaC remediation plans"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Composing IaC remediation PR plans"
+          body="Identrail is joining IAM least-privilege diffs and trust-policy hardening into ranked IaC PR plans with validation and cloud verification."
+        />
+      ) : null}
+      {!error && !loading && plans && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={plans.status === 'blocked' ? 'Permission required' : 'No IaC PR plans'}
+          title={plans.status === 'blocked' ? 'IaC PR plans need read-only IAM and trust evidence' : 'No IaC remediation PR plans projected'}
+          body={plans.failure_reasons[0] ?? 'No upstream IAM diff or trust-hardening evidence produced an IaC PR plan for this environment.'}
+        />
+      ) : null}
+      {!error && !loading && plans && plans.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {plans.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS IaC remediation PR plans"
+          rows={rows}
+          getRowKey={(row) => row.plan_id}
+          columns={[
+            { key: 'plan', header: 'Plan', render: (row) => <strong>{row.title}</strong> },
+            { key: 'change', header: 'Change', render: (row) => formatTokenLabel(row.change_kind) },
+            { key: 'target', header: 'Target', render: (row) => awsIaCRemediationTargetLabel(row) },
+            { key: 'validation', header: 'Validation', render: (row) => awsIaCRemediationValidationLabel(row) },
+            { key: 'readiness', header: 'Readiness', render: (row) => awsIaCRemediationReadinessLabel(row) },
+            {
+              key: 'severity',
+              header: 'Severity',
+              render: (row) => (
+                <AWSInventoryPill stage={awsIaCRemediationStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.status)}`} />
+              )
+            },
+            { key: 'verification', header: 'Cloud verification', render: (row) => `${row.cloud_verification.length} check${row.cloud_verification.length === 1 ? '' : 's'}` }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsBlastRadiusSeverityStage(severity: string): AWSCapabilityStage {
   switch (severity) {
     case 'critical':
@@ -12729,6 +12839,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [accessKeyQuarantineLoading, setAccessKeyQuarantineLoading] = useState(false);
   const [accessKeyQuarantineError, setAccessKeyQuarantineError] = useState('');
   const accessKeyQuarantineRequestRef = useRef(0);
+  const [iacRemediation, setIacRemediation] = useState<AWSIaCRemediationResult | null>(null);
+  const [iacRemediationLoading, setIacRemediationLoading] = useState(false);
+  const [iacRemediationError, setIacRemediationError] = useState('');
+  const iacRemediationRequestRef = useRef(0);
   const [blastRadius, setBlastRadius] = useState<AWSBlastRadiusResult | null>(null);
   const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
   const [blastRadiusError, setBlastRadiusError] = useState('');
@@ -13302,6 +13416,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadAccessKeyQuarantine]);
 
+  const loadIacRemediation = useCallback(async () => {
+    const requestID = ++iacRemediationRequestRef.current;
+    setIacRemediation(null);
+    setIacRemediationError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setIacRemediationLoading(false);
+      return;
+    }
+    setIacRemediationLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectIaCRemediationPlans(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== iacRemediationRequestRef.current) {
+        return;
+      }
+      setIacRemediation(response.plans);
+    } catch (error) {
+      if (requestID !== iacRemediationRequestRef.current) {
+        return;
+      }
+      setIacRemediationError(formatAPIError(error, 'Unable to load AWS IaC remediation plans.'));
+    } finally {
+      if (requestID === iacRemediationRequestRef.current) {
+        setIacRemediationLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadIacRemediation();
+    return () => {
+      iacRemediationRequestRef.current += 1;
+    };
+  }, [loadIacRemediation]);
+
   const loadBlastRadius = useCallback(async () => {
     const requestID = ++blastRadiusRequestRef.current;
     setBlastRadius(null);
@@ -13820,6 +13982,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={accessKeyQuarantineLoading}
             error={accessKeyQuarantineError}
             onRetry={loadAccessKeyQuarantine}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSIaCRemediationContent
+            plans={iacRemediation}
+            loading={iacRemediationLoading}
+            error={iacRemediationError}
+            onRetry={loadIacRemediation}
           />
         ) : null}
         {routeID === 'runtime' ? (

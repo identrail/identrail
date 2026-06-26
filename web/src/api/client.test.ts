@@ -1835,6 +1835,47 @@ describe('apiClient', () => {
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 
+  it('gets AWS IaC remediation PR plans with scoped headers and filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ plans: { status: 'ready', plans: [] } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectIaCRemediationPlans(
+      'workspace/a',
+      'project 1',
+      {
+        connectorID: 'aws-prod',
+        fixtureState: 'success',
+        accountID: '123456789012',
+        region: 'us-east-1',
+        identity: 'orders-ci',
+        iacTarget: 'terraform',
+        changeKind: 'iam_policy_diff',
+        severity: 'high',
+        status: 'ready_for_apply',
+        readyForApply: 'true',
+        search: 'terraform validate'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(
+      '/v1/workspaces/workspace%2Fa/projects/project%201/aws/iac-remediation-plans?connector_id=aws-prod&fixture_state=success&account_id=123456789012&region=us-east-1&identity=orders-ci&iac_target=terraform&change_kind=iam_policy_diff&severity=high&status=ready_for_apply&ready_for_apply=true&search=terraform+validate'
+    );
+    expect(options.method ?? 'GET').toBe('GET');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
+
   it('gets AWS Secrets Manager metadata inventory with scoped headers and fixture state', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

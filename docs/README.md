@@ -91,6 +91,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - AWS permission boundary and SCP planner: `aws-permission-boundary-scp-planner.md`
 - AWS secret and key rotation planner: `aws-secret-key-rotation-planner.md`
 - AWS access key disable and quarantine planner: `aws-access-key-quarantine-planner.md`
+- AWS IaC remediation PR and verification plan generator: `aws-iac-remediation-planner.md`
 - AWS normalizer and graph: `aws-normalizer-graph.md`
 - AWS risk engine: `aws-risk-engine.md`
 

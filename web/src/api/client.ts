@@ -3763,6 +3763,157 @@ export type AWSAccessKeyQuarantineQuery = {
   search?: string;
 };
 
+export type AWSIaCRemediationStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSIaCRemediationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSIaCRemediationTarget = 'terraform' | 'cloudformation' | 'cdk' | 'policy_as_code' | string;
+export type AWSIaCRemediationChangeKind = 'iam_policy_diff' | 'trust_policy_hardening' | string;
+
+export type AWSIaCFileChange = {
+  path: string;
+  change_intent: string;
+  resource_type?: string;
+  before_ref?: string;
+  after_ref?: string;
+  rationale: string;
+};
+
+export type AWSIaCValidationHint = {
+  tool: string;
+  command: string;
+  description: string;
+};
+
+export type AWSIaCCloudVerificationCheck = {
+  source: string;
+  signal: string;
+  description: string;
+};
+
+export type AWSIaCPRNotes = {
+  title: string;
+  summary: string;
+  labels?: string[];
+  evidence_refs?: string[];
+  reviewers?: string[];
+};
+
+export type AWSIaCReadinessGate = {
+  name: string;
+  status: string;
+  rationale: string;
+};
+
+export type AWSIaCRemediationRelationship = {
+  plan_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSIaCRemediationPlan = {
+  plan_id: string;
+  calculation_version: string;
+  change_kind: AWSIaCRemediationChangeKind;
+  iac_target: AWSIaCRemediationTarget;
+  source_artifact_id: string;
+  source_case_id?: string;
+  severity: string;
+  status: string;
+  score: number;
+  confidence: number;
+  title: string;
+  summary: string;
+  account_id: string;
+  region: string;
+  service?: string;
+  identity_node_id?: string;
+  identity_arn?: string;
+  identity_name?: string;
+  resource_node_id?: string;
+  resource_arn?: string;
+  file_changes: AWSIaCFileChange[];
+  validation_hints: AWSIaCValidationHint[];
+  cloud_verification: AWSIaCCloudVerificationCheck[];
+  pr_notes: AWSIaCPRNotes;
+  diff_intent: AWSRemediationDiffIntent;
+  tradeoffs: AWSRemediationTradeoff[];
+  rollback_plan: AWSRemediationRollbackPlan;
+  verification_plan: AWSRemediationVerificationPlan;
+  readiness_gates: AWSIaCReadinessGate[];
+  ready_for_apply: boolean;
+  read_only_projection: boolean;
+  source_signals: string[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  next_action: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSIaCRemediationSummary = {
+  total_plans: number;
+  filtered_plans: number;
+  change_kind_counts: Record<string, number>;
+  iac_target_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  ready_for_apply_count: number;
+  manual_review_count: number;
+  file_change_count: number;
+  validation_hint_count: number;
+  verification_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSIaCRemediationResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSIaCRemediationStatus;
+  fixture_state?: AWSIaCRemediationFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSIaCRemediationSummary;
+  plans: AWSIaCRemediationPlan[];
+  relationships: AWSIaCRemediationRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSIaCRemediationQuery = {
+  connectorID?: string;
+  fixtureState?: AWSIaCRemediationFixtureState;
+  accountID?: string;
+  region?: string;
+  identity?: string;
+  iacTarget?: string;
+  changeKind?: string;
+  severity?: string;
+  status?: string;
+  readyForApply?: string;
+  search?: string;
+};
+
 export type AWSBlastRadiusStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBlastRadiusFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSBlastRadiusSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
@@ -8011,6 +8162,29 @@ export const apiClient = {
         identity: query?.identity,
         quarantine_state: query?.quarantineState,
         owner: query?.owner,
+        severity: query?.severity,
+        status: query?.status,
+        ready_for_apply: query?.readyForApply,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectIaCRemediationPlans(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSIaCRemediationQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ plans: AWSIaCRemediationResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/iac-remediation-plans${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        identity: query?.identity,
+        iac_target: query?.iacTarget,
+        change_kind: query?.changeKind,
         severity: query?.severity,
         status: query?.status,
         ready_for_apply: query?.readyForApply,
