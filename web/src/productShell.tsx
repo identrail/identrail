@@ -71,6 +71,8 @@ import {
   type AWSAccessKeyQuarantineResult,
   type AWSIaCRemediationPlan,
   type AWSIaCRemediationResult,
+  type AWSRemediationApprovalEntry,
+  type AWSRemediationApprovalResult,
   type AWSBlastRadiusFinding,
   type AWSBlastRadiusResult,
   type AWSLeastPrivilegeRecommendation,
@@ -11372,6 +11374,123 @@ function AWSIaCRemediationContent({
   );
 }
 
+function awsRemediationApprovalStage(entry: AWSRemediationApprovalEntry): AWSCapabilityStage {
+  if (entry.kill_switch_engaged || entry.state === 'blocked' || entry.state === 'denied' || entry.state === 'expired') {
+    return 'not-available';
+  }
+  if (!entry.ready_for_execution) {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsRemediationApprovalApproverLabel(entry: AWSRemediationApprovalEntry): string {
+  const roles = entry.required_approvers.map((approver) => approver.role);
+  if (roles.length === 0) {
+    return 'manual review';
+  }
+  return roles.slice(0, 3).join(' · ') + (roles.length > 3 ? ` +${roles.length - 3}` : '');
+}
+
+function awsRemediationApprovalScopeLabel(entry: AWSRemediationApprovalEntry): string {
+  const scope = entry.scope;
+  const accounts = scope.account_ids?.length ?? 0;
+  const regions = scope.regions?.length ?? 0;
+  return `${formatTokenLabel(scope.scope_type)} · ${accounts} account${accounts === 1 ? '' : 's'} / ${regions} region${regions === 1 ? '' : 's'}`;
+}
+
+function awsRemediationApprovalGateLabel(entry: AWSRemediationApprovalEntry): string {
+  if (entry.kill_switch_engaged) {
+    return 'kill switch · engaged';
+  }
+  const blocked = entry.rbac_gates.find((gate) => gate.status === 'blocked');
+  if (blocked) {
+    return `gate · ${formatTokenLabel(blocked.name)}`;
+  }
+  if (entry.ready_for_execution) {
+    return 'ready · gates passed';
+  }
+  return `awaiting · ${formatTokenLabel(entry.state)}`;
+}
+
+function AWSRemediationApprovalContent({
+  queue,
+  loading,
+  error,
+  onRetry
+}: {
+  queue: AWSRemediationApprovalResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = queue?.entries ?? [];
+  const summaryLine = queue
+    ? `${queue.summary.total_entries} total · ${queue.summary.ready_for_execution_count} ready · ${queue.summary.rbac_gate_blocked_count} gate-blocked · ${queue.summary.audit_entry_count} audit entries`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS remediation approval queue">
+      <h3>AWS remediation approval workflow and RBAC gates</h3>
+      <p className="idt-app-kicker">
+        Read-only approval queue projected from remediation cases, with risk-tier, requestor, required approver roles,
+        RBAC gates, tenant-scoped kill switch, feature flags, idempotency keys, scope, audit trail, rollback, and
+        verification metadata. Identrail does not call IAM/STS/Organizations write APIs at this layer. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load AWS remediation approval queue"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Composing approval queue"
+          body="Identrail is projecting remediation cases into RBAC-gated approval queue entries with risk tier, scope, and audit trail."
+        />
+      ) : null}
+      {!error && !loading && queue && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={queue.status === 'blocked' ? 'Permission required' : 'No approval entries'}
+          title={queue.status === 'blocked' ? 'Approval queue needs read-only remediation case evidence' : 'No remediation approvals projected'}
+          body={queue.failure_reasons[0] ?? 'No upstream remediation case evidence produced an approval-queue entry for this environment.'}
+        />
+      ) : null}
+      {!error && !loading && queue && queue.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {queue.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS remediation approval queue"
+          rows={rows}
+          getRowKey={(row) => row.approval_id}
+          columns={[
+            { key: 'approval', header: 'Approval', render: (row) => <strong>{row.title}</strong> },
+            { key: 'state', header: 'State', render: (row) => formatTokenLabel(row.state) },
+            { key: 'risk', header: 'Risk tier', render: (row) => formatTokenLabel(row.risk_tier) },
+            { key: 'requestor', header: 'Requestor', render: (row) => `${row.requestor.label} · ${formatTokenLabel(row.requestor.role)}` },
+            { key: 'approvers', header: 'Required approvers', render: (row) => awsRemediationApprovalApproverLabel(row) },
+            { key: 'scope', header: 'Scope', render: (row) => awsRemediationApprovalScopeLabel(row) },
+            { key: 'gates', header: 'Gates', render: (row) => awsRemediationApprovalGateLabel(row) },
+            {
+              key: 'severity',
+              header: 'Severity',
+              render: (row) => (
+                <AWSInventoryPill stage={awsRemediationApprovalStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.state)}`} />
+              )
+            }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsBlastRadiusSeverityStage(severity: string): AWSCapabilityStage {
   switch (severity) {
     case 'critical':
@@ -12843,6 +12962,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [iacRemediationLoading, setIacRemediationLoading] = useState(false);
   const [iacRemediationError, setIacRemediationError] = useState('');
   const iacRemediationRequestRef = useRef(0);
+  const [remediationApproval, setRemediationApproval] = useState<AWSRemediationApprovalResult | null>(null);
+  const [remediationApprovalLoading, setRemediationApprovalLoading] = useState(false);
+  const [remediationApprovalError, setRemediationApprovalError] = useState('');
+  const remediationApprovalRequestRef = useRef(0);
   const [blastRadius, setBlastRadius] = useState<AWSBlastRadiusResult | null>(null);
   const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
   const [blastRadiusError, setBlastRadiusError] = useState('');
@@ -13464,6 +13587,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadIacRemediation]);
 
+  const loadRemediationApproval = useCallback(async () => {
+    const requestID = ++remediationApprovalRequestRef.current;
+    setRemediationApproval(null);
+    setRemediationApprovalError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setRemediationApprovalLoading(false);
+      return;
+    }
+    setRemediationApprovalLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectRemediationApprovalQueue(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== remediationApprovalRequestRef.current) {
+        return;
+      }
+      setRemediationApproval(response.queue);
+    } catch (error) {
+      if (requestID !== remediationApprovalRequestRef.current) {
+        return;
+      }
+      setRemediationApprovalError(formatAPIError(error, 'Unable to load AWS remediation approval queue.'));
+    } finally {
+      if (requestID === remediationApprovalRequestRef.current) {
+        setRemediationApprovalLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadRemediationApproval();
+    return () => {
+      remediationApprovalRequestRef.current += 1;
+    };
+  }, [loadRemediationApproval]);
+
   const loadBlastRadius = useCallback(async () => {
     const requestID = ++blastRadiusRequestRef.current;
     setBlastRadius(null);
@@ -13990,6 +14161,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={iacRemediationLoading}
             error={iacRemediationError}
             onRetry={loadIacRemediation}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSRemediationApprovalContent
+            queue={remediationApproval}
+            loading={remediationApprovalLoading}
+            error={remediationApprovalError}
+            onRetry={loadRemediationApproval}
           />
         ) : null}
         {routeID === 'runtime' ? (
