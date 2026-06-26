@@ -491,7 +491,7 @@ func awsRemediationDryRunPrerequisites(approval AWSRemediationApprovalEntry) ([]
 		add("rbac:"+gate.Name, awsRemediationDryRunGateStatus(gate.Status == "passed"), gate.Rationale)
 	}
 	for _, flag := range approval.FeatureFlags {
-		if flag.Name == "live_aws_mutation" {
+		if awsRemediationDryRunFeatureFlagMustBeDisabled(flag.Name) {
 			add("feature_flag:"+flag.Name, awsRemediationDryRunGateStatus(!flag.Enabled), flag.Rationale)
 			continue
 		}
@@ -505,6 +505,19 @@ func awsRemediationDryRunGateStatus(ok bool) string {
 		return "passed"
 	}
 	return "blocked"
+}
+
+// awsRemediationDryRunFeatureFlagMustBeDisabled lists the safety flags whose
+// disabled state is the healthy default at the dry-run layer. The tenant
+// remediation kill switch and the live-AWS-mutation gate are both expected to
+// stay off until later wave executors open them; treating them as "passed
+// when enabled" would incorrectly mark healthy approvals as blocked.
+func awsRemediationDryRunFeatureFlagMustBeDisabled(name string) bool {
+	switch name {
+	case "live_aws_mutation", "remediation_kill_switch":
+		return true
+	}
+	return false
 }
 
 func awsRemediationDryRunVerificationChecks(approval AWSRemediationApprovalEntry) []AWSRemediationDryRunVerificationCheck {

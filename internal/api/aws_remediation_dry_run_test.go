@@ -173,6 +173,58 @@ func TestAWSRemediationDryRunOutcomeHonorsApprovalGates(t *testing.T) {
 	}
 }
 
+func TestAWSRemediationDryRunPrerequisitesTreatSafetyFlagsAsPassedWhenDisabled(t *testing.T) {
+	approval := AWSRemediationApprovalEntry{
+		ApprovalID:        "approval-safety-flags",
+		CaseID:            "case-safety-flags",
+		State:             awsRemediationApprovalStateApproved,
+		ReadyForExecution: true,
+		RBACGates:         []AWSRemediationApprovalRBACGate{{Name: "approver_quorum", Status: "passed"}},
+		FeatureFlags: []AWSRemediationApprovalFeatureFlag{
+			{Name: "aws_remediation_approval_workflow", Enabled: true, Rationale: "always on"},
+			{Name: "remediation_kill_switch", Enabled: false, Rationale: "default off"},
+			{Name: "live_aws_mutation", Enabled: false, Rationale: "default off"},
+		},
+	}
+	satisfied, failed := awsRemediationDryRunPrerequisites(approval)
+	if len(failed) != 0 {
+		t.Fatalf("disabled kill switch / live_aws_mutation must not be a failed prereq: failed=%+v", failed)
+	}
+	for _, name := range []string{"feature_flag:remediation_kill_switch", "feature_flag:live_aws_mutation"} {
+		found := false
+		for _, prereq := range satisfied {
+			if prereq.Name == name && prereq.Status == "passed" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("expected %s to be marked passed when disabled: satisfied=%+v", name, satisfied)
+		}
+	}
+	entry := awsRemediationDryRunEntryFromApproval(approval, time.Date(2026, 6, 27, 14, 0, 0, 0, time.UTC))
+	if entry.Outcome != awsRemediationDryRunOutcomeWouldSucceed || !entry.ReadyForApply {
+		t.Fatalf("healthy approval with disabled safety flags must reach would_succeed/ready_for_apply, got outcome=%q ready=%v failed=%+v", entry.Outcome, entry.ReadyForApply, entry.FailedPrereqs)
+	}
+
+	// And the opposite: kill switch engaged must block.
+	approvalKill := approval
+	approvalKill.KillSwitchEngaged = true
+	approvalKill.FeatureFlags = []AWSRemediationApprovalFeatureFlag{
+		{Name: "remediation_kill_switch", Enabled: true, Rationale: "engaged"},
+		{Name: "live_aws_mutation", Enabled: false, Rationale: "default off"},
+	}
+	_, failedKill := awsRemediationDryRunPrerequisites(approvalKill)
+	sawKill := false
+	for _, prereq := range failedKill {
+		if prereq.Name == "feature_flag:remediation_kill_switch" {
+			sawKill = true
+		}
+	}
+	if !sawKill {
+		t.Fatalf("expected engaged kill switch to register as a failed prereq: failed=%+v", failedKill)
+	}
+}
+
 func TestAWSRemediationDryRunIntendedAPICallVariesBySourceType(t *testing.T) {
 	cases := []struct {
 		sourceType string
