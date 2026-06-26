@@ -502,6 +502,8 @@ func awsRemediationApprovalDeriveState(source AWSRemediationCase, gates []AWSRem
 	switch strings.ToLower(strings.TrimSpace(source.ApprovalState)) {
 	case "approved":
 		return awsRemediationApprovalStateApproved
+	case "pending_approver":
+		return awsRemediationApprovalStateReview
 	case "denied":
 		return awsRemediationApprovalStateDenied
 	case "expired":
