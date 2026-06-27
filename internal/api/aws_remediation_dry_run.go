@@ -466,7 +466,7 @@ func awsRemediationDryRunCallForDiffKind(diff AWSRemediationDiffIntent, targets 
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "secretsmanager",
 			Operation:        "RotateSecret",
-			TargetResource:   targets.resourceOfType("permission_bearing_secret", "secret", "secretsmanager_secret"),
+			TargetResource:   targets.resourceOfType("provider_key_reference", "permission_bearing_secret", "secret", "secretsmanager_secret"),
 			ParameterRefs:    []string{idempotencyKey, "secret_ref://" + caseID + "/rotate"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -526,7 +526,7 @@ func awsRemediationDryRunCallForSourceType(sourceType string, targets awsRemedia
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "secretsmanager",
 			Operation:        "RotateSecret",
-			TargetResource:   targets.resourceOfType("permission_bearing_secret", "secret", "secretsmanager_secret"),
+			TargetResource:   targets.resourceOfType("provider_key_reference", "permission_bearing_secret", "secret", "secretsmanager_secret"),
 			ParameterRefs:    []string{idempotencyKey},
 			Idempotent:       true,
 			RequiresApproval: true,

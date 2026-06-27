@@ -499,6 +499,35 @@ func TestAWSRemediationDryRunIAMOperationFollowsPrincipalKind(t *testing.T) {
 	}
 }
 
+func TestAWSRemediationDryRunSecretRotationPicksProviderKeyNode(t *testing.T) {
+	// AI-agent external_credential_exposure cases emit a secret_rotation diff
+	// where `ResourceNodeIDs` only carries an empty sensitive resource — the
+	// credential reference itself lives in the impacted path as a
+	// `provider_key_reference` node. The dry-run must pick that node so the
+	// RotateSecret target is the credential to rotate, not the agent identity.
+	approval := AWSRemediationApprovalEntry{
+		SourceType:     "ai_agent_risk",
+		CaseID:         "case-provider-key",
+		IdempotencyKey: "idk",
+		Scope: AWSRemediationApprovalScope{
+			IdentityNodeIDs: []string{"aws:identity:role/orders-agent"},
+			ResourceNodeIDs: []string{},
+		},
+		ImpactedPath: []AWSRemediationApprovalPathStep{
+			{NodeID: "aws:identity:role/orders-agent", NodeType: "identity", Label: "orders-agent"},
+			{NodeID: "aws:provider-key:openai://orders-agent", NodeType: "provider_key_reference", Label: "openai key"},
+		},
+		DiffIntent: AWSRemediationDiffIntent{Kind: "secret_rotation"},
+	}
+	calls := awsRemediationDryRunIntendedAPICalls(approval)
+	if len(calls) == 0 || calls[0].Service != "secretsmanager" || calls[0].Operation != "RotateSecret" {
+		t.Fatalf("provider_key_reference cases must still route to secretsmanager:RotateSecret, got %+v", calls)
+	}
+	if calls[0].TargetResource != "aws:provider-key:openai://orders-agent" {
+		t.Fatalf("secret_rotation must target the provider_key_reference node, got %q", calls[0].TargetResource)
+	}
+}
+
 func TestAWSRemediationDryRunAffectedResourcesAreContextOnlyForNoOpDiffs(t *testing.T) {
 	approval := AWSRemediationApprovalEntry{
 		SourceType:     "least_privilege",
