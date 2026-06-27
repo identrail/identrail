@@ -310,6 +310,45 @@ func TestAWSRemediationCaseReachesApprovedWhenApprovalNotRequired(t *testing.T) 
 	}
 }
 
+func TestAWSRemediationCaseTrustPolicyHardeningReadyPlanPreservesApprovedState(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 40, 0, 0, time.UTC)
+	plan := AWSTrustPolicyHardeningPlan{
+		PlanID:             "aws-trust-policy-hardening:ready-plan",
+		Severity:           "high",
+		Status:             "action_required",
+		Score:              82,
+		Confidence:         0.9,
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		ResourceNodeID:     "aws:identity:arn:aws:iam::123456789012:role/payments-cross-account",
+		ResourceARN:        "arn:aws:iam::123456789012:role/payments-cross-account",
+		ResourceLabel:      "payments-cross-account",
+		HardeningDirection: "add_org_or_source_condition",
+		Summary:            "Runtime evidence supports adding trust-policy conditions.",
+		ReadyForApply:      true,
+		PublicPrincipal:    false,
+		BreakageProjection: AWSTrustPolicyHardeningBreakageProjection{Level: "low", Rationale: "Runtime callers are known."},
+		RollbackPlan:       AWSTrustPolicyHardeningRollbackPlan{Strategy: "restore_trust_policy", Steps: []string{"Restore the previous trust policy."}},
+		VerificationPlan:   AWSTrustPolicyHardeningVerificationPlan{Strategy: "trust_policy_re_evaluate", Steps: []string{"Re-run trust-policy hardening."}},
+		ImpactedNodes:      []string{"aws:identity:arn:aws:iam::123456789012:role/payments-cross-account"},
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	c, ok := awsRemediationCaseFromTrustPolicyHardening(plan, now)
+	if !ok {
+		t.Fatalf("expected trust-policy hardening case")
+	}
+	if !c.ApprovalRequired {
+		t.Fatalf("iam_trust_diff trust-policy case must require approval: %+v", c)
+	}
+	if c.ApprovalState != "approved" {
+		t.Fatalf("ready trust-policy plan must preserve approved state for dry-run/executor flow, got %s", c.ApprovalState)
+	}
+	if c.Lifecycle != "approved" {
+		t.Fatalf("ready trust-policy plan must remain approved lifecycle, got %s", c.Lifecycle)
+	}
+}
+
 func TestAWSRemediationCaseLeastPrivilegeReviewStaysInReviewLifecycle(t *testing.T) {
 	now := time.Date(2026, 6, 23, 10, 30, 0, 0, time.UTC)
 	review := AWSLeastPrivilegeRecommendation{

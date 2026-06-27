@@ -183,6 +183,18 @@ func TestAWSTrustPolicyHardeningExecutorStateHonorsPreconditions(t *testing.T) {
 		t.Fatalf("safety failure must take priority over readiness failure, got state=%q", out.State)
 	}
 
+	pendingApproval := entry
+	pendingApproval.Outcome = awsRemediationDryRunOutcomeRequiresReview
+	pendingApproval.ReadyForApply = false
+	pendingApproval.FailedPrereqs = []AWSRemediationDryRunPrerequisite{
+		{Name: "approval_state_approved", Status: "blocked"},
+		{Name: "ready_for_execution", Status: "blocked"},
+	}
+	out = awsTrustPolicyHardeningExecutorEntryFromDryRun(pendingApproval, ready, now)
+	if out.State != awsTrustPolicyHardeningExecutorStatePreconditionFailed {
+		t.Fatalf("pending upstream approval must remain retryable precondition_failed, got state=%q", out.State)
+	}
+
 	highBreakage := ready
 	highBreakage.BreakageProjection.Level = "high"
 	out = awsTrustPolicyHardeningExecutorEntryFromDryRun(entry, highBreakage, now)

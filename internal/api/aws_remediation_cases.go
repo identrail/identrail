@@ -606,6 +606,9 @@ func awsRemediationCaseFromTrustPolicyHardening(plan AWSTrustPolicyHardeningPlan
 	owner, ownerAssigned := "iam-platform", true
 	approvalRequired := awsRemediationApprovalRequired(plan.Severity, diff.Kind)
 	approvalState := awsRemediationApprovalState(approvalRequired, ownerAssigned, plan.Status)
+	if plan.ReadyForApply && normalizeAWSRuntimeEventFilterToken(plan.Status) == "action-required" {
+		approvalState = "approved"
+	}
 	lifecycle := awsRemediationLifecycle(plan.Status, plan.Confidence, ownerAssigned, approvalState, diff)
 	c := AWSRemediationCase{
 		CaseID:             caseID,

@@ -513,7 +513,7 @@ func awsTrustPolicyHardeningExecutorState(entry AWSRemediationDryRunEntry, preco
 // so operators can see the difference between "unsafe" and "not yet ready".
 func awsTrustPolicyHardeningExecutorPreconditionIsSafety(name string) bool {
 	switch name {
-	case "kill_switch_off", "idempotency_key_present", "upstream_prerequisites", "no_public_principal_after_change":
+	case "kill_switch_off", "idempotency_key_present", "no_public_principal_after_change":
 		return true
 	}
 	return false
