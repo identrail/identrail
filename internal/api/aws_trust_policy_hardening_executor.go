@@ -469,7 +469,7 @@ func awsTrustPolicyHardeningExecutorVerifications(entry AWSRemediationDryRunEntr
 		{Source: "cloudtrail", Signal: "expected_api_call_observed", Status: "pending", Description: "After live execution, confirm iam:UpdateAssumeRolePolicy appears in CloudTrail for the target account and region."},
 		{Source: "access_analyzer", Signal: "no_new_external_findings", Status: "pending", Description: "Re-run Access Analyzer after live execution to confirm no new external-trust findings."},
 	}
-	if strings.EqualFold(plan.HardeningDirection, "add_condition") {
+	if len(plan.ConditionRecommendations) > 0 {
 		out = append(out, AWSTrustPolicyHardeningExecutorVerification{Source: "iam:policy_simulate", Signal: "conditions_enforced", Status: "pending", Description: "Re-run the policy simulator after live execution to confirm the new trust conditions are enforced."})
 	}
 	for _, check := range entry.VerificationChecks {

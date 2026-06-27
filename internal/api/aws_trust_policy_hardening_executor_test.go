@@ -210,6 +210,39 @@ func TestAWSTrustPolicyHardeningExecutorStateHonorsPreconditions(t *testing.T) {
 	}
 }
 
+func TestAWSTrustPolicyHardeningExecutorVerificationUsesPlannerConditionSignals(t *testing.T) {
+	now := time.Date(2026, 6, 29, 11, 20, 0, 0, time.UTC)
+	entry := AWSRemediationDryRunEntry{
+		DryRunID:       "dr-condition",
+		CaseID:         "case-condition",
+		SourceType:     "trust_policy_hardening",
+		IdempotencyKey: "idk",
+		Outcome:        awsRemediationDryRunOutcomeWouldSucceed,
+		ReadyForApply:  true,
+		DiffIntent:     AWSRemediationDiffIntent{Kind: "iam_trust_diff"},
+	}
+	plan := AWSTrustPolicyHardeningPlan{
+		PlanID:             "plan-condition",
+		HardeningDirection: "add_org_or_source_condition",
+		ReadyForApply:      true,
+		PublicPrincipal:    false,
+		BreakageProjection: AWSTrustPolicyHardeningBreakageProjection{Level: "low"},
+		ConditionRecommendations: []AWSTrustPolicyConditionRecommendation{{
+			Operator:  "StringEquals",
+			Key:       "aws:PrincipalOrgID",
+			Value:     "<owner-approved-org-id>",
+			Rationale: "Restrict trust to the approved organization.",
+		}},
+	}
+	out := awsTrustPolicyHardeningExecutorEntryFromDryRun(entry, plan, now)
+	for _, verification := range out.Verifications {
+		if verification.Source == "iam:policy_simulate" && verification.Signal == "conditions_enforced" {
+			return
+		}
+	}
+	t.Fatalf("condition-hardening planner directions must include conditions_enforced verification: %+v", out.Verifications)
+}
+
 func TestFilterAWSTrustPolicyHardeningExecutorEntriesAppliesFilters(t *testing.T) {
 	entries := []AWSTrustPolicyHardeningExecutorEntry{
 		{
