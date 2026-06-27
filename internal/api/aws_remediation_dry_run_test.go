@@ -292,6 +292,71 @@ func TestAWSRemediationDryRunIntendedAPICallPrefersDiffIntentKind(t *testing.T) 
 	}
 }
 
+func TestAWSRemediationDryRunIntendedAPICallTargetsResourceForResourceMutations(t *testing.T) {
+	scope := AWSRemediationApprovalScope{
+		IdentityNodeIDs: []string{"aws:identity:role/orders-ci"},
+		ResourceNodeIDs: []string{"aws:secret:arn:aws:secretsmanager:us-east-1:123456789012:secret:orders-token"},
+	}
+	cases := []struct {
+		name       string
+		approval   AWSRemediationApprovalEntry
+		wantTarget string
+	}{
+		{
+			name: "secret_rotation diff targets the secret",
+			approval: AWSRemediationApprovalEntry{
+				SourceType:     "secret_permission_equivalence",
+				CaseID:         "case-secret-rotation",
+				IdempotencyKey: "idk",
+				Scope:          scope,
+				DiffIntent:     AWSRemediationDiffIntent{Kind: "secret_rotation"},
+			},
+			wantTarget: scope.ResourceNodeIDs[0],
+		},
+		{
+			name: "kms grant diff targets the KMS resource",
+			approval: AWSRemediationApprovalEntry{
+				SourceType:     "secret_permission_equivalence",
+				CaseID:         "case-kms",
+				IdempotencyKey: "idk",
+				Scope: AWSRemediationApprovalScope{
+					IdentityNodeIDs: []string{"aws:identity:role/orders-ci"},
+					ResourceNodeIDs: []string{"aws:kms:key/abcd"},
+				},
+				DiffIntent: AWSRemediationDiffIntent{Kind: "kms_grant_diff"},
+			},
+			wantTarget: "aws:kms:key/abcd",
+		},
+		{
+			name: "iam policy diff targets the role identity",
+			approval: AWSRemediationApprovalEntry{
+				SourceType:     "secret_permission_equivalence",
+				CaseID:         "case-iam",
+				IdempotencyKey: "idk",
+				Scope:          scope,
+				DiffIntent:     AWSRemediationDiffIntent{Kind: "iam_policy_diff"},
+			},
+			wantTarget: scope.IdentityNodeIDs[0],
+		},
+		{
+			name: "aws_secret_key_rotation source-type fallback targets the secret",
+			approval: AWSRemediationApprovalEntry{
+				SourceType:     "aws_secret_key_rotation",
+				CaseID:         "case-rotation-source",
+				IdempotencyKey: "idk",
+				Scope:          scope,
+			},
+			wantTarget: scope.ResourceNodeIDs[0],
+		},
+	}
+	for _, tc := range cases {
+		calls := awsRemediationDryRunIntendedAPICalls(tc.approval)
+		if len(calls) == 0 || calls[0].TargetResource != tc.wantTarget {
+			t.Fatalf("%s: target_resource=%q want=%q calls=%+v", tc.name, calls[0].TargetResource, tc.wantTarget, calls)
+		}
+	}
+}
+
 func TestGetAWSRemediationDryRunFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
 	svc, ws := newRemediationDryRunService(t, "project-remediation-dry-run-states", now)

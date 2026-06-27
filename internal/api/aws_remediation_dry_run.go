@@ -342,18 +342,43 @@ func awsRemediationDryRunEntryFromApproval(approval AWSRemediationApprovalEntry,
 }
 
 func awsRemediationDryRunIntendedAPICalls(approval AWSRemediationApprovalEntry) []AWSRemediationDryRunIntendedAPICall {
-	target := awsRemediationDryRunPrimaryTarget(approval)
+	targets := awsRemediationDryRunTargets(approval)
 	if approval.DiffIntent.NoOp {
-		return []AWSRemediationDryRunIntendedAPICall{awsRemediationDryRunNoOpCall(target, approval.IdempotencyKey)}
+		return []AWSRemediationDryRunIntendedAPICall{awsRemediationDryRunNoOpCall(targets.identity, approval.IdempotencyKey)}
 	}
 	caseID := approval.CaseID
-	if call, ok := awsRemediationDryRunCallForDiffKind(approval.DiffIntent, target, approval.IdempotencyKey, caseID); ok {
+	if call, ok := awsRemediationDryRunCallForDiffKind(approval.DiffIntent, targets, approval.IdempotencyKey, caseID); ok {
 		return []AWSRemediationDryRunIntendedAPICall{call}
 	}
-	if call, ok := awsRemediationDryRunCallForSourceType(approval.SourceType, target, approval.IdempotencyKey, caseID); ok {
+	if call, ok := awsRemediationDryRunCallForSourceType(approval.SourceType, targets, approval.IdempotencyKey, caseID); ok {
 		return []AWSRemediationDryRunIntendedAPICall{call}
 	}
-	return []AWSRemediationDryRunIntendedAPICall{awsRemediationDryRunNoOpCall(target, approval.IdempotencyKey)}
+	return []AWSRemediationDryRunIntendedAPICall{awsRemediationDryRunNoOpCall(targets.identity, approval.IdempotencyKey)}
+}
+
+// awsRemediationDryRunTargetSet pairs the identity-first and resource-first
+// node IDs for an approval so each routing branch can pick the target that
+// matches the AWS API being projected. Identity-mutating calls (PutRolePolicy,
+// UpdateAccessKey, …) want the principal node, while resource-mutating calls
+// (RotateSecret, PutKeyPolicy) want the secret or KMS key node.
+type awsRemediationDryRunTargetSet struct {
+	identity string
+	resource string
+}
+
+func awsRemediationDryRunTargets(approval AWSRemediationApprovalEntry) awsRemediationDryRunTargetSet {
+	identity := firstNonEmptyAWSValue(awsRemediationDryRunFirstNode(approval.Scope.IdentityNodeIDs), awsRemediationDryRunFirstNode(approval.Scope.ResourceNodeIDs), awsRemediationDryRunFirstNode(approval.ImpactedNodes), approval.CaseID)
+	resource := firstNonEmptyAWSValue(awsRemediationDryRunFirstNode(approval.Scope.ResourceNodeIDs), awsRemediationDryRunFirstNode(approval.Scope.IdentityNodeIDs), awsRemediationDryRunFirstNode(approval.ImpactedNodes), approval.CaseID)
+	return awsRemediationDryRunTargetSet{identity: identity, resource: resource}
+}
+
+func awsRemediationDryRunFirstNode(nodes []string) string {
+	for _, node := range nodes {
+		if strings.TrimSpace(node) != "" {
+			return node
+		}
+	}
+	return ""
 }
 
 // awsRemediationDryRunNoOpCall is the deterministic "no live AWS write is
@@ -376,7 +401,7 @@ func awsRemediationDryRunNoOpCall(target, idempotencyKey string) AWSRemediationD
 // for sources whose diff intent varies — for example a
 // `secret_permission_equivalence` case with `Kind=secret_rotation` is a
 // Secrets Manager rotation, not a KMS key-policy change.
-func awsRemediationDryRunCallForDiffKind(diff AWSRemediationDiffIntent, target, idempotencyKey, caseID string) (AWSRemediationDryRunIntendedAPICall, bool) {
+func awsRemediationDryRunCallForDiffKind(diff AWSRemediationDiffIntent, targets awsRemediationDryRunTargetSet, idempotencyKey, caseID string) (AWSRemediationDryRunIntendedAPICall, bool) {
 	if diff.NoOp {
 		return AWSRemediationDryRunIntendedAPICall{}, false
 	}
@@ -385,7 +410,7 @@ func awsRemediationDryRunCallForDiffKind(diff AWSRemediationDiffIntent, target, 
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "iam",
 			Operation:        "PutRolePolicy",
-			TargetResource:   target,
+			TargetResource:   targets.identity,
 			ParameterRefs:    []string{idempotencyKey, "policy_document_ref://" + caseID + "/after"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -394,7 +419,7 @@ func awsRemediationDryRunCallForDiffKind(diff AWSRemediationDiffIntent, target, 
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "iam",
 			Operation:        "UpdateAssumeRolePolicy",
-			TargetResource:   target,
+			TargetResource:   targets.identity,
 			ParameterRefs:    []string{idempotencyKey, "trust_policy_ref://" + caseID + "/after"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -403,7 +428,7 @@ func awsRemediationDryRunCallForDiffKind(diff AWSRemediationDiffIntent, target, 
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "kms",
 			Operation:        "PutKeyPolicy",
-			TargetResource:   target,
+			TargetResource:   targets.resource,
 			ParameterRefs:    []string{idempotencyKey, "key_policy_ref://" + caseID + "/after"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -412,7 +437,7 @@ func awsRemediationDryRunCallForDiffKind(diff AWSRemediationDiffIntent, target, 
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "secretsmanager",
 			Operation:        "RotateSecret",
-			TargetResource:   target,
+			TargetResource:   targets.resource,
 			ParameterRefs:    []string{idempotencyKey, "secret_ref://" + caseID + "/rotate"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -421,7 +446,7 @@ func awsRemediationDryRunCallForDiffKind(diff AWSRemediationDiffIntent, target, 
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "iam",
 			Operation:        "UpdateAccessKey",
-			TargetResource:   target,
+			TargetResource:   targets.identity,
 			ParameterRefs:    []string{idempotencyKey, "status://inactive"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -430,7 +455,7 @@ func awsRemediationDryRunCallForDiffKind(diff AWSRemediationDiffIntent, target, 
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "bedrock-agent",
 			Operation:        "UpdateAgent",
-			TargetResource:   target,
+			TargetResource:   targets.identity,
 			ParameterRefs:    []string{idempotencyKey, "scope_ref://" + caseID + "/after"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -439,13 +464,13 @@ func awsRemediationDryRunCallForDiffKind(diff AWSRemediationDiffIntent, target, 
 	return AWSRemediationDryRunIntendedAPICall{}, false
 }
 
-func awsRemediationDryRunCallForSourceType(sourceType, target, idempotencyKey, caseID string) (AWSRemediationDryRunIntendedAPICall, bool) {
+func awsRemediationDryRunCallForSourceType(sourceType string, targets awsRemediationDryRunTargetSet, idempotencyKey, caseID string) (AWSRemediationDryRunIntendedAPICall, bool) {
 	switch strings.ToLower(strings.TrimSpace(sourceType)) {
 	case "least_privilege", "aws_iac_remediation", "aws_iam_policy_diff":
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "iam",
 			Operation:        "PutRolePolicy",
-			TargetResource:   target,
+			TargetResource:   targets.identity,
 			ParameterRefs:    []string{idempotencyKey, "policy_document_ref://" + caseID + "/after"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -454,7 +479,7 @@ func awsRemediationDryRunCallForSourceType(sourceType, target, idempotencyKey, c
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "iam",
 			Operation:        "UpdateAssumeRolePolicy",
-			TargetResource:   target,
+			TargetResource:   targets.identity,
 			ParameterRefs:    []string{idempotencyKey, "trust_policy_ref://" + caseID + "/after"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -463,7 +488,7 @@ func awsRemediationDryRunCallForSourceType(sourceType, target, idempotencyKey, c
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "iam",
 			Operation:        "PutRolePermissionsBoundary",
-			TargetResource:   target,
+			TargetResource:   targets.identity,
 			ParameterRefs:    []string{idempotencyKey, "boundary_ref://" + caseID + "/after"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -472,7 +497,7 @@ func awsRemediationDryRunCallForSourceType(sourceType, target, idempotencyKey, c
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "secretsmanager",
 			Operation:        "RotateSecret",
-			TargetResource:   target,
+			TargetResource:   targets.resource,
 			ParameterRefs:    []string{idempotencyKey},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -481,7 +506,7 @@ func awsRemediationDryRunCallForSourceType(sourceType, target, idempotencyKey, c
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "iam",
 			Operation:        "UpdateAccessKey",
-			TargetResource:   target,
+			TargetResource:   targets.identity,
 			ParameterRefs:    []string{idempotencyKey, "status://inactive"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -490,7 +515,7 @@ func awsRemediationDryRunCallForSourceType(sourceType, target, idempotencyKey, c
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "kms",
 			Operation:        "PutKeyPolicy",
-			TargetResource:   target,
+			TargetResource:   targets.resource,
 			ParameterRefs:    []string{idempotencyKey, "key_policy_ref://" + caseID + "/after"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -499,7 +524,7 @@ func awsRemediationDryRunCallForSourceType(sourceType, target, idempotencyKey, c
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "bedrock-agent",
 			Operation:        "UpdateAgent",
-			TargetResource:   target,
+			TargetResource:   targets.identity,
 			ParameterRefs:    []string{idempotencyKey, "scope_ref://" + caseID + "/after"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -508,26 +533,13 @@ func awsRemediationDryRunCallForSourceType(sourceType, target, idempotencyKey, c
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "iam",
 			Operation:        "DetachRolePolicy",
-			TargetResource:   target,
+			TargetResource:   targets.identity,
 			ParameterRefs:    []string{idempotencyKey},
 			Idempotent:       true,
 			RequiresApproval: true,
 		}, true
 	}
 	return AWSRemediationDryRunIntendedAPICall{}, false
-}
-
-func awsRemediationDryRunPrimaryTarget(approval AWSRemediationApprovalEntry) string {
-	if len(approval.Scope.IdentityNodeIDs) > 0 {
-		return approval.Scope.IdentityNodeIDs[0]
-	}
-	if len(approval.Scope.ResourceNodeIDs) > 0 {
-		return approval.Scope.ResourceNodeIDs[0]
-	}
-	if len(approval.ImpactedNodes) > 0 {
-		return approval.ImpactedNodes[0]
-	}
-	return approval.CaseID
 }
 
 func awsRemediationDryRunAffectedResources(approval AWSRemediationApprovalEntry, intended []AWSRemediationDryRunIntendedAPICall) []AWSRemediationDryRunAffectedResource {
