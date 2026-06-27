@@ -908,7 +908,14 @@ func awsRuntimeEventFixtureRecords(accountID string, region string, fixtureState
 			Retryable:   true,
 		}}, nil
 	case "partial_failure":
-		return records[:6], []AWSRuntimeEventDiagnostic{{
+		retained := make([]AWSRuntimeEventRecord, 0, len(records))
+		for _, record := range records {
+			if normalizeAWSRuntimeEventFilterToken(record.EvidenceCategory) == "access-analyzer" {
+				continue
+			}
+			retained = append(retained, record)
+		}
+		return retained, []AWSRuntimeEventDiagnostic{{
 				Collector:   "aws_runtime_events",
 				SourceID:    "access-analyzer",
 				Code:        "access_analyzer_source_failed",

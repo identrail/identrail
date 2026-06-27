@@ -124,6 +124,38 @@ func TestGetAWSRuntimeEventsFiltersIAMAccessSignals(t *testing.T) {
 	}
 }
 
+func TestGetAWSRuntimeEventsPartialFailureRetainsIAMLastUsedSignals(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 18, 40, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-partial-signals")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-partial-signals", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-partial-signals", AWSRuntimeEventRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "partial_failure",
+		EventType:    "iam-last-used",
+		Evidence:     "iam-last-used",
+	})
+	if err != nil {
+		t.Fatalf("get partial failure iam last-used signals: %v", err)
+	}
+	if result.Status != awsPlatformDependencyStatusDegraded || len(result.Diagnostics) == 0 {
+		t.Fatalf("partial failure should stay degraded with source diagnostic: %+v", result)
+	}
+	if result.Summary.TotalEvents != 8 || result.Summary.FilteredEvents != 2 || len(result.Records) != 2 {
+		t.Fatalf("partial failure must retain IAM last-used records while dropping only Access Analyzer, summary=%+v records=%+v", result.Summary, result.Records)
+	}
+	for _, record := range result.Records {
+		if record.EventType != "iam-last-used" || record.SignalCategory != "iam-last-used" {
+			t.Fatalf("unexpected retained signal record: %+v", record)
+		}
+	}
+}
+
 func TestGetAWSRuntimeEventsAppliesFiltersAndRelationships(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()
