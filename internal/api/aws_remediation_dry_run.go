@@ -343,6 +343,9 @@ func awsRemediationDryRunEntryFromApproval(approval AWSRemediationApprovalEntry,
 
 func awsRemediationDryRunIntendedAPICalls(approval AWSRemediationApprovalEntry) []AWSRemediationDryRunIntendedAPICall {
 	target := awsRemediationDryRunPrimaryTarget(approval)
+	if approval.DiffIntent.NoOp {
+		return []AWSRemediationDryRunIntendedAPICall{awsRemediationDryRunNoOpCall(target, approval.IdempotencyKey)}
+	}
 	caseID := approval.CaseID
 	if call, ok := awsRemediationDryRunCallForDiffKind(approval.DiffIntent, target, approval.IdempotencyKey, caseID); ok {
 		return []AWSRemediationDryRunIntendedAPICall{call}
@@ -350,14 +353,22 @@ func awsRemediationDryRunIntendedAPICalls(approval AWSRemediationApprovalEntry) 
 	if call, ok := awsRemediationDryRunCallForSourceType(approval.SourceType, target, approval.IdempotencyKey, caseID); ok {
 		return []AWSRemediationDryRunIntendedAPICall{call}
 	}
-	return []AWSRemediationDryRunIntendedAPICall{{
+	return []AWSRemediationDryRunIntendedAPICall{awsRemediationDryRunNoOpCall(target, approval.IdempotencyKey)}
+}
+
+// awsRemediationDryRunNoOpCall is the deterministic "no live AWS write is
+// planned" projection. NoOp diff intents (manual_review, owner_assignment)
+// must surface this directly so the dry-run never advertises a write the
+// case engine declined to project.
+func awsRemediationDryRunNoOpCall(target, idempotencyKey string) AWSRemediationDryRunIntendedAPICall {
+	return AWSRemediationDryRunIntendedAPICall{
 		Service:          "manual_review",
 		Operation:        "noop",
 		TargetResource:   target,
-		ParameterRefs:    []string{approval.IdempotencyKey},
+		ParameterRefs:    []string{idempotencyKey},
 		Idempotent:       true,
 		RequiresApproval: true,
-	}}
+	}
 }
 
 // awsRemediationDryRunCallForDiffKind routes to an AWS API call based on the

@@ -276,18 +276,19 @@ func TestAWSRemediationDryRunIntendedAPICallPrefersDiffIntentKind(t *testing.T) 
 		}
 	}
 
-	// No-op diff intents (manual_review, owner_assignment) must not consume the
-	// diff-kind branch; the source-type fallback (or manual_review default)
-	// keeps the routing honest.
-	noop := AWSRemediationApprovalEntry{
-		SourceType:     "least_privilege",
-		CaseID:         "case-noop",
-		IdempotencyKey: "idk",
-		DiffIntent:     AWSRemediationDiffIntent{Kind: "manual_review", NoOp: true},
+	// No-op diff intents (manual_review, owner_assignment) must surface as the
+	// `manual_review:noop` call regardless of source type so the dry-run never
+	// advertises a live AWS write the case engine declined to project.
+	noopCases := []AWSRemediationApprovalEntry{
+		{SourceType: "least_privilege", CaseID: "case-lp-noop", IdempotencyKey: "idk", DiffIntent: AWSRemediationDiffIntent{Kind: "manual_review", NoOp: true}},
+		{SourceType: "ai_agent_risk", CaseID: "case-agent-noop", IdempotencyKey: "idk", DiffIntent: AWSRemediationDiffIntent{Kind: "owner_assignment", NoOp: true}},
+		{SourceType: "blast_radius", CaseID: "case-blast-noop", IdempotencyKey: "idk", DiffIntent: AWSRemediationDiffIntent{Kind: "manual_review", NoOp: true}},
 	}
-	calls := awsRemediationDryRunIntendedAPICalls(noop)
-	if len(calls) == 0 || calls[0].Service != "iam" || calls[0].Operation != "PutRolePolicy" {
-		t.Fatalf("no-op diff intent must fall through to source-type routing for least_privilege, got %+v", calls)
+	for _, noop := range noopCases {
+		calls := awsRemediationDryRunIntendedAPICalls(noop)
+		if len(calls) != 1 || calls[0].Service != "manual_review" || calls[0].Operation != "noop" {
+			t.Fatalf("no-op diff intent (source=%s) must surface manual_review:noop, got %+v", noop.SourceType, calls)
+		}
 	}
 }
 
