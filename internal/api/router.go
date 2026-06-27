@@ -3389,6 +3389,43 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"dry_run": record})
 	})
 
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/low-risk-live-remediation", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetAWSLowRiskRemediation(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSLowRiskRemediationRequest{
+			ConnectorID:    strings.TrimSpace(c.Query("connector_id")),
+			FixtureState:   strings.TrimSpace(c.Query("fixture_state")),
+			AccountID:      strings.TrimSpace(c.Query("account_id")),
+			Region:         strings.TrimSpace(c.Query("region")),
+			DryRunID:       strings.TrimSpace(c.Query("dry_run_id")),
+			CaseID:         strings.TrimSpace(c.Query("case_id")),
+			Action:         strings.TrimSpace(c.Query("action")),
+			ActionCategory: strings.TrimSpace(c.Query("action_category")),
+			State:          strings.TrimSpace(c.Query("state")),
+			Severity:       strings.TrimSpace(c.Query("severity")),
+			Search:         strings.TrimSpace(c.Query("search")),
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project or connector not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws low-risk live remediation request"})
+			default:
+				logger.Error("get aws low-risk live remediation",
+					zap.String("workspace_id", c.Param("workspace_id")),
+					zap.String("project_id", c.Param("project_id")),
+					telemetry.ZapError(err),
+				)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws low-risk live remediation"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"low_risk_live_remediation": record})
+	})
+
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/blast-radius", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)

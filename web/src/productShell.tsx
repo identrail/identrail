@@ -75,6 +75,8 @@ import {
   type AWSRemediationApprovalResult,
   type AWSRemediationDryRunEntry,
   type AWSRemediationDryRunResult,
+  type AWSLowRiskRemediationEntry,
+  type AWSLowRiskRemediationResult,
   type AWSBlastRadiusFinding,
   type AWSBlastRadiusResult,
   type AWSLeastPrivilegeRecommendation,
@@ -11601,6 +11603,111 @@ function AWSRemediationDryRunContent({
   );
 }
 
+function awsLowRiskRemediationStage(entry: AWSLowRiskRemediationEntry): AWSCapabilityStage {
+  if (entry.kill_switch_engaged || entry.state === 'blocked') {
+    return 'not-available';
+  }
+  if (entry.state !== 'projected' || !entry.ready_for_live_apply) {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsLowRiskRemediationActionLabel(entry: AWSLowRiskRemediationEntry): string {
+  const rule = entry.allowlist_rule;
+  return `${rule.action} · ${formatTokenLabel(rule.category)}`;
+}
+
+function awsLowRiskRemediationPreflightLabel(entry: AWSLowRiskRemediationEntry): string {
+  const passed = entry.preflights.filter((preflight) => preflight.status === 'passed').length;
+  const blocked = entry.preflights.length - passed;
+  return `${passed} passed · ${blocked} blocked`;
+}
+
+function awsLowRiskRemediationReadinessLabel(entry: AWSLowRiskRemediationEntry): string {
+  if (entry.ready_for_live_apply) {
+    return `ready · ${entry.verifications.length} verifications`;
+  }
+  return formatTokenLabel(entry.state);
+}
+
+function AWSLowRiskRemediationContent({
+  result,
+  loading,
+  error,
+  onRetry
+}: {
+  result: AWSLowRiskRemediationResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = result?.entries ?? [];
+  const summaryLine = result
+    ? `${result.summary.total_entries} total · ${result.summary.ready_for_live_apply_count} ready · ${result.allowlist.length} allowlist rules · ${result.summary.failed_preflight_count} blocked preflights`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS low-risk live remediation">
+      <h3>AWS low-risk live remediation</h3>
+      <p className="idt-app-kicker">
+        Read-only projection of allowlisted low-risk remediations (tagging, stale-metadata cleanup, approved
+        detach/disable) derived from the approved dry-run executor. Each entry records the allowlist rule, idempotency
+        key, intended mutation, preflight checks, verification records, and audit trail. Identrail never calls IAM/STS/
+        Secrets Manager/KMS/Organizations write APIs at this layer. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load AWS low-risk live remediation"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Projecting low-risk remediation"
+          body="Identrail is matching approved dry-run entries against the code-managed allowlist of low-risk AWS actions."
+        />
+      ) : null}
+      {!error && !loading && result && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={result.status === 'blocked' ? 'Permission required' : 'No low-risk entries'}
+          title={result.status === 'blocked' ? 'Low-risk projection needs approved dry-run evidence' : 'No low-risk entries projected'}
+          body={result.failure_reasons[0] ?? 'No upstream dry-run entry matched an allowlist rule for this environment.'}
+        />
+      ) : null}
+      {!error && !loading && result && result.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {result.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS low-risk live remediation entries"
+          rows={rows}
+          getRowKey={(row) => row.execution_id}
+          columns={[
+            { key: 'execution', header: 'Execution', render: (row) => <strong>{row.title}</strong> },
+            { key: 'rule', header: 'Allowlist rule', render: (row) => formatTokenLabel(row.allowlist_rule.name) },
+            { key: 'action', header: 'Action', render: (row) => awsLowRiskRemediationActionLabel(row) },
+            { key: 'preflights', header: 'Preflights', render: (row) => awsLowRiskRemediationPreflightLabel(row) },
+            { key: 'state', header: 'State', render: (row) => awsLowRiskRemediationReadinessLabel(row) },
+            {
+              key: 'severity',
+              header: 'Severity',
+              render: (row) => (
+                <AWSInventoryPill stage={awsLowRiskRemediationStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.state)}`} />
+              )
+            }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsBlastRadiusSeverityStage(severity: string): AWSCapabilityStage {
   switch (severity) {
     case 'critical':
@@ -13080,6 +13187,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [remediationDryRunLoading, setRemediationDryRunLoading] = useState(false);
   const [remediationDryRunError, setRemediationDryRunError] = useState('');
   const remediationDryRunRequestRef = useRef(0);
+  const [lowRiskRemediation, setLowRiskRemediation] = useState<AWSLowRiskRemediationResult | null>(null);
+  const [lowRiskRemediationLoading, setLowRiskRemediationLoading] = useState(false);
+  const [lowRiskRemediationError, setLowRiskRemediationError] = useState('');
+  const lowRiskRemediationRequestRef = useRef(0);
   const [blastRadius, setBlastRadius] = useState<AWSBlastRadiusResult | null>(null);
   const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
   const [blastRadiusError, setBlastRadiusError] = useState('');
@@ -13797,6 +13908,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadRemediationDryRun]);
 
+  const loadLowRiskRemediation = useCallback(async () => {
+    const requestID = ++lowRiskRemediationRequestRef.current;
+    setLowRiskRemediation(null);
+    setLowRiskRemediationError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setLowRiskRemediationLoading(false);
+      return;
+    }
+    setLowRiskRemediationLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectLowRiskLiveRemediation(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== lowRiskRemediationRequestRef.current) {
+        return;
+      }
+      setLowRiskRemediation(response.low_risk_live_remediation);
+    } catch (error) {
+      if (requestID !== lowRiskRemediationRequestRef.current) {
+        return;
+      }
+      setLowRiskRemediationError(formatAPIError(error, 'Unable to load AWS low-risk live remediation.'));
+    } finally {
+      if (requestID === lowRiskRemediationRequestRef.current) {
+        setLowRiskRemediationLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadLowRiskRemediation();
+    return () => {
+      lowRiskRemediationRequestRef.current += 1;
+    };
+  }, [loadLowRiskRemediation]);
+
   const loadBlastRadius = useCallback(async () => {
     const requestID = ++blastRadiusRequestRef.current;
     setBlastRadius(null);
@@ -14339,6 +14498,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={remediationDryRunLoading}
             error={remediationDryRunError}
             onRetry={loadRemediationDryRun}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSLowRiskRemediationContent
+            result={lowRiskRemediation}
+            loading={lowRiskRemediationLoading}
+            error={lowRiskRemediationError}
+            onRetry={loadLowRiskRemediation}
           />
         ) : null}
         {routeID === 'runtime' ? (

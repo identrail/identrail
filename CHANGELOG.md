@@ -1,6 +1,35 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS low-risk live remediation** (#1538). Adds a read-only,
+  metadata-only projection of allowlisted low-risk AWS remediation actions
+  derived from the approved dry-run executor (#1537). The allowlist is
+  intentionally narrow and code-managed: `iam:TagRole` (tagging),
+  `iam:UntagRole` (stale-metadata cleanup), `iam:UpdateAccessKey` (approved
+  quarantine disable), and `iam:DetachRolePolicy` (approved orphaned-policy
+  detach). Each entry pairs a dry-run record with one allowlist rule, copies
+  the deterministic idempotency key, captures the intended mutation
+  (service/operation/target/before/after), preflight checks (allowlist
+  admission, dry-run-would-succeed, ready-for-apply, kill-switch-off,
+  idempotency-key-present, upstream prerequisites), per-source verification
+  records, rollback plan, verification plan, tradeoffs, and an audit trail
+  with a `low_risk_execution_projected` row. The state is `projected` when
+  safety preflights pass and the dry-run is ready, `skipped` when the dry-run
+  is not yet ready, and `blocked` when a safety preflight fails or the kill
+  switch is engaged. `ready_for_live_apply` is true only when state is
+  `projected`, the upstream dry-run is itself `ready_for_apply`, and no kill
+  switch is engaged. Identrail never calls IAM/STS/Secrets Manager/KMS/
+  Organizations write APIs at this layer; controlled live apply is reserved
+  for wave-8.04+ executors. Adds
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/low-risk-live-remediation`
+  with filters for connector, account, region, dry-run ID, case ID,
+  allowlist action, action category, state, severity, and free-text search.
+  OpenAPI schemas and authz wiring follow the neighboring wave-7/8
+  endpoints. The AWS Runtime app surface now shows an **AWS low-risk live
+  remediation** panel with execution title, allowlist rule, action and
+  category, preflight pass/blocked counts, readiness label, and
+  severity/state pill, with explicit loading, empty, degraded, blocked, and
+  error states.
 - Add **AWS remediation dry-run executor** (#1537). Adds a read-only,
   metadata-only dry-run projection that turns approved remediation cases
   (#1536) into deterministic dry-run records. Each entry carries source

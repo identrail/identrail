@@ -4209,6 +4209,152 @@ export type AWSRemediationDryRunQuery = {
   search?: string;
 };
 
+export type AWSLowRiskRemediationStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSLowRiskRemediationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSLowRiskRemediationState = 'projected' | 'skipped' | 'blocked' | string;
+export type AWSLowRiskRemediationActionCategory = 'tagging' | 'stale_metadata_cleanup' | 'approved_disable' | 'approved_detach' | string;
+
+export type AWSLowRiskRemediationAllowlistRule = {
+  name: string;
+  category: AWSLowRiskRemediationActionCategory;
+  action: string;
+  match_sources?: string[];
+  max_blast_radius?: string;
+  rationale: string;
+};
+
+export type AWSLowRiskRemediationPreflight = {
+  name: string;
+  status: string;
+  rationale: string;
+};
+
+export type AWSLowRiskRemediationMutationRecord = {
+  service: string;
+  operation: string;
+  target_resource: string;
+  change_kind: string;
+  before_ref?: string;
+  after_ref?: string;
+  parameter_refs?: string[];
+};
+
+export type AWSLowRiskRemediationVerificationRecord = {
+  source: string;
+  signal: string;
+  status: string;
+  description: string;
+};
+
+export type AWSLowRiskRemediationRelationship = {
+  execution_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSLowRiskRemediationEntry = {
+  execution_id: string;
+  calculation_version: string;
+  dry_run_id: string;
+  approval_id: string;
+  case_id: string;
+  source_artifact_id: string;
+  source_type: string;
+  state: AWSLowRiskRemediationState;
+  severity: string;
+  score: number;
+  confidence: number;
+  title: string;
+  summary: string;
+  account_id: string;
+  region: string;
+  idempotency_key: string;
+  allowlist_rule: AWSLowRiskRemediationAllowlistRule;
+  mutation: AWSLowRiskRemediationMutationRecord;
+  preflights: AWSLowRiskRemediationPreflight[];
+  verifications: AWSLowRiskRemediationVerificationRecord[];
+  rollback_plan: AWSRemediationRollbackPlan;
+  verification_plan: AWSRemediationVerificationPlan;
+  tradeoffs: AWSRemediationTradeoff[];
+  audit_trail: AWSRemediationAuditEntry[];
+  kill_switch_engaged: boolean;
+  ready_for_live_apply: boolean;
+  read_only_projection: boolean;
+  source_signals: string[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  next_action: string;
+  projected_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSLowRiskRemediationSummary = {
+  total_entries: number;
+  filtered_entries: number;
+  state_counts: Record<string, number>;
+  action_counts: Record<string, number>;
+  category_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  ready_for_live_apply_count: number;
+  kill_switch_engaged_count: number;
+  failed_preflight_count: number;
+  mutation_count: number;
+  verification_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSLowRiskRemediationResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSLowRiskRemediationStatus;
+  fixture_state?: AWSLowRiskRemediationFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  allowlist: AWSLowRiskRemediationAllowlistRule[];
+  summary: AWSLowRiskRemediationSummary;
+  entries: AWSLowRiskRemediationEntry[];
+  relationships: AWSLowRiskRemediationRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSLowRiskRemediationQuery = {
+  connectorID?: string;
+  fixtureState?: AWSLowRiskRemediationFixtureState;
+  accountID?: string;
+  region?: string;
+  dryRunID?: string;
+  caseID?: string;
+  action?: string;
+  actionCategory?: string;
+  state?: string;
+  severity?: string;
+  search?: string;
+};
+
 export type AWSBlastRadiusStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBlastRadiusFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSBlastRadiusSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
@@ -8531,6 +8677,29 @@ export const apiClient = {
         source_type: query?.sourceType,
         outcome: query?.outcome,
         risk_tier: query?.riskTier,
+        severity: query?.severity,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectLowRiskLiveRemediation(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSLowRiskRemediationQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ low_risk_live_remediation: AWSLowRiskRemediationResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/low-risk-live-remediation${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        dry_run_id: query?.dryRunID,
+        case_id: query?.caseID,
+        action: query?.action,
+        action_category: query?.actionCategory,
+        state: query?.state,
         severity: query?.severity,
         search: query?.search
       })}`,
