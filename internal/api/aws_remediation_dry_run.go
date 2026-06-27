@@ -750,13 +750,14 @@ func awsRemediationDryRunVerificationChecks(approval AWSRemediationApprovalEntry
 
 // awsRemediationDryRunWantsIAMSimulator returns true when the projected change
 // affects an IAM identity/trust policy or boundary, so the IAM policy simulator
-// has something to simulate. Non-IAM mutations (secret rotation, KMS grant
-// policy, agent scope change) should not advertise an IAM simulator check.
+// has something to simulate. Non-policy mutations (secret rotation, KMS grant
+// policy, agent scope change, access key quarantine) should not advertise an
+// IAM simulator check.
 func awsRemediationDryRunWantsIAMSimulator(approval AWSRemediationApprovalEntry) bool {
 	switch strings.ToLower(strings.TrimSpace(approval.DiffIntent.Kind)) {
 	case "iam_policy_diff", "role_scope_diff", "iac_iam_policy_pr",
 		"iam_trust_diff", "iac_trust_policy_pr",
-		"permission_boundary_diff", "access_key_quarantine":
+		"permission_boundary_diff":
 		return true
 	case "":
 		// Fall through to the source-type gate when the case engine omitted
@@ -766,8 +767,7 @@ func awsRemediationDryRunWantsIAMSimulator(approval AWSRemediationApprovalEntry)
 	}
 	switch strings.ToLower(strings.TrimSpace(approval.SourceType)) {
 	case "least_privilege", "aws_iac_remediation", "aws_iam_policy_diff",
-		"trust_policy_hardening", "aws_permission_boundary_scp",
-		"aws_access_key_quarantine", "blast_radius":
+		"trust_policy_hardening", "aws_permission_boundary_scp", "blast_radius":
 		return true
 	}
 	return false

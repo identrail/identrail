@@ -541,6 +541,12 @@ func TestAWSRemediationDryRunVerificationChecksGateIAMSimulatorByDiffKind(t *tes
 			wantSignal:    "agent_scope_applied",
 		},
 		{
+			name:          "access_key_quarantine skips simulator and keeps last-used verification",
+			approval:      AWSRemediationApprovalEntry{SourceType: "aws_access_key_quarantine", DiffIntent: AWSRemediationDiffIntent{Kind: "access_key_quarantine"}},
+			wantSimulator: false,
+			wantSignal:    "no_runtime_after_disable",
+		},
+		{
 			name:          "empty diff kind falls back to source-type gate (least_privilege)",
 			approval:      AWSRemediationApprovalEntry{SourceType: "least_privilege"},
 			wantSimulator: true,
