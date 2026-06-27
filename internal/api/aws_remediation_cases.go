@@ -197,6 +197,7 @@ type awsRemediationCaseSources struct {
 	least       AWSLeastPrivilegeResult
 	equivalence AWSSecretPermissionEquivalenceResult
 	blast       AWSBlastRadiusResult
+	trust       AWSTrustPolicyHardeningResult
 }
 
 // GetAWSRemediationCases composes ranked, explainable remediation cases from
@@ -321,7 +322,11 @@ func (s *Service) awsRemediationCaseSourceSignals(ctx context.Context, workspace
 	if err != nil {
 		return awsRemediationCaseSources{}, fmt.Errorf("remediation case blast radius: %w", err)
 	}
-	return awsRemediationCaseSources{risk: risk, least: least, equivalence: equivalence, blast: blast}, nil
+	trust, err := s.GetAWSTrustPolicyHardeningPlans(ctx, workspaceID, projectID, AWSTrustPolicyHardeningRequest{ConnectorID: connectorID, FixtureState: fixtureState})
+	if err != nil {
+		return awsRemediationCaseSources{}, fmt.Errorf("remediation case trust policy hardening: %w", err)
+	}
+	return awsRemediationCaseSources{risk: risk, least: least, equivalence: equivalence, blast: blast, trust: trust}, nil
 }
 
 func awsRemediationCases(sources awsRemediationCaseSources, now time.Time) []AWSRemediationCase {
@@ -343,6 +348,11 @@ func awsRemediationCases(sources awsRemediationCaseSources, now time.Time) []AWS
 	}
 	for _, finding := range sources.blast.Findings {
 		if c, ok := awsRemediationCaseFromBlastRadius(finding, now); ok {
+			cases = append(cases, c)
+		}
+	}
+	for _, plan := range sources.trust.Plans {
+		if c, ok := awsRemediationCaseFromTrustPolicyHardening(plan, now); ok {
 			cases = append(cases, c)
 		}
 	}
@@ -574,6 +584,62 @@ func awsRemediationCaseFromBlastRadius(finding AWSBlastRadiusFinding, now time.T
 		ImpactedNodes:      finding.ImpactedNodes,
 		ImpactedPath:       awsRemediationPathFromBlastRadius(finding.ImpactedPath),
 		NextActions:        awsRemediationNextActionList(finding.NextAction, diff),
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	return finalizeAWSRemediationCase(c, now), true
+}
+
+func awsRemediationCaseFromTrustPolicyHardening(plan AWSTrustPolicyHardeningPlan, now time.Time) (AWSRemediationCase, bool) {
+	if plan.PlanID == "" {
+		return AWSRemediationCase{}, false
+	}
+	caseID := "aws-remediation-case:" + stableAWSBlastRadiusToken("trust-policy-hardening", plan.PlanID)
+	evidenceRef := firstString(awsRemediationEvidenceRefs(plan.Evidence))
+	diff := AWSRemediationDiffIntent{
+		Kind:               "iam_trust_diff",
+		BeforeRef:          evidenceRef,
+		AfterRef:           "trust-policy-hardening://" + plan.PlanID + "/intended-policy",
+		DiffSummary:        fmt.Sprintf("Apply trust-policy hardening direction=%s for %s; enforce %d condition recommendation(s) before live execution.", firstNonEmptyAWSValue(plan.HardeningDirection, "manual_review"), firstNonEmptyAWSValue(plan.ResourceLabel, plan.ResourceNodeID, "the IAM role"), len(plan.ConditionRecommendations)),
+		ReadOnlyProjection: true,
+	}
+	owner, ownerAssigned := "iam-platform", true
+	approvalRequired := awsRemediationApprovalRequired(plan.Severity, diff.Kind)
+	approvalState := awsRemediationApprovalState(approvalRequired, ownerAssigned, plan.Status)
+	lifecycle := awsRemediationLifecycle(plan.Status, plan.Confidence, ownerAssigned, approvalState, diff)
+	c := AWSRemediationCase{
+		CaseID:             caseID,
+		CalculationVersion: awsRemediationCaseVersion,
+		SourceType:         "trust_policy_hardening",
+		SourceFindingID:    plan.PlanID,
+		Lifecycle:          lifecycle,
+		Severity:           plan.Severity,
+		Status:             plan.Status,
+		Score:              plan.Score,
+		Confidence:         plan.Confidence,
+		Title:              fmt.Sprintf("Trust-policy hardening for %s", firstNonEmptyAWSValue(plan.ResourceLabel, plan.ResourceNodeID, "IAM role")),
+		Summary:            plan.Summary,
+		AccountID:          plan.AccountID,
+		Region:             plan.Region,
+		IdentityNodeID:     plan.ResourceNodeID,
+		IdentityARN:        plan.ResourceARN,
+		IdentityName:       firstNonEmptyAWSValue(plan.ResourceLabel, shortAWSARN(plan.ResourceARN), plan.ResourceNodeID),
+		IdentityType:       "iam_role",
+		ResourceNodeIDs:    awsRemediationResourceNodes(plan.ResourceNodeID, plan.ImpactedNodes),
+		Owner:              owner,
+		OwnerAssigned:      ownerAssigned,
+		ApprovalRequired:   approvalRequired,
+		ApprovalState:      approvalState,
+		DiffIntent:         diff,
+		Tradeoffs:          awsRemediationTradeoffsForTrustPolicyHardening(plan),
+		RollbackPlan:       awsRemediationRollbackFromTrustPolicyHardening(plan, evidenceRef),
+		VerificationPlan:   awsRemediationVerificationFromTrustPolicyHardening(plan, evidenceRef),
+		SourceSignals:      dedupeStrings(append([]string{"trust_policy_hardening"}, plan.SourceSignals...)),
+		Evidence:           plan.Evidence,
+		EvidenceBoundary:   awsRemediationCaseEvidenceBoundary(),
+		ImpactedNodes:      plan.ImpactedNodes,
+		ImpactedPath:       plan.ImpactedPath,
+		NextActions:        awsRemediationNextActionList(plan.NextAction, diff),
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
@@ -864,6 +930,18 @@ func awsRemediationTradeoffsForBlastRadius(finding AWSBlastRadiusFinding) []AWSR
 	}
 }
 
+func awsRemediationTradeoffsForTrustPolicyHardening(plan AWSTrustPolicyHardeningPlan) []AWSRemediationTradeoff {
+	out := []AWSRemediationTradeoff{
+		{Dimension: "downstream_blast_radius", Direction: "improves", Description: fmt.Sprintf("Hardening the trust policy reduces cross-account reach across %d impacted node(s).", len(plan.ImpactedNodes)), Severity: plan.Severity},
+	}
+	if strings.EqualFold(plan.BreakageProjection.Level, "low") {
+		out = append(out, AWSRemediationTradeoff{Dimension: "breakage_risk", Direction: "neutral", Description: plan.BreakageProjection.Rationale, Severity: "low"})
+	} else {
+		out = append(out, AWSRemediationTradeoff{Dimension: "breakage_risk", Direction: "worsens", Description: plan.BreakageProjection.Rationale, Severity: firstNonEmptyAWSValue(plan.BreakageProjection.Level, "medium")})
+	}
+	return out
+}
+
 func awsRemediationRollbackForDiff(diff AWSRemediationDiffIntent, evidenceRef string) AWSRemediationRollbackPlan {
 	switch diff.Kind {
 	case "iam_policy_diff", "role_scope_diff":
@@ -960,6 +1038,38 @@ func awsRemediationVerificationForBlastRadius(evidenceRef string) AWSRemediation
 		SuccessSignals: []string{"blast_radius:scope-reduced"},
 		FailureSignals: []string{"blast_radius:scope-unchanged"},
 		EvidenceRef:    evidenceRef,
+	}
+}
+
+func awsRemediationRollbackFromTrustPolicyHardening(plan AWSTrustPolicyHardeningPlan, evidenceRef string) AWSRemediationRollbackPlan {
+	rollback := plan.RollbackPlan
+	if len(rollback.Steps) == 0 {
+		return awsRemediationRollbackForDiff(AWSRemediationDiffIntent{Kind: "iam_trust_diff"}, evidenceRef)
+	}
+	return AWSRemediationRollbackPlan{
+		Strategy:    firstNonEmptyAWSValue(rollback.Strategy, "restore_trust_policy"),
+		Steps:       rollback.Steps,
+		EvidenceRef: firstNonEmptyAWSValue(rollback.EvidenceRef, evidenceRef),
+	}
+}
+
+func awsRemediationVerificationFromTrustPolicyHardening(plan AWSTrustPolicyHardeningPlan, evidenceRef string) AWSRemediationVerificationPlan {
+	verification := plan.VerificationPlan
+	if len(verification.Steps) == 0 {
+		return AWSRemediationVerificationPlan{
+			Strategy:       "trust_policy_re_evaluate",
+			Steps:          []string{"Re-run trust-policy hardening after the change.", "Confirm public or unconditioned external trust is no longer present."},
+			SuccessSignals: []string{"trust_policy_hardening:scope-reduced"},
+			FailureSignals: []string{"trust_policy_hardening:still-exposed"},
+			EvidenceRef:    evidenceRef,
+		}
+	}
+	return AWSRemediationVerificationPlan{
+		Strategy:       firstNonEmptyAWSValue(verification.Strategy, "trust_policy_re_evaluate"),
+		Steps:          verification.Steps,
+		SuccessSignals: verification.SuccessSignals,
+		FailureSignals: verification.FailureSignals,
+		EvidenceRef:    firstNonEmptyAWSValue(verification.EvidenceRef, evidenceRef),
 	}
 }
 

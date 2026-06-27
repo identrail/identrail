@@ -36,6 +36,9 @@ func TestGetAWSRemediationCasesBuildsContract(t *testing.T) {
 	if result.Summary.SourceTypeCounts["ai_agent_risk"] == 0 && result.Summary.SourceTypeCounts["least_privilege"] == 0 {
 		t.Fatalf("expected at least one upstream source emitting cases: %+v", result.Summary.SourceTypeCounts)
 	}
+	if result.Summary.SourceTypeCounts["trust_policy_hardening"] == 0 {
+		t.Fatalf("expected trust-policy hardening cases for downstream dry-run/executor joins: %+v", result.Summary.SourceTypeCounts)
+	}
 	if result.Summary.RelationshipCount != len(result.Relationships) || len(result.Relationships) == 0 {
 		t.Fatalf("expected relationships and matching count: summary=%+v relationships=%+v", result.Summary, result.Relationships)
 	}

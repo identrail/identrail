@@ -33,6 +33,9 @@ func TestGetAWSTrustPolicyHardeningExecutorBuildsContract(t *testing.T) {
 	if result.Summary.RelationshipCount != len(result.Relationships) {
 		t.Fatalf("expected relationship count to match: summary=%+v relationships=%+v", result.Summary, result.Relationships)
 	}
+	if len(result.Entries) == 0 {
+		t.Fatalf("expected trust-policy dry-run entries to join to planner records: summary=%+v", result.Summary)
+	}
 	if len(result.Caveats) == 0 || len(result.CoverageGaps) == 0 {
 		t.Fatalf("expected caveats and coverage gaps: %+v", result)
 	}
