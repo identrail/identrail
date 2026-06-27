@@ -357,6 +357,49 @@ func TestAWSRemediationDryRunIntendedAPICallTargetsResourceForResourceMutations(
 	}
 }
 
+func TestAWSRemediationDryRunKMSGrantDiffTargetsKMSKeyFromImpactedPath(t *testing.T) {
+	// KMS-backed secret_permission_equivalence cases lead ResourceNodeIDs with
+	// the protected secret and only carry the KMS key in the impacted path.
+	// The dry-run must pick the KMS key as the PutKeyPolicy target.
+	approval := AWSRemediationApprovalEntry{
+		SourceType:     "secret_permission_equivalence",
+		CaseID:         "case-kms-impacted",
+		IdempotencyKey: "idk",
+		Scope: AWSRemediationApprovalScope{
+			IdentityNodeIDs: []string{"aws:identity:role/orders-ci"},
+			ResourceNodeIDs: []string{"aws:secret:orders-token"},
+		},
+		ImpactedPath: []AWSRemediationApprovalPathStep{
+			{NodeID: "aws:identity:role/orders-ci", NodeType: "identity", Label: "orders-ci"},
+			{NodeID: "aws:kms:key/orders-cmk", NodeType: "kms_key", Label: "orders-cmk"},
+			{NodeID: "aws:secret:orders-token", NodeType: "permission_bearing_secret", Label: "orders-token"},
+		},
+		DiffIntent: AWSRemediationDiffIntent{Kind: "kms_grant_diff"},
+	}
+	calls := awsRemediationDryRunIntendedAPICalls(approval)
+	if len(calls) == 0 || calls[0].Service != "kms" || calls[0].Operation != "PutKeyPolicy" || calls[0].TargetResource != "aws:kms:key/orders-cmk" {
+		t.Fatalf("kms_grant_diff must target the KMS key node from impacted_path, got %+v", calls)
+	}
+
+	// secret_rotation must still prefer the permission_bearing_secret node.
+	approval.DiffIntent.Kind = "secret_rotation"
+	approval.Scope.ResourceNodeIDs = []string{"aws:kms:key/orders-cmk"}
+	calls = awsRemediationDryRunIntendedAPICalls(approval)
+	if len(calls) == 0 || calls[0].Service != "secretsmanager" || calls[0].Operation != "RotateSecret" || calls[0].TargetResource != "aws:secret:orders-token" {
+		t.Fatalf("secret_rotation must target the permission_bearing_secret node from impacted_path, got %+v", calls)
+	}
+
+	// When the impacted path is missing typed nodes, the generic resource
+	// target still wins so the dry-run is never empty.
+	approval.ImpactedPath = nil
+	approval.Scope.ResourceNodeIDs = []string{"aws:secret:fallback"}
+	approval.DiffIntent.Kind = "secret_rotation"
+	calls = awsRemediationDryRunIntendedAPICalls(approval)
+	if len(calls) == 0 || calls[0].TargetResource != "aws:secret:fallback" {
+		t.Fatalf("missing impacted_path types must fall back to the generic resource target, got %+v", calls)
+	}
+}
+
 func TestGetAWSRemediationDryRunFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
 	svc, ws := newRemediationDryRunService(t, "project-remediation-dry-run-states", now)

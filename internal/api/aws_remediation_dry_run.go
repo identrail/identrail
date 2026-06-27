@@ -360,16 +360,32 @@ func awsRemediationDryRunIntendedAPICalls(approval AWSRemediationApprovalEntry) 
 // node IDs for an approval so each routing branch can pick the target that
 // matches the AWS API being projected. Identity-mutating calls (PutRolePolicy,
 // UpdateAccessKey, …) want the principal node, while resource-mutating calls
-// (RotateSecret, PutKeyPolicy) want the secret or KMS key node.
+// (RotateSecret, PutKeyPolicy) want the secret or KMS key node. `byNodeType`
+// is populated from the impacted-path so KMS-grant diffs whose
+// `ResourceNodeIDs` lead with the protected secret can still pick the actual
+// KMS key node.
 type awsRemediationDryRunTargetSet struct {
-	identity string
-	resource string
+	identity   string
+	resource   string
+	byNodeType map[string]string
 }
 
 func awsRemediationDryRunTargets(approval AWSRemediationApprovalEntry) awsRemediationDryRunTargetSet {
 	identity := firstNonEmptyAWSValue(awsRemediationDryRunFirstNode(approval.Scope.IdentityNodeIDs), awsRemediationDryRunFirstNode(approval.Scope.ResourceNodeIDs), awsRemediationDryRunFirstNode(approval.ImpactedNodes), approval.CaseID)
 	resource := firstNonEmptyAWSValue(awsRemediationDryRunFirstNode(approval.Scope.ResourceNodeIDs), awsRemediationDryRunFirstNode(approval.Scope.IdentityNodeIDs), awsRemediationDryRunFirstNode(approval.ImpactedNodes), approval.CaseID)
-	return awsRemediationDryRunTargetSet{identity: identity, resource: resource}
+	byNodeType := map[string]string{}
+	for _, step := range approval.ImpactedPath {
+		nodeType := strings.ToLower(strings.TrimSpace(step.NodeType))
+		nodeID := strings.TrimSpace(step.NodeID)
+		if nodeType == "" || nodeID == "" {
+			continue
+		}
+		if _, ok := byNodeType[nodeType]; ok {
+			continue
+		}
+		byNodeType[nodeType] = nodeID
+	}
+	return awsRemediationDryRunTargetSet{identity: identity, resource: resource, byNodeType: byNodeType}
 }
 
 func awsRemediationDryRunFirstNode(nodes []string) string {
@@ -379,6 +395,19 @@ func awsRemediationDryRunFirstNode(nodes []string) string {
 		}
 	}
 	return ""
+}
+
+// resourceOfType returns the impacted-path node whose type matches one of the
+// given hints, falling back to the generic resource target when no typed
+// match exists. This lets KMS-grant diffs target the KMS key node when the
+// approval scope's first `ResourceNodeIDs` entry is the protected secret.
+func (t awsRemediationDryRunTargetSet) resourceOfType(types ...string) string {
+	for _, nodeType := range types {
+		if node, ok := t.byNodeType[strings.ToLower(strings.TrimSpace(nodeType))]; ok && node != "" {
+			return node
+		}
+	}
+	return t.resource
 }
 
 // awsRemediationDryRunNoOpCall is the deterministic "no live AWS write is
@@ -428,7 +457,7 @@ func awsRemediationDryRunCallForDiffKind(diff AWSRemediationDiffIntent, targets 
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "kms",
 			Operation:        "PutKeyPolicy",
-			TargetResource:   targets.resource,
+			TargetResource:   targets.resourceOfType("kms_key", "kms"),
 			ParameterRefs:    []string{idempotencyKey, "key_policy_ref://" + caseID + "/after"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -437,7 +466,7 @@ func awsRemediationDryRunCallForDiffKind(diff AWSRemediationDiffIntent, targets 
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "secretsmanager",
 			Operation:        "RotateSecret",
-			TargetResource:   targets.resource,
+			TargetResource:   targets.resourceOfType("permission_bearing_secret", "secret", "secretsmanager_secret"),
 			ParameterRefs:    []string{idempotencyKey, "secret_ref://" + caseID + "/rotate"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -497,7 +526,7 @@ func awsRemediationDryRunCallForSourceType(sourceType string, targets awsRemedia
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "secretsmanager",
 			Operation:        "RotateSecret",
-			TargetResource:   targets.resource,
+			TargetResource:   targets.resourceOfType("permission_bearing_secret", "secret", "secretsmanager_secret"),
 			ParameterRefs:    []string{idempotencyKey},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -515,7 +544,7 @@ func awsRemediationDryRunCallForSourceType(sourceType string, targets awsRemedia
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "kms",
 			Operation:        "PutKeyPolicy",
-			TargetResource:   targets.resource,
+			TargetResource:   targets.resourceOfType("kms_key", "kms"),
 			ParameterRefs:    []string{idempotencyKey, "key_policy_ref://" + caseID + "/after"},
 			Idempotent:       true,
 			RequiresApproval: true,
