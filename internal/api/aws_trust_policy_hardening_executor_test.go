@@ -176,6 +176,13 @@ func TestAWSTrustPolicyHardeningExecutorStateHonorsPreconditions(t *testing.T) {
 		t.Fatalf("planner not ready must surface precondition_failed, got state=%q", out.State)
 	}
 
+	notReadyAndPublic := planNotReady
+	notReadyAndPublic.PublicPrincipal = true
+	out = awsTrustPolicyHardeningExecutorEntryFromDryRun(entry, notReadyAndPublic, now)
+	if out.State != awsTrustPolicyHardeningExecutorStateBlocked {
+		t.Fatalf("safety failure must take priority over readiness failure, got state=%q", out.State)
+	}
+
 	highBreakage := ready
 	highBreakage.BreakageProjection.Level = "high"
 	out = awsTrustPolicyHardeningExecutorEntryFromDryRun(entry, highBreakage, now)

@@ -488,13 +488,17 @@ func awsTrustPolicyHardeningExecutorState(entry AWSRemediationDryRunEntry, preco
 	if entry.Outcome == awsRemediationDryRunOutcomeBlocked || entry.Outcome == awsRemediationDryRunOutcomeKillSwitched {
 		return awsTrustPolicyHardeningExecutorStateBlocked
 	}
+	hasBlockedPrecondition := false
 	for _, precondition := range preconditions {
 		if precondition.Status != "blocked" {
 			continue
 		}
+		hasBlockedPrecondition = true
 		if awsTrustPolicyHardeningExecutorPreconditionIsSafety(precondition.Name) {
 			return awsTrustPolicyHardeningExecutorStateBlocked
 		}
+	}
+	if hasBlockedPrecondition {
 		return awsTrustPolicyHardeningExecutorStatePreconditionFailed
 	}
 	if entry.Outcome != awsRemediationDryRunOutcomeWouldSucceed || !entry.ReadyForApply {
