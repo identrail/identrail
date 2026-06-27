@@ -425,6 +425,80 @@ func TestAWSRemediationDryRunVerificationSuppressesLiveChecksForNoOpDiffs(t *tes
 	}
 }
 
+func TestAWSRemediationDryRunIAMOperationFollowsPrincipalKind(t *testing.T) {
+	cases := []struct {
+		name       string
+		approval   AWSRemediationApprovalEntry
+		wantOp     string
+		wantTarget string
+	}{
+		{
+			name: "role principal keeps PutRolePolicy",
+			approval: AWSRemediationApprovalEntry{
+				SourceType:     "least_privilege",
+				CaseID:         "case-role-lp",
+				IdempotencyKey: "idk",
+				Scope:          AWSRemediationApprovalScope{IdentityNodeIDs: []string{"aws:identity:role/orders-ci"}},
+				DiffIntent:     AWSRemediationDiffIntent{Kind: "iam_policy_diff"},
+			},
+			wantOp:     "PutRolePolicy",
+			wantTarget: "aws:identity:role/orders-ci",
+		},
+		{
+			name: "user principal switches to PutUserPolicy",
+			approval: AWSRemediationApprovalEntry{
+				SourceType:     "least_privilege",
+				CaseID:         "case-user-lp",
+				IdempotencyKey: "idk",
+				Scope:          AWSRemediationApprovalScope{IdentityNodeIDs: []string{"arn:aws:iam::123456789012:user/shakia-ci"}},
+				DiffIntent:     AWSRemediationDiffIntent{Kind: "iam_policy_diff"},
+			},
+			wantOp:     "PutUserPolicy",
+			wantTarget: "arn:aws:iam::123456789012:user/shakia-ci",
+		},
+		{
+			name: "group principal switches to PutGroupPolicy",
+			approval: AWSRemediationApprovalEntry{
+				SourceType:     "least_privilege",
+				CaseID:         "case-group-lp",
+				IdempotencyKey: "idk",
+				Scope:          AWSRemediationApprovalScope{IdentityNodeIDs: []string{"arn:aws:iam::123456789012:group/platform-engineers"}},
+				DiffIntent:     AWSRemediationDiffIntent{Kind: "iam_policy_diff"},
+			},
+			wantOp:     "PutGroupPolicy",
+			wantTarget: "arn:aws:iam::123456789012:group/platform-engineers",
+		},
+		{
+			name: "user permission boundary switches to PutUserPermissionsBoundary",
+			approval: AWSRemediationApprovalEntry{
+				SourceType:     "aws_permission_boundary_scp",
+				CaseID:         "case-user-boundary",
+				IdempotencyKey: "idk",
+				Scope:          AWSRemediationApprovalScope{IdentityNodeIDs: []string{"aws:identity:user/shakia-ci"}},
+			},
+			wantOp:     "PutUserPermissionsBoundary",
+			wantTarget: "aws:identity:user/shakia-ci",
+		},
+		{
+			name: "blast_radius user principal switches to DetachUserPolicy",
+			approval: AWSRemediationApprovalEntry{
+				SourceType:     "blast_radius",
+				CaseID:         "case-blast-user",
+				IdempotencyKey: "idk",
+				Scope:          AWSRemediationApprovalScope{IdentityNodeIDs: []string{"arn:aws:iam::123456789012:user/shakia-ci"}},
+			},
+			wantOp:     "DetachUserPolicy",
+			wantTarget: "arn:aws:iam::123456789012:user/shakia-ci",
+		},
+	}
+	for _, tc := range cases {
+		calls := awsRemediationDryRunIntendedAPICalls(tc.approval)
+		if len(calls) == 0 || calls[0].Operation != tc.wantOp || calls[0].TargetResource != tc.wantTarget {
+			t.Fatalf("%s: want op=%s target=%s, got %+v", tc.name, tc.wantOp, tc.wantTarget, calls)
+		}
+	}
+}
+
 func TestGetAWSRemediationDryRunFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
 	svc, ws := newRemediationDryRunService(t, "project-remediation-dry-run-states", now)

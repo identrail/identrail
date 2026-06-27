@@ -438,7 +438,7 @@ func awsRemediationDryRunCallForDiffKind(diff AWSRemediationDiffIntent, targets 
 	case "iam_policy_diff", "role_scope_diff", "iac_iam_policy_pr":
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "iam",
-			Operation:        "PutRolePolicy",
+			Operation:        awsRemediationDryRunPutPolicyOperation(targets.identity),
 			TargetResource:   targets.identity,
 			ParameterRefs:    []string{idempotencyKey, "policy_document_ref://" + caseID + "/after"},
 			Idempotent:       true,
@@ -498,7 +498,7 @@ func awsRemediationDryRunCallForSourceType(sourceType string, targets awsRemedia
 	case "least_privilege", "aws_iac_remediation", "aws_iam_policy_diff":
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "iam",
-			Operation:        "PutRolePolicy",
+			Operation:        awsRemediationDryRunPutPolicyOperation(targets.identity),
 			TargetResource:   targets.identity,
 			ParameterRefs:    []string{idempotencyKey, "policy_document_ref://" + caseID + "/after"},
 			Idempotent:       true,
@@ -516,7 +516,7 @@ func awsRemediationDryRunCallForSourceType(sourceType string, targets awsRemedia
 	case "aws_permission_boundary_scp":
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "iam",
-			Operation:        "PutRolePermissionsBoundary",
+			Operation:        awsRemediationDryRunPutBoundaryOperation(targets.identity),
 			TargetResource:   targets.identity,
 			ParameterRefs:    []string{idempotencyKey, "boundary_ref://" + caseID + "/after"},
 			Idempotent:       true,
@@ -561,7 +561,7 @@ func awsRemediationDryRunCallForSourceType(sourceType string, targets awsRemedia
 	case "blast_radius":
 		return AWSRemediationDryRunIntendedAPICall{
 			Service:          "iam",
-			Operation:        "DetachRolePolicy",
+			Operation:        awsRemediationDryRunDetachPolicyOperation(targets.identity),
 			TargetResource:   targets.identity,
 			ParameterRefs:    []string{idempotencyKey},
 			Idempotent:       true,
@@ -569,6 +569,54 @@ func awsRemediationDryRunCallForSourceType(sourceType string, targets awsRemedia
 		}, true
 	}
 	return AWSRemediationDryRunIntendedAPICall{}, false
+}
+
+// awsRemediationDryRunIAMPrincipalKind classifies the target IAM principal as
+// role/user/group from its node ID or ARN so the dry-run can route IAM
+// inline-policy and permissions-boundary operations correctly. Returns
+// "role" when the principal type cannot be determined, which matches the
+// most common AWS machine-identity remediation target.
+func awsRemediationDryRunIAMPrincipalKind(target string) string {
+	normalized := strings.ToLower(strings.TrimSpace(target))
+	switch {
+	case normalized == "":
+		return "role"
+	case strings.Contains(normalized, ":user/"), strings.Contains(normalized, ":identity:user/"):
+		return "user"
+	case strings.Contains(normalized, ":group/"), strings.Contains(normalized, ":identity:group/"):
+		return "group"
+	default:
+		return "role"
+	}
+}
+
+func awsRemediationDryRunPutPolicyOperation(target string) string {
+	switch awsRemediationDryRunIAMPrincipalKind(target) {
+	case "user":
+		return "PutUserPolicy"
+	case "group":
+		return "PutGroupPolicy"
+	default:
+		return "PutRolePolicy"
+	}
+}
+
+func awsRemediationDryRunPutBoundaryOperation(target string) string {
+	if awsRemediationDryRunIAMPrincipalKind(target) == "user" {
+		return "PutUserPermissionsBoundary"
+	}
+	return "PutRolePermissionsBoundary"
+}
+
+func awsRemediationDryRunDetachPolicyOperation(target string) string {
+	switch awsRemediationDryRunIAMPrincipalKind(target) {
+	case "user":
+		return "DetachUserPolicy"
+	case "group":
+		return "DetachGroupPolicy"
+	default:
+		return "DetachRolePolicy"
+	}
 }
 
 func awsRemediationDryRunAffectedResources(approval AWSRemediationApprovalEntry, intended []AWSRemediationDryRunIntendedAPICall) []AWSRemediationDryRunAffectedResource {
