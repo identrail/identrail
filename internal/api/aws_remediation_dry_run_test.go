@@ -400,6 +400,31 @@ func TestAWSRemediationDryRunKMSGrantDiffTargetsKMSKeyFromImpactedPath(t *testin
 	}
 }
 
+func TestAWSRemediationDryRunVerificationSuppressesLiveChecksForNoOpDiffs(t *testing.T) {
+	noop := AWSRemediationApprovalEntry{
+		SourceType: "least_privilege",
+		DiffIntent: AWSRemediationDiffIntent{Kind: "manual_review", NoOp: true},
+	}
+	checks := awsRemediationDryRunVerificationChecks(noop)
+	if len(checks) != 1 || checks[0].Source != "manual_review" || checks[0].Signal != "noop" {
+		t.Fatalf("no-op diff intent must surface a manual_review:noop verification check, got %+v", checks)
+	}
+
+	live := AWSRemediationApprovalEntry{
+		SourceType: "trust_policy_hardening",
+		DiffIntent: AWSRemediationDiffIntent{Kind: "iam_trust_diff"},
+	}
+	checks = awsRemediationDryRunVerificationChecks(live)
+	if len(checks) < 2 {
+		t.Fatalf("non-noop entries must keep live verification checks, got %+v", checks)
+	}
+	for _, check := range checks {
+		if check.Source == "manual_review" && check.Signal == "noop" {
+			t.Fatalf("non-noop entries must not include manual_review:noop, got %+v", checks)
+		}
+	}
+}
+
 func TestGetAWSRemediationDryRunFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
 	svc, ws := newRemediationDryRunService(t, "project-remediation-dry-run-states", now)

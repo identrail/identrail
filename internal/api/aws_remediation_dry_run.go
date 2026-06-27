@@ -653,6 +653,13 @@ func awsRemediationDryRunFeatureFlagMustBeDisabled(name string) bool {
 }
 
 func awsRemediationDryRunVerificationChecks(approval AWSRemediationApprovalEntry) []AWSRemediationDryRunVerificationCheck {
+	if approval.DiffIntent.NoOp {
+		return []AWSRemediationDryRunVerificationCheck{{
+			Source:      "manual_review",
+			Signal:      "noop",
+			Description: "No live AWS API call is planned for this dry-run; the source case is a manual review or owner-assignment with no deterministic diff to verify.",
+		}}
+	}
 	checks := []AWSRemediationDryRunVerificationCheck{
 		{Source: "cloudtrail", Signal: "expected_api_call_observed", Description: "After live execution, confirm the intended API call appears in CloudTrail for the target account and region."},
 		{Source: "iam:policy_simulate", Signal: "no_regression", Description: "Re-run the IAM policy simulator after live execution to confirm no regression on kept actions."},
