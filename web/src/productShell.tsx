@@ -77,6 +77,8 @@ import {
   type AWSRemediationDryRunResult,
   type AWSLowRiskRemediationEntry,
   type AWSLowRiskRemediationResult,
+  type AWSTrustPolicyHardeningExecutorEntry,
+  type AWSTrustPolicyHardeningExecutorResult,
   type AWSBlastRadiusFinding,
   type AWSBlastRadiusResult,
   type AWSLeastPrivilegeRecommendation,
@@ -11708,6 +11710,106 @@ function AWSLowRiskRemediationContent({
   );
 }
 
+function awsTrustPolicyHardeningExecutorStage(entry: AWSTrustPolicyHardeningExecutorEntry): AWSCapabilityStage {
+  if (entry.kill_switch_engaged || entry.state === 'blocked') {
+    return 'not-available';
+  }
+  if (entry.state !== 'projected' || !entry.ready_for_live_apply) {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsTrustPolicyHardeningExecutorPreconditionLabel(entry: AWSTrustPolicyHardeningExecutorEntry): string {
+  const passed = entry.preconditions.filter((precondition) => precondition.status === 'passed').length;
+  const blocked = entry.preconditions.length - passed;
+  return `${passed} passed · ${blocked} blocked`;
+}
+
+function awsTrustPolicyHardeningExecutorReadinessLabel(entry: AWSTrustPolicyHardeningExecutorEntry): string {
+  if (entry.ready_for_live_apply) {
+    return `ready · ${entry.verifications.length} verifications`;
+  }
+  return formatTokenLabel(entry.state);
+}
+
+function AWSTrustPolicyHardeningExecutorContent({
+  result,
+  loading,
+  error,
+  onRetry
+}: {
+  result: AWSTrustPolicyHardeningExecutorResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = result?.entries ?? [];
+  const summaryLine = result
+    ? `${result.summary.total_entries} total · ${result.summary.ready_for_live_apply_count} ready · ${result.summary.failed_precondition_count} blocked preconditions · ${result.summary.public_principal_count} public principal`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS approved trust-policy hardening executor">
+      <h3>AWS approved trust-policy hardening executor</h3>
+      <p className="idt-app-kicker">
+        Read-only projection that joins the dry-run executor with the trust-policy hardening planner. Each entry records
+        the idempotency key, intended IAM:UpdateAssumeRolePolicy call, structured trust-policy fields (principal change,
+        conditions, breakage projection), policy-simulator metadata, preconditions, verification records, rollback plan,
+        and audit trail. Identrail never calls IAM/STS/Organizations write APIs at this layer. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load AWS trust-policy hardening executor"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Projecting trust-policy hardening execution"
+          body="Identrail is joining dry-run readiness with the trust-policy hardening planner to project safe execution records."
+        />
+      ) : null}
+      {!error && !loading && result && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={result.status === 'blocked' ? 'Permission required' : 'No trust-policy executor entries'}
+          title={result.status === 'blocked' ? 'Trust-policy executor needs approved dry-run and planner evidence' : 'No trust-policy hardening executor entries projected'}
+          body={result.failure_reasons[0] ?? 'No upstream dry-run entry joined a trust-policy hardening plan for this environment.'}
+        />
+      ) : null}
+      {!error && !loading && result && result.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {result.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS trust-policy hardening executor entries"
+          rows={rows}
+          getRowKey={(row) => row.execution_id}
+          columns={[
+            { key: 'execution', header: 'Execution', render: (row) => <strong>{row.title}</strong> },
+            { key: 'direction', header: 'Direction', render: (row) => formatTokenLabel(row.hardening_direction) },
+            { key: 'preconditions', header: 'Preconditions', render: (row) => awsTrustPolicyHardeningExecutorPreconditionLabel(row) },
+            { key: 'simulation', header: 'Simulation', render: (row) => `${formatTokenLabel(row.policy_simulation.outcome)} · ${row.policy_simulation.allowed_count} allow / ${row.policy_simulation.denied_count} cond` },
+            { key: 'state', header: 'State', render: (row) => awsTrustPolicyHardeningExecutorReadinessLabel(row) },
+            {
+              key: 'severity',
+              header: 'Severity',
+              render: (row) => (
+                <AWSInventoryPill stage={awsTrustPolicyHardeningExecutorStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.state)}`} />
+              )
+            }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsBlastRadiusSeverityStage(severity: string): AWSCapabilityStage {
   switch (severity) {
     case 'critical':
@@ -13191,6 +13293,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [lowRiskRemediationLoading, setLowRiskRemediationLoading] = useState(false);
   const [lowRiskRemediationError, setLowRiskRemediationError] = useState('');
   const lowRiskRemediationRequestRef = useRef(0);
+  const [trustPolicyHardeningExecutor, setTrustPolicyHardeningExecutor] = useState<AWSTrustPolicyHardeningExecutorResult | null>(null);
+  const [trustPolicyHardeningExecutorLoading, setTrustPolicyHardeningExecutorLoading] = useState(false);
+  const [trustPolicyHardeningExecutorError, setTrustPolicyHardeningExecutorError] = useState('');
+  const trustPolicyHardeningExecutorRequestRef = useRef(0);
   const [blastRadius, setBlastRadius] = useState<AWSBlastRadiusResult | null>(null);
   const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
   const [blastRadiusError, setBlastRadiusError] = useState('');
@@ -13956,6 +14062,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadLowRiskRemediation]);
 
+  const loadTrustPolicyHardeningExecutor = useCallback(async () => {
+    const requestID = ++trustPolicyHardeningExecutorRequestRef.current;
+    setTrustPolicyHardeningExecutor(null);
+    setTrustPolicyHardeningExecutorError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setTrustPolicyHardeningExecutorLoading(false);
+      return;
+    }
+    setTrustPolicyHardeningExecutorLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectTrustPolicyHardeningExecutor(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== trustPolicyHardeningExecutorRequestRef.current) {
+        return;
+      }
+      setTrustPolicyHardeningExecutor(response.trust_policy_hardening_executor);
+    } catch (error) {
+      if (requestID !== trustPolicyHardeningExecutorRequestRef.current) {
+        return;
+      }
+      setTrustPolicyHardeningExecutorError(formatAPIError(error, 'Unable to load AWS trust-policy hardening executor.'));
+    } finally {
+      if (requestID === trustPolicyHardeningExecutorRequestRef.current) {
+        setTrustPolicyHardeningExecutorLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadTrustPolicyHardeningExecutor();
+    return () => {
+      trustPolicyHardeningExecutorRequestRef.current += 1;
+    };
+  }, [loadTrustPolicyHardeningExecutor]);
+
   const loadBlastRadius = useCallback(async () => {
     const requestID = ++blastRadiusRequestRef.current;
     setBlastRadius(null);
@@ -14506,6 +14660,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={lowRiskRemediationLoading}
             error={lowRiskRemediationError}
             onRetry={loadLowRiskRemediation}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSTrustPolicyHardeningExecutorContent
+            result={trustPolicyHardeningExecutor}
+            loading={trustPolicyHardeningExecutorLoading}
+            error={trustPolicyHardeningExecutorError}
+            onRetry={loadTrustPolicyHardeningExecutor}
           />
         ) : null}
         {routeID === 'runtime' ? (

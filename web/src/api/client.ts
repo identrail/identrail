@@ -4355,6 +4355,149 @@ export type AWSLowRiskRemediationQuery = {
   search?: string;
 };
 
+export type AWSTrustPolicyHardeningExecutorStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSTrustPolicyHardeningExecutorFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSTrustPolicyHardeningExecutorState = 'projected' | 'precondition_failed' | 'blocked' | string;
+
+export type AWSTrustPolicyHardeningExecutorPrecondition = {
+  name: string;
+  status: string;
+  rationale: string;
+};
+
+export type AWSTrustPolicyHardeningExecutorPolicySimulation = {
+  simulation_ref: string;
+  outcome: string;
+  before_ref: string;
+  after_ref: string;
+  allowed_count: number;
+  denied_count: number;
+  signals?: string[];
+};
+
+export type AWSTrustPolicyHardeningExecutorVerification = {
+  source: string;
+  signal: string;
+  status: string;
+  description: string;
+};
+
+export type AWSTrustPolicyHardeningExecutorRelationship = {
+  execution_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSTrustPolicyHardeningExecutorEntry = {
+  execution_id: string;
+  calculation_version: string;
+  dry_run_id: string;
+  approval_id: string;
+  case_id: string;
+  plan_id: string;
+  source_artifact_id: string;
+  state: AWSTrustPolicyHardeningExecutorState;
+  hardening_direction: string;
+  severity: string;
+  score: number;
+  confidence: number;
+  title: string;
+  summary: string;
+  account_id: string;
+  region: string;
+  idempotency_key: string;
+  resource_node_id: string;
+  resource_arn?: string;
+  resource_label?: string;
+  public_principal: boolean;
+  principal_change: AWSTrustPolicyPrincipalChange;
+  condition_recommendations: AWSTrustPolicyConditionRecommendation[];
+  statement_snippets: AWSTrustPolicyStatementSnippet[];
+  affected_callers: AWSTrustPolicyAffectedCaller[];
+  breakage_projection: AWSTrustPolicyHardeningBreakageProjection;
+  intended_api_call: AWSRemediationDryRunIntendedAPICall;
+  preconditions: AWSTrustPolicyHardeningExecutorPrecondition[];
+  policy_simulation: AWSTrustPolicyHardeningExecutorPolicySimulation;
+  verifications: AWSTrustPolicyHardeningExecutorVerification[];
+  rollback_plan: AWSTrustPolicyHardeningRollbackPlan;
+  verification_plan: AWSTrustPolicyHardeningVerificationPlan;
+  audit_trail: AWSRemediationAuditEntry[];
+  kill_switch_engaged: boolean;
+  ready_for_live_apply: boolean;
+  read_only_projection: boolean;
+  source_signals: string[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  next_action: string;
+  projected_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSTrustPolicyHardeningExecutorSummary = {
+  total_entries: number;
+  filtered_entries: number;
+  state_counts: Record<string, number>;
+  hardening_direction_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  ready_for_live_apply_count: number;
+  kill_switch_engaged_count: number;
+  public_principal_count: number;
+  failed_precondition_count: number;
+  verification_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSTrustPolicyHardeningExecutorResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSTrustPolicyHardeningExecutorStatus;
+  fixture_state?: AWSTrustPolicyHardeningExecutorFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSTrustPolicyHardeningExecutorSummary;
+  entries: AWSTrustPolicyHardeningExecutorEntry[];
+  relationships: AWSTrustPolicyHardeningExecutorRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSTrustPolicyHardeningExecutorQuery = {
+  connectorID?: string;
+  fixtureState?: AWSTrustPolicyHardeningExecutorFixtureState;
+  accountID?: string;
+  region?: string;
+  dryRunID?: string;
+  caseID?: string;
+  planID?: string;
+  hardeningDirection?: string;
+  state?: string;
+  severity?: string;
+  search?: string;
+};
+
 export type AWSBlastRadiusStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBlastRadiusFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSBlastRadiusSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
@@ -8699,6 +8842,29 @@ export const apiClient = {
         case_id: query?.caseID,
         action: query?.action,
         action_category: query?.actionCategory,
+        state: query?.state,
+        severity: query?.severity,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectTrustPolicyHardeningExecutor(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSTrustPolicyHardeningExecutorQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ trust_policy_hardening_executor: AWSTrustPolicyHardeningExecutorResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/trust-policy-hardening-executor${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        dry_run_id: query?.dryRunID,
+        case_id: query?.caseID,
+        plan_id: query?.planID,
+        hardening_direction: query?.hardeningDirection,
         state: query?.state,
         severity: query?.severity,
         search: query?.search

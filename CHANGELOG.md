@@ -1,6 +1,42 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS approved trust-policy hardening executor** (#1539). Adds a
+  read-only projection that joins the dry-run executor (#1537) with the
+  trust-policy hardening planner (#1531) for cases whose source_type is
+  `trust_policy_hardening` and whose dry-run diff kind targets an IAM
+  trust-policy mutation (`iam_trust_diff` or `iac_trust_policy_pr`). Each
+  entry copies the deterministic idempotency key, the intended
+  `iam:UpdateAssumeRolePolicy` call, the structured trust-policy hardening
+  fields from the planner (hardening direction, principal change, condition
+  recommendations, statement snippets, affected callers, breakage
+  projection, public-principal flag), policy-simulator metadata
+  (simulation_ref / outcome / before-after refs / allowed-and-denied
+  counts / signals), preconditions (dry-run-would-succeed, ready-for-apply,
+  kill-switch-off, idempotency-key-present, plan-ready-for-apply,
+  no-public-principal-after-change, breakage-level-low, upstream
+  prerequisites), verification records (CloudTrail observation, Access
+  Analyzer re-check, and a policy-simulator confirmation for
+  `add_condition` directions plus any dry-run verifications), rollback
+  plan, verification plan, and an audit trail with a
+  `trust_policy_hardening_execution_projected` row. The state is
+  `projected` when every precondition passes, `precondition_failed` when
+  the dry-run/planner are not yet ready (not a safety violation), and
+  `blocked` when a safety precondition fails or the kill switch is
+  engaged. `ready_for_live_apply` is true only when state is `projected`,
+  the upstream dry-run is itself `ready_for_apply`, and no kill switch is
+  engaged. Identrail never calls IAM/STS/Organizations write APIs at this
+  layer; controlled live `iam:UpdateAssumeRolePolicy` is reserved for the
+  wave-8 apply runtime. Adds
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/trust-policy-hardening-executor`
+  with filters for connector, account, region, dry-run ID, case ID, plan
+  ID, hardening direction, state, severity, and free-text search. OpenAPI
+  schemas and authz wiring follow the neighboring wave-8 endpoints. The
+  AWS Runtime app surface now shows an **AWS approved trust-policy
+  hardening executor** panel with execution title, direction, precondition
+  pass/blocked counts, simulation outcome and allow/condition counts,
+  readiness label, and severity/state pill, with explicit loading, empty,
+  degraded, blocked, and error states.
 - Add **AWS low-risk live remediation** (#1538). Adds a read-only,
   metadata-only projection of allowlisted low-risk AWS remediation actions
   derived from the approved dry-run executor (#1537). The allowlist is
