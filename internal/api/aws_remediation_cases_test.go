@@ -36,9 +36,6 @@ func TestGetAWSRemediationCasesBuildsContract(t *testing.T) {
 	if result.Summary.SourceTypeCounts["ai_agent_risk"] == 0 && result.Summary.SourceTypeCounts["least_privilege"] == 0 {
 		t.Fatalf("expected at least one upstream source emitting cases: %+v", result.Summary.SourceTypeCounts)
 	}
-	if result.Summary.SourceTypeCounts["trust_policy_hardening"] == 0 {
-		t.Fatalf("expected trust-policy hardening cases for downstream dry-run/executor joins: %+v", result.Summary.SourceTypeCounts)
-	}
 	if result.Summary.RelationshipCount != len(result.Relationships) || len(result.Relationships) == 0 {
 		t.Fatalf("expected relationships and matching count: summary=%+v relationships=%+v", result.Summary, result.Relationships)
 	}
@@ -68,6 +65,9 @@ func TestGetAWSRemediationCasesBuildsContract(t *testing.T) {
 		}
 		if c.EvidenceBoundary != awsRemediationCaseEvidenceBoundary() {
 			t.Fatalf("case crossed evidence boundary: %+v", c)
+		}
+		if c.SourceType == "trust_policy_hardening" && (c.IdentityType != "iam_role" || c.DiffIntent.Kind != "iam_trust_diff") {
+			t.Fatalf("trust-policy hardening case must stay scoped to IAM role trust diffs: %+v", c)
 		}
 		if len(c.AuditTrail) == 0 || c.AuditTrail[0].EventType != "proposed" {
 			t.Fatalf("case missing proposed audit entry: %+v", c.AuditTrail)
@@ -320,6 +320,7 @@ func TestAWSRemediationCaseTrustPolicyHardeningReadyPlanPreservesApprovedState(t
 		Confidence:         0.9,
 		AccountID:          "123456789012",
 		Region:             "us-east-1",
+		ResourceType:       "iam_role",
 		ResourceNodeID:     "aws:identity:arn:aws:iam::123456789012:role/payments-cross-account",
 		ResourceARN:        "arn:aws:iam::123456789012:role/payments-cross-account",
 		ResourceLabel:      "payments-cross-account",
@@ -346,6 +347,37 @@ func TestAWSRemediationCaseTrustPolicyHardeningReadyPlanPreservesApprovedState(t
 	}
 	if c.Lifecycle != "approved" {
 		t.Fatalf("ready trust-policy plan must remain approved lifecycle, got %s", c.Lifecycle)
+	}
+}
+
+func TestAWSRemediationCaseTrustPolicyHardeningSkipsNonIAMRolePlans(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 45, 0, 0, time.UTC)
+	plan := AWSTrustPolicyHardeningPlan{
+		PlanID:             "aws-trust-policy-hardening:s3-resource-policy",
+		Severity:           "high",
+		Status:             "action_required",
+		Score:              81,
+		Confidence:         0.91,
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		Service:            "s3",
+		ResourceType:       "s3_bucket",
+		ResourceNodeID:     "aws:resource:s3:::payments-data",
+		ResourceARN:        "arn:aws:s3:::payments-data",
+		ResourceLabel:      "payments-data",
+		HardeningDirection: "add_org_or_source_condition",
+		Summary:            "Runtime evidence supports hardening a resource policy.",
+		ReadyForApply:      true,
+		PublicPrincipal:    false,
+		BreakageProjection: AWSTrustPolicyHardeningBreakageProjection{Level: "low", Rationale: "Runtime callers are known."},
+		RollbackPlan:       AWSTrustPolicyHardeningRollbackPlan{Strategy: "restore_resource_policy", Steps: []string{"Restore the previous resource policy."}},
+		VerificationPlan:   AWSTrustPolicyHardeningVerificationPlan{Strategy: "resource_policy_re_evaluate", Steps: []string{"Re-run trust-policy hardening."}},
+		ImpactedNodes:      []string{"aws:resource:s3:::payments-data"},
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if c, ok := awsRemediationCaseFromTrustPolicyHardening(plan, now); ok {
+		t.Fatalf("non-IAM role trust-policy plan must not become an IAM trust diff case: %+v", c)
 	}
 }
 

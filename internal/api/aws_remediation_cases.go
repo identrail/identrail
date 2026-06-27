@@ -594,6 +594,9 @@ func awsRemediationCaseFromTrustPolicyHardening(plan AWSTrustPolicyHardeningPlan
 	if plan.PlanID == "" {
 		return AWSRemediationCase{}, false
 	}
+	if !awsRemediationTrustPolicyHardeningIsIAMRole(plan) {
+		return AWSRemediationCase{}, false
+	}
 	caseID := "aws-remediation-case:" + stableAWSBlastRadiusToken("trust-policy-hardening", plan.PlanID)
 	evidenceRef := firstString(awsRemediationEvidenceRefs(plan.Evidence))
 	diff := AWSRemediationDiffIntent{
@@ -647,6 +650,18 @@ func awsRemediationCaseFromTrustPolicyHardening(plan AWSTrustPolicyHardeningPlan
 		UpdatedAt:          now,
 	}
 	return finalizeAWSRemediationCase(c, now), true
+}
+
+func awsRemediationTrustPolicyHardeningIsIAMRole(plan AWSTrustPolicyHardeningPlan) bool {
+	if normalizeAWSRuntimeEventFilterToken(plan.ResourceType) == "iam-role" {
+		return true
+	}
+	resourceARN := strings.ToLower(strings.TrimSpace(plan.ResourceARN))
+	if strings.Contains(resourceARN, ":role/") {
+		return true
+	}
+	resourceNodeID := strings.ToLower(strings.TrimSpace(plan.ResourceNodeID))
+	return strings.Contains(resourceNodeID, ":role/")
 }
 
 func finalizeAWSRemediationCase(c AWSRemediationCase, now time.Time) AWSRemediationCase {
