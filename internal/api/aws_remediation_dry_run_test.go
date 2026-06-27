@@ -499,6 +499,47 @@ func TestAWSRemediationDryRunIAMOperationFollowsPrincipalKind(t *testing.T) {
 	}
 }
 
+func TestAWSRemediationDryRunAffectedResourcesAreContextOnlyForNoOpDiffs(t *testing.T) {
+	approval := AWSRemediationApprovalEntry{
+		SourceType:     "least_privilege",
+		CaseID:         "case-noop-affected",
+		IdempotencyKey: "idk",
+		Scope: AWSRemediationApprovalScope{
+			IdentityNodeIDs: []string{"aws:identity:role/orders-ci"},
+			ResourceNodeIDs: []string{"aws:s3:bucket/orders"},
+		},
+		ImpactedNodes: []string{"aws:identity:role/orders-ci", "aws:s3:bucket/orders", "aws:s3:bucket/exports"},
+		DiffIntent:    AWSRemediationDiffIntent{Kind: "manual_review", NoOp: true},
+	}
+	intended := awsRemediationDryRunIntendedAPICalls(approval)
+	resources := awsRemediationDryRunAffectedResources(approval, intended)
+	if len(resources) == 0 {
+		t.Fatalf("expected scope/impacted nodes to surface as context entries, got none")
+	}
+	for _, resource := range resources {
+		if resource.ChangeKind != "context" {
+			t.Fatalf("no-op diff intent must mark every affected resource as context, got %+v", resource)
+		}
+		if resource.NodeID == intended[0].TargetResource && resource.NodeID == "manual_review" {
+			t.Fatalf("no-op diff intent must not record the noop call target as an api_target, got %+v", resource)
+		}
+	}
+	// And the executable path should still record api_target / identity / resource / impacted kinds.
+	live := approval
+	live.DiffIntent = AWSRemediationDiffIntent{Kind: "iam_policy_diff"}
+	liveCalls := awsRemediationDryRunIntendedAPICalls(live)
+	liveResources := awsRemediationDryRunAffectedResources(live, liveCalls)
+	sawAPITarget := false
+	for _, resource := range liveResources {
+		if resource.ChangeKind == "api_target" {
+			sawAPITarget = true
+		}
+	}
+	if !sawAPITarget {
+		t.Fatalf("executable dry-run must still record an api_target affected resource, got %+v", liveResources)
+	}
+}
+
 func TestGetAWSRemediationDryRunFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
 	svc, ws := newRemediationDryRunService(t, "project-remediation-dry-run-states", now)

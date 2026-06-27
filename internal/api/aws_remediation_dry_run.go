@@ -638,6 +638,23 @@ func awsRemediationDryRunAffectedResources(approval AWSRemediationApprovalEntry,
 			AfterRef:   firstNonEmptyAWSValue(approval.DiffIntent.AfterRef, fmt.Sprintf("after://%s", approval.CaseID)),
 		})
 	}
+	// No-op diff intents (manual_review, owner_assignment) project the
+	// `manual_review:noop` call and have no AWS write to apply. Mark the
+	// scope/impacted nodes as `context` instead of `would_change` so
+	// operators and later automation never treat manual-review entries as
+	// executable mutations.
+	if approval.DiffIntent.NoOp {
+		for _, node := range approval.Scope.IdentityNodeIDs {
+			add(node, "context")
+		}
+		for _, node := range approval.Scope.ResourceNodeIDs {
+			add(node, "context")
+		}
+		for _, node := range approval.ImpactedNodes {
+			add(node, "context")
+		}
+		return resources
+	}
 	for _, call := range intended {
 		add(call.TargetResource, "api_target")
 	}
