@@ -499,6 +499,79 @@ func TestAWSRemediationDryRunIAMOperationFollowsPrincipalKind(t *testing.T) {
 	}
 }
 
+func TestAWSRemediationDryRunVerificationChecksGateIAMSimulatorByDiffKind(t *testing.T) {
+	cases := []struct {
+		name          string
+		approval      AWSRemediationApprovalEntry
+		wantSimulator bool
+		wantSignal    string
+	}{
+		{
+			name: "iam_policy_diff includes simulator",
+			approval: AWSRemediationApprovalEntry{
+				SourceType: "least_privilege",
+				DiffIntent: AWSRemediationDiffIntent{Kind: "iam_policy_diff"},
+			},
+			wantSimulator: true,
+		},
+		{
+			name: "iam_trust_diff includes simulator",
+			approval: AWSRemediationApprovalEntry{
+				SourceType: "trust_policy_hardening",
+				DiffIntent: AWSRemediationDiffIntent{Kind: "iam_trust_diff"},
+			},
+			wantSimulator: true,
+		},
+		{
+			name:          "secret_rotation skips simulator and adds rotation_success",
+			approval:      AWSRemediationApprovalEntry{SourceType: "secret_permission_equivalence", DiffIntent: AWSRemediationDiffIntent{Kind: "secret_rotation"}},
+			wantSimulator: false,
+			wantSignal:    "rotation_success",
+		},
+		{
+			name:          "kms_grant_diff skips simulator and adds grant_policy_applied",
+			approval:      AWSRemediationApprovalEntry{SourceType: "secret_permission_equivalence", DiffIntent: AWSRemediationDiffIntent{Kind: "kms_grant_diff"}},
+			wantSimulator: false,
+			wantSignal:    "grant_policy_applied",
+		},
+		{
+			name:          "ai_agent_scope_change skips simulator and adds agent_scope_applied",
+			approval:      AWSRemediationApprovalEntry{SourceType: "ai_agent_risk", DiffIntent: AWSRemediationDiffIntent{Kind: "ai_agent_scope_change"}},
+			wantSimulator: false,
+			wantSignal:    "agent_scope_applied",
+		},
+		{
+			name:          "empty diff kind falls back to source-type gate (least_privilege)",
+			approval:      AWSRemediationApprovalEntry{SourceType: "least_privilege"},
+			wantSimulator: true,
+		},
+		{
+			name:          "empty diff kind for unrelated source skips simulator",
+			approval:      AWSRemediationApprovalEntry{SourceType: "aws_secret_key_rotation"},
+			wantSimulator: false,
+		},
+	}
+	for _, tc := range cases {
+		checks := awsRemediationDryRunVerificationChecks(tc.approval)
+		sawSimulator := false
+		sawSignal := tc.wantSignal == ""
+		for _, check := range checks {
+			if check.Source == "iam:policy_simulate" {
+				sawSimulator = true
+			}
+			if tc.wantSignal != "" && check.Signal == tc.wantSignal {
+				sawSignal = true
+			}
+		}
+		if sawSimulator != tc.wantSimulator {
+			t.Fatalf("%s: simulator presence=%v want=%v checks=%+v", tc.name, sawSimulator, tc.wantSimulator, checks)
+		}
+		if !sawSignal {
+			t.Fatalf("%s: missing expected signal %q in checks=%+v", tc.name, tc.wantSignal, checks)
+		}
+	}
+}
+
 func TestAWSRemediationDryRunSecretRotationPicksProviderKeyNode(t *testing.T) {
 	// AI-agent external_credential_exposure cases emit a secret_rotation diff
 	// where `ResourceNodeIDs` only carries an empty sensitive resource — the

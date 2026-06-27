@@ -727,7 +727,17 @@ func awsRemediationDryRunVerificationChecks(approval AWSRemediationApprovalEntry
 	}
 	checks := []AWSRemediationDryRunVerificationCheck{
 		{Source: "cloudtrail", Signal: "expected_api_call_observed", Description: "After live execution, confirm the intended API call appears in CloudTrail for the target account and region."},
-		{Source: "iam:policy_simulate", Signal: "no_regression", Description: "Re-run the IAM policy simulator after live execution to confirm no regression on kept actions."},
+	}
+	if awsRemediationDryRunWantsIAMSimulator(approval) {
+		checks = append(checks, AWSRemediationDryRunVerificationCheck{Source: "iam:policy_simulate", Signal: "no_regression", Description: "Re-run the IAM policy simulator after live execution to confirm no regression on kept actions."})
+	}
+	switch strings.ToLower(strings.TrimSpace(approval.DiffIntent.Kind)) {
+	case "secret_rotation":
+		checks = append(checks, AWSRemediationDryRunVerificationCheck{Source: "secretsmanager", Signal: "rotation_success", Description: "Confirm the projected secret rotation completed and downstream readers picked up the new credential reference."})
+	case "kms_grant_diff":
+		checks = append(checks, AWSRemediationDryRunVerificationCheck{Source: "kms", Signal: "grant_policy_applied", Description: "Confirm the projected KMS key-policy change applied and the broad decrypt/admin reachability is gone."})
+	case "ai_agent_scope_change":
+		checks = append(checks, AWSRemediationDryRunVerificationCheck{Source: "bedrock-agent", Signal: "agent_scope_applied", Description: "Confirm the agent scope change applied and the narrowed tool/capability surface is reflected in runtime evidence."})
 	}
 	if strings.EqualFold(approval.SourceType, "trust_policy_hardening") || strings.EqualFold(approval.SourceType, "blast_radius") {
 		checks = append(checks, AWSRemediationDryRunVerificationCheck{Source: "access_analyzer", Signal: "no_new_external_findings", Description: "Re-run Access Analyzer after live execution to confirm no new external-trust findings."})
@@ -736,6 +746,31 @@ func awsRemediationDryRunVerificationChecks(approval AWSRemediationApprovalEntry
 		checks = append(checks, AWSRemediationDryRunVerificationCheck{Source: "iam:last_used", Signal: "no_runtime_after_disable", Description: "Re-check IAM last-used/runtime evidence after disable to confirm no further key activity."})
 	}
 	return checks
+}
+
+// awsRemediationDryRunWantsIAMSimulator returns true when the projected change
+// affects an IAM identity/trust policy or boundary, so the IAM policy simulator
+// has something to simulate. Non-IAM mutations (secret rotation, KMS grant
+// policy, agent scope change) should not advertise an IAM simulator check.
+func awsRemediationDryRunWantsIAMSimulator(approval AWSRemediationApprovalEntry) bool {
+	switch strings.ToLower(strings.TrimSpace(approval.DiffIntent.Kind)) {
+	case "iam_policy_diff", "role_scope_diff", "iac_iam_policy_pr",
+		"iam_trust_diff", "iac_trust_policy_pr",
+		"permission_boundary_diff", "access_key_quarantine":
+		return true
+	case "":
+		// Fall through to the source-type gate when the case engine omitted
+		// the diff kind.
+	default:
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(approval.SourceType)) {
+	case "least_privilege", "aws_iac_remediation", "aws_iam_policy_diff",
+		"trust_policy_hardening", "aws_permission_boundary_scp",
+		"aws_access_key_quarantine", "blast_radius":
+		return true
+	}
+	return false
 }
 
 func awsRemediationDryRunOutcome(approval AWSRemediationApprovalEntry, failed []AWSRemediationDryRunPrerequisite) string {
