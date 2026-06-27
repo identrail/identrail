@@ -2,11 +2,10 @@
 
 Issue #1538 adds a metadata-only projection of allowlisted low-risk AWS
 remediations derived from the upstream dry-run executor (#1537). Each entry
-pairs a dry-run record with one code-managed allowlist rule (tagging,
-stale-metadata cleanup, approved detach/disable), captures the idempotency
-key, intended mutation, preflight checks, verification records, rollback
-plan, and audit trail so the wave-8.04+ live-apply executors can replay the
-change idempotently.
+pairs a dry-run record with one code-managed allowlist rule (approved
+detach/disable), captures the idempotency key, intended mutation, preflight
+checks, verification records, rollback plan, and audit trail so the
+wave-8.04+ live-apply executors can replay the change idempotently.
 
 The endpoint is read-only. It never calls IAM, STS, Secrets Manager, KMS, or
 Organizations write APIs, never opens external PRs, and never reads,
@@ -17,14 +16,21 @@ database rows, or object contents.
 ## Allowlist
 
 The allowlist is defined in code (`awsLowRiskRemediationAllowlist`) and any
-change is a code review under the wave-8 safety controls.
+change is a code review under the wave-8 safety controls. Every rule
+declares `MaxBlastRadius`; the projection rejects any upstream dry-run whose
+`risk_tier` or `severity` exceeds that ceiling, so high/critical entries
+never appear in the low-risk projection even if their action and source
+match.
 
-| Rule | Category | Action | Match sources | Rationale |
-|---|---|---|---|---|
-| `iam_tag_role_owner` | `tagging` | `iam:TagRole` | least_privilege, aws_iac_remediation | Add/update an owner tag; tagging is reversible and does not change permissions. |
-| `iam_untag_role_stale_owner` | `stale_metadata_cleanup` | `iam:UntagRole` | least_privilege | Remove a stale owner tag flagged by the upstream finding. |
-| `iam_update_access_key_quarantine` | `approved_disable` | `iam:UpdateAccessKey` | aws_access_key_quarantine | Mark a stale access key Inactive once the quarantine planner approved disable. |
-| `iam_detach_role_policy_orphaned` | `approved_detach` | `iam:DetachRolePolicy` | least_privilege, blast_radius | Detach an orphaned role-managed policy with no observed runtime use. |
+| Rule | Category | Action | Match sources | Max blast radius | Rationale |
+|---|---|---|---|---|---|
+| `iam_update_access_key_quarantine` | `approved_disable` | `iam:UpdateAccessKey` | aws_access_key_quarantine | low | Mark a stale access key Inactive once the quarantine planner approved disable. |
+| `iam_detach_role_policy_orphaned` | `approved_detach` | `iam:DetachRolePolicy` | least_privilege, blast_radius | low | Detach an orphaned role-managed policy with no observed runtime use. |
+
+Tagging and stale-metadata-cleanup categories are reserved in the contract
+(`action_category` enum) for future rules, but no rule is admitted until the
+dry-run executor emits the corresponding AWS action — advertising a rule
+that the dry-run can't produce would mislead operators and the UI.
 
 ## API
 

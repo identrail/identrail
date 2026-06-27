@@ -4,10 +4,13 @@
 - Add **AWS low-risk live remediation** (#1538). Adds a read-only,
   metadata-only projection of allowlisted low-risk AWS remediation actions
   derived from the approved dry-run executor (#1537). The allowlist is
-  intentionally narrow and code-managed: `iam:TagRole` (tagging),
-  `iam:UntagRole` (stale-metadata cleanup), `iam:UpdateAccessKey` (approved
-  quarantine disable), and `iam:DetachRolePolicy` (approved orphaned-policy
-  detach). Each entry pairs a dry-run record with one allowlist rule, copies
+  intentionally narrow and code-managed: `iam:UpdateAccessKey` (approved
+  quarantine disable) and `iam:DetachRolePolicy` (approved orphaned-policy
+  detach). Every rule declares a `MaxBlastRadius`, and the projection
+  rejects any upstream dry-run whose `risk_tier` or `severity` exceeds the
+  rule's ceiling so high/critical entries never leak into the low-risk
+  projection. Each admitted entry pairs a dry-run record with one allowlist
+  rule, copies
   the deterministic idempotency key, captures the intended mutation
   (service/operation/target/before/after), preflight checks (allowlist
   admission, dry-run-would-succeed, ready-for-apply, kill-switch-off,

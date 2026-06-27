@@ -148,6 +148,72 @@ func TestAWSLowRiskRemediationOnlyAdmitsAllowlistedActions(t *testing.T) {
 	}
 }
 
+func TestAWSLowRiskRemediationEnforcesMaxBlastRadiusByRiskTier(t *testing.T) {
+	now := time.Date(2026, 6, 28, 11, 30, 0, 0, time.UTC)
+	allowlistByAction := map[string]AWSLowRiskRemediationAllowlistRule{}
+	for _, rule := range awsLowRiskRemediationAllowlist() {
+		allowlistByAction[strings.ToLower(rule.Action)] = rule
+	}
+
+	base := AWSRemediationDryRunEntry{
+		CaseID:           "case-tier",
+		SourceType:       "aws_access_key_quarantine",
+		IdempotencyKey:   "idk",
+		Outcome:          awsRemediationDryRunOutcomeWouldSucceed,
+		ReadyForApply:    true,
+		IntendedAPICalls: []AWSRemediationDryRunIntendedAPICall{{Service: "iam", Operation: "UpdateAccessKey", TargetResource: "AKIA-1"}},
+	}
+
+	low := base
+	low.DryRunID = "dr-low"
+	low.RiskTier = "low"
+	low.Severity = "low"
+	if got := awsLowRiskRemediationEntries([]AWSRemediationDryRunEntry{low}, allowlistByAction, now); len(got) != 1 {
+		t.Fatalf("low risk_tier entry must be admitted, got %+v", got)
+	}
+
+	high := base
+	high.DryRunID = "dr-high"
+	high.RiskTier = "high"
+	high.Severity = "high"
+	if got := awsLowRiskRemediationEntries([]AWSRemediationDryRunEntry{high}, allowlistByAction, now); len(got) != 0 {
+		t.Fatalf("high risk_tier entry must be excluded from the low-risk projection, got %+v", got)
+	}
+
+	criticalBySeverity := base
+	criticalBySeverity.DryRunID = "dr-critical-severity"
+	criticalBySeverity.RiskTier = "low"
+	criticalBySeverity.Severity = "critical"
+	if got := awsLowRiskRemediationEntries([]AWSRemediationDryRunEntry{criticalBySeverity}, allowlistByAction, now); len(got) != 0 {
+		t.Fatalf("critical severity must be excluded even if risk_tier is reported low, got %+v", got)
+	}
+
+	mediumLow := base
+	mediumLow.DryRunID = "dr-medium"
+	mediumLow.RiskTier = "medium"
+	mediumLow.Severity = "low"
+	if got := awsLowRiskRemediationEntries([]AWSRemediationDryRunEntry{mediumLow}, allowlistByAction, now); len(got) != 0 {
+		t.Fatalf("medium risk_tier exceeds MaxBlastRadius=low and must be excluded, got %+v", got)
+	}
+}
+
+func TestAWSLowRiskRemediationAllowlistOnlyAdvertisesReachableActions(t *testing.T) {
+	// Every allowlist rule must map to an AWS action the dry-run executor can
+	// actually emit today. Advertising rules that the dry-run never produces
+	// would mislead operators and the UI.
+	reachable := map[string]struct{}{
+		"iam:updateaccesskey":   {},
+		"iam:detachrolepolicy":  {},
+		"iam:detachuserpolicy":  {},
+		"iam:detachgrouppolicy": {},
+	}
+	for _, rule := range awsLowRiskRemediationAllowlist() {
+		if _, ok := reachable[strings.ToLower(rule.Action)]; !ok {
+			t.Fatalf("allowlist rule %s advertises unreachable action %s; wire the dry-run executor before advertising it", rule.Name, rule.Action)
+		}
+	}
+}
+
 func TestAWSLowRiskRemediationStateHonorsDryRunGates(t *testing.T) {
 	now := time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC)
 	allowlistByAction := map[string]AWSLowRiskRemediationAllowlistRule{}

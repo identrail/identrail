@@ -193,35 +193,22 @@ type AWSLowRiskRemediationResult struct {
 
 // awsLowRiskRemediationAllowlist is the deterministic, code-managed set of
 // AWS actions admitted into the low-risk live remediation flow. The list is
-// intentionally narrow: tagging-style metadata changes, stale-metadata
-// cleanup, and approved detach/disable operations whose dry-run already
-// projected `would_succeed` with low blast radius. Any change to this list is
-// a code change reviewed under wave-8 safety controls.
+// intentionally narrow: only approved detach/disable operations whose
+// upstream dry-run already projects `would_succeed` at the `low` risk tier.
+// Tagging and stale-metadata-cleanup categories are tracked for future
+// rules but no rule is admitted until the dry-run routing emits the
+// corresponding action; advertising a rule that the dry-run never produces
+// would mislead operators. Any change to this list is a code change
+// reviewed under the wave-8 safety controls.
 func awsLowRiskRemediationAllowlist() []AWSLowRiskRemediationAllowlistRule {
 	return []AWSLowRiskRemediationAllowlistRule{
-		{
-			Name:           "iam_tag_role_owner",
-			Category:       "tagging",
-			Action:         "iam:TagRole",
-			MatchSources:   []string{"least_privilege", "aws_iac_remediation"},
-			MaxBlastRadius: "low",
-			Rationale:      "Add or update an owner tag on a role with a successful dry-run; tagging is reversible and does not change permissions.",
-		},
-		{
-			Name:           "iam_untag_role_stale_owner",
-			Category:       "stale_metadata_cleanup",
-			Action:         "iam:UntagRole",
-			MatchSources:   []string{"least_privilege"},
-			MaxBlastRadius: "low",
-			Rationale:      "Remove a stale owner tag on a role with a successful dry-run when the upstream finding flagged the metadata as out of date.",
-		},
 		{
 			Name:           "iam_update_access_key_quarantine",
 			Category:       "approved_disable",
 			Action:         "iam:UpdateAccessKey",
 			MatchSources:   []string{"aws_access_key_quarantine"},
 			MaxBlastRadius: "low",
-			Rationale:      "Mark an IAM access key Inactive when the access-key quarantine planner approved the disable and the dry-run projected would_succeed.",
+			Rationale:      "Mark an IAM access key Inactive when the access-key quarantine planner approved the disable and the dry-run projected would_succeed at the low risk tier.",
 		},
 		{
 			Name:           "iam_detach_role_policy_orphaned",
@@ -229,7 +216,7 @@ func awsLowRiskRemediationAllowlist() []AWSLowRiskRemediationAllowlistRule {
 			Action:         "iam:DetachRolePolicy",
 			MatchSources:   []string{"least_privilege", "blast_radius"},
 			MaxBlastRadius: "low",
-			Rationale:      "Detach a role-managed policy that the upstream dry-run flagged as orphaned with no observed runtime use.",
+			Rationale:      "Detach a role-managed policy that the upstream dry-run flagged as orphaned with no observed runtime use at the low risk tier.",
 		},
 	}
 }
@@ -358,6 +345,9 @@ func awsLowRiskRemediationEntries(dryRunEntries []AWSRemediationDryRunEntry, all
 		if !awsLowRiskRemediationSourceAdmitted(rule, entry.SourceType) {
 			continue
 		}
+		if !awsLowRiskRemediationRiskTierAdmitted(rule, entry) {
+			continue
+		}
 		entries = append(entries, awsLowRiskRemediationEntryFromDryRun(entry, call, rule, now))
 	}
 	return entries
@@ -373,6 +363,39 @@ func awsLowRiskRemediationSourceAdmitted(rule AWSLowRiskRemediationAllowlistRule
 		}
 	}
 	return false
+}
+
+// awsLowRiskRemediationRiskTierAdmitted blocks any dry-run entry whose
+// projected risk tier or severity exceeds the allowlist rule's
+// MaxBlastRadius. Without this check, an approved high/critical entry
+// matching by action+source could leak into the low-risk projection even
+// though the rule declares MaxBlastRadius="low".
+func awsLowRiskRemediationRiskTierAdmitted(rule AWSLowRiskRemediationAllowlistRule, entry AWSRemediationDryRunEntry) bool {
+	ceiling := awsLowRiskRemediationRiskRank(rule.MaxBlastRadius)
+	if ceiling < 0 {
+		return true
+	}
+	if rank := awsLowRiskRemediationRiskRank(entry.RiskTier); rank >= 0 && rank > ceiling {
+		return false
+	}
+	if rank := awsLowRiskRemediationRiskRank(entry.Severity); rank >= 0 && rank > ceiling {
+		return false
+	}
+	return true
+}
+
+func awsLowRiskRemediationRiskRank(value string) int {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "low":
+		return 0
+	case "medium":
+		return 1
+	case "high":
+		return 2
+	case "critical":
+		return 3
+	}
+	return -1
 }
 
 func awsLowRiskRemediationEntryFromDryRun(entry AWSRemediationDryRunEntry, call AWSRemediationDryRunIntendedAPICall, rule AWSLowRiskRemediationAllowlistRule, now time.Time) AWSLowRiskRemediationEntry {
