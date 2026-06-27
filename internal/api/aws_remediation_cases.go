@@ -275,11 +275,13 @@ func (s *Service) GetAWSRemediationCases(ctx context.Context, workspaceID string
 			awsIssueURL(awsLeastPrivilegeCurrentIssue),
 			awsIssueURL(awsSecretPermissionEquivalenceCurrentIssue),
 			awsIssueURL(awsBlastRadiusCurrentIssue),
+			awsIssueURL(awsTrustPolicyHardeningCurrentIssue),
 			"/docs/aws-remediation-case-model",
 			"/docs/aws-ai-agent-risk-engine",
 			"/docs/aws-least-privilege",
 			"/docs/aws-secret-permission-equivalence-engine",
 			"/docs/aws-blast-radius-engine",
+			"/docs/aws-trust-policy-hardening-planner",
 			awsBaselineProjectEvidenceURL(scope, project),
 		}),
 		CoverageGaps: coverageGaps,
@@ -1296,7 +1298,7 @@ func awsRemediationCaseSearchMatch(c AWSRemediationCase, needle string) bool {
 }
 
 func summarizeAWSRemediationCaseStatus(sources awsRemediationCaseSources, filtered []AWSRemediationCase, diagnostics []AWSRemediationCaseDiagnostic) (string, float64) {
-	statuses := []string{sources.risk.Status, sources.least.Status, sources.equivalence.Status, sources.blast.Status}
+	statuses := []string{sources.risk.Status, sources.least.Status, sources.equivalence.Status, sources.blast.Status, sources.trust.Status}
 	for _, status := range statuses {
 		if status == awsPlatformDependencyStatusBlocked {
 			return awsPlatformDependencyStatusBlocked, 0.35
@@ -1325,6 +1327,7 @@ func awsRemediationCaseFailureReasons(sources awsRemediationCaseSources) []strin
 		sources.least.FailureReasons,
 		sources.equivalence.FailureReasons,
 		sources.blast.FailureReasons,
+		sources.trust.FailureReasons,
 	} {
 		out = append(out, messages...)
 	}
@@ -1341,6 +1344,7 @@ func awsRemediationCaseRemediationHints(sources awsRemediationCaseSources) []str
 		sources.least.RemediationHints,
 		sources.equivalence.RemediationHints,
 		sources.blast.RemediationHints,
+		sources.trust.RemediationHints,
 	} {
 		out = append(out, messages...)
 	}
@@ -1375,6 +1379,9 @@ func awsRemediationCaseDiagnostics(sources awsRemediationCaseSources) []AWSRemed
 	for _, d := range sources.blast.Diagnostics {
 		appendDiag(d.Collector, d.SourceID, d.Code, d.Message, d.Remediation, d.Retryable)
 	}
+	for _, d := range sources.trust.Diagnostics {
+		appendDiag(d.Collector, d.SourceID, d.Code, d.Message, d.Remediation, d.Retryable)
+	}
 	return out
 }
 
@@ -1398,6 +1405,9 @@ func awsRemediationCaseCoverageGaps(sources awsRemediationCaseSources) []AWSReme
 		appendGap(g.Capability, g.Status, g.Reason, g.Remediation)
 	}
 	for _, g := range sources.blast.CoverageGaps {
+		appendGap(g.Capability, g.Status, g.Reason, g.Remediation)
+	}
+	for _, g := range sources.trust.CoverageGaps {
 		appendGap(g.Capability, g.Status, g.Reason, g.Remediation)
 	}
 	return out

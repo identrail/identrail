@@ -29,10 +29,10 @@ func TestGetAWSRuntimeEventsBuildsMetadataOnlyContract(t *testing.T) {
 	if result.CurrentIssueRef != "#1517" || result.Version != awsRuntimeEventsVersion || result.Status != "ready" {
 		t.Fatalf("unexpected runtime event contract metadata: %+v", result)
 	}
-	if result.Summary.TotalEvents != 8 || result.Summary.FilteredEvents != 8 || result.Summary.RelationshipCount != len(result.Relationships) {
+	if result.Summary.TotalEvents != 9 || result.Summary.FilteredEvents != 9 || result.Summary.RelationshipCount != len(result.Relationships) {
 		t.Fatalf("unexpected runtime event summary: %+v relationships=%d", result.Summary, len(result.Relationships))
 	}
-	if result.Summary.SecretReadCount != 1 || result.Summary.KMSDecryptCount != 1 || result.Summary.AgentEventCount != 1 || result.Summary.STSSessionCount == 0 || result.Summary.IAMLastUsedSignalCount != 2 || result.Summary.AccessAnalyzerCount != 1 {
+	if result.Summary.SecretReadCount != 1 || result.Summary.KMSDecryptCount != 1 || result.Summary.AgentEventCount != 1 || result.Summary.STSSessionCount != 2 || result.Summary.IAMLastUsedSignalCount != 2 || result.Summary.AccessAnalyzerCount != 1 {
 		t.Fatalf("expected runtime event type counts, got %+v", result.Summary)
 	}
 	if result.Summary.DormantAccessCount != 2 {
@@ -106,8 +106,8 @@ func TestGetAWSRuntimeEventsFiltersIAMAccessSignals(t *testing.T) {
 			if err != nil {
 				t.Fatalf("get filtered signal runtime events: %v", err)
 			}
-			if result.Summary.TotalEvents != 8 || result.Summary.FilteredEvents != tc.wantFiltered || len(result.Records) != tc.wantFiltered {
-				t.Fatalf("expected one filtered signal with retained total count, got summary=%+v records=%+v", result.Summary, result.Records)
+			if result.Summary.TotalEvents != 9 || result.Summary.FilteredEvents != tc.wantFiltered || len(result.Records) != tc.wantFiltered {
+				t.Fatalf("expected filtered signal count with retained total count, got summary=%+v records=%+v", result.Summary, result.Records)
 			}
 			for _, record := range result.Records {
 				if record.EventType != tc.wantEventType || record.SignalCategory != tc.wantSignal || record.EvidenceCategory != tc.evidence {

@@ -36,6 +36,9 @@ func TestGetAWSRemediationCasesBuildsContract(t *testing.T) {
 	if result.Summary.SourceTypeCounts["ai_agent_risk"] == 0 && result.Summary.SourceTypeCounts["least_privilege"] == 0 {
 		t.Fatalf("expected at least one upstream source emitting cases: %+v", result.Summary.SourceTypeCounts)
 	}
+	if result.Summary.SourceTypeCounts["trust_policy_hardening"] == 0 {
+		t.Fatalf("expected IAM role trust-policy hardening cases for downstream dry-run/executor joins: %+v", result.Summary.SourceTypeCounts)
+	}
 	if result.Summary.RelationshipCount != len(result.Relationships) || len(result.Relationships) == 0 {
 		t.Fatalf("expected relationships and matching count: summary=%+v relationships=%+v", result.Summary, result.Relationships)
 	}
@@ -75,6 +78,59 @@ func TestGetAWSRemediationCasesBuildsContract(t *testing.T) {
 		if strings.Contains(strings.ToLower(c.Summary), "secret value") && !strings.Contains(strings.ToLower(c.Summary), "not collected") {
 			t.Fatalf("summary must not imply secret value collection: %s", c.Summary)
 		}
+	}
+}
+
+func TestAWSRemediationCasesAggregateTrustPolicySourceHealth(t *testing.T) {
+	sources := awsRemediationCaseSources{
+		risk:        AWSAIAgentRiskResult{Status: awsPlatformDependencyStatusReady},
+		least:       AWSLeastPrivilegeResult{Status: awsPlatformDependencyStatusReady},
+		equivalence: AWSSecretPermissionEquivalenceResult{Status: awsPlatformDependencyStatusReady},
+		blast:       AWSBlastRadiusResult{Status: awsPlatformDependencyStatusReady},
+		trust: AWSTrustPolicyHardeningResult{
+			Status:           awsPlatformDependencyStatusDegraded,
+			FailureReasons:   []string{"trust policy planner degraded"},
+			RemediationHints: []string{"retry trust policy hardening"},
+			Diagnostics: []AWSTrustPolicyHardeningDiagnostic{{
+				Collector:   "aws_trust_policy_hardening",
+				SourceID:    "cross-account-trust",
+				Code:        "trust_source_delayed",
+				Message:     "Trust source delayed.",
+				Remediation: "Retry trust source.",
+				Retryable:   true,
+			}},
+			CoverageGaps: []AWSTrustPolicyHardeningCoverageGap{{
+				Capability:  "trust_policy_runtime_evidence",
+				Status:      "partial_failure",
+				Reason:      "Runtime trust evidence delayed.",
+				Remediation: "Retry runtime trust evidence.",
+			}},
+		},
+	}
+	diagnostics := awsRemediationCaseDiagnostics(sources)
+	status, _ := summarizeAWSRemediationCaseStatus(sources, nil, diagnostics)
+	if status != awsPlatformDependencyStatusDegraded {
+		t.Fatalf("trust source health must affect remediation-case status, got %s", status)
+	}
+	if !awsStringSliceContains(awsRemediationCaseFailureReasons(sources), "trust policy planner degraded") {
+		t.Fatalf("trust failure reasons were not propagated")
+	}
+	if !awsStringSliceContains(awsRemediationCaseRemediationHints(sources), "retry trust policy hardening") {
+		t.Fatalf("trust remediation hints were not propagated")
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Collector != "aws_trust_policy_hardening" || !diagnostics[0].Retryable {
+		t.Fatalf("trust diagnostics were not propagated: %+v", diagnostics)
+	}
+	gaps := awsRemediationCaseCoverageGaps(sources)
+	foundTrustGap := false
+	for _, gap := range gaps {
+		if gap.Capability == "trust_policy_runtime_evidence" {
+			foundTrustGap = true
+			break
+		}
+	}
+	if !foundTrustGap {
+		t.Fatalf("trust coverage gaps were not propagated: %+v", gaps)
 	}
 }
 

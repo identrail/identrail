@@ -835,6 +835,8 @@ func awsRuntimeEventSkipsObservedActionEdge(record AWSRuntimeEventRecord) bool {
 func awsRuntimeEventFixtureRecords(accountID string, region string, fixtureState string, checkedAt time.Time) ([]AWSRuntimeEventRecord, []AWSRuntimeEventDiagnostic, []AWSRuntimeEventCoverageGap) {
 	base := checkedAt.Add(-35 * time.Minute)
 	role := fmt.Sprintf("arn:aws:iam::%s:role/identrail-runtime-reader", accountID)
+	productionAccount := awsCoveragePlanSiblingAccount(accountID)
+	productionRunnerRole := fmt.Sprintf("arn:aws:iam::%s:role/production-billing-runner", productionAccount)
 	lambdaRole := fmt.Sprintf("arn:aws:iam::%s:role/lambda-invoice-agent", accountID)
 	agentRole := fmt.Sprintf("arn:aws:iam::%s:role/agentcore-case-triage-runtime", accountID)
 	ciUser := fmt.Sprintf("arn:aws:iam::%s:user/orders-ci", accountID)
@@ -868,8 +870,12 @@ func awsRuntimeEventFixtureRecords(accountID string, region string, fixtureState
 			ExpiresAt:           started.Add(time.Hour),
 		}
 	}
+	crossAccountSession := session("sess-prod-to-runtime-reader", role, base.Add(4*time.Minute))
+	crossAccountSession.OriginalActorARN = productionRunnerRole
+	crossAccountSession.OriginalActorNodeID = awsIdentityNodeIDForAPI(productionRunnerRole)
 	records := []AWSRuntimeEventRecord{
 		awsRuntimeEventFixtureRecord(accountID, region, "evt-sts-runtime-reader", "sts-session", "sts.amazonaws.com", "AssumeRole", "sts:AssumeRole", role, "", "", "security", "cloudtrail", base, session("sess-runtime-reader", role, base)),
+		awsRuntimeEventFixtureRecord(accountID, region, "evt-sts-prod-runtime-reader", "sts-session", "sts.amazonaws.com", "AssumeRole", "sts:AssumeRole", productionRunnerRole, role, "iam_role", "security", "cloudtrail", base.Add(4*time.Minute), crossAccountSession),
 		awsRuntimeEventFixtureRecord(accountID, region, "evt-secret-invoice", "secret-read", "secretsmanager.amazonaws.com", "GetSecretValue", "secretsmanager:GetSecretValue", lambdaRole, fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:prod/ai/openai-key", region, accountID), "secret", "application", "cloudtrail", base.Add(8*time.Minute), session("sess-invoice-agent", lambdaRole, base.Add(6*time.Minute))),
 		awsRuntimeEventFixtureRecord(accountID, region, "evt-kms-decrypt", "kms-decrypt", "kms.amazonaws.com", "Decrypt", "kms:Decrypt", lambdaRole, fmt.Sprintf("arn:aws:kms:%s:%s:key/cmk-agent-secrets", region, accountID), "kms_key", "platform", "cloudtrail", base.Add(10*time.Minute), session("sess-invoice-agent", lambdaRole, base.Add(6*time.Minute))),
 		awsRuntimeEventFixtureRecord(accountID, region, "evt-s3-access", "api-call", "s3.amazonaws.com", "GetObject", "s3:GetObject", lambdaRole, fmt.Sprintf("arn:aws:s3:::billing-artifacts-%s/reports/redacted", accountID), "s3_object_metadata", "application", "cloudtrail", base.Add(14*time.Minute), session("sess-invoice-agent", lambdaRole, base.Add(6*time.Minute))),
@@ -878,10 +884,10 @@ func awsRuntimeEventFixtureRecords(accountID string, region string, fixtureState
 		awsRuntimeSignalFixtureRecord(accountID, region, "evt-iam-last-used-access-key", "iam-last-used", "iam.amazonaws.com", "AccessKeyLastUsed", "iam:AccessKeyLastUsed", ciUser, "aws:iam-access-key:"+accessKeyID, "iam_access_key", accessKeyID, "iam-last-used", checkedAt.Add(-100*24*time.Hour), base.Add(35*time.Minute), "stale", 0.86, "role", ""),
 		awsRuntimeSignalFixtureRecord(accountID, region, "evt-access-analyzer-open-secret", "access-analyzer", "access-analyzer.amazonaws.com", "Finding", "secretsmanager:GetSecretValue", "access-analyzer:external-principal", fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:prod/ai/openai-key", region, accountID), "AWS::SecretsManager::Secret", "prod/ai/openai-key", "access-analyzer", base.Add(24*time.Minute), base.Add(33*time.Minute), "observed", 0.9, "account", fmt.Sprintf("arn:aws:access-analyzer:%s:%s:analyzer/identrail-fixture", region, accountID)),
 	}
-	records[4].AgentID = "runtime-case-triage"
-	records[4].AgentNodeID = awsAIAgentNodeID(accountID, region, "agentcore_runtime", "runtime-case-triage", "2026-06-01")
-	records[4].ToolName = "case-router"
-	records[4].ToolTargetRef = "case-router-policy-checker"
+	records[5].AgentID = "runtime-case-triage"
+	records[5].AgentNodeID = awsAIAgentNodeID(accountID, region, "agentcore_runtime", "runtime-case-triage", "2026-06-01")
+	records[5].ToolName = "case-router"
+	records[5].ToolTargetRef = "case-router-policy-checker"
 	switch fixtureState {
 	case "empty":
 		return []AWSRuntimeEventRecord{}, nil, []AWSRuntimeEventCoverageGap{{
@@ -891,11 +897,11 @@ func awsRuntimeEventFixtureRecords(accountID string, region string, fixtureState
 			Remediation: "Confirm management events are enabled and widen the runtime event time range.",
 		}}
 	case "degraded":
-		records[3].Status = "delayed"
-		records[3].Confidence = 0.64
+		records[4].Status = "delayed"
+		records[4].Confidence = 0.64
 		return records, []AWSRuntimeEventDiagnostic{{
 			Collector:   "aws_runtime_events",
-			SourceID:    records[3].EventID,
+			SourceID:    records[4].EventID,
 			Code:        "runtime_event_delivery_delayed",
 			Message:     "CloudTrail delivered one runtime event after the expected collection window.",
 			Remediation: "Keep delayed evidence visible and avoid automated remediation until the event window catches up.",
