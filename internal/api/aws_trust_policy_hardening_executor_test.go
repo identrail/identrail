@@ -319,6 +319,58 @@ func TestGetAWSTrustPolicyHardeningExecutorFailureStates(t *testing.T) {
 	}
 }
 
+func TestAWSTrustPolicyHardeningExecutorAggregatesDryRunDiagnostics(t *testing.T) {
+	diagnostics := awsTrustPolicyHardeningExecutorDiagnostics(
+		[]AWSRemediationApprovalDiagnostic{{
+			Collector:   "aws_remediation_dry_run",
+			SourceID:    "dry-run-source",
+			Code:        "dry_run_partial_failure",
+			Message:     "Dry-run source was partially unavailable.",
+			Remediation: "Retry the dry-run source.",
+			Retryable:   true,
+		}},
+		[]AWSTrustPolicyHardeningDiagnostic{{
+			Collector:   "aws_trust_policy_hardening",
+			SourceID:    "planner-source",
+			Code:        "planner_degraded",
+			Message:     "Planner source was degraded.",
+			Remediation: "Retry the planner source.",
+			Retryable:   true,
+		}},
+	)
+	if len(diagnostics) != 2 || diagnostics[0].Collector != "aws_remediation_dry_run" || diagnostics[1].Collector != "aws_trust_policy_hardening" {
+		t.Fatalf("executor diagnostics must preserve dry-run and planner sources: %+v", diagnostics)
+	}
+
+	gaps := awsTrustPolicyHardeningExecutorCoverageGaps(
+		[]AWSRemediationApprovalCoverageGap{{
+			Capability:  "dry_run_approval_queue",
+			Status:      "partial_failure",
+			Reason:      "Approval queue source was partially unavailable.",
+			Remediation: "Retry approval queue collection.",
+		}},
+		[]AWSTrustPolicyHardeningCoverageGap{{
+			Capability:  "trust_policy_runtime_evidence",
+			Status:      "degraded",
+			Reason:      "Runtime evidence was delayed.",
+			Remediation: "Retry runtime evidence collection.",
+		}},
+	)
+	foundDryRunGap := false
+	foundPlannerGap := false
+	for _, gap := range gaps {
+		switch gap.Capability {
+		case "dry_run_approval_queue":
+			foundDryRunGap = true
+		case "trust_policy_runtime_evidence":
+			foundPlannerGap = true
+		}
+	}
+	if !foundDryRunGap || !foundPlannerGap {
+		t.Fatalf("executor coverage gaps must preserve dry-run and planner sources: %+v", gaps)
+	}
+}
+
 func TestRouterAWSTrustPolicyHardeningExecutor(t *testing.T) {
 	now := time.Date(2026, 6, 29, 13, 0, 0, 0, time.UTC)
 	svc, _ := newTrustPolicyHardeningExecutorService(t, "project-trust-hardening-executor-route", now)

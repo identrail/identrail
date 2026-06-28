@@ -247,8 +247,8 @@ func (s *Service) GetAWSTrustPolicyHardeningExecutor(ctx context.Context, worksp
 	})
 	filtered, applied := filterAWSTrustPolicyHardeningExecutorEntries(entries, request)
 	relationships := awsTrustPolicyHardeningExecutorRelationships(filtered)
-	diagnostics := awsTrustPolicyHardeningExecutorDiagnostics(plans.Diagnostics)
-	coverageGaps := awsTrustPolicyHardeningExecutorCoverageGaps(plans.CoverageGaps)
+	diagnostics := awsTrustPolicyHardeningExecutorDiagnostics(dryRun.Diagnostics, plans.Diagnostics)
+	coverageGaps := awsTrustPolicyHardeningExecutorCoverageGaps(dryRun.CoverageGaps, plans.CoverageGaps)
 	status, confidence := summarizeAWSTrustPolicyHardeningExecutorStatus(dryRun.Status, plans.Status, filtered, diagnostics)
 
 	return AWSTrustPolicyHardeningExecutorResult{
@@ -742,22 +742,40 @@ func awsTrustPolicyHardeningExecutorRemediationHints(source []string) []string {
 	return dedupeStrings(hints)
 }
 
-func awsTrustPolicyHardeningExecutorDiagnostics(source []AWSTrustPolicyHardeningDiagnostic) []AWSTrustPolicyHardeningExecutorDiagnostic {
-	out := make([]AWSTrustPolicyHardeningExecutorDiagnostic, 0, len(source))
-	for _, diagnostic := range source {
+func awsTrustPolicyHardeningExecutorDiagnostics(dryRun []AWSRemediationApprovalDiagnostic, planner []AWSTrustPolicyHardeningDiagnostic) []AWSTrustPolicyHardeningExecutorDiagnostic {
+	out := make([]AWSTrustPolicyHardeningExecutorDiagnostic, 0, len(dryRun)+len(planner))
+	for _, diagnostic := range dryRun {
+		out = append(out, AWSTrustPolicyHardeningExecutorDiagnostic{
+			Collector:   diagnostic.Collector,
+			SourceID:    diagnostic.SourceID,
+			Code:        diagnostic.Code,
+			Message:     diagnostic.Message,
+			Remediation: diagnostic.Remediation,
+			Retryable:   diagnostic.Retryable,
+		})
+	}
+	for _, diagnostic := range planner {
 		out = append(out, AWSTrustPolicyHardeningExecutorDiagnostic(diagnostic))
 	}
 	return out
 }
 
-func awsTrustPolicyHardeningExecutorCoverageGaps(source []AWSTrustPolicyHardeningCoverageGap) []AWSTrustPolicyHardeningExecutorCoverageGap {
+func awsTrustPolicyHardeningExecutorCoverageGaps(dryRun []AWSRemediationApprovalCoverageGap, planner []AWSTrustPolicyHardeningCoverageGap) []AWSTrustPolicyHardeningExecutorCoverageGap {
 	gaps := []AWSTrustPolicyHardeningExecutorCoverageGap{{
 		Capability:  "aws_trust_policy_hardening_live_apply",
 		Status:      "out_of_scope",
 		Reason:      "Issue #1539 emits trust-policy hardening execution projections only; the live IAM UpdateAssumeRolePolicy call is gated to the wave-8 apply runtime.",
 		Remediation: "Wire the controlled live-apply executor in the matching wave-8 issue once its safety gates are in place.",
 	}}
-	for _, gap := range source {
+	for _, gap := range dryRun {
+		gaps = append(gaps, AWSTrustPolicyHardeningExecutorCoverageGap{
+			Capability:  gap.Capability,
+			Status:      gap.Status,
+			Reason:      gap.Reason,
+			Remediation: gap.Remediation,
+		})
+	}
+	for _, gap := range planner {
 		gaps = append(gaps, AWSTrustPolicyHardeningExecutorCoverageGap(gap))
 	}
 	return gaps
