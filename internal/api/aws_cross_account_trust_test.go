@@ -236,6 +236,49 @@ func TestAWSCrossAccountTrustDedupeFindingsUsesDeterministicCorroborationBase(t 
 	}
 }
 
+func TestAWSCrossAccountTrustCorroborationPreservesUnconditionedGrant(t *testing.T) {
+	conditioned := AWSCrossAccountTrustFinding{
+		FindingID:            "aws-cross-account-trust:conditioned",
+		FindingType:          "cross_account_resource_access",
+		Score:                86,
+		Severity:             "high",
+		Status:               "action_required",
+		Confidence:           0.91,
+		Service:              "s3",
+		ResourceType:         "s3_bucket",
+		ResourceARN:          "arn:aws:s3:::partner-feed",
+		ResourceNodeID:       "aws:resource:s3-bucket:partner-feed",
+		ExternalPrincipalARN: "arn:aws:iam::999999999999:role/partner",
+		HasCondition:         true,
+		ConditionKeys:        []string{"aws:PrincipalOrgID"},
+		Evidence:             []AWSCrossAccountTrustEvidence{{Source: "s3_bucket_reachability", EvidenceRef: "s3://conditioned"}},
+	}
+	unconditioned := conditioned
+	unconditioned.FindingID = "aws-cross-account-trust:unconditioned"
+	unconditioned.HasCondition = false
+	unconditioned.ConditionKeys = nil
+	unconditioned.Evidence = []AWSCrossAccountTrustEvidence{{Source: "s3_bucket_reachability", EvidenceRef: "s3://unconditioned"}}
+
+	merged := awsCrossAccountTrustDedupeFindings([]AWSCrossAccountTrustFinding{conditioned, unconditioned})
+	if len(merged) != 1 {
+		t.Fatalf("expected same principal/resource grants to merge, got %+v", merged)
+	}
+	if merged[0].HasCondition {
+		t.Fatalf("merged grant must preserve that one source statement was unconditioned: %+v", merged[0])
+	}
+	if len(merged[0].ConditionKeys) == 0 {
+		t.Fatalf("merged grant should retain conditioned-statement keys as evidence: %+v", merged[0])
+	}
+	summary := summarizeAWSCrossAccountTrust(merged, merged, nil)
+	if summary.UnconditionalGrantCount != 1 {
+		t.Fatalf("summary must still count the unsafe unconditioned grant, got %+v", summary)
+	}
+	plan, ok := awsTrustPolicyHardeningPlanFromFinding(merged[0], time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC))
+	if !ok || plan.HardeningDirection != "add_org_or_source_condition" {
+		t.Fatalf("planner must still add a missing condition boundary for the unconditioned grant, ok=%v plan=%+v", ok, plan)
+	}
+}
+
 func TestAWSCrossAccountTrustCorroborationRecomputesStatusForReadyIAMRole(t *testing.T) {
 	now := time.Date(2026, 6, 29, 11, 0, 0, 0, time.UTC)
 	runtime := AWSCrossAccountTrustFinding{

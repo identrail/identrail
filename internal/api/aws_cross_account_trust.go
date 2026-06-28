@@ -857,7 +857,7 @@ func awsCrossAccountTrustMergeCorroboratingFindings(existing, incoming AWSCrossA
 	base.AnalyzerBacked = base.AnalyzerBacked || other.AnalyzerBacked
 	base.PublicPrincipal = base.PublicPrincipal || other.PublicPrincipal
 	base.TrustedWithinOrganization = base.TrustedWithinOrganization || other.TrustedWithinOrganization
-	base.HasCondition = base.HasCondition || other.HasCondition
+	base.HasCondition = base.HasCondition && other.HasCondition
 	base.ConditionKeys = dedupeStrings(append(base.ConditionKeys, other.ConditionKeys...))
 	base.PolicySources = dedupeStrings(append(base.PolicySources, other.PolicySources...))
 	base.ImpactedNodes = dedupeStrings(append(base.ImpactedNodes, other.ImpactedNodes...))
