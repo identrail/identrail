@@ -130,6 +130,98 @@ func TestValidateSecurityRejectsInvalidSessionAuthConfig(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRejectsInvalidEmailConfig(t *testing.T) {
+	base := Config{
+		FeatureNewAuth: true,
+		PublicBaseURL:  "https://app.example.com",
+		SessionKey:     strings.Repeat("a", 64),
+	}
+	tests := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{
+			name: "unsupported provider",
+			cfg: func() Config {
+				cfg := base
+				cfg.EmailProvider = "smtp"
+				return cfg
+			}(),
+			want: "IDENTRAIL_EMAIL_PROVIDER",
+		},
+		{
+			name: "missing api key",
+			cfg: func() Config {
+				cfg := base
+				cfg.EmailProvider = "resend"
+				cfg.EmailFromAddress = "Identrail <hello@send.identrail.com>"
+				return cfg
+			}(),
+			want: "IDENTRAIL_EMAIL_API_KEY",
+		},
+		{
+			name: "missing from",
+			cfg: func() Config {
+				cfg := base
+				cfg.EmailProvider = "resend"
+				cfg.EmailAPIKey = "re_test_123"
+				return cfg
+			}(),
+			want: "IDENTRAIL_EMAIL_FROM_ADDRESS",
+		},
+		{
+			name: "invalid reply-to",
+			cfg: func() Config {
+				cfg := base
+				cfg.EmailProvider = "resend"
+				cfg.EmailAPIKey = "re_test_123"
+				cfg.EmailFromAddress = "Identrail <hello@send.identrail.com>"
+				cfg.EmailReplyToAddress = "not an email"
+				return cfg
+			}(),
+			want: "IDENTRAIL_EMAIL_REPLY_TO_ADDRESS",
+		},
+		{
+			name: "insecure app base url",
+			cfg: func() Config {
+				cfg := base
+				cfg.EmailProvider = "resend"
+				cfg.EmailAPIKey = "re_test_123"
+				cfg.EmailFromAddress = "Identrail <hello@send.identrail.com>"
+				cfg.EmailAppBaseURL = "http://app.example.com"
+				return cfg
+			}(),
+			want: "IDENTRAIL_EMAIL_APP_BASE_URL",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSecurity(tt.cfg)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected error containing %q, got %v", tt.want, err)
+			}
+		})
+	}
+}
+
+func TestValidateSecurityAcceptsResendEmailConfig(t *testing.T) {
+	cfg := Config{
+		FeatureNewAuth:      true,
+		PublicBaseURL:       "https://api.identrail.example",
+		SessionKey:          strings.Repeat("a", 64),
+		EmailProvider:       "resend",
+		EmailAPIKey:         "re_test_123",
+		EmailFromAddress:    "Identrail <hello@send.identrail.com>",
+		EmailReplyToAddress: "support@identrail.com",
+		EmailAppBaseURL:     "https://app.identrail.example",
+		EmailTimeout:        3 * time.Second,
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected resend email config to be valid, got %v", err)
+	}
+}
+
 func TestValidateSecurityAllowsManualModeOnLoopback(t *testing.T) {
 	for _, tc := range []struct{ base, addr string }{
 		{"http://localhost:8080", "127.0.0.1:8080"},

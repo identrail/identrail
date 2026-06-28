@@ -99,6 +99,12 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_OIDC_WORKSPACE_CLAIM", "")
 	t.Setenv("IDENTRAIL_OIDC_GROUPS_CLAIM", "")
 	t.Setenv("IDENTRAIL_OIDC_ROLES_CLAIM", "")
+	t.Setenv("IDENTRAIL_EMAIL_PROVIDER", "")
+	t.Setenv("IDENTRAIL_EMAIL_API_KEY", "")
+	t.Setenv("IDENTRAIL_EMAIL_FROM_ADDRESS", "")
+	t.Setenv("IDENTRAIL_EMAIL_REPLY_TO_ADDRESS", "")
+	t.Setenv("IDENTRAIL_EMAIL_APP_BASE_URL", "")
+	t.Setenv("IDENTRAIL_EMAIL_TIMEOUT", "")
 
 	cfg := Load()
 	if cfg.HTTPAddr != defaultHTTPAddr {
@@ -353,6 +359,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.WorkOSEnvironmentID != "" {
 		t.Fatalf("expected empty WorkOS environment id by default, got %q", cfg.WorkOSEnvironmentID)
 	}
+	if cfg.EmailProvider != "" || cfg.EmailAPIKey != "" || cfg.EmailFromAddress != "" || cfg.EmailReplyToAddress != "" || cfg.EmailAppBaseURL != "" {
+		t.Fatalf("expected email config defaults to be empty, got provider=%q apiKey=%q from=%q replyTo=%q appBase=%q", cfg.EmailProvider, cfg.EmailAPIKey, cfg.EmailFromAddress, cfg.EmailReplyToAddress, cfg.EmailAppBaseURL)
+	}
+	if cfg.EmailTimeout != defaultEmailTimeout {
+		t.Fatalf("expected default email timeout %v, got %v", defaultEmailTimeout, cfg.EmailTimeout)
+	}
 	if cfg.OIDCIssuerURL != "" {
 		t.Fatalf("expected empty oidc issuer by default, got %q", cfg.OIDCIssuerURL)
 	}
@@ -462,6 +474,12 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_WORKOS_API_KEY", "sk_test_123")
 	t.Setenv("IDENTRAIL_WORKOS_WEBHOOK_SECRET", "whsec_123")
 	t.Setenv("IDENTRAIL_WORKOS_ENVIRONMENT_ID", "env_123")
+	t.Setenv("IDENTRAIL_EMAIL_PROVIDER", "Resend")
+	t.Setenv("IDENTRAIL_EMAIL_API_KEY", "re_test_123")
+	t.Setenv("IDENTRAIL_EMAIL_FROM_ADDRESS", "Identrail <hello@send.identrail.example>")
+	t.Setenv("IDENTRAIL_EMAIL_REPLY_TO_ADDRESS", "support@identrail.example")
+	t.Setenv("IDENTRAIL_EMAIL_APP_BASE_URL", "https://app.identrail.example")
+	t.Setenv("IDENTRAIL_EMAIL_TIMEOUT", "4s")
 	t.Setenv("IDENTRAIL_OIDC_ISSUER_URL", "https://iam.example.com/realms/identrail")
 	t.Setenv("IDENTRAIL_OIDC_AUDIENCE", "identrail-api")
 	t.Setenv("IDENTRAIL_OIDC_WRITE_SCOPES", "identrail.write,identrail.admin")
@@ -725,6 +743,24 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.WorkOSEnvironmentID != "env_123" {
 		t.Fatalf("unexpected WorkOS environment id: %q", cfg.WorkOSEnvironmentID)
+	}
+	if cfg.EmailProvider != "resend" {
+		t.Fatalf("unexpected email provider: %q", cfg.EmailProvider)
+	}
+	if cfg.EmailAPIKey != "re_test_123" {
+		t.Fatalf("unexpected email api key: %q", cfg.EmailAPIKey)
+	}
+	if cfg.EmailFromAddress != "Identrail <hello@send.identrail.example>" {
+		t.Fatalf("unexpected email from address: %q", cfg.EmailFromAddress)
+	}
+	if cfg.EmailReplyToAddress != "support@identrail.example" {
+		t.Fatalf("unexpected email reply-to address: %q", cfg.EmailReplyToAddress)
+	}
+	if cfg.EmailAppBaseURL != "https://app.identrail.example" {
+		t.Fatalf("unexpected email app base url: %q", cfg.EmailAppBaseURL)
+	}
+	if cfg.EmailTimeout != 4*time.Second {
+		t.Fatalf("unexpected email timeout: %v", cfg.EmailTimeout)
 	}
 	if cfg.OIDCIssuerURL != "https://iam.example.com/realms/identrail" {
 		t.Fatalf("unexpected oidc issuer url: %q", cfg.OIDCIssuerURL)

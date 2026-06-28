@@ -219,6 +219,22 @@ For the standard hosted setup, configure Resend:
 Requester confirmation email is best-effort after the internal notification is
 accepted; confirmation rejection or timeout does not fail the captured lead.
 
+## Backend Transactional Email
+
+The Go API can send account-created email after a WorkOS sign-up creates a new
+Identrail user. Configure this on the API runtime, not the public web lead
+function:
+
+- `IDENTRAIL_EMAIL_PROVIDER=resend`
+- `IDENTRAIL_EMAIL_API_KEY` (Resend API key; keep in the secret store)
+- `IDENTRAIL_EMAIL_FROM_ADDRESS` (verified sender, for example `Identrail <hello@send.identrail.com>`)
+- `IDENTRAIL_EMAIL_REPLY_TO_ADDRESS` (optional; for Identrail Cloud use `support@identrail.com`)
+- `IDENTRAIL_EMAIL_APP_BASE_URL` (optional web-app origin for CTA links; set when it differs from `IDENTRAIL_PUBLIC_BASE_URL`)
+- `IDENTRAIL_EMAIL_TIMEOUT` (default: `3s`, maximum `30s`)
+
+The email send runs best-effort after the session is created. A Resend outage
+or validation error is logged but does not fail the user's first sign-in.
+
 Optional webhook forwarding can be enabled alongside email, or used as the sole
 delivery channel when Resend is not configured:
 

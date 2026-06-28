@@ -68,6 +68,7 @@ const (
 	defaultFeatureNativeSSO              = false
 	defaultAuthManualMode                = false
 	defaultAuthManualModeAllowUnsafe     = false
+	defaultEmailTimeout                  = 3 * time.Second
 	defaultAppModeEnabled                = false
 	defaultAppModeConnectorsEnabled      = false
 	defaultAppModeSchedulerEnabled       = false
@@ -207,6 +208,12 @@ type Config struct {
 	WorkOSAPIKey                  string
 	WorkOSWebhookSecret           string
 	WorkOSEnvironmentID           string
+	EmailProvider                 string
+	EmailAPIKey                   string
+	EmailFromAddress              string
+	EmailReplyToAddress           string
+	EmailAppBaseURL               string
+	EmailTimeout                  time.Duration
 	AppModeEnabled                bool
 	AppModeConnectorsEnabled      bool
 	AppModeSchedulerEnabled       bool
@@ -393,6 +400,12 @@ func Load() Config {
 		WorkOSAPIKey:                  getEnv("IDENTRAIL_WORKOS_API_KEY", ""),
 		WorkOSWebhookSecret:           getEnv("IDENTRAIL_WORKOS_WEBHOOK_SECRET", ""),
 		WorkOSEnvironmentID:           getEnv("IDENTRAIL_WORKOS_ENVIRONMENT_ID", ""),
+		EmailProvider:                 strings.ToLower(getEnv("IDENTRAIL_EMAIL_PROVIDER", "")),
+		EmailAPIKey:                   getEnv("IDENTRAIL_EMAIL_API_KEY", ""),
+		EmailFromAddress:              getEnv("IDENTRAIL_EMAIL_FROM_ADDRESS", ""),
+		EmailReplyToAddress:           getEnv("IDENTRAIL_EMAIL_REPLY_TO_ADDRESS", ""),
+		EmailAppBaseURL:               getEnv("IDENTRAIL_EMAIL_APP_BASE_URL", ""),
+		EmailTimeout:                  durationEnv("IDENTRAIL_EMAIL_TIMEOUT", defaultEmailTimeout),
 		AppModeEnabled:                boolEnv("IDENTRAIL_APP_MODE_ENABLED", defaultAppModeEnabled),
 		AppModeConnectorsEnabled:      boolEnv("IDENTRAIL_APP_MODE_CONNECTORS_ENABLED", defaultAppModeConnectorsEnabled),
 		AppModeSchedulerEnabled:       boolEnv("IDENTRAIL_APP_MODE_SCHEDULER_ENABLED", defaultAppModeSchedulerEnabled),

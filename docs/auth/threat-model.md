@@ -54,8 +54,8 @@ If you are about to write code that touches sessions, cookies, OAuth state, invi
 
 **Defenses.**
 
-1. All email links are built from `IDENTRAIL_PUBLIC_BASE_URL`, never from the request host.
-2. The server validates `IDENTRAIL_PUBLIC_BASE_URL` at startup. An empty value or an invalid URL refuses to start the server.
+1. Email links are built from configured origins (`IDENTRAIL_EMAIL_APP_BASE_URL` for web-app CTAs when set, otherwise `IDENTRAIL_PUBLIC_BASE_URL`), never from the request host.
+2. The server validates `IDENTRAIL_PUBLIC_BASE_URL` at startup. When `IDENTRAIL_EMAIL_APP_BASE_URL` is set, it also must be an absolute HTTPS URL outside local development.
 3. CI tests check that no code path passes `r.Host` or `c.Request.Host` into a URL builder used for outgoing emails.
 
 ## Account Enumeration

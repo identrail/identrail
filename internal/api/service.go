@@ -20,6 +20,7 @@ import (
 	githubconnector "github.com/identrail/identrail/internal/connectors/github"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
+	emailer "github.com/identrail/identrail/internal/email"
 	"github.com/identrail/identrail/internal/findings/standards"
 	"github.com/identrail/identrail/internal/providers"
 	"github.com/identrail/identrail/internal/remediation/fixpr"
@@ -186,6 +187,11 @@ type Service struct {
 	LockNamespace        string
 	Alerter              FindingAlerter
 	OnAlertError         func(error)
+	EmailSender          emailer.Sender
+	EmailFromAddress     string
+	EmailReplyToAddress  string
+	EmailAppBaseURL      string
+	OnEmailError         func(error)
 	OnRepoScanQueueEvent func(RepoScanQueueEvent)
 	ReadinessCheck       func(context.Context) error
 	Metrics              *telemetry.Metrics
