@@ -215,6 +215,18 @@ Optional repository variables:
 - `API_REPO_SCAN_HISTORY_LIMIT_MAX`
 - `API_REPO_SCAN_MAX_FINDINGS_MAX`
 - `API_REPO_SCAN_QUEUE_MAX_PENDING`
+- `API_EMAIL_PROVIDER`: set to `resend` to enable backend transactional email
+  for hosted API signup flows.
+- `API_EMAIL_FROM_ADDRESS`: verified sender used by transactional email, such
+  as `Identrail <hello@send.identrail.com>`. Required when
+  `API_EMAIL_PROVIDER=resend`.
+- `API_EMAIL_REPLY_TO_ADDRESS`: optional reply-to address, such as
+  `support@identrail.com`.
+- `API_EMAIL_APP_BASE_URL`: optional web-app origin used for email CTA links
+  when it differs from `IDENTRAIL_PUBLIC_BASE_URL`, such as
+  `https://app.identrail.com`.
+- `API_EMAIL_TIMEOUT`: optional Resend request timeout. The runtime default is
+  `3s`.
 - `API_WORKER_ENABLED`: defaults to `true`; set to `false` to deploy only the
   hosted API and leave queued scans pending
 - `API_WORKER_CONTAINER_IMAGE`: optional immutable worker image; blank derives
@@ -237,9 +249,17 @@ repository scan requests, and the worker processes those queued scans.
 
 Optional repository secret:
 
+- `API_EMAIL_API_KEY_SECRET_ARN`: Secrets Manager ARN containing the Resend API
+  key for `IDENTRAIL_EMAIL_API_KEY`. Prefer this first-class secret over
+  editing `API_EXTRA_SECRETS_JSON`, because GitHub hides existing secret values
+  on update pages. This secret can be created before email is enabled; email is
+  enabled by setting `API_EMAIL_PROVIDER=resend`. If email provider/from settings
+  already live in `API_EXTRA_ENVIRONMENT_JSON`, this secret still supplies
+  `IDENTRAIL_EMAIL_API_KEY` without editing `API_EXTRA_SECRETS_JSON`.
 - `API_EXTRA_SECRETS_JSON`: JSON object mapping additional runtime secret
   environment variable names to Secrets Manager ARNs for future provider
-  secrets. Prefer the first-class WorkOS settings above for hosted auth.
+  secrets. Prefer the first-class WorkOS and transactional email settings above
+  for hosted auth and email.
 
 Do not put database URLs, API keys, cookie secrets, or OAuth credentials directly
 in tfvars files, docs, GitHub variables, or Terraform state. Use Secrets Manager

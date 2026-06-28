@@ -231,6 +231,59 @@ case "${github_feature_enabled}" in
   *) fail "API_FEATURE_CONNECTOR_GITHUB_V2 must be true or false" ;;
 esac
 
+email_provider="$(trim "${API_EMAIL_PROVIDER:-}")"
+email_from_address="$(trim "${API_EMAIL_FROM_ADDRESS:-}")"
+email_reply_to_address="$(trim "${API_EMAIL_REPLY_TO_ADDRESS:-}")"
+email_app_base_url="$(trim "${API_EMAIL_APP_BASE_URL:-}")"
+email_timeout="$(trim "${API_EMAIL_TIMEOUT:-}")"
+email_api_key_secret="$(trim "${API_EMAIL_API_KEY_SECRET_ARN:-}")"
+email_environment="{}"
+email_secrets="{}"
+if [ -n "${email_provider}" ] || [ -n "${email_from_address}" ] || [ -n "${email_reply_to_address}" ] || [ -n "${email_app_base_url}" ] || [ -n "${email_timeout}" ]; then
+  email_environment="$(
+    jq -nce \
+      --arg provider "${email_provider}" \
+      --arg from_address "${email_from_address}" \
+      --arg reply_to_address "${email_reply_to_address}" \
+      --arg app_base_url "${email_app_base_url}" \
+      --arg timeout "${email_timeout}" \
+      '(if $provider != "" then {IDENTRAIL_EMAIL_PROVIDER: $provider} else {} end)
+      + (if $from_address != "" then {IDENTRAIL_EMAIL_FROM_ADDRESS: $from_address} else {} end)
+      + (if $reply_to_address != "" then {IDENTRAIL_EMAIL_REPLY_TO_ADDRESS: $reply_to_address} else {} end)
+      + (if $app_base_url != "" then {IDENTRAIL_EMAIL_APP_BASE_URL: $app_base_url} else {} end)
+      + (if $timeout != "" then {IDENTRAIL_EMAIL_TIMEOUT: $timeout} else {} end)'
+  )"
+fi
+effective_email_environment="$(
+  jq -nce \
+    --argjson extra_environment "${extra_environment}" \
+    --argjson email_environment "${email_environment}" \
+    '$extra_environment + $email_environment'
+)"
+effective_email_provider="$(jq -r '(.IDENTRAIL_EMAIL_PROVIDER // "") | ascii_downcase' <<< "${effective_email_environment}")"
+case "${effective_email_provider}" in
+  ""|resend) ;;
+  *) fail "IDENTRAIL_EMAIL_PROVIDER must be resend when transactional email is configured" ;;
+esac
+if [ "${effective_email_provider}" = "resend" ]; then
+  effective_email_from_address="$(jq -r '.IDENTRAIL_EMAIL_FROM_ADDRESS // ""' <<< "${effective_email_environment}")"
+  if [ -z "$(trim "${effective_email_from_address}")" ]; then
+    fail "API_EMAIL_FROM_ADDRESS or IDENTRAIL_EMAIL_FROM_ADDRESS in API_EXTRA_ENVIRONMENT_JSON is required when transactional email is enabled"
+  fi
+  if [ -n "${email_api_key_secret}" ]; then
+    if ! [[ "${email_api_key_secret}" =~ ^arn:(aws|aws-us-gov|aws-cn):secretsmanager:${aws_region}:[0-9]{12}:secret:.+ ]]; then
+      fail "API_EMAIL_API_KEY_SECRET_ARN must be a Secrets Manager ARN in ${aws_region}"
+    fi
+    email_secrets="$(
+      jq -nce \
+        --arg api_key_secret "${email_api_key_secret}" \
+        '{IDENTRAIL_EMAIL_API_KEY: $api_key_secret}'
+    )"
+  elif [ "$(jq -r 'has("IDENTRAIL_EMAIL_API_KEY")' <<< "${extra_secrets}")" != "true" ]; then
+    fail "API_EMAIL_API_KEY_SECRET_ARN or IDENTRAIL_EMAIL_API_KEY in API_EXTRA_SECRETS_JSON is required when transactional email is enabled"
+  fi
+fi
+
 workos_feature_enabled="$(trim "${API_FEATURE_WORKOS_LOGIN:-}")"
 workos_client_id="$(trim "${API_WORKOS_CLIENT_ID:-}")"
 workos_environment_id="$(trim "${API_WORKOS_ENVIRONMENT_ID:-}")"
@@ -476,6 +529,8 @@ jq -n \
   --argjson extra_environment "${extra_environment}" \
   --argjson extra_secrets "${extra_secrets}" \
   --argjson repo_scan_environment "${repo_scan_environment}" \
+  --argjson email_environment "${email_environment}" \
+  --argjson email_secrets "${email_secrets}" \
   --argjson workos_environment "${workos_environment}" \
   --argjson workos_secrets "${workos_secrets}" \
   --argjson github_environment "${github_environment}" \
@@ -511,12 +566,12 @@ jq -n \
     worker_desired_count: $worker_desired_count,
     worker_task_cpu: $worker_task_cpu,
     worker_task_memory: $worker_task_memory,
-    api_environment_variables: ($extra_environment + $repo_scan_environment + $workos_environment + $github_environment + {
+    api_environment_variables: ($extra_environment + $repo_scan_environment + $email_environment + $workos_environment + $github_environment + {
       IDENTRAIL_FEATURE_NEW_AUTH: "true",
       IDENTRAIL_FEATURE_ONBOARDING_WIZARD: $onboarding_feature_enabled,
       IDENTRAIL_PUBLIC_BASE_URL: "https://api.identrail.com"
     }),
-    api_secrets: ($extra_secrets + $workos_secrets + $github_secrets + {
+    api_secrets: ($extra_secrets + $email_secrets + $workos_secrets + $github_secrets + {
       IDENTRAIL_DATABASE_URL: $api_database_secret,
       IDENTRAIL_SESSION_KEY: $api_session_secret
     }),
