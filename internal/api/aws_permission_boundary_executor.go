@@ -299,7 +299,7 @@ func awsPermissionBoundaryExecutorEntries(dryRunEntries []AWSRemediationDryRunEn
 		if !ok {
 			continue
 		}
-		entries = append(entries, awsPermissionBoundaryExecutorEntryFromDryRun(entry, plan, now))
+		entries = append(entries, awsPermissionBoundaryExecutorEntriesFromDryRun(entry, plan, now)...)
 	}
 	return entries
 }
@@ -323,8 +323,42 @@ func awsPermissionBoundaryExecutorAdmits(entry AWSRemediationDryRunEntry) bool {
 	}
 }
 
+func awsPermissionBoundaryExecutorEntriesFromDryRun(entry AWSRemediationDryRunEntry, plan AWSPermissionBoundarySCPPlan, now time.Time) []AWSPermissionBoundaryExecutorEntry {
+	targetsByOperation := awsPermissionBoundaryExecutorTargetsByOperation(plan.TargetIdentityNodeIDs)
+	if len(targetsByOperation) <= 1 {
+		return []AWSPermissionBoundaryExecutorEntry{awsPermissionBoundaryExecutorEntryFromDryRun(entry, plan, now)}
+	}
+	entries := make([]AWSPermissionBoundaryExecutorEntry, 0, len(targetsByOperation))
+	operations := make([]string, 0, len(targetsByOperation))
+	for operation := range targetsByOperation {
+		operations = append(operations, operation)
+	}
+	sort.Strings(operations)
+	for _, operation := range operations {
+		scopedPlan := plan
+		scopedPlan.TargetIdentityNodeIDs = targetsByOperation[operation]
+		scopedPlan.ImpactedNodes = emptyStrings(dedupeStrings(append(append([]string{}, scopedPlan.TargetIdentityNodeIDs...), plan.ImpactedNodes...)))
+		out := awsPermissionBoundaryExecutorEntryFromDryRunWithCall(entry, scopedPlan, awsPermissionBoundaryExecutorIntendedCallForTargets(entry, scopedPlan.TargetIdentityNodeIDs, operation), now)
+		out.ExecutionID = "aws-permission-boundary-executor:" + stableAWSBlastRadiusToken("execution", entry.DryRunID, plan.PlanID, operation)
+		entries = append(entries, out)
+	}
+	return entries
+}
+
+func awsPermissionBoundaryExecutorTargetsByOperation(targets []string) map[string][]string {
+	out := map[string][]string{}
+	for _, target := range emptyStrings(dedupeStrings(targets)) {
+		operation := awsRemediationDryRunPutBoundaryOperation(target)
+		out[operation] = append(out[operation], target)
+	}
+	return out
+}
+
 func awsPermissionBoundaryExecutorEntryFromDryRun(entry AWSRemediationDryRunEntry, plan AWSPermissionBoundarySCPPlan, now time.Time) AWSPermissionBoundaryExecutorEntry {
-	call := awsPermissionBoundaryExecutorIntendedCall(entry)
+	return awsPermissionBoundaryExecutorEntryFromDryRunWithCall(entry, plan, awsPermissionBoundaryExecutorIntendedCall(entry), now)
+}
+
+func awsPermissionBoundaryExecutorEntryFromDryRunWithCall(entry AWSRemediationDryRunEntry, plan AWSPermissionBoundarySCPPlan, call AWSRemediationDryRunIntendedAPICall, now time.Time) AWSPermissionBoundaryExecutorEntry {
 	preconditions := awsPermissionBoundaryExecutorPreconditions(entry, plan, call)
 	simulation := awsPermissionBoundaryExecutorSimulation(entry, plan)
 	verifications := awsPermissionBoundaryExecutorVerifications(entry, plan)
@@ -389,6 +423,19 @@ func awsPermissionBoundaryExecutorIntendedCall(entry AWSRemediationDryRunEntry) 
 		Idempotent:       true,
 		RequiresApproval: true,
 	}
+}
+
+func awsPermissionBoundaryExecutorIntendedCallForTargets(entry AWSRemediationDryRunEntry, targets []string, operation string) AWSRemediationDryRunIntendedAPICall {
+	call := awsPermissionBoundaryExecutorIntendedCall(entry)
+	call.Service = firstNonEmptyAWSValue(call.Service, "iam")
+	call.Operation = operation
+	call.TargetResource = firstNonEmptyAWSValue(firstString(emptyStrings(targets)), call.TargetResource, firstString(entry.ImpactedNodes))
+	if len(call.ParameterRefs) == 0 {
+		call.ParameterRefs = []string{entry.IdempotencyKey, "boundary_ref://" + entry.CaseID + "/after"}
+	}
+	call.Idempotent = true
+	call.RequiresApproval = true
+	return call
 }
 
 func awsPermissionBoundaryExecutorPreconditions(entry AWSRemediationDryRunEntry, plan AWSPermissionBoundarySCPPlan, call AWSRemediationDryRunIntendedAPICall) []AWSPermissionBoundaryExecutorPrecondition {

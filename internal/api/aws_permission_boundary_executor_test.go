@@ -214,6 +214,65 @@ func TestAWSPermissionBoundaryExecutorStateHonorsPreconditions(t *testing.T) {
 	}
 }
 
+func TestAWSPermissionBoundaryExecutorSplitsMixedPrincipalKinds(t *testing.T) {
+	now := time.Date(2026, 6, 30, 11, 30, 0, 0, time.UTC)
+	plan := AWSPermissionBoundarySCPPlan{
+		PlanID:                "plan-mixed-principals",
+		Kind:                  awsPermissionBoundaryKind,
+		ReadyForApply:         true,
+		TargetIdentityNodeIDs: []string{"aws:identity:arn:aws:iam::123456789012:role/app-role", "aws:identity:arn:aws:iam::123456789012:user/app-user"},
+		TargetAccountIDs:      []string{"123456789012"},
+		BreakageProjection:    AWSPermissionBoundarySCPBreakageProjection{Level: "low"},
+	}
+	entry := AWSRemediationDryRunEntry{
+		DryRunID:         "dr-mixed",
+		CaseID:           "case-mixed",
+		SourceType:       "aws_permission_boundary_scp",
+		SourceArtifactID: "plan-mixed-principals",
+		IdempotencyKey:   "idk",
+		Outcome:          awsRemediationDryRunOutcomeWouldSucceed,
+		ReadyForApply:    true,
+		DiffIntent:       AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+		IntendedAPICalls: []AWSRemediationDryRunIntendedAPICall{{
+			Service:          "iam",
+			Operation:        "PutRolePermissionsBoundary",
+			TargetResource:   "aws:identity:arn:aws:iam::123456789012:role/app-role",
+			ParameterRefs:    []string{"idk", "boundary_ref://case-mixed/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}},
+	}
+
+	entries := awsPermissionBoundaryExecutorEntriesFromDryRun(entry, plan, now)
+	if len(entries) != 2 {
+		t.Fatalf("expected mixed role/user plan to split into two executor entries: %+v", entries)
+	}
+	byOperation := map[string]AWSPermissionBoundaryExecutorEntry{}
+	for _, out := range entries {
+		byOperation[out.Operation] = out
+	}
+	roleEntry, ok := byOperation["PutRolePermissionsBoundary"]
+	if !ok {
+		t.Fatalf("missing role boundary entry: %+v", entries)
+	}
+	if len(roleEntry.TargetIdentityNodeIDs) != 1 || !strings.Contains(roleEntry.TargetIdentityNodeIDs[0], ":role/") {
+		t.Fatalf("role entry retained non-role targets: %+v", roleEntry.TargetIdentityNodeIDs)
+	}
+	userEntry, ok := byOperation["PutUserPermissionsBoundary"]
+	if !ok {
+		t.Fatalf("missing user boundary entry: %+v", entries)
+	}
+	if len(userEntry.TargetIdentityNodeIDs) != 1 || !strings.Contains(userEntry.TargetIdentityNodeIDs[0], ":user/") {
+		t.Fatalf("user entry retained non-user targets: %+v", userEntry.TargetIdentityNodeIDs)
+	}
+	if userEntry.IntendedAPICall.Operation != "PutUserPermissionsBoundary" || !strings.Contains(userEntry.IntendedAPICall.TargetResource, ":user/") {
+		t.Fatalf("user entry has wrong intended call: %+v", userEntry.IntendedAPICall)
+	}
+	if roleEntry.ExecutionID == userEntry.ExecutionID {
+		t.Fatalf("split entries must have distinct execution IDs: role=%q user=%q", roleEntry.ExecutionID, userEntry.ExecutionID)
+	}
+}
+
 func TestGetAWSPermissionBoundaryExecutorFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
 	svc, ws := newPermissionBoundaryExecutorService(t, "project-permission-boundary-executor-states", now)
