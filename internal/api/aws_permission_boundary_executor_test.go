@@ -237,6 +237,48 @@ func TestGetAWSPermissionBoundaryExecutorFailureStates(t *testing.T) {
 	}
 }
 
+func TestFilterAWSPermissionBoundaryExecutorEntriesMatchesTargetAccounts(t *testing.T) {
+	entries := []AWSPermissionBoundaryExecutorEntry{
+		{
+			ExecutionID:      "exec-cross-account",
+			DryRunID:         "dr-1",
+			CaseID:           "case-1",
+			PlanID:           "plan-cross-account",
+			AccountID:        "",
+			Region:           "us-east-1",
+			State:            awsPermissionBoundaryExecutorStateBlocked,
+			Severity:         "high",
+			Operation:        "PutRolePermissionsBoundary",
+			TargetAccountIDs: []string{"111111111111", "222222222222"},
+		},
+		{
+			ExecutionID:      "exec-other-account",
+			DryRunID:         "dr-2",
+			CaseID:           "case-2",
+			PlanID:           "plan-other-account",
+			AccountID:        "333333333333",
+			Region:           "us-east-1",
+			State:            awsPermissionBoundaryExecutorStateProjected,
+			Severity:         "medium",
+			Operation:        "PutRolePermissionsBoundary",
+			TargetAccountIDs: []string{"333333333333"},
+		},
+	}
+
+	filtered, applied := filterAWSPermissionBoundaryExecutorEntries(entries, AWSPermissionBoundaryExecutorRequest{AccountID: "111111111111"})
+	if applied["account_id"] != "111111111111" {
+		t.Fatalf("expected applied account filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].ExecutionID != "exec-cross-account" {
+		t.Fatalf("expected target account match to retain cross-account entry: %+v", filtered)
+	}
+
+	filtered, _ = filterAWSPermissionBoundaryExecutorEntries(entries, AWSPermissionBoundaryExecutorRequest{AccountID: "444444444444"})
+	if len(filtered) != 0 {
+		t.Fatalf("unexpected entries for unmatched target account: %+v", filtered)
+	}
+}
+
 func TestAWSPermissionBoundaryExecutorAggregatesDryRunDiagnostics(t *testing.T) {
 	diagnostics := awsPermissionBoundaryExecutorDiagnostics(
 		[]AWSRemediationApprovalDiagnostic{{

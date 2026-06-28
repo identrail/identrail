@@ -614,7 +614,7 @@ func filterAWSPermissionBoundaryExecutorEntries(entries []AWSPermissionBoundaryE
 	}
 	filtered := make([]AWSPermissionBoundaryExecutorEntry, 0, len(entries))
 	for _, entry := range entries {
-		if filters["account_id"] != "" && filters["account_id"] != entry.AccountID {
+		if filters["account_id"] != "" && !awsPermissionBoundaryExecutorAccountMatch(entry, filters["account_id"]) {
 			continue
 		}
 		if filters["region"] != "" && !strings.EqualFold(filters["region"], entry.Region) {
@@ -644,6 +644,22 @@ func filterAWSPermissionBoundaryExecutorEntries(entries []AWSPermissionBoundaryE
 		filtered = append(filtered, entry)
 	}
 	return filtered, applied
+}
+
+func awsPermissionBoundaryExecutorAccountMatch(entry AWSPermissionBoundaryExecutorEntry, accountID string) bool {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return true
+	}
+	if strings.TrimSpace(entry.AccountID) == accountID {
+		return true
+	}
+	for _, targetAccountID := range entry.TargetAccountIDs {
+		if strings.TrimSpace(targetAccountID) == accountID {
+			return true
+		}
+	}
+	return false
 }
 
 func awsPermissionBoundaryExecutorSearchMatch(entry AWSPermissionBoundaryExecutorEntry, needle string) bool {
