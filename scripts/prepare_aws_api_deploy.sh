@@ -240,18 +240,6 @@ email_api_key_secret="$(trim "${API_EMAIL_API_KEY_SECRET_ARN:-}")"
 email_environment="{}"
 email_secrets="{}"
 if [ -n "${email_provider}" ] || [ -n "${email_from_address}" ] || [ -n "${email_reply_to_address}" ] || [ -n "${email_app_base_url}" ] || [ -n "${email_timeout}" ]; then
-  if [ "${email_provider}" != "resend" ]; then
-    fail "API_EMAIL_PROVIDER must be resend when transactional email is configured"
-  fi
-  if [ -z "${email_api_key_secret}" ]; then
-    fail "API_EMAIL_API_KEY_SECRET_ARN is required when API_EMAIL_PROVIDER=resend"
-  fi
-  if [ -z "${email_from_address}" ]; then
-    fail "API_EMAIL_FROM_ADDRESS is required when API_EMAIL_PROVIDER=resend"
-  fi
-  if ! [[ "${email_api_key_secret}" =~ ^arn:(aws|aws-us-gov|aws-cn):secretsmanager:${aws_region}:[0-9]{12}:secret:.+ ]]; then
-    fail "API_EMAIL_API_KEY_SECRET_ARN must be a Secrets Manager ARN in ${aws_region}"
-  fi
   email_environment="$(
     jq -nce \
       --arg provider "${email_provider}" \
@@ -259,19 +247,41 @@ if [ -n "${email_provider}" ] || [ -n "${email_from_address}" ] || [ -n "${email
       --arg reply_to_address "${email_reply_to_address}" \
       --arg app_base_url "${email_app_base_url}" \
       --arg timeout "${email_timeout}" \
-      '{
-        IDENTRAIL_EMAIL_PROVIDER: $provider,
-        IDENTRAIL_EMAIL_FROM_ADDRESS: $from_address
-      }
+      '(if $provider != "" then {IDENTRAIL_EMAIL_PROVIDER: $provider} else {} end)
+      + (if $from_address != "" then {IDENTRAIL_EMAIL_FROM_ADDRESS: $from_address} else {} end)
       + (if $reply_to_address != "" then {IDENTRAIL_EMAIL_REPLY_TO_ADDRESS: $reply_to_address} else {} end)
       + (if $app_base_url != "" then {IDENTRAIL_EMAIL_APP_BASE_URL: $app_base_url} else {} end)
       + (if $timeout != "" then {IDENTRAIL_EMAIL_TIMEOUT: $timeout} else {} end)'
   )"
-  email_secrets="$(
-    jq -nce \
-      --arg api_key_secret "${email_api_key_secret}" \
-      '{IDENTRAIL_EMAIL_API_KEY: $api_key_secret}'
-  )"
+fi
+effective_email_environment="$(
+  jq -nce \
+    --argjson extra_environment "${extra_environment}" \
+    --argjson email_environment "${email_environment}" \
+    '$extra_environment + $email_environment'
+)"
+effective_email_provider="$(jq -r '(.IDENTRAIL_EMAIL_PROVIDER // "") | ascii_downcase' <<< "${effective_email_environment}")"
+case "${effective_email_provider}" in
+  ""|resend) ;;
+  *) fail "IDENTRAIL_EMAIL_PROVIDER must be resend when transactional email is configured" ;;
+esac
+if [ "${effective_email_provider}" = "resend" ]; then
+  effective_email_from_address="$(jq -r '.IDENTRAIL_EMAIL_FROM_ADDRESS // ""' <<< "${effective_email_environment}")"
+  if [ -z "$(trim "${effective_email_from_address}")" ]; then
+    fail "API_EMAIL_FROM_ADDRESS or IDENTRAIL_EMAIL_FROM_ADDRESS in API_EXTRA_ENVIRONMENT_JSON is required when transactional email is enabled"
+  fi
+  if [ -n "${email_api_key_secret}" ]; then
+    if ! [[ "${email_api_key_secret}" =~ ^arn:(aws|aws-us-gov|aws-cn):secretsmanager:${aws_region}:[0-9]{12}:secret:.+ ]]; then
+      fail "API_EMAIL_API_KEY_SECRET_ARN must be a Secrets Manager ARN in ${aws_region}"
+    fi
+    email_secrets="$(
+      jq -nce \
+        --arg api_key_secret "${email_api_key_secret}" \
+        '{IDENTRAIL_EMAIL_API_KEY: $api_key_secret}'
+    )"
+  elif [ "$(jq -r 'has("IDENTRAIL_EMAIL_API_KEY")' <<< "${extra_secrets}")" != "true" ]; then
+    fail "API_EMAIL_API_KEY_SECRET_ARN or IDENTRAIL_EMAIL_API_KEY in API_EXTRA_SECRETS_JSON is required when transactional email is enabled"
+  fi
 fi
 
 workos_feature_enabled="$(trim "${API_FEATURE_WORKOS_LOGIN:-}")"

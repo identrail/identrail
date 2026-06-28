@@ -253,7 +253,9 @@ Optional repository secret:
   key for `IDENTRAIL_EMAIL_API_KEY`. Prefer this first-class secret over
   editing `API_EXTRA_SECRETS_JSON`, because GitHub hides existing secret values
   on update pages. This secret can be created before email is enabled; email is
-  enabled by setting `API_EMAIL_PROVIDER=resend`.
+  enabled by setting `API_EMAIL_PROVIDER=resend`. If email provider/from settings
+  already live in `API_EXTRA_ENVIRONMENT_JSON`, this secret still supplies
+  `IDENTRAIL_EMAIL_API_KEY` without editing `API_EXTRA_SECRETS_JSON`.
 - `API_EXTRA_SECRETS_JSON`: JSON object mapping additional runtime secret
   environment variable names to Secrets Manager ARNs for future provider
   secrets. Prefer the first-class WorkOS and transactional email settings above
