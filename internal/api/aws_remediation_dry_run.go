@@ -101,6 +101,7 @@ type AWSRemediationDryRunEntry struct {
 	Title              string                                  `json:"title"`
 	Summary            string                                  `json:"summary"`
 	AccountID          string                                  `json:"account_id"`
+	AccountIDs         []string                                `json:"account_ids,omitempty"`
 	Region             string                                  `json:"region"`
 	IdempotencyKey     string                                  `json:"idempotency_key"`
 	DryRunRef          string                                  `json:"dry_run_ref"`
@@ -311,7 +312,8 @@ func awsRemediationDryRunEntryFromApproval(approval AWSRemediationApprovalEntry,
 		Confidence:         approval.Confidence,
 		Title:              fmt.Sprintf("Dry-run: %s", approval.Title),
 		Summary:            fmt.Sprintf("Read-only simulation of remediation case %s. Identrail never calls AWS write APIs; later wave executors apply the change after approval.", approval.CaseID),
-		AccountID:          approval.AccountID,
+		AccountID:          firstNonEmptyAWSValue(approval.AccountID, firstString(approval.Scope.AccountIDs)),
+		AccountIDs:         emptyStrings(dedupeStrings(approval.Scope.AccountIDs)),
 		Region:             approval.Region,
 		IdempotencyKey:     approval.IdempotencyKey,
 		DryRunRef:          firstNonEmptyAWSValue(approval.DryRunRef, fmt.Sprintf("dry-run://%s/%s/simulated", approval.SourceType, approval.CaseID)),
@@ -907,7 +909,7 @@ func filterAWSRemediationDryRunEntries(entries []AWSRemediationDryRunEntry, requ
 	}
 	filtered := make([]AWSRemediationDryRunEntry, 0, len(entries))
 	for _, entry := range entries {
-		if filters["account_id"] != "" && filters["account_id"] != entry.AccountID {
+		if filters["account_id"] != "" && !awsRemediationDryRunAccountMatch(entry, filters["account_id"]) {
 			continue
 		}
 		if filters["region"] != "" && !strings.EqualFold(filters["region"], entry.Region) {
@@ -939,6 +941,22 @@ func filterAWSRemediationDryRunEntries(entries []AWSRemediationDryRunEntry, requ
 	return filtered, applied
 }
 
+func awsRemediationDryRunAccountMatch(entry AWSRemediationDryRunEntry, accountID string) bool {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return true
+	}
+	if strings.TrimSpace(entry.AccountID) == accountID {
+		return true
+	}
+	for _, scopedAccountID := range entry.AccountIDs {
+		if strings.TrimSpace(scopedAccountID) == accountID {
+			return true
+		}
+	}
+	return false
+}
+
 func awsRemediationDryRunSearchMatch(entry AWSRemediationDryRunEntry, needle string) bool {
 	needle = strings.ToLower(strings.TrimSpace(needle))
 	if needle == "" {
@@ -951,6 +969,7 @@ func awsRemediationDryRunSearchMatch(entry AWSRemediationDryRunEntry, needle str
 		entry.DiffIntent.Kind, entry.DiffIntent.DiffSummary,
 		entry.RollbackPlan.Strategy, entry.VerificationPlan.Strategy,
 	}
+	values = append(values, entry.AccountIDs...)
 	values = append(values, entry.SourceSignals...)
 	for _, call := range entry.IntendedAPICalls {
 		values = append(values, call.Service, call.Operation, call.TargetResource)

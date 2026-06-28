@@ -14213,6 +14213,9 @@ components:
         title: { type: string }
         summary: { type: string }
         account_id: { type: string }
+        target_account_ids:
+          type: array
+          items: { type: string }
         region: { type: string }
         identity_node_id: { type: string }
         identity_arn: { type: string }
@@ -16321,6 +16324,9 @@ components:
         title: { type: string }
         summary: { type: string }
         account_id: { type: string }
+        account_ids:
+          type: array
+          items: { type: string }
         region: { type: string }
         idempotency_key: { type: string }
         dry_run_ref: { type: string }

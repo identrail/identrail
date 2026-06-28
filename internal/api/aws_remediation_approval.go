@@ -338,7 +338,7 @@ func awsRemediationApprovalEntryFromCase(source AWSRemediationCase, now time.Tim
 		Confidence:         source.Confidence,
 		Title:              fmt.Sprintf("Approval: %s", source.Title),
 		Summary:            fmt.Sprintf("RBAC-gated approval workflow for remediation case %s. Identrail does not mutate AWS; later wave executors apply the change after approval.", source.CaseID),
-		AccountID:          source.AccountID,
+		AccountID:          firstNonEmptyAWSValue(source.AccountID, firstString(source.TargetAccountIDs)),
 		Region:             source.Region,
 		Requestor:          requestor,
 		RequiredApprovers:  approvers,
@@ -441,7 +441,7 @@ func awsRemediationApprovalScope(source AWSRemediationCase, connectorID string) 
 	}
 	return AWSRemediationApprovalScope{
 		ScopeType:       scopeType,
-		AccountIDs:      emptyStrings(dedupeStrings([]string{source.AccountID})),
+		AccountIDs:      emptyStrings(dedupeStrings(append([]string{source.AccountID}, source.TargetAccountIDs...))),
 		Regions:         emptyStrings(dedupeStrings([]string{source.Region})),
 		ConnectorIDs:    connectors,
 		IdentityNodeIDs: emptyStrings(dedupeStrings(identityNodes)),
@@ -652,7 +652,7 @@ func filterAWSRemediationApprovalEntries(entries []AWSRemediationApprovalEntry, 
 	}
 	filtered := make([]AWSRemediationApprovalEntry, 0, len(entries))
 	for _, entry := range entries {
-		if filters["account_id"] != "" && filters["account_id"] != entry.AccountID {
+		if filters["account_id"] != "" && !awsRemediationApprovalAccountMatch(entry, filters["account_id"]) {
 			continue
 		}
 		if filters["region"] != "" && !strings.EqualFold(filters["region"], entry.Region) {
@@ -697,6 +697,22 @@ func filterAWSRemediationApprovalEntries(entries []AWSRemediationApprovalEntry, 
 		filtered = append(filtered, entry)
 	}
 	return filtered, applied
+}
+
+func awsRemediationApprovalAccountMatch(entry AWSRemediationApprovalEntry, accountID string) bool {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return true
+	}
+	if strings.TrimSpace(entry.AccountID) == accountID {
+		return true
+	}
+	for _, scopeAccountID := range entry.Scope.AccountIDs {
+		if strings.TrimSpace(scopeAccountID) == accountID {
+			return true
+		}
+	}
+	return false
 }
 
 func awsRemediationApprovalHasApproverRole(entry AWSRemediationApprovalEntry, needle string) bool {

@@ -2893,6 +2893,7 @@ export type AWSRemediationCase = {
   title: string;
   summary: string;
   account_id: string;
+  target_account_ids?: string[];
   region: string;
   identity_node_id?: string;
   identity_arn?: string;
@@ -4260,6 +4261,7 @@ export type AWSRemediationDryRunEntry = {
   title: string;
   summary: string;
   account_id: string;
+  account_ids?: string[];
   region: string;
   idempotency_key: string;
   dry_run_ref: string;

@@ -205,6 +205,33 @@ func TestGetAWSRemediationCasesAppliesFilters(t *testing.T) {
 	}
 }
 
+func TestFilterAWSRemediationCasesMatchesBoundaryTargetAccounts(t *testing.T) {
+	cases := []AWSRemediationCase{
+		{
+			CaseID:           "case-cross-account-boundary",
+			SourceType:       "aws_permission_boundary_scp",
+			AccountID:        "",
+			TargetAccountIDs: []string{"111111111111", "222222222222"},
+			Region:           "us-east-1",
+		},
+		{
+			CaseID:           "case-other-boundary",
+			SourceType:       "aws_permission_boundary_scp",
+			AccountID:        "333333333333",
+			TargetAccountIDs: []string{"333333333333"},
+			Region:           "us-east-1",
+		},
+	}
+
+	filtered, applied := filterAWSRemediationCases(cases, AWSRemediationCaseRequest{AccountID: "222222222222"})
+	if applied["account_id"] != "222222222222" {
+		t.Fatalf("expected applied account filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].CaseID != "case-cross-account-boundary" {
+		t.Fatalf("expected target account match to retain boundary case: %+v", filtered)
+	}
+}
+
 func TestAWSRemediationCaseDerivesLifecycleAndApproval(t *testing.T) {
 	now := time.Date(2026, 6, 23, 10, 10, 0, 0, time.UTC)
 	ownerless := AWSAIAgentRiskFinding{

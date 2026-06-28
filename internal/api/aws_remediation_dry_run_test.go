@@ -125,6 +125,29 @@ func TestFilterAWSRemediationDryRunEntriesAppliesFilters(t *testing.T) {
 	}
 }
 
+func TestFilterAWSRemediationDryRunEntriesMatchesScopedAccounts(t *testing.T) {
+	entries := []AWSRemediationDryRunEntry{
+		{
+			DryRunID:   "boundary-cross-account",
+			AccountID:  "",
+			AccountIDs: []string{"111111111111", "222222222222"},
+		},
+		{
+			DryRunID:   "boundary-other-account",
+			AccountID:  "333333333333",
+			AccountIDs: []string{"333333333333"},
+		},
+	}
+
+	filtered, applied := filterAWSRemediationDryRunEntries(entries, AWSRemediationDryRunRequest{AccountID: "111111111111"})
+	if applied["account_id"] != "111111111111" {
+		t.Fatalf("expected applied account filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].DryRunID != "boundary-cross-account" {
+		t.Fatalf("expected scoped account match to retain dry-run entry: %+v", filtered)
+	}
+}
+
 func TestAWSRemediationDryRunOutcomeHonorsApprovalGates(t *testing.T) {
 	now := time.Date(2026, 6, 27, 11, 0, 0, 0, time.UTC)
 

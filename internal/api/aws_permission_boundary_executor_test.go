@@ -279,6 +279,31 @@ func TestFilterAWSPermissionBoundaryExecutorEntriesMatchesTargetAccounts(t *test
 	}
 }
 
+func TestFilterAWSPermissionBoundaryExecutorEntriesKeepsMultiRegionEntries(t *testing.T) {
+	entries := []AWSPermissionBoundaryExecutorEntry{
+		{
+			ExecutionID: "exec-multi-region",
+			Region:      "",
+			State:       awsPermissionBoundaryExecutorStateBlocked,
+			Operation:   "PutRolePermissionsBoundary",
+		},
+		{
+			ExecutionID: "exec-west",
+			Region:      "us-west-2",
+			State:       awsPermissionBoundaryExecutorStateProjected,
+			Operation:   "PutRolePermissionsBoundary",
+		},
+	}
+
+	filtered, applied := filterAWSPermissionBoundaryExecutorEntries(entries, AWSPermissionBoundaryExecutorRequest{Region: "us-east-1"})
+	if applied["region"] != "us-east-1" {
+		t.Fatalf("expected applied region filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].ExecutionID != "exec-multi-region" {
+		t.Fatalf("expected empty-region executor entry to survive region drill-down: %+v", filtered)
+	}
+}
+
 func TestAWSPermissionBoundaryExecutorAggregatesDryRunDiagnostics(t *testing.T) {
 	diagnostics := awsPermissionBoundaryExecutorDiagnostics(
 		[]AWSRemediationApprovalDiagnostic{{

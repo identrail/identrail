@@ -617,7 +617,7 @@ func filterAWSPermissionBoundaryExecutorEntries(entries []AWSPermissionBoundaryE
 		if filters["account_id"] != "" && !awsPermissionBoundaryExecutorAccountMatch(entry, filters["account_id"]) {
 			continue
 		}
-		if filters["region"] != "" && !strings.EqualFold(filters["region"], entry.Region) {
+		if filters["region"] != "" && !awsPermissionBoundaryExecutorRegionMatch(entry, filters["region"]) {
 			continue
 		}
 		if filters["dry_run_id"] != "" && !strings.EqualFold(filters["dry_run_id"], entry.DryRunID) {
@@ -644,6 +644,17 @@ func filterAWSPermissionBoundaryExecutorEntries(entries []AWSPermissionBoundaryE
 		filtered = append(filtered, entry)
 	}
 	return filtered, applied
+}
+
+func awsPermissionBoundaryExecutorRegionMatch(entry AWSPermissionBoundaryExecutorEntry, region string) bool {
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return true
+	}
+	if strings.TrimSpace(entry.Region) == "" {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(entry.Region), region)
 }
 
 func awsPermissionBoundaryExecutorAccountMatch(entry AWSPermissionBoundaryExecutorEntry, accountID string) bool {

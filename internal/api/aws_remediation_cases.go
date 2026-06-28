@@ -114,6 +114,7 @@ type AWSRemediationCase struct {
 	Title              string                         `json:"title"`
 	Summary            string                         `json:"summary"`
 	AccountID          string                         `json:"account_id"`
+	TargetAccountIDs   []string                       `json:"target_account_ids,omitempty"`
 	Region             string                         `json:"region"`
 	IdentityNodeID     string                         `json:"identity_node_id,omitempty"`
 	IdentityARN        string                         `json:"identity_arn,omitempty"`
@@ -715,7 +716,8 @@ func awsRemediationCaseFromPermissionBoundary(plan AWSPermissionBoundarySCPPlan,
 		Confidence:         plan.Confidence,
 		Title:              fmt.Sprintf("Permission boundary executor for %s", firstNonEmptyAWSValue(plan.Service, identityNodeID)),
 		Summary:            plan.Summary,
-		AccountID:          plan.AccountID,
+		AccountID:          firstNonEmptyAWSValue(plan.AccountID, firstString(plan.TargetAccountIDs)),
+		TargetAccountIDs:   emptyStrings(dedupeStrings(plan.TargetAccountIDs)),
 		Region:             plan.Region,
 		IdentityNodeID:     identityNodeID,
 		IdentityName:       firstNonEmptyAWSValue(shortAWSARN(identityNodeID), identityNodeID),
@@ -803,6 +805,7 @@ func mergeAWSRemediationCase(existing, incoming AWSRemediationCase) AWSRemediati
 	merged.Evidence = append(append([]AWSRemediationCaseEvidence{}, merged.Evidence...), incoming.Evidence...)
 	merged.ImpactedNodes = emptyStrings(dedupeStrings(append(merged.ImpactedNodes, incoming.ImpactedNodes...)))
 	merged.ResourceNodeIDs = emptyStrings(dedupeStrings(append(merged.ResourceNodeIDs, incoming.ResourceNodeIDs...)))
+	merged.TargetAccountIDs = emptyStrings(dedupeStrings(append(merged.TargetAccountIDs, incoming.TargetAccountIDs...)))
 	merged.NextActions = dedupeStrings(append(merged.NextActions, incoming.NextActions...))
 	merged.Tradeoffs = append(merged.Tradeoffs, incoming.Tradeoffs...)
 	merged.AuditTrail = append(merged.AuditTrail, incoming.AuditTrail...)
@@ -1352,7 +1355,7 @@ func filterAWSRemediationCases(cases []AWSRemediationCase, request AWSRemediatio
 	}
 	filtered := make([]AWSRemediationCase, 0, len(cases))
 	for _, c := range cases {
-		if filters["account_id"] != "" && filters["account_id"] != c.AccountID {
+		if filters["account_id"] != "" && !awsRemediationCaseAccountMatch(c, filters["account_id"]) {
 			continue
 		}
 		if filters["region"] != "" && !strings.EqualFold(filters["region"], c.Region) {
@@ -1390,6 +1393,22 @@ func filterAWSRemediationCases(cases []AWSRemediationCase, request AWSRemediatio
 	return filtered, applied
 }
 
+func awsRemediationCaseAccountMatch(c AWSRemediationCase, accountID string) bool {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return true
+	}
+	if strings.TrimSpace(c.AccountID) == accountID {
+		return true
+	}
+	for _, targetAccountID := range c.TargetAccountIDs {
+		if strings.TrimSpace(targetAccountID) == accountID {
+			return true
+		}
+	}
+	return false
+}
+
 func awsRemediationCaseIdentityMatch(c AWSRemediationCase, needle string) bool {
 	needle = strings.ToLower(strings.TrimSpace(needle))
 	if needle == "" {
@@ -1405,6 +1424,7 @@ func awsRemediationCaseSearchMatch(c AWSRemediationCase, needle string) bool {
 		return true
 	}
 	values := []string{c.CaseID, c.Title, c.Summary, c.SourceFindingID, c.SourceType, c.Lifecycle, c.Severity, c.Status, c.ApprovalState, c.IdentityNodeID, c.IdentityARN, c.IdentityName, c.Provider, c.Owner, c.DiffIntent.Kind, c.DiffIntent.DiffSummary, c.DiffIntent.BeforeRef, c.DiffIntent.AfterRef, c.RollbackPlan.Strategy, c.VerificationPlan.Strategy}
+	values = append(values, c.TargetAccountIDs...)
 	values = append(values, c.ResourceNodeIDs...)
 	values = append(values, c.SourceSignals...)
 	values = append(values, c.ImpactedNodes...)

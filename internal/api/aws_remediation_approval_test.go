@@ -140,6 +140,29 @@ func TestFilterAWSRemediationApprovalEntriesAppliesFilters(t *testing.T) {
 	}
 }
 
+func TestFilterAWSRemediationApprovalEntriesMatchesScopeAccounts(t *testing.T) {
+	entries := []AWSRemediationApprovalEntry{
+		{
+			ApprovalID: "boundary-cross-account",
+			AccountID:  "",
+			Scope:      AWSRemediationApprovalScope{ScopeType: "identity", AccountIDs: []string{"111111111111", "222222222222"}},
+		},
+		{
+			ApprovalID: "boundary-other-account",
+			AccountID:  "333333333333",
+			Scope:      AWSRemediationApprovalScope{ScopeType: "identity", AccountIDs: []string{"333333333333"}},
+		},
+	}
+
+	filtered, applied := filterAWSRemediationApprovalEntries(entries, AWSRemediationApprovalRequest{AccountID: "222222222222"})
+	if applied["account_id"] != "222222222222" {
+		t.Fatalf("expected applied account filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].ApprovalID != "boundary-cross-account" {
+		t.Fatalf("expected scope account match to retain approval entry: %+v", filtered)
+	}
+}
+
 func TestAWSRemediationApprovalEntryHonorsRBACGatesAndKillSwitch(t *testing.T) {
 	source := AWSRemediationCase{
 		CaseID:             "case-rbac",
