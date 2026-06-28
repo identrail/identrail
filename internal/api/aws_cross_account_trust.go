@@ -893,6 +893,7 @@ func awsCrossAccountTrustMergeCorroboratingFindings(existing, incoming AWSCrossA
 		base.Score = other.Score
 		base.Severity = awsPrivilegeEscalationSeverity(base.Score)
 	}
+	base.Status = awsPrivilegeEscalationFindingStatus(base.Score, base.Confidence)
 	if other.UpdatedAt.After(base.UpdatedAt) {
 		base.UpdatedAt = other.UpdatedAt
 	}

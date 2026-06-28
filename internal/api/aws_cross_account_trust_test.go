@@ -236,6 +236,68 @@ func TestAWSCrossAccountTrustDedupeFindingsUsesDeterministicCorroborationBase(t 
 	}
 }
 
+func TestAWSCrossAccountTrustCorroborationRecomputesStatusForReadyIAMRole(t *testing.T) {
+	now := time.Date(2026, 6, 29, 11, 0, 0, 0, time.UTC)
+	runtime := AWSCrossAccountTrustFinding{
+		FindingID:            "aws-cross-account-trust:z-runtime-role",
+		FindingType:          "runtime_cross_account_assumption",
+		Score:                82,
+		Severity:             "high",
+		Status:               "review",
+		Confidence:           0.5,
+		AccountID:            "123456789012",
+		Region:               "us-east-1",
+		Service:              "iam",
+		ResourceType:         "iam_role",
+		ResourceARN:          "arn:aws:iam::123456789012:role/payments-cross-account",
+		ResourceNodeID:       "aws:identity:arn:aws:iam::123456789012:role/payments-cross-account",
+		ResourceLabel:        "payments-cross-account",
+		ExternalPrincipalARN: "arn:aws:iam::555555555555:role/billing-runner",
+		RuntimeObserved:      true,
+		HasCondition:         true,
+		ConditionKeys:        []string{"sts:SourceIdentity"},
+		Evidence:             []AWSCrossAccountTrustEvidence{{Source: "runtime_events", EvidenceRef: "runtime://role"}},
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+	analyzer := AWSCrossAccountTrustFinding{
+		FindingID:            "aws-cross-account-trust:a-analyzer-role",
+		FindingType:          "access_analyzer_external_access",
+		Score:                82,
+		Severity:             "high",
+		Status:               "action_required",
+		Confidence:           0.91,
+		AccountID:            runtime.AccountID,
+		Region:               runtime.Region,
+		Service:              "sts",
+		ResourceType:         "sts",
+		ResourceARN:          runtime.ResourceARN,
+		ResourceNodeID:       "aws:runtime-resource:iam-role:payments-cross-account",
+		ResourceLabel:        runtime.ResourceLabel,
+		ExternalPrincipalARN: runtime.ExternalPrincipalARN,
+		AnalyzerBacked:       true,
+		Evidence:             []AWSCrossAccountTrustEvidence{{Source: "access_analyzer", EvidenceRef: "analyzer://role"}},
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+
+	merged := awsCrossAccountTrustDedupeFindings([]AWSCrossAccountTrustFinding{runtime, analyzer})
+	if len(merged) != 1 {
+		t.Fatalf("expected corroborated IAM role findings to merge, got %+v", merged)
+	}
+	if merged[0].FindingID != runtime.FindingID || merged[0].Status != "action_required" || merged[0].Confidence != analyzer.Confidence {
+		t.Fatalf("expected runtime IAM-role base with recomputed action_required status, got %+v", merged[0])
+	}
+	plan, ok := awsTrustPolicyHardeningPlanFromFinding(merged[0], now)
+	if !ok || !plan.ReadyForApply || plan.Status != "action_required" {
+		t.Fatalf("expected ready action_required trust-policy plan, ok=%v plan=%+v", ok, plan)
+	}
+	c, ok := awsRemediationCaseFromTrustPolicyHardening(plan, now)
+	if !ok || c.ApprovalState != "approved" || c.Lifecycle != "approved" {
+		t.Fatalf("expected approved remediation case for ready corroborated IAM role, ok=%v case=%+v", ok, c)
+	}
+}
+
 func TestGetAWSCrossAccountTrustFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 21, 13, 10, 0, 0, time.UTC)
 	svc, ws := newCrossAccountTrustService(t, "project-cross-account-trust-states", now)
