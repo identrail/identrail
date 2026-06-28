@@ -52,7 +52,7 @@ Each `AWSTrustPolicyHardeningExecutorEntry` includes:
   refs, allowed/denied counts, signals such as `runtime_observed` or
   `access_analyzer_backed`)
 - `verifications` (CloudTrail observation, Access Analyzer re-check, and —
-  for `add_condition` directions — policy simulator confirmation) plus any
+  for condition-hardening directions — policy simulator confirmation) plus any
   verification checks carried from the dry-run
 - rollback plan and verification plan copied from the planner
 - audit trail copying upstream entries plus a
@@ -99,7 +99,7 @@ blocked, and error states are explicit.
    least one entry includes intended API call, preconditions, policy
    simulation, verifications, structured planner data, idempotency key,
    and audit trail.
-4. Filter by `hardening_direction=add_condition`, `state=projected`, and
+4. Filter by `hardening_direction=add_org_or_source_condition`, `state=projected`, and
    `plan_id=<plan-id>`.
 5. Run `fixture_state=empty`, `degraded`, `partial_failure`, and
    `permission_denied` and confirm the status, diagnostics, and failure
