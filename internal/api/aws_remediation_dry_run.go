@@ -912,7 +912,7 @@ func filterAWSRemediationDryRunEntries(entries []AWSRemediationDryRunEntry, requ
 		if filters["account_id"] != "" && !awsRemediationDryRunAccountMatch(entry, filters["account_id"]) {
 			continue
 		}
-		if filters["region"] != "" && !strings.EqualFold(filters["region"], entry.Region) {
+		if filters["region"] != "" && !awsRemediationDryRunRegionMatch(entry, filters["region"]) {
 			continue
 		}
 		if filters["approval_id"] != "" && !strings.EqualFold(filters["approval_id"], entry.ApprovalID) {
@@ -955,6 +955,17 @@ func awsRemediationDryRunAccountMatch(entry AWSRemediationDryRunEntry, accountID
 		}
 	}
 	return false
+}
+
+func awsRemediationDryRunRegionMatch(entry AWSRemediationDryRunEntry, region string) bool {
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return true
+	}
+	if strings.TrimSpace(entry.Region) == "" && strings.EqualFold(entry.SourceType, "aws_permission_boundary_scp") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(entry.Region), region)
 }
 
 func awsRemediationDryRunSearchMatch(entry AWSRemediationDryRunEntry, needle string) bool {

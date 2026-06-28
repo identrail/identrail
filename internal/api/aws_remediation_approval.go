@@ -655,7 +655,7 @@ func filterAWSRemediationApprovalEntries(entries []AWSRemediationApprovalEntry, 
 		if filters["account_id"] != "" && !awsRemediationApprovalAccountMatch(entry, filters["account_id"]) {
 			continue
 		}
-		if filters["region"] != "" && !strings.EqualFold(filters["region"], entry.Region) {
+		if filters["region"] != "" && !awsRemediationApprovalRegionMatch(entry, filters["region"]) {
 			continue
 		}
 		if filters["case_id"] != "" && !strings.EqualFold(filters["case_id"], entry.CaseID) {
@@ -713,6 +713,17 @@ func awsRemediationApprovalAccountMatch(entry AWSRemediationApprovalEntry, accou
 		}
 	}
 	return false
+}
+
+func awsRemediationApprovalRegionMatch(entry AWSRemediationApprovalEntry, region string) bool {
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return true
+	}
+	if strings.TrimSpace(entry.Region) == "" && strings.EqualFold(entry.SourceType, "aws_permission_boundary_scp") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(entry.Region), region)
 }
 
 func awsRemediationApprovalHasApproverRole(entry AWSRemediationApprovalEntry, needle string) bool {

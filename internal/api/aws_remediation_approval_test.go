@@ -163,6 +163,29 @@ func TestFilterAWSRemediationApprovalEntriesMatchesScopeAccounts(t *testing.T) {
 	}
 }
 
+func TestFilterAWSRemediationApprovalEntriesKeepsMultiRegionBoundaryEntries(t *testing.T) {
+	entries := []AWSRemediationApprovalEntry{
+		{
+			ApprovalID: "approval-multi-region-boundary",
+			SourceType: "aws_permission_boundary_scp",
+			Region:     "",
+		},
+		{
+			ApprovalID: "approval-west-boundary",
+			SourceType: "aws_permission_boundary_scp",
+			Region:     "us-west-2",
+		},
+	}
+
+	filtered, applied := filterAWSRemediationApprovalEntries(entries, AWSRemediationApprovalRequest{Region: "us-east-1"})
+	if applied["region"] != "us-east-1" {
+		t.Fatalf("expected applied region filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].ApprovalID != "approval-multi-region-boundary" {
+		t.Fatalf("expected empty-region boundary approval to survive region drill-down: %+v", filtered)
+	}
+}
+
 func TestAWSRemediationApprovalEntryHonorsRBACGatesAndKillSwitch(t *testing.T) {
 	source := AWSRemediationCase{
 		CaseID:             "case-rbac",

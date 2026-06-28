@@ -232,6 +232,54 @@ func TestFilterAWSRemediationCasesMatchesBoundaryTargetAccounts(t *testing.T) {
 	}
 }
 
+func TestFilterAWSRemediationCasesKeepsMultiRegionBoundaryCases(t *testing.T) {
+	cases := []AWSRemediationCase{
+		{
+			CaseID:     "case-multi-region-boundary",
+			SourceType: "aws_permission_boundary_scp",
+			Region:     "",
+		},
+		{
+			CaseID:     "case-west-boundary",
+			SourceType: "aws_permission_boundary_scp",
+			Region:     "us-west-2",
+		},
+	}
+
+	filtered, applied := filterAWSRemediationCases(cases, AWSRemediationCaseRequest{Region: "us-east-1"})
+	if applied["region"] != "us-east-1" {
+		t.Fatalf("expected applied region filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].CaseID != "case-multi-region-boundary" {
+		t.Fatalf("expected empty-region boundary case to survive region drill-down: %+v", filtered)
+	}
+}
+
+func TestFilterAWSRemediationCasesMatchesBoundaryTargetIdentity(t *testing.T) {
+	cases := []AWSRemediationCase{
+		{
+			CaseID:          "case-cross-identity-boundary",
+			SourceType:      "aws_permission_boundary_scp",
+			IdentityNodeID:  "aws:identity:arn:aws:iam::111111111111:role/app-a",
+			ResourceNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:role/app-a", "aws:identity:arn:aws:iam::111111111111:role/app-b"},
+		},
+		{
+			CaseID:          "case-other-boundary",
+			SourceType:      "aws_permission_boundary_scp",
+			IdentityNodeID:  "aws:identity:arn:aws:iam::111111111111:role/app-c",
+			ResourceNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:role/app-c"},
+		},
+	}
+
+	filtered, applied := filterAWSRemediationCases(cases, AWSRemediationCaseRequest{Identity: "role/app-b"})
+	if applied["identity"] != "role/app-b" {
+		t.Fatalf("expected applied identity filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].CaseID != "case-cross-identity-boundary" {
+		t.Fatalf("expected boundary target identity match to retain case: %+v", filtered)
+	}
+}
+
 func TestAWSRemediationCaseDerivesLifecycleAndApproval(t *testing.T) {
 	now := time.Date(2026, 6, 23, 10, 10, 0, 0, time.UTC)
 	ownerless := AWSAIAgentRiskFinding{

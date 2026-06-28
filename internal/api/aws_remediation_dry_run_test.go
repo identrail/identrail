@@ -148,6 +148,29 @@ func TestFilterAWSRemediationDryRunEntriesMatchesScopedAccounts(t *testing.T) {
 	}
 }
 
+func TestFilterAWSRemediationDryRunEntriesKeepsMultiRegionBoundaryEntries(t *testing.T) {
+	entries := []AWSRemediationDryRunEntry{
+		{
+			DryRunID:   "dry-run-multi-region-boundary",
+			SourceType: "aws_permission_boundary_scp",
+			Region:     "",
+		},
+		{
+			DryRunID:   "dry-run-west-boundary",
+			SourceType: "aws_permission_boundary_scp",
+			Region:     "us-west-2",
+		},
+	}
+
+	filtered, applied := filterAWSRemediationDryRunEntries(entries, AWSRemediationDryRunRequest{Region: "us-east-1"})
+	if applied["region"] != "us-east-1" {
+		t.Fatalf("expected applied region filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].DryRunID != "dry-run-multi-region-boundary" {
+		t.Fatalf("expected empty-region boundary dry-run to survive region drill-down: %+v", filtered)
+	}
+}
+
 func TestAWSRemediationDryRunOutcomeHonorsApprovalGates(t *testing.T) {
 	now := time.Date(2026, 6, 27, 11, 0, 0, 0, time.UTC)
 

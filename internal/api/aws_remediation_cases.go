@@ -1358,7 +1358,7 @@ func filterAWSRemediationCases(cases []AWSRemediationCase, request AWSRemediatio
 		if filters["account_id"] != "" && !awsRemediationCaseAccountMatch(c, filters["account_id"]) {
 			continue
 		}
-		if filters["region"] != "" && !strings.EqualFold(filters["region"], c.Region) {
+		if filters["region"] != "" && !awsRemediationCaseRegionMatch(c, filters["region"]) {
 			continue
 		}
 		if filters["source_type"] != "" && filters["source_type"] != normalizeAWSRuntimeEventFilterToken(c.SourceType) {
@@ -1409,12 +1409,27 @@ func awsRemediationCaseAccountMatch(c AWSRemediationCase, accountID string) bool
 	return false
 }
 
+func awsRemediationCaseRegionMatch(c AWSRemediationCase, region string) bool {
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return true
+	}
+	if strings.TrimSpace(c.Region) == "" && strings.EqualFold(c.SourceType, "aws_permission_boundary_scp") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(c.Region), region)
+}
+
 func awsRemediationCaseIdentityMatch(c AWSRemediationCase, needle string) bool {
 	needle = strings.ToLower(strings.TrimSpace(needle))
 	if needle == "" {
 		return true
 	}
-	hay := strings.ToLower(strings.Join([]string{c.IdentityNodeID, c.IdentityARN, c.IdentityName, c.IdentityType, c.Owner}, " "))
+	values := []string{c.IdentityNodeID, c.IdentityARN, c.IdentityName, c.IdentityType, c.Owner}
+	if strings.EqualFold(c.SourceType, "aws_permission_boundary_scp") {
+		values = append(values, c.ResourceNodeIDs...)
+	}
+	hay := strings.ToLower(strings.Join(values, " "))
 	return strings.Contains(hay, needle)
 }
 
