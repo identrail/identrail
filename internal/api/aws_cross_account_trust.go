@@ -797,9 +797,13 @@ func awsCrossAccountTrustFindingFromBlastRadius(finding AWSBlastRadiusFinding, a
 
 func awsCrossAccountTrustDedupeFindings(findings []AWSCrossAccountTrustFinding) []AWSCrossAccountTrustFinding {
 	seen := map[string]AWSCrossAccountTrustFinding{}
+	seenOrder := make([]string, 0, len(findings))
 	for _, finding := range findings {
 		if finding.FindingID == "" {
 			continue
+		}
+		if _, ok := seen[finding.FindingID]; !ok {
+			seenOrder = append(seenOrder, finding.FindingID)
 		}
 		if existing, ok := seen[finding.FindingID]; ok && existing.Score >= finding.Score {
 			continue
@@ -807,21 +811,30 @@ func awsCrossAccountTrustDedupeFindings(findings []AWSCrossAccountTrustFinding) 
 		seen[finding.FindingID] = finding
 	}
 	corroborated := map[string]AWSCrossAccountTrustFinding{}
-	for _, finding := range seen {
+	corroboratedOrder := make([]string, 0, len(seenOrder))
+	for _, findingID := range seenOrder {
+		finding, ok := seen[findingID]
+		if !ok {
+			continue
+		}
 		key := awsCrossAccountTrustCorroborationKey(finding)
 		if key == "" {
-			corroborated[finding.FindingID] = finding
+			key = "finding:" + finding.FindingID
+		}
+		if _, ok := corroborated[key]; !ok {
+			corroboratedOrder = append(corroboratedOrder, key)
+			corroborated[key] = finding
 			continue
 		}
 		if existing, ok := corroborated[key]; ok {
 			corroborated[key] = awsCrossAccountTrustMergeCorroboratingFindings(existing, finding)
-			continue
 		}
-		corroborated[key] = finding
 	}
 	out := make([]AWSCrossAccountTrustFinding, 0, len(corroborated))
-	for _, finding := range corroborated {
-		out = append(out, finding)
+	for _, key := range corroboratedOrder {
+		if finding, ok := corroborated[key]; ok {
+			out = append(out, finding)
+		}
 	}
 	return out
 }
@@ -892,10 +905,16 @@ func awsCrossAccountTrustPrefersCorroborationBase(candidate, current AWSCrossAcc
 	if candidate.RuntimeObserved && candidateIAMRole && !(current.RuntimeObserved && currentIAMRole) {
 		return true
 	}
+	if current.RuntimeObserved && currentIAMRole && !(candidate.RuntimeObserved && candidateIAMRole) {
+		return false
+	}
 	if candidateIAMRole && !currentIAMRole {
 		return true
 	}
-	return candidate.Score > current.Score && !(current.RuntimeObserved && currentIAMRole)
+	if candidate.Score != current.Score {
+		return candidate.Score > current.Score && !(current.RuntimeObserved && currentIAMRole)
+	}
+	return candidate.FindingID < current.FindingID
 }
 
 func awsCrossAccountTrustFindingTargetsIAMRole(finding AWSCrossAccountTrustFinding) bool {

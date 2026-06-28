@@ -195,6 +195,47 @@ func TestAWSCrossAccountTrustFindingsSuppressExplicitDenyOverrides(t *testing.T)
 	}
 }
 
+func TestAWSCrossAccountTrustDedupeFindingsUsesDeterministicCorroborationBase(t *testing.T) {
+	first := AWSCrossAccountTrustFinding{
+		FindingID:            "aws-cross-account-trust:z-runtime",
+		FindingType:          "cross_account_resource_access",
+		Score:                80,
+		Severity:             "high",
+		ExternalPrincipalARN: "arn:aws:iam::999999999999:role/partner",
+		ResourceARN:          "arn:aws:s3:::partner-feed",
+		ResourceType:         "s3_bucket",
+		RuntimeObserved:      true,
+		Evidence:             []AWSCrossAccountTrustEvidence{{Source: "runtime_events", EvidenceRef: "runtime://z"}},
+	}
+	second := AWSCrossAccountTrustFinding{
+		FindingID:            "aws-cross-account-trust:a-analyzer",
+		FindingType:          "access_analyzer_external_access",
+		Score:                80,
+		Severity:             "high",
+		ExternalPrincipalARN: "arn:aws:iam::999999999999:role/partner",
+		ResourceARN:          "arn:aws:s3:::partner-feed",
+		ResourceType:         "s3",
+		AnalyzerBacked:       true,
+		Evidence:             []AWSCrossAccountTrustEvidence{{Source: "access_analyzer", EvidenceRef: "analyzer://a"}},
+	}
+
+	for _, findings := range [][]AWSCrossAccountTrustFinding{
+		{first, second},
+		{second, first},
+	} {
+		merged := awsCrossAccountTrustDedupeFindings(findings)
+		if len(merged) != 1 {
+			t.Fatalf("expected corroborated findings to merge, got %+v", merged)
+		}
+		if merged[0].FindingID != second.FindingID {
+			t.Fatalf("expected deterministic lowest-ID base, got %+v", merged[0])
+		}
+		if !merged[0].RuntimeObserved || !merged[0].AnalyzerBacked || len(merged[0].Evidence) != 2 {
+			t.Fatalf("expected merged corroboration signals, got %+v", merged[0])
+		}
+	}
+}
+
 func TestGetAWSCrossAccountTrustFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 21, 13, 10, 0, 0, time.UTC)
 	svc, ws := newCrossAccountTrustService(t, "project-cross-account-trust-states", now)
