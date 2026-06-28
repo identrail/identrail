@@ -39,6 +39,7 @@ func TestGetAWSTrustPolicyHardeningExecutorBuildsContract(t *testing.T) {
 	if len(result.Caveats) == 0 || len(result.CoverageGaps) == 0 {
 		t.Fatalf("expected caveats and coverage gaps: %+v", result)
 	}
+	projectedReadyEntries := 0
 	for i := 1; i < len(result.Entries); i++ {
 		if result.Entries[i-1].Score < result.Entries[i].Score {
 			t.Fatalf("entries are not ranked by descending score: %+v", result.Entries)
@@ -69,6 +70,12 @@ func TestGetAWSTrustPolicyHardeningExecutorBuildsContract(t *testing.T) {
 		if entry.State == "" {
 			t.Fatalf("entry missing state: %+v", entry)
 		}
+		if entry.State == awsTrustPolicyHardeningExecutorStateProjected && entry.ReadyForLiveApply {
+			projectedReadyEntries++
+		}
+	}
+	if projectedReadyEntries == 0 {
+		t.Fatalf("success fixture must produce projected ready executor entries: %+v", result.Entries)
 	}
 
 	serialized, err := json.Marshal(result)
@@ -388,5 +395,13 @@ func TestRouterAWSTrustPolicyHardeningExecutor(t *testing.T) {
 	}
 	if body.Executor.CurrentIssueRef != "#1539" || body.Executor.AppliedFilters["state"] != "projected" {
 		t.Fatalf("unexpected route payload: %+v", body.Executor)
+	}
+	if len(body.Executor.Entries) == 0 {
+		t.Fatalf("projected success fixture route must return ready executor entries: %+v", body.Executor)
+	}
+	for _, entry := range body.Executor.Entries {
+		if entry.State != awsTrustPolicyHardeningExecutorStateProjected || !entry.ReadyForLiveApply {
+			t.Fatalf("projected route returned non-ready entry: %+v", entry)
+		}
 	}
 }

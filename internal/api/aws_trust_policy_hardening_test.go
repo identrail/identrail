@@ -35,6 +35,7 @@ func TestGetAWSTrustPolicyHardeningPlansBuildsContract(t *testing.T) {
 	if len(result.Caveats) == 0 || len(result.CoverageGaps) == 0 {
 		t.Fatalf("expected caveats and coverage gaps: %+v", result)
 	}
+	readyIAMRolePlan := false
 	for i := 1; i < len(result.Plans); i++ {
 		if result.Plans[i-1].Score < result.Plans[i].Score {
 			t.Fatalf("plans are not ranked by descending score: %+v", result.Plans)
@@ -65,6 +66,12 @@ func TestGetAWSTrustPolicyHardeningPlansBuildsContract(t *testing.T) {
 		if p.EvidenceBoundary != awsTrustPolicyHardeningEvidenceBoundary() {
 			t.Fatalf("plan crossed evidence boundary: %+v", p)
 		}
+		if p.ReadyForApply && normalizeAWSRuntimeEventFilterToken(p.ResourceType) == "iam-role" {
+			readyIAMRolePlan = true
+		}
+	}
+	if !readyIAMRolePlan {
+		t.Fatalf("success fixture must include an analyzer-backed runtime IAM role plan ready for apply: %+v", result.Plans)
 	}
 }
 
