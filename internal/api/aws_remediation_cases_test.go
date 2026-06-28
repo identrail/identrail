@@ -39,6 +39,9 @@ func TestGetAWSRemediationCasesBuildsContract(t *testing.T) {
 	if result.Summary.SourceTypeCounts["trust_policy_hardening"] == 0 {
 		t.Fatalf("expected IAM role trust-policy hardening cases for downstream dry-run/executor joins: %+v", result.Summary.SourceTypeCounts)
 	}
+	if result.Summary.SourceTypeCounts["aws_permission_boundary_scp"] == 0 {
+		t.Fatalf("expected permission-boundary cases for downstream dry-run/executor joins: %+v", result.Summary.SourceTypeCounts)
+	}
 	if result.Summary.RelationshipCount != len(result.Relationships) || len(result.Relationships) == 0 {
 		t.Fatalf("expected relationships and matching count: summary=%+v relationships=%+v", result.Summary, result.Relationships)
 	}
@@ -71,6 +74,9 @@ func TestGetAWSRemediationCasesBuildsContract(t *testing.T) {
 		}
 		if c.SourceType == "trust_policy_hardening" && (c.IdentityType != "iam_role" || c.DiffIntent.Kind != "iam_trust_diff") {
 			t.Fatalf("trust-policy hardening case must stay scoped to IAM role trust diffs: %+v", c)
+		}
+		if c.SourceType == "aws_permission_boundary_scp" && (c.IdentityType != "iam_role" || c.DiffIntent.Kind != "permission_boundary_diff") {
+			t.Fatalf("permission-boundary case must stay scoped to IAM role boundary diffs: %+v", c)
 		}
 		if len(c.AuditTrail) == 0 || c.AuditTrail[0].EventType != "proposed" {
 			t.Fatalf("case missing proposed audit entry: %+v", c.AuditTrail)

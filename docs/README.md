@@ -95,6 +95,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - AWS remediation approval workflow and RBAC gates: `aws-remediation-approval-rbac.md`
 - AWS remediation dry-run executor: `aws-remediation-dry-run-executor.md`
 - AWS low-risk live remediation: `aws-low-risk-live-remediation.md`
+- AWS approved permission boundary executor: `aws-permission-boundary-executor.md`
 - AWS approved trust-policy hardening executor: `aws-trust-policy-hardening-executor.md`
 - AWS normalizer and graph: `aws-normalizer-graph.md`
 - AWS risk engine: `aws-risk-engine.md`

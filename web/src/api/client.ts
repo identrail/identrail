@@ -3470,6 +3470,146 @@ export type AWSPermissionBoundarySCPQuery = {
   search?: string;
 };
 
+export type AWSPermissionBoundaryExecutorStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSPermissionBoundaryExecutorFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSPermissionBoundaryExecutorState = 'projected' | 'precondition_failed' | 'blocked' | string;
+
+export type AWSPermissionBoundaryExecutorPrecondition = {
+  name: string;
+  status: string;
+  rationale: string;
+};
+
+export type AWSPermissionBoundaryExecutorSimulation = {
+  simulation_ref: string;
+  outcome: string;
+  before_ref: string;
+  after_ref: string;
+  denied_action_count: number;
+  target_identity_count: number;
+  signals?: string[];
+};
+
+export type AWSPermissionBoundaryExecutorVerification = {
+  source: string;
+  signal: string;
+  status: string;
+  description: string;
+};
+
+export type AWSPermissionBoundaryExecutorRelationship = {
+  execution_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSPermissionBoundaryExecutorEntry = {
+  execution_id: string;
+  calculation_version: string;
+  dry_run_id: string;
+  approval_id: string;
+  case_id: string;
+  plan_id: string;
+  source_artifact_id: string;
+  state: AWSPermissionBoundaryExecutorState;
+  severity: string;
+  score: number;
+  confidence: number;
+  title: string;
+  summary: string;
+  account_id: string;
+  region: string;
+  operation: string;
+  idempotency_key: string;
+  target_identity_node_ids?: string[];
+  target_account_ids?: string[];
+  target_ou_paths?: string[];
+  prevented_behavior: string;
+  statement_snippets: AWSPermissionBoundarySCPStatementSnippet[];
+  breakage_projection: AWSPermissionBoundarySCPBreakageProjection;
+  intended_api_call: AWSRemediationDryRunIntendedAPICall;
+  preconditions: AWSPermissionBoundaryExecutorPrecondition[];
+  boundary_simulation: AWSPermissionBoundaryExecutorSimulation;
+  verifications: AWSPermissionBoundaryExecutorVerification[];
+  rollback_plan: AWSPermissionBoundarySCPRollbackPlan;
+  verification_plan: AWSPermissionBoundarySCPVerificationPlan;
+  audit_trail: AWSRemediationAuditEntry[];
+  kill_switch_engaged: boolean;
+  ready_for_live_apply: boolean;
+  read_only_projection: boolean;
+  source_signals: string[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  next_action: string;
+  projected_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSPermissionBoundaryExecutorSummary = {
+  total_entries: number;
+  filtered_entries: number;
+  state_counts: Record<string, number>;
+  operation_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  ready_for_live_apply_count: number;
+  kill_switch_engaged_count: number;
+  failed_precondition_count: number;
+  target_identity_count: number;
+  verification_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSPermissionBoundaryExecutorResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSPermissionBoundaryExecutorStatus;
+  fixture_state?: AWSPermissionBoundaryExecutorFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSPermissionBoundaryExecutorSummary;
+  entries: AWSPermissionBoundaryExecutorEntry[];
+  relationships: AWSPermissionBoundaryExecutorRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSPermissionBoundaryExecutorQuery = {
+  connectorID?: string;
+  fixtureState?: AWSPermissionBoundaryExecutorFixtureState;
+  accountID?: string;
+  region?: string;
+  dryRunID?: string;
+  caseID?: string;
+  planID?: string;
+  operation?: string;
+  state?: string;
+  severity?: string;
+  search?: string;
+};
+
 export type AWSSecretKeyRotationStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSSecretKeyRotationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSSecretKeyRotationType = 'provider_key' | 'secrets_manager_secret' | 'kms_related' | string;
@@ -8703,6 +8843,29 @@ export const apiClient = {
         status: query?.status,
         breakage_level: query?.breakageLevel,
         ready_for_apply: query?.readyForApply,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectPermissionBoundaryExecutor(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSPermissionBoundaryExecutorQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ permission_boundary_executor: AWSPermissionBoundaryExecutorResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/permission-boundary-executor${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        dry_run_id: query?.dryRunID,
+        case_id: query?.caseID,
+        plan_id: query?.planID,
+        operation: query?.operation,
+        state: query?.state,
+        severity: query?.severity,
         search: query?.search
       })}`,
       auth

@@ -77,6 +77,8 @@ import {
   type AWSRemediationDryRunResult,
   type AWSLowRiskRemediationEntry,
   type AWSLowRiskRemediationResult,
+  type AWSPermissionBoundaryExecutorEntry,
+  type AWSPermissionBoundaryExecutorResult,
   type AWSTrustPolicyHardeningExecutorEntry,
   type AWSTrustPolicyHardeningExecutorResult,
   type AWSBlastRadiusFinding,
@@ -11053,6 +11055,113 @@ function AWSPermissionBoundarySCPContent({
   );
 }
 
+function awsPermissionBoundaryExecutorStage(entry: AWSPermissionBoundaryExecutorEntry): AWSCapabilityStage {
+  if (entry.kill_switch_engaged || entry.state === 'blocked') {
+    return 'not-available';
+  }
+  if (entry.state !== 'projected' || !entry.ready_for_live_apply) {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsPermissionBoundaryExecutorTargetLabel(entry: AWSPermissionBoundaryExecutorEntry): string {
+  const identities = entry.target_identity_node_ids?.length ?? 0;
+  const accounts = entry.target_account_ids?.length ?? 0;
+  return `${identities} identities · ${accounts} accounts`;
+}
+
+function awsPermissionBoundaryExecutorPreconditionLabel(entry: AWSPermissionBoundaryExecutorEntry): string {
+  const passed = entry.preconditions.filter((precondition) => precondition.status === 'passed').length;
+  const blocked = entry.preconditions.length - passed;
+  return `${passed} passed · ${blocked} blocked`;
+}
+
+function awsPermissionBoundaryExecutorReadinessLabel(entry: AWSPermissionBoundaryExecutorEntry): string {
+  if (entry.ready_for_live_apply) {
+    return `ready · ${entry.verifications.length} verifications`;
+  }
+  return formatTokenLabel(entry.state);
+}
+
+function AWSPermissionBoundaryExecutorContent({
+  result,
+  loading,
+  error,
+  onRetry
+}: {
+  result: AWSPermissionBoundaryExecutorResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const rows = result?.entries ?? [];
+  const summaryLine = result
+    ? `${result.summary.total_entries} total · ${result.summary.ready_for_live_apply_count} ready · ${result.summary.failed_precondition_count} blocked preconditions · ${result.summary.target_identity_count} identities`
+    : '';
+  return (
+    <section className="idt-aws-runtime-correlation" aria-label="AWS approved permission boundary executor">
+      <h3>AWS approved permission boundary executor</h3>
+      <p className="idt-app-kicker">
+        Read-only projection that joins dry-run readiness with permission-boundary planner metadata. Each entry records
+        the idempotency key, intended IAM permission-boundary call, target identity scope, simulator metadata,
+        preconditions, rollback plan, verification records, and audit trail. Identrail never calls IAM write APIs at this
+        layer. {summaryLine}
+      </p>
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load AWS permission boundary executor"
+          body={error}
+          retryAction={{ label: 'Retry', onClick: onRetry }}
+        />
+      ) : null}
+      {!error && loading ? (
+        <DomainEmptyState
+          eyebrow="Loading"
+          title="Projecting permission boundary execution"
+          body="Identrail is joining dry-run readiness with permission boundary planner metadata to project execution records."
+        />
+      ) : null}
+      {!error && !loading && result && rows.length === 0 ? (
+        <DomainEmptyState
+          eyebrow={result.status === 'blocked' ? 'Permission required' : 'No permission boundary executor entries'}
+          title={result.status === 'blocked' ? 'Permission boundary executor needs approved dry-run and planner evidence' : 'No permission boundary executor entries projected'}
+          body={result.failure_reasons[0] ?? 'No upstream dry-run entry joined a permission boundary plan for this environment.'}
+        />
+      ) : null}
+      {!error && !loading && result && result.caveats.length > 0 ? (
+        <ul className="idt-aws-runtime-correlation-caveats">
+          {result.caveats.slice(0, 3).map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length > 0 ? (
+        <DomainDataTable
+          label="AWS permission boundary executor entries"
+          rows={rows}
+          getRowKey={(row) => row.execution_id}
+          columns={[
+            { key: 'execution', header: 'Execution', render: (row) => <strong>{row.title}</strong> },
+            { key: 'operation', header: 'Operation', render: (row) => row.operation },
+            { key: 'target', header: 'Target', render: (row) => awsPermissionBoundaryExecutorTargetLabel(row) },
+            { key: 'preconditions', header: 'Preconditions', render: (row) => awsPermissionBoundaryExecutorPreconditionLabel(row) },
+            { key: 'simulation', header: 'Simulation', render: (row) => `${formatTokenLabel(row.boundary_simulation.outcome)} · ${row.boundary_simulation.denied_action_count} denied` },
+            { key: 'state', header: 'State', render: (row) => awsPermissionBoundaryExecutorReadinessLabel(row) },
+            {
+              key: 'severity',
+              header: 'Severity',
+              render: (row) => (
+                <AWSInventoryPill stage={awsPermissionBoundaryExecutorStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.state)}`} />
+              )
+            }
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function awsSecretKeyRotationStage(plan: AWSSecretKeyRotationPlan): AWSCapabilityStage {
   if (!plan.owner_handoff.assigned || plan.severity === 'critical') {
     return 'not-available';
@@ -13269,6 +13378,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [permissionBoundarySCPLoading, setPermissionBoundarySCPLoading] = useState(false);
   const [permissionBoundarySCPError, setPermissionBoundarySCPError] = useState('');
   const permissionBoundarySCPRequestRef = useRef(0);
+  const [permissionBoundaryExecutor, setPermissionBoundaryExecutor] = useState<AWSPermissionBoundaryExecutorResult | null>(null);
+  const [permissionBoundaryExecutorLoading, setPermissionBoundaryExecutorLoading] = useState(false);
+  const [permissionBoundaryExecutorError, setPermissionBoundaryExecutorError] = useState('');
+  const permissionBoundaryExecutorRequestRef = useRef(0);
   const [secretKeyRotation, setSecretKeyRotation] = useState<AWSSecretKeyRotationResult | null>(null);
   const [secretKeyRotationLoading, setSecretKeyRotationLoading] = useState(false);
   const [secretKeyRotationError, setSecretKeyRotationError] = useState('');
@@ -13773,6 +13886,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       permissionBoundarySCPRequestRef.current += 1;
     };
   }, [loadPermissionBoundarySCP]);
+
+  const loadPermissionBoundaryExecutor = useCallback(async () => {
+    const requestID = ++permissionBoundaryExecutorRequestRef.current;
+    setPermissionBoundaryExecutor(null);
+    setPermissionBoundaryExecutorError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setPermissionBoundaryExecutorLoading(false);
+      return;
+    }
+    setPermissionBoundaryExecutorLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectPermissionBoundaryExecutor(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== permissionBoundaryExecutorRequestRef.current) {
+        return;
+      }
+      setPermissionBoundaryExecutor(response.permission_boundary_executor);
+    } catch (error) {
+      if (requestID !== permissionBoundaryExecutorRequestRef.current) {
+        return;
+      }
+      setPermissionBoundaryExecutorError(formatAPIError(error, 'Unable to load AWS permission boundary executor.'));
+    } finally {
+      if (requestID === permissionBoundaryExecutorRequestRef.current) {
+        setPermissionBoundaryExecutorLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadPermissionBoundaryExecutor();
+    return () => {
+      permissionBoundaryExecutorRequestRef.current += 1;
+    };
+  }, [loadPermissionBoundaryExecutor]);
 
   const loadSecretKeyRotation = useCallback(async () => {
     const requestID = ++secretKeyRotationRequestRef.current;
@@ -14612,6 +14773,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={permissionBoundarySCPLoading}
             error={permissionBoundarySCPError}
             onRetry={loadPermissionBoundarySCP}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSPermissionBoundaryExecutorContent
+            result={permissionBoundaryExecutor}
+            loading={permissionBoundaryExecutorLoading}
+            error={permissionBoundaryExecutorError}
+            onRetry={loadPermissionBoundaryExecutor}
           />
         ) : null}
         {routeID === 'runtime' ? (

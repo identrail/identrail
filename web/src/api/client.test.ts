@@ -1747,6 +1747,48 @@ describe('apiClient', () => {
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 
+  it('gets AWS permission boundary executor with scoped headers and filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ permission_boundary_executor: { status: 'ready', entries: [] } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectPermissionBoundaryExecutor(
+      'workspace/a',
+      'project 1',
+      {
+        connectorID: 'aws-prod',
+        fixtureState: 'success',
+        accountID: '123456789012',
+        region: 'us-east-1',
+        dryRunID: 'aws-remediation-dry-run:boundary-1',
+        caseID: 'aws-remediation-case:boundary-1',
+        planID: 'aws-permission-boundary-scp:boundary-1',
+        operation: 'PutRolePermissionsBoundary',
+        state: 'blocked',
+        severity: 'high',
+        search: 'permission boundary'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/workspaces/workspace%2Fa/projects/project%201/aws/permission-boundary-executor?');
+    expect(url).toContain('operation=PutRolePermissionsBoundary');
+    expect(url).toContain('plan_id=aws-permission-boundary-scp%3Aboundary-1');
+    expect(url).toContain('state=blocked');
+    expect(options.method ?? 'GET').toBe('GET');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
+
   it('gets AWS secret/key rotation plans with scoped headers and filters', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

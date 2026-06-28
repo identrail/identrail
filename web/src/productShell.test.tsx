@@ -3773,6 +3773,137 @@ describe('Domain-first app routes', () => {
         diagnostics: []
       } as any
     });
+    const getPermissionBoundaryExecutor = vi.spyOn(api.apiClient, 'getAWSProjectPermissionBoundaryExecutor').mockResolvedValue({
+      permission_boundary_executor: {
+        status: 'ready',
+        entries: [
+          {
+            execution_id: 'aws-permission-boundary-executor:s3-delete-object',
+            calculation_version: 'aws-permission-boundary-executor-v1',
+            dry_run_id: 'aws-remediation-dry-run:s3-delete-object',
+            approval_id: 'aws-remediation-approval:s3-delete-object',
+            case_id: 'aws-remediation-case:s3-delete-object',
+            plan_id: 'aws-permission-boundary-scp:s3-delete-object',
+            source_artifact_id: 'aws-permission-boundary-scp:s3-delete-object',
+            state: 'projected',
+            severity: 'high',
+            score: 74,
+            confidence: 0.86,
+            title: 'Permission boundary execution: deny s3:DeleteObject',
+            summary: 'Approved permission boundary execution record for the repeated S3 delete action.',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            operation: 'PutRolePermissionsBoundary',
+            idempotency_key: 'idempotency://s3-delete-object',
+            target_identity_node_ids: [
+              'aws:identity:arn:aws:iam::111111111111:role/loader-a',
+              'aws:identity:arn:aws:iam::222222222222:role/loader-b',
+              'aws:identity:arn:aws:iam::111111111111:role/loader-c'
+            ],
+            target_account_ids: ['111111111111', '222222222222'],
+            target_ou_paths: ['/root/security'],
+            prevented_behavior: 'Re-grant or future use of s3:DeleteObject by any boundary-bound identity.',
+            statement_snippets: [
+              {
+                statement_sid: 'permission-boundary-projection',
+                effect: 'Deny',
+                change_kind: 'deny_repeated_action',
+                before_ref: 'evidence://least/loader',
+                after_ref: 'permission-boundary://repeated-action/s3%3Adeleteobject',
+                denied_actions: ['s3:DeleteObject'],
+                allowed_actions: [],
+                resource_scope: ['*'],
+                rationale: '3 identities across 2 account(s) all have least-privilege removal for s3:DeleteObject.'
+              }
+            ],
+            breakage_projection: {
+              level: 'low',
+              rationale: 'All affected identities already have a least-privilege remove decision.',
+              affected_identities: 3,
+              affected_accounts: 2,
+              affected_ous: 1,
+              signals: ['affected_identities:3', 'affected_accounts:2', 'affected_ous:1']
+            },
+            intended_api_call: {
+              service: 'iam',
+              operation: 'PutRolePermissionsBoundary',
+              target_resource: 'aws:identity:arn:aws:iam::111111111111:role/loader-a',
+              parameter_refs: ['idempotency://s3-delete-object', 'boundary_ref://aws-remediation-case:s3-delete-object/after'],
+              idempotent: true,
+              requires_approval: true
+            },
+            preconditions: [
+              { name: 'dry_run_would_succeed', status: 'passed', rationale: 'Dry-run passed.' },
+              { name: 'breakage_level_low', status: 'passed', rationale: 'Breakage projection is low.' }
+            ],
+            boundary_simulation: {
+              simulation_ref: 'iam:policy_simulate://aws-permission-boundary-scp:s3-delete-object/permission-boundary',
+              outcome: 'would_limit_actions',
+              before_ref: 'evidence://least/loader',
+              after_ref: 'permission-boundary://aws-permission-boundary-scp:s3-delete-object/intended-boundary',
+              denied_action_count: 1,
+              target_identity_count: 3,
+              signals: ['permission_boundary', 'affected_identities:3']
+            },
+            verifications: [
+              {
+                source: 'iam:policy_simulate',
+                signal: 'boundary_denies_projected_actions',
+                status: 'pending',
+                description: 'Re-run IAM policy simulation for each captured identity.'
+              }
+            ],
+            rollback_plan: {
+              strategy: 'detach_permission_boundary',
+              steps: ['Detach the projected permission boundary from each captured identity.'],
+              evidence_ref: 'evidence://least/loader'
+            },
+            verification_plan: {
+              strategy: 'policy_simulate',
+              steps: ['Use IAM policy simulator to confirm the boundary denies the action.'],
+              success_signals: ['policy_simulate:no-regression'],
+              failure_signals: ['policy_simulate:denied-observed-action'],
+              evidence_ref: 'evidence://least/loader'
+            },
+            audit_trail: [],
+            kill_switch_engaged: false,
+            ready_for_live_apply: true,
+            read_only_projection: true,
+            source_signals: ['aws_permission_boundary_scp', 'remediation_dry_run'],
+            evidence: [],
+            evidence_boundary: 'metadata_only_no_rendered_policy_bodies_no_secret_values_no_workload_payloads',
+            impacted_nodes: ['aws:identity:arn:aws:iam::111111111111:role/loader-a'],
+            impacted_path: [],
+            next_action: 'Permission boundary operation=PutRolePermissionsBoundary is ready for the wave-8 apply runtime once its feature flag opens.',
+            projected_at: '2026-06-30T10:00:00Z',
+            created_at: '2026-06-30T10:00:00Z',
+            updated_at: '2026-06-30T10:00:00Z'
+          }
+        ],
+        summary: {
+          total_entries: 1,
+          filtered_entries: 1,
+          state_counts: { projected: 1 },
+          operation_counts: { PutRolePermissionsBoundary: 1 },
+          severity_counts: { high: 1 },
+          ready_for_live_apply_count: 1,
+          kill_switch_engaged_count: 0,
+          failed_precondition_count: 0,
+          target_identity_count: 3,
+          verification_count: 1,
+          relationship_count: 3,
+          highest_score: 74,
+          average_confidence_pct: 86
+        },
+        relationships: [],
+        caveats: ['Permission boundary executor entries are read-only projections.'],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
     const getSecretKeyRotation = vi.spyOn(api.apiClient, 'getAWSProjectSecretKeyRotationPlans').mockResolvedValue({
       plans: {
         status: 'ready',
@@ -4360,6 +4491,9 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('table', { name: 'AWS permission boundary and SCP plans' })).toBeInTheDocument();
     expect(screen.getByText(/Permission boundary: deny s3:DeleteObject across 3 identities/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Permission boundary/i).length).toBeGreaterThan(0);
+    expect(await screen.findByRole('table', { name: 'AWS permission boundary executor entries' })).toBeInTheDocument();
+    expect(screen.getByText(/Permission boundary execution: deny s3:DeleteObject/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/PutRolePermissionsBoundary/i).length).toBeGreaterThan(0);
     expect(await screen.findByRole('table', { name: 'AWS secret/key rotation plans' })).toBeInTheDocument();
     expect(screen.getByText(/Provider key rotation: openai\/api-key/i)).toBeInTheDocument();
     expect(screen.getAllByText(/ai-platform · Pending approver/i).length).toBeGreaterThan(0);
@@ -4416,6 +4550,12 @@ describe('Domain-first app routes', () => {
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
     expect(getAccessKeyQuarantine).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getPermissionBoundaryExecutor).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       expect.objectContaining({ connectorID: 'aws-connector-1' }),

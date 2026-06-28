@@ -433,13 +433,19 @@ func awsRemediationApprovalScope(source AWSRemediationCase, connectorID string) 
 	if strings.TrimSpace(source.IdentityNodeID) != "" {
 		identityNodes = append(identityNodes, source.IdentityNodeID)
 	}
+	resourceNodes := emptyStrings(dedupeStrings(source.ResourceNodeIDs))
+	if strings.EqualFold(source.SourceType, "aws_permission_boundary_scp") {
+		scopeType = "identity"
+		identityNodes = append(identityNodes, source.ResourceNodeIDs...)
+		resourceNodes = nil
+	}
 	return AWSRemediationApprovalScope{
 		ScopeType:       scopeType,
 		AccountIDs:      emptyStrings(dedupeStrings([]string{source.AccountID})),
 		Regions:         emptyStrings(dedupeStrings([]string{source.Region})),
 		ConnectorIDs:    connectors,
-		IdentityNodeIDs: identityNodes,
-		ResourceNodeIDs: emptyStrings(dedupeStrings(source.ResourceNodeIDs)),
+		IdentityNodeIDs: emptyStrings(dedupeStrings(identityNodes)),
+		ResourceNodeIDs: resourceNodes,
 	}
 }
 
