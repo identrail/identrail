@@ -5125,7 +5125,7 @@ paths:
           name: source_type
           schema:
             type: string
-            enum: [ai_agent_risk, least_privilege, secret_permission_equivalence, blast_radius]
+            enum: [ai_agent_risk, least_privilege, secret_permission_equivalence, blast_radius, aws_permission_boundary_scp]
         - in: query
           name: lifecycle
           schema:
@@ -14191,7 +14191,7 @@ components:
         calculation_version: { type: string }
         source_type:
           type: string
-          enum: [ai_agent_risk, least_privilege, secret_permission_equivalence, blast_radius]
+          enum: [ai_agent_risk, least_privilege, secret_permission_equivalence, blast_radius, aws_permission_boundary_scp]
         source_finding_id: { type: string }
         lifecycle:
           type: string
