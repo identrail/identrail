@@ -239,7 +239,7 @@ email_timeout="$(trim "${API_EMAIL_TIMEOUT:-}")"
 email_api_key_secret="$(trim "${API_EMAIL_API_KEY_SECRET_ARN:-}")"
 email_environment="{}"
 email_secrets="{}"
-if [ -n "${email_provider}" ] || [ -n "${email_from_address}" ] || [ -n "${email_reply_to_address}" ] || [ -n "${email_app_base_url}" ] || [ -n "${email_timeout}" ] || [ -n "${email_api_key_secret}" ]; then
+if [ -n "${email_provider}" ] || [ -n "${email_from_address}" ] || [ -n "${email_reply_to_address}" ] || [ -n "${email_app_base_url}" ] || [ -n "${email_timeout}" ]; then
   if [ "${email_provider}" != "resend" ]; then
     fail "API_EMAIL_PROVIDER must be resend when transactional email is configured"
   fi
