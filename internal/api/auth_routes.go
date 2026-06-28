@@ -512,7 +512,27 @@ func completeWorkOSLogin(c *gin.Context, logger *zap.Logger, svc *Service, manag
 	if redirectTo == "" || redirectTo == "/" {
 		redirectTo = result.RedirectPath
 	}
+	if result.NewUser {
+		dispatchAccountCreatedEmail(c.Request.Context(), logger, svc, result.User, redirectTo)
+	}
 	return redirectTo, true
+}
+
+func dispatchAccountCreatedEmail(ctx context.Context, logger *zap.Logger, svc *Service, user db.User, redirectTo string) {
+	if svc == nil || svc.EmailSender == nil {
+		return
+	}
+	emailCtx := context.WithoutCancel(ctx)
+	go func() {
+		if err := svc.SendAccountCreatedEmail(emailCtx, user, redirectTo); err != nil {
+			if logger != nil {
+				logger.Warn("send account-created email", zap.String("user_id", user.ID), telemetry.ZapError(err))
+			}
+			if svc.OnEmailError != nil {
+				svc.OnEmailError(err)
+			}
+		}
+	}()
 }
 
 func workOSSocialLoginRequiresMFA(authenticated sessionauth.WorkOSAuthentication) bool {

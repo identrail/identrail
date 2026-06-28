@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Add backend transactional account-created email for WorkOS sign-ups (#1687).
+  The API can now send a best-effort Resend email after a new user is created
+  and their first session is persisted, with validated `IDENTRAIL_EMAIL_*`
+  runtime settings and updated deployment examples.
 - Add **AWS low-risk live remediation** (#1538). Adds a read-only,
   metadata-only projection of allowlisted low-risk AWS remediation actions
   derived from the approved dry-run executor (#1537). The allowlist is

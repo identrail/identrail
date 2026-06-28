@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	sessionauth "github.com/identrail/identrail/internal/api/auth"
 	"github.com/identrail/identrail/internal/db"
+	emailer "github.com/identrail/identrail/internal/email"
 	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
@@ -33,6 +34,23 @@ type fakeWorkOSClient struct {
 	enrollErr          error
 	challengeErr       error
 	verifyErr          error
+}
+
+type fakeEmailSender struct {
+	messages chan emailer.Message
+	err      error
+}
+
+func (f *fakeEmailSender) Send(ctx context.Context, message emailer.Message) error {
+	if f.err != nil {
+		return f.err
+	}
+	select {
+	case f.messages <- message:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (f *fakeWorkOSClient) AuthorizationURL(input sessionauth.WorkOSAuthorizationRequest) (string, error) {
@@ -167,6 +185,132 @@ func TestWorkOSHostedLoginCreatesSessionAndIdentity(t *testing.T) {
 	}
 	if user.PrimaryEmail != "new@example.com" || user.DisplayName != "New User" {
 		t.Fatalf("unexpected user: %+v", user)
+	}
+}
+
+func TestWorkOSSignupSendsAccountCreatedEmail(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC) }
+	emailSender := &fakeEmailSender{messages: make(chan emailer.Message, 1)}
+	svc.EmailSender = emailSender
+	svc.EmailFromAddress = "Identrail <hello@send.identrail.com>"
+	svc.EmailReplyToAddress = "support@identrail.com"
+	svc.EmailAppBaseURL = "https://app.identrail.test"
+	workOS := &fakeWorkOSClient{
+		authentication: sessionauth.WorkOSAuthentication{
+			User: sessionauth.WorkOSProfile{
+				ID:            "user_workos_email",
+				Email:         "welcome@example.com",
+				FirstName:     "Welcome",
+				LastName:      "User",
+				EmailVerified: true,
+			},
+			AuthenticationMethod: "GitHubOAuth",
+			MFACompleted:         true,
+		},
+	}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://api.identrail.test",
+		CORSAllowedOrigins:  []string{"https://app.identrail.test"},
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: "whsec_123",
+		WorkOSAuthClient:    workOS,
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
+	})
+
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/signup?return_to=https://app.identrail.test/onboarding/org", nil))
+	if startResp.Code != http.StatusFound {
+		t.Fatalf("expected signup redirect, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+	callbackResp := httptest.NewRecorder()
+	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
+	if callbackResp.Code != http.StatusFound {
+		t.Fatalf("expected callback redirect, got %d body=%s", callbackResp.Code, callbackResp.Body.String())
+	}
+	if findTestCookie(callbackResp.Result().Cookies(), sessionauth.CookieName) == nil {
+		t.Fatalf("expected session cookie, got %+v", callbackResp.Result().Cookies())
+	}
+
+	var message emailer.Message
+	select {
+	case message = <-emailSender.messages:
+	case <-time.After(time.Second):
+		t.Fatal("expected account-created email")
+	}
+	if message.From != "Identrail <hello@send.identrail.com>" {
+		t.Fatalf("unexpected from: %q", message.From)
+	}
+	if message.ReplyTo != "support@identrail.com" {
+		t.Fatalf("unexpected reply-to: %q", message.ReplyTo)
+	}
+	if len(message.To) != 1 || message.To[0] != "welcome@example.com" {
+		t.Fatalf("unexpected recipient: %+v", message.To)
+	}
+	if !strings.Contains(message.Text, "Hi Welcome,") || !strings.Contains(message.Text, "https://app.identrail.test/onboarding/org") {
+		t.Fatalf("unexpected text body:\n%s", message.Text)
+	}
+	if !strings.HasPrefix(message.IdempotencyKey, "account-created-") {
+		t.Fatalf("unexpected idempotency key: %q", message.IdempotencyKey)
+	}
+}
+
+func TestWorkOSSignupEmailFailureDoesNotBlockSession(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	emailSender := &fakeEmailSender{messages: make(chan emailer.Message, 1), err: errors.New("resend down")}
+	emailErrors := make(chan error, 1)
+	svc.EmailSender = emailSender
+	svc.EmailFromAddress = "Identrail <hello@send.identrail.com>"
+	svc.EmailAppBaseURL = "https://app.identrail.test"
+	svc.OnEmailError = func(err error) {
+		emailErrors <- err
+	}
+	workOS := &fakeWorkOSClient{
+		authentication: sessionauth.WorkOSAuthentication{
+			User: sessionauth.WorkOSProfile{
+				ID:            "user_workos_email_failure",
+				Email:         "failure@example.com",
+				EmailVerified: true,
+			},
+			AuthenticationMethod: "GitHubOAuth",
+			MFACompleted:         true,
+		},
+	}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://app.identrail.test",
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: "whsec_123",
+		WorkOSAuthClient:    workOS,
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
+	})
+
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/signup", nil))
+	callbackResp := httptest.NewRecorder()
+	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
+	if callbackResp.Code != http.StatusFound {
+		t.Fatalf("expected callback redirect, got %d body=%s", callbackResp.Code, callbackResp.Body.String())
+	}
+	if findTestCookie(callbackResp.Result().Cookies(), sessionauth.CookieName) == nil {
+		t.Fatalf("expected session cookie, got %+v", callbackResp.Result().Cookies())
+	}
+	select {
+	case err := <-emailErrors:
+		if !strings.Contains(err.Error(), "resend down") {
+			t.Fatalf("unexpected email error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected async email error to be reported")
 	}
 }
 

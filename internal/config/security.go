@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"net/mail"
 	"net/netip"
 	"net/url"
 	"regexp"
@@ -68,6 +69,10 @@ var allowedLockBackends = map[string]struct{}{
 	"auto":     {},
 	"inmemory": {},
 	"postgres": {},
+}
+
+var allowedEmailProviders = map[string]struct{}{
+	"resend": {},
 }
 
 var allowedProviders = map[string]struct{}{
@@ -234,6 +239,9 @@ func ValidateSecurity(cfg Config) error {
 	}
 	if cfg.FeatureWorkOSLogin && !cfg.FeatureNewAuth {
 		return fmt.Errorf("IDENTRAIL_FEATURE_WORKOS_LOGIN=true requires IDENTRAIL_FEATURE_NEW_AUTH=true")
+	}
+	if err := validateEmailRuntimeConfig(cfg); err != nil {
+		return err
 	}
 	if cfg.FeatureOnboardingWizard && !cfg.FeatureNewAuth {
 		return fmt.Errorf("IDENTRAIL_FEATURE_ONBOARDING_WIZARD=true requires IDENTRAIL_FEATURE_NEW_AUTH=true")
@@ -669,6 +677,67 @@ func validatePublicBaseURL(raw string) error {
 		}
 	}
 	return fmt.Errorf("IDENTRAIL_PUBLIC_BASE_URL must use https outside local development")
+}
+
+func validateEmailRuntimeConfig(cfg Config) error {
+	provider := strings.ToLower(strings.TrimSpace(cfg.EmailProvider))
+	if provider == "" {
+		return nil
+	}
+	if _, ok := allowedEmailProviders[provider]; !ok {
+		return fmt.Errorf("invalid IDENTRAIL_EMAIL_PROVIDER %q: supported value is resend", cfg.EmailProvider)
+	}
+	if strings.TrimSpace(cfg.EmailAPIKey) == "" {
+		return fmt.Errorf("IDENTRAIL_EMAIL_API_KEY is required when IDENTRAIL_EMAIL_PROVIDER is set")
+	}
+	if err := validateEmailAddress("IDENTRAIL_EMAIL_FROM_ADDRESS", cfg.EmailFromAddress, true); err != nil {
+		return err
+	}
+	if err := validateEmailAddress("IDENTRAIL_EMAIL_REPLY_TO_ADDRESS", cfg.EmailReplyToAddress, false); err != nil {
+		return err
+	}
+	emailTimeout := cfg.EmailTimeout
+	if emailTimeout == 0 {
+		emailTimeout = defaultEmailTimeout
+	}
+	if emailTimeout <= 0 || emailTimeout > 30*time.Second {
+		return fmt.Errorf("IDENTRAIL_EMAIL_TIMEOUT must be > 0 and <= 30s")
+	}
+	return validateEmailAppBaseURL(cfg.EmailAppBaseURL)
+}
+
+func validateEmailAddress(key string, raw string, required bool) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		if required {
+			return fmt.Errorf("%s is required when IDENTRAIL_EMAIL_PROVIDER is set", key)
+		}
+		return nil
+	}
+	if _, err := mail.ParseAddress(trimmed); err != nil {
+		return fmt.Errorf("%s must be a valid email address", key)
+	}
+	return nil
+}
+
+func validateEmailAppBaseURL(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return fmt.Errorf("IDENTRAIL_EMAIL_APP_BASE_URL must be an absolute URL")
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "https":
+		return nil
+	case "http":
+		if isLoopbackHost(parsed.Hostname()) {
+			return nil
+		}
+	}
+	return fmt.Errorf("IDENTRAIL_EMAIL_APP_BASE_URL must use https outside local development")
 }
 
 // isLoopbackHost reports whether host is a loopback address that only the

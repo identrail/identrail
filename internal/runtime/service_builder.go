@@ -15,6 +15,7 @@ import (
 	awsconnector "github.com/identrail/identrail/internal/connectors/aws"
 	githubconnector "github.com/identrail/identrail/internal/connectors/github"
 	"github.com/identrail/identrail/internal/db"
+	emailer "github.com/identrail/identrail/internal/email"
 	awsprovider "github.com/identrail/identrail/internal/providers/aws"
 	k8sprovider "github.com/identrail/identrail/internal/providers/kubernetes"
 	"github.com/identrail/identrail/internal/runtime/awssignals"
@@ -224,6 +225,17 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 	}
 
 	svc := api.NewService(store, scanner, cfg.Provider)
+	emailSender, emailErr := buildTransactionalEmailSender(cfg)
+	if emailErr != nil {
+		_ = store.Close()
+		return nil, nil, fmt.Errorf("initialize transactional email sender: %w", emailErr)
+	}
+	if emailSender != nil {
+		svc.EmailSender = emailSender
+		svc.EmailFromAddress = cfg.EmailFromAddress
+		svc.EmailReplyToAddress = cfg.EmailReplyToAddress
+		svc.EmailAppBaseURL = firstNonEmpty(cfg.EmailAppBaseURL, cfg.PublicBaseURL)
+	}
 	if strings.TrimSpace(cfg.ConnectorSecretKeys) != "" {
 		materials, parseErr := secretstore.ParseKeySet(cfg.ConnectorSecretKeys)
 		if parseErr != nil {
@@ -555,6 +567,17 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func buildTransactionalEmailSender(cfg config.Config) (emailer.Sender, error) {
+	switch strings.ToLower(strings.TrimSpace(cfg.EmailProvider)) {
+	case "":
+		return nil, nil
+	case "resend":
+		return emailer.NewResendSender(cfg.EmailAPIKey, cfg.EmailTimeout)
+	default:
+		return nil, fmt.Errorf("unsupported IDENTRAIL_EMAIL_PROVIDER %q", cfg.EmailProvider)
+	}
 }
 
 func newAWSScanner(iamAPI awsprovider.IAMAPI, accountID string, region string, services ...awsprovider.AWSServiceCollector) app.Scanner {

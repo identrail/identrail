@@ -59,9 +59,17 @@ for their deployment.
 
 | Variable | Default | Validation | Area |
 | --- | --- | --- | --- |
-| `IDENTRAIL_EMAIL_PROVIDER` | empty | One of `resend`, `postmark`, `ses`, or empty. Empty disables outgoing email and refuses to send invitations. | Future invitation/email work |
-| `IDENTRAIL_EMAIL_API_KEY` | empty | Required when `IDENTRAIL_EMAIL_PROVIDER` is set. Treated as a secret. | Future invitation/email work |
-| `IDENTRAIL_EMAIL_FROM_ADDRESS` | empty | Required when `IDENTRAIL_EMAIL_PROVIDER` is set. Must be a valid email under a domain owned by the operator. | Future invitation/email work |
+| `IDENTRAIL_EMAIL_PROVIDER` | empty | `resend` or empty. Empty disables backend transactional email. | Transactional email |
+| `IDENTRAIL_EMAIL_API_KEY` | empty | Required when `IDENTRAIL_EMAIL_PROVIDER=resend`. Treated as a secret. | Transactional email |
+| `IDENTRAIL_EMAIL_FROM_ADDRESS` | empty | Required when `IDENTRAIL_EMAIL_PROVIDER` is set. Must parse as an email address, including display-name form such as `Identrail <hello@send.example.com>`. | Transactional email |
+| `IDENTRAIL_EMAIL_REPLY_TO_ADDRESS` | empty | Optional reply-to address for transactional email. Must parse as an email address when set. | Transactional email |
+| `IDENTRAIL_EMAIL_APP_BASE_URL` | empty | Optional absolute web-app origin used for account-created CTA links. Use this when `IDENTRAIL_PUBLIC_BASE_URL` is the API callback origin and the app is served from a different origin. Falls back to `IDENTRAIL_PUBLIC_BASE_URL` when empty. Must use `https://` outside local development. | Transactional email |
+| `IDENTRAIL_EMAIL_TIMEOUT` | `3s` | Positive duration, maximum `30s`. Bounds the Resend request. | Transactional email |
+
+Account-created email is sent after a WorkOS sign-up creates a new Identrail
+user and the browser session has been persisted. It is best-effort: delivery
+failure is logged and reported internally, but it does not block the user's
+first session.
 
 ## Connector Providers
 
