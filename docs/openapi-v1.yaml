@@ -14120,7 +14120,7 @@ components:
       properties:
         kind:
           type: string
-          enum: [iam_policy_diff, iam_trust_diff, role_scope_diff, secret_rotation, kms_grant_diff, ai_agent_scope_change, owner_assignment, manual_review]
+          enum: [iam_policy_diff, iam_trust_diff, role_scope_diff, secret_rotation, kms_grant_diff, permission_boundary_diff, ai_agent_scope_change, owner_assignment, manual_review]
         before_ref: { type: string }
         after_ref: { type: string }
         diff_summary: { type: string }
