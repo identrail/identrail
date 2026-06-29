@@ -220,8 +220,8 @@ func TestAWSPermissionBoundaryExecutorSplitsMixedPrincipalKinds(t *testing.T) {
 		PlanID:                "plan-mixed-principals",
 		Kind:                  awsPermissionBoundaryKind,
 		ReadyForApply:         true,
-		TargetIdentityNodeIDs: []string{"aws:identity:arn:aws:iam::123456789012:role/app-role", "aws:identity:arn:aws:iam::123456789012:user/app-user"},
-		TargetAccountIDs:      []string{"123456789012"},
+		TargetIdentityNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:role/app-role", "aws:identity:arn:aws:iam::222222222222:user/app-user"},
+		TargetAccountIDs:      []string{"111111111111", "222222222222"},
 		BreakageProjection:    AWSPermissionBoundarySCPBreakageProjection{Level: "low"},
 	}
 	entry := AWSRemediationDryRunEntry{
@@ -236,7 +236,7 @@ func TestAWSPermissionBoundaryExecutorSplitsMixedPrincipalKinds(t *testing.T) {
 		IntendedAPICalls: []AWSRemediationDryRunIntendedAPICall{{
 			Service:          "iam",
 			Operation:        "PutRolePermissionsBoundary",
-			TargetResource:   "aws:identity:arn:aws:iam::123456789012:role/app-role",
+			TargetResource:   "aws:identity:arn:aws:iam::111111111111:role/app-role",
 			ParameterRefs:    []string{"idk", "boundary_ref://case-mixed/after"},
 			Idempotent:       true,
 			RequiresApproval: true,
@@ -258,6 +258,9 @@ func TestAWSPermissionBoundaryExecutorSplitsMixedPrincipalKinds(t *testing.T) {
 	if len(roleEntry.TargetIdentityNodeIDs) != 1 || !strings.Contains(roleEntry.TargetIdentityNodeIDs[0], ":role/") {
 		t.Fatalf("role entry retained non-role targets: %+v", roleEntry.TargetIdentityNodeIDs)
 	}
+	if len(roleEntry.TargetAccountIDs) != 1 || roleEntry.TargetAccountIDs[0] != "111111111111" {
+		t.Fatalf("role entry retained wrong target accounts: %+v", roleEntry.TargetAccountIDs)
+	}
 	userEntry, ok := byOperation["PutUserPermissionsBoundary"]
 	if !ok {
 		t.Fatalf("missing user boundary entry: %+v", entries)
@@ -265,8 +268,15 @@ func TestAWSPermissionBoundaryExecutorSplitsMixedPrincipalKinds(t *testing.T) {
 	if len(userEntry.TargetIdentityNodeIDs) != 1 || !strings.Contains(userEntry.TargetIdentityNodeIDs[0], ":user/") {
 		t.Fatalf("user entry retained non-user targets: %+v", userEntry.TargetIdentityNodeIDs)
 	}
+	if len(userEntry.TargetAccountIDs) != 1 || userEntry.TargetAccountIDs[0] != "222222222222" {
+		t.Fatalf("user entry retained wrong target accounts: %+v", userEntry.TargetAccountIDs)
+	}
 	if userEntry.IntendedAPICall.Operation != "PutUserPermissionsBoundary" || !strings.Contains(userEntry.IntendedAPICall.TargetResource, ":user/") {
 		t.Fatalf("user entry has wrong intended call: %+v", userEntry.IntendedAPICall)
+	}
+	filtered, _ := filterAWSPermissionBoundaryExecutorEntries(entries, AWSPermissionBoundaryExecutorRequest{AccountID: "111111111111"})
+	if len(filtered) != 1 || filtered[0].Operation != "PutRolePermissionsBoundary" {
+		t.Fatalf("account filter leaked cross-account split entries: %+v", filtered)
 	}
 	if roleEntry.ExecutionID == userEntry.ExecutionID {
 		t.Fatalf("split entries must have distinct execution IDs: role=%q user=%q", roleEntry.ExecutionID, userEntry.ExecutionID)

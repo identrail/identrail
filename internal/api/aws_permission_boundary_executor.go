@@ -337,6 +337,7 @@ func awsPermissionBoundaryExecutorEntriesFromDryRun(entry AWSRemediationDryRunEn
 	for _, operation := range operations {
 		scopedPlan := plan
 		scopedPlan.TargetIdentityNodeIDs = targetsByOperation[operation]
+		scopedPlan.TargetAccountIDs = awsPermissionBoundaryExecutorAccountsForTargets(scopedPlan.TargetIdentityNodeIDs)
 		scopedPlan.ImpactedNodes = emptyStrings(dedupeStrings(append(append([]string{}, scopedPlan.TargetIdentityNodeIDs...), plan.ImpactedNodes...)))
 		out := awsPermissionBoundaryExecutorEntryFromDryRunWithCall(entry, scopedPlan, awsPermissionBoundaryExecutorIntendedCallForTargets(entry, scopedPlan.TargetIdentityNodeIDs, operation), now)
 		out.ExecutionID = "aws-permission-boundary-executor:" + stableAWSBlastRadiusToken("execution", entry.DryRunID, plan.PlanID, operation)
@@ -409,6 +410,29 @@ func awsPermissionBoundaryExecutorEntryFromDryRunWithCall(entry AWSRemediationDr
 	}
 	out.ReadyForLiveApply = state == awsPermissionBoundaryExecutorStateProjected && entry.ReadyForApply && !entry.KillSwitchEngaged
 	return out
+}
+
+func awsPermissionBoundaryExecutorAccountsForTargets(targets []string) []string {
+	accounts := []string{}
+	for _, target := range emptyStrings(dedupeStrings(targets)) {
+		accountID := awsPermissionBoundaryExecutorAccountFromTarget(target)
+		if accountID != "" {
+			accounts = append(accounts, accountID)
+		}
+	}
+	return emptyStrings(dedupeStrings(accounts))
+}
+
+func awsPermissionBoundaryExecutorAccountFromTarget(target string) string {
+	trimmed := strings.TrimSpace(target)
+	if idx := strings.Index(trimmed, "arn:"); idx >= 0 {
+		trimmed = trimmed[idx:]
+	}
+	parts := strings.Split(trimmed, ":")
+	if len(parts) >= 5 && strings.EqualFold(parts[2], "iam") {
+		return strings.TrimSpace(parts[4])
+	}
+	return ""
 }
 
 func awsPermissionBoundaryExecutorIntendedCall(entry AWSRemediationDryRunEntry) AWSRemediationDryRunIntendedAPICall {
