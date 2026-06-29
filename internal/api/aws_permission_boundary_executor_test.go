@@ -338,6 +338,59 @@ func TestAWSPermissionBoundaryExecutorSplitPreservesPlannerAccountsForNonARNTarg
 	}
 }
 
+func TestAWSPermissionBoundaryExecutorScopesSingleOperationAfterGroupFilter(t *testing.T) {
+	now := time.Date(2026, 6, 30, 12, 45, 0, 0, time.UTC)
+	plan := AWSPermissionBoundarySCPPlan{
+		PlanID:                "plan-group-filtered-into-user",
+		Kind:                  awsPermissionBoundaryKind,
+		ReadyForApply:         true,
+		TargetIdentityNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:group/app-group", "aws:identity:arn:aws:iam::222222222222:user/app-user"},
+		TargetAccountIDs:      []string{"111111111111", "222222222222"},
+		BreakageProjection:    AWSPermissionBoundarySCPBreakageProjection{Level: "low"},
+		ImpactedNodes:         []string{"aws:identity:arn:aws:iam::111111111111:group/app-group", "aws:identity:arn:aws:iam::222222222222:user/app-user"},
+	}
+	entry := AWSRemediationDryRunEntry{
+		DryRunID:         "dr-group-filtered-into-user",
+		CaseID:           "case-group-filtered-into-user",
+		SourceType:       "aws_permission_boundary_scp",
+		SourceArtifactID: "plan-group-filtered-into-user",
+		AccountID:        "111111111111",
+		IdempotencyKey:   "idk",
+		Outcome:          awsRemediationDryRunOutcomeWouldSucceed,
+		ReadyForApply:    true,
+		DiffIntent:       AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+		IntendedAPICalls: []AWSRemediationDryRunIntendedAPICall{{
+			Service:          "iam",
+			Operation:        "PutRolePermissionsBoundary",
+			TargetResource:   "aws:identity:arn:aws:iam::111111111111:group/app-group",
+			ParameterRefs:    []string{"idk", "boundary_ref://case-group-filtered-into-user/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}},
+	}
+
+	entries := awsPermissionBoundaryExecutorEntriesFromDryRun(entry, plan, now)
+	if len(entries) != 1 {
+		t.Fatalf("group filter to single user should produce one executor entry: %+v", entries)
+	}
+	out := entries[0]
+	if out.Operation != "PutUserPermissionsBoundary" {
+		t.Fatalf("expected scoped single-operation entry to target user permissions boundary, got %q", out.Operation)
+	}
+	if out.IntendedAPICall.Operation != "PutUserPermissionsBoundary" {
+		t.Fatalf("expected intended call to recompute for user-only split, got %+v", out.IntendedAPICall)
+	}
+	if len(out.TargetIdentityNodeIDs) != 1 || !strings.HasSuffix(out.TargetIdentityNodeIDs[0], ":user/app-user") {
+		t.Fatalf("expected filtered target identities to keep only the user identity: %+v", out.TargetIdentityNodeIDs)
+	}
+	if len(out.TargetAccountIDs) != 1 || out.TargetAccountIDs[0] != "222222222222" {
+		t.Fatalf("expected account scope to be narrowed to retained user account: %+v", out.TargetAccountIDs)
+	}
+	if out.AccountID != "222222222222" {
+		t.Fatalf("expected primary account to be retained user account, got %q", out.AccountID)
+	}
+}
+
 func TestAWSPermissionBoundaryExecutorFiltersGroupTargets(t *testing.T) {
 	now := time.Date(2026, 6, 30, 12, 15, 0, 0, time.UTC)
 	plan := AWSPermissionBoundarySCPPlan{

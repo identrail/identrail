@@ -331,7 +331,22 @@ func awsPermissionBoundaryExecutorEntriesFromDryRun(entry AWSRemediationDryRunEn
 	plan.TargetIdentityNodeIDs = supportedTargets
 	targetsByOperation := awsPermissionBoundaryExecutorTargetsByOperation(supportedTargets)
 	if len(targetsByOperation) <= 1 {
-		return []AWSPermissionBoundaryExecutorEntry{awsPermissionBoundaryExecutorEntryFromDryRun(entry, plan, now)}
+		scopedPlan := plan
+		operation := awsPermissionBoundaryExecutorIntendedCall(entry).Operation
+		scopedTargets := supportedTargets
+		for op, targets := range targetsByOperation {
+			operation = op
+			scopedTargets = targets
+			break
+		}
+		scopedPlan.TargetIdentityNodeIDs = scopedTargets
+		scopedPlan.TargetAccountIDs = awsPermissionBoundaryExecutorScopedAccountsForTargets(scopedPlan.TargetIdentityNodeIDs, plan.TargetAccountIDs)
+		scopedPlan.AccountID = firstString(scopedPlan.TargetAccountIDs)
+		scopedPlan.ImpactedNodes = emptyStrings(dedupeStrings(append(append([]string{}, scopedPlan.TargetIdentityNodeIDs...), plan.ImpactedNodes...)))
+		scopedEntry := entry
+		scopedEntry.AccountID = scopedPlan.AccountID
+		out := awsPermissionBoundaryExecutorEntryFromDryRunWithCall(scopedEntry, scopedPlan, awsPermissionBoundaryExecutorIntendedCallForTargets(scopedEntry, scopedPlan.TargetIdentityNodeIDs, operation), now)
+		return []AWSPermissionBoundaryExecutorEntry{out}
 	}
 	entries := make([]AWSPermissionBoundaryExecutorEntry, 0, len(targetsByOperation))
 	operations := make([]string, 0, len(targetsByOperation))

@@ -14262,7 +14262,7 @@ components:
         audit_trail:
           type: array
           items:
-            $ref: "#/components/schemas/AWSRemediationAuditEntry"
+            $ref: "#/components/schemas/AWSRemediationApprovalAuditEntry"
         created_at:
           type: string
           format: date-time
