@@ -229,6 +229,7 @@ func TestAWSPermissionBoundaryExecutorSplitsMixedPrincipalKinds(t *testing.T) {
 		CaseID:           "case-mixed",
 		SourceType:       "aws_permission_boundary_scp",
 		SourceArtifactID: "plan-mixed-principals",
+		AccountID:        "111111111111",
 		IdempotencyKey:   "idk",
 		Outcome:          awsRemediationDryRunOutcomeWouldSucceed,
 		ReadyForApply:    true,
@@ -261,6 +262,9 @@ func TestAWSPermissionBoundaryExecutorSplitsMixedPrincipalKinds(t *testing.T) {
 	if len(roleEntry.TargetAccountIDs) != 1 || roleEntry.TargetAccountIDs[0] != "111111111111" {
 		t.Fatalf("role entry retained wrong target accounts: %+v", roleEntry.TargetAccountIDs)
 	}
+	if roleEntry.AccountID != "111111111111" {
+		t.Fatalf("role entry retained wrong primary account: %q", roleEntry.AccountID)
+	}
 	userEntry, ok := byOperation["PutUserPermissionsBoundary"]
 	if !ok {
 		t.Fatalf("missing user boundary entry: %+v", entries)
@@ -270,6 +274,9 @@ func TestAWSPermissionBoundaryExecutorSplitsMixedPrincipalKinds(t *testing.T) {
 	}
 	if len(userEntry.TargetAccountIDs) != 1 || userEntry.TargetAccountIDs[0] != "222222222222" {
 		t.Fatalf("user entry retained wrong target accounts: %+v", userEntry.TargetAccountIDs)
+	}
+	if userEntry.AccountID != "222222222222" {
+		t.Fatalf("user entry retained wrong primary account: %q", userEntry.AccountID)
 	}
 	if userEntry.IntendedAPICall.Operation != "PutUserPermissionsBoundary" || !strings.Contains(userEntry.IntendedAPICall.TargetResource, ":user/") {
 		t.Fatalf("user entry has wrong intended call: %+v", userEntry.IntendedAPICall)

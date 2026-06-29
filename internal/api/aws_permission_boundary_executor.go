@@ -338,8 +338,11 @@ func awsPermissionBoundaryExecutorEntriesFromDryRun(entry AWSRemediationDryRunEn
 		scopedPlan := plan
 		scopedPlan.TargetIdentityNodeIDs = targetsByOperation[operation]
 		scopedPlan.TargetAccountIDs = awsPermissionBoundaryExecutorAccountsForTargets(scopedPlan.TargetIdentityNodeIDs)
+		scopedPlan.AccountID = firstString(scopedPlan.TargetAccountIDs)
 		scopedPlan.ImpactedNodes = emptyStrings(dedupeStrings(append(append([]string{}, scopedPlan.TargetIdentityNodeIDs...), plan.ImpactedNodes...)))
-		out := awsPermissionBoundaryExecutorEntryFromDryRunWithCall(entry, scopedPlan, awsPermissionBoundaryExecutorIntendedCallForTargets(entry, scopedPlan.TargetIdentityNodeIDs, operation), now)
+		scopedEntry := entry
+		scopedEntry.AccountID = scopedPlan.AccountID
+		out := awsPermissionBoundaryExecutorEntryFromDryRunWithCall(scopedEntry, scopedPlan, awsPermissionBoundaryExecutorIntendedCallForTargets(scopedEntry, scopedPlan.TargetIdentityNodeIDs, operation), now)
 		out.ExecutionID = "aws-permission-boundary-executor:" + stableAWSBlastRadiusToken("execution", entry.DryRunID, plan.PlanID, operation)
 		entries = append(entries, out)
 	}
