@@ -338,6 +338,86 @@ func TestAWSPermissionBoundaryExecutorSplitPreservesPlannerAccountsForNonARNTarg
 	}
 }
 
+func TestAWSPermissionBoundaryExecutorFiltersGroupTargets(t *testing.T) {
+	now := time.Date(2026, 6, 30, 12, 15, 0, 0, time.UTC)
+	plan := AWSPermissionBoundarySCPPlan{
+		PlanID:                "plan-mixed-with-group",
+		Kind:                  awsPermissionBoundaryKind,
+		ReadyForApply:         true,
+		TargetIdentityNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:role/app-role", "aws:identity:arn:aws:iam::111111111111:group/app-group"},
+		TargetAccountIDs:      []string{"111111111111"},
+		BreakageProjection:    AWSPermissionBoundarySCPBreakageProjection{Level: "low"},
+	}
+	entry := AWSRemediationDryRunEntry{
+		DryRunID:         "dr-mixed-group",
+		CaseID:           "case-mixed-group",
+		SourceType:       "aws_permission_boundary_scp",
+		SourceArtifactID: "plan-mixed-with-group",
+		AccountID:        "111111111111",
+		IdempotencyKey:   "idk",
+		Outcome:          awsRemediationDryRunOutcomeWouldSucceed,
+		ReadyForApply:    true,
+		DiffIntent:       AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+		IntendedAPICalls: []AWSRemediationDryRunIntendedAPICall{{
+			Service:          "iam",
+			Operation:        "PutRolePermissionsBoundary",
+			TargetResource:   "aws:identity:arn:aws:iam::111111111111:role/app-role",
+			ParameterRefs:    []string{"idk", "boundary_ref://case-mixed-group/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}},
+	}
+
+	entries := awsPermissionBoundaryExecutorEntriesFromDryRun(entry, plan, now)
+	if len(entries) != 1 {
+		t.Fatalf("group targets should be filtered, leaving a single role entry: %+v", entries)
+	}
+	out := entries[0]
+	if out.Operation != "PutRolePermissionsBoundary" {
+		t.Fatalf("expected role-only executor operation: %q", out.Operation)
+	}
+	for _, target := range out.TargetIdentityNodeIDs {
+		if strings.Contains(target, ":group/") {
+			t.Fatalf("group target leaked into executor entry: %q", target)
+		}
+	}
+}
+
+func TestAWSPermissionBoundaryExecutorRejectsGroupOnlyPlan(t *testing.T) {
+	now := time.Date(2026, 6, 30, 12, 30, 0, 0, time.UTC)
+	plan := AWSPermissionBoundarySCPPlan{
+		PlanID:                "plan-group-only",
+		Kind:                  awsPermissionBoundaryKind,
+		ReadyForApply:         true,
+		TargetIdentityNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:group/app-group"},
+		TargetAccountIDs:      []string{"111111111111"},
+		BreakageProjection:    AWSPermissionBoundarySCPBreakageProjection{Level: "low"},
+	}
+	entry := AWSRemediationDryRunEntry{
+		DryRunID:         "dr-group-only",
+		CaseID:           "case-group-only",
+		SourceType:       "aws_permission_boundary_scp",
+		SourceArtifactID: "plan-group-only",
+		AccountID:        "111111111111",
+		IdempotencyKey:   "idk",
+		Outcome:          awsRemediationDryRunOutcomeWouldSucceed,
+		ReadyForApply:    true,
+		DiffIntent:       AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+		IntendedAPICalls: []AWSRemediationDryRunIntendedAPICall{{
+			Service:          "iam",
+			Operation:        "PutRolePermissionsBoundary",
+			TargetResource:   "aws:identity:arn:aws:iam::111111111111:group/app-group",
+			ParameterRefs:    []string{"idk", "boundary_ref://case-group-only/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}},
+	}
+
+	if entries := awsPermissionBoundaryExecutorEntriesFromDryRun(entry, plan, now); len(entries) != 0 {
+		t.Fatalf("group-only boundary plan must not produce executor entries: %+v", entries)
+	}
+}
+
 func TestGetAWSPermissionBoundaryExecutorFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
 	svc, ws := newPermissionBoundaryExecutorService(t, "project-permission-boundary-executor-states", now)

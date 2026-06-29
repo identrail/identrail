@@ -324,7 +324,12 @@ func awsPermissionBoundaryExecutorAdmits(entry AWSRemediationDryRunEntry) bool {
 }
 
 func awsPermissionBoundaryExecutorEntriesFromDryRun(entry AWSRemediationDryRunEntry, plan AWSPermissionBoundarySCPPlan, now time.Time) []AWSPermissionBoundaryExecutorEntry {
-	targetsByOperation := awsPermissionBoundaryExecutorTargetsByOperation(plan.TargetIdentityNodeIDs)
+	supportedTargets := awsPermissionBoundaryExecutorSupportedTargets(plan.TargetIdentityNodeIDs)
+	if len(supportedTargets) == 0 {
+		return nil
+	}
+	plan.TargetIdentityNodeIDs = supportedTargets
+	targetsByOperation := awsPermissionBoundaryExecutorTargetsByOperation(supportedTargets)
 	if len(targetsByOperation) <= 1 {
 		return []AWSPermissionBoundaryExecutorEntry{awsPermissionBoundaryExecutorEntryFromDryRun(entry, plan, now)}
 	}
@@ -354,6 +359,22 @@ func awsPermissionBoundaryExecutorTargetsByOperation(targets []string) map[strin
 	for _, target := range emptyStrings(dedupeStrings(targets)) {
 		operation := awsRemediationDryRunPutBoundaryOperation(target)
 		out[operation] = append(out[operation], target)
+	}
+	return out
+}
+
+// awsPermissionBoundaryExecutorSupportedTargets drops IAM group targets because
+// permission boundaries can only be attached to IAM users or roles
+// (https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_boundaries.html).
+// Group identities reaching this layer would otherwise be silently bucketed into
+// PutRolePermissionsBoundary by the dry-run helper's default branch.
+func awsPermissionBoundaryExecutorSupportedTargets(targets []string) []string {
+	out := []string{}
+	for _, target := range emptyStrings(dedupeStrings(targets)) {
+		if awsRemediationDryRunIAMPrincipalKind(target) == "group" {
+			continue
+		}
+		out = append(out, target)
 	}
 	return out
 }
