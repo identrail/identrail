@@ -290,6 +290,54 @@ func TestAWSPermissionBoundaryExecutorSplitsMixedPrincipalKinds(t *testing.T) {
 	}
 }
 
+func TestAWSPermissionBoundaryExecutorSplitPreservesPlannerAccountsForNonARNTargets(t *testing.T) {
+	now := time.Date(2026, 6, 30, 11, 45, 0, 0, time.UTC)
+	plan := AWSPermissionBoundarySCPPlan{
+		PlanID:                "plan-mixed-non-arn",
+		Kind:                  awsPermissionBoundaryKind,
+		ReadyForApply:         true,
+		TargetIdentityNodeIDs: []string{"aws:identity:role/app-role", "aws:identity:user/app-user"},
+		TargetAccountIDs:      []string{"111111111111", "222222222222"},
+		BreakageProjection:    AWSPermissionBoundarySCPBreakageProjection{Level: "low"},
+	}
+	entry := AWSRemediationDryRunEntry{
+		DryRunID:         "dr-mixed-non-arn",
+		CaseID:           "case-mixed-non-arn",
+		SourceType:       "aws_permission_boundary_scp",
+		SourceArtifactID: "plan-mixed-non-arn",
+		AccountID:        "111111111111",
+		IdempotencyKey:   "idk",
+		Outcome:          awsRemediationDryRunOutcomeWouldSucceed,
+		ReadyForApply:    true,
+		DiffIntent:       AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+		IntendedAPICalls: []AWSRemediationDryRunIntendedAPICall{{
+			Service:          "iam",
+			Operation:        "PutRolePermissionsBoundary",
+			TargetResource:   "aws:identity:role/app-role",
+			ParameterRefs:    []string{"idk", "boundary_ref://case-mixed-non-arn/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}},
+	}
+
+	entries := awsPermissionBoundaryExecutorEntriesFromDryRun(entry, plan, now)
+	if len(entries) != 2 {
+		t.Fatalf("expected mixed non-ARN role/user plan to split into two executor entries: %+v", entries)
+	}
+	for _, out := range entries {
+		if len(out.TargetAccountIDs) != 2 {
+			t.Fatalf("non-ARN split entry must preserve planner target accounts: %+v", out)
+		}
+		if out.AccountID == "" {
+			t.Fatalf("non-ARN split entry must retain a primary account from the planner: %+v", out)
+		}
+	}
+	filtered, _ := filterAWSPermissionBoundaryExecutorEntries(entries, AWSPermissionBoundaryExecutorRequest{AccountID: "222222222222"})
+	if len(filtered) != 2 {
+		t.Fatalf("planner account drill-down should retain both non-ARN split entries: %+v", filtered)
+	}
+}
+
 func TestGetAWSPermissionBoundaryExecutorFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
 	svc, ws := newPermissionBoundaryExecutorService(t, "project-permission-boundary-executor-states", now)

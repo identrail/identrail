@@ -337,7 +337,7 @@ func awsPermissionBoundaryExecutorEntriesFromDryRun(entry AWSRemediationDryRunEn
 	for _, operation := range operations {
 		scopedPlan := plan
 		scopedPlan.TargetIdentityNodeIDs = targetsByOperation[operation]
-		scopedPlan.TargetAccountIDs = awsPermissionBoundaryExecutorAccountsForTargets(scopedPlan.TargetIdentityNodeIDs)
+		scopedPlan.TargetAccountIDs = awsPermissionBoundaryExecutorScopedAccountsForTargets(scopedPlan.TargetIdentityNodeIDs, plan.TargetAccountIDs)
 		scopedPlan.AccountID = firstString(scopedPlan.TargetAccountIDs)
 		scopedPlan.ImpactedNodes = emptyStrings(dedupeStrings(append(append([]string{}, scopedPlan.TargetIdentityNodeIDs...), plan.ImpactedNodes...)))
 		scopedEntry := entry
@@ -424,6 +424,14 @@ func awsPermissionBoundaryExecutorAccountsForTargets(targets []string) []string 
 		}
 	}
 	return emptyStrings(dedupeStrings(accounts))
+}
+
+func awsPermissionBoundaryExecutorScopedAccountsForTargets(targets []string, fallback []string) []string {
+	derived := awsPermissionBoundaryExecutorAccountsForTargets(targets)
+	if len(derived) > 0 {
+		return derived
+	}
+	return emptyStrings(dedupeStrings(fallback))
 }
 
 func awsPermissionBoundaryExecutorAccountFromTarget(target string) string {
