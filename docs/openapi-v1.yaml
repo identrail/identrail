@@ -15219,7 +15219,7 @@ components:
         audit_trail:
           type: array
           items:
-            $ref: "#/components/schemas/AWSRemediationAuditEntry"
+            $ref: "#/components/schemas/AWSRemediationApprovalAuditEntry"
         kill_switch_engaged: { type: boolean }
         ready_for_live_apply: { type: boolean }
         read_only_projection: { type: boolean }
