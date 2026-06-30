@@ -280,6 +280,41 @@ func TestFilterAWSRemediationCasesMatchesBoundaryTargetIdentity(t *testing.T) {
 	}
 }
 
+func TestAWSRemediationCaseFromPermissionBoundaryFiltersUnsupportedTargets(t *testing.T) {
+	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	plan := AWSPermissionBoundarySCPPlan{
+		PlanID: "permission-boundary-unsupported-targets",
+		Kind:   awsPermissionBoundaryKind,
+		TargetIdentityNodeIDs: []string{
+			"aws:identity:arn:aws:iam::111111111111:group/app-group",
+			"aws:identity:arn:aws:iam::222222222222:user/app-user",
+		},
+		ImpactedNodes: []string{
+			"aws:identity:arn:aws:iam::111111111111:group/app-group",
+			"aws:identity:arn:aws:iam::222222222222:user/app-user",
+		},
+		TargetAccountIDs: []string{"111111111111", "222222222222"},
+	}
+
+	boundaryCase, ok := awsRemediationCaseFromPermissionBoundary(plan, now)
+	if !ok {
+		t.Fatalf("expected permission boundary case from role/user plan")
+	}
+	if boundaryCase.IdentityNodeID != "aws:identity:arn:aws:iam::222222222222:user/app-user" {
+		t.Fatalf("expected first supported target node to drive case identity: %+v", boundaryCase)
+	}
+	if len(boundaryCase.ResourceNodeIDs) != 1 || boundaryCase.ResourceNodeIDs[0] != "aws:identity:arn:aws:iam::222222222222:user/app-user" {
+		t.Fatalf("expected resource nodes to exclude unsupported target kinds: %+v", boundaryCase.ResourceNodeIDs)
+	}
+
+	groupOnlyPlan := plan
+	groupOnlyPlan.PlanID = "permission-boundary-group-only"
+	groupOnlyPlan.TargetIdentityNodeIDs = []string{"aws:identity:arn:aws:iam::111111111111:group/app-group"}
+	if _, ok = awsRemediationCaseFromPermissionBoundary(groupOnlyPlan, now); ok {
+		t.Fatalf("expected group-only boundary plan to be filtered before case projection")
+	}
+}
+
 func TestAWSRemediationCaseDerivesLifecycleAndApproval(t *testing.T) {
 	now := time.Date(2026, 6, 23, 10, 10, 0, 0, time.UTC)
 	ownerless := AWSAIAgentRiskFinding{

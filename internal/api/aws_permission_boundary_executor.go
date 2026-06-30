@@ -344,6 +344,7 @@ func awsPermissionBoundaryExecutorEntriesFromDryRun(entry AWSRemediationDryRunEn
 		scopedPlan.AccountID = firstString(scopedPlan.TargetAccountIDs)
 		scopedPlan.ImpactedNodes = emptyStrings(dedupeStrings(append(append([]string{}, scopedPlan.TargetIdentityNodeIDs...), plan.ImpactedNodes...)))
 		scopedEntry := entry
+		scopedEntry.IdempotencyKey = awsPermissionBoundaryExecutorScopedIdempotencyKey(entry, operation, scopedPlan.TargetIdentityNodeIDs)
 		scopedEntry.AccountID = scopedPlan.AccountID
 		out := awsPermissionBoundaryExecutorEntryFromDryRunWithCall(scopedEntry, scopedPlan, awsPermissionBoundaryExecutorIntendedCallForTargets(scopedEntry, scopedPlan.TargetIdentityNodeIDs, operation), now)
 		return []AWSPermissionBoundaryExecutorEntry{out}
@@ -361,12 +362,25 @@ func awsPermissionBoundaryExecutorEntriesFromDryRun(entry AWSRemediationDryRunEn
 		scopedPlan.AccountID = firstString(scopedPlan.TargetAccountIDs)
 		scopedPlan.ImpactedNodes = emptyStrings(dedupeStrings(append(append([]string{}, scopedPlan.TargetIdentityNodeIDs...), plan.ImpactedNodes...)))
 		scopedEntry := entry
+		scopedEntry.IdempotencyKey = awsPermissionBoundaryExecutorScopedIdempotencyKey(entry, operation, scopedPlan.TargetIdentityNodeIDs)
 		scopedEntry.AccountID = scopedPlan.AccountID
 		out := awsPermissionBoundaryExecutorEntryFromDryRunWithCall(scopedEntry, scopedPlan, awsPermissionBoundaryExecutorIntendedCallForTargets(scopedEntry, scopedPlan.TargetIdentityNodeIDs, operation), now)
 		out.ExecutionID = "aws-permission-boundary-executor:" + stableAWSBlastRadiusToken("execution", entry.DryRunID, plan.PlanID, operation)
 		entries = append(entries, out)
 	}
 	return entries
+}
+
+func awsPermissionBoundaryExecutorScopedIdempotencyKey(entry AWSRemediationDryRunEntry, operation string, targets []string) string {
+	base := strings.TrimSpace(entry.IdempotencyKey)
+	if base == "" {
+		return ""
+	}
+	scopedTargets := strings.TrimSpace(strings.Join(emptyStrings(dedupeStrings(targets)), "|"))
+	if scopedTargets == "" {
+		return stableAWSBlastRadiusToken(base, operation)
+	}
+	return stableAWSBlastRadiusToken(base, operation, scopedTargets)
 }
 
 func awsPermissionBoundaryExecutorTargetsByOperation(targets []string) map[string][]string {

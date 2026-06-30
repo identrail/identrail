@@ -281,6 +281,15 @@ func TestAWSPermissionBoundaryExecutorSplitsMixedPrincipalKinds(t *testing.T) {
 	if userEntry.IntendedAPICall.Operation != "PutUserPermissionsBoundary" || !strings.Contains(userEntry.IntendedAPICall.TargetResource, ":user/") {
 		t.Fatalf("user entry has wrong intended call: %+v", userEntry.IntendedAPICall)
 	}
+	if roleEntry.IdempotencyKey == userEntry.IdempotencyKey {
+		t.Fatalf("split entries should have distinct idempotency keys: role=%q user=%q", roleEntry.IdempotencyKey, userEntry.IdempotencyKey)
+	}
+	if roleEntry.IdempotencyKey != stableAWSBlastRadiusToken("idk", "PutRolePermissionsBoundary", roleEntry.TargetIdentityNodeIDs[0]) {
+		t.Fatalf("unexpected role split idempotency key: %q", roleEntry.IdempotencyKey)
+	}
+	if userEntry.IdempotencyKey != stableAWSBlastRadiusToken("idk", "PutUserPermissionsBoundary", userEntry.TargetIdentityNodeIDs[0]) {
+		t.Fatalf("unexpected user split idempotency key: %q", userEntry.IdempotencyKey)
+	}
 	filtered, _ := filterAWSPermissionBoundaryExecutorEntries(entries, AWSPermissionBoundaryExecutorRequest{AccountID: "111111111111"})
 	if len(filtered) != 1 || filtered[0].Operation != "PutRolePermissionsBoundary" {
 		t.Fatalf("account filter leaked cross-account split entries: %+v", filtered)
