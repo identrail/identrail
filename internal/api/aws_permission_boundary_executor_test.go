@@ -281,6 +281,9 @@ func TestAWSPermissionBoundaryExecutorSplitsMixedPrincipalKinds(t *testing.T) {
 	if userEntry.IntendedAPICall.Operation != "PutUserPermissionsBoundary" || !strings.Contains(userEntry.IntendedAPICall.TargetResource, ":user/") {
 		t.Fatalf("user entry has wrong intended call: %+v", userEntry.IntendedAPICall)
 	}
+	if len(userEntry.IntendedAPICall.ParameterRefs) == 0 || userEntry.IntendedAPICall.ParameterRefs[0] != userEntry.IdempotencyKey {
+		t.Fatalf("user entry intended call should refresh its idempotency parameter ref: %+v", userEntry.IntendedAPICall)
+	}
 	if roleEntry.IdempotencyKey == userEntry.IdempotencyKey {
 		t.Fatalf("split entries should have distinct idempotency keys: role=%q user=%q", roleEntry.IdempotencyKey, userEntry.IdempotencyKey)
 	}
@@ -296,6 +299,9 @@ func TestAWSPermissionBoundaryExecutorSplitsMixedPrincipalKinds(t *testing.T) {
 	}
 	if roleEntry.ExecutionID == userEntry.ExecutionID {
 		t.Fatalf("split entries must have distinct execution IDs: role=%q user=%q", roleEntry.ExecutionID, userEntry.ExecutionID)
+	}
+	if len(roleEntry.IntendedAPICall.ParameterRefs) == 0 || roleEntry.IntendedAPICall.ParameterRefs[0] != roleEntry.IdempotencyKey {
+		t.Fatalf("role entry intended call should refresh its idempotency parameter ref: %+v", roleEntry.IntendedAPICall)
 	}
 }
 
@@ -388,6 +394,9 @@ func TestAWSPermissionBoundaryExecutorScopesSingleOperationAfterGroupFilter(t *t
 	}
 	if out.IntendedAPICall.Operation != "PutUserPermissionsBoundary" {
 		t.Fatalf("expected intended call to recompute for user-only split, got %+v", out.IntendedAPICall)
+	}
+	if len(out.IntendedAPICall.ParameterRefs) == 0 || out.IntendedAPICall.ParameterRefs[0] != out.IdempotencyKey {
+		t.Fatalf("scoped single-operation intended call should refresh idempotency parameter ref: %+v", out.IntendedAPICall)
 	}
 	if len(out.TargetIdentityNodeIDs) != 1 || !strings.HasSuffix(out.TargetIdentityNodeIDs[0], ":user/app-user") {
 		t.Fatalf("expected filtered target identities to keep only the user identity: %+v", out.TargetIdentityNodeIDs)

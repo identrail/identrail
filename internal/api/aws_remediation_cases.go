@@ -684,6 +684,13 @@ func awsRemediationCaseFromPermissionBoundary(plan AWSPermissionBoundarySCPPlan,
 		return AWSRemediationCase{}, false
 	}
 	supportedTargets := awsPermissionBoundaryExecutorSupportedTargets(plan.TargetIdentityNodeIDs)
+	filteredImpactedNodes := []string{}
+	for _, node := range emptyStrings(plan.ImpactedNodes) {
+		if awsRemediationDryRunIAMPrincipalKind(node) == "group" {
+			continue
+		}
+		filteredImpactedNodes = append(filteredImpactedNodes, node)
+	}
 	identityNodeID := firstString(emptyStrings(supportedTargets))
 	if identityNodeID == "" {
 		return AWSRemediationCase{}, false
@@ -723,7 +730,7 @@ func awsRemediationCaseFromPermissionBoundary(plan AWSPermissionBoundarySCPPlan,
 		IdentityNodeID:     identityNodeID,
 		IdentityName:       firstNonEmptyAWSValue(shortAWSARN(identityNodeID), identityNodeID),
 		IdentityType:       "iam_role",
-		ResourceNodeIDs:    awsRemediationResourceNodes(supportedTargets, plan.ImpactedNodes),
+		ResourceNodeIDs:    awsRemediationResourceNodes(supportedTargets, filteredImpactedNodes),
 		Owner:              owner,
 		OwnerAssigned:      ownerAssigned,
 		ApprovalRequired:   approvalRequired,
@@ -735,7 +742,7 @@ func awsRemediationCaseFromPermissionBoundary(plan AWSPermissionBoundarySCPPlan,
 		SourceSignals:      dedupeStrings(append([]string{"aws_permission_boundary_scp", "permission_boundary"}, plan.SourceSignals...)),
 		Evidence:           plan.Evidence,
 		EvidenceBoundary:   awsRemediationCaseEvidenceBoundary(),
-		ImpactedNodes:      dedupeStrings(append(append([]string{}, supportedTargets...), plan.ImpactedNodes...)),
+		ImpactedNodes:      dedupeStrings(append(append([]string{}, supportedTargets...), filteredImpactedNodes...)),
 		ImpactedPath:       plan.ImpactedPath,
 		NextActions:        awsRemediationNextActionList(plan.NextAction, diff),
 		CreatedAt:          now,

@@ -306,6 +306,9 @@ func TestAWSRemediationCaseFromPermissionBoundaryFiltersUnsupportedTargets(t *te
 	if len(boundaryCase.ResourceNodeIDs) != 1 || boundaryCase.ResourceNodeIDs[0] != "aws:identity:arn:aws:iam::222222222222:user/app-user" {
 		t.Fatalf("expected resource nodes to exclude unsupported target kinds: %+v", boundaryCase.ResourceNodeIDs)
 	}
+	if len(boundaryCase.ImpactedNodes) != 1 || boundaryCase.ImpactedNodes[0] != "aws:identity:arn:aws:iam::222222222222:user/app-user" {
+		t.Fatalf("expected impacted nodes to exclude unsupported target kinds: %+v", boundaryCase.ImpactedNodes)
+	}
 
 	groupOnlyPlan := plan
 	groupOnlyPlan.PlanID = "permission-boundary-group-only"

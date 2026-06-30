@@ -498,7 +498,11 @@ func awsPermissionBoundaryExecutorAccountFromTarget(target string) string {
 
 func awsPermissionBoundaryExecutorIntendedCall(entry AWSRemediationDryRunEntry) AWSRemediationDryRunIntendedAPICall {
 	if len(entry.IntendedAPICalls) > 0 {
-		return entry.IntendedAPICalls[0]
+		call := entry.IntendedAPICalls[0]
+		if len(call.ParameterRefs) > 0 {
+			call.ParameterRefs = append([]string{}, call.ParameterRefs...)
+		}
+		return call
 	}
 	return AWSRemediationDryRunIntendedAPICall{
 		Service:          "iam",
@@ -517,6 +521,11 @@ func awsPermissionBoundaryExecutorIntendedCallForTargets(entry AWSRemediationDry
 	call.TargetResource = firstNonEmptyAWSValue(firstString(emptyStrings(targets)), call.TargetResource, firstString(entry.ImpactedNodes))
 	if len(call.ParameterRefs) == 0 {
 		call.ParameterRefs = []string{entry.IdempotencyKey, "boundary_ref://" + entry.CaseID + "/after"}
+	} else {
+		call.ParameterRefs[0] = entry.IdempotencyKey
+		if len(call.ParameterRefs) == 1 {
+			call.ParameterRefs = append(call.ParameterRefs, "boundary_ref://"+entry.CaseID+"/after")
+		}
 	}
 	call.Idempotent = true
 	call.RequiresApproval = true
