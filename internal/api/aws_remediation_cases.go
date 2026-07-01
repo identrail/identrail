@@ -695,6 +695,7 @@ func awsRemediationCaseFromPermissionBoundary(plan AWSPermissionBoundarySCPPlan,
 	if identityNodeID == "" {
 		return AWSRemediationCase{}, false
 	}
+	scopedTargetAccountIDs := awsPermissionBoundaryExecutorScopedAccountsForTargets(supportedTargets, plan.TargetAccountIDs)
 	caseID := "aws-remediation-case:" + stableAWSBlastRadiusToken("permission-boundary", plan.PlanID)
 	evidenceRef := firstString(awsRemediationEvidenceRefs(plan.Evidence))
 	deniedActions := awsRemediationPermissionBoundaryDeniedActions(plan)
@@ -724,8 +725,8 @@ func awsRemediationCaseFromPermissionBoundary(plan AWSPermissionBoundarySCPPlan,
 		Confidence:         plan.Confidence,
 		Title:              fmt.Sprintf("Permission boundary executor for %s", firstNonEmptyAWSValue(plan.Service, identityNodeID)),
 		Summary:            plan.Summary,
-		AccountID:          firstNonEmptyAWSValue(plan.AccountID, firstString(plan.TargetAccountIDs)),
-		TargetAccountIDs:   emptyStrings(dedupeStrings(plan.TargetAccountIDs)),
+		AccountID:          firstString(scopedTargetAccountIDs),
+		TargetAccountIDs:   scopedTargetAccountIDs,
 		Region:             plan.Region,
 		IdentityNodeID:     identityNodeID,
 		IdentityName:       firstNonEmptyAWSValue(shortAWSARN(identityNodeID), identityNodeID),
