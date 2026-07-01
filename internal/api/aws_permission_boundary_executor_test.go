@@ -370,7 +370,7 @@ func TestAWSPermissionBoundaryExecutorSplitsSameKindTargetsIntoCalls(t *testing.
 	}
 }
 
-func TestAWSPermissionBoundaryExecutorSplitPreservesPlannerAccountsForNonARNTargets(t *testing.T) {
+func TestAWSPermissionBoundaryExecutorSplitAvoidsUnsafeAccountFallbackForNonARNTargets(t *testing.T) {
 	now := time.Date(2026, 6, 30, 11, 45, 0, 0, time.UTC)
 	plan := AWSPermissionBoundarySCPPlan{
 		PlanID:                "plan-mixed-non-arn",
@@ -400,21 +400,23 @@ func TestAWSPermissionBoundaryExecutorSplitPreservesPlannerAccountsForNonARNTarg
 		}},
 	}
 
+	// Neither target's node ID carries an ARN-encoded account, and the plan
+	// originally described two targets, so no split entry can prove which of
+	// the planner's two accounts it belongs to. Each entry must leave its
+	// account scope empty rather than inheriting the full planner list,
+	// which would let one target masquerade under the other's account.
 	entries := awsPermissionBoundaryExecutorEntriesFromDryRun(entry, plan, now)
 	if len(entries) != 2 {
 		t.Fatalf("expected mixed non-ARN role/user plan to split into two executor entries: %+v", entries)
 	}
 	for _, out := range entries {
-		if len(out.TargetAccountIDs) != 2 {
-			t.Fatalf("non-ARN split entry must preserve planner target accounts: %+v", out)
-		}
-		if out.AccountID == "" {
-			t.Fatalf("non-ARN split entry must retain a primary account from the planner: %+v", out)
+		if len(out.TargetAccountIDs) != 0 || out.AccountID != "" {
+			t.Fatalf("non-ARN split entry with an unresolved account must not inherit the planner's full account list: %+v", out)
 		}
 	}
 	filtered, _ := filterAWSPermissionBoundaryExecutorEntries(entries, AWSPermissionBoundaryExecutorRequest{AccountID: "222222222222"})
-	if len(filtered) != 2 {
-		t.Fatalf("planner account drill-down should retain both non-ARN split entries: %+v", filtered)
+	if len(filtered) != 0 {
+		t.Fatalf("account drill-down must not match split entries with no proven account scope: %+v", filtered)
 	}
 }
 
@@ -471,6 +473,59 @@ func TestAWSPermissionBoundaryExecutorScopesSingleOperationAfterGroupFilter(t *t
 	}
 	if out.AccountID != "222222222222" {
 		t.Fatalf("expected primary account to be retained user account, got %q", out.AccountID)
+	}
+}
+
+func TestAWSPermissionBoundaryExecutorAvoidsUnsafeAccountFallbackForUnresolvedSplitTarget(t *testing.T) {
+	now := time.Date(2026, 6, 30, 12, 20, 0, 0, time.UTC)
+	plan := AWSPermissionBoundarySCPPlan{
+		PlanID:                "plan-multi-target-non-arn-user",
+		Kind:                  awsPermissionBoundaryKind,
+		ReadyForApply:         true,
+		TargetIdentityNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:role/app-a", "aws:identity:user/app-user"},
+		TargetAccountIDs:      []string{"111111111111", "222222222222"},
+		BreakageProjection:    AWSPermissionBoundarySCPBreakageProjection{Level: "low"},
+	}
+	entry := AWSRemediationDryRunEntry{
+		DryRunID:         "dr-multi-target-non-arn-user",
+		CaseID:           "case-multi-target-non-arn-user",
+		SourceType:       "aws_permission_boundary_scp",
+		SourceArtifactID: "plan-multi-target-non-arn-user",
+		IdempotencyKey:   "idk",
+		Outcome:          awsRemediationDryRunOutcomeWouldSucceed,
+		ReadyForApply:    true,
+		DiffIntent:       AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+		IntendedAPICalls: []AWSRemediationDryRunIntendedAPICall{
+			{
+				Service:          "iam",
+				Operation:        "PutRolePermissionsBoundary",
+				TargetResource:   "aws:identity:arn:aws:iam::111111111111:role/app-a",
+				ParameterRefs:    []string{"idk", "boundary_ref://case-multi-target-non-arn-user/after"},
+				Idempotent:       true,
+				RequiresApproval: true,
+			},
+			{
+				Service:          "iam",
+				Operation:        "PutUserPermissionsBoundary",
+				TargetResource:   "aws:identity:user/app-user",
+				ParameterRefs:    []string{"idk", "boundary_ref://case-multi-target-non-arn-user/after"},
+				Idempotent:       true,
+				RequiresApproval: true,
+			},
+		},
+	}
+
+	entries := awsPermissionBoundaryExecutorEntriesFromDryRun(entry, plan, now)
+	if len(entries) != 2 {
+		t.Fatalf("expected one executor entry per split target, got %+v", entries)
+	}
+	for _, out := range entries {
+		if len(out.TargetIdentityNodeIDs) != 1 || out.TargetIdentityNodeIDs[0] != "aws:identity:user/app-user" {
+			continue
+		}
+		if len(out.TargetAccountIDs) != 0 || out.AccountID != "" {
+			t.Fatalf("non-ARN split target with no derivable account must not inherit the plan's full account list: %+v", out)
+		}
 	}
 }
 

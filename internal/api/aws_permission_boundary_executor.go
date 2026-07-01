@@ -324,6 +324,7 @@ func awsPermissionBoundaryExecutorAdmits(entry AWSRemediationDryRunEntry) bool {
 }
 
 func awsPermissionBoundaryExecutorEntriesFromDryRun(entry AWSRemediationDryRunEntry, plan AWSPermissionBoundarySCPPlan, now time.Time) []AWSPermissionBoundaryExecutorEntry {
+	originalTargets := emptyStrings(plan.TargetIdentityNodeIDs)
 	supportedTargets := awsPermissionBoundaryExecutorSupportedTargets(plan.TargetIdentityNodeIDs)
 	if len(supportedTargets) == 0 {
 		return nil
@@ -336,11 +337,20 @@ func awsPermissionBoundaryExecutorEntriesFromDryRun(entry AWSRemediationDryRunEn
 		operations = append(operations, operation)
 	}
 	sort.Strings(operations)
+	// The plan's account list was captured before unsupported targets were
+	// filtered out and before this split into per-target entries, so it can
+	// only be trusted as a fallback when the plan always described exactly
+	// one target; otherwise it may carry accounts that belong to a dropped
+	// target or a sibling target instead of the one this entry projects.
+	accountFallback := plan.TargetAccountIDs
+	if len(originalTargets) != 1 {
+		accountFallback = nil
+	}
 	for _, operation := range operations {
 		for _, target := range targetsByOperation[operation] {
 			scopedPlan := plan
 			scopedPlan.TargetIdentityNodeIDs = []string{target}
-			scopedPlan.TargetAccountIDs = awsPermissionBoundaryExecutorScopedAccountsForTargets(scopedPlan.TargetIdentityNodeIDs, plan.TargetAccountIDs)
+			scopedPlan.TargetAccountIDs = awsPermissionBoundaryExecutorScopedAccountsForTargets(scopedPlan.TargetIdentityNodeIDs, accountFallback)
 			scopedPlan.AccountID = firstString(scopedPlan.TargetAccountIDs)
 			scopedPlan.ImpactedNodes = emptyStrings(dedupeStrings(append(append([]string{}, scopedPlan.TargetIdentityNodeIDs...), plan.ImpactedNodes...)))
 			scopedEntry := entry
