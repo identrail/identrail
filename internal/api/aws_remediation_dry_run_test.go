@@ -545,6 +545,69 @@ func TestAWSRemediationDryRunIAMOperationFollowsPrincipalKind(t *testing.T) {
 	}
 }
 
+func TestAWSRemediationDryRunPermissionBoundaryEmitsCallPerTarget(t *testing.T) {
+	approval := AWSRemediationApprovalEntry{
+		SourceType:     "aws_permission_boundary_scp",
+		CaseID:         "case-boundary-multi-target",
+		IdempotencyKey: "idk",
+		Scope: AWSRemediationApprovalScope{
+			IdentityNodeIDs: []string{
+				"aws:identity:arn:aws:iam::111111111111:role/app-a",
+				"aws:identity:arn:aws:iam::111111111111:role/app-b",
+				"aws:identity:arn:aws:iam::111111111111:user/app-user",
+			},
+		},
+		DiffIntent: AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+	}
+
+	calls := awsRemediationDryRunIntendedAPICalls(approval)
+	if len(calls) != 3 {
+		t.Fatalf("expected one permission-boundary dry-run call per retained target, got %+v", calls)
+	}
+	seenTargets := map[string]bool{}
+	seenIdempotencyRefs := map[string]bool{}
+	for _, call := range calls {
+		if call.Service != "iam" || !call.Idempotent || !call.RequiresApproval {
+			t.Fatalf("permission-boundary dry-run call has wrong metadata: %+v", call)
+		}
+		if call.Operation != "PutRolePermissionsBoundary" && call.Operation != "PutUserPermissionsBoundary" {
+			t.Fatalf("permission-boundary dry-run call has wrong operation: %+v", call)
+		}
+		if strings.Contains(call.TargetResource, ":user/") && call.Operation != "PutUserPermissionsBoundary" {
+			t.Fatalf("user target must use PutUserPermissionsBoundary: %+v", call)
+		}
+		if strings.Contains(call.TargetResource, ":role/") && call.Operation != "PutRolePermissionsBoundary" {
+			t.Fatalf("role target must use PutRolePermissionsBoundary: %+v", call)
+		}
+		if len(call.ParameterRefs) == 0 || strings.TrimSpace(call.ParameterRefs[0]) == "" {
+			t.Fatalf("permission-boundary dry-run call should have a scoped idempotency ref: %+v", call)
+		}
+		if seenIdempotencyRefs[call.ParameterRefs[0]] {
+			t.Fatalf("permission-boundary dry-run calls should not share idempotency refs: %+v", calls)
+		}
+		seenTargets[call.TargetResource] = true
+		seenIdempotencyRefs[call.ParameterRefs[0]] = true
+	}
+	for _, target := range approval.Scope.IdentityNodeIDs {
+		if !seenTargets[target] {
+			t.Fatalf("missing permission-boundary dry-run call for target %q in %+v", target, calls)
+		}
+	}
+
+	resources := awsRemediationDryRunAffectedResources(approval, calls)
+	apiTargets := map[string]bool{}
+	for _, resource := range resources {
+		if resource.ChangeKind == "api_target" {
+			apiTargets[resource.NodeID] = true
+		}
+	}
+	for _, target := range approval.Scope.IdentityNodeIDs {
+		if !apiTargets[target] {
+			t.Fatalf("missing api_target affected resource for target %q in %+v", target, resources)
+		}
+	}
+}
+
 func TestAWSRemediationDryRunVerificationChecksGateIAMSimulatorByDiffKind(t *testing.T) {
 	cases := []struct {
 		name          string

@@ -348,6 +348,11 @@ func awsRemediationDryRunIntendedAPICalls(approval AWSRemediationApprovalEntry) 
 	if approval.DiffIntent.NoOp {
 		return []AWSRemediationDryRunIntendedAPICall{awsRemediationDryRunNoOpCall(targets.identity, approval.IdempotencyKey)}
 	}
+	if awsRemediationDryRunIsPermissionBoundaryApproval(approval) {
+		if calls := awsRemediationDryRunPermissionBoundaryCalls(approval); len(calls) > 0 {
+			return calls
+		}
+	}
 	caseID := approval.CaseID
 	if call, ok := awsRemediationDryRunCallForDiffKind(approval.DiffIntent, targets, approval.IdempotencyKey, caseID); ok {
 		return []AWSRemediationDryRunIntendedAPICall{call}
@@ -356,6 +361,38 @@ func awsRemediationDryRunIntendedAPICalls(approval AWSRemediationApprovalEntry) 
 		return []AWSRemediationDryRunIntendedAPICall{call}
 	}
 	return []AWSRemediationDryRunIntendedAPICall{awsRemediationDryRunNoOpCall(targets.identity, approval.IdempotencyKey)}
+}
+
+func awsRemediationDryRunIsPermissionBoundaryApproval(approval AWSRemediationApprovalEntry) bool {
+	return strings.EqualFold(approval.SourceType, "aws_permission_boundary_scp") || strings.EqualFold(strings.TrimSpace(approval.DiffIntent.Kind), "permission_boundary_diff")
+}
+
+func awsRemediationDryRunPermissionBoundaryCalls(approval AWSRemediationApprovalEntry) []AWSRemediationDryRunIntendedAPICall {
+	targets := awsPermissionBoundaryExecutorSupportedTargets(approval.Scope.IdentityNodeIDs)
+	calls := make([]AWSRemediationDryRunIntendedAPICall, 0, len(targets))
+	for _, target := range targets {
+		operation := awsRemediationDryRunPutBoundaryOperation(target)
+		calls = append(calls, AWSRemediationDryRunIntendedAPICall{
+			Service:          "iam",
+			Operation:        operation,
+			TargetResource:   target,
+			ParameterRefs:    []string{awsRemediationDryRunScopedIdempotencyKey(approval.IdempotencyKey, operation, target), "boundary_ref://" + approval.CaseID + "/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		})
+	}
+	return calls
+}
+
+func awsRemediationDryRunScopedIdempotencyKey(base, operation, target string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return ""
+	}
+	if strings.TrimSpace(target) == "" {
+		return stableAWSBlastRadiusToken(base, operation)
+	}
+	return stableAWSBlastRadiusToken(base, operation, target)
 }
 
 // awsRemediationDryRunTargetSet pairs the identity-first and resource-first
