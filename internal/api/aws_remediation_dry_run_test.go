@@ -626,6 +626,89 @@ func TestAWSRemediationDryRunPermissionBoundaryEmitsCallPerTarget(t *testing.T) 
 	}
 }
 
+func TestAWSRemediationDryRunPermissionBoundaryBlocksAmbiguousNonARNAccountScope(t *testing.T) {
+	now := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
+	base := AWSRemediationApprovalEntry{
+		ApprovalID:        "approval-boundary-non-arn",
+		CaseID:            "case-boundary-non-arn",
+		SourceType:        "aws_permission_boundary_scp",
+		IdempotencyKey:    "idk",
+		State:             awsRemediationApprovalStateApproved,
+		ReadyForExecution: true,
+		DiffIntent:        AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+		RBACGates:         []AWSRemediationApprovalRBACGate{{Name: "approver_quorum", Status: "passed"}},
+		Scope: AWSRemediationApprovalScope{
+			IdentityNodeIDs: []string{"aws:identity:role/orders-ci"},
+		},
+	}
+
+	for _, tc := range []struct {
+		name            string
+		accountIDs      []string
+		identityNodeIDs []string
+		wantPass        bool
+	}{
+		{name: "empty account scope", accountIDs: nil},
+		{name: "ambiguous account scope", accountIDs: []string{"111111111111", "222222222222"}},
+		{name: "single account scope", accountIDs: []string{"111111111111"}, wantPass: true},
+		{
+			name:       "multiple non-ARN targets with one account scope",
+			accountIDs: []string{"111111111111"},
+			identityNodeIDs: []string{
+				"aws:identity:role/dev-role",
+				"aws:identity:user/app-user",
+			},
+		},
+		{
+			name:       "mixed arn/non-arn with one target account",
+			accountIDs: []string{"111111111111"},
+			identityNodeIDs: []string{
+				"aws:identity:arn:aws:iam::111111111111:role/app-a",
+				"aws:identity:user/app-user",
+			},
+		},
+	} {
+		approval := base
+		approval.Scope.AccountIDs = tc.accountIDs
+		if tc.identityNodeIDs != nil {
+			approval.Scope.IdentityNodeIDs = tc.identityNodeIDs
+		}
+		entry := awsRemediationDryRunEntryFromApproval(approval, now)
+		if tc.wantPass {
+			if entry.Outcome != awsRemediationDryRunOutcomeWouldSucceed || len(entry.FailedPrereqs) != 0 {
+				t.Fatalf("%s: expected scoped non-ARN target to pass, got outcome=%q failed=%+v", tc.name, entry.Outcome, entry.FailedPrereqs)
+			}
+			continue
+		}
+		if entry.Outcome != awsRemediationDryRunOutcomeWouldFail {
+			t.Fatalf("%s: ambiguous non-ARN target must project would_fail, got %q", tc.name, entry.Outcome)
+		}
+		if entry.ReadyForApply {
+			t.Fatalf("%s: ambiguous non-ARN target must not be ready_for_apply: %+v", tc.name, entry)
+		}
+		found := false
+		for _, prereq := range entry.FailedPrereqs {
+			if prereq.Name == "permission_boundary_target_account_scope" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("%s: expected boundary account-scope failed prerequisite, got %+v", tc.name, entry.FailedPrereqs)
+		}
+		expectedTarget := awsRemediationDryRunFirstNode(approval.Scope.IdentityNodeIDs)
+		if len(entry.IntendedAPICalls) != 1 || entry.IntendedAPICalls[0].TargetResource != expectedTarget {
+			t.Fatalf("%s: dry-run should still show the reviewed intended target while blocked, expected=%q got %+v", tc.name, expectedTarget, entry.IntendedAPICalls)
+		}
+	}
+
+	arnScoped := base
+	arnScoped.Scope.IdentityNodeIDs = []string{"aws:identity:arn:aws:iam::111111111111:role/orders-ci"}
+	entry := awsRemediationDryRunEntryFromApproval(arnScoped, now)
+	if entry.Outcome != awsRemediationDryRunOutcomeWouldSucceed || len(entry.FailedPrereqs) != 0 {
+		t.Fatalf("ARN target should carry its own account scope, got outcome=%q failed=%+v", entry.Outcome, entry.FailedPrereqs)
+	}
+}
+
 func TestAWSRemediationDryRunVerificationChecksGateIAMSimulatorByDiffKind(t *testing.T) {
 	cases := []struct {
 		name          string
