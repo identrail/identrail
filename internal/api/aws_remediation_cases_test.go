@@ -75,8 +75,19 @@ func TestGetAWSRemediationCasesBuildsContract(t *testing.T) {
 		if c.SourceType == "trust_policy_hardening" && (c.IdentityType != "iam_role" || c.DiffIntent.Kind != "iam_trust_diff") {
 			t.Fatalf("trust-policy hardening case must stay scoped to IAM role trust diffs: %+v", c)
 		}
-		if c.SourceType == "aws_permission_boundary_scp" && ((c.IdentityType != "iam_role" && c.IdentityType != "iam_user") || c.DiffIntent.Kind != "permission_boundary_diff") {
-			t.Fatalf("permission-boundary case must stay scoped to IAM identity boundary diffs: %+v", c)
+		if c.SourceType == "aws_permission_boundary_scp" {
+			switch c.DiffIntent.Kind {
+			case "permission_boundary_diff":
+				if c.IdentityType != "iam_role" && c.IdentityType != "iam_user" {
+					t.Fatalf("permission-boundary case must stay scoped to IAM identity targets: %+v", c)
+				}
+			case "scp_diff":
+				if c.IdentityType != "" || (len(c.TargetAccountIDs) == 0 && len(c.ResourceNodeIDs) == 0) {
+					t.Fatalf("scp guardrail case must stay scoped to account/OU resources: %+v", c)
+				}
+			default:
+				t.Fatalf("permission-boundary/SCP source emitted unsupported diff kind: %+v", c)
+			}
 		}
 		if len(c.AuditTrail) == 0 || c.AuditTrail[0].EventType != "proposed" {
 			t.Fatalf("case missing proposed audit entry: %+v", c.AuditTrail)
@@ -677,6 +688,7 @@ func TestAWSRemediationDiffIsExecutable(t *testing.T) {
 	}{
 		{"executable iam_policy_diff", AWSRemediationDiffIntent{Kind: "iam_policy_diff"}, true},
 		{"executable secret_rotation", AWSRemediationDiffIntent{Kind: "secret_rotation"}, true},
+		{"executable scp_diff", AWSRemediationDiffIntent{Kind: "scp_diff"}, true},
 		{"manual review", AWSRemediationDiffIntent{Kind: "manual_review"}, false},
 		{"no-op owner assignment", AWSRemediationDiffIntent{Kind: "owner_assignment", NoOp: true}, false},
 		{"no-op fallthrough", AWSRemediationDiffIntent{Kind: "iam_policy_diff", NoOp: true}, false},

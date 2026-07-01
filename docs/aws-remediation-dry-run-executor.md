@@ -49,7 +49,8 @@ Each `AWSRemediationDryRunEntry` includes:
   derived from the source type — for example IAM `PutRolePolicy` for
   least-privilege diffs, IAM `UpdateAssumeRolePolicy` for trust hardening,
   Secrets Manager `RotateSecret` for secret rotation, IAM `UpdateAccessKey`
-  for quarantine, and `bedrock-agent:UpdateAgent` for AI-agent risk
+  for quarantine, Organizations `AttachPolicy` for SCP guardrails, and
+  `bedrock-agent:UpdateAgent` for AI-agent risk
 - `affected_resources` with change kind and before/after metadata refs
 - `satisfied_prerequisites` and `failed_prerequisites` covering approval
   state, kill switch, ready-for-execution, every RBAC gate, and every

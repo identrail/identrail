@@ -528,6 +528,15 @@ func awsRemediationDryRunCallForDiffKind(diff AWSRemediationDiffIntent, targets 
 			Idempotent:       true,
 			RequiresApproval: true,
 		}, true
+	case "scp_diff":
+		return AWSRemediationDryRunIntendedAPICall{
+			Service:          "organizations",
+			Operation:        "AttachPolicy",
+			TargetResource:   targets.resource,
+			ParameterRefs:    []string{idempotencyKey, "scp_ref://" + caseID + "/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}, true
 	}
 	return AWSRemediationDryRunIntendedAPICall{}, false
 }
@@ -786,6 +795,11 @@ func awsRemediationDryRunVerificationChecks(approval AWSRemediationApprovalEntry
 		checks = append(checks, AWSRemediationDryRunVerificationCheck{Source: "kms", Signal: "grant_policy_applied", Description: "Confirm the projected KMS key-policy change applied and the broad decrypt/admin reachability is gone."})
 	case "ai_agent_scope_change":
 		checks = append(checks, AWSRemediationDryRunVerificationCheck{Source: "bedrock-agent", Signal: "agent_scope_applied", Description: "Confirm the agent scope change applied and the narrowed tool/capability surface is reflected in runtime evidence."})
+	case "scp_diff":
+		checks = append(checks,
+			AWSRemediationDryRunVerificationCheck{Source: "organizations", Signal: "scp_attached", Description: "Confirm the projected SCP is attached to each captured account or OU target."},
+			AWSRemediationDryRunVerificationCheck{Source: "access_analyzer", Signal: "no_new_external_findings", Description: "Re-run Access Analyzer after live execution to confirm no new external-trust findings."},
+		)
 	}
 	if strings.EqualFold(approval.SourceType, "trust_policy_hardening") || strings.EqualFold(approval.SourceType, "blast_radius") {
 		checks = append(checks, AWSRemediationDryRunVerificationCheck{Source: "access_analyzer", Signal: "no_new_external_findings", Description: "Re-run Access Analyzer after live execution to confirm no new external-trust findings."})

@@ -3611,6 +3611,130 @@ export type AWSPermissionBoundaryExecutorQuery = {
   search?: string;
 };
 
+export type AWSScpGuardrailExecutorStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSScpGuardrailExecutorFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSScpGuardrailExecutorState = 'projected' | 'precondition_failed' | 'blocked' | string;
+
+export type AWSScpGuardrailExecutorPrecondition = AWSPermissionBoundaryExecutorPrecondition;
+export type AWSScpGuardrailExecutorVerification = AWSPermissionBoundaryExecutorVerification;
+export type AWSScpGuardrailExecutorRelationship = AWSPermissionBoundaryExecutorRelationship;
+
+export type AWSScpGuardrailExecutorSimulation = {
+  simulation_ref: string;
+  outcome: string;
+  before_ref: string;
+  after_ref: string;
+  denied_action_count: number;
+  target_account_count: number;
+  target_ou_count: number;
+  signals?: string[];
+};
+
+export type AWSScpGuardrailExecutorEntry = {
+  execution_id: string;
+  calculation_version: string;
+  dry_run_id: string;
+  approval_id: string;
+  case_id: string;
+  plan_id: string;
+  source_artifact_id: string;
+  state: AWSScpGuardrailExecutorState;
+  severity: string;
+  score: number;
+  confidence: number;
+  title: string;
+  summary: string;
+  account_id: string;
+  region: string;
+  operation: string;
+  idempotency_key: string;
+  target_account_ids?: string[];
+  target_ou_paths?: string[];
+  prevented_behavior: string;
+  statement_snippets: AWSPermissionBoundarySCPStatementSnippet[];
+  breakage_projection: AWSPermissionBoundarySCPBreakageProjection;
+  intended_api_call: AWSRemediationDryRunIntendedAPICall;
+  preconditions: AWSScpGuardrailExecutorPrecondition[];
+  boundary_simulation: AWSScpGuardrailExecutorSimulation;
+  verifications: AWSScpGuardrailExecutorVerification[];
+  rollback_plan: AWSPermissionBoundarySCPRollbackPlan;
+  verification_plan: AWSPermissionBoundarySCPVerificationPlan;
+  audit_trail: AWSRemediationAuditEntry[];
+  kill_switch_engaged: boolean;
+  ready_for_live_apply: boolean;
+  read_only_projection: boolean;
+  source_signals: string[];
+  evidence: AWSLeastPrivilegeEvidence[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  next_action: string;
+  projected_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSScpGuardrailExecutorSummary = {
+  total_entries: number;
+  filtered_entries: number;
+  state_counts: Record<string, number>;
+  operation_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  ready_for_live_apply_count: number;
+  kill_switch_engaged_count: number;
+  failed_precondition_count: number;
+  target_account_count: number;
+  target_ou_count: number;
+  verification_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSScpGuardrailExecutorResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSScpGuardrailExecutorStatus;
+  fixture_state?: AWSScpGuardrailExecutorFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSScpGuardrailExecutorSummary;
+  entries: AWSScpGuardrailExecutorEntry[];
+  relationships: AWSScpGuardrailExecutorRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSScpGuardrailExecutorQuery = {
+  connectorID?: string;
+  fixtureState?: AWSScpGuardrailExecutorFixtureState;
+  accountID?: string;
+  region?: string;
+  dryRunID?: string;
+  caseID?: string;
+  planID?: string;
+  operation?: string;
+  state?: string;
+  severity?: string;
+  search?: string;
+};
+
 export type AWSSecretKeyRotationStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSSecretKeyRotationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSSecretKeyRotationType = 'provider_key' | 'secrets_manager_secret' | 'kms_related' | string;
@@ -8858,6 +8982,29 @@ export const apiClient = {
   ) {
     return request<{ permission_boundary_executor: AWSPermissionBoundaryExecutorResult }>(
       `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/permission-boundary-executor${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        dry_run_id: query?.dryRunID,
+        case_id: query?.caseID,
+        plan_id: query?.planID,
+        operation: query?.operation,
+        state: query?.state,
+        severity: query?.severity,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectScpGuardrailExecutor(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSScpGuardrailExecutorQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ scp_guardrail_executor: AWSScpGuardrailExecutorResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/scp-guardrail-executor${buildQuery({
         connector_id: query?.connectorID,
         fixture_state: query?.fixtureState,
         account_id: query?.accountID,

@@ -3773,8 +3773,8 @@ describe('Domain-first app routes', () => {
         diagnostics: []
       } as any
     });
-    const getPermissionBoundaryExecutor = vi.spyOn(api.apiClient, 'getAWSProjectPermissionBoundaryExecutor').mockResolvedValue({
-      permission_boundary_executor: {
+	    const getPermissionBoundaryExecutor = vi.spyOn(api.apiClient, 'getAWSProjectPermissionBoundaryExecutor').mockResolvedValue({
+	      permission_boundary_executor: {
         status: 'ready',
         entries: [
           {
@@ -3901,10 +3901,138 @@ describe('Domain-first app routes', () => {
         remediation_hints: [],
         evidence_links: [],
         coverage_gaps: [],
-        diagnostics: []
-      } as any
-    });
-    const getSecretKeyRotation = vi.spyOn(api.apiClient, 'getAWSProjectSecretKeyRotationPlans').mockResolvedValue({
+	        diagnostics: []
+	      } as any
+	    });
+	    const getScpGuardrailExecutor = vi.spyOn(api.apiClient, 'getAWSProjectScpGuardrailExecutor').mockResolvedValue({
+	      scp_guardrail_executor: {
+	        status: 'ready',
+	        entries: [
+	          {
+	            execution_id: 'aws-scp-guardrail-executor:external-trust',
+	            calculation_version: 'aws-scp-guardrail-executor-v1',
+	            dry_run_id: 'aws-remediation-dry-run:external-trust',
+	            approval_id: 'aws-remediation-approval:external-trust',
+	            case_id: 'aws-remediation-case:external-trust',
+	            plan_id: 'aws-permission-boundary-scp:external-trust',
+	            source_artifact_id: 'aws-permission-boundary-scp:external-trust',
+	            state: 'projected',
+	            severity: 'high',
+	            score: 81,
+	            confidence: 0.91,
+	            title: 'SCP guardrail execution: external trust guardrail',
+	            summary: 'Approved SCP guardrail execution record for the external trust plan.',
+	            account_id: '111111111111',
+	            region: 'us-east-1',
+	            operation: 'AttachPolicy',
+	            idempotency_key: 'idempotency://external-trust',
+	            target_account_ids: ['111111111111', '222222222222'],
+	            target_ou_paths: ['/engineering'],
+	            prevented_behavior: 'Re-create the unconditioned external trust pattern.',
+	            statement_snippets: [
+	              {
+	                statement_sid: 'scp-projection',
+	                effect: 'Deny',
+	                change_kind: 'deny_external_trust',
+	                before_ref: 'evidence://trust/external',
+	                after_ref: 'scp://external/scoped-projection',
+	                denied_actions: ['iam:UpdateAssumeRolePolicy'],
+	                allowed_actions: [],
+	                resource_scope: ['arn:aws:iam::111111111111:role/orders'],
+	                rationale: 'Block re-introduction of the flagged external trust pattern.'
+	              }
+	            ],
+	            breakage_projection: {
+	              level: 'low',
+	              rationale: 'Runtime and analyzer evidence both confirm the caller set.',
+	              affected_identities: 0,
+	              affected_accounts: 2,
+	              affected_ous: 1,
+	              signals: ['affected_accounts:2', 'affected_ous:1']
+	            },
+	            intended_api_call: {
+	              service: 'organizations',
+	              operation: 'AttachPolicy',
+	              target_resource: '/engineering',
+	              parameter_refs: ['idempotency://external-trust', 'scp_ref://aws-remediation-case:external-trust/after'],
+	              idempotent: true,
+	              requires_approval: true
+	            },
+	            preconditions: [
+	              { name: 'dry_run_would_succeed', status: 'passed', rationale: 'Dry-run passed.' },
+	              { name: 'target_scope_captured', status: 'passed', rationale: 'Target scope captured.' }
+	            ],
+	            boundary_simulation: {
+	              simulation_ref: 'organizations:scp_simulate://aws-permission-boundary-scp:external-trust/scp-guardrail',
+	              outcome: 'would_attach_guardrail',
+	              before_ref: 'evidence://trust/external',
+	              after_ref: 'scp://external/scoped-projection',
+	              denied_action_count: 1,
+	              target_account_count: 2,
+	              target_ou_count: 1,
+	              signals: ['scp_guardrail', 'affected_accounts:2']
+	            },
+	            verifications: [
+	              {
+	                source: 'access_analyzer',
+	                signal: 'no_new_external_findings',
+	                status: 'pending',
+	                description: 'Re-run Access Analyzer after live execution.'
+	              }
+	            ],
+	            rollback_plan: {
+	              strategy: 'detach_scp',
+	              steps: ['Detach the projected SCP from the captured OU.'],
+	              evidence_ref: 'evidence://trust/external'
+	            },
+	            verification_plan: {
+	              strategy: 'scp_simulate',
+	              steps: ['Confirm the SCP denies the prevented behavior.'],
+	              success_signals: ['cross_account_trust:finding-resolved'],
+	              failure_signals: ['cross_account_trust:finding-unchanged'],
+	              evidence_ref: 'evidence://trust/external'
+	            },
+	            audit_trail: [],
+	            kill_switch_engaged: false,
+	            ready_for_live_apply: true,
+	            read_only_projection: true,
+	            source_signals: ['aws_permission_boundary_scp', 'scp'],
+	            evidence: [],
+	            evidence_boundary: 'metadata_only_no_rendered_policy_bodies_no_secret_values_no_workload_payloads',
+	            impacted_nodes: ['111111111111', '/engineering'],
+	            impacted_path: [],
+	            next_action: 'SCP guardrail operation=AttachPolicy is ready for the wave-8 apply runtime once its feature flag opens.',
+	            projected_at: '2026-07-01T10:00:00Z',
+	            created_at: '2026-07-01T10:00:00Z',
+	            updated_at: '2026-07-01T10:00:00Z'
+	          }
+	        ],
+	        summary: {
+	          total_entries: 1,
+	          filtered_entries: 1,
+	          state_counts: { projected: 1 },
+	          operation_counts: { AttachPolicy: 1 },
+	          severity_counts: { high: 1 },
+	          ready_for_live_apply_count: 1,
+	          kill_switch_engaged_count: 0,
+	          failed_precondition_count: 0,
+	          target_account_count: 2,
+	          target_ou_count: 1,
+	          verification_count: 1,
+	          relationship_count: 3,
+	          highest_score: 81,
+	          average_confidence_pct: 91
+	        },
+	        relationships: [],
+	        caveats: ['SCP guardrail executor entries are read-only projections.'],
+	        failure_reasons: [],
+	        remediation_hints: [],
+	        evidence_links: [],
+	        coverage_gaps: [],
+	        diagnostics: []
+	      } as any
+	    });
+	    const getSecretKeyRotation = vi.spyOn(api.apiClient, 'getAWSProjectSecretKeyRotationPlans').mockResolvedValue({
       plans: {
         status: 'ready',
         plans: [
@@ -4494,6 +4622,9 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('table', { name: 'AWS permission boundary executor entries' })).toBeInTheDocument();
     expect(screen.getByText(/Permission boundary execution: deny s3:DeleteObject/i)).toBeInTheDocument();
     expect(screen.getAllByText(/PutRolePermissionsBoundary/i).length).toBeGreaterThan(0);
+    expect(await screen.findByRole('table', { name: 'AWS SCP guardrail executor entries' })).toBeInTheDocument();
+    expect(screen.getByText(/SCP guardrail execution: external trust guardrail/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/AttachPolicy/i).length).toBeGreaterThan(0);
     expect(await screen.findByRole('table', { name: 'AWS secret/key rotation plans' })).toBeInTheDocument();
     expect(screen.getByText(/Provider key rotation: openai\/api-key/i)).toBeInTheDocument();
     expect(screen.getAllByText(/ai-platform · Pending approver/i).length).toBeGreaterThan(0);
@@ -4556,6 +4687,12 @@ describe('Domain-first app routes', () => {
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
     expect(getPermissionBoundaryExecutor).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getScpGuardrailExecutor).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       expect.objectContaining({ connectorID: 'aws-connector-1' }),

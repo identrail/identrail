@@ -434,7 +434,7 @@ func awsRemediationApprovalScope(source AWSRemediationCase, connectorID string) 
 		identityNodes = append(identityNodes, source.IdentityNodeID)
 	}
 	resourceNodes := emptyStrings(dedupeStrings(source.ResourceNodeIDs))
-	if strings.EqualFold(source.SourceType, "aws_permission_boundary_scp") {
+	if strings.EqualFold(source.SourceType, "aws_permission_boundary_scp") && !strings.EqualFold(source.DiffIntent.Kind, "scp_diff") {
 		scopeType = "identity"
 		identityNodes = awsPermissionBoundaryExecutorSupportedTargets(append(identityNodes, source.ResourceNodeIDs...))
 		resourceNodes = nil

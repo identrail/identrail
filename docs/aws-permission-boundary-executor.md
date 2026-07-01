@@ -41,8 +41,8 @@ ready, breakage is `low`, scope is captured, and no kill switch is engaged.
 - `blocked`: a safety gate failed, the tenant kill switch is engaged, the
   operation is unsupported, or the dry-run is blocked.
 
-SCP plans are intentionally excluded; org-level SCP execution belongs to the
-dedicated SCP executor issue.
+SCP plans are intentionally excluded; org-level SCP execution is projected by
+the dedicated SCP guardrail executor.
 
 ## App Surface
 
