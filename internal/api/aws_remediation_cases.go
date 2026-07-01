@@ -758,21 +758,6 @@ func awsRemediationPermissionBoundaryScopedAccounts(plan AWSPermissionBoundarySC
 		return derived
 	}
 	originalTargets := emptyStrings(plan.TargetIdentityNodeIDs)
-	targetAccounts := emptyStrings(plan.TargetAccountIDs)
-	supported := map[string]bool{}
-	for _, target := range emptyStrings(dedupeStrings(supportedTargets)) {
-		supported[strings.TrimSpace(target)] = true
-	}
-	scoped := []string{}
-	for i, target := range originalTargets {
-		if !supported[strings.TrimSpace(target)] || i >= len(targetAccounts) {
-			continue
-		}
-		scoped = append(scoped, targetAccounts[i])
-	}
-	if len(scoped) > 0 {
-		return emptyStrings(dedupeStrings(scoped))
-	}
 	if len(emptyStrings(supportedTargets)) == len(originalTargets) {
 		return emptyStrings(dedupeStrings(plan.TargetAccountIDs))
 	}

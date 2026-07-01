@@ -330,11 +330,24 @@ func TestAWSRemediationCaseFromPermissionBoundaryFiltersUnsupportedTargets(t *te
 	if nonARNCase.IdentityType != "iam_user" {
 		t.Fatalf("expected non-ARN retained user target to drive case identity type, got %q", nonARNCase.IdentityType)
 	}
-	if nonARNCase.AccountID != "222222222222" {
-		t.Fatalf("expected non-ARN case account to use retained target account, got %q", nonARNCase.AccountID)
+	if nonARNCase.AccountID != "" {
+		t.Fatalf("expected non-ARN filtered case account to avoid unsafe de-duped account fallback, got %q", nonARNCase.AccountID)
 	}
-	if len(nonARNCase.TargetAccountIDs) != 1 || nonARNCase.TargetAccountIDs[0] != "222222222222" {
-		t.Fatalf("expected non-ARN target accounts to exclude unsupported target accounts: %+v", nonARNCase.TargetAccountIDs)
+	if len(nonARNCase.TargetAccountIDs) != 0 {
+		t.Fatalf("expected non-ARN filtered target accounts to avoid unsafe de-duped account fallback: %+v", nonARNCase.TargetAccountIDs)
+	}
+
+	nonARNRepeatedAccountPlan := plan
+	nonARNRepeatedAccountPlan.PlanID = "permission-boundary-non-arn-repeated-account"
+	nonARNRepeatedAccountPlan.TargetIdentityNodeIDs = []string{"aws:identity:role/app-a", "aws:identity:role/app-b", "aws:identity:group/app-group"}
+	nonARNRepeatedAccountPlan.ImpactedNodes = []string{"aws:identity:role/app-a", "aws:identity:role/app-b", "aws:identity:group/app-group"}
+	nonARNRepeatedAccountPlan.TargetAccountIDs = []string{"111111111111", "222222222222"}
+	nonARNRepeatedAccountCase, ok := awsRemediationCaseFromPermissionBoundary(nonARNRepeatedAccountPlan, now)
+	if !ok {
+		t.Fatalf("expected permission boundary case from non-ARN repeated-account plan")
+	}
+	if nonARNRepeatedAccountCase.AccountID != "" || len(nonARNRepeatedAccountCase.TargetAccountIDs) != 0 {
+		t.Fatalf("expected non-ARN filtered case to avoid assigning de-duped group account scope: %+v", nonARNRepeatedAccountCase)
 	}
 
 	groupOnlyPlan := plan
