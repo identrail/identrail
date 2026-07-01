@@ -643,16 +643,28 @@ func TestAWSRemediationDryRunPermissionBoundaryBlocksAmbiguousNonARNAccountScope
 	}
 
 	for _, tc := range []struct {
-		name       string
-		accountIDs []string
-		wantPass   bool
+		name            string
+		accountIDs      []string
+		identityNodeIDs []string
+		wantPass        bool
 	}{
 		{name: "empty account scope", accountIDs: nil},
 		{name: "ambiguous account scope", accountIDs: []string{"111111111111", "222222222222"}},
 		{name: "single account scope", accountIDs: []string{"111111111111"}, wantPass: true},
+		{
+			name:       "mixed arn/non-arn with one target account",
+			accountIDs: []string{"111111111111"},
+			identityNodeIDs: []string{
+				"aws:identity:arn:aws:iam::111111111111:role/app-a",
+				"aws:identity:user/app-user",
+			},
+		},
 	} {
 		approval := base
 		approval.Scope.AccountIDs = tc.accountIDs
+		if tc.identityNodeIDs != nil {
+			approval.Scope.IdentityNodeIDs = tc.identityNodeIDs
+		}
 		entry := awsRemediationDryRunEntryFromApproval(approval, now)
 		if tc.wantPass {
 			if entry.Outcome != awsRemediationDryRunOutcomeWouldSucceed || len(entry.FailedPrereqs) != 0 {
@@ -675,8 +687,9 @@ func TestAWSRemediationDryRunPermissionBoundaryBlocksAmbiguousNonARNAccountScope
 		if !found {
 			t.Fatalf("%s: expected boundary account-scope failed prerequisite, got %+v", tc.name, entry.FailedPrereqs)
 		}
-		if len(entry.IntendedAPICalls) != 1 || entry.IntendedAPICalls[0].TargetResource != "aws:identity:role/orders-ci" {
-			t.Fatalf("%s: dry-run should still show the reviewed intended target while blocked, got %+v", tc.name, entry.IntendedAPICalls)
+		expectedTarget := awsRemediationDryRunFirstNode(approval.Scope.IdentityNodeIDs)
+		if len(entry.IntendedAPICalls) != 1 || entry.IntendedAPICalls[0].TargetResource != expectedTarget {
+			t.Fatalf("%s: dry-run should still show the reviewed intended target while blocked, expected=%q got %+v", tc.name, expectedTarget, entry.IntendedAPICalls)
 		}
 	}
 

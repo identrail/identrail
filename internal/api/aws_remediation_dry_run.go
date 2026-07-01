@@ -293,10 +293,13 @@ func awsRemediationDryRunEntries(approvals []AWSRemediationApprovalEntry, now ti
 
 func awsRemediationDryRunEntryFromApproval(approval AWSRemediationApprovalEntry, now time.Time) AWSRemediationDryRunEntry {
 	intended := awsRemediationDryRunIntendedAPICalls(approval)
-	resources := awsRemediationDryRunAffectedResources(approval, intended)
 	satisfied, failed := awsRemediationDryRunPrerequisites(approval)
 	checks := awsRemediationDryRunVerificationChecks(approval)
 	outcome := awsRemediationDryRunOutcome(approval, failed)
+	if awsRemediationDryRunShouldRestrictPermissionBoundaryCallsToReviewedTarget(approval, failed) {
+		intended = awsRemediationDryRunPermissionBoundaryReviewedTargetCalls(intended)
+	}
+	resources := awsRemediationDryRunAffectedResources(approval, intended)
 	dryRunID := "aws-remediation-dry-run:" + stableAWSBlastRadiusToken("dry-run", approval.ApprovalID, outcome)
 	entry := AWSRemediationDryRunEntry{
 		DryRunID:           dryRunID,
@@ -384,6 +387,28 @@ func awsRemediationDryRunPermissionBoundaryCalls(approval AWSRemediationApproval
 	return calls
 }
 
+func awsRemediationDryRunShouldRestrictPermissionBoundaryCallsToReviewedTarget(approval AWSRemediationApprovalEntry, failed []AWSRemediationDryRunPrerequisite) bool {
+	if !awsRemediationDryRunIsPermissionBoundaryApproval(approval) {
+		return false
+	}
+	for _, prereq := range failed {
+		if prereq.Name == "permission_boundary_target_account_scope" && strings.EqualFold(prereq.Status, "blocked") {
+			return true
+		}
+	}
+	return false
+}
+
+func awsRemediationDryRunPermissionBoundaryReviewedTargetCalls(calls []AWSRemediationDryRunIntendedAPICall) []AWSRemediationDryRunIntendedAPICall {
+	if len(calls) == 0 {
+		return calls
+	}
+	// Preserve deterministic reviewed-target intent: if scope validation blocked
+	// the case, show the first supported target that was already projected,
+	// mirroring the same single target used by the approval review UX for fixup.
+	return calls[:1]
+}
+
 func awsRemediationDryRunScopedIdempotencyKey(base, operation, target string) string {
 	base = strings.TrimSpace(base)
 	if base == "" {
@@ -396,19 +421,25 @@ func awsRemediationDryRunScopedIdempotencyKey(base, operation, target string) st
 }
 
 func awsRemediationDryRunPermissionBoundaryTargetsHaveAccountScope(approval AWSRemediationApprovalEntry) bool {
-	for _, target := range awsPermissionBoundaryExecutorSupportedTargets(approval.Scope.IdentityNodeIDs) {
-		if !awsRemediationDryRunPermissionBoundaryTargetHasAccountScope(approval, target) {
-			return false
-		}
-	}
-	return true
-}
+	targets := awsPermissionBoundaryExecutorSupportedTargets(approval.Scope.IdentityNodeIDs)
+	scopedAccounts := emptyStrings(dedupeStrings(approval.Scope.AccountIDs))
 
-func awsRemediationDryRunPermissionBoundaryTargetHasAccountScope(approval AWSRemediationApprovalEntry, target string) bool {
-	if awsPermissionBoundaryExecutorAccountFromTarget(target) != "" {
+	hasNonArnTarget := false
+	hasArnTarget := false
+	for _, target := range targets {
+		if awsPermissionBoundaryExecutorAccountFromTarget(target) == "" {
+			hasNonArnTarget = true
+			continue
+		}
+		hasArnTarget = true
+	}
+	if hasNonArnTarget && hasArnTarget {
+		return false
+	}
+	if !hasNonArnTarget {
 		return true
 	}
-	return len(emptyStrings(dedupeStrings(approval.Scope.AccountIDs))) == 1
+	return len(scopedAccounts) == 1
 }
 
 // awsRemediationDryRunTargetSet pairs the identity-first and resource-first
