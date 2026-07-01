@@ -305,6 +305,71 @@ func TestAWSPermissionBoundaryExecutorSplitsMixedPrincipalKinds(t *testing.T) {
 	}
 }
 
+func TestAWSPermissionBoundaryExecutorSplitsSameKindTargetsIntoCalls(t *testing.T) {
+	now := time.Date(2026, 7, 1, 7, 30, 0, 0, time.UTC)
+	plan := AWSPermissionBoundarySCPPlan{
+		PlanID:                "plan-same-kind-principals",
+		Kind:                  awsPermissionBoundaryKind,
+		ReadyForApply:         true,
+		TargetIdentityNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:role/app-a", "aws:identity:arn:aws:iam::111111111111:role/app-b"},
+		TargetAccountIDs:      []string{"111111111111"},
+		BreakageProjection:    AWSPermissionBoundarySCPBreakageProjection{Level: "low"},
+	}
+	entry := AWSRemediationDryRunEntry{
+		DryRunID:         "dr-same-kind",
+		CaseID:           "case-same-kind",
+		SourceType:       "aws_permission_boundary_scp",
+		SourceArtifactID: "plan-same-kind-principals",
+		AccountID:        "111111111111",
+		IdempotencyKey:   "idk",
+		Outcome:          awsRemediationDryRunOutcomeWouldSucceed,
+		ReadyForApply:    true,
+		DiffIntent:       AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+		IntendedAPICalls: []AWSRemediationDryRunIntendedAPICall{{
+			Service:          "iam",
+			Operation:        "PutRolePermissionsBoundary",
+			TargetResource:   "aws:identity:arn:aws:iam::111111111111:role/app-a",
+			ParameterRefs:    []string{"idk", "boundary_ref://case-same-kind/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		}},
+	}
+
+	entries := awsPermissionBoundaryExecutorEntriesFromDryRun(entry, plan, now)
+	if len(entries) != 2 {
+		t.Fatalf("expected same-kind role plan to split into one entry per intended call: %+v", entries)
+	}
+	seenExecutions := map[string]bool{}
+	seenKeys := map[string]bool{}
+	seenTargets := map[string]bool{}
+	for _, out := range entries {
+		if len(out.TargetIdentityNodeIDs) != 1 {
+			t.Fatalf("entry should retain exactly one target identity: %+v", out.TargetIdentityNodeIDs)
+		}
+		target := out.TargetIdentityNodeIDs[0]
+		if out.IntendedAPICall.Operation != "PutRolePermissionsBoundary" || out.IntendedAPICall.TargetResource != target {
+			t.Fatalf("intended call must target the retained identity: target=%q call=%+v", target, out.IntendedAPICall)
+		}
+		if len(out.IntendedAPICall.ParameterRefs) == 0 || out.IntendedAPICall.ParameterRefs[0] != out.IdempotencyKey {
+			t.Fatalf("intended call should refresh its idempotency parameter ref: %+v", out.IntendedAPICall)
+		}
+		if seenExecutions[out.ExecutionID] {
+			t.Fatalf("same-kind split entries must have distinct execution IDs: %+v", entries)
+		}
+		if seenKeys[out.IdempotencyKey] {
+			t.Fatalf("same-kind split entries must have distinct idempotency keys: %+v", entries)
+		}
+		seenExecutions[out.ExecutionID] = true
+		seenKeys[out.IdempotencyKey] = true
+		seenTargets[target] = true
+	}
+	for _, target := range plan.TargetIdentityNodeIDs {
+		if !seenTargets[target] {
+			t.Fatalf("missing executor entry for target %q in %+v", target, entries)
+		}
+	}
+}
+
 func TestAWSPermissionBoundaryExecutorSplitPreservesPlannerAccountsForNonARNTargets(t *testing.T) {
 	now := time.Date(2026, 6, 30, 11, 45, 0, 0, time.UTC)
 	plan := AWSPermissionBoundarySCPPlan{

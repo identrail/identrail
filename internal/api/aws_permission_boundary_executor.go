@@ -330,43 +330,28 @@ func awsPermissionBoundaryExecutorEntriesFromDryRun(entry AWSRemediationDryRunEn
 	}
 	plan.TargetIdentityNodeIDs = supportedTargets
 	targetsByOperation := awsPermissionBoundaryExecutorTargetsByOperation(supportedTargets)
-	if len(targetsByOperation) <= 1 {
-		scopedPlan := plan
-		operation := awsPermissionBoundaryExecutorIntendedCall(entry).Operation
-		scopedTargets := supportedTargets
-		for op, targets := range targetsByOperation {
-			operation = op
-			scopedTargets = targets
-			break
-		}
-		scopedPlan.TargetIdentityNodeIDs = scopedTargets
-		scopedPlan.TargetAccountIDs = awsPermissionBoundaryExecutorScopedAccountsForTargets(scopedPlan.TargetIdentityNodeIDs, plan.TargetAccountIDs)
-		scopedPlan.AccountID = firstString(scopedPlan.TargetAccountIDs)
-		scopedPlan.ImpactedNodes = emptyStrings(dedupeStrings(append(append([]string{}, scopedPlan.TargetIdentityNodeIDs...), plan.ImpactedNodes...)))
-		scopedEntry := entry
-		scopedEntry.IdempotencyKey = awsPermissionBoundaryExecutorScopedIdempotencyKey(entry, operation, scopedPlan.TargetIdentityNodeIDs)
-		scopedEntry.AccountID = scopedPlan.AccountID
-		out := awsPermissionBoundaryExecutorEntryFromDryRunWithCall(scopedEntry, scopedPlan, awsPermissionBoundaryExecutorIntendedCallForTargets(scopedEntry, scopedPlan.TargetIdentityNodeIDs, operation), now)
-		return []AWSPermissionBoundaryExecutorEntry{out}
-	}
-	entries := make([]AWSPermissionBoundaryExecutorEntry, 0, len(targetsByOperation))
+	entries := make([]AWSPermissionBoundaryExecutorEntry, 0, len(supportedTargets))
 	operations := make([]string, 0, len(targetsByOperation))
 	for operation := range targetsByOperation {
 		operations = append(operations, operation)
 	}
 	sort.Strings(operations)
 	for _, operation := range operations {
-		scopedPlan := plan
-		scopedPlan.TargetIdentityNodeIDs = targetsByOperation[operation]
-		scopedPlan.TargetAccountIDs = awsPermissionBoundaryExecutorScopedAccountsForTargets(scopedPlan.TargetIdentityNodeIDs, plan.TargetAccountIDs)
-		scopedPlan.AccountID = firstString(scopedPlan.TargetAccountIDs)
-		scopedPlan.ImpactedNodes = emptyStrings(dedupeStrings(append(append([]string{}, scopedPlan.TargetIdentityNodeIDs...), plan.ImpactedNodes...)))
-		scopedEntry := entry
-		scopedEntry.IdempotencyKey = awsPermissionBoundaryExecutorScopedIdempotencyKey(entry, operation, scopedPlan.TargetIdentityNodeIDs)
-		scopedEntry.AccountID = scopedPlan.AccountID
-		out := awsPermissionBoundaryExecutorEntryFromDryRunWithCall(scopedEntry, scopedPlan, awsPermissionBoundaryExecutorIntendedCallForTargets(scopedEntry, scopedPlan.TargetIdentityNodeIDs, operation), now)
-		out.ExecutionID = "aws-permission-boundary-executor:" + stableAWSBlastRadiusToken("execution", entry.DryRunID, plan.PlanID, operation)
-		entries = append(entries, out)
+		for _, target := range targetsByOperation[operation] {
+			scopedPlan := plan
+			scopedPlan.TargetIdentityNodeIDs = []string{target}
+			scopedPlan.TargetAccountIDs = awsPermissionBoundaryExecutorScopedAccountsForTargets(scopedPlan.TargetIdentityNodeIDs, plan.TargetAccountIDs)
+			scopedPlan.AccountID = firstString(scopedPlan.TargetAccountIDs)
+			scopedPlan.ImpactedNodes = emptyStrings(dedupeStrings(append(append([]string{}, scopedPlan.TargetIdentityNodeIDs...), plan.ImpactedNodes...)))
+			scopedEntry := entry
+			scopedEntry.IdempotencyKey = awsPermissionBoundaryExecutorScopedIdempotencyKey(entry, operation, scopedPlan.TargetIdentityNodeIDs)
+			scopedEntry.AccountID = scopedPlan.AccountID
+			out := awsPermissionBoundaryExecutorEntryFromDryRunWithCall(scopedEntry, scopedPlan, awsPermissionBoundaryExecutorIntendedCallForTargets(scopedEntry, scopedPlan.TargetIdentityNodeIDs, operation), now)
+			if len(supportedTargets) > 1 {
+				out.ExecutionID = "aws-permission-boundary-executor:" + stableAWSBlastRadiusToken("execution", entry.DryRunID, plan.PlanID, operation, target)
+			}
+			entries = append(entries, out)
+		}
 	}
 	return entries
 }
