@@ -360,6 +360,46 @@ func TestAWSRemediationCaseFromPermissionBoundaryFiltersUnsupportedTargets(t *te
 	}
 }
 
+func TestAWSRemediationCaseFromPermissionBoundaryKeepsContextOnlyImpactedRolesOutOfApplyScope(t *testing.T) {
+	now := time.Date(2026, 6, 30, 12, 5, 0, 0, time.UTC)
+	plan := AWSPermissionBoundarySCPPlan{
+		PlanID:                "permission-boundary-context-only-impacted-role",
+		Kind:                  awsPermissionBoundaryKind,
+		ReadyForApply:         true,
+		TargetIdentityNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:role/app-role"},
+		TargetAccountIDs:      []string{"111111111111"},
+		BreakageProjection:    AWSPermissionBoundarySCPBreakageProjection{Level: "low"},
+		ImpactedNodes: []string{
+			"aws:identity:arn:aws:iam::111111111111:role/app-role",
+			"aws:identity:arn:aws:iam::111111111111:role/assumed-by-app-role",
+		},
+	}
+
+	boundaryCase, ok := awsRemediationCaseFromPermissionBoundary(plan, now)
+	if !ok {
+		t.Fatalf("expected permission boundary case from single-target plan")
+	}
+	if len(boundaryCase.ResourceNodeIDs) != 1 || boundaryCase.ResourceNodeIDs[0] != "aws:identity:arn:aws:iam::111111111111:role/app-role" {
+		t.Fatalf("context-only impacted role must not be promoted into apply scope via ResourceNodeIDs: %+v", boundaryCase.ResourceNodeIDs)
+	}
+	foundContextRole := false
+	for _, node := range boundaryCase.ImpactedNodes {
+		if node == "aws:identity:arn:aws:iam::111111111111:role/assumed-by-app-role" {
+			foundContextRole = true
+		}
+	}
+	if !foundContextRole {
+		t.Fatalf("context-only impacted role should still be retained as context in ImpactedNodes: %+v", boundaryCase.ImpactedNodes)
+	}
+
+	scope := awsRemediationApprovalScope(boundaryCase, "aws-prod")
+	for _, node := range scope.IdentityNodeIDs {
+		if node == "aws:identity:arn:aws:iam::111111111111:role/assumed-by-app-role" {
+			t.Fatalf("context-only impacted role must not be promoted into approval identity scope: %+v", scope.IdentityNodeIDs)
+		}
+	}
+}
+
 func TestAWSRemediationCaseDerivesLifecycleAndApproval(t *testing.T) {
 	now := time.Date(2026, 6, 23, 10, 10, 0, 0, time.UTC)
 	ownerless := AWSAIAgentRiskFinding{

@@ -733,23 +733,29 @@ func awsRemediationCaseFromPermissionBoundary(plan AWSPermissionBoundarySCPPlan,
 		IdentityNodeID:     identityNodeID,
 		IdentityName:       firstNonEmptyAWSValue(shortAWSARN(identityNodeID), identityNodeID),
 		IdentityType:       awsRemediationPermissionBoundaryIdentityType(identityNodeID),
-		ResourceNodeIDs:    awsRemediationResourceNodes(supportedTargets, filteredImpactedNodes),
-		Owner:              owner,
-		OwnerAssigned:      ownerAssigned,
-		ApprovalRequired:   approvalRequired,
-		ApprovalState:      approvalState,
-		DiffIntent:         diff,
-		Tradeoffs:          awsRemediationTradeoffsForPermissionBoundary(plan),
-		RollbackPlan:       awsRemediationRollbackFromPermissionBoundary(plan, evidenceRef),
-		VerificationPlan:   awsRemediationVerificationFromPermissionBoundary(plan, evidenceRef),
-		SourceSignals:      dedupeStrings(append([]string{"aws_permission_boundary_scp", "permission_boundary"}, plan.SourceSignals...)),
-		Evidence:           plan.Evidence,
-		EvidenceBoundary:   awsRemediationCaseEvidenceBoundary(),
-		ImpactedNodes:      dedupeStrings(append(append([]string{}, supportedTargets...), filteredImpactedNodes...)),
-		ImpactedPath:       plan.ImpactedPath,
-		NextActions:        awsRemediationNextActionList(plan.NextAction, diff),
-		CreatedAt:          now,
-		UpdatedAt:          now,
+		// ResourceNodeIDs is the vehicle awsRemediationApprovalScope uses to
+		// pull extra targets into Scope.IdentityNodeIDs for this source
+		// type, so it must stay limited to the plan's retained boundary
+		// targets. filteredImpactedNodes may include other IAM roles/users
+		// that are merely context (e.g. an sts:AssumeRole target) and must
+		// not be promoted into apply scope; they stay in ImpactedNodes only.
+		ResourceNodeIDs:  awsRemediationResourceNodes(supportedTargets),
+		Owner:            owner,
+		OwnerAssigned:    ownerAssigned,
+		ApprovalRequired: approvalRequired,
+		ApprovalState:    approvalState,
+		DiffIntent:       diff,
+		Tradeoffs:        awsRemediationTradeoffsForPermissionBoundary(plan),
+		RollbackPlan:     awsRemediationRollbackFromPermissionBoundary(plan, evidenceRef),
+		VerificationPlan: awsRemediationVerificationFromPermissionBoundary(plan, evidenceRef),
+		SourceSignals:    dedupeStrings(append([]string{"aws_permission_boundary_scp", "permission_boundary"}, plan.SourceSignals...)),
+		Evidence:         plan.Evidence,
+		EvidenceBoundary: awsRemediationCaseEvidenceBoundary(),
+		ImpactedNodes:    dedupeStrings(append(append([]string{}, supportedTargets...), filteredImpactedNodes...)),
+		ImpactedPath:     plan.ImpactedPath,
+		NextActions:      awsRemediationNextActionList(plan.NextAction, diff),
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	}
 	return finalizeAWSRemediationCase(c, now), true
 }
