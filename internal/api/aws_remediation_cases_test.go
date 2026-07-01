@@ -75,8 +75,8 @@ func TestGetAWSRemediationCasesBuildsContract(t *testing.T) {
 		if c.SourceType == "trust_policy_hardening" && (c.IdentityType != "iam_role" || c.DiffIntent.Kind != "iam_trust_diff") {
 			t.Fatalf("trust-policy hardening case must stay scoped to IAM role trust diffs: %+v", c)
 		}
-		if c.SourceType == "aws_permission_boundary_scp" && (c.IdentityType != "iam_role" || c.DiffIntent.Kind != "permission_boundary_diff") {
-			t.Fatalf("permission-boundary case must stay scoped to IAM role boundary diffs: %+v", c)
+		if c.SourceType == "aws_permission_boundary_scp" && ((c.IdentityType != "iam_role" && c.IdentityType != "iam_user") || c.DiffIntent.Kind != "permission_boundary_diff") {
+			t.Fatalf("permission-boundary case must stay scoped to IAM identity boundary diffs: %+v", c)
 		}
 		if len(c.AuditTrail) == 0 || c.AuditTrail[0].EventType != "proposed" {
 			t.Fatalf("case missing proposed audit entry: %+v", c.AuditTrail)
@@ -303,6 +303,9 @@ func TestAWSRemediationCaseFromPermissionBoundaryFiltersUnsupportedTargets(t *te
 	if boundaryCase.IdentityNodeID != "aws:identity:arn:aws:iam::222222222222:user/app-user" {
 		t.Fatalf("expected first supported target node to drive case identity: %+v", boundaryCase)
 	}
+	if boundaryCase.IdentityType != "iam_user" {
+		t.Fatalf("expected retained user target to drive case identity type, got %q", boundaryCase.IdentityType)
+	}
 	if len(boundaryCase.ResourceNodeIDs) != 1 || boundaryCase.ResourceNodeIDs[0] != "aws:identity:arn:aws:iam::222222222222:user/app-user" {
 		t.Fatalf("expected resource nodes to exclude unsupported target kinds: %+v", boundaryCase.ResourceNodeIDs)
 	}
@@ -314,6 +317,24 @@ func TestAWSRemediationCaseFromPermissionBoundaryFiltersUnsupportedTargets(t *te
 	}
 	if len(boundaryCase.TargetAccountIDs) != 1 || boundaryCase.TargetAccountIDs[0] != "222222222222" {
 		t.Fatalf("expected target accounts to exclude unsupported target accounts: %+v", boundaryCase.TargetAccountIDs)
+	}
+
+	nonARNPlan := plan
+	nonARNPlan.PlanID = "permission-boundary-non-arn-unsupported-targets"
+	nonARNPlan.TargetIdentityNodeIDs = []string{"aws:identity:group/app-group", "aws:identity:user/app-user"}
+	nonARNPlan.ImpactedNodes = []string{"aws:identity:group/app-group", "aws:identity:user/app-user"}
+	nonARNCase, ok := awsRemediationCaseFromPermissionBoundary(nonARNPlan, now)
+	if !ok {
+		t.Fatalf("expected permission boundary case from non-ARN role/user plan")
+	}
+	if nonARNCase.IdentityType != "iam_user" {
+		t.Fatalf("expected non-ARN retained user target to drive case identity type, got %q", nonARNCase.IdentityType)
+	}
+	if nonARNCase.AccountID != "222222222222" {
+		t.Fatalf("expected non-ARN case account to use retained target account, got %q", nonARNCase.AccountID)
+	}
+	if len(nonARNCase.TargetAccountIDs) != 1 || nonARNCase.TargetAccountIDs[0] != "222222222222" {
+		t.Fatalf("expected non-ARN target accounts to exclude unsupported target accounts: %+v", nonARNCase.TargetAccountIDs)
 	}
 
 	groupOnlyPlan := plan

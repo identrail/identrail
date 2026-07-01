@@ -695,7 +695,7 @@ func awsRemediationCaseFromPermissionBoundary(plan AWSPermissionBoundarySCPPlan,
 	if identityNodeID == "" {
 		return AWSRemediationCase{}, false
 	}
-	scopedTargetAccountIDs := awsPermissionBoundaryExecutorScopedAccountsForTargets(supportedTargets, plan.TargetAccountIDs)
+	scopedTargetAccountIDs := awsRemediationPermissionBoundaryScopedAccounts(plan, supportedTargets)
 	caseID := "aws-remediation-case:" + stableAWSBlastRadiusToken("permission-boundary", plan.PlanID)
 	evidenceRef := firstString(awsRemediationEvidenceRefs(plan.Evidence))
 	deniedActions := awsRemediationPermissionBoundaryDeniedActions(plan)
@@ -730,7 +730,7 @@ func awsRemediationCaseFromPermissionBoundary(plan AWSPermissionBoundarySCPPlan,
 		Region:             plan.Region,
 		IdentityNodeID:     identityNodeID,
 		IdentityName:       firstNonEmptyAWSValue(shortAWSARN(identityNodeID), identityNodeID),
-		IdentityType:       "iam_role",
+		IdentityType:       awsRemediationPermissionBoundaryIdentityType(identityNodeID),
 		ResourceNodeIDs:    awsRemediationResourceNodes(supportedTargets, filteredImpactedNodes),
 		Owner:              owner,
 		OwnerAssigned:      ownerAssigned,
@@ -750,6 +750,40 @@ func awsRemediationCaseFromPermissionBoundary(plan AWSPermissionBoundarySCPPlan,
 		UpdatedAt:          now,
 	}
 	return finalizeAWSRemediationCase(c, now), true
+}
+
+func awsRemediationPermissionBoundaryScopedAccounts(plan AWSPermissionBoundarySCPPlan, supportedTargets []string) []string {
+	derived := awsPermissionBoundaryExecutorAccountsForTargets(supportedTargets)
+	if len(derived) > 0 {
+		return derived
+	}
+	originalTargets := emptyStrings(plan.TargetIdentityNodeIDs)
+	targetAccounts := emptyStrings(plan.TargetAccountIDs)
+	supported := map[string]bool{}
+	for _, target := range emptyStrings(dedupeStrings(supportedTargets)) {
+		supported[strings.TrimSpace(target)] = true
+	}
+	scoped := []string{}
+	for i, target := range originalTargets {
+		if !supported[strings.TrimSpace(target)] || i >= len(targetAccounts) {
+			continue
+		}
+		scoped = append(scoped, targetAccounts[i])
+	}
+	if len(scoped) > 0 {
+		return emptyStrings(dedupeStrings(scoped))
+	}
+	if len(emptyStrings(supportedTargets)) == len(originalTargets) {
+		return emptyStrings(dedupeStrings(plan.TargetAccountIDs))
+	}
+	return nil
+}
+
+func awsRemediationPermissionBoundaryIdentityType(target string) string {
+	if awsRemediationDryRunIAMPrincipalKind(target) == "user" {
+		return "iam_user"
+	}
+	return "iam_role"
 }
 
 func finalizeAWSRemediationCase(c AWSRemediationCase, now time.Time) AWSRemediationCase {
