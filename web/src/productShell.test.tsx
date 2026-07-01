@@ -4032,6 +4032,38 @@ describe('Domain-first app routes', () => {
 	        diagnostics: []
 	      } as any
 	    });
+	    const getPostRemediationVerification = vi.spyOn(api.apiClient, 'getAWSProjectPostRemediationVerification').mockResolvedValue({
+	      post_remediation_verification: {
+	        status: 'ready',
+	        entries: [],
+	        relationships: [],
+	        applied_filters: {},
+	        summary: {
+	          total_entries: 0,
+	          filtered_entries: 0,
+	          state_counts: {},
+	          source_type_counts: {},
+	          severity_counts: {},
+	          verified_count: 0,
+	          pending_count: 0,
+	          failed_count: 0,
+	          rollback_planned_count: 0,
+	          blocked_count: 0,
+	          kill_switch_engaged_count: 0,
+	          failed_precondition_count: 0,
+	          check_count: 0,
+	          relationship_count: 0,
+	          highest_score: 0,
+	          average_confidence_pct: 0
+	        },
+	        caveats: ['Post-remediation verification entries are read-only projections.'],
+	        failure_reasons: [],
+	        remediation_hints: [],
+	        evidence_links: [],
+	        coverage_gaps: [],
+	        diagnostics: []
+	      } as any
+	    });
 	    const getSecretKeyRotation = vi.spyOn(api.apiClient, 'getAWSProjectSecretKeyRotationPlans').mockResolvedValue({
       plans: {
         status: 'ready',
@@ -4693,6 +4725,12 @@ describe('Domain-first app routes', () => {
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
     expect(getScpGuardrailExecutor).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getPostRemediationVerification).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       expect.objectContaining({ connectorID: 'aws-connector-1' }),

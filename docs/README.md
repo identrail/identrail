@@ -98,6 +98,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - AWS approved permission boundary executor: `aws-permission-boundary-executor.md`
 - AWS approved SCP guardrail executor: `aws-scp-guardrail-executor.md`
 - AWS approved trust-policy hardening executor: `aws-trust-policy-hardening-executor.md`
+- AWS post-remediation verification and rollback: `aws-post-remediation-verification.md`
 - AWS normalizer and graph: `aws-normalizer-graph.md`
 - AWS risk engine: `aws-risk-engine.md`
 

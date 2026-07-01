@@ -3736,6 +3736,157 @@ export type AWSScpGuardrailExecutorQuery = {
   search?: string;
 };
 
+export type AWSPostRemediationVerificationStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSPostRemediationVerificationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSPostRemediationVerificationState =
+  | 'verification_pending'
+  | 'verification_verified'
+  | 'verification_failed'
+  | 'rollback_planned'
+  | 'skipped'
+  | 'blocked'
+  | 'not_ready'
+  | string;
+export type AWSPostRemediationVerificationSourceType =
+  | 'aws_low_risk_live_remediation'
+  | 'aws_trust_policy_hardening'
+  | 'aws_permission_boundary_executor'
+  | 'aws_scp_guardrail_executor'
+  | string;
+
+export type AWSPostRemediationVerificationGate = {
+  name: string;
+  status: string;
+  rationale: string;
+};
+
+export type AWSPostRemediationVerificationCheck = {
+  source: string;
+  signal: string;
+  status: 'pending' | 'passed' | 'failed' | string;
+  description: string;
+};
+
+export type AWSPostRemediationVerificationRollback = {
+  strategy: string;
+  steps: string[];
+  success_signals?: string[];
+  failure_signals?: string[];
+  evidence_ref?: string;
+  state: string;
+  rationale: string;
+};
+
+export type AWSPostRemediationVerificationRelationship = {
+  verification_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSPostRemediationVerificationEntry = {
+  verification_id: string;
+  calculation_version: string;
+  source_type: AWSPostRemediationVerificationSourceType;
+  source_execution_id: string;
+  dry_run_id: string;
+  approval_id: string;
+  case_id: string;
+  plan_id?: string;
+  source_artifact_id?: string;
+  state: AWSPostRemediationVerificationState;
+  severity: string;
+  score: number;
+  confidence: number;
+  title: string;
+  summary: string;
+  account_id?: string;
+  region?: string;
+  operation?: string;
+  idempotency_key?: string;
+  target_resource?: string;
+  ready_for_live_apply: boolean;
+  kill_switch_engaged: boolean;
+  read_only_projection: boolean;
+  preconditions: AWSPostRemediationVerificationGate[];
+  checks: AWSPostRemediationVerificationCheck[];
+  rollback: AWSPostRemediationVerificationRollback;
+  audit_trail: AWSRemediationAuditEntry[];
+  source_signals: string[];
+  evidence_links: string[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  next_action: string;
+  projected_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSPostRemediationVerificationSummary = {
+  total_entries: number;
+  filtered_entries: number;
+  state_counts: Record<string, number>;
+  source_type_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  verified_count: number;
+  pending_count: number;
+  failed_count: number;
+  rollback_planned_count: number;
+  blocked_count: number;
+  kill_switch_engaged_count: number;
+  failed_precondition_count: number;
+  check_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSPostRemediationVerificationResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSPostRemediationVerificationStatus;
+  fixture_state?: AWSPostRemediationVerificationFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSPostRemediationVerificationSummary;
+  entries: AWSPostRemediationVerificationEntry[];
+  relationships: AWSPostRemediationVerificationRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSPostRemediationVerificationQuery = {
+  connectorID?: string;
+  fixtureState?: AWSPostRemediationVerificationFixtureState;
+  accountID?: string;
+  region?: string;
+  sourceType?: string;
+  executionID?: string;
+  dryRunID?: string;
+  caseID?: string;
+  state?: string;
+  severity?: string;
+  operation?: string;
+  search?: string;
+};
+
 export type AWSSecretKeyRotationStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSSecretKeyRotationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSSecretKeyRotationType = 'provider_key' | 'secrets_manager_secret' | 'kms_related' | string;
@@ -9017,6 +9168,30 @@ export const apiClient = {
         target_scope: query?.targetScope,
         state: query?.state,
         severity: query?.severity,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectPostRemediationVerification(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSPostRemediationVerificationQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ post_remediation_verification: AWSPostRemediationVerificationResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/post-remediation-verification${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        source_type: query?.sourceType,
+        execution_id: query?.executionID,
+        dry_run_id: query?.dryRunID,
+        case_id: query?.caseID,
+        state: query?.state,
+        severity: query?.severity,
+        operation: query?.operation,
         search: query?.search
       })}`,
       auth

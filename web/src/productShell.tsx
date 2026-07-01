@@ -81,6 +81,8 @@ import {
   type AWSPermissionBoundaryExecutorResult,
   type AWSScpGuardrailExecutorEntry,
   type AWSScpGuardrailExecutorResult,
+  type AWSPostRemediationVerificationEntry,
+  type AWSPostRemediationVerificationResult,
   type AWSTrustPolicyHardeningExecutorEntry,
   type AWSTrustPolicyHardeningExecutorResult,
   type AWSBlastRadiusFinding,
@@ -11303,6 +11305,77 @@ function AWSScpGuardrailExecutorContent({
   );
 }
 
+function awsPostRemediationVerificationStage(entry: AWSPostRemediationVerificationEntry): AWSCapabilityStage {
+  if (entry.kill_switch_engaged || entry.state === 'blocked' || entry.state === 'verification_failed') {
+    return 'not-available';
+  }
+  if (entry.state === 'verification_verified') {
+    return 'wired';
+  }
+  return 'coming';
+}
+
+function awsPostRemediationVerificationChecksLabel(entry: AWSPostRemediationVerificationEntry): string {
+  const passed = entry.checks.filter((check) => check.status === 'passed').length;
+  const failed = entry.checks.filter((check) => check.status === 'failed').length;
+  const pending = entry.checks.length - passed - failed;
+  return `${passed} passed · ${failed} failed · ${pending} pending`;
+}
+
+function awsPostRemediationVerificationRollbackLabel(entry: AWSPostRemediationVerificationEntry): string {
+  const strategy = entry.rollback.strategy ? formatTokenLabel(entry.rollback.strategy) : 'none';
+  return `${strategy} · ${formatTokenLabel(entry.rollback.state)}`;
+}
+
+function AWSPostRemediationVerificationContent({
+  result,
+  loading,
+  error,
+  onRetry
+}: {
+  result: AWSPostRemediationVerificationResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const summaryLine = result
+    ? `${result.summary.total_entries} total · ${result.summary.pending_count} pending · ${result.summary.verified_count} verified · ${result.summary.failed_count} failed · ${result.summary.rollback_planned_count} rollbacks · ${result.summary.blocked_count} blocked`
+    : '';
+  return (
+    <AWSExecutorProjectionPanel
+      result={result}
+      loading={loading}
+      error={error}
+      onRetry={onRetry}
+      ariaLabel="AWS post-remediation verification and rollback"
+      heading="AWS post-remediation verification and rollback"
+      description={`Read-only projection that joins every approved wave-8 executor with the deterministic verification and rollback contract Identrail records before any live apply. Each entry captures precondition gates, check statuses, rollback intent, and audit rows. Identrail never calls IAM, STS, or Organizations write APIs at this layer. ${summaryLine}`}
+      errorTitle="Couldn't load AWS post-remediation verification"
+      loadingTitle="Projecting post-remediation verification"
+      loadingBody="Identrail is joining every approved executor with its verification and rollback contract."
+      emptyEyebrow={(current) => (current.status === 'blocked' ? 'Permission required' : 'No post-remediation verification entries')}
+      emptyTitle={(current) => (current.status === 'blocked' ? 'Post-remediation verification needs approved executor evidence' : 'No post-remediation verification entries projected')}
+      emptyBody={(current) => current.failure_reasons[0] ?? 'No upstream executor projected an approved execution for this environment.'}
+      tableLabel="AWS post-remediation verification entries"
+      getRowKey={(row) => row.verification_id}
+      columns={[
+        { key: 'verification', header: 'Verification', render: (row) => <strong>{row.title}</strong> },
+        { key: 'source', header: 'Source', render: (row) => formatTokenLabel(row.source_type) },
+        { key: 'checks', header: 'Checks', render: (row) => awsPostRemediationVerificationChecksLabel(row) },
+        { key: 'rollback', header: 'Rollback', render: (row) => awsPostRemediationVerificationRollbackLabel(row) },
+        { key: 'state', header: 'State', render: (row) => formatTokenLabel(row.state) },
+        {
+          key: 'severity',
+          header: 'Severity',
+          render: (row) => (
+            <AWSInventoryPill stage={awsPostRemediationVerificationStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.state)}`} />
+          )
+        }
+      ]}
+    />
+  );
+}
+
 function awsSecretKeyRotationStage(plan: AWSSecretKeyRotationPlan): AWSCapabilityStage {
   if (!plan.owner_handoff.assigned || plan.severity === 'critical') {
     return 'not-available';
@@ -13527,6 +13600,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [scpGuardrailExecutorLoading, setScpGuardrailExecutorLoading] = useState(false);
   const [scpGuardrailExecutorError, setScpGuardrailExecutorError] = useState('');
   const scpGuardrailExecutorRequestRef = useRef(0);
+  const [postRemediationVerification, setPostRemediationVerification] = useState<AWSPostRemediationVerificationResult | null>(null);
+  const [postRemediationVerificationLoading, setPostRemediationVerificationLoading] = useState(false);
+  const [postRemediationVerificationError, setPostRemediationVerificationError] = useState('');
+  const postRemediationVerificationRequestRef = useRef(0);
   const [secretKeyRotation, setSecretKeyRotation] = useState<AWSSecretKeyRotationResult | null>(null);
   const [secretKeyRotationLoading, setSecretKeyRotationLoading] = useState(false);
   const [secretKeyRotationError, setSecretKeyRotationError] = useState('');
@@ -14127,6 +14204,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       scpGuardrailExecutorRequestRef.current += 1;
     };
   }, [loadScpGuardrailExecutor]);
+
+  const loadPostRemediationVerification = useCallback(async () => {
+    const requestID = ++postRemediationVerificationRequestRef.current;
+    setPostRemediationVerification(null);
+    setPostRemediationVerificationError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setPostRemediationVerificationLoading(false);
+      return;
+    }
+    setPostRemediationVerificationLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectPostRemediationVerification(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== postRemediationVerificationRequestRef.current) {
+        return;
+      }
+      setPostRemediationVerification(response.post_remediation_verification);
+    } catch (error) {
+      if (requestID !== postRemediationVerificationRequestRef.current) {
+        return;
+      }
+      setPostRemediationVerificationError(formatAPIError(error, 'Unable to load AWS post-remediation verification.'));
+    } finally {
+      if (requestID === postRemediationVerificationRequestRef.current) {
+        setPostRemediationVerificationLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadPostRemediationVerification();
+    return () => {
+      postRemediationVerificationRequestRef.current += 1;
+    };
+  }, [loadPostRemediationVerification]);
 
   const loadSecretKeyRotation = useCallback(async () => {
     const requestID = ++secretKeyRotationRequestRef.current;
@@ -14982,6 +15107,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={scpGuardrailExecutorLoading}
             error={scpGuardrailExecutorError}
             onRetry={loadScpGuardrailExecutor}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSPostRemediationVerificationContent
+            result={postRemediationVerification}
+            loading={postRemediationVerificationLoading}
+            error={postRemediationVerificationError}
+            onRetry={loadPostRemediationVerification}
           />
         ) : null}
         {routeID === 'runtime' ? (

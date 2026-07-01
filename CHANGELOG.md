@@ -1,6 +1,35 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS post-remediation verification and rollback** (#1542). Adds a
+  read-only projection that joins every approved wave-8 executor
+  (low-risk live remediation #1538, trust-policy hardening executor
+  #1539, permission boundary executor #1540, SCP guardrail executor
+  #1541) with the deterministic verification and rollback contract
+  Identrail records before any live apply. Each entry carries the
+  upstream execution ID, dry-run/approval/case identifiers, the intended
+  operation and idempotency key, precondition gates (upstream projected,
+  kill-switch-off, ready-for-live-apply, idempotency-key-present,
+  rollback-plan-present, verification-plan-present, upstream
+  prerequisites), pending verification checks (CloudTrail expected API
+  call, graph state re-check, runtime denial watch, and any planner
+  success/failure signals), a rollback record mirroring the upstream
+  planner rollback plan with an explicit `ready`, `not_available`, or
+  `blocked_by_kill_switch` state, and an immutable audit trail. Entry
+  state is `verification_pending` when the upstream executor is
+  projected and ready; `blocked` when a safety gate fails, an upstream
+  precondition is unresolved, or the tenant kill switch is engaged;
+  `not_ready` when the upstream executor has not yet declared
+  `ready_for_live_apply`. Adds
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/post-remediation-verification`
+  with filters for connector, account, region, source type, execution
+  ID, dry-run ID, case ID, state, severity, operation, and free-text
+  search. OpenAPI schemas and authz wiring follow the neighboring wave-8
+  endpoints. The AWS Runtime app surface now shows an **AWS
+  post-remediation verification and rollback** panel with execution
+  title, upstream source, verification check pass/fail/pending counts,
+  rollback strategy/state, severity, and state pill. Identrail never
+  calls IAM/STS/Organizations write APIs at this layer.
 - Add **AWS approved trust-policy hardening executor** (#1539). Adds a
   read-only projection that joins the dry-run executor (#1537) with the
   trust-policy hardening planner (#1531) for cases whose source_type is
