@@ -553,11 +553,19 @@ func TestAWSRemediationDryRunPermissionBoundaryEmitsCallPerTarget(t *testing.T) 
 		Scope: AWSRemediationApprovalScope{
 			IdentityNodeIDs: []string{
 				"aws:identity:arn:aws:iam::111111111111:role/app-a",
+				"aws:s3:::payments-prod",
+				"aws:identity:arn:aws:iam::111111111111:group/app-group",
 				"aws:identity:arn:aws:iam::111111111111:role/app-b",
 				"aws:identity:arn:aws:iam::111111111111:user/app-user",
+				"aws:bedrock-agent:us-east-1:111111111111:agent/app-agent",
 			},
 		},
 		DiffIntent: AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+	}
+	wantTargets := []string{
+		"aws:identity:arn:aws:iam::111111111111:role/app-a",
+		"aws:identity:arn:aws:iam::111111111111:role/app-b",
+		"aws:identity:arn:aws:iam::111111111111:user/app-user",
 	}
 
 	calls := awsRemediationDryRunIntendedAPICalls(approval)
@@ -588,9 +596,14 @@ func TestAWSRemediationDryRunPermissionBoundaryEmitsCallPerTarget(t *testing.T) 
 		seenTargets[call.TargetResource] = true
 		seenIdempotencyRefs[call.ParameterRefs[0]] = true
 	}
-	for _, target := range approval.Scope.IdentityNodeIDs {
+	for _, target := range wantTargets {
 		if !seenTargets[target] {
 			t.Fatalf("missing permission-boundary dry-run call for target %q in %+v", target, calls)
+		}
+	}
+	for _, unsupported := range []string{"aws:s3:::payments-prod", "aws:identity:arn:aws:iam::111111111111:group/app-group", "aws:bedrock-agent:us-east-1:111111111111:agent/app-agent"} {
+		if seenTargets[unsupported] {
+			t.Fatalf("unsupported permission-boundary target should not produce a dry-run call: %q in %+v", unsupported, calls)
 		}
 	}
 
@@ -601,9 +614,14 @@ func TestAWSRemediationDryRunPermissionBoundaryEmitsCallPerTarget(t *testing.T) 
 			apiTargets[resource.NodeID] = true
 		}
 	}
-	for _, target := range approval.Scope.IdentityNodeIDs {
+	for _, target := range wantTargets {
 		if !apiTargets[target] {
 			t.Fatalf("missing api_target affected resource for target %q in %+v", target, resources)
+		}
+	}
+	for _, unsupported := range []string{"aws:s3:::payments-prod", "aws:identity:arn:aws:iam::111111111111:group/app-group", "aws:bedrock-agent:us-east-1:111111111111:agent/app-agent"} {
+		if apiTargets[unsupported] {
+			t.Fatalf("unsupported permission-boundary target should not be reported as an api_target: %q in %+v", unsupported, resources)
 		}
 	}
 }

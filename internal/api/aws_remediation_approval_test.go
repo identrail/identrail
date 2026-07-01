@@ -259,6 +259,33 @@ func TestAWSRemediationApprovalScopeUsesAccountForBlastRadiusSource(t *testing.T
 	}
 }
 
+func TestAWSRemediationApprovalScopeFiltersPermissionBoundaryTargets(t *testing.T) {
+	scope := awsRemediationApprovalScope(AWSRemediationCase{
+		SourceType:     "aws_permission_boundary_scp",
+		IdentityNodeID: "aws:identity:arn:aws:iam::111111111111:role/app-role",
+		ResourceNodeIDs: []string{
+			"aws:s3:::payments-prod",
+			"aws:identity:arn:aws:iam::111111111111:group/app-group",
+			"aws:identity:arn:aws:iam::222222222222:user/app-user",
+		},
+	}, "aws-prod")
+	if scope.ScopeType != "identity" || len(scope.ResourceNodeIDs) != 0 {
+		t.Fatalf("permission boundary scope should stay identity-only, got %+v", scope)
+	}
+	want := map[string]bool{
+		"aws:identity:arn:aws:iam::111111111111:role/app-role": true,
+		"aws:identity:arn:aws:iam::222222222222:user/app-user": true,
+	}
+	if len(scope.IdentityNodeIDs) != len(want) {
+		t.Fatalf("expected only explicit IAM role/user targets, got %+v", scope.IdentityNodeIDs)
+	}
+	for _, target := range scope.IdentityNodeIDs {
+		if !want[target] {
+			t.Fatalf("unsupported permission boundary target leaked into approval scope: %q in %+v", target, scope.IdentityNodeIDs)
+		}
+	}
+}
+
 func TestAWSRemediationApprovalDeriveStatePreservesInReviewLifecycle(t *testing.T) {
 	cases := []struct {
 		lifecycle string

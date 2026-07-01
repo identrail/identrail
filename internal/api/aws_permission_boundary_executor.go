@@ -377,18 +377,18 @@ func awsPermissionBoundaryExecutorTargetsByOperation(targets []string) map[strin
 	return out
 }
 
-// awsPermissionBoundaryExecutorSupportedTargets drops IAM group targets because
-// permission boundaries can only be attached to IAM users or roles
-// (https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_boundaries.html).
-// Group identities reaching this layer would otherwise be silently bucketed into
-// PutRolePermissionsBoundary by the dry-run helper's default branch.
+// awsPermissionBoundaryExecutorSupportedTargets keeps only explicitly
+// classified IAM users and roles because permission boundaries cannot be
+// attached to IAM groups or non-IAM resources.
 func awsPermissionBoundaryExecutorSupportedTargets(targets []string) []string {
 	out := []string{}
 	for _, target := range emptyStrings(dedupeStrings(targets)) {
-		if awsRemediationDryRunIAMPrincipalKind(target) == "group" {
+		switch awsRemediationDryRunClassifiedIAMPrincipalKind(target) {
+		case "role", "user":
+			out = append(out, target)
+		default:
 			continue
 		}
-		out = append(out, target)
 	}
 	return out
 }

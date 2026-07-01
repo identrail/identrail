@@ -474,13 +474,13 @@ func TestAWSPermissionBoundaryExecutorScopesSingleOperationAfterGroupFilter(t *t
 	}
 }
 
-func TestAWSPermissionBoundaryExecutorFiltersGroupTargets(t *testing.T) {
+func TestAWSPermissionBoundaryExecutorFiltersUnsupportedTargets(t *testing.T) {
 	now := time.Date(2026, 6, 30, 12, 15, 0, 0, time.UTC)
 	plan := AWSPermissionBoundarySCPPlan{
 		PlanID:                "plan-mixed-with-group",
 		Kind:                  awsPermissionBoundaryKind,
 		ReadyForApply:         true,
-		TargetIdentityNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:role/app-role", "aws:identity:arn:aws:iam::111111111111:group/app-group"},
+		TargetIdentityNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:role/app-role", "aws:identity:arn:aws:iam::111111111111:group/app-group", "aws:s3:::payments-prod"},
 		TargetAccountIDs:      []string{"111111111111"},
 		BreakageProjection:    AWSPermissionBoundarySCPBreakageProjection{Level: "low"},
 	}
@@ -513,19 +513,19 @@ func TestAWSPermissionBoundaryExecutorFiltersGroupTargets(t *testing.T) {
 		t.Fatalf("expected role-only executor operation: %q", out.Operation)
 	}
 	for _, target := range out.TargetIdentityNodeIDs {
-		if strings.Contains(target, ":group/") {
-			t.Fatalf("group target leaked into executor entry: %q", target)
+		if strings.Contains(target, ":group/") || strings.HasPrefix(target, "aws:s3:::") {
+			t.Fatalf("unsupported target leaked into executor entry: %q", target)
 		}
 	}
 }
 
-func TestAWSPermissionBoundaryExecutorRejectsGroupOnlyPlan(t *testing.T) {
+func TestAWSPermissionBoundaryExecutorRejectsUnsupportedOnlyPlan(t *testing.T) {
 	now := time.Date(2026, 6, 30, 12, 30, 0, 0, time.UTC)
 	plan := AWSPermissionBoundarySCPPlan{
 		PlanID:                "plan-group-only",
 		Kind:                  awsPermissionBoundaryKind,
 		ReadyForApply:         true,
-		TargetIdentityNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:group/app-group"},
+		TargetIdentityNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:group/app-group", "aws:s3:::payments-prod"},
 		TargetAccountIDs:      []string{"111111111111"},
 		BreakageProjection:    AWSPermissionBoundarySCPBreakageProjection{Level: "low"},
 	}
@@ -550,7 +550,7 @@ func TestAWSPermissionBoundaryExecutorRejectsGroupOnlyPlan(t *testing.T) {
 	}
 
 	if entries := awsPermissionBoundaryExecutorEntriesFromDryRun(entry, plan, now); len(entries) != 0 {
-		t.Fatalf("group-only boundary plan must not produce executor entries: %+v", entries)
+		t.Fatalf("unsupported-only boundary plan must not produce executor entries: %+v", entries)
 	}
 }
 

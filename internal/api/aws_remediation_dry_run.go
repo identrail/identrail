@@ -612,20 +612,29 @@ func awsRemediationDryRunCallForSourceType(sourceType string, targets awsRemedia
 
 // awsRemediationDryRunIAMPrincipalKind classifies the target IAM principal as
 // role/user/group from its node ID or ARN so the dry-run can route IAM
-// inline-policy and permissions-boundary operations correctly. Returns
-// "role" when the principal type cannot be determined, which matches the
-// most common AWS machine-identity remediation target.
+// inline-policy operations correctly. Returns "role" when the principal type
+// cannot be determined, which matches the most common AWS machine-identity
+// remediation target.
 func awsRemediationDryRunIAMPrincipalKind(target string) string {
+	if kind := awsRemediationDryRunClassifiedIAMPrincipalKind(target); kind != "" {
+		return kind
+	}
+	return "role"
+}
+
+func awsRemediationDryRunClassifiedIAMPrincipalKind(target string) string {
 	normalized := strings.ToLower(strings.TrimSpace(target))
 	switch {
 	case normalized == "":
-		return "role"
+		return ""
 	case strings.Contains(normalized, ":user/"), strings.Contains(normalized, ":identity:user/"):
 		return "user"
 	case strings.Contains(normalized, ":group/"), strings.Contains(normalized, ":identity:group/"):
 		return "group"
-	default:
+	case strings.Contains(normalized, ":role/"), strings.Contains(normalized, ":identity:role/"):
 		return "role"
+	default:
+		return ""
 	}
 }
 

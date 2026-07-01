@@ -287,10 +287,12 @@ func TestAWSRemediationCaseFromPermissionBoundaryFiltersUnsupportedTargets(t *te
 		Kind:   awsPermissionBoundaryKind,
 		TargetIdentityNodeIDs: []string{
 			"aws:identity:arn:aws:iam::111111111111:group/app-group",
+			"aws:s3:::payments-prod",
 			"aws:identity:arn:aws:iam::222222222222:user/app-user",
 		},
 		ImpactedNodes: []string{
 			"aws:identity:arn:aws:iam::111111111111:group/app-group",
+			"aws:s3:::payments-prod",
 			"aws:identity:arn:aws:iam::222222222222:user/app-user",
 		},
 		TargetAccountIDs: []string{"111111111111", "222222222222"},
@@ -321,8 +323,8 @@ func TestAWSRemediationCaseFromPermissionBoundaryFiltersUnsupportedTargets(t *te
 
 	nonARNPlan := plan
 	nonARNPlan.PlanID = "permission-boundary-non-arn-unsupported-targets"
-	nonARNPlan.TargetIdentityNodeIDs = []string{"aws:identity:group/app-group", "aws:identity:user/app-user"}
-	nonARNPlan.ImpactedNodes = []string{"aws:identity:group/app-group", "aws:identity:user/app-user"}
+	nonARNPlan.TargetIdentityNodeIDs = []string{"aws:identity:group/app-group", "aws:s3:::payments-prod", "aws:identity:user/app-user"}
+	nonARNPlan.ImpactedNodes = []string{"aws:identity:group/app-group", "aws:s3:::payments-prod", "aws:identity:user/app-user"}
 	nonARNCase, ok := awsRemediationCaseFromPermissionBoundary(nonARNPlan, now)
 	if !ok {
 		t.Fatalf("expected permission boundary case from non-ARN role/user plan")
@@ -352,9 +354,9 @@ func TestAWSRemediationCaseFromPermissionBoundaryFiltersUnsupportedTargets(t *te
 
 	groupOnlyPlan := plan
 	groupOnlyPlan.PlanID = "permission-boundary-group-only"
-	groupOnlyPlan.TargetIdentityNodeIDs = []string{"aws:identity:arn:aws:iam::111111111111:group/app-group"}
+	groupOnlyPlan.TargetIdentityNodeIDs = []string{"aws:identity:arn:aws:iam::111111111111:group/app-group", "aws:s3:::payments-prod"}
 	if _, ok = awsRemediationCaseFromPermissionBoundary(groupOnlyPlan, now); ok {
-		t.Fatalf("expected group-only boundary plan to be filtered before case projection")
+		t.Fatalf("expected unsupported-only boundary plan to be filtered before case projection")
 	}
 }
 

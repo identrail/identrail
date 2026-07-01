@@ -686,10 +686,12 @@ func awsRemediationCaseFromPermissionBoundary(plan AWSPermissionBoundarySCPPlan,
 	supportedTargets := awsPermissionBoundaryExecutorSupportedTargets(plan.TargetIdentityNodeIDs)
 	filteredImpactedNodes := []string{}
 	for _, node := range emptyStrings(plan.ImpactedNodes) {
-		if awsRemediationDryRunIAMPrincipalKind(node) == "group" {
+		switch awsRemediationDryRunClassifiedIAMPrincipalKind(node) {
+		case "role", "user":
+			filteredImpactedNodes = append(filteredImpactedNodes, node)
+		default:
 			continue
 		}
-		filteredImpactedNodes = append(filteredImpactedNodes, node)
 	}
 	identityNodeID := firstString(emptyStrings(supportedTargets))
 	if identityNodeID == "" {
