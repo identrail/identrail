@@ -395,6 +395,22 @@ func awsRemediationDryRunScopedIdempotencyKey(base, operation, target string) st
 	return stableAWSBlastRadiusToken(base, operation, target)
 }
 
+func awsRemediationDryRunPermissionBoundaryTargetsHaveAccountScope(approval AWSRemediationApprovalEntry) bool {
+	for _, target := range awsPermissionBoundaryExecutorSupportedTargets(approval.Scope.IdentityNodeIDs) {
+		if !awsRemediationDryRunPermissionBoundaryTargetHasAccountScope(approval, target) {
+			return false
+		}
+	}
+	return true
+}
+
+func awsRemediationDryRunPermissionBoundaryTargetHasAccountScope(approval AWSRemediationApprovalEntry, target string) bool {
+	if awsPermissionBoundaryExecutorAccountFromTarget(target) != "" {
+		return true
+	}
+	return len(emptyStrings(dedupeStrings(approval.Scope.AccountIDs))) == 1
+}
+
 // awsRemediationDryRunTargetSet pairs the identity-first and resource-first
 // node IDs for an approval so each routing branch can pick the target that
 // matches the AWS API being projected. Identity-mutating calls (PutRolePolicy,
@@ -741,6 +757,9 @@ func awsRemediationDryRunPrerequisites(approval AWSRemediationApprovalEntry) ([]
 			continue
 		}
 		add("feature_flag:"+flag.Name, awsRemediationDryRunGateStatus(flag.Enabled), flag.Rationale)
+	}
+	if awsRemediationDryRunIsPermissionBoundaryApproval(approval) {
+		add("permission_boundary_target_account_scope", awsRemediationDryRunGateStatus(awsRemediationDryRunPermissionBoundaryTargetsHaveAccountScope(approval)), "Every permission-boundary dry-run target must carry an account in its ARN or be scoped by exactly one approval account.")
 	}
 	return satisfied, failed
 }
