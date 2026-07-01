@@ -143,6 +143,64 @@ func TestAWSPostRemediationVerificationStateHonorsGates(t *testing.T) {
 	if entry.State != awsPostRemediationVerificationStateBlocked {
 		t.Fatalf("upstream failed preconds must block verification: %+v", entry)
 	}
+
+	failedNotReady := baseSource
+	failedNotReady.UpstreamState = "precondition_failed"
+	failedNotReady.ReadyForLiveApply = false
+	failedNotReady.FailedPreconds = 3
+	if got := awsPostRemediationVerificationEntryFromSource(failedNotReady, now); got.State != awsPostRemediationVerificationStateBlocked {
+		t.Fatalf("failed upstream preconds must classify as blocked even when the source is also not ready: %+v", got)
+	}
+
+	upstreamBlocked := baseSource
+	upstreamBlocked.UpstreamState = "blocked"
+	upstreamBlocked.ReadyForLiveApply = false
+	if got := awsPostRemediationVerificationEntryFromSource(upstreamBlocked, now); got.State != awsPostRemediationVerificationStateBlocked {
+		t.Fatalf("upstream blocked state must surface as blocked, not not_ready: %+v", got)
+	}
+
+	upstreamSkipped := baseSource
+	upstreamSkipped.UpstreamState = "skipped"
+	upstreamSkipped.ReadyForLiveApply = false
+	if got := awsPostRemediationVerificationEntryFromSource(upstreamSkipped, now); got.State != awsPostRemediationVerificationStateSkipped {
+		t.Fatalf("upstream skipped state must surface as skipped, not not_ready: %+v", got)
+	}
+}
+
+func TestFilterAWSPostRemediationVerificationEntriesMatchesTargetAccounts(t *testing.T) {
+	entries := []AWSPostRemediationVerificationEntry{
+		{
+			VerificationID:    "v-boundary-multi-account",
+			SourceType:        "aws_permission_boundary_executor",
+			SourceExecutionID: "exec-boundary",
+			AccountID:         "111111111111",
+			TargetAccountIDs:  []string{"222222222222", "333333333333"},
+			State:             awsPostRemediationVerificationStatePending,
+		},
+		{
+			VerificationID:    "v-scp-account",
+			SourceType:        "aws_scp_guardrail_executor",
+			SourceExecutionID: "exec-scp",
+			AccountID:         "444444444444",
+			TargetAccountIDs:  []string{"555555555555"},
+			State:             awsPostRemediationVerificationStatePending,
+		},
+	}
+
+	filtered, applied := filterAWSPostRemediationVerificationEntries(entries, AWSPostRemediationVerificationRequest{AccountID: "333333333333"})
+	if applied["account_id"] != "333333333333" || len(filtered) != 1 || filtered[0].VerificationID != "v-boundary-multi-account" {
+		t.Fatalf("account_id filter must match target_account_ids on the entry, not just the connector account: applied=%+v filtered=%+v", applied, filtered)
+	}
+
+	filtered, _ = filterAWSPostRemediationVerificationEntries(entries, AWSPostRemediationVerificationRequest{AccountID: "555555555555"})
+	if len(filtered) != 1 || filtered[0].VerificationID != "v-scp-account" {
+		t.Fatalf("account_id filter must match SCP target accounts: %+v", filtered)
+	}
+
+	filtered, _ = filterAWSPostRemediationVerificationEntries(entries, AWSPostRemediationVerificationRequest{AccountID: "111111111111"})
+	if len(filtered) != 1 || filtered[0].VerificationID != "v-boundary-multi-account" {
+		t.Fatalf("account_id filter must still match the primary AccountID: %+v", filtered)
+	}
 }
 
 func TestFilterAWSPostRemediationVerificationEntries(t *testing.T) {

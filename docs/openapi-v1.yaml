@@ -15799,6 +15799,10 @@ components:
         title: { type: string }
         summary: { type: string }
         account_id: { type: string }
+        target_account_ids:
+          type: array
+          items: { type: string }
+          description: Per-target account IDs projected from upstream permission-boundary and SCP executor entries. Account filters match this list in addition to `account_id`.
         region: { type: string }
         operation: { type: string }
         idempotency_key: { type: string }

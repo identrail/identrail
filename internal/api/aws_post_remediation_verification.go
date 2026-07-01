@@ -109,6 +109,7 @@ type AWSPostRemediationVerificationEntry struct {
 	Title              string                                     `json:"title"`
 	Summary            string                                     `json:"summary"`
 	AccountID          string                                     `json:"account_id,omitempty"`
+	TargetAccountIDs   []string                                   `json:"target_account_ids,omitempty"`
 	Region             string                                     `json:"region,omitempty"`
 	Operation          string                                     `json:"operation,omitempty"`
 	IdempotencyKey     string                                     `json:"idempotency_key,omitempty"`
@@ -199,6 +200,7 @@ type awsPostRemediationVerificationSource struct {
 	Confidence        float64
 	Title             string
 	AccountID         string
+	TargetAccountIDs  []string
 	Region            string
 	Operation         string
 	IdempotencyKey    string
@@ -519,6 +521,7 @@ func awsPostRemediationVerificationFromBoundary(entry AWSPermissionBoundaryExecu
 		Confidence:        entry.Confidence,
 		Title:             entry.Title,
 		AccountID:         entry.AccountID,
+		TargetAccountIDs:  entry.TargetAccountIDs,
 		Region:            entry.Region,
 		Operation:         entry.Operation,
 		IdempotencyKey:    entry.IdempotencyKey,
@@ -560,6 +563,7 @@ func awsPostRemediationVerificationFromScp(entry AWSScpGuardrailExecutorEntry) a
 		Confidence:        entry.Confidence,
 		Title:             entry.Title,
 		AccountID:         entry.AccountID,
+		TargetAccountIDs:  entry.TargetAccountIDs,
 		Region:            entry.Region,
 		Operation:         entry.Operation,
 		IdempotencyKey:    entry.IdempotencyKey,
@@ -611,6 +615,7 @@ func awsPostRemediationVerificationEntryFromSource(source awsPostRemediationVeri
 		Title:              fmt.Sprintf("Post-remediation verification: %s", firstNonEmptyAWSValue(source.Title, source.SourceExecutionID)),
 		Summary:            awsPostRemediationVerificationSummaryText(source, state),
 		AccountID:          source.AccountID,
+		TargetAccountIDs:   emptyStrings(dedupeStrings(source.TargetAccountIDs)),
 		Region:             source.Region,
 		Operation:          source.Operation,
 		IdempotencyKey:     source.IdempotencyKey,
@@ -710,11 +715,21 @@ func awsPostRemediationVerificationState(source awsPostRemediationVerificationSo
 			return awsPostRemediationVerificationStateBlocked
 		}
 	}
-	if source.UpstreamState != "projected" || !source.ReadyForLiveApply {
-		return awsPostRemediationVerificationStateNotReady
+	// Classify explicit upstream terminal states before the generic
+	// not-ready fallback so `blocked`, `skipped`, and any failed upstream
+	// precondition surface as their own verification states rather than
+	// collapsing to `not_ready`.
+	switch strings.ToLower(strings.TrimSpace(source.UpstreamState)) {
+	case "blocked":
+		return awsPostRemediationVerificationStateBlocked
+	case "skipped":
+		return awsPostRemediationVerificationStateSkipped
 	}
 	if source.FailedPreconds > 0 {
 		return awsPostRemediationVerificationStateBlocked
+	}
+	if source.UpstreamState != "projected" || !source.ReadyForLiveApply {
+		return awsPostRemediationVerificationStateNotReady
 	}
 	return awsPostRemediationVerificationStatePending
 }
@@ -875,7 +890,7 @@ func filterAWSPostRemediationVerificationEntries(entries []AWSPostRemediationVer
 	}
 	filtered := make([]AWSPostRemediationVerificationEntry, 0, len(entries))
 	for _, entry := range entries {
-		if filters["account_id"] != "" && !strings.EqualFold(filters["account_id"], strings.TrimSpace(entry.AccountID)) {
+		if filters["account_id"] != "" && !awsPostRemediationVerificationAccountMatch(entry, filters["account_id"]) {
 			continue
 		}
 		if filters["region"] != "" && strings.TrimSpace(entry.Region) != "" && !strings.EqualFold(filters["region"], strings.TrimSpace(entry.Region)) {
@@ -910,6 +925,22 @@ func filterAWSPostRemediationVerificationEntries(entries []AWSPostRemediationVer
 	return filtered, applied
 }
 
+func awsPostRemediationVerificationAccountMatch(entry AWSPostRemediationVerificationEntry, accountID string) bool {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(entry.AccountID), accountID) {
+		return true
+	}
+	for _, target := range entry.TargetAccountIDs {
+		if strings.EqualFold(strings.TrimSpace(target), accountID) {
+			return true
+		}
+	}
+	return false
+}
+
 func awsPostRemediationVerificationSearchMatch(entry AWSPostRemediationVerificationEntry, needle string) bool {
 	needle = strings.ToLower(strings.TrimSpace(needle))
 	if needle == "" {
@@ -923,6 +954,7 @@ func awsPostRemediationVerificationSearchMatch(entry AWSPostRemediationVerificat
 	}
 	values = append(values, entry.SourceSignals...)
 	values = append(values, entry.ImpactedNodes...)
+	values = append(values, entry.TargetAccountIDs...)
 	values = append(values, entry.EvidenceLinks...)
 	values = append(values, entry.Rollback.Steps...)
 	values = append(values, entry.Rollback.SuccessSignals...)

@@ -3802,6 +3802,7 @@ export type AWSPostRemediationVerificationEntry = {
   title: string;
   summary: string;
   account_id?: string;
+  target_account_ids?: string[];
   region?: string;
   operation?: string;
   idempotency_key?: string;
