@@ -439,7 +439,7 @@ func awsRemediationDryRunPermissionBoundaryTargetsHaveAccountScope(approval AWSR
 	if !hasNonArnTarget {
 		return true
 	}
-	return len(scopedAccounts) == 1
+	return len(scopedAccounts) == 1 && len(targets) == 1
 }
 
 // awsRemediationDryRunTargetSet pairs the identity-first and resource-first
@@ -790,7 +790,7 @@ func awsRemediationDryRunPrerequisites(approval AWSRemediationApprovalEntry) ([]
 		add("feature_flag:"+flag.Name, awsRemediationDryRunGateStatus(flag.Enabled), flag.Rationale)
 	}
 	if awsRemediationDryRunIsPermissionBoundaryApproval(approval) {
-		add("permission_boundary_target_account_scope", awsRemediationDryRunGateStatus(awsRemediationDryRunPermissionBoundaryTargetsHaveAccountScope(approval)), "Every permission-boundary dry-run target must carry an account in its ARN or be scoped by exactly one approval account.")
+		add("permission_boundary_target_account_scope", awsRemediationDryRunGateStatus(awsRemediationDryRunPermissionBoundaryTargetsHaveAccountScope(approval)), "Every permission-boundary dry-run target must carry an account in its ARN, or if the target is non-ARN it must use exactly one approval account and be the only supported target.")
 	}
 	return satisfied, failed
 }

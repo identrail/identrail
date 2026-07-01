@@ -652,6 +652,14 @@ func TestAWSRemediationDryRunPermissionBoundaryBlocksAmbiguousNonARNAccountScope
 		{name: "ambiguous account scope", accountIDs: []string{"111111111111", "222222222222"}},
 		{name: "single account scope", accountIDs: []string{"111111111111"}, wantPass: true},
 		{
+			name:       "multiple non-ARN targets with one account scope",
+			accountIDs: []string{"111111111111"},
+			identityNodeIDs: []string{
+				"aws:identity:role/dev-role",
+				"aws:identity:user/app-user",
+			},
+		},
+		{
 			name:       "mixed arn/non-arn with one target account",
 			accountIDs: []string{"111111111111"},
 			identityNodeIDs: []string{
