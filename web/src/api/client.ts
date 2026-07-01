@@ -3730,6 +3730,7 @@ export type AWSScpGuardrailExecutorQuery = {
   caseID?: string;
   planID?: string;
   operation?: string;
+  targetScope?: string;
   state?: string;
   severity?: string;
   search?: string;
@@ -9013,6 +9014,7 @@ export const apiClient = {
         case_id: query?.caseID,
         plan_id: query?.planID,
         operation: query?.operation,
+        target_scope: query?.targetScope,
         state: query?.state,
         severity: query?.severity,
         search: query?.search

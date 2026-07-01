@@ -18,12 +18,12 @@ code-interpreter output, database rows, or object contents.
 Response shape: `{ "scp_guardrail_executor": AWSScpGuardrailExecutorResult }`.
 
 Supported filters: `connector_id`, `fixture_state`, `account_id`, `region`,
-`dry_run_id`, `case_id`, `plan_id`, `operation`, `state`, `severity`, and
-`search`.
+`dry_run_id`, `case_id`, `plan_id`, `operation`, `target_scope`, `state`,
+`severity`, and `search`. `target_scope` accepts `account`, `ou`, or `root`.
 
 ## Entry Shape
 
-Each entry includes stable source IDs, target account/OU scope, projected AWS
+Each entry includes stable source IDs, one target account/OU/root scope, projected AWS
 Organizations `AttachPolicy` or `CreatePolicy` intent, idempotency key,
 statement snippets, breakage projection, preconditions, SCP simulation refs,
 rollback and verification plans, audit trail, relationships, and

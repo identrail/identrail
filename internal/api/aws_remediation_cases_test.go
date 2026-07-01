@@ -85,6 +85,11 @@ func TestGetAWSRemediationCasesBuildsContract(t *testing.T) {
 				if c.IdentityType != "" || (len(c.TargetAccountIDs) == 0 && len(c.ResourceNodeIDs) == 0) {
 					t.Fatalf("scp guardrail case must stay scoped to account/OU resources: %+v", c)
 				}
+				for _, tradeoff := range c.Tradeoffs {
+					if strings.Contains(strings.ToLower(tradeoff.Description), "permission boundary") || strings.Contains(strings.ToLower(tradeoff.Description), "identity target") {
+						t.Fatalf("scp guardrail tradeoff must not use permission-boundary identity wording: %+v", c.Tradeoffs)
+					}
+				}
 			default:
 				t.Fatalf("permission-boundary/SCP source emitted unsupported diff kind: %+v", c)
 			}

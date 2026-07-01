@@ -5596,6 +5596,12 @@ paths:
             type: string
             enum: [AttachPolicy, CreatePolicy]
         - in: query
+          name: target_scope
+          schema:
+            type: string
+            enum: [account, ou, root]
+          description: Optional target-scope filter for per-target SCP execution projections.
+        - in: query
           name: state
           schema:
             type: string

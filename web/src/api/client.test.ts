@@ -1808,6 +1808,7 @@ describe('apiClient', () => {
         caseID: 'aws-remediation-case:scp-1',
         planID: 'aws-permission-boundary-scp:scp-1',
         operation: 'AttachPolicy',
+        targetScope: 'ou',
         state: 'projected',
         severity: 'high',
         search: 'scp guardrail'
@@ -1822,6 +1823,7 @@ describe('apiClient', () => {
     const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toContain('/v1/workspaces/workspace%2Fa/projects/project%201/aws/scp-guardrail-executor?');
     expect(url).toContain('operation=AttachPolicy');
+    expect(url).toContain('target_scope=ou');
     expect(url).toContain('plan_id=aws-permission-boundary-scp%3Ascp-1');
     expect(url).toContain('state=projected');
     expect(options.method ?? 'GET').toBe('GET');

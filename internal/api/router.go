@@ -3252,6 +3252,7 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			CaseID:       strings.TrimSpace(c.Query("case_id")),
 			PlanID:       strings.TrimSpace(c.Query("plan_id")),
 			Operation:    strings.TrimSpace(c.Query("operation")),
+			TargetScope:  firstNonEmptyAWSValue(c.Query("target_scope"), c.Query("scope")),
 			State:        strings.TrimSpace(c.Query("state")),
 			Severity:     strings.TrimSpace(c.Query("severity")),
 			Search:       strings.TrimSpace(c.Query("search")),

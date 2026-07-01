@@ -715,6 +715,7 @@ func TestAWSRemediationDryRunVerificationChecksGateIAMSimulatorByDiffKind(t *tes
 		approval      AWSRemediationApprovalEntry
 		wantSimulator bool
 		wantSignal    string
+		forbidSignal  string
 	}{
 		{
 			name: "iam_policy_diff includes simulator",
@@ -751,6 +752,13 @@ func TestAWSRemediationDryRunVerificationChecksGateIAMSimulatorByDiffKind(t *tes
 			wantSignal:    "agent_scope_applied",
 		},
 		{
+			name:          "scp_diff skips simulator and verifies organizations effective policy",
+			approval:      AWSRemediationApprovalEntry{SourceType: "aws_permission_boundary_scp", DiffIntent: AWSRemediationDiffIntent{Kind: "scp_diff"}},
+			wantSimulator: false,
+			wantSignal:    "effective_policy_matches",
+			forbidSignal:  "no_new_external_findings",
+		},
+		{
 			name:          "access_key_quarantine skips simulator and keeps last-used verification",
 			approval:      AWSRemediationApprovalEntry{SourceType: "aws_access_key_quarantine", DiffIntent: AWSRemediationDiffIntent{Kind: "access_key_quarantine"}},
 			wantSimulator: false,
@@ -777,6 +785,9 @@ func TestAWSRemediationDryRunVerificationChecksGateIAMSimulatorByDiffKind(t *tes
 			}
 			if tc.wantSignal != "" && check.Signal == tc.wantSignal {
 				sawSignal = true
+			}
+			if tc.forbidSignal != "" && check.Signal == tc.forbidSignal {
+				t.Fatalf("%s: saw forbidden signal %q in checks=%+v", tc.name, tc.forbidSignal, checks)
 			}
 		}
 		if sawSimulator != tc.wantSimulator {

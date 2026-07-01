@@ -848,7 +848,7 @@ func awsRemediationDryRunVerificationChecks(approval AWSRemediationApprovalEntry
 	case "scp_diff":
 		checks = append(checks,
 			AWSRemediationDryRunVerificationCheck{Source: "organizations", Signal: "scp_attached", Description: "Confirm the projected SCP is attached to each captured account or OU target."},
-			AWSRemediationDryRunVerificationCheck{Source: "access_analyzer", Signal: "no_new_external_findings", Description: "Re-run Access Analyzer after live execution to confirm no new external-trust findings."},
+			AWSRemediationDryRunVerificationCheck{Source: "organizations", Signal: "effective_policy_matches", Description: "Confirm the target account or OU effective SCP includes the intended guardrail statement metadata ref."},
 		)
 	}
 	if strings.EqualFold(approval.SourceType, "trust_policy_hardening") || strings.EqualFold(approval.SourceType, "blast_radius") {

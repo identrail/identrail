@@ -49,8 +49,14 @@ func TestGetAWSScpGuardrailExecutorBuildsContract(t *testing.T) {
 		if entry.IntendedAPICall.Service != "organizations" || entry.IntendedAPICall.Operation != "AttachPolicy" {
 			t.Fatalf("entry must project Organizations SCP attach calls: %+v", entry.IntendedAPICall)
 		}
+		if entry.IntendedAPICall.TargetResource == "" {
+			t.Fatalf("entry must carry a per-target intended call: %+v", entry.IntendedAPICall)
+		}
 		if len(entry.TargetAccountIDs)+len(entry.TargetOUPaths) == 0 || len(entry.Preconditions) == 0 {
 			t.Fatalf("entry missing target scope or preconditions: %+v", entry)
+		}
+		if len(entry.TargetAccountIDs)+len(entry.TargetOUPaths) != 1 {
+			t.Fatalf("entry must be scoped to exactly one account or OU/root target: %+v", entry)
 		}
 		if entry.BoundarySimulation.SimulationRef == "" || entry.BoundarySimulation.DeniedActionCount == 0 {
 			t.Fatalf("entry missing scp simulation: %+v", entry.BoundarySimulation)
@@ -137,6 +143,26 @@ func TestAWSScpGuardrailExecutorStateHonorsScopeAndPreconditions(t *testing.T) {
 	if out.State != awsScpGuardrailExecutorStateProjected || !out.ReadyForLiveApply {
 		t.Fatalf("ready scp plan should project live-apply readiness: %+v", out)
 	}
+	scopedEntries := awsScpGuardrailExecutorEntriesFromDryRun(entry, readyPlan, now)
+	if len(scopedEntries) != 2 {
+		t.Fatalf("expected one execution entry per account/OU target, got %+v", scopedEntries)
+	}
+	seenTargets := map[string]bool{}
+	seenIdempotency := map[string]bool{}
+	for _, scoped := range scopedEntries {
+		target := firstNonEmptyAWSValue(firstString(scoped.TargetAccountIDs), firstString(scoped.TargetOUPaths))
+		if target == "" || scoped.IntendedAPICall.TargetResource != target {
+			t.Fatalf("scoped execution must target exactly its account/OU: %+v", scoped)
+		}
+		if scoped.IdempotencyKey == entry.IdempotencyKey || seenIdempotency[scoped.IdempotencyKey] {
+			t.Fatalf("scoped executions must have distinct idempotency keys: %+v", scopedEntries)
+		}
+		seenTargets[target] = true
+		seenIdempotency[scoped.IdempotencyKey] = true
+	}
+	if !seenTargets["111111111111"] || !seenTargets["/engineering"] {
+		t.Fatalf("missing scoped targets: %+v", scopedEntries)
+	}
 
 	noScope := readyPlan
 	noScope.TargetAccountIDs = nil
@@ -156,13 +182,20 @@ func TestAWSScpGuardrailExecutorStateHonorsScopeAndPreconditions(t *testing.T) {
 func TestFilterAWSScpGuardrailExecutorEntriesMatchesTargetScope(t *testing.T) {
 	entries := []AWSScpGuardrailExecutorEntry{
 		{
-			ExecutionID:      "exec-ou",
+			ExecutionID:   "exec-ou",
+			Region:        "",
+			State:         awsScpGuardrailExecutorStateProjected,
+			Severity:      "high",
+			Operation:     "AttachPolicy",
+			TargetOUPaths: []string{"/engineering"},
+		},
+		{
+			ExecutionID:      "exec-account",
 			Region:           "",
 			State:            awsScpGuardrailExecutorStateProjected,
 			Severity:         "high",
 			Operation:        "AttachPolicy",
-			TargetAccountIDs: []string{"111111111111", "222222222222"},
-			TargetOUPaths:    []string{"/engineering"},
+			TargetAccountIDs: []string{"222222222222"},
 		},
 		{
 			ExecutionID:      "exec-other",
@@ -178,13 +211,23 @@ func TestFilterAWSScpGuardrailExecutorEntriesMatchesTargetScope(t *testing.T) {
 	if applied["account_id"] != "222222222222" || applied["region"] != "us-east-1" {
 		t.Fatalf("expected applied account and region filters, got %+v", applied)
 	}
-	if len(filtered) != 1 || filtered[0].ExecutionID != "exec-ou" {
+	if len(filtered) != 1 || filtered[0].ExecutionID != "exec-account" {
 		t.Fatalf("expected matching target account and multi-region entry: %+v", filtered)
 	}
 
 	filtered, _ = filterAWSScpGuardrailExecutorEntries(entries, AWSScpGuardrailExecutorRequest{Search: "engineering"})
 	if len(filtered) != 1 || filtered[0].ExecutionID != "exec-ou" {
 		t.Fatalf("expected search to match target OU path: %+v", filtered)
+	}
+
+	filtered, applied = filterAWSScpGuardrailExecutorEntries(entries, AWSScpGuardrailExecutorRequest{TargetScope: "account", AccountID: "222222222222"})
+	if applied["target_scope"] != "account" || len(filtered) != 1 || filtered[0].ExecutionID != "exec-account" {
+		t.Fatalf("expected target_scope=account to match only account-scoped entries: applied=%+v filtered=%+v", applied, filtered)
+	}
+
+	filtered, applied = filterAWSScpGuardrailExecutorEntries(entries, AWSScpGuardrailExecutorRequest{TargetScope: "ou"})
+	if applied["target_scope"] != "ou" || len(filtered) != 1 || filtered[0].ExecutionID != "exec-ou" {
+		t.Fatalf("expected target_scope=ou to match only OU-scoped entries: applied=%+v filtered=%+v", applied, filtered)
 	}
 }
 
@@ -193,7 +236,7 @@ func TestRouterAWSScpGuardrailExecutor(t *testing.T) {
 	svc, _ := newScpGuardrailExecutorService(t, "project-scp-guardrail-executor-route", now)
 	r := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{})
 
-	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-scp-guardrail-executor-route/aws/scp-guardrail-executor?connector_id=aws-prod&fixture_state=success", "")
+	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-scp-guardrail-executor-route/aws/scp-guardrail-executor?connector_id=aws-prod&fixture_state=success&target_scope=ou", "")
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
 	}
@@ -205,5 +248,13 @@ func TestRouterAWSScpGuardrailExecutor(t *testing.T) {
 	}
 	if body.Executor.CurrentIssueRef != "#1541" || len(body.Executor.Entries) == 0 {
 		t.Fatalf("unexpected route payload: %+v", body.Executor)
+	}
+	if body.Executor.AppliedFilters["target_scope"] != "ou" {
+		t.Fatalf("expected route to apply target_scope filter: %+v", body.Executor.AppliedFilters)
+	}
+	for _, entry := range body.Executor.Entries {
+		if awsScpGuardrailExecutorTargetScope(entry) != "ou" {
+			t.Fatalf("target_scope=ou route returned non-OU entry: %+v", entry)
+		}
 	}
 }

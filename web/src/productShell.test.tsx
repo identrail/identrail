@@ -3926,7 +3926,7 @@ describe('Domain-first app routes', () => {
 	            region: 'us-east-1',
 	            operation: 'AttachPolicy',
 	            idempotency_key: 'idempotency://external-trust',
-	            target_account_ids: ['111111111111', '222222222222'],
+	            target_account_ids: [],
 	            target_ou_paths: ['/engineering'],
 	            prevented_behavior: 'Re-create the unconditioned external trust pattern.',
 	            statement_snippets: [
@@ -3968,16 +3968,16 @@ describe('Domain-first app routes', () => {
 	              before_ref: 'evidence://trust/external',
 	              after_ref: 'scp://external/scoped-projection',
 	              denied_action_count: 1,
-	              target_account_count: 2,
+	              target_account_count: 0,
 	              target_ou_count: 1,
 	              signals: ['scp_guardrail', 'affected_accounts:2']
 	            },
 	            verifications: [
 	              {
-	                source: 'access_analyzer',
-	                signal: 'no_new_external_findings',
+	                source: 'organizations',
+	                signal: 'effective_policy_matches',
 	                status: 'pending',
-	                description: 'Re-run Access Analyzer after live execution.'
+	                description: 'Confirm the effective SCP includes the intended guardrail statement metadata ref.'
 	              }
 	            ],
 	            rollback_plan: {
@@ -4016,7 +4016,7 @@ describe('Domain-first app routes', () => {
 	          ready_for_live_apply_count: 1,
 	          kill_switch_engaged_count: 0,
 	          failed_precondition_count: 0,
-	          target_account_count: 2,
+	          target_account_count: 0,
 	          target_ou_count: 1,
 	          verification_count: 1,
 	          relationship_count: 3,

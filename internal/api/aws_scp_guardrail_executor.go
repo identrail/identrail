@@ -28,6 +28,7 @@ type AWSScpGuardrailExecutorRequest struct {
 	CaseID       string `json:"case_id,omitempty"`
 	PlanID       string `json:"plan_id,omitempty"`
 	Operation    string `json:"operation,omitempty"`
+	TargetScope  string `json:"target_scope,omitempty"`
 	State        string `json:"state,omitempty"`
 	Severity     string `json:"severity,omitempty"`
 	Search       string `json:"search,omitempty"`
@@ -38,6 +39,11 @@ type AWSScpGuardrailExecutorPathStep = AWSPermissionBoundarySCPPathStep
 type AWSScpGuardrailExecutorDiagnostic = AWSPermissionBoundarySCPDiagnostic
 type AWSScpGuardrailExecutorCoverageGap = AWSPermissionBoundarySCPCoverageGap
 type AWSScpGuardrailExecutorAuditEntry = AWSRemediationApprovalAuditEntry
+
+type awsScpGuardrailExecutorTarget struct {
+	Scope string
+	ID    string
+}
 
 // AWSScpGuardrailExecutorPrecondition is one safety check that must pass
 // before the executor marks a record ready_for_live_apply.
@@ -324,10 +330,21 @@ func awsScpGuardrailExecutorAdmits(entry AWSRemediationDryRunEntry) bool {
 }
 
 func awsScpGuardrailExecutorEntriesFromDryRun(entry AWSRemediationDryRunEntry, plan AWSPermissionBoundarySCPPlan, now time.Time) []AWSScpGuardrailExecutorEntry {
-	if len(emptyStrings(plan.TargetAccountIDs)) == 0 && len(emptyStrings(plan.TargetOUPaths)) == 0 {
+	targets := awsScpGuardrailExecutorPlanTargets(plan)
+	if len(targets) == 0 {
 		return nil
 	}
-	return []AWSScpGuardrailExecutorEntry{awsScpGuardrailExecutorEntryFromDryRunWithCall(entry, plan, awsScpGuardrailExecutorIntendedCallForPlan(entry, plan), now)}
+	entries := make([]AWSScpGuardrailExecutorEntry, 0, len(targets))
+	for _, target := range targets {
+		scopedEntry := entry
+		scopedEntry.IdempotencyKey = awsScpGuardrailExecutorScopedIdempotencyKey(entry, target)
+		scopedPlan := awsScpGuardrailExecutorScopedPlan(plan, target)
+		call := awsScpGuardrailExecutorIntendedCallForTarget(scopedEntry, scopedPlan, target)
+		out := awsScpGuardrailExecutorEntryFromDryRunWithCall(scopedEntry, scopedPlan, call, now)
+		out.ExecutionID = "aws-scp-guardrail-executor:" + stableAWSBlastRadiusToken("execution", entry.DryRunID, plan.PlanID, target.Scope, target.ID)
+		entries = append(entries, out)
+	}
+	return entries
 }
 
 func awsScpGuardrailExecutorEntryFromDryRun(entry AWSRemediationDryRunEntry, plan AWSPermissionBoundarySCPPlan, now time.Time) AWSScpGuardrailExecutorEntry {
@@ -386,6 +403,43 @@ func awsScpGuardrailExecutorEntryFromDryRunWithCall(entry AWSRemediationDryRunEn
 	return out
 }
 
+func awsScpGuardrailExecutorPlanTargets(plan AWSPermissionBoundarySCPPlan) []awsScpGuardrailExecutorTarget {
+	targets := []awsScpGuardrailExecutorTarget{}
+	for _, ou := range emptyStrings(dedupeStrings(plan.TargetOUPaths)) {
+		scope := "ou"
+		if strings.TrimSpace(ou) == "/" {
+			scope = "root"
+		}
+		targets = append(targets, awsScpGuardrailExecutorTarget{Scope: scope, ID: ou})
+	}
+	for _, accountID := range emptyStrings(dedupeStrings(plan.TargetAccountIDs)) {
+		targets = append(targets, awsScpGuardrailExecutorTarget{Scope: "account", ID: accountID})
+	}
+	return targets
+}
+
+func awsScpGuardrailExecutorScopedPlan(plan AWSPermissionBoundarySCPPlan, target awsScpGuardrailExecutorTarget) AWSPermissionBoundarySCPPlan {
+	scoped := plan
+	switch target.Scope {
+	case "account":
+		scoped.TargetAccountIDs = []string{target.ID}
+		scoped.TargetOUPaths = nil
+	default:
+		scoped.TargetAccountIDs = nil
+		scoped.TargetOUPaths = []string{target.ID}
+	}
+	scoped.ImpactedNodes = dedupeStrings(append([]string{target.ID}, plan.ImpactedNodes...))
+	return scoped
+}
+
+func awsScpGuardrailExecutorScopedIdempotencyKey(entry AWSRemediationDryRunEntry, target awsScpGuardrailExecutorTarget) string {
+	key := strings.TrimSpace(entry.IdempotencyKey)
+	if key == "" {
+		return ""
+	}
+	return key + "#" + stableAWSBlastRadiusToken("scp-target", target.Scope, target.ID)
+}
+
 func awsScpGuardrailExecutorIntendedCall(entry AWSRemediationDryRunEntry) AWSRemediationDryRunIntendedAPICall {
 	if len(entry.IntendedAPICalls) > 0 {
 		call := entry.IntendedAPICalls[0]
@@ -404,11 +458,11 @@ func awsScpGuardrailExecutorIntendedCall(entry AWSRemediationDryRunEntry) AWSRem
 	}
 }
 
-func awsScpGuardrailExecutorIntendedCallForPlan(entry AWSRemediationDryRunEntry, plan AWSPermissionBoundarySCPPlan) AWSRemediationDryRunIntendedAPICall {
+func awsScpGuardrailExecutorIntendedCallForTarget(entry AWSRemediationDryRunEntry, plan AWSPermissionBoundarySCPPlan, target awsScpGuardrailExecutorTarget) AWSRemediationDryRunIntendedAPICall {
 	call := awsScpGuardrailExecutorIntendedCall(entry)
 	call.Service = "organizations"
 	call.Operation = "AttachPolicy"
-	call.TargetResource = firstNonEmptyAWSValue(firstString(emptyStrings(plan.TargetOUPaths)), firstString(emptyStrings(plan.TargetAccountIDs)), call.TargetResource, firstString(entry.ImpactedNodes))
+	call.TargetResource = firstNonEmptyAWSValue(target.ID, firstString(emptyStrings(plan.TargetOUPaths)), firstString(emptyStrings(plan.TargetAccountIDs)), call.TargetResource, firstString(entry.ImpactedNodes))
 	if len(call.ParameterRefs) == 0 {
 		call.ParameterRefs = []string{entry.IdempotencyKey, "scp_ref://" + entry.CaseID + "/after"}
 	} else {
@@ -477,7 +531,7 @@ func awsScpGuardrailExecutorSimulation(entry AWSRemediationDryRunEntry, plan AWS
 func awsScpGuardrailExecutorVerifications(entry AWSRemediationDryRunEntry, plan AWSPermissionBoundarySCPPlan) []AWSScpGuardrailExecutorVerification {
 	out := []AWSScpGuardrailExecutorVerification{
 		{Source: "cloudtrail", Signal: "expected_api_call_observed", Status: "pending", Description: "After live execution, confirm the Organizations SCP policy attach appears in CloudTrail for the target account or OU."},
-		{Source: "access_analyzer", Signal: "no_new_external_findings", Status: "pending", Description: "Re-run Access Analyzer after live execution and confirm no new external-trust findings are introduced."},
+		{Source: "organizations", Signal: "effective_policy_matches", Status: "pending", Description: "Confirm the effective SCP for the target account or OU includes the intended guardrail statement metadata ref."},
 		{Source: "cross_account_trust", Signal: "finding_resolved", Status: "pending", Description: "Re-run cross-account trust analysis and confirm the source finding is resolved or no longer reintroduced."},
 	}
 	for _, check := range entry.VerificationChecks {
@@ -625,15 +679,16 @@ func summarizeAWSScpGuardrailExecutorEntries(all, filtered []AWSScpGuardrailExec
 
 func filterAWSScpGuardrailExecutorEntries(entries []AWSScpGuardrailExecutorEntry, request AWSScpGuardrailExecutorRequest) ([]AWSScpGuardrailExecutorEntry, map[string]string) {
 	filters := map[string]string{
-		"account_id": strings.TrimSpace(request.AccountID),
-		"region":     strings.TrimSpace(request.Region),
-		"dry_run_id": strings.TrimSpace(request.DryRunID),
-		"case_id":    strings.TrimSpace(request.CaseID),
-		"plan_id":    strings.TrimSpace(request.PlanID),
-		"operation":  normalizeAWSRuntimeEventFilterToken(request.Operation),
-		"state":      normalizeAWSRuntimeEventFilterToken(request.State),
-		"severity":   normalizeAWSRuntimeEventFilterToken(request.Severity),
-		"search":     strings.TrimSpace(request.Search),
+		"account_id":   strings.TrimSpace(request.AccountID),
+		"region":       strings.TrimSpace(request.Region),
+		"dry_run_id":   strings.TrimSpace(request.DryRunID),
+		"case_id":      strings.TrimSpace(request.CaseID),
+		"plan_id":      strings.TrimSpace(request.PlanID),
+		"operation":    normalizeAWSRuntimeEventFilterToken(request.Operation),
+		"target_scope": normalizeAWSRuntimeEventFilterToken(request.TargetScope),
+		"state":        normalizeAWSRuntimeEventFilterToken(request.State),
+		"severity":     normalizeAWSRuntimeEventFilterToken(request.Severity),
+		"search":       strings.TrimSpace(request.Search),
 	}
 	for key, value := range filters {
 		if strings.TrimSpace(value) == "" || strings.EqualFold(value, "all") {
@@ -662,6 +717,9 @@ func filterAWSScpGuardrailExecutorEntries(entries []AWSScpGuardrailExecutorEntry
 			continue
 		}
 		if filters["operation"] != "" && filters["operation"] != normalizeAWSRuntimeEventFilterToken(entry.Operation) {
+			continue
+		}
+		if filters["target_scope"] != "" && filters["target_scope"] != awsScpGuardrailExecutorTargetScope(entry) {
 			continue
 		}
 		if filters["state"] != "" && filters["state"] != normalizeAWSRuntimeEventFilterToken(entry.State) {
@@ -703,6 +761,19 @@ func awsScpGuardrailExecutorAccountMatch(entry AWSScpGuardrailExecutorEntry, acc
 		}
 	}
 	return false
+}
+
+func awsScpGuardrailExecutorTargetScope(entry AWSScpGuardrailExecutorEntry) string {
+	if len(emptyStrings(entry.TargetAccountIDs)) > 0 {
+		return "account"
+	}
+	for _, target := range emptyStrings(entry.TargetOUPaths) {
+		if strings.TrimSpace(target) == "/" {
+			return "root"
+		}
+		return "ou"
+	}
+	return ""
 }
 
 func awsScpGuardrailExecutorSearchMatch(entry AWSScpGuardrailExecutorEntry, needle string) bool {

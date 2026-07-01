@@ -830,7 +830,7 @@ func awsRemediationCaseFromSCPGuardrail(plan AWSPermissionBoundarySCPPlan, now t
 		ApprovalRequired:   approvalRequired,
 		ApprovalState:      approvalState,
 		DiffIntent:         diff,
-		Tradeoffs:          awsRemediationTradeoffsForPermissionBoundary(plan),
+		Tradeoffs:          awsRemediationTradeoffsForSCPGuardrail(plan),
 		RollbackPlan:       awsRemediationRollbackFromSCPGuardrail(plan, evidenceRef),
 		VerificationPlan:   awsRemediationVerificationFromSCPGuardrail(plan, evidenceRef),
 		SourceSignals:      dedupeStrings(append([]string{"aws_permission_boundary_scp", "scp", "scp_guardrail"}, plan.SourceSignals...)),
@@ -1154,6 +1154,20 @@ func awsRemediationTradeoffsForPermissionBoundary(plan AWSPermissionBoundarySCPP
 	return out
 }
 
+func awsRemediationTradeoffsForSCPGuardrail(plan AWSPermissionBoundarySCPPlan) []AWSRemediationTradeoff {
+	targetAccountCount := len(emptyStrings(plan.TargetAccountIDs))
+	targetOUCount := len(emptyStrings(plan.TargetOUPaths))
+	out := []AWSRemediationTradeoff{
+		{Dimension: "downstream_blast_radius", Direction: "improves", Description: fmt.Sprintf("Applying the SCP guardrail prevents re-introduction of the blocked behavior across %d account target(s) and %d OU/root scope(s).", targetAccountCount, targetOUCount), Severity: plan.Severity},
+	}
+	if strings.EqualFold(plan.BreakageProjection.Level, "low") {
+		out = append(out, AWSRemediationTradeoff{Dimension: "breakage_risk", Direction: "neutral", Description: plan.BreakageProjection.Rationale, Severity: "low"})
+	} else {
+		out = append(out, AWSRemediationTradeoff{Dimension: "breakage_risk", Direction: "worsens", Description: plan.BreakageProjection.Rationale, Severity: firstNonEmptyAWSValue(plan.BreakageProjection.Level, "medium")})
+	}
+	return out
+}
+
 func awsRemediationRollbackForDiff(diff AWSRemediationDiffIntent, evidenceRef string) AWSRemediationRollbackPlan {
 	switch diff.Kind {
 	case "iam_policy_diff", "role_scope_diff":
@@ -1342,9 +1356,9 @@ func awsRemediationVerificationFromSCPGuardrail(plan AWSPermissionBoundarySCPPla
 	if len(verification.Steps) == 0 {
 		return AWSRemediationVerificationPlan{
 			Strategy:       "scp_guardrail_re_evaluate",
-			Steps:          []string{"Confirm the SCP policy is attached to every captured account or OU target.", "Re-run cross-account-trust and Access Analyzer to confirm the finding is resolved without new external trust."},
-			SuccessSignals: []string{"cross_account_trust:finding-resolved", "access_analyzer:no-new-external-findings"},
-			FailureSignals: []string{"cross_account_trust:finding-unchanged", "access_analyzer:new-external-finding"},
+			Steps:          []string{"Confirm the SCP policy is attached to every captured account or OU target.", "Confirm each target effective SCP includes the intended guardrail statement metadata ref before re-running cross-account trust analysis."},
+			SuccessSignals: []string{"organizations:scp-attached", "organizations:effective-policy-matches", "cross_account_trust:finding-resolved"},
+			FailureSignals: []string{"organizations:scp-missing", "organizations:effective-policy-mismatch", "cross_account_trust:finding-unchanged"},
 			EvidenceRef:    evidenceRef,
 		}
 	}
