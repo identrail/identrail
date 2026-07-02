@@ -9,7 +9,8 @@
   (`allow`|`warn`|`require_approval`|`recommend_deny`|`quarantine`),
   the principal node ID/ARN/type, the projected AWS API action and
   resource scope, a deterministic input hash (case ID, lifecycle,
-  approval state, verification state, policy version), provenance
+  approval state, approval requirement, severity, verification state,
+  kill-switch state, policy version), provenance
   (policy version and rule name), evidence refs, an audit trail, and a
   next-action string. Policy ordering makes safety signals win over
   approval state: kill-switch and verification-failed always classify
@@ -19,10 +20,10 @@
   execution as `warn`, and everything else as `allow` with advisory
   monitoring. Adds
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/advisory-authorization`
-  with filters for connector, fixture state, account, region,
-  principal, action, outcome, severity, source type, case ID,
-  verification ID, and free-text search. OpenAPI schemas and authz wiring follow the
-  neighboring wave-8 endpoints. The AWS Runtime app surface now shows
+  with filters for `connector_id`, `fixture_state`, `account_id`, `region`,
+  `principal_id`, `action`, `outcome`, `severity`, `source_type`, `case_id`,
+  `verification_id`, and `search`. OpenAPI schemas and authz wiring follow
+  the neighboring wave-8 endpoints. The AWS Runtime app surface now shows
   an **AWS advisory authorization** panel with the decision title,
   outcome pill, policy rule, principal, action, severity, and next
   action. Identrail never enforces the recommendation at this layer;

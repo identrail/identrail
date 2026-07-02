@@ -485,20 +485,14 @@ func awsAdvisoryAuthorizationActionForCase(c AWSRemediationCase) string {
 	if c.DiffIntent.NoOp {
 		return "advisory:review"
 	}
-	isUser := strings.EqualFold(c.IdentityType, "iam_user")
+	kind := awsAdvisoryAuthorizationCasePrincipalKind(c)
 	switch strings.ToLower(strings.TrimSpace(c.DiffIntent.Kind)) {
 	case "iam_policy_diff", "role_scope_diff", "iac_iam_policy_pr":
-		if isUser {
-			return "iam:PutUserPolicy"
-		}
-		return "iam:PutRolePolicy"
+		return awsAdvisoryAuthorizationPutPolicyAction(kind)
 	case "iam_trust_diff", "iac_trust_policy_pr":
 		return "iam:UpdateAssumeRolePolicy"
 	case "permission_boundary_diff":
-		if isUser {
-			return "iam:PutUserPermissionsBoundary"
-		}
-		return "iam:PutRolePermissionsBoundary"
+		return awsAdvisoryAuthorizationPutBoundaryAction(kind)
 	case "scp_diff":
 		return "organizations:AttachPolicy"
 	case "kms_grant_diff":
@@ -512,15 +506,9 @@ func awsAdvisoryAuthorizationActionForCase(c AWSRemediationCase) string {
 	}
 	switch strings.ToLower(strings.TrimSpace(c.SourceType)) {
 	case "least_privilege":
-		if isUser {
-			return "iam:PutUserPolicy"
-		}
-		return "iam:PutRolePolicy"
+		return awsAdvisoryAuthorizationPutPolicyAction(kind)
 	case "aws_permission_boundary_scp":
-		if isUser {
-			return "iam:PutUserPermissionsBoundary"
-		}
-		return "iam:PutRolePermissionsBoundary"
+		return awsAdvisoryAuthorizationPutBoundaryAction(kind)
 	case "trust_policy_hardening":
 		return "iam:UpdateAssumeRolePolicy"
 	case "aws_secret_key_rotation":
@@ -529,6 +517,54 @@ func awsAdvisoryAuthorizationActionForCase(c AWSRemediationCase) string {
 		return "iam:UpdateAccessKey"
 	}
 	return "advisory:review"
+}
+
+// awsAdvisoryAuthorizationCasePrincipalKind returns "user", "group", or
+// "role" for the case's IAM principal. It prefers the case's declared
+// IdentityType (`iam_user`, `iam_group`, `iam_role`) and falls back to
+// parsing the identity node ID or ARN with the same helper the dry-run
+// uses, so cases that store a generic IdentityType (for example
+// `iam_identity`) still route to the correct Put*Policy variant.
+func awsAdvisoryAuthorizationCasePrincipalKind(c AWSRemediationCase) string {
+	switch strings.ToLower(strings.TrimSpace(c.IdentityType)) {
+	case "iam_user":
+		return "user"
+	case "iam_group":
+		return "group"
+	case "iam_role":
+		return "role"
+	}
+	if kind := awsRemediationDryRunClassifiedIAMPrincipalKind(c.IdentityNodeID); kind != "" {
+		return kind
+	}
+	if kind := awsRemediationDryRunClassifiedIAMPrincipalKind(c.IdentityARN); kind != "" {
+		return kind
+	}
+	return "role"
+}
+
+func awsAdvisoryAuthorizationPutPolicyAction(kind string) string {
+	switch kind {
+	case "user":
+		return "iam:PutUserPolicy"
+	case "group":
+		return "iam:PutGroupPolicy"
+	}
+	return "iam:PutRolePolicy"
+}
+
+// awsAdvisoryAuthorizationPutBoundaryAction routes to a permission-boundary
+// API only when the principal is an IAM user or role; groups cannot receive
+// permission boundaries, so a group principal falls back to `advisory:review`
+// rather than advertising a call AWS would reject.
+func awsAdvisoryAuthorizationPutBoundaryAction(kind string) string {
+	switch kind {
+	case "user":
+		return "iam:PutUserPermissionsBoundary"
+	case "group":
+		return "advisory:review"
+	}
+	return "iam:PutRolePermissionsBoundary"
 }
 
 func awsAdvisoryAuthorizationEvidenceFromCase(c AWSRemediationCase, verification AWSPostRemediationVerificationEntry) []AWSAdvisoryAuthorizationEvidence {

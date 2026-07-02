@@ -288,6 +288,35 @@ func TestAWSAdvisoryAuthorizationActionForCaseHonorsPrincipalKind(t *testing.T) 
 			},
 			wantAction: "iam:PutUserPolicy",
 		},
+		{
+			name: "generic identity type falls back to identity node ID (user)",
+			c: AWSRemediationCase{
+				SourceType:     "least_privilege",
+				IdentityType:   "iam_identity",
+				IdentityNodeID: "aws:identity:arn:aws:iam::111111111111:user/actor",
+				DiffIntent:     AWSRemediationDiffIntent{Kind: "iam_policy_diff"},
+			},
+			wantAction: "iam:PutUserPolicy",
+		},
+		{
+			name: "generic identity type falls back to identity ARN (group)",
+			c: AWSRemediationCase{
+				SourceType:   "blast_radius",
+				IdentityType: "iam_identity",
+				IdentityARN:  "arn:aws:iam::111111111111:group/analysts",
+				DiffIntent:   AWSRemediationDiffIntent{Kind: "iam_policy_diff"},
+			},
+			wantAction: "iam:PutGroupPolicy",
+		},
+		{
+			name: "group principal on permission boundary falls back to advisory:review",
+			c: AWSRemediationCase{
+				SourceType:     "aws_permission_boundary_scp",
+				IdentityNodeID: "aws:identity:arn:aws:iam::111111111111:group/app-group",
+				DiffIntent:     AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+			},
+			wantAction: "advisory:review",
+		},
 	}
 	for _, tc := range cases {
 		if got := awsAdvisoryAuthorizationActionForCase(tc.c); got != tc.wantAction {
