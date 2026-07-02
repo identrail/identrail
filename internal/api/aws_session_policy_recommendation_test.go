@@ -96,6 +96,16 @@ func TestAWSSessionPolicyRecommendationAdmitsOnlyActionableRecords(t *testing.T)
 			want: true,
 		},
 		{
+			name: "whitespace-only observed and keep actions is not admitted",
+			rec: AWSLeastPrivilegeRecommendation{
+				Decision:        "remove",
+				IdentityNodeID:  "aws:identity:arn:aws:iam::111111111111:role/app",
+				KeepActions:     []string{"   ", ""},
+				ObservedActions: []string{"\t"},
+			},
+			want: false,
+		},
+		{
 			name: "review decision with keep actions is admitted",
 			rec: AWSLeastPrivilegeRecommendation{
 				Decision:       "review",
@@ -210,19 +220,43 @@ func TestFilterAWSSessionPolicyRecommendations(t *testing.T) {
 		t.Fatalf("decision filter did not scope entries: applied=%+v filtered=%+v", applied, filtered)
 	}
 
-	filtered, _ = filterAWSSessionPolicyRecommendations(entries, AWSSessionPolicyRecommendationRequest{AccountID: "111111111111"})
-	if len(filtered) != 1 || !strings.HasSuffix(filtered[0].RecommendationID, ":one") {
-		t.Fatalf("account_id filter did not scope entries: %+v", filtered)
+	filtered, applied = filterAWSSessionPolicyRecommendations(entries, AWSSessionPolicyRecommendationRequest{AccountID: "111111111111"})
+	if applied["account_id"] != "111111111111" || len(filtered) != 1 || !strings.HasSuffix(filtered[0].RecommendationID, ":one") {
+		t.Fatalf("account_id filter did not scope entries: applied=%+v filtered=%+v", applied, filtered)
 	}
 
-	filtered, _ = filterAWSSessionPolicyRecommendations(entries, AWSSessionPolicyRecommendationRequest{PrincipalID: "arn:aws:iam::111111111111:role/a"})
-	if len(filtered) != 1 || !strings.HasSuffix(filtered[0].RecommendationID, ":one") {
-		t.Fatalf("principal_id filter must match either node ID or ARN: %+v", filtered)
+	filtered, applied = filterAWSSessionPolicyRecommendations(entries, AWSSessionPolicyRecommendationRequest{PrincipalID: "arn:aws:iam::111111111111:role/a"})
+	if applied["principal_id"] != "arn:aws:iam::111111111111:role/a" || len(filtered) != 1 || !strings.HasSuffix(filtered[0].RecommendationID, ":one") {
+		t.Fatalf("principal_id filter must match either node ID or ARN and echo applied: applied=%+v filtered=%+v", applied, filtered)
 	}
 
-	filtered, _ = filterAWSSessionPolicyRecommendations(entries, AWSSessionPolicyRecommendationRequest{Search: "listbucket"})
-	if len(filtered) != 1 || !strings.HasSuffix(filtered[0].RecommendationID, ":two") {
-		t.Fatalf("search must reach allow_actions: %+v", filtered)
+	filtered, applied = filterAWSSessionPolicyRecommendations(entries, AWSSessionPolicyRecommendationRequest{Search: "listbucket"})
+	if applied["search"] != "listbucket" || len(filtered) != 1 || !strings.HasSuffix(filtered[0].RecommendationID, ":two") {
+		t.Fatalf("search must reach allow_actions and echo applied: applied=%+v filtered=%+v", applied, filtered)
+	}
+}
+
+func TestAWSSessionPolicyRecommendationFixtureNormalizerRespectsConnectionState(t *testing.T) {
+	disconnected := AWSConnectionStatus{Connected: false}
+	connected := AWSConnectionStatus{Connected: true}
+
+	// Explicit success/ready must degrade to permission_denied when the
+	// connection is down so this endpoint's fixture metadata stays in
+	// sync with the upstream least-privilege source.
+	if got := normalizeAWSSessionPolicyRecommendationFixtureState("success", disconnected, true); got != "permission_denied" {
+		t.Fatalf("explicit success on disconnected connection must degrade: got %q", got)
+	}
+	if got := normalizeAWSSessionPolicyRecommendationFixtureState("ready", disconnected, false); got != "permission_denied" {
+		t.Fatalf("explicit ready with no connection must degrade: got %q", got)
+	}
+	if got := normalizeAWSSessionPolicyRecommendationFixtureState("success", connected, true); got != "success" {
+		t.Fatalf("explicit success on live connection must stay success: got %q", got)
+	}
+	if got := normalizeAWSSessionPolicyRecommendationFixtureState("permission_denied", connected, true); got != "permission_denied" {
+		t.Fatalf("explicit permission_denied must pass through: got %q", got)
+	}
+	if got := normalizeAWSSessionPolicyRecommendationFixtureState("bogus", connected, true); got != "" {
+		t.Fatalf("unknown fixture state must return empty for invalid request: got %q", got)
 	}
 }
 

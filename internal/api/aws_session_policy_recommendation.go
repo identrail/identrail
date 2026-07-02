@@ -257,13 +257,15 @@ func (s *Service) GetAWSSessionPolicyRecommendations(ctx context.Context, worksp
 }
 
 func normalizeAWSSessionPolicyRecommendationFixtureState(requested string, connection AWSConnectionStatus, hasConnection bool) string {
+	// Mirror the upstream least-privilege normalizer so an explicit
+	// `success`/`ready` fixture never advertises success when the
+	// connection has been downgraded to permission_denied; the two
+	// endpoints must return consistent fixture metadata.
 	switch strings.ToLower(strings.TrimSpace(requested)) {
-	case "":
+	case "", "success", "ready":
 		if !hasConnection || !connection.Connected {
 			return "permission_denied"
 		}
-		return "success"
-	case "success", "ready":
 		return "success"
 	case "empty", "degraded", "partial_failure", "permission_denied":
 		return strings.ToLower(strings.TrimSpace(requested))
@@ -295,7 +297,10 @@ func awsSessionPolicyRecommendationAdmits(rec AWSLeastPrivilegeRecommendation) b
 	if strings.TrimSpace(rec.IdentityNodeID) == "" {
 		return false
 	}
-	if len(emptyStrings(rec.KeepActions)) == 0 && len(emptyStrings(rec.ObservedActions)) == 0 {
+	// Use dedupeStrings (trims and drops empty entries) so whitespace-only
+	// KeepActions/ObservedActions do not pass admission and then produce
+	// an empty allow_actions projection downstream.
+	if len(dedupeStrings(rec.KeepActions)) == 0 && len(dedupeStrings(rec.ObservedActions)) == 0 {
 		return false
 	}
 	return true
