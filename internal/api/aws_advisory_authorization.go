@@ -337,14 +337,7 @@ func awsAdvisoryAuthorizationVerificationForTarget(verifications []AWSPostRemedi
 }
 
 func awsAdvisoryAuthorizationVerificationMatchesTarget(entry AWSPostRemediationVerificationEntry, target string) bool {
-	targets := []string{entry.TargetResource}
-	targets = append(targets, entry.ImpactedNodes...)
-	for _, candidate := range targets {
-		if awsAdvisoryAuthorizationTargetsEqual(candidate, target) {
-			return true
-		}
-	}
-	return false
+	return awsAdvisoryAuthorizationTargetsEqual(entry.TargetResource, target)
 }
 
 func awsAdvisoryAuthorizationTargetsEqual(a, b string) bool {

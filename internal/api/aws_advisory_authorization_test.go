@@ -398,12 +398,14 @@ func TestAWSAdvisoryAuthorizationSplitTargetsUseMatchingVerification(t *testing.
 			CaseID:         c.CaseID,
 			State:          awsPostRemediationVerificationStateVerified,
 			TargetResource: roleTarget,
+			ImpactedNodes:  []string{roleTarget, userTarget},
 		},
 		{
 			VerificationID: "v-user",
 			CaseID:         c.CaseID,
 			State:          awsPostRemediationVerificationStatePending,
 			TargetResource: "arn:aws:iam::222222222222:user/operator",
+			ImpactedNodes:  []string{userTarget, roleTarget},
 		},
 	}
 
