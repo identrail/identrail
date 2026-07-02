@@ -144,6 +144,59 @@ func TestAWSAdvisoryAuthorizationClassifyPolicyOrder(t *testing.T) {
 	}
 }
 
+func TestAWSAdvisoryAuthorizationClassifyBlocksAllowOnNonTerminalVerification(t *testing.T) {
+	resolved := AWSRemediationCase{CaseID: "case-resolved", Lifecycle: "resolved", Severity: "low"}
+	low := AWSRemediationCase{CaseID: "case-low", Lifecycle: "proposed", Severity: "low"}
+
+	pending := AWSPostRemediationVerificationEntry{VerificationID: "v-1", State: awsPostRemediationVerificationStatePending}
+	if out, rule, _, _ := awsAdvisoryAuthorizationClassify(resolved, pending); out != awsAdvisoryAuthorizationOutcomeRequireApproval || rule != "verification_pending" {
+		t.Fatalf("pending verification must not let a resolved case be allowed: outcome=%s rule=%s", out, rule)
+	}
+	if out, rule, _, _ := awsAdvisoryAuthorizationClassify(low, pending); out != awsAdvisoryAuthorizationOutcomeRequireApproval || rule != "verification_pending" {
+		t.Fatalf("pending verification must gate low-severity cases: outcome=%s rule=%s", out, rule)
+	}
+
+	notReady := AWSPostRemediationVerificationEntry{VerificationID: "v-2", State: awsPostRemediationVerificationStateNotReady}
+	if out, rule, _, _ := awsAdvisoryAuthorizationClassify(resolved, notReady); out != awsAdvisoryAuthorizationOutcomeWarn || rule != "verification_not_ready" {
+		t.Fatalf("not-ready verification must warn even on resolved case: outcome=%s rule=%s", out, rule)
+	}
+
+	skipped := AWSPostRemediationVerificationEntry{VerificationID: "v-3", State: awsPostRemediationVerificationStateSkipped}
+	if out, rule, _, _ := awsAdvisoryAuthorizationClassify(low, skipped); out != awsAdvisoryAuthorizationOutcomeWarn || rule != "verification_skipped" {
+		t.Fatalf("skipped verification must warn even for low-severity cases: outcome=%s rule=%s", out, rule)
+	}
+}
+
+func TestAWSAdvisoryAuthorizationInputHashCoversAllClassifierInputs(t *testing.T) {
+	now := time.Date(2026, 7, 3, 10, 0, 0, 0, time.UTC)
+	base := AWSRemediationCase{
+		CaseID:        "case-hash",
+		Lifecycle:     "proposed",
+		ApprovalState: "pending_approver",
+		Severity:      "low",
+	}
+	baseVerify := AWSPostRemediationVerificationEntry{VerificationID: "v-hash", State: awsPostRemediationVerificationStatePending}
+	baseHash := awsAdvisoryAuthorizationDecisionFromCase(base, baseVerify, now).InputHash.Value
+
+	killed := baseVerify
+	killed.KillSwitchEngaged = true
+	if h := awsAdvisoryAuthorizationDecisionFromCase(base, killed, now).InputHash.Value; h == baseHash {
+		t.Fatalf("kill_switch_engaged must be part of the input hash so drift is detectable: %s", h)
+	}
+
+	severityChanged := base
+	severityChanged.Severity = "critical"
+	if h := awsAdvisoryAuthorizationDecisionFromCase(severityChanged, baseVerify, now).InputHash.Value; h == baseHash {
+		t.Fatalf("severity change must move the input hash: %s", h)
+	}
+
+	approvalRequired := base
+	approvalRequired.ApprovalRequired = true
+	if h := awsAdvisoryAuthorizationDecisionFromCase(approvalRequired, baseVerify, now).InputHash.Value; h == baseHash {
+		t.Fatalf("approval_required toggle must move the input hash: %s", h)
+	}
+}
+
 func TestAWSAdvisoryAuthorizationVerificationSeverityRankPrefersSafetySignals(t *testing.T) {
 	pending := AWSPostRemediationVerificationEntry{State: awsPostRemediationVerificationStatePending}
 	verified := AWSPostRemediationVerificationEntry{State: awsPostRemediationVerificationStateVerified}

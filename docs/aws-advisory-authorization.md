@@ -32,29 +32,34 @@ Each decision carries:
 - `provenance.policy_version` and `provenance.policy_rule`: the deterministic
   policy rule name that produced the outcome. Every change to the policy
   bumps the version so operators can trace drift.
-- `input_hash`: deterministic hash of the inputs (case ID, lifecycle, approval
-  state, verification state, policy version). Log it on both sides of a
-  policy decision point to detect drift.
+- `input_hash`: deterministic hash of every input the classifier reads
+  (case ID, lifecycle, approval state, approval-required flag, severity,
+  verification state, kill-switch flag, policy version). Log it on both
+  sides of a policy decision point to detect drift.
 - `evidence`, `evidence_links`: metadata refs only. No rendered policy
   bodies, secret values, or workload payloads.
 - `audit_trail`: immutable rows including the projection event.
 
 ## Outcome policy
 
-Ordered so safety signals win over general approval state:
+Ordered so safety signals win over general approval state. Any present
+verification entry is evaluated before the case-only rules so a
+projected-but-not-yet-verified execution can never be recorded as `allow`:
 
 1. `verification.kill_switch_engaged=true` → `quarantine`.
 2. Verification state `verification_failed` or `rollback_planned` →
    `quarantine`.
 3. Verification state `verification_verified` → `allow`.
 4. Verification state `blocked` → `recommend_deny`.
-5. Case lifecycle `resolved` → `allow`.
-6. Case `approval_state=blocked` → `recommend_deny`.
-7. Case `approval_state=approved` (not yet applied+verified) →
+5. Verification state `verification_pending` → `require_approval`.
+6. Verification state `not_ready` or `skipped` → `warn`.
+7. Case lifecycle `resolved` (no verification present) → `allow`.
+8. Case `approval_state=blocked` → `recommend_deny`.
+9. Case `approval_state=approved` (not yet applied+verified) →
    `require_approval`.
-8. Case `approval_required=true` → `require_approval`.
-9. Case severity `critical` or `high` with no in-flight execution → `warn`.
-10. Otherwise → `allow` with advisory monitoring.
+10. Case `approval_required=true` → `require_approval`.
+11. Case severity `critical` or `high` with no in-flight execution → `warn`.
+12. Otherwise → `allow` with advisory monitoring.
 
 ## App Surface
 

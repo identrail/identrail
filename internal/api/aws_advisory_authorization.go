@@ -320,13 +320,39 @@ func awsAdvisoryAuthorizationDecisionFromCase(c AWSRemediationCase, verification
 	}
 	evidence := awsAdvisoryAuthorizationEvidenceFromCase(c, verification)
 	evidenceLinks := awsAdvisoryAuthorizationEvidenceLinksFromCase(c, verification)
+	// Hash every input the classifier reads. If any of these change the
+	// outcome/rationale can change, so operators must be able to detect the
+	// drift by comparing hashes across runs.
+	killSwitchToken := "false"
+	if verification.KillSwitchEngaged {
+		killSwitchToken = "true"
+	}
+	approvalRequiredToken := "false"
+	if c.ApprovalRequired {
+		approvalRequiredToken = "true"
+	}
 	inputHash := AWSAdvisoryAuthorizationInputHash{
-		Value: stableAWSBlastRadiusToken("input", c.CaseID, c.Lifecycle, c.ApprovalState, verification.State, verification.VerificationID, awsAdvisoryAuthorizationVersion, awsAdvisoryAuthorizationPolicyID),
+		Value: stableAWSBlastRadiusToken(
+			"input",
+			c.CaseID,
+			c.Lifecycle,
+			c.ApprovalState,
+			approvalRequiredToken,
+			c.Severity,
+			verification.State,
+			verification.VerificationID,
+			killSwitchToken,
+			awsAdvisoryAuthorizationVersion,
+			awsAdvisoryAuthorizationPolicyID,
+		),
 		Components: []string{
 			"case_id=" + c.CaseID,
 			"lifecycle=" + c.Lifecycle,
 			"approval_state=" + c.ApprovalState,
+			"approval_required=" + approvalRequiredToken,
+			"severity=" + c.Severity,
 			"verification_state=" + verification.State,
+			"kill_switch_engaged=" + killSwitchToken,
 			"policy_version=" + awsAdvisoryAuthorizationPolicyID,
 		},
 	}
@@ -414,6 +440,12 @@ func awsAdvisoryAuthorizationClassify(c AWSRemediationCase, verification AWSPost
 		return awsAdvisoryAuthorizationOutcomeAllow, "verification_verified", "Post-remediation verification confirmed the intended state; allow the projected authorization.", 0.9
 	case awsPostRemediationVerificationStateBlocked:
 		return awsAdvisoryAuthorizationOutcomeRecommendDeny, "verification_blocked", "Verification is blocked by a safety gate or an unresolved upstream precondition; recommend deny until the failing gate clears.", 0.85
+	case awsPostRemediationVerificationStatePending:
+		return awsAdvisoryAuthorizationOutcomeRequireApproval, "verification_pending", "Execution is projected but post-remediation verification has not recorded outcomes yet; require approval workflow to reach a verified state before allowing the new posture.", 0.8
+	case awsPostRemediationVerificationStateNotReady:
+		return awsAdvisoryAuthorizationOutcomeWarn, "verification_not_ready", "Upstream executor has not declared ready_for_live_apply; warn operators and refresh planner/dry-run evidence before allowing the projected authorization.", 0.75
+	case awsPostRemediationVerificationStateSkipped:
+		return awsAdvisoryAuthorizationOutcomeWarn, "verification_skipped", "Upstream executor did not project a live-apply record; warn operators and re-run planner/dry-run before allowing the projected authorization.", 0.75
 	}
 	if strings.EqualFold(c.Lifecycle, "resolved") {
 		return awsAdvisoryAuthorizationOutcomeAllow, "case_resolved", "Remediation case is resolved and no active risk finding is present; allow the projected authorization.", 0.85
