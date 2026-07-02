@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -376,11 +378,11 @@ func awsAgentCoreGatewayPolicyAdvisoryClassify(finding AWSAIAgentRiskFinding) (o
 		return awsAgentCoreGatewayPolicyOutcomeBlockTools, "critical_sensitive_reachability", "Critical-severity finding reaches sensitive resources; recommend blocking the affected tool calls until the reachability is remediated.", 0.92
 	}
 	switch riskType {
-	case "external_credential", "external_credentials":
+	case "external_credential", "external_credentials", "external_credential_exposure":
 		return awsAgentCoreGatewayPolicyOutcomeRequireApproval, "external_credential_use", "Agent runtime uses external credentials; require operator approval before allowing gateway tool calls.", 0.88
 	case "broad_tool_access", "broad_tool_scope":
 		return awsAgentCoreGatewayPolicyOutcomeRestrictTools, "broad_tool_access", "Agent exposes a broad tool namespace; recommend restricting the tool scope to the observed usage set.", 0.85
-	case "sensitive_reachability":
+	case "sensitive_reachability", "sensitive_data_reachability":
 		return awsAgentCoreGatewayPolicyOutcomeRestrictTools, "sensitive_reachability", "Agent gateway can reach sensitive resources; recommend restricting the tool scope and requiring approvals on the exposed tool calls.", 0.85
 	case "ownerless_agent":
 		return awsAgentCoreGatewayPolicyOutcomeWarn, "ownerless_agent", "Agent has no assigned owner; warn operators and assign an owner before broadening the tool scope.", 0.78
@@ -467,8 +469,10 @@ func awsAgentCoreGatewayPolicyAdvisoryRecommendedActions(outcome string, restric
 }
 
 func awsAgentCoreGatewayPolicyAdvisoryInputHash(finding AWSAIAgentRiskFinding, outcome string) AWSAgentCoreGatewayPolicyAdvisoryInputHash {
-	toolCount := len(emptyStrings(finding.ToolNames))
-	sensitiveCount := len(emptyStrings(finding.SensitiveResources))
+	toolsDigest := awsAgentCoreGatewayPolicyAdvisoryListDigest(finding.ToolNames)
+	sensitiveDigest := awsAgentCoreGatewayPolicyAdvisoryListDigest(finding.SensitiveResources)
+	toolCount := len(normalizeOrderedStringList(dedupeStrings(finding.ToolNames)))
+	sensitiveCount := len(normalizeOrderedStringList(dedupeStrings(finding.SensitiveResources)))
 	value := stableAWSBlastRadiusToken(
 		"agentcore-input",
 		finding.FindingID,
@@ -477,7 +481,9 @@ func awsAgentCoreGatewayPolicyAdvisoryInputHash(finding AWSAIAgentRiskFinding, o
 		finding.Severity,
 		finding.Status,
 		fmt.Sprintf("tools=%d", toolCount),
+		"tools_digest="+toolsDigest,
 		fmt.Sprintf("sensitive=%d", sensitiveCount),
+		"sensitive_digest="+sensitiveDigest,
 		outcome,
 		awsAgentCoreGatewayPolicyAdvisoryVersion,
 		awsAgentCoreGatewayPolicyAdvisoryPolicyID,
@@ -491,10 +497,23 @@ func awsAgentCoreGatewayPolicyAdvisoryInputHash(finding AWSAIAgentRiskFinding, o
 			"severity=" + finding.Severity,
 			"status=" + finding.Status,
 			fmt.Sprintf("tool_count=%d", toolCount),
+			"tool_names_sha256=" + toolsDigest,
 			fmt.Sprintf("sensitive_count=%d", sensitiveCount),
+			"sensitive_resources_sha256=" + sensitiveDigest,
 			"policy_version=" + awsAgentCoreGatewayPolicyAdvisoryPolicyID,
 		},
 	}
+}
+
+func awsAgentCoreGatewayPolicyAdvisoryListDigest(values []string) string {
+	normalized := normalizeOrderedStringList(dedupeStrings(values))
+	sort.Strings(normalized)
+	sum := sha256.New()
+	for _, value := range normalized {
+		sum.Write([]byte(value))
+		sum.Write([]byte{0})
+	}
+	return hex.EncodeToString(sum.Sum(nil))
 }
 
 func awsAgentCoreGatewayPolicyAdvisoryNextAction(outcome string) string {

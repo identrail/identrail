@@ -102,10 +102,24 @@ func TestAWSAgentCoreGatewayPolicyAdvisoryClassifyPolicyOrder(t *testing.T) {
 		t.Fatalf("external credential must classify as require_approval: %s / %s", out, rule)
 	}
 
+	externalCredExposure := base
+	externalCredExposure.RiskType = "external_credential_exposure"
+	if out, rule, _, _ := awsAgentCoreGatewayPolicyAdvisoryClassify(externalCredExposure); out != awsAgentCoreGatewayPolicyOutcomeRequireApproval || rule != "external_credential_use" {
+		t.Fatalf("upstream external credential exposure must classify as require_approval: %s / %s", out, rule)
+	}
+
 	broad := base
 	broad.RiskType = "broad_tool_access"
 	if out, rule, _, _ := awsAgentCoreGatewayPolicyAdvisoryClassify(broad); out != awsAgentCoreGatewayPolicyOutcomeRestrictTools || rule != "broad_tool_access" {
 		t.Fatalf("broad tool access must classify as restrict_tools: %s / %s", out, rule)
+	}
+
+	sensitiveDataReachability := base
+	sensitiveDataReachability.RiskType = "sensitive_data_reachability"
+	sensitiveDataReachability.ToolNames = []string{"tool-a"}
+	sensitiveDataReachability.SensitiveResources = []string{"arn:aws:secretsmanager:us-east-1:111111111111:secret:openai/api-key"}
+	if out, rule, _, _ := awsAgentCoreGatewayPolicyAdvisoryClassify(sensitiveDataReachability); out != awsAgentCoreGatewayPolicyOutcomeRestrictTools || rule != "sensitive_reachability" {
+		t.Fatalf("upstream sensitive data reachability must classify as restrict_tools: %s / %s", out, rule)
 	}
 
 	ownerless := base
@@ -240,7 +254,7 @@ func TestAWSAgentCoreGatewayPolicyAdvisoryFixtureStates(t *testing.T) {
 }
 
 func TestAWSAgentCoreGatewayPolicyAdvisoryInputHashCoversAllInputs(t *testing.T) {
-	base := AWSAIAgentRiskFinding{FindingID: "f-hash", AgentNodeID: "aws:agent:x", Severity: "medium", RiskType: "unknown", Status: "action_required", ToolNames: []string{"a"}}
+	base := AWSAIAgentRiskFinding{FindingID: "f-hash", AgentNodeID: "aws:agent:x", Severity: "medium", RiskType: "unknown", Status: "action_required", ToolNames: []string{"a"}, SensitiveResources: []string{"arn:aws:s3:::sensitive-a"}}
 	baseHash := awsAgentCoreGatewayPolicyAdvisoryInputHash(base, awsAgentCoreGatewayPolicyOutcomeAllowTools).Value
 
 	sevChanged := base
@@ -260,9 +274,21 @@ func TestAWSAgentCoreGatewayPolicyAdvisoryInputHashCoversAllInputs(t *testing.T)
 	}
 
 	extraSensitive := base
-	extraSensitive.SensitiveResources = []string{"arn:aws:s3:::sensitive"}
+	extraSensitive.SensitiveResources = []string{"arn:aws:s3:::sensitive-a", "arn:aws:s3:::sensitive-b"}
 	if awsAgentCoreGatewayPolicyAdvisoryInputHash(extraSensitive, awsAgentCoreGatewayPolicyOutcomeAllowTools).Value == baseHash {
 		t.Fatalf("sensitive count change must move input hash")
+	}
+
+	toolScopeChanged := base
+	toolScopeChanged.ToolNames = []string{"b"}
+	if awsAgentCoreGatewayPolicyAdvisoryInputHash(toolScopeChanged, awsAgentCoreGatewayPolicyOutcomeAllowTools).Value == baseHash {
+		t.Fatalf("same-count tool scope change must move input hash")
+	}
+
+	sensitiveScopeChanged := base
+	sensitiveScopeChanged.SensitiveResources = []string{"arn:aws:s3:::sensitive-b"}
+	if awsAgentCoreGatewayPolicyAdvisoryInputHash(sensitiveScopeChanged, awsAgentCoreGatewayPolicyOutcomeAllowTools).Value == baseHash {
+		t.Fatalf("same-count sensitive resource scope change must move input hash")
 	}
 }
 

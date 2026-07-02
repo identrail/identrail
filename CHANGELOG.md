@@ -33,6 +33,12 @@
   outcome pill, restricted/blocked tool counts, sensitive-reachability
   count, and severity/outcome status pill. Identrail never enforces
   the recommendation at this layer.
+- Tighten the AgentCore gateway policy advisory classifier/hash contract
+  after review: upstream `external_credential_exposure` findings now map
+  to the dedicated approval rule, upstream `sensitive_data_reachability`
+  findings map to the restriction rule, and advisory `input_hash` values
+  include normalized tool-name and sensitive-resource digests so same-count
+  scope replacements are detectable.
 - Add **AWS session policy recommendation path** (#1544). Adds an
   advisory-only projection that derives session-policy recommendations
   from the least-privilege recommendation engine (#1522). Each entry

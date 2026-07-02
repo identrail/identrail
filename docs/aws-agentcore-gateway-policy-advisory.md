@@ -43,9 +43,10 @@ Each advisory carries:
 - `provenance.policy_version` / `provenance.policy_rule`: the deterministic
   rule that produced the advisory. Every policy change bumps the version.
 - `input_hash`: deterministic hash of the classifier inputs (finding ID,
-  agent node ID, risk type, severity, status, tool count, sensitive
-  reachability count, outcome, policy version). Log both sides of a
-  gateway policy decision to detect drift.
+  agent node ID, risk type, severity, status, tool count, normalized
+  tool-name digest, sensitive reachability count, normalized sensitive
+  resource digest, outcome, policy version). Log both sides of a gateway
+  policy decision to detect drift.
 - `evidence`, `impacted_nodes`, `impacted_path`: metadata refs only. No
   prompt text or tool payloads.
 - `audit_trail`: immutable projection audit row.
@@ -56,10 +57,11 @@ Ordered so safety signals win over general tool-scope warnings:
 
 1. Severity `critical` AND at least one sensitive reachability →
    `block_tools`.
-2. Risk type `external_credential` / `external_credentials` →
-   `require_approval`.
+2. Risk type `external_credential`, `external_credentials`, or upstream
+   `external_credential_exposure` → `require_approval`.
 3. Risk type `broad_tool_access` / `broad_tool_scope` → `restrict_tools`.
-4. Risk type `sensitive_reachability` → `restrict_tools`.
+4. Risk type `sensitive_reachability` or upstream
+   `sensitive_data_reachability` → `restrict_tools`.
 5. Risk type `ownerless_agent` → `warn`.
 6. Severity `critical` or `high` without matching risk type →
    `require_approval`.
