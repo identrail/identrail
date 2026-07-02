@@ -421,18 +421,34 @@ func awsSessionPolicyRecommendationAllowActions(rec AWSLeastPrivilegeRecommendat
 	return awsSessionPolicyRecommendationValidIAMActions(rec.ObservedActions)
 }
 
+// awsSessionPolicyRecommendationResourceScope returns only values a
+// downstream renderer can place in an IAM `Resource` element: real ARNs or
+// the `*` wildcard. Graph node IDs (aws:resource:..., aws:identity:...) are
+// dropped here — they surface through impacted_nodes and relationships, not
+// through the session-policy resource scope.
 func awsSessionPolicyRecommendationResourceScope(rec AWSLeastPrivilegeRecommendation) []string {
 	scope := []string{}
-	if arn := strings.TrimSpace(rec.ResourceARN); arn != "" {
+	if arn := strings.TrimSpace(rec.ResourceARN); awsSessionPolicyRecommendationIsValidResource(arn) {
 		scope = append(scope, arn)
 	}
-	if node := strings.TrimSpace(rec.ResourceNodeID); node != "" {
+	if node := strings.TrimSpace(rec.ResourceNodeID); awsSessionPolicyRecommendationIsValidResource(node) {
 		scope = append(scope, node)
 	}
 	if len(scope) == 0 {
 		scope = append(scope, "*")
 	}
-	return emptyStrings(dedupeStrings(scope))
+	return dedupeStrings(scope)
+}
+
+func awsSessionPolicyRecommendationIsValidResource(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	if value == "*" {
+		return true
+	}
+	return strings.HasPrefix(value, "arn:")
 }
 
 func awsSessionPolicyRecommendationValidationSignals(rec AWSLeastPrivilegeRecommendation) []AWSSessionPolicyRecommendationValidationSignal {

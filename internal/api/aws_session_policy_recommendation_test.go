@@ -241,6 +241,61 @@ func TestAWSSessionPolicyRecommendationFiltersSyntheticActions(t *testing.T) {
 	}
 }
 
+func TestAWSSessionPolicyRecommendationResourceScopeExcludesGraphNodes(t *testing.T) {
+	now := time.Date(2026, 7, 3, 10, 50, 0, 0, time.UTC)
+
+	graphOnly := AWSLeastPrivilegeRecommendation{
+		RecommendationID: "lp-graph-only",
+		Decision:         "remove",
+		IdentityNodeID:   "aws:identity:arn:aws:iam::111111111111:role/app",
+		ResourceNodeID:   "aws:resource:secrets-manager-secret:openai/api-key",
+		KeepActions:      []string{"secretsmanager:GetSecretValue"},
+	}
+	out := awsSessionPolicyRecommendationFromLeastPrivilege(graphOnly, now)
+	if len(out.ResourceScope) != 1 || out.ResourceScope[0] != "*" {
+		t.Fatalf("graph-node-only records must fall back to `*` for the session-policy resource scope: %+v", out.ResourceScope)
+	}
+
+	mixed := AWSLeastPrivilegeRecommendation{
+		RecommendationID: "lp-mixed",
+		Decision:         "remove",
+		IdentityNodeID:   "aws:identity:arn:aws:iam::111111111111:role/app",
+		ResourceARN:      "arn:aws:secretsmanager:us-east-1:111111111111:secret:openai/api-key",
+		ResourceNodeID:   "aws:resource:secrets-manager-secret:openai/api-key",
+		KeepActions:      []string{"secretsmanager:GetSecretValue"},
+	}
+	out = awsSessionPolicyRecommendationFromLeastPrivilege(mixed, now)
+	if len(out.ResourceScope) != 1 || out.ResourceScope[0] != "arn:aws:secretsmanager:us-east-1:111111111111:secret:openai/api-key" {
+		t.Fatalf("mixed records must keep only ARNs in the session-policy resource scope: %+v", out.ResourceScope)
+	}
+	for _, value := range out.ResourceScope {
+		if strings.HasPrefix(value, "aws:") {
+			t.Fatalf("session-policy resource scope must not carry graph node IDs: %+v", out.ResourceScope)
+		}
+	}
+}
+
+func TestAWSSessionPolicyRecommendationIsValidResource(t *testing.T) {
+	cases := []struct {
+		value string
+		want  bool
+	}{
+		{"arn:aws:s3:::payments-prod", true},
+		{"arn:aws:secretsmanager:us-east-1:111111111111:secret:openai/api-key", true},
+		{"*", true},
+		{"aws:resource:secrets-manager-secret:openai/api-key", false},
+		{"aws:identity:arn:aws:iam::111111111111:role/app", false},
+		{"", false},
+		{"   ", false},
+		{"my-bucket", false},
+	}
+	for _, tc := range cases {
+		if got := awsSessionPolicyRecommendationIsValidResource(tc.value); got != tc.want {
+			t.Fatalf("value=%q got %v want %v", tc.value, got, tc.want)
+		}
+	}
+}
+
 func TestAWSSessionPolicyRecommendationIsValidIAMAction(t *testing.T) {
 	cases := []struct {
 		action string
