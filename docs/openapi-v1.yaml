@@ -16076,6 +16076,10 @@ components:
         summary: { type: string }
         rationale: { type: string }
         account_id: { type: string }
+        target_account_ids:
+          type: array
+          items: { type: string }
+          description: Full set of accounts the underlying remediation case affects. Account filters match this list in addition to `account_id`.
         region: { type: string }
         principal_node_id: { type: string }
         principal_arn: { type: string }

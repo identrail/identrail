@@ -3931,6 +3931,7 @@ export type AWSAdvisoryAuthorizationDecision = {
   summary: string;
   rationale: string;
   account_id?: string;
+  target_account_ids?: string[];
   region?: string;
   principal_node_id?: string;
   principal_arn?: string;

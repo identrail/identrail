@@ -19,9 +19,9 @@
   execution as `warn`, and everything else as `allow` with advisory
   monitoring. Adds
   `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/advisory-authorization`
-  with filters for connector, account, region, principal, action,
-  outcome, severity, source type, case ID, verification ID, and
-  free-text search. OpenAPI schemas and authz wiring follow the
+  with filters for connector, fixture state, account, region,
+  principal, action, outcome, severity, source type, case ID,
+  verification ID, and free-text search. OpenAPI schemas and authz wiring follow the
   neighboring wave-8 endpoints. The AWS Runtime app surface now shows
   an **AWS advisory authorization** panel with the decision title,
   outcome pill, policy rule, principal, action, severity, and next

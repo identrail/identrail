@@ -144,6 +144,61 @@ func TestAWSAdvisoryAuthorizationClassifyPolicyOrder(t *testing.T) {
 	}
 }
 
+func TestAWSAdvisoryAuthorizationVerificationSeverityRankPrefersSafetySignals(t *testing.T) {
+	pending := AWSPostRemediationVerificationEntry{State: awsPostRemediationVerificationStatePending}
+	verified := AWSPostRemediationVerificationEntry{State: awsPostRemediationVerificationStateVerified}
+	failed := AWSPostRemediationVerificationEntry{State: awsPostRemediationVerificationStateFailed}
+	killed := AWSPostRemediationVerificationEntry{State: awsPostRemediationVerificationStatePending, KillSwitchEngaged: true}
+
+	if awsAdvisoryAuthorizationVerificationSeverityRank(killed) <= awsAdvisoryAuthorizationVerificationSeverityRank(failed) {
+		t.Fatalf("kill switch must outrank failed verification: killed=%d failed=%d", awsAdvisoryAuthorizationVerificationSeverityRank(killed), awsAdvisoryAuthorizationVerificationSeverityRank(failed))
+	}
+	if awsAdvisoryAuthorizationVerificationSeverityRank(failed) <= awsAdvisoryAuthorizationVerificationSeverityRank(verified) {
+		t.Fatalf("failed verification must outrank verified: failed=%d verified=%d", awsAdvisoryAuthorizationVerificationSeverityRank(failed), awsAdvisoryAuthorizationVerificationSeverityRank(verified))
+	}
+	if awsAdvisoryAuthorizationVerificationSeverityRank(pending) <= awsAdvisoryAuthorizationVerificationSeverityRank(verified) {
+		t.Fatalf("pending must outrank verified so a not-yet-verified execution isn't classified as allow: pending=%d verified=%d", awsAdvisoryAuthorizationVerificationSeverityRank(pending), awsAdvisoryAuthorizationVerificationSeverityRank(verified))
+	}
+}
+
+func TestAWSAdvisoryAuthorizationAccountFilterMatchesTargetAccounts(t *testing.T) {
+	decisions := []AWSAdvisoryAuthorizationDecision{
+		{
+			DecisionID:       "d-multi",
+			AccountID:        "111111111111",
+			TargetAccountIDs: []string{"111111111111", "222222222222", "333333333333"},
+			Outcome:          awsAdvisoryAuthorizationOutcomeRequireApproval,
+		},
+	}
+
+	filtered, _ := filterAWSAdvisoryAuthorizationDecisions(decisions, AWSAdvisoryAuthorizationRequest{AccountID: "333333333333"})
+	if len(filtered) != 1 || filtered[0].DecisionID != "d-multi" {
+		t.Fatalf("account_id filter must match target_account_ids on the decision, not just the primary account: %+v", filtered)
+	}
+
+	filtered, _ = filterAWSAdvisoryAuthorizationDecisions(decisions, AWSAdvisoryAuthorizationRequest{AccountID: "111111111111"})
+	if len(filtered) != 1 {
+		t.Fatalf("primary account match still required: %+v", filtered)
+	}
+
+	filtered, _ = filterAWSAdvisoryAuthorizationDecisions(decisions, AWSAdvisoryAuthorizationRequest{AccountID: "999999999999"})
+	if len(filtered) != 0 {
+		t.Fatalf("account filter must exclude decisions with no matching target: %+v", filtered)
+	}
+}
+
+func TestAWSAdvisoryAuthorizationRegionFilterIsStrict(t *testing.T) {
+	decisions := []AWSAdvisoryAuthorizationDecision{
+		{DecisionID: "d-regional", Region: "us-east-1", Outcome: awsAdvisoryAuthorizationOutcomeAllow},
+		{DecisionID: "d-regionless", Region: "", Outcome: awsAdvisoryAuthorizationOutcomeAllow},
+		{DecisionID: "d-other-region", Region: "us-west-2", Outcome: awsAdvisoryAuthorizationOutcomeAllow},
+	}
+	filtered, _ := filterAWSAdvisoryAuthorizationDecisions(decisions, AWSAdvisoryAuthorizationRequest{Region: "us-east-1"})
+	if len(filtered) != 1 || filtered[0].DecisionID != "d-regional" {
+		t.Fatalf("region filter must be strict: regionless and mismatched-region decisions must be excluded: %+v", filtered)
+	}
+}
+
 func TestFilterAWSAdvisoryAuthorizationDecisions(t *testing.T) {
 	decisions := []AWSAdvisoryAuthorizationDecision{
 		{

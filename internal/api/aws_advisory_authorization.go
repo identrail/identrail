@@ -95,6 +95,7 @@ type AWSAdvisoryAuthorizationDecision struct {
 	Summary            string                               `json:"summary"`
 	Rationale          string                               `json:"rationale"`
 	AccountID          string                               `json:"account_id,omitempty"`
+	TargetAccountIDs   []string                             `json:"target_account_ids,omitempty"`
 	Region             string                               `json:"region,omitempty"`
 	PrincipalNodeID    string                               `json:"principal_node_id,omitempty"`
 	PrincipalARN       string                               `json:"principal_arn,omitempty"`
@@ -208,15 +209,19 @@ func (s *Service) GetAWSAdvisoryAuthorization(ctx context.Context, workspaceID s
 		return AWSAdvisoryAuthorizationResult{}, fmt.Errorf("advisory authorization verification: %w", err)
 	}
 
+	// When one case fans out into multiple verification records (per-target
+	// splits, retries), keep the most safety-critical entry per case so a
+	// kill-switch or verification failure on any target still classifies the
+	// decision correctly.
 	verificationByCase := map[string]AWSPostRemediationVerificationEntry{}
 	for _, entry := range verification.Entries {
 		if strings.TrimSpace(entry.CaseID) == "" {
 			continue
 		}
-		if _, ok := verificationByCase[entry.CaseID]; ok {
-			continue
+		existing, ok := verificationByCase[entry.CaseID]
+		if !ok || awsAdvisoryAuthorizationVerificationSeverityRank(entry) > awsAdvisoryAuthorizationVerificationSeverityRank(existing) {
+			verificationByCase[entry.CaseID] = entry
 		}
-		verificationByCase[entry.CaseID] = entry
 	}
 
 	decisions := awsAdvisoryAuthorizationDecisions(cases.Cases, verificationByCase, now)
@@ -337,6 +342,7 @@ func awsAdvisoryAuthorizationDecisionFromCase(c AWSRemediationCase, verification
 		Summary:            fmt.Sprintf("Advisory-only authorization decision for %s (outcome=%s). Identrail records the recommendation, provenance, and audit only; no live IAM/STS/Organizations write API is called at this layer.", firstNonEmptyAWSValue(principalNodeID, c.CaseID), outcome),
 		Rationale:          rationale,
 		AccountID:          firstNonEmptyAWSValue(c.AccountID, firstString(c.TargetAccountIDs)),
+		TargetAccountIDs:   emptyStrings(dedupeStrings(append(append([]string{}, c.TargetAccountIDs...), c.AccountID))),
 		Region:             c.Region,
 		PrincipalNodeID:    principalNodeID,
 		PrincipalARN:       c.IdentityARN,
@@ -371,6 +377,32 @@ func awsAdvisoryAuthorizationDecisionFromCase(c AWSRemediationCase, verification
 // safety-critical states (kill switch, verification failed) win over general
 // approval state so a compromised or reverted execution can never be recorded
 // as `allow`.
+// awsAdvisoryAuthorizationVerificationSeverityRank orders verification entries
+// so the most safety-critical wins when multiple entries share a case ID.
+// Higher rank = more severe. The order mirrors awsAdvisoryAuthorizationClassify
+// so the entry that would produce a `quarantine` or `recommend_deny` decision
+// takes precedence over one that would produce `allow` or `verification_pending`.
+func awsAdvisoryAuthorizationVerificationSeverityRank(entry AWSPostRemediationVerificationEntry) int {
+	if entry.KillSwitchEngaged {
+		return 100
+	}
+	switch entry.State {
+	case awsPostRemediationVerificationStateFailed, awsPostRemediationVerificationStateRollback:
+		return 90
+	case awsPostRemediationVerificationStateBlocked:
+		return 80
+	case awsPostRemediationVerificationStateNotReady:
+		return 40
+	case awsPostRemediationVerificationStatePending:
+		return 30
+	case awsPostRemediationVerificationStateSkipped:
+		return 20
+	case awsPostRemediationVerificationStateVerified:
+		return 10
+	}
+	return 0
+}
+
 func awsAdvisoryAuthorizationClassify(c AWSRemediationCase, verification AWSPostRemediationVerificationEntry) (outcome, rule, rationale string, confidence float64) {
 	if verification.KillSwitchEngaged {
 		return awsAdvisoryAuthorizationOutcomeQuarantine, "kill_switch_engaged", "Tenant remediation kill switch is engaged; recommend quarantining new authorization until the switch is disabled.", 0.95
@@ -604,10 +636,10 @@ func filterAWSAdvisoryAuthorizationDecisions(decisions []AWSAdvisoryAuthorizatio
 	}
 	filtered := make([]AWSAdvisoryAuthorizationDecision, 0, len(decisions))
 	for _, decision := range decisions {
-		if filters["account_id"] != "" && !strings.EqualFold(filters["account_id"], strings.TrimSpace(decision.AccountID)) {
+		if filters["account_id"] != "" && !awsAdvisoryAuthorizationAccountMatch(decision, filters["account_id"]) {
 			continue
 		}
-		if filters["region"] != "" && strings.TrimSpace(decision.Region) != "" && !strings.EqualFold(filters["region"], strings.TrimSpace(decision.Region)) {
+		if filters["region"] != "" && !strings.EqualFold(filters["region"], strings.TrimSpace(decision.Region)) {
 			continue
 		}
 		if filters["principal_id"] != "" && !strings.EqualFold(filters["principal_id"], strings.TrimSpace(decision.PrincipalNodeID)) && !strings.EqualFold(filters["principal_id"], strings.TrimSpace(decision.PrincipalARN)) {
@@ -639,6 +671,22 @@ func filterAWSAdvisoryAuthorizationDecisions(decisions []AWSAdvisoryAuthorizatio
 	return filtered, applied
 }
 
+func awsAdvisoryAuthorizationAccountMatch(decision AWSAdvisoryAuthorizationDecision, accountID string) bool {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(decision.AccountID), accountID) {
+		return true
+	}
+	for _, target := range decision.TargetAccountIDs {
+		if strings.EqualFold(strings.TrimSpace(target), accountID) {
+			return true
+		}
+	}
+	return false
+}
+
 func awsAdvisoryAuthorizationSearchMatch(decision AWSAdvisoryAuthorizationDecision, needle string) bool {
 	needle = strings.ToLower(strings.TrimSpace(needle))
 	if needle == "" {
@@ -651,6 +699,7 @@ func awsAdvisoryAuthorizationSearchMatch(decision AWSAdvisoryAuthorizationDecisi
 		decision.Provenance.PolicyRule, decision.Provenance.PolicyVersion,
 	}
 	values = append(values, decision.ResourceScope...)
+	values = append(values, decision.TargetAccountIDs...)
 	values = append(values, decision.Provenance.SourceTypes...)
 	values = append(values, decision.Provenance.Signals...)
 	values = append(values, decision.EvidenceLinks...)
