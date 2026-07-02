@@ -380,6 +380,37 @@ func TestAWSAdvisoryAuthorizationSplitsMixedPermissionBoundaryTargets(t *testing
 	}
 }
 
+func TestAWSAdvisoryAuthorizationNormalizesSinglePermissionBoundaryTargetARN(t *testing.T) {
+	now := time.Date(2026, 7, 3, 12, 30, 0, 0, time.UTC)
+	roleARN := "arn:aws:iam::111111111111:role/single-app"
+	roleTarget := "aws:identity:" + roleARN
+	c := AWSRemediationCase{
+		CaseID:           "case-boundary-single",
+		SourceType:       "aws_permission_boundary_scp",
+		Severity:         "medium",
+		IdentityNodeID:   roleTarget,
+		ResourceNodeIDs:  []string{roleTarget},
+		TargetAccountIDs: []string{"111111111111"},
+		DiffIntent:       AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+	}
+
+	decisions := awsAdvisoryAuthorizationDecisionsFromCase(c, nil, now)
+	if len(decisions) != 1 {
+		t.Fatalf("single permission-boundary target must stay one advisory decision, got %d: %+v", len(decisions), decisions)
+	}
+	decision := decisions[0]
+	if decision.PrincipalNodeID != roleTarget || decision.PrincipalARN != roleARN {
+		t.Fatalf("single boundary target must preserve node ID and expose embedded ARN: %+v", decision)
+	}
+	if decision.Action != "iam:PutRolePermissionsBoundary" || decision.AccountID != "111111111111" {
+		t.Fatalf("single boundary decision scoped to wrong action/account: %+v", decision)
+	}
+	wantID := "aws-advisory-authorization:" + stableAWSBlastRadiusToken("decision", c.CaseID, decision.Action)
+	if decision.DecisionID != wantID {
+		t.Fatalf("single boundary decision ID should not add a split target scope: got %q want %q", decision.DecisionID, wantID)
+	}
+}
+
 func TestAWSAdvisoryAuthorizationSplitTargetsUseMatchingVerification(t *testing.T) {
 	now := time.Date(2026, 7, 3, 13, 0, 0, 0, time.UTC)
 	roleTarget := "aws:identity:arn:aws:iam::111111111111:role/app"

@@ -301,12 +301,16 @@ func awsAdvisoryAuthorizationDecisions(cases []AWSRemediationCase, verificationB
 }
 
 func awsAdvisoryAuthorizationDecisionsFromCase(c AWSRemediationCase, verifications []AWSPostRemediationVerificationEntry, now time.Time) []AWSAdvisoryAuthorizationDecision {
-	if targets := awsAdvisoryAuthorizationSplitPermissionBoundaryTargets(c); len(targets) > 1 {
+	if targets := awsAdvisoryAuthorizationSplitPermissionBoundaryTargets(c); len(targets) > 0 {
 		decisions := make([]AWSAdvisoryAuthorizationDecision, 0, len(targets))
 		for _, target := range targets {
 			scoped := awsAdvisoryAuthorizationCaseForPermissionBoundaryTarget(c, target)
 			verification := awsAdvisoryAuthorizationVerificationForTarget(verifications, target)
-			decisions = append(decisions, awsAdvisoryAuthorizationDecisionFromCaseWithScope(scoped, verification, now, target))
+			decisionScope := ""
+			if len(targets) > 1 {
+				decisionScope = target
+			}
+			decisions = append(decisions, awsAdvisoryAuthorizationDecisionFromCaseWithScope(scoped, verification, now, decisionScope))
 		}
 		return decisions
 	}
