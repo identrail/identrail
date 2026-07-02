@@ -478,9 +478,16 @@ func awsAdvisoryAuthorizationClassify(c AWSRemediationCase, verification AWSPost
 // so returning the wrong variant would silently drop the decision from
 // drill-downs.
 func awsAdvisoryAuthorizationActionForCase(c AWSRemediationCase) string {
+	// No-op diffs (manual review, owner assignment) never project a live
+	// AWS write; the dry-run collapses them to `manual_review:noop`.
+	// Reporting `iam:PutRolePolicy` here would advertise an IAM write
+	// operators would never see and would mis-scope action drill-downs.
+	if c.DiffIntent.NoOp {
+		return "advisory:review"
+	}
 	isUser := strings.EqualFold(c.IdentityType, "iam_user")
 	switch strings.ToLower(strings.TrimSpace(c.DiffIntent.Kind)) {
-	case "iam_policy_diff", "iac_iam_policy_pr":
+	case "iam_policy_diff", "role_scope_diff", "iac_iam_policy_pr":
 		if isUser {
 			return "iam:PutUserPolicy"
 		}

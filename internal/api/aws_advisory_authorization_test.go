@@ -263,6 +263,31 @@ func TestAWSAdvisoryAuthorizationActionForCaseHonorsPrincipalKind(t *testing.T) 
 			},
 			wantAction: "iam:PutUserPermissionsBoundary",
 		},
+		{
+			name: "no-op diff never advertises an IAM write even for least-privilege sources",
+			c: AWSRemediationCase{
+				SourceType: "least_privilege",
+				DiffIntent: AWSRemediationDiffIntent{Kind: "manual_review", NoOp: true},
+			},
+			wantAction: "advisory:review",
+		},
+		{
+			name: "role_scope_diff routes to Put*Policy like iam_policy_diff for ai_agent_risk",
+			c: AWSRemediationCase{
+				SourceType: "ai_agent_risk",
+				DiffIntent: AWSRemediationDiffIntent{Kind: "role_scope_diff"},
+			},
+			wantAction: "iam:PutRolePolicy",
+		},
+		{
+			name: "role_scope_diff on IAM user projects PutUserPolicy",
+			c: AWSRemediationCase{
+				SourceType:   "blast_radius",
+				IdentityType: "iam_user",
+				DiffIntent:   AWSRemediationDiffIntent{Kind: "role_scope_diff"},
+			},
+			wantAction: "iam:PutUserPolicy",
+		},
 	}
 	for _, tc := range cases {
 		if got := awsAdvisoryAuthorizationActionForCase(tc.c); got != tc.wantAction {
