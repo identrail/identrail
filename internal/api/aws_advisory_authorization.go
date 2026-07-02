@@ -298,15 +298,60 @@ func normalizeAWSAdvisoryAuthorizationFixtureState(requested string, connection 
 func awsAdvisoryAuthorizationDecisions(cases []AWSRemediationCase, verificationByCase map[string]AWSPostRemediationVerificationEntry, now time.Time) []AWSAdvisoryAuthorizationDecision {
 	decisions := make([]AWSAdvisoryAuthorizationDecision, 0, len(cases))
 	for _, c := range cases {
-		decisions = append(decisions, awsAdvisoryAuthorizationDecisionFromCase(c, verificationByCase[c.CaseID], now))
+		decisions = append(decisions, awsAdvisoryAuthorizationDecisionsFromCase(c, verificationByCase[c.CaseID], now)...)
 	}
 	return decisions
 }
 
+func awsAdvisoryAuthorizationDecisionsFromCase(c AWSRemediationCase, verification AWSPostRemediationVerificationEntry, now time.Time) []AWSAdvisoryAuthorizationDecision {
+	if targets := awsAdvisoryAuthorizationSplitPermissionBoundaryTargets(c); len(targets) > 1 {
+		decisions := make([]AWSAdvisoryAuthorizationDecision, 0, len(targets))
+		for _, target := range targets {
+			scoped := awsAdvisoryAuthorizationCaseForPermissionBoundaryTarget(c, target)
+			decisions = append(decisions, awsAdvisoryAuthorizationDecisionFromCaseWithScope(scoped, verification, now, target))
+		}
+		return decisions
+	}
+	return []AWSAdvisoryAuthorizationDecision{awsAdvisoryAuthorizationDecisionFromCase(c, verification, now)}
+}
+
+func awsAdvisoryAuthorizationSplitPermissionBoundaryTargets(c AWSRemediationCase) []string {
+	if c.DiffIntent.NoOp {
+		return nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(c.DiffIntent.Kind), "permission_boundary_diff") && !strings.EqualFold(c.SourceType, "aws_permission_boundary_scp") {
+		return nil
+	}
+	return awsPermissionBoundaryExecutorSupportedTargets(c.ResourceNodeIDs)
+}
+
+func awsAdvisoryAuthorizationCaseForPermissionBoundaryTarget(c AWSRemediationCase, target string) AWSRemediationCase {
+	scoped := c
+	scoped.IdentityNodeID = target
+	if strings.Contains(strings.ToLower(target), "arn:") {
+		scoped.IdentityARN = strings.TrimSpace(target)
+	}
+	scoped.IdentityName = firstNonEmptyAWSValue(shortAWSARN(target), target)
+	scoped.IdentityType = awsRemediationPermissionBoundaryIdentityType(target)
+	scoped.ResourceNodeIDs = []string{target}
+	scoped.ImpactedNodes = dedupeStrings(append([]string{target}, c.ImpactedNodes...))
+	accountFallback := []string(nil)
+	if len(awsAdvisoryAuthorizationSplitPermissionBoundaryTargets(c)) == 1 {
+		accountFallback = c.TargetAccountIDs
+	}
+	scoped.TargetAccountIDs = awsPermissionBoundaryExecutorScopedAccountsForTargets([]string{target}, accountFallback)
+	scoped.AccountID = firstString(scoped.TargetAccountIDs)
+	return scoped
+}
+
 func awsAdvisoryAuthorizationDecisionFromCase(c AWSRemediationCase, verification AWSPostRemediationVerificationEntry, now time.Time) AWSAdvisoryAuthorizationDecision {
+	return awsAdvisoryAuthorizationDecisionFromCaseWithScope(c, verification, now, "")
+}
+
+func awsAdvisoryAuthorizationDecisionFromCaseWithScope(c AWSRemediationCase, verification AWSPostRemediationVerificationEntry, now time.Time, decisionScope string) AWSAdvisoryAuthorizationDecision {
 	action := awsAdvisoryAuthorizationActionForCase(c)
 	outcome, rule, rationale, confidence := awsAdvisoryAuthorizationClassify(c, verification)
-	decisionID := "aws-advisory-authorization:" + stableAWSBlastRadiusToken("decision", c.CaseID, action)
+	decisionID := "aws-advisory-authorization:" + stableAWSBlastRadiusToken("decision", c.CaseID, action, decisionScope)
 	principalNodeID := firstNonEmptyAWSValue(c.IdentityNodeID, firstString(c.ResourceNodeIDs))
 	resourceScope := emptyStrings(dedupeStrings(c.ResourceNodeIDs))
 	if len(resourceScope) == 0 {
@@ -520,12 +565,17 @@ func awsAdvisoryAuthorizationActionForCase(c AWSRemediationCase) string {
 }
 
 // awsAdvisoryAuthorizationCasePrincipalKind returns "user", "group", or
-// "role" for the case's IAM principal. It prefers the case's declared
-// IdentityType (`iam_user`, `iam_group`, `iam_role`) and falls back to
-// parsing the identity node ID or ARN with the same helper the dry-run
-// uses, so cases that store a generic IdentityType (for example
-// `iam_identity`) still route to the correct Put*Policy variant.
+// "role" for the case's IAM principal. It parses the concrete identity node ID
+// or ARN first, matching the dry-run router, because some upstream builders use
+// a generic or hard-coded IdentityType while the target itself carries the true
+// IAM principal kind.
 func awsAdvisoryAuthorizationCasePrincipalKind(c AWSRemediationCase) string {
+	if kind := awsRemediationDryRunClassifiedIAMPrincipalKind(c.IdentityNodeID); kind != "" {
+		return kind
+	}
+	if kind := awsRemediationDryRunClassifiedIAMPrincipalKind(c.IdentityARN); kind != "" {
+		return kind
+	}
 	switch strings.ToLower(strings.TrimSpace(c.IdentityType)) {
 	case "iam_user":
 		return "user"
@@ -533,12 +583,6 @@ func awsAdvisoryAuthorizationCasePrincipalKind(c AWSRemediationCase) string {
 		return "group"
 	case "iam_role":
 		return "role"
-	}
-	if kind := awsRemediationDryRunClassifiedIAMPrincipalKind(c.IdentityNodeID); kind != "" {
-		return kind
-	}
-	if kind := awsRemediationDryRunClassifiedIAMPrincipalKind(c.IdentityARN); kind != "" {
-		return kind
 	}
 	return "role"
 }

@@ -299,6 +299,16 @@ func TestAWSAdvisoryAuthorizationActionForCaseHonorsPrincipalKind(t *testing.T) 
 			wantAction: "iam:PutUserPolicy",
 		},
 		{
+			name: "hard-coded role identity type still parses user node ID first",
+			c: AWSRemediationCase{
+				SourceType:     "least_privilege",
+				IdentityType:   "iam_role",
+				IdentityNodeID: "aws:identity:arn:aws:iam::111111111111:user/actor",
+				DiffIntent:     AWSRemediationDiffIntent{Kind: "iam_policy_diff"},
+			},
+			wantAction: "iam:PutUserPolicy",
+		},
+		{
 			name: "generic identity type falls back to identity ARN (group)",
 			c: AWSRemediationCase{
 				SourceType:   "blast_radius",
@@ -322,6 +332,49 @@ func TestAWSAdvisoryAuthorizationActionForCaseHonorsPrincipalKind(t *testing.T) 
 		if got := awsAdvisoryAuthorizationActionForCase(tc.c); got != tc.wantAction {
 			t.Fatalf("%s: got %q want %q", tc.name, got, tc.wantAction)
 		}
+	}
+}
+
+func TestAWSAdvisoryAuthorizationSplitsMixedPermissionBoundaryTargets(t *testing.T) {
+	now := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
+	roleTarget := "arn:aws:iam::111111111111:role/app"
+	userTarget := "arn:aws:iam::222222222222:user/operator"
+	c := AWSRemediationCase{
+		CaseID:          "case-boundary-mixed",
+		SourceType:      "aws_permission_boundary_scp",
+		Severity:        "medium",
+		IdentityType:    "iam_role",
+		IdentityNodeID:  roleTarget,
+		ResourceNodeIDs: []string{roleTarget, userTarget},
+		DiffIntent:      AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+	}
+
+	decisions := awsAdvisoryAuthorizationDecisionsFromCase(c, AWSPostRemediationVerificationEntry{}, now)
+	if len(decisions) != 2 {
+		t.Fatalf("mixed permission-boundary targets must produce one decision per supported target, got %d: %+v", len(decisions), decisions)
+	}
+
+	byAction := map[string]AWSAdvisoryAuthorizationDecision{}
+	for _, decision := range decisions {
+		if byAction[decision.Action].DecisionID != "" {
+			t.Fatalf("expected distinct action rows for mixed user/role boundary targets: %+v", decisions)
+		}
+		byAction[decision.Action] = decision
+		if len(decision.ResourceScope) != 1 {
+			t.Fatalf("split decision must scope to exactly one boundary target: %+v", decision)
+		}
+	}
+
+	roleDecision := byAction["iam:PutRolePermissionsBoundary"]
+	if roleDecision.PrincipalNodeID != roleTarget || roleDecision.AccountID != "111111111111" {
+		t.Fatalf("role boundary decision scoped to wrong target/account: %+v", roleDecision)
+	}
+	userDecision := byAction["iam:PutUserPermissionsBoundary"]
+	if userDecision.PrincipalNodeID != userTarget || userDecision.AccountID != "222222222222" {
+		t.Fatalf("user boundary decision scoped to wrong target/account: %+v", userDecision)
+	}
+	if roleDecision.DecisionID == userDecision.DecisionID {
+		t.Fatalf("split boundary decisions must have distinct decision IDs: role=%s user=%s", roleDecision.DecisionID, userDecision.DecisionID)
 	}
 }
 
