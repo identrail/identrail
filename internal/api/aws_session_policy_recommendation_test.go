@@ -106,6 +106,26 @@ func TestAWSSessionPolicyRecommendationAdmitsOnlyActionableRecords(t *testing.T)
 			want: false,
 		},
 		{
+			name: "agent-tool synthetic actions are not admitted",
+			rec: AWSLeastPrivilegeRecommendation{
+				Decision:        "remove",
+				IdentityNodeID:  "aws:identity:arn:aws:iam::111111111111:role/agent-runtime",
+				KeepActions:     []string{"agent-tool:filesystem"},
+				ObservedActions: []string{"agent-tool:web"},
+			},
+			want: false,
+		},
+		{
+			name: "mixed valid and synthetic actions are admitted (only IAM actions kept)",
+			rec: AWSLeastPrivilegeRecommendation{
+				Decision:        "remove",
+				IdentityNodeID:  "aws:identity:arn:aws:iam::111111111111:role/agent-runtime",
+				KeepActions:     []string{"agent-tool:filesystem", "s3:GetObject"},
+				ObservedActions: []string{},
+			},
+			want: true,
+		},
+		{
 			name: "review decision with keep actions is admitted",
 			rec: AWSLeastPrivilegeRecommendation{
 				Decision:       "review",
@@ -189,6 +209,57 @@ func TestAWSSessionPolicyRecommendationFromLeastPrivilegeShape(t *testing.T) {
 	}
 	if back.Provenance.SourceRuleName != "surface_review_candidates" {
 		t.Fatalf("review decision must map to surface_review_candidates rule: %+v", back.Provenance)
+	}
+}
+
+func TestAWSSessionPolicyRecommendationFiltersSyntheticActions(t *testing.T) {
+	now := time.Date(2026, 7, 3, 10, 45, 0, 0, time.UTC)
+	rec := AWSLeastPrivilegeRecommendation{
+		RecommendationID: "lp-agent",
+		Decision:         "remove",
+		IdentityNodeID:   "aws:identity:arn:aws:iam::111111111111:role/agent-runtime",
+		KeepActions:      []string{"agent-tool:filesystem", "s3:GetObject", "  ", "kms:Decrypt"},
+		RemoveActions:    []string{"agent-tool:web", "iam:DeleteRole"},
+		ObservedActions:  []string{"agent-tool:filesystem"},
+	}
+	out := awsSessionPolicyRecommendationFromLeastPrivilege(rec, now)
+	for _, action := range out.AllowActions {
+		if strings.HasPrefix(action, "agent-tool:") {
+			t.Fatalf("allow_actions must not contain synthetic agent-tool actions: %+v", out.AllowActions)
+		}
+	}
+	if len(out.AllowActions) != 2 || out.AllowActions[0] != "s3:GetObject" || out.AllowActions[1] != "kms:Decrypt" {
+		t.Fatalf("allow_actions must retain valid IAM actions in order: %+v", out.AllowActions)
+	}
+	for _, action := range out.DenyActions {
+		if strings.HasPrefix(action, "agent-tool:") {
+			t.Fatalf("deny_actions must not contain synthetic agent-tool actions: %+v", out.DenyActions)
+		}
+	}
+	if len(out.DenyActions) != 1 || out.DenyActions[0] != "iam:DeleteRole" {
+		t.Fatalf("deny_actions must retain valid IAM actions: %+v", out.DenyActions)
+	}
+}
+
+func TestAWSSessionPolicyRecommendationIsValidIAMAction(t *testing.T) {
+	cases := []struct {
+		action string
+		want   bool
+	}{
+		{"s3:GetObject", true},
+		{"kms:Decrypt", true},
+		{"iam:PutRolePolicy", true},
+		{"*", true},
+		{"agent-tool:filesystem", false},
+		{"", false},
+		{"noservice", false},
+		{":action", false},
+		{"service:", false},
+	}
+	for _, tc := range cases {
+		if got := awsSessionPolicyRecommendationIsValidIAMAction(tc.action); got != tc.want {
+			t.Fatalf("action=%q got %v want %v", tc.action, got, tc.want)
+		}
 	}
 }
 

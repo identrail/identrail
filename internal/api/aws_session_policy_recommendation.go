@@ -297,10 +297,57 @@ func awsSessionPolicyRecommendationAdmits(rec AWSLeastPrivilegeRecommendation) b
 	if strings.TrimSpace(rec.IdentityNodeID) == "" {
 		return false
 	}
-	// Use dedupeStrings (trims and drops empty entries) so whitespace-only
-	// KeepActions/ObservedActions do not pass admission and then produce
-	// an empty allow_actions projection downstream.
-	if len(dedupeStrings(rec.KeepActions)) == 0 && len(dedupeStrings(rec.ObservedActions)) == 0 {
+	// Session policies attach to STS AssumeRole calls and can only carry
+	// AWS IAM `service:action` values. Reject records whose actionable
+	// set does not contain a valid IAM action after synthetic prefixes
+	// (agent-tool, etc.) are filtered out — a downstream renderer could
+	// not build a valid session policy from those inputs. Whitespace-only
+	// entries are trimmed by awsSessionPolicyRecommendationValidIAMActions.
+	if len(awsSessionPolicyRecommendationValidIAMActions(rec.KeepActions)) == 0 && len(awsSessionPolicyRecommendationValidIAMActions(rec.ObservedActions)) == 0 {
+		return false
+	}
+	return true
+}
+
+// awsSessionPolicyRecommendationValidIAMActions keeps only entries shaped
+// like a real AWS IAM `service:action` value. It drops empty and
+// whitespace-only entries and rejects known synthetic prefixes (currently
+// `agent-tool:`, emitted by agent-runtime least-privilege records) that
+// cannot appear in an IAM `Action` element.
+func awsSessionPolicyRecommendationValidIAMActions(actions []string) []string {
+	out := make([]string, 0, len(actions))
+	seen := map[string]struct{}{}
+	for _, action := range actions {
+		trimmed := strings.TrimSpace(action)
+		if trimmed == "" {
+			continue
+		}
+		if !awsSessionPolicyRecommendationIsValidIAMAction(trimmed) {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func awsSessionPolicyRecommendationIsValidIAMAction(action string) bool {
+	if action == "*" {
+		return true
+	}
+	// Must be `service:action` with a non-empty service prefix.
+	idx := strings.Index(action, ":")
+	if idx <= 0 || idx == len(action)-1 {
+		return false
+	}
+	service := strings.ToLower(action[:idx])
+	// Reject known synthetic prefixes. `agent-tool:*` comes from
+	// agent-runtime least-privilege records and is not an AWS IAM service.
+	switch service {
+	case "agent-tool":
 		return false
 	}
 	return true
@@ -308,7 +355,7 @@ func awsSessionPolicyRecommendationAdmits(rec AWSLeastPrivilegeRecommendation) b
 
 func awsSessionPolicyRecommendationFromLeastPrivilege(rec AWSLeastPrivilegeRecommendation, now time.Time) AWSSessionPolicyRecommendationEntry {
 	allow := awsSessionPolicyRecommendationAllowActions(rec)
-	deny := emptyStrings(dedupeStrings(rec.RemoveActions))
+	deny := awsSessionPolicyRecommendationValidIAMActions(rec.RemoveActions)
 	resourceScope := awsSessionPolicyRecommendationResourceScope(rec)
 	sessionPolicyRef := "session-policy://" + rec.RecommendationID + "/proposed"
 	recommendationID := "aws-session-policy-recommendation:" + stableAWSBlastRadiusToken("session-policy", rec.RecommendationID, rec.IdentityNodeID)
@@ -364,12 +411,14 @@ func awsSessionPolicyRecommendationFromLeastPrivilege(rec AWSLeastPrivilegeRecom
 // awsSessionPolicyRecommendationAllowActions prefers the least-privilege
 // keep-list; when the upstream carries no explicit keep list the observed
 // action set is the safest baseline for the recommended session-policy
-// allow-list.
+// allow-list. Synthetic action names (agent-tool, etc.) are filtered out so
+// the projected allow-list only contains values a downstream renderer can
+// place in an IAM `Action` element.
 func awsSessionPolicyRecommendationAllowActions(rec AWSLeastPrivilegeRecommendation) []string {
-	if keep := emptyStrings(dedupeStrings(rec.KeepActions)); len(keep) > 0 {
+	if keep := awsSessionPolicyRecommendationValidIAMActions(rec.KeepActions); len(keep) > 0 {
 		return keep
 	}
-	return emptyStrings(dedupeStrings(rec.ObservedActions))
+	return awsSessionPolicyRecommendationValidIAMActions(rec.ObservedActions)
 }
 
 func awsSessionPolicyRecommendationResourceScope(rec AWSLeastPrivilegeRecommendation) []string {
