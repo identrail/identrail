@@ -3888,6 +3888,135 @@ export type AWSPostRemediationVerificationQuery = {
   search?: string;
 };
 
+export type AWSAdvisoryAuthorizationStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSAdvisoryAuthorizationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSAdvisoryAuthorizationOutcome = 'allow' | 'warn' | 'require_approval' | 'recommend_deny' | 'quarantine' | string;
+export type AWSAdvisoryAuthorizationMode = 'advisory' | string;
+
+export type AWSAdvisoryAuthorizationEvidence = {
+  source: string;
+  label: string;
+  evidence_ref?: string;
+};
+
+export type AWSAdvisoryAuthorizationInputHash = {
+  value: string;
+  components?: string[];
+};
+
+export type AWSAdvisoryAuthorizationProvenance = {
+  policy_version: string;
+  policy_rule: string;
+  source_types: string[];
+  signals?: string[];
+};
+
+export type AWSAdvisoryAuthorizationRelationship = {
+  decision_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSAdvisoryAuthorizationDecision = {
+  decision_id: string;
+  calculation_version: string;
+  mode: AWSAdvisoryAuthorizationMode;
+  outcome: AWSAdvisoryAuthorizationOutcome;
+  confidence: number;
+  severity: string;
+  score: number;
+  title: string;
+  summary: string;
+  rationale: string;
+  account_id?: string;
+  region?: string;
+  principal_node_id?: string;
+  principal_arn?: string;
+  principal_type?: string;
+  action: string;
+  resource_scope?: string[];
+  source_type: string;
+  case_id?: string;
+  verification_id?: string;
+  input_hash: AWSAdvisoryAuthorizationInputHash;
+  provenance: AWSAdvisoryAuthorizationProvenance;
+  evidence: AWSAdvisoryAuthorizationEvidence[];
+  evidence_links: string[];
+  evidence_boundary: string;
+  audit_trail: AWSRemediationAuditEntry[];
+  kill_switch_engaged: boolean;
+  read_only_projection: boolean;
+  next_action: string;
+  decided_at: string;
+  updated_at: string;
+};
+
+export type AWSAdvisoryAuthorizationSummary = {
+  total_decisions: number;
+  filtered_decisions: number;
+  outcome_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  source_type_counts: Record<string, number>;
+  allow_count: number;
+  warn_count: number;
+  require_approval_count: number;
+  recommend_deny_count: number;
+  quarantine_count: number;
+  kill_switch_engaged_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSAdvisoryAuthorizationResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSAdvisoryAuthorizationStatus;
+  fixture_state?: AWSAdvisoryAuthorizationFixtureState;
+  confidence: number;
+  calculation_version: string;
+  policy_version: string;
+  mode: AWSAdvisoryAuthorizationMode;
+  applied_filters: Record<string, string>;
+  summary: AWSAdvisoryAuthorizationSummary;
+  decisions: AWSAdvisoryAuthorizationDecision[];
+  relationships: AWSAdvisoryAuthorizationRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSAdvisoryAuthorizationQuery = {
+  connectorID?: string;
+  fixtureState?: AWSAdvisoryAuthorizationFixtureState;
+  accountID?: string;
+  region?: string;
+  principalID?: string;
+  action?: string;
+  outcome?: string;
+  severity?: string;
+  sourceType?: string;
+  caseID?: string;
+  verificationID?: string;
+  search?: string;
+};
+
 export type AWSSecretKeyRotationStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSSecretKeyRotationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSSecretKeyRotationType = 'provider_key' | 'secrets_manager_secret' | 'kms_related' | string;
@@ -9193,6 +9322,30 @@ export const apiClient = {
         state: query?.state,
         severity: query?.severity,
         operation: query?.operation,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectAdvisoryAuthorization(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSAdvisoryAuthorizationQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ advisory_authorization: AWSAdvisoryAuthorizationResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/advisory-authorization${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        principal_id: query?.principalID,
+        action: query?.action,
+        outcome: query?.outcome,
+        severity: query?.severity,
+        source_type: query?.sourceType,
+        case_id: query?.caseID,
+        verification_id: query?.verificationID,
         search: query?.search
       })}`,
       auth

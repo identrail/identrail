@@ -4064,6 +4064,38 @@ describe('Domain-first app routes', () => {
 	        diagnostics: []
 	      } as any
 	    });
+	    const getAdvisoryAuthorization = vi.spyOn(api.apiClient, 'getAWSProjectAdvisoryAuthorization').mockResolvedValue({
+	      advisory_authorization: {
+	        status: 'ready',
+	        mode: 'advisory',
+	        policy_version: 'aws-advisory-authorization-policy-v1',
+	        decisions: [],
+	        relationships: [],
+	        applied_filters: {},
+	        summary: {
+	          total_decisions: 0,
+	          filtered_decisions: 0,
+	          outcome_counts: {},
+	          severity_counts: {},
+	          source_type_counts: {},
+	          allow_count: 0,
+	          warn_count: 0,
+	          require_approval_count: 0,
+	          recommend_deny_count: 0,
+	          quarantine_count: 0,
+	          kill_switch_engaged_count: 0,
+	          relationship_count: 0,
+	          highest_score: 0,
+	          average_confidence_pct: 0
+	        },
+	        caveats: ['Advisory authorization decisions are read-only recommendations.'],
+	        failure_reasons: [],
+	        remediation_hints: [],
+	        evidence_links: [],
+	        coverage_gaps: [],
+	        diagnostics: []
+	      } as any
+	    });
 	    const getSecretKeyRotation = vi.spyOn(api.apiClient, 'getAWSProjectSecretKeyRotationPlans').mockResolvedValue({
       plans: {
         status: 'ready',
@@ -4731,6 +4763,12 @@ describe('Domain-first app routes', () => {
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
     expect(getPostRemediationVerification).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getAdvisoryAuthorization).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       expect.objectContaining({ connectorID: 'aws-connector-1' }),

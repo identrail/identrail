@@ -609,6 +609,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/advisory-authorization
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/secret-key-rotation
     action: tenancy.read
     resource_type: project
@@ -5721,6 +5726,91 @@ paths:
                     $ref: "#/components/schemas/AWSPostRemediationVerificationResult"
         "400":
           description: Invalid AWS post-remediation verification request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/advisory-authorization:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS advisory authorization decisions
+      operationId: getAWSProjectAdvisoryAuthorization
+      description: Projects deterministic advisory authorization decisions by joining remediation cases with the post-remediation verification and rollback executor. Each decision records the recommended outcome (allow, warn, require_approval, recommend_deny, quarantine), the deterministic input hash, the policy version and rule that produced the recommendation, and an immutable audit trail. The endpoint is advisory-only; Identrail never enforces the outcome at this layer.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: principal_id
+          schema: { type: string }
+          description: Optional principal node ID or ARN filter.
+        - in: query
+          name: action
+          schema: { type: string }
+          description: Optional AWS API action filter (e.g. iam:PutRolePolicy).
+        - in: query
+          name: outcome
+          schema:
+            type: string
+            enum: [allow, warn, require_approval, recommend_deny, quarantine]
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: source_type
+          schema: { type: string }
+          description: Optional upstream remediation case source type filter.
+        - in: query
+          name: case_id
+          schema: { type: string }
+        - in: query
+          name: verification_id
+          schema: { type: string }
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS advisory authorization contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  advisory_authorization:
+                    $ref: "#/components/schemas/AWSAdvisoryAuthorizationResult"
+        "400":
+          description: Invalid AWS advisory authorization request
           content:
             application/json:
               schema:
@@ -15907,6 +15997,186 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSPostRemediationVerificationRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSAdvisoryAuthorizationEvidence:
+      type: object
+      properties:
+        source: { type: string }
+        label: { type: string }
+        evidence_ref: { type: string }
+    AWSAdvisoryAuthorizationInputHash:
+      type: object
+      properties:
+        value: { type: string }
+        components:
+          type: array
+          items: { type: string }
+    AWSAdvisoryAuthorizationProvenance:
+      type: object
+      properties:
+        policy_version: { type: string }
+        policy_rule: { type: string }
+        source_types:
+          type: array
+          items: { type: string }
+        signals:
+          type: array
+          items: { type: string }
+    AWSAdvisoryAuthorizationRelationship:
+      type: object
+      properties:
+        decision_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSAdvisoryAuthorizationDecision:
+      type: object
+      properties:
+        decision_id: { type: string }
+        calculation_version: { type: string }
+        mode:
+          type: string
+          enum: [advisory]
+        outcome:
+          type: string
+          enum: [allow, warn, require_approval, recommend_deny, quarantine]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        severity: { type: string }
+        score: { type: integer }
+        title: { type: string }
+        summary: { type: string }
+        rationale: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        principal_node_id: { type: string }
+        principal_arn: { type: string }
+        principal_type: { type: string }
+        action: { type: string }
+        resource_scope:
+          type: array
+          items: { type: string }
+        source_type: { type: string }
+        case_id: { type: string }
+        verification_id: { type: string }
+        input_hash:
+          $ref: "#/components/schemas/AWSAdvisoryAuthorizationInputHash"
+        provenance:
+          $ref: "#/components/schemas/AWSAdvisoryAuthorizationProvenance"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAdvisoryAuthorizationEvidence"
+        evidence_links:
+          type: array
+          items: { type: string }
+        evidence_boundary: { type: string }
+        audit_trail:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationApprovalAuditEntry"
+        kill_switch_engaged: { type: boolean }
+        read_only_projection: { type: boolean }
+        next_action: { type: string }
+        decided_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSAdvisoryAuthorizationSummary:
+      type: object
+      properties:
+        total_decisions: { type: integer }
+        filtered_decisions: { type: integer }
+        outcome_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        source_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        allow_count: { type: integer }
+        warn_count: { type: integer }
+        require_approval_count: { type: integer }
+        recommend_deny_count: { type: integer }
+        quarantine_count: { type: integer }
+        kill_switch_engaged_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSAdvisoryAuthorizationResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        policy_version: { type: string }
+        mode:
+          type: string
+          enum: [advisory]
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSAdvisoryAuthorizationSummary"
+        decisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAdvisoryAuthorizationDecision"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAdvisoryAuthorizationRelationship"
         caveats:
           type: array
           items: { type: string }

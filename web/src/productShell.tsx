@@ -83,6 +83,8 @@ import {
   type AWSScpGuardrailExecutorResult,
   type AWSPostRemediationVerificationEntry,
   type AWSPostRemediationVerificationResult,
+  type AWSAdvisoryAuthorizationDecision,
+  type AWSAdvisoryAuthorizationResult,
   type AWSTrustPolicyHardeningExecutorEntry,
   type AWSTrustPolicyHardeningExecutorResult,
   type AWSBlastRadiusFinding,
@@ -11376,6 +11378,75 @@ function AWSPostRemediationVerificationContent({
   );
 }
 
+function awsAdvisoryAuthorizationStage(decision: AWSAdvisoryAuthorizationDecision): AWSCapabilityStage {
+  switch (decision.outcome) {
+    case 'quarantine':
+    case 'recommend_deny':
+      return 'not-available';
+    case 'allow':
+      return 'wired';
+    default:
+      return 'coming';
+  }
+}
+
+function AWSAdvisoryAuthorizationContent({
+  result,
+  loading,
+  error,
+  onRetry
+}: {
+  result: AWSAdvisoryAuthorizationResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const summaryLine = result
+    ? `${result.summary.total_decisions} total · ${result.summary.allow_count} allow · ${result.summary.warn_count} warn · ${result.summary.require_approval_count} require approval · ${result.summary.recommend_deny_count} recommend deny · ${result.summary.quarantine_count} quarantine`
+    : '';
+  const panelResult = result
+    ? {
+        status: result.status,
+        entries: result.decisions,
+        caveats: result.caveats,
+        failure_reasons: result.failure_reasons
+      }
+    : null;
+  return (
+    <AWSExecutorProjectionPanel<AWSAdvisoryAuthorizationDecision>
+      result={panelResult}
+      loading={loading}
+      error={error}
+      onRetry={onRetry}
+      ariaLabel="AWS advisory authorization"
+      heading="AWS advisory authorization"
+      description={`Advisory-only projection that joins remediation cases with post-remediation verification to recommend allow, warn, require approval, recommend deny, or quarantine per authorization decision. Identrail never enforces the recommendation at this layer. ${summaryLine}`}
+      errorTitle="Couldn't load AWS advisory authorization"
+      loadingTitle="Projecting advisory authorization decisions"
+      loadingBody="Identrail is joining remediation cases with verification state to project deterministic advisory recommendations."
+      emptyEyebrow={(current) => (current.status === 'blocked' ? 'Permission required' : 'No advisory decisions')}
+      emptyTitle={(current) => (current.status === 'blocked' ? 'Advisory authorization needs approved remediation cases' : 'No advisory authorization decisions projected')}
+      emptyBody={(current) => current.failure_reasons[0] ?? 'No remediation cases were available to project a decision for this environment.'}
+      tableLabel="AWS advisory authorization decisions"
+      getRowKey={(row) => row.decision_id}
+      columns={[
+        { key: 'decision', header: 'Decision', render: (row) => <strong>{row.title}</strong> },
+        { key: 'outcome', header: 'Outcome', render: (row) => formatTokenLabel(row.outcome) },
+        { key: 'principal', header: 'Principal', render: (row) => row.principal_node_id ?? row.principal_arn ?? '—' },
+        { key: 'action', header: 'Action', render: (row) => row.action },
+        { key: 'policy_rule', header: 'Policy rule', render: (row) => formatTokenLabel(row.provenance.policy_rule) },
+        {
+          key: 'severity',
+          header: 'Severity',
+          render: (row) => (
+            <AWSInventoryPill stage={awsAdvisoryAuthorizationStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.outcome)}`} />
+          )
+        }
+      ]}
+    />
+  );
+}
+
 function awsSecretKeyRotationStage(plan: AWSSecretKeyRotationPlan): AWSCapabilityStage {
   if (!plan.owner_handoff.assigned || plan.severity === 'critical') {
     return 'not-available';
@@ -13604,6 +13675,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [postRemediationVerificationLoading, setPostRemediationVerificationLoading] = useState(false);
   const [postRemediationVerificationError, setPostRemediationVerificationError] = useState('');
   const postRemediationVerificationRequestRef = useRef(0);
+  const [advisoryAuthorization, setAdvisoryAuthorization] = useState<AWSAdvisoryAuthorizationResult | null>(null);
+  const [advisoryAuthorizationLoading, setAdvisoryAuthorizationLoading] = useState(false);
+  const [advisoryAuthorizationError, setAdvisoryAuthorizationError] = useState('');
+  const advisoryAuthorizationRequestRef = useRef(0);
   const [secretKeyRotation, setSecretKeyRotation] = useState<AWSSecretKeyRotationResult | null>(null);
   const [secretKeyRotationLoading, setSecretKeyRotationLoading] = useState(false);
   const [secretKeyRotationError, setSecretKeyRotationError] = useState('');
@@ -14252,6 +14327,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       postRemediationVerificationRequestRef.current += 1;
     };
   }, [loadPostRemediationVerification]);
+
+  const loadAdvisoryAuthorization = useCallback(async () => {
+    const requestID = ++advisoryAuthorizationRequestRef.current;
+    setAdvisoryAuthorization(null);
+    setAdvisoryAuthorizationError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setAdvisoryAuthorizationLoading(false);
+      return;
+    }
+    setAdvisoryAuthorizationLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectAdvisoryAuthorization(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== advisoryAuthorizationRequestRef.current) {
+        return;
+      }
+      setAdvisoryAuthorization(response.advisory_authorization);
+    } catch (error) {
+      if (requestID !== advisoryAuthorizationRequestRef.current) {
+        return;
+      }
+      setAdvisoryAuthorizationError(formatAPIError(error, 'Unable to load AWS advisory authorization.'));
+    } finally {
+      if (requestID === advisoryAuthorizationRequestRef.current) {
+        setAdvisoryAuthorizationLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadAdvisoryAuthorization();
+    return () => {
+      advisoryAuthorizationRequestRef.current += 1;
+    };
+  }, [loadAdvisoryAuthorization]);
 
   const loadSecretKeyRotation = useCallback(async () => {
     const requestID = ++secretKeyRotationRequestRef.current;
@@ -15115,6 +15238,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={postRemediationVerificationLoading}
             error={postRemediationVerificationError}
             onRetry={loadPostRemediationVerification}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSAdvisoryAuthorizationContent
+            result={advisoryAuthorization}
+            loading={advisoryAuthorizationLoading}
+            error={advisoryAuthorizationError}
+            onRetry={loadAdvisoryAuthorization}
           />
         ) : null}
         {routeID === 'runtime' ? (
