@@ -87,6 +87,8 @@ import {
   type AWSAdvisoryAuthorizationResult,
   type AWSSessionPolicyRecommendationEntry,
   type AWSSessionPolicyRecommendationResult,
+  type AWSAgentCoreGatewayPolicyAdvisoryEntry,
+  type AWSAgentCoreGatewayPolicyAdvisoryResult,
   type AWSTrustPolicyHardeningExecutorEntry,
   type AWSTrustPolicyHardeningExecutorResult,
   type AWSBlastRadiusFinding,
@@ -11516,6 +11518,82 @@ function AWSSessionPolicyRecommendationContent({
   );
 }
 
+function awsAgentCoreGatewayPolicyAdvisoryStage(entry: AWSAgentCoreGatewayPolicyAdvisoryEntry): AWSCapabilityStage {
+  switch (entry.outcome) {
+    case 'block_tools':
+      return 'not-available';
+    case 'allow_tools':
+      return 'wired';
+    default:
+      return 'coming';
+  }
+}
+
+function awsAgentCoreGatewayPolicyAdvisoryToolLabel(entry: AWSAgentCoreGatewayPolicyAdvisoryEntry): string {
+  const allow = entry.allowed_tool_names?.length ?? 0;
+  const restrict = entry.restricted_tool_names?.length ?? 0;
+  const block = entry.blocked_tool_names?.length ?? 0;
+  return `${allow} allow · ${restrict} restrict · ${block} block`;
+}
+
+function AWSAgentCoreGatewayPolicyAdvisoryContent({
+  result,
+  loading,
+  error,
+  onRetry
+}: {
+  result: AWSAgentCoreGatewayPolicyAdvisoryResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const summaryLine = result
+    ? `${result.summary.total_advisories} total · ${result.summary.allow_tools_count} allow · ${result.summary.warn_count} warn · ${result.summary.require_approval_count} require approval · ${result.summary.restrict_tools_count} restrict · ${result.summary.block_tools_count} block`
+    : '';
+  const panelResult = result
+    ? {
+        status: result.status,
+        entries: result.advisories,
+        caveats: result.caveats,
+        failure_reasons: result.failure_reasons
+      }
+    : null;
+  return (
+    <AWSExecutorProjectionPanel<AWSAgentCoreGatewayPolicyAdvisoryEntry>
+      result={panelResult}
+      loading={loading}
+      error={error}
+      onRetry={onRetry}
+      ariaLabel="AWS AgentCore gateway policy advisory"
+      heading="AWS AgentCore gateway policy advisory"
+      description={`Advisory-only projection that derives AgentCore gateway/tool policy recommendations from AI agent risk findings. Each entry records the target agent, projected tool restrictions/approvals/warnings, sensitive reachability, provenance, and audit rows. Identrail never enforces the recommendation at this layer. ${summaryLine}`}
+      errorTitle="Couldn't load AWS AgentCore gateway policy advisory"
+      loadingTitle="Projecting AgentCore gateway policy advisories"
+      loadingBody="Identrail is joining AI agent risk findings with AgentCore gateway policy rules to project deterministic advisory recommendations."
+      emptyEyebrow={(current) => (current.status === 'blocked' ? 'Permission required' : 'No advisories')}
+      emptyTitle={(current) => (current.status === 'blocked' ? 'AgentCore gateway policy advisory needs approved agent risk evidence' : 'No AgentCore gateway policy advisories projected')}
+      emptyBody={(current) => current.failure_reasons[0] ?? 'No AI agent risk finding carried an addressable agent gateway for this environment.'}
+      tableLabel="AWS AgentCore gateway policy advisories"
+      getRowKey={(row) => row.advisory_id}
+      columns={[
+        { key: 'advisory', header: 'Advisory', render: (row) => <strong>{row.title}</strong> },
+        { key: 'agent', header: 'Agent', render: (row) => row.agent_name ?? row.agent_id ?? row.agent_node_id },
+        { key: 'outcome', header: 'Outcome', render: (row) => formatTokenLabel(row.outcome) },
+        { key: 'tools', header: 'Tools', render: (row) => awsAgentCoreGatewayPolicyAdvisoryToolLabel(row) },
+        { key: 'sensitive', header: 'Sensitive', render: (row) => `${row.sensitive_resources?.length ?? 0} resources` },
+        { key: 'policy', header: 'Policy', render: (row) => `${formatTokenLabel(row.pilot_state)} / ${formatTokenLabel(row.enforcement_state)}` },
+        {
+          key: 'severity',
+          header: 'Severity',
+          render: (row) => (
+            <AWSInventoryPill stage={awsAgentCoreGatewayPolicyAdvisoryStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.outcome)}`} />
+          )
+        }
+      ]}
+    />
+  );
+}
+
 function awsSecretKeyRotationStage(plan: AWSSecretKeyRotationPlan): AWSCapabilityStage {
   if (!plan.owner_handoff.assigned || plan.severity === 'critical') {
     return 'not-available';
@@ -13752,6 +13830,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [sessionPolicyRecommendationsLoading, setSessionPolicyRecommendationsLoading] = useState(false);
   const [sessionPolicyRecommendationsError, setSessionPolicyRecommendationsError] = useState('');
   const sessionPolicyRecommendationsRequestRef = useRef(0);
+  const [agentCoreGatewayPolicyAdvisory, setAgentCoreGatewayPolicyAdvisory] = useState<AWSAgentCoreGatewayPolicyAdvisoryResult | null>(null);
+  const [agentCoreGatewayPolicyAdvisoryLoading, setAgentCoreGatewayPolicyAdvisoryLoading] = useState(false);
+  const [agentCoreGatewayPolicyAdvisoryError, setAgentCoreGatewayPolicyAdvisoryError] = useState('');
+  const agentCoreGatewayPolicyAdvisoryRequestRef = useRef(0);
   const [secretKeyRotation, setSecretKeyRotation] = useState<AWSSecretKeyRotationResult | null>(null);
   const [secretKeyRotationLoading, setSecretKeyRotationLoading] = useState(false);
   const [secretKeyRotationError, setSecretKeyRotationError] = useState('');
@@ -14496,6 +14578,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       sessionPolicyRecommendationsRequestRef.current += 1;
     };
   }, [loadSessionPolicyRecommendations]);
+
+  const loadAgentCoreGatewayPolicyAdvisory = useCallback(async () => {
+    const requestID = ++agentCoreGatewayPolicyAdvisoryRequestRef.current;
+    setAgentCoreGatewayPolicyAdvisory(null);
+    setAgentCoreGatewayPolicyAdvisoryError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setAgentCoreGatewayPolicyAdvisoryLoading(false);
+      return;
+    }
+    setAgentCoreGatewayPolicyAdvisoryLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectAgentCoreGatewayPolicyAdvisory(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== agentCoreGatewayPolicyAdvisoryRequestRef.current) {
+        return;
+      }
+      setAgentCoreGatewayPolicyAdvisory(response.agentcore_gateway_policy_advisory);
+    } catch (error) {
+      if (requestID !== agentCoreGatewayPolicyAdvisoryRequestRef.current) {
+        return;
+      }
+      setAgentCoreGatewayPolicyAdvisoryError(formatAPIError(error, 'Unable to load AWS AgentCore gateway policy advisory.'));
+    } finally {
+      if (requestID === agentCoreGatewayPolicyAdvisoryRequestRef.current) {
+        setAgentCoreGatewayPolicyAdvisoryLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadAgentCoreGatewayPolicyAdvisory();
+    return () => {
+      agentCoreGatewayPolicyAdvisoryRequestRef.current += 1;
+    };
+  }, [loadAgentCoreGatewayPolicyAdvisory]);
 
   const loadSecretKeyRotation = useCallback(async () => {
     const requestID = ++secretKeyRotationRequestRef.current;
@@ -15375,6 +15505,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={sessionPolicyRecommendationsLoading}
             error={sessionPolicyRecommendationsError}
             onRetry={loadSessionPolicyRecommendations}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSAgentCoreGatewayPolicyAdvisoryContent
+            result={agentCoreGatewayPolicyAdvisory}
+            loading={agentCoreGatewayPolicyAdvisoryLoading}
+            error={agentCoreGatewayPolicyAdvisoryError}
+            onRetry={loadAgentCoreGatewayPolicyAdvisory}
           />
         ) : null}
         {routeID === 'runtime' ? (

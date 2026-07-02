@@ -619,6 +619,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/agentcore-gateway-policy-advisory
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/secret-key-rotation
     action: tenancy.read
     resource_type: project
@@ -5890,6 +5895,83 @@ paths:
                     $ref: "#/components/schemas/AWSSessionPolicyRecommendationResult"
         "400":
           description: Invalid AWS session policy recommendation request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/agentcore-gateway-policy-advisory:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS AgentCore gateway policy advisories
+      operationId: getAWSProjectAgentCoreGatewayPolicyAdvisory
+      description: Projects deterministic advisory AgentCore gateway/tool policy recommendations from the AI agent risk engine. Each advisory records the recommended outcome (allow_tools, warn, require_approval, restrict_tools, block_tools), the tool namespace subject to the recommendation, sensitive resource scope, deterministic input hash, provenance, and audit trail. The endpoint is advisory-only; Identrail never enforces the recommendation at this layer and never inlines prompt text, tool payloads, or workload data.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: agent_id
+          schema: { type: string }
+          description: Optional agent identifier or agent node ID filter.
+        - in: query
+          name: outcome
+          schema:
+            type: string
+            enum: [allow_tools, warn, require_approval, restrict_tools, block_tools]
+        - in: query
+          name: risk_type
+          schema: { type: string }
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: finding_id
+          schema: { type: string }
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS AgentCore gateway policy advisory contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agentcore_gateway_policy_advisory:
+                    $ref: "#/components/schemas/AWSAgentCoreGatewayPolicyAdvisoryResult"
+        "400":
+          description: Invalid AWS AgentCore gateway policy advisory request
           content:
             application/json:
               schema:
@@ -16455,6 +16537,213 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSSessionPolicyRecommendationRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSAgentCoreGatewayPolicyAdvisoryProvenance:
+      type: object
+      properties:
+        policy_version: { type: string }
+        policy_rule: { type: string }
+        signals:
+          type: array
+          items: { type: string }
+    AWSAgentCoreGatewayPolicyAdvisoryInputHash:
+      type: object
+      properties:
+        value: { type: string }
+        components:
+          type: array
+          items: { type: string }
+    AWSAgentCoreGatewayPolicyAdvisoryRelationship:
+      type: object
+      properties:
+        advisory_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSAgentCoreGatewayPolicyAdvisoryEntry:
+      type: object
+      properties:
+        advisory_id: { type: string }
+        calculation_version: { type: string }
+        mode:
+          type: string
+          enum: [advisory]
+        outcome:
+          type: string
+          enum: [allow_tools, warn, require_approval, restrict_tools, block_tools]
+        pilot_state:
+          type: string
+          enum: [candidate, operator_review, blocked]
+        enforcement_state:
+          type: string
+          enum: [advisory_only]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        severity: { type: string }
+        score: { type: integer }
+        title: { type: string }
+        summary: { type: string }
+        rationale: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        agent_node_id: { type: string }
+        agent_id: { type: string }
+        agent_name: { type: string }
+        agent_type: { type: string }
+        provider: { type: string }
+        runtime_role_arn: { type: string }
+        runtime_role_node_id: { type: string }
+        finding_id: { type: string }
+        risk_type: { type: string }
+        allowed_tool_names:
+          type: array
+          items: { type: string }
+        restricted_tool_names:
+          type: array
+          items: { type: string }
+        blocked_tool_names:
+          type: array
+          items: { type: string }
+        sensitive_resources:
+          type: array
+          items: { type: string }
+        recommended_actions:
+          type: array
+          items: { type: string }
+        provenance:
+          $ref: "#/components/schemas/AWSAgentCoreGatewayPolicyAdvisoryProvenance"
+        input_hash:
+          $ref: "#/components/schemas/AWSAgentCoreGatewayPolicyAdvisoryInputHash"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeEvidence"
+        evidence_boundary: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegePathStep"
+        audit_trail:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationApprovalAuditEntry"
+        read_only_projection: { type: boolean }
+        source_signals:
+          type: array
+          items: { type: string }
+        next_action: { type: string }
+        projected_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSAgentCoreGatewayPolicyAdvisorySummary:
+      type: object
+      properties:
+        total_advisories: { type: integer }
+        filtered_advisories: { type: integer }
+        outcome_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        risk_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        allow_tools_count: { type: integer }
+        warn_count: { type: integer }
+        require_approval_count: { type: integer }
+        restrict_tools_count: { type: integer }
+        block_tools_count: { type: integer }
+        restricted_tool_count: { type: integer }
+        sensitive_resource_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSAgentCoreGatewayPolicyAdvisoryResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        policy_version: { type: string }
+        mode:
+          type: string
+          enum: [advisory]
+        pilot_state:
+          type: string
+          enum: [candidate, operator_review, blocked]
+        enforcement_state:
+          type: string
+          enum: [advisory_only]
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSAgentCoreGatewayPolicyAdvisorySummary"
+        advisories:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAgentCoreGatewayPolicyAdvisoryEntry"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSAgentCoreGatewayPolicyAdvisoryRelationship"
         caveats:
           type: array
           items: { type: string }

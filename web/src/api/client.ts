@@ -4146,6 +4146,146 @@ export type AWSSessionPolicyRecommendationQuery = {
   search?: string;
 };
 
+export type AWSAgentCoreGatewayPolicyAdvisoryStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSAgentCoreGatewayPolicyAdvisoryFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSAgentCoreGatewayPolicyAdvisoryOutcome =
+  | 'allow_tools'
+  | 'warn'
+  | 'require_approval'
+  | 'restrict_tools'
+  | 'block_tools'
+  | string;
+export type AWSAgentCoreGatewayPolicyAdvisoryPilotState = 'candidate' | 'operator_review' | 'blocked' | string;
+export type AWSAgentCoreGatewayPolicyAdvisoryEnforcementState = 'advisory_only' | string;
+
+export type AWSAgentCoreGatewayPolicyAdvisoryProvenance = {
+  policy_version: string;
+  policy_rule: string;
+  signals?: string[];
+};
+
+export type AWSAgentCoreGatewayPolicyAdvisoryInputHash = {
+  value: string;
+  components?: string[];
+};
+
+export type AWSAgentCoreGatewayPolicyAdvisoryRelationship = {
+  advisory_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSAgentCoreGatewayPolicyAdvisoryEntry = {
+  advisory_id: string;
+  calculation_version: string;
+  mode: 'advisory' | string;
+  outcome: AWSAgentCoreGatewayPolicyAdvisoryOutcome;
+  pilot_state: AWSAgentCoreGatewayPolicyAdvisoryPilotState;
+  enforcement_state: AWSAgentCoreGatewayPolicyAdvisoryEnforcementState;
+  confidence: number;
+  severity: string;
+  score: number;
+  title: string;
+  summary: string;
+  rationale: string;
+  account_id?: string;
+  region?: string;
+  agent_node_id: string;
+  agent_id?: string;
+  agent_name?: string;
+  agent_type?: string;
+  provider?: string;
+  runtime_role_arn?: string;
+  runtime_role_node_id?: string;
+  finding_id: string;
+  risk_type: string;
+  allowed_tool_names?: string[];
+  restricted_tool_names?: string[];
+  blocked_tool_names?: string[];
+  sensitive_resources?: string[];
+  recommended_actions: string[];
+  provenance: AWSAgentCoreGatewayPolicyAdvisoryProvenance;
+  input_hash: AWSAgentCoreGatewayPolicyAdvisoryInputHash;
+  evidence: AWSLeastPrivilegeEvidence[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  audit_trail: AWSRemediationAuditEntry[];
+  read_only_projection: boolean;
+  source_signals: string[];
+  next_action: string;
+  projected_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSAgentCoreGatewayPolicyAdvisorySummary = {
+  total_advisories: number;
+  filtered_advisories: number;
+  outcome_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  risk_type_counts: Record<string, number>;
+  allow_tools_count: number;
+  warn_count: number;
+  require_approval_count: number;
+  restrict_tools_count: number;
+  block_tools_count: number;
+  restricted_tool_count: number;
+  sensitive_resource_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSAgentCoreGatewayPolicyAdvisoryResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSAgentCoreGatewayPolicyAdvisoryStatus;
+  fixture_state?: AWSAgentCoreGatewayPolicyAdvisoryFixtureState;
+  confidence: number;
+  calculation_version: string;
+  policy_version: string;
+  mode: 'advisory' | string;
+  pilot_state: AWSAgentCoreGatewayPolicyAdvisoryPilotState;
+  enforcement_state: AWSAgentCoreGatewayPolicyAdvisoryEnforcementState;
+  applied_filters: Record<string, string>;
+  summary: AWSAgentCoreGatewayPolicyAdvisorySummary;
+  advisories: AWSAgentCoreGatewayPolicyAdvisoryEntry[];
+  relationships: AWSAgentCoreGatewayPolicyAdvisoryRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSAgentCoreGatewayPolicyAdvisoryQuery = {
+  connectorID?: string;
+  fixtureState?: AWSAgentCoreGatewayPolicyAdvisoryFixtureState;
+  accountID?: string;
+  region?: string;
+  agentID?: string;
+  outcome?: string;
+  riskType?: string;
+  severity?: string;
+  findingID?: string;
+  search?: string;
+};
+
 export type AWSSecretKeyRotationStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSSecretKeyRotationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSSecretKeyRotationType = 'provider_key' | 'secrets_manager_secret' | 'kms_related' | string;
@@ -9496,6 +9636,28 @@ export const apiClient = {
         recommendation_id: query?.recommendationID,
         decision: query?.decision,
         severity: query?.severity,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectAgentCoreGatewayPolicyAdvisory(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSAgentCoreGatewayPolicyAdvisoryQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ agentcore_gateway_policy_advisory: AWSAgentCoreGatewayPolicyAdvisoryResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/agentcore-gateway-policy-advisory${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        agent_id: query?.agentID,
+        outcome: query?.outcome,
+        risk_type: query?.riskType,
+        severity: query?.severity,
+        finding_id: query?.findingID,
         search: query?.search
       })}`,
       auth

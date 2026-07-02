@@ -4125,6 +4125,41 @@ describe('Domain-first app routes', () => {
 	        diagnostics: []
 	      } as any
 	    });
+	    const getAgentCoreGatewayPolicyAdvisory = vi.spyOn(api.apiClient, 'getAWSProjectAgentCoreGatewayPolicyAdvisory').mockResolvedValue({
+	      agentcore_gateway_policy_advisory: {
+	        status: 'ready',
+	        mode: 'advisory',
+	        policy_version: 'aws-agentcore-gateway-policy-advisory-policy-v1',
+	        pilot_state: 'candidate',
+	        enforcement_state: 'advisory_only',
+	        advisories: [],
+	        relationships: [],
+	        applied_filters: {},
+	        summary: {
+	          total_advisories: 0,
+	          filtered_advisories: 0,
+	          outcome_counts: {},
+	          severity_counts: {},
+	          risk_type_counts: {},
+	          allow_tools_count: 0,
+	          warn_count: 0,
+	          require_approval_count: 0,
+	          restrict_tools_count: 0,
+	          block_tools_count: 0,
+	          restricted_tool_count: 0,
+	          sensitive_resource_count: 0,
+	          relationship_count: 0,
+	          highest_score: 0,
+	          average_confidence_pct: 0
+	        },
+	        caveats: ['AgentCore gateway policy advisories are read-only recommendations.'],
+	        failure_reasons: [],
+	        remediation_hints: [],
+	        evidence_links: [],
+	        coverage_gaps: [],
+	        diagnostics: []
+	      } as any
+	    });
 	    const getSecretKeyRotation = vi.spyOn(api.apiClient, 'getAWSProjectSecretKeyRotationPlans').mockResolvedValue({
       plans: {
         status: 'ready',
@@ -4804,6 +4839,12 @@ describe('Domain-first app routes', () => {
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
     expect(getSessionPolicyRecommendations).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getAgentCoreGatewayPolicyAdvisory).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       expect.objectContaining({ connectorID: 'aws-connector-1' }),

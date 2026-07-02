@@ -2243,4 +2243,44 @@ describe('apiClient', () => {
     expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
+
+  it('gets AWS AgentCore gateway policy advisory with scoped headers and filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ agentcore_gateway_policy_advisory: { status: 'ready', advisories: [] } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectAgentCoreGatewayPolicyAdvisory(
+      'workspace/a',
+      'project 1',
+      {
+        connectorID: 'aws-prod',
+        fixtureState: 'partial_failure',
+        accountID: '111111111111',
+        region: 'us-east-1',
+        agentID: 'agent/a',
+        outcome: 'restrict_tools',
+        riskType: 'broad_tool_access',
+        severity: 'high',
+        findingID: 'finding/a',
+        search: 'payments gateway'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(
+      '/v1/workspaces/workspace%2Fa/projects/project%201/aws/agentcore-gateway-policy-advisory?connector_id=aws-prod&fixture_state=partial_failure&account_id=111111111111&region=us-east-1&agent_id=agent%2Fa&outcome=restrict_tools&risk_type=broad_tool_access&severity=high&finding_id=finding%2Fa&search=payments+gateway'
+    );
+    expect(options.method ?? 'GET').toBe('GET');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
 });

@@ -774,6 +774,7 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/post-remediation-verification", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/advisory-authorization", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/session-policy-recommendations", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
+		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/agentcore-gateway-policy-advisory", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/blast-radius", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/least-privilege", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/unused-dormant-access", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},

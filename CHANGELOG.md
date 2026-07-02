@@ -1,6 +1,38 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS AgentCore gateway policy advisory** (#1545). Adds an
+  advisory-only projection that derives AgentCore gateway/tool policy
+  recommendations from the AI agent risk engine (#1528). Each advisory
+  carries an `outcome` (`allow_tools` | `warn` | `require_approval` |
+  `restrict_tools` | `block_tools`), the agent runtime identity, a
+  disjoint partition of the finding's tool namespace into
+  allowed/restricted/blocked buckets, the sensitive-reachability set,
+  operator-facing `recommended_actions`, provenance (policy version +
+  rule name), a deterministic input hash covering finding ID, agent
+  node ID, risk type, severity, status, tool count, sensitive count,
+  outcome, and policy version, evidence refs, and an immutable audit
+  trail. Policy ordering makes safety signals win: critical-severity
+  findings with sensitive reachability always classify as
+  `block_tools`, external-credential findings as `require_approval`,
+  broad-tool-access and sensitive-reachability findings as
+  `restrict_tools`, ownerless-agent findings as `warn`, remaining
+  critical/high-severity findings as `require_approval`, findings
+  with no resolved tool namespace as `warn`, and everything else as
+  `allow_tools` with advisory monitoring. Prompt text, tool payloads,
+  and workload data are never inlined; tool restrictions reference
+  the tool namespace by name only. Each advisory also exposes
+  `pilot_state` and `enforcement_state`; enforcement remains
+  `advisory_only` in this wave. Adds
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/agentcore-gateway-policy-advisory`
+  with filters for connector, fixture state, account, region, agent ID,
+  outcome, risk type, severity, finding ID, and free-text search.
+  OpenAPI schemas and authz wiring follow the neighboring wave-9
+  endpoints. The AWS Runtime app surface now shows an **AWS AgentCore
+  gateway policy advisory** panel with the advisory title, agent,
+  outcome pill, restricted/blocked tool counts, sensitive-reachability
+  count, and severity/outcome status pill. Identrail never enforces
+  the recommendation at this layer.
 - Add **AWS session policy recommendation path** (#1544). Adds an
   advisory-only projection that derives session-policy recommendations
   from the least-privilege recommendation engine (#1522). Each entry
