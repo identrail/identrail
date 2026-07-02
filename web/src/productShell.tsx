@@ -85,6 +85,8 @@ import {
   type AWSPostRemediationVerificationResult,
   type AWSAdvisoryAuthorizationDecision,
   type AWSAdvisoryAuthorizationResult,
+  type AWSSessionPolicyRecommendationEntry,
+  type AWSSessionPolicyRecommendationResult,
   type AWSTrustPolicyHardeningExecutorEntry,
   type AWSTrustPolicyHardeningExecutorResult,
   type AWSBlastRadiusFinding,
@@ -11447,6 +11449,73 @@ function AWSAdvisoryAuthorizationContent({
   );
 }
 
+function awsSessionPolicyRecommendationStage(entry: AWSSessionPolicyRecommendationEntry): AWSCapabilityStage {
+  if (entry.decision === 'remove' && entry.expected_behavior.observed_action_count > 0) {
+    return 'wired';
+  }
+  if (entry.decision === 'review') {
+    return 'coming';
+  }
+  return 'coming';
+}
+
+function AWSSessionPolicyRecommendationContent({
+  result,
+  loading,
+  error,
+  onRetry
+}: {
+  result: AWSSessionPolicyRecommendationResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const summaryLine = result
+    ? `${result.summary.total_recommendations} total · ${result.summary.allow_action_count} allowed · ${result.summary.deny_action_count} denied · ${result.summary.observed_action_count} observed`
+    : '';
+  const panelResult = result
+    ? {
+        status: result.status,
+        entries: result.recommendations,
+        caveats: result.caveats,
+        failure_reasons: result.failure_reasons
+      }
+    : null;
+  return (
+    <AWSExecutorProjectionPanel<AWSSessionPolicyRecommendationEntry>
+      result={panelResult}
+      loading={loading}
+      error={error}
+      onRetry={onRetry}
+      ariaLabel="AWS session policy recommendations"
+      heading="AWS session policy recommendations"
+      description={`Advisory-only projection that derives STS session-policy scope from least-privilege recommendations. Each entry records the target principal, projected allow/deny lists, resource scope, runtime validation signals, and audit rows. Identrail never enforces the recommendation at this layer. ${summaryLine}`}
+      errorTitle="Couldn't load AWS session policy recommendations"
+      loadingTitle="Projecting session policy recommendations"
+      loadingBody="Identrail is deriving session-policy scope from least-privilege recommendations for this connector."
+      emptyEyebrow={(current) => (current.status === 'blocked' ? 'Permission required' : 'No session policy recommendations')}
+      emptyTitle={(current) => (current.status === 'blocked' ? 'Session policy recommendations need approved least-privilege evidence' : 'No session policy recommendations projected')}
+      emptyBody={(current) => current.failure_reasons[0] ?? 'No least-privilege recommendation carried an actionable observed-usage profile for this environment.'}
+      tableLabel="AWS session policy recommendations"
+      getRowKey={(row) => row.recommendation_id}
+      columns={[
+        { key: 'recommendation', header: 'Recommendation', render: (row) => <strong>{row.title}</strong> },
+        { key: 'principal', header: 'Principal', render: (row) => row.principal_display_name ?? row.principal_node_id },
+        { key: 'decision', header: 'Decision', render: (row) => formatTokenLabel(row.decision) },
+        { key: 'allow_deny', header: 'Allow / Deny', render: (row) => `${row.expected_behavior.allowed_action_count} allow · ${row.expected_behavior.denied_action_count} deny` },
+        { key: 'observed', header: 'Observed', render: (row) => `${row.expected_behavior.observed_action_count} actions` },
+        {
+          key: 'severity',
+          header: 'Severity',
+          render: (row) => (
+            <AWSInventoryPill stage={awsSessionPolicyRecommendationStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.decision)}`} />
+          )
+        }
+      ]}
+    />
+  );
+}
+
 function awsSecretKeyRotationStage(plan: AWSSecretKeyRotationPlan): AWSCapabilityStage {
   if (!plan.owner_handoff.assigned || plan.severity === 'critical') {
     return 'not-available';
@@ -13679,6 +13748,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [advisoryAuthorizationLoading, setAdvisoryAuthorizationLoading] = useState(false);
   const [advisoryAuthorizationError, setAdvisoryAuthorizationError] = useState('');
   const advisoryAuthorizationRequestRef = useRef(0);
+  const [sessionPolicyRecommendations, setSessionPolicyRecommendations] = useState<AWSSessionPolicyRecommendationResult | null>(null);
+  const [sessionPolicyRecommendationsLoading, setSessionPolicyRecommendationsLoading] = useState(false);
+  const [sessionPolicyRecommendationsError, setSessionPolicyRecommendationsError] = useState('');
+  const sessionPolicyRecommendationsRequestRef = useRef(0);
   const [secretKeyRotation, setSecretKeyRotation] = useState<AWSSecretKeyRotationResult | null>(null);
   const [secretKeyRotationLoading, setSecretKeyRotationLoading] = useState(false);
   const [secretKeyRotationError, setSecretKeyRotationError] = useState('');
@@ -14375,6 +14448,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       advisoryAuthorizationRequestRef.current += 1;
     };
   }, [loadAdvisoryAuthorization]);
+
+  const loadSessionPolicyRecommendations = useCallback(async () => {
+    const requestID = ++sessionPolicyRecommendationsRequestRef.current;
+    setSessionPolicyRecommendations(null);
+    setSessionPolicyRecommendationsError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setSessionPolicyRecommendationsLoading(false);
+      return;
+    }
+    setSessionPolicyRecommendationsLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectSessionPolicyRecommendations(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== sessionPolicyRecommendationsRequestRef.current) {
+        return;
+      }
+      setSessionPolicyRecommendations(response.session_policy_recommendations);
+    } catch (error) {
+      if (requestID !== sessionPolicyRecommendationsRequestRef.current) {
+        return;
+      }
+      setSessionPolicyRecommendationsError(formatAPIError(error, 'Unable to load AWS session policy recommendations.'));
+    } finally {
+      if (requestID === sessionPolicyRecommendationsRequestRef.current) {
+        setSessionPolicyRecommendationsLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadSessionPolicyRecommendations();
+    return () => {
+      sessionPolicyRecommendationsRequestRef.current += 1;
+    };
+  }, [loadSessionPolicyRecommendations]);
 
   const loadSecretKeyRotation = useCallback(async () => {
     const requestID = ++secretKeyRotationRequestRef.current;
@@ -15246,6 +15367,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={advisoryAuthorizationLoading}
             error={advisoryAuthorizationError}
             onRetry={loadAdvisoryAuthorization}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSSessionPolicyRecommendationContent
+            result={sessionPolicyRecommendations}
+            loading={sessionPolicyRecommendationsLoading}
+            error={sessionPolicyRecommendationsError}
+            onRetry={loadSessionPolicyRecommendations}
           />
         ) : null}
         {routeID === 'runtime' ? (

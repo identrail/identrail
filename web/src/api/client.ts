@@ -4018,6 +4018,134 @@ export type AWSAdvisoryAuthorizationQuery = {
   search?: string;
 };
 
+export type AWSSessionPolicyRecommendationStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSSessionPolicyRecommendationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSSessionPolicyRecommendationDecision = 'remove' | 'review' | string;
+
+export type AWSSessionPolicyRecommendationValidationSignal = {
+  source: string;
+  signal: string;
+  status: string;
+  count?: number;
+  description: string;
+};
+
+export type AWSSessionPolicyRecommendationExpectedBehavior = {
+  allowed_action_count: number;
+  denied_action_count: number;
+  observed_action_count: number;
+};
+
+export type AWSSessionPolicyRecommendationProvenance = {
+  policy_version: string;
+  source_rule_name: string;
+  signals?: string[];
+};
+
+export type AWSSessionPolicyRecommendationRelationship = {
+  recommendation_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSSessionPolicyRecommendationEntry = {
+  recommendation_id: string;
+  calculation_version: string;
+  mode: 'advisory' | string;
+  decision: AWSSessionPolicyRecommendationDecision;
+  severity: string;
+  score: number;
+  confidence: number;
+  title: string;
+  summary: string;
+  rationale: string;
+  account_id?: string;
+  region?: string;
+  principal_node_id: string;
+  principal_arn?: string;
+  principal_display_name?: string;
+  session_policy_ref: string;
+  session_duration_hint?: string;
+  allow_actions: string[];
+  deny_actions?: string[];
+  resource_scope?: string[];
+  condition_keys?: string[];
+  expected_behavior: AWSSessionPolicyRecommendationExpectedBehavior;
+  validation_signals: AWSSessionPolicyRecommendationValidationSignal[];
+  provenance: AWSSessionPolicyRecommendationProvenance;
+  evidence: AWSLeastPrivilegeEvidence[];
+  evidence_boundary: string;
+  impacted_nodes: string[];
+  impacted_path: AWSLeastPrivilegePathStep[];
+  audit_trail: AWSRemediationAuditEntry[];
+  read_only_projection: boolean;
+  source_signals: string[];
+  next_action: string;
+  projected_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AWSSessionPolicyRecommendationSummary = {
+  total_recommendations: number;
+  filtered_recommendations: number;
+  decision_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  allow_action_count: number;
+  deny_action_count: number;
+  observed_action_count: number;
+  validation_signal_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSSessionPolicyRecommendationResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSSessionPolicyRecommendationStatus;
+  fixture_state?: AWSSessionPolicyRecommendationFixtureState;
+  confidence: number;
+  calculation_version: string;
+  policy_version: string;
+  mode: 'advisory' | string;
+  applied_filters: Record<string, string>;
+  summary: AWSSessionPolicyRecommendationSummary;
+  recommendations: AWSSessionPolicyRecommendationEntry[];
+  relationships: AWSSessionPolicyRecommendationRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSSessionPolicyRecommendationQuery = {
+  connectorID?: string;
+  fixtureState?: AWSSessionPolicyRecommendationFixtureState;
+  accountID?: string;
+  region?: string;
+  principalID?: string;
+  recommendationID?: string;
+  decision?: string;
+  severity?: string;
+  search?: string;
+};
+
 export type AWSSecretKeyRotationStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSSecretKeyRotationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSSecretKeyRotationType = 'provider_key' | 'secrets_manager_secret' | 'kms_related' | string;
@@ -9347,6 +9475,27 @@ export const apiClient = {
         source_type: query?.sourceType,
         case_id: query?.caseID,
         verification_id: query?.verificationID,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectSessionPolicyRecommendations(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSSessionPolicyRecommendationQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ session_policy_recommendations: AWSSessionPolicyRecommendationResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/session-policy-recommendations${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        principal_id: query?.principalID,
+        recommendation_id: query?.recommendationID,
+        decision: query?.decision,
+        severity: query?.severity,
         search: query?.search
       })}`,
       auth

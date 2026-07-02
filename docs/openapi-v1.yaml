@@ -614,6 +614,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/session-policy-recommendations
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/secret-key-rotation
     action: tenancy.read
     resource_type: project
@@ -5811,6 +5816,80 @@ paths:
                     $ref: "#/components/schemas/AWSAdvisoryAuthorizationResult"
         "400":
           description: Invalid AWS advisory authorization request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/session-policy-recommendations:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS session policy recommendations
+      operationId: getAWSProjectSessionPolicyRecommendations
+      description: Projects deterministic advisory session policy recommendations from the least-privilege recommendation engine. Each entry records the recommended STS session-policy scope (allow-list, deny-list, resource scope), expected allow/deny behavior, runtime validation signals, provenance, and audit trail. This endpoint is advisory-only; Identrail never calls IAM/STS write APIs and never inlines rendered policy JSON.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: principal_id
+          schema: { type: string }
+          description: Optional principal node ID or ARN filter.
+        - in: query
+          name: recommendation_id
+          schema: { type: string }
+        - in: query
+          name: decision
+          schema:
+            type: string
+            enum: [remove, review]
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS session policy recommendations contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_policy_recommendations:
+                    $ref: "#/components/schemas/AWSSessionPolicyRecommendationResult"
+        "400":
+          description: Invalid AWS session policy recommendation request
           content:
             application/json:
               schema:
@@ -16181,6 +16260,201 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSAdvisoryAuthorizationRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSSessionPolicyRecommendationValidationSignal:
+      type: object
+      properties:
+        source: { type: string }
+        signal: { type: string }
+        status: { type: string }
+        count: { type: integer }
+        description: { type: string }
+    AWSSessionPolicyRecommendationExpectedBehavior:
+      type: object
+      properties:
+        allowed_action_count: { type: integer }
+        denied_action_count: { type: integer }
+        observed_action_count: { type: integer }
+    AWSSessionPolicyRecommendationProvenance:
+      type: object
+      properties:
+        policy_version: { type: string }
+        source_rule_name: { type: string }
+        signals:
+          type: array
+          items: { type: string }
+    AWSSessionPolicyRecommendationRelationship:
+      type: object
+      properties:
+        recommendation_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSSessionPolicyRecommendationEntry:
+      type: object
+      properties:
+        recommendation_id: { type: string }
+        calculation_version: { type: string }
+        mode:
+          type: string
+          enum: [advisory]
+        decision:
+          type: string
+          enum: [remove, review]
+        severity: { type: string }
+        score: { type: integer }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        title: { type: string }
+        summary: { type: string }
+        rationale: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        principal_node_id: { type: string }
+        principal_arn: { type: string }
+        principal_display_name: { type: string }
+        session_policy_ref:
+          type: string
+          description: Metadata reference to the recommended session-policy JSON. Rendered policy bodies are never inlined.
+        session_duration_hint: { type: string }
+        allow_actions:
+          type: array
+          items: { type: string }
+        deny_actions:
+          type: array
+          items: { type: string }
+        resource_scope:
+          type: array
+          items: { type: string }
+        condition_keys:
+          type: array
+          items: { type: string }
+        expected_behavior:
+          $ref: "#/components/schemas/AWSSessionPolicyRecommendationExpectedBehavior"
+        validation_signals:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSSessionPolicyRecommendationValidationSignal"
+        provenance:
+          $ref: "#/components/schemas/AWSSessionPolicyRecommendationProvenance"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeEvidence"
+        evidence_boundary: { type: string }
+        impacted_nodes:
+          type: array
+          items: { type: string }
+        impacted_path:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegePathStep"
+        audit_trail:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationApprovalAuditEntry"
+        read_only_projection: { type: boolean }
+        source_signals:
+          type: array
+          items: { type: string }
+        next_action: { type: string }
+        projected_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSSessionPolicyRecommendationSummary:
+      type: object
+      properties:
+        total_recommendations: { type: integer }
+        filtered_recommendations: { type: integer }
+        decision_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        allow_action_count: { type: integer }
+        deny_action_count: { type: integer }
+        observed_action_count: { type: integer }
+        validation_signal_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSSessionPolicyRecommendationResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        policy_version: { type: string }
+        mode:
+          type: string
+          enum: [advisory]
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSSessionPolicyRecommendationSummary"
+        recommendations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSSessionPolicyRecommendationEntry"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSSessionPolicyRecommendationRelationship"
         caveats:
           type: array
           items: { type: string }

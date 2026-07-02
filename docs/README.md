@@ -100,6 +100,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - AWS approved trust-policy hardening executor: `aws-trust-policy-hardening-executor.md`
 - AWS post-remediation verification and rollback: `aws-post-remediation-verification.md`
 - AWS advisory authorization decision API: `aws-advisory-authorization.md`
+- AWS session policy recommendation path: `aws-session-policy-recommendation.md`
 - AWS normalizer and graph: `aws-normalizer-graph.md`
 - AWS risk engine: `aws-risk-engine.md`
 

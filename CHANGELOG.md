@@ -1,6 +1,33 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS session policy recommendation path** (#1544). Adds an
+  advisory-only projection that derives session-policy recommendations
+  from the least-privilege recommendation engine (#1522). Each entry
+  carries the target principal, a `session_policy_ref` metadata
+  reference to the recommended STS session-policy JSON, the projected
+  allow-list and deny-list, resource scope, expected allow/deny/
+  observed action counts, deterministic runtime and analyzer
+  validation signals (observed-action coverage, projected
+  removed-action count, breakage prediction), provenance (policy
+  version and source rule name), evidence refs, and an immutable
+  audit trail. The projection only admits least-privilege
+  recommendations whose decision is `remove` or `review` and that
+  carry an observed-usage profile so operators never see
+  session-policy recommendations that would scope to zero actions.
+  Rendered session-policy JSON is never inlined; the recommended
+  policy body stays behind the metadata reference and downstream
+  apply runtime is responsible for attaching the policy to STS
+  `AssumeRole` calls. Adds
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/session-policy-recommendations`
+  with filters for connector, fixture state, account, region,
+  principal, recommendation ID, decision, severity, and free-text
+  search. OpenAPI schemas and authz wiring follow the neighboring
+  wave-9 endpoints. The AWS Runtime app surface now shows an **AWS
+  session policy recommendations** panel with the recommendation
+  title, decision pill, principal, projected allow/deny counts,
+  breakage prediction, and severity/decision status pill. Identrail
+  never calls IAM/STS write APIs at this layer.
 - Add **AWS advisory authorization decision API** (#1543). Adds an
   advisory-only projection that joins remediation cases (#1529) with the
   post-remediation verification and rollback executor (#1542) and
