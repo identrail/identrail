@@ -297,16 +297,41 @@ func awsSessionPolicyRecommendationAdmits(rec AWSLeastPrivilegeRecommendation) b
 	if strings.TrimSpace(rec.IdentityNodeID) == "" {
 		return false
 	}
-	// Session policies attach to STS AssumeRole calls and can only carry
-	// AWS IAM `service:action` values. Reject records whose actionable
-	// set does not contain a valid IAM action after synthetic prefixes
-	// (agent-tool, etc.) are filtered out — a downstream renderer could
-	// not build a valid session policy from those inputs. Whitespace-only
-	// entries are trimmed by awsSessionPolicyRecommendationValidIAMActions.
+	// Session policies attach to STS AssumeRole calls and only make sense
+	// for assumable role identities. Reject IAM users, groups, external
+	// principals, and any identity whose kind cannot be parsed — the
+	// downstream apply path has no valid place to attach the recommendation
+	// for those.
+	if !awsSessionPolicyRecommendationIsAssumableRole(rec) {
+		return false
+	}
+	// Session policies can only carry AWS IAM `service:action` values.
+	// Reject records whose actionable set does not contain a valid IAM
+	// action after synthetic prefixes (agent-tool, etc.) are filtered out
+	// — a downstream renderer could not build a valid session policy from
+	// those inputs. Whitespace-only entries are trimmed by
+	// awsSessionPolicyRecommendationValidIAMActions.
 	if len(awsSessionPolicyRecommendationValidIAMActions(rec.KeepActions)) == 0 && len(awsSessionPolicyRecommendationValidIAMActions(rec.ObservedActions)) == 0 {
 		return false
 	}
 	return true
+}
+
+// awsSessionPolicyRecommendationIsAssumableRole reports whether the record's
+// target is an IAM role (or assumed-role) identity that STS AssumeRole can
+// bind a session policy to. It parses the identity node ID and ARN with the
+// dry-run principal-kind helper so records that classify as `user` or
+// `group` are rejected; records where neither field parses to `role` are
+// also rejected because emitting STS guidance for an unassumable principal
+// would mislead operators.
+func awsSessionPolicyRecommendationIsAssumableRole(rec AWSLeastPrivilegeRecommendation) bool {
+	if kind := awsRemediationDryRunClassifiedIAMPrincipalKind(rec.IdentityNodeID); kind != "" {
+		return kind == "role"
+	}
+	if kind := awsRemediationDryRunClassifiedIAMPrincipalKind(rec.PrincipalARN); kind != "" {
+		return kind == "role"
+	}
+	return false
 }
 
 // awsSessionPolicyRecommendationValidIAMActions keeps only entries shaped
@@ -425,19 +450,37 @@ func awsSessionPolicyRecommendationAllowActions(rec AWSLeastPrivilegeRecommendat
 // downstream renderer can place in an IAM `Resource` element: real ARNs or
 // the `*` wildcard. Graph node IDs (aws:resource:..., aws:identity:...) are
 // dropped here — they surface through impacted_nodes and relationships, not
-// through the session-policy resource scope.
+// through the session-policy resource scope. When the record targets an S3
+// bucket ARN it is expanded to include the `/*` object scope so object-level
+// actions like `s3:GetObject` still match the recommended policy.
 func awsSessionPolicyRecommendationResourceScope(rec AWSLeastPrivilegeRecommendation) []string {
 	scope := []string{}
 	if arn := strings.TrimSpace(rec.ResourceARN); awsSessionPolicyRecommendationIsValidResource(arn) {
 		scope = append(scope, arn)
-	}
-	if node := strings.TrimSpace(rec.ResourceNodeID); awsSessionPolicyRecommendationIsValidResource(node) {
-		scope = append(scope, node)
+		if object := awsSessionPolicyRecommendationS3ObjectScope(arn); object != "" {
+			scope = append(scope, object)
+		}
 	}
 	if len(scope) == 0 {
 		scope = append(scope, "*")
 	}
 	return dedupeStrings(scope)
+}
+
+// awsSessionPolicyRecommendationS3ObjectScope returns `arn:aws:s3:::<bucket>/*`
+// when the input is an S3 bucket ARN so object-level allow-list actions
+// still match. Bucket ARNs never contain `/`; object/prefix ARNs already do
+// and are returned unchanged (empty).
+func awsSessionPolicyRecommendationS3ObjectScope(arn string) string {
+	const prefix = "arn:aws:s3:::"
+	if !strings.HasPrefix(arn, prefix) {
+		return ""
+	}
+	bucket := strings.TrimPrefix(arn, prefix)
+	if bucket == "" || strings.Contains(bucket, "/") {
+		return ""
+	}
+	return arn + "/*"
 }
 
 func awsSessionPolicyRecommendationIsValidResource(value string) bool {

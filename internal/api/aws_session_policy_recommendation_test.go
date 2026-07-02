@@ -126,6 +126,34 @@ func TestAWSSessionPolicyRecommendationAdmitsOnlyActionableRecords(t *testing.T)
 			want: true,
 		},
 		{
+			name: "IAM user principal is not admitted (STS AssumeRole requires a role)",
+			rec: AWSLeastPrivilegeRecommendation{
+				Decision:        "remove",
+				IdentityNodeID:  "arn:aws:iam::111111111111:user/actor",
+				PrincipalARN:    "arn:aws:iam::111111111111:user/actor",
+				ObservedActions: []string{"s3:GetObject"},
+			},
+			want: false,
+		},
+		{
+			name: "IAM group principal is not admitted",
+			rec: AWSLeastPrivilegeRecommendation{
+				Decision:        "remove",
+				IdentityNodeID:  "arn:aws:iam::111111111111:group/analysts",
+				ObservedActions: []string{"s3:GetObject"},
+			},
+			want: false,
+		},
+		{
+			name: "unparseable identity is not admitted (avoid misleading STS guidance)",
+			rec: AWSLeastPrivilegeRecommendation{
+				Decision:        "remove",
+				IdentityNodeID:  "some-opaque-node-id",
+				ObservedActions: []string{"s3:GetObject"},
+			},
+			want: false,
+		},
+		{
 			name: "review decision with keep actions is admitted",
 			rec: AWSLeastPrivilegeRecommendation{
 				Decision:       "review",
@@ -271,6 +299,63 @@ func TestAWSSessionPolicyRecommendationResourceScopeExcludesGraphNodes(t *testin
 	for _, value := range out.ResourceScope {
 		if strings.HasPrefix(value, "aws:") {
 			t.Fatalf("session-policy resource scope must not carry graph node IDs: %+v", out.ResourceScope)
+		}
+	}
+}
+
+func TestAWSSessionPolicyRecommendationExpandsS3BucketScope(t *testing.T) {
+	now := time.Date(2026, 7, 3, 10, 55, 0, 0, time.UTC)
+
+	bucketOnly := AWSLeastPrivilegeRecommendation{
+		RecommendationID: "lp-s3-bucket",
+		Decision:         "remove",
+		IdentityNodeID:   "aws:identity:arn:aws:iam::111111111111:role/reader",
+		Service:          "s3",
+		ResourceARN:      "arn:aws:s3:::payments-prod",
+		KeepActions:      []string{"s3:GetObject", "s3:ListBucket"},
+	}
+	out := awsSessionPolicyRecommendationFromLeastPrivilege(bucketOnly, now)
+	if len(out.ResourceScope) != 2 {
+		t.Fatalf("S3 bucket ARN must expand to include object scope: %+v", out.ResourceScope)
+	}
+	sawBucket, sawObject := false, false
+	for _, value := range out.ResourceScope {
+		if value == "arn:aws:s3:::payments-prod" {
+			sawBucket = true
+		}
+		if value == "arn:aws:s3:::payments-prod/*" {
+			sawObject = true
+		}
+	}
+	if !sawBucket || !sawObject {
+		t.Fatalf("S3 scope must contain both the bucket ARN and the /* object ARN: %+v", out.ResourceScope)
+	}
+
+	objectARN := bucketOnly
+	objectARN.RecommendationID = "lp-s3-object"
+	objectARN.ResourceARN = "arn:aws:s3:::payments-prod/reports/*"
+	out = awsSessionPolicyRecommendationFromLeastPrivilege(objectARN, now)
+	if len(out.ResourceScope) != 1 || out.ResourceScope[0] != "arn:aws:s3:::payments-prod/reports/*" {
+		t.Fatalf("already-object-scoped S3 ARN must not double-expand: %+v", out.ResourceScope)
+	}
+}
+
+func TestAWSSessionPolicyRecommendationS3ObjectScope(t *testing.T) {
+	cases := []struct {
+		arn  string
+		want string
+	}{
+		{"arn:aws:s3:::payments-prod", "arn:aws:s3:::payments-prod/*"},
+		{"arn:aws:s3:::my-bucket-123", "arn:aws:s3:::my-bucket-123/*"},
+		{"arn:aws:s3:::payments-prod/*", ""},
+		{"arn:aws:s3:::payments-prod/reports/*", ""},
+		{"arn:aws:s3:::", ""},
+		{"arn:aws:secretsmanager:us-east-1:111111111111:secret:openai/api-key", ""},
+		{"*", ""},
+	}
+	for _, tc := range cases {
+		if got := awsSessionPolicyRecommendationS3ObjectScope(tc.arn); got != tc.want {
+			t.Fatalf("arn=%q got %q want %q", tc.arn, got, tc.want)
 		}
 	}
 }
