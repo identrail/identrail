@@ -210,18 +210,15 @@ func (s *Service) GetAWSAdvisoryAuthorization(ctx context.Context, workspaceID s
 	}
 
 	// When one case fans out into multiple verification records (per-target
-	// splits, retries), keep the most safety-critical entry per case so a
-	// kill-switch or verification failure on any target still classifies the
-	// decision correctly.
-	verificationByCase := map[string]AWSPostRemediationVerificationEntry{}
+	// splits, retries), keep all entries grouped by case. Non-split cases
+	// still choose the most safety-critical entry, while split advisory rows
+	// can join to their target-specific verification record first.
+	verificationByCase := map[string][]AWSPostRemediationVerificationEntry{}
 	for _, entry := range verification.Entries {
 		if strings.TrimSpace(entry.CaseID) == "" {
 			continue
 		}
-		existing, ok := verificationByCase[entry.CaseID]
-		if !ok || awsAdvisoryAuthorizationVerificationSeverityRank(entry) > awsAdvisoryAuthorizationVerificationSeverityRank(existing) {
-			verificationByCase[entry.CaseID] = entry
-		}
+		verificationByCase[entry.CaseID] = append(verificationByCase[entry.CaseID], entry)
 	}
 
 	decisions := awsAdvisoryAuthorizationDecisions(cases.Cases, verificationByCase, now)
@@ -295,7 +292,7 @@ func normalizeAWSAdvisoryAuthorizationFixtureState(requested string, connection 
 	}
 }
 
-func awsAdvisoryAuthorizationDecisions(cases []AWSRemediationCase, verificationByCase map[string]AWSPostRemediationVerificationEntry, now time.Time) []AWSAdvisoryAuthorizationDecision {
+func awsAdvisoryAuthorizationDecisions(cases []AWSRemediationCase, verificationByCase map[string][]AWSPostRemediationVerificationEntry, now time.Time) []AWSAdvisoryAuthorizationDecision {
 	decisions := make([]AWSAdvisoryAuthorizationDecision, 0, len(cases))
 	for _, c := range cases {
 		decisions = append(decisions, awsAdvisoryAuthorizationDecisionsFromCase(c, verificationByCase[c.CaseID], now)...)
@@ -303,16 +300,65 @@ func awsAdvisoryAuthorizationDecisions(cases []AWSRemediationCase, verificationB
 	return decisions
 }
 
-func awsAdvisoryAuthorizationDecisionsFromCase(c AWSRemediationCase, verification AWSPostRemediationVerificationEntry, now time.Time) []AWSAdvisoryAuthorizationDecision {
+func awsAdvisoryAuthorizationDecisionsFromCase(c AWSRemediationCase, verifications []AWSPostRemediationVerificationEntry, now time.Time) []AWSAdvisoryAuthorizationDecision {
 	if targets := awsAdvisoryAuthorizationSplitPermissionBoundaryTargets(c); len(targets) > 1 {
 		decisions := make([]AWSAdvisoryAuthorizationDecision, 0, len(targets))
 		for _, target := range targets {
 			scoped := awsAdvisoryAuthorizationCaseForPermissionBoundaryTarget(c, target)
+			verification := awsAdvisoryAuthorizationVerificationForTarget(verifications, target)
 			decisions = append(decisions, awsAdvisoryAuthorizationDecisionFromCaseWithScope(scoped, verification, now, target))
 		}
 		return decisions
 	}
-	return []AWSAdvisoryAuthorizationDecision{awsAdvisoryAuthorizationDecisionFromCase(c, verification, now)}
+	return []AWSAdvisoryAuthorizationDecision{awsAdvisoryAuthorizationDecisionFromCase(c, awsAdvisoryAuthorizationMostSevereVerification(verifications), now)}
+}
+
+func awsAdvisoryAuthorizationMostSevereVerification(verifications []AWSPostRemediationVerificationEntry) AWSPostRemediationVerificationEntry {
+	var selected AWSPostRemediationVerificationEntry
+	for _, entry := range verifications {
+		if selected.VerificationID == "" || awsAdvisoryAuthorizationVerificationSeverityRank(entry) > awsAdvisoryAuthorizationVerificationSeverityRank(selected) {
+			selected = entry
+		}
+	}
+	return selected
+}
+
+func awsAdvisoryAuthorizationVerificationForTarget(verifications []AWSPostRemediationVerificationEntry, target string) AWSPostRemediationVerificationEntry {
+	matches := []AWSPostRemediationVerificationEntry{}
+	for _, entry := range verifications {
+		if awsAdvisoryAuthorizationVerificationMatchesTarget(entry, target) {
+			matches = append(matches, entry)
+		}
+	}
+	if len(matches) > 0 {
+		return awsAdvisoryAuthorizationMostSevereVerification(matches)
+	}
+	return awsAdvisoryAuthorizationMostSevereVerification(verifications)
+}
+
+func awsAdvisoryAuthorizationVerificationMatchesTarget(entry AWSPostRemediationVerificationEntry, target string) bool {
+	targets := []string{entry.TargetResource}
+	targets = append(targets, entry.ImpactedNodes...)
+	for _, candidate := range targets {
+		if awsAdvisoryAuthorizationTargetsEqual(candidate, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func awsAdvisoryAuthorizationTargetsEqual(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return false
+	}
+	if strings.EqualFold(a, b) {
+		return true
+	}
+	aARN := awsAdvisoryAuthorizationARNFromTarget(a)
+	bARN := awsAdvisoryAuthorizationARNFromTarget(b)
+	return aARN != "" && bARN != "" && strings.EqualFold(aARN, bARN)
 }
 
 func awsAdvisoryAuthorizationSplitPermissionBoundaryTargets(c AWSRemediationCase) []string {
@@ -328,8 +374,8 @@ func awsAdvisoryAuthorizationSplitPermissionBoundaryTargets(c AWSRemediationCase
 func awsAdvisoryAuthorizationCaseForPermissionBoundaryTarget(c AWSRemediationCase, target string) AWSRemediationCase {
 	scoped := c
 	scoped.IdentityNodeID = target
-	if strings.Contains(strings.ToLower(target), "arn:") {
-		scoped.IdentityARN = strings.TrimSpace(target)
+	if arn := awsAdvisoryAuthorizationARNFromTarget(target); arn != "" {
+		scoped.IdentityARN = arn
 	}
 	scoped.IdentityName = firstNonEmptyAWSValue(shortAWSARN(target), target)
 	scoped.IdentityType = awsRemediationPermissionBoundaryIdentityType(target)
@@ -342,6 +388,14 @@ func awsAdvisoryAuthorizationCaseForPermissionBoundaryTarget(c AWSRemediationCas
 	scoped.TargetAccountIDs = awsPermissionBoundaryExecutorScopedAccountsForTargets([]string{target}, accountFallback)
 	scoped.AccountID = firstString(scoped.TargetAccountIDs)
 	return scoped
+}
+
+func awsAdvisoryAuthorizationARNFromTarget(target string) string {
+	trimmed := strings.TrimSpace(target)
+	if idx := strings.Index(strings.ToLower(trimmed), "arn:"); idx >= 0 {
+		return trimmed[idx:]
+	}
+	return ""
 }
 
 func awsAdvisoryAuthorizationDecisionFromCase(c AWSRemediationCase, verification AWSPostRemediationVerificationEntry, now time.Time) AWSAdvisoryAuthorizationDecision {

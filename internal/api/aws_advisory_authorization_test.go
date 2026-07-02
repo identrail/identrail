@@ -337,8 +337,10 @@ func TestAWSAdvisoryAuthorizationActionForCaseHonorsPrincipalKind(t *testing.T) 
 
 func TestAWSAdvisoryAuthorizationSplitsMixedPermissionBoundaryTargets(t *testing.T) {
 	now := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
-	roleTarget := "arn:aws:iam::111111111111:role/app"
-	userTarget := "arn:aws:iam::222222222222:user/operator"
+	roleARN := "arn:aws:iam::111111111111:role/app"
+	userARN := "arn:aws:iam::222222222222:user/operator"
+	roleTarget := "aws:identity:" + roleARN
+	userTarget := "aws:identity:" + userARN
 	c := AWSRemediationCase{
 		CaseID:          "case-boundary-mixed",
 		SourceType:      "aws_permission_boundary_scp",
@@ -349,7 +351,7 @@ func TestAWSAdvisoryAuthorizationSplitsMixedPermissionBoundaryTargets(t *testing
 		DiffIntent:      AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
 	}
 
-	decisions := awsAdvisoryAuthorizationDecisionsFromCase(c, AWSPostRemediationVerificationEntry{}, now)
+	decisions := awsAdvisoryAuthorizationDecisionsFromCase(c, nil, now)
 	if len(decisions) != 2 {
 		t.Fatalf("mixed permission-boundary targets must produce one decision per supported target, got %d: %+v", len(decisions), decisions)
 	}
@@ -366,15 +368,58 @@ func TestAWSAdvisoryAuthorizationSplitsMixedPermissionBoundaryTargets(t *testing
 	}
 
 	roleDecision := byAction["iam:PutRolePermissionsBoundary"]
-	if roleDecision.PrincipalNodeID != roleTarget || roleDecision.AccountID != "111111111111" {
+	if roleDecision.PrincipalNodeID != roleTarget || roleDecision.PrincipalARN != roleARN || roleDecision.AccountID != "111111111111" {
 		t.Fatalf("role boundary decision scoped to wrong target/account: %+v", roleDecision)
 	}
 	userDecision := byAction["iam:PutUserPermissionsBoundary"]
-	if userDecision.PrincipalNodeID != userTarget || userDecision.AccountID != "222222222222" {
+	if userDecision.PrincipalNodeID != userTarget || userDecision.PrincipalARN != userARN || userDecision.AccountID != "222222222222" {
 		t.Fatalf("user boundary decision scoped to wrong target/account: %+v", userDecision)
 	}
 	if roleDecision.DecisionID == userDecision.DecisionID {
 		t.Fatalf("split boundary decisions must have distinct decision IDs: role=%s user=%s", roleDecision.DecisionID, userDecision.DecisionID)
+	}
+}
+
+func TestAWSAdvisoryAuthorizationSplitTargetsUseMatchingVerification(t *testing.T) {
+	now := time.Date(2026, 7, 3, 13, 0, 0, 0, time.UTC)
+	roleTarget := "aws:identity:arn:aws:iam::111111111111:role/app"
+	userTarget := "aws:identity:arn:aws:iam::222222222222:user/operator"
+	c := AWSRemediationCase{
+		CaseID:          "case-boundary-verification",
+		SourceType:      "aws_permission_boundary_scp",
+		Severity:        "medium",
+		IdentityNodeID:  roleTarget,
+		ResourceNodeIDs: []string{roleTarget, userTarget},
+		DiffIntent:      AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+	}
+	verifications := []AWSPostRemediationVerificationEntry{
+		{
+			VerificationID: "v-role",
+			CaseID:         c.CaseID,
+			State:          awsPostRemediationVerificationStateVerified,
+			TargetResource: roleTarget,
+		},
+		{
+			VerificationID: "v-user",
+			CaseID:         c.CaseID,
+			State:          awsPostRemediationVerificationStatePending,
+			TargetResource: "arn:aws:iam::222222222222:user/operator",
+		},
+	}
+
+	decisions := awsAdvisoryAuthorizationDecisionsFromCase(c, verifications, now)
+	byAction := map[string]AWSAdvisoryAuthorizationDecision{}
+	for _, decision := range decisions {
+		byAction[decision.Action] = decision
+	}
+
+	roleDecision := byAction["iam:PutRolePermissionsBoundary"]
+	if roleDecision.VerificationID != "v-role" || roleDecision.Outcome != awsAdvisoryAuthorizationOutcomeAllow {
+		t.Fatalf("role split decision must use role verification, got %+v", roleDecision)
+	}
+	userDecision := byAction["iam:PutUserPermissionsBoundary"]
+	if userDecision.VerificationID != "v-user" || userDecision.Outcome != awsAdvisoryAuthorizationOutcomeRequireApproval {
+		t.Fatalf("user split decision must use user verification, got %+v", userDecision)
 	}
 }
 
