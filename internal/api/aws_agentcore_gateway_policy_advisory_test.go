@@ -122,6 +122,26 @@ func TestAWSAgentCoreGatewayPolicyAdvisoryClassifyPolicyOrder(t *testing.T) {
 		t.Fatalf("upstream sensitive data reachability must classify as restrict_tools: %s / %s", out, rule)
 	}
 
+	for _, riskType := range []string{"undeclared_tool_runtime", "backing_role_mismatch"} {
+		finding := base
+		finding.RiskType = riskType
+		finding.ToolNames = []string{"tool-a"}
+		finding.SensitiveResources = []string{"arn:aws:s3:::sensitive-target"}
+		if out, rule, _, _ := awsAgentCoreGatewayPolicyAdvisoryClassify(finding); out != awsAgentCoreGatewayPolicyOutcomeRequireApproval || rule != "runtime_governance_review" {
+			t.Fatalf("%s must classify as require_approval: %s / %s", riskType, out, rule)
+		}
+	}
+
+	for _, riskType := range []string{"runtime_tool_anomaly", "declared_unused_tool", "backing_role_scope"} {
+		finding := base
+		finding.RiskType = riskType
+		finding.ToolNames = []string{"tool-a"}
+		finding.SensitiveResources = []string{"arn:aws:s3:::sensitive-target"}
+		if out, rule, _, _ := awsAgentCoreGatewayPolicyAdvisoryClassify(finding); out != awsAgentCoreGatewayPolicyOutcomeRestrictTools || rule != "runtime_tool_scope_review" {
+			t.Fatalf("%s must classify as restrict_tools: %s / %s", riskType, out, rule)
+		}
+	}
+
 	ownerless := base
 	ownerless.RiskType = "ownerless_agent"
 	if out, rule, _, _ := awsAgentCoreGatewayPolicyAdvisoryClassify(ownerless); out != awsAgentCoreGatewayPolicyOutcomeWarn || rule != "ownerless_agent" {

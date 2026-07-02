@@ -39,6 +39,11 @@
   findings map to the restriction rule, and advisory `input_hash` values
   include normalized tool-name and sensitive-resource digests so same-count
   scope replacements are detectable.
+- Extend AgentCore gateway policy advisory classification for the remaining
+  upstream runtime/backing-role review tokens: `undeclared_tool_runtime` and
+  `backing_role_mismatch` now require approval, while `runtime_tool_anomaly`,
+  `declared_unused_tool`, and `backing_role_scope` restrict the affected tool
+  scope instead of falling through to `allow_tools`.
 - Add **AWS session policy recommendation path** (#1544). Adds an
   advisory-only projection that derives session-policy recommendations
   from the least-privilege recommendation engine (#1522). Each entry

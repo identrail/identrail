@@ -62,11 +62,15 @@ Ordered so safety signals win over general tool-scope warnings:
 3. Risk type `broad_tool_access` / `broad_tool_scope` → `restrict_tools`.
 4. Risk type `sensitive_reachability` or upstream
    `sensitive_data_reachability` → `restrict_tools`.
-5. Risk type `ownerless_agent` → `warn`.
-6. Severity `critical` or `high` without matching risk type →
+5. Risk type `undeclared_tool_runtime` or `backing_role_mismatch` →
    `require_approval`.
-7. Finding carries no resolved tool namespace → `warn`.
-8. Otherwise → `allow_tools` with advisory monitoring.
+6. Risk type `runtime_tool_anomaly`, `declared_unused_tool`, or
+   `backing_role_scope` → `restrict_tools`.
+7. Risk type `ownerless_agent` → `warn`.
+8. Severity `critical` or `high` without matching risk type →
+   `require_approval`.
+9. Finding carries no resolved tool namespace → `warn`.
+10. Otherwise → `allow_tools` with advisory monitoring.
 
 ## Admission
 

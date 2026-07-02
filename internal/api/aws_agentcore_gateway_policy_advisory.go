@@ -384,6 +384,10 @@ func awsAgentCoreGatewayPolicyAdvisoryClassify(finding AWSAIAgentRiskFinding) (o
 		return awsAgentCoreGatewayPolicyOutcomeRestrictTools, "broad_tool_access", "Agent exposes a broad tool namespace; recommend restricting the tool scope to the observed usage set.", 0.85
 	case "sensitive_reachability", "sensitive_data_reachability":
 		return awsAgentCoreGatewayPolicyOutcomeRestrictTools, "sensitive_reachability", "Agent gateway can reach sensitive resources; recommend restricting the tool scope and requiring approvals on the exposed tool calls.", 0.85
+	case "undeclared_tool_runtime", "backing_role_mismatch":
+		return awsAgentCoreGatewayPolicyOutcomeRequireApproval, "runtime_governance_review", "Agent runtime evidence does not match the declared gateway or backing-role model; require operator approval before allowing the affected tool calls.", 0.82
+	case "runtime_tool_anomaly", "declared_unused_tool", "backing_role_scope":
+		return awsAgentCoreGatewayPolicyOutcomeRestrictTools, "runtime_tool_scope_review", "Agent runtime or backing-role evidence requires review; restrict the affected tool scope until the risk-engine finding is resolved.", 0.8
 	case "ownerless_agent":
 		return awsAgentCoreGatewayPolicyOutcomeWarn, "ownerless_agent", "Agent has no assigned owner; warn operators and assign an owner before broadening the tool scope.", 0.78
 	}
