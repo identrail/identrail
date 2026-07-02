@@ -116,6 +116,16 @@ func TestAWSSessionPolicyRecommendationAdmitsOnlyActionableRecords(t *testing.T)
 			want: false,
 		},
 		{
+			name: "aws-service placeholder actions are not admitted",
+			rec: AWSLeastPrivilegeRecommendation{
+				Decision:        "remove",
+				IdentityNodeID:  "arn:aws:iam::111111111111:role/stale-service",
+				KeepActions:     []string{"aws-service:*"},
+				ObservedActions: []string{"aws-service:*"},
+			},
+			want: false,
+		},
+		{
 			name: "mixed valid and synthetic actions are admitted (only IAM actions kept)",
 			rec: AWSLeastPrivilegeRecommendation{
 				Decision:        "remove",
@@ -391,6 +401,8 @@ func TestAWSSessionPolicyRecommendationIsValidIAMAction(t *testing.T) {
 		{"iam:PutRolePolicy", true},
 		{"*", true},
 		{"agent-tool:filesystem", false},
+		{"aws-service:*", false},
+		{"aws-service:lambda", false},
 		{"", false},
 		{"noservice", false},
 		{":action", false},

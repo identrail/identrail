@@ -369,10 +369,13 @@ func awsSessionPolicyRecommendationIsValidIAMAction(action string) bool {
 		return false
 	}
 	service := strings.ToLower(action[:idx])
-	// Reject known synthetic prefixes. `agent-tool:*` comes from
-	// agent-runtime least-privilege records and is not an AWS IAM service.
+	// Reject known synthetic prefixes. Neither belongs in an IAM Action
+	// element: `agent-tool:*` comes from agent-runtime least-privilege
+	// records; `aws-service:*` is the upstream placeholder emitted by
+	// awsLeastPrivilegeServiceAction when an IAM-last-used signal lacks a
+	// resolvable target service.
 	switch service {
-	case "agent-tool":
+	case "agent-tool", "aws-service":
 		return false
 	}
 	return true
