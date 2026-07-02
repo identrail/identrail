@@ -85,6 +85,8 @@ import {
   type AWSPostRemediationVerificationResult,
   type AWSAdvisoryAuthorizationDecision,
   type AWSAdvisoryAuthorizationResult,
+  type AWSLimitedEnforcementEntry,
+  type AWSLimitedEnforcementResult,
   type AWSSessionPolicyRecommendationEntry,
   type AWSSessionPolicyRecommendationResult,
   type AWSAgentCoreGatewayPolicyAdvisoryEntry,
@@ -11451,6 +11453,82 @@ function AWSAdvisoryAuthorizationContent({
   );
 }
 
+function awsLimitedEnforcementStage(entry: AWSLimitedEnforcementEntry): AWSCapabilityStage {
+  if (entry.enforcement_state === 'blocked_by_kill_switch' || entry.enforcement_state === 'rollback_required') {
+    return 'not-available';
+  }
+  if (entry.ready_for_enforcement || entry.ready_for_canary) {
+    return 'wired';
+  }
+  if (entry.enforcement_state === 'blocked_by_safety_config' || entry.mode === 'approval_required') {
+    return 'coming';
+  }
+  return 'coming';
+}
+
+function awsLimitedEnforcementGateLabel(entry: AWSLimitedEnforcementEntry): string {
+  const failed = entry.gates.filter((gate) => gate.status === 'failed').length;
+  return `${entry.gates.length - failed}/${entry.gates.length} gates`;
+}
+
+function AWSLimitedEnforcementContent({
+  result,
+  loading,
+  error,
+  onRetry
+}: {
+  result: AWSLimitedEnforcementResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const summaryLine = result
+    ? `${result.summary.total_entries} total · ${result.summary.warn_only_count} warn-only · ${result.summary.advisory_count} advisory · ${result.summary.approval_required_count} approval · ${result.summary.canary_ready_count} canary-ready · ${result.summary.kill_switch_engaged_count} kill switch`
+    : '';
+  const panelResult = result
+    ? {
+        status: result.status,
+        entries: result.entries,
+        caveats: result.caveats,
+        failure_reasons: result.failure_reasons
+      }
+    : null;
+  return (
+    <AWSExecutorProjectionPanel<AWSLimitedEnforcementEntry>
+      result={panelResult}
+      loading={loading}
+      error={error}
+      onRetry={onRetry}
+      ariaLabel="AWS limited enforcement framework"
+      heading="AWS limited enforcement framework"
+      description={`Feature-flagged framework that joins advisory authorization and AgentCore gateway policy signals with explicit canary, cohort, kill-switch, rollback, confidence, and audit gates. Identrail never enforces the projection at this layer. ${summaryLine}`}
+      errorTitle="Couldn't load AWS limited enforcement framework"
+      loadingTitle="Projecting limited enforcement framework"
+      loadingBody="Identrail is joining advisory decisions with safety config, canary, rollback, and audit gates."
+      emptyEyebrow={(current) => (current.status === 'blocked' ? 'Permission required' : 'No enforcement entries')}
+      emptyTitle={(current) => (current.status === 'blocked' ? 'Limited enforcement needs advisory evidence' : 'No limited enforcement framework entries projected')}
+      emptyBody={(current) => current.failure_reasons[0] ?? 'No advisory authorization or AgentCore gateway policy signal was available for this environment.'}
+      tableLabel="AWS limited enforcement framework entries"
+      getRowKey={(row) => row.enforcement_id}
+      columns={[
+        { key: 'entry', header: 'Entry', render: (row) => <strong>{row.title}</strong> },
+        { key: 'mode', header: 'Mode', render: (row) => formatTokenLabel(row.mode) },
+        { key: 'source', header: 'Source', render: (row) => formatTokenLabel(row.source_type) },
+        { key: 'state', header: 'State', render: (row) => formatTokenLabel(row.enforcement_state) },
+        { key: 'cohort', header: 'Cohort', render: (row) => row.safety_config.cohort ?? 'none' },
+        { key: 'gates', header: 'Gates', render: (row) => awsLimitedEnforcementGateLabel(row) },
+        {
+          key: 'readiness',
+          header: 'Readiness',
+          render: (row) => (
+            <AWSInventoryPill stage={awsLimitedEnforcementStage(row)} label={`${formatTokenLabel(row.outcome)} / ${row.safety_config.canary_percent}%`} />
+          )
+        }
+      ]}
+    />
+  );
+}
+
 function awsSessionPolicyRecommendationStage(entry: AWSSessionPolicyRecommendationEntry): AWSCapabilityStage {
   if (entry.decision === 'remove' && entry.expected_behavior.observed_action_count > 0) {
     return 'wired';
@@ -13826,6 +13904,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [advisoryAuthorizationLoading, setAdvisoryAuthorizationLoading] = useState(false);
   const [advisoryAuthorizationError, setAdvisoryAuthorizationError] = useState('');
   const advisoryAuthorizationRequestRef = useRef(0);
+  const [limitedEnforcement, setLimitedEnforcement] = useState<AWSLimitedEnforcementResult | null>(null);
+  const [limitedEnforcementLoading, setLimitedEnforcementLoading] = useState(false);
+  const [limitedEnforcementError, setLimitedEnforcementError] = useState('');
+  const limitedEnforcementRequestRef = useRef(0);
   const [sessionPolicyRecommendations, setSessionPolicyRecommendations] = useState<AWSSessionPolicyRecommendationResult | null>(null);
   const [sessionPolicyRecommendationsLoading, setSessionPolicyRecommendationsLoading] = useState(false);
   const [sessionPolicyRecommendationsError, setSessionPolicyRecommendationsError] = useState('');
@@ -14530,6 +14612,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       advisoryAuthorizationRequestRef.current += 1;
     };
   }, [loadAdvisoryAuthorization]);
+
+  const loadLimitedEnforcement = useCallback(async () => {
+    const requestID = ++limitedEnforcementRequestRef.current;
+    setLimitedEnforcement(null);
+    setLimitedEnforcementError('');
+    if (routeID !== 'governance' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setLimitedEnforcementLoading(false);
+      return;
+    }
+    setLimitedEnforcementLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectLimitedEnforcement(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== limitedEnforcementRequestRef.current) {
+        return;
+      }
+      setLimitedEnforcement(response.limited_enforcement);
+    } catch (error) {
+      if (requestID !== limitedEnforcementRequestRef.current) {
+        return;
+      }
+      setLimitedEnforcementError(formatAPIError(error, 'Unable to load AWS limited enforcement framework.'));
+    } finally {
+      if (requestID === limitedEnforcementRequestRef.current) {
+        setLimitedEnforcementLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadLimitedEnforcement();
+    return () => {
+      limitedEnforcementRequestRef.current += 1;
+    };
+  }, [loadLimitedEnforcement]);
 
   const loadSessionPolicyRecommendations = useCallback(async () => {
     const requestID = ++sessionPolicyRecommendationsRequestRef.current;
@@ -15645,6 +15775,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
         ) : null}
         {routeID === 'governance' ? (
           <AWSGovernanceContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
+        ) : null}
+        {routeID === 'governance' ? (
+          <AWSLimitedEnforcementContent
+            result={limitedEnforcement}
+            loading={limitedEnforcementLoading}
+            error={limitedEnforcementError}
+            onRetry={loadLimitedEnforcement}
+          />
         ) : null}
       </div>
     </DomainPageShell>

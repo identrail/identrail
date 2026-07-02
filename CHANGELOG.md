@@ -1,6 +1,23 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS limited enforcement framework** (#1546). Adds a
+  metadata-only governance projection that joins advisory authorization
+  decisions (#1543) and AgentCore gateway policy advisories (#1545) with
+  explicit feature-flag, cohort, canary, kill-switch, rollback, confidence,
+  and audit gates. The framework supports `warn_only`, `advisory`,
+  `approval_required`, and `limited_enforce` modes, but limited enforcement
+  is never marked ready from defaults: operators must provide explicit
+  safety config before an entry can become `canary_ready` or
+  `limited_enforce_ready`. Adds
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/limited-enforcement`
+  with filters for connector, fixture state, account, region, mode,
+  enforcement state, source decision/advisory ID, source type, outcome,
+  cohort, feature flag, kill switch, canary percentage, and free-text
+  search. The AWS Governance app surface now shows an **AWS limited
+  enforcement framework** panel with mode, source, state, cohort, gate
+  readiness, outcome, and canary percentage. Identrail never calls AWS write
+  APIs or enforces the projection at this layer.
 - Add **AWS AgentCore gateway policy advisory** (#1545). Adds an
   advisory-only projection that derives AgentCore gateway/tool policy
   recommendations from the AI agent risk engine (#1528). Each advisory

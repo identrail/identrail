@@ -4018,6 +4018,162 @@ export type AWSAdvisoryAuthorizationQuery = {
   search?: string;
 };
 
+export type AWSLimitedEnforcementStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSLimitedEnforcementFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSLimitedEnforcementMode = 'warn_only' | 'advisory' | 'approval_required' | 'limited_enforce' | string;
+export type AWSLimitedEnforcementState =
+  | 'warn_only'
+  | 'advisory_only'
+  | 'approval_required'
+  | 'canary_ready'
+  | 'limited_enforce_ready'
+  | 'blocked_by_safety_config'
+  | 'blocked_by_kill_switch'
+  | 'rollback_required'
+  | string;
+
+export type AWSLimitedEnforcementSafetyConfig = {
+  feature_flag_enabled: boolean;
+  kill_switch_engaged: boolean;
+  canary_percent: number;
+  cohort?: string;
+  rollback_required: boolean;
+  audit_required: boolean;
+};
+
+export type AWSLimitedEnforcementGate = {
+  name: string;
+  status: string;
+  rationale: string;
+};
+
+export type AWSLimitedEnforcementEvidence = {
+  source: string;
+  label: string;
+  evidence_ref?: string;
+};
+
+export type AWSLimitedEnforcementRollback = {
+  strategy: string;
+  steps: string[];
+  evidence_ref?: string;
+  state: string;
+  rationale: string;
+};
+
+export type AWSLimitedEnforcementRelationship = {
+  enforcement_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSLimitedEnforcementEntry = {
+  enforcement_id: string;
+  calculation_version: string;
+  policy_version: string;
+  source_type: string;
+  source_id: string;
+  mode: AWSLimitedEnforcementMode;
+  enforcement_state: AWSLimitedEnforcementState;
+  outcome: string;
+  confidence: number;
+  severity: string;
+  score: number;
+  title: string;
+  summary: string;
+  account_id?: string;
+  target_account_ids?: string[];
+  region?: string;
+  principal_node_id?: string;
+  action?: string;
+  target_scope?: string[];
+  safety_config: AWSLimitedEnforcementSafetyConfig;
+  gates: AWSLimitedEnforcementGate[];
+  rollback: AWSLimitedEnforcementRollback;
+  evidence: AWSLimitedEnforcementEvidence[];
+  evidence_links: string[];
+  evidence_boundary: string;
+  input_hash: string;
+  audit_trail: AWSRemediationAuditEntry[];
+  read_only_projection: boolean;
+  ready_for_canary: boolean;
+  ready_for_enforcement: boolean;
+  next_action: string;
+  projected_at: string;
+  updated_at: string;
+};
+
+export type AWSLimitedEnforcementSummary = {
+  total_entries: number;
+  filtered_entries: number;
+  mode_counts: Record<string, number>;
+  enforcement_state_counts: Record<string, number>;
+  outcome_counts: Record<string, number>;
+  source_type_counts: Record<string, number>;
+  warn_only_count: number;
+  advisory_count: number;
+  approval_required_count: number;
+  limited_enforce_count: number;
+  canary_ready_count: number;
+  ready_for_enforcement_count: number;
+  kill_switch_engaged_count: number;
+  failed_gate_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSLimitedEnforcementResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSLimitedEnforcementStatus;
+  fixture_state?: AWSLimitedEnforcementFixtureState;
+  confidence: number;
+  calculation_version: string;
+  policy_version: string;
+  safety_config: AWSLimitedEnforcementSafetyConfig;
+  applied_filters: Record<string, string>;
+  summary: AWSLimitedEnforcementSummary;
+  entries: AWSLimitedEnforcementEntry[];
+  relationships: AWSLimitedEnforcementRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSLimitedEnforcementQuery = {
+  connectorID?: string;
+  fixtureState?: AWSLimitedEnforcementFixtureState;
+  accountID?: string;
+  region?: string;
+  mode?: string;
+  enforcementState?: string;
+  decisionID?: string;
+  sourceType?: string;
+  outcome?: string;
+  cohort?: string;
+  featureFlag?: boolean;
+  killSwitch?: boolean;
+  canaryPercent?: number;
+  search?: string;
+};
+
 export type AWSSessionPolicyRecommendationStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSSessionPolicyRecommendationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSSessionPolicyRecommendationDecision = 'remove' | 'review' | string;
@@ -9615,6 +9771,32 @@ export const apiClient = {
         source_type: query?.sourceType,
         case_id: query?.caseID,
         verification_id: query?.verificationID,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectLimitedEnforcement(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSLimitedEnforcementQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ limited_enforcement: AWSLimitedEnforcementResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/limited-enforcement${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        mode: query?.mode,
+        enforcement_state: query?.enforcementState,
+        decision_id: query?.decisionID,
+        source_type: query?.sourceType,
+        outcome: query?.outcome,
+        cohort: query?.cohort,
+        feature_flag: query?.featureFlag,
+        kill_switch: query?.killSwitch,
+        canary_percent: query?.canaryPercent,
         search: query?.search
       })}`,
       auth

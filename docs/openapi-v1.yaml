@@ -614,6 +614,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/limited-enforcement
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/session-policy-recommendations
     action: tenancy.read
     resource_type: project
@@ -5821,6 +5826,100 @@ paths:
                     $ref: "#/components/schemas/AWSAdvisoryAuthorizationResult"
         "400":
           description: Invalid AWS advisory authorization request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/limited-enforcement:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS limited enforcement framework entries
+      operationId: getAWSProjectLimitedEnforcement
+      description: Projects the feature-flagged limited enforcement framework by joining advisory authorization and AgentCore gateway policy advisory signals with explicit safety config. Each entry records mode, canary, cohort, kill switch, rollback, audit, confidence, policy version, evidence refs, and readiness gates. The endpoint is metadata-only; Identrail never calls AWS write APIs or enforces the projection at this layer.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: mode
+          schema:
+            type: string
+            enum: [warn_only, advisory, approval_required, limited_enforce]
+        - in: query
+          name: enforcement_state
+          schema:
+            type: string
+            enum: [warn_only, advisory_only, approval_required, canary_ready, limited_enforce_ready, blocked_by_safety_config, blocked_by_kill_switch, rollback_required]
+        - in: query
+          name: decision_id
+          schema: { type: string }
+          description: Optional source decision/advisory ID or framework entry ID filter.
+        - in: query
+          name: source_type
+          schema:
+            type: string
+            enum: [advisory_authorization, agentcore_gateway_policy_advisory]
+        - in: query
+          name: outcome
+          schema: { type: string }
+        - in: query
+          name: cohort
+          schema: { type: string }
+        - in: query
+          name: feature_flag
+          schema: { type: boolean }
+        - in: query
+          name: kill_switch
+          schema: { type: boolean }
+        - in: query
+          name: canary_percent
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS limited enforcement framework contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  limited_enforcement:
+                    $ref: "#/components/schemas/AWSLimitedEnforcementResult"
+        "400":
+          description: Invalid AWS limited enforcement request
           content:
             application/json:
               schema:
@@ -16342,6 +16441,211 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSAdvisoryAuthorizationRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSLimitedEnforcementSafetyConfig:
+      type: object
+      properties:
+        feature_flag_enabled: { type: boolean }
+        kill_switch_engaged: { type: boolean }
+        canary_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        cohort: { type: string }
+        rollback_required: { type: boolean }
+        audit_required: { type: boolean }
+    AWSLimitedEnforcementGate:
+      type: object
+      properties:
+        name: { type: string }
+        status:
+          type: string
+          enum: [passed, failed]
+        rationale: { type: string }
+    AWSLimitedEnforcementEvidence:
+      type: object
+      properties:
+        source: { type: string }
+        label: { type: string }
+        evidence_ref: { type: string }
+    AWSLimitedEnforcementRollback:
+      type: object
+      properties:
+        strategy: { type: string }
+        steps:
+          type: array
+          items: { type: string }
+        evidence_ref: { type: string }
+        state: { type: string }
+        rationale: { type: string }
+    AWSLimitedEnforcementRelationship:
+      type: object
+      properties:
+        enforcement_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSLimitedEnforcementEntry:
+      type: object
+      properties:
+        enforcement_id: { type: string }
+        calculation_version: { type: string }
+        policy_version: { type: string }
+        source_type:
+          type: string
+          enum: [advisory_authorization, agentcore_gateway_policy_advisory]
+        source_id: { type: string }
+        mode:
+          type: string
+          enum: [warn_only, advisory, approval_required, limited_enforce]
+        enforcement_state:
+          type: string
+          enum: [warn_only, advisory_only, approval_required, canary_ready, limited_enforce_ready, blocked_by_safety_config, blocked_by_kill_switch, rollback_required]
+        outcome: { type: string }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        severity: { type: string }
+        score: { type: integer }
+        title: { type: string }
+        summary: { type: string }
+        account_id: { type: string }
+        target_account_ids:
+          type: array
+          items: { type: string }
+        region: { type: string }
+        principal_node_id: { type: string }
+        action: { type: string }
+        target_scope:
+          type: array
+          items: { type: string }
+        safety_config:
+          $ref: "#/components/schemas/AWSLimitedEnforcementSafetyConfig"
+        gates:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLimitedEnforcementGate"
+        rollback:
+          $ref: "#/components/schemas/AWSLimitedEnforcementRollback"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLimitedEnforcementEvidence"
+        evidence_links:
+          type: array
+          items: { type: string }
+        evidence_boundary: { type: string }
+        input_hash: { type: string }
+        audit_trail:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationApprovalAuditEntry"
+        read_only_projection: { type: boolean }
+        ready_for_canary: { type: boolean }
+        ready_for_enforcement: { type: boolean }
+        next_action: { type: string }
+        projected_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSLimitedEnforcementSummary:
+      type: object
+      properties:
+        total_entries: { type: integer }
+        filtered_entries: { type: integer }
+        mode_counts:
+          type: object
+          additionalProperties: { type: integer }
+        enforcement_state_counts:
+          type: object
+          additionalProperties: { type: integer }
+        outcome_counts:
+          type: object
+          additionalProperties: { type: integer }
+        source_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        warn_only_count: { type: integer }
+        advisory_count: { type: integer }
+        approval_required_count: { type: integer }
+        limited_enforce_count: { type: integer }
+        canary_ready_count: { type: integer }
+        ready_for_enforcement_count: { type: integer }
+        kill_switch_engaged_count: { type: integer }
+        failed_gate_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSLimitedEnforcementResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        policy_version: { type: string }
+        safety_config:
+          $ref: "#/components/schemas/AWSLimitedEnforcementSafetyConfig"
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSLimitedEnforcementSummary"
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLimitedEnforcementEntry"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLimitedEnforcementRelationship"
         caveats:
           type: array
           items: { type: string }

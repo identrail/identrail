@@ -2244,6 +2244,50 @@ describe('apiClient', () => {
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 
+  it('gets AWS limited enforcement framework with scoped headers and safety filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ limited_enforcement: { status: 'ready', entries: [] } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectLimitedEnforcement(
+      'workspace/a',
+      'project 1',
+      {
+        connectorID: 'aws-prod',
+        fixtureState: 'partial_failure',
+        accountID: '111111111111',
+        region: 'us-east-1',
+        mode: 'limited_enforce',
+        enforcementState: 'canary_ready',
+        decisionID: 'decision/a',
+        sourceType: 'advisory_authorization',
+        outcome: 'allow',
+        cohort: 'pilot-a',
+        featureFlag: true,
+        killSwitch: false,
+        canaryPercent: 25,
+        search: 'payments gateway'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(
+      '/v1/workspaces/workspace%2Fa/projects/project%201/aws/limited-enforcement?connector_id=aws-prod&fixture_state=partial_failure&account_id=111111111111&region=us-east-1&mode=limited_enforce&enforcement_state=canary_ready&decision_id=decision%2Fa&source_type=advisory_authorization&outcome=allow&cohort=pilot-a&feature_flag=true&kill_switch=false&canary_percent=25&search=payments+gateway'
+    );
+    expect(options.method ?? 'GET').toBe('GET');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
+
   it('gets AWS AgentCore gateway policy advisory with scoped headers and filters', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

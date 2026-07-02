@@ -4886,6 +4886,138 @@ describe('Domain-first app routes', () => {
     );
   });
 
+  it('shows AWS limited enforcement framework on the governance route', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const getLimitedEnforcement = vi.spyOn(api.apiClient, 'getAWSProjectLimitedEnforcement').mockResolvedValue({
+      limited_enforcement: {
+        status: 'ready',
+        policy_version: 'aws-limited-enforcement-policy-v1',
+        safety_config: {
+          feature_flag_enabled: true,
+          kill_switch_engaged: false,
+          canary_percent: 25,
+          cohort: 'pilot-a',
+          rollback_required: true,
+          audit_required: true
+        },
+        entries: [
+          {
+            enforcement_id: 'aws-limited-enforcement:orders',
+            calculation_version: 'aws-limited-enforcement-v1',
+            policy_version: 'aws-limited-enforcement-policy-v1',
+            source_type: 'advisory_authorization',
+            source_id: 'aws-advisory-authorization:orders',
+            mode: 'limited_enforce',
+            enforcement_state: 'canary_ready',
+            outcome: 'allow',
+            confidence: 0.9,
+            severity: 'high',
+            score: 80,
+            title: 'Limited enforcement framework: orders deployer',
+            summary: 'Canary-ready limited enforcement framework projection.',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            principal_node_id: 'aws:identity:orders-deployer',
+            action: 'iam:PutRolePolicy',
+            target_scope: ['aws:identity:orders-deployer'],
+            safety_config: {
+              feature_flag_enabled: true,
+              kill_switch_engaged: false,
+              canary_percent: 25,
+              cohort: 'pilot-a',
+              rollback_required: true,
+              audit_required: true
+            },
+            gates: [
+              { name: 'feature_flag_enabled', status: 'passed', rationale: 'Feature flag is enabled.' },
+              { name: 'canary_configured', status: 'passed', rationale: 'Pilot cohort is scoped.' }
+            ],
+            rollback: {
+              strategy: 'disable_limited_enforcement_and_revert_to_advisory',
+              steps: ['Disable feature flag.'],
+              state: 'available',
+              rationale: 'Rollback remains available.'
+            },
+            evidence: [],
+            evidence_links: ['/docs/aws-limited-enforcement'],
+            evidence_boundary: 'metadata_only_no_rendered_policy_bodies_no_secret_values_no_workload_payloads',
+            input_hash: 'hash-a',
+            audit_trail: [],
+            read_only_projection: true,
+            ready_for_canary: true,
+            ready_for_enforcement: false,
+            next_action: 'Monitor the canary.',
+            projected_at: '2026-07-03T10:00:00Z',
+            updated_at: '2026-07-03T10:00:00Z'
+          }
+        ],
+        relationships: [],
+        applied_filters: {},
+        summary: {
+          total_entries: 1,
+          filtered_entries: 1,
+          mode_counts: { limited_enforce: 1 },
+          enforcement_state_counts: { canary_ready: 1 },
+          outcome_counts: { allow: 1 },
+          source_type_counts: { advisory_authorization: 1 },
+          warn_only_count: 0,
+          advisory_count: 0,
+          approval_required_count: 0,
+          limited_enforce_count: 1,
+          canary_ready_count: 1,
+          ready_for_enforcement_count: 0,
+          kill_switch_engaged_count: 0,
+          failed_gate_count: 0,
+          relationship_count: 0,
+          highest_score: 80,
+          average_confidence_pct: 90
+        },
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
+
+    const { ProductAWSGovernancePage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/governance?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/governance" element={<ProductAWSGovernancePage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Governance' })).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS limited enforcement framework entries' })).toBeInTheDocument();
+    expect(screen.getByText(/Limited enforcement framework: orders deployer/i)).toBeInTheDocument();
+    expect(screen.getByText(/pilot-a/i)).toBeInTheDocument();
+    expect(getLimitedEnforcement).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+  });
+
   it('passes AWS findings filters to secret-permission equivalence queries', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({

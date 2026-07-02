@@ -773,6 +773,7 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/trust-policy-hardening-executor", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/post-remediation-verification", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/advisory-authorization", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
+		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/limited-enforcement", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/session-policy-recommendations", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/agentcore-gateway-policy-advisory", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/blast-radius", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
