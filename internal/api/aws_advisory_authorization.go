@@ -304,7 +304,7 @@ func awsAdvisoryAuthorizationDecisions(cases []AWSRemediationCase, verificationB
 }
 
 func awsAdvisoryAuthorizationDecisionFromCase(c AWSRemediationCase, verification AWSPostRemediationVerificationEntry, now time.Time) AWSAdvisoryAuthorizationDecision {
-	action := awsAdvisoryAuthorizationActionForDiffKind(c.DiffIntent.Kind, c.SourceType)
+	action := awsAdvisoryAuthorizationActionForCase(c)
 	outcome, rule, rationale, confidence := awsAdvisoryAuthorizationClassify(c, verification)
 	decisionID := "aws-advisory-authorization:" + stableAWSBlastRadiusToken("decision", c.CaseID, action)
 	principalNodeID := firstNonEmptyAWSValue(c.IdentityNodeID, firstString(c.ResourceNodeIDs))
@@ -417,12 +417,17 @@ func awsAdvisoryAuthorizationVerificationSeverityRank(entry AWSPostRemediationVe
 		return 90
 	case awsPostRemediationVerificationStateBlocked:
 		return 80
+	// verification_pending outranks not_ready and skipped: pending
+	// classifies as the stricter require_approval, while not_ready and
+	// skipped classify as warn. Keeping pending on top of a per-case
+	// tie ensures the case-level decision matches the in-flight state
+	// rather than understating it.
+	case awsPostRemediationVerificationStatePending:
+		return 50
 	case awsPostRemediationVerificationStateNotReady:
 		return 40
-	case awsPostRemediationVerificationStatePending:
-		return 30
 	case awsPostRemediationVerificationStateSkipped:
-		return 20
+		return 30
 	case awsPostRemediationVerificationStateVerified:
 		return 10
 	}
@@ -466,13 +471,26 @@ func awsAdvisoryAuthorizationClassify(c AWSRemediationCase, verification AWSPost
 	return awsAdvisoryAuthorizationOutcomeAllow, "no_active_risk", "No active risk finding or in-flight execution blocks the projected authorization; allow with advisory monitoring.", 0.7
 }
 
-func awsAdvisoryAuthorizationActionForDiffKind(kind, sourceType string) string {
-	switch strings.ToLower(strings.TrimSpace(kind)) {
+// awsAdvisoryAuthorizationActionForCase derives the AWS API action the
+// downstream dry-run/executor will project for the case, honoring the
+// case's IAM principal kind so IAM-user targets surface the `PutUser*`
+// variant instead of the role-only default. Callers filter by `action`,
+// so returning the wrong variant would silently drop the decision from
+// drill-downs.
+func awsAdvisoryAuthorizationActionForCase(c AWSRemediationCase) string {
+	isUser := strings.EqualFold(c.IdentityType, "iam_user")
+	switch strings.ToLower(strings.TrimSpace(c.DiffIntent.Kind)) {
 	case "iam_policy_diff", "iac_iam_policy_pr":
+		if isUser {
+			return "iam:PutUserPolicy"
+		}
 		return "iam:PutRolePolicy"
 	case "iam_trust_diff", "iac_trust_policy_pr":
 		return "iam:UpdateAssumeRolePolicy"
 	case "permission_boundary_diff":
+		if isUser {
+			return "iam:PutUserPermissionsBoundary"
+		}
 		return "iam:PutRolePermissionsBoundary"
 	case "scp_diff":
 		return "organizations:AttachPolicy"
@@ -485,10 +503,16 @@ func awsAdvisoryAuthorizationActionForDiffKind(kind, sourceType string) string {
 	case "ai_agent_scope_change":
 		return "bedrock-agent:UpdateAgent"
 	}
-	switch strings.ToLower(strings.TrimSpace(sourceType)) {
+	switch strings.ToLower(strings.TrimSpace(c.SourceType)) {
 	case "least_privilege":
+		if isUser {
+			return "iam:PutUserPolicy"
+		}
 		return "iam:PutRolePolicy"
 	case "aws_permission_boundary_scp":
+		if isUser {
+			return "iam:PutUserPermissionsBoundary"
+		}
 		return "iam:PutRolePermissionsBoundary"
 	case "trust_policy_hardening":
 		return "iam:UpdateAssumeRolePolicy"

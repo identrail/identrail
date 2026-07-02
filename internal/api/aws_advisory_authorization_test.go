@@ -199,6 +199,8 @@ func TestAWSAdvisoryAuthorizationInputHashCoversAllClassifierInputs(t *testing.T
 
 func TestAWSAdvisoryAuthorizationVerificationSeverityRankPrefersSafetySignals(t *testing.T) {
 	pending := AWSPostRemediationVerificationEntry{State: awsPostRemediationVerificationStatePending}
+	notReady := AWSPostRemediationVerificationEntry{State: awsPostRemediationVerificationStateNotReady}
+	skipped := AWSPostRemediationVerificationEntry{State: awsPostRemediationVerificationStateSkipped}
 	verified := AWSPostRemediationVerificationEntry{State: awsPostRemediationVerificationStateVerified}
 	failed := AWSPostRemediationVerificationEntry{State: awsPostRemediationVerificationStateFailed}
 	killed := AWSPostRemediationVerificationEntry{State: awsPostRemediationVerificationStatePending, KillSwitchEngaged: true}
@@ -211,6 +213,61 @@ func TestAWSAdvisoryAuthorizationVerificationSeverityRankPrefersSafetySignals(t 
 	}
 	if awsAdvisoryAuthorizationVerificationSeverityRank(pending) <= awsAdvisoryAuthorizationVerificationSeverityRank(verified) {
 		t.Fatalf("pending must outrank verified so a not-yet-verified execution isn't classified as allow: pending=%d verified=%d", awsAdvisoryAuthorizationVerificationSeverityRank(pending), awsAdvisoryAuthorizationVerificationSeverityRank(verified))
+	}
+	if awsAdvisoryAuthorizationVerificationSeverityRank(pending) <= awsAdvisoryAuthorizationVerificationSeverityRank(notReady) {
+		t.Fatalf("pending must outrank not_ready so an in-flight verification is not understated as warn: pending=%d not_ready=%d", awsAdvisoryAuthorizationVerificationSeverityRank(pending), awsAdvisoryAuthorizationVerificationSeverityRank(notReady))
+	}
+	if awsAdvisoryAuthorizationVerificationSeverityRank(pending) <= awsAdvisoryAuthorizationVerificationSeverityRank(skipped) {
+		t.Fatalf("pending must outrank skipped: pending=%d skipped=%d", awsAdvisoryAuthorizationVerificationSeverityRank(pending), awsAdvisoryAuthorizationVerificationSeverityRank(skipped))
+	}
+}
+
+func TestAWSAdvisoryAuthorizationActionForCaseHonorsPrincipalKind(t *testing.T) {
+	cases := []struct {
+		name       string
+		c          AWSRemediationCase
+		wantAction string
+	}{
+		{
+			name: "permission boundary on IAM user projects PutUser variant",
+			c: AWSRemediationCase{
+				SourceType:   "aws_permission_boundary_scp",
+				IdentityType: "iam_user",
+				DiffIntent:   AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+			},
+			wantAction: "iam:PutUserPermissionsBoundary",
+		},
+		{
+			name: "permission boundary on IAM role projects PutRole variant",
+			c: AWSRemediationCase{
+				SourceType:   "aws_permission_boundary_scp",
+				IdentityType: "iam_role",
+				DiffIntent:   AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+			},
+			wantAction: "iam:PutRolePermissionsBoundary",
+		},
+		{
+			name: "iam policy diff on IAM user projects PutUserPolicy",
+			c: AWSRemediationCase{
+				SourceType:   "least_privilege",
+				IdentityType: "iam_user",
+				DiffIntent:   AWSRemediationDiffIntent{Kind: "iam_policy_diff"},
+			},
+			wantAction: "iam:PutUserPolicy",
+		},
+		{
+			name: "source-type fallthrough on IAM user still projects PutUser variant",
+			c: AWSRemediationCase{
+				SourceType:   "aws_permission_boundary_scp",
+				IdentityType: "iam_user",
+			},
+			wantAction: "iam:PutUserPermissionsBoundary",
+		},
+	}
+	for _, tc := range cases {
+		if got := awsAdvisoryAuthorizationActionForCase(tc.c); got != tc.wantAction {
+			t.Fatalf("%s: got %q want %q", tc.name, got, tc.wantAction)
+		}
 	}
 }
 
