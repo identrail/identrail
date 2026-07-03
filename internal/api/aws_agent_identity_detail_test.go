@@ -37,6 +37,12 @@ func TestGetAWSAgentIdentityDetailBuildsContract(t *testing.T) {
 	if result.Agent.Provider == "" || result.Agent.RuntimeRoleARN == "" {
 		t.Fatalf("agent header must carry provider and backing role: %+v", result.Agent)
 	}
+	if result.Permissions.AppliedFilters["identity"] != result.Agent.RuntimeRoleNodeID {
+		t.Fatalf("permission recommendations must be scoped by backing role identity, got filters=%+v agent=%+v", result.Permissions.AppliedFilters, result.Agent)
+	}
+	if result.RemediationCases.AppliedFilters["identity"] != result.Agent.RuntimeRoleNodeID {
+		t.Fatalf("remediation cases must be scoped by backing role identity, got filters=%+v agent=%+v", result.RemediationCases.AppliedFilters, result.Agent)
+	}
 	if result.Agent.EvidenceBoundary != awsAgentIdentityDetailEvidenceBoundary() {
 		t.Fatalf("agent header crossed evidence boundary: %+v", result.Agent)
 	}
@@ -147,6 +153,12 @@ func TestAWSAgentIdentityDetailToolsMergeDeclaredAndObserved(t *testing.T) {
 			ObservedCount: 1,
 			EvidenceRef:   "evidence://runtime/corr-2",
 		},
+		{
+			CorrelationID: "corr-3",
+			ToolName:      "close-ticket",
+			Status:        "declared_unused",
+			EvidenceRef:   "evidence://runtime/corr-3",
+		},
 	}
 
 	tools := awsAgentIdentityDetailTools(record, runtime)
@@ -168,6 +180,25 @@ func TestAWSAgentIdentityDetailToolsMergeDeclaredAndObserved(t *testing.T) {
 	undeclared := byName["delete-database"]
 	if undeclared.Declared || !undeclared.Observed || undeclared.Status != "observed_without_declaration" {
 		t.Fatalf("observed-only tool must carry the runtime status: %+v", undeclared)
+	}
+}
+
+func TestAWSAgentIdentityDetailPermissionIdentityPrefersBackingRole(t *testing.T) {
+	roleARN := "arn:aws:iam::123456789012:role/agent-runtime"
+	record := AWSAIAgentIdentityRecord{
+		AgentID:           "agent-1",
+		AgentNodeID:       "aws:agent:123456789012:us-east-1:bedrock_agent/agent-1",
+		RuntimeRoleARN:    roleARN,
+		RuntimeRoleNodeID: awsIdentityNodeIDForAPI(roleARN),
+	}
+
+	if got, want := awsAgentIdentityDetailPermissionIdentity(record, record.AgentID), record.RuntimeRoleNodeID; got != want {
+		t.Fatalf("expected backing role node identity %q, got %q", want, got)
+	}
+
+	record.RuntimeRoleNodeID = ""
+	if got, want := awsAgentIdentityDetailPermissionIdentity(record, record.AgentID), awsIdentityNodeIDForAPI(roleARN); got != want {
+		t.Fatalf("expected role ARN-derived identity %q, got %q", want, got)
 	}
 }
 

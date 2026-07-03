@@ -6920,12 +6920,16 @@ function awsEC2IMDSLabel(inventory: AWSEC2InstanceProfileInventoryResult | null)
 }
 
 function AWSAgentIdentitiesContent({
+  scope,
+  selectedEnvironmentID,
   connection,
   aiAgentState,
   bedrockAgentsState,
   filters,
   onFiltersChange
 }: {
+  scope: ProductSession;
+  selectedEnvironmentID: string;
   connection: AWSConnectionStatus | null;
   aiAgentState: AWSInventoryAIAgentState;
   bedrockAgentsState: AWSInventoryBedrockAgentsState;
@@ -7037,7 +7041,19 @@ function AWSAgentIdentitiesContent({
         rows={displayedRows}
         getRowKey={(row) => row.id}
         columns={[
-          { key: 'name', header: 'Agent surface', render: (row) => <strong>{row.name}</strong> },
+          {
+            key: 'name',
+            header: 'Agent surface',
+            render: (row) => (
+              <strong>
+                {row.detailAgent ? (
+                  <Link to={awsAgentIdentityDetailLink(scope, selectedEnvironmentID, row.detailAgent)}>{row.name}</Link>
+                ) : (
+                  row.name
+                )}
+              </strong>
+            )
+          },
           { key: 'category', header: 'Category', render: (row) => row.category },
           { key: 'scope', header: 'Scope', render: (row) => row.scope },
           { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> },
@@ -7453,7 +7469,7 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
   return {
     id: `ai-agent-identity-${record.agent_node_id || record.agent_id}`,
     name: record.agent_name || record.agent_id,
-    detailAgent: record.agent_id || record.agent_node_id,
+    detailAgent: record.agent_node_id || record.agent_id,
     category,
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
@@ -9673,6 +9689,8 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
       ) : null}
       {routeID === 'agents' ? (
         <AWSAgentIdentitiesContent
+          scope={scope}
+          selectedEnvironmentID={selectedEnvironmentID}
           connection={connection}
           aiAgentState={{
             inventory: aiAgentInventory,

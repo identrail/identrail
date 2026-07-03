@@ -6,6 +6,8 @@ import type {
   AWSConnectorStartResponse,
   AWSCodeBuildServiceRoleInventoryResult,
   AWSConnectionStatus,
+  AWSAIAgentIdentityInventoryResult,
+  AWSBedrockAgentsInventoryResult,
   AWSEC2InstanceProfileInventoryResult,
   AWSEKSWorkloadIdentityInventoryResult,
   AWSECSTaskRoleInventoryResult,
@@ -3514,6 +3516,160 @@ describe('Domain-first app routes', () => {
     expect(screen.getAllByText(/Bedrock agents/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/AgentCore runtime and gateway identity/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Secret metadata only, no value reads/i)).toBeInTheDocument();
+  });
+
+  it('links AWS agent identity rows with the unique agent node id', async () => {
+    const api = await import('./api/client');
+    const agentNodeID = 'aws:agent:123456789012:us-east-1:agentcore_runtime/shared-agent/2026-07';
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getAWSProjectAIAgentIdentities').mockResolvedValue({
+      inventory: {
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'production',
+        connector_id: 'aws-connector-1',
+        account_id: '123456789012',
+        region: 'us-east-1',
+        parent_issue_number: 1472,
+        parent_issue_ref: '#1472',
+        current_issue_number: 1512,
+        current_issue_ref: '#1512',
+        version: 'aws-ai-agent-identities-v1',
+        status: 'ready',
+        fixture_state: 'success',
+        confidence: 0.92,
+        applied_filters: {},
+        record_count: 1,
+        total_record_count: 1,
+        filtered_record_count: 1,
+        bedrock_agent_count: 0,
+        agentcore_runtime_count: 1,
+        custom_agent_count: 0,
+        external_agent_count: 0,
+        gateway_count: 0,
+        capability_agent_count: 0,
+        memory_store_count: 0,
+        browser_count: 0,
+        code_interpreter_count: 0,
+        runtime_role_count: 1,
+        provider_count: 1,
+        model_count: 1,
+        tool_count: 1,
+        capability_count: 1,
+        credential_reference_count: 0,
+        external_provider_key_count: 0,
+        ai_provider_key_count: 0,
+        provider_key_breakdown: {},
+        relationship_count: 1,
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: ['/docs/aws-ai-agent-identities'],
+        coverage_gaps: [],
+        diagnostics: [],
+        relationships: [],
+        records: [
+          {
+            account_id: '123456789012',
+            region: 'us-east-1',
+            service: 'agentcore',
+            agent_id: 'shared-agent',
+            agent_name: 'Shared Agent Runtime',
+            agent_type: 'agentcore_runtime',
+            runtime_version: '2026-07',
+            provider: 'amazon-bedrock-agentcore',
+            model_id: 'amazon.nova-pro',
+            runtime_role_arn: 'arn:aws:iam::123456789012:role/shared-agent-runtime',
+            runtime_role_name: 'shared-agent-runtime',
+            tool_names: ['case-router'],
+            allowed_actions: ['invoke_tool'],
+            memory_enabled: false,
+            browser_enabled: false,
+            code_interpreter_enabled: false,
+            capability_names: ['tool_use'],
+            sensitive_boundary: 'metadata_only',
+            coverage_status: 'covered',
+            source: 'ai_agent_metadata',
+            evidence_ref: 'evidence://agent/shared-agent',
+            agent_node_id: agentNodeID,
+            runtime_role_node_id: 'aws:identity:arn:aws:iam::123456789012:role/shared-agent-runtime',
+            relationship_types: ['runs_as'],
+            confidence: 0.92,
+            collected_at: '2026-07-03T19:00:00Z',
+            status: 'ready'
+          }
+        ],
+        generated_at: '2026-07-03T19:00:00Z',
+        updated_at: '2026-07-03T19:00:00Z'
+      } satisfies AWSAIAgentIdentityInventoryResult
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectBedrockAgents').mockResolvedValue({
+      inventory: {
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'production',
+        connector_id: 'aws-connector-1',
+        account_id: '123456789012',
+        region: 'us-east-1',
+        parent_issue_number: 1472,
+        parent_issue_ref: '#1472',
+        current_issue_number: 1512,
+        current_issue_ref: '#1512',
+        version: 'aws-bedrock-agents-v1',
+        status: 'ready',
+        fixture_state: 'success',
+        confidence: 0.9,
+        agent_count: 0,
+        filtered_agent_count: 0,
+        guardrail_count: 0,
+        knowledge_base_count: 0,
+        tool_count: 0,
+        credential_reference_count: 0,
+        runtime_role_count: 0,
+        model_count: 0,
+        provider_breakdown: {},
+        status_breakdown: {},
+        relationship_count: 0,
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: ['/docs/aws-bedrock-agents'],
+        coverage_gaps: [],
+        records: [],
+        relationships: [],
+        diagnostics: [],
+        generated_at: '2026-07-03T19:00:00Z',
+        updated_at: '2026-07-03T19:00:00Z'
+      } satisfies AWSBedrockAgentsInventoryResult
+    });
+
+    const { ProductAWSAgentsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/agents?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/agents" element={<ProductAWSAgentsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const link = await screen.findByRole('link', { name: 'Shared Agent Runtime' });
+    expect(link).toHaveAttribute(
+      'href',
+      `/app/tenant-a/workspace-a/aws/agents/detail?environment=production&agent=${encodeURIComponent(agentNodeID)}&tab=overview`
+    );
   });
 
   it('translates AWS runtime filter aliases before querying runtime events', async () => {

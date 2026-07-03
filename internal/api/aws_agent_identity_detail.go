@@ -298,7 +298,7 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 	if err != nil {
 		return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail risk: %w", err)
 	}
-	permissionsIdentity := firstNonEmptyAWSValue(record.AgentNodeID, record.RuntimeRoleARN, agentFilter)
+	permissionsIdentity := awsAgentIdentityDetailPermissionIdentity(record, agentFilter)
 	permissions, err := s.GetAWSLeastPrivilegeRecommendations(ctx, workspaceID, projectID, AWSLeastPrivilegeRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
@@ -437,6 +437,17 @@ func awsAgentIdentityDetailResolve(agent string, records []AWSAIAgentIdentityRec
 	return AWSAIAgentIdentityRecord{}, false
 }
 
+func awsAgentIdentityDetailPermissionIdentity(record AWSAIAgentIdentityRecord, fallback string) string {
+	return firstNonEmptyAWSValue(
+		record.RuntimeRoleNodeID,
+		awsIdentityNodeIDForAPI(record.RuntimeRoleARN),
+		record.RuntimeRoleARN,
+		record.RuntimeRoleName,
+		record.AgentNodeID,
+		fallback,
+	)
+}
+
 func awsAgentIdentityDetailAgent(agent string, record AWSAIAgentIdentityRecord, resolved bool, accountID, region string) AWSAgentIdentityDetailAgent {
 	if !resolved {
 		return AWSAgentIdentityDetailAgent{
@@ -530,8 +541,10 @@ func awsAgentIdentityDetailTools(record AWSAIAgentIdentityRecord, runtime []AWSA
 			byName[key] = tool
 			order = append(order, key)
 		}
-		tool.Observed = true
-		tool.ObservedCount += correlation.ObservedCount
+		if awsAgentIdentityDetailRuntimeToolObserved(correlation) {
+			tool.Observed = true
+			tool.ObservedCount += correlation.ObservedCount
+		}
 		if tool.Declared {
 			tool.Status = firstNonEmptyAWSValue(correlation.Status, "confirmed")
 		} else {
@@ -552,6 +565,13 @@ func awsAgentIdentityDetailTools(record AWSAIAgentIdentityRecord, runtime []AWSA
 		out = append(out, *byName[key])
 	}
 	return out
+}
+
+func awsAgentIdentityDetailRuntimeToolObserved(correlation AWSAgentRuntimeAccessRecord) bool {
+	if strings.EqualFold(strings.TrimSpace(correlation.Status), "declared_unused") {
+		return false
+	}
+	return correlation.ObservedCount > 0
 }
 
 func awsAgentIdentityDetailCountTools(tools []AWSAgentIdentityToolSummary, match func(AWSAgentIdentityToolSummary) bool) int {
