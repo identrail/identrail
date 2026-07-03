@@ -2869,6 +2869,43 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"detail": record})
 	})
 
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/agent-identity-detail", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetAWSAgentIdentityDetail(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSAgentIdentityDetailRequest{
+			ConnectorID:  strings.TrimSpace(c.Query("connector_id")),
+			FixtureState: strings.TrimSpace(c.Query("fixture_state")),
+			Agent:        strings.TrimSpace(c.Query("agent")),
+			AccountID:    strings.TrimSpace(c.Query("account_id")),
+			Region:       strings.TrimSpace(c.Query("region")),
+			Tab:          strings.TrimSpace(c.Query("tab")),
+			Tool:         strings.TrimSpace(c.Query("tool")),
+			Resource:     strings.TrimSpace(c.Query("resource")),
+			Severity:     strings.TrimSpace(c.Query("severity")),
+			Status:       strings.TrimSpace(c.Query("status")),
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project or connector not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws agent identity detail request"})
+			default:
+				logger.Error("get aws agent identity detail",
+					zap.String("workspace_id", c.Param("workspace_id")),
+					zap.String("project_id", c.Param("project_id")),
+					zap.String("agent", c.Query("agent")),
+					telemetry.ZapError(err),
+				)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws agent identity detail"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"detail": record})
+	})
+
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/bedrock-agents", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)

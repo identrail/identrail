@@ -45,6 +45,7 @@ import {
   type AWSAIAgentIdentityQuery,
   type AWSAIAgentIdentityInventoryResult,
   type AWSMachineIdentityDetailResult,
+  type AWSAgentIdentityDetailResult,
   type AWSBedrockAgentsInventoryResult,
   type AWSBedrockAgentRecord,
   type AWSAIAgentIdentityRecord,
@@ -3125,6 +3126,29 @@ function awsMachineIdentityDetailLink(
   return `${buildScopedPath(scope, 'aws/identities/detail')}${search ? `?${search}` : ''}`;
 }
 
+function awsAgentIdentityDetailLink(
+  scope: ProductSession,
+  environmentID: string,
+  agent: string,
+  tab = 'overview'
+): string {
+  const params = new URLSearchParams();
+  const normalizedEnvironmentID = normalizeValue(environmentID);
+  const normalizedAgent = normalizeValue(agent);
+  const normalizedTab = normalizeValue(tab);
+  if (normalizedEnvironmentID) {
+    params.set(ENVIRONMENT_QUERY_PARAM, normalizedEnvironmentID);
+  }
+  if (normalizedAgent) {
+    params.set('agent', normalizedAgent);
+  }
+  if (normalizedTab) {
+    params.set('tab', normalizedTab);
+  }
+  const search = params.toString();
+  return `${buildScopedPath(scope, 'aws/agents/detail')}${search ? `?${search}` : ''}`;
+}
+
 function AWSConnectionDiagnostics({
   connection,
   emptyLabel = 'No diagnostics reported for this environment.'
@@ -3722,6 +3746,7 @@ type AWSInventoryTableRow = AWSInventoryFilterable & {
   id: string;
   name: string;
   detailIdentity?: string;
+  detailAgent?: string;
   category: string;
   scope: string;
   status: string;
@@ -5686,7 +5711,9 @@ function AWSMachineIdentitiesContent({
               render: (row) => (
                 <div className="idt-aws-inventory-table-cell">
                   <strong>
-                    {row.detailIdentity ? (
+                    {row.detailAgent ? (
+                      <Link to={awsAgentIdentityDetailLink(scope, selectedEnvironmentID, row.detailAgent)}>{row.name}</Link>
+                    ) : row.detailIdentity ? (
                       <Link to={awsMachineIdentityDetailLink(scope, selectedEnvironmentID, row.detailIdentity)}>{row.name}</Link>
                     ) : (
                       row.name
@@ -7426,6 +7453,7 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
   return {
     id: `ai-agent-identity-${record.agent_node_id || record.agent_id}`,
     name: record.agent_name || record.agent_id,
+    detailAgent: record.agent_id || record.agent_node_id,
     category,
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
@@ -10203,6 +10231,530 @@ export function ProductAWSMachineIdentityDetailPage() {
               detail={detail}
             />
             <AWSMachineIdentityDetailTabContent detail={detail} activeTab={activeTab} />
+          </>
+        ) : null}
+      </div>
+    </DomainPageShell>
+  );
+}
+
+const AWS_AGENT_IDENTITY_DETAIL_TAB_IDS = ['overview', 'tools', 'runtime', 'secrets', 'findings', 'recommendations', 'remediation', 'governance'] as const;
+type AWSAgentIdentityDetailTabID = (typeof AWS_AGENT_IDENTITY_DETAIL_TAB_IDS)[number];
+const AWS_AGENT_IDENTITY_DETAIL_TAB_LABELS: Record<AWSAgentIdentityDetailTabID, string> = {
+  overview: 'Overview',
+  tools: 'Tools',
+  runtime: 'Runtime',
+  secrets: 'Secrets',
+  findings: 'Findings',
+  recommendations: 'Recommendations',
+  remediation: 'Remediation',
+  governance: 'Governance'
+};
+
+function normalizeAWSAgentIdentityDetailTab(value: string | null): AWSAgentIdentityDetailTabID {
+  const normalized = normalizeValue(value ?? '').toLowerCase();
+  return AWS_AGENT_IDENTITY_DETAIL_TAB_IDS.includes(normalized as AWSAgentIdentityDetailTabID)
+    ? (normalized as AWSAgentIdentityDetailTabID)
+    : 'overview';
+}
+
+function awsAgentIdentityDetailStage(status: string): AWSCapabilityStage {
+  if (status === 'success') {
+    return 'wired';
+  }
+  if (status === 'permission_denied' || status === 'unknown') {
+    return 'not-available';
+  }
+  return 'coming';
+}
+
+function awsAgentIdentityDetailTone(status: string): 'success' | 'warning' | 'danger' | 'neutral' {
+  if (status === 'success') {
+    return 'success';
+  }
+  if (status === 'permission_denied') {
+    return 'danger';
+  }
+  if (status === 'degraded' || status === 'partial_failure') {
+    return 'warning';
+  }
+  return 'neutral';
+}
+
+function awsAgentIdentityDetailDescription(detail: AWSAgentIdentityDetailResult | null, agent: string): string {
+  if (detail?.agent.runtime_role_arn) {
+    return detail.agent.runtime_role_arn;
+  }
+  if (detail?.agent.agent_node_id) {
+    return detail.agent.agent_node_id;
+  }
+  return agent || 'Select an AI agent from the AWS agents inventory.';
+}
+
+function AWSAgentIdentityDetailTabs({
+  scope,
+  selectedEnvironmentID,
+  agent,
+  activeTab,
+  detail
+}: {
+  scope: ProductSession;
+  selectedEnvironmentID: string;
+  agent: string;
+  activeTab: AWSAgentIdentityDetailTabID;
+  detail: AWSAgentIdentityDetailResult | null;
+}) {
+  const tabCounts = new Map((detail?.tabs ?? []).map((tab) => [tab.id, tab.count]));
+  return (
+    <div className="idt-inline-actions" role="tablist" aria-label="Agent identity detail tabs">
+      {AWS_AGENT_IDENTITY_DETAIL_TAB_IDS.map((tabID) => (
+        <Link
+          key={tabID}
+          role="tab"
+          aria-selected={activeTab === tabID}
+          aria-label={`${AWS_AGENT_IDENTITY_DETAIL_TAB_LABELS[tabID]} ${tabCounts.get(tabID) ?? 0}`}
+          className={`idt-btn ${activeTab === tabID ? 'idt-btn-primary' : 'idt-btn-ghost'}`}
+          to={awsAgentIdentityDetailLink(scope, selectedEnvironmentID, agent, tabID)}
+        >
+          <span>{AWS_AGENT_IDENTITY_DETAIL_TAB_LABELS[tabID]}</span>
+          <span>{tabCounts.get(tabID) ?? 0}</span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function AWSAgentIdentityDetailDiagnostics({ detail }: { detail: AWSAgentIdentityDetailResult }) {
+  return (
+    <>
+      {detail.failure_reasons.length || detail.remediation_hints.length ? (
+        <DomainStatusPanel
+          eyebrow="State"
+          title="Detail readiness"
+          status={formatTokenLabel(detail.status)}
+          tone={awsAgentIdentityDetailTone(detail.status)}
+        >
+          <dl className="idt-domain-route-facts">
+            <div>
+              <dt>Failures</dt>
+              <dd>{detail.failure_reasons.length ? detail.failure_reasons.join(', ') : 'None'}</dd>
+            </div>
+            <div>
+              <dt>Next actions</dt>
+              <dd>{detail.remediation_hints.length ? detail.remediation_hints.join(', ') : 'None'}</dd>
+            </div>
+          </dl>
+        </DomainStatusPanel>
+      ) : null}
+      {detail.diagnostics.length ? (
+        <DomainStatusPanel
+          eyebrow="Collectors"
+          title="Diagnostics"
+          status={`${detail.diagnostics.length} active`}
+          tone={detail.status === 'permission_denied' ? 'danger' : 'warning'}
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="Agent identity detail diagnostics">
+            {detail.diagnostics.map((diagnostic) => (
+              <article key={`${diagnostic.collector}-${diagnostic.source_id ?? diagnostic.code}-${diagnostic.message}`}>
+                <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                <p>{diagnostic.message}</p>
+                {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
+      {detail.coverage_gaps.length ? (
+        <DomainStatusPanel
+          eyebrow="Coverage"
+          title="Evidence gaps"
+          status={`${detail.coverage_gaps.length} gaps`}
+          tone="warning"
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="Agent identity detail coverage gaps">
+            {detail.coverage_gaps.map((gap) => (
+              <article key={`${gap.capability}-${gap.status}-${gap.reason}`}>
+                <strong>{formatTokenLabel(gap.capability)}</strong>
+                <p>{gap.reason}</p>
+                {gap.remediation ? <small>{gap.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
+    </>
+  );
+}
+
+function AWSAgentIdentityDetailTabContent({
+  detail,
+  activeTab
+}: {
+  detail: AWSAgentIdentityDetailResult;
+  activeTab: AWSAgentIdentityDetailTabID;
+}) {
+  if (activeTab === 'overview') {
+    return (
+      <>
+        <DomainDataTable
+          label="Agent identity capabilities"
+          rows={detail.capabilities}
+          getRowKey={(row) => row.capability}
+          emptyState={<DomainEmptyState eyebrow="Empty" title="No capabilities" body="No memory, browser, or code-interpreter capability metadata matched this agent." />}
+          columns={[
+            { key: 'capability', header: 'Capability', render: (row) => <strong>{formatTokenLabel(row.capability)}</strong> },
+            { key: 'state', header: 'State', render: (row) => (row.enabled ? 'Enabled' : 'Not enabled') },
+            { key: 'references', header: 'References', render: (row) => row.reference_refs?.join(', ') || row.encryption_key_arn || '-' }
+          ]}
+        />
+        <DomainDataTable
+          label="Agent identity relationships"
+          rows={detail.relationships}
+          getRowKey={(row) => `${row.source}-${row.type}-${row.from_node_id}-${row.to_node_id}-${row.evidence_ref ?? ''}`}
+          emptyState={<DomainEmptyState eyebrow="Empty" title="No relationships" body="No graph relationships matched this agent yet." />}
+          columns={[
+            { key: 'source', header: 'Source', render: (row) => formatTokenLabel(row.source) },
+            { key: 'type', header: 'Relationship', render: (row) => formatTokenLabel(row.type) },
+            { key: 'from', header: 'From', render: (row) => row.from_node_id },
+            { key: 'to', header: 'To', render: (row) => row.to_node_id },
+            { key: 'evidence', header: 'Evidence', render: (row) => row.evidence_ref || '-' }
+          ]}
+        />
+      </>
+    );
+  }
+
+  if (activeTab === 'tools') {
+    return (
+      <DomainDataTable
+        label="Agent identity tools"
+        rows={detail.tools}
+        getRowKey={(row) => `${row.tool_name}-${row.tool_target_ref ?? ''}-${row.status}`}
+        emptyState={<DomainEmptyState eyebrow="Empty" title="No tools" body="No declared or observed tools matched this agent." />}
+        columns={[
+          { key: 'tool', header: 'Tool', render: (row) => <strong>{row.tool_name}</strong> },
+          { key: 'target', header: 'Target', render: (row) => row.tool_target_ref || '-' },
+          { key: 'declared', header: 'Declared', render: (row) => (row.declared ? 'Yes' : 'No') },
+          { key: 'observed', header: 'Observed', render: (row) => `${row.observed ? 'Yes' : 'No'} / ${row.observed_count}` },
+          { key: 'status', header: 'Status', render: (row) => formatTokenLabel(row.status) }
+        ]}
+      />
+    );
+  }
+
+  if (activeTab === 'runtime') {
+    return (
+      <DomainDataTable
+        label="Agent identity runtime calls"
+        rows={detail.runtime_calls}
+        getRowKey={(row) => row.correlation_id}
+        emptyState={<DomainEmptyState eyebrow="Empty" title="No runtime calls" body="No runtime call evidence matched this agent." />}
+        columns={[
+          { key: 'call', header: 'Correlation', render: (row) => <strong>{row.correlation_id}</strong> },
+          { key: 'tool', header: 'Tool', render: (row) => row.tool_name || '-' },
+          { key: 'target', header: 'Target', render: (row) => row.tool_target_ref || row.target_arns?.[0] || '-' },
+          { key: 'observed', header: 'Observed', render: (row) => `${row.observed_count} / ${row.last_observed ? formatDateLabel(row.last_observed) : 'not dated'}` },
+          { key: 'next', header: 'Next action', render: (row) => row.next_action || formatTokenLabel(row.status) }
+        ]}
+      />
+    );
+  }
+
+  if (activeTab === 'secrets') {
+    return (
+      <DomainDataTable
+        label="Agent identity secret references"
+        rows={detail.secret_references}
+        getRowKey={(row) => `${row.reference_kind}-${row.reference}-${row.target_node_id ?? ''}`}
+        emptyState={<DomainEmptyState eyebrow="Empty" title="No secret references" body="No provider-key, credential, or secret reference metadata matched this agent." />}
+        columns={[
+          { key: 'reference', header: 'Reference', render: (row) => <strong>{row.reference_name || row.reference}</strong> },
+          { key: 'kind', header: 'Kind', render: (row) => formatTokenLabel(row.reference_kind) },
+          { key: 'provider', header: 'Provider', render: (row) => row.provider ? formatTokenLabel(row.provider) : '-' },
+          { key: 'sensitivity', header: 'Sensitivity', render: (row) => row.sensitivity ? formatTokenLabel(row.sensitivity) : '-' },
+          { key: 'resolved', header: 'Resolved', render: (row) => `${row.resolved ? 'Yes' : 'No'} / ${formatConfidenceScore(row.confidence)}` }
+        ]}
+      />
+    );
+  }
+
+  if (activeTab === 'findings') {
+    return (
+      <DomainDataTable
+        label="Agent identity findings"
+        rows={detail.findings}
+        getRowKey={(row) => row.finding_id}
+        emptyState={<DomainEmptyState eyebrow="Empty" title="No findings" body="No AI-agent risk finding matched this agent." />}
+        columns={[
+          { key: 'finding', header: 'Finding', render: (row) => <strong>{formatTokenLabel(row.risk_type)}</strong> },
+          { key: 'severity', header: 'Severity', render: (row) => `${formatTokenLabel(row.severity)} / ${row.score}` },
+          { key: 'status', header: 'Status', render: (row) => formatTokenLabel(row.status) },
+          { key: 'rationale', header: 'Rationale', render: (row) => row.rationale },
+          { key: 'next', header: 'Next action', render: (row) => row.next_action }
+        ]}
+      />
+    );
+  }
+
+  if (activeTab === 'recommendations') {
+    return (
+      <DomainDataTable
+        label="Agent identity recommendations"
+        rows={detail.recommendations}
+        getRowKey={(row) => row.recommendation_id}
+        emptyState={<DomainEmptyState eyebrow="Empty" title="No recommendations" body="No least-privilege recommendation matched this agent or backing role." />}
+        columns={[
+          { key: 'recommendation', header: 'Recommendation', render: (row) => <strong>{row.display_name}</strong> },
+          { key: 'service', header: 'Service', render: (row) => formatTokenLabel(row.service) },
+          { key: 'decision', header: 'Decision', render: (row) => `${formatTokenLabel(row.decision)} / ${formatTokenLabel(row.status)}` },
+          { key: 'severity', header: 'Severity', render: (row) => `${formatTokenLabel(row.severity)} / ${row.score}` },
+          { key: 'next', header: 'Next action', render: (row) => row.next_action }
+        ]}
+      />
+    );
+  }
+
+  if (activeTab === 'remediation') {
+    return (
+      <DomainDataTable
+        label="Agent identity remediation cases"
+        rows={detail.remediation_cases.cases}
+        getRowKey={(row) => row.case_id}
+        emptyState={<DomainEmptyState eyebrow="Empty" title="No remediation cases" body="No read-only remediation case matched this agent or backing role." />}
+        columns={[
+          { key: 'case', header: 'Case', render: (row) => <strong>{row.title}</strong> },
+          { key: 'source', header: 'Source', render: (row) => formatTokenLabel(row.source_type) },
+          { key: 'owner', header: 'Owner', render: (row) => awsRemediationCaseOwnerLabel(row) },
+          { key: 'state', header: 'State', render: (row) => `${formatTokenLabel(row.lifecycle)} / ${formatTokenLabel(row.status)}` },
+          {
+            key: 'severity',
+            header: 'Severity',
+            render: (row) => <AWSInventoryPill stage={awsRemediationCaseStage(row)} label={`${formatTokenLabel(row.severity)} / ${row.score}`} />
+          }
+        ]}
+      />
+    );
+  }
+
+  return (
+    <DomainDataTable
+      label="Agent identity governance decisions"
+      rows={detail.governance_decisions}
+      getRowKey={(row) => `${row.report_id}-${row.decision_type}-${row.state}`}
+      emptyState={<DomainEmptyState eyebrow="Empty" title="No governance decisions" body="No advisory, approval, remediation, enforcement, or exception record matched this agent." />}
+      columns={[
+        { key: 'decision', header: 'Decision', render: (row) => <strong>{row.title}</strong> },
+        { key: 'category', header: 'Category', render: (row) => formatTokenLabel(row.category) },
+        { key: 'type', header: 'Type', render: (row) => formatTokenLabel(row.decision_type) },
+        { key: 'state', header: 'State', render: (row) => formatTokenLabel(row.state) },
+        { key: 'actor', header: 'Actor', render: (row) => row.actor || row.approver || '-' }
+      ]}
+    />
+  );
+}
+
+export function ProductAWSAgentIdentityDetailPage() {
+  const data = useAWSInventoryData();
+  const { scope, environmentScope, selectedEnvironmentID, connection, connectionLoading, connectionError } = data;
+  const location = useLocation();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const agent = normalizeValue(searchParams.get('agent') ?? '');
+  const activeTab = normalizeAWSAgentIdentityDetailTab(searchParams.get('tab'));
+  const [detail, setDetail] = useState<AWSAgentIdentityDetailResult | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
+  const detailRequestRef = useRef(0);
+
+  const loadDetail = useCallback(async () => {
+    const requestID = ++detailRequestRef.current;
+    setDetail(null);
+    setDetailError('');
+    if (!scope || !selectedEnvironmentID || !agent || !connection?.connector_id) {
+      setDetailLoading(false);
+      return;
+    }
+    setDetailLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectAgentIdentityDetail(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id,
+          agent,
+          tab: activeTab
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== detailRequestRef.current) {
+        return;
+      }
+      setDetail(response.detail);
+    } catch (error) {
+      if (requestID !== detailRequestRef.current) {
+        return;
+      }
+      setDetailError(formatAPIError(error, 'Unable to load AWS agent identity detail.'));
+    } finally {
+      if (requestID === detailRequestRef.current) {
+        setDetailLoading(false);
+      }
+    }
+  }, [
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    agent,
+    activeTab,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadDetail();
+    return () => {
+      detailRequestRef.current += 1;
+    };
+  }, [loadDetail]);
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">Agent identity detail</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading AWS agent identity detail.</p>
+      </section>
+    );
+  }
+
+  const agentsPath = awsRouteLink(scope, 'agents', selectedEnvironmentID);
+  const runtimePath = awsRouteLink(scope, 'runtime', selectedEnvironmentID);
+  const graphPath = awsRouteLink(scope, 'graph', selectedEnvironmentID);
+  const remediationPath = awsRouteLink(scope, 'remediation', selectedEnvironmentID);
+  const governancePath = awsRouteLink(scope, 'governance', selectedEnvironmentID);
+  const status = environmentScope.loading || connectionLoading || detailLoading
+    ? 'Loading detail'
+    : connectionError || detailError
+      ? 'Needs retry'
+      : detail
+        ? formatTokenLabel(detail.status)
+        : 'Select agent';
+  const statusTone = connectionError || detailError
+    ? 'danger'
+    : detail
+      ? awsAgentIdentityDetailTone(detail.status)
+      : awsDomainTone(connection, environmentScope.loading || connectionLoading);
+
+  return (
+    <DomainPageShell
+      domain="aws"
+      eyebrow={null}
+      hideLogo
+      title={detail?.agent.display_name || 'Agent identity detail'}
+      description={awsAgentIdentityDetailDescription(detail, agent)}
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={data.onChangeEnvironment} />}
+      status={status}
+      statusTone={statusTone}
+      primaryAction={{ label: 'Back to agents', to: agentsPath, variant: 'secondary' }}
+    >
+      <div className="idt-aws-risk-page">
+        {connectionError ? (
+          <DomainErrorState
+            title="Couldn't load AWS status"
+            body={connectionError}
+            retryAction={{ label: 'Retry', onClick: data.refreshConnection }}
+          />
+        ) : null}
+        {!agent ? (
+          <DomainEmptyState
+            eyebrow="Agent required"
+            title="Select an agent identity"
+            body="Open an agent from the AWS agents inventory to inspect its provider, runtime, tool, secret-reference, risk, remediation, and governance evidence."
+            nextAction={{ label: 'Open agents', to: agentsPath }}
+          />
+        ) : null}
+        {!connectionError && agent && !connectionLoading && !connection?.connector_id ? (
+          <DomainEmptyState
+            eyebrow="Connector required"
+            title="AWS connector detail is unavailable"
+            body="The selected environment does not have an AWS connector identifier to scope the detail request."
+          />
+        ) : null}
+        {detailError ? (
+          <DomainErrorState
+            title="Couldn't load agent identity detail"
+            body={detailError}
+            retryAction={{ label: 'Retry', onClick: loadDetail }}
+          />
+        ) : null}
+        {!detailError && detailLoading ? <DomainLoadingState label="Loading agent identity detail" /> : null}
+        {detail ? (
+          <>
+            <DomainKpiStrip
+              label="Agent identity detail metrics"
+              items={[
+                { label: 'Tools', value: detail.summary.tool_count, detail: `${detail.summary.observed_tool_count} observed` },
+                { label: 'Capabilities', value: detail.summary.capability_count, detail: 'memory, browser, code' },
+                { label: 'Secrets', value: detail.summary.secret_reference_count, detail: 'metadata references' },
+                { label: 'Runtime', value: detail.summary.runtime_call_count, detail: 'calls matched' },
+                { label: 'Findings', value: detail.summary.finding_count, detail: 'risk signals' },
+                { label: 'Recommendations', value: detail.summary.recommendation_count, detail: 'least privilege' }
+              ]}
+            />
+            <DomainStatusPanel
+              eyebrow="Evidence contract"
+              title="Scoped read-only agent view"
+              status={<AWSInventoryPill stage={awsAgentIdentityDetailStage(detail.status)} label={formatTokenLabel(detail.status)} />}
+              tone={awsAgentIdentityDetailTone(detail.status)}
+              actions={[
+                { label: 'Runtime', to: runtimePath, variant: 'secondary' },
+                { label: 'Graph', to: graphPath, variant: 'secondary' },
+                { label: 'Remediation', to: remediationPath, variant: 'secondary' },
+                { label: 'Governance', to: governancePath, variant: 'secondary' }
+              ]}
+            >
+              <dl className="idt-domain-route-facts">
+                <div>
+                  <dt>Evidence boundary</dt>
+                  <dd>{detail.agent.evidence_boundary}</dd>
+                </div>
+                <div>
+                  <dt>Provider</dt>
+                  <dd>{detail.agent.provider || detail.agent.external_provider || 'Not reported'}</dd>
+                </div>
+                <div>
+                  <dt>Runtime role</dt>
+                  <dd>{detail.agent.runtime_role_name || detail.agent.runtime_role_arn || 'Not reported'}</dd>
+                </div>
+                <div>
+                  <dt>Account</dt>
+                  <dd>{detail.account_id || detail.agent.account_id || 'Not reported'}</dd>
+                </div>
+                <div>
+                  <dt>Region</dt>
+                  <dd>{detail.region || detail.agent.region || 'Not reported'}</dd>
+                </div>
+                <div>
+                  <dt>Confidence</dt>
+                  <dd>{formatConfidenceScore(detail.confidence)}</dd>
+                </div>
+                <div>
+                  <dt>Candidate</dt>
+                  <dd>{detail.agent.candidate || detail.agent.low_confidence ? 'Candidate or low confidence' : 'Resolved'}</dd>
+                </div>
+                <div>
+                  <dt>Issue</dt>
+                  <dd>{detail.current_issue_ref}</dd>
+                </div>
+              </dl>
+            </DomainStatusPanel>
+            <AWSAgentIdentityDetailDiagnostics detail={detail} />
+            <AWSAgentIdentityDetailTabs
+              scope={scope}
+              selectedEnvironmentID={selectedEnvironmentID}
+              agent={agent}
+              activeTab={activeTab}
+              detail={detail}
+            />
+            <AWSAgentIdentityDetailTabContent detail={detail} activeTab={activeTab} />
           </>
         ) : null}
       </div>

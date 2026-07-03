@@ -2295,6 +2295,180 @@ export type AWSMachineIdentityDetailResult = {
   updated_at: string;
 };
 
+export type AWSAgentIdentityDetailStatus = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied' | 'unknown' | string;
+
+export type AWSAgentIdentityDetailQuery = {
+  connectorID?: string;
+  fixtureState?: AWSMachineIdentityDetailFixtureState;
+  agent: string;
+  accountID?: string;
+  region?: string;
+  tab?: string;
+  tool?: string;
+  resource?: string;
+  severity?: string;
+  status?: string;
+};
+
+export type AWSAgentIdentityDetailAgent = {
+  agent: string;
+  agent_id?: string;
+  agent_arn?: string;
+  agent_node_id?: string;
+  agent_name?: string;
+  agent_type?: string;
+  display_name: string;
+  provider?: string;
+  model_id?: string;
+  service?: string;
+  runtime_version?: string;
+  runtime_role_arn?: string;
+  runtime_role_name?: string;
+  runtime_role_node_id?: string;
+  gateway_id?: string;
+  gateway_node_id?: string;
+  external_provider?: string;
+  auth_mode?: string;
+  account_id?: string;
+  region?: string;
+  status: string;
+  resolved: boolean;
+  candidate: boolean;
+  low_confidence: boolean;
+  confidence: number;
+  coverage_status?: string;
+  coverage_reason?: string;
+  evidence_ref?: string;
+  evidence_boundary: string;
+};
+
+export type AWSAgentIdentityToolSummary = {
+  tool_name: string;
+  tool_target_ref?: string;
+  declared: boolean;
+  observed: boolean;
+  status: string;
+  observed_count: number;
+  evidence_ref?: string;
+  last_observed?: string;
+};
+
+export type AWSAgentIdentityCapabilitySummary = {
+  capability: 'memory' | 'browser' | 'code_interpreter' | string;
+  enabled: boolean;
+  reference_refs?: string[];
+  encryption_key_arn?: string;
+};
+
+export type AWSAgentIdentitySecretReference = {
+  reference: string;
+  reference_name?: string;
+  reference_kind: string;
+  provider?: string;
+  sensitivity?: string;
+  resolved: boolean;
+  target_node_id?: string;
+  evidence_ref?: string;
+  confidence: number;
+};
+
+export type AWSAgentIdentityRuntimeCall = {
+  correlation_id: string;
+  tool_name?: string;
+  tool_target_ref?: string;
+  status: string;
+  observed_count: number;
+  outcomes?: string[];
+  target_arns?: string[];
+  evidence_ref?: string;
+  next_action?: string;
+  last_observed?: string;
+};
+
+export type AWSAgentIdentityFindingSummary = {
+  finding_id: string;
+  risk_type: string;
+  severity: string;
+  status: string;
+  score: number;
+  rationale: string;
+  next_action: string;
+  evidence_refs?: string[];
+};
+
+export type AWSAgentIdentityRecommendationSummary = {
+  recommendation_id: string;
+  decision: string;
+  severity: string;
+  status: string;
+  service: string;
+  display_name: string;
+  rationale: string;
+  next_action: string;
+  score: number;
+  confidence: number;
+};
+
+export type AWSAgentIdentityDetailSummary = {
+  tool_count: number;
+  declared_tool_count: number;
+  observed_tool_count: number;
+  undeclared_tool_count: number;
+  capability_count: number;
+  secret_reference_count: number;
+  runtime_call_count: number;
+  finding_count: number;
+  recommendation_count: number;
+  remediation_case_count: number;
+  governance_decision_count: number;
+  relationship_count: number;
+  evidence_link_count: number;
+  diagnostic_count: number;
+  coverage_gap_count: number;
+};
+
+export type AWSAgentIdentityDetailResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSAgentIdentityDetailStatus;
+  fixture_state?: AWSMachineIdentityDetailFixtureState;
+  confidence: number;
+  policy_version: string;
+  applied_filters: Record<string, string>;
+  agent: AWSAgentIdentityDetailAgent;
+  summary: AWSAgentIdentityDetailSummary;
+  tabs: AWSMachineIdentityDetailTab[];
+  tools: AWSAgentIdentityToolSummary[];
+  capabilities: AWSAgentIdentityCapabilitySummary[];
+  secret_references: AWSAgentIdentitySecretReference[];
+  runtime_calls: AWSAgentIdentityRuntimeCall[];
+  findings: AWSAgentIdentityFindingSummary[];
+  recommendations: AWSAgentIdentityRecommendationSummary[];
+  governance_decisions: AWSMachineIdentityGovernanceDecision[];
+  relationships: AWSMachineIdentityDetailRelationship[];
+  runtime_access: AWSAgentRuntimeAccessResult;
+  risk: AWSAIAgentRiskResult;
+  permissions: AWSLeastPrivilegeResult;
+  remediation_cases: AWSRemediationCaseResult;
+  governance: AWSGovernanceAuditReportingResult;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSMachineIdentityDetailCoverageGap[];
+  diagnostics: AWSMachineIdentityDetailDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSRuntimeEventStatus = 'ready' | 'degraded' | 'blocked';
 // AWSRuntimeEventFixtureStateRequest is the query-side enum: every
 // value here is one the backend accepts as `?fixture_state=...`. It
@@ -9921,6 +10095,28 @@ export const apiClient = {
         region: query.region,
         tab: query.tab,
         service: query.service,
+        resource: query.resource,
+        severity: query.severity,
+        status: query.status
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectAgentIdentityDetail(
+    workspaceID: string,
+    projectID: string,
+    query: AWSAgentIdentityDetailQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ detail: AWSAgentIdentityDetailResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/agent-identity-detail${buildQuery({
+        connector_id: query.connectorID,
+        fixture_state: query.fixtureState,
+        agent: query.agent,
+        account_id: query.accountID,
+        region: query.region,
+        tab: query.tab,
+        tool: query.tool,
         resource: query.resource,
         severity: query.severity,
         status: query.status

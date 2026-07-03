@@ -11,6 +11,7 @@ import type {
   AWSECSTaskRoleInventoryResult,
   AWSLambdaExecutionRoleInventoryResult,
   AWSLeastPrivilegeResult,
+  AWSAgentIdentityDetailResult,
   AWSMachineIdentityDetailResult,
   AWSPlatformBaselineResult,
   AWSPlatformDependencyIndexResult,
@@ -2674,6 +2675,7 @@ describe('Domain-first app routes', () => {
       '/app/:tenantID/:workspaceID/aws/identities',
       '/app/:tenantID/:workspaceID/aws/identities/detail',
       '/app/:tenantID/:workspaceID/aws/agents',
+      '/app/:tenantID/:workspaceID/aws/agents/detail',
       '/app/:tenantID/:workspaceID/aws/resources',
       '/app/:tenantID/:workspaceID/aws/runtime',
       '/app/:tenantID/:workspaceID/aws/graph',
@@ -3264,6 +3266,212 @@ describe('Domain-first app routes', () => {
       {
         connectorID: 'aws-connector-1',
         identity,
+        tab: 'runtime'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a'
+      }
+    );
+  });
+
+  it('renders AWS agent identity detail scoped to the selected agent and tab', async () => {
+    const api = await import('./api/client');
+    const agent = 'AGENTSUPPORT1';
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const agentIdentityDetail = {
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: 'production',
+      connector_id: 'aws-connector-1',
+      account_id: '123456789012',
+      region: 'us-east-1',
+      parent_issue_number: 1472,
+      parent_issue_ref: '#1472',
+      current_issue_number: 1550,
+      current_issue_ref: '#1550',
+      version: 'aws-agent-identity-detail-page-v1',
+      status: 'success',
+      fixture_state: 'success',
+      confidence: 0.88,
+      policy_version: 'aws-agent-identity-detail-policy-v1',
+      applied_filters: { agent },
+      agent: {
+        agent,
+        agent_id: agent,
+        agent_node_id: 'aws:agent:bedrock:AGENTSUPPORT1',
+        agent_name: 'support-assistant',
+        agent_type: 'bedrock_agent',
+        display_name: 'support-assistant',
+        provider: 'bedrock',
+        model_id: 'anthropic.claude-3-sonnet',
+        service: 'bedrock',
+        runtime_version: '2026-07',
+        runtime_role_arn: 'arn:aws:iam::123456789012:role/bedrock-support-agent',
+        runtime_role_name: 'bedrock-support-agent',
+        account_id: '123456789012',
+        region: 'us-east-1',
+        status: 'active',
+        resolved: true,
+        candidate: false,
+        low_confidence: false,
+        confidence: 0.88,
+        evidence_boundary: 'metadata_only_no_secret_values_no_prompt_text_no_tool_payloads_no_workload_data_tenant_workspace_project_connector_account_region_scoped'
+      },
+      summary: {
+        tool_count: 1,
+        declared_tool_count: 1,
+        observed_tool_count: 1,
+        undeclared_tool_count: 0,
+        capability_count: 1,
+        secret_reference_count: 1,
+        runtime_call_count: 1,
+        finding_count: 1,
+        recommendation_count: 1,
+        remediation_case_count: 0,
+        governance_decision_count: 0,
+        relationship_count: 0,
+        evidence_link_count: 1,
+        diagnostic_count: 0,
+        coverage_gap_count: 0
+      },
+      tabs: [
+        { id: 'overview', label: 'Overview', status: 'success', count: 2 },
+        { id: 'tools', label: 'Tools', status: 'success', count: 1 },
+        { id: 'runtime', label: 'Runtime', status: 'success', count: 1 },
+        { id: 'secrets', label: 'Secrets', status: 'success', count: 1 },
+        { id: 'findings', label: 'Findings', status: 'success', count: 1 },
+        { id: 'recommendations', label: 'Recommendations', status: 'success', count: 1 },
+        { id: 'remediation', label: 'Remediation', status: 'empty', count: 0 },
+        { id: 'governance', label: 'Governance', status: 'empty', count: 0 }
+      ],
+      tools: [
+        {
+          tool_name: 'invoke-knowledge-base',
+          tool_target_ref: 'bedrock://knowledge-base/support',
+          declared: true,
+          observed: true,
+          status: 'confirmed',
+          observed_count: 3,
+          evidence_ref: 'evidence://agent/tools/support'
+        }
+      ],
+      capabilities: [
+        { capability: 'memory', enabled: true, reference_refs: ['memory://support-session'], encryption_key_arn: 'arn:aws:kms:us-east-1:123456789012:key/support' },
+        { capability: 'browser', enabled: false },
+        { capability: 'code_interpreter', enabled: false }
+      ],
+      secret_references: [
+        {
+          reference: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:support/provider-key',
+          reference_name: 'support-provider-key',
+          reference_kind: 'secretsmanager_secret',
+          provider: 'anthropic',
+          sensitivity: 'external_provider_key',
+          resolved: true,
+          confidence: 0.9
+        }
+      ],
+      runtime_calls: [
+        {
+          correlation_id: 'agent-runtime-call-1',
+          tool_name: 'invoke-knowledge-base',
+          tool_target_ref: 'bedrock://knowledge-base/support',
+          status: 'confirmed',
+          observed_count: 3,
+          outcomes: ['allowed'],
+          target_arns: ['arn:aws:bedrock:us-east-1:123456789012:knowledge-base/support'],
+          evidence_ref: 'evidence://agent/runtime/support',
+          next_action: 'Review knowledge-base access.',
+          last_observed: '2026-07-03T19:00:00Z'
+        }
+      ],
+      findings: [
+        {
+          finding_id: 'aws-ai-agent-risk:support-provider-key',
+          risk_type: 'external_credential_exposure',
+          severity: 'high',
+          status: 'review',
+          score: 86,
+          rationale: 'Agent references an external provider key.',
+          next_action: 'Rotate provider key and scope runtime role.'
+        }
+      ],
+      recommendations: [
+        {
+          recommendation_id: 'aws-least-privilege:agent-runtime-role',
+          decision: 'review',
+          severity: 'medium',
+          status: 'review',
+          service: 'bedrock',
+          display_name: 'Scope support agent runtime role',
+          rationale: 'Runtime role has broader Bedrock access than observed calls need.',
+          next_action: 'Approve a scoped policy update.',
+          score: 73,
+          confidence: 0.86
+        }
+      ],
+      governance_decisions: [],
+      relationships: [],
+      runtime_access: { records: [] },
+      risk: { findings: [] },
+      permissions: readyAWSLeastPrivilege,
+      remediation_cases: { cases: [] },
+      governance: { records: [] },
+      failure_reasons: [],
+      remediation_hints: [],
+      evidence_links: ['/docs/aws-agent-identity-detail'],
+      coverage_gaps: [],
+      diagnostics: [],
+      generated_at: '2026-07-03T19:05:00Z',
+      updated_at: '2026-07-03T19:05:00Z'
+    } as unknown as AWSAgentIdentityDetailResult;
+    const getAgentIdentityDetail = vi
+      .spyOn(api.apiClient, 'getAWSProjectAgentIdentityDetail')
+      .mockResolvedValue({ detail: agentIdentityDetail });
+
+    const { ProductAWSAgentIdentityDetailPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter
+        initialEntries={[
+          `/app/tenant-a/workspace-a/aws/agents/detail?environment=production&agent=${encodeURIComponent(agent)}&tab=runtime`
+        ]}
+      >
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/aws/agents/detail"
+            element={<ProductAWSAgentIdentityDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'support-assistant' })).toBeInTheDocument();
+    expect(screen.getByText('metadata_only_no_secret_values_no_prompt_text_no_tool_payloads_no_workload_data_tenant_workspace_project_connector_account_region_scoped')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Runtime\s+1/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('table', { name: 'Agent identity runtime calls' })).toBeInTheDocument();
+    expect(screen.getByText('invoke-knowledge-base')).toBeInTheDocument();
+    expect(getAgentIdentityDetail).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      {
+        connectorID: 'aws-connector-1',
+        agent,
         tab: 'runtime'
       },
       {
