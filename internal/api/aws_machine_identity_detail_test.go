@@ -1,0 +1,152 @@
+package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/identrail/identrail/internal/telemetry"
+	"go.uber.org/zap"
+)
+
+func newMachineIdentityDetailService(t *testing.T, project string, now time.Time) (*Service, string) {
+	t.Helper()
+	return newBlastRadiusService(t, project, now)
+}
+
+func TestGetAWSMachineIdentityDetailBuildsScopedContract(t *testing.T) {
+	now := time.Date(2026, 7, 3, 13, 10, 0, 0, time.UTC)
+	svc, ws := newMachineIdentityDetailService(t, "project-machine-identity-detail", now)
+	identity := "arn:aws:iam::123456789012:role/payments-lambda-execution"
+
+	result, err := svc.GetAWSMachineIdentityDetail(defaultScopeContext(), ws, "project-machine-identity-detail", AWSMachineIdentityDetailRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Identity:     identity,
+	})
+	if err != nil {
+		t.Fatalf("get machine identity detail: %v", err)
+	}
+	if result.CurrentIssueRef != "#1549" || result.Version != awsMachineIdentityDetailVersion || result.PolicyVersion != awsMachineIdentityDetailPolicyID {
+		t.Fatalf("unexpected detail metadata: %+v", result)
+	}
+	if result.Identity.IdentityNodeID != awsIdentityNodeIDForAPI(identity) || result.Identity.PrincipalARN != identity || result.Identity.EvidenceBoundary == "" {
+		t.Fatalf("identity summary did not preserve ARN/node/evidence boundary: %+v", result.Identity)
+	}
+	if result.Status == "blocked" || result.Status == "empty" || result.Summary.WorkloadBindingCount != 1 || len(result.WorkloadBindings) != 1 {
+		t.Fatalf("expected scoped detail with one workload binding: status=%s summary=%+v bindings=%+v", result.Status, result.Summary, result.WorkloadBindings)
+	}
+	if result.Summary.RelationshipCount != len(result.Relationships) || result.Summary.EvidenceLinkCount != len(result.EvidenceLinks) {
+		t.Fatalf("summary counts must match payload: summary=%+v relationships=%d evidence=%d", result.Summary, len(result.Relationships), len(result.EvidenceLinks))
+	}
+	if len(result.Tabs) != 6 || result.Tabs[0].ID != "graph" {
+		t.Fatalf("expected graph/runtime/permissions/secrets/fixes/governance tabs, got %+v", result.Tabs)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal detail: %v", err)
+	}
+	for _, forbidden := range []string{"secret_access_key", "\"secret_value\"", "password=", "rendered_policy", "policy_document_body", "payload_body"} {
+		if strings.Contains(strings.ToLower(string(encoded)), forbidden) {
+			t.Fatalf("machine identity detail leaked forbidden payload marker %q in %s", forbidden, string(encoded))
+		}
+	}
+}
+
+func TestGetAWSMachineIdentityDetailComposesRuntimePermissionsSecretsAndFixes(t *testing.T) {
+	now := time.Date(2026, 7, 3, 13, 15, 0, 0, time.UTC)
+	svc, ws := newMachineIdentityDetailService(t, "project-machine-identity-detail-compose", now)
+	identity := "arn:aws:iam::123456789012:role/lambda-invoice-agent"
+
+	result, err := svc.GetAWSMachineIdentityDetail(defaultScopeContext(), ws, "project-machine-identity-detail-compose", AWSMachineIdentityDetailRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Identity:     identity,
+	})
+	if err != nil {
+		t.Fatalf("get machine identity detail: %v", err)
+	}
+	if result.Summary.RuntimeEventCount == 0 || len(result.ResourcesReached) == 0 {
+		t.Fatalf("expected runtime timeline and reached resources for %s: summary=%+v resources=%+v", identity, result.Summary, result.ResourcesReached)
+	}
+	if result.Summary.PermissionRecommendationCount == 0 || len(result.PermissionSummaries) == 0 {
+		t.Fatalf("expected permission summaries for %s: summary=%+v permissions=%+v", identity, result.Summary, result.PermissionSummaries)
+	}
+	if result.Summary.SecretFindingCount == 0 || result.Summary.FindingCount == 0 {
+		t.Fatalf("expected secret/finding summaries for %s: summary=%+v findings=%+v", identity, result.Summary, result.Findings)
+	}
+	if result.Summary.RemediationCaseCount == 0 {
+		t.Fatalf("expected identity-scoped remediation cases: %+v", result.Summary)
+	}
+}
+
+func TestGetAWSMachineIdentityDetailFailureStates(t *testing.T) {
+	now := time.Date(2026, 7, 3, 13, 20, 0, 0, time.UTC)
+	svc, ws := newMachineIdentityDetailService(t, "project-machine-identity-detail-states", now)
+	identity := "arn:aws:iam::123456789012:role/payments-lambda-execution"
+
+	denied, err := svc.GetAWSMachineIdentityDetail(defaultScopeContext(), ws, "project-machine-identity-detail-states", AWSMachineIdentityDetailRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "permission_denied",
+		Identity:     identity,
+	})
+	if err != nil {
+		t.Fatalf("permission denied detail: %v", err)
+	}
+	if denied.Status != "blocked" || len(denied.Diagnostics) == 0 || len(denied.FailureReasons) == 0 {
+		t.Fatalf("permission denied detail must be explicit: %+v", denied)
+	}
+
+	empty, err := svc.GetAWSMachineIdentityDetail(defaultScopeContext(), ws, "project-machine-identity-detail-states", AWSMachineIdentityDetailRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "empty",
+		Identity:     identity,
+	})
+	if err != nil {
+		t.Fatalf("empty detail: %v", err)
+	}
+	if empty.Status != "empty" || empty.Summary.WorkloadBindingCount != 0 || len(empty.FailureReasons) == 0 {
+		t.Fatalf("empty detail should return an explicit empty payload: %+v", empty)
+	}
+
+	if _, err := svc.GetAWSMachineIdentityDetail(defaultScopeContext(), ws, "project-machine-identity-detail-states", AWSMachineIdentityDetailRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+	}); err == nil {
+		t.Fatalf("missing identity should fail validation")
+	}
+	if _, err := svc.GetAWSMachineIdentityDetail(defaultScopeContext(), ws, "project-machine-identity-detail-states", AWSMachineIdentityDetailRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "garbage",
+		Identity:     identity,
+	}); err == nil {
+		t.Fatalf("invalid fixture state should fail validation")
+	}
+}
+
+func TestRouterAWSMachineIdentityDetail(t *testing.T) {
+	now := time.Date(2026, 7, 3, 13, 25, 0, 0, time.UTC)
+	svc, _ := newMachineIdentityDetailService(t, "project-machine-identity-detail-route", now)
+	r := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{})
+	identity := "arn:aws:iam::123456789012:role/lambda-invoice-agent"
+
+	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-machine-identity-detail-route/aws/machine-identity-detail?connector_id=aws-prod&fixture_state=success&identity="+url.QueryEscape(identity)+"&tab=runtime", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		Detail AWSMachineIdentityDetailResult `json:"detail"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode detail response: %v", err)
+	}
+	if body.Detail.CurrentIssueRef != "#1549" || body.Detail.AppliedFilters["tab"] != "runtime" {
+		t.Fatalf("unexpected route payload: %+v", body.Detail)
+	}
+	if body.Detail.Summary.RuntimeEventCount == 0 {
+		t.Fatalf("expected identity-scoped runtime events via route: %+v", body.Detail.Summary)
+	}
+}

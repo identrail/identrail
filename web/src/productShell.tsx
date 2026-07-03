@@ -44,6 +44,7 @@ import {
   type AWSManagedComputeRoleRecord,
   type AWSAIAgentIdentityQuery,
   type AWSAIAgentIdentityInventoryResult,
+  type AWSMachineIdentityDetailResult,
   type AWSBedrockAgentsInventoryResult,
   type AWSBedrockAgentRecord,
   type AWSAIAgentIdentityRecord,
@@ -3101,6 +3102,29 @@ function awsRouteLink(scope: ProductSession, routeID: ProductDomainRouteID, envi
   return appendEnvironmentQuery(domainRoutePath(scope, 'aws', findDomainRoute('aws', routeID)), environmentID);
 }
 
+function awsMachineIdentityDetailLink(
+  scope: ProductSession,
+  environmentID: string,
+  identity: string,
+  tab = 'graph'
+): string {
+  const params = new URLSearchParams();
+  const normalizedEnvironmentID = normalizeValue(environmentID);
+  const normalizedIdentity = normalizeValue(identity);
+  const normalizedTab = normalizeValue(tab);
+  if (normalizedEnvironmentID) {
+    params.set(ENVIRONMENT_QUERY_PARAM, normalizedEnvironmentID);
+  }
+  if (normalizedIdentity) {
+    params.set('identity', normalizedIdentity);
+  }
+  if (normalizedTab) {
+    params.set('tab', normalizedTab);
+  }
+  const search = params.toString();
+  return `${buildScopedPath(scope, 'aws/identities/detail')}${search ? `?${search}` : ''}`;
+}
+
 function AWSConnectionDiagnostics({
   connection,
   emptyLabel = 'No diagnostics reported for this environment.'
@@ -3697,6 +3721,7 @@ type AWSInventoryFilterable = {
 type AWSInventoryTableRow = AWSInventoryFilterable & {
   id: string;
   name: string;
+  detailIdentity?: string;
   category: string;
   scope: string;
   status: string;
@@ -5300,6 +5325,8 @@ function AWSPartialFailureReportList({ reports, label }: { reports: AWSPartialFa
 }
 
 function AWSMachineIdentitiesContent({
+  scope,
+  selectedEnvironmentID,
   connection,
   ec2State,
   ecsState,
@@ -5313,6 +5340,8 @@ function AWSMachineIdentitiesContent({
   filters,
   onFiltersChange
 }: {
+  scope: ProductSession;
+  selectedEnvironmentID: string;
   connection: AWSConnectionStatus | null;
   ec2State: AWSInventoryEC2State;
   ecsState: AWSInventoryECSState;
@@ -5350,6 +5379,7 @@ function AWSMachineIdentitiesContent({
           {
             id: 'current-role',
             name: connection.role_arn,
+            detailIdentity: connection.role_arn,
             category: 'IAM role',
             scope: awsAccountRegionLabel(connection),
             status: connection.connected ? 'wired now' : 'pending validation',
@@ -5655,7 +5685,13 @@ function AWSMachineIdentitiesContent({
               header: 'Identity',
               render: (row) => (
                 <div className="idt-aws-inventory-table-cell">
-                  <strong>{row.name}</strong>
+                  <strong>
+                    {row.detailIdentity ? (
+                      <Link to={awsMachineIdentityDetailLink(scope, selectedEnvironmentID, row.detailIdentity)}>{row.name}</Link>
+                    ) : (
+                      row.name
+                    )}
+                  </strong>
                   <p>{row.detail}</p>
                 </div>
               )
@@ -5828,6 +5864,7 @@ function awsEC2InstanceProfileRow(record: AWSEC2InstanceProfileRecord): AWSInven
   return {
     id: `instance-profile-${record.from_node_id}`,
     name: record.instance_profile_name || roleLabel,
+    detailIdentity: record.role_arn,
     category: isLaunchTemplate ? 'Launch template profile' : 'EC2 instance profile',
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
@@ -5942,6 +5979,7 @@ function awsECSTaskRoleRow(record: AWSECSTaskRoleRecord): AWSInventoryTableRow {
   return {
     id: `ecs-task-role-${record.from_node_id}-${rowRoleID}`,
     name: roleLabel,
+    detailIdentity: record.role_arn,
     category: isExecutionRole ? 'ECS execution role' : 'ECS task role',
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
@@ -6057,6 +6095,7 @@ function awsLambdaExecutionRoleRow(record: AWSLambdaExecutionRoleRecord): AWSInv
   return {
     id: `lambda-execution-role-${record.from_node_id}-${record.to_node_id || record.role_arn || record.function_arn}`,
     name: roleLabel,
+    detailIdentity: record.role_arn,
     category: 'Lambda execution role',
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
@@ -6173,6 +6212,7 @@ function awsCodeBuildServiceRoleRow(record: AWSCodeBuildServiceRoleRecord): AWSI
   return {
     id: `codebuild-service-role-${record.from_node_id}-${record.to_node_id || record.role_arn || record.project_arn}`,
     name: roleLabel,
+    detailIdentity: record.role_arn,
     category: 'CodeBuild service role',
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
@@ -6303,6 +6343,7 @@ function awsCodePipelineDeploymentRoleRow(record: AWSCodePipelineDeploymentRoleR
   return {
     id: `codepipeline-deployment-role-${record.from_node_id}-${record.to_node_id || record.role_arn || record.pipeline_arn}`,
     name: roleLabel,
+    detailIdentity: record.role_arn,
     category: 'CodePipeline deployment role',
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
@@ -6428,6 +6469,7 @@ function awsStepFunctionsStateMachineRoleRow(record: AWSStepFunctionsStateMachin
   return {
     id: `stepfunctions-state-machine-role-${record.from_node_id}-${record.to_node_id || record.role_arn || record.state_machine_arn}`,
     name: roleLabel,
+    detailIdentity: record.role_arn,
     category: 'Step Functions state-machine role',
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
@@ -6537,6 +6579,7 @@ function awsEventDrivenRoleRow(record: AWSEventDrivenRoleRecord): AWSInventoryTa
   return {
     id: `event-driven-role-${record.from_node_id}-${record.to_node_id || record.role_arn || record.workload_arn}`,
     name: roleLabel,
+    detailIdentity: record.role_arn,
     category: formatTokenLabel(record.workload_type || 'event_driven_role'),
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
@@ -6654,6 +6697,7 @@ function awsManagedComputeRoleRow(record: AWSManagedComputeRoleRecord): AWSInven
   return {
     id: `managed-compute-role-${record.from_node_id}-${record.to_node_id || record.role_arn || record.workload_arn}`,
     name: roleLabel,
+    detailIdentity: record.role_arn,
     category: formatTokenLabel(record.role_kind || record.workload_type || 'managed_compute_role'),
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
@@ -6794,6 +6838,7 @@ function awsEKSWorkloadIdentityRow(record: AWSEKSWorkloadIdentityRecord): AWSInv
   return {
     id: `eks-workload-identity-${record.from_node_id}-${record.to_node_id || record.role_arn || record.evidence_ref}`,
     name: roleLabel,
+    detailIdentity: record.role_arn,
     category,
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
@@ -9537,6 +9582,8 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
       ) : null}
       {routeID === 'identities' ? (
         <AWSMachineIdentitiesContent
+          scope={scope}
+          selectedEnvironmentID={selectedEnvironmentID}
           connection={connection}
           ec2State={{
             inventory: ec2Inventory,
@@ -9668,6 +9715,499 @@ export function ProductAWSAccountsPage() {
 
 export function ProductAWSIdentitiesPage() {
   return <ProductAWSInventoryPage routeID="identities" />;
+}
+
+const AWS_MACHINE_IDENTITY_DETAIL_TAB_IDS = ['graph', 'runtime', 'permissions', 'secrets', 'fixes', 'governance'] as const;
+type AWSMachineIdentityDetailTabID = (typeof AWS_MACHINE_IDENTITY_DETAIL_TAB_IDS)[number];
+const AWS_MACHINE_IDENTITY_DETAIL_TAB_LABELS: Record<AWSMachineIdentityDetailTabID, string> = {
+  graph: 'Graph',
+  runtime: 'Runtime',
+  permissions: 'Permissions',
+  secrets: 'Secrets',
+  fixes: 'Fixes',
+  governance: 'Governance'
+};
+
+function normalizeAWSMachineIdentityDetailTab(value: string | null): AWSMachineIdentityDetailTabID {
+  const normalized = normalizeValue(value ?? '').toLowerCase();
+  return AWS_MACHINE_IDENTITY_DETAIL_TAB_IDS.includes(normalized as AWSMachineIdentityDetailTabID)
+    ? (normalized as AWSMachineIdentityDetailTabID)
+    : 'graph';
+}
+
+function awsMachineIdentityDetailStage(status: string): AWSCapabilityStage {
+  if (status === 'ready') {
+    return 'wired';
+  }
+  if (status === 'blocked') {
+    return 'not-available';
+  }
+  return 'coming';
+}
+
+function awsMachineIdentityDetailTone(status: string): 'success' | 'warning' | 'danger' | 'neutral' {
+  if (status === 'ready') {
+    return 'success';
+  }
+  if (status === 'blocked') {
+    return 'danger';
+  }
+  if (status === 'degraded') {
+    return 'warning';
+  }
+  return 'neutral';
+}
+
+function awsMachineIdentityDetailDescription(detail: AWSMachineIdentityDetailResult | null, identity: string): string {
+  if (detail?.identity.principal_arn) {
+    return detail.identity.principal_arn;
+  }
+  if (detail?.identity.identity_node_id) {
+    return detail.identity.identity_node_id;
+  }
+  return identity || 'Select a machine identity from the AWS identities inventory.';
+}
+
+function AWSMachineIdentityDetailTabs({
+  scope,
+  selectedEnvironmentID,
+  identity,
+  activeTab,
+  detail
+}: {
+  scope: ProductSession;
+  selectedEnvironmentID: string;
+  identity: string;
+  activeTab: AWSMachineIdentityDetailTabID;
+  detail: AWSMachineIdentityDetailResult | null;
+}) {
+  const tabCounts = new Map((detail?.tabs ?? []).map((tab) => [tab.id, tab.count]));
+  return (
+    <div className="idt-inline-actions" role="tablist" aria-label="Machine identity detail tabs">
+      {AWS_MACHINE_IDENTITY_DETAIL_TAB_IDS.map((tabID) => (
+        <Link
+          key={tabID}
+          role="tab"
+          aria-selected={activeTab === tabID}
+          aria-label={`${AWS_MACHINE_IDENTITY_DETAIL_TAB_LABELS[tabID]} ${tabCounts.get(tabID) ?? 0}`}
+          className={`idt-btn ${activeTab === tabID ? 'idt-btn-primary' : 'idt-btn-ghost'}`}
+          to={awsMachineIdentityDetailLink(scope, selectedEnvironmentID, identity, tabID)}
+        >
+          <span>{AWS_MACHINE_IDENTITY_DETAIL_TAB_LABELS[tabID]}</span>
+          <span>{tabCounts.get(tabID) ?? 0}</span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function AWSMachineIdentityDetailDiagnostics({ detail }: { detail: AWSMachineIdentityDetailResult }) {
+  return (
+    <>
+      {detail.failure_reasons.length || detail.remediation_hints.length ? (
+        <DomainStatusPanel
+          eyebrow="State"
+          title="Detail readiness"
+          status={formatTokenLabel(detail.status)}
+          tone={awsMachineIdentityDetailTone(detail.status)}
+        >
+          <dl className="idt-domain-route-facts">
+            <div>
+              <dt>Failures</dt>
+              <dd>{detail.failure_reasons.length ? detail.failure_reasons.join(', ') : 'None'}</dd>
+            </div>
+            <div>
+              <dt>Next actions</dt>
+              <dd>{detail.remediation_hints.length ? detail.remediation_hints.join(', ') : 'None'}</dd>
+            </div>
+          </dl>
+        </DomainStatusPanel>
+      ) : null}
+      {detail.diagnostics.length ? (
+        <DomainStatusPanel
+          eyebrow="Collectors"
+          title="Diagnostics"
+          status={`${detail.diagnostics.length} active`}
+          tone={detail.status === 'blocked' ? 'danger' : 'warning'}
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="Machine identity detail diagnostics">
+            {detail.diagnostics.map((diagnostic) => (
+              <article key={`${diagnostic.collector}-${diagnostic.source_id ?? diagnostic.code}-${diagnostic.message}`}>
+                <strong>{formatTokenLabel(diagnostic.code)}</strong>
+                <p>{diagnostic.message}</p>
+                {diagnostic.remediation ? <small>{diagnostic.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
+      {detail.coverage_gaps.length ? (
+        <DomainStatusPanel
+          eyebrow="Coverage"
+          title="Evidence gaps"
+          status={`${detail.coverage_gaps.length} gaps`}
+          tone="warning"
+        >
+          <div className="idt-source-diagnostics idt-aws-control-diagnostics" aria-label="Machine identity detail coverage gaps">
+            {detail.coverage_gaps.map((gap) => (
+              <article key={`${gap.capability}-${gap.status}-${gap.reason}`}>
+                <strong>{formatTokenLabel(gap.capability)}</strong>
+                <p>{gap.reason}</p>
+                {gap.remediation ? <small>{gap.remediation}</small> : null}
+              </article>
+            ))}
+          </div>
+        </DomainStatusPanel>
+      ) : null}
+    </>
+  );
+}
+
+function AWSMachineIdentityDetailTabContent({
+  detail,
+  activeTab
+}: {
+  detail: AWSMachineIdentityDetailResult;
+  activeTab: AWSMachineIdentityDetailTabID;
+}) {
+  if (activeTab === 'graph') {
+    return (
+      <>
+        <DomainDataTable
+          label="Machine identity workload bindings"
+          rows={detail.workload_bindings}
+          getRowKey={(row) => row.binding_id}
+          emptyState={<DomainEmptyState eyebrow="Empty" title="No workload bindings" body="No workload collector has reported a binding for this identity." />}
+          columns={[
+            { key: 'service', header: 'Service', render: (row) => formatTokenLabel(row.service) },
+            { key: 'workload', header: 'Workload', render: (row) => row.workload_name || row.workload_id || '-' },
+            { key: 'role', header: 'Role', render: (row) => row.role_name || row.role_arn || '-' },
+            { key: 'evidence', header: 'Evidence', render: (row) => row.evidence_ref || '-' },
+            {
+              key: 'status',
+              header: 'Status',
+              render: (row) => <AWSInventoryPill stage={awsMachineIdentityDetailStage(row.status)} label={`${formatTokenLabel(row.status)} / ${formatConfidenceScore(row.confidence)}`} />
+            }
+          ]}
+        />
+        <DomainDataTable
+          label="Machine identity relationships"
+          rows={detail.relationships}
+          getRowKey={(row) => `${row.source}-${row.type}-${row.from_node_id}-${row.to_node_id}-${row.evidence_ref ?? ''}`}
+          emptyState={<DomainEmptyState eyebrow="Empty" title="No relationships" body="No graph relationships matched this identity yet." />}
+          columns={[
+            { key: 'source', header: 'Source', render: (row) => formatTokenLabel(row.source) },
+            { key: 'type', header: 'Relationship', render: (row) => formatTokenLabel(row.type) },
+            { key: 'from', header: 'From', render: (row) => row.from_node_id },
+            { key: 'to', header: 'To', render: (row) => row.to_node_id },
+            { key: 'evidence', header: 'Evidence', render: (row) => row.evidence_ref || '-' }
+          ]}
+        />
+      </>
+    );
+  }
+
+  if (activeTab === 'runtime') {
+    return (
+      <DomainDataTable
+        label="Machine identity runtime events"
+        rows={detail.runtime.records}
+        getRowKey={(row) => row.event_id}
+        emptyState={<DomainEmptyState eyebrow="Empty" title="No runtime events" body="No runtime event evidence matched this identity." />}
+        columns={[
+          { key: 'event', header: 'Event', render: (row) => <strong>{row.action || row.event_name}</strong> },
+          { key: 'source', header: 'Source', render: (row) => row.event_source },
+          { key: 'resource', header: 'Resource', render: (row) => row.target_resource_name || row.target_resource_arn || '-' },
+          { key: 'observed', header: 'Observed', render: (row) => formatDateLabel(row.observed_at) },
+          {
+            key: 'status',
+            header: 'Status',
+            render: (row) => <AWSInventoryPill stage={awsMachineIdentityDetailStage(row.status)} label={`${formatTokenLabel(row.status)} / ${formatConfidenceScore(row.confidence)}`} />
+          }
+        ]}
+      />
+    );
+  }
+
+  if (activeTab === 'permissions') {
+    return (
+      <DomainDataTable
+        label="Machine identity permission summaries"
+        rows={detail.permission_summaries}
+        getRowKey={(row) => row.recommendation_id}
+        emptyState={<DomainEmptyState eyebrow="Empty" title="No permission recommendations" body="No least-privilege recommendation matched this identity." />}
+        columns={[
+          { key: 'permission', header: 'Permission', render: (row) => <strong>{row.display_name}</strong> },
+          { key: 'service', header: 'Service', render: (row) => formatTokenLabel(row.service) },
+          { key: 'resource', header: 'Resource', render: (row) => row.resource_arn || '-' },
+          { key: 'decision', header: 'Decision', render: (row) => `${formatTokenLabel(row.decision)} / ${formatTokenLabel(row.status)}` },
+          { key: 'next', header: 'Next action', render: (row) => row.next_action }
+        ]}
+      />
+    );
+  }
+
+  if (activeTab === 'secrets') {
+    return (
+      <>
+        <DomainDataTable
+          label="Machine identity resources reached"
+          rows={detail.resources_reached}
+          getRowKey={(row) => row.resource_id}
+          emptyState={<DomainEmptyState eyebrow="Empty" title="No resources reached" body="No runtime or static resource reachability matched this identity." />}
+          columns={[
+            { key: 'resource', header: 'Resource', render: (row) => <strong>{row.label}</strong> },
+            { key: 'type', header: 'Type', render: (row) => row.resource_type ? formatTokenLabel(row.resource_type) : '-' },
+            { key: 'source', header: 'Source', render: (row) => formatTokenLabel(row.source) },
+            { key: 'arn', header: 'ARN', render: (row) => row.resource_arn || '-' },
+            { key: 'evidence', header: 'Evidence', render: (row) => row.evidence_ref || '-' }
+          ]}
+        />
+        <DomainDataTable
+          label="Machine identity security findings"
+          rows={detail.findings}
+          getRowKey={(row) => row.finding_id}
+          emptyState={<DomainEmptyState eyebrow="Empty" title="No secret or blast-radius findings" body="No secret equivalence, blast radius, or sprawl finding matched this identity." />}
+          columns={[
+            { key: 'finding', header: 'Finding', render: (row) => <strong>{row.title}</strong> },
+            { key: 'source', header: 'Source', render: (row) => formatTokenLabel(row.source) },
+            { key: 'type', header: 'Type', render: (row) => formatTokenLabel(row.finding_type) },
+            { key: 'severity', header: 'Severity', render: (row) => `${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.status)}` },
+            { key: 'next', header: 'Next action', render: (row) => row.next_action }
+          ]}
+        />
+      </>
+    );
+  }
+
+  if (activeTab === 'fixes') {
+    return (
+      <DomainDataTable
+        label="Machine identity remediation cases"
+        rows={detail.remediation_cases.cases}
+        getRowKey={(row) => row.case_id}
+        emptyState={<DomainEmptyState eyebrow="Empty" title="No remediation cases" body="No read-only remediation case matched this identity." />}
+        columns={[
+          { key: 'case', header: 'Case', render: (row) => <strong>{row.title}</strong> },
+          { key: 'source', header: 'Source', render: (row) => formatTokenLabel(row.source_type) },
+          { key: 'owner', header: 'Owner', render: (row) => awsRemediationCaseOwnerLabel(row) },
+          { key: 'state', header: 'State', render: (row) => `${formatTokenLabel(row.lifecycle)} / ${formatTokenLabel(row.status)}` },
+          {
+            key: 'severity',
+            header: 'Severity',
+            render: (row) => <AWSInventoryPill stage={awsRemediationCaseStage(row)} label={`${formatTokenLabel(row.severity)} / ${row.score}`} />
+          }
+        ]}
+      />
+    );
+  }
+
+  return (
+    <DomainDataTable
+      label="Machine identity governance decisions"
+      rows={detail.governance_decisions}
+      getRowKey={(row) => `${row.report_id}-${row.decision_type}-${row.state}`}
+      emptyState={<DomainEmptyState eyebrow="Empty" title="No governance decisions" body="No advisory, approval, remediation, enforcement, or exception record matched this identity." />}
+      columns={[
+        { key: 'decision', header: 'Decision', render: (row) => <strong>{row.title}</strong> },
+        { key: 'category', header: 'Category', render: (row) => formatTokenLabel(row.category) },
+        { key: 'type', header: 'Type', render: (row) => formatTokenLabel(row.decision_type) },
+        { key: 'state', header: 'State', render: (row) => formatTokenLabel(row.state) },
+        { key: 'actor', header: 'Actor', render: (row) => row.actor || row.approver || '-' }
+      ]}
+    />
+  );
+}
+
+export function ProductAWSMachineIdentityDetailPage() {
+  const data = useAWSInventoryData();
+  const { scope, environmentScope, selectedEnvironmentID, connection, connectionLoading, connectionError } = data;
+  const location = useLocation();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const identity = normalizeValue(searchParams.get('identity') ?? '');
+  const activeTab = normalizeAWSMachineIdentityDetailTab(searchParams.get('tab'));
+  const [detail, setDetail] = useState<AWSMachineIdentityDetailResult | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
+  const detailRequestRef = useRef(0);
+
+  const loadDetail = useCallback(async () => {
+    const requestID = ++detailRequestRef.current;
+    setDetail(null);
+    setDetailError('');
+    if (!scope || !selectedEnvironmentID || !identity || !connection?.connector_id) {
+      setDetailLoading(false);
+      return;
+    }
+    setDetailLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectMachineIdentityDetail(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id,
+          identity,
+          tab: activeTab
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== detailRequestRef.current) {
+        return;
+      }
+      setDetail(response.detail);
+    } catch (error) {
+      if (requestID !== detailRequestRef.current) {
+        return;
+      }
+      setDetailError(formatAPIError(error, 'Unable to load AWS machine identity detail.'));
+    } finally {
+      if (requestID === detailRequestRef.current) {
+        setDetailLoading(false);
+      }
+    }
+  }, [
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    identity,
+    activeTab,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadDetail();
+    return () => {
+      detailRequestRef.current += 1;
+    };
+  }, [loadDetail]);
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">Machine identity detail</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading AWS machine identity detail.</p>
+      </section>
+    );
+  }
+
+  const identitiesPath = awsRouteLink(scope, 'identities', selectedEnvironmentID);
+  const status = environmentScope.loading || connectionLoading || detailLoading
+    ? 'Loading detail'
+    : connectionError || detailError
+      ? 'Needs retry'
+      : detail
+        ? formatTokenLabel(detail.status)
+        : 'Select identity';
+  const statusTone = connectionError || detailError
+    ? 'danger'
+    : detail
+      ? awsMachineIdentityDetailTone(detail.status)
+      : awsDomainTone(connection, environmentScope.loading || connectionLoading);
+
+  return (
+    <DomainPageShell
+      domain="aws"
+      eyebrow={null}
+      hideLogo
+      title={detail?.identity.display_name || 'Machine identity detail'}
+      description={awsMachineIdentityDetailDescription(detail, identity)}
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={data.onChangeEnvironment} />}
+      status={status}
+      statusTone={statusTone}
+      primaryAction={{ label: 'Back to identities', to: identitiesPath, variant: 'secondary' }}
+    >
+      <div className="idt-aws-risk-page">
+        {connectionError ? (
+          <DomainErrorState
+            title="Couldn't load AWS status"
+            body={connectionError}
+            retryAction={{ label: 'Retry', onClick: data.refreshConnection }}
+          />
+        ) : null}
+        {!identity ? (
+          <DomainEmptyState
+            eyebrow="Identity required"
+            title="Select a machine identity"
+            body="Open an identity from the AWS identities inventory to inspect its workload, runtime, permission, secret, remediation, and governance evidence."
+            nextAction={{ label: 'Open identities', to: identitiesPath }}
+          />
+        ) : null}
+        {!connectionError && identity && !connectionLoading && !connection?.connector_id ? (
+          <DomainEmptyState
+            eyebrow="Connector required"
+            title="AWS connector detail is unavailable"
+            body="The selected environment does not have an AWS connector identifier to scope the detail request."
+          />
+        ) : null}
+        {detailError ? (
+          <DomainErrorState
+            title="Couldn't load machine identity detail"
+            body={detailError}
+            retryAction={{ label: 'Retry', onClick: loadDetail }}
+          />
+        ) : null}
+        {!detailError && detailLoading ? <DomainLoadingState label="Loading machine identity detail" /> : null}
+        {detail ? (
+          <>
+            <DomainKpiStrip
+              label="Machine identity detail metrics"
+              items={[
+                { label: 'Workloads', value: detail.summary.workload_binding_count, detail: 'bound to this identity' },
+                { label: 'Runtime', value: detail.summary.runtime_event_count, detail: 'events matched' },
+                { label: 'Permissions', value: detail.summary.permission_recommendation_count, detail: 'recommendations' },
+                { label: 'Findings', value: detail.summary.finding_count, detail: 'security signals' },
+                { label: 'Fixes', value: detail.summary.remediation_case_count, detail: 'read-only cases' },
+                { label: 'Governance', value: detail.summary.governance_decision_count, detail: 'decisions' }
+              ]}
+            />
+            <DomainStatusPanel
+              eyebrow="Evidence contract"
+              title="Scoped read-only identity view"
+              status={<AWSInventoryPill stage={awsMachineIdentityDetailStage(detail.status)} label={formatTokenLabel(detail.status)} />}
+              tone={awsMachineIdentityDetailTone(detail.status)}
+            >
+              <dl className="idt-domain-route-facts">
+                <div>
+                  <dt>Evidence boundary</dt>
+                  <dd>{detail.identity.evidence_boundary}</dd>
+                </div>
+                <div>
+                  <dt>Account</dt>
+                  <dd>{detail.account_id || detail.identity.account_id || 'Not reported'}</dd>
+                </div>
+                <div>
+                  <dt>Region</dt>
+                  <dd>{detail.region || detail.identity.region || 'Not reported'}</dd>
+                </div>
+                <div>
+                  <dt>Confidence</dt>
+                  <dd>{formatConfidenceScore(detail.confidence)}</dd>
+                </div>
+                <div>
+                  <dt>Policy</dt>
+                  <dd>{detail.policy_version}</dd>
+                </div>
+                <div>
+                  <dt>Issue</dt>
+                  <dd>{detail.current_issue_ref}</dd>
+                </div>
+              </dl>
+            </DomainStatusPanel>
+            <AWSMachineIdentityDetailDiagnostics detail={detail} />
+            <AWSMachineIdentityDetailTabs
+              scope={scope}
+              selectedEnvironmentID={selectedEnvironmentID}
+              identity={identity}
+              activeTab={activeTab}
+              detail={detail}
+            />
+            <AWSMachineIdentityDetailTabContent detail={detail} activeTab={activeTab} />
+          </>
+        ) : null}
+      </div>
+    </DomainPageShell>
+  );
 }
 
 export function ProductAWSAgentsPage() {

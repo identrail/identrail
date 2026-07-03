@@ -544,6 +544,11 @@ x-identrail-route-authorizations:
     resource_type: ai_agent_identity
     resource_id_param: agent_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/machine-identity-detail
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/bedrock-agents
     action: tenancy.read
     resource_type: project
@@ -4672,6 +4677,87 @@ paths:
                     $ref: "#/components/schemas/AWSAIAgentIdentityInventoryResult"
         "400":
           description: Invalid AWS AI agent identity inventory request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/machine-identity-detail:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS machine identity detail
+      operationId: getAWSProjectMachineIdentityDetail
+      description: Returns one scoped, metadata-only AWS machine identity detail view by composing workload bindings, runtime events, least-privilege recommendations, secret/resource reachability, remediation cases, governance decisions, and graph relationships. The endpoint is read-only and never returns secret values, policy document bodies, payload bodies, object contents, prompts, completions, browser pages, code-interpreter output, or database rows.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope account, region, and read-only evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: identity
+          required: true
+          schema: { type: string }
+          description: IAM role ARN, identity node id, or role name to inspect.
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: tab
+          schema:
+            type: string
+            enum: [graph, runtime, permissions, secrets, fixes, governance]
+          description: Optional detail tab selector used by the app route.
+        - in: query
+          name: service
+          schema: { type: string }
+        - in: query
+          name: resource
+          schema: { type: string }
+        - in: query
+          name: severity
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS machine identity detail contract
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [detail]
+                properties:
+                  detail:
+                    type: object
+                    description: Composed AWS machine identity detail result. See docs/aws-machine-identity-detail.md for the full response contract and evidence boundaries.
+        "400":
+          description: Invalid AWS machine identity detail request
           content:
             application/json:
               schema:

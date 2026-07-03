@@ -37,6 +37,7 @@ import {
   ProductAWSGraphPage,
   ProductAWSRemediationPage,
   ProductAWSRuntimePage,
+  ProductAWSMachineIdentityDetailPage,
   ProductDomainRoutePage,
   ProductAWSConnectPage,
   ProductAWSIdentitiesPage,
@@ -4819,6 +4820,7 @@ export function RoutedSite() {
             <Route path="aws/connect" element={<ProductAWSConnectPage />} />
             <Route path="aws/accounts" element={<ProductAWSAccountsPage />} />
             <Route path="aws/identities" element={<ProductAWSIdentitiesPage />} />
+            <Route path="aws/identities/detail" element={<ProductAWSMachineIdentityDetailPage />} />
             <Route path="aws/agents" element={<ProductAWSAgentsPage />} />
             <Route path="aws/resources" element={<ProductAWSResourcesPage />} />
             <Route path="aws/runtime" element={<ProductAWSRuntimePage />} />

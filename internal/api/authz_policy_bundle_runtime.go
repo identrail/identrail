@@ -752,6 +752,7 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/sagemaker-workload-roles", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/ai-agent-identities", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/ai-agent-identities/:agent_id", Action: policyActionTenancyRead, ResourceType: "ai_agent_identity", ResourceIDParam: "agent_id"},
+		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/machine-identity-detail", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/bedrock-agents", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/runtime-events", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/secrets-kms-runtime-access", Action: policyActionTenancyRead, ResourceType: "project", ResourceIDParam: "project_id"},

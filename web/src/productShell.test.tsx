@@ -11,6 +11,7 @@ import type {
   AWSECSTaskRoleInventoryResult,
   AWSLambdaExecutionRoleInventoryResult,
   AWSLeastPrivilegeResult,
+  AWSMachineIdentityDetailResult,
   AWSPlatformBaselineResult,
   AWSPlatformDependencyIndexResult,
   AWSPlatformValidationHarnessResult,
@@ -2671,6 +2672,7 @@ describe('Domain-first app routes', () => {
       '/app/:tenantID/:workspaceID/aws/connect',
       '/app/:tenantID/:workspaceID/aws/accounts',
       '/app/:tenantID/:workspaceID/aws/identities',
+      '/app/:tenantID/:workspaceID/aws/identities/detail',
       '/app/:tenantID/:workspaceID/aws/agents',
       '/app/:tenantID/:workspaceID/aws/resources',
       '/app/:tenantID/:workspaceID/aws/runtime',
@@ -3078,6 +3080,10 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText('payments-ecs-task')).toBeInTheDocument();
     expect(screen.getByText('payments-ecs-execution')).toBeInTheDocument();
     expect(await screen.findByText('payments-lambda-execution')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'payments-lambda-execution' })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/identities/detail?environment=production&identity=arn%3Aaws%3Aiam%3A%3A123456789012%3Arole%2Fpayments-lambda-execution&tab=graph'
+    );
     expect(await screen.findByText('payments-codebuild-service')).toBeInTheDocument();
     expect(await screen.findByText('payments-irsa')).toBeInTheDocument();
     expect(screen.getByText('batch-pod-identity')).toBeInTheDocument();
@@ -3134,6 +3140,137 @@ describe('Domain-first app routes', () => {
     );
     expect(screen.getByText(/Risk score/i)).toBeInTheDocument();
     expect(screen.getByText(/Unscored until AWS findings land/i)).toBeInTheDocument();
+  });
+
+  it('renders AWS machine identity detail scoped to the selected identity and tab', async () => {
+    const api = await import('./api/client');
+    const identity = 'arn:aws:iam::123456789012:role/lambda-invoice-agent';
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const machineIdentityDetail = {
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: 'production',
+      connector_id: 'aws-connector-1',
+      account_id: '123456789012',
+      region: 'us-east-1',
+      parent_issue_number: 1472,
+      parent_issue_ref: '#1472',
+      current_issue_number: 1549,
+      current_issue_ref: '#1549',
+      version: 'aws-machine-identity-detail-page-v1',
+      status: 'ready',
+      fixture_state: 'success',
+      confidence: 0.91,
+      policy_version: 'aws-machine-identity-detail-policy-v1',
+      applied_filters: { identity },
+      identity: {
+        identity,
+        identity_node_id: 'aws:identity:lambda-invoice-agent',
+        principal_arn: identity,
+        role_name: 'lambda-invoice-agent',
+        display_name: 'lambda-invoice-agent',
+        account_id: '123456789012',
+        region: 'us-east-1',
+        status: 'ready',
+        confidence: 0.91,
+        evidence_boundary: 'metadata_only_no_secret_values_no_policy_bodies_no_payloads'
+      },
+      summary: {
+        workload_binding_count: 1,
+        runtime_event_count: 1,
+        permission_recommendation_count: 1,
+        secret_finding_count: 0,
+        finding_count: 0,
+        remediation_case_count: 0,
+        governance_decision_count: 0,
+        resource_reached_count: 1,
+        relationship_count: 1,
+        evidence_link_count: 1,
+        diagnostic_count: 0,
+        coverage_gap_count: 0
+      },
+      tabs: [
+        { id: 'graph', label: 'Graph', status: 'ready', count: 1 },
+        { id: 'runtime', label: 'Runtime', status: 'ready', count: 1 },
+        { id: 'permissions', label: 'Permissions', status: 'ready', count: 1 },
+        { id: 'secrets', label: 'Secrets', status: 'empty', count: 0 },
+        { id: 'fixes', label: 'Fixes', status: 'empty', count: 0 },
+        { id: 'governance', label: 'Governance', status: 'empty', count: 0 }
+      ],
+      workload_bindings: [],
+      permission_summaries: [],
+      resources_reached: [],
+      findings: [],
+      governance_decisions: [],
+      relationships: [],
+      runtime: { ...readyAWSRuntimeEvents, records: [readyAWSRuntimeEvents.records[0]] },
+      permissions: readyAWSLeastPrivilege,
+      secrets: { findings: [] },
+      blast_radius: { findings: [] },
+      identity_sprawl: { findings: [] },
+      remediation_cases: { cases: [] },
+      governance: { records: [] },
+      failure_reasons: [],
+      remediation_hints: [],
+      evidence_links: ['/docs/aws-machine-identity-detail'],
+      coverage_gaps: [],
+      diagnostics: [],
+      generated_at: '2026-06-14T17:30:00Z',
+      updated_at: '2026-06-14T17:30:00Z'
+    } as unknown as AWSMachineIdentityDetailResult;
+    const getMachineIdentityDetail = vi
+      .spyOn(api.apiClient, 'getAWSProjectMachineIdentityDetail')
+      .mockResolvedValue({ detail: machineIdentityDetail });
+
+    const { ProductAWSMachineIdentityDetailPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter
+        initialEntries={[
+          `/app/tenant-a/workspace-a/aws/identities/detail?environment=production&identity=${encodeURIComponent(identity)}&tab=runtime`
+        ]}
+      >
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/aws/identities/detail"
+            element={<ProductAWSMachineIdentityDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'lambda-invoice-agent' })).toBeInTheDocument();
+    expect(screen.getByText('metadata_only_no_secret_values_no_policy_bodies_no_payloads')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Runtime\s+1/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('table', { name: 'Machine identity runtime events' })).toBeInTheDocument();
+    expect(screen.getByText('s3:GetObject')).toBeInTheDocument();
+    expect(getMachineIdentityDetail).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      {
+        connectorID: 'aws-connector-1',
+        identity,
+        tab: 'runtime'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a'
+      }
+    );
   });
 
   it('renders AWS agent identity inventory as an honest reserved surface', async () => {

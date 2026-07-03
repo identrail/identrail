@@ -2105,6 +2105,196 @@ export type AWSAIAgentIdentityQuery = {
   minConfidence?: string;
 };
 
+export type AWSMachineIdentityDetailStatus = 'ready' | 'degraded' | 'blocked' | 'empty';
+export type AWSMachineIdentityDetailFixtureState =
+  | 'success'
+  | 'empty'
+  | 'degraded'
+  | 'partial_failure'
+  | 'permission_denied';
+
+export type AWSMachineIdentityDetailQuery = {
+  connectorID?: string;
+  fixtureState?: AWSMachineIdentityDetailFixtureState;
+  identity: string;
+  accountID?: string;
+  region?: string;
+  tab?: string;
+  service?: string;
+  resource?: string;
+  severity?: string;
+  status?: string;
+};
+
+export type AWSMachineIdentityDetailIdentity = {
+  identity: string;
+  identity_node_id: string;
+  principal_arn?: string;
+  role_name?: string;
+  display_name: string;
+  account_id?: string;
+  region?: string;
+  status: AWSMachineIdentityDetailStatus | string;
+  confidence: number;
+  evidence_boundary: string;
+};
+
+export type AWSMachineIdentityWorkloadBinding = {
+  binding_id: string;
+  service: string;
+  workload_id?: string;
+  workload_type?: string;
+  workload_name?: string;
+  role_arn?: string;
+  role_name?: string;
+  role_kind?: string;
+  relationship_type?: string;
+  from_node_id?: string;
+  to_node_id?: string;
+  evidence_ref?: string;
+  status: string;
+  confidence: number;
+  collected_at?: string;
+};
+
+export type AWSMachineIdentityPermissionSummary = {
+  recommendation_id: string;
+  decision: string;
+  severity: string;
+  status: string;
+  service: string;
+  resource_arn?: string;
+  display_name: string;
+  actions?: string[];
+  rationale: string;
+  next_action: string;
+  score: number;
+};
+
+export type AWSMachineIdentityResourceSummary = {
+  resource_id: string;
+  resource_arn?: string;
+  resource_type?: string;
+  label: string;
+  source: string;
+  evidence_ref?: string;
+  observed_at?: string;
+};
+
+export type AWSMachineIdentityFindingSummary = {
+  finding_id: string;
+  source: string;
+  finding_type: string;
+  severity: string;
+  status: string;
+  score: number;
+  title: string;
+  summary: string;
+  evidence_refs?: string[];
+  next_action: string;
+};
+
+export type AWSMachineIdentityGovernanceDecision = {
+  report_id: string;
+  category: string;
+  decision_type: string;
+  state: string;
+  title: string;
+  summary: string;
+  actor?: string;
+  approver?: string;
+  evidence_refs?: string[];
+  occurred_at?: string;
+};
+
+export type AWSMachineIdentityDetailRelationship = {
+  source: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSMachineIdentityDetailTab = {
+  id: 'graph' | 'runtime' | 'permissions' | 'secrets' | 'fixes' | 'governance' | string;
+  label: string;
+  status: AWSMachineIdentityDetailStatus | string;
+  count: number;
+};
+
+export type AWSMachineIdentityDetailDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSMachineIdentityDetailCoverageGap = {
+  capability: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSMachineIdentityDetailSummary = {
+  workload_binding_count: number;
+  runtime_event_count: number;
+  permission_recommendation_count: number;
+  secret_finding_count: number;
+  finding_count: number;
+  remediation_case_count: number;
+  governance_decision_count: number;
+  resource_reached_count: number;
+  relationship_count: number;
+  evidence_link_count: number;
+  diagnostic_count: number;
+  coverage_gap_count: number;
+};
+
+export type AWSMachineIdentityDetailResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSMachineIdentityDetailStatus;
+  fixture_state?: AWSMachineIdentityDetailFixtureState;
+  confidence: number;
+  policy_version: string;
+  applied_filters: Record<string, string>;
+  identity: AWSMachineIdentityDetailIdentity;
+  summary: AWSMachineIdentityDetailSummary;
+  tabs: AWSMachineIdentityDetailTab[];
+  workload_bindings: AWSMachineIdentityWorkloadBinding[];
+  permission_summaries: AWSMachineIdentityPermissionSummary[];
+  resources_reached: AWSMachineIdentityResourceSummary[];
+  findings: AWSMachineIdentityFindingSummary[];
+  governance_decisions: AWSMachineIdentityGovernanceDecision[];
+  relationships: AWSMachineIdentityDetailRelationship[];
+  runtime: AWSRuntimeEventResult;
+  permissions: AWSLeastPrivilegeResult;
+  secrets: AWSSecretPermissionEquivalenceResult;
+  blast_radius: AWSBlastRadiusResult;
+  identity_sprawl: AWSIdentitySprawlResult;
+  remediation_cases: AWSRemediationCaseResult;
+  governance: AWSGovernanceAuditReportingResult;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSMachineIdentityDetailCoverageGap[];
+  diagnostics: AWSMachineIdentityDetailDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSRuntimeEventStatus = 'ready' | 'degraded' | 'blocked';
 // AWSRuntimeEventFixtureStateRequest is the query-side enum: every
 // value here is one the backend accepts as `?fixture_state=...`. It
@@ -9712,6 +9902,28 @@ export const apiClient = {
         status: query?.status,
         risk: query?.risk,
         min_confidence: query?.minConfidence
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectMachineIdentityDetail(
+    workspaceID: string,
+    projectID: string,
+    query: AWSMachineIdentityDetailQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ detail: AWSMachineIdentityDetailResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/machine-identity-detail${buildQuery({
+        connector_id: query.connectorID,
+        fixture_state: query.fixtureState,
+        identity: query.identity,
+        account_id: query.accountID,
+        region: query.region,
+        tab: query.tab,
+        service: query.service,
+        resource: query.resource,
+        severity: query.severity,
+        status: query.status
       })}`,
       auth
     );
