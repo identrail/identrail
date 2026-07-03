@@ -4995,6 +4995,106 @@ describe('Domain-first app routes', () => {
         diagnostics: []
       } as any
     });
+    const getLimitedEnforcementPilot = vi.spyOn(api.apiClient, 'getAWSProjectLimitedEnforcementPilot').mockResolvedValue({
+      limited_enforcement_pilot: {
+        status: 'ready',
+        mode: 'pilot',
+        policy_version: 'aws-limited-enforcement-pilot-policy-v1',
+        operator_override: 'resume',
+        safety_config: {
+          feature_flag_enabled: true,
+          kill_switch_engaged: false,
+          canary_percent: 10,
+          cohort: 'pilot-a',
+          rollback_required: true,
+          audit_required: true
+        },
+        rollback_thresholds: {
+          max_denial_regression_pct: 1,
+          observation_window: '24h',
+          auto_rollback_on_kill_switch: true,
+          operator_override_halts_pilot: true
+        },
+        decisions: [
+          {
+            pilot_id: 'aws-limited-enforcement-pilot:orders',
+            calculation_version: 'aws-limited-enforcement-pilot-v1',
+            policy_version: 'aws-limited-enforcement-pilot-policy-v1',
+            mode: 'pilot',
+            pilot_state: 'pilot_canary_ready',
+            eligible: true,
+            enforcement_id: 'aws-limited-enforcement:orders',
+            source_type: 'advisory_authorization',
+            source_id: 'aws-advisory-authorization:orders',
+            outcome: 'allow',
+            confidence: 0.95,
+            severity: 'high',
+            score: 80,
+            title: 'Enforcement pilot: orders deployer',
+            summary: 'Pilot canary-ready decision.',
+            rationale: 'Every eligibility rule passed.',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            principal_node_id: 'aws:identity:orders-deployer',
+            action: 'iam:PutRolePolicy',
+            cohort: 'pilot-a',
+            operator_override: 'resume',
+            eligibility_rules: [
+              { name: 'limited_enforce_mode', status: 'passed', rationale: 'Limited-enforce mode.' },
+              { name: 'high_confidence', status: 'passed', rationale: 'Confidence above the pilot floor.' }
+            ],
+            rollback_thresholds: {
+              max_denial_regression_pct: 1,
+              observation_window: '24h',
+              auto_rollback_on_kill_switch: true,
+              operator_override_halts_pilot: true
+            },
+            metrics: {
+              eligibility_rules_passed: 2,
+              eligibility_rules_total: 2,
+              framework_gates_passed: 2,
+              framework_gates_total: 2,
+              confidence_pct: 95,
+              canary_percent: 10
+            },
+            evidence_links: ['/docs/aws-limited-enforcement-pilot'],
+            evidence_boundary: 'metadata_only_no_rendered_policy_bodies_no_secret_values_no_workload_payloads',
+            input_hash: 'pilot-hash-a',
+            audit_trail: [],
+            read_only_projection: true,
+            next_action: 'Watch denial-regression metrics.',
+            projected_at: '2026-07-03T10:00:00Z',
+            updated_at: '2026-07-03T10:00:00Z'
+          }
+        ],
+        relationships: [],
+        applied_filters: {},
+        summary: {
+          total_decisions: 1,
+          filtered_decisions: 1,
+          pilot_state_counts: { pilot_canary_ready: 1 },
+          outcome_counts: { allow: 1 },
+          source_type_counts: { advisory_authorization: 1 },
+          severity_counts: { high: 1 },
+          eligible_count: 1,
+          ineligible_count: 0,
+          canary_ready_count: 1,
+          enforce_ready_count: 0,
+          override_hold_count: 0,
+          kill_switch_engaged_count: 0,
+          failed_rule_count: 0,
+          relationship_count: 0,
+          highest_score: 80,
+          average_confidence_pct: 95
+        },
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
 
     const { ProductAWSGovernancePage } = await import('./productShell');
 
@@ -5011,6 +5111,14 @@ describe('Domain-first app routes', () => {
     expect(screen.getByText(/Limited enforcement framework: orders deployer/i)).toBeInTheDocument();
     expect(screen.getByText(/pilot-a/i)).toBeInTheDocument();
     expect(getLimitedEnforcement).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(await screen.findByRole('table', { name: 'AWS limited enforcement pilot decisions' })).toBeInTheDocument();
+    expect(screen.getByText(/Enforcement pilot: orders deployer/i)).toBeInTheDocument();
+    expect(getLimitedEnforcementPilot).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       expect.objectContaining({ connectorID: 'aws-connector-1' }),

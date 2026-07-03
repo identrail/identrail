@@ -1,6 +1,33 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS high-confidence limited enforcement pilot** (#1547). Adds
+  the pilot path over the limited enforcement framework (#1546): every
+  framework entry is evaluated against a stricter, high-confidence-only
+  eligibility rule set (limited-enforce mode, confidence >= 90 percent,
+  every framework gate passed, canary percent within the 25 percent
+  pilot cap, kill switch off, no operator hold) and survivors are
+  marked `pilot_canary_ready` or `pilot_enforce_ready`; everything else
+  is an explicit `ineligible`, `override_hold`, or
+  `blocked_by_kill_switch` state whose rationale names the first failed
+  rule. Every decision carries deterministic rollback thresholds
+  (1 percent denial-regression budget, 24h observation window,
+  kill-switch and operator-override halts), per-decision metrics
+  (eligibility rules and framework gates passed/total, confidence and
+  canary percent), a drift-detecting input hash, and an immutable
+  audit row. `operator_override=hold|pause` pauses every pilot decision
+  and unknown override values are rejected so a typo can never silently
+  resume a held pilot. Adds
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/limited-enforcement-pilot`
+  with safety-config passthrough (feature flag, kill switch, cohort,
+  canary percent) plus filters for account, region, pilot state, source
+  type, outcome, enforcement ID, severity, and free-text search.
+  OpenAPI schemas and authz wiring follow the neighboring wave-9
+  endpoints. The AWS Governance app surface now shows an **AWS limited
+  enforcement pilot** panel below the framework panel with the decision
+  title, source, pilot state, eligibility rule counts, confidence, and
+  readiness pill. Identrail never calls AWS write APIs at this layer;
+  downstream executors own any live control change.
 - Add **AWS limited enforcement framework** (#1546). Adds a
   metadata-only governance projection that joins advisory authorization
   decisions (#1543) and AgentCore gateway policy advisories (#1545) with

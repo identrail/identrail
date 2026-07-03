@@ -87,6 +87,8 @@ import {
   type AWSAdvisoryAuthorizationResult,
   type AWSLimitedEnforcementEntry,
   type AWSLimitedEnforcementResult,
+  type AWSLimitedEnforcementPilotDecision,
+  type AWSLimitedEnforcementPilotResult,
   type AWSSessionPolicyRecommendationEntry,
   type AWSSessionPolicyRecommendationResult,
   type AWSAgentCoreGatewayPolicyAdvisoryEntry,
@@ -11529,6 +11531,79 @@ function AWSLimitedEnforcementContent({
   );
 }
 
+function awsLimitedEnforcementPilotStage(decision: AWSLimitedEnforcementPilotDecision): AWSCapabilityStage {
+  switch (decision.pilot_state) {
+    case 'blocked_by_kill_switch':
+      return 'not-available';
+    case 'pilot_canary_ready':
+    case 'pilot_enforce_ready':
+      return 'wired';
+    default:
+      return 'coming';
+  }
+}
+
+function awsLimitedEnforcementPilotRuleLabel(decision: AWSLimitedEnforcementPilotDecision): string {
+  return `${decision.metrics.eligibility_rules_passed}/${decision.metrics.eligibility_rules_total} rules`;
+}
+
+function AWSLimitedEnforcementPilotContent({
+  result,
+  loading,
+  error,
+  onRetry
+}: {
+  result: AWSLimitedEnforcementPilotResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const summaryLine = result
+    ? `${result.summary.total_decisions} total · ${result.summary.eligible_count} eligible · ${result.summary.canary_ready_count} canary-ready · ${result.summary.enforce_ready_count} enforce-ready · ${result.summary.override_hold_count} held · ${result.summary.kill_switch_engaged_count} kill switch`
+    : '';
+  const panelResult = result
+    ? {
+        status: result.status,
+        entries: result.decisions,
+        caveats: result.caveats,
+        failure_reasons: result.failure_reasons
+      }
+    : null;
+  return (
+    <AWSExecutorProjectionPanel<AWSLimitedEnforcementPilotDecision>
+      result={panelResult}
+      loading={loading}
+      error={error}
+      onRetry={onRetry}
+      ariaLabel="AWS limited enforcement pilot"
+      heading="AWS limited enforcement pilot"
+      description={`High-confidence pilot over the limited enforcement framework: only entries that pass every eligibility rule (limited-enforce mode, confidence ≥ 90%, all framework gates, canary within the pilot cap, kill switch off, no operator hold) are marked pilot-ready. Rollback thresholds and audit rows travel with every decision; Identrail never enforces at this layer. ${summaryLine}`}
+      errorTitle="Couldn't load AWS limited enforcement pilot"
+      loadingTitle="Projecting limited enforcement pilot"
+      loadingBody="Identrail is evaluating framework entries against the pilot's high-confidence eligibility rules."
+      emptyEyebrow={(current) => (current.status === 'blocked' ? 'Permission required' : 'No pilot decisions')}
+      emptyTitle={(current) => (current.status === 'blocked' ? 'Enforcement pilot needs framework evidence' : 'No limited enforcement pilot decisions projected')}
+      emptyBody={(current) => current.failure_reasons[0] ?? 'No limited enforcement framework entry was available to evaluate for this environment.'}
+      tableLabel="AWS limited enforcement pilot decisions"
+      getRowKey={(row) => row.pilot_id}
+      columns={[
+        { key: 'decision', header: 'Decision', render: (row) => <strong>{row.title}</strong> },
+        { key: 'source', header: 'Source', render: (row) => formatTokenLabel(row.source_type) },
+        { key: 'state', header: 'Pilot state', render: (row) => formatTokenLabel(row.pilot_state) },
+        { key: 'rules', header: 'Eligibility', render: (row) => awsLimitedEnforcementPilotRuleLabel(row) },
+        { key: 'confidence', header: 'Confidence', render: (row) => `${row.metrics.confidence_pct}%` },
+        {
+          key: 'readiness',
+          header: 'Readiness',
+          render: (row) => (
+            <AWSInventoryPill stage={awsLimitedEnforcementPilotStage(row)} label={`${formatTokenLabel(row.outcome)} / ${row.metrics.canary_percent}%`} />
+          )
+        }
+      ]}
+    />
+  );
+}
+
 function awsSessionPolicyRecommendationStage(entry: AWSSessionPolicyRecommendationEntry): AWSCapabilityStage {
   if (entry.decision === 'remove' && entry.expected_behavior.observed_action_count > 0) {
     return 'wired';
@@ -13908,6 +13983,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [limitedEnforcementLoading, setLimitedEnforcementLoading] = useState(false);
   const [limitedEnforcementError, setLimitedEnforcementError] = useState('');
   const limitedEnforcementRequestRef = useRef(0);
+  const [limitedEnforcementPilot, setLimitedEnforcementPilot] = useState<AWSLimitedEnforcementPilotResult | null>(null);
+  const [limitedEnforcementPilotLoading, setLimitedEnforcementPilotLoading] = useState(false);
+  const [limitedEnforcementPilotError, setLimitedEnforcementPilotError] = useState('');
+  const limitedEnforcementPilotRequestRef = useRef(0);
   const [sessionPolicyRecommendations, setSessionPolicyRecommendations] = useState<AWSSessionPolicyRecommendationResult | null>(null);
   const [sessionPolicyRecommendationsLoading, setSessionPolicyRecommendationsLoading] = useState(false);
   const [sessionPolicyRecommendationsError, setSessionPolicyRecommendationsError] = useState('');
@@ -14660,6 +14739,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       limitedEnforcementRequestRef.current += 1;
     };
   }, [loadLimitedEnforcement]);
+
+  const loadLimitedEnforcementPilot = useCallback(async () => {
+    const requestID = ++limitedEnforcementPilotRequestRef.current;
+    setLimitedEnforcementPilot(null);
+    setLimitedEnforcementPilotError('');
+    if (routeID !== 'governance' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setLimitedEnforcementPilotLoading(false);
+      return;
+    }
+    setLimitedEnforcementPilotLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectLimitedEnforcementPilot(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== limitedEnforcementPilotRequestRef.current) {
+        return;
+      }
+      setLimitedEnforcementPilot(response.limited_enforcement_pilot);
+    } catch (error) {
+      if (requestID !== limitedEnforcementPilotRequestRef.current) {
+        return;
+      }
+      setLimitedEnforcementPilotError(formatAPIError(error, 'Unable to load AWS limited enforcement pilot.'));
+    } finally {
+      if (requestID === limitedEnforcementPilotRequestRef.current) {
+        setLimitedEnforcementPilotLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadLimitedEnforcementPilot();
+    return () => {
+      limitedEnforcementPilotRequestRef.current += 1;
+    };
+  }, [loadLimitedEnforcementPilot]);
 
   const loadSessionPolicyRecommendations = useCallback(async () => {
     const requestID = ++sessionPolicyRecommendationsRequestRef.current;
@@ -15782,6 +15909,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={limitedEnforcementLoading}
             error={limitedEnforcementError}
             onRetry={loadLimitedEnforcement}
+          />
+        ) : null}
+        {routeID === 'governance' ? (
+          <AWSLimitedEnforcementPilotContent
+            result={limitedEnforcementPilot}
+            loading={limitedEnforcementPilotLoading}
+            error={limitedEnforcementPilotError}
+            onRetry={loadLimitedEnforcementPilot}
           />
         ) : null}
       </div>

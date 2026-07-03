@@ -4174,6 +4174,155 @@ export type AWSLimitedEnforcementQuery = {
   search?: string;
 };
 
+export type AWSLimitedEnforcementPilotStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSLimitedEnforcementPilotFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSLimitedEnforcementPilotState =
+  | 'pilot_canary_ready'
+  | 'pilot_enforce_ready'
+  | 'ineligible'
+  | 'override_hold'
+  | 'blocked_by_kill_switch'
+  | string;
+
+export type AWSLimitedEnforcementPilotEligibilityRule = {
+  name: string;
+  status: 'passed' | 'failed' | string;
+  rationale: string;
+};
+
+export type AWSLimitedEnforcementPilotRollbackThresholds = {
+  max_denial_regression_pct: number;
+  observation_window: string;
+  auto_rollback_on_kill_switch: boolean;
+  operator_override_halts_pilot: boolean;
+};
+
+export type AWSLimitedEnforcementPilotMetrics = {
+  eligibility_rules_passed: number;
+  eligibility_rules_total: number;
+  framework_gates_passed: number;
+  framework_gates_total: number;
+  confidence_pct: number;
+  canary_percent: number;
+};
+
+export type AWSLimitedEnforcementPilotRelationship = {
+  pilot_id: string;
+  type: string;
+  from_node_id: string;
+  to_node_id: string;
+  evidence_ref?: string;
+};
+
+export type AWSLimitedEnforcementPilotDecision = {
+  pilot_id: string;
+  calculation_version: string;
+  policy_version: string;
+  mode: 'pilot' | string;
+  pilot_state: AWSLimitedEnforcementPilotState;
+  eligible: boolean;
+  enforcement_id: string;
+  source_type: string;
+  source_id: string;
+  outcome: string;
+  confidence: number;
+  severity: string;
+  score: number;
+  title: string;
+  summary: string;
+  rationale: string;
+  account_id?: string;
+  target_account_ids?: string[];
+  region?: string;
+  principal_node_id?: string;
+  action?: string;
+  cohort?: string;
+  operator_override?: string;
+  eligibility_rules: AWSLimitedEnforcementPilotEligibilityRule[];
+  rollback_thresholds: AWSLimitedEnforcementPilotRollbackThresholds;
+  metrics: AWSLimitedEnforcementPilotMetrics;
+  evidence_links: string[];
+  evidence_boundary: string;
+  input_hash: string;
+  audit_trail: AWSRemediationAuditEntry[];
+  read_only_projection: boolean;
+  next_action: string;
+  projected_at: string;
+  updated_at: string;
+};
+
+export type AWSLimitedEnforcementPilotSummary = {
+  total_decisions: number;
+  filtered_decisions: number;
+  pilot_state_counts: Record<string, number>;
+  outcome_counts: Record<string, number>;
+  source_type_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  eligible_count: number;
+  ineligible_count: number;
+  canary_ready_count: number;
+  enforce_ready_count: number;
+  override_hold_count: number;
+  kill_switch_engaged_count: number;
+  failed_rule_count: number;
+  relationship_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSLimitedEnforcementPilotResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSLimitedEnforcementPilotStatus;
+  fixture_state?: AWSLimitedEnforcementPilotFixtureState;
+  confidence: number;
+  calculation_version: string;
+  policy_version: string;
+  mode: 'pilot' | string;
+  operator_override?: string;
+  safety_config: AWSLimitedEnforcementSafetyConfig;
+  rollback_thresholds: AWSLimitedEnforcementPilotRollbackThresholds;
+  applied_filters: Record<string, string>;
+  summary: AWSLimitedEnforcementPilotSummary;
+  decisions: AWSLimitedEnforcementPilotDecision[];
+  relationships: AWSLimitedEnforcementPilotRelationship[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSLimitedEnforcementPilotQuery = {
+  connectorID?: string;
+  fixtureState?: AWSLimitedEnforcementPilotFixtureState;
+  accountID?: string;
+  region?: string;
+  cohort?: string;
+  featureFlag?: boolean;
+  killSwitch?: boolean;
+  canaryPercent?: number;
+  operatorOverride?: string;
+  pilotState?: string;
+  sourceType?: string;
+  outcome?: string;
+  enforcementID?: string;
+  severity?: string;
+  search?: string;
+};
+
 export type AWSSessionPolicyRecommendationStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSSessionPolicyRecommendationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSSessionPolicyRecommendationDecision = 'remove' | 'review' | string;
@@ -9797,6 +9946,33 @@ export const apiClient = {
         feature_flag: query?.featureFlag,
         kill_switch: query?.killSwitch,
         canary_percent: query?.canaryPercent,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectLimitedEnforcementPilot(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSLimitedEnforcementPilotQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ limited_enforcement_pilot: AWSLimitedEnforcementPilotResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/limited-enforcement-pilot${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        cohort: query?.cohort,
+        feature_flag: query?.featureFlag,
+        kill_switch: query?.killSwitch,
+        canary_percent: query?.canaryPercent,
+        operator_override: query?.operatorOverride,
+        pilot_state: query?.pilotState,
+        source_type: query?.sourceType,
+        outcome: query?.outcome,
+        enforcement_id: query?.enforcementID,
+        severity: query?.severity,
         search: query?.search
       })}`,
       auth

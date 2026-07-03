@@ -101,6 +101,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - AWS post-remediation verification and rollback: `aws-post-remediation-verification.md`
 - AWS advisory authorization decision API: `aws-advisory-authorization.md`
 - AWS limited enforcement framework: `aws-limited-enforcement.md`
+- AWS high-confidence limited enforcement pilot: `aws-limited-enforcement-pilot.md`
 - AWS session policy recommendation path: `aws-session-policy-recommendation.md`
 - AWS AgentCore gateway policy advisory: `aws-agentcore-gateway-policy-advisory.md`
 - AWS normalizer and graph: `aws-normalizer-graph.md`

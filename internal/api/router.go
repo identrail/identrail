@@ -3397,6 +3397,52 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"limited_enforcement": record})
 	})
 
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/limited-enforcement-pilot", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		canaryPercent, canaryOK := parseAWSLimitedEnforcementCanary(c.Query("canary_percent"))
+		if !canaryOK {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws limited enforcement pilot request"})
+			return
+		}
+		record, err := svc.GetAWSLimitedEnforcementPilot(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSLimitedEnforcementPilotRequest{
+			ConnectorID:      strings.TrimSpace(c.Query("connector_id")),
+			FixtureState:     strings.TrimSpace(c.Query("fixture_state")),
+			AccountID:        strings.TrimSpace(c.Query("account_id")),
+			Region:           strings.TrimSpace(c.Query("region")),
+			Cohort:           strings.TrimSpace(c.Query("cohort")),
+			FeatureFlag:      strings.TrimSpace(c.Query("feature_flag")),
+			KillSwitch:       strings.TrimSpace(c.Query("kill_switch")),
+			CanaryPercent:    canaryPercent,
+			OperatorOverride: strings.TrimSpace(c.Query("operator_override")),
+			PilotState:       strings.TrimSpace(c.Query("pilot_state")),
+			SourceType:       strings.TrimSpace(c.Query("source_type")),
+			Outcome:          strings.TrimSpace(c.Query("outcome")),
+			EnforcementID:    strings.TrimSpace(c.Query("enforcement_id")),
+			Severity:         strings.TrimSpace(c.Query("severity")),
+			Search:           strings.TrimSpace(c.Query("search")),
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project or connector not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws limited enforcement pilot request"})
+			default:
+				logger.Error("get aws limited enforcement pilot",
+					zap.String("workspace_id", c.Param("workspace_id")),
+					zap.String("project_id", c.Param("project_id")),
+					telemetry.ZapError(err),
+				)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws limited enforcement pilot"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"limited_enforcement_pilot": record})
+	})
+
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/session-policy-recommendations", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)

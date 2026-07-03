@@ -619,6 +619,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/limited-enforcement-pilot
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/session-policy-recommendations
     action: tenancy.read
     resource_type: project
@@ -5920,6 +5925,106 @@ paths:
                     $ref: "#/components/schemas/AWSLimitedEnforcementResult"
         "400":
           description: Invalid AWS limited enforcement request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/limited-enforcement-pilot:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS high-confidence limited enforcement pilot decisions
+      operationId: getAWSProjectLimitedEnforcementPilot
+      description: Projects the high-confidence enforcement pilot over the limited-enforcement framework. Only framework entries that pass every pilot eligibility rule (limited-enforce mode, confidence at least 90 percent, all framework gates passed, canary within the pilot cap, kill switch off, no operator hold) are marked pilot-ready. Each decision records eligibility rules, canary criteria, rollback thresholds, override state, per-decision metrics, and an immutable audit trail. The endpoint is metadata-only; Identrail never calls AWS write APIs and downstream executors own any live control change.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: cohort
+          schema: { type: string }
+        - in: query
+          name: feature_flag
+          schema: { type: boolean }
+        - in: query
+          name: kill_switch
+          schema: { type: boolean }
+        - in: query
+          name: canary_percent
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        - in: query
+          name: operator_override
+          schema:
+            type: string
+            enum: [hold, pause, resume]
+          description: Operator override control. `hold`/`pause` holds every pilot decision until explicitly resumed; unknown values are rejected.
+        - in: query
+          name: pilot_state
+          schema:
+            type: string
+            enum: [pilot_canary_ready, pilot_enforce_ready, ineligible, override_hold, blocked_by_kill_switch]
+        - in: query
+          name: source_type
+          schema:
+            type: string
+            enum: [advisory_authorization, agentcore_gateway_policy_advisory]
+        - in: query
+          name: outcome
+          schema: { type: string }
+        - in: query
+          name: enforcement_id
+          schema: { type: string }
+          description: Optional framework enforcement ID, pilot ID, or source decision ID filter.
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS limited enforcement pilot contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  limited_enforcement_pilot:
+                    $ref: "#/components/schemas/AWSLimitedEnforcementPilotResult"
+        "400":
+          description: Invalid AWS limited enforcement pilot request
           content:
             application/json:
               schema:
@@ -16646,6 +16751,198 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSLimitedEnforcementRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSLimitedEnforcementPilotEligibilityRule:
+      type: object
+      properties:
+        name: { type: string }
+        status:
+          type: string
+          enum: [passed, failed]
+        rationale: { type: string }
+    AWSLimitedEnforcementPilotRollbackThresholds:
+      type: object
+      properties:
+        max_denial_regression_pct: { type: integer }
+        observation_window: { type: string }
+        auto_rollback_on_kill_switch: { type: boolean }
+        operator_override_halts_pilot: { type: boolean }
+    AWSLimitedEnforcementPilotMetrics:
+      type: object
+      properties:
+        eligibility_rules_passed: { type: integer }
+        eligibility_rules_total: { type: integer }
+        framework_gates_passed: { type: integer }
+        framework_gates_total: { type: integer }
+        confidence_pct: { type: integer }
+        canary_percent: { type: integer }
+    AWSLimitedEnforcementPilotRelationship:
+      type: object
+      properties:
+        pilot_id: { type: string }
+        type: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        evidence_ref: { type: string }
+    AWSLimitedEnforcementPilotDecision:
+      type: object
+      properties:
+        pilot_id: { type: string }
+        calculation_version: { type: string }
+        policy_version: { type: string }
+        mode:
+          type: string
+          enum: [pilot]
+        pilot_state:
+          type: string
+          enum: [pilot_canary_ready, pilot_enforce_ready, ineligible, override_hold, blocked_by_kill_switch]
+        eligible: { type: boolean }
+        enforcement_id: { type: string }
+        source_type: { type: string }
+        source_id: { type: string }
+        outcome: { type: string }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        severity: { type: string }
+        score: { type: integer }
+        title: { type: string }
+        summary: { type: string }
+        rationale: { type: string }
+        account_id: { type: string }
+        target_account_ids:
+          type: array
+          items: { type: string }
+        region: { type: string }
+        principal_node_id: { type: string }
+        action: { type: string }
+        cohort: { type: string }
+        operator_override: { type: string }
+        eligibility_rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLimitedEnforcementPilotEligibilityRule"
+        rollback_thresholds:
+          $ref: "#/components/schemas/AWSLimitedEnforcementPilotRollbackThresholds"
+        metrics:
+          $ref: "#/components/schemas/AWSLimitedEnforcementPilotMetrics"
+        evidence_links:
+          type: array
+          items: { type: string }
+        evidence_boundary: { type: string }
+        input_hash: { type: string }
+        audit_trail:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationApprovalAuditEntry"
+        read_only_projection: { type: boolean }
+        next_action: { type: string }
+        projected_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSLimitedEnforcementPilotSummary:
+      type: object
+      properties:
+        total_decisions: { type: integer }
+        filtered_decisions: { type: integer }
+        pilot_state_counts:
+          type: object
+          additionalProperties: { type: integer }
+        outcome_counts:
+          type: object
+          additionalProperties: { type: integer }
+        source_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        eligible_count: { type: integer }
+        ineligible_count: { type: integer }
+        canary_ready_count: { type: integer }
+        enforce_ready_count: { type: integer }
+        override_hold_count: { type: integer }
+        kill_switch_engaged_count: { type: integer }
+        failed_rule_count: { type: integer }
+        relationship_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSLimitedEnforcementPilotResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        policy_version: { type: string }
+        mode:
+          type: string
+          enum: [pilot]
+        operator_override: { type: string }
+        safety_config:
+          $ref: "#/components/schemas/AWSLimitedEnforcementSafetyConfig"
+        rollback_thresholds:
+          $ref: "#/components/schemas/AWSLimitedEnforcementPilotRollbackThresholds"
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSLimitedEnforcementPilotSummary"
+        decisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLimitedEnforcementPilotDecision"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLimitedEnforcementPilotRelationship"
         caveats:
           type: array
           items: { type: string }
