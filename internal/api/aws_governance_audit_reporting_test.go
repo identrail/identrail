@@ -134,6 +134,33 @@ func TestAWSGovernanceAuditExceptionRecordsPreserveDiagnosticSource(t *testing.T
 	}
 }
 
+func TestAWSGovernanceAuditReportingDiagnosticsDeduplicateTransitiveSources(t *testing.T) {
+	duplicate := AWSGovernanceAuditReportingDiagnostic{
+		Collector: "scp_guardrail_executor",
+		SourceID:  "aws-scp-guardrail-executor:payments",
+		Code:      "permission_denied",
+		Message:   "Organizations read access denied while building SCP executor evidence.",
+	}
+	distinctCollector := duplicate
+	distinctCollector.Collector = "post_remediation_verification"
+
+	diagnostics := awsGovernanceAuditReportingDiagnostics(
+		[]AWSGovernanceAuditReportingDiagnostic{duplicate},
+		[]AWSGovernanceAuditReportingDiagnostic{duplicate, distinctCollector},
+	)
+	if len(diagnostics) != 2 {
+		t.Fatalf("expected duplicate transitive diagnostics to collapse by collector/source/code/message, got %+v", diagnostics)
+	}
+	records := awsGovernanceAuditExceptionRecords(diagnostics, time.Date(2026, 7, 3, 18, 25, 0, 0, time.UTC))
+	seen := map[string]bool{}
+	for _, record := range records {
+		if seen[record.ReportID] {
+			t.Fatalf("expected distinct diagnostic exception report IDs after dedupe, got duplicate %q in %+v", record.ReportID, records)
+		}
+		seen[record.ReportID] = true
+	}
+}
+
 func TestFilterAWSGovernanceAuditReportingByDecisionApproverAndTime(t *testing.T) {
 	now := time.Date(2026, 7, 3, 18, 30, 0, 0, time.UTC)
 	records := []AWSGovernanceAuditReportRecord{

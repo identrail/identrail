@@ -5275,6 +5275,101 @@ describe('Domain-first app routes', () => {
     );
   });
 
+  it('loads governance audit reporting for disconnected connectors with diagnostics', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-denied',
+        display_name: 'Denied AWS',
+        account_id: '123456789012',
+        region: 'us-east-1',
+        diagnostics: [
+          {
+            code: 'permission_denied',
+            message: 'Organizations read access denied.'
+          }
+        ]
+      }
+    });
+    const getGovernanceAuditReporting = vi.spyOn(api.apiClient, 'getAWSProjectGovernanceAuditReporting').mockResolvedValue({
+      governance_audit_reporting: {
+        status: 'blocked',
+        policy_version: 'aws-governance-audit-reporting-policy-v1',
+        records: [],
+        applied_filters: {},
+        summary: {
+          total_records: 0,
+          filtered_records: 0,
+          category_counts: {},
+          decision_type_counts: {},
+          state_counts: {},
+          source_type_counts: {},
+          account_counts: {},
+          decision_count: 0,
+          approval_count: 0,
+          remediation_count: 0,
+          enforcement_outcome_count: 0,
+          exception_count: 0,
+          exportable_evidence_count: 0,
+          audit_entry_count: 0,
+          highest_score: 0,
+          average_confidence_pct: 0
+        },
+        caveats: [],
+        failure_reasons: ['Organizations read access denied.'],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: [
+          {
+            collector: 'organizations',
+            source_id: 'aws-denied',
+            code: 'permission_denied',
+            message: 'Organizations read access denied.',
+            retryable: true
+          }
+        ]
+      } as any
+    });
+
+    const { ProductAWSGovernancePage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/governance?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/governance" element={<ProductAWSGovernancePage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Governance' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(getGovernanceAuditReporting).toHaveBeenCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-denied' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(await screen.findByText(/Permission required/i)).toBeInTheDocument();
+    expect(screen.getByText(/Organizations read access denied/i)).toBeInTheDocument();
+  });
+
   it('passes AWS findings filters to secret-permission equivalence queries', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({

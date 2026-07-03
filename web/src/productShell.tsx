@@ -14912,7 +14912,7 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     const requestID = ++governanceAuditReportingRequestRef.current;
     setGovernanceAuditReporting(null);
     setGovernanceAuditReportingError('');
-    if (routeID !== 'governance' || !scope || !selectedEnvironmentID || !connection?.connected) {
+    if (routeID !== 'governance' || !scope || !selectedEnvironmentID || !connection?.connector_id) {
       setGovernanceAuditReportingLoading(false);
       return;
     }

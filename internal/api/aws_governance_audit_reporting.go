@@ -551,7 +551,7 @@ func awsGovernanceAuditExceptionRecords(diagnostics []AWSGovernanceAuditReportin
 		if strings.TrimSpace(diagnostic.Code) == "" && strings.TrimSpace(diagnostic.Message) == "" {
 			continue
 		}
-		reportID := "aws-governance-audit:" + stableAWSBlastRadiusToken("audit-exception", diagnostic.SourceID, diagnostic.Code, diagnostic.Message)
+		reportID := "aws-governance-audit:" + stableAWSBlastRadiusToken("audit-exception", diagnostic.Collector, diagnostic.SourceID, diagnostic.Code, diagnostic.Message)
 		records = append(records, AWSGovernanceAuditReportRecord{
 			ReportID:           reportID,
 			CalculationVersion: awsGovernanceAuditReportingVersion,
@@ -858,8 +858,21 @@ func awsGovernanceAuditReportingCoverageGaps(groups ...[]AWSGovernanceAuditRepor
 
 func awsGovernanceAuditReportingDiagnostics(groups ...[]AWSGovernanceAuditReportingDiagnostic) []AWSGovernanceAuditReportingDiagnostic {
 	out := []AWSGovernanceAuditReportingDiagnostic{}
+	seen := map[string]bool{}
 	for _, group := range groups {
-		out = append(out, group...)
+		for _, diagnostic := range group {
+			key := strings.Join([]string{
+				strings.ToLower(strings.TrimSpace(diagnostic.Collector)),
+				strings.ToLower(strings.TrimSpace(diagnostic.SourceID)),
+				strings.ToLower(strings.TrimSpace(diagnostic.Code)),
+				strings.ToLower(strings.TrimSpace(diagnostic.Message)),
+			}, "\x00")
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, diagnostic)
+		}
 	}
 	return out
 }
