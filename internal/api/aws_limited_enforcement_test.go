@@ -81,6 +81,11 @@ func TestAWSLimitedEnforcementRequiresExplicitSafetyConfig(t *testing.T) {
 	if entry.Mode != awsLimitedEnforcementModeAdvisory || entry.EnforcementState != awsLimitedEnforcementStateBlockedBySafetyConfig || entry.ReadyForEnforcement {
 		t.Fatalf("missing safety config must block limited enforcement: %+v", entry)
 	}
+	for _, gateName := range []string{"feature_flag_enabled", "canary_configured"} {
+		if got := awsLimitedEnforcementTestGateStatus(entry.Gates, gateName); got != "failed" {
+			t.Fatalf("%s gate must report failed when safety config blocks enforcement, got %s gates=%+v", gateName, got, entry.Gates)
+		}
+	}
 
 	safety.FeatureFlagEnabled = true
 	safety.CanaryPercent = 10
@@ -161,4 +166,26 @@ func TestRouterAWSLimitedEnforcement(t *testing.T) {
 	if body.Framework.SafetyConfig.CanaryPercent != 25 || body.Framework.SafetyConfig.Cohort != "pilot-a" || !body.Framework.SafetyConfig.FeatureFlagEnabled {
 		t.Fatalf("route did not preserve safety config: %+v", body.Framework.SafetyConfig)
 	}
+}
+
+func TestRouterAWSLimitedEnforcementRejectsInvalidCanaryPercent(t *testing.T) {
+	now := time.Date(2026, 7, 3, 12, 30, 0, 0, time.UTC)
+	svc, _ := newLimitedEnforcementService(t, "project-limited-enforcement-bad-canary", now)
+	r := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{})
+
+	for _, raw := range []string{"not-a-number", "-1", "101"} {
+		resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-limited-enforcement-bad-canary/aws/limited-enforcement?connector_id=aws-prod&fixture_state=success&canary_percent="+raw, "")
+		if resp.Code != http.StatusBadRequest {
+			t.Fatalf("%s: expected 400 for invalid canary_percent, got %d body=%s", raw, resp.Code, resp.Body.String())
+		}
+	}
+}
+
+func awsLimitedEnforcementTestGateStatus(gates []AWSLimitedEnforcementGate, name string) string {
+	for _, gate := range gates {
+		if gate.Name == name {
+			return gate.Status
+		}
+	}
+	return ""
 }

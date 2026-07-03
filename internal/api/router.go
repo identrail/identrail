@@ -3357,6 +3357,11 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			tenancyServiceUnavailable(c)
 			return
 		}
+		canaryPercent, canaryOK := parseAWSLimitedEnforcementCanary(c.Query("canary_percent"))
+		if !canaryOK {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws limited enforcement request"})
+			return
+		}
 		record, err := svc.GetAWSLimitedEnforcement(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSLimitedEnforcementRequest{
 			ConnectorID:      strings.TrimSpace(c.Query("connector_id")),
 			FixtureState:     strings.TrimSpace(c.Query("fixture_state")),
@@ -3370,7 +3375,7 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			Cohort:           strings.TrimSpace(c.Query("cohort")),
 			FeatureFlag:      strings.TrimSpace(c.Query("feature_flag")),
 			KillSwitch:       strings.TrimSpace(c.Query("kill_switch")),
-			CanaryPercent:    parseAWSLimitedEnforcementCanary(c.Query("canary_percent")),
+			CanaryPercent:    canaryPercent,
 			Search:           strings.TrimSpace(c.Query("search")),
 		})
 		if err != nil {

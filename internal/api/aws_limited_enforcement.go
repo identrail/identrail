@@ -320,12 +320,18 @@ func clampAWSLimitedEnforcementCanary(value int) int {
 	return value
 }
 
-func parseAWSLimitedEnforcementCanary(value string) int {
+func parseAWSLimitedEnforcementCanary(value string) (int, bool) {
+	if strings.TrimSpace(value) == "" {
+		return 0, true
+	}
 	parsed, err := strconv.Atoi(strings.TrimSpace(value))
 	if err != nil {
-		return 0
+		return 0, false
 	}
-	return clampAWSLimitedEnforcementCanary(parsed)
+	if parsed < 0 || parsed > 100 {
+		return 0, false
+	}
+	return parsed, true
 }
 
 func awsLimitedEnforcementEntries(decisions []AWSAdvisoryAuthorizationDecision, advisories []AWSAgentCoreGatewayPolicyAdvisoryEntry, safety AWSLimitedEnforcementSafetyConfig, request AWSLimitedEnforcementRequest, now time.Time) []AWSLimitedEnforcementEntry {
@@ -497,13 +503,14 @@ func awsLimitedEnforcementRequestedEnforcementMode(request AWSLimitedEnforcement
 }
 
 func awsLimitedEnforcementGates(mode, state string, safety AWSLimitedEnforcementSafetyConfig, confidence float64, sourceKillSwitch bool, outcome string) []AWSLimitedEnforcementGate {
+	requiresLimitedSafety := mode == awsLimitedEnforcementModeLimitedEnforce || state == awsLimitedEnforcementStateBlockedBySafetyConfig
 	return []AWSLimitedEnforcementGate{
-		{Name: "feature_flag_enabled", Status: awsLimitedEnforcementGateStatus(mode != awsLimitedEnforcementModeLimitedEnforce || safety.FeatureFlagEnabled), Rationale: "Limited enforcement requires an explicit feature flag before any canary can be marked ready."},
+		{Name: "feature_flag_enabled", Status: awsLimitedEnforcementGateStatus(!requiresLimitedSafety || safety.FeatureFlagEnabled), Rationale: "Limited enforcement requires an explicit feature flag before any canary can be marked ready."},
 		{Name: "kill_switch_off", Status: awsLimitedEnforcementGateStatus(!safety.KillSwitchEngaged && !sourceKillSwitch), Rationale: "Tenant and source kill switches must be off before enforcement can leave advisory mode."},
-		{Name: "canary_configured", Status: awsLimitedEnforcementGateStatus(mode != awsLimitedEnforcementModeLimitedEnforce || (safety.CanaryPercent > 0 && strings.TrimSpace(safety.Cohort) != "")), Rationale: "Limited enforcement requires a non-empty cohort and a canary percentage greater than zero."},
+		{Name: "canary_configured", Status: awsLimitedEnforcementGateStatus(!requiresLimitedSafety || (safety.CanaryPercent > 0 && strings.TrimSpace(safety.Cohort) != "")), Rationale: "Limited enforcement requires a non-empty cohort and a canary percentage greater than zero."},
 		{Name: "rollback_ready", Status: awsLimitedEnforcementGateStatus(safety.RollbackRequired), Rationale: "Every limited-enforcement entry records rollback metadata before it can be used by a downstream executor."},
 		{Name: "audit_ready", Status: awsLimitedEnforcementGateStatus(safety.AuditRequired), Rationale: "Every mode transition must emit an immutable audit record."},
-		{Name: "confidence_floor", Status: awsLimitedEnforcementGateStatus(mode != awsLimitedEnforcementModeLimitedEnforce || confidence >= 0.8), Rationale: "Limited enforcement requires at least 80 percent confidence in the upstream advisory signal."},
+		{Name: "confidence_floor", Status: awsLimitedEnforcementGateStatus(!requiresLimitedSafety || confidence >= 0.8), Rationale: "Limited enforcement requires at least 80 percent confidence in the upstream advisory signal."},
 		{Name: "unsafe_outcome_blocked", Status: awsLimitedEnforcementGateStatus(state != awsLimitedEnforcementStateRollbackRequired && state != awsLimitedEnforcementStateBlockedByKillSwitch), Rationale: fmt.Sprintf("Outcome %s cannot activate enforcement while rollback or kill-switch state is present.", outcome)},
 	}
 }
