@@ -265,14 +265,9 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 	}
 	record, resolved := awsAgentIdentityDetailResolve(agent, inventory.Records)
 
-	// Downstream sources filter on the resolved agent's canonical IDs so a
-	// display-name lookup still scopes evidence correctly. Unresolved agents
-	// fall back to the requested token, which keeps unknown agents explicit
-	// (empty evidence) instead of leaking other agents' records.
-	agentFilter := agent
-	if resolved {
-		agentFilter = firstNonEmptyAWSValue(record.AgentID, record.AgentNodeID, agent)
-	}
+	// Downstream evidence filters are broad substring matches in some source
+	// APIs, so only resolved inventory records may contribute real agent IDs.
+	agentFilter := awsAgentIdentityDetailEvidenceAgentFilter(agent, record, resolved)
 	runtimeAccess, err := s.GetAWSAgentRuntimeAccess(ctx, workspaceID, projectID, AWSAgentRuntimeAccessRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
@@ -435,6 +430,13 @@ func awsAgentIdentityDetailResolve(agent string, records []AWSAIAgentIdentityRec
 		}
 	}
 	return AWSAIAgentIdentityRecord{}, false
+}
+
+func awsAgentIdentityDetailEvidenceAgentFilter(agent string, record AWSAIAgentIdentityRecord, resolved bool) string {
+	if !resolved {
+		return "aws-agent-identity-detail-unresolved:" + stableAWSBlastRadiusToken(agent)
+	}
+	return firstNonEmptyAWSValue(record.AgentNodeID, record.AgentID, agent)
 }
 
 func awsAgentIdentityDetailPermissionIdentity(record AWSAIAgentIdentityRecord, fallback string) string {

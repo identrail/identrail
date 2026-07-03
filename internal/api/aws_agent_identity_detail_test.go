@@ -37,6 +37,9 @@ func TestGetAWSAgentIdentityDetailBuildsContract(t *testing.T) {
 	if result.Agent.Provider == "" || result.Agent.RuntimeRoleARN == "" {
 		t.Fatalf("agent header must carry provider and backing role: %+v", result.Agent)
 	}
+	if result.RuntimeAccess.AppliedFilters["agent_id"] != result.Agent.AgentNodeID || result.Risk.AppliedFilters["agent_id"] != result.Agent.AgentNodeID || result.Governance.AppliedFilters["agent_id"] != result.Agent.AgentNodeID {
+		t.Fatalf("runtime/risk/governance evidence must be scoped by unique agent node id: runtime=%+v risk=%+v governance=%+v agent=%+v", result.RuntimeAccess.AppliedFilters, result.Risk.AppliedFilters, result.Governance.AppliedFilters, result.Agent)
+	}
 	if result.Permissions.AppliedFilters["identity"] != result.Agent.RuntimeRoleNodeID {
 		t.Fatalf("permission recommendations must be scoped by backing role identity, got filters=%+v agent=%+v", result.Permissions.AppliedFilters, result.Agent)
 	}
@@ -89,7 +92,7 @@ func TestGetAWSAgentIdentityDetailUnknownAgentIsExplicit(t *testing.T) {
 	result, err := svc.GetAWSAgentIdentityDetail(defaultScopeContext(), ws, "project-agent-identity-detail-unknown", AWSAgentIdentityDetailRequest{
 		ConnectorID:  "aws-prod",
 		FixtureState: "success",
-		Agent:        "agent-that-does-not-exist",
+		Agent:        "agent",
 	})
 	if err != nil {
 		t.Fatalf("unknown agent must be an explicit state, not an error: %v", err)
@@ -112,6 +115,18 @@ func TestGetAWSAgentIdentityDetailUnknownAgentIsExplicit(t *testing.T) {
 	}
 	if len(result.Relationships) != 0 {
 		t.Fatalf("unknown agent must not inherit unrelated graph relationships: %+v", result.Relationships)
+	}
+	if len(result.Tools) != 0 || len(result.RuntimeCalls) != 0 || len(result.RuntimeAccess.Records) != 0 {
+		t.Fatalf("unknown agent must not inherit runtime evidence: tools=%+v calls=%+v runtime=%+v", result.Tools, result.RuntimeCalls, result.RuntimeAccess.Records)
+	}
+	if len(result.Findings) != 0 || len(result.Risk.Findings) != 0 {
+		t.Fatalf("unknown agent must not inherit risk findings: findings=%+v risk=%+v", result.Findings, result.Risk.Findings)
+	}
+	if len(result.Recommendations) != 0 || len(result.Permissions.Recommendations) != 0 {
+		t.Fatalf("unknown agent must not inherit permission recommendations: recommendations=%+v permissions=%+v", result.Recommendations, result.Permissions.Recommendations)
+	}
+	if len(result.RemediationCases.Cases) != 0 || len(result.GovernanceDecisions) != 0 || len(result.Governance.Records) != 0 {
+		t.Fatalf("unknown agent must not inherit remediation/governance evidence: cases=%+v decisions=%+v governance=%+v", result.RemediationCases.Cases, result.GovernanceDecisions, result.Governance.Records)
 	}
 	if len(result.FailureReasons) == 0 {
 		t.Fatalf("unknown agent must carry a failure reason: %+v", result.FailureReasons)
