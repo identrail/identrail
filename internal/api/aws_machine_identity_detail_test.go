@@ -313,9 +313,13 @@ func TestAWSMachineIdentityDetailPostFiltersDownstreamEvidenceByExactScope(t *te
 	scope := awsMachineIdentityDetailScopeFor(appARN, nil)
 
 	runtime, permissions, secrets, blast, sprawl, cases := awsMachineIdentityDetailFilterDownstreamEvidence(scope,
-		AWSRuntimeEventResult{Records: []AWSRuntimeEventRecord{
+		AWSRuntimeEventResult{FixtureState: "success", Records: []AWSRuntimeEventRecord{
 			{EventID: "runtime-app", EventType: "api-call", ActorPrincipalARN: appARN, ActorIdentityNodeID: appNodeID, ResourceNodeID: "aws:resource:app", EvidenceRef: "evidence-runtime-app", Status: "allowed", Owner: "platform"},
 			{EventID: "runtime-app-admin", EventType: "api-call", ActorPrincipalARN: appAdminARN, ActorIdentityNodeID: appAdminNodeID, ResourceNodeID: "aws:resource:app-admin", EvidenceRef: "evidence-runtime-admin", Status: "allowed", Owner: "platform"},
+		}, Diagnostics: []AWSRuntimeEventDiagnostic{
+			{Collector: "cloudtrail", SourceID: "runtime-app", Code: "late_delivery", Message: "app event arrived late", Retryable: true},
+			{Collector: "cloudtrail", SourceID: "runtime-app-admin", Code: "late_delivery", Message: "admin event arrived late", Retryable: true},
+			{Collector: "cloudtrail", Code: "collector_backfill", Message: "collector-wide runtime backfill", Retryable: true},
 		}},
 		AWSLeastPrivilegeResult{Recommendations: []AWSLeastPrivilegeRecommendation{
 			{RecommendationID: "permission-app", PrincipalARN: appARN, IdentityNodeID: appNodeID, DisplayName: "app", ImpactedPath: []AWSLeastPrivilegePathStep{{NodeID: appNodeID, NodeType: "identity", Label: "app"}, {NodeID: "aws:resource:app", NodeType: "resource", Label: "app bucket"}}},
@@ -344,6 +348,9 @@ func TestAWSMachineIdentityDetailPostFiltersDownstreamEvidenceByExactScope(t *te
 
 	if len(runtime.Records) != 1 || runtime.Records[0].EventID != "runtime-app" || runtime.Summary.TotalEvents != 1 || runtime.Summary.FilteredEvents != 1 {
 		t.Fatalf("runtime evidence should be exact-scoped: records=%+v summary=%+v", runtime.Records, runtime.Summary)
+	}
+	if len(runtime.Diagnostics) != 2 || runtime.Diagnostics[0].SourceID != "runtime-app" || runtime.Diagnostics[1].SourceID != "" {
+		t.Fatalf("runtime diagnostics should keep exact event diagnostics and collector-level diagnostics only: %+v", runtime.Diagnostics)
 	}
 	if len(permissions.Recommendations) != 1 || permissions.Recommendations[0].RecommendationID != "permission-app" || permissions.Summary.TotalRecommendations != 1 || len(permissions.Relationships) != 1 {
 		t.Fatalf("permission evidence should be exact-scoped: recommendations=%+v summary=%+v relationships=%+v", permissions.Recommendations, permissions.Summary, permissions.Relationships)

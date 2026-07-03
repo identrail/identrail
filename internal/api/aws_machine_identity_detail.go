@@ -610,6 +610,7 @@ func awsMachineIdentityDetailFilterDownstreamEvidence(scope awsMachineIdentityDe
 }
 
 func awsMachineIdentityDetailFilterRuntimeEvents(scope awsMachineIdentityDetailScope, result AWSRuntimeEventResult) AWSRuntimeEventResult {
+	allRecords := result.Records
 	records := make([]AWSRuntimeEventRecord, 0, len(result.Records))
 	for _, record := range result.Records {
 		if !awsMachineIdentityDetailScopeMatches(scope,
@@ -629,6 +630,8 @@ func awsMachineIdentityDetailFilterRuntimeEvents(scope awsMachineIdentityDetailS
 	}
 	result.Records = records
 	result.Relationships = awsRuntimeEventRelationships(records)
+	result.Diagnostics = scopeAWSRuntimeEventDiagnostics(result.Diagnostics, allRecords, records)
+	result.Status, result.Confidence, result.FailureReasons, result.RemediationHints = summarizeAWSRuntimeEventStatus(result.FixtureState, result.Diagnostics, records)
 	result.Summary = summarizeAWSRuntimeEvents(records, len(records), len(result.Relationships))
 	return result
 }
