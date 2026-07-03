@@ -203,6 +203,7 @@ func (s *Service) GetAWSGovernanceAuditReporting(ctx context.Context, workspaceI
 		return AWSGovernanceAuditReportingResult{}, fmt.Errorf("governance audit enforcement pilot: %w", err)
 	}
 
+	diagnostics := awsGovernanceAuditReportingDiagnostics(advisory.Diagnostics, agentcore.Diagnostics, approvals.Diagnostics, verification.Diagnostics, scpExecutor.Diagnostics, pilot.Diagnostics)
 	records := []AWSGovernanceAuditReportRecord{}
 	records = append(records, awsGovernanceAuditRecordsFromAdvisory(advisory.Decisions)...)
 	records = append(records, awsGovernanceAuditRecordsFromAgentCore(agentcore.Advisories)...)
@@ -210,7 +211,7 @@ func (s *Service) GetAWSGovernanceAuditReporting(ctx context.Context, workspaceI
 	records = append(records, awsGovernanceAuditRecordsFromVerification(verification.Entries)...)
 	records = append(records, awsGovernanceAuditRecordsFromScpExecutions(scpExecutor.Entries)...)
 	records = append(records, awsGovernanceAuditRecordsFromPilot(pilot.Decisions)...)
-	records = append(records, awsGovernanceAuditExceptionRecords(pilot.Diagnostics, now)...)
+	records = append(records, awsGovernanceAuditExceptionRecords(diagnostics, now)...)
 	sort.SliceStable(records, func(i, j int) bool {
 		if records[i].OccurredAt.Equal(records[j].OccurredAt) {
 			return records[i].ReportID < records[j].ReportID
@@ -253,7 +254,7 @@ func (s *Service) GetAWSGovernanceAuditReporting(ctx context.Context, workspaceI
 			awsBaselineProjectEvidenceURL(scope, project),
 		}),
 		CoverageGaps: awsGovernanceAuditReportingCoverageGaps(advisory.CoverageGaps, agentcore.CoverageGaps, approvals.CoverageGaps, verification.CoverageGaps, scpExecutor.CoverageGaps, pilot.CoverageGaps),
-		Diagnostics:  awsGovernanceAuditReportingDiagnostics(advisory.Diagnostics, agentcore.Diagnostics, approvals.Diagnostics, verification.Diagnostics, scpExecutor.Diagnostics, pilot.Diagnostics),
+		Diagnostics:  diagnostics,
 		GeneratedAt:  now,
 		UpdatedAt:    now,
 	}, nil
@@ -624,8 +625,15 @@ func filterAWSGovernanceAuditReportRecords(records []AWSGovernanceAuditReportRec
 		if filters["approver"] != "" && !strings.Contains(normalizeAWSRuntimeEventFilterToken(record.Approver), filters["approver"]) {
 			continue
 		}
-		if filters["category"] != "" && filters["category"] != normalizeAWSRuntimeEventFilterToken(record.Category) {
-			continue
+		if filters["category"] != "" {
+			category := normalizeAWSRuntimeEventFilterToken(record.Category)
+			if filters["category"] == awsGovernanceAuditCategoryException {
+				if category != awsGovernanceAuditCategoryException && !record.Exception {
+					continue
+				}
+			} else if filters["category"] != category {
+				continue
+			}
 		}
 		if filters["state"] != "" && filters["state"] != normalizeAWSRuntimeEventFilterToken(record.State) {
 			continue

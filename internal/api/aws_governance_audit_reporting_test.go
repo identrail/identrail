@@ -82,6 +82,39 @@ func TestGetAWSGovernanceAuditReportingBuildsContract(t *testing.T) {
 	}
 }
 
+func TestGetAWSGovernanceAuditReportingIncludesAllDiagnosticsAsExceptionRows(t *testing.T) {
+	now := time.Date(2026, 7, 3, 18, 10, 0, 0, time.UTC)
+	svc, ws := newGovernanceAuditReportingService(t, "project-governance-audit-diagnostics", now)
+
+	result, err := svc.GetAWSGovernanceAuditReporting(defaultScopeContext(), ws, "project-governance-audit-diagnostics", AWSGovernanceAuditReportingRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "permission_denied",
+		Category:     awsGovernanceAuditCategoryException,
+	})
+	if err != nil {
+		t.Fatalf("get governance audit reporting: %v", err)
+	}
+	if len(result.Diagnostics) == 0 {
+		t.Fatalf("expected upstream diagnostics in permission_denied report")
+	}
+	expected := awsGovernanceAuditExceptionRecords(result.Diagnostics, now)
+	if len(expected) == 0 {
+		t.Fatalf("expected diagnostics to produce exception rows: %+v", result.Diagnostics)
+	}
+	seen := map[string]bool{}
+	for _, record := range result.Records {
+		seen[record.ReportID] = true
+		if !record.Exception {
+			t.Fatalf("category=exception should only return exception rows, got %+v", record)
+		}
+	}
+	for _, record := range expected {
+		if !seen[record.ReportID] {
+			t.Fatalf("expected diagnostic exception row %q in filtered export, got %+v", record.ReportID, result.Records)
+		}
+	}
+}
+
 func TestFilterAWSGovernanceAuditReportingByDecisionApproverAndTime(t *testing.T) {
 	now := time.Date(2026, 7, 3, 18, 30, 0, 0, time.UTC)
 	records := []AWSGovernanceAuditReportRecord{
@@ -109,11 +142,21 @@ func TestFilterAWSGovernanceAuditReportingByDecisionApproverAndTime(t *testing.T
 			ReportID:     "approval-a",
 			Category:     awsGovernanceAuditCategoryApproval,
 			DecisionType: "remediation_approval",
-			State:        "under_review",
+			State:        "denied",
 			SourceType:   "aws_permission_boundary_scp",
 			Approver:     "security_admin,platform_owner",
 			AccountID:    "222222222222",
+			Exception:    true,
 			OccurredAt:   now.Add(-2 * time.Hour),
+		},
+		{
+			ReportID:     "diagnostic-a",
+			Category:     awsGovernanceAuditCategoryException,
+			DecisionType: "diagnostic_exception",
+			State:        "permission_denied",
+			SourceType:   "diagnostic",
+			Exception:    true,
+			OccurredAt:   now.Add(-90 * time.Minute),
 		},
 	}
 
@@ -137,6 +180,23 @@ func TestFilterAWSGovernanceAuditReportingByDecisionApproverAndTime(t *testing.T
 	}, time.Time{}, time.Time{})
 	if len(filtered) != 1 || filtered[0].ReportID != "agent-a" {
 		t.Fatalf("expected agent/OU filters to match agent governance record, got %+v", filtered)
+	}
+
+	filtered, applied = filterAWSGovernanceAuditReportRecords(records, AWSGovernanceAuditReportingRequest{
+		Category: awsGovernanceAuditCategoryException,
+	}, time.Time{}, time.Time{})
+	if len(filtered) != 2 {
+		t.Fatalf("expected category=exception to keep flagged and diagnostic exception rows, got %+v", filtered)
+	}
+	seen := map[string]bool{}
+	for _, record := range filtered {
+		seen[record.ReportID] = true
+		if !record.Exception {
+			t.Fatalf("expected only exception rows from category=exception, got %+v", record)
+		}
+	}
+	if !seen["approval-a"] || !seen["diagnostic-a"] || applied["category"] != awsGovernanceAuditCategoryException {
+		t.Fatalf("expected flagged approval and diagnostic exception rows, filtered=%+v applied=%+v", filtered, applied)
 	}
 }
 
