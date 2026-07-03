@@ -4903,6 +4903,72 @@ describe('Domain-first app routes', () => {
       ]
     });
     vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const getGovernanceAuditReporting = vi.spyOn(api.apiClient, 'getAWSProjectGovernanceAuditReporting').mockResolvedValue({
+      governance_audit_reporting: {
+        status: 'ready',
+        policy_version: 'aws-governance-audit-reporting-policy-v1',
+        records: [
+          {
+            report_id: 'aws-governance-audit:orders',
+            calculation_version: 'aws-governance-audit-reporting-v1',
+            policy_version: 'aws-limited-enforcement-pilot-policy-v1',
+            category: 'enforcement_outcome',
+            source_type: 'advisory_authorization',
+            source_id: 'aws-limited-enforcement-pilot:orders',
+            decision_type: 'limited_enforcement_pilot',
+            outcome: 'allow',
+            state: 'pilot_canary_ready',
+            mode: 'pilot',
+            actor: 'identrail-limited-enforcement-pilot',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            identity_node_id: 'aws:identity:orders-deployer',
+            action: 'iam:PutRolePolicy',
+            confidence: 0.95,
+            score: 80,
+            title: 'Governance audit: orders deployer',
+            summary: 'Export-safe enforcement outcome report row.',
+            input_hash: 'audit-hash-a',
+            evidence_summary: [
+              { source: 'source_link', label: 'pilot evidence', evidence_ref: '/docs/aws-limited-enforcement-pilot', exportable: true, redacted: true }
+            ],
+            evidence_links: ['/docs/aws-limited-enforcement-pilot'],
+            evidence_boundary: 'metadata_only_exportable_refs_no_secret_values_no_rendered_policy_bodies_no_customer_payloads',
+            audit_trail: [],
+            read_only_projection: true,
+            exception: false,
+            next_action: 'Export the audit row.',
+            occurred_at: '2026-07-03T10:00:00Z',
+            updated_at: '2026-07-03T10:00:00Z'
+          }
+        ],
+        applied_filters: {},
+        summary: {
+          total_records: 1,
+          filtered_records: 1,
+          category_counts: { enforcement_outcome: 1 },
+          decision_type_counts: { limited_enforcement_pilot: 1 },
+          state_counts: { pilot_canary_ready: 1 },
+          source_type_counts: { advisory_authorization: 1 },
+          account_counts: { '123456789012': 1 },
+          decision_count: 0,
+          approval_count: 0,
+          remediation_count: 0,
+          enforcement_outcome_count: 1,
+          exception_count: 0,
+          exportable_evidence_count: 1,
+          audit_entry_count: 0,
+          highest_score: 80,
+          average_confidence_pct: 95
+        },
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
     const getLimitedEnforcement = vi.spyOn(api.apiClient, 'getAWSProjectLimitedEnforcement').mockResolvedValue({
       limited_enforcement: {
         status: 'ready',
@@ -5107,6 +5173,14 @@ describe('Domain-first app routes', () => {
     );
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Governance' })).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS governance audit reporting records' })).toBeInTheDocument();
+    expect(screen.getByText(/Governance audit: orders deployer/i)).toBeInTheDocument();
+    expect(getGovernanceAuditReporting).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
     expect(await screen.findByRole('table', { name: 'AWS limited enforcement framework entries' })).toBeInTheDocument();
     expect(screen.getByText(/Limited enforcement framework: orders deployer/i)).toBeInTheDocument();
     expect(screen.getByText(/pilot-a/i)).toBeInTheDocument();

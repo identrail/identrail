@@ -624,6 +624,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/governance-audit-reporting
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/session-policy-recommendations
     action: tenancy.read
     resource_type: project
@@ -6025,6 +6030,99 @@ paths:
                     $ref: "#/components/schemas/AWSLimitedEnforcementPilotResult"
         "400":
           description: Invalid AWS limited enforcement pilot request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/governance-audit-reporting:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS governance audit reporting records
+      operationId: getAWSProjectGovernanceAuditReporting
+      description: Composes export-safe AWS governance audit records from advisory decisions, AgentCore gateway policy advisories, remediation approvals, post-remediation verification, limited enforcement pilot outcomes, and exception diagnostics. Each row carries source IDs, decision type, state, actor or approver context, account/region, confidence, policy version, input hash, evidence refs, timestamps, and audit metadata without exposing sensitive payloads or calling AWS write APIs.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: ou
+          schema: { type: string }
+        - in: query
+          name: identity_id
+          schema: { type: string }
+        - in: query
+          name: agent_id
+          schema: { type: string }
+        - in: query
+          name: decision_type
+          schema: { type: string }
+        - in: query
+          name: approver
+          schema: { type: string }
+        - in: query
+          name: category
+          schema:
+            type: string
+            enum: [decision, approval, remediation, enforcement_outcome, exception]
+        - in: query
+          name: state
+          schema: { type: string }
+        - in: query
+          name: source_type
+          schema: { type: string }
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS governance audit reporting contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  governance_audit_reporting:
+                    $ref: "#/components/schemas/AWSGovernanceAuditReportingResult"
+        "400":
+          description: Invalid AWS governance audit reporting request
           content:
             application/json:
               schema:
@@ -16943,6 +17041,161 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSLimitedEnforcementPilotRelationship"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSGovernanceAuditEvidenceSummary:
+      type: object
+      properties:
+        source: { type: string }
+        label: { type: string }
+        evidence_ref: { type: string }
+        exportable: { type: boolean }
+        redacted: { type: boolean }
+    AWSGovernanceAuditReportRecord:
+      type: object
+      properties:
+        report_id: { type: string }
+        calculation_version: { type: string }
+        policy_version: { type: string }
+        category:
+          type: string
+          enum: [decision, approval, remediation, enforcement_outcome, exception]
+        source_type: { type: string }
+        source_id: { type: string }
+        decision_type: { type: string }
+        outcome: { type: string }
+        state: { type: string }
+        mode: { type: string }
+        actor: { type: string }
+        approver: { type: string }
+        account_id: { type: string }
+        target_account_ids:
+          type: array
+          items: { type: string }
+        region: { type: string }
+        ou: { type: string }
+        identity_node_id: { type: string }
+        agent_id: { type: string }
+        agent_node_id: { type: string }
+        action: { type: string }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        score: { type: integer }
+        title: { type: string }
+        summary: { type: string }
+        rationale: { type: string }
+        input_hash: { type: string }
+        evidence_summary:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSGovernanceAuditEvidenceSummary"
+        evidence_links:
+          type: array
+          items: { type: string }
+        evidence_boundary: { type: string }
+        audit_trail:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationApprovalAuditEntry"
+        read_only_projection: { type: boolean }
+        exception: { type: boolean }
+        next_action: { type: string }
+        occurred_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSGovernanceAuditReportingSummary:
+      type: object
+      properties:
+        total_records: { type: integer }
+        filtered_records: { type: integer }
+        category_counts:
+          type: object
+          additionalProperties: { type: integer }
+        decision_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        state_counts:
+          type: object
+          additionalProperties: { type: integer }
+        source_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        account_counts:
+          type: object
+          additionalProperties: { type: integer }
+        decision_count: { type: integer }
+        approval_count: { type: integer }
+        remediation_count: { type: integer }
+        enforcement_outcome_count: { type: integer }
+        exception_count: { type: integer }
+        exportable_evidence_count: { type: integer }
+        audit_entry_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSGovernanceAuditReportingResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        policy_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSGovernanceAuditReportingSummary"
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSGovernanceAuditReportRecord"
         caveats:
           type: array
           items: { type: string }

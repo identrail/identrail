@@ -4323,6 +4323,123 @@ export type AWSLimitedEnforcementPilotQuery = {
   search?: string;
 };
 
+export type AWSGovernanceAuditReportingStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSGovernanceAuditReportingFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+export type AWSGovernanceAuditReportingCategory = 'decision' | 'approval' | 'remediation' | 'enforcement_outcome' | 'exception' | string;
+
+export type AWSGovernanceAuditEvidenceSummary = {
+  source: string;
+  label: string;
+  evidence_ref?: string;
+  exportable: boolean;
+  redacted: boolean;
+};
+
+export type AWSGovernanceAuditReportRecord = {
+  report_id: string;
+  calculation_version: string;
+  policy_version: string;
+  category: AWSGovernanceAuditReportingCategory;
+  source_type: string;
+  source_id: string;
+  decision_type: string;
+  outcome?: string;
+  state: string;
+  mode?: string;
+  actor?: string;
+  approver?: string;
+  account_id?: string;
+  target_account_ids?: string[];
+  region?: string;
+  ou?: string;
+  identity_node_id?: string;
+  agent_id?: string;
+  agent_node_id?: string;
+  action?: string;
+  confidence: number;
+  score: number;
+  title: string;
+  summary: string;
+  rationale?: string;
+  input_hash?: string;
+  evidence_summary: AWSGovernanceAuditEvidenceSummary[];
+  evidence_links: string[];
+  evidence_boundary: string;
+  audit_trail: AWSRemediationAuditEntry[];
+  read_only_projection: boolean;
+  exception: boolean;
+  next_action: string;
+  occurred_at: string;
+  updated_at: string;
+};
+
+export type AWSGovernanceAuditReportingSummary = {
+  total_records: number;
+  filtered_records: number;
+  category_counts: Record<string, number>;
+  decision_type_counts: Record<string, number>;
+  state_counts: Record<string, number>;
+  source_type_counts: Record<string, number>;
+  account_counts: Record<string, number>;
+  decision_count: number;
+  approval_count: number;
+  remediation_count: number;
+  enforcement_outcome_count: number;
+  exception_count: number;
+  exportable_evidence_count: number;
+  audit_entry_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSGovernanceAuditReportingResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSGovernanceAuditReportingStatus;
+  fixture_state?: AWSGovernanceAuditReportingFixtureState;
+  confidence: number;
+  calculation_version: string;
+  policy_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSGovernanceAuditReportingSummary;
+  records: AWSGovernanceAuditReportRecord[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSGovernanceAuditReportingQuery = {
+  connectorID?: string;
+  fixtureState?: AWSGovernanceAuditReportingFixtureState;
+  accountID?: string;
+  region?: string;
+  ou?: string;
+  identityID?: string;
+  agentID?: string;
+  decisionType?: string;
+  approver?: string;
+  category?: string;
+  state?: string;
+  sourceType?: string;
+  from?: string;
+  to?: string;
+  search?: string;
+};
+
 export type AWSSessionPolicyRecommendationStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSSessionPolicyRecommendationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSSessionPolicyRecommendationDecision = 'remove' | 'review' | string;
@@ -9973,6 +10090,33 @@ export const apiClient = {
         outcome: query?.outcome,
         enforcement_id: query?.enforcementID,
         severity: query?.severity,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectGovernanceAuditReporting(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSGovernanceAuditReportingQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ governance_audit_reporting: AWSGovernanceAuditReportingResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/governance-audit-reporting${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        ou: query?.ou,
+        identity_id: query?.identityID,
+        agent_id: query?.agentID,
+        decision_type: query?.decisionType,
+        approver: query?.approver,
+        category: query?.category,
+        state: query?.state,
+        source_type: query?.sourceType,
+        from: query?.from,
+        to: query?.to,
         search: query?.search
       })}`,
       auth

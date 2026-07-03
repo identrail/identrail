@@ -1,6 +1,19 @@
 # Changelog
 
 ## Unreleased
+- Add **AWS governance audit reporting** (#1548). Adds a metadata-only
+  reporting projection over advisory authorization, AgentCore gateway policy
+  advisory, remediation approval, post-remediation verification, and limited
+  enforcement pilot records. The new
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/governance-audit-reporting`
+  endpoint returns export-safe rows for decisions, approvals, remediations,
+  enforcement outcomes, and exceptions, with filters for account, region, OU,
+  identity, agent, decision type, approver, category, state, source type, time
+  range, and search. Each row carries source IDs, policy version, input hash,
+  confidence, actor/approver context, timestamps, evidence refs, and audit-trail
+  metadata without exposing rendered policy bodies, secret values, prompts,
+  completions, database rows, object contents, or workload payloads. The AWS
+  Governance app now shows an **AWS governance audit reporting** panel.
 - Add **AWS high-confidence limited enforcement pilot** (#1547). Adds
   the pilot path over the limited enforcement framework (#1546): every
   framework entry is evaluated against a stricter, high-confidence-only

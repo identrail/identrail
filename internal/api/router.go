@@ -3443,6 +3443,47 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"limited_enforcement_pilot": record})
 	})
 
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/governance-audit-reporting", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		record, err := svc.GetAWSGovernanceAuditReporting(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSGovernanceAuditReportingRequest{
+			ConnectorID:  strings.TrimSpace(c.Query("connector_id")),
+			FixtureState: strings.TrimSpace(c.Query("fixture_state")),
+			AccountID:    strings.TrimSpace(c.Query("account_id")),
+			Region:       strings.TrimSpace(c.Query("region")),
+			OU:           strings.TrimSpace(c.Query("ou")),
+			IdentityID:   strings.TrimSpace(c.Query("identity_id")),
+			AgentID:      strings.TrimSpace(c.Query("agent_id")),
+			DecisionType: strings.TrimSpace(c.Query("decision_type")),
+			Approver:     strings.TrimSpace(c.Query("approver")),
+			Category:     strings.TrimSpace(c.Query("category")),
+			State:        strings.TrimSpace(c.Query("state")),
+			SourceType:   strings.TrimSpace(c.Query("source_type")),
+			From:         strings.TrimSpace(c.Query("from")),
+			To:           strings.TrimSpace(c.Query("to")),
+			Search:       strings.TrimSpace(c.Query("search")),
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project or connector not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws governance audit reporting request"})
+			default:
+				logger.Error("get aws governance audit reporting",
+					zap.String("workspace_id", c.Param("workspace_id")),
+					zap.String("project_id", c.Param("project_id")),
+					telemetry.ZapError(err),
+				)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws governance audit reporting"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"governance_audit_reporting": record})
+	})
+
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/session-policy-recommendations", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)

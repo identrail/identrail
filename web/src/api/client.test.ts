@@ -2288,6 +2288,51 @@ describe('apiClient', () => {
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 
+  it('gets AWS governance audit reporting with scoped headers and audit filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ governance_audit_reporting: { status: 'ready', records: [] } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectGovernanceAuditReporting(
+      'workspace/a',
+      'project 1',
+      {
+        connectorID: 'aws-prod',
+        fixtureState: 'partial_failure',
+        accountID: '111111111111',
+        region: 'us-east-1',
+        ou: 'ou-prod',
+        identityID: 'aws:identity/orders',
+        agentID: 'aws:agent/orders',
+        decisionType: 'limited_enforcement_pilot',
+        approver: 'security_admin',
+        category: 'enforcement_outcome',
+        state: 'pilot_canary_ready',
+        sourceType: 'advisory_authorization',
+        from: '2026-07-03T00:00:00Z',
+        to: '2026-07-04T00:00:00Z',
+        search: 'orders deployer'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(
+      '/v1/workspaces/workspace%2Fa/projects/project%201/aws/governance-audit-reporting?connector_id=aws-prod&fixture_state=partial_failure&account_id=111111111111&region=us-east-1&ou=ou-prod&identity_id=aws%3Aidentity%2Forders&agent_id=aws%3Aagent%2Forders&decision_type=limited_enforcement_pilot&approver=security_admin&category=enforcement_outcome&state=pilot_canary_ready&source_type=advisory_authorization&from=2026-07-03T00%3A00%3A00Z&to=2026-07-04T00%3A00%3A00Z&search=orders+deployer'
+    );
+    expect(options.method ?? 'GET').toBe('GET');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
+
   it('gets AWS AgentCore gateway policy advisory with scoped headers and filters', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
