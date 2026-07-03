@@ -607,7 +607,7 @@ func filterAWSGovernanceAuditReportRecords(records []AWSGovernanceAuditReportRec
 		if filters["account_id"] != "" && !awsGovernanceAuditAccountMatch(record, filters["account_id"]) {
 			continue
 		}
-		if filters["region"] != "" && strings.TrimSpace(record.Region) != "" && !strings.EqualFold(filters["region"], strings.TrimSpace(record.Region)) {
+		if filters["region"] != "" && !strings.EqualFold(filters["region"], strings.TrimSpace(record.Region)) {
 			continue
 		}
 		if filters["ou"] != "" && !strings.Contains(normalizeAWSRuntimeEventFilterToken(record.OU), filters["ou"]) {

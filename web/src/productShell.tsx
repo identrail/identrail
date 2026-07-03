@@ -90,6 +90,7 @@ import {
   type AWSLimitedEnforcementPilotDecision,
   type AWSLimitedEnforcementPilotResult,
   type AWSGovernanceAuditReportRecord,
+  type AWSGovernanceAuditReportingQuery,
   type AWSGovernanceAuditReportingResult,
   type AWSSessionPolicyRecommendationEntry,
   type AWSSessionPolicyRecommendationResult,
@@ -11461,7 +11462,7 @@ function awsGovernanceAuditReportingStage(record: AWSGovernanceAuditReportRecord
   if (record.exception || record.category === 'exception') {
     return 'not-available';
   }
-  if (record.category === 'decision' || record.category === 'enforcement_outcome') {
+  if (['decision', 'approval', 'remediation', 'enforcement_outcome'].includes(record.category)) {
     return 'wired';
   }
   return 'coming';
@@ -13675,6 +13676,53 @@ function awsSecretPermissionEquivalenceFindingsQuery(
   };
 }
 
+function awsGovernanceAuditReportingQueryFromFilters(filters: AWSInventoryFilterState): Partial<AWSGovernanceAuditReportingQuery> {
+  const query: Partial<AWSGovernanceAuditReportingQuery> = {};
+  switch (normalizeFilterValue(filters.decision ?? '')) {
+    case 'warn':
+      query.decisionType = 'advisory_authorization';
+      query.state = 'warn';
+      break;
+    case 'approval':
+      query.category = 'approval';
+      break;
+    case 'quarantine':
+      query.state = 'quarantine';
+      break;
+    case 'recommend-deny':
+      query.state = 'recommend_deny';
+      break;
+  }
+  switch (normalizeFilterValue(filters.mode ?? '')) {
+    case 'advisory':
+      query.category = query.category ?? 'decision';
+      break;
+    case 'canary':
+      query.category = query.category ?? 'enforcement_outcome';
+      query.state = query.state ?? 'pilot_canary_ready';
+      break;
+    case 'not-enforcing':
+      query.category = query.category ?? 'exception';
+      break;
+  }
+  switch (normalizeFilterValue(filters.evidence ?? '')) {
+    case 'runtime-required':
+      query.sourceType = 'advisory_authorization';
+      break;
+    case 'approval-required':
+      query.category = query.category ?? 'approval';
+      break;
+    case 'audit-required':
+      query.category = query.category ?? 'exception';
+      break;
+  }
+  const search = filters.search?.trim();
+  if (search) {
+    query.search = search;
+  }
+  return query;
+}
+
 function AWSGraphExplorerContent({
   connection,
   filters,
@@ -14869,12 +14917,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       return;
     }
     setGovernanceAuditReportingLoading(true);
+    const requestFilters = awsGovernanceAuditReportingQueryFromFilters(activeFilters);
     try {
       const response = await apiClient.getAWSProjectGovernanceAuditReporting(
         scope.workspaceID,
         selectedEnvironmentID,
         {
-          connectorID: connection.connector_id
+          connectorID: connection.connector_id,
+          ...requestFilters
         },
         buildProductAuthContext(scope)
       );
@@ -14897,6 +14947,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     scope?.tenantID,
     scope?.workspaceID,
     selectedEnvironmentID,
+    activeFilters.decision,
+    activeFilters.mode,
+    activeFilters.evidence,
+    activeFilters.search,
     connection?.connected,
     connection?.connector_id
   ]);

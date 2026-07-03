@@ -4940,20 +4940,76 @@ describe('Domain-first app routes', () => {
             next_action: 'Export the audit row.',
             occurred_at: '2026-07-03T10:00:00Z',
             updated_at: '2026-07-03T10:00:00Z'
+          },
+          {
+            report_id: 'aws-governance-audit:approval',
+            calculation_version: 'aws-governance-audit-reporting-v1',
+            policy_version: 'aws-governance-audit-reporting-policy-v1',
+            category: 'approval',
+            source_type: 'aws_permission_boundary_scp',
+            source_id: 'aws-remediation-approval:boundary',
+            decision_type: 'remediation_approval',
+            outcome: 'under_review',
+            state: 'under_review',
+            approver: 'security_admin',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            confidence: 0.88,
+            score: 74,
+            title: 'Governance audit approval: boundary review',
+            summary: 'Export-safe approval workflow report row.',
+            input_hash: 'audit-hash-b',
+            evidence_summary: [],
+            evidence_links: [],
+            evidence_boundary: 'metadata_only_exportable_refs_no_secret_values_no_rendered_policy_bodies_no_customer_payloads',
+            audit_trail: [],
+            read_only_projection: true,
+            exception: false,
+            next_action: 'Review the approval.',
+            occurred_at: '2026-07-03T10:05:00Z',
+            updated_at: '2026-07-03T10:05:00Z'
+          },
+          {
+            report_id: 'aws-governance-audit:verification',
+            calculation_version: 'aws-governance-audit-reporting-v1',
+            policy_version: 'aws-governance-audit-reporting-policy-v1',
+            category: 'remediation',
+            source_type: 'post_remediation_verification',
+            source_id: 'aws-post-remediation-verification:boundary',
+            decision_type: 'post_remediation_verification',
+            outcome: 'verified',
+            state: 'verified',
+            actor: 'identrail-post-remediation-verification',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            confidence: 0.82,
+            score: 70,
+            title: 'Governance audit remediation: boundary verified',
+            summary: 'Export-safe remediation verification report row.',
+            input_hash: 'audit-hash-c',
+            evidence_summary: [],
+            evidence_links: [],
+            evidence_boundary: 'metadata_only_exportable_refs_no_secret_values_no_rendered_policy_bodies_no_customer_payloads',
+            audit_trail: [],
+            read_only_projection: true,
+            exception: false,
+            next_action: 'Export the verification.',
+            occurred_at: '2026-07-03T10:10:00Z',
+            updated_at: '2026-07-03T10:10:00Z'
           }
         ],
         applied_filters: {},
         summary: {
-          total_records: 1,
-          filtered_records: 1,
-          category_counts: { enforcement_outcome: 1 },
-          decision_type_counts: { limited_enforcement_pilot: 1 },
-          state_counts: { pilot_canary_ready: 1 },
-          source_type_counts: { advisory_authorization: 1 },
-          account_counts: { '123456789012': 1 },
+          total_records: 3,
+          filtered_records: 3,
+          category_counts: { enforcement_outcome: 1, approval: 1, remediation: 1 },
+          decision_type_counts: { limited_enforcement_pilot: 1, remediation_approval: 1, post_remediation_verification: 1 },
+          state_counts: { pilot_canary_ready: 1, under_review: 1, verified: 1 },
+          source_type_counts: { advisory_authorization: 1, aws_permission_boundary_scp: 1, post_remediation_verification: 1 },
+          account_counts: { '123456789012': 3 },
           decision_count: 0,
-          approval_count: 0,
-          remediation_count: 0,
+          approval_count: 1,
+          remediation_count: 1,
           enforcement_outcome_count: 1,
           exception_count: 0,
           exportable_evidence_count: 1,
@@ -5175,11 +5231,30 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('heading', { level: 2, name: 'Governance' })).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS governance audit reporting records' })).toBeInTheDocument();
     expect(screen.getByText(/Governance audit: orders deployer/i)).toBeInTheDocument();
+    expect(screen.getByText(/Governance audit approval: boundary review/i)).toBeInTheDocument();
+    expect(screen.getByText(/Governance audit remediation: boundary verified/i)).toBeInTheDocument();
+    const approvalRow = screen.getByText(/Governance audit approval: boundary review/i).closest('tr');
+    expect(approvalRow).not.toBeNull();
+    expect(within(approvalRow as HTMLTableRowElement).getByText('88%')).toHaveClass('is-success');
+    const remediationRow = screen.getByText(/Governance audit remediation: boundary verified/i).closest('tr');
+    expect(remediationRow).not.toBeNull();
+    expect(within(remediationRow as HTMLTableRowElement).getByText('82%')).toHaveClass('is-success');
     expect(getGovernanceAuditReporting).toHaveBeenCalledWith(
       'workspace-a',
       'production',
       expect.objectContaining({ connectorID: 'aws-connector-1' }),
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'Decision' }), {
+      target: { value: 'approval' }
+    });
+    await waitFor(() =>
+      expect(getGovernanceAuditReporting).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1', category: 'approval' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
     );
     expect(await screen.findByRole('table', { name: 'AWS limited enforcement framework entries' })).toBeInTheDocument();
     expect(screen.getByText(/Limited enforcement framework: orders deployer/i)).toBeInTheDocument();

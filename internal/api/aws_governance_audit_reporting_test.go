@@ -136,6 +136,7 @@ func TestFilterAWSGovernanceAuditReportingByDecisionApproverAndTime(t *testing.T
 			AgentID:      "agent-prod",
 			AgentNodeID:  "aws:agent:agent-prod",
 			OU:           "ou-prod/ou-payments",
+			Region:       "us-east-1",
 			OccurredAt:   now.Add(-20 * time.Minute),
 		},
 		{
@@ -146,6 +147,7 @@ func TestFilterAWSGovernanceAuditReportingByDecisionApproverAndTime(t *testing.T
 			SourceType:   "aws_permission_boundary_scp",
 			Approver:     "security_admin,platform_owner",
 			AccountID:    "222222222222",
+			Region:       "us-west-2",
 			Exception:    true,
 			OccurredAt:   now.Add(-2 * time.Hour),
 		},
@@ -180,6 +182,13 @@ func TestFilterAWSGovernanceAuditReportingByDecisionApproverAndTime(t *testing.T
 	}, time.Time{}, time.Time{})
 	if len(filtered) != 1 || filtered[0].ReportID != "agent-a" {
 		t.Fatalf("expected agent/OU filters to match agent governance record, got %+v", filtered)
+	}
+
+	filtered, _ = filterAWSGovernanceAuditReportRecords(records, AWSGovernanceAuditReportingRequest{
+		Region: "us-east-1",
+	}, time.Time{}, time.Time{})
+	if len(filtered) != 1 || filtered[0].ReportID != "agent-a" {
+		t.Fatalf("expected region filter to exclude empty or mismatched region rows, got %+v", filtered)
 	}
 
 	filtered, applied = filterAWSGovernanceAuditReportRecords(records, AWSGovernanceAuditReportingRequest{
