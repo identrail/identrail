@@ -168,6 +168,44 @@ func TestRouterAWSLimitedEnforcement(t *testing.T) {
 	}
 }
 
+func TestRouterAWSLimitedEnforcementPreservesBlockedLimitedEnforceEntries(t *testing.T) {
+	now := time.Date(2026, 7, 3, 12, 15, 0, 0, time.UTC)
+	svc, _ := newLimitedEnforcementService(t, "project-limited-enforcement-blocked-route", now)
+	r := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{})
+
+	resp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/default/projects/project-limited-enforcement-blocked-route/aws/limited-enforcement?connector_id=aws-prod&fixture_state=success&mode=limited_enforce", "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var body struct {
+		Framework AWSLimitedEnforcementResult `json:"limited_enforcement"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Framework.Entries) == 0 {
+		t.Fatalf("mode=limited_enforce must preserve blocked entries so operators can see failed gates: %+v", body.Framework.Summary)
+	}
+	foundBlocked := false
+	for _, entry := range body.Framework.Entries {
+		if entry.EnforcementState != awsLimitedEnforcementStateBlockedBySafetyConfig {
+			continue
+		}
+		foundBlocked = true
+		if entry.Mode != awsLimitedEnforcementModeAdvisory {
+			t.Fatalf("blocked safety entry should remain advisory output mode: %+v", entry)
+		}
+		for _, gateName := range []string{"feature_flag_enabled", "canary_configured"} {
+			if got := awsLimitedEnforcementTestGateStatus(entry.Gates, gateName); got != "failed" {
+				t.Fatalf("%s gate must explain why limited enforcement is blocked, got %s entry=%+v", gateName, got, entry)
+			}
+		}
+	}
+	if !foundBlocked {
+		t.Fatalf("expected at least one blocked_by_safety_config entry for missing safety config: %+v", body.Framework.Entries)
+	}
+}
+
 func TestRouterAWSLimitedEnforcementRejectsInvalidCanaryPercent(t *testing.T) {
 	now := time.Date(2026, 7, 3, 12, 30, 0, 0, time.UTC)
 	svc, _ := newLimitedEnforcementService(t, "project-limited-enforcement-bad-canary", now)

@@ -705,7 +705,7 @@ func filterAWSLimitedEnforcementEntries(entries []AWSLimitedEnforcementEntry, re
 		if filters["region"] != "" && !strings.EqualFold(filters["region"], entry.Region) {
 			continue
 		}
-		if filters["mode"] != "" && filters["mode"] != normalizeAWSRuntimeEventFilterToken(entry.Mode) {
+		if filters["mode"] != "" && !awsLimitedEnforcementModeFilterMatch(entry, filters["mode"]) {
 			continue
 		}
 		if filters["enforcement_state"] != "" && filters["enforcement_state"] != normalizeAWSRuntimeEventFilterToken(entry.EnforcementState) {
@@ -729,6 +729,23 @@ func filterAWSLimitedEnforcementEntries(entries []AWSLimitedEnforcementEntry, re
 		filtered = append(filtered, entry)
 	}
 	return filtered, applied
+}
+
+func awsLimitedEnforcementModeFilterMatch(entry AWSLimitedEnforcementEntry, mode string) bool {
+	if mode == normalizeAWSRuntimeEventFilterToken(entry.Mode) {
+		return true
+	}
+	if mode != normalizeAWSRuntimeEventFilterToken(awsLimitedEnforcementModeLimitedEnforce) {
+		return false
+	}
+	switch normalizeAWSRuntimeEventFilterToken(entry.EnforcementState) {
+	case normalizeAWSRuntimeEventFilterToken(awsLimitedEnforcementStateBlockedBySafetyConfig),
+		normalizeAWSRuntimeEventFilterToken(awsLimitedEnforcementStateBlockedByKillSwitch),
+		normalizeAWSRuntimeEventFilterToken(awsLimitedEnforcementStateRollbackRequired):
+		return true
+	default:
+		return false
+	}
 }
 
 func awsLimitedEnforcementAccountMatch(entry AWSLimitedEnforcementEntry, accountID string) bool {
