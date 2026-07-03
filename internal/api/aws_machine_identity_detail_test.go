@@ -244,3 +244,60 @@ func TestAWSMachineIdentityDetailMatchesExactIdentityScope(t *testing.T) {
 		t.Fatalf("unresolved role-name scope must not absorb sibling-role evidence: %+v", scope)
 	}
 }
+
+func TestAWSMachineIdentityDetailPostFiltersDownstreamEvidenceByExactScope(t *testing.T) {
+	appARN := "arn:aws:iam::123456789012:role/app"
+	appNodeID := awsIdentityNodeIDForAPI(appARN)
+	appAdminARN := "arn:aws:iam::123456789012:role/app-admin"
+	appAdminNodeID := awsIdentityNodeIDForAPI(appAdminARN)
+	scope := awsMachineIdentityDetailScopeFor(appARN, nil)
+
+	runtime, permissions, secrets, blast, sprawl, cases := awsMachineIdentityDetailFilterDownstreamEvidence(scope,
+		AWSRuntimeEventResult{Records: []AWSRuntimeEventRecord{
+			{EventID: "runtime-app", EventType: "api-call", ActorPrincipalARN: appARN, ActorIdentityNodeID: appNodeID, ResourceNodeID: "aws:resource:app", EvidenceRef: "evidence-runtime-app", Status: "allowed", Owner: "platform"},
+			{EventID: "runtime-app-admin", EventType: "api-call", ActorPrincipalARN: appAdminARN, ActorIdentityNodeID: appAdminNodeID, ResourceNodeID: "aws:resource:app-admin", EvidenceRef: "evidence-runtime-admin", Status: "allowed", Owner: "platform"},
+		}},
+		AWSLeastPrivilegeResult{Recommendations: []AWSLeastPrivilegeRecommendation{
+			{RecommendationID: "permission-app", PrincipalARN: appARN, IdentityNodeID: appNodeID, DisplayName: "app", ImpactedPath: []AWSLeastPrivilegePathStep{{NodeID: appNodeID, NodeType: "identity", Label: "app"}, {NodeID: "aws:resource:app", NodeType: "resource", Label: "app bucket"}}},
+			{RecommendationID: "permission-app-admin", PrincipalARN: appAdminARN, IdentityNodeID: appAdminNodeID, DisplayName: "app-admin", ImpactedPath: []AWSLeastPrivilegePathStep{{NodeID: appAdminNodeID, NodeType: "identity", Label: "app-admin"}, {NodeID: "aws:resource:app-admin", NodeType: "resource", Label: "admin bucket"}}},
+		}},
+		AWSSecretPermissionEquivalenceResult{Findings: []AWSSecretPermissionEquivalenceFinding{
+			{FindingID: "secret-app", PrincipalARN: appARN, IdentityNodeID: appNodeID, SecretNodeID: "aws:secret:app", SecretLabel: "app secret", ImpactedPath: []AWSSecretPermissionEquivalencePathStep{{NodeID: appNodeID, NodeType: "identity", Label: "app"}}},
+			{FindingID: "secret-app-admin", PrincipalARN: appAdminARN, IdentityNodeID: appAdminNodeID, SecretNodeID: "aws:secret:app-admin", SecretLabel: "admin secret", ImpactedPath: []AWSSecretPermissionEquivalencePathStep{{NodeID: appAdminNodeID, NodeType: "identity", Label: "app-admin"}}},
+		}},
+		AWSBlastRadiusResult{Findings: []AWSBlastRadiusFinding{
+			{FindingID: "blast-app", PrincipalARN: appARN, IdentityNodeID: appNodeID, DisplayName: "app", ImpactedPath: []AWSBlastRadiusPathStep{{NodeID: appNodeID, NodeType: "identity", Label: "app"}, {NodeID: "aws:data:app", NodeType: "data", Label: "app data"}}},
+			{FindingID: "blast-app-admin", PrincipalARN: appAdminARN, IdentityNodeID: appAdminNodeID, DisplayName: "app-admin", ImpactedPath: []AWSBlastRadiusPathStep{{NodeID: appAdminNodeID, NodeType: "identity", Label: "app-admin"}, {NodeID: "aws:data:app-admin", NodeType: "data", Label: "admin data"}}},
+		}},
+		AWSIdentitySprawlResult{
+			Findings: []AWSIdentitySprawlFinding{
+				{FindingID: "sprawl-app", PrincipalARN: appARN, IdentityNodeID: appNodeID, RoleName: "app", DisplayName: "app", ClusterID: "cluster-app-family", WorkloadNodeIDs: []string{"aws:workload:app"}, WorkloadTypes: []string{"lambda"}, ImpactedPath: []AWSIdentitySprawlPathStep{{NodeID: appNodeID, NodeType: "identity", Label: "app"}, {NodeID: "aws:workload:app", NodeType: "workload", Label: "app workload"}}},
+				{FindingID: "sprawl-app-admin", PrincipalARN: appAdminARN, IdentityNodeID: appAdminNodeID, RoleName: "app-admin", DisplayName: "app-admin", ClusterID: "cluster-app-family", WorkloadNodeIDs: []string{"aws:workload:app-admin"}, WorkloadTypes: []string{"lambda"}, ImpactedPath: []AWSIdentitySprawlPathStep{{NodeID: appAdminNodeID, NodeType: "identity", Label: "app-admin"}, {NodeID: "aws:workload:app-admin", NodeType: "workload", Label: "admin workload"}}},
+			},
+			Clusters: []AWSIdentitySprawlCluster{{ClusterID: "cluster-app-family", IdentityNodeIDs: []string{appNodeID, appAdminNodeID}, WorkloadTypes: []string{"lambda"}}},
+		},
+		AWSRemediationCaseResult{Cases: []AWSRemediationCase{
+			{CaseID: "case-app", IdentityARN: appARN, IdentityNodeID: appNodeID, IdentityName: "app", ImpactedNodes: []string{appNodeID, "aws:resource:app"}, ImpactedPath: []AWSRemediationCasePathStep{{NodeID: appNodeID, NodeType: "identity", Label: "app"}}},
+			{CaseID: "case-app-admin", IdentityARN: appAdminARN, IdentityNodeID: appAdminNodeID, IdentityName: "app-admin", ImpactedNodes: []string{appAdminNodeID, "aws:resource:app-admin"}, ImpactedPath: []AWSRemediationCasePathStep{{NodeID: appAdminNodeID, NodeType: "identity", Label: "app-admin"}}},
+		}},
+	)
+
+	if len(runtime.Records) != 1 || runtime.Records[0].EventID != "runtime-app" || runtime.Summary.TotalEvents != 1 || runtime.Summary.FilteredEvents != 1 {
+		t.Fatalf("runtime evidence should be exact-scoped: records=%+v summary=%+v", runtime.Records, runtime.Summary)
+	}
+	if len(permissions.Recommendations) != 1 || permissions.Recommendations[0].RecommendationID != "permission-app" || permissions.Summary.TotalRecommendations != 1 || len(permissions.Relationships) != 1 {
+		t.Fatalf("permission evidence should be exact-scoped: recommendations=%+v summary=%+v relationships=%+v", permissions.Recommendations, permissions.Summary, permissions.Relationships)
+	}
+	if len(secrets.Findings) != 1 || secrets.Findings[0].FindingID != "secret-app" || secrets.Summary.TotalFindings != 1 || len(secrets.Relationships) != 1 {
+		t.Fatalf("secret evidence should be exact-scoped: findings=%+v summary=%+v relationships=%+v", secrets.Findings, secrets.Summary, secrets.Relationships)
+	}
+	if len(blast.Findings) != 1 || blast.Findings[0].FindingID != "blast-app" || blast.Summary.TotalFindings != 1 || len(blast.Relationships) != 1 {
+		t.Fatalf("blast evidence should be exact-scoped: findings=%+v summary=%+v relationships=%+v", blast.Findings, blast.Summary, blast.Relationships)
+	}
+	if len(sprawl.Findings) != 1 || sprawl.Findings[0].FindingID != "sprawl-app" || sprawl.Summary.TotalFindings != 1 || len(sprawl.Clusters) != 1 || len(sprawl.Clusters[0].IdentityNodeIDs) != 1 || sprawl.Clusters[0].IdentityNodeIDs[0] != appNodeID {
+		t.Fatalf("sprawl evidence should be exact-scoped: findings=%+v clusters=%+v summary=%+v", sprawl.Findings, sprawl.Clusters, sprawl.Summary)
+	}
+	if len(cases.Cases) != 1 || cases.Cases[0].CaseID != "case-app" || cases.Summary.TotalCases != 1 || len(cases.Relationships) != 1 {
+		t.Fatalf("remediation cases should be exact-scoped: cases=%+v summary=%+v relationships=%+v", cases.Cases, cases.Summary, cases.Relationships)
+	}
+}

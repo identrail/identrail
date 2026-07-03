@@ -353,6 +353,7 @@ func (s *Service) GetAWSMachineIdentityDetail(ctx context.Context, workspaceID s
 			return AWSMachineIdentityDetailResult{}, err
 		}
 	}
+	runtime, permissions, secrets, blast, sprawl, cases = awsMachineIdentityDetailFilterDownstreamEvidence(identityScope, runtime, permissions, secrets, blast, sprawl, cases)
 	identityNodeID := identityScope.NodeID
 	governanceIdentityID := awsMachineIdentityDetailGovernanceIdentityID(identityScope)
 	governance, err := s.GetAWSGovernanceAuditReporting(ctx, workspaceID, projectID, AWSGovernanceAuditReportingRequest{
@@ -565,6 +566,236 @@ func awsMachineIdentityDetailGovernanceIdentityID(scope awsMachineIdentityDetail
 		return scope.DownstreamIdentity
 	}
 	return ""
+}
+
+func awsMachineIdentityDetailFilterDownstreamEvidence(scope awsMachineIdentityDetailScope, runtime AWSRuntimeEventResult, permissions AWSLeastPrivilegeResult, secrets AWSSecretPermissionEquivalenceResult, blast AWSBlastRadiusResult, sprawl AWSIdentitySprawlResult, cases AWSRemediationCaseResult) (AWSRuntimeEventResult, AWSLeastPrivilegeResult, AWSSecretPermissionEquivalenceResult, AWSBlastRadiusResult, AWSIdentitySprawlResult, AWSRemediationCaseResult) {
+	runtime = awsMachineIdentityDetailFilterRuntimeEvents(scope, runtime)
+	permissions = awsMachineIdentityDetailFilterLeastPrivilege(scope, permissions)
+	secrets = awsMachineIdentityDetailFilterSecrets(scope, secrets)
+	blast = awsMachineIdentityDetailFilterBlastRadius(scope, blast)
+	sprawl = awsMachineIdentityDetailFilterSprawl(scope, sprawl)
+	cases = awsMachineIdentityDetailFilterRemediationCases(scope, cases)
+	return runtime, permissions, secrets, blast, sprawl, cases
+}
+
+func awsMachineIdentityDetailFilterRuntimeEvents(scope awsMachineIdentityDetailScope, result AWSRuntimeEventResult) AWSRuntimeEventResult {
+	records := make([]AWSRuntimeEventRecord, 0, len(result.Records))
+	for _, record := range result.Records {
+		if !awsMachineIdentityDetailScopeMatches(scope,
+			record.ActorPrincipalARN,
+			record.ActorIdentityNodeID,
+			record.Session.PrincipalARN,
+			record.Session.AssumedRoleARN,
+			record.Session.SessionIssuerARN,
+			record.Session.OriginalActorARN,
+			record.Session.OriginalActorNodeID,
+			record.Session.ChainedFromPrincipalARN,
+			record.Session.ChainedFromNodeID,
+		) {
+			continue
+		}
+		records = append(records, record)
+	}
+	result.Records = records
+	result.Relationships = awsRuntimeEventRelationships(records)
+	result.Summary = summarizeAWSRuntimeEvents(records, len(records), len(result.Relationships))
+	return result
+}
+
+func awsMachineIdentityDetailFilterLeastPrivilege(scope awsMachineIdentityDetailScope, result AWSLeastPrivilegeResult) AWSLeastPrivilegeResult {
+	recommendations := make([]AWSLeastPrivilegeRecommendation, 0, len(result.Recommendations))
+	for _, recommendation := range result.Recommendations {
+		if !awsMachineIdentityDetailScopeMatches(scope, awsLeastPrivilegeIdentityMatchValues(recommendation)...) {
+			continue
+		}
+		recommendations = append(recommendations, recommendation)
+	}
+	result.Recommendations = recommendations
+	result.Relationships = awsLeastPrivilegeRelationships(recommendations)
+	result.Summary = summarizeAWSLeastPrivilege(recommendations, recommendations, result.Relationships)
+	return result
+}
+
+func awsMachineIdentityDetailFilterSecrets(scope awsMachineIdentityDetailScope, result AWSSecretPermissionEquivalenceResult) AWSSecretPermissionEquivalenceResult {
+	findings := make([]AWSSecretPermissionEquivalenceFinding, 0, len(result.Findings))
+	for _, finding := range result.Findings {
+		if !awsMachineIdentityDetailScopeMatches(scope, awsMachineIdentityDetailSecretIdentityValues(finding)...) {
+			continue
+		}
+		findings = append(findings, finding)
+	}
+	result.Findings = findings
+	result.Relationships = awsSecretPermissionEquivalenceRelationships(findings)
+	result.Summary = summarizeAWSSecretPermissionEquivalence(findings, findings, result.Relationships)
+	return result
+}
+
+func awsMachineIdentityDetailFilterBlastRadius(scope awsMachineIdentityDetailScope, result AWSBlastRadiusResult) AWSBlastRadiusResult {
+	findings := make([]AWSBlastRadiusFinding, 0, len(result.Findings))
+	for _, finding := range result.Findings {
+		if !awsMachineIdentityDetailScopeMatches(scope, awsBlastRadiusIdentityMatchValues(finding)...) {
+			continue
+		}
+		findings = append(findings, finding)
+	}
+	result.Findings = findings
+	result.Relationships = awsBlastRadiusRelationships(findings)
+	result.Summary = summarizeAWSBlastRadius(findings, findings, result.Relationships)
+	return result
+}
+
+func awsMachineIdentityDetailFilterSprawl(scope awsMachineIdentityDetailScope, result AWSIdentitySprawlResult) AWSIdentitySprawlResult {
+	findings := make([]AWSIdentitySprawlFinding, 0, len(result.Findings))
+	for _, finding := range result.Findings {
+		if !awsMachineIdentityDetailScopeMatches(scope, awsMachineIdentityDetailSprawlIdentityValues(finding)...) {
+			continue
+		}
+		findings = append(findings, finding)
+	}
+	result.Findings = findings
+	result.Clusters = awsMachineIdentityDetailFilterSprawlClusters(scope, result.Clusters, findings)
+	result.Relationships = awsIdentitySprawlRelationships(findings)
+	result.Summary = summarizeAWSIdentitySprawl(findings, result.Clusters, findings, result.Relationships, awsMachineIdentityDetailSprawlAggregates(findings))
+	return result
+}
+
+func awsMachineIdentityDetailFilterRemediationCases(scope awsMachineIdentityDetailScope, result AWSRemediationCaseResult) AWSRemediationCaseResult {
+	cases := make([]AWSRemediationCase, 0, len(result.Cases))
+	for _, c := range result.Cases {
+		if !awsMachineIdentityDetailScopeMatches(scope, awsMachineIdentityDetailRemediationCaseIdentityValues(c)...) {
+			continue
+		}
+		cases = append(cases, c)
+	}
+	result.Cases = cases
+	result.Relationships = awsRemediationCaseRelationships(cases)
+	result.Summary = summarizeAWSRemediationCases(cases, cases, result.Relationships)
+	return result
+}
+
+func awsMachineIdentityDetailScopeMatches(scope awsMachineIdentityDetailScope, values ...string) bool {
+	if strings.TrimSpace(scope.PrincipalARN) != "" {
+		return awsMachineIdentityMatches(scope.PrincipalARN, values...)
+	}
+	if strings.TrimSpace(scope.NodeID) != "" {
+		return awsMachineIdentityMatches(scope.NodeID, values...)
+	}
+	if strings.TrimSpace(scope.RoleName) != "" {
+		return awsMachineIdentityRoleNameMatches(scope.RoleName, values...)
+	}
+	return false
+}
+
+func awsMachineIdentityDetailSecretIdentityValues(finding AWSSecretPermissionEquivalenceFinding) []string {
+	values := []string{
+		finding.IdentityNodeID,
+		finding.PrincipalARN,
+		finding.WorkloadID,
+		finding.WorkloadName,
+		finding.AgentID,
+		finding.AgentName,
+	}
+	for _, step := range finding.ImpactedPath {
+		if strings.EqualFold(strings.TrimSpace(step.NodeType), "identity") {
+			values = append(values, step.NodeID, step.Label)
+		}
+	}
+	return dedupeStrings(values)
+}
+
+func awsMachineIdentityDetailSprawlIdentityValues(finding AWSIdentitySprawlFinding) []string {
+	values := []string{
+		finding.IdentityNodeID,
+		finding.PrincipalARN,
+		finding.RoleName,
+		finding.DisplayName,
+	}
+	for _, step := range finding.ImpactedPath {
+		if strings.EqualFold(strings.TrimSpace(step.NodeType), "identity") {
+			values = append(values, step.NodeID, step.Label)
+		}
+	}
+	return dedupeStrings(values)
+}
+
+func awsMachineIdentityDetailRemediationCaseIdentityValues(c AWSRemediationCase) []string {
+	values := []string{
+		c.IdentityNodeID,
+		c.IdentityARN,
+		c.IdentityName,
+	}
+	for _, step := range c.ImpactedPath {
+		if strings.EqualFold(strings.TrimSpace(step.NodeType), "identity") {
+			values = append(values, step.NodeID, step.Label)
+		}
+	}
+	return dedupeStrings(values)
+}
+
+func awsMachineIdentityDetailFilterSprawlClusters(scope awsMachineIdentityDetailScope, clusters []AWSIdentitySprawlCluster, findings []AWSIdentitySprawlFinding) []AWSIdentitySprawlCluster {
+	clusterIDs := map[string]struct{}{}
+	identityNodeIDs := map[string]struct{}{}
+	for _, finding := range findings {
+		if finding.ClusterID != "" {
+			clusterIDs[finding.ClusterID] = struct{}{}
+		}
+		if finding.IdentityNodeID != "" {
+			identityNodeIDs[finding.IdentityNodeID] = struct{}{}
+		}
+	}
+	out := make([]AWSIdentitySprawlCluster, 0, len(clusters))
+	for _, cluster := range clusters {
+		if _, ok := clusterIDs[cluster.ClusterID]; !ok {
+			continue
+		}
+		ids := make([]string, 0, len(cluster.IdentityNodeIDs))
+		for _, nodeID := range cluster.IdentityNodeIDs {
+			if _, ok := identityNodeIDs[nodeID]; ok || awsMachineIdentityDetailScopeMatches(scope, nodeID) {
+				ids = append(ids, nodeID)
+			}
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		cluster.IdentityNodeIDs = ids
+		out = append(out, cluster)
+	}
+	return out
+}
+
+func awsMachineIdentityDetailSprawlAggregates(findings []AWSIdentitySprawlFinding) map[string]*identitySprawlAggregate {
+	aggregates := map[string]*identitySprawlAggregate{}
+	for _, finding := range findings {
+		key := firstNonEmptyAWSValue(finding.IdentityNodeID, finding.PrincipalARN, finding.RoleName, finding.DisplayName, finding.FindingID)
+		if key == "" {
+			continue
+		}
+		aggregate, ok := aggregates[key]
+		if !ok {
+			aggregate = &identitySprawlAggregate{
+				roleARN:         finding.PrincipalARN,
+				roleName:        finding.RoleName,
+				accountID:       finding.AccountID,
+				region:          finding.Region,
+				owner:           finding.OwnerLabel,
+				ownerSource:     finding.OwnerSource,
+				workloadNodeIDs: map[string]struct{}{},
+				workloadTypes:   map[string]struct{}{},
+			}
+			aggregates[key] = aggregate
+		}
+		for _, nodeID := range finding.WorkloadNodeIDs {
+			if strings.TrimSpace(nodeID) != "" {
+				aggregate.workloadNodeIDs[nodeID] = struct{}{}
+			}
+		}
+		for _, workloadType := range finding.WorkloadTypes {
+			if strings.TrimSpace(workloadType) != "" {
+				aggregate.workloadTypes[workloadType] = struct{}{}
+			}
+		}
+	}
+	return aggregates
 }
 
 func awsMachineIdentityDetailScopeAccepts(scope awsMachineIdentityDetailScope, principalARN, nodeID, roleName string) bool {
