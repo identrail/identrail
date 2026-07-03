@@ -345,7 +345,6 @@ func (s *Service) GetAWSMachineIdentityDetail(ctx context.Context, workspaceID s
 		AccountID:    request.AccountID,
 		Region:       request.Region,
 		IdentityID:   identityNodeID,
-		Category:     request.Tab,
 		State:        request.Status,
 	})
 	if err != nil {

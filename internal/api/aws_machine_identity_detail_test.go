@@ -65,6 +65,7 @@ func TestGetAWSMachineIdentityDetailComposesRuntimePermissionsSecretsAndFixes(t 
 		ConnectorID:  "aws-prod",
 		FixtureState: "success",
 		Identity:     identity,
+		Tab:          "governance",
 	})
 	if err != nil {
 		t.Fatalf("get machine identity detail: %v", err)
@@ -80,6 +81,12 @@ func TestGetAWSMachineIdentityDetailComposesRuntimePermissionsSecretsAndFixes(t 
 	}
 	if result.Summary.RemediationCaseCount == 0 {
 		t.Fatalf("expected identity-scoped remediation cases: %+v", result.Summary)
+	}
+	if result.Summary.GovernanceDecisionCount == 0 || len(result.GovernanceDecisions) == 0 {
+		t.Fatalf("detail tab selector must not filter governance categories: summary=%+v governance=%+v", result.Summary, result.Governance.Summary)
+	}
+	if category := result.Governance.AppliedFilters["category"]; category != "" {
+		t.Fatalf("detail tab selector must not be forwarded as governance category filter: applied=%+v", result.Governance.AppliedFilters)
 	}
 }
 
