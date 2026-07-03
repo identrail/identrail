@@ -354,12 +354,13 @@ func (s *Service) GetAWSMachineIdentityDetail(ctx context.Context, workspaceID s
 		}
 	}
 	identityNodeID := identityScope.NodeID
+	governanceIdentityID := awsMachineIdentityDetailGovernanceIdentityID(identityScope)
 	governance, err := s.GetAWSGovernanceAuditReporting(ctx, workspaceID, projectID, AWSGovernanceAuditReportingRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
 		AccountID:    request.AccountID,
 		Region:       request.Region,
-		IdentityID:   identityNodeID,
+		IdentityID:   governanceIdentityID,
 		State:        request.Status,
 	})
 	if err != nil {
@@ -554,6 +555,16 @@ func awsMachineIdentityDetailScopeWithEvidence(scope awsMachineIdentityDetailSco
 	}
 	scope.DownstreamIdentity = firstNonEmptyAWSValue(scope.PrincipalARN, scope.NodeID, scope.RoleName)
 	return scope
+}
+
+func awsMachineIdentityDetailGovernanceIdentityID(scope awsMachineIdentityDetailScope) string {
+	if strings.TrimSpace(scope.NodeID) != "" {
+		return strings.TrimSpace(scope.NodeID)
+	}
+	if strings.HasPrefix(scope.DownstreamIdentity, "aws:identity:unresolved:") {
+		return scope.DownstreamIdentity
+	}
+	return ""
 }
 
 func awsMachineIdentityDetailScopeAccepts(scope awsMachineIdentityDetailScope, principalARN, nodeID, roleName string) bool {

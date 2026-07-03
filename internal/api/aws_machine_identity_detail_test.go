@@ -122,6 +122,30 @@ func TestGetAWSMachineIdentityDetailNormalizesRoleNameForGovernance(t *testing.T
 	}
 }
 
+func TestGetAWSMachineIdentityDetailKeepsUnresolvedRoleNameGovernanceScoped(t *testing.T) {
+	now := time.Date(2026, 7, 3, 13, 19, 0, 0, time.UTC)
+	svc, ws := newMachineIdentityDetailService(t, "project-machine-identity-detail-unresolved-role", now)
+
+	result, err := svc.GetAWSMachineIdentityDetail(defaultScopeContext(), ws, "project-machine-identity-detail-unresolved-role", AWSMachineIdentityDetailRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Identity:     "stale-role-name",
+	})
+	if err != nil {
+		t.Fatalf("get machine identity detail for unresolved role name: %v", err)
+	}
+	if result.Status != "empty" || result.Summary.GovernanceDecisionCount != 0 || len(result.GovernanceDecisions) != 0 || len(result.Governance.Records) != 0 {
+		t.Fatalf("unresolved role-name detail must stay empty and avoid connector-wide governance: status=%s summary=%+v governance=%+v", result.Status, result.Summary, result.Governance.Summary)
+	}
+	governanceIdentityID := result.Governance.AppliedFilters["identity_id"]
+	if !strings.HasPrefix(governanceIdentityID, "aws:identity:unresolved:") {
+		t.Fatalf("unresolved role-name governance must stay explicitly scoped: applied=%+v", result.Governance.AppliedFilters)
+	}
+	if result.Identity.IdentityNodeID != "" || result.Identity.PrincipalARN != "" {
+		t.Fatalf("unresolved role-name identity should not synthesize a real ARN or node id: %+v", result.Identity)
+	}
+}
+
 func TestGetAWSMachineIdentityDetailFailureStates(t *testing.T) {
 	now := time.Date(2026, 7, 3, 13, 20, 0, 0, time.UTC)
 	svc, ws := newMachineIdentityDetailService(t, "project-machine-identity-detail-states", now)
