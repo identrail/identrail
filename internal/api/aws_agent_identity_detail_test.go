@@ -37,14 +37,17 @@ func TestGetAWSAgentIdentityDetailBuildsContract(t *testing.T) {
 	if result.Agent.Provider == "" || result.Agent.RuntimeRoleARN == "" {
 		t.Fatalf("agent header must carry provider and backing role: %+v", result.Agent)
 	}
-	if result.RuntimeAccess.AppliedFilters["agent_id"] != result.Agent.AgentNodeID || result.Risk.AppliedFilters["agent_id"] != result.Agent.AgentNodeID || result.Governance.AppliedFilters["agent_id"] != result.Agent.AgentNodeID {
-		t.Fatalf("runtime/risk/governance evidence must be scoped by unique agent node id: runtime=%+v risk=%+v governance=%+v agent=%+v", result.RuntimeAccess.AppliedFilters, result.Risk.AppliedFilters, result.Governance.AppliedFilters, result.Agent)
+	if result.RuntimeAccess.AppliedFilters["agent_id"] != result.Agent.AgentNodeID || result.Risk.AppliedFilters["agent_id"] != result.Agent.AgentNodeID {
+		t.Fatalf("runtime/risk evidence must be scoped by unique agent node id: runtime=%+v risk=%+v agent=%+v", result.RuntimeAccess.AppliedFilters, result.Risk.AppliedFilters, result.Agent)
 	}
 	if result.Permissions.AppliedFilters["identity"] != result.Agent.RuntimeRoleNodeID {
 		t.Fatalf("permission recommendations must be scoped by backing role identity, got filters=%+v agent=%+v", result.Permissions.AppliedFilters, result.Agent)
 	}
 	if result.RemediationCases.AppliedFilters["identity"] != result.Agent.RuntimeRoleNodeID {
 		t.Fatalf("remediation cases must be scoped by backing role identity, got filters=%+v agent=%+v", result.RemediationCases.AppliedFilters, result.Agent)
+	}
+	if result.Governance.AppliedFilters["identity_id"] != result.Agent.RuntimeRoleNodeID || result.Summary.GovernanceDecisionCount == 0 {
+		t.Fatalf("governance decisions must be scoped by backing role identity, got summary=%+v filters=%+v agent=%+v", result.Summary, result.Governance.AppliedFilters, result.Agent)
 	}
 	if result.Agent.EvidenceBoundary != awsAgentIdentityDetailEvidenceBoundary() {
 		t.Fatalf("agent header crossed evidence boundary: %+v", result.Agent)

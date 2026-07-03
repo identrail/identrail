@@ -323,7 +323,7 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 		FixtureState: sourceFixtureState,
 		AccountID:    request.AccountID,
 		Region:       request.Region,
-		AgentID:      agentFilter,
+		IdentityID:   permissionsIdentity,
 		State:        request.Status,
 	})
 	if err != nil {
