@@ -88,6 +88,38 @@ func TestGetAWSMachineIdentityDetailComposesRuntimePermissionsSecretsAndFixes(t 
 	if category := result.Governance.AppliedFilters["category"]; category != "" {
 		t.Fatalf("detail tab selector must not be forwarded as governance category filter: applied=%+v", result.Governance.AppliedFilters)
 	}
+	if result.Runtime.AppliedFilters["identity"] != identity || result.Permissions.AppliedFilters["identity"] != identity || result.RemediationCases.AppliedFilters["identity"] != identity {
+		t.Fatalf("ARN detail requests must preserve exact ARN downstream scope: runtime=%+v permissions=%+v cases=%+v", result.Runtime.AppliedFilters, result.Permissions.AppliedFilters, result.RemediationCases.AppliedFilters)
+	}
+	if result.Governance.AppliedFilters["identity_id"] != awsIdentityNodeIDForAPI(identity) {
+		t.Fatalf("governance must use normalized identity node id: %+v", result.Governance.AppliedFilters)
+	}
+}
+
+func TestGetAWSMachineIdentityDetailNormalizesRoleNameForGovernance(t *testing.T) {
+	now := time.Date(2026, 7, 3, 13, 18, 0, 0, time.UTC)
+	svc, ws := newMachineIdentityDetailService(t, "project-machine-identity-detail-role-name", now)
+	roleName := "lambda-invoice-agent"
+	roleARN := "arn:aws:iam::123456789012:role/lambda-invoice-agent"
+	roleNodeID := awsIdentityNodeIDForAPI(roleARN)
+
+	result, err := svc.GetAWSMachineIdentityDetail(defaultScopeContext(), ws, "project-machine-identity-detail-role-name", AWSMachineIdentityDetailRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Identity:     roleName,
+	})
+	if err != nil {
+		t.Fatalf("get machine identity detail by role name: %v", err)
+	}
+	if result.Identity.IdentityNodeID != roleNodeID || result.Identity.PrincipalARN != roleARN {
+		t.Fatalf("role-name detail request did not normalize identity scope: %+v", result.Identity)
+	}
+	if result.Governance.AppliedFilters["identity_id"] != roleNodeID || result.Summary.GovernanceDecisionCount == 0 {
+		t.Fatalf("role-name detail request must retain matching governance records: summary=%+v filters=%+v", result.Summary, result.Governance.AppliedFilters)
+	}
+	if result.Runtime.AppliedFilters["identity"] != roleARN || result.Permissions.AppliedFilters["identity"] != roleARN {
+		t.Fatalf("role-name detail request must use exact ARN downstream scope: runtime=%+v permissions=%+v", result.Runtime.AppliedFilters, result.Permissions.AppliedFilters)
+	}
 }
 
 func TestGetAWSMachineIdentityDetailFailureStates(t *testing.T) {
@@ -155,5 +187,36 @@ func TestRouterAWSMachineIdentityDetail(t *testing.T) {
 	}
 	if body.Detail.Summary.RuntimeEventCount == 0 {
 		t.Fatalf("expected identity-scoped runtime events via route: %+v", body.Detail.Summary)
+	}
+}
+
+func TestAWSMachineIdentityDetailMatchesExactIdentityScope(t *testing.T) {
+	appARN := "arn:aws:iam::123456789012:role/app"
+	appNodeID := awsIdentityNodeIDForAPI(appARN)
+	appAdminARN := "arn:aws:iam::123456789012:role/app-admin"
+
+	if !awsMachineIdentityMatches(appARN, appARN, appNodeID, "app") {
+		t.Fatalf("exact ARN scope should match its ARN, node id, and role name")
+	}
+	if awsMachineIdentityMatches(appARN, appAdminARN, awsIdentityNodeIDForAPI(appAdminARN), "app-admin") {
+		t.Fatalf("exact ARN scope must not match sibling role names by substring")
+	}
+	if !awsMachineIdentityMatches("app", "app") {
+		t.Fatalf("role-name scope should match the exact role name")
+	}
+	if awsMachineIdentityMatches("app", "app-admin", appAdminARN, awsIdentityNodeIDForAPI(appAdminARN)) {
+		t.Fatalf("role-name scope must not match sibling role names by substring")
+	}
+	if !awsMachineIdentityMatches(appNodeID, appARN) {
+		t.Fatalf("identity node id scope should match its source ARN")
+	}
+
+	scope := awsMachineIdentityDetailScopeFor("app", nil)
+	scope = awsMachineIdentityDetailScopeWithEvidence(scope, AWSRuntimeEventResult{Records: []AWSRuntimeEventRecord{{
+		ActorPrincipalARN:   appAdminARN,
+		ActorIdentityNodeID: awsIdentityNodeIDForAPI(appAdminARN),
+	}}}, AWSLeastPrivilegeResult{}, AWSSecretPermissionEquivalenceResult{}, AWSBlastRadiusResult{}, AWSIdentitySprawlResult{}, AWSRemediationCaseResult{})
+	if scope.PrincipalARN != "" || scope.NodeID != "" || scope.DownstreamIdentity == "app" {
+		t.Fatalf("unresolved role-name scope must not absorb sibling-role evidence: %+v", scope)
 	}
 }

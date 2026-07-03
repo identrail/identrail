@@ -223,8 +223,6 @@ func (s *Service) GetAWSMachineIdentityDetail(ctx context.Context, workspaceID s
 	accountID := firstNonEmptyAWSValue(connection.AccountID, strings.TrimSpace(request.AccountID), "123456789012")
 	region := firstNonEmptyAWSValue(connection.Region, strings.TrimSpace(request.Region), "us-east-1")
 	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID), "aws-fixture")
-	identityNodeID := awsMachineIdentityDetailNodeID(identity)
-
 	ec2, err := s.GetAWSEC2InstanceProfileInventory(ctx, workspaceID, projectID, AWSEC2InstanceProfileInventoryRequest{ConnectorID: connectorID, FixtureState: sourceFixtureState})
 	if err != nil {
 		return AWSMachineIdentityDetailResult{}, fmt.Errorf("machine identity detail ec2 inventory: %w", err)
@@ -262,83 +260,100 @@ func (s *Service) GetAWSMachineIdentityDetail(ctx context.Context, workspaceID s
 		return AWSMachineIdentityDetailResult{}, fmt.Errorf("machine identity detail eks inventory: %w", err)
 	}
 
-	downstreamIdentity := awsMachineIdentityDetailFilterToken(identity)
-	runtime, err := s.GetAWSRuntimeEvents(ctx, workspaceID, projectID, AWSRuntimeEventRequest{
-		ConnectorID:  connectorID,
-		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
-		Identity:     downstreamIdentity,
-		Resource:     request.Resource,
-		Status:       request.Status,
-	})
-	if err != nil {
-		return AWSMachineIdentityDetailResult{}, fmt.Errorf("machine identity detail runtime: %w", err)
+	bindings := awsMachineIdentityDetailBindings(identity, ec2, ecs, lambda, codeBuild, codePipeline, stepFunctions, eventDriven, managedCompute, eks)
+	identityScope := awsMachineIdentityDetailScopeFor(identity, bindings)
+	loadDownstream := func(downstreamIdentity string) (AWSRuntimeEventResult, AWSLeastPrivilegeResult, AWSSecretPermissionEquivalenceResult, AWSBlastRadiusResult, AWSIdentitySprawlResult, AWSRemediationCaseResult, error) {
+		runtime, err := s.GetAWSRuntimeEvents(ctx, workspaceID, projectID, AWSRuntimeEventRequest{
+			ConnectorID:  connectorID,
+			FixtureState: sourceFixtureState,
+			AccountID:    request.AccountID,
+			Region:       request.Region,
+			Identity:     downstreamIdentity,
+			Resource:     request.Resource,
+			Status:       request.Status,
+		})
+		if err != nil {
+			return AWSRuntimeEventResult{}, AWSLeastPrivilegeResult{}, AWSSecretPermissionEquivalenceResult{}, AWSBlastRadiusResult{}, AWSIdentitySprawlResult{}, AWSRemediationCaseResult{}, fmt.Errorf("machine identity detail runtime: %w", err)
+		}
+		permissions, err := s.GetAWSLeastPrivilegeRecommendations(ctx, workspaceID, projectID, AWSLeastPrivilegeRequest{
+			ConnectorID:  connectorID,
+			FixtureState: sourceFixtureState,
+			AccountID:    request.AccountID,
+			Region:       request.Region,
+			Identity:     downstreamIdentity,
+			Resource:     request.Resource,
+			Service:      request.Service,
+			Severity:     request.Severity,
+			Status:       request.Status,
+		})
+		if err != nil {
+			return AWSRuntimeEventResult{}, AWSLeastPrivilegeResult{}, AWSSecretPermissionEquivalenceResult{}, AWSBlastRadiusResult{}, AWSIdentitySprawlResult{}, AWSRemediationCaseResult{}, fmt.Errorf("machine identity detail permissions: %w", err)
+		}
+		secrets, err := s.GetAWSSecretPermissionEquivalence(ctx, workspaceID, projectID, AWSSecretPermissionEquivalenceRequest{
+			ConnectorID:  connectorID,
+			FixtureState: sourceFixtureState,
+			AccountID:    request.AccountID,
+			Region:       request.Region,
+			Identity:     downstreamIdentity,
+			Secret:       request.Resource,
+			Severity:     request.Severity,
+			Status:       request.Status,
+		})
+		if err != nil {
+			return AWSRuntimeEventResult{}, AWSLeastPrivilegeResult{}, AWSSecretPermissionEquivalenceResult{}, AWSBlastRadiusResult{}, AWSIdentitySprawlResult{}, AWSRemediationCaseResult{}, fmt.Errorf("machine identity detail secrets: %w", err)
+		}
+		blast, err := s.GetAWSBlastRadius(ctx, workspaceID, projectID, AWSBlastRadiusRequest{
+			ConnectorID:  connectorID,
+			FixtureState: sourceFixtureState,
+			AccountID:    request.AccountID,
+			Region:       request.Region,
+			Identity:     downstreamIdentity,
+			Resource:     request.Resource,
+			Severity:     request.Severity,
+			Status:       request.Status,
+		})
+		if err != nil {
+			return AWSRuntimeEventResult{}, AWSLeastPrivilegeResult{}, AWSSecretPermissionEquivalenceResult{}, AWSBlastRadiusResult{}, AWSIdentitySprawlResult{}, AWSRemediationCaseResult{}, fmt.Errorf("machine identity detail blast radius: %w", err)
+		}
+		sprawl, err := s.GetAWSIdentitySprawl(ctx, workspaceID, projectID, AWSIdentitySprawlRequest{
+			ConnectorID:  connectorID,
+			FixtureState: sourceFixtureState,
+			AccountID:    request.AccountID,
+			Region:       request.Region,
+			Identity:     downstreamIdentity,
+			Severity:     request.Severity,
+			Status:       request.Status,
+		})
+		if err != nil {
+			return AWSRuntimeEventResult{}, AWSLeastPrivilegeResult{}, AWSSecretPermissionEquivalenceResult{}, AWSBlastRadiusResult{}, AWSIdentitySprawlResult{}, AWSRemediationCaseResult{}, fmt.Errorf("machine identity detail sprawl: %w", err)
+		}
+		cases, err := s.GetAWSRemediationCases(ctx, workspaceID, projectID, AWSRemediationCaseRequest{
+			ConnectorID:  connectorID,
+			FixtureState: sourceFixtureState,
+			AccountID:    request.AccountID,
+			Region:       request.Region,
+			Identity:     downstreamIdentity,
+			Severity:     request.Severity,
+			Status:       request.Status,
+		})
+		if err != nil {
+			return AWSRuntimeEventResult{}, AWSLeastPrivilegeResult{}, AWSSecretPermissionEquivalenceResult{}, AWSBlastRadiusResult{}, AWSIdentitySprawlResult{}, AWSRemediationCaseResult{}, fmt.Errorf("machine identity detail remediation cases: %w", err)
+		}
+		return runtime, permissions, secrets, blast, sprawl, cases, nil
 	}
-	permissions, err := s.GetAWSLeastPrivilegeRecommendations(ctx, workspaceID, projectID, AWSLeastPrivilegeRequest{
-		ConnectorID:  connectorID,
-		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
-		Identity:     downstreamIdentity,
-		Resource:     request.Resource,
-		Service:      request.Service,
-		Severity:     request.Severity,
-		Status:       request.Status,
-	})
+	downstreamIdentity := identityScope.DownstreamIdentity
+	runtime, permissions, secrets, blast, sprawl, cases, err := loadDownstream(downstreamIdentity)
 	if err != nil {
-		return AWSMachineIdentityDetailResult{}, fmt.Errorf("machine identity detail permissions: %w", err)
+		return AWSMachineIdentityDetailResult{}, err
 	}
-	secrets, err := s.GetAWSSecretPermissionEquivalence(ctx, workspaceID, projectID, AWSSecretPermissionEquivalenceRequest{
-		ConnectorID:  connectorID,
-		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
-		Identity:     downstreamIdentity,
-		Secret:       request.Resource,
-		Severity:     request.Severity,
-		Status:       request.Status,
-	})
-	if err != nil {
-		return AWSMachineIdentityDetailResult{}, fmt.Errorf("machine identity detail secrets: %w", err)
+	identityScope = awsMachineIdentityDetailScopeWithEvidence(identityScope, runtime, permissions, secrets, blast, sprawl, cases)
+	if identityScope.DownstreamIdentity != "" && identityScope.DownstreamIdentity != downstreamIdentity {
+		runtime, permissions, secrets, blast, sprawl, cases, err = loadDownstream(identityScope.DownstreamIdentity)
+		if err != nil {
+			return AWSMachineIdentityDetailResult{}, err
+		}
 	}
-	blast, err := s.GetAWSBlastRadius(ctx, workspaceID, projectID, AWSBlastRadiusRequest{
-		ConnectorID:  connectorID,
-		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
-		Identity:     downstreamIdentity,
-		Resource:     request.Resource,
-		Severity:     request.Severity,
-		Status:       request.Status,
-	})
-	if err != nil {
-		return AWSMachineIdentityDetailResult{}, fmt.Errorf("machine identity detail blast radius: %w", err)
-	}
-	sprawl, err := s.GetAWSIdentitySprawl(ctx, workspaceID, projectID, AWSIdentitySprawlRequest{
-		ConnectorID:  connectorID,
-		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
-		Identity:     downstreamIdentity,
-		Severity:     request.Severity,
-		Status:       request.Status,
-	})
-	if err != nil {
-		return AWSMachineIdentityDetailResult{}, fmt.Errorf("machine identity detail sprawl: %w", err)
-	}
-	cases, err := s.GetAWSRemediationCases(ctx, workspaceID, projectID, AWSRemediationCaseRequest{
-		ConnectorID:  connectorID,
-		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
-		Identity:     downstreamIdentity,
-		Severity:     request.Severity,
-		Status:       request.Status,
-	})
-	if err != nil {
-		return AWSMachineIdentityDetailResult{}, fmt.Errorf("machine identity detail remediation cases: %w", err)
-	}
+	identityNodeID := identityScope.NodeID
 	governance, err := s.GetAWSGovernanceAuditReporting(ctx, workspaceID, projectID, AWSGovernanceAuditReportingRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
@@ -351,7 +366,6 @@ func (s *Service) GetAWSMachineIdentityDetail(ctx context.Context, workspaceID s
 		return AWSMachineIdentityDetailResult{}, fmt.Errorf("machine identity detail governance: %w", err)
 	}
 
-	bindings := awsMachineIdentityDetailBindings(identity, ec2, ecs, lambda, codeBuild, codePipeline, stepFunctions, eventDriven, managedCompute, eks)
 	permissionSummaries := awsMachineIdentityPermissionSummaries(permissions.Recommendations)
 	resourcesReached := awsMachineIdentityResourcesReached(runtime, permissions, secrets, blast)
 	findings := awsMachineIdentityFindingSummaries(secrets, blast, sprawl)
@@ -445,13 +459,137 @@ func awsMachineIdentityDetailNodeID(identity string) string {
 func awsMachineIdentityDetailFilterToken(identity string) string {
 	identity = strings.TrimSpace(identity)
 	if strings.HasPrefix(strings.ToLower(identity), "arn:") {
-		return firstNonEmptyAWSValue(shortAWSARN(identity), identity)
+		return identity
 	}
 	if strings.HasPrefix(strings.ToLower(identity), "aws:identity:arn:") {
 		arn := strings.TrimPrefix(identity, "aws:identity:")
-		return firstNonEmptyAWSValue(shortAWSARN(arn), identity)
+		return firstNonEmptyAWSValue(arn, identity)
 	}
 	return identity
+}
+
+type awsMachineIdentityDetailScope struct {
+	NodeID             string
+	PrincipalARN       string
+	RoleName           string
+	DownstreamIdentity string
+}
+
+func awsMachineIdentityDetailScopeFor(identity string, bindings []AWSMachineIdentityWorkloadBinding) awsMachineIdentityDetailScope {
+	identity = strings.TrimSpace(identity)
+	nodeID := ""
+	principalARN := ""
+	roleName := ""
+	switch {
+	case strings.HasPrefix(strings.ToLower(identity), "arn:"):
+		nodeID = awsIdentityNodeIDForAPI(identity)
+		principalARN = identity
+		roleName = shortAWSARN(identity)
+	case strings.HasPrefix(strings.ToLower(identity), "aws:identity:arn:"):
+		nodeID = identity
+		arn := strings.TrimPrefix(identity, "aws:identity:")
+		principalARN = arn
+		roleName = shortAWSARN(arn)
+	default:
+		roleName = identity
+	}
+	for _, binding := range bindings {
+		principalARN = firstNonEmptyAWSValue(principalARN, binding.RoleARN)
+		nodeID = firstNonEmptyAWSValue(nodeID, binding.ToNodeID)
+		roleName = firstNonEmptyAWSValue(roleName, binding.RoleName, shortAWSARN(binding.RoleARN))
+	}
+	if nodeID == "" && principalARN != "" {
+		nodeID = awsIdentityNodeIDForAPI(principalARN)
+	}
+	downstreamIdentity := firstNonEmptyAWSValue(principalARN, nodeID, roleName, identity)
+	return awsMachineIdentityDetailScope{
+		NodeID:             nodeID,
+		PrincipalARN:       principalARN,
+		RoleName:           roleName,
+		DownstreamIdentity: downstreamIdentity,
+	}
+}
+
+func awsMachineIdentityDetailScopeWithEvidence(scope awsMachineIdentityDetailScope, runtime AWSRuntimeEventResult, permissions AWSLeastPrivilegeResult, secrets AWSSecretPermissionEquivalenceResult, blast AWSBlastRadiusResult, sprawl AWSIdentitySprawlResult, cases AWSRemediationCaseResult) awsMachineIdentityDetailScope {
+	add := func(principalARN, nodeID, roleName string) {
+		if scope.PrincipalARN != "" && scope.NodeID != "" {
+			return
+		}
+		if !awsMachineIdentityDetailScopeAccepts(scope, principalARN, nodeID, roleName) {
+			return
+		}
+		scope.PrincipalARN = firstNonEmptyAWSValue(scope.PrincipalARN, principalARN)
+		scope.NodeID = firstNonEmptyAWSValue(scope.NodeID, nodeID)
+		scope.RoleName = firstNonEmptyAWSValue(scope.RoleName, roleName, shortAWSARN(principalARN))
+	}
+	for _, record := range runtime.Records {
+		add(record.ActorPrincipalARN, record.ActorIdentityNodeID, shortAWSARN(record.ActorPrincipalARN))
+		add(record.Session.PrincipalARN, "", shortAWSARN(record.Session.PrincipalARN))
+		add(record.Session.AssumedRoleARN, "", shortAWSARN(record.Session.AssumedRoleARN))
+		add(record.Session.OriginalActorARN, record.Session.OriginalActorNodeID, shortAWSARN(record.Session.OriginalActorARN))
+		add(record.Session.SessionIssuerARN, record.Session.OriginalActorNodeID, shortAWSARN(record.Session.SessionIssuerARN))
+		add(record.Session.ChainedFromPrincipalARN, record.Session.ChainedFromNodeID, shortAWSARN(record.Session.ChainedFromPrincipalARN))
+	}
+	for _, recommendation := range permissions.Recommendations {
+		add(recommendation.PrincipalARN, recommendation.IdentityNodeID, shortAWSARN(recommendation.PrincipalARN))
+	}
+	for _, finding := range secrets.Findings {
+		add(finding.PrincipalARN, finding.IdentityNodeID, "")
+	}
+	for _, finding := range blast.Findings {
+		add(finding.PrincipalARN, finding.IdentityNodeID, shortAWSARN(finding.PrincipalARN))
+	}
+	for _, finding := range sprawl.Findings {
+		add(finding.PrincipalARN, finding.IdentityNodeID, finding.RoleName)
+	}
+	for _, c := range cases.Cases {
+		add(c.IdentityARN, c.IdentityNodeID, c.IdentityName)
+	}
+	if scope.NodeID == "" && scope.PrincipalARN != "" {
+		scope.NodeID = awsIdentityNodeIDForAPI(scope.PrincipalARN)
+	}
+	if scope.NodeID == "" && scope.PrincipalARN == "" && scope.RoleName != "" {
+		scope.DownstreamIdentity = "aws:identity:unresolved:" + stableAWSBlastRadiusToken(scope.RoleName)
+		return scope
+	}
+	scope.DownstreamIdentity = firstNonEmptyAWSValue(scope.PrincipalARN, scope.NodeID, scope.RoleName)
+	return scope
+}
+
+func awsMachineIdentityDetailScopeAccepts(scope awsMachineIdentityDetailScope, principalARN, nodeID, roleName string) bool {
+	if scope.PrincipalARN != "" {
+		return awsMachineIdentityMatches(scope.PrincipalARN, principalARN, nodeID, roleName)
+	}
+	if scope.NodeID != "" {
+		return awsMachineIdentityMatches(scope.NodeID, principalARN, nodeID, roleName)
+	}
+	if scope.RoleName != "" {
+		return awsMachineIdentityRoleNameMatches(scope.RoleName, principalARN, nodeID, roleName)
+	}
+	return false
+}
+
+func awsMachineIdentityRoleNameMatches(roleName string, candidates ...string) bool {
+	roleName = strings.ToLower(strings.TrimSpace(roleName))
+	if roleName == "" {
+		return true
+	}
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		candidateLower := strings.ToLower(candidate)
+		switch {
+		case candidateLower == roleName:
+			return true
+		case strings.HasPrefix(candidateLower, "arn:") && strings.ToLower(shortAWSARN(candidate)) == roleName:
+			return true
+		case strings.HasPrefix(candidateLower, "aws:identity:arn:"):
+			arn := strings.TrimPrefix(candidate, "aws:identity:")
+			if strings.ToLower(shortAWSARN(arn)) == roleName {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func awsMachineIdentityDetailAppliedFilters(request AWSMachineIdentityDetailRequest, identityNodeID string) map[string]string {
@@ -591,11 +729,11 @@ func awsMachineIdentityMatches(identity string, candidates ...string) bool {
 		if strings.HasPrefix(identityLower, "arn:") && strings.HasPrefix(candidateLower, "aws:identity:") && strings.TrimPrefix(candidateLower, "aws:identity:") == identityLower {
 			return true
 		}
+		if strings.HasPrefix(identityLower, "aws:identity:arn:") && strings.HasPrefix(candidateLower, "arn:") && strings.TrimPrefix(identityLower, "aws:identity:") == candidateLower {
+			return true
+		}
 	}
-	if strings.HasPrefix(identityLower, "arn:") || strings.HasPrefix(identityLower, "aws:identity:") {
-		return false
-	}
-	return awsRuntimeEventMatchesAny(identity, candidates...)
+	return false
 }
 
 func awsMachineIdentityPermissionSummaries(recommendations []AWSLeastPrivilegeRecommendation) []AWSMachineIdentityPermissionSummary {
