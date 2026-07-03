@@ -122,6 +122,66 @@ func TestGetAWSMachineIdentityDetailNormalizesRoleNameForGovernance(t *testing.T
 	}
 }
 
+func TestAWSMachineIdentityDetailBindingsApplyAccountRegionBeforeScope(t *testing.T) {
+	targetAccount := "222222222222"
+	targetRegion := "eu-west-1"
+	targetARN := "arn:aws:iam::222222222222:role/app"
+	targetNodeID := awsIdentityNodeIDForAPI(targetARN)
+	otherAccount := "111111111111"
+	otherRegion := "us-east-1"
+	otherARN := "arn:aws:iam::111111111111:role/app"
+	otherNodeID := awsIdentityNodeIDForAPI(otherARN)
+	bindingScope := awsMachineIdentityDetailBindingScopeFor(AWSMachineIdentityDetailRequest{
+		AccountID: targetAccount,
+		Region:    targetRegion,
+	})
+
+	if !bindingScope.accepts(targetAccount, targetRegion) || bindingScope.accepts(otherAccount, targetRegion) || bindingScope.accepts(targetAccount, otherRegion) {
+		t.Fatalf("binding scope must enforce both requested account and region: %+v", bindingScope)
+	}
+	if allScope := awsMachineIdentityDetailBindingScopeFor(AWSMachineIdentityDetailRequest{AccountID: "all", Region: "all"}); !allScope.accepts(otherAccount, otherRegion) {
+		t.Fatalf("all scope should not filter bindings: %+v", allScope)
+	}
+
+	bindings := awsMachineIdentityDetailBindings("app", bindingScope,
+		AWSEC2InstanceProfileInventoryResult{Records: []AWSEC2InstanceProfileRecord{{
+			AccountID: otherAccount, Region: targetRegion, RoleARN: otherARN, RoleName: "app", WorkloadID: "ec2-other-account", WorkloadType: "ec2", WorkloadName: "ec2-other-account", FromNodeID: "aws:workload:ec2:other-account", ToNodeID: otherNodeID,
+		}}},
+		AWSECSTaskRoleInventoryResult{Records: []AWSECSTaskRoleRecord{{
+			AccountID: targetAccount, Region: otherRegion, RoleARN: otherARN, RoleName: "app", WorkloadID: "ecs-other-region", WorkloadType: "ecs", WorkloadName: "ecs-other-region", FromNodeID: "aws:workload:ecs:other-region", ToNodeID: otherNodeID,
+		}}},
+		AWSLambdaExecutionRoleInventoryResult{Records: []AWSLambdaExecutionRoleRecord{{
+			AccountID: targetAccount, Region: targetRegion, RoleARN: targetARN, RoleName: "app", FunctionName: "app", WorkloadID: "lambda-target", WorkloadType: "lambda", WorkloadName: "lambda-target", FromNodeID: "aws:workload:lambda:target", ToNodeID: targetNodeID,
+		}}},
+		AWSCodeBuildServiceRoleInventoryResult{Records: []AWSCodeBuildServiceRoleRecord{{
+			AccountID: otherAccount, Region: targetRegion, RoleARN: otherARN, RoleName: "app", ProjectName: "codebuild-other-account", WorkloadID: "codebuild-other-account", WorkloadType: "codebuild", WorkloadName: "codebuild-other-account", FromNodeID: "aws:workload:codebuild:other-account", ToNodeID: otherNodeID,
+		}}},
+		AWSCodePipelineDeploymentRoleInventoryResult{Records: []AWSCodePipelineDeploymentRoleRecord{{
+			AccountID: targetAccount, Region: otherRegion, RoleARN: otherARN, RoleName: "app", PipelineName: "pipeline-other-region", WorkloadID: "pipeline-other-region", WorkloadType: "codepipeline", WorkloadName: "pipeline-other-region", FromNodeID: "aws:workload:codepipeline:other-region", ToNodeID: otherNodeID,
+		}}},
+		AWSStepFunctionsStateMachineRoleInventoryResult{Records: []AWSStepFunctionsStateMachineRoleRecord{{
+			AccountID: otherAccount, Region: targetRegion, RoleARN: otherARN, RoleName: "app", StateMachineName: "state-machine-other-account", WorkloadID: "sfn-other-account", WorkloadType: "stepfunctions", WorkloadName: "sfn-other-account", FromNodeID: "aws:workload:sfn:other-account", ToNodeID: otherNodeID,
+		}}},
+		AWSEventDrivenRoleInventoryResult{Records: []AWSEventDrivenRoleRecord{{
+			AccountID: targetAccount, Region: otherRegion, RoleARN: otherARN, RoleName: "app", Service: "eventbridge", WorkloadID: "event-other-region", WorkloadType: "event_rule", WorkloadName: "event-other-region", FromNodeID: "aws:workload:event:other-region", ToNodeID: otherNodeID,
+		}}},
+		AWSManagedComputeRoleInventoryResult{Records: []AWSManagedComputeRoleRecord{{
+			AccountID: otherAccount, Region: targetRegion, RoleARN: otherARN, RoleName: "app", Service: "batch", WorkloadID: "batch-other-account", WorkloadType: "batch_job", WorkloadName: "batch-other-account", FromNodeID: "aws:workload:batch:other-account", ToNodeID: otherNodeID,
+		}}},
+		AWSEKSWorkloadIdentityInventoryResult{Records: []AWSEKSWorkloadIdentityRecord{{
+			AccountID: targetAccount, Region: otherRegion, RoleARN: otherARN, RoleName: "app", WorkloadID: "eks-other-region", WorkloadType: "service_account", WorkloadName: "eks-other-region", FromNodeID: "aws:workload:eks:other-region", ToNodeID: otherNodeID,
+		}}},
+	)
+
+	if len(bindings) != 1 || bindings[0].RoleARN != targetARN || bindings[0].ToNodeID != targetNodeID {
+		t.Fatalf("bindings must be scoped before identity canonicalization: %+v", bindings)
+	}
+	scope := awsMachineIdentityDetailScopeFor("app", bindings)
+	if scope.PrincipalARN != targetARN || scope.NodeID != targetNodeID || scope.DownstreamIdentity != targetARN {
+		t.Fatalf("identity scope must be seeded only from requested account/region bindings: %+v", scope)
+	}
+}
+
 func TestGetAWSMachineIdentityDetailKeepsUnresolvedRoleNameGovernanceScoped(t *testing.T) {
 	now := time.Date(2026, 7, 3, 13, 19, 0, 0, time.UTC)
 	svc, ws := newMachineIdentityDetailService(t, "project-machine-identity-detail-unresolved-role", now)

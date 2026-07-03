@@ -260,7 +260,8 @@ func (s *Service) GetAWSMachineIdentityDetail(ctx context.Context, workspaceID s
 		return AWSMachineIdentityDetailResult{}, fmt.Errorf("machine identity detail eks inventory: %w", err)
 	}
 
-	bindings := awsMachineIdentityDetailBindings(identity, ec2, ecs, lambda, codeBuild, codePipeline, stepFunctions, eventDriven, managedCompute, eks)
+	bindingScope := awsMachineIdentityDetailBindingScopeFor(request)
+	bindings := awsMachineIdentityDetailBindings(identity, bindingScope, ec2, ecs, lambda, codeBuild, codePipeline, stepFunctions, eventDriven, managedCompute, eks)
 	identityScope := awsMachineIdentityDetailScopeFor(identity, bindings)
 	loadDownstream := func(downstreamIdentity string) (AWSRuntimeEventResult, AWSLeastPrivilegeResult, AWSSecretPermissionEquivalenceResult, AWSBlastRadiusResult, AWSIdentitySprawlResult, AWSRemediationCaseResult, error) {
 		runtime, err := s.GetAWSRuntimeEvents(ctx, workspaceID, projectID, AWSRuntimeEventRequest{
@@ -475,6 +476,36 @@ type awsMachineIdentityDetailScope struct {
 	PrincipalARN       string
 	RoleName           string
 	DownstreamIdentity string
+}
+
+type awsMachineIdentityDetailBindingScope struct {
+	AccountID string
+	Region    string
+}
+
+func awsMachineIdentityDetailBindingScopeFor(request AWSMachineIdentityDetailRequest) awsMachineIdentityDetailBindingScope {
+	return awsMachineIdentityDetailBindingScope{
+		AccountID: awsMachineIdentityDetailOptionalScopeValue(request.AccountID),
+		Region:    awsMachineIdentityDetailOptionalScopeValue(request.Region),
+	}
+}
+
+func awsMachineIdentityDetailOptionalScopeValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.EqualFold(value, "all") {
+		return ""
+	}
+	return value
+}
+
+func (scope awsMachineIdentityDetailBindingScope) accepts(accountID, region string) bool {
+	if scope.AccountID != "" && !strings.EqualFold(strings.TrimSpace(accountID), scope.AccountID) {
+		return false
+	}
+	if scope.Region != "" && !strings.EqualFold(strings.TrimSpace(region), scope.Region) {
+		return false
+	}
+	return true
 }
 
 func awsMachineIdentityDetailScopeFor(identity string, bindings []AWSMachineIdentityWorkloadBinding) awsMachineIdentityDetailScope {
@@ -858,6 +889,7 @@ func awsMachineIdentityDetailAppliedFilters(request AWSMachineIdentityDetailRequ
 
 func awsMachineIdentityDetailBindings(
 	identity string,
+	bindingScope awsMachineIdentityDetailBindingScope,
 	ec2 AWSEC2InstanceProfileInventoryResult,
 	ecs AWSECSTaskRoleInventoryResult,
 	lambda AWSLambdaExecutionRoleInventoryResult,
@@ -870,55 +902,55 @@ func awsMachineIdentityDetailBindings(
 ) []AWSMachineIdentityWorkloadBinding {
 	bindings := []AWSMachineIdentityWorkloadBinding{}
 	for _, record := range ec2.Records {
-		if !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.InstanceProfileARN, record.InstanceProfileName, record.WorkloadID, record.WorkloadName) {
+		if !bindingScope.accepts(record.AccountID, record.Region) || !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.InstanceProfileARN, record.InstanceProfileName, record.WorkloadID, record.WorkloadName) {
 			continue
 		}
 		bindings = append(bindings, awsMachineIdentityBinding("ec2", record.WorkloadID, record.WorkloadType, firstNonEmptyAWSValue(record.InstanceName, record.LaunchTemplateName, record.WorkloadName), record.RoleARN, record.RoleName, "instance_profile", "runs_as", record.FromNodeID, record.ToNodeID, record.EvidenceRef, record.Status, record.Confidence, record.CollectedAt))
 	}
 	for _, record := range ecs.Records {
-		if !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.TaskRoleARN, record.ExecutionRoleARN, record.WorkloadID, record.WorkloadName, record.ServiceName, record.TaskDefinitionFamily) {
+		if !bindingScope.accepts(record.AccountID, record.Region) || !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.TaskRoleARN, record.ExecutionRoleARN, record.WorkloadID, record.WorkloadName, record.ServiceName, record.TaskDefinitionFamily) {
 			continue
 		}
 		bindings = append(bindings, awsMachineIdentityBinding("ecs", record.WorkloadID, record.WorkloadType, firstNonEmptyAWSValue(record.ServiceName, record.TaskDefinitionFamily, record.WorkloadName), record.RoleARN, record.RoleName, record.RoleKind, record.RelationshipType, record.FromNodeID, record.ToNodeID, record.EvidenceRef, record.Status, record.Confidence, record.CollectedAt))
 	}
 	for _, record := range lambda.Records {
-		if !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.FunctionARN, record.FunctionName, record.WorkloadID, record.WorkloadName) {
+		if !bindingScope.accepts(record.AccountID, record.Region) || !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.FunctionARN, record.FunctionName, record.WorkloadID, record.WorkloadName) {
 			continue
 		}
 		bindings = append(bindings, awsMachineIdentityBinding("lambda", record.WorkloadID, record.WorkloadType, firstNonEmptyAWSValue(record.FunctionName, record.WorkloadName), record.RoleARN, record.RoleName, "execution_role", record.RelationshipType, record.FromNodeID, record.ToNodeID, record.EvidenceRef, record.Status, record.Confidence, record.CollectedAt))
 	}
 	for _, record := range codeBuild.Records {
-		if !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.ProjectARN, record.ProjectName, record.WorkloadID, record.WorkloadName) {
+		if !bindingScope.accepts(record.AccountID, record.Region) || !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.ProjectARN, record.ProjectName, record.WorkloadID, record.WorkloadName) {
 			continue
 		}
 		bindings = append(bindings, awsMachineIdentityBinding("codebuild", record.WorkloadID, record.WorkloadType, firstNonEmptyAWSValue(record.ProjectName, record.WorkloadName), record.RoleARN, record.RoleName, "service_role", record.RelationshipType, record.FromNodeID, record.ToNodeID, record.EvidenceRef, record.Status, record.Confidence, record.CollectedAt))
 	}
 	for _, record := range codePipeline.Records {
-		if !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.PipelineARN, record.PipelineName, record.WorkloadID, record.WorkloadName) {
+		if !bindingScope.accepts(record.AccountID, record.Region) || !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.PipelineARN, record.PipelineName, record.WorkloadID, record.WorkloadName) {
 			continue
 		}
 		bindings = append(bindings, awsMachineIdentityBinding("codepipeline", record.WorkloadID, record.WorkloadType, firstNonEmptyAWSValue(record.PipelineName, record.WorkloadName), record.RoleARN, record.RoleName, record.RoleKind, record.RelationshipType, record.FromNodeID, record.ToNodeID, record.EvidenceRef, record.Status, record.Confidence, record.CollectedAt))
 	}
 	for _, record := range stepFunctions.Records {
-		if !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.StateMachineARN, record.StateMachineName, record.WorkloadID, record.WorkloadName) {
+		if !bindingScope.accepts(record.AccountID, record.Region) || !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.StateMachineARN, record.StateMachineName, record.WorkloadID, record.WorkloadName) {
 			continue
 		}
 		bindings = append(bindings, awsMachineIdentityBinding("stepfunctions", record.WorkloadID, record.WorkloadType, firstNonEmptyAWSValue(record.StateMachineName, record.WorkloadName), record.RoleARN, record.RoleName, "state_machine_role", record.RelationshipType, record.FromNodeID, record.ToNodeID, record.EvidenceRef, record.Status, record.Confidence, record.CollectedAt))
 	}
 	for _, record := range eventDriven.Records {
-		if !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.WorkloadARN, record.WorkloadName, record.WorkloadID, record.TargetARN) {
+		if !bindingScope.accepts(record.AccountID, record.Region) || !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.WorkloadARN, record.WorkloadName, record.WorkloadID, record.TargetARN) {
 			continue
 		}
 		bindings = append(bindings, awsMachineIdentityBinding(record.Service, record.WorkloadID, record.WorkloadType, record.WorkloadName, record.RoleARN, record.RoleName, record.RoleKind, record.RelationshipType, record.FromNodeID, record.ToNodeID, record.EvidenceRef, record.Status, record.Confidence, record.CollectedAt))
 	}
 	for _, record := range managedCompute.Records {
-		if !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.WorkloadARN, record.WorkloadName, record.WorkloadID, record.ResourceARN) {
+		if !bindingScope.accepts(record.AccountID, record.Region) || !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.WorkloadARN, record.WorkloadName, record.WorkloadID, record.ResourceARN) {
 			continue
 		}
 		bindings = append(bindings, awsMachineIdentityBinding(record.Service, record.WorkloadID, record.WorkloadType, record.WorkloadName, record.RoleARN, record.RoleName, record.RoleKind, record.RelationshipType, record.FromNodeID, record.ToNodeID, record.EvidenceRef, record.Status, record.Confidence, record.CollectedAt))
 	}
 	for _, record := range eks.Records {
-		if !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.TargetRoleARN, record.NodeRoleARN, record.PodExecutionRoleARN, record.WorkloadID, record.WorkloadName, record.KubernetesSubject, record.ServiceAccount) {
+		if !bindingScope.accepts(record.AccountID, record.Region) || !awsMachineIdentityMatches(identity, record.RoleARN, record.RoleName, record.ToNodeID, record.TargetRoleARN, record.NodeRoleARN, record.PodExecutionRoleARN, record.WorkloadID, record.WorkloadName, record.KubernetesSubject, record.ServiceAccount) {
 			continue
 		}
 		bindings = append(bindings, awsMachineIdentityBinding("eks", record.WorkloadID, record.WorkloadType, firstNonEmptyAWSValue(record.KubernetesSubject, record.ServiceAccount, record.WorkloadName), record.RoleARN, record.RoleName, record.RoleKind, record.RelationshipType, record.FromNodeID, record.ToNodeID, record.EvidenceRef, record.Status, record.Confidence, record.CollectedAt))
