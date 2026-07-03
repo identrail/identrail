@@ -115,6 +115,25 @@ func TestGetAWSGovernanceAuditReportingIncludesAllDiagnosticsAsExceptionRows(t *
 	}
 }
 
+func TestAWSGovernanceAuditExceptionRecordsPreserveDiagnosticSource(t *testing.T) {
+	now := time.Date(2026, 7, 3, 18, 20, 0, 0, time.UTC)
+
+	records := awsGovernanceAuditExceptionRecords([]AWSGovernanceAuditReportingDiagnostic{
+		{
+			Collector: "scp_guardrail_executor",
+			SourceID:  "aws-scp-guardrail-executor:payments",
+			Code:      "permission_denied",
+			Message:   "Organizations read access denied while building SCP executor evidence.",
+		},
+	}, now)
+	if len(records) != 1 {
+		t.Fatalf("expected one diagnostic exception row, got %+v", records)
+	}
+	if records[0].SourceType != "scp_guardrail_executor" || records[0].SourceID != "aws-scp-guardrail-executor:payments" {
+		t.Fatalf("expected diagnostic collector/source metadata to be preserved, got %+v", records[0])
+	}
+}
+
 func TestFilterAWSGovernanceAuditReportingByDecisionApproverAndTime(t *testing.T) {
 	now := time.Date(2026, 7, 3, 18, 30, 0, 0, time.UTC)
 	records := []AWSGovernanceAuditReportRecord{
