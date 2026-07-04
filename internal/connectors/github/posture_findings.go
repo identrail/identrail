@@ -80,7 +80,6 @@ func postureCheckToFinding(repository string, organization string, installationI
 		"repo_finding",
 		repository,
 		string(domain.FindingRepoMisconfig),
-		detector,
 		adapterSource,
 		scope,
 		check.ID,
@@ -289,6 +288,8 @@ func postureFindingRemediation(check RepositoryPostureCheck, detector string) st
 		return "Set default workflow token permissions to read-only and grant write scopes only to jobs that require them."
 	case "github_reusable_workflow_policy_broad":
 		return "Restrict reusable workflows and third-party actions to an explicit pinned allowlist."
+	case "github_code_security_configuration_weak":
+		return "Enable an enforced organization-level code security configuration that covers secret scanning, code scanning, and Dependabot settings."
 	case "github_write_deploy_key":
 		return "Remove writable deploy keys or replace them with scoped, auditable GitHub App access."
 	case "github_webhook_unhealthy":

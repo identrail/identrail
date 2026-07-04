@@ -105,19 +105,37 @@ func TestOrganizationPostureFindingsScopeToRepository(t *testing.T) {
 				Summary:  "Organization grants write-scoped default workflow tokens.",
 				Evidence: map[string]any{"default_workflow_permissions": "write"},
 			},
+			{
+				ID:       "org_code_security_configuration",
+				Category: "code_security",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "not_enforced",
+				Summary:  "Organization code security configuration is not enforced.",
+			},
 		},
 	}
 
 	findings := OrganizationPostureFindings(posture, "acme/repo", now)
-	if len(findings) != 1 {
-		t.Fatalf("expected one org posture finding, got %+v", findings)
+	if len(findings) != 2 {
+		t.Fatalf("expected two org posture findings, got %+v", findings)
 	}
-	finding := findings[0]
+	finding := findingByDetector(findings, "github_workflow_permissions_write_default")
+	if finding == nil {
+		t.Fatalf("expected workflow permissions finding, got %+v", findings)
+	}
 	if finding.Repository != "acme/repo" || finding.Detector != "github_workflow_permissions_write_default" {
 		t.Fatalf("unexpected organization posture finding: %+v", finding)
 	}
 	if finding.AdapterSource != githubOrgPostureAdapterSource || finding.Evidence["organization"] != "acme" || finding.Evidence["github_posture_scope"] != "organization" {
 		t.Fatalf("expected organization posture evidence, got %+v", finding.Evidence)
+	}
+
+	codeSecurity := findingByDetector(findings, "github_code_security_configuration_weak")
+	if codeSecurity == nil {
+		t.Fatalf("expected code security configuration finding, got %+v", findings)
+	}
+	if codeSecurity.Remediation != "Enable an enforced organization-level code security configuration that covers secret scanning, code scanning, and Dependabot settings." {
+		t.Fatalf("expected code security remediation guidance, got %q", codeSecurity.Remediation)
 	}
 }
 
@@ -130,6 +148,7 @@ func TestPostureFindingsHaveStableLifecycleAcrossRepeatedScans(t *testing.T) {
 		},
 	}
 	second := first
+	second.Checks = append([]RepositoryPostureCheck(nil), first.Checks...)
 	second.CollectedAt = first.CollectedAt.Add(time.Hour)
 	second.Checks[0].Summary = "Secret scanning remains unhealthy."
 
@@ -143,6 +162,39 @@ func TestPostureFindingsHaveStableLifecycleAcrossRepeatedScans(t *testing.T) {
 	}
 	if firstFindings[0].ID != secondFindings[0].ID {
 		t.Fatalf("expected stable finding id, got %q and %q", firstFindings[0].ID, secondFindings[0].ID)
+	}
+	if firstFindings[0].HumanSummary != "Open secret scanning alerts are present." || secondFindings[0].HumanSummary != "Secret scanning remains unhealthy." {
+		t.Fatalf("expected scan summaries to remain independent, got first=%q second=%q", firstFindings[0].HumanSummary, secondFindings[0].HumanSummary)
+	}
+}
+
+func TestPostureFindingsKeepLifecycleWhenCheckStateDegrades(t *testing.T) {
+	first := RepositoryPosture{
+		Repository:  "owner/repo",
+		CollectedAt: time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC),
+		Checks: []RepositoryPostureCheck{
+			{ID: "default_branch_protection", Category: "branch_protection", State: RepositoryPostureStateInsecure, Reason: "weak_protection", Summary: "Default branch protection is weak."},
+		},
+	}
+	second := first
+	second.Checks = []RepositoryPostureCheck{
+		{ID: "default_branch_protection", Category: "branch_protection", State: RepositoryPostureStatePermissionLimited, Reason: "permission_limited", Summary: "Default branch protection could not be collected."},
+	}
+	second.CollectedAt = first.CollectedAt.Add(time.Hour)
+
+	firstFindings := RepositoryPostureFindings(first, first.CollectedAt)
+	secondFindings := RepositoryPostureFindings(second, second.CollectedAt)
+	if len(firstFindings) != 1 || len(secondFindings) != 1 {
+		t.Fatalf("expected one finding in each scan, got first=%+v second=%+v", firstFindings, secondFindings)
+	}
+	if firstFindings[0].Detector != "github_default_branch_unprotected" || secondFindings[0].Detector != githubPosturePermissionDetector {
+		t.Fatalf("expected detector to reflect current check state, got first=%q second=%q", firstFindings[0].Detector, secondFindings[0].Detector)
+	}
+	if firstFindings[0].LifecycleKey != secondFindings[0].LifecycleKey {
+		t.Fatalf("expected degraded posture state to keep lifecycle key, got %q and %q", firstFindings[0].LifecycleKey, secondFindings[0].LifecycleKey)
+	}
+	if firstFindings[0].ID != secondFindings[0].ID {
+		t.Fatalf("expected degraded posture state to keep finding id, got %q and %q", firstFindings[0].ID, secondFindings[0].ID)
 	}
 }
 
