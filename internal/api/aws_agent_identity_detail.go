@@ -530,7 +530,8 @@ func awsAgentIdentityDetailScopePermissions(result AWSLeastPrivilegeResult, reco
 	targets := awsAgentIdentityDetailPermissionIdentityCandidates(record, fallback)
 	scoped := make([]AWSLeastPrivilegeRecommendation, 0, len(result.Recommendations))
 	for _, recommendation := range result.Recommendations {
-		if awsAgentIdentityDetailAnyExactMatch(targets, awsLeastPrivilegeIdentityMatchValues(recommendation)...) {
+		if awsAgentIdentityDetailAnyExactMatch(targets, awsLeastPrivilegeIdentityMatchValues(recommendation)...) &&
+			awsAgentIdentityDetailRecommendationMatchesAgentScope(record, recommendation) {
 			scoped = append(scoped, recommendation)
 		}
 	}
@@ -544,7 +545,8 @@ func awsAgentIdentityDetailScopeRemediationCases(result AWSRemediationCaseResult
 	targets := awsAgentIdentityDetailPermissionIdentityCandidates(record, fallback)
 	scoped := make([]AWSRemediationCase, 0, len(result.Cases))
 	for _, c := range result.Cases {
-		if awsAgentIdentityDetailAnyExactMatch(targets, awsAgentIdentityDetailRemediationCaseIdentityValues(c)...) {
+		if awsAgentIdentityDetailAnyExactMatch(targets, awsAgentIdentityDetailRemediationCaseIdentityValues(c)...) &&
+			awsAgentIdentityDetailRemediationCaseMatchesAgentScope(record, c) {
 			scoped = append(scoped, c)
 		}
 	}
@@ -552,6 +554,49 @@ func awsAgentIdentityDetailScopeRemediationCases(result AWSRemediationCaseResult
 	result.Relationships = awsRemediationCaseRelationships(scoped)
 	result.Summary = summarizeAWSRemediationCases(scoped, scoped, result.Relationships)
 	return result
+}
+
+func awsAgentIdentityDetailRecommendationMatchesAgentScope(record AWSAIAgentIdentityRecord, recommendation AWSLeastPrivilegeRecommendation) bool {
+	values := []string{}
+	agentScoped := strings.EqualFold(normalizeAWSRuntimeEventFilterToken(recommendation.Service), "agent-runtime") ||
+		strings.Contains(normalizeAWSRuntimeEventFilterToken(recommendation.RecommendationType), "agent")
+	for _, evidence := range recommendation.Evidence {
+		if strings.EqualFold(normalizeAWSRuntimeEventFilterToken(evidence.Source), "agent-runtime-access") {
+			agentScoped = true
+		}
+	}
+	values = append(values, recommendation.ImpactedNodes...)
+	for _, step := range recommendation.ImpactedPath {
+		if strings.EqualFold(strings.TrimSpace(step.NodeType), "ai_agent") {
+			agentScoped = true
+		}
+		values = append(values, step.NodeID, step.Label)
+	}
+	if !agentScoped {
+		return true
+	}
+	return awsAgentIdentityDetailMatchesResolvedAgent(record, values...)
+}
+
+func awsAgentIdentityDetailRemediationCaseMatchesAgentScope(record AWSAIAgentIdentityRecord, c AWSRemediationCase) bool {
+	values := append([]string{}, c.ImpactedNodes...)
+	agentScoped := false
+	for _, value := range values {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "aws:agent:") {
+			agentScoped = true
+			break
+		}
+	}
+	for _, step := range c.ImpactedPath {
+		if strings.EqualFold(strings.TrimSpace(step.NodeType), "ai_agent") {
+			agentScoped = true
+		}
+		values = append(values, step.NodeID, step.Label)
+	}
+	if !agentScoped {
+		return true
+	}
+	return awsAgentIdentityDetailMatchesResolvedAgent(record, values...)
 }
 
 func awsAgentIdentityDetailPermissionIdentityCandidates(record AWSAIAgentIdentityRecord, fallback string) []string {

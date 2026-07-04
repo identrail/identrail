@@ -393,6 +393,172 @@ func TestAWSAgentIdentityDetailScopesPermissionsAndCasesExactly(t *testing.T) {
 	}
 }
 
+func TestAWSAgentIdentityDetailKeepsRoleWideButFiltersOtherAgentToolRecommendations(t *testing.T) {
+	roleARN := "arn:aws:iam::123456789012:role/shared-agent-runtime"
+	roleNode := awsIdentityNodeIDForAPI(roleARN)
+	agentNode := "aws:agent:123456789012:us-east-1:custom_agent/agent"
+	otherAgentNode := "aws:agent:123456789012:us-east-1:custom_agent/agent-v2"
+	record := AWSAIAgentIdentityRecord{
+		AgentID:           "agent",
+		AgentNodeID:       agentNode,
+		RuntimeRoleARN:    roleARN,
+		RuntimeRoleNodeID: roleNode,
+	}
+	permissions := AWSLeastPrivilegeResult{
+		Recommendations: []AWSLeastPrivilegeRecommendation{
+			{
+				RecommendationID:   "lp-selected-agent-tool",
+				RecommendationType: "remove-unused-agent-tool",
+				Decision:           "remove",
+				Severity:           "medium",
+				Status:             "open",
+				Service:            "agent-runtime",
+				IdentityNodeID:     roleNode,
+				PrincipalARN:       roleARN,
+				DisplayName:        "agent",
+				Score:              70,
+				Confidence:         0.8,
+				ImpactedNodes:      []string{roleNode, agentNode, "aws:s3:bucket/tickets"},
+				ImpactedPath: []AWSLeastPrivilegePathStep{
+					{NodeID: roleNode, NodeType: "identity", Label: "shared-agent-runtime"},
+					{NodeID: agentNode, NodeType: "ai_agent", Label: "agent"},
+					{NodeID: "aws:s3:bucket/tickets", NodeType: "target_resource", Label: "tickets"},
+				},
+				Evidence: []AWSLeastPrivilegeEvidence{{Source: "agent_runtime_access", EvidenceRef: "evidence://runtime/agent"}},
+			},
+			{
+				RecommendationID:   "lp-other-agent-tool",
+				RecommendationType: "remove-unused-agent-tool",
+				Decision:           "remove",
+				Severity:           "medium",
+				Status:             "open",
+				Service:            "agent-runtime",
+				IdentityNodeID:     roleNode,
+				PrincipalARN:       roleARN,
+				DisplayName:        "agent-v2",
+				Score:              68,
+				Confidence:         0.8,
+				ImpactedNodes:      []string{roleNode, otherAgentNode, "aws:s3:bucket/archive"},
+				ImpactedPath: []AWSLeastPrivilegePathStep{
+					{NodeID: roleNode, NodeType: "identity", Label: "shared-agent-runtime"},
+					{NodeID: otherAgentNode, NodeType: "ai_agent", Label: "agent-v2"},
+					{NodeID: "aws:s3:bucket/archive", NodeType: "target_resource", Label: "archive"},
+				},
+				Evidence: []AWSLeastPrivilegeEvidence{{Source: "agent_runtime_access", EvidenceRef: "evidence://runtime/agent-v2"}},
+			},
+			{
+				RecommendationID:   "lp-role-wide",
+				RecommendationType: "remove-unused-iam-action",
+				Decision:           "remove",
+				Severity:           "high",
+				Status:             "open",
+				Service:            "s3",
+				IdentityNodeID:     roleNode,
+				PrincipalARN:       roleARN,
+				DisplayName:        "shared-agent-runtime",
+				Score:              80,
+				Confidence:         0.85,
+				ImpactedNodes:      []string{roleNode, "aws:s3:bucket/shared"},
+				ImpactedPath: []AWSLeastPrivilegePathStep{
+					{NodeID: roleNode, NodeType: "identity", Label: "shared-agent-runtime"},
+					{NodeID: "aws:s3:bucket/shared", NodeType: "resource", Label: "shared"},
+				},
+				Evidence: []AWSLeastPrivilegeEvidence{{Source: "iam_last_used", EvidenceRef: "evidence://iam-last-used/shared-agent-runtime"}},
+			},
+		},
+	}
+	cases := AWSRemediationCaseResult{
+		Cases: []AWSRemediationCase{
+			{
+				CaseID:         "case-selected-agent-tool",
+				SourceType:     "least_privilege",
+				Lifecycle:      "proposed",
+				Severity:       "medium",
+				Status:         "open",
+				ApprovalState:  "pending",
+				IdentityNodeID: roleNode,
+				IdentityARN:    roleARN,
+				IdentityName:   "agent",
+				Score:          70,
+				Confidence:     0.8,
+				ImpactedNodes:  []string{roleNode, agentNode, "aws:s3:bucket/tickets"},
+				ImpactedPath: []AWSLeastPrivilegePathStep{
+					{NodeID: roleNode, NodeType: "identity", Label: "shared-agent-runtime"},
+					{NodeID: agentNode, NodeType: "ai_agent", Label: "agent"},
+					{NodeID: "aws:s3:bucket/tickets", NodeType: "target_resource", Label: "tickets"},
+				},
+			},
+			{
+				CaseID:         "case-other-agent-tool",
+				SourceType:     "least_privilege",
+				Lifecycle:      "proposed",
+				Severity:       "medium",
+				Status:         "open",
+				ApprovalState:  "pending",
+				IdentityNodeID: roleNode,
+				IdentityARN:    roleARN,
+				IdentityName:   "agent-v2",
+				Score:          68,
+				Confidence:     0.8,
+				ImpactedNodes:  []string{roleNode, otherAgentNode, "aws:s3:bucket/archive"},
+				ImpactedPath: []AWSLeastPrivilegePathStep{
+					{NodeID: roleNode, NodeType: "identity", Label: "shared-agent-runtime"},
+					{NodeID: otherAgentNode, NodeType: "ai_agent", Label: "agent-v2"},
+					{NodeID: "aws:s3:bucket/archive", NodeType: "target_resource", Label: "archive"},
+				},
+			},
+			{
+				CaseID:         "case-role-wide",
+				SourceType:     "least_privilege",
+				Lifecycle:      "proposed",
+				Severity:       "high",
+				Status:         "open",
+				ApprovalState:  "pending",
+				IdentityNodeID: roleNode,
+				IdentityARN:    roleARN,
+				IdentityName:   "shared-agent-runtime",
+				Score:          80,
+				Confidence:     0.85,
+				ImpactedNodes:  []string{roleNode, "aws:s3:bucket/shared"},
+				ImpactedPath: []AWSLeastPrivilegePathStep{
+					{NodeID: roleNode, NodeType: "identity", Label: "shared-agent-runtime"},
+					{NodeID: "aws:s3:bucket/shared", NodeType: "resource", Label: "shared"},
+				},
+			},
+		},
+	}
+
+	scopedPermissions := awsAgentIdentityDetailScopePermissions(permissions, record, roleNode)
+	gotRecommendations := map[string]struct{}{}
+	for _, recommendation := range scopedPermissions.Recommendations {
+		gotRecommendations[recommendation.RecommendationID] = struct{}{}
+	}
+	if _, ok := gotRecommendations["lp-selected-agent-tool"]; !ok {
+		t.Fatalf("selected agent tool recommendation must be retained: %+v", scopedPermissions.Recommendations)
+	}
+	if _, ok := gotRecommendations["lp-role-wide"]; !ok {
+		t.Fatalf("role-wide IAM recommendation must be retained: %+v", scopedPermissions.Recommendations)
+	}
+	if _, ok := gotRecommendations["lp-other-agent-tool"]; ok {
+		t.Fatalf("other agent tool recommendation must be filtered out: %+v", scopedPermissions.Recommendations)
+	}
+
+	scopedCases := awsAgentIdentityDetailScopeRemediationCases(cases, record, roleNode)
+	gotCases := map[string]struct{}{}
+	for _, c := range scopedCases.Cases {
+		gotCases[c.CaseID] = struct{}{}
+	}
+	if _, ok := gotCases["case-selected-agent-tool"]; !ok {
+		t.Fatalf("selected agent tool case must be retained: %+v", scopedCases.Cases)
+	}
+	if _, ok := gotCases["case-role-wide"]; !ok {
+		t.Fatalf("role-wide IAM case must be retained: %+v", scopedCases.Cases)
+	}
+	if _, ok := gotCases["case-other-agent-tool"]; ok {
+		t.Fatalf("other agent tool case must be filtered out: %+v", scopedCases.Cases)
+	}
+}
+
 func TestAWSAgentIdentityDetailGovernanceFiltersPreferRoleThenAgent(t *testing.T) {
 	roleARN := "arn:aws:iam::123456789012:role/agent-runtime"
 	roleRecord := AWSAIAgentIdentityRecord{
