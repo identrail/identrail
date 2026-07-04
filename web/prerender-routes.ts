@@ -18,6 +18,7 @@ export const PRERENDER_ROUTES = [
   '/signin',
   '/signup',
   '/auth/mfa',
+  '/auth/email-verification',
   '/why-no-passwords',
   '/docs',
   '/faq',
