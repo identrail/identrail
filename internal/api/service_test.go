@@ -4757,6 +4757,214 @@ func TestServiceProcessQueuedGitHubAppRepoScanImportsSecretAndDependabotAlerts(t
 	}
 }
 
+func TestServiceProcessQueuedGitHubAppRepoScanImportsPostureFindings(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	seedGitHubAppConnection(t, svc, ctx, "project-1", 101, []string{"owner/private"})
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.GitHubInstallationTokenMinter = &fakeGitHubInstallationTokenMinter{
+		token: githubconnector.InstallationToken{Token: "ghs_installation_token", ExpiresAt: time.Now().Add(time.Hour)},
+	}
+	collectedAt := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	svc.GitHubRepositoryPostureCollector = &fakeGitHubRepositoryPostureCollector{
+		posture: githubconnector.RepositoryPosture{
+			Repository:     "owner/private",
+			InstallationID: 101,
+			CollectedAt:    collectedAt,
+			Checks: []githubconnector.RepositoryPostureCheck{
+				{
+					ID:       "default_branch_protection",
+					Category: "branch_protection",
+					State:    githubconnector.RepositoryPostureStateInsecure,
+					Reason:   "weak_protection",
+					Summary:  "Default branch protection is weak.",
+				},
+				{
+					ID:       "deploy_keys",
+					Category: "access",
+					State:    githubconnector.RepositoryPostureStateSecure,
+					Reason:   "no_writable_deploy_keys",
+					Summary:  "No writable deploy keys were returned.",
+				},
+			},
+		},
+		organizationPosture: githubconnector.OrganizationPosture{
+			Organization:   "owner",
+			InstallationID: 101,
+			CollectedAt:    collectedAt,
+			Checks: []githubconnector.RepositoryPostureCheck{
+				{
+					ID:       "org_workflow_permissions",
+					Category: "actions",
+					State:    githubconnector.RepositoryPostureStateInsecure,
+					Reason:   "write_token_or_pr_approval",
+					Summary:  "Organization grants write-scoped default workflow tokens.",
+				},
+			},
+		},
+	}
+	svc.AuthenticatedRepoScannerFactory = func(historyLimit int, maxFindings int, credential repoexposure.HTTPSCloneCredential) RepoScanExecutor {
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/private",
+				CommitsScanned: 1,
+				FilesScanned:   1,
+			},
+		}
+	}
+
+	record, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{
+		Repository: "owner/private",
+		ProjectID:  "project-1",
+	})
+	if err != nil {
+		t.Fatalf("enqueue connector-backed repo scan: %v", err)
+	}
+	processed, err := svc.ProcessNextQueuedRepoScan(ctx)
+	if err != nil {
+		t.Fatalf("process connector-backed repo scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued connector-backed repo scan to be processed")
+	}
+	collector := svc.GitHubRepositoryPostureCollector.(*fakeGitHubRepositoryPostureCollector)
+	if collector.seenInstallationID != 101 || collector.seenRepository != "owner/private" || collector.seenOrganization != "owner" || collector.seenOrganizationRepo != "owner/private" {
+		t.Fatalf("unexpected posture collector calls: %+v", collector)
+	}
+	stored, err := svc.GetRepoScan(ctx, record.ID)
+	if err != nil {
+		t.Fatalf("get repo scan: %v", err)
+	}
+	if stored.FindingCount != 2 {
+		t.Fatalf("expected two imported posture findings, got %+v", stored)
+	}
+	findings, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{RepoScanID: record.ID})
+	if err != nil {
+		t.Fatalf("list repo findings: %v", err)
+	}
+	branchFinding := repoFindingByDetector(findings, "github_default_branch_unprotected")
+	if branchFinding == nil {
+		t.Fatalf("expected branch posture finding, got %+v", findings)
+	}
+	if branchFinding.Repository != "owner/private" || branchFinding.LifecycleKey == "" || branchFinding.Evidence["github_posture_check_id"] != "default_branch_protection" {
+		t.Fatalf("unexpected branch posture finding: %+v", branchFinding)
+	}
+	orgFinding := repoFindingByDetector(findings, "github_workflow_permissions_write_default")
+	if orgFinding == nil {
+		t.Fatalf("expected org workflow posture finding, got %+v", findings)
+	}
+	if orgFinding.AdapterSource != "github_org_posture" || orgFinding.Evidence["organization"] != "owner" || orgFinding.Evidence["raw_secret_stored"] != false {
+		t.Fatalf("unexpected org posture finding: %+v", orgFinding)
+	}
+}
+
+func TestServiceProcessQueuedGitHubAppRepoScanPreservesPostureFindingsWhenPostureSourceFails(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	seedGitHubAppConnection(t, svc, ctx, "project-1", 101, []string{"owner/private"})
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+
+	previousScan, err := store.CreateRepoScan(ctx, "owner/private", db.RepoScanSource{}, db.RepoScanContext{ScanMode: db.RepoScanModeDeep}, now)
+	if err != nil {
+		t.Fatalf("create previous repo scan: %v", err)
+	}
+	previousFindings := githubconnector.RepositoryPostureFindings(githubconnector.RepositoryPosture{
+		Repository:     "owner/private",
+		InstallationID: 101,
+		CollectedAt:    now,
+		Checks: []githubconnector.RepositoryPostureCheck{
+			{
+				ID:       "default_branch_protection",
+				Category: "branch_protection",
+				State:    githubconnector.RepositoryPostureStateInsecure,
+				Reason:   "weak_protection",
+				Summary:  "Default branch protection is weak.",
+			},
+		},
+	}, now)
+	if len(previousFindings) != 1 {
+		t.Fatalf("expected one previous posture finding, got %+v", previousFindings)
+	}
+	if err := store.UpsertRepoFindings(ctx, previousScan.ID, previousFindings); err != nil {
+		t.Fatalf("upsert previous posture finding: %v", err)
+	}
+	if err := store.CompleteRepoScan(ctx, previousScan.ID, "succeeded", now.Add(time.Minute), 1, 1, len(previousFindings), false, db.RepoScanContext{ScanMode: db.RepoScanModeDeep}, ""); err != nil {
+		t.Fatalf("complete previous repo scan: %v", err)
+	}
+
+	svc.GitHubInstallationTokenMinter = &fakeGitHubInstallationTokenMinter{
+		token: githubconnector.InstallationToken{Token: "ghs_installation_token", ExpiresAt: now.Add(time.Hour)},
+	}
+	svc.GitHubRepositoryPostureCollector = &fakeGitHubRepositoryPostureCollector{
+		err: errors.New("github posture source unavailable"),
+	}
+	svc.AuthenticatedRepoScannerFactory = func(historyLimit int, maxFindings int, credential repoexposure.HTTPSCloneCredential) RepoScanExecutor {
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/private",
+				CommitsScanned: 1,
+				FilesScanned:   1,
+			},
+		}
+	}
+
+	record, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{
+		Repository: "owner/private",
+		ProjectID:  "project-1",
+	})
+	if err != nil {
+		t.Fatalf("enqueue connector-backed repo scan: %v", err)
+	}
+	processed, err := svc.ProcessNextQueuedRepoScan(ctx)
+	if err != nil {
+		t.Fatalf("process connector-backed repo scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected queued connector-backed repo scan to be processed")
+	}
+	currentScan, err := svc.GetRepoScan(ctx, record.ID)
+	if err != nil {
+		t.Fatalf("get current repo scan: %v", err)
+	}
+	if currentScan.Status != "succeeded" || currentScan.FindingCount != 0 {
+		t.Fatalf("expected partial source scan to succeed without imported posture findings, got %+v", currentScan)
+	}
+
+	openFindings, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+		Repository: "owner/private",
+		Status:     string(domain.RepoFindingLifecycleOpen),
+	})
+	if err != nil {
+		t.Fatalf("list open repo findings: %v", err)
+	}
+	if len(openFindings) != 1 || openFindings[0].LifecycleKey != previousFindings[0].LifecycleKey {
+		t.Fatalf("expected previous posture finding to remain open after source failure, got %+v", openFindings)
+	}
+	fixedFindings, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+		Repository: "owner/private",
+		Status:     string(domain.RepoFindingLifecycleFixed),
+	})
+	if err != nil {
+		t.Fatalf("list fixed repo findings: %v", err)
+	}
+	if len(fixedFindings) != 0 {
+		t.Fatalf("expected posture source failure not to mark findings fixed, got %+v", fixedFindings)
+	}
+}
+
+func repoFindingByDetector(findings []domain.Finding, detector string) *domain.Finding {
+	for i := range findings {
+		if findings[i].Detector == detector {
+			return &findings[i]
+		}
+	}
+	return nil
+}
+
 func TestServiceProcessQueuedGitHubAppRepoScanRedactsInstallationTokenErrors(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")

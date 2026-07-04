@@ -362,12 +362,13 @@ type RepoScanRecord struct {
 
 // RepoScanContext captures incremental execution metadata for one scan.
 type RepoScanContext struct {
-	ScanMode     string
-	BaseRevision string
-	HeadRevision string
-	CursorBefore string
-	CursorAfter  string
-	ChangedPaths []string
+	ScanMode         string
+	BaseRevision     string
+	HeadRevision     string
+	CursorBefore     string
+	CursorAfter      string
+	ChangedPaths     []string
+	PartialSourceRun bool
 }
 
 // NormalizeRepoScanContext returns stable scan-mode and revision metadata.
@@ -377,12 +378,13 @@ func NormalizeRepoScanContext(scanContext RepoScanContext) RepoScanContext {
 		mode = RepoScanModeDeep
 	}
 	normalized := RepoScanContext{
-		ScanMode:     mode,
-		BaseRevision: strings.TrimSpace(scanContext.BaseRevision),
-		HeadRevision: strings.TrimSpace(scanContext.HeadRevision),
-		CursorBefore: strings.TrimSpace(scanContext.CursorBefore),
-		CursorAfter:  strings.TrimSpace(scanContext.CursorAfter),
-		ChangedPaths: normalizeRepoScanChangedPaths(scanContext.ChangedPaths),
+		ScanMode:         mode,
+		BaseRevision:     strings.TrimSpace(scanContext.BaseRevision),
+		HeadRevision:     strings.TrimSpace(scanContext.HeadRevision),
+		CursorBefore:     strings.TrimSpace(scanContext.CursorBefore),
+		CursorAfter:      strings.TrimSpace(scanContext.CursorAfter),
+		ChangedPaths:     normalizeRepoScanChangedPaths(scanContext.ChangedPaths),
+		PartialSourceRun: scanContext.PartialSourceRun,
 	}
 	return normalized
 }
@@ -2767,6 +2769,9 @@ func shouldCloseMissingRepoFindings(status string, truncated bool, scanContext R
 		return false
 	}
 	normalizedContext := NormalizeRepoScanContext(scanContext)
+	if normalizedContext.PartialSourceRun {
+		return false
+	}
 	return normalizedContext.ScanMode == "deep" && len(normalizedContext.ChangedPaths) == 0
 }
 

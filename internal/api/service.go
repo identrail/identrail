@@ -1874,9 +1874,11 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		return RunRepoScanResult{}, safeErr
 	}
 	result = applyRepoScanContextToResult(result, target, scanContext)
+	partialSourceRun := false
 	if !result.Truncated {
 		externalFindings, sourceErrors, externalErr := s.repoScanExternalFindings(ctx, record, s.Now().UTC())
 		if len(sourceErrors) > 0 {
+			partialSourceRun = true
 			s.appendScanEvent(ctx, record.ID, db.ScanEventLevelWarn, "repo scan completed with partial source errors", map[string]any{
 				"source_error_count": len(sourceErrors),
 				"source_errors":      truncateSourceErrors(sourceErrors, maxSourceErrorsInEvent),
@@ -1911,10 +1913,11 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	}
 	cursorAfter := firstNonEmptyString(result.HeadRevision, record.HeadRevision)
 	completionContext := db.RepoScanContext{
-		ScanMode:     result.ScanMode,
-		BaseRevision: result.BaseRevision,
-		HeadRevision: result.HeadRevision,
-		ChangedPaths: append([]string(nil), result.ChangedPaths...),
+		ScanMode:         result.ScanMode,
+		BaseRevision:     result.BaseRevision,
+		HeadRevision:     result.HeadRevision,
+		ChangedPaths:     append([]string(nil), result.ChangedPaths...),
+		PartialSourceRun: partialSourceRun,
 	}
 	if !result.Truncated {
 		completionContext.CursorAfter = cursorAfter
@@ -2158,6 +2161,28 @@ func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoSc
 				recordSourceErr("github_dependabot", "normalize_error", normErr)
 			} else {
 				findings = append(findings, imported...)
+			}
+		}
+	}
+	if s.GitHubRepositoryPostureCollector != nil {
+		posture, err := s.GitHubRepositoryPostureCollector.CollectRepositoryPosture(ctx, source.InstallationID, record.Repository)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, nil, ctx.Err()
+			}
+			recordSourceErr("github_repository_posture", "posture_collect_error", err)
+		} else {
+			findings = append(findings, githubconnector.RepositoryPostureFindings(posture, detectedAt)...)
+		}
+		if owner, _, ok := strings.Cut(record.Repository, "/"); ok && strings.TrimSpace(owner) != "" {
+			orgPosture, orgErr := s.GitHubRepositoryPostureCollector.CollectOrganizationPosture(ctx, source.InstallationID, owner, record.Repository)
+			if orgErr != nil {
+				if ctx.Err() != nil {
+					return nil, nil, ctx.Err()
+				}
+				recordSourceErr("github_organization_posture", "posture_collect_error", orgErr)
+			} else if githubOrganizationPostureAvailable(orgPosture) {
+				findings = append(findings, githubconnector.OrganizationPostureFindings(orgPosture, record.Repository, detectedAt)...)
 			}
 		}
 	}

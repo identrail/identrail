@@ -1,0 +1,208 @@
+package github
+
+import (
+	"testing"
+	"time"
+
+	"github.com/identrail/identrail/internal/domain"
+)
+
+func TestRepositoryPostureFindingsPromotesInsecureAndLimitedChecks(t *testing.T) {
+	collectedAt := time.Date(2026, 7, 4, 10, 0, 0, 0, time.UTC)
+	detectedAt := collectedAt.Add(time.Minute)
+	posture := RepositoryPosture{
+		Repository:     "owner/repo",
+		InstallationID: 101,
+		CollectedAt:    collectedAt,
+		Checks: []RepositoryPostureCheck{
+			{
+				ID:       "default_branch_protection",
+				Category: "branch_protection",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "weak_protection",
+				Summary:  "Default branch protection is weak.",
+				Evidence: map[string]any{"default_branch": "main"},
+			},
+			{
+				ID:       "deploy_keys",
+				Category: "access",
+				State:    RepositoryPostureStateSecure,
+				Reason:   "no_writable_deploy_keys",
+				Summary:  "No writable deploy keys were returned.",
+			},
+			{
+				ID:       "self_hosted_runners",
+				Category: "runners",
+				State:    RepositoryPostureStatePermissionLimited,
+				Reason:   "permission_limited",
+				Summary:  "Self-hosted runner posture could not be collected.",
+			},
+			{
+				ID:       "actions_permissions",
+				Category: "actions",
+				State:    RepositoryPostureStateUnavailable,
+				Reason:   "api_unavailable",
+				Summary:  "GitHub Actions permissions could not be collected.",
+			},
+			{
+				ID:       "org_code_security_configuration",
+				Category: "code_security",
+				State:    RepositoryPostureStateUnsupported,
+				Reason:   "plan_unavailable",
+				Summary:  "Plan does not expose this endpoint.",
+			},
+		},
+	}
+
+	findings := RepositoryPostureFindings(posture, detectedAt)
+	if len(findings) != 3 {
+		t.Fatalf("expected three posture findings, got %+v", findings)
+	}
+
+	branch := findingByDetector(findings, "github_default_branch_unprotected")
+	if branch == nil {
+		t.Fatalf("expected default branch posture finding, got %+v", findings)
+	}
+	if branch.Type != domain.FindingRepoMisconfig || branch.Severity != domain.SeverityHigh || branch.Repository != "owner/repo" {
+		t.Fatalf("unexpected branch finding: %+v", branch)
+	}
+	if branch.LifecycleKey == "" || branch.Evidence["github_posture_check_id"] != "default_branch_protection" {
+		t.Fatalf("expected stable posture metadata, got key=%q evidence=%+v", branch.LifecycleKey, branch.Evidence)
+	}
+	if branch.Evidence["raw_secret_stored"] != false || branch.AdapterSource != githubPostureAdapterSource {
+		t.Fatalf("expected non-secret github posture source evidence, got %+v", branch)
+	}
+
+	limited := findingByDetector(findings, githubPosturePermissionDetector)
+	if limited == nil {
+		t.Fatalf("expected permission-limited posture finding, got %+v", findings)
+	}
+	if limited.Severity != domain.SeverityMedium || limited.ConfidenceState != "permission_limited" || limited.VerificationStatus != string(RepositoryPostureStatePermissionLimited) {
+		t.Fatalf("unexpected permission-limited finding: %+v", limited)
+	}
+
+	unavailable := findingByDetector(findings, githubPostureUnavailableDetector)
+	if unavailable == nil {
+		t.Fatalf("expected unavailable posture finding, got %+v", findings)
+	}
+	if unavailable.Severity != domain.SeverityLow || unavailable.ConfidenceState != "unavailable" || unavailable.VerificationStatus != string(RepositoryPostureStateUnavailable) {
+		t.Fatalf("unexpected unavailable finding: %+v", unavailable)
+	}
+}
+
+func TestOrganizationPostureFindingsScopeToRepository(t *testing.T) {
+	now := time.Date(2026, 7, 4, 11, 0, 0, 0, time.UTC)
+	posture := OrganizationPosture{
+		Organization:   "acme",
+		InstallationID: 202,
+		CollectedAt:    now,
+		Checks: []RepositoryPostureCheck{
+			{
+				ID:       "org_workflow_permissions",
+				Category: "actions",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "write_token_or_pr_approval",
+				Summary:  "Organization grants write-scoped default workflow tokens.",
+				Evidence: map[string]any{"default_workflow_permissions": "write"},
+			},
+			{
+				ID:       "org_code_security_configuration",
+				Category: "code_security",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "not_enforced",
+				Summary:  "Organization code security configuration is not enforced.",
+			},
+		},
+	}
+
+	findings := OrganizationPostureFindings(posture, "acme/repo", now)
+	if len(findings) != 2 {
+		t.Fatalf("expected two org posture findings, got %+v", findings)
+	}
+	finding := findingByDetector(findings, "github_workflow_permissions_write_default")
+	if finding == nil {
+		t.Fatalf("expected workflow permissions finding, got %+v", findings)
+	}
+	if finding.Repository != "acme/repo" || finding.Detector != "github_workflow_permissions_write_default" {
+		t.Fatalf("unexpected organization posture finding: %+v", finding)
+	}
+	if finding.AdapterSource != githubOrgPostureAdapterSource || finding.Evidence["organization"] != "acme" || finding.Evidence["github_posture_scope"] != "organization" {
+		t.Fatalf("expected organization posture evidence, got %+v", finding.Evidence)
+	}
+
+	codeSecurity := findingByDetector(findings, "github_code_security_configuration_weak")
+	if codeSecurity == nil {
+		t.Fatalf("expected code security configuration finding, got %+v", findings)
+	}
+	if codeSecurity.Remediation != "Enable an enforced organization-level code security configuration that covers secret scanning, code scanning, and Dependabot settings." {
+		t.Fatalf("expected code security remediation guidance, got %q", codeSecurity.Remediation)
+	}
+}
+
+func TestPostureFindingsHaveStableLifecycleAcrossRepeatedScans(t *testing.T) {
+	first := RepositoryPosture{
+		Repository:  "owner/repo",
+		CollectedAt: time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC),
+		Checks: []RepositoryPostureCheck{
+			{ID: "secret_scanning", Category: "secret_scanning", State: RepositoryPostureStateInsecure, Reason: "open_alerts_present", Summary: "Open secret scanning alerts are present."},
+		},
+	}
+	second := first
+	second.Checks = append([]RepositoryPostureCheck(nil), first.Checks...)
+	second.CollectedAt = first.CollectedAt.Add(time.Hour)
+	second.Checks[0].Summary = "Secret scanning remains unhealthy."
+
+	firstFindings := RepositoryPostureFindings(first, first.CollectedAt)
+	secondFindings := RepositoryPostureFindings(second, second.CollectedAt)
+	if len(firstFindings) != 1 || len(secondFindings) != 1 {
+		t.Fatalf("expected one finding in each scan, got first=%+v second=%+v", firstFindings, secondFindings)
+	}
+	if firstFindings[0].LifecycleKey != secondFindings[0].LifecycleKey {
+		t.Fatalf("expected stable lifecycle key, got %q and %q", firstFindings[0].LifecycleKey, secondFindings[0].LifecycleKey)
+	}
+	if firstFindings[0].ID != secondFindings[0].ID {
+		t.Fatalf("expected stable finding id, got %q and %q", firstFindings[0].ID, secondFindings[0].ID)
+	}
+	if firstFindings[0].HumanSummary != "Open secret scanning alerts are present." || secondFindings[0].HumanSummary != "Secret scanning remains unhealthy." {
+		t.Fatalf("expected scan summaries to remain independent, got first=%q second=%q", firstFindings[0].HumanSummary, secondFindings[0].HumanSummary)
+	}
+}
+
+func TestPostureFindingsKeepLifecycleWhenCheckStateDegrades(t *testing.T) {
+	first := RepositoryPosture{
+		Repository:  "owner/repo",
+		CollectedAt: time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC),
+		Checks: []RepositoryPostureCheck{
+			{ID: "default_branch_protection", Category: "branch_protection", State: RepositoryPostureStateInsecure, Reason: "weak_protection", Summary: "Default branch protection is weak."},
+		},
+	}
+	second := first
+	second.Checks = []RepositoryPostureCheck{
+		{ID: "default_branch_protection", Category: "branch_protection", State: RepositoryPostureStatePermissionLimited, Reason: "permission_limited", Summary: "Default branch protection could not be collected."},
+	}
+	second.CollectedAt = first.CollectedAt.Add(time.Hour)
+
+	firstFindings := RepositoryPostureFindings(first, first.CollectedAt)
+	secondFindings := RepositoryPostureFindings(second, second.CollectedAt)
+	if len(firstFindings) != 1 || len(secondFindings) != 1 {
+		t.Fatalf("expected one finding in each scan, got first=%+v second=%+v", firstFindings, secondFindings)
+	}
+	if firstFindings[0].Detector != "github_default_branch_unprotected" || secondFindings[0].Detector != githubPosturePermissionDetector {
+		t.Fatalf("expected detector to reflect current check state, got first=%q second=%q", firstFindings[0].Detector, secondFindings[0].Detector)
+	}
+	if firstFindings[0].LifecycleKey != secondFindings[0].LifecycleKey {
+		t.Fatalf("expected degraded posture state to keep lifecycle key, got %q and %q", firstFindings[0].LifecycleKey, secondFindings[0].LifecycleKey)
+	}
+	if firstFindings[0].ID != secondFindings[0].ID {
+		t.Fatalf("expected degraded posture state to keep finding id, got %q and %q", firstFindings[0].ID, secondFindings[0].ID)
+	}
+}
+
+func findingByDetector(findings []domain.Finding, detector string) *domain.Finding {
+	for i := range findings {
+		if findings[i].Detector == detector {
+			return &findings[i]
+		}
+	}
+	return nil
+}
