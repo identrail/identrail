@@ -24,6 +24,7 @@ type AWSLeastPrivilegeRequest struct {
 	Region       string `json:"region,omitempty"`
 	Identity     string `json:"identity,omitempty"`
 	Resource     string `json:"resource,omitempty"`
+	Tool         string `json:"tool,omitempty"`
 	Service      string `json:"service,omitempty"`
 	Severity     string `json:"severity,omitempty"`
 	Status       string `json:"status,omitempty"`
@@ -858,6 +859,7 @@ func filterAWSLeastPrivilegeRecommendations(recommendations []AWSLeastPrivilegeR
 		"region":     strings.TrimSpace(request.Region),
 		"identity":   strings.TrimSpace(request.Identity),
 		"resource":   strings.TrimSpace(request.Resource),
+		"tool":       strings.TrimSpace(request.Tool),
 		"service":    normalizeAWSRuntimeEventFilterToken(request.Service),
 		"severity":   normalizeAWSRuntimeEventFilterToken(request.Severity),
 		"status":     normalizeAWSRuntimeEventFilterToken(request.Status),
@@ -899,6 +901,9 @@ func filterAWSLeastPrivilegeRecommendations(recommendations []AWSLeastPrivilegeR
 		if filters["resource"] != "" && !awsRuntimeEventMatchesAny(filters["resource"], awsLeastPrivilegeResourceMatchValues(recommendation)...) {
 			continue
 		}
+		if filters["tool"] != "" && !awsRuntimeEventMatchesAny(filters["tool"], awsLeastPrivilegeToolMatchValues(recommendation)...) {
+			continue
+		}
 		filtered = append(filtered, recommendation)
 	}
 	return filtered, applied
@@ -919,6 +924,17 @@ func awsLeastPrivilegeResourceMatchValues(recommendation AWSLeastPrivilegeRecomm
 	candidates = append(candidates, recommendation.ImpactedNodes...)
 	for _, step := range recommendation.ImpactedPath {
 		candidates = append(candidates, step.NodeID, step.Label)
+	}
+	return dedupeStrings(candidates)
+}
+
+func awsLeastPrivilegeToolMatchValues(recommendation AWSLeastPrivilegeRecommendation) []string {
+	candidates := append(append(append([]string{}, recommendation.KeepActions...), recommendation.RemoveActions...), recommendation.ObservedActions...)
+	candidates = append(candidates, recommendation.GrantedActions...)
+	for _, action := range append([]string{}, candidates...) {
+		if tool, ok := strings.CutPrefix(strings.TrimSpace(action), "agent-tool:"); ok {
+			candidates = append(candidates, tool)
+		}
 	}
 	return dedupeStrings(candidates)
 }

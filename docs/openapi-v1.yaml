@@ -7153,6 +7153,10 @@ paths:
           schema: { type: string }
           description: Optional impacted resource, ARN, display label, or graph-node search.
         - in: query
+          name: tool
+          schema: { type: string }
+          description: Optional AI-agent tool name, target reference, or agent-tool action search.
+        - in: query
           name: service
           schema: { type: string }
           description: Optional AWS service token, such as s3, secretsmanager, kms, lambda, or agent-runtime.

@@ -335,6 +335,7 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 		Region:       request.Region,
 		Identity:     permissionsIdentity,
 		Resource:     request.Resource,
+		Tool:         request.Tool,
 		Severity:     request.Severity,
 		Status:       request.Status,
 	})

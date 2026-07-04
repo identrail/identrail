@@ -144,6 +144,26 @@ func TestGetAWSLeastPrivilegeFiltersByDecisionServiceAndResource(t *testing.T) {
 			t.Fatalf("resource filter leaked %+v", recommendation)
 		}
 	}
+
+	tool, err := svc.GetAWSLeastPrivilegeRecommendations(defaultScopeContext(), ws, "project-least-privilege-filters", AWSLeastPrivilegeRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Tool:         "case-router",
+	})
+	if err != nil {
+		t.Fatalf("tool filter: %v", err)
+	}
+	if len(tool.Recommendations) == 0 {
+		t.Fatalf("expected agent-runtime tool recommendations")
+	}
+	if tool.AppliedFilters["tool"] != "case-router" {
+		t.Fatalf("expected applied tool filter, got %+v", tool.AppliedFilters)
+	}
+	for _, recommendation := range tool.Recommendations {
+		if !awsRuntimeEventMatchesAny("case-router", awsLeastPrivilegeToolMatchValues(recommendation)...) {
+			t.Fatalf("tool filter leaked %+v", recommendation)
+		}
+	}
 }
 
 func TestAWSLeastPrivilegeRecommendationFromRuntimeSignalKeepsAccessAnalyzerInReview(t *testing.T) {
