@@ -281,6 +281,7 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 	if err != nil {
 		return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail runtime access: %w", err)
 	}
+	runtimeAccess = awsAgentIdentityDetailScopeRuntimeAccess(runtimeAccess, record)
 	risk, err := s.GetAWSAIAgentRisk(ctx, workspaceID, projectID, AWSAIAgentRiskRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
@@ -293,6 +294,7 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 	if err != nil {
 		return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail risk: %w", err)
 	}
+	risk = awsAgentIdentityDetailScopeRisk(risk, record)
 	permissionsIdentity := awsAgentIdentityDetailPermissionIdentity(record, agentFilter)
 	permissions, err := s.GetAWSLeastPrivilegeRecommendations(ctx, workspaceID, projectID, AWSLeastPrivilegeRequest{
 		ConnectorID:  connectorID,
@@ -318,12 +320,14 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 	if err != nil {
 		return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail remediation cases: %w", err)
 	}
+	governanceIdentityID, governanceAgentID := awsAgentIdentityDetailGovernanceFilters(record, agentFilter)
 	governance, err := s.GetAWSGovernanceAuditReporting(ctx, workspaceID, projectID, AWSGovernanceAuditReportingRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
 		AccountID:    request.AccountID,
 		Region:       request.Region,
-		IdentityID:   permissionsIdentity,
+		IdentityID:   governanceIdentityID,
+		AgentID:      governanceAgentID,
 		State:        request.Status,
 	})
 	if err != nil {
@@ -439,6 +443,87 @@ func awsAgentIdentityDetailEvidenceAgentFilter(agent string, record AWSAIAgentId
 	return firstNonEmptyAWSValue(record.AgentNodeID, record.AgentID, agent)
 }
 
+func awsAgentIdentityDetailScopeRuntimeAccess(result AWSAgentRuntimeAccessResult, record AWSAIAgentIdentityRecord) AWSAgentRuntimeAccessResult {
+	scoped := make([]AWSAgentRuntimeAccessRecord, 0, len(result.Records))
+	for _, candidate := range result.Records {
+		if awsAgentIdentityDetailMatchesResolvedAgent(record, candidate.AgentNodeID, candidate.AgentID) {
+			scoped = append(scoped, candidate)
+		}
+	}
+	result.Records = scoped
+	result.Relationships = awsAgentRuntimeAccessRelationships(scoped)
+	result.Summary = awsAgentIdentityDetailRuntimeAccessSummary(scoped, result.Relationships)
+	return result
+}
+
+func awsAgentIdentityDetailRuntimeAccessSummary(records []AWSAgentRuntimeAccessRecord, relationships []AWSAgentRuntimeAccessRelationship) AWSAgentRuntimeAccessSummary {
+	summary := AWSAgentRuntimeAccessSummary{
+		TotalCorrelations:    len(records),
+		FilteredCorrelations: len(records),
+		StatusCounts:         map[string]int{},
+		RelationshipCount:    len(relationships),
+	}
+	agentIDs := map[string]struct{}{}
+	toolNames := map[string]struct{}{}
+	for _, record := range records {
+		summary.StatusCounts[record.Status]++
+		switch record.Status {
+		case "confirmed":
+			summary.ConfirmedCount++
+		case "observed_without_declaration":
+			summary.ObservedWithoutDeclCount++
+		case "declared_unused":
+			summary.DeclaredUnusedCount++
+		}
+		if !record.DeclaredInInventory && record.ObservedCount > 0 {
+			summary.UndeclaredToolCount++
+		}
+		if record.DeclaredInInventory {
+			summary.DeclaredToolCount++
+		}
+		summary.ObservedToolCallCount += record.ObservedCount
+		if strings.TrimSpace(record.AgentNodeID) != "" {
+			agentIDs[strings.ToLower(strings.TrimSpace(record.AgentNodeID))] = struct{}{}
+		} else if strings.TrimSpace(record.AgentID) != "" {
+			agentIDs[strings.ToLower(strings.TrimSpace(record.AgentID))] = struct{}{}
+		}
+		if strings.TrimSpace(record.ToolName) != "" {
+			toolNames[strings.ToLower(strings.TrimSpace(record.ToolName))] = struct{}{}
+		}
+	}
+	summary.AgentCount = len(agentIDs)
+	summary.ToolCount = len(toolNames)
+	return summary
+}
+
+func awsAgentIdentityDetailScopeRisk(result AWSAIAgentRiskResult, record AWSAIAgentIdentityRecord) AWSAIAgentRiskResult {
+	scoped := make([]AWSAIAgentRiskFinding, 0, len(result.Findings))
+	for _, finding := range result.Findings {
+		if awsAgentIdentityDetailMatchesResolvedAgent(record, finding.AgentNodeID, finding.AgentID) {
+			scoped = append(scoped, finding)
+		}
+	}
+	result.Findings = scoped
+	result.Relationships = awsAIAgentRiskRelationships(scoped)
+	result.Summary = summarizeAWSAIAgentRisk(scoped, scoped, result.Relationships)
+	return result
+}
+
+func awsAgentIdentityDetailMatchesResolvedAgent(record AWSAIAgentIdentityRecord, values ...string) bool {
+	for _, expected := range []string{record.AgentNodeID, record.AgentID} {
+		expected = strings.TrimSpace(expected)
+		if expected == "" {
+			continue
+		}
+		for _, value := range values {
+			if strings.EqualFold(strings.TrimSpace(value), expected) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func awsAgentIdentityDetailPermissionIdentity(record AWSAIAgentIdentityRecord, fallback string) string {
 	return firstNonEmptyAWSValue(
 		record.RuntimeRoleNodeID,
@@ -448,6 +533,14 @@ func awsAgentIdentityDetailPermissionIdentity(record AWSAIAgentIdentityRecord, f
 		record.AgentNodeID,
 		fallback,
 	)
+}
+
+func awsAgentIdentityDetailGovernanceFilters(record AWSAIAgentIdentityRecord, agentFilter string) (string, string) {
+	roleIdentity := firstNonEmptyAWSValue(record.RuntimeRoleNodeID, awsIdentityNodeIDForAPI(record.RuntimeRoleARN))
+	if roleIdentity != "" {
+		return roleIdentity, ""
+	}
+	return "", agentFilter
 }
 
 func awsAgentIdentityDetailAgent(agent string, record AWSAIAgentIdentityRecord, resolved bool, accountID, region string) AWSAgentIdentityDetailAgent {

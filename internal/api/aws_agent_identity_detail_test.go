@@ -220,6 +220,94 @@ func TestAWSAgentIdentityDetailPermissionIdentityPrefersBackingRole(t *testing.T
 	}
 }
 
+func TestAWSAgentIdentityDetailScopesResolvedRuntimeAndRiskExactly(t *testing.T) {
+	record := AWSAIAgentIdentityRecord{
+		AgentID:     "agent",
+		AgentNodeID: "aws:agent:123456789012:us-east-1:custom_agent/agent",
+	}
+	leakedAgentNode := "aws:agent:123456789012:us-east-1:custom_agent/agent-v2"
+	runtime := AWSAgentRuntimeAccessResult{
+		Records: []AWSAgentRuntimeAccessRecord{
+			{
+				CorrelationID:         "corr-agent",
+				AgentID:               record.AgentID,
+				AgentNodeID:           record.AgentNodeID,
+				ToolName:              "search",
+				Status:                "confirmed",
+				ObservedCount:         2,
+				DeclaredInInventory:   true,
+				BackingRoleNodeIDs:    []string{"aws:identity:role/agent"},
+				TargetResourceNodeIDs: []string{"aws:s3:bucket/tickets"},
+			},
+			{
+				CorrelationID:         "corr-agent-v2",
+				AgentID:               "agent-v2",
+				AgentNodeID:           leakedAgentNode,
+				ToolName:              "delete",
+				Status:                "confirmed",
+				ObservedCount:         1,
+				BackingRoleNodeIDs:    []string{"aws:identity:role/agent-v2"},
+				TargetResourceNodeIDs: []string{"aws:s3:bucket/archive"},
+			},
+		},
+	}
+	risk := AWSAIAgentRiskResult{
+		Findings: []AWSAIAgentRiskFinding{
+			{FindingID: "risk-agent", AgentID: record.AgentID, AgentNodeID: record.AgentNodeID, RiskType: "broad_tool_access", Severity: "high", Status: "open", Score: 90, ImpactedNodes: []string{record.AgentNodeID, "aws:identity:role/agent"}},
+			{FindingID: "risk-agent-v2", AgentID: "agent-v2", AgentNodeID: leakedAgentNode, RiskType: "ownerless_agent", Severity: "medium", Status: "open", Score: 70, ImpactedNodes: []string{leakedAgentNode, "aws:identity:role/agent-v2"}},
+		},
+	}
+
+	scopedRuntime := awsAgentIdentityDetailScopeRuntimeAccess(runtime, record)
+	if len(scopedRuntime.Records) != 1 || scopedRuntime.Records[0].AgentNodeID != record.AgentNodeID {
+		t.Fatalf("runtime evidence must be exact-scoped to the resolved agent: %+v", scopedRuntime.Records)
+	}
+	if scopedRuntime.Summary.FilteredCorrelations != 1 || scopedRuntime.Summary.ConfirmedCount != 1 || scopedRuntime.Summary.RelationshipCount != len(scopedRuntime.Relationships) {
+		t.Fatalf("runtime summary must match exact-scoped records: summary=%+v relationships=%+v", scopedRuntime.Summary, scopedRuntime.Relationships)
+	}
+	for _, relation := range scopedRuntime.Relationships {
+		if relation.FromNodeID == leakedAgentNode || relation.ToNodeID == leakedAgentNode {
+			t.Fatalf("runtime relationships must not retain prefix-matched leaked agent: %+v", scopedRuntime.Relationships)
+		}
+	}
+
+	scopedRisk := awsAgentIdentityDetailScopeRisk(risk, record)
+	if len(scopedRisk.Findings) != 1 || scopedRisk.Findings[0].AgentNodeID != record.AgentNodeID {
+		t.Fatalf("risk evidence must be exact-scoped to the resolved agent: %+v", scopedRisk.Findings)
+	}
+	if scopedRisk.Summary.FilteredFindings != 1 || scopedRisk.Summary.RelationshipCount != len(scopedRisk.Relationships) {
+		t.Fatalf("risk summary must match exact-scoped findings: summary=%+v relationships=%+v", scopedRisk.Summary, scopedRisk.Relationships)
+	}
+	for _, relation := range scopedRisk.Relationships {
+		if relation.FromNodeID == leakedAgentNode || relation.ToNodeID == leakedAgentNode {
+			t.Fatalf("risk relationships must not retain prefix-matched leaked agent: %+v", scopedRisk.Relationships)
+		}
+	}
+}
+
+func TestAWSAgentIdentityDetailGovernanceFiltersPreferRoleThenAgent(t *testing.T) {
+	roleARN := "arn:aws:iam::123456789012:role/agent-runtime"
+	roleRecord := AWSAIAgentIdentityRecord{
+		AgentID:           "agent",
+		AgentNodeID:       "aws:agent:123456789012:us-east-1:custom_agent/agent",
+		RuntimeRoleARN:    roleARN,
+		RuntimeRoleNodeID: awsIdentityNodeIDForAPI(roleARN),
+	}
+	identityID, agentID := awsAgentIdentityDetailGovernanceFilters(roleRecord, roleRecord.AgentNodeID)
+	if identityID != roleRecord.RuntimeRoleNodeID || agentID != "" {
+		t.Fatalf("role-backed governance must use identity_id only, got identity=%q agent=%q", identityID, agentID)
+	}
+
+	rolelessRecord := AWSAIAgentIdentityRecord{
+		AgentID:     "custom-agent",
+		AgentNodeID: "aws:agent:123456789012:us-east-1:custom_agent/custom-agent",
+	}
+	identityID, agentID = awsAgentIdentityDetailGovernanceFilters(rolelessRecord, rolelessRecord.AgentNodeID)
+	if identityID != "" || agentID != rolelessRecord.AgentNodeID {
+		t.Fatalf("roleless governance must use agent_id, got identity=%q agent=%q", identityID, agentID)
+	}
+}
+
 func TestAWSAgentIdentityDetailSecretReferencesAreMetadataOnly(t *testing.T) {
 	record := AWSAIAgentIdentityRecord{
 		AgentID: "agent-1",
