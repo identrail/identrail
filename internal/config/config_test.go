@@ -94,6 +94,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_SESSION_KEY", "")
 	t.Setenv("IDENTRAIL_SESSION_KEY_PREVIOUS", "")
 	t.Setenv("IDENTRAIL_AUTH_MANUAL_MODE", "")
+	t.Setenv("IDENTRAIL_AUTH_REQUIRE_SOCIAL_MFA", "")
 	t.Setenv("IDENTRAIL_WORKOS_CLIENT_ID", "")
 	t.Setenv("IDENTRAIL_OIDC_TENANT_CLAIM", "")
 	t.Setenv("IDENTRAIL_OIDC_WORKSPACE_CLAIM", "")
@@ -347,6 +348,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.AuthManualMode {
 		t.Fatal("expected manual auth mode disabled by default")
 	}
+	if cfg.AuthRequireSocialMFA {
+		t.Fatal("expected social mfa requirement disabled by default")
+	}
 	if cfg.WorkOSClientID != "" {
 		t.Fatalf("expected empty WorkOS client id by default, got %q", cfg.WorkOSClientID)
 	}
@@ -470,6 +474,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_SESSION_KEY", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	t.Setenv("IDENTRAIL_SESSION_KEY_PREVIOUS", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 	t.Setenv("IDENTRAIL_AUTH_MANUAL_MODE", "true")
+	t.Setenv("IDENTRAIL_AUTH_REQUIRE_SOCIAL_MFA", "true")
 	t.Setenv("IDENTRAIL_WORKOS_CLIENT_ID", "client_123")
 	t.Setenv("IDENTRAIL_WORKOS_API_KEY", "sk_test_123")
 	t.Setenv("IDENTRAIL_WORKOS_WEBHOOK_SECRET", "whsec_123")
@@ -731,6 +736,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if !cfg.AuthManualMode {
 		t.Fatal("expected manual auth mode enabled from env")
+	}
+	if !cfg.AuthRequireSocialMFA {
+		t.Fatal("expected social mfa requirement enabled from env")
 	}
 	if cfg.WorkOSClientID != "client_123" {
 		t.Fatalf("unexpected WorkOS client id: %q", cfg.WorkOSClientID)

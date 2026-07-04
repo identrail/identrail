@@ -46,8 +46,9 @@ in [`production-api-readiness.md`](./production-api-readiness.md).
 | `IDENTRAIL_WORKOS_API_KEY` | empty | Required when `IDENTRAIL_FEATURE_WORKOS_LOGIN=true`. Treated as a secret. | WorkOS login |
 | `IDENTRAIL_WORKOS_WEBHOOK_SECRET` | empty | Required when `IDENTRAIL_FEATURE_WORKOS_LOGIN=true`. Used to verify webhook HMAC. | WorkOS login |
 | `IDENTRAIL_WORKOS_ENVIRONMENT_ID` | empty | Required when `IDENTRAIL_FEATURE_WORKOS_LOGIN=true`. Picks the WorkOS environment (test, staging, production). | WorkOS login |
+| `IDENTRAIL_AUTH_REQUIRE_SOCIAL_MFA` | `false` | Boolean. Defense-in-depth assertion that refuses to create a session for a Google/GitHub OAuth login unless the WorkOS MFA handshake completed. Only set this to `true` when MFA enforcement is **also** enabled in the WorkOS dashboard — the app cannot initiate MFA on its own, so enabling this while WorkOS enforcement is off rejects every social login with `mfa_required`. When `false` (default), WorkOS is the single source of truth for whether MFA runs. Requires `IDENTRAIL_FEATURE_WORKOS_LOGIN=true`; refuses to start otherwise. | WorkOS login |
 
-Self-hosted operators leave all four WorkOS variables in this section empty.
+Self-hosted operators leave every variable in this section unset.
 They still set the two required core variables in the previous section
 (`IDENTRAIL_PUBLIC_BASE_URL` and `IDENTRAIL_SESSION_KEY`), set the two optional
 ones if they need them (`IDENTRAIL_SESSION_KEY_PREVIOUS` during a key rotation,

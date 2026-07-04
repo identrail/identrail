@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- Make app-side social-login MFA enforcement opt-in via
+  `IDENTRAIL_AUTH_REQUIRE_SOCIAL_MFA` (default `false`). Previously the API
+  unconditionally rejected Google/GitHub OAuth logins whose WorkOS MFA
+  handshake had not completed, so disabling MFA enforcement in the WorkOS
+  dashboard bricked social sign-in with an unrecoverable `mfa_required`
+  loop. With the flag off, WorkOS is the single source of truth for whether
+  MFA runs; setting it to `true` restores the app-side assertion as
+  defense-in-depth for deployments that also enforce MFA in WorkOS. The
+  flag requires `IDENTRAIL_FEATURE_WORKOS_LOGIN=true` at startup.
 - Add **AWS governance audit reporting** (#1548). Adds a metadata-only
   reporting projection over advisory authorization, AgentCore gateway policy
   advisory, remediation approval, post-remediation verification, and limited
