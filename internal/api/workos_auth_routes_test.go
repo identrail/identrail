@@ -314,7 +314,7 @@ func TestWorkOSSignupEmailFailureDoesNotBlockSession(t *testing.T) {
 	}
 }
 
-func TestWorkOSSocialLoginWithoutMFADoesNotCreateSession(t *testing.T) {
+func TestWorkOSSocialLoginWithoutMFADoesNotCreateSessionWhenRequired(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")
 	workOS := &fakeWorkOSClient{
@@ -328,15 +328,16 @@ func TestWorkOSSocialLoginWithoutMFADoesNotCreateSession(t *testing.T) {
 		},
 	}
 	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
-		FeatureNewAuth:      true,
-		FeatureWorkOSLogin:  true,
-		PublicBaseURL:       "https://app.identrail.test",
-		SessionKey:          strings.Repeat("a", 64),
-		WorkOSClientID:      "client_123",
-		WorkOSWebhookSecret: "whsec_123",
-		WorkOSAuthClient:    workOS,
-		RateLimitRPM:        1000,
-		RateLimitBurst:      1000,
+		FeatureNewAuth:       true,
+		FeatureWorkOSLogin:   true,
+		AuthRequireSocialMFA: true,
+		PublicBaseURL:        "https://app.identrail.test",
+		SessionKey:           strings.Repeat("a", 64),
+		WorkOSClientID:       "client_123",
+		WorkOSWebhookSecret:  "whsec_123",
+		WorkOSAuthClient:     workOS,
+		RateLimitRPM:         1000,
+		RateLimitBurst:       1000,
 	})
 
 	startResp := httptest.NewRecorder()
@@ -358,6 +359,53 @@ func TestWorkOSSocialLoginWithoutMFADoesNotCreateSession(t *testing.T) {
 	}
 	if _, err := store.GetUserIdentity(context.Background(), sessionauth.WorkOSProvider, "user_social_no_mfa"); !errors.Is(err, db.ErrNotFound) {
 		t.Fatalf("social login without mfa must not create identity, got %v", err)
+	}
+}
+
+func TestWorkOSSocialLoginWithoutMFACreatesSessionByDefault(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	workOS := &fakeWorkOSClient{
+		authentication: sessionauth.WorkOSAuthentication{
+			User: sessionauth.WorkOSProfile{
+				ID:            "user_social_workos_mfa_off",
+				Email:         "social-workos-mfa-off@example.com",
+				EmailVerified: true,
+			},
+			AuthenticationMethod: "GitHubOAuth",
+		},
+	}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:      true,
+		FeatureWorkOSLogin:  true,
+		PublicBaseURL:       "https://app.identrail.test",
+		SessionKey:          strings.Repeat("a", 64),
+		WorkOSClientID:      "client_123",
+		WorkOSWebhookSecret: "whsec_123",
+		WorkOSAuthClient:    workOS,
+		RateLimitRPM:        1000,
+		RateLimitBurst:      1000,
+	})
+
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/signup?provider=github_oauth&return_to=/app/welcome", nil))
+	if startResp.Code != http.StatusFound {
+		t.Fatalf("expected login redirect, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+
+	callbackResp := httptest.NewRecorder()
+	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
+	if callbackResp.Code != http.StatusFound {
+		t.Fatalf("expected callback redirect, got %d body=%s", callbackResp.Code, callbackResp.Body.String())
+	}
+	if got := callbackResp.Header().Get("Location"); got != "/app/welcome" {
+		t.Fatalf("expected post-login redirect without app-side mfa enforcement, got %q", got)
+	}
+	if findTestCookie(callbackResp.Result().Cookies(), sessionauth.CookieName) == nil {
+		t.Fatalf("expected session cookie when IDENTRAIL_AUTH_REQUIRE_SOCIAL_MFA is off, got %+v", callbackResp.Result().Cookies())
+	}
+	if _, err := store.GetUserIdentity(context.Background(), sessionauth.WorkOSProvider, "user_social_workos_mfa_off"); err != nil {
+		t.Fatalf("expected identity to be created, got %v", err)
 	}
 }
 

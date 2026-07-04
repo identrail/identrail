@@ -153,6 +153,7 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		SessionKeyPrevious:        cfg.SessionKeyPrevious,
 		AuthManualMode:            cfg.AuthManualMode,
 		AuthManualModeAllowUnsafe: cfg.AuthManualModeAllowUnsafe,
+		AuthRequireSocialMFA:      cfg.AuthRequireSocialMFA,
 		WorkOSClientID:            cfg.WorkOSClientID,
 		WorkOSAPIKey:              cfg.WorkOSAPIKey,
 		WorkOSWebhookSecret:       cfg.WorkOSWebhookSecret,

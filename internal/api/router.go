@@ -88,6 +88,7 @@ type RouterOptions struct {
 	SessionKeyPrevious        string
 	AuthManualMode            bool
 	AuthManualModeAllowUnsafe bool
+	AuthRequireSocialMFA      bool
 	WorkOSClientID            string
 	WorkOSAPIKey              string
 	WorkOSWebhookSecret       string
@@ -335,6 +336,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			AuditFingerprinter:    opts.AuditFingerprinter,
 			ManualMode:            opts.AuthManualMode,
 			ManualModeAllowUnsafe: opts.AuthManualModeAllowUnsafe,
+			RequireSocialMFA:      opts.AuthRequireSocialMFA,
 			WorkOSEnabled:         opts.FeatureWorkOSLogin,
 			WorkOSClientID:        opts.WorkOSClientID,
 			WorkOSClient:          workOSClient,
