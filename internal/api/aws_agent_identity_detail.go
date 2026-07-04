@@ -302,6 +302,7 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 		AccountID:    request.AccountID,
 		Region:       request.Region,
 		Identity:     permissionsIdentity,
+		Resource:     request.Resource,
 		Severity:     request.Severity,
 		Status:       request.Status,
 	})
@@ -309,7 +310,7 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 		return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail permissions: %w", err)
 	}
 	permissions = awsAgentIdentityDetailScopePermissions(permissions, record, permissionsIdentity)
-	cases, err := s.GetAWSRemediationCases(ctx, workspaceID, projectID, AWSRemediationCaseRequest{
+	remediationRequest := AWSRemediationCaseRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
 		AccountID:    request.AccountID,
@@ -317,9 +318,20 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 		Identity:     permissionsIdentity,
 		Severity:     request.Severity,
 		Status:       request.Status,
-	})
+	}
+	cases, err := s.GetAWSRemediationCases(ctx, workspaceID, projectID, remediationRequest)
 	if err != nil {
 		return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail remediation cases: %w", err)
+	}
+	agentRemediationIdentity := awsAgentIdentityDetailRemediationAgentIdentity(record, agentFilter)
+	if agentRemediationIdentity != "" && !strings.EqualFold(strings.TrimSpace(agentRemediationIdentity), strings.TrimSpace(permissionsIdentity)) {
+		agentRemediationRequest := remediationRequest
+		agentRemediationRequest.Identity = agentRemediationIdentity
+		agentCases, err := s.GetAWSRemediationCases(ctx, workspaceID, projectID, agentRemediationRequest)
+		if err != nil {
+			return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail agent remediation cases: %w", err)
+		}
+		cases = awsAgentIdentityDetailMergeRemediationCaseResults(cases, agentCases, permissionsIdentity, agentRemediationIdentity)
 	}
 	cases = awsAgentIdentityDetailScopeRemediationCases(cases, record, permissionsIdentity)
 	governanceIdentityID, governanceAgentID := awsAgentIdentityDetailGovernanceFilters(record, agentFilter)
@@ -542,7 +554,7 @@ func awsAgentIdentityDetailScopePermissions(result AWSLeastPrivilegeResult, reco
 }
 
 func awsAgentIdentityDetailScopeRemediationCases(result AWSRemediationCaseResult, record AWSAIAgentIdentityRecord, fallback string) AWSRemediationCaseResult {
-	targets := awsAgentIdentityDetailPermissionIdentityCandidates(record, fallback)
+	targets := awsAgentIdentityDetailRemediationCaseIdentityCandidates(record, fallback)
 	scoped := make([]AWSRemediationCase, 0, len(result.Cases))
 	for _, c := range result.Cases {
 		if awsAgentIdentityDetailAnyExactMatch(targets, awsAgentIdentityDetailRemediationCaseIdentityValues(c)...) &&
@@ -554,6 +566,30 @@ func awsAgentIdentityDetailScopeRemediationCases(result AWSRemediationCaseResult
 	result.Relationships = awsRemediationCaseRelationships(scoped)
 	result.Summary = summarizeAWSRemediationCases(scoped, scoped, result.Relationships)
 	return result
+}
+
+func awsAgentIdentityDetailMergeRemediationCaseResults(primary, secondary AWSRemediationCaseResult, identities ...string) AWSRemediationCaseResult {
+	mergedCases := awsRemediationCaseDedupe(append(append([]AWSRemediationCase{}, primary.Cases...), secondary.Cases...))
+	primary.Cases = mergedCases
+	primary.Relationships = awsRemediationCaseRelationships(mergedCases)
+	primary.Summary = summarizeAWSRemediationCases(mergedCases, mergedCases, primary.Relationships)
+	primary.FailureReasons = dedupeStrings(append(append([]string{}, primary.FailureReasons...), secondary.FailureReasons...))
+	primary.RemediationHints = dedupeStrings(append(append([]string{}, primary.RemediationHints...), secondary.RemediationHints...))
+	primary.EvidenceLinks = dedupeStrings(append(append([]string{}, primary.EvidenceLinks...), secondary.EvidenceLinks...))
+	primary.CoverageGaps = append(append([]AWSRemediationCaseCoverageGap{}, primary.CoverageGaps...), secondary.CoverageGaps...)
+	filters := map[string]string{}
+	for key, value := range primary.AppliedFilters {
+		filters[key] = value
+	}
+	identityFilters := emptyStrings(dedupeStrings(identities))
+	if len(identityFilters) > 0 {
+		filters["identity"] = identityFilters[0]
+	}
+	if len(identityFilters) > 1 {
+		filters["agent_identity"] = identityFilters[1]
+	}
+	primary.AppliedFilters = filters
+	return primary
 }
 
 func awsAgentIdentityDetailRecommendationMatchesAgentScope(record AWSAIAgentIdentityRecord, recommendation AWSLeastPrivilegeRecommendation) bool {
@@ -612,6 +648,21 @@ func awsAgentIdentityDetailPermissionIdentityCandidates(record AWSAIAgentIdentit
 	return emptyStrings(dedupeStrings([]string{record.AgentNodeID, record.AgentID, fallback}))
 }
 
+func awsAgentIdentityDetailRemediationCaseIdentityCandidates(record AWSAIAgentIdentityRecord, fallback string) []string {
+	roleTargets := emptyStrings(dedupeStrings([]string{
+		record.RuntimeRoleNodeID,
+		awsIdentityNodeIDForAPI(record.RuntimeRoleARN),
+		record.RuntimeRoleARN,
+		record.RuntimeRoleName,
+	}))
+	agentTargets := emptyStrings(dedupeStrings([]string{
+		record.AgentNodeID,
+		record.AgentID,
+		fallback,
+	}))
+	return emptyStrings(dedupeStrings(append(roleTargets, agentTargets...)))
+}
+
 func awsAgentIdentityDetailRemediationCaseIdentityValues(c AWSRemediationCase) []string {
 	values := []string{c.IdentityNodeID, c.IdentityARN, c.IdentityName}
 	if strings.EqualFold(c.SourceType, "aws_permission_boundary_scp") {
@@ -644,6 +695,10 @@ func awsAgentIdentityDetailPermissionIdentity(record AWSAIAgentIdentityRecord, f
 		record.AgentNodeID,
 		fallback,
 	)
+}
+
+func awsAgentIdentityDetailRemediationAgentIdentity(record AWSAIAgentIdentityRecord, fallback string) string {
+	return firstNonEmptyAWSValue(record.AgentNodeID, record.AgentID, fallback)
 }
 
 func awsAgentIdentityDetailGovernanceFilters(record AWSAIAgentIdentityRecord, agentFilter string) (string, string) {

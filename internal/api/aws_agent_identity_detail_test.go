@@ -88,6 +88,29 @@ func TestGetAWSAgentIdentityDetailBuildsContract(t *testing.T) {
 	}
 }
 
+func TestGetAWSAgentIdentityDetailForwardsResourceToRecommendations(t *testing.T) {
+	now := time.Date(2026, 7, 4, 11, 30, 0, 0, time.UTC)
+	svc, ws := newAgentIdentityDetailService(t, "project-agent-identity-detail-resource", now)
+
+	result, err := svc.GetAWSAgentIdentityDetail(defaultScopeContext(), ws, "project-agent-identity-detail-resource", AWSAgentIdentityDetailRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Agent:        "AGENTPAY1",
+		Resource:     "prod/ai/openai-key",
+	})
+	if err != nil {
+		t.Fatalf("get resource-filtered agent identity detail: %v", err)
+	}
+	if result.Permissions.AppliedFilters["resource"] != "prod/ai/openai-key" {
+		t.Fatalf("permissions must receive the detail resource filter, got %+v", result.Permissions.AppliedFilters)
+	}
+	for _, recommendation := range result.Permissions.Recommendations {
+		if !awsRuntimeEventMatchesAny("prod/ai/openai-key", awsLeastPrivilegeResourceMatchValues(recommendation)...) {
+			t.Fatalf("resource-filtered permissions leaked unrelated recommendation: %+v", recommendation)
+		}
+	}
+}
+
 func TestGetAWSAgentIdentityDetailUnknownAgentIsExplicit(t *testing.T) {
 	now := time.Date(2026, 7, 3, 20, 15, 0, 0, time.UTC)
 	svc, ws := newAgentIdentityDetailService(t, "project-agent-identity-detail-unknown", now)
@@ -556,6 +579,105 @@ func TestAWSAgentIdentityDetailKeepsRoleWideButFiltersOtherAgentToolRecommendati
 	}
 	if _, ok := gotCases["case-other-agent-tool"]; ok {
 		t.Fatalf("other agent tool case must be filtered out: %+v", scopedCases.Cases)
+	}
+}
+
+func TestAWSAgentIdentityDetailMergesAgentScopedRemediationCases(t *testing.T) {
+	roleARN := "arn:aws:iam::123456789012:role/shared-agent-runtime"
+	roleNode := awsIdentityNodeIDForAPI(roleARN)
+	agentNode := "aws:agent:123456789012:us-east-1:custom_agent/agent"
+	otherAgentNode := "aws:agent:123456789012:us-east-1:custom_agent/agent-v2"
+	record := AWSAIAgentIdentityRecord{
+		AgentID:           "agent",
+		AgentNodeID:       agentNode,
+		RuntimeRoleARN:    roleARN,
+		RuntimeRoleNodeID: roleNode,
+	}
+	roleCases := AWSRemediationCaseResult{
+		AppliedFilters: map[string]string{"identity": roleNode},
+		Cases: []AWSRemediationCase{
+			{
+				CaseID:         "case-role-wide",
+				SourceType:     "least_privilege",
+				Lifecycle:      "proposed",
+				Severity:       "high",
+				Status:         "open",
+				ApprovalState:  "pending",
+				IdentityNodeID: roleNode,
+				IdentityARN:    roleARN,
+				IdentityName:   "shared-agent-runtime",
+				Score:          80,
+				Confidence:     0.85,
+				ImpactedNodes:  []string{roleNode, "aws:s3:bucket/shared"},
+			},
+		},
+	}
+	agentCases := AWSRemediationCaseResult{
+		AppliedFilters: map[string]string{"identity": agentNode},
+		Cases: []AWSRemediationCase{
+			{
+				CaseID:          "case-selected-agent-risk",
+				SourceType:      "ai_agent_risk",
+				SourceFindingID: "risk-selected",
+				Lifecycle:       "proposed",
+				Severity:        "medium",
+				Status:          "open",
+				ApprovalState:   "pending",
+				IdentityNodeID:  agentNode,
+				IdentityName:    "agent",
+				IdentityType:    "ai_agent",
+				Score:           70,
+				Confidence:      0.8,
+				ImpactedNodes:   []string{agentNode, roleNode, "aws:s3:bucket/tickets"},
+				ImpactedPath: []AWSLeastPrivilegePathStep{
+					{NodeID: agentNode, NodeType: "ai_agent", Label: "agent"},
+					{NodeID: roleNode, NodeType: "identity", Label: "shared-agent-runtime"},
+					{NodeID: "aws:s3:bucket/tickets", NodeType: "target_resource", Label: "tickets"},
+				},
+			},
+			{
+				CaseID:          "case-other-agent-risk",
+				SourceType:      "ai_agent_risk",
+				SourceFindingID: "risk-other",
+				Lifecycle:       "proposed",
+				Severity:        "medium",
+				Status:          "open",
+				ApprovalState:   "pending",
+				IdentityNodeID:  otherAgentNode,
+				IdentityName:    "agent-v2",
+				IdentityType:    "ai_agent",
+				Score:           68,
+				Confidence:      0.8,
+				ImpactedNodes:   []string{otherAgentNode, roleNode, "aws:s3:bucket/archive"},
+				ImpactedPath: []AWSLeastPrivilegePathStep{
+					{NodeID: otherAgentNode, NodeType: "ai_agent", Label: "agent-v2"},
+					{NodeID: roleNode, NodeType: "identity", Label: "shared-agent-runtime"},
+					{NodeID: "aws:s3:bucket/archive", NodeType: "target_resource", Label: "archive"},
+				},
+			},
+		},
+	}
+
+	merged := awsAgentIdentityDetailMergeRemediationCaseResults(roleCases, agentCases, roleNode, agentNode)
+	scoped := awsAgentIdentityDetailScopeRemediationCases(merged, record, roleNode)
+	got := map[string]struct{}{}
+	for _, c := range scoped.Cases {
+		got[c.CaseID] = struct{}{}
+	}
+	if _, ok := got["case-role-wide"]; !ok {
+		t.Fatalf("role-wide remediation case must be retained: %+v", scoped.Cases)
+	}
+	if _, ok := got["case-selected-agent-risk"]; !ok {
+		t.Fatalf("selected agent-scoped remediation case must be retained: %+v", scoped.Cases)
+	}
+	if _, ok := got["case-other-agent-risk"]; ok {
+		t.Fatalf("other agent remediation case must be filtered out: %+v", scoped.Cases)
+	}
+	if scoped.AppliedFilters["identity"] != roleNode || scoped.AppliedFilters["agent_identity"] != agentNode {
+		t.Fatalf("merged remediation filters must expose role and agent identities, got %+v", scoped.AppliedFilters)
+	}
+	if scoped.Summary.FilteredCases != len(scoped.Cases) || scoped.Summary.RelationshipCount != len(scoped.Relationships) {
+		t.Fatalf("merged remediation summary must match scoped cases: summary=%+v relationships=%+v", scoped.Summary, scoped.Relationships)
 	}
 }
 
