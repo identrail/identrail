@@ -3940,6 +3940,7 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			Region:       strings.TrimSpace(c.Query("region")),
 			Identity:     strings.TrimSpace(c.Query("identity")),
 			Resource:     strings.TrimSpace(c.Query("resource")),
+			Tool:         strings.TrimSpace(c.Query("tool")),
 			Service:      strings.TrimSpace(c.Query("service")),
 			Severity:     strings.TrimSpace(c.Query("severity")),
 			Status:       strings.TrimSpace(c.Query("status")),

@@ -111,6 +111,32 @@ func TestGetAWSAgentIdentityDetailForwardsResourceToRecommendations(t *testing.T
 	}
 }
 
+func TestGetAWSAgentIdentityDetailForwardsToolToRecommendations(t *testing.T) {
+	now := time.Date(2026, 7, 4, 16, 0, 0, 0, time.UTC)
+	svc, ws := newAgentIdentityDetailService(t, "project-agent-identity-detail-tool", now)
+
+	result, err := svc.GetAWSAgentIdentityDetail(defaultScopeContext(), ws, "project-agent-identity-detail-tool", AWSAgentIdentityDetailRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Agent:        "AGENTPAY1",
+		Tool:         "case-router",
+	})
+	if err != nil {
+		t.Fatalf("get tool-filtered agent identity detail: %v", err)
+	}
+	if result.Permissions.AppliedFilters["tool"] != "case-router" {
+		t.Fatalf("permissions must receive the detail tool filter, got %+v", result.Permissions.AppliedFilters)
+	}
+	if result.Summary.RecommendationCount != len(result.Recommendations) || len(result.Recommendations) != len(result.Permissions.Recommendations) {
+		t.Fatalf("tool-filtered recommendation counts must match summary=%+v recommendations=%+v permissions=%+v", result.Summary, result.Recommendations, result.Permissions.Recommendations)
+	}
+	for _, recommendation := range result.Permissions.Recommendations {
+		if !awsRuntimeEventMatchesAny("case-router", awsLeastPrivilegeToolMatchValues(recommendation)...) {
+			t.Fatalf("tool-filtered detail leaked unrelated recommendation: %+v", recommendation)
+		}
+	}
+}
+
 func TestGetAWSAgentIdentityDetailUnknownAgentIsExplicit(t *testing.T) {
 	now := time.Date(2026, 7, 3, 20, 15, 0, 0, time.UTC)
 	svc, ws := newAgentIdentityDetailService(t, "project-agent-identity-detail-unknown", now)

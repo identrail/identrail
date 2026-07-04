@@ -63,6 +63,7 @@ The endpoint supports:
 - `region`
 - `identity`
 - `resource`
+- `tool`
 - `service`
 - `severity`
 - `status`

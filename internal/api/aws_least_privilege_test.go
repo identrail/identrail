@@ -144,6 +144,130 @@ func TestGetAWSLeastPrivilegeFiltersByDecisionServiceAndResource(t *testing.T) {
 			t.Fatalf("resource filter leaked %+v", recommendation)
 		}
 	}
+
+	tool, err := svc.GetAWSLeastPrivilegeRecommendations(defaultScopeContext(), ws, "project-least-privilege-filters", AWSLeastPrivilegeRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Tool:         "case-router",
+	})
+	if err != nil {
+		t.Fatalf("tool filter: %v", err)
+	}
+	if len(tool.Recommendations) == 0 {
+		t.Fatalf("expected agent-runtime tool recommendations")
+	}
+	if tool.AppliedFilters["tool"] != "case-router" {
+		t.Fatalf("expected applied tool filter, got %+v", tool.AppliedFilters)
+	}
+	for _, recommendation := range tool.Recommendations {
+		if !awsRuntimeEventMatchesAny("case-router", awsLeastPrivilegeToolMatchValues(recommendation)...) {
+			t.Fatalf("tool filter leaked %+v", recommendation)
+		}
+	}
+}
+
+func TestAWSLeastPrivilegeToolMatchValuesUsesOnlyAgentToolCandidates(t *testing.T) {
+	matches := awsLeastPrivilegeToolMatchValues(AWSLeastPrivilegeRecommendation{
+		KeepActions:     []string{"agent-tool:case-router", "s3:GetObject"},
+		RemoveActions:   []string{"agent-tool:api://tickets/search", "kms:Decrypt"},
+		ObservedActions: []string{"agent-tool:case-router"},
+		GrantedActions:  []string{"iam:DeleteRole"},
+	})
+
+	if !awsRuntimeEventMatchesAny("case-router", matches...) {
+		t.Fatalf("expected tool name to match tool candidates: %v", matches)
+	}
+	if !awsRuntimeEventMatchesAny("api://tickets/search", matches...) {
+		t.Fatalf("expected tool target ref to match tool candidates: %v", matches)
+	}
+	if awsRuntimeEventMatchesAny("s3:GetObject", matches...) {
+		t.Fatalf("agent least-privilege tool filter should not match IAM actions: %v", matches)
+	}
+	if awsRuntimeEventMatchesAny("kms:Decrypt", matches...) {
+		t.Fatalf("agent least-privilege tool filter should not match IAM actions: %v", matches)
+	}
+}
+
+func TestAWSLeastPrivilegeRecommendationFromAgentRecordsIncludeToolTargetRefAndName(t *testing.T) {
+	now := time.Date(2026, 6, 20, 8, 30, 0, 0, time.UTC)
+	recommendation := awsLeastPrivilegeRecommendationFromAgent(AWSAgentRuntimeAccessRecord{
+		CorrelationID:      "agent-runtime-filter-target-ref",
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		AgentNodeID:        "agent-runtime-node",
+		AgentID:            "agent-runtime-id",
+		ToolName:           "case-router",
+		ToolTargetRef:      "api://tickets/search",
+		Status:             "declared-unused",
+		ObservedCount:      2,
+		Confidence:         0.94,
+		ObservedEventIDs:   []string{"agent-runtime-filter-target-ref-1"},
+		EvidenceRef:        "agent-runtime-access://agent-runtime-filter-target-ref",
+		BackingRoleARNs:    []string{"arn:aws:iam::123456789012:role/agent-runtime"},
+		BackingRoleNodeIDs: []string{"aws:identity:arn:aws:iam::123456789012:role/agent-runtime"},
+		LastObservedAt:     now,
+	}, now)
+	matches := awsLeastPrivilegeToolMatchValues(recommendation)
+	if !awsRuntimeEventMatchesAny("case-router", matches...) {
+		t.Fatalf("expected recommendation tool candidates to include tool name: %+v", matches)
+	}
+	if !awsRuntimeEventMatchesAny("api://tickets/search", matches...) {
+		t.Fatalf("expected recommendation tool candidates to include tool target ref: %+v", matches)
+	}
+}
+
+func TestAWSLeastPrivilegeRecommendationFromAgentRecordsDoNotLeakAgentIdentifiersInToolFilterWhenToolAvailable(t *testing.T) {
+	now := time.Date(2026, 6, 20, 8, 35, 0, 0, time.UTC)
+	recommendation := awsLeastPrivilegeRecommendationFromAgent(AWSAgentRuntimeAccessRecord{
+		CorrelationID:      "agent-runtime-filter-no-leak",
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		AgentNodeID:        "agent-runtime-node",
+		AgentID:            "agent-runtime-id",
+		ToolName:           "case-router",
+		ToolTargetRef:      "api://tickets/search",
+		Status:             "declared-unused",
+		ObservedCount:      2,
+		Confidence:         0.94,
+		ObservedEventIDs:   []string{"agent-runtime-filter-no-leak-1"},
+		EvidenceRef:        "agent-runtime-access://agent-runtime-filter-no-leak",
+		BackingRoleARNs:    []string{"arn:aws:iam::123456789012:role/agent-runtime"},
+		BackingRoleNodeIDs: []string{"aws:identity:arn:aws:iam::123456789012:role/agent-runtime"},
+		LastObservedAt:     now,
+	}, now)
+	matches := awsLeastPrivilegeToolMatchValues(recommendation)
+	if awsRuntimeEventMatchesAny("agent-runtime-id", matches...) {
+		t.Fatalf("tool matching should not leak agent identifier when tool is present: %+v", matches)
+	}
+	if awsRuntimeEventMatchesAny("agent-runtime-node", matches...) {
+		t.Fatalf("tool matching should not leak agent node identifier when tool is present: %+v", matches)
+	}
+}
+
+func TestAWSLeastPrivilegeRecommendationFromAgentRecordsFallbackToAgentIdentifiersWhenNoToolIsPresent(t *testing.T) {
+	now := time.Date(2026, 6, 20, 8, 40, 0, 0, time.UTC)
+	recommendation := awsLeastPrivilegeRecommendationFromAgent(AWSAgentRuntimeAccessRecord{
+		CorrelationID:      "agent-runtime-filter-fallback",
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		AgentNodeID:        "agent-runtime-node",
+		AgentID:            "agent-runtime-id",
+		Status:             "declared-unused",
+		ObservedCount:      0,
+		Confidence:         0.94,
+		ObservedEventIDs:   []string{"agent-runtime-filter-fallback-1"},
+		EvidenceRef:        "agent-runtime-access://agent-runtime-filter-fallback",
+		BackingRoleARNs:    []string{"arn:aws:iam::123456789012:role/agent-runtime"},
+		BackingRoleNodeIDs: []string{"aws:identity:arn:aws:iam::123456789012:role/agent-runtime"},
+		LastObservedAt:     now,
+	}, now)
+	matches := awsLeastPrivilegeToolMatchValues(recommendation)
+	if !awsRuntimeEventMatchesAny("agent-runtime-id", matches...) {
+		t.Fatalf("expected fallback agent identifier in tool candidates: %+v", matches)
+	}
+	if !awsRuntimeEventMatchesAny("agent-runtime-node", matches...) {
+		t.Fatalf("expected fallback agent node identifier in tool candidates: %+v", matches)
+	}
 }
 
 func TestAWSLeastPrivilegeRecommendationFromRuntimeSignalKeepsAccessAnalyzerInReview(t *testing.T) {

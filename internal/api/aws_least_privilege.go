@@ -24,6 +24,7 @@ type AWSLeastPrivilegeRequest struct {
 	Region       string `json:"region,omitempty"`
 	Identity     string `json:"identity,omitempty"`
 	Resource     string `json:"resource,omitempty"`
+	Tool         string `json:"tool,omitempty"`
 	Service      string `json:"service,omitempty"`
 	Severity     string `json:"severity,omitempty"`
 	Status       string `json:"status,omitempty"`
@@ -472,13 +473,13 @@ func awsLeastPrivilegeRecommendationFromAgent(record AWSAgentRuntimeAccessRecord
 	roleARN := firstNonEmptyAWSValue(firstString(record.BackingRoleARNs), record.DeclaredBackingRole)
 	decision, status, recommendationType, severity, score := awsLeastPrivilegeDecisionForAgentStatus(record.Status)
 	breakage := awsLeastPrivilegeBreakagePrediction(decision, record.Status, record.Confidence, record.ObservedCount, record.Caveats)
-	toolAction := "agent-tool:" + firstNonEmptyAWSValue(record.ToolName, record.ToolTargetRef, record.AgentID, record.AgentNodeID)
+	toolActions := awsLeastPrivilegeAgentToolActions(record)
 	removeActions := []string{}
 	keepActions := []string{}
 	if decision == "remove" {
-		removeActions = []string{toolAction}
+		removeActions = dedupeStrings(append([]string{}, toolActions...))
 	} else {
-		keepActions = []string{toolAction}
+		keepActions = dedupeStrings(append([]string{}, toolActions...))
 	}
 	evidenceRef := firstNonEmptyAWSValue(record.EvidenceRef, firstString(record.EvidenceRefs), fmt.Sprintf("agent-runtime-access://%s", record.CorrelationID))
 	targetSteps := awsLeastPrivilegeAgentTargetSteps(record.TargetResourceNodeIDs, record.TargetResourceARNs, record.AccountID, record.Region)
@@ -504,8 +505,8 @@ func awsLeastPrivilegeRecommendationFromAgent(record AWSAgentRuntimeAccessRecord
 		BreakageRationale:  awsLeastPrivilegeBreakageRationale(decision, breakage, record.ObservedCount, record.Caveats),
 		KeepActions:        keepActions,
 		RemoveActions:      removeActions,
-		ObservedActions:    awsLeastPrivilegeObservedActions(record.ObservedCount, []string{toolAction}),
-		GrantedActions:     []string{toolAction},
+		ObservedActions:    awsLeastPrivilegeObservedActions(record.ObservedCount, append([]string{}, toolActions...)),
+		GrantedActions:     dedupeStrings(append([]string{}, toolActions...)),
 		ImpactedNodes:      dedupeStrings(append(append([]string{roleNode, record.AgentNodeID}, record.TargetResourceNodeIDs...), record.TargetResourceARNs...)),
 		ImpactedPath:       awsLeastPrivilegeAgentPath(roleNode, roleARN, record.AgentNodeID, record.AgentName, record.AgentID, targetSteps, record.AccountID, record.Region),
 		Evidence:           []AWSLeastPrivilegeEvidence{{Source: "agent_runtime_access", EvidenceRef: evidenceRef, Label: "Agent runtime / tool path", Confidence: record.Confidence, ObservedAt: record.LastObservedAt, Relationship: record.Status}},
@@ -514,6 +515,28 @@ func awsLeastPrivilegeRecommendationFromAgent(record AWSAgentRuntimeAccessRecord
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
+}
+
+func awsLeastPrivilegeAgentToolActions(record AWSAgentRuntimeAccessRecord) []string {
+	candidates := dedupeStrings([]string{
+		awsLeastPrivilegeAgentToolAction(record.ToolName),
+		awsLeastPrivilegeAgentToolAction(record.ToolTargetRef),
+	})
+	if len(candidates) == 0 {
+		candidates = dedupeStrings([]string{
+			awsLeastPrivilegeAgentToolAction(record.AgentID),
+			awsLeastPrivilegeAgentToolAction(record.AgentNodeID),
+		})
+	}
+	return candidates
+}
+
+func awsLeastPrivilegeAgentToolAction(tool string) string {
+	tool = strings.TrimSpace(tool)
+	if tool == "" {
+		return ""
+	}
+	return "agent-tool:" + tool
 }
 
 func awsLeastPrivilegeRecommendationFromRuntimeSignal(record AWSRuntimeEventRecord, now time.Time) (AWSLeastPrivilegeRecommendation, bool) {
@@ -858,6 +881,7 @@ func filterAWSLeastPrivilegeRecommendations(recommendations []AWSLeastPrivilegeR
 		"region":     strings.TrimSpace(request.Region),
 		"identity":   strings.TrimSpace(request.Identity),
 		"resource":   strings.TrimSpace(request.Resource),
+		"tool":       strings.TrimSpace(request.Tool),
 		"service":    normalizeAWSRuntimeEventFilterToken(request.Service),
 		"severity":   normalizeAWSRuntimeEventFilterToken(request.Severity),
 		"status":     normalizeAWSRuntimeEventFilterToken(request.Status),
@@ -899,6 +923,9 @@ func filterAWSLeastPrivilegeRecommendations(recommendations []AWSLeastPrivilegeR
 		if filters["resource"] != "" && !awsRuntimeEventMatchesAny(filters["resource"], awsLeastPrivilegeResourceMatchValues(recommendation)...) {
 			continue
 		}
+		if filters["tool"] != "" && !awsRuntimeEventMatchesAny(filters["tool"], awsLeastPrivilegeToolMatchValues(recommendation)...) {
+			continue
+		}
 		filtered = append(filtered, recommendation)
 	}
 	return filtered, applied
@@ -921,6 +948,26 @@ func awsLeastPrivilegeResourceMatchValues(recommendation AWSLeastPrivilegeRecomm
 		candidates = append(candidates, step.NodeID, step.Label)
 	}
 	return dedupeStrings(candidates)
+}
+
+func awsLeastPrivilegeToolMatchValues(recommendation AWSLeastPrivilegeRecommendation) []string {
+	candidates := append(append(append([]string{}, recommendation.KeepActions...), recommendation.RemoveActions...), recommendation.ObservedActions...)
+	candidates = append(candidates, recommendation.GrantedActions...)
+	for _, action := range append([]string{}, candidates...) {
+		parts := strings.SplitN(strings.TrimSpace(action), ":", 2)
+		if len(parts) != 2 || parts[0] != "agent-tool" {
+			continue
+		}
+		candidates = append(candidates, parts[1])
+	}
+	filtered := make([]string, 0, len(candidates))
+	for _, action := range candidates {
+		action = strings.TrimSpace(action)
+		if strings.HasPrefix(action, "agent-tool:") {
+			filtered = append(filtered, action)
+		}
+	}
+	return dedupeStrings(filtered)
 }
 
 func awsLeastPrivilegeRelationships(recommendations []AWSLeastPrivilegeRecommendation) []AWSLeastPrivilegeRelationship {

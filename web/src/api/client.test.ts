@@ -1250,6 +1250,7 @@ describe('apiClient', () => {
         region: 'us-east-1',
         identity: 'lambda-invoice-agent',
         resource: 'prod/ai/openai-key',
+        tool: 'case-router',
         service: 'secretsmanager',
         severity: 'high',
         status: 'review',
@@ -1264,7 +1265,7 @@ describe('apiClient', () => {
 
     const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toContain(
-      '/v1/workspaces/workspace%2Fa/projects/project%201/aws/least-privilege?connector_id=aws-prod&fixture_state=success&account_id=123456789012&region=us-east-1&identity=lambda-invoice-agent&resource=prod%2Fai%2Fopenai-key&service=secretsmanager&severity=high&status=review&decision=remove'
+      '/v1/workspaces/workspace%2Fa/projects/project%201/aws/least-privilege?connector_id=aws-prod&fixture_state=success&account_id=123456789012&region=us-east-1&identity=lambda-invoice-agent&resource=prod%2Fai%2Fopenai-key&tool=case-router&service=secretsmanager&severity=high&status=review&decision=remove'
     );
     expect(options.method ?? 'GET').toBe('GET');
     const headers = new Headers(options.headers);
