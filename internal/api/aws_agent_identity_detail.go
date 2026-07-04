@@ -267,7 +267,8 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 
 	// Downstream evidence filters are broad substring matches in some source
 	// APIs, so only resolved inventory records may contribute real agent IDs.
-	agentFilter := awsAgentIdentityDetailEvidenceAgentFilter(agent, record, resolved)
+	agentFilters := awsAgentIdentityDetailEvidenceAgentFilters(agent, record, resolved)
+	agentFilter := firstString(agentFilters)
 	runtimeAccess, err := s.GetAWSAgentRuntimeAccess(ctx, workspaceID, projectID, AWSAgentRuntimeAccessRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
@@ -281,6 +282,22 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 	if err != nil {
 		return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail runtime access: %w", err)
 	}
+	for _, alternateAgentFilter := range agentFilters[1:] {
+		alternateRuntimeAccess, err := s.GetAWSAgentRuntimeAccess(ctx, workspaceID, projectID, AWSAgentRuntimeAccessRequest{
+			ConnectorID:  connectorID,
+			FixtureState: sourceFixtureState,
+			AccountID:    request.AccountID,
+			Region:       request.Region,
+			AgentID:      alternateAgentFilter,
+			Tool:         request.Tool,
+			Resource:     request.Resource,
+			Status:       request.Status,
+		})
+		if err != nil {
+			return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail alternate runtime access: %w", err)
+		}
+		runtimeAccess = awsAgentIdentityDetailMergeRuntimeAccessResults(runtimeAccess, alternateRuntimeAccess, agentFilters...)
+	}
 	runtimeAccess = awsAgentIdentityDetailScopeRuntimeAccess(runtimeAccess, record)
 	risk, err := s.GetAWSAIAgentRisk(ctx, workspaceID, projectID, AWSAIAgentRiskRequest{
 		ConnectorID:  connectorID,
@@ -293,6 +310,21 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 	})
 	if err != nil {
 		return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail risk: %w", err)
+	}
+	for _, alternateAgentFilter := range agentFilters[1:] {
+		alternateRisk, err := s.GetAWSAIAgentRisk(ctx, workspaceID, projectID, AWSAIAgentRiskRequest{
+			ConnectorID:  connectorID,
+			FixtureState: sourceFixtureState,
+			AccountID:    request.AccountID,
+			Region:       request.Region,
+			AgentID:      alternateAgentFilter,
+			Severity:     request.Severity,
+			Status:       request.Status,
+		})
+		if err != nil {
+			return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail alternate risk: %w", err)
+		}
+		risk = awsAgentIdentityDetailMergeRiskResults(risk, alternateRisk, agentFilters...)
 	}
 	risk = awsAgentIdentityDetailScopeRisk(risk, record)
 	permissionsIdentity := awsAgentIdentityDetailPermissionIdentity(record, agentFilter)
@@ -348,7 +380,7 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 		return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail governance: %w", err)
 	}
 
-	tools := awsAgentIdentityDetailTools(record, runtimeAccess.Records)
+	tools := awsAgentIdentityDetailTools(record, runtimeAccess.Records, request.Tool)
 	capabilities := awsAgentIdentityDetailCapabilities(record)
 	secretReferences := awsAgentIdentityDetailSecretReferences(record)
 	runtimeCalls := awsAgentIdentityDetailRuntimeCalls(runtimeAccess.Records)
@@ -450,11 +482,85 @@ func awsAgentIdentityDetailResolve(agent string, records []AWSAIAgentIdentityRec
 	return AWSAIAgentIdentityRecord{}, false
 }
 
-func awsAgentIdentityDetailEvidenceAgentFilter(agent string, record AWSAIAgentIdentityRecord, resolved bool) string {
+func awsAgentIdentityDetailEvidenceAgentFilters(agent string, record AWSAIAgentIdentityRecord, resolved bool) []string {
 	if !resolved {
-		return "aws-agent-identity-detail-unresolved:" + stableAWSBlastRadiusToken(agent)
+		return []string{"aws-agent-identity-detail-unresolved:" + stableAWSBlastRadiusToken(agent)}
 	}
-	return firstNonEmptyAWSValue(record.AgentNodeID, record.AgentID, agent)
+	return emptyStrings(dedupeStrings([]string{record.AgentNodeID, record.AgentID, agent}))
+}
+
+func awsAgentIdentityDetailMergeRuntimeAccessResults(primary, secondary AWSAgentRuntimeAccessResult, agentFilters ...string) AWSAgentRuntimeAccessResult {
+	primaryRecordsLen := len(primary.Records)
+	secondaryRecordsLen := len(secondary.Records)
+	primary.Records = awsAgentIdentityDetailDedupeRuntimeAccessRecords(append(append([]AWSAgentRuntimeAccessRecord{}, primary.Records...), secondary.Records...))
+	primary.Relationships = awsAgentRuntimeAccessRelationships(primary.Records)
+	primary.Summary = awsAgentIdentityDetailRuntimeAccessSummary(primary.Records, primary.Relationships)
+	if primaryRecordsLen == 0 && secondaryRecordsLen > 0 {
+		primary.Status = secondary.Status
+		primary.Confidence = secondary.Confidence
+	}
+	primary.FailureReasons = dedupeStrings(append(append([]string{}, primary.FailureReasons...), secondary.FailureReasons...))
+	primary.RemediationHints = dedupeStrings(append(append([]string{}, primary.RemediationHints...), secondary.RemediationHints...))
+	primary.EvidenceLinks = dedupeStrings(append(append([]string{}, primary.EvidenceLinks...), secondary.EvidenceLinks...))
+	primary.CoverageGaps = append(append([]AWSAgentRuntimeAccessCoverageGap{}, primary.CoverageGaps...), secondary.CoverageGaps...)
+	primary.Diagnostics = append(append([]AWSAgentRuntimeAccessDiagnostic{}, primary.Diagnostics...), secondary.Diagnostics...)
+	primary.AppliedFilters = awsAgentIdentityDetailMergeAgentAppliedFilters(primary.AppliedFilters, agentFilters...)
+	return primary
+}
+
+func awsAgentIdentityDetailDedupeRuntimeAccessRecords(records []AWSAgentRuntimeAccessRecord) []AWSAgentRuntimeAccessRecord {
+	out := make([]AWSAgentRuntimeAccessRecord, 0, len(records))
+	seen := map[string]struct{}{}
+	for _, record := range records {
+		key := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(
+			record.CorrelationID,
+			record.EvidenceRef,
+			strings.Join([]string{record.AgentNodeID, record.AgentID, record.ToolName, record.ToolTargetRef}, "|"),
+		)))
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, record)
+	}
+	return out
+}
+
+func awsAgentIdentityDetailMergeRiskResults(primary, secondary AWSAIAgentRiskResult, agentFilters ...string) AWSAIAgentRiskResult {
+	primaryFindingsLen := len(primary.Findings)
+	secondaryFindingsLen := len(secondary.Findings)
+	primary.Findings = awsAIAgentRiskDedupeFindings(append(append([]AWSAIAgentRiskFinding{}, primary.Findings...), secondary.Findings...))
+	primary.Relationships = awsAIAgentRiskRelationships(primary.Findings)
+	primary.Summary = summarizeAWSAIAgentRisk(primary.Findings, primary.Findings, primary.Relationships)
+	if primaryFindingsLen == 0 && secondaryFindingsLen > 0 {
+		primary.Status = secondary.Status
+		primary.Confidence = secondary.Confidence
+	}
+	primary.FailureReasons = dedupeStrings(append(append([]string{}, primary.FailureReasons...), secondary.FailureReasons...))
+	primary.RemediationHints = dedupeStrings(append(append([]string{}, primary.RemediationHints...), secondary.RemediationHints...))
+	primary.EvidenceLinks = dedupeStrings(append(append([]string{}, primary.EvidenceLinks...), secondary.EvidenceLinks...))
+	primary.CoverageGaps = append(append([]AWSAIAgentRiskCoverageGap{}, primary.CoverageGaps...), secondary.CoverageGaps...)
+	primary.Diagnostics = append(append([]AWSAIAgentRiskDiagnostic{}, primary.Diagnostics...), secondary.Diagnostics...)
+	primary.AppliedFilters = awsAgentIdentityDetailMergeAgentAppliedFilters(primary.AppliedFilters, agentFilters...)
+	return primary
+}
+
+func awsAgentIdentityDetailMergeAgentAppliedFilters(applied map[string]string, agentFilters ...string) map[string]string {
+	filters := map[string]string{}
+	for key, value := range applied {
+		filters[key] = value
+	}
+	keys := emptyStrings(dedupeStrings(agentFilters))
+	if len(keys) > 0 {
+		filters["agent_id"] = keys[0]
+	}
+	if len(keys) > 1 {
+		filters["agent_id_alternates"] = strings.Join(keys[1:], ",")
+	}
+	return filters
 }
 
 func awsAgentIdentityDetailScopeRuntimeAccess(result AWSAgentRuntimeAccessResult, record AWSAIAgentIdentityRecord) AWSAgentRuntimeAccessResult {
@@ -761,10 +867,14 @@ func awsAgentIdentityDetailAgent(agent string, record AWSAIAgentIdentityRecord, 
 // awsAgentIdentityDetailTools merges declared inventory tools with observed
 // runtime correlations so declared-unused and observed-undeclared tools are
 // explicit rows.
-func awsAgentIdentityDetailTools(record AWSAIAgentIdentityRecord, runtime []AWSAgentRuntimeAccessRecord) []AWSAgentIdentityToolSummary {
+func awsAgentIdentityDetailTools(record AWSAIAgentIdentityRecord, runtime []AWSAgentRuntimeAccessRecord, toolFilters ...string) []AWSAgentIdentityToolSummary {
 	byName := map[string]*AWSAgentIdentityToolSummary{}
 	order := []string{}
 	targetRefs := map[string]string{}
+	toolFilter := ""
+	if len(toolFilters) > 0 {
+		toolFilter = strings.TrimSpace(toolFilters[0])
+	}
 	for i, name := range record.ToolNames {
 		trimmed := strings.TrimSpace(name)
 		if trimmed == "" {
@@ -772,6 +882,9 @@ func awsAgentIdentityDetailTools(record AWSAIAgentIdentityRecord, runtime []AWSA
 		}
 		if i < len(record.ToolTargetRefs) {
 			targetRefs[strings.ToLower(trimmed)] = record.ToolTargetRefs[i]
+		}
+		if toolFilter != "" && !awsRuntimeEventMatchesAny(toolFilter, trimmed, targetRefs[strings.ToLower(trimmed)]) {
+			continue
 		}
 		key := strings.ToLower(trimmed)
 		if _, ok := byName[key]; ok {
@@ -789,6 +902,9 @@ func awsAgentIdentityDetailTools(record AWSAIAgentIdentityRecord, runtime []AWSA
 	for _, correlation := range runtime {
 		name := strings.TrimSpace(correlation.ToolName)
 		if name == "" {
+			continue
+		}
+		if toolFilter != "" && !awsRuntimeEventMatchesAny(toolFilter, name, correlation.ToolTargetRef) {
 			continue
 		}
 		key := strings.ToLower(name)

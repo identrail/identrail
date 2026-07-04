@@ -224,6 +224,40 @@ func TestAWSAgentIdentityDetailToolsMergeDeclaredAndObserved(t *testing.T) {
 	}
 }
 
+func TestAWSAgentIdentityDetailToolsApplyToolFilterToDeclaredRows(t *testing.T) {
+	record := AWSAIAgentIdentityRecord{
+		AgentID:        "agent-1",
+		ToolNames:      []string{"search-tickets", "close-ticket"},
+		ToolTargetRefs: []string{"api://tickets/search", "api://tickets/close"},
+		EvidenceRef:    "evidence://inventory/agent-1",
+	}
+	runtime := []AWSAgentRuntimeAccessRecord{
+		{
+			CorrelationID: "corr-search",
+			ToolName:      "search-tickets",
+			ToolTargetRef: "api://tickets/search",
+			Status:        "confirmed",
+			ObservedCount: 2,
+			EvidenceRef:   "evidence://runtime/search",
+		},
+		{
+			CorrelationID: "corr-close",
+			ToolName:      "close-ticket",
+			ToolTargetRef: "api://tickets/close",
+			Status:        "declared_unused",
+			EvidenceRef:   "evidence://runtime/close",
+		},
+	}
+
+	tools := awsAgentIdentityDetailTools(record, runtime, "api://tickets/search")
+	if len(tools) != 1 {
+		t.Fatalf("tool-filtered detail must only include matching declared/runtime tools, got %+v", tools)
+	}
+	if tools[0].ToolName != "search-tickets" || !tools[0].Declared || !tools[0].Observed {
+		t.Fatalf("tool-filtered row must preserve the matching declared+observed tool: %+v", tools[0])
+	}
+}
+
 func TestAWSAgentIdentityDetailPermissionIdentityPrefersBackingRole(t *testing.T) {
 	roleARN := "arn:aws:iam::123456789012:role/agent-runtime"
 	record := AWSAIAgentIdentityRecord{
@@ -240,6 +274,66 @@ func TestAWSAgentIdentityDetailPermissionIdentityPrefersBackingRole(t *testing.T
 	record.RuntimeRoleNodeID = ""
 	if got, want := awsAgentIdentityDetailPermissionIdentity(record, record.AgentID), awsIdentityNodeIDForAPI(roleARN); got != want {
 		t.Fatalf("expected role ARN-derived identity %q, got %q", want, got)
+	}
+}
+
+func TestAWSAgentIdentityDetailMergesRuntimeAndRiskAgentKeys(t *testing.T) {
+	record := AWSAIAgentIdentityRecord{
+		AgentID:     "agent",
+		AgentNodeID: "aws:agent:123456789012:us-east-1:custom_agent/agent-v1",
+	}
+	versionedNode := "aws:agent:123456789012:us-east-1:custom_agent/agent-v2"
+	otherNode := "aws:agent:123456789012:us-east-1:custom_agent/agent-v20"
+	runtimeByNode := AWSAgentRuntimeAccessResult{
+		AppliedFilters: map[string]string{"agent_id": record.AgentNodeID},
+	}
+	runtimeByID := AWSAgentRuntimeAccessResult{
+		AppliedFilters: map[string]string{"agent_id": record.AgentID},
+		Records: []AWSAgentRuntimeAccessRecord{
+			{
+				CorrelationID: "corr-agent-id",
+				AgentID:       record.AgentID,
+				AgentNodeID:   versionedNode,
+				ToolName:      "search",
+				Status:        "confirmed",
+				ObservedCount: 1,
+			},
+			{
+				CorrelationID: "corr-sibling",
+				AgentID:       "agent-v2",
+				AgentNodeID:   otherNode,
+				ToolName:      "archive",
+				Status:        "confirmed",
+				ObservedCount: 1,
+			},
+		},
+	}
+	mergedRuntime := awsAgentIdentityDetailMergeRuntimeAccessResults(runtimeByNode, runtimeByID, record.AgentNodeID, record.AgentID)
+	scopedRuntime := awsAgentIdentityDetailScopeRuntimeAccess(mergedRuntime, record)
+	if len(scopedRuntime.Records) != 1 || scopedRuntime.Records[0].CorrelationID != "corr-agent-id" {
+		t.Fatalf("runtime evidence must merge alternate exact agent keys and still exact-filter siblings: %+v", scopedRuntime.Records)
+	}
+	if scopedRuntime.AppliedFilters["agent_id"] != record.AgentNodeID || scopedRuntime.AppliedFilters["agent_id_alternates"] != record.AgentID {
+		t.Fatalf("merged runtime filters must expose primary and alternate agent keys: %+v", scopedRuntime.AppliedFilters)
+	}
+
+	riskByNode := AWSAIAgentRiskResult{
+		AppliedFilters: map[string]string{"agent_id": record.AgentNodeID},
+	}
+	riskByID := AWSAIAgentRiskResult{
+		AppliedFilters: map[string]string{"agent_id": record.AgentID},
+		Findings: []AWSAIAgentRiskFinding{
+			{FindingID: "risk-agent-id", AgentID: record.AgentID, AgentNodeID: versionedNode, RiskType: "broad_tool_access", Severity: "medium", Status: "open", Score: 70},
+			{FindingID: "risk-sibling", AgentID: "agent-v2", AgentNodeID: otherNode, RiskType: "ownerless_agent", Severity: "medium", Status: "open", Score: 65},
+		},
+	}
+	mergedRisk := awsAgentIdentityDetailMergeRiskResults(riskByNode, riskByID, record.AgentNodeID, record.AgentID)
+	scopedRisk := awsAgentIdentityDetailScopeRisk(mergedRisk, record)
+	if len(scopedRisk.Findings) != 1 || scopedRisk.Findings[0].FindingID != "risk-agent-id" {
+		t.Fatalf("risk evidence must merge alternate exact agent keys and still exact-filter siblings: %+v", scopedRisk.Findings)
+	}
+	if scopedRisk.AppliedFilters["agent_id"] != record.AgentNodeID || scopedRisk.AppliedFilters["agent_id_alternates"] != record.AgentID {
+		t.Fatalf("merged risk filters must expose primary and alternate agent keys: %+v", scopedRisk.AppliedFilters)
 	}
 }
 
