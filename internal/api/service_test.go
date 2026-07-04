@@ -2787,6 +2787,76 @@ func TestServiceRunRepoScanPersistedDoesNotAdvanceCursorAfterTruncatedScan(t *te
 	}
 }
 
+func TestServiceRunRepoScanPersistedDoesNotAdvanceCursorAfterPartialSourceRun(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/private"}
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	seedGitHubAppConnection(t, svc, ctx, "project-1", 101, []string{"owner/private"})
+
+	now := time.Date(2026, 7, 4, 10, 0, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return now }
+
+	oldHead := "1111111111111111111111111111111111111111"
+	newHead := "2222222222222222222222222222222222222222"
+	if err := store.UpsertRepoScanCursor(defaultScopeContext(), db.RepoScanCursor{
+		Repository:          "owner/private",
+		LastScannedRevision: oldHead,
+		LastScanID:          "old-scan-id",
+		LastScanMode:        db.RepoScanModeDelta,
+		LastScanCompletedAt: now.Add(-time.Hour),
+		UpdatedAt:           now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("seed existing cursor: %v", err)
+	}
+
+	svc.GitHubInstallationTokenMinter = &fakeGitHubInstallationTokenMinter{
+		token: githubconnector.InstallationToken{Token: "ghs_token", ExpiresAt: now.Add(time.Hour)},
+	}
+	collector := &fakeGitHubRepositoryPostureCollector{
+		err: errors.New("github posture source unavailable"),
+	}
+	svc.GitHubRepositoryPostureCollector = collector
+	svc.AuthenticatedRepoScannerFactory = func(historyLimit int, maxFindings int, credential repoexposure.HTTPSCloneCredential) RepoScanExecutor {
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/private",
+				CommitsScanned: 1,
+				FilesScanned:   2,
+				ScanMode:       db.RepoScanModeDelta,
+				BaseRevision:   oldHead,
+				HeadRevision:   newHead,
+			},
+		}
+	}
+
+	run, err := svc.RunRepoScanPersisted(defaultScopeContext(), RepoScanRequest{
+		Repository:   "owner/private",
+		ProjectID:    "project-1",
+		ScanMode:     db.RepoScanModeDelta,
+		BaseRevision: oldHead,
+		HeadRevision: newHead,
+	})
+	if err != nil {
+		t.Fatalf("run persisted delta repo scan: %v", err)
+	}
+	if collector.seenRepository != "owner/private" {
+		t.Fatalf("expected repository posture collector to run for owner/private, got %+v", collector.seenRepository)
+	}
+	if run.RepoScan.CursorAfter != "" {
+		t.Fatalf("partial source run must not advance cursor_after, got %+v", run.RepoScan)
+	}
+
+	cursor, err := store.GetRepoScanCursor(defaultScopeContext(), "owner/private", db.RepoScanSource{})
+	if err != nil {
+		t.Fatalf("get repo scan cursor: %v", err)
+	}
+	if cursor.LastScannedRevision != oldHead || cursor.LastScanID != "old-scan-id" || cursor.LastScanMode != db.RepoScanModeDelta {
+		t.Fatalf("partial source run must not overwrite existing cursor, got %+v", cursor)
+	}
+}
+
 func TestServiceRunRepoScanPersistedDoesNotFailAfterSuccessfulCursorUpdateMiss(t *testing.T) {
 	store := &failingRepoScanCursorStore{MemoryStore: db.NewMemoryStore()}
 	svc := NewService(store, fakeScanner{}, "aws")

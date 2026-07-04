@@ -1919,7 +1919,7 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		ChangedPaths:     append([]string(nil), result.ChangedPaths...),
 		PartialSourceRun: partialSourceRun,
 	}
-	if !result.Truncated {
+	if !result.Truncated && !partialSourceRun {
 		completionContext.CursorAfter = cursorAfter
 	}
 	if err := s.completeRepoScanTerminal(
@@ -1944,7 +1944,7 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		s.recordRepoScanModeRun(record.ScanMode, "failure")
 		return RunRepoScanResult{}, fmt.Errorf("complete repo scan: %w", err)
 	}
-	if cursorAfter != "" && !result.Truncated {
+	if cursorAfter != "" && !result.Truncated && !partialSourceRun {
 		completedAt := s.Now().UTC()
 		record.CursorAfter = cursorAfter
 		record.HeadRevision = firstNonEmptyString(record.HeadRevision, result.HeadRevision)
