@@ -52,7 +52,7 @@ The UI exposes eight tabs:
 - `findings`: AI-agent risk findings
 - `recommendations`: least-privilege recommendations for the agent or backing role
 - `remediation`: read-only remediation case projections
-- `governance`: advisory, approval, remediation, enforcement, and exception records
+- `governance`: advisory, approval, remediation, enforcement, and exception records for the agent or backing role; role-wide decisions stay visible, while agent-scoped decisions that belong to other agents sharing the backing role are excluded
 
 The page also links to the broader AWS runtime, graph, remediation, and
 governance surfaces so operators can move from the scoped agent view back to the

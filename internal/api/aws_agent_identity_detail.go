@@ -379,6 +379,26 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 	if err != nil {
 		return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail governance: %w", err)
 	}
+	governanceIdentityFilters := []string{governanceIdentityID}
+	governanceAgentFilters := []string{governanceAgentID}
+	for _, alternate := range awsAgentIdentityDetailGovernanceAlternateFilters(record, resolved, governanceIdentityID, governanceAgentID) {
+		alternateGovernance, err := s.GetAWSGovernanceAuditReporting(ctx, workspaceID, projectID, AWSGovernanceAuditReportingRequest{
+			ConnectorID:  connectorID,
+			FixtureState: sourceFixtureState,
+			AccountID:    request.AccountID,
+			Region:       request.Region,
+			IdentityID:   alternate.IdentityID,
+			AgentID:      alternate.AgentID,
+			State:        request.Status,
+		})
+		if err != nil {
+			return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail alternate governance: %w", err)
+		}
+		governanceIdentityFilters = append(governanceIdentityFilters, alternate.IdentityID)
+		governanceAgentFilters = append(governanceAgentFilters, alternate.AgentID)
+		governance = awsAgentIdentityDetailMergeGovernanceResults(governance, alternateGovernance, governanceIdentityFilters, governanceAgentFilters)
+	}
+	governance = awsAgentIdentityDetailScopeGovernance(governance, record)
 
 	tools := awsAgentIdentityDetailTools(record, runtimeAccess.Records, request.Tool)
 	capabilities := awsAgentIdentityDetailCapabilities(record)
@@ -813,6 +833,114 @@ func awsAgentIdentityDetailGovernanceFilters(record AWSAIAgentIdentityRecord, ag
 		return roleIdentity, ""
 	}
 	return "", agentFilter
+}
+
+// awsAgentIdentityDetailGovernanceFilter is one exact-scoped governance audit
+// query. The governance filter matches identity_id and agent_id exactly, so a
+// single primary query misses rows keyed by an alternate exact key (an
+// agent-scoped advisory row for a role-backed agent, or a role row keyed by
+// the raw role ARN instead of the identity node ID).
+type awsAgentIdentityDetailGovernanceFilter struct {
+	IdentityID string
+	AgentID    string
+}
+
+func awsAgentIdentityDetailGovernanceAlternateFilters(record AWSAIAgentIdentityRecord, resolved bool, primaryIdentityID, primaryAgentID string) []awsAgentIdentityDetailGovernanceFilter {
+	if !resolved {
+		return nil
+	}
+	alternates := []awsAgentIdentityDetailGovernanceFilter{}
+	for _, identity := range emptyStrings(dedupeStrings([]string{record.RuntimeRoleNodeID, awsIdentityNodeIDForAPI(record.RuntimeRoleARN), record.RuntimeRoleARN})) {
+		if strings.EqualFold(identity, strings.TrimSpace(primaryIdentityID)) {
+			continue
+		}
+		alternates = append(alternates, awsAgentIdentityDetailGovernanceFilter{IdentityID: identity})
+	}
+	for _, agentKey := range emptyStrings(dedupeStrings([]string{record.AgentNodeID, record.AgentID})) {
+		if strings.EqualFold(agentKey, strings.TrimSpace(primaryAgentID)) {
+			continue
+		}
+		alternates = append(alternates, awsAgentIdentityDetailGovernanceFilter{AgentID: agentKey})
+	}
+	return alternates
+}
+
+func awsAgentIdentityDetailMergeGovernanceResults(primary, secondary AWSGovernanceAuditReportingResult, identityFilters, agentFilters []string) AWSGovernanceAuditReportingResult {
+	primaryRecordsLen := len(primary.Records)
+	secondaryRecordsLen := len(secondary.Records)
+	merged := make([]AWSGovernanceAuditReportRecord, 0, primaryRecordsLen+secondaryRecordsLen)
+	seen := map[string]struct{}{}
+	for _, record := range append(append([]AWSGovernanceAuditReportRecord{}, primary.Records...), secondary.Records...) {
+		key := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(
+			record.ReportID,
+			strings.Join([]string{record.Category, record.SourceType, record.SourceID, record.State}, "|"),
+		)))
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		merged = append(merged, record)
+	}
+	sort.SliceStable(merged, func(i, j int) bool {
+		if merged[i].OccurredAt.Equal(merged[j].OccurredAt) {
+			return merged[i].ReportID < merged[j].ReportID
+		}
+		return merged[i].OccurredAt.After(merged[j].OccurredAt)
+	})
+	primary.Records = merged
+	primary.Summary = summarizeAWSGovernanceAuditReportRecords(merged, merged)
+	if primaryRecordsLen == 0 && secondaryRecordsLen > 0 {
+		primary.Status = secondary.Status
+		primary.Confidence = secondary.Confidence
+	}
+	primary.FailureReasons = dedupeStrings(append(append([]string{}, primary.FailureReasons...), secondary.FailureReasons...))
+	primary.RemediationHints = dedupeStrings(append(append([]string{}, primary.RemediationHints...), secondary.RemediationHints...))
+	primary.EvidenceLinks = dedupeStrings(append(append([]string{}, primary.EvidenceLinks...), secondary.EvidenceLinks...))
+	primary.CoverageGaps = append(append([]AWSGovernanceAuditReportingCoverageGap{}, primary.CoverageGaps...), secondary.CoverageGaps...)
+	primary.Diagnostics = append(append([]AWSGovernanceAuditReportingDiagnostic{}, primary.Diagnostics...), secondary.Diagnostics...)
+	primary.AppliedFilters = awsAgentIdentityDetailMergeGovernanceAppliedFilters(primary.AppliedFilters, identityFilters, agentFilters)
+	return primary
+}
+
+func awsAgentIdentityDetailMergeGovernanceAppliedFilters(applied map[string]string, identityFilters, agentFilters []string) map[string]string {
+	filters := map[string]string{}
+	for key, value := range applied {
+		filters[key] = value
+	}
+	identities := emptyStrings(dedupeStrings(identityFilters))
+	if len(identities) > 0 {
+		filters["identity_id"] = identities[0]
+	}
+	if len(identities) > 1 {
+		filters["identity_id_alternates"] = strings.Join(identities[1:], ",")
+	}
+	agents := emptyStrings(dedupeStrings(agentFilters))
+	if len(agents) > 0 {
+		filters["agent_id"] = agents[0]
+	}
+	if len(agents) > 1 {
+		filters["agent_id_alternates"] = strings.Join(agents[1:], ",")
+	}
+	return filters
+}
+
+// awsAgentIdentityDetailScopeGovernance drops agent-scoped governance rows
+// that belong to a different agent — for example a sibling agent sharing the
+// selected agent's runtime role, whose advisory rows carry the shared
+// identity_id and therefore pass the identity-scoped query filter — while
+// keeping truly role-wide rows that carry no agent key.
+func awsAgentIdentityDetailScopeGovernance(result AWSGovernanceAuditReportingResult, record AWSAIAgentIdentityRecord) AWSGovernanceAuditReportingResult {
+	scoped := make([]AWSGovernanceAuditReportRecord, 0, len(result.Records))
+	for _, candidate := range result.Records {
+		agentScoped := strings.TrimSpace(candidate.AgentID) != "" || strings.TrimSpace(candidate.AgentNodeID) != ""
+		if agentScoped && !awsAgentIdentityDetailMatchesResolvedAgent(record, candidate.AgentNodeID, candidate.AgentID) {
+			continue
+		}
+		scoped = append(scoped, candidate)
+	}
+	result.Records = scoped
+	result.Summary = summarizeAWSGovernanceAuditReportRecords(scoped, scoped)
+	return result
 }
 
 func awsAgentIdentityDetailAgent(agent string, record AWSAIAgentIdentityRecord, resolved bool, accountID, region string) AWSAgentIdentityDetailAgent {

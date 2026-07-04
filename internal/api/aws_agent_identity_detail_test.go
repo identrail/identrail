@@ -856,6 +856,126 @@ func TestAWSAgentIdentityDetailGovernanceFiltersPreferRoleThenAgent(t *testing.T
 	}
 }
 
+func TestAWSAgentIdentityDetailGovernanceAlternateFiltersCoverExactKeys(t *testing.T) {
+	roleARN := "arn:aws:iam::123456789012:role/shared-agent-runtime"
+	roleNode := awsIdentityNodeIDForAPI(roleARN)
+	roleRecord := AWSAIAgentIdentityRecord{
+		AgentID:           "agent",
+		AgentNodeID:       "aws:agent:123456789012:us-east-1:custom_agent/agent",
+		RuntimeRoleARN:    roleARN,
+		RuntimeRoleNodeID: roleNode,
+	}
+	alternates := awsAgentIdentityDetailGovernanceAlternateFilters(roleRecord, true, roleNode, "")
+	gotIdentities := map[string]struct{}{}
+	gotAgents := map[string]struct{}{}
+	for _, alternate := range alternates {
+		if alternate.IdentityID != "" {
+			gotIdentities[alternate.IdentityID] = struct{}{}
+		}
+		if alternate.AgentID != "" {
+			gotAgents[alternate.AgentID] = struct{}{}
+		}
+	}
+	if _, ok := gotIdentities[roleNode]; ok {
+		t.Fatalf("primary identity filter must not repeat as an alternate: %+v", alternates)
+	}
+	if _, ok := gotIdentities[roleARN]; !ok {
+		t.Fatalf("raw role ARN identity must be queried as an alternate: %+v", alternates)
+	}
+	if _, ok := gotAgents[roleRecord.AgentNodeID]; !ok {
+		t.Fatalf("agent node key must be queried as an alternate for role-backed agents: %+v", alternates)
+	}
+	if _, ok := gotAgents[roleRecord.AgentID]; !ok {
+		t.Fatalf("agent id key must be queried as an alternate for role-backed agents: %+v", alternates)
+	}
+
+	rolelessRecord := AWSAIAgentIdentityRecord{
+		AgentID:     "custom-agent",
+		AgentNodeID: "aws:agent:123456789012:us-east-1:custom_agent/custom-agent",
+	}
+	rolelessAlternates := awsAgentIdentityDetailGovernanceAlternateFilters(rolelessRecord, true, "", rolelessRecord.AgentNodeID)
+	if len(rolelessAlternates) != 1 || rolelessAlternates[0].AgentID != rolelessRecord.AgentID || rolelessAlternates[0].IdentityID != "" {
+		t.Fatalf("roleless agents must query the alternate exact agent id only: %+v", rolelessAlternates)
+	}
+
+	if alternates := awsAgentIdentityDetailGovernanceAlternateFilters(AWSAIAgentIdentityRecord{}, false, "", "unresolved-sentinel"); len(alternates) != 0 {
+		t.Fatalf("unresolved agents must not fan out governance queries: %+v", alternates)
+	}
+}
+
+func TestAWSAgentIdentityDetailScopesGovernanceToSelectedAgent(t *testing.T) {
+	roleARN := "arn:aws:iam::123456789012:role/shared-agent-runtime"
+	roleNode := awsIdentityNodeIDForAPI(roleARN)
+	record := AWSAIAgentIdentityRecord{
+		AgentID:           "agent",
+		AgentNodeID:       "aws:agent:123456789012:us-east-1:custom_agent/agent",
+		RuntimeRoleARN:    roleARN,
+		RuntimeRoleNodeID: roleNode,
+	}
+	otherAgentNode := "aws:agent:123456789012:us-east-1:custom_agent/agent-v2"
+	occurred := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	governance := AWSGovernanceAuditReportingResult{
+		Records: []AWSGovernanceAuditReportRecord{
+			{ReportID: "report-role-wide", Category: "approval", SourceType: "least_privilege", DecisionType: "remediation_approval", State: "pending", IdentityNodeID: roleNode, OccurredAt: occurred},
+			{ReportID: "report-selected-agent", Category: "decision", SourceType: "agentcore_gateway_policy_advisory", DecisionType: "agentcore_gateway_policy_advisory", State: "advisory", IdentityNodeID: roleNode, AgentID: record.AgentID, AgentNodeID: record.AgentNodeID, OccurredAt: occurred},
+			{ReportID: "report-sibling-agent", Category: "decision", SourceType: "agentcore_gateway_policy_advisory", DecisionType: "agentcore_gateway_policy_advisory", State: "advisory", IdentityNodeID: roleNode, AgentID: "agent-v2", AgentNodeID: otherAgentNode, OccurredAt: occurred},
+		},
+	}
+
+	scoped := awsAgentIdentityDetailScopeGovernance(governance, record)
+	got := map[string]struct{}{}
+	for _, candidate := range scoped.Records {
+		got[candidate.ReportID] = struct{}{}
+	}
+	if _, ok := got["report-role-wide"]; !ok {
+		t.Fatalf("role-wide governance rows must be retained: %+v", scoped.Records)
+	}
+	if _, ok := got["report-selected-agent"]; !ok {
+		t.Fatalf("selected-agent governance rows must be retained: %+v", scoped.Records)
+	}
+	if _, ok := got["report-sibling-agent"]; ok {
+		t.Fatalf("sibling-agent governance rows sharing the runtime role must be filtered out: %+v", scoped.Records)
+	}
+	if scoped.Summary.FilteredRecords != len(scoped.Records) || scoped.Summary.TotalRecords != len(scoped.Records) {
+		t.Fatalf("governance summary must be recomputed from scoped records: %+v", scoped.Summary)
+	}
+}
+
+func TestAWSAgentIdentityDetailMergesGovernanceResults(t *testing.T) {
+	roleARN := "arn:aws:iam::123456789012:role/shared-agent-runtime"
+	roleNode := awsIdentityNodeIDForAPI(roleARN)
+	agentNode := "aws:agent:123456789012:us-east-1:custom_agent/agent"
+	occurred := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	roleGovernance := AWSGovernanceAuditReportingResult{
+		AppliedFilters: map[string]string{"identity_id": roleNode},
+		Records: []AWSGovernanceAuditReportRecord{
+			{ReportID: "report-role-wide", Category: "approval", SourceType: "least_privilege", DecisionType: "remediation_approval", State: "pending", IdentityNodeID: roleNode, OccurredAt: occurred},
+			{ReportID: "report-shared", Category: "decision", SourceType: "agentcore_gateway_policy_advisory", DecisionType: "agentcore_gateway_policy_advisory", State: "advisory", IdentityNodeID: roleNode, AgentNodeID: agentNode, OccurredAt: occurred},
+		},
+	}
+	agentGovernance := AWSGovernanceAuditReportingResult{
+		AppliedFilters: map[string]string{"agent_id": agentNode},
+		Records: []AWSGovernanceAuditReportRecord{
+			{ReportID: "report-shared", Category: "decision", SourceType: "agentcore_gateway_policy_advisory", DecisionType: "agentcore_gateway_policy_advisory", State: "advisory", IdentityNodeID: roleNode, AgentNodeID: agentNode, OccurredAt: occurred},
+			{ReportID: "report-agent-only", Category: "decision", SourceType: "agentcore_gateway_policy_advisory", DecisionType: "agentcore_gateway_policy_advisory", State: "advisory", AgentNodeID: agentNode, OccurredAt: occurred.Add(time.Hour)},
+		},
+	}
+
+	merged := awsAgentIdentityDetailMergeGovernanceResults(roleGovernance, agentGovernance, []string{roleNode}, []string{"", agentNode})
+	if len(merged.Records) != 3 {
+		t.Fatalf("merged governance must dedupe shared report rows, got %+v", merged.Records)
+	}
+	if merged.Records[0].ReportID != "report-agent-only" {
+		t.Fatalf("merged governance must stay sorted by occurred_at desc: %+v", merged.Records)
+	}
+	if merged.Summary.FilteredRecords != 3 || merged.Summary.TotalRecords != 3 {
+		t.Fatalf("merged governance summary must be recomputed: %+v", merged.Summary)
+	}
+	if merged.AppliedFilters["identity_id"] != roleNode || merged.AppliedFilters["agent_id"] != agentNode {
+		t.Fatalf("merged governance filters must expose the role identity and agent keys: %+v", merged.AppliedFilters)
+	}
+}
+
 func TestAWSAgentIdentityDetailSecretReferencesAreMetadataOnly(t *testing.T) {
 	record := AWSAIAgentIdentityRecord{
 		AgentID: "agent-1",
