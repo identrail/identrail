@@ -25,6 +25,7 @@ type authSessionRouteOptions struct {
 	AuditFingerprinter    *audit.Fingerprinter
 	ManualMode            bool
 	ManualModeAllowUnsafe bool
+	RequireSocialMFA      bool
 	WorkOSEnabled         bool
 	WorkOSClientID        string
 	WorkOSClient          sessionauth.WorkOSClient
@@ -451,10 +452,14 @@ func completeWorkOSLogin(c *gin.Context, logger *zap.Logger, svc *Service, manag
 	if strings.TrimSpace(profile.OrganizationID) == "" {
 		profile.OrganizationID = authenticated.OrganizationID
 	}
-	if workOSSocialLoginRequiresMFA(authenticated) {
+	if opts.RequireSocialMFA && workOSSocialLoginRequiresMFA(authenticated) {
 		auditAuthAction(c.Request.Context(), "auth.login.failure", profile.ID, "denied")
 		if logger != nil {
-			logger.Warn("workos social login completed without mfa", zap.String("auth_method", authenticated.AuthenticationMethod))
+			// This assertion fires when IDENTRAIL_AUTH_REQUIRE_SOCIAL_MFA=true
+			// but WorkOS never initiated the MFA handshake — usually because
+			// MFA enforcement is disabled in the WorkOS dashboard. The two
+			// settings must match; the app cannot start MFA on its own.
+			logger.Warn("workos social login completed without mfa; IDENTRAIL_AUTH_REQUIRE_SOCIAL_MFA=true requires MFA to also be enforced in WorkOS", zap.String("auth_method", authenticated.AuthenticationMethod))
 		}
 		writeWorkOSLoginFailure(c, opts, failureMode, state.ReturnTo, authFailureReasonMFARequired, http.StatusForbidden, "mfa required")
 		return "", false

@@ -1194,6 +1194,16 @@ func TestValidateSecurityOnboardingRequiresNewAuth(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRequireSocialMFARequiresWorkOSLogin(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes:         map[string][]string{"reader-key-12345678901234567890": {"read"}},
+		AuthRequireSocialMFA: true,
+	}
+	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_AUTH_REQUIRE_SOCIAL_MFA=true requires IDENTRAIL_FEATURE_WORKOS_LOGIN=true") {
+		t.Fatalf("expected social mfa workos login dependency error, got %v", err)
+	}
+}
+
 func TestValidateSecurityGitHubV2AllowsPATOnlyConfig(t *testing.T) {
 	cfg := Config{
 		APIKeyScopes:             map[string][]string{"reader-key-12345678901234567890": {"read"}},

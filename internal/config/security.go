@@ -240,6 +240,9 @@ func ValidateSecurity(cfg Config) error {
 	if cfg.FeatureWorkOSLogin && !cfg.FeatureNewAuth {
 		return fmt.Errorf("IDENTRAIL_FEATURE_WORKOS_LOGIN=true requires IDENTRAIL_FEATURE_NEW_AUTH=true")
 	}
+	if cfg.AuthRequireSocialMFA && !cfg.FeatureWorkOSLogin {
+		return fmt.Errorf("IDENTRAIL_AUTH_REQUIRE_SOCIAL_MFA=true requires IDENTRAIL_FEATURE_WORKOS_LOGIN=true: the assertion only checks the MFA handshake that WorkOS hosted login initiates")
+	}
 	if err := validateEmailRuntimeConfig(cfg); err != nil {
 		return err
 	}
