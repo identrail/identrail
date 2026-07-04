@@ -166,6 +166,56 @@ func TestGetAWSLeastPrivilegeFiltersByDecisionServiceAndResource(t *testing.T) {
 	}
 }
 
+func TestAWSLeastPrivilegeToolMatchValuesUsesOnlyAgentToolCandidates(t *testing.T) {
+	matches := awsLeastPrivilegeToolMatchValues(AWSLeastPrivilegeRecommendation{
+		KeepActions:     []string{"agent-tool:case-router", "s3:GetObject"},
+		RemoveActions:   []string{"agent-tool:api://tickets/search", "kms:Decrypt"},
+		ObservedActions: []string{"agent-tool:case-router"},
+		GrantedActions:  []string{"iam:DeleteRole"},
+	})
+
+	if !awsRuntimeEventMatchesAny("case-router", matches...) {
+		t.Fatalf("expected tool name to match tool candidates: %v", matches)
+	}
+	if !awsRuntimeEventMatchesAny("api://tickets/search", matches...) {
+		t.Fatalf("expected tool target ref to match tool candidates: %v", matches)
+	}
+	if awsRuntimeEventMatchesAny("s3:GetObject", matches...) {
+		t.Fatalf("agent least-privilege tool filter should not match IAM actions: %v", matches)
+	}
+	if awsRuntimeEventMatchesAny("kms:Decrypt", matches...) {
+		t.Fatalf("agent least-privilege tool filter should not match IAM actions: %v", matches)
+	}
+}
+
+func TestAWSLeastPrivilegeRecommendationFromAgentRecordsIncludeToolTargetRefAndName(t *testing.T) {
+	now := time.Date(2026, 6, 20, 8, 30, 0, 0, time.UTC)
+	recommendation := awsLeastPrivilegeRecommendationFromAgent(AWSAgentRuntimeAccessRecord{
+		CorrelationID:      "agent-runtime-filter-target-ref",
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		AgentNodeID:        "agent-runtime-node",
+		AgentID:            "agent-runtime-id",
+		ToolName:           "case-router",
+		ToolTargetRef:      "api://tickets/search",
+		Status:             "declared-unused",
+		ObservedCount:      2,
+		Confidence:         0.94,
+		ObservedEventIDs:   []string{"agent-runtime-filter-target-ref-1"},
+		EvidenceRef:        "agent-runtime-access://agent-runtime-filter-target-ref",
+		BackingRoleARNs:    []string{"arn:aws:iam::123456789012:role/agent-runtime"},
+		BackingRoleNodeIDs: []string{"aws:identity:arn:aws:iam::123456789012:role/agent-runtime"},
+		LastObservedAt:     now,
+	}, now)
+	matches := awsLeastPrivilegeToolMatchValues(recommendation)
+	if !awsRuntimeEventMatchesAny("case-router", matches...) {
+		t.Fatalf("expected recommendation tool candidates to include tool name: %+v", matches)
+	}
+	if !awsRuntimeEventMatchesAny("api://tickets/search", matches...) {
+		t.Fatalf("expected recommendation tool candidates to include tool target ref: %+v", matches)
+	}
+}
+
 func TestAWSLeastPrivilegeRecommendationFromRuntimeSignalKeepsAccessAnalyzerInReview(t *testing.T) {
 	now := time.Date(2026, 6, 20, 8, 20, 0, 0, time.UTC)
 	record := AWSRuntimeEventRecord{
