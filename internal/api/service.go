@@ -1874,9 +1874,11 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		return RunRepoScanResult{}, safeErr
 	}
 	result = applyRepoScanContextToResult(result, target, scanContext)
+	partialSourceRun := false
 	if !result.Truncated {
 		externalFindings, sourceErrors, externalErr := s.repoScanExternalFindings(ctx, record, s.Now().UTC())
 		if len(sourceErrors) > 0 {
+			partialSourceRun = true
 			s.appendScanEvent(ctx, record.ID, db.ScanEventLevelWarn, "repo scan completed with partial source errors", map[string]any{
 				"source_error_count": len(sourceErrors),
 				"source_errors":      truncateSourceErrors(sourceErrors, maxSourceErrorsInEvent),
@@ -1911,10 +1913,11 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	}
 	cursorAfter := firstNonEmptyString(result.HeadRevision, record.HeadRevision)
 	completionContext := db.RepoScanContext{
-		ScanMode:     result.ScanMode,
-		BaseRevision: result.BaseRevision,
-		HeadRevision: result.HeadRevision,
-		ChangedPaths: append([]string(nil), result.ChangedPaths...),
+		ScanMode:         result.ScanMode,
+		BaseRevision:     result.BaseRevision,
+		HeadRevision:     result.HeadRevision,
+		ChangedPaths:     append([]string(nil), result.ChangedPaths...),
+		PartialSourceRun: partialSourceRun,
 	}
 	if !result.Truncated {
 		completionContext.CursorAfter = cursorAfter
