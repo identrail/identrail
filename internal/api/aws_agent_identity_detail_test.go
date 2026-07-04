@@ -285,6 +285,114 @@ func TestAWSAgentIdentityDetailScopesResolvedRuntimeAndRiskExactly(t *testing.T)
 	}
 }
 
+func TestAWSAgentIdentityDetailScopesPermissionsAndCasesExactly(t *testing.T) {
+	roleARN := "arn:aws:iam::123456789012:role/agent"
+	roleNode := awsIdentityNodeIDForAPI(roleARN)
+	leakedRoleARN := "arn:aws:iam::123456789012:role/agent-v2"
+	leakedRoleNode := awsIdentityNodeIDForAPI(leakedRoleARN)
+	record := AWSAIAgentIdentityRecord{
+		AgentID:           "agent",
+		AgentNodeID:       "aws:agent:123456789012:us-east-1:custom_agent/agent",
+		RuntimeRoleARN:    roleARN,
+		RuntimeRoleNodeID: roleNode,
+		RuntimeRoleName:   "agent",
+	}
+	permissions := AWSLeastPrivilegeResult{
+		Recommendations: []AWSLeastPrivilegeRecommendation{
+			{
+				RecommendationID: "lp-agent",
+				Decision:         "remove",
+				Severity:         "high",
+				Status:           "open",
+				Service:          "s3",
+				IdentityNodeID:   roleNode,
+				PrincipalARN:     roleARN,
+				DisplayName:      "agent",
+				Score:            90,
+				Confidence:       0.9,
+				ImpactedPath: []AWSLeastPrivilegePathStep{
+					{NodeID: roleNode, NodeType: "identity", Label: "agent"},
+					{NodeID: "aws:s3:bucket/tickets", NodeType: "resource", Label: "tickets"},
+				},
+			},
+			{
+				RecommendationID: "lp-agent-v2",
+				Decision:         "remove",
+				Severity:         "high",
+				Status:           "open",
+				Service:          "s3",
+				IdentityNodeID:   leakedRoleNode,
+				PrincipalARN:     leakedRoleARN,
+				DisplayName:      "agent-v2",
+				Score:            80,
+				Confidence:       0.8,
+				ImpactedPath: []AWSLeastPrivilegePathStep{
+					{NodeID: leakedRoleNode, NodeType: "identity", Label: "agent-v2"},
+					{NodeID: "aws:s3:bucket/archive", NodeType: "resource", Label: "archive"},
+				},
+			},
+		},
+	}
+	cases := AWSRemediationCaseResult{
+		Cases: []AWSRemediationCase{
+			{
+				CaseID:         "case-agent",
+				SourceType:     "least_privilege",
+				Lifecycle:      "proposed",
+				Severity:       "high",
+				Status:         "open",
+				ApprovalState:  "pending",
+				IdentityNodeID: roleNode,
+				IdentityARN:    roleARN,
+				IdentityName:   "agent",
+				Score:          90,
+				Confidence:     0.9,
+				ImpactedNodes:  []string{roleNode, "aws:s3:bucket/tickets"},
+			},
+			{
+				CaseID:         "case-agent-v2",
+				SourceType:     "least_privilege",
+				Lifecycle:      "proposed",
+				Severity:       "high",
+				Status:         "open",
+				ApprovalState:  "pending",
+				IdentityNodeID: leakedRoleNode,
+				IdentityARN:    leakedRoleARN,
+				IdentityName:   "agent-v2",
+				Score:          80,
+				Confidence:     0.8,
+				ImpactedNodes:  []string{leakedRoleNode, "aws:s3:bucket/archive"},
+			},
+		},
+	}
+
+	scopedPermissions := awsAgentIdentityDetailScopePermissions(permissions, record, roleNode)
+	if len(scopedPermissions.Recommendations) != 1 || scopedPermissions.Recommendations[0].IdentityNodeID != roleNode {
+		t.Fatalf("permissions must exact-scope to the selected runtime role: %+v", scopedPermissions.Recommendations)
+	}
+	if scopedPermissions.Summary.FilteredRecommendations != 1 || scopedPermissions.Summary.RelationshipCount != len(scopedPermissions.Relationships) {
+		t.Fatalf("permission summary must match exact-scoped recommendations: summary=%+v relationships=%+v", scopedPermissions.Summary, scopedPermissions.Relationships)
+	}
+	for _, relation := range scopedPermissions.Relationships {
+		if relation.FromNodeID == leakedRoleNode || relation.ToNodeID == leakedRoleNode {
+			t.Fatalf("permission relationships must not retain prefix-matched leaked role: %+v", scopedPermissions.Relationships)
+		}
+	}
+
+	scopedCases := awsAgentIdentityDetailScopeRemediationCases(cases, record, roleNode)
+	if len(scopedCases.Cases) != 1 || scopedCases.Cases[0].IdentityNodeID != roleNode {
+		t.Fatalf("remediation cases must exact-scope to the selected runtime role: %+v", scopedCases.Cases)
+	}
+	if scopedCases.Summary.FilteredCases != 1 || scopedCases.Summary.RelationshipCount != len(scopedCases.Relationships) {
+		t.Fatalf("remediation summary must match exact-scoped cases: summary=%+v relationships=%+v", scopedCases.Summary, scopedCases.Relationships)
+	}
+	for _, relation := range scopedCases.Relationships {
+		if relation.FromNodeID == leakedRoleNode || relation.ToNodeID == leakedRoleNode {
+			t.Fatalf("remediation relationships must not retain prefix-matched leaked role: %+v", scopedCases.Relationships)
+		}
+	}
+}
+
 func TestAWSAgentIdentityDetailGovernanceFiltersPreferRoleThenAgent(t *testing.T) {
 	roleARN := "arn:aws:iam::123456789012:role/agent-runtime"
 	roleRecord := AWSAIAgentIdentityRecord{

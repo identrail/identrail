@@ -308,6 +308,7 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 	if err != nil {
 		return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail permissions: %w", err)
 	}
+	permissions = awsAgentIdentityDetailScopePermissions(permissions, record, permissionsIdentity)
 	cases, err := s.GetAWSRemediationCases(ctx, workspaceID, projectID, AWSRemediationCaseRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
@@ -320,6 +321,7 @@ func (s *Service) GetAWSAgentIdentityDetail(ctx context.Context, workspaceID str
 	if err != nil {
 		return AWSAgentIdentityDetailResult{}, fmt.Errorf("agent identity detail remediation cases: %w", err)
 	}
+	cases = awsAgentIdentityDetailScopeRemediationCases(cases, record, permissionsIdentity)
 	governanceIdentityID, governanceAgentID := awsAgentIdentityDetailGovernanceFilters(record, agentFilter)
 	governance, err := s.GetAWSGovernanceAuditReporting(ctx, workspaceID, projectID, AWSGovernanceAuditReportingRequest{
 		ConnectorID:  connectorID,
@@ -517,6 +519,70 @@ func awsAgentIdentityDetailMatchesResolvedAgent(record AWSAIAgentIdentityRecord,
 		}
 		for _, value := range values {
 			if strings.EqualFold(strings.TrimSpace(value), expected) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func awsAgentIdentityDetailScopePermissions(result AWSLeastPrivilegeResult, record AWSAIAgentIdentityRecord, fallback string) AWSLeastPrivilegeResult {
+	targets := awsAgentIdentityDetailPermissionIdentityCandidates(record, fallback)
+	scoped := make([]AWSLeastPrivilegeRecommendation, 0, len(result.Recommendations))
+	for _, recommendation := range result.Recommendations {
+		if awsAgentIdentityDetailAnyExactMatch(targets, awsLeastPrivilegeIdentityMatchValues(recommendation)...) {
+			scoped = append(scoped, recommendation)
+		}
+	}
+	result.Recommendations = scoped
+	result.Relationships = awsLeastPrivilegeRelationships(scoped)
+	result.Summary = summarizeAWSLeastPrivilege(scoped, scoped, result.Relationships)
+	return result
+}
+
+func awsAgentIdentityDetailScopeRemediationCases(result AWSRemediationCaseResult, record AWSAIAgentIdentityRecord, fallback string) AWSRemediationCaseResult {
+	targets := awsAgentIdentityDetailPermissionIdentityCandidates(record, fallback)
+	scoped := make([]AWSRemediationCase, 0, len(result.Cases))
+	for _, c := range result.Cases {
+		if awsAgentIdentityDetailAnyExactMatch(targets, awsAgentIdentityDetailRemediationCaseIdentityValues(c)...) {
+			scoped = append(scoped, c)
+		}
+	}
+	result.Cases = scoped
+	result.Relationships = awsRemediationCaseRelationships(scoped)
+	result.Summary = summarizeAWSRemediationCases(scoped, scoped, result.Relationships)
+	return result
+}
+
+func awsAgentIdentityDetailPermissionIdentityCandidates(record AWSAIAgentIdentityRecord, fallback string) []string {
+	roleTargets := emptyStrings(dedupeStrings([]string{
+		record.RuntimeRoleNodeID,
+		awsIdentityNodeIDForAPI(record.RuntimeRoleARN),
+		record.RuntimeRoleARN,
+		record.RuntimeRoleName,
+	}))
+	if len(roleTargets) > 0 {
+		return roleTargets
+	}
+	return emptyStrings(dedupeStrings([]string{record.AgentNodeID, record.AgentID, fallback}))
+}
+
+func awsAgentIdentityDetailRemediationCaseIdentityValues(c AWSRemediationCase) []string {
+	values := []string{c.IdentityNodeID, c.IdentityARN, c.IdentityName}
+	if strings.EqualFold(c.SourceType, "aws_permission_boundary_scp") {
+		values = append(values, c.ResourceNodeIDs...)
+	}
+	return dedupeStrings(values)
+}
+
+func awsAgentIdentityDetailAnyExactMatch(targets []string, values ...string) bool {
+	for _, target := range targets {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			continue
+		}
+		for _, value := range values {
+			if strings.EqualFold(strings.TrimSpace(value), target) {
 				return true
 			}
 		}
