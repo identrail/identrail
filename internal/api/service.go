@@ -2161,6 +2161,28 @@ func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoSc
 			}
 		}
 	}
+	if s.GitHubRepositoryPostureCollector != nil {
+		posture, err := s.GitHubRepositoryPostureCollector.CollectRepositoryPosture(ctx, source.InstallationID, record.Repository)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, nil, ctx.Err()
+			}
+			recordSourceErr("github_repository_posture", "posture_collect_error", err)
+		} else {
+			findings = append(findings, githubconnector.RepositoryPostureFindings(posture, detectedAt)...)
+		}
+		if owner, _, ok := strings.Cut(record.Repository, "/"); ok && strings.TrimSpace(owner) != "" {
+			orgPosture, orgErr := s.GitHubRepositoryPostureCollector.CollectOrganizationPosture(ctx, source.InstallationID, owner, record.Repository)
+			if orgErr != nil {
+				if ctx.Err() != nil {
+					return nil, nil, ctx.Err()
+				}
+				recordSourceErr("github_organization_posture", "posture_collect_error", orgErr)
+			} else if githubOrganizationPostureAvailable(orgPosture) {
+				findings = append(findings, githubconnector.OrganizationPostureFindings(orgPosture, record.Repository, detectedAt)...)
+			}
+		}
+	}
 	return findings, sourceErrors, nil
 }
 
