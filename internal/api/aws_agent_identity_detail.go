@@ -992,20 +992,14 @@ func awsAgentIdentityDetailRecommendations(recommendations []AWSLeastPrivilegeRe
 
 func awsAgentIdentityDetailRelationships(record AWSAIAgentIdentityRecord, inventory AWSAIAgentIdentityInventoryResult, runtime AWSAgentRuntimeAccessResult) []AWSAgentIdentityDetailRelationship {
 	out := []AWSAgentIdentityDetailRelationship{}
-	agentNode := strings.ToLower(strings.TrimSpace(record.AgentNodeID))
-	if agentNode != "" {
-		for _, relation := range inventory.Relationships {
-			if strings.ToLower(strings.TrimSpace(relation.FromNodeID)) != agentNode && strings.ToLower(strings.TrimSpace(relation.ToNodeID)) != agentNode {
-				continue
-			}
-			out = append(out, AWSAgentIdentityDetailRelationship{
-				Source:      "ai_agent_identities",
-				Type:        relation.Type,
-				FromNodeID:  relation.FromNodeID,
-				ToNodeID:    relation.ToNodeID,
-				EvidenceRef: relation.EvidenceRef,
-			})
-		}
+	for _, relation := range awsAIAgentIdentityRelationshipsForRecord(record, inventory.Relationships) {
+		out = append(out, AWSAgentIdentityDetailRelationship{
+			Source:      "ai_agent_identities",
+			Type:        relation.Type,
+			FromNodeID:  relation.FromNodeID,
+			ToNodeID:    relation.ToNodeID,
+			EvidenceRef: relation.EvidenceRef,
+		})
 	}
 	for _, relation := range runtime.Relationships {
 		out = append(out, AWSAgentIdentityDetailRelationship{

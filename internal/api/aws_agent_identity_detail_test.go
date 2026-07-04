@@ -681,6 +681,64 @@ func TestAWSAgentIdentityDetailMergesAgentScopedRemediationCases(t *testing.T) {
 	}
 }
 
+func TestAWSAgentIdentityDetailRelationshipsIncludeInventorySourceNodes(t *testing.T) {
+	roleARN := "arn:aws:iam::123456789012:role/shared-agent-runtime"
+	roleNode := awsIdentityNodeIDForAPI(roleARN)
+	selected := AWSAIAgentIdentityRecord{
+		AccountID:         "123456789012",
+		Region:            "us-east-1",
+		AgentType:         "custom_agent",
+		AgentID:           "agent",
+		AgentNodeID:       "aws:agent:123456789012:us-east-1:custom_agent/agent",
+		RuntimeRoleARN:    roleARN,
+		RuntimeRoleNodeID: roleNode,
+		GatewayNodeID:     "aws:agent-gateway:123456789012:us-east-1:gateway/agent-gateway",
+		ToolNames:         []string{"search-tickets"},
+		EvidenceRef:       "evidence://inventory/agent",
+	}
+	other := AWSAIAgentIdentityRecord{
+		AccountID:         "123456789012",
+		Region:            "us-east-1",
+		AgentType:         "custom_agent",
+		AgentID:           "agent-v2",
+		AgentNodeID:       "aws:agent:123456789012:us-east-1:custom_agent/agent-v2",
+		RuntimeRoleARN:    roleARN,
+		RuntimeRoleNodeID: roleNode,
+		GatewayNodeID:     "aws:agent-gateway:123456789012:us-east-1:gateway/agent-v2-gateway",
+		ToolNames:         []string{"archive-tickets"},
+		EvidenceRef:       "evidence://inventory/agent-v2",
+	}
+	inventory := AWSAIAgentIdentityInventoryResult{
+		Relationships: awsAIAgentIdentityRelationships([]AWSAIAgentIdentityRecord{selected, other}),
+	}
+
+	relationships := awsAgentIdentityDetailRelationships(selected, inventory, AWSAgentRuntimeAccessResult{})
+	if len(relationships) == 0 {
+		t.Fatal("expected selected inventory relationships")
+	}
+	workloadNode := awsAIAgentWorkloadNodeID(selected)
+	toolNode := awsAIAgentToolNodeID(selected.GatewayNodeID, "search-tickets")
+	foundRunsAs := false
+	foundCallsTool := false
+	for _, relationship := range relationships {
+		if relationship.Type == "runs_as" && relationship.FromNodeID == workloadNode && relationship.ToNodeID == roleNode {
+			foundRunsAs = true
+		}
+		if relationship.Type == "calls_tool" && relationship.FromNodeID == selected.GatewayNodeID && relationship.ToNodeID == toolNode {
+			foundCallsTool = true
+		}
+		if relationship.FromNodeID == other.AgentNodeID || relationship.FromNodeID == other.GatewayNodeID || relationship.FromNodeID == awsAIAgentWorkloadNodeID(other) {
+			t.Fatalf("detail relationships must not include sibling agent source edges: %+v", relationships)
+		}
+	}
+	if !foundRunsAs {
+		t.Fatalf("expected workload-sourced runs_as relationship, got %+v", relationships)
+	}
+	if !foundCallsTool {
+		t.Fatalf("expected gateway-sourced calls_tool relationship, got %+v", relationships)
+	}
+}
+
 func TestAWSAgentIdentityDetailGovernanceFiltersPreferRoleThenAgent(t *testing.T) {
 	roleARN := "arn:aws:iam::123456789012:role/agent-runtime"
 	roleRecord := AWSAIAgentIdentityRecord{
