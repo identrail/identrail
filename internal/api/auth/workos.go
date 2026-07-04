@@ -53,6 +53,7 @@ type WorkOSClient interface {
 	EnrollAuthFactor(ctx context.Context, input WorkOSMFAEnrollRequest) (WorkOSMFAEnrollResponse, error)
 	ChallengeAuthFactor(ctx context.Context, input WorkOSMFAChallengeRequest) (WorkOSMFAChallengeResponse, error)
 	AuthenticateWithTOTP(ctx context.Context, input WorkOSMFAVerifyRequest) (WorkOSAuthentication, error)
+	AuthenticateWithEmailVerificationCode(ctx context.Context, input WorkOSEmailVerificationVerifyRequest) (WorkOSAuthentication, error)
 }
 
 type WorkOSSDKClient struct {
@@ -170,6 +171,23 @@ func (c *WorkOSSDKClient) AuthenticateWithTOTP(ctx context.Context, input WorkOS
 	return authenticated, nil
 }
 
+func (c *WorkOSSDKClient) AuthenticateWithEmailVerificationCode(ctx context.Context, input WorkOSEmailVerificationVerifyRequest) (WorkOSAuthentication, error) {
+	if c == nil || c.client == nil || c.clientID == "" {
+		return WorkOSAuthentication{}, ErrWorkOSUnavailable
+	}
+	response, err := c.client.AuthenticateWithEmailVerificationCode(ctx, usermanagement.AuthenticateWithEmailVerificationCodeOpts{
+		ClientID:                   c.clientID,
+		Code:                       strings.TrimSpace(input.Code),
+		PendingAuthenticationToken: strings.TrimSpace(input.PendingAuthenticationToken),
+		IPAddress:                  strings.TrimSpace(input.IPAddress),
+		UserAgent:                  strings.TrimSpace(input.UserAgent),
+	})
+	if err != nil {
+		return WorkOSAuthentication{}, normalizeWorkOSAuthenticationError(err)
+	}
+	return workOSAuthenticationFromResponse(response), nil
+}
+
 func normalizeWorkOSAuthenticationError(err error) error {
 	if err == nil {
 		return nil
@@ -182,6 +200,9 @@ func normalizeWorkOSAuthenticationError(err error) error {
 		return ErrWorkOSUnavailable
 	}
 	if required, ok := AsWorkOSMFARequired(err); ok {
+		return required
+	}
+	if required, ok := AsWorkOSEmailVerificationRequired(err); ok {
 		return required
 	}
 	return err

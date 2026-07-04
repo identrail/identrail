@@ -26,6 +26,7 @@ import (
 type fakeWorkOSClient struct {
 	authorizationInput sessionauth.WorkOSAuthorizationRequest
 	verifyInput        sessionauth.WorkOSMFAVerifyRequest
+	emailVerifyInput   sessionauth.WorkOSEmailVerificationVerifyRequest
 	authentication     sessionauth.WorkOSAuthentication
 	enrollResponse     sessionauth.WorkOSMFAEnrollResponse
 	challengeResponse  sessionauth.WorkOSMFAChallengeResponse
@@ -34,6 +35,7 @@ type fakeWorkOSClient struct {
 	enrollErr          error
 	challengeErr       error
 	verifyErr          error
+	emailVerifyErr     error
 }
 
 type fakeEmailSender struct {
@@ -112,6 +114,14 @@ func (f *fakeWorkOSClient) AuthenticateWithTOTP(ctx context.Context, input sessi
 	authenticated := f.authentication
 	authenticated.MFACompleted = true
 	return authenticated, nil
+}
+
+func (f *fakeWorkOSClient) AuthenticateWithEmailVerificationCode(ctx context.Context, input sessionauth.WorkOSEmailVerificationVerifyRequest) (sessionauth.WorkOSAuthentication, error) {
+	f.emailVerifyInput = input
+	if f.emailVerifyErr != nil {
+		return sessionauth.WorkOSAuthentication{}, f.emailVerifyErr
+	}
+	return f.authentication, nil
 }
 
 func TestWorkOSHostedLoginCreatesSessionAndIdentity(t *testing.T) {
@@ -1042,6 +1052,210 @@ func TestWorkOSCallbackContinuesMFAEnrollment(t *testing.T) {
 		if event.Action == "auth.login.failure" {
 			t.Fatalf("mfa continuation must not write denied login failure audit event: %+v", event)
 		}
+	}
+}
+
+func TestWorkOSCallbackContinuesEmailVerification(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 7, 4, 18, 45, 0, 0, time.UTC)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	sink := &recordingAuditSink{}
+	secret := strings.Repeat("a", 64)
+	workOS := &fakeWorkOSClient{
+		err: &sessionauth.WorkOSEmailVerificationRequired{
+			Email:                      "unverified@example.com",
+			PendingAuthenticationToken: "pending-email-token",
+			EmailVerificationID:        "email_verification_1",
+		},
+		authentication: sessionauth.WorkOSAuthentication{
+			User: sessionauth.WorkOSProfile{
+				ID:            "user_workos_email_verify",
+				Email:         "unverified@example.com",
+				EmailVerified: true,
+			},
+			AuthenticationMethod: "GitHubOAuth",
+		},
+	}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:     true,
+		FeatureWorkOSLogin: true,
+		PublicBaseURL:      "https://api.identrail.test",
+		CORSAllowedOrigins: []string{"https://app.identrail.test"},
+		AuditSink:          sink,
+		SessionKey:         secret,
+		WorkOSClientID:     "client_123",
+		WorkOSAuthClient:   workOS,
+		RateLimitRPM:       1000,
+		RateLimitBurst:     1000,
+	})
+
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/signup?provider=github_oauth&return_to=https%3A%2F%2Fapp.identrail.test%2Fapp", nil))
+	if startResp.Code != http.StatusFound {
+		t.Fatalf("expected login redirect, got %d body=%s", startResp.Code, startResp.Body.String())
+	}
+
+	callbackResp := httptest.NewRecorder()
+	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
+	if callbackResp.Code != http.StatusFound {
+		t.Fatalf("expected email verification redirect, got %d body=%s", callbackResp.Code, callbackResp.Body.String())
+	}
+	if got := callbackResp.Header().Get("Location"); !strings.HasPrefix(got, "https://app.identrail.test/auth/email-verification?") || !strings.Contains(got, "return_to=https%3A%2F%2Fapp.identrail.test%2Fapp") {
+		t.Fatalf("unexpected email verification redirect: %q", got)
+	}
+	pendingCookie := findTestCookie(callbackResp.Result().Cookies(), sessionauth.PendingEmailVerificationCookieName)
+	if pendingCookie == nil || pendingCookie.Value == "" {
+		t.Fatalf("expected pending email verification cookie, got %+v", callbackResp.Result().Cookies())
+	}
+	if strings.Contains(pendingCookie.Value, "pending-email-token") {
+		t.Fatalf("pending cookie must not expose the raw workos token: %q", pendingCookie.Value)
+	}
+
+	pendingReq := httptest.NewRequest(http.MethodGet, "/auth/email-verification/pending", nil)
+	pendingReq.AddCookie(pendingCookie)
+	pendingResp := httptest.NewRecorder()
+	router.ServeHTTP(pendingResp, pendingReq)
+	if pendingResp.Code != http.StatusOK || !strings.Contains(pendingResp.Body.String(), `"email":"unverified@example.com"`) {
+		t.Fatalf("unexpected pending response: code=%d body=%s", pendingResp.Code, pendingResp.Body.String())
+	}
+
+	verifyReq := httptest.NewRequest(http.MethodPost, "/auth/email-verification/verify", strings.NewReader(`{"code":"123456"}`))
+	verifyReq.Header.Set("Content-Type", "application/json")
+	verifyReq.AddCookie(pendingCookie)
+	verifyResp := httptest.NewRecorder()
+	router.ServeHTTP(verifyResp, verifyReq)
+	if verifyResp.Code != http.StatusOK || !strings.Contains(verifyResp.Body.String(), `"redirect_to":"https://app.identrail.test/app"`) {
+		t.Fatalf("unexpected verify response: code=%d body=%s", verifyResp.Code, verifyResp.Body.String())
+	}
+	if workOS.emailVerifyInput.PendingAuthenticationToken != "pending-email-token" || workOS.emailVerifyInput.Code != "123456" {
+		t.Fatalf("unexpected verify input: %+v", workOS.emailVerifyInput)
+	}
+	if findTestCookie(verifyResp.Result().Cookies(), sessionauth.CookieName) == nil {
+		t.Fatalf("expected session cookie after email verification, got %+v", verifyResp.Result().Cookies())
+	}
+	clearedPending := findTestCookie(verifyResp.Result().Cookies(), sessionauth.PendingEmailVerificationCookieName)
+	if clearedPending == nil || clearedPending.MaxAge >= 0 {
+		t.Fatalf("expected pending email verification cookie to be cleared, got %+v", verifyResp.Result().Cookies())
+	}
+	if _, err := store.GetUserIdentity(context.Background(), sessionauth.WorkOSProvider, "user_workos_email_verify"); err != nil {
+		t.Fatalf("expected workos identity after email verification: %v", err)
+	}
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	for _, event := range sink.events {
+		if event.Action == "auth.login.failure" {
+			t.Fatalf("email verification continuation must not write denied login failure audit event: %+v", event)
+		}
+	}
+}
+
+func TestWorkOSEmailVerificationVerifyRejectsInvalidCode(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	secret := strings.Repeat("a", 64)
+	workOS := &fakeWorkOSClient{
+		err: &sessionauth.WorkOSEmailVerificationRequired{
+			Email:                      "unverified@example.com",
+			PendingAuthenticationToken: "pending-email-token",
+		},
+		emailVerifyErr: errors.New("workos rejected the code"),
+	}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:     true,
+		FeatureWorkOSLogin: true,
+		PublicBaseURL:      "https://api.identrail.test",
+		CORSAllowedOrigins: []string{"https://app.identrail.test"},
+		SessionKey:         secret,
+		WorkOSClientID:     "client_123",
+		WorkOSAuthClient:   workOS,
+		RateLimitRPM:       1000,
+		RateLimitBurst:     1000,
+	})
+
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/signup?provider=github_oauth&return_to=https%3A%2F%2Fapp.identrail.test%2Fapp", nil))
+	callbackResp := httptest.NewRecorder()
+	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
+	pendingCookie := findTestCookie(callbackResp.Result().Cookies(), sessionauth.PendingEmailVerificationCookieName)
+	if pendingCookie == nil {
+		t.Fatalf("expected pending email verification cookie, got %+v", callbackResp.Result().Cookies())
+	}
+
+	verifyReq := httptest.NewRequest(http.MethodPost, "/auth/email-verification/verify", strings.NewReader(`{"code":"000000"}`))
+	verifyReq.Header.Set("Content-Type", "application/json")
+	verifyReq.AddCookie(pendingCookie)
+	verifyResp := httptest.NewRecorder()
+	router.ServeHTTP(verifyResp, verifyReq)
+	if verifyResp.Code != http.StatusUnauthorized || !strings.Contains(verifyResp.Body.String(), "invalid verification code") {
+		t.Fatalf("expected invalid code rejection, got %d body=%s", verifyResp.Code, verifyResp.Body.String())
+	}
+	if findTestCookie(verifyResp.Result().Cookies(), sessionauth.CookieName) != nil {
+		t.Fatalf("failed verification must not create a session cookie, got %+v", verifyResp.Result().Cookies())
+	}
+}
+
+func TestWorkOSEmailVerificationVerifyContinuesMFAChallenge(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	secret := strings.Repeat("a", 64)
+	workOS := &fakeWorkOSClient{
+		err: &sessionauth.WorkOSEmailVerificationRequired{
+			Email:                      "unverified@example.com",
+			PendingAuthenticationToken: "pending-email-token",
+		},
+		emailVerifyErr: &sessionauth.WorkOSMFARequired{
+			Mode:                       sessionauth.WorkOSMFAModeChallenge,
+			PendingAuthenticationToken: "pending-mfa-token",
+			AuthenticationFactors:      []sessionauth.WorkOSMFAFactor{{ID: "auth_factor_1", Type: "totp"}},
+		},
+	}
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), svc, RouterOptions{
+		FeatureNewAuth:     true,
+		FeatureWorkOSLogin: true,
+		PublicBaseURL:      "https://api.identrail.test",
+		CORSAllowedOrigins: []string{"https://app.identrail.test"},
+		SessionKey:         secret,
+		WorkOSClientID:     "client_123",
+		WorkOSAuthClient:   workOS,
+		RateLimitRPM:       1000,
+		RateLimitBurst:     1000,
+	})
+
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, httptest.NewRequest(http.MethodGet, "/auth/signup?provider=github_oauth&return_to=https%3A%2F%2Fapp.identrail.test%2Fapp", nil))
+	callbackResp := httptest.NewRecorder()
+	router.ServeHTTP(callbackResp, workOSCallbackRequest(workOS.authorizationInput.State, oauthTxnCookieFromStart(t, startResp)))
+	pendingCookie := findTestCookie(callbackResp.Result().Cookies(), sessionauth.PendingEmailVerificationCookieName)
+	if pendingCookie == nil {
+		t.Fatalf("expected pending email verification cookie, got %+v", callbackResp.Result().Cookies())
+	}
+
+	verifyReq := httptest.NewRequest(http.MethodPost, "/auth/email-verification/verify", strings.NewReader(`{"code":"123456"}`))
+	verifyReq.Header.Set("Content-Type", "application/json")
+	verifyReq.AddCookie(pendingCookie)
+	verifyResp := httptest.NewRecorder()
+	router.ServeHTTP(verifyResp, verifyReq)
+	if verifyResp.Code != http.StatusOK || !strings.Contains(verifyResp.Body.String(), "https://app.identrail.test/auth/mfa?") {
+		t.Fatalf("expected mfa continuation response, got %d body=%s", verifyResp.Code, verifyResp.Body.String())
+	}
+	mfaPending := findTestCookie(verifyResp.Result().Cookies(), sessionauth.PendingMFACookieName)
+	if mfaPending == nil || mfaPending.Value == "" {
+		t.Fatalf("expected pending mfa cookie after chained requirement, got %+v", verifyResp.Result().Cookies())
+	}
+	openedPending, err := sessionauth.NewMFAPendingStateManager(secret, nil).Open(mfaPending.Value)
+	if err != nil {
+		t.Fatalf("open chained mfa pending cookie: %v", err)
+	}
+	if openedPending.PendingAuthenticationToken != "pending-mfa-token" || openedPending.Mode != sessionauth.WorkOSMFAModeChallenge {
+		t.Fatalf("unexpected chained mfa pending state: %+v", openedPending)
+	}
+	clearedEmailPending := findTestCookie(verifyResp.Result().Cookies(), sessionauth.PendingEmailVerificationCookieName)
+	if clearedEmailPending == nil || clearedEmailPending.MaxAge >= 0 {
+		t.Fatalf("expected email verification cookie to be cleared on mfa handoff, got %+v", verifyResp.Result().Cookies())
+	}
+	if findTestCookie(verifyResp.Result().Cookies(), sessionauth.CookieName) != nil {
+		t.Fatalf("mfa handoff must not create a session cookie, got %+v", verifyResp.Result().Cookies())
 	}
 }
 

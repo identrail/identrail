@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- Add a **WorkOS email-verification continuation flow** for hosted login.
+  When WorkOS refuses an OAuth code exchange with
+  `email_verification_required` (common for GitHub accounts whose email is
+  unverified), the API now seals the pending authentication state into an
+  encrypted, short-lived cookie and redirects the browser to a new
+  `/auth/email-verification` page where the user enters the one-time code
+  WorkOS emailed them. New endpoints
+  `GET /auth/email-verification/pending` and
+  `POST /auth/email-verification/verify` mirror the existing MFA pending
+  flow, including hand-off to the MFA challenge when WorkOS chains both
+  requirements. Previously these sign-ins dead-ended on a generic
+  "Sign-in did not complete" error that retrying could never fix.
 - Make app-side social-login MFA enforcement opt-in via
   `IDENTRAIL_AUTH_REQUIRE_SOCIAL_MFA` (default `false`). Previously the API
   unconditionally rejected Google/GitHub OAuth logins whose WorkOS MFA
