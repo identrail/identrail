@@ -216,6 +216,60 @@ func TestAWSLeastPrivilegeRecommendationFromAgentRecordsIncludeToolTargetRefAndN
 	}
 }
 
+func TestAWSLeastPrivilegeRecommendationFromAgentRecordsDoNotLeakAgentIdentifiersInToolFilterWhenToolAvailable(t *testing.T) {
+	now := time.Date(2026, 6, 20, 8, 35, 0, 0, time.UTC)
+	recommendation := awsLeastPrivilegeRecommendationFromAgent(AWSAgentRuntimeAccessRecord{
+		CorrelationID:      "agent-runtime-filter-no-leak",
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		AgentNodeID:        "agent-runtime-node",
+		AgentID:            "agent-runtime-id",
+		ToolName:           "case-router",
+		ToolTargetRef:      "api://tickets/search",
+		Status:             "declared-unused",
+		ObservedCount:      2,
+		Confidence:         0.94,
+		ObservedEventIDs:   []string{"agent-runtime-filter-no-leak-1"},
+		EvidenceRef:        "agent-runtime-access://agent-runtime-filter-no-leak",
+		BackingRoleARNs:    []string{"arn:aws:iam::123456789012:role/agent-runtime"},
+		BackingRoleNodeIDs: []string{"aws:identity:arn:aws:iam::123456789012:role/agent-runtime"},
+		LastObservedAt:     now,
+	}, now)
+	matches := awsLeastPrivilegeToolMatchValues(recommendation)
+	if awsRuntimeEventMatchesAny("agent-runtime-id", matches...) {
+		t.Fatalf("tool matching should not leak agent identifier when tool is present: %+v", matches)
+	}
+	if awsRuntimeEventMatchesAny("agent-runtime-node", matches...) {
+		t.Fatalf("tool matching should not leak agent node identifier when tool is present: %+v", matches)
+	}
+}
+
+func TestAWSLeastPrivilegeRecommendationFromAgentRecordsFallbackToAgentIdentifiersWhenNoToolIsPresent(t *testing.T) {
+	now := time.Date(2026, 6, 20, 8, 40, 0, 0, time.UTC)
+	recommendation := awsLeastPrivilegeRecommendationFromAgent(AWSAgentRuntimeAccessRecord{
+		CorrelationID:      "agent-runtime-filter-fallback",
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		AgentNodeID:        "agent-runtime-node",
+		AgentID:            "agent-runtime-id",
+		Status:             "declared-unused",
+		ObservedCount:      0,
+		Confidence:         0.94,
+		ObservedEventIDs:   []string{"agent-runtime-filter-fallback-1"},
+		EvidenceRef:        "agent-runtime-access://agent-runtime-filter-fallback",
+		BackingRoleARNs:    []string{"arn:aws:iam::123456789012:role/agent-runtime"},
+		BackingRoleNodeIDs: []string{"aws:identity:arn:aws:iam::123456789012:role/agent-runtime"},
+		LastObservedAt:     now,
+	}, now)
+	matches := awsLeastPrivilegeToolMatchValues(recommendation)
+	if !awsRuntimeEventMatchesAny("agent-runtime-id", matches...) {
+		t.Fatalf("expected fallback agent identifier in tool candidates: %+v", matches)
+	}
+	if !awsRuntimeEventMatchesAny("agent-runtime-node", matches...) {
+		t.Fatalf("expected fallback agent node identifier in tool candidates: %+v", matches)
+	}
+}
+
 func TestAWSLeastPrivilegeRecommendationFromRuntimeSignalKeepsAccessAnalyzerInReview(t *testing.T) {
 	now := time.Date(2026, 6, 20, 8, 20, 0, 0, time.UTC)
 	record := AWSRuntimeEventRecord{

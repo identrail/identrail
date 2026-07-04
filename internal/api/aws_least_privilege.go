@@ -521,9 +521,13 @@ func awsLeastPrivilegeAgentToolActions(record AWSAgentRuntimeAccessRecord) []str
 	candidates := dedupeStrings([]string{
 		awsLeastPrivilegeAgentToolAction(record.ToolName),
 		awsLeastPrivilegeAgentToolAction(record.ToolTargetRef),
-		awsLeastPrivilegeAgentToolAction(record.AgentID),
-		awsLeastPrivilegeAgentToolAction(record.AgentNodeID),
 	})
+	if len(candidates) == 0 {
+		candidates = dedupeStrings([]string{
+			awsLeastPrivilegeAgentToolAction(record.AgentID),
+			awsLeastPrivilegeAgentToolAction(record.AgentNodeID),
+		})
+	}
 	return candidates
 }
 

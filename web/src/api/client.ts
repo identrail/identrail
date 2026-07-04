@@ -6395,6 +6395,7 @@ export type AWSLeastPrivilegeQuery = {
   region?: string;
   identity?: string;
   resource?: string;
+  tool?: string;
   service?: string;
   severity?: string;
   status?: string;
@@ -10772,6 +10773,7 @@ export const apiClient = {
         region: query?.region,
         identity: query?.identity,
         resource: query?.resource,
+        tool: query?.tool,
         service: query?.service,
         severity: query?.severity,
         status: query?.status,
