@@ -825,7 +825,7 @@ func workOSMFAFactorAllowed(factors []sessionauth.WorkOSMFAFactor, factorID stri
 
 func writeWorkOSMFAProviderError(c *gin.Context, logger *zap.Logger, err error, message string) {
 	if logger != nil {
-		logger.Warn(message, zap.String("error", "workos mfa provider returned an error"))
+		logger.Warn(message, telemetry.ZapError(err))
 	}
 	if errors.Is(err, sessionauth.ErrWorkOSUnavailable) {
 		c.Header("Retry-After", "30")
@@ -837,7 +837,7 @@ func writeWorkOSMFAProviderError(c *gin.Context, logger *zap.Logger, err error, 
 
 func writeWorkOSMFAVerifyError(c *gin.Context, logger *zap.Logger, err error) {
 	if logger != nil {
-		logger.Warn("verify workos mfa challenge", zap.String("error", "workos mfa verification failed"))
+		logger.Warn("verify workos mfa challenge", telemetry.ZapError(err))
 	}
 	if errors.Is(err, sessionauth.ErrWorkOSUnavailable) {
 		c.Header("Retry-After", "30")
@@ -998,7 +998,7 @@ func readWorkOSEmailVerificationPendingState(c *gin.Context, opts authSessionRou
 
 func writeWorkOSEmailVerificationVerifyError(c *gin.Context, logger *zap.Logger, err error) {
 	if logger != nil {
-		logger.Warn("verify workos email verification code", zap.String("error", "workos email verification failed"))
+		logger.Warn("verify workos email verification code", telemetry.ZapError(err))
 	}
 	if errors.Is(err, sessionauth.ErrWorkOSUnavailable) {
 		c.Header("Retry-After", "30")
@@ -1036,24 +1036,7 @@ func workOSEmailVerificationClearCookie(publicBaseURL string) *http.Cookie {
 }
 
 func workOSEmailVerificationRedirectURL(returnTo string, publicBaseURL string, allowedOrigins []string) string {
-	sanitizedReturnTo := sanitizeAuthReturnTo(returnTo, allowedOrigins)
-	if sanitizedReturnTo == "" {
-		sanitizedReturnTo = "/app"
-	}
-	targetOrigin := ""
-	if parsed, err := url.Parse(sanitizedReturnTo); err == nil && parsed.IsAbs() {
-		targetOrigin = strings.ToLower(parsed.Scheme + "://" + parsed.Host)
-	}
-	if targetOrigin == "" {
-		targetOrigin = preferredAuthFrontendOrigin(publicBaseURL, allowedOrigins)
-	}
-	query := url.Values{}
-	query.Set("return_to", sanitizedReturnTo)
-	targetPath := "/auth/email-verification?" + query.Encode()
-	if targetOrigin == "" {
-		return targetPath
-	}
-	return strings.TrimRight(targetOrigin, "/") + targetPath
+	return workOSAuthContinuationRedirectURL("/auth/email-verification", returnTo, publicBaseURL, allowedOrigins)
 }
 
 func oauthTransactionCookie(publicBaseURL string, nonce string, value string, ttl time.Duration) *http.Cookie {
@@ -1092,6 +1075,16 @@ func sessionauthCookieSecure(publicBaseURL string) bool {
 }
 
 func workOSMFARedirectURL(returnTo string, publicBaseURL string, allowedOrigins []string) string {
+	return workOSAuthContinuationRedirectURL("/auth/mfa", returnTo, publicBaseURL, allowedOrigins)
+}
+
+// workOSAuthContinuationRedirectURL builds the absolute (or path-only, when no
+// frontend origin can be resolved) URL that hands the browser to a WorkOS
+// login-continuation page such as /auth/mfa or /auth/email-verification. It
+// sanitizes the return target, prefers its origin when it is an allowed
+// absolute URL, and otherwise falls back to the configured frontend origin so
+// both continuation flows share one place to fix redirect/sanitization logic.
+func workOSAuthContinuationRedirectURL(targetPagePath string, returnTo string, publicBaseURL string, allowedOrigins []string) string {
 	sanitizedReturnTo := sanitizeAuthReturnTo(returnTo, allowedOrigins)
 	if sanitizedReturnTo == "" {
 		sanitizedReturnTo = "/app"
@@ -1105,7 +1098,7 @@ func workOSMFARedirectURL(returnTo string, publicBaseURL string, allowedOrigins 
 	}
 	query := url.Values{}
 	query.Set("return_to", sanitizedReturnTo)
-	targetPath := "/auth/mfa?" + query.Encode()
+	targetPath := targetPagePath + "?" + query.Encode()
 	if targetOrigin == "" {
 		return targetPath
 	}
