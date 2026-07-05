@@ -7,11 +7,13 @@ import type {
 } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
+  Archive,
   BarChart3,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  CheckCircle2,
   ExternalLink,
   FolderKanban,
   HelpCircle,
@@ -21,8 +23,10 @@ import {
   Moon,
   Palette,
   Pencil,
+  RotateCcw,
   Search,
   Settings as SettingsIcon,
+  ShieldCheck,
   Sun
 } from 'lucide-react';
 import {
@@ -417,6 +421,32 @@ const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low
 const REPO_FINDING_TYPE_FILTERS = ['all', 'secret_exposure', 'repo_misconfiguration'] as const;
 const REPO_FINDING_SORT_FIELDS = ['severity', 'created_at', 'type', 'title'] as const;
 const REPO_FINDING_STATUS_FILTERS = ['all', 'open', 'ack', 'suppressed', 'resolved'] as const;
+const REPO_FINDING_WORKFLOW_ACTIONS: Array<{
+  status: FindingLifecycleStatus;
+  label: string;
+  description: string;
+}> = [
+  {
+    status: 'ack',
+    label: 'Acknowledge',
+    description: 'Keep the finding visible while showing an owner has accepted triage.'
+  },
+  {
+    status: 'suppressed',
+    label: 'Suppress',
+    description: 'Remove it from the active queue with a required audit reason and optional expiry.'
+  },
+  {
+    status: 'resolved',
+    label: 'Resolve',
+    description: 'Move it out of active review after validating the underlying risk is gone.'
+  },
+  {
+    status: 'open',
+    label: 'Reopen',
+    description: 'Return the finding to active review when the risk needs another look.'
+  }
+];
 const ENVIRONMENT_QUERY_PARAM = 'environment';
 const OVERVIEW_FINDING_LIMIT = 50;
 const OVERVIEW_RISK_DISPLAY_LIMIT = 8;
@@ -1195,6 +1225,20 @@ function normalizeRepoFindingLifecycleStatus(value: string | undefined): RepoFin
 
 function repoFindingStatusClass(status: FindingLifecycleStatus | RepoFindingLifecycleStatus): string {
   return `idt-repo-finding-status is-${status}`;
+}
+
+function repoFindingWorkflowActionIcon(status: FindingLifecycleStatus): ReactNode {
+  switch (status) {
+    case 'ack':
+      return <ShieldCheck size={16} strokeWidth={2} aria-hidden="true" />;
+    case 'suppressed':
+      return <Archive size={16} strokeWidth={2} aria-hidden="true" />;
+    case 'resolved':
+      return <CheckCircle2 size={16} strokeWidth={2} aria-hidden="true" />;
+    case 'open':
+    default:
+      return <RotateCcw size={16} strokeWidth={2} aria-hidden="true" />;
+  }
 }
 
 function buildProductAuthContext(scope: ProductSession): RequestAuthContext {
@@ -27004,7 +27048,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     const currentStatus = normalizeFindingStatus(selectedFinding.triage?.status);
     const currentAssignee = normalizeValue(selectedFinding.triage?.assignee ?? '');
     const trackingSuppression = nextStatus === 'suppressed';
-    const enteringSuppression = currentStatus !== 'suppressed' && trackingSuppression;
+    const updatingSuppression = trackingSuppression;
     const currentSuppression = normalizeValue(toLocalDateTimeInputValue(selectedFinding.triage?.suppression_expires_at ?? ''));
     const nextSuppression = normalizeValue(workflowSuppressionExpiresAt);
     const hasChanges =
@@ -27030,7 +27074,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         comment?: string;
       } = {};
       const trimmedComment = normalizeValue(workflowComment);
-      if (enteringSuppression && !trimmedComment) {
+      if (updatingSuppression && !trimmedComment) {
         setWorkflowError('Suppression requires a reason.');
         setWorkflowLoading(false);
         return;
@@ -27068,6 +27112,22 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     } finally {
       setWorkflowLoading(false);
       setTimeout(() => setWorkflowSuccess(''), 2200);
+    }
+  };
+
+  const primeWorkflowAction = (nextStatus: FindingLifecycleStatus) => {
+    if (workflowLoading || !hasTriageAccess) {
+      return;
+    }
+    setWorkflowStatus(nextStatus);
+    setWorkflowError('');
+    setWorkflowSuccess('');
+    if (nextStatus !== 'suppressed') {
+      setWorkflowSuppressionExpiresAt('');
+      return;
+    }
+    if (!workflowSuppressionExpiresAt && selectedFinding?.triage?.suppression_expires_at) {
+      setWorkflowSuppressionExpiresAt(toLocalDateTimeInputValue(selectedFinding.triage.suppression_expires_at));
     }
   };
 
@@ -28077,24 +28137,43 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
               </section>
 
               <section className="idt-repo-finding-detail-section idt-repo-finding-triage-form">
-                <h4>Workflow controls</h4>
+                <div className="idt-repo-finding-action-head">
+                  <div>
+                    <h4>Finding actions</h4>
+                    <p>
+                      Remove findings from the active queue through lifecycle states while preserving evidence,
+                      history, and audit context.
+                    </p>
+                  </div>
+                  <span className={repoFindingStatusClass(normalizeFindingStatus(selectedFinding.triage?.status))}>
+                    {formatTokenLabel(normalizeFindingStatus(selectedFinding.triage?.status))}
+                  </span>
+                </div>
                 {workflowError ? <div className="idt-app-alert idt-app-alert-error">{workflowError}</div> : null}
                 {workflowSuccess ? <div className="idt-app-alert idt-app-alert-success">{workflowSuccess}</div> : null}
+                <div className="idt-repo-finding-action-grid" role="group" aria-label="Finding lifecycle actions">
+                  {REPO_FINDING_WORKFLOW_ACTIONS.map((action) => (
+                    <button
+                      key={action.status}
+                      type="button"
+                      className={`idt-repo-finding-action-card${workflowStatus === action.status ? ' is-selected' : ''}`}
+                      onClick={() => primeWorkflowAction(action.status)}
+                      disabled={workflowLoading || !hasTriageAccess}
+                      aria-pressed={workflowStatus === action.status}
+                    >
+                      <span className="idt-repo-finding-action-icon">{repoFindingWorkflowActionIcon(action.status)}</span>
+                      <span className="idt-repo-finding-action-copy">
+                        <strong>{action.label}</strong>
+                        <span>{action.description}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
                 <label>
                   Status
                   <select
                     value={workflowStatus}
-                    onChange={(event) => {
-                      const nextStatus = event.target.value as FindingLifecycleStatus;
-                      setWorkflowStatus(nextStatus);
-                      if (nextStatus !== 'suppressed') {
-                        setWorkflowSuppressionExpiresAt('');
-                      } else if (!workflowSuppressionExpiresAt && selectedFinding?.triage?.suppression_expires_at) {
-                        setWorkflowSuppressionExpiresAt(
-                          toLocalDateTimeInputValue(selectedFinding.triage.suppression_expires_at)
-                        );
-                      }
-                    }}
+                    onChange={(event) => primeWorkflowAction(event.target.value as FindingLifecycleStatus)}
                     disabled={workflowLoading || !hasTriageAccess}
                   >
                     {REPO_FINDING_STATUS_FILTERS.filter((status) => status !== 'all').map((status) => (
@@ -28115,7 +28194,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                     placeholder="YYYY-MM-DDThh:mm"
                   />
                   <span className="idt-app-field-hint">
-                    Required when setting status to <strong>suppressed</strong>, ignored otherwise.
+                    Optional expiry for temporary suppressions. A suppression reason is required in the comment.
                   </span>
                 </label>
                 <label>
@@ -28135,7 +28214,11 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                     value={workflowComment}
                     onChange={(event) => setWorkflowComment(event.target.value)}
                     disabled={workflowLoading || !hasTriageAccess}
-                    placeholder="Optional workflow comment"
+                    placeholder={
+                      workflowStatus === 'suppressed'
+                        ? 'Required: why this finding can leave the active queue'
+                        : 'Optional workflow comment'
+                    }
                     maxLength={500}
                   />
                 </label>
@@ -28145,7 +28228,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                   onClick={handleApplyWorkflow}
                   disabled={workflowLoading || !hasTriageAccess}
                 >
-                  {workflowLoading ? 'Saving...' : 'Apply workflow'}
+                  {workflowLoading ? 'Saving...' : 'Apply action'}
                 </button>
               </section>
             </div>

@@ -2343,7 +2343,7 @@ describe('App', () => {
     expect(screen.queryByText(/Failed to load AI \/ Agentic Risk/i)).not.toBeInTheDocument();
   });
 
-  it('allows suppressed repository finding assignee edits without a new suppression reason', async () => {
+  it('requires a suppression reason before updating suppressed repository findings', async () => {
     const suppressionExpiresAt = '2027-01-01T00:00:00Z';
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
@@ -2428,11 +2428,22 @@ describe('App', () => {
     const findingDialog = await screen.findByRole('dialog', {
       name: /Potential AWS access key exposed in commit history/i
     });
-    const workflowControls = within(findingDialog).getByText(/Workflow controls/i).closest('.idt-repo-finding-triage-form');
+    const workflowControls = within(findingDialog).getByText(/Finding actions/i).closest('.idt-repo-finding-triage-form');
     expect(workflowControls).toBeInTheDocument();
 
     fireEvent.change(within(workflowControls as HTMLElement).getByLabelText(/Assignee/i), { target: { value: 'platform' } });
-    fireEvent.click(within(workflowControls as HTMLElement).getByRole('button', { name: /Apply workflow/i }));
+    fireEvent.click(within(workflowControls as HTMLElement).getByRole('button', { name: /Apply action/i }));
+
+    expect(await within(workflowControls as HTMLElement).findByText(/Suppression requires a reason/i)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/v1/findings/repo-f1/triage'))).toBe(false);
+
+    fireEvent.change(
+      within(workflowControls as HTMLElement).getByPlaceholderText(/Required: why this finding can leave the active queue/i),
+      {
+        target: { value: 'Extending the suppression while the owner validates the fixture.' }
+      }
+    );
+    fireEvent.click(within(workflowControls as HTMLElement).getByRole('button', { name: /Apply action/i }));
 
     await waitFor(() => {
       expect(
@@ -2443,9 +2454,8 @@ describe('App', () => {
     const triageCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/v1/findings/repo-f1/triage'));
     const payload = JSON.parse(String((triageCall?.[1] as RequestInit | undefined)?.body));
     expect(payload.assignee).toBe('platform');
-    expect(payload.comment).toBeUndefined();
+    expect(payload.comment).toBe('Extending the suppression while the owner validates the fixture.');
     expect(payload.status).toBeUndefined();
-    expect(screen.queryByText(/Suppression requires a reason/i)).not.toBeInTheDocument();
   });
 
   it('renders real workspace settings from account, member, and auth config APIs', async () => {
