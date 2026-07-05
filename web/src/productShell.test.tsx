@@ -8043,6 +8043,28 @@ describe('GitHub domain pages (#1382)', () => {
     );
   });
 
+  it('Control Center distinguishes partial repository source collection', async () => {
+    const partialScan: RepoScanRecord = {
+      ...succeededRepoScan,
+      id: 'repo-scan-partial',
+      finding_count: 0,
+      source_health: 'partial',
+      source_health_details: [
+        {
+          source: 'github_secret_scanning',
+          status: 'permission_limited',
+          code: 'alert_list_error',
+          message: 'resource not accessible by integration'
+        }
+      ]
+    };
+
+    await renderGitHubPage('control-center', { scans: [partialScan] });
+
+    expect(await screen.findByText(/Partial source collection/i)).toBeInTheDocument();
+    expect(screen.getByText(/0 findings/i)).toBeInTheDocument();
+  });
+
   it('Control Center clears cached dashboard data when the auth session resets', async () => {
     const firstRender = await renderGitHubPage('control-center', { scans: [succeededRepoScan] });
 

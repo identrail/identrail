@@ -2142,6 +2142,8 @@ func (m *MemoryStore) RequeueRepoScan(ctx context.Context, repoScanID string) er
 	record.StartedAt = time.Now().UTC()
 	record.FinishedAt = nil
 	record.ErrorMessage = ""
+	record.SourceHealth = RepoScanSourceHealthUnknown
+	record.SourceHealthDetails = nil
 	m.repoScans[repoScanID] = record
 	return nil
 }
@@ -2174,6 +2176,13 @@ func (m *MemoryStore) FailStaleRepoScansAnyScope(_ context.Context, staleBefore 
 		record.Status = "failed"
 		record.FinishedAt = &finishedAt
 		record.ErrorMessage = strings.TrimSpace(errorMessage)
+		record.SourceHealth = RepoScanSourceHealthUnavailable
+		record.SourceHealthDetails = []RepoScanSourceHealth{{
+			Source:  "identrail_repo_scanner",
+			Status:  RepoScanSourceHealthUnavailable,
+			Code:    "stale_running_scan",
+			Message: firstNonEmptyRepoScanSourceHealth(strings.TrimSpace(errorMessage), "repository scan exceeded its processing window"),
+		}}
 		m.repoScans[record.ID] = record
 	}
 	return len(candidates), nil
@@ -2195,6 +2204,7 @@ func (m *MemoryStore) createRepoScanLocked(scope Scope, repository string, sourc
 		CursorBefore: normalizedContext.CursorBefore,
 		CursorAfter:  normalizedContext.CursorAfter,
 		ChangedPaths: append([]string(nil), normalizedContext.ChangedPaths...),
+		SourceHealth: RepoScanSourceHealthUnknown,
 		HistoryLimit: historyLimit,
 		MaxFindings:  maxFindings,
 		Source:       source.Normalize(),
@@ -2240,6 +2250,13 @@ func (m *MemoryStore) CancelRepoScan(ctx context.Context, repoScanID string, fin
 	record.Status = "failed"
 	record.FinishedAt = &finished
 	record.ErrorMessage = strings.TrimSpace(errorMessage)
+	record.SourceHealth = RepoScanSourceHealthUnavailable
+	record.SourceHealthDetails = []RepoScanSourceHealth{{
+		Source:  "identrail_repo_scanner",
+		Status:  RepoScanSourceHealthUnavailable,
+		Code:    "scan_canceled",
+		Message: strings.TrimSpace(errorMessage),
+	}}
 	m.repoScans[repoScanID] = record
 	return record, nil
 }
@@ -2268,6 +2285,7 @@ func (m *MemoryStore) CompleteRepoScan(ctx context.Context, repoScanID string, s
 	record.FilesScanned = filesScanned
 	record.FindingCount = findingCount
 	record.Truncated = truncated
+	record.SourceHealth, record.SourceHealthDetails = repoScanCompletionSourceHealth(record.Status, normalizedContext)
 	record.CursorAfter = normalizedContext.CursorAfter
 	if normalizedContext.BaseRevision != "" {
 		record.BaseRevision = normalizedContext.BaseRevision

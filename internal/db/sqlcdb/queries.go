@@ -65,6 +65,8 @@ type RepoScanRow struct {
 	FilesScanned   int
 	FindingCount   int
 	Truncated      bool
+	SourceHealth   string
+	SourceDetails  []byte
 	ErrorMessage   string
 }
 
@@ -194,7 +196,7 @@ func (q *Queries) GetRepoScan(ctx context.Context, repoScanID string) (RepoScanR
 	var row RepoScanRow
 	err := q.db.QueryRowContext(
 		ctx,
-		`SELECT id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(error_message, '')
+		`SELECT id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(source_health, 'unknown'), COALESCE(source_health_details, '[]'::jsonb), COALESCE(error_message, '')
 		 FROM repo_scans
 		 WHERE id = $1`,
 		repoScanID,
@@ -208,6 +210,8 @@ func (q *Queries) GetRepoScan(ctx context.Context, repoScanID string) (RepoScanR
 		&row.FilesScanned,
 		&row.FindingCount,
 		&row.Truncated,
+		&row.SourceHealth,
+		&row.SourceDetails,
 		&row.ErrorMessage,
 	)
 	if err != nil {
@@ -219,7 +223,7 @@ func (q *Queries) GetRepoScan(ctx context.Context, repoScanID string) (RepoScanR
 func (q *Queries) ListRepoScans(ctx context.Context, limit int) ([]RepoScanRow, error) {
 	rows, err := q.db.QueryContext(
 		ctx,
-		`SELECT id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(error_message, '')
+		`SELECT id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(source_health, 'unknown'), COALESCE(source_health_details, '[]'::jsonb), COALESCE(error_message, '')
 		 FROM repo_scans
 		 ORDER BY started_at DESC
 		 LIMIT $1`,
@@ -243,6 +247,8 @@ func (q *Queries) ListRepoScans(ctx context.Context, limit int) ([]RepoScanRow, 
 			&row.FilesScanned,
 			&row.FindingCount,
 			&row.Truncated,
+			&row.SourceHealth,
+			&row.SourceDetails,
 			&row.ErrorMessage,
 		); err != nil {
 			return nil, err

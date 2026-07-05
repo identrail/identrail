@@ -65,6 +65,22 @@ export type RepoFindingsSummary = {
   by_severity: Record<string, number>;
 };
 
+export type RepoScanSourceHealthStatus =
+  | 'complete'
+  | 'partial'
+  | 'permission_limited'
+  | 'rate_limited'
+  | 'unavailable'
+  | 'unknown';
+
+export type RepoScanSourceHealth = {
+  source: string;
+  status: RepoScanSourceHealthStatus;
+  code?: string;
+  message?: string;
+  retryable?: boolean;
+};
+
 export type RepoScanRecord = {
   id: string;
   repository: string;
@@ -75,6 +91,8 @@ export type RepoScanRecord = {
   files_scanned: number;
   finding_count: number;
   truncated: boolean;
+  source_health?: RepoScanSourceHealthStatus;
+  source_health_details?: RepoScanSourceHealth[];
   scan_mode?: 'quick' | 'delta' | 'deep';
   base_revision?: string;
   head_revision?: string;

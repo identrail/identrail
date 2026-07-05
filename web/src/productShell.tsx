@@ -1456,6 +1456,40 @@ function repoScanStatusTone(status: string): 'success' | 'warning' | 'error' | '
   return 'neutral';
 }
 
+function repoScanSourceHealth(scan: RepoScanRecord): string {
+  return normalizeValue(scan.source_health || 'complete').toLowerCase();
+}
+
+function repoScanHasDegradedSourceHealth(scan: RepoScanRecord): boolean {
+  const health = repoScanSourceHealth(scan);
+  return health !== '' && health !== 'complete';
+}
+
+function repoScanTone(scan: RepoScanRecord): 'success' | 'warning' | 'error' | 'neutral' {
+  const tone = repoScanStatusTone(scan.status);
+  if (tone === 'success' && repoScanHasDegradedSourceHealth(scan)) {
+    return 'warning';
+  }
+  return tone;
+}
+
+function summarizeRepoScanSourceHealth(scan: RepoScanRecord): string {
+  switch (repoScanSourceHealth(scan)) {
+    case 'partial':
+      return 'Partial source collection';
+    case 'permission_limited':
+      return 'Permission-limited source collection';
+    case 'rate_limited':
+      return 'Rate-limited source collection';
+    case 'unavailable':
+      return 'Unavailable source collection';
+    case 'unknown':
+      return 'Unknown source collection';
+    default:
+      return '';
+  }
+}
+
 function githubPostureStateTone(state: GitHubRepositoryPostureCheck['state']): 'success' | 'warning' | 'error' | 'neutral' {
   if (state === 'secure') {
     return 'success';
@@ -19941,7 +19975,7 @@ function gitHubRecentScans(scans: RepoScanRecord[], selectedRepositories: string
 function gitHubRecentScansTimeline(scans: RepoScanRecord[]): DomainTimelineEntry[] {
   return scans.map((scan) => {
     const repo = canonicalGitHubRepositoryDisplay(scan.repository) || scan.repository;
-    const tone = repoScanStatusTone(scan.status);
+    const tone = repoScanTone(scan);
     const statusLabel = formatTokenLabel(scan.status);
     const detail = isCompletedScanStatus(scan.status)
       ? scan.error_message
@@ -23808,6 +23842,10 @@ function summarizeSuccessfulRepoScan(scan: RepoScanRecord): string {
   const parts = [formatCountLabel(scan.finding_count ?? 0, 'finding')];
   if (Number.isFinite(scan.files_scanned)) {
     parts.push(formatCountLabel(scan.files_scanned, 'file'));
+  }
+  const sourceHealth = summarizeRepoScanSourceHealth(scan);
+  if (sourceHealth) {
+    parts.unshift(sourceHealth);
   }
   return parts.join(' · ');
 }

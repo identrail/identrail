@@ -2823,6 +2823,7 @@ func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, rep
 		CursorBefore: normalizedContext.CursorBefore,
 		CursorAfter:  normalizedContext.CursorAfter,
 		ChangedPaths: append([]string(nil), normalizedContext.ChangedPaths...),
+		SourceHealth: RepoScanSourceHealthUnknown,
 		HistoryLimit: historyLimit,
 		MaxFindings:  maxFindings,
 		Source:       normalizedSource,
@@ -2830,14 +2831,15 @@ func (p *PostgresStore) CreateQueuedRepoScanWithinLimit(ctx context.Context, rep
 	record.TraceParent, record.TraceState = QueueTraceContextFromContext(ctx)
 	if _, err := tx.ExecContext(
 		ctx,
-		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id, trace_parent, trace_state)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15, $16, $17, $18, NULLIF($19, ''), NULLIF($20, ''))`,
+		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, source_health, source_health_details, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id, trace_parent, trace_state)
+			 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, '[]'::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, $19, NULLIF($20, ''), NULLIF($21, ''))`,
 		record.ID,
 		record.TenantID,
 		record.WorkspaceID,
 		record.Repository,
 		record.Status,
 		record.StartedAt,
+		record.SourceHealth,
 		record.ScanMode,
 		record.BaseRevision,
 		record.HeadRevision,
@@ -2885,10 +2887,12 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 			LIMIT 1
 		)
 		UPDATE repo_scans AS r
-		SET status = 'running',
-		    started_at = NOW(),
-		    finished_at = NULL,
-		    error_message = NULL
+			SET status = 'running',
+			    started_at = NOW(),
+			    finished_at = NULL,
+			    error_message = NULL,
+			    source_health = 'unknown',
+			    source_health_details = '[]'::jsonb
 		FROM next_repo_scan
 		WHERE r.id = next_repo_scan.id
 		RETURNING
@@ -2901,9 +2905,11 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 			r.finished_at,
 			r.commits_scanned,
 			r.files_scanned,
-			r.finding_count,
-			r.truncated,
-			COALESCE(r.scan_mode, 'deep'),
+				r.finding_count,
+				r.truncated,
+				COALESCE(r.source_health, 'unknown'),
+				COALESCE(r.source_health_details, '[]'::jsonb),
+				COALESCE(r.scan_mode, 'deep'),
 			COALESCE(r.base_revision, ''),
 			COALESCE(r.head_revision, ''),
 			COALESCE(r.cursor_before, ''),
@@ -2931,10 +2937,12 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 			LIMIT 1
 		)
 		UPDATE repo_scans AS r
-		SET status = 'running',
-		    started_at = NOW(),
-		    finished_at = NULL,
-		    error_message = NULL
+			SET status = 'running',
+			    started_at = NOW(),
+			    finished_at = NULL,
+			    error_message = NULL,
+			    source_health = 'unknown',
+			    source_health_details = '[]'::jsonb
 		FROM next_repo_scan
 		WHERE r.id = next_repo_scan.id
 		RETURNING
@@ -2947,9 +2955,11 @@ func (p *PostgresStore) claimNextQueuedRepoScan(ctx context.Context, scope *Scop
 			r.finished_at,
 			r.commits_scanned,
 			r.files_scanned,
-			r.finding_count,
-			r.truncated,
-			COALESCE(r.scan_mode, 'deep'),
+				r.finding_count,
+				r.truncated,
+				COALESCE(r.source_health, 'unknown'),
+				COALESCE(r.source_health_details, '[]'::jsonb),
+				COALESCE(r.scan_mode, 'deep'),
 			COALESCE(r.base_revision, ''),
 			COALESCE(r.head_revision, ''),
 			COALESCE(r.cursor_before, ''),
@@ -3054,7 +3064,9 @@ func (p *PostgresStore) RequeueRepoScan(ctx context.Context, repoScanID string) 
 		 SET status = 'queued',
 		     started_at = NOW(),
 		     finished_at = NULL,
-		     error_message = NULL
+		     error_message = NULL,
+		     source_health = 'unknown',
+		     source_health_details = '[]'::jsonb
 		 WHERE id = $1
 		   AND tenant_id = $2
 		   AND workspace_id = $3
@@ -3095,7 +3107,14 @@ func (p *PostgresStore) FailStaleRepoScansAnyScope(ctx context.Context, staleBef
 		UPDATE repo_scans AS r
 		SET status = 'failed',
 		    finished_at = NOW(),
-		    error_message = NULLIF($3, '')
+		    error_message = NULLIF($3, ''),
+		    source_health = 'unavailable',
+		    source_health_details = jsonb_build_array(jsonb_build_object(
+		        'source', 'identrail_repo_scanner',
+		        'status', 'unavailable',
+		        'code', 'stale_running_scan',
+		        'message', COALESCE(NULLIF($3, ''), 'repository scan exceeded its processing window')
+		    ))
 		FROM stale_repo_scans
 		WHERE r.id = stale_repo_scans.id`,
 		staleBefore.UTC(),
@@ -3136,20 +3155,22 @@ func (p *PostgresStore) createRepoScanWithStatus(ctx context.Context, repository
 		CursorBefore: normalizedContext.CursorBefore,
 		CursorAfter:  normalizedContext.CursorAfter,
 		ChangedPaths: append([]string(nil), normalizedContext.ChangedPaths...),
+		SourceHealth: RepoScanSourceHealthUnknown,
 		HistoryLimit: historyLimit,
 		MaxFindings:  maxFindings,
 		Source:       normalizedSource,
 	}
 	_, err = p.execContext(
 		ctx,
-		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15, $16, $17, $18)`,
+		`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, source_health, source_health_details, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id)
+			 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, '[]'::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, $19)`,
 		record.ID,
 		record.TenantID,
 		record.WorkspaceID,
 		record.Repository,
 		record.Status,
 		record.StartedAt,
+		record.SourceHealth,
 		record.ScanMode,
 		record.BaseRevision,
 		record.HeadRevision,
@@ -3177,8 +3198,8 @@ func (p *PostgresStore) GetRepoScan(ctx context.Context, repoScanID string) (Rep
 	}
 	row := p.queryRowContext(
 		ctx,
-		`SELECT id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(scan_mode, 'deep'), COALESCE(base_revision, ''), COALESCE(head_revision, ''), COALESCE(cursor_before, ''), COALESCE(cursor_after, ''), COALESCE(changed_paths, '[]'::jsonb), COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)
-		 FROM repo_scans
+		`SELECT id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(source_health, 'unknown'), COALESCE(source_health_details, '[]'::jsonb), COALESCE(scan_mode, 'deep'), COALESCE(base_revision, ''), COALESCE(head_revision, ''), COALESCE(cursor_before, ''), COALESCE(cursor_after, ''), COALESCE(changed_paths, '[]'::jsonb), COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)
+			 FROM repo_scans
 		 WHERE id = $1
 		   AND tenant_id = $2
 		   AND workspace_id = $3`,
@@ -3207,12 +3228,19 @@ func (p *PostgresStore) CancelRepoScan(ctx context.Context, repoScanID string, f
 		`UPDATE repo_scans
 		 SET status = 'failed',
 		     finished_at = $2,
-		     error_message = NULLIF($3, '')
+		     error_message = NULLIF($3, ''),
+		     source_health = 'unavailable',
+		     source_health_details = jsonb_build_array(jsonb_build_object(
+		         'source', 'identrail_repo_scanner',
+		         'status', 'unavailable',
+		         'code', 'scan_canceled',
+		         'message', COALESCE(NULLIF($3, ''), 'repository scan canceled')
+		     ))
 		 WHERE id = $1
 		   AND tenant_id = $4
 		   AND workspace_id = $5
 		   AND status IN ('queued', 'running')
-		 RETURNING id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(scan_mode, 'deep'), COALESCE(base_revision, ''), COALESCE(head_revision, ''), COALESCE(cursor_before, ''), COALESCE(cursor_after, ''), COALESCE(changed_paths, '[]'::jsonb), COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)`,
+		 RETURNING id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(source_health, 'unknown'), COALESCE(source_health_details, '[]'::jsonb), COALESCE(scan_mode, 'deep'), COALESCE(base_revision, ''), COALESCE(head_revision, ''), COALESCE(cursor_before, ''), COALESCE(cursor_after, ''), COALESCE(changed_paths, '[]'::jsonb), COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)`,
 		repoScanID,
 		finishedAt.UTC(),
 		strings.TrimSpace(errorMessage),
@@ -3242,6 +3270,14 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 		return err
 	}
 	normalizedContext := NormalizeRepoScanContext(scanContext)
+	sourceHealth, sourceHealthDetails := repoScanCompletionSourceHealth(status, normalizedContext)
+	if len(sourceHealthDetails) == 0 {
+		sourceHealthDetails = []RepoScanSourceHealth{}
+	}
+	sourceHealthDetailsJSON, err := json.Marshal(sourceHealthDetails)
+	if err != nil {
+		return fmt.Errorf("marshal repo scan source health details: %w", err)
+	}
 	changedPaths := normalizedContext.ChangedPaths
 	if len(changedPaths) == 0 {
 		changedPaths = []string{}
@@ -3269,10 +3305,12 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 		     base_revision = COALESCE(NULLIF($9, ''), base_revision),
 		     head_revision = COALESCE(NULLIF($10, ''), head_revision),
 		     changed_paths = CASE WHEN $11::jsonb <> '[]'::jsonb THEN $11::jsonb ELSE changed_paths END,
-		     error_message = $12
+		     source_health = $12,
+		     source_health_details = $13::jsonb,
+		     error_message = $14
 		 WHERE id = $1
-		   AND tenant_id = $13
-		   AND workspace_id = $14
+		   AND tenant_id = $15
+		   AND workspace_id = $16
 		   AND status IN ('queued', 'running')`,
 		repoScanID,
 		strings.TrimSpace(status),
@@ -3285,6 +3323,8 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 		normalizedContext.BaseRevision,
 		normalizedContext.HeadRevision,
 		string(changedPathsJSON),
+		sourceHealth,
+		string(sourceHealthDetailsJSON),
 		nullableString(errorMessage),
 		scope.TenantID,
 		scope.WorkspaceID,
@@ -3714,8 +3754,8 @@ func (p *PostgresStore) ListRepoScans(ctx context.Context, limit int) ([]RepoSca
 	}
 	rows, err := p.queryContext(
 		ctx,
-		`SELECT id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(scan_mode, 'deep'), COALESCE(base_revision, ''), COALESCE(head_revision, ''), COALESCE(cursor_before, ''), COALESCE(cursor_after, ''), COALESCE(changed_paths, '[]'::jsonb), COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)
-		 FROM repo_scans
+		`SELECT id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(source_health, 'unknown'), COALESCE(source_health_details, '[]'::jsonb), COALESCE(scan_mode, 'deep'), COALESCE(base_revision, ''), COALESCE(head_revision, ''), COALESCE(cursor_before, ''), COALESCE(cursor_after, ''), COALESCE(changed_paths, '[]'::jsonb), COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)
+			 FROM repo_scans
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
 		 ORDER BY started_at DESC
@@ -4744,6 +4784,7 @@ type scanner interface {
 func scanRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 	var record RepoScanRecord
 	var finishedAt sql.NullTime
+	var sourceHealthDetails []byte
 	var changedPaths []byte
 	if err := scanner.Scan(
 		&record.ID,
@@ -4757,6 +4798,8 @@ func scanRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 		&record.FilesScanned,
 		&record.FindingCount,
 		&record.Truncated,
+		&record.SourceHealth,
+		&sourceHealthDetails,
 		&record.ScanMode,
 		&record.BaseRevision,
 		&record.HeadRevision,
@@ -4776,6 +4819,7 @@ func scanRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 	record.StartedAt = record.StartedAt.UTC()
 	record.ScanMode = NormalizeRepoScanContext(RepoScanContext{ScanMode: record.ScanMode}).ScanMode
 	record.ChangedPaths = decodeRepoScanChangedPaths(changedPaths)
+	record.SourceHealth, record.SourceHealthDetails = NormalizeRepoScanSourceHealth(record.SourceHealth, decodeRepoScanSourceHealthDetails(sourceHealthDetails))
 	record.Source = record.Source.Normalize()
 	if finishedAt.Valid {
 		converted := finishedAt.Time.UTC()
@@ -4787,6 +4831,7 @@ func scanRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 func scanQueuedRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 	var record RepoScanRecord
 	var finishedAt sql.NullTime
+	var sourceHealthDetails []byte
 	var changedPaths []byte
 	if err := scanner.Scan(
 		&record.ID,
@@ -4800,6 +4845,8 @@ func scanQueuedRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 		&record.FilesScanned,
 		&record.FindingCount,
 		&record.Truncated,
+		&record.SourceHealth,
+		&sourceHealthDetails,
 		&record.ScanMode,
 		&record.BaseRevision,
 		&record.HeadRevision,
@@ -4821,6 +4868,7 @@ func scanQueuedRepoScanRecord(scanner scanner) (RepoScanRecord, error) {
 	record.StartedAt = record.StartedAt.UTC()
 	record.ScanMode = NormalizeRepoScanContext(RepoScanContext{ScanMode: record.ScanMode}).ScanMode
 	record.ChangedPaths = decodeRepoScanChangedPaths(changedPaths)
+	record.SourceHealth, record.SourceHealthDetails = NormalizeRepoScanSourceHealth(record.SourceHealth, decodeRepoScanSourceHealthDetails(sourceHealthDetails))
 	record.Source = record.Source.Normalize()
 	record.TraceParent = strings.TrimSpace(record.TraceParent)
 	record.TraceState = strings.TrimSpace(record.TraceState)
@@ -4871,6 +4919,17 @@ func decodeRepoScanChangedPaths(raw []byte) []string {
 		return nil
 	}
 	return normalizeRepoScanChangedPaths(paths)
+}
+
+func decodeRepoScanSourceHealthDetails(raw []byte) []RepoScanSourceHealth {
+	if len(raw) == 0 {
+		return nil
+	}
+	var details []RepoScanSourceHealth
+	if err := json.Unmarshal(raw, &details); err != nil {
+		return nil
+	}
+	return details
 }
 
 func repoScanChangedPathsForJSON(paths []string) []string {

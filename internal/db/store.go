@@ -335,29 +335,49 @@ func (s ScanSource) Empty() bool {
 
 // RepoScanRecord tracks persisted repository exposure scan metadata.
 type RepoScanRecord struct {
-	ID             string         `json:"id"`
-	TenantID       string         `json:"-"`
-	WorkspaceID    string         `json:"-"`
-	Repository     string         `json:"repository"`
-	Status         string         `json:"status"`
-	StartedAt      time.Time      `json:"started_at"`
-	FinishedAt     *time.Time     `json:"finished_at,omitempty"`
-	CommitsScanned int            `json:"commits_scanned"`
-	FilesScanned   int            `json:"files_scanned"`
-	FindingCount   int            `json:"finding_count"`
-	Truncated      bool           `json:"truncated"`
-	ScanMode       string         `json:"scan_mode"`
-	BaseRevision   string         `json:"base_revision,omitempty"`
-	HeadRevision   string         `json:"head_revision,omitempty"`
-	CursorBefore   string         `json:"cursor_before,omitempty"`
-	CursorAfter    string         `json:"cursor_after,omitempty"`
-	ChangedPaths   []string       `json:"changed_paths,omitempty"`
-	ErrorMessage   string         `json:"error_message,omitempty"`
-	HistoryLimit   int            `json:"-"`
-	MaxFindings    int            `json:"-"`
-	Source         RepoScanSource `json:"-"`
-	TraceParent    string         `json:"-"`
-	TraceState     string         `json:"-"`
+	ID                  string                 `json:"id"`
+	TenantID            string                 `json:"-"`
+	WorkspaceID         string                 `json:"-"`
+	Repository          string                 `json:"repository"`
+	Status              string                 `json:"status"`
+	StartedAt           time.Time              `json:"started_at"`
+	FinishedAt          *time.Time             `json:"finished_at,omitempty"`
+	CommitsScanned      int                    `json:"commits_scanned"`
+	FilesScanned        int                    `json:"files_scanned"`
+	FindingCount        int                    `json:"finding_count"`
+	Truncated           bool                   `json:"truncated"`
+	SourceHealth        string                 `json:"source_health"`
+	SourceHealthDetails []RepoScanSourceHealth `json:"source_health_details,omitempty"`
+	ScanMode            string                 `json:"scan_mode"`
+	BaseRevision        string                 `json:"base_revision,omitempty"`
+	HeadRevision        string                 `json:"head_revision,omitempty"`
+	CursorBefore        string                 `json:"cursor_before,omitempty"`
+	CursorAfter         string                 `json:"cursor_after,omitempty"`
+	ChangedPaths        []string               `json:"changed_paths,omitempty"`
+	ErrorMessage        string                 `json:"error_message,omitempty"`
+	HistoryLimit        int                    `json:"-"`
+	MaxFindings         int                    `json:"-"`
+	Source              RepoScanSource         `json:"-"`
+	TraceParent         string                 `json:"-"`
+	TraceState          string                 `json:"-"`
+}
+
+const (
+	RepoScanSourceHealthComplete          = "complete"
+	RepoScanSourceHealthPartial           = "partial"
+	RepoScanSourceHealthPermissionLimited = "permission_limited"
+	RepoScanSourceHealthRateLimited       = "rate_limited"
+	RepoScanSourceHealthUnavailable       = "unavailable"
+	RepoScanSourceHealthUnknown           = "unknown"
+)
+
+// RepoScanSourceHealth captures collection completeness for one repo scan source.
+type RepoScanSourceHealth struct {
+	Source    string `json:"source"`
+	Status    string `json:"status"`
+	Code      string `json:"code,omitempty"`
+	Message   string `json:"message,omitempty"`
+	Retryable bool   `json:"retryable,omitempty"`
 }
 
 // RepoScanContext captures incremental execution metadata for one scan.
@@ -369,6 +389,8 @@ type RepoScanContext struct {
 	CursorAfter      string
 	ChangedPaths     []string
 	PartialSourceRun bool
+	SourceHealth     string
+	SourceDetails    []RepoScanSourceHealth
 }
 
 // NormalizeRepoScanContext returns stable scan-mode and revision metadata.
@@ -386,7 +408,130 @@ func NormalizeRepoScanContext(scanContext RepoScanContext) RepoScanContext {
 		ChangedPaths:     normalizeRepoScanChangedPaths(scanContext.ChangedPaths),
 		PartialSourceRun: scanContext.PartialSourceRun,
 	}
+	normalized.SourceHealth, normalized.SourceDetails = NormalizeRepoScanSourceHealth(scanContext.SourceHealth, scanContext.SourceDetails)
 	return normalized
+}
+
+func NormalizeRepoScanSourceHealth(status string, details []RepoScanSourceHealth) (string, []RepoScanSourceHealth) {
+	normalizedDetails := normalizeRepoScanSourceHealthDetails(details)
+	normalizedStatus := normalizeRepoScanSourceHealthStatus(status)
+	if normalizedStatus != "" {
+		return normalizedStatus, normalizedDetails
+	}
+	return deriveRepoScanSourceHealth(normalizedDetails), normalizedDetails
+}
+
+func normalizeRepoScanSourceHealthDetails(details []RepoScanSourceHealth) []RepoScanSourceHealth {
+	if len(details) == 0 {
+		return nil
+	}
+	normalized := make([]RepoScanSourceHealth, 0, len(details))
+	seen := map[string]int{}
+	for _, detail := range details {
+		item := RepoScanSourceHealth{
+			Source:    strings.ToLower(strings.TrimSpace(detail.Source)),
+			Status:    normalizeRepoScanSourceHealthStatus(detail.Status),
+			Code:      strings.ToLower(strings.TrimSpace(detail.Code)),
+			Message:   strings.TrimSpace(detail.Message),
+			Retryable: detail.Retryable,
+		}
+		if item.Source == "" {
+			item.Source = "unknown"
+		}
+		if item.Status == "" {
+			item.Status = RepoScanSourceHealthUnknown
+		}
+		if existing, ok := seen[item.Source]; ok {
+			normalized[existing] = mergeRepoScanSourceHealth(normalized[existing], item)
+			continue
+		}
+		seen[item.Source] = len(normalized)
+		normalized = append(normalized, item)
+	}
+	return normalized
+}
+
+func mergeRepoScanSourceHealth(existing RepoScanSourceHealth, incoming RepoScanSourceHealth) RepoScanSourceHealth {
+	if repoScanSourceHealthRank(incoming.Status) > repoScanSourceHealthRank(existing.Status) {
+		existing.Status = incoming.Status
+	}
+	if existing.Code == "" {
+		existing.Code = incoming.Code
+	}
+	if existing.Message == "" {
+		existing.Message = incoming.Message
+	}
+	existing.Retryable = existing.Retryable || incoming.Retryable
+	return existing
+}
+
+func deriveRepoScanSourceHealth(details []RepoScanSourceHealth) string {
+	if len(details) == 0 {
+		return RepoScanSourceHealthComplete
+	}
+	worst := RepoScanSourceHealthComplete
+	hasComplete := false
+	distinctDegraded := map[string]struct{}{}
+	for _, detail := range details {
+		status := normalizeRepoScanSourceHealthStatus(detail.Status)
+		if status == "" {
+			status = RepoScanSourceHealthUnknown
+		}
+		if status == RepoScanSourceHealthComplete {
+			hasComplete = true
+		} else {
+			distinctDegraded[status] = struct{}{}
+		}
+		if repoScanSourceHealthRank(status) > repoScanSourceHealthRank(worst) {
+			worst = status
+		}
+	}
+	if len(distinctDegraded) == 0 {
+		return RepoScanSourceHealthComplete
+	}
+	if hasComplete {
+		return RepoScanSourceHealthPartial
+	}
+	if len(distinctDegraded) > 1 {
+		return RepoScanSourceHealthPartial
+	}
+	return worst
+}
+
+func normalizeRepoScanSourceHealthStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case RepoScanSourceHealthComplete:
+		return RepoScanSourceHealthComplete
+	case RepoScanSourceHealthPartial:
+		return RepoScanSourceHealthPartial
+	case RepoScanSourceHealthPermissionLimited:
+		return RepoScanSourceHealthPermissionLimited
+	case RepoScanSourceHealthRateLimited:
+		return RepoScanSourceHealthRateLimited
+	case RepoScanSourceHealthUnavailable:
+		return RepoScanSourceHealthUnavailable
+	case RepoScanSourceHealthUnknown:
+		return RepoScanSourceHealthUnknown
+	default:
+		return ""
+	}
+}
+
+func repoScanSourceHealthRank(status string) int {
+	switch normalizeRepoScanSourceHealthStatus(status) {
+	case RepoScanSourceHealthPartial:
+		return 5
+	case RepoScanSourceHealthPermissionLimited:
+		return 4
+	case RepoScanSourceHealthRateLimited:
+		return 3
+	case RepoScanSourceHealthUnavailable:
+		return 2
+	case RepoScanSourceHealthUnknown:
+		return 1
+	default:
+		return 0
+	}
 }
 
 // RepoScanCursor stores the latest scanned revision for one scoped repository source.
@@ -2773,6 +2918,30 @@ func shouldCloseMissingRepoFindings(status string, truncated bool, scanContext R
 		return false
 	}
 	return normalizedContext.ScanMode == "deep" && len(normalizedContext.ChangedPaths) == 0
+}
+
+func repoScanCompletionSourceHealth(status string, scanContext RepoScanContext) (string, []RepoScanSourceHealth) {
+	normalizedStatus := strings.ToLower(strings.TrimSpace(status))
+	if normalizedStatus != "succeeded" && normalizedStatus != "completed" {
+		return NormalizeRepoScanSourceHealth(RepoScanSourceHealthUnavailable, scanContext.SourceDetails)
+	}
+	if scanContext.PartialSourceRun {
+		health := strings.TrimSpace(scanContext.SourceHealth)
+		if health == "" {
+			health = RepoScanSourceHealthPartial
+		}
+		return NormalizeRepoScanSourceHealth(health, scanContext.SourceDetails)
+	}
+	return NormalizeRepoScanSourceHealth(firstNonEmptyRepoScanSourceHealth(scanContext.SourceHealth, RepoScanSourceHealthComplete), scanContext.SourceDetails)
+}
+
+func firstNonEmptyRepoScanSourceHealth(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // NormalizeFindingTriage returns a stable, API-shaped finding triage state.

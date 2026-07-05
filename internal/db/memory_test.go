@@ -1616,6 +1616,32 @@ func TestMemoryStoreFailStaleRepoScansAnyScope(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreFailStaleRepoScansAnyScopeUsesFallbackErrorMessage(t *testing.T) {
+	store := NewMemoryStore()
+	staleAt := time.Date(2026, 5, 18, 20, 0, 0, 0, time.UTC)
+	cutoff := staleAt.Add(35 * time.Minute)
+
+	scan, err := store.CreateRepoScan(defaultScopeContext(), "owner/stale-fallback", RepoScanSource{}, RepoScanContext{}, staleAt)
+	if err != nil {
+		t.Fatalf("create stale repo scan: %v", err)
+	}
+
+	failed, err := store.FailStaleRepoScansAnyScope(context.Background(), cutoff, 1, "")
+	if err != nil {
+		t.Fatalf("fail stale repo scans: %v", err)
+	}
+	if failed != 1 {
+		t.Fatalf("expected one stale repo scan failed, got %d", failed)
+	}
+	stored, err := store.GetRepoScan(defaultScopeContext(), scan.ID)
+	if err != nil {
+		t.Fatalf("get stale repo scan: %v", err)
+	}
+	if stored.SourceHealth != "unavailable" || len(stored.SourceHealthDetails) != 1 || stored.SourceHealthDetails[0].Message != "repository scan exceeded its processing window" {
+		t.Fatalf("expected fallback source-health message, got status %s details %+v", stored.SourceHealth, stored.SourceHealthDetails)
+	}
+}
+
 func TestMemoryStorePendingRepoCountMatchingIsCaseInsensitive(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 21, 9, 25, 0, 0, time.UTC)

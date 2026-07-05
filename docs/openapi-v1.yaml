@@ -24773,6 +24773,25 @@ components:
         files_scanned: { type: integer }
         finding_count: { type: integer }
         truncated: { type: boolean }
+        source_health:
+          type: string
+          enum: [complete, partial, permission_limited, rate_limited, unavailable, unknown]
+          description: Overall collection health across native and GitHub-native repository scan sources.
+        source_health_details:
+          type: array
+          description: Per-source collection health. Complete scans with zero findings still report complete source health.
+          items:
+            type: object
+            properties:
+              source:
+                type: string
+                description: Source collector id, such as identrail_repo_scanner or github_secret_scanning.
+              status:
+                type: string
+                enum: [complete, partial, permission_limited, rate_limited, unavailable, unknown]
+              code: { type: string }
+              message: { type: string }
+              retryable: { type: boolean }
         scan_mode:
           type: string
           enum: [quick, delta, deep]
