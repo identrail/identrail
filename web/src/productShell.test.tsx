@@ -7360,6 +7360,30 @@ async function renderFindings(options: { repoScans?: RepoScanRecord[]; repoFindi
       }
       return { items, summary: undefined };
     });
+  const triageFinding = vi.spyOn(api.apiClient, 'triageFinding').mockImplementation(async (findingID, payload, scanID) => {
+    const existing = options.repoFindings?.find((finding) => finding.id === findingID) ?? options.repoFindings?.[0];
+    return {
+      finding: {
+        ...(existing ?? {
+          id: findingID,
+          scan_id: scanID ?? 'repo-scan-default',
+          type: 'secret_exposure',
+          severity: 'high',
+          title: 'Default finding',
+          human_summary: 'Default finding summary.',
+          remediation: 'Rotate and remove the exposed secret.',
+          created_at: '2026-05-17T11:00:00Z'
+        }),
+        triage: {
+          status: payload.status ?? existing?.triage?.status ?? 'open',
+          assignee: payload.assignee ?? existing?.triage?.assignee,
+          suppression_expires_at: payload.suppression_expires_at ?? existing?.triage?.suppression_expires_at,
+          updated_at: '2026-05-17T11:12:00Z',
+          updated_by: 'test-operator'
+        }
+      }
+    };
+  });
   vi.spyOn(api.apiClient, 'getRepoFindingsTrends').mockResolvedValue({ items: [] });
   vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockRejectedValue(new Error('no graph'));
 
@@ -7372,7 +7396,7 @@ async function renderFindings(options: { repoScans?: RepoScanRecord[]; repoFindi
     </MemoryRouter>
   );
 
-  return { listRepoScans, listRepoFindings };
+  return { listRepoScans, listRepoFindings, triageFinding };
 }
 
 describe('ProductFindingsPage states', () => {
@@ -7578,6 +7602,64 @@ describe('ProductFindingsPage states', () => {
     });
     await waitFor(() => {
       expect(document.activeElement).toBe(rowButton);
+    });
+  });
+
+  it('surfaces audited finding actions and requires a reason before suppressing', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-with-actionable-finding',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 1
+    };
+
+    const finding: Finding = {
+      id: 'finding-action-1',
+      scan_id: scan.id,
+      type: 'secret_exposure',
+      severity: 'critical',
+      title: 'Potential token exposed in workflow history',
+      human_summary: 'A token-like value appears in a committed workflow.',
+      remediation: 'Rotate the credential and remove the committed value.',
+      source_url: 'https://github.com/identrail/identrail/blob/main/.github/workflows/deploy.yml#L12',
+      created_at: '2026-05-17T11:06:00Z'
+    };
+
+    const { triageFinding } = await renderFindings({ repoScans: [scan], repoFindings: [finding] });
+
+    const rowButton = (await screen.findAllByRole('listitem')).find((node) =>
+      node.textContent?.includes('Potential token exposed in workflow history')
+    ) as HTMLButtonElement | undefined;
+    expect(rowButton).toBeDefined();
+    if (!rowButton) return;
+    fireEvent.click(rowButton);
+
+    const dialog = await screen.findByRole('dialog', { name: /Potential token exposed in workflow history/i });
+    expect(within(dialog).getByRole('heading', { name: 'Finding actions' })).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /Suppress/i }));
+    expect(within(dialog).getByLabelText('Status')).toHaveValue('suppressed');
+    fireEvent.click(within(dialog).getByRole('button', { name: /Apply action/i }));
+
+    expect(await within(dialog).findByText('Suppression requires a reason.')).toBeInTheDocument();
+    expect(triageFinding).not.toHaveBeenCalled();
+
+    fireEvent.change(within(dialog).getByLabelText('Comment'), {
+      target: { value: 'Suppressed while the repository owner validates this legacy test fixture.' }
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: /Apply action/i }));
+
+    await waitFor(() => {
+      expect(triageFinding).toHaveBeenCalledWith(
+        finding.id,
+        expect.objectContaining({
+          status: 'suppressed',
+          comment: 'Suppressed while the repository owner validates this legacy test fixture.'
+        }),
+        scan.id,
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      );
     });
   });
 

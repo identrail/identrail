@@ -25438,6 +25438,119 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-modal-close {
   flex-wrap: wrap;
 }
 
+.idt-app-console-layout .idt-repo-finding-action-head,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+.idt-app-console-layout .idt-repo-finding-action-head h4,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-head h4 {
+  margin: 0;
+}
+
+.idt-app-console-layout .idt-repo-finding-action-head p,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-head p {
+  margin: 0.28rem 0 0;
+  max-width: 58rem;
+  color: var(--app-muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.idt-app-console-layout .idt-repo-finding-action-grid,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.idt-app-console-layout .idt-repo-finding-action-card,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-card {
+  min-width: 0;
+  min-height: 7.35rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.6rem;
+  align-content: start;
+  align-items: flex-start;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  padding: 0.8rem;
+  background: #080809;
+  color: #ffffff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+}
+
+.idt-app-console-layout .idt-repo-finding-action-card:hover,
+.idt-app-console-layout .idt-repo-finding-action-card:focus-visible,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-card:hover,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-card:focus-visible {
+  border-color: rgba(255, 255, 255, 0.55);
+  background: #111113;
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.idt-app-console-layout .idt-repo-finding-action-card.is-selected,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-card.is-selected {
+  border-color: rgba(94, 234, 212, 0.72);
+  background: rgba(20, 83, 74, 0.24);
+  box-shadow: inset 0 0 0 1px rgba(94, 234, 212, 0.12);
+}
+
+.idt-app-console-layout .idt-repo-finding-action-card:disabled,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+  transform: none;
+}
+
+.idt-app-console-layout .idt-repo-finding-action-icon,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-icon {
+  width: 2rem;
+  height: 2rem;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: #050505;
+  color: #ffffff;
+}
+
+.idt-app-console-layout .idt-repo-finding-action-card.is-selected .idt-repo-finding-action-icon,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-card.is-selected .idt-repo-finding-action-icon {
+  border-color: rgba(94, 234, 212, 0.48);
+  color: #99f6e4;
+}
+
+.idt-app-console-layout .idt-repo-finding-action-copy,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.idt-app-console-layout .idt-repo-finding-action-copy strong,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-copy strong {
+  color: #ffffff;
+  font-size: 0.86rem;
+  line-height: 1.2;
+}
+
+.idt-app-console-layout .idt-repo-finding-action-copy span,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-copy span {
+  color: var(--app-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .idt-app-console-layout {
   --repo-disclosure-column: 2rem;
   --repo-disclosure-size: 1.35rem;
@@ -26070,6 +26183,21 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-severity-grou
   .idt-source-enterprise-fallback summary,
   .idt-source-policy-summary {
     display: grid;
+  }
+
+  .idt-app-console-layout .idt-repo-finding-action-head,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-head {
+    display: grid;
+  }
+
+  .idt-app-console-layout .idt-repo-finding-action-grid,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-app-console-layout .idt-repo-finding-action-card,
+  html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-action-card {
+    min-height: 0;
   }
 
   .idt-source-compact-stats div {

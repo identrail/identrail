@@ -2428,11 +2428,11 @@ describe('App', () => {
     const findingDialog = await screen.findByRole('dialog', {
       name: /Potential AWS access key exposed in commit history/i
     });
-    const workflowControls = within(findingDialog).getByText(/Workflow controls/i).closest('.idt-repo-finding-triage-form');
+    const workflowControls = within(findingDialog).getByText(/Finding actions/i).closest('.idt-repo-finding-triage-form');
     expect(workflowControls).toBeInTheDocument();
 
     fireEvent.change(within(workflowControls as HTMLElement).getByLabelText(/Assignee/i), { target: { value: 'platform' } });
-    fireEvent.click(within(workflowControls as HTMLElement).getByRole('button', { name: /Apply workflow/i }));
+    fireEvent.click(within(workflowControls as HTMLElement).getByRole('button', { name: /Apply action/i }));
 
     await waitFor(() => {
       expect(
