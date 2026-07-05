@@ -1223,7 +1223,7 @@ describe('App', () => {
       window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
     });
 
-    expect(await screen.findByText(/Validating session/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Preparing workspace/i)).toBeInTheDocument();
     expect(screen.queryByRole('heading', { level: 2, name: 'AWS' })).not.toBeInTheDocument();
 
     await act(async () => {

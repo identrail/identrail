@@ -578,11 +578,10 @@ func (s *Service) CompleteGitHubConnector(ctx context.Context, request GitHubCon
 	delete(s.githubConnectStates, normalizedState)
 	s.githubConnectMu.Unlock()
 	status := s.toGitHubConnectionStatus(connection)
-	// Land on the dedicated GitHub section after install rather than the legacy
-	// per-project source-connections page. Carry the project as the environment
-	// query so the section shows the environment that was just connected instead
-	// of falling back to the workspace default.
-	redirectPath := "/app/" + url.PathEscape(connection.TenantID) + "/" + url.PathEscape(connection.WorkspaceID) + "/github/repositories?environment=" + url.QueryEscape(connection.ProjectID)
+	// Land on the quiet connection surface after install. The repositories
+	// page can collect live posture data, so keep that as an intentional next
+	// step instead of making the post-install return feel like a scan result.
+	redirectPath := "/app/" + url.PathEscape(connection.TenantID) + "/" + url.PathEscape(connection.WorkspaceID) + "/github/connect?environment=" + url.QueryEscape(connection.ProjectID)
 	return GitHubConnectorCompleteResponse{
 		Connection:   status,
 		TenantID:     connection.TenantID,

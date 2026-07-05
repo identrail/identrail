@@ -235,7 +235,7 @@ func TestRouterGitHubConnectorV2CompletesAppInstall(t *testing.T) {
 	if !completeBody.Connection.Connected || completeBody.Connection.InstallationID != 12345 {
 		t.Fatalf("expected active github app connector, got %+v", completeBody.Connection)
 	}
-	if completeBody.RedirectPath != "/app/tenant-a/workspace-a/github/repositories?environment=project-1" {
+	if completeBody.RedirectPath != "/app/tenant-a/workspace-a/github/connect?environment=project-1" {
 		t.Fatalf("unexpected redirect path %q", completeBody.RedirectPath)
 	}
 	if len(completeBody.Connection.SelectedRepositories) != 2 || completeBody.Connection.SelectedRepositories[0] != "identrail/api" {

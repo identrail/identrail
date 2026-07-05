@@ -23025,7 +23025,7 @@ html[data-theme='light'] .idt-app-shell-screen select {
   border: 1px solid var(--app-border);
   border-radius: 8px;
   padding: 0.7rem 0.95rem;
-  background: #050505;
+  background: var(--idt-console-surface-deep, var(--app-panel));
 }
 
 .idt-github-repository-row-main {
@@ -23035,7 +23035,7 @@ html[data-theme='light'] .idt-app-shell-screen select {
 }
 
 .idt-github-repository-row-main strong {
-  color: #ffffff;
+  color: var(--app-text);
   font-family: var(--idt-display);
   font-size: 0.98rem;
   line-height: 1.2;
@@ -23054,6 +23054,18 @@ html[data-theme='light'] .idt-app-shell-screen select {
   display: flex;
   gap: 0.45rem;
   justify-content: flex-end;
+}
+
+.idt-github-posture-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: flex-end;
+}
+
+.idt-github-posture-controls label {
+  min-width: min(22rem, 100%);
 }
 
 @media (max-width: 760px) {
@@ -29036,6 +29048,25 @@ html[data-theme='light'] .idt-executive-report-shell {
   letter-spacing: 0;
 }
 
+html[data-theme='light']:not([data-appearance-ready='true']) #main-content:has(.idt-app-shell-screen) {
+  background: #f7f8fa;
+}
+
+html[data-theme='light']:not([data-appearance-ready='true']) .idt-app-shell-screen {
+  --app-bg: #f7f8fa;
+  --app-panel: #ffffff;
+  --app-panel-strong: #f1f3f5;
+  --app-border: #d9dde3;
+  --app-border-soft: #e8ebef;
+  --app-text: #20242a;
+  --app-muted: #5f6975;
+  --app-dim: #7d8792;
+  --idt-console-focus: #6758ff;
+  color-scheme: light;
+  background: #f7f8fa;
+  color: var(--app-text);
+}
+
 .idt-app-shell-screen .idt-app-panel h1,
 html[data-theme='light'] .idt-app-shell-screen .idt-app-panel h1 {
   color: var(--app-text);
@@ -29049,6 +29080,45 @@ html[data-theme='light'] .idt-app-shell-screen .idt-app-panel h1 {
 .idt-app-shell-screen .idt-app-panel p,
 html[data-theme='light'] .idt-app-shell-screen .idt-app-panel p {
   color: var(--app-muted);
+}
+
+.idt-app-shell-screen .idt-app-loading-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.idt-app-shell-screen .idt-app-loading-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--idt-console-focus, #7c6dff),
+    color-mix(in srgb, var(--app-text) 45%, var(--idt-console-focus, #7c6dff)),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: idtShellLoadingBar 1.4s ease-in-out infinite;
+}
+
+@keyframes idtShellLoadingBar {
+  0% {
+    transform: translateX(-100%);
+  }
+  55%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .idt-app-shell-screen .idt-app-loading-panel::before {
+    transform: none;
+    animation: none;
+  }
 }
 
 .idt-app-shell-screen .idt-app-panel .idt-app-kicker,
