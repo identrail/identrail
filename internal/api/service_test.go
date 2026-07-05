@@ -2847,6 +2847,13 @@ func TestServiceRunRepoScanPersistedDoesNotAdvanceCursorAfterPartialSourceRun(t 
 	if run.RepoScan.CursorAfter != "" {
 		t.Fatalf("partial source run must not advance cursor_after, got %+v", run.RepoScan)
 	}
+	if run.RepoScan.SourceHealth != db.RepoScanSourceHealthPartial {
+		t.Fatalf("expected returned repo scan source health to be partial, got %+v", run.RepoScan)
+	}
+	postureHealth := repoScanSourceHealthBySource(run.RepoScan.SourceHealthDetails, "github_repository_posture")
+	if postureHealth == nil || postureHealth.Status != db.RepoScanSourceHealthUnavailable {
+		t.Fatalf("expected posture source to be unavailable from returned source health details, got %+v", run.RepoScan.SourceHealthDetails)
+	}
 
 	cursor, err := store.GetRepoScanCursor(defaultScopeContext(), "owner/private", db.RepoScanSource{})
 	if err != nil {
@@ -5003,6 +5010,13 @@ func TestServiceProcessQueuedGitHubAppRepoScanPreservesPostureFindingsWhenPostur
 	if currentScan.Status != "succeeded" || currentScan.FindingCount != 0 {
 		t.Fatalf("expected partial source scan to succeed without imported posture findings, got %+v", currentScan)
 	}
+	if currentScan.SourceHealth != db.RepoScanSourceHealthPartial {
+		t.Fatalf("expected partial source health, got %+v", currentScan)
+	}
+	postureHealth := repoScanSourceHealthBySource(currentScan.SourceHealthDetails, "github_repository_posture")
+	if postureHealth == nil || postureHealth.Status != db.RepoScanSourceHealthUnavailable {
+		t.Fatalf("expected unavailable repository posture health, got %+v", currentScan.SourceHealthDetails)
+	}
 
 	openFindings, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
 		Repository: "owner/private",
@@ -5024,6 +5038,108 @@ func TestServiceProcessQueuedGitHubAppRepoScanPreservesPostureFindingsWhenPostur
 	if len(fixedFindings) != 0 {
 		t.Fatalf("expected posture source failure not to mark findings fixed, got %+v", fixedFindings)
 	}
+}
+
+func TestRepoScanSourceHealthClassification(t *testing.T) {
+	tests := []struct {
+		name    string
+		code    string
+		message string
+		want    string
+	}{
+		{name: "permission limited", code: "alert_list_error", message: "403 resource not accessible by integration", want: db.RepoScanSourceHealthPermissionLimited},
+		{name: "rate limited", code: "alert_list_error", message: "secondary rate limit exceeded", want: db.RepoScanSourceHealthRateLimited},
+		{name: "rate limited with 403", code: "alert_list_error", message: "HTTP 403: Secondary rate limit hit", want: db.RepoScanSourceHealthRateLimited},
+		{name: "unavailable", code: "posture_collect_error", message: "GitHub API unavailable: 503", want: db.RepoScanSourceHealthUnavailable},
+		{name: "partial normalization", code: "normalize_error", message: "could not normalize one alert", want: db.RepoScanSourceHealthPartial},
+		{name: "unknown", code: "alert_list_error", message: "unexpected response", want: db.RepoScanSourceHealthUnknown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifyRepoScanSourceHealth(tt.code, tt.message); got != tt.want {
+				t.Fatalf("expected %s, got %s", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestRepoScanSourceHealthDetailsMixedGitHubSources(t *testing.T) {
+	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
+	svc.GitHubCodeScanningAlertCollector = &fakeGitHubCodeScanningAlertCollector{}
+	svc.GitHubSecretScanningAlertCollector = &fakeGitHubSecretScanningAlertCollector{}
+	svc.GitHubDependabotAlertCollector = &fakeGitHubDependabotAlertCollector{}
+	svc.GitHubRepositoryPostureCollector = &fakeGitHubRepositoryPostureCollector{}
+	details := svc.repoScanSourceHealthDetails(db.RepoScanRecord{
+		Repository: "owner/repo",
+		Source: db.RepoScanSource{
+			Provider:       "github_app",
+			InstallationID: 101,
+		},
+	}, false, []providers.SourceError{
+		{Collector: "github_secret_scanning", Code: "alert_list_error", Message: "403 resource not accessible by integration"},
+		{Collector: "github_dependabot", Code: "alert_list_error", Message: "secondary rate limit exceeded"},
+	})
+	overall, normalized := db.NormalizeRepoScanSourceHealth("", details)
+	if overall != db.RepoScanSourceHealthPartial {
+		t.Fatalf("expected mixed source health to be partial, got %s with %+v", overall, normalized)
+	}
+	if health := repoScanSourceHealthBySource(normalized, "github_code_scanning"); health == nil || health.Status != db.RepoScanSourceHealthComplete {
+		t.Fatalf("expected complete code scanning source, got %+v", normalized)
+	}
+	if health := repoScanSourceHealthBySource(normalized, "github_secret_scanning"); health == nil || health.Status != db.RepoScanSourceHealthPermissionLimited {
+		t.Fatalf("expected permission-limited secret scanning source, got %+v", normalized)
+	}
+	if health := repoScanSourceHealthBySource(normalized, "github_dependabot"); health == nil || health.Status != db.RepoScanSourceHealthRateLimited {
+		t.Fatalf("expected rate-limited dependabot source, got %+v", normalized)
+	}
+}
+
+func TestRepoScanSourceHealthDetailsMarksGitHubSourcesSkippedWhenTruncated(t *testing.T) {
+	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
+	svc.GitHubCodeScanningAlertCollector = &fakeGitHubCodeScanningAlertCollector{}
+	svc.GitHubSecretScanningAlertCollector = &fakeGitHubSecretScanningAlertCollector{}
+	svc.GitHubDependabotAlertCollector = &fakeGitHubDependabotAlertCollector{}
+	svc.GitHubRepositoryPostureCollector = &fakeGitHubRepositoryPostureCollector{}
+
+	details := svc.repoScanSourceHealthDetails(db.RepoScanRecord{
+		Repository: "owner/private",
+		Source: db.RepoScanSource{
+			Provider:       "github_app",
+			InstallationID: 101,
+		},
+	}, true, nil)
+	overall, normalized := db.NormalizeRepoScanSourceHealth("", details)
+	if overall != db.RepoScanSourceHealthPartial {
+		t.Fatalf("expected truncated source collection to be partial, got %s with %+v", overall, normalized)
+	}
+	truncatedSources := []string{
+		"github_code_scanning",
+		"github_secret_scanning",
+		"github_dependabot",
+		"github_repository_posture",
+		"github_organization_posture",
+	}
+	for _, source := range truncatedSources {
+		health := repoScanSourceHealthBySource(normalized, source)
+		if health == nil || health.Status != db.RepoScanSourceHealthPartial {
+			t.Fatalf("expected truncated source %s to be partial, got %+v", source, normalized)
+		}
+		if health.Code != "scan_truncated" {
+			t.Fatalf("expected truncated source %s to have scan_truncated code, got %+v", source, health)
+		}
+		if !strings.Contains(strings.ToLower(health.Message), "truncated") {
+			t.Fatalf("expected truncated source %s to include truncated message, got %+v", source, health)
+		}
+	}
+}
+
+func repoScanSourceHealthBySource(details []db.RepoScanSourceHealth, source string) *db.RepoScanSourceHealth {
+	for i := range details {
+		if details[i].Source == source {
+			return &details[i]
+		}
+	}
+	return nil
 }
 
 func repoFindingByDetector(findings []domain.Finding, detector string) *domain.Finding {

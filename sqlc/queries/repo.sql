@@ -1,10 +1,10 @@
 -- name: GetRepoScan :one
-SELECT id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(error_message, '') AS error_message
+SELECT id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(source_health, 'unknown') AS source_health, COALESCE(source_health_details, '[]'::jsonb) AS source_health_details, COALESCE(error_message, '') AS error_message
 FROM repo_scans
 WHERE id = $1;
 
 -- name: ListRepoScans :many
-SELECT id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(error_message, '') AS error_message
+SELECT id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(source_health, 'unknown') AS source_health, COALESCE(source_health_details, '[]'::jsonb) AS source_health_details, COALESCE(error_message, '') AS error_message
 FROM repo_scans
 ORDER BY started_at DESC
 LIMIT $1;

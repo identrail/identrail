@@ -97,9 +97,9 @@ func TestQueriesListRepoScans(t *testing.T) {
 
 	q := New(db)
 	now := time.Now().UTC()
-	rows := sqlmock.NewRows([]string{"id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "coalesce"}).
-		AddRow("repo-scan-1", "owner/repo", "completed", now, now, 10, 5, 2, false, "")
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(error_message, '')
+	rows := sqlmock.NewRows([]string{"id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "source_health", "source_health_details", "coalesce"}).
+		AddRow("repo-scan-1", "owner/repo", "completed", now, now, 10, 5, 2, false, "partial", []byte(`[{"source":"github_secret_scanning","status":"permission_limited"}]`), "")
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(source_health, 'unknown'), COALESCE(source_health_details, '[]'::jsonb), COALESCE(error_message, '')
 		 FROM repo_scans
 		 ORDER BY started_at DESC
 		 LIMIT $1`)).WithArgs(20).WillReturnRows(rows)
@@ -110,6 +110,9 @@ func TestQueriesListRepoScans(t *testing.T) {
 	}
 	if len(result) != 1 || result[0].ID != "repo-scan-1" {
 		t.Fatalf("unexpected results: %+v", result)
+	}
+	if result[0].SourceHealth != "partial" || string(result[0].SourceDetails) == "" {
+		t.Fatalf("expected source health details, got %+v", result[0])
 	}
 }
 
@@ -173,9 +176,9 @@ func TestQueriesGetRepoScan(t *testing.T) {
 
 	q := New(db)
 	now := time.Now().UTC()
-	rows := sqlmock.NewRows([]string{"id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "coalesce"}).
-		AddRow("repo-scan-1", "owner/repo", "completed", now, now, 20, 10, 2, false, "")
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(error_message, '')
+	rows := sqlmock.NewRows([]string{"id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "source_health", "source_health_details", "coalesce"}).
+		AddRow("repo-scan-1", "owner/repo", "completed", now, now, 20, 10, 2, false, "complete", []byte(`[]`), "")
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(source_health, 'unknown'), COALESCE(source_health_details, '[]'::jsonb), COALESCE(error_message, '')
 		 FROM repo_scans
 		 WHERE id = $1`)).WithArgs("repo-scan-1").WillReturnRows(rows)
 
@@ -185,6 +188,9 @@ func TestQueriesGetRepoScan(t *testing.T) {
 	}
 	if result.ID != "repo-scan-1" {
 		t.Fatalf("unexpected repo scan: %+v", result)
+	}
+	if result.SourceHealth != "complete" {
+		t.Fatalf("expected complete source health, got %+v", result)
 	}
 }
 

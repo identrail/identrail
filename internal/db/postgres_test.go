@@ -691,8 +691,8 @@ func TestNewPostgresStoreWithDB(t *testing.T) {
 }
 
 func repoScanRows(recordID string, status string, startedAt time.Time, finishedAt any) *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "scan_mode", "base_revision", "head_revision", "cursor_before", "cursor_after", "changed_paths", "error_message", "history_limit", "max_findings_limit", "source_provider", "source_project_id", "source_connector_id", "source_installation_id"}).
-		AddRow(recordID, "default", "default", "owner/repo", status, startedAt, finishedAt, 12, 8, 1, false, "deep", "", "", "", "", []byte("[]"), "", 0, 0, "", "", "", int64(0))
+	return sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "source_health", "source_health_details", "scan_mode", "base_revision", "head_revision", "cursor_before", "cursor_after", "changed_paths", "error_message", "history_limit", "max_findings_limit", "source_provider", "source_project_id", "source_connector_id", "source_installation_id"}).
+		AddRow(recordID, "default", "default", "owner/repo", status, startedAt, finishedAt, 12, 8, 1, false, "complete", []byte("[]"), "deep", "", "", "", "", []byte("[]"), "", 0, 0, "", "", "", int64(0))
 }
 
 func repoFindingLifecycleColumns() []string {
@@ -749,9 +749,9 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 	store := NewPostgresStoreWithDB(db)
 	now := time.Now().UTC()
 
-	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15, $16, $17, $18)`)).
-		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", "running", sqlmock.AnyArg(), "deep", "", "", "", "", "[]", 0, 0, "", "", "", int64(0)).
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, source_health, source_health_details, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, '[]'::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, $19)`)).
+		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", "running", sqlmock.AnyArg(), "unknown", "deep", "", "", "", "", "[]", 0, 0, "", "", "", int64(0)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	record, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, RepoScanContext{}, now)
@@ -796,12 +796,14 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		     base_revision = COALESCE(NULLIF($9, ''), base_revision),
 		     head_revision = COALESCE(NULLIF($10, ''), head_revision),
 		     changed_paths = CASE WHEN $11::jsonb <> '[]'::jsonb THEN $11::jsonb ELSE changed_paths END,
-		     error_message = $12
+		     source_health = $12,
+		     source_health_details = $13::jsonb,
+		     error_message = $14
 		 WHERE id = $1
-		   AND tenant_id = $13
-		   AND workspace_id = $14
+		   AND tenant_id = $15
+		   AND workspace_id = $16
 		   AND status IN ('queued', 'running')`)).
-		WithArgs(record.ID, "completed", sqlmock.AnyArg(), 12, 8, 1, false, "", "", "", "[]", nil, "default", "default").
+		WithArgs(record.ID, "completed", sqlmock.AnyArg(), 12, 8, 1, false, "", "", "", "[]", "complete", "[]", nil, "default", "default").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("UPDATE repo_findings rf").
 		WithArgs(sqlmock.AnyArg(), "default", "default", record.ID).
@@ -1717,9 +1719,9 @@ func TestPostgresStoreRepoQueueLifecycle(t *testing.T) {
 	store := NewPostgresStoreWithDB(db)
 	now := time.Now().UTC()
 
-	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15, $16, $17, $18)`)).
-		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", "queued", sqlmock.AnyArg(), "deep", "", "", "", "", "[]", 50, 80, "", "", "", int64(0)).
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, source_health, source_health_details, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, '[]'::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, $19)`)).
+		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", "queued", sqlmock.AnyArg(), "unknown", "deep", "", "", "", "", "[]", 50, 80, "", "", "", int64(0)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	queued, err := store.CreateQueuedRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, RepoScanContext{}, 50, 80, now)
@@ -1780,6 +1782,8 @@ func TestPostgresStoreRepoQueueLifecycle(t *testing.T) {
 		"files_scanned",
 		"finding_count",
 		"truncated",
+		"source_health",
+		"source_health_details",
 		"scan_mode",
 		"base_revision",
 		"head_revision",
@@ -1795,7 +1799,7 @@ func TestPostgresStoreRepoQueueLifecycle(t *testing.T) {
 		"source_installation_id",
 		"trace_parent",
 		"trace_state",
-	}).AddRow(queued.ID, "default", "default", "owner/repo", "running", now, nil, 0, 0, 0, false, "deep", "", "", "", "", []byte("[]"), "", 50, 80, "", "", "", int64(0), "", "")
+	}).AddRow(queued.ID, "default", "default", "owner/repo", "running", now, nil, 0, 0, 0, false, "unknown", []byte("[]"), "deep", "", "", "", "", []byte("[]"), "", 50, 80, "", "", "", int64(0), "", "")
 	mock.ExpectQuery("WITH next_repo_scan AS").WithArgs("default", "default").WillReturnRows(claimRows)
 
 	claimed, err := store.ClaimNextQueuedRepoScan(defaultScopeContext())
@@ -1810,7 +1814,9 @@ func TestPostgresStoreRepoQueueLifecycle(t *testing.T) {
 		 SET status = 'queued',
 		     started_at = NOW(),
 		     finished_at = NULL,
-		     error_message = NULL
+			     error_message = NULL,
+			     source_health = 'unknown',
+			     source_health_details = '[]'::jsonb
 		 WHERE id = $1
 		   AND tenant_id = $2
 		   AND workspace_id = $3
@@ -1936,12 +1942,14 @@ func TestPostgresStoreCompleteRepoScanReturnsConflictForTerminalScan(t *testing.
 		     base_revision = COALESCE(NULLIF($9, ''), base_revision),
 		     head_revision = COALESCE(NULLIF($10, ''), head_revision),
 		     changed_paths = CASE WHEN $11::jsonb <> '[]'::jsonb THEN $11::jsonb ELSE changed_paths END,
-		     error_message = $12
+		     source_health = $12,
+		     source_health_details = $13::jsonb,
+		     error_message = $14
 		 WHERE id = $1
-		   AND tenant_id = $13
-		   AND workspace_id = $14
+		   AND tenant_id = $15
+		   AND workspace_id = $16
 		   AND status IN ('queued', 'running')`)).
-		WithArgs(scanID, "completed", now, 4, 2, 1, false, "", "", "", "[]", nil, "default", "default").
+		WithArgs(scanID, "completed", now, 4, 2, 1, false, "", "", "", "[]", "complete", "[]", nil, "default", "default").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectRollback()
 
@@ -1957,6 +1965,8 @@ func TestPostgresStoreCompleteRepoScanReturnsConflictForTerminalScan(t *testing.
 		"files_scanned",
 		"finding_count",
 		"truncated",
+		"source_health",
+		"source_health_details",
 		"scan_mode",
 		"base_revision",
 		"head_revision",
@@ -1970,8 +1980,8 @@ func TestPostgresStoreCompleteRepoScanReturnsConflictForTerminalScan(t *testing.
 		"source_project_id",
 		"source_connector_id",
 		"source_installation_id",
-	}).AddRow(scanID, "default", "default", "owner/repo", "failed", now, now.Add(time.Minute), 0, 0, 0, false, "deep", "", "", "", "", []byte("[]"), "repository scan canceled by user", 50, 80, "github_app", "project-1", "github", int64(77))
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(scan_mode, 'deep'), COALESCE(base_revision, ''), COALESCE(head_revision, ''), COALESCE(cursor_before, ''), COALESCE(cursor_after, ''), COALESCE(changed_paths, '[]'::jsonb), COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)
+	}).AddRow(scanID, "default", "default", "owner/repo", "failed", now, now.Add(time.Minute), 0, 0, 0, false, "unavailable", []byte(`[{"source":"identrail_repo_scanner","status":"unavailable"}]`), "deep", "", "", "", "", []byte("[]"), "repository scan canceled by user", 50, 80, "github_app", "project-1", "github", int64(77))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(source_health, 'unknown'), COALESCE(source_health_details, '[]'::jsonb), COALESCE(scan_mode, 'deep'), COALESCE(base_revision, ''), COALESCE(head_revision, ''), COALESCE(cursor_before, ''), COALESCE(cursor_after, ''), COALESCE(changed_paths, '[]'::jsonb), COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)
 		 FROM repo_scans
 		 WHERE id = $1
 		   AND tenant_id = $2
@@ -2012,6 +2022,8 @@ func TestPostgresStoreCancelRepoScan(t *testing.T) {
 		"files_scanned",
 		"finding_count",
 		"truncated",
+		"source_health",
+		"source_health_details",
 		"scan_mode",
 		"base_revision",
 		"head_revision",
@@ -2025,17 +2037,24 @@ func TestPostgresStoreCancelRepoScan(t *testing.T) {
 		"source_project_id",
 		"source_connector_id",
 		"source_installation_id",
-	}).AddRow(scanID, "default", "default", "owner/repo", "failed", startedAt, finishedAt, 0, 0, 0, false, "deep", "", "", "", "", []byte("[]"), cancelMessage, 50, 80, "github_app", "project-1", "github", int64(77))
+	}).AddRow(scanID, "default", "default", "owner/repo", "failed", startedAt, finishedAt, 0, 0, 0, false, "unavailable", []byte(`[{"source":"identrail_repo_scanner","status":"unavailable","code":"scan_canceled"}]`), "deep", "", "", "", "", []byte("[]"), cancelMessage, 50, 80, "github_app", "project-1", "github", int64(77))
 
 	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE repo_scans
 		 SET status = 'failed',
 		     finished_at = $2,
-		     error_message = NULLIF($3, '')
+		     error_message = NULLIF($3, ''),
+		     source_health = 'unavailable',
+		     source_health_details = jsonb_build_array(jsonb_build_object(
+		         'source', 'identrail_repo_scanner',
+		         'status', 'unavailable',
+		         'code', 'scan_canceled',
+		         'message', COALESCE(NULLIF($3, ''), 'repository scan canceled')
+		     ))
 		 WHERE id = $1
 		   AND tenant_id = $4
 		   AND workspace_id = $5
 		   AND status IN ('queued', 'running')
-		 RETURNING id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(scan_mode, 'deep'), COALESCE(base_revision, ''), COALESCE(head_revision, ''), COALESCE(cursor_before, ''), COALESCE(cursor_after, ''), COALESCE(changed_paths, '[]'::jsonb), COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)`)).
+		 RETURNING id, tenant_id, workspace_id, repository, status, started_at, finished_at, commits_scanned, files_scanned, finding_count, truncated, COALESCE(source_health, 'unknown'), COALESCE(source_health_details, '[]'::jsonb), COALESCE(scan_mode, 'deep'), COALESCE(base_revision, ''), COALESCE(head_revision, ''), COALESCE(cursor_before, ''), COALESCE(cursor_after, ''), COALESCE(changed_paths, '[]'::jsonb), COALESCE(error_message, ''), history_limit, max_findings_limit, COALESCE(source_provider, ''), COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), COALESCE(source_installation_id, 0)`)).
 		WithArgs(scanID, finishedAt, cancelMessage, "default", "default").
 		WillReturnRows(cancelRows)
 
@@ -2100,7 +2119,14 @@ func TestPostgresStoreFailStaleRepoScansAnyScope(t *testing.T) {
 		UPDATE repo_scans AS r
 		SET status = 'failed',
 		    finished_at = NOW(),
-		    error_message = NULLIF($3, '')
+		    error_message = NULLIF($3, ''),
+		    source_health = 'unavailable',
+		    source_health_details = jsonb_build_array(jsonb_build_object(
+		        'source', 'identrail_repo_scanner',
+		        'status', 'unavailable',
+		        'code', 'stale_running_scan',
+		        'message', COALESCE(NULLIF($3, ''), 'repository scan exceeded its processing window')
+		    ))
 		FROM stale_repo_scans
 		WHERE r.id = stale_repo_scans.id`)).
 		WithArgs(staleBefore, 25, "worker timed out").
@@ -2151,9 +2177,9 @@ func TestPostgresStoreCreateQueuedRepoScanWithinLimit(t *testing.T) {
 		   AND status = 'queued'`)).
 		WithArgs("default", "default").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id, trace_parent, trace_state)
-		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15, $16, $17, $18, NULLIF($19, ''), NULLIF($20, ''))`)).
-		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", "queued", now, "deep", "", "", "", "", "[]", 50, 80, "", "", "", int64(0), "", "").
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO repo_scans (id, tenant_id, workspace_id, repository, status, started_at, commits_scanned, files_scanned, finding_count, truncated, source_health, source_health_details, scan_mode, base_revision, head_revision, cursor_before, cursor_after, changed_paths, history_limit, max_findings_limit, source_provider, source_project_id, source_connector_id, source_installation_id, trace_parent, trace_state)
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, false, $7, '[]'::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, $19, NULLIF($20, ''), NULLIF($21, ''))`)).
+		WithArgs(sqlmock.AnyArg(), "default", "default", "owner/repo", "queued", now, "unknown", "deep", "", "", "", "", "[]", 50, 80, "", "", "", int64(0), "", "").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
@@ -3334,10 +3360,11 @@ func TestPostgresStoreClaimNextQueuedRepoScanAnyScopeBypassesScopeInjection(t *t
 	rows := sqlmock.NewRows([]string{
 		"id", "tenant_id", "workspace_id", "repository", "status", "started_at", "finished_at",
 		"commits_scanned", "files_scanned", "finding_count", "truncated",
+		"source_health", "source_health_details",
 		"scan_mode", "base_revision", "head_revision", "cursor_before", "cursor_after", "changed_paths",
 		"coalesce", "history_limit", "max_findings_limit",
 		"source_provider", "source_project_id", "source_connector_id", "source_installation_id", "trace_parent", "trace_state",
-	}).AddRow("repo-scan-1", "tenant-a", "workspace-a", "owner/repo", "running", now, nil, 0, 0, 0, false, "deep", "", "", "", "", []byte("[]"), "", 500, 200, "", "", "", int64(0), "", "")
+	}).AddRow("repo-scan-1", "tenant-a", "workspace-a", "owner/repo", "running", now, nil, 0, 0, 0, false, "unknown", []byte("[]"), "deep", "", "", "", "", []byte("[]"), "", 500, 200, "", "", "", int64(0), "", "")
 	mock.ExpectQuery("WITH next_repo_scan AS").
 		WillReturnRows(rows)
 

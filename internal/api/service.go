@@ -1874,11 +1874,11 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		return RunRepoScanResult{}, safeErr
 	}
 	result = applyRepoScanContextToResult(result, target, scanContext)
-	partialSourceRun := false
+	sourceErrors := []providers.SourceError{}
 	if !result.Truncated {
-		externalFindings, sourceErrors, externalErr := s.repoScanExternalFindings(ctx, record, s.Now().UTC())
+		externalFindings, externalSourceErrors, externalErr := s.repoScanExternalFindings(ctx, record, s.Now().UTC())
+		sourceErrors = append(sourceErrors, externalSourceErrors...)
 		if len(sourceErrors) > 0 {
-			partialSourceRun = true
 			s.appendScanEvent(ctx, record.ID, db.ScanEventLevelWarn, "repo scan completed with partial source errors", map[string]any{
 				"source_error_count": len(sourceErrors),
 				"source_errors":      truncateSourceErrors(sourceErrors, maxSourceErrorsInEvent),
@@ -1898,6 +1898,9 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 			result.Truncated = result.Truncated || externalTruncated
 		}
 	}
+	sourceHealthDetails := s.repoScanSourceHealthDetails(record, result.Truncated, sourceErrors)
+	sourceHealth, _ := db.NormalizeRepoScanSourceHealth("", sourceHealthDetails)
+	partialSourceRun := sourceHealth != db.RepoScanSourceHealthComplete
 	result.Findings = enrichFindingsWithRepoContext(result.Findings, result.Repository, record.Repository)
 	if err := s.Store.UpsertRepoFindings(ctx, record.ID, result.Findings); err != nil {
 		if errors.Is(err, db.ErrConflict) {
@@ -1918,6 +1921,8 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 		HeadRevision:     result.HeadRevision,
 		ChangedPaths:     append([]string(nil), result.ChangedPaths...),
 		PartialSourceRun: partialSourceRun,
+		SourceHealth:     sourceHealth,
+		SourceDetails:    sourceHealthDetails,
 	}
 	if !result.Truncated && !partialSourceRun {
 		completionContext.CursorAfter = cursorAfter
@@ -1968,6 +1973,8 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	record.FilesScanned = result.FilesScanned
 	record.FindingCount = len(result.Findings)
 	record.Truncated = result.Truncated
+	record.SourceHealth = sourceHealth
+	record.SourceHealthDetails = sourceHealthDetails
 	record.ScanMode = result.ScanMode
 	record.BaseRevision = result.BaseRevision
 	record.HeadRevision = result.HeadRevision
@@ -2187,6 +2194,157 @@ func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoSc
 		}
 	}
 	return findings, sourceErrors, nil
+}
+
+func (s *Service) repoScanSourceHealthDetails(record db.RepoScanRecord, truncated bool, sourceErrors []providers.SourceError) []db.RepoScanSourceHealth {
+	details := []db.RepoScanSourceHealth{{
+		Source: "identrail_repo_scanner",
+		Status: db.RepoScanSourceHealthComplete,
+	}}
+	skipCode := ""
+	skipMessage := ""
+	if truncated {
+		details[0].Status = db.RepoScanSourceHealthPartial
+		details[0].Code = "repo_scan_truncated"
+		details[0].Message = "repository scan reached the configured finding limit"
+		skipCode = "scan_truncated"
+		skipMessage = "source collection skipped because repository scan was truncated"
+	}
+
+	source := record.Source.Normalize()
+	if source.Provider != "github_app" || source.InstallationID <= 0 {
+		return details
+	}
+
+	errorsByCollector := map[string][]providers.SourceError{}
+	for _, sourceError := range sourceErrors {
+		collector := strings.ToLower(strings.TrimSpace(sourceError.Collector))
+		if collector == "" {
+			collector = "unknown"
+		}
+		errorsByCollector[collector] = append(errorsByCollector[collector], sourceError)
+	}
+
+	githubSources := []struct {
+		name      string
+		available bool
+		code      string
+		message   string
+	}{
+		{name: "github_code_scanning", available: s.GitHubCodeScanningAlertCollector != nil, code: "collector_unavailable", message: "GitHub code scanning collector is unavailable"},
+		{name: "github_secret_scanning", available: s.GitHubSecretScanningAlertCollector != nil, code: "collector_unavailable", message: "GitHub secret scanning collector is unavailable"},
+		{name: "github_dependabot", available: s.GitHubDependabotAlertCollector != nil, code: "collector_unavailable", message: "GitHub Dependabot collector is unavailable"},
+		{name: "github_repository_posture", available: s.GitHubRepositoryPostureCollector != nil, code: "collector_unavailable", message: "GitHub repository posture collector is unavailable"},
+		{name: "github_organization_posture", available: s.GitHubRepositoryPostureCollector != nil && repoScanRepositoryOwner(record.Repository) != "", code: "collector_unavailable", message: "GitHub organization posture collector is unavailable"},
+	}
+	for _, githubSource := range githubSources {
+		if sourceErrors, exists := errorsByCollector[githubSource.name]; exists {
+			for _, sourceError := range sourceErrors {
+				details = append(details, repoScanSourceHealthFromSourceError(githubSource.name, sourceError))
+			}
+			continue
+		}
+		if truncated {
+			details = append(details, db.RepoScanSourceHealth{
+				Source:  githubSource.name,
+				Status:  db.RepoScanSourceHealthPartial,
+				Code:    skipCode,
+				Message: skipMessage,
+			})
+			continue
+		}
+		if !githubSource.available {
+			if githubSource.name == "github_organization_posture" && s.GitHubRepositoryPostureCollector != nil {
+				githubSource.code = "invalid_repository"
+				githubSource.message = "repository target does not include an owner for organization posture collection"
+			}
+			details = append(details, db.RepoScanSourceHealth{
+				Source:  githubSource.name,
+				Status:  db.RepoScanSourceHealthUnavailable,
+				Code:    githubSource.code,
+				Message: githubSource.message,
+			})
+			continue
+		}
+		details = append(details, db.RepoScanSourceHealth{
+			Source: githubSource.name,
+			Status: db.RepoScanSourceHealthComplete,
+		})
+	}
+	for collector, collectorErrors := range errorsByCollector {
+		if repoScanKnownGitHubCollector(collector) {
+			continue
+		}
+		for _, sourceError := range collectorErrors {
+			details = append(details, repoScanSourceHealthFromSourceError(collector, sourceError))
+		}
+	}
+	return details
+}
+
+func repoScanSourceHealthFromSourceError(source string, sourceError providers.SourceError) db.RepoScanSourceHealth {
+	status := classifyRepoScanSourceHealth(sourceError.Code, sourceError.Message)
+	return db.RepoScanSourceHealth{
+		Source:    source,
+		Status:    status,
+		Code:      sourceError.Code,
+		Message:   sourceError.Message,
+		Retryable: sourceError.Retryable || status == db.RepoScanSourceHealthRateLimited || status == db.RepoScanSourceHealthUnavailable,
+	}
+}
+
+func classifyRepoScanSourceHealth(code string, message string) string {
+	needle := strings.ToLower(strings.TrimSpace(code + " " + message))
+	switch {
+	case strings.Contains(needle, "rate limit") ||
+		strings.Contains(needle, "secondary rate") ||
+		strings.Contains(needle, "abuse detection") ||
+		strings.Contains(needle, "throttl") ||
+		strings.Contains(needle, "429") ||
+		(strings.Contains(needle, "403") && strings.Contains(needle, "rate")):
+		return db.RepoScanSourceHealthRateLimited
+	case strings.Contains(needle, "permission") ||
+		strings.Contains(needle, "forbidden") ||
+		strings.Contains(needle, "unauthor") ||
+		strings.Contains(needle, "access denied") ||
+		strings.Contains(needle, "accessdenied") ||
+		strings.Contains(needle, "requires authentication") ||
+		strings.Contains(needle, "bad credentials") ||
+		strings.Contains(needle, "403"):
+		return db.RepoScanSourceHealthPermissionLimited
+	case strings.Contains(needle, "timeout") ||
+		strings.Contains(needle, "timed out") ||
+		strings.Contains(needle, "unavailable") ||
+		strings.Contains(needle, "temporarily") ||
+		strings.Contains(needle, "network") ||
+		strings.Contains(needle, "connection") ||
+		strings.Contains(needle, "502") ||
+		strings.Contains(needle, "503") ||
+		strings.Contains(needle, "504"):
+		return db.RepoScanSourceHealthUnavailable
+	case strings.Contains(needle, "partial") ||
+		strings.Contains(needle, "normalize"):
+		return db.RepoScanSourceHealthPartial
+	default:
+		return db.RepoScanSourceHealthUnknown
+	}
+}
+
+func repoScanRepositoryOwner(repository string) string {
+	owner, _, ok := strings.Cut(strings.TrimSpace(repository), "/")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(owner)
+}
+
+func repoScanKnownGitHubCollector(collector string) bool {
+	switch strings.ToLower(strings.TrimSpace(collector)) {
+	case "github_code_scanning", "github_secret_scanning", "github_dependabot", "github_repository_posture", "github_organization_posture":
+		return true
+	default:
+		return false
+	}
 }
 
 func githubCodeScanningAlertsToRepoExposure(alerts []githubconnector.CodeScanningAlert) []repoexposure.GitHubCodeScanningAlert {
