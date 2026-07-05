@@ -156,6 +156,11 @@ function authReasonDetails(reason: string, returnTo: string, hardDeleteAfter: st
       };
     case 'mfa_required':
       return { message: 'Additional verification is required before Identrail can create a session. Start sign-in again to continue.' };
+    case 'email_verification_required':
+      return {
+        message:
+          'Your email address must be verified before Identrail can create a session. Start sign-in again to receive a new verification code.'
+      };
     case 'provider_unavailable':
       return { message: 'The sign-in provider is temporarily unavailable. Please retry in a moment.' };
     default:

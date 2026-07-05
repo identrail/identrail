@@ -629,6 +629,15 @@ export type WorkOSMFAVerifyResponse = {
   redirect_to: string;
 };
 
+export type WorkOSEmailVerificationPendingResponse = {
+  email?: string;
+};
+
+export type WorkOSEmailVerificationVerifyResponse = {
+  ok: boolean;
+  redirect_to: string;
+};
+
 export type ProjectRecord = {
   tenant_id: string;
   workspace_id: string;
@@ -9504,6 +9513,18 @@ export const apiClient = {
   },
   verifyWorkOSMFA(code: string) {
     return request<WorkOSMFAVerifyResponse>('/auth/mfa/verify', undefined, {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+      redirectOnUnauthorized: false
+    });
+  },
+  getWorkOSEmailVerificationPending() {
+    return request<WorkOSEmailVerificationPendingResponse>('/auth/email-verification/pending', undefined, {
+      redirectOnUnauthorized: false
+    });
+  },
+  verifyWorkOSEmailVerification(code: string) {
+    return request<WorkOSEmailVerificationVerifyResponse>('/auth/email-verification/verify', undefined, {
       method: 'POST',
       body: JSON.stringify({ code }),
       redirectOnUnauthorized: false

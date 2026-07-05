@@ -33,6 +33,7 @@ type authSessionRouteOptions struct {
 	StateManager          *sessionauth.OAuthStateManager
 	TransactionStore      *sessionauth.OAuthTransactionStore
 	PendingMFAManager     *sessionauth.MFAPendingStateManager
+	PendingEmailManager   *sessionauth.EmailVerificationPendingStateManager
 	PublicBaseURL         string
 	ReturnToOrigins       []string
 }
@@ -50,6 +51,8 @@ func registerAuthSessionRoutes(r *gin.Engine, logger *zap.Logger, svc *Service, 
 		authGroup.POST("/mfa/enroll", rateLimitMiddleware(20, 20), workOSMFAEnrollHandler(logger, opts))
 		authGroup.POST("/mfa/challenge", rateLimitMiddleware(20, 20), workOSMFAChallengeHandler(logger, opts))
 		authGroup.POST("/mfa/verify", rateLimitMiddleware(30, 30), workOSMFAVerifyHandler(logger, svc, manager, opts))
+		authGroup.GET("/email-verification/pending", rateLimitMiddleware(30, 30), workOSEmailVerificationPendingHandler(opts))
+		authGroup.POST("/email-verification/verify", rateLimitMiddleware(30, 30), workOSEmailVerificationVerifyHandler(logger, svc, manager, opts))
 		authGroup.POST("/webhooks/workos", rateLimitMiddleware(60, 60), workOSWebhookHandler(logger, svc, opts))
 	}
 	if opts.ManualMode {
@@ -297,6 +300,10 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 				handleWorkOSMFARequired(c, logger, opts, state, required)
 				return
 			}
+			if required, ok := sessionauth.AsWorkOSEmailVerificationRequired(err); ok {
+				handleWorkOSEmailVerificationRequired(c, logger, opts, state, required)
+				return
+			}
 			auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
 			if logger != nil {
 				logger.Warn("authenticate workos callback", telemetry.ZapError(err))
@@ -322,6 +329,7 @@ const (
 	authFailureReasonAccountNotFound     = "account_not_found"
 	authFailureReasonCallbackError       = "callback_error"
 	authFailureReasonIdentityConflict    = "identity_conflict"
+	authFailureReasonEmailUnverified     = "email_verification_required"
 	authFailureReasonMFARequired         = "mfa_required"
 	authFailureReasonProviderUnavailable = "provider_unavailable"
 	authFailureReasonReactivationNeeded  = "account_reactivation_required"
@@ -414,17 +422,29 @@ func workOSAuthFailureReturnToParam(opts authSessionRouteOptions, frontendOrigin
 }
 
 func handleWorkOSMFARequired(c *gin.Context, logger *zap.Logger, opts authSessionRouteOptions, state sessionauth.OAuthState, required *sessionauth.WorkOSMFARequired) {
+	redirectTo, ok := sealWorkOSMFAPending(c, logger, opts, state.Intent, state.ReturnTo, required)
+	if !ok {
+		return
+	}
+	c.Redirect(http.StatusFound, redirectTo)
+}
+
+// sealWorkOSMFAPending seals the MFA pending state WorkOS returned, sets the
+// pending cookie, and reports the MFA page URL the browser should continue
+// on. Callers decide how to deliver that URL: the OAuth callback issues a
+// top-level redirect, while fetch-style endpoints return it as JSON.
+func sealWorkOSMFAPending(c *gin.Context, logger *zap.Logger, opts authSessionRouteOptions, intent string, returnTo string, required *sessionauth.WorkOSMFARequired) (string, bool) {
 	if required == nil || opts.PendingMFAManager == nil || strings.TrimSpace(required.PendingAuthenticationToken) == "" {
 		if logger != nil {
 			logger.Warn("workos mfa required without resumable pending token")
 		}
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "mfa required"})
-		return
+		return "", false
 	}
 	pending := sessionauth.WorkOSMFAPendingState{
 		Mode:                       required.Mode,
-		Intent:                     state.Intent,
-		ReturnTo:                   sanitizeAuthReturnTo(state.ReturnTo, opts.ReturnToOrigins),
+		Intent:                     intent,
+		ReturnTo:                   sanitizeAuthReturnTo(returnTo, opts.ReturnToOrigins),
 		PendingAuthenticationToken: required.PendingAuthenticationToken,
 		User:                       required.User,
 		AuthenticationFactors:      required.AuthenticationFactors,
@@ -438,13 +458,13 @@ func handleWorkOSMFARequired(c *gin.Context, logger *zap.Logger, opts authSessio
 			logger.Error("seal workos mfa pending state", telemetry.ZapError(err))
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to continue login"})
-		return
+		return "", false
 	}
 	if logger != nil {
 		logger.Info("workos mfa required", zap.String("mode", pending.Mode))
 	}
 	http.SetCookie(c.Writer, workOSMFAPendingCookie(opts.PublicBaseURL, sealed, opts.PendingMFAManager.TTL()))
-	c.Redirect(http.StatusFound, workOSMFARedirectURL(pending.ReturnTo, opts.PublicBaseURL, opts.ReturnToOrigins))
+	return workOSMFARedirectURL(pending.ReturnTo, opts.PublicBaseURL, opts.ReturnToOrigins), true
 }
 
 func completeWorkOSLogin(c *gin.Context, logger *zap.Logger, svc *Service, manager sessionauth.Manager, opts authSessionRouteOptions, authenticated sessionauth.WorkOSAuthentication, state sessionauth.OAuthState, failureMode workOSLoginFailureMode) (string, bool) {
@@ -805,7 +825,7 @@ func workOSMFAFactorAllowed(factors []sessionauth.WorkOSMFAFactor, factorID stri
 
 func writeWorkOSMFAProviderError(c *gin.Context, logger *zap.Logger, err error, message string) {
 	if logger != nil {
-		logger.Warn(message, zap.String("error", "workos mfa provider returned an error"))
+		logger.Warn(message, telemetry.ZapError(err))
 	}
 	if errors.Is(err, sessionauth.ErrWorkOSUnavailable) {
 		c.Header("Retry-After", "30")
@@ -817,7 +837,7 @@ func writeWorkOSMFAProviderError(c *gin.Context, logger *zap.Logger, err error, 
 
 func writeWorkOSMFAVerifyError(c *gin.Context, logger *zap.Logger, err error) {
 	if logger != nil {
-		logger.Warn("verify workos mfa challenge", zap.String("error", "workos mfa verification failed"))
+		logger.Warn("verify workos mfa challenge", telemetry.ZapError(err))
 	}
 	if errors.Is(err, sessionauth.ErrWorkOSUnavailable) {
 		c.Header("Retry-After", "30")
@@ -852,6 +872,171 @@ func workOSMFAClearCookie(publicBaseURL string) *http.Cookie {
 		Secure:   sessionauthCookieSecure(publicBaseURL),
 		SameSite: http.SameSiteLaxMode,
 	}
+}
+
+func handleWorkOSEmailVerificationRequired(c *gin.Context, logger *zap.Logger, opts authSessionRouteOptions, state sessionauth.OAuthState, required *sessionauth.WorkOSEmailVerificationRequired) {
+	if required == nil || opts.PendingEmailManager == nil || strings.TrimSpace(required.PendingAuthenticationToken) == "" {
+		if logger != nil {
+			logger.Warn("workos email verification required without resumable pending token")
+		}
+		redirectWorkOSCallbackFailure(c, opts, state.ReturnTo, authFailureReasonEmailUnverified)
+		return
+	}
+	pending := sessionauth.WorkOSEmailVerificationPendingState{
+		Intent:                     state.Intent,
+		ReturnTo:                   sanitizeAuthReturnTo(state.ReturnTo, opts.ReturnToOrigins),
+		Email:                      required.Email,
+		PendingAuthenticationToken: required.PendingAuthenticationToken,
+		EmailVerificationID:        required.EmailVerificationID,
+	}
+	sealed, err := opts.PendingEmailManager.Seal(pending)
+	if err != nil {
+		if logger != nil {
+			logger.Error("seal workos email verification pending state", telemetry.ZapError(err))
+		}
+		redirectWorkOSCallbackFailure(c, opts, state.ReturnTo, authFailureReasonEmailUnverified)
+		return
+	}
+	if logger != nil {
+		logger.Info("workos email verification required")
+	}
+	http.SetCookie(c.Writer, workOSEmailVerificationPendingCookie(opts.PublicBaseURL, sealed, opts.PendingEmailManager.TTL()))
+	c.Redirect(http.StatusFound, workOSEmailVerificationRedirectURL(pending.ReturnTo, opts.PublicBaseURL, opts.ReturnToOrigins))
+}
+
+type workOSEmailVerificationVerifyRequest struct {
+	Code string `json:"code"`
+}
+
+func workOSEmailVerificationPendingHandler(opts authSessionRouteOptions) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		state, ok := readWorkOSEmailVerificationPendingState(c, opts)
+		if !ok {
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"email": state.Email})
+	}
+}
+
+func workOSEmailVerificationVerifyHandler(logger *zap.Logger, svc *Service, manager sessionauth.Manager, opts authSessionRouteOptions) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if svc == nil || svc.Store == nil || opts.WorkOSClient == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth service unavailable"})
+			return
+		}
+		state, ok := readWorkOSEmailVerificationPendingState(c, opts)
+		if !ok {
+			return
+		}
+		var req workOSEmailVerificationVerifyRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid verification request"})
+			return
+		}
+		code := strings.TrimSpace(req.Code)
+		if code == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "verification code is required"})
+			return
+		}
+		authenticated, err := opts.WorkOSClient.AuthenticateWithEmailVerificationCode(c.Request.Context(), sessionauth.WorkOSEmailVerificationVerifyRequest{
+			PendingAuthenticationToken: state.PendingAuthenticationToken,
+			Code:                       code,
+			IPAddress:                  c.ClientIP(),
+			UserAgent:                  c.Request.UserAgent(),
+		})
+		if err != nil {
+			// WorkOS can chain a second pending step after the email is
+			// verified: when MFA enforcement is enabled it answers the
+			// verification exchange with an MFA challenge/enrollment error
+			// instead of a session. Hand the browser to the existing MFA
+			// flow rather than reporting a bad code.
+			if required, ok := sessionauth.AsWorkOSMFARequired(err); ok {
+				redirectTo, handed := sealWorkOSMFAPending(c, logger, opts, state.Intent, state.ReturnTo, required)
+				if !handed {
+					return
+				}
+				http.SetCookie(c.Writer, workOSEmailVerificationClearCookie(opts.PublicBaseURL))
+				c.JSON(http.StatusOK, gin.H{"ok": true, "redirect_to": redirectTo})
+				return
+			}
+			writeWorkOSEmailVerificationVerifyError(c, logger, err)
+			return
+		}
+		redirectTo, ok := completeWorkOSLogin(c, logger, svc, manager, opts, authenticated, sessionauth.OAuthState{
+			Intent:   state.Intent,
+			ReturnTo: state.ReturnTo,
+		}, workOSLoginFailureRedirectJSON)
+		if !ok {
+			return
+		}
+		http.SetCookie(c.Writer, workOSEmailVerificationClearCookie(opts.PublicBaseURL))
+		c.JSON(http.StatusOK, gin.H{
+			"ok":          true,
+			"redirect_to": redirectTo,
+		})
+	}
+}
+
+func readWorkOSEmailVerificationPendingState(c *gin.Context, opts authSessionRouteOptions) (sessionauth.WorkOSEmailVerificationPendingState, bool) {
+	if opts.PendingEmailManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth service unavailable"})
+		return sessionauth.WorkOSEmailVerificationPendingState{}, false
+	}
+	cookie, err := c.Request.Cookie(sessionauth.PendingEmailVerificationCookieName)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "email verification session expired"})
+		return sessionauth.WorkOSEmailVerificationPendingState{}, false
+	}
+	state, err := opts.PendingEmailManager.Open(cookie.Value)
+	if err != nil {
+		http.SetCookie(c.Writer, workOSEmailVerificationClearCookie(opts.PublicBaseURL))
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "email verification session expired"})
+		return sessionauth.WorkOSEmailVerificationPendingState{}, false
+	}
+	return state, true
+}
+
+func writeWorkOSEmailVerificationVerifyError(c *gin.Context, logger *zap.Logger, err error) {
+	if logger != nil {
+		logger.Warn("verify workos email verification code", telemetry.ZapError(err))
+	}
+	if errors.Is(err, sessionauth.ErrWorkOSUnavailable) {
+		c.Header("Retry-After", "30")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth provider unavailable"})
+		return
+	}
+	c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid verification code"})
+}
+
+func workOSEmailVerificationPendingCookie(publicBaseURL string, value string, ttl time.Duration) *http.Cookie {
+	if ttl <= 0 {
+		ttl = sessionauth.DefaultEmailVerificationPendingTTL
+	}
+	return &http.Cookie{
+		Name:     sessionauth.PendingEmailVerificationCookieName,
+		Value:    value,
+		Path:     "/auth/email-verification",
+		MaxAge:   int(ttl.Seconds()),
+		HttpOnly: true,
+		Secure:   sessionauthCookieSecure(publicBaseURL),
+		SameSite: http.SameSiteLaxMode,
+	}
+}
+
+func workOSEmailVerificationClearCookie(publicBaseURL string) *http.Cookie {
+	return &http.Cookie{
+		Name:     sessionauth.PendingEmailVerificationCookieName,
+		Value:    "",
+		Path:     "/auth/email-verification",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   sessionauthCookieSecure(publicBaseURL),
+		SameSite: http.SameSiteLaxMode,
+	}
+}
+
+func workOSEmailVerificationRedirectURL(returnTo string, publicBaseURL string, allowedOrigins []string) string {
+	return workOSAuthContinuationRedirectURL("/auth/email-verification", returnTo, publicBaseURL, allowedOrigins)
 }
 
 func oauthTransactionCookie(publicBaseURL string, nonce string, value string, ttl time.Duration) *http.Cookie {
@@ -890,6 +1075,16 @@ func sessionauthCookieSecure(publicBaseURL string) bool {
 }
 
 func workOSMFARedirectURL(returnTo string, publicBaseURL string, allowedOrigins []string) string {
+	return workOSAuthContinuationRedirectURL("/auth/mfa", returnTo, publicBaseURL, allowedOrigins)
+}
+
+// workOSAuthContinuationRedirectURL builds the absolute (or path-only, when no
+// frontend origin can be resolved) URL that hands the browser to a WorkOS
+// login-continuation page such as /auth/mfa or /auth/email-verification. It
+// sanitizes the return target, prefers its origin when it is an allowed
+// absolute URL, and otherwise falls back to the configured frontend origin so
+// both continuation flows share one place to fix redirect/sanitization logic.
+func workOSAuthContinuationRedirectURL(targetPagePath string, returnTo string, publicBaseURL string, allowedOrigins []string) string {
 	sanitizedReturnTo := sanitizeAuthReturnTo(returnTo, allowedOrigins)
 	if sanitizedReturnTo == "" {
 		sanitizedReturnTo = "/app"
@@ -903,7 +1098,7 @@ func workOSMFARedirectURL(returnTo string, publicBaseURL string, allowedOrigins 
 	}
 	query := url.Values{}
 	query.Set("return_to", sanitizedReturnTo)
-	targetPath := "/auth/mfa?" + query.Encode()
+	targetPath := targetPagePath + "?" + query.Encode()
 	if targetOrigin == "" {
 		return targetPath
 	}

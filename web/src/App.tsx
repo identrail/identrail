@@ -17,6 +17,7 @@ import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import { SignInPage } from './pages/SignInPage';
 import { SignUpPage } from './pages/SignUpPage';
 import { WorkOSMFAPage } from './pages/WorkOSMFAPage';
+import { WorkOSEmailVerificationPage } from './pages/WorkOSEmailVerificationPage';
 import { WhyNoPasswordsPage } from './pages/WhyNoPasswordsPage';
 import { siteEmails } from './siteConfig';
 import { ConnectPage } from './pages/onboarding/ConnectPage';
@@ -4689,7 +4690,11 @@ export function RoutedSite() {
   const isProductShellRoute = location.pathname.startsWith('/app') || location.pathname.startsWith('/reports');
   const isOnboardingRoute = location.pathname.startsWith('/onboarding');
   const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
-  const isAuthChoiceRoute = normalizedPath === '/signin' || normalizedPath === '/signup' || normalizedPath === '/auth/mfa';
+  const isAuthChoiceRoute =
+    normalizedPath === '/signin' ||
+    normalizedPath === '/signup' ||
+    normalizedPath === '/auth/mfa' ||
+    normalizedPath === '/auth/email-verification';
   const isAuthShellRoute = isAuthChoiceRoute || normalizedPath === '/auth/callback';
   useEffect(() => {
     if (isProductShellRoute || isOnboardingRoute || isAuthShellRoute) {
@@ -4716,6 +4721,7 @@ export function RoutedSite() {
           <Route path="/signup" element={<SignUpPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route path="/auth/mfa" element={<WorkOSMFAPage />} />
+          <Route path="/auth/email-verification" element={<WorkOSEmailVerificationPage />} />
           <Route path="/why-no-passwords" element={<WhyNoPasswordsPage />} />
           <Route path="/app/login" element={<ProductLoginPage />} />
           <Route path="/app/callback" element={<ProductAuthCallbackRedirectPage />} />

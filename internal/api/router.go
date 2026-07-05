@@ -344,6 +344,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			StateManager:          stateManager,
 			TransactionStore:      oauthTransactionStore,
 			PendingMFAManager:     sessionauth.NewMFAPendingStateManager(opts.SessionKey, nil).WithPreviousSecret(opts.SessionKeyPrevious),
+			PendingEmailManager:   sessionauth.NewEmailVerificationPendingStateManager(opts.SessionKey, nil).WithPreviousSecret(opts.SessionKeyPrevious),
 			PublicBaseURL:         opts.PublicBaseURL,
 			ReturnToOrigins:       authReturnToOrigins(opts.PublicBaseURL, opts.CORSAllowedOrigins),
 		})

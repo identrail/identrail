@@ -19,6 +19,7 @@
   <url><loc>https://www.identrail.com/signin</loc></url>
   <url><loc>https://www.identrail.com/signup</loc></url>
   <url><loc>https://www.identrail.com/auth/mfa</loc></url>
+  <url><loc>https://www.identrail.com/auth/email-verification</loc></url>
   <url><loc>https://www.identrail.com/why-no-passwords</loc></url>
   <url><loc>https://www.identrail.com/docs</loc></url>
   <url><loc>https://www.identrail.com/faq</loc></url>
