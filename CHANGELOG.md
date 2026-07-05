@@ -1,6 +1,28 @@
 # Changelog
 
 ## Unreleased
+- Add a **precision suppression gate** to the repository secret scanner so it
+  surfaces real, actionable secrets instead of a flood of low-value matches.
+  The classifier already recognized placeholders, sequential/repeated fillers,
+  low-entropy values, test/sample paths, and allowlisted fingerprints, but every
+  match was still emitted at the rule's static severity. The scanner now (1)
+  drops matches whose value is provably not a credential — placeholder markers,
+  sequential or repeated fillers, low entropy — as well as allowlisted
+  fingerprints; (2) caps a match's severity to its classifier confidence, so a
+  low-confidence hit can never present as high or critical; and (3) adds two
+  operator-configurable tuning directives, set in a repository's
+  `.identrailignore` alongside allowlisted fingerprints:
+  `drop-test-and-sample: true` (suppress real-looking values whose only weakness
+  is a test/sample/docs path) and `min-confidence-score: 0.85` (drop any
+  surviving match below a score floor). Placeholder-word suppression is scoped
+  to the secret value itself; a marker appearing only in surrounding line
+  context (a variable name or comment), or in a composite value's
+  non-credential component (a DSN host or database name), downranks confidence
+  but never suppresses, so a real credential next to the word "example" is still
+  reported. The `drop-test-and-sample` directive keys off the file path only, so
+  it never drops a real production secret that merely sits next to a placeholder
+  word. A real, high-entropy credential in a production path is always reported —
+  precision does not cost true positives.
 - Add a **WorkOS email-verification continuation flow** for hosted login.
   When WorkOS refuses an OAuth code exchange with
   `email_verification_required` (common for GitHub accounts whose email is

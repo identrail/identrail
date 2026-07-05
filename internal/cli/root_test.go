@@ -18,6 +18,13 @@ import (
 	awsprovider "github.com/identrail/identrail/internal/providers/aws"
 )
 
+// cliTestSecretValue is a synthetic high-entropy AWS secret used by the repo
+// scan CLI tests. It is realistic enough that the scanner's precision gate
+// treats it as a real credential; gitleaks:allow marks it as an intentional
+// test fixture. Both the fixture writer and the redaction assertion reference
+// this single constant so the redaction check always tracks the real value.
+const cliTestSecretValue = "wJ8kR2mNp7qXvB4cT1sYzH6dL9gF3aQ5eU0iPoM8" //gitleaks:allow
+
 func TestExecuteScanAndFindingsTable(t *testing.T) {
 	cfg := config.Config{ServiceName: "identrail-test", Provider: "aws"}
 	stateFile := filepath.Join(t.TempDir(), "state.json")
@@ -161,7 +168,7 @@ func TestExecuteRepoScan(t *testing.T) {
 	if !strings.Contains(body, "\"secret_exposure\"") {
 		t.Fatalf("expected secret finding output, got %q", body)
 	}
-	if strings.Contains(body, "ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234") {
+	if strings.Contains(body, cliTestSecretValue) {
 		t.Fatalf("expected redacted output, got %q", body)
 	}
 }
@@ -418,7 +425,7 @@ func initCLITestRepoWithSecret(t *testing.T) string {
 	repo := t.TempDir()
 	runCLITestGit(t, repo, "init", "-q")
 
-	if err := os.WriteFile(filepath.Join(repo, "app.env"), []byte("AWS_SECRET_ACCESS_KEY=ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, "app.env"), []byte("AWS_SECRET_ACCESS_KEY="+cliTestSecretValue+"\n"), 0o600); err != nil {
 		t.Fatalf("write secret file: %v", err)
 	}
 	runCLITestGit(t, repo, "add", "app.env")

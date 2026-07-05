@@ -41,6 +41,12 @@ type secretDetector struct {
 	Version     string
 	Examples    []string
 	Patterns    []secretDetectorPattern
+	// CompositeValue marks detectors whose captured material is more than the
+	// bare credential (for example a database DSN that also contains a host and
+	// database name). A placeholder word in such a value may sit in a
+	// non-credential component, so markers are never treated as proof the value
+	// is fake — they only downrank confidence, never hard-suppress.
+	CompositeValue bool
 }
 
 const (
@@ -55,6 +61,15 @@ const (
 
 type secretFindingPolicy struct {
 	AllowlistedFingerprints map[string]struct{}
+	// DropTestAndSampleFindings suppresses matches whose ONLY low-confidence
+	// signal is a test/sample/docs file path while the value itself still looks
+	// like a real secret. Off by default so a genuine credential committed to a
+	// test fixture is never silently hidden; enable for maximum precision.
+	DropTestAndSampleFindings bool
+	// MinConfidenceScore, when greater than zero, drops any surviving match
+	// whose classifier score is below it. Off by default (0.0); raise it to tune
+	// precision higher once real-world results are reviewed.
+	MinConfidenceScore float64
 }
 
 type secretFindingOptions struct {
@@ -344,15 +359,16 @@ var secretDetectorRegistry = []secretDetector{
 		},
 	},
 	{
-		ID:          "database_connection_url",
-		Version:     "2026.05",
-		Severity:    domain.SeverityMedium,
-		Confidence:  0.86,
-		Title:       "Potential database URL with embedded credentials",
-		Provider:    "General",
-		Category:    "configuration",
-		Summary:     "A line added in commit history appears to include a database URL with inline credentials.",
-		Remediation: "Move connection credentials to a secret store and use short-lived runtime env injection.",
+		ID:             "database_connection_url",
+		Version:        "2026.05",
+		Severity:       domain.SeverityMedium,
+		Confidence:     0.86,
+		Title:          "Potential database URL with embedded credentials",
+		Provider:       "General",
+		Category:       "configuration",
+		CompositeValue: true,
+		Summary:        "A line added in commit history appears to include a database URL with inline credentials.",
+		Remediation:    "Move connection credentials to a secret store and use short-lived runtime env injection.",
 		Patterns: []secretDetectorPattern{
 			{
 				Regexp:     regexp.MustCompile(`\b(?:postgres|postgresql|mysql|mysql2|mssql|redis|mongodb|mongodb\+srv|cockroach|oracle)://[^\s'\"<>]+:[^\s'\"<>]+@[^\s'\"<>]+`),
@@ -526,11 +542,18 @@ func detectSecretFindings(repo string, commit string, path string, line int, tex
 		}
 		fingerprint := hashSHA256(secretMaterial)
 		classification := classifySecretMatch(item.rule, path, item.match, secretMaterial, fingerprint, secretOptions.Policy)
+		// Precision gate: drop matches the classifier proves are not real
+		// credentials (placeholders, sequential/repeated fillers, low entropy,
+		// allowlisted) so the surfaced findings stay small and actionable.
+		if suppressed, _ := classification.suppressedBy(secretOptions.Policy); suppressed {
+			continue
+		}
+		severity := severityForClassification(item.rule.Severity, classification)
 		id := hashDeterministicID("repo-secret", repo, commit, path, strconv.Itoa(line), item.rule.ID, fingerprint)
 		findings = append(findings, domain.Finding{
 			ID:                  "finding:" + id,
 			Type:                domain.FindingSecretExposure,
-			Severity:            item.rule.Severity,
+			Severity:            severity,
 			ConfidenceScore:     classification.Score,
 			Title:               item.rule.Title,
 			HumanSummary:        item.rule.Summary,
@@ -581,6 +604,9 @@ func parseSecretFindingPolicy(content []byte) secretFindingPolicy {
 		if index := strings.Index(line, "#"); index >= 0 {
 			line = strings.TrimSpace(line[:index])
 		}
+		if applySecretPolicyDirective(&policy, line) {
+			continue
+		}
 		fingerprint := normalizeSecretFingerprint(line)
 		if fingerprint == "" {
 			continue
@@ -591,6 +617,48 @@ func parseSecretFindingPolicy(content []byte) secretFindingPolicy {
 		policy.AllowlistedFingerprints = nil
 	}
 	return policy
+}
+
+// applySecretPolicyDirective interprets a `.identrailignore` line as a tuning
+// directive and applies it to the policy. It reports whether the line was a
+// recognized directive so the caller can skip fingerprint parsing. Supported:
+//
+//	drop-test-and-sample: true      # suppress real-looking secrets in test/sample paths
+//	min-confidence-score: 0.85      # drop any surviving match below this score
+func applySecretPolicyDirective(policy *secretFindingPolicy, line string) bool {
+	key, value, ok := splitSecretPolicyDirective(line)
+	if !ok {
+		return false
+	}
+	switch key {
+	case "drop-test-and-sample", "drop_test_and_sample":
+		if enabled, err := strconv.ParseBool(value); err == nil {
+			policy.DropTestAndSampleFindings = enabled
+		}
+		return true
+	case "min-confidence-score", "min_confidence_score":
+		if score, err := strconv.ParseFloat(value, 64); err == nil && score >= 0 && score <= 1 {
+			policy.MinConfidenceScore = score
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func splitSecretPolicyDirective(line string) (key string, value string, ok bool) {
+	separator := strings.IndexAny(line, ":=")
+	if separator <= 0 {
+		return "", "", false
+	}
+	key = strings.ToLower(strings.TrimSpace(line[:separator]))
+	value = strings.TrimSpace(line[separator+1:])
+	switch key {
+	case "drop-test-and-sample", "drop_test_and_sample", "min-confidence-score", "min_confidence_score":
+		return key, value, true
+	default:
+		return "", "", false
+	}
 }
 
 func normalizeSecretFingerprint(value string) string {
@@ -639,7 +707,7 @@ func classifySecretMatch(rule secretDetector, filePath string, line string, secr
 		reasons = append(reasons, "path_context:sample_or_docs")
 	}
 
-	placeholderReasons := secretPlaceholderReasons(line, secretMaterial)
+	placeholderReasons := secretPlaceholderReasons(line, secretMaterial, rule.CompositeValue)
 	if len(placeholderReasons) > 0 {
 		if state == "" {
 			state = secretClassificationSamplePlaceholder
@@ -657,6 +725,110 @@ func classifySecretMatch(rule secretDetector, filePath string, line string, secr
 		}
 	}
 	return secretConfidenceClassification{State: state, Score: score, Reasons: reasons}
+}
+
+// suppressedBy reports whether a classified secret match should be dropped
+// rather than emitted as a finding, and why. The gate is precision-first: it
+// removes matches that are provably not real credentials so the surfaced set
+// stays small and every finding is actionable.
+//
+// A match is suppressed when:
+//   - it is allowlisted (the repository owner explicitly opted it out); or
+//   - the VALUE itself is proven fake — a known placeholder marker, a
+//     sequential or repeated dummy, or a low-entropy string. These are safe to
+//     drop regardless of file path, because a value that is provably fake is
+//     never a real exposure; or
+//   - the policy opts in to dropping test/sample/docs paths, and the match's
+//     only weakness is its path; or
+//   - the policy sets a minimum confidence score and this match falls below it.
+//
+// A real-looking, high-entropy value committed to a test or example file is
+// deliberately NOT suppressed by default: that is still a genuine leaked
+// secret, so it is kept (at reduced confidence) unless DropTestAndSampleFindings
+// is explicitly enabled.
+func (c secretConfidenceClassification) suppressedBy(policy secretFindingPolicy) (bool, string) {
+	if c.Allowlisted {
+		return true, "allowlisted"
+	}
+	if classificationValueProvenFake(c.Reasons) {
+		return true, "value_proven_placeholder_or_low_entropy"
+	}
+	if policy.DropTestAndSampleFindings && classificationFromTestOrSamplePath(c.Reasons) {
+		return true, "test_or_sample_path"
+	}
+	if policy.MinConfidenceScore > 0 && c.Score < policy.MinConfidenceScore {
+		return true, "below_min_confidence"
+	}
+	return false, ""
+}
+
+// classificationValueProvenFake reports whether any classifier reason indicates
+// the matched value itself is not a real credential (a placeholder marker, a
+// sequential or repeated dummy, or a low-entropy string). These directly cover
+// the noisy cases operators complain about: "EXAMPLE" tokens, consecutive or
+// repeated digits, and other obvious fillers.
+// classificationFromTestOrSamplePath reports whether the low-confidence signal
+// came from the file's PATH (a test fixture, sample, or docs location) rather
+// than from the value or its surrounding text. The opt-in
+// DropTestAndSampleFindings knob keys off this so it suppresses only path-based
+// matches — a real credential that merely sits next to a placeholder word in a
+// production file (a context_marker, which shares the sample_or_placeholder
+// state) is never dropped by it.
+func classificationFromTestOrSamplePath(reasons []string) bool {
+	for _, reason := range reasons {
+		if reason == "path_context:test_fixture" || reason == "path_context:sample_or_docs" {
+			return true
+		}
+	}
+	return false
+}
+
+func classificationValueProvenFake(reasons []string) bool {
+	for _, reason := range reasons {
+		if strings.HasPrefix(reason, "value_marker:") ||
+			reason == "value_shape:sequential" ||
+			reason == "value_shape:repeated_or_low_variety" ||
+			reason == "value_entropy:low" {
+			return true
+		}
+	}
+	return false
+}
+
+// severityForClassification maps a rule's static severity down to the caller's
+// confidence in the match. Only high-confidence matches keep the rule's full
+// severity; anything weaker is capped at medium so a low-confidence match can
+// never present as high or critical. This is what stops the scanner from
+// "treating everything as great."
+func severityForClassification(base domain.FindingSeverity, c secretConfidenceClassification) domain.FindingSeverity {
+	if c.State == secretClassificationHighConfidence {
+		return base
+	}
+	return capSecretSeverity(base, domain.SeverityMedium)
+}
+
+func capSecretSeverity(severity domain.FindingSeverity, ceiling domain.FindingSeverity) domain.FindingSeverity {
+	if secretSeverityRank(severity) > secretSeverityRank(ceiling) {
+		return ceiling
+	}
+	return severity
+}
+
+func secretSeverityRank(severity domain.FindingSeverity) int {
+	switch severity {
+	case domain.SeverityCritical:
+		return 5
+	case domain.SeverityHigh:
+		return 4
+	case domain.SeverityMedium:
+		return 3
+	case domain.SeverityLow:
+		return 2
+	case domain.SeverityInfo:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func baseSecretDetectorConfidence(rule secretDetector) float64 {
@@ -746,26 +918,57 @@ func normalizeSecretPath(filePath string) string {
 	return strings.ToLower(normalized)
 }
 
-func secretPlaceholderReasons(line string, secretMaterial string) []string {
+var secretPlaceholderMarkers = []string{"example", "changeme", "change_me", "dummy", "fake", "sample", "placeholder", "notasecret", "not_a_secret", "replace_me", "your_", "todo", "testsecret", "test_secret", "test-secret", "sk_test_", "pk_test_"}
+
+func secretPlaceholderReasons(line string, secretMaterial string, compositeValue bool) []string {
 	lowerMaterial := strings.ToLower(strings.TrimSpace(secretMaterial))
 	lowerLine := strings.ToLower(strings.TrimSpace(line))
 	reasons := []string{}
-	for _, marker := range []string{"example", "changeme", "change_me", "dummy", "fake", "sample", "placeholder", "notasecret", "not_a_secret", "replace_me", "your_", "todo", "testsecret", "test_secret", "test-secret", "sk_test_", "pk_test_"} {
-		if strings.Contains(lowerMaterial, marker) || strings.Contains(lowerLine, marker) {
-			reasons = append(reasons, "value_marker:"+marker)
-			break
+	// A marker inside the secret VALUE proves the value is fake and is safe to
+	// suppress. A marker that appears only in the surrounding line context (a
+	// variable name, a comment, or an adjacent word like "example"/"todo") is a
+	// weaker signal: a genuine credential can sit next to such words, so it is
+	// recorded as a distinct context_marker that downranks confidence but never
+	// triggers hard suppression. This prevents false negatives on real secrets.
+	//
+	// For composite detectors the captured value is more than the bare
+	// credential (a DSN host/database name, for example), so a marker in the
+	// value is treated as context too — never as proof the credential is fake.
+	valueMarked := false
+	if !compositeValue {
+		for _, marker := range secretPlaceholderMarkers {
+			if strings.Contains(lowerMaterial, marker) {
+				reasons = append(reasons, "value_marker:"+marker)
+				valueMarked = true
+				break
+			}
+		}
+	}
+	if !valueMarked {
+		for _, marker := range secretPlaceholderMarkers {
+			if strings.Contains(lowerLine, marker) || (compositeValue && strings.Contains(lowerMaterial, marker)) {
+				reasons = append(reasons, "context_marker:"+marker)
+				break
+			}
 		}
 	}
 
-	compact := compactSecretValue(secretMaterial)
-	if len(compact) >= 12 && isRepeatedOrLowVarietySecret(compact) {
-		reasons = append(reasons, "value_shape:repeated_or_low_variety")
-	}
-	if len(compact) >= 16 && containsSequentialSecretPattern(compact) {
-		reasons = append(reasons, "value_shape:sequential")
-	}
-	if len(compact) >= 16 && entropy(secretMaterial) < 2.6 && !strings.Contains(lowerMaterial, "-----begin ") {
-		reasons = append(reasons, "value_entropy:low")
+	// Value-shape and entropy heuristics prove a bare credential is fake, but on
+	// a composite value they run over the whole DSN — a filler-looking host or
+	// database name (e.g. "db-0123456789abcdef") would otherwise suppress a real
+	// password. They are only computed for non-composite detectors, where the
+	// captured material is the credential itself.
+	if !compositeValue {
+		compact := compactSecretValue(secretMaterial)
+		if len(compact) >= 12 && isRepeatedOrLowVarietySecret(compact) {
+			reasons = append(reasons, "value_shape:repeated_or_low_variety")
+		}
+		if len(compact) >= 16 && containsSequentialSecretPattern(compact) {
+			reasons = append(reasons, "value_shape:sequential")
+		}
+		if len(compact) >= 16 && entropy(secretMaterial) < 2.6 && !strings.Contains(lowerMaterial, "-----begin ") {
+			reasons = append(reasons, "value_entropy:low")
+		}
 	}
 	return reasons
 }

@@ -18,7 +18,7 @@ func TestDetectAIAgentConfigFindingsDetectsSecretsEnvAndDangerousTools(t *testin
       "args": ["@modelcontextprotocol/server-filesystem", "/"],
       "env": {
         "GITHUB_TOKEN": "${GITHUB_TOKEN}",
-        "OPENAI_API_KEY": "sk-proj-` + strings.Repeat("a", 40) + `"
+        "OPENAI_API_KEY": "sk-proj-` + entropicFixture(fixtureCharsetAlnum, 40) + `"
       }
     },
     "deploy": {
@@ -177,7 +177,7 @@ func TestDetectAIAgentConfigFindingsHonorsSecretAllowlistPolicy(t *testing.T) {
     "filesystem": {
       "command": "npx",
       "env": {
-        "OPENAI_API_KEY": "sk-proj-` + strings.Repeat("a", 40) + `"
+        "OPENAI_API_KEY": "sk-proj-` + entropicFixture(fixtureCharsetAlnum, 40) + `"
       }
     }
   }
@@ -199,21 +199,12 @@ func TestDetectAIAgentConfigFindingsHonorsSecretAllowlistPolicy(t *testing.T) {
 	allowlisted := detectMisconfigFindings("octo-org/octo-repo", "HEAD", ".cursor/mcp.json", content, detectedAt,
 		withSecretFindingPolicy(secretFindingPolicy{AllowlistedFingerprints: map[string]struct{}{fingerprint: {}}}))
 
-	var secret domain.Finding
+	// An allowlisted fingerprint must be dropped on the AI-agent path too, not
+	// merely tagged, so the surfaced findings never include an opted-out secret.
 	for _, finding := range allowlisted {
 		if finding.Type == domain.FindingSecretExposure {
-			secret = finding
-			break
+			t.Fatalf("expected allowlisted secret to be suppressed on the AI-agent path, got %+v", finding)
 		}
-	}
-	if secret.ID == "" {
-		t.Fatalf("expected a secret finding when allowlist policy is applied, got %+v", allowlisted)
-	}
-	if got := secret.Evidence["confidence_state"]; got != secretClassificationAllowlisted {
-		t.Fatalf("expected allowlisted classification on AI-agent secret path, got %v in %+v", got, secret.Evidence)
-	}
-	if got, _ := secret.Evidence["secret_allowlisted"].(bool); !got {
-		t.Fatalf("expected allowlisted evidence flag on AI-agent secret path, got %+v", secret.Evidence)
 	}
 }
 
