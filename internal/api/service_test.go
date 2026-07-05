@@ -2847,6 +2847,13 @@ func TestServiceRunRepoScanPersistedDoesNotAdvanceCursorAfterPartialSourceRun(t 
 	if run.RepoScan.CursorAfter != "" {
 		t.Fatalf("partial source run must not advance cursor_after, got %+v", run.RepoScan)
 	}
+	if run.RepoScan.SourceHealth != db.RepoScanSourceHealthPartial {
+		t.Fatalf("expected returned repo scan source health to be partial, got %+v", run.RepoScan)
+	}
+	postureHealth := repoScanSourceHealthBySource(run.RepoScan.SourceHealthDetails, "github_repository_posture")
+	if postureHealth == nil || postureHealth.Status != db.RepoScanSourceHealthUnavailable {
+		t.Fatalf("expected posture source to be unavailable from returned source health details, got %+v", run.RepoScan.SourceHealthDetails)
+	}
 
 	cursor, err := store.GetRepoScanCursor(defaultScopeContext(), "owner/private", db.RepoScanSource{})
 	if err != nil {

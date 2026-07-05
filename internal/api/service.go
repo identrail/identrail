@@ -1973,6 +1973,8 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	record.FilesScanned = result.FilesScanned
 	record.FindingCount = len(result.Findings)
 	record.Truncated = result.Truncated
+	record.SourceHealth = sourceHealth
+	record.SourceHealthDetails = sourceHealthDetails
 	record.ScanMode = result.ScanMode
 	record.BaseRevision = result.BaseRevision
 	record.HeadRevision = result.HeadRevision
