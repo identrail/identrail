@@ -26983,7 +26983,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     const currentStatus = normalizeFindingStatus(selectedFinding.triage?.status);
     const currentAssignee = normalizeValue(selectedFinding.triage?.assignee ?? '');
     const trackingSuppression = nextStatus === 'suppressed';
-    const enteringSuppression = currentStatus !== 'suppressed' && trackingSuppression;
+    const updatingSuppression = trackingSuppression;
     const currentSuppression = normalizeValue(toLocalDateTimeInputValue(selectedFinding.triage?.suppression_expires_at ?? ''));
     const nextSuppression = normalizeValue(workflowSuppressionExpiresAt);
     const hasChanges =
@@ -27009,7 +27009,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         comment?: string;
       } = {};
       const trimmedComment = normalizeValue(workflowComment);
-      if (enteringSuppression && !trimmedComment) {
+      if (updatingSuppression && !trimmedComment) {
         setWorkflowError('Suppression requires a reason.');
         setWorkflowLoading(false);
         return;
