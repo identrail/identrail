@@ -8757,7 +8757,9 @@ describe('GitHub domain pages (#1382)', () => {
     expect(within(posturePanel).getByText('No repository posture collected yet')).toBeInTheDocument();
     expect(mocks.getGitHubConnectorRepositoryPosture).not.toHaveBeenCalled();
 
-    fireEvent.click(within(posturePanel).getByRole('button', { name: /Review posture/i }));
+    const reviewButton = within(posturePanel).getByRole('button', { name: /Review posture/i });
+    await waitFor(() => expect(reviewButton).not.toBeDisabled());
+    fireEvent.click(reviewButton);
 
     expect(await within(posturePanel).findByText('Default branch is missing required pull request reviews.')).toBeInTheDocument();
     expect(within(posturePanel).getByLabelText('GitHub posture summary')).toHaveTextContent('Secure1');
@@ -8772,6 +8774,57 @@ describe('GitHub domain pages (#1382)', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
+  });
+
+  it('Repositories page keeps posture review opt-in after switching repositories', async () => {
+    const mocks = await renderGitHubPage('repositories', {
+      githubConnection: {
+        ...connectedGitHub,
+        selected_repositories: ['identrail/identrail', 'identrail/docs']
+      },
+      scans: [succeededRepoScan]
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const posturePanel = await screen.findByRole('region', { name: 'Repository posture' });
+    const repositorySelect = within(posturePanel).getByLabelText('Repository');
+    const reviewButton = within(posturePanel).getByRole('button', { name: /Review posture/i });
+
+    await waitFor(() => expect(reviewButton).not.toBeDisabled());
+    fireEvent.click(reviewButton);
+
+    expect(await within(posturePanel).findByText('Default branch is missing required pull request reviews.')).toBeInTheDocument();
+    await waitFor(() => expect(mocks.getGitHubConnectorRepositoryPosture).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(repositorySelect, { target: { value: 'identrail/docs' } });
+
+    await waitFor(() => expect(repositorySelect).toHaveValue('identrail/docs'));
+    expect(within(posturePanel).getByText('No repository posture collected yet')).toBeInTheDocument();
+    expect(mocks.getGitHubConnectorRepositoryPosture).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(repositorySelect, { target: { value: 'identrail/identrail' } });
+
+    await waitFor(() => expect(repositorySelect).toHaveValue('identrail/identrail'));
+    expect(within(posturePanel).getByText('No repository posture collected yet')).toBeInTheDocument();
+    expect(mocks.getGitHubConnectorRepositoryPosture).toHaveBeenCalledTimes(1);
+  });
+
+  it('Repositories page disables repository posture review for PAT connections', async () => {
+    const mocks = await renderGitHubPage('repositories', {
+      githubConnection: connectedGitHubPAT,
+      scans: [succeededRepoScan]
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const posturePanel = await screen.findByRole('region', { name: 'Repository posture' });
+    const reviewButton = within(posturePanel).getByRole('button', { name: /GitHub App required/i });
+
+    expect(reviewButton).toBeDisabled();
+    expect(
+      within(posturePanel).getByText('Repository posture checks are available after connecting this environment with the GitHub App.')
+    ).toBeInTheDocument();
+    fireEvent.click(reviewButton);
+    expect(mocks.getGitHubConnectorRepositoryPosture).not.toHaveBeenCalled();
   });
 
   it('Repositories page bypasses in-flight refreshes after queueing a scan', async () => {

@@ -21280,6 +21280,7 @@ export function ProductGitHubRepositoriesPage() {
   const selectedOneOffScanEnvironmentRef = useRef(selectedEnvironmentID);
   const selectedOneOffScanScopeRef = useRef(oneOffScanScopeKey);
   const postureRequestRef = useRef(0);
+  const postureResetKeyRef = useRef('');
   selectedOneOffScanEnvironmentRef.current = selectedEnvironmentID;
   selectedOneOffScanScopeRef.current = oneOffScanScopeKey;
   const selectedRepositories = uniqueGitHubRepositories(data.connection?.selected_repositories ?? []);
@@ -21292,6 +21293,11 @@ export function ProductGitHubRepositoriesPage() {
   const [postureRequest, setPostureRequest] = useState({ key: '', nonce: 0 });
   const hasActiveRepositoryScan = data.scans.some((scan) => isActiveScanStatus(scan.status));
   const postureScopeKey = scope ? `${scope.tenantID}|${scope.workspaceID}|${selectedEnvironmentID}|${postureRepository}` : '';
+  const githubPostureSupported = Boolean(
+    data.connection?.connected && data.connection.provider === 'github_app' && data.connection.connector_id
+  );
+  const postureResetKey = `${postureScopeKey}|${data.connection?.connected ? 'connected' : 'disconnected'}|${data.connection?.provider ?? ''}|${data.connection?.connector_id ?? ''}`;
+  const githubPostureSelectionReady = postureResetKeyRef.current === postureResetKey;
 
   useEffect(() => {
     const nextRepository = selectedRepositories.includes(postureRepository)
@@ -21313,16 +21319,18 @@ export function ProductGitHubRepositoriesPage() {
   }, [oneOffScanScopeKey, selectedEnvironmentID]);
 
   useEffect(() => {
-    postureRequestRef.current += 1;
-    setGitHubPosture(null);
-    setGitHubOrganizationPosture(null);
-    setGitHubPostureLoading(false);
-    setGitHubPostureError('');
-  }, [postureScopeKey]);
-
-  useEffect(() => {
     const connection = data.connection;
     const repository = canonicalGitHubRepositoryDisplay(postureRepository);
+    if (postureResetKeyRef.current !== postureResetKey) {
+      postureResetKeyRef.current = postureResetKey;
+      postureRequestRef.current += 1;
+      setPostureRequest({ key: '', nonce: 0 });
+      setGitHubPosture(null);
+      setGitHubOrganizationPosture(null);
+      setGitHubPostureLoading(false);
+      setGitHubPostureError('');
+      return undefined;
+    }
     const requestID = postureRequestRef.current + 1;
     postureRequestRef.current = requestID;
 
@@ -21385,6 +21393,7 @@ export function ProductGitHubRepositoriesPage() {
     postureRepository,
     postureRequest.key,
     postureRequest.nonce,
+    postureResetKey,
     postureScopeKey,
     scope?.tenantID,
     scope?.workspaceID,
@@ -21515,6 +21524,9 @@ export function ProductGitHubRepositoriesPage() {
   };
 
   const reviewRepositoryPosture = () => {
+    if (!githubPostureSupported || !postureRepository || !githubPostureSelectionReady) {
+      return;
+    }
     setPostureRequest((current) => ({
       key: postureScopeKey,
       nonce: current.nonce + 1
@@ -21823,9 +21835,15 @@ export function ProductGitHubRepositoriesPage() {
                 type="button"
                 className="idt-btn idt-btn-ghost"
                 onClick={reviewRepositoryPosture}
-                disabled={githubPostureLoading || !postureRepository}
+                disabled={githubPostureLoading || !postureRepository || !githubPostureSupported || !githubPostureSelectionReady}
               >
-                {githubPostureLoading ? 'Loading posture...' : githubPosture || githubPostureError ? 'Refresh posture' : 'Review posture'}
+                {githubPostureLoading
+                  ? 'Loading posture...'
+                  : !githubPostureSupported
+                    ? 'GitHub App required'
+                    : githubPosture || githubPostureError
+                      ? 'Refresh posture'
+                      : 'Review posture'}
               </button>
             </div>
           </header>
@@ -21936,7 +21954,11 @@ export function ProductGitHubRepositoriesPage() {
           ) : (
             <DomainEmptyState
               title="No repository posture collected yet"
-              body="Posture checks stay quiet until you review the selected repository."
+              body={
+                githubPostureSupported
+                  ? 'Posture checks stay quiet until you review the selected repository.'
+                  : 'Repository posture checks are available after connecting this environment with the GitHub App.'
+              }
             />
           )}
         </section>
