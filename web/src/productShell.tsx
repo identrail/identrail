@@ -26744,6 +26744,9 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const findingDetailCloseRef = useRef<HTMLButtonElement | null>(null);
   const findingDetailModalRef = useRef<HTMLElement | null>(null);
   const findingDetailOpenerRef = useRef<HTMLElement | null>(null);
+  const findingDeleteCloseRef = useRef<HTMLButtonElement | null>(null);
+  const findingDeleteModalRef = useRef<HTMLElement | null>(null);
+  const findingDeleteOpenerRef = useRef<HTMLElement | null>(null);
 
   const updateHierarchyOpenState = (
     level: 'repositories' | 'scans' | 'severities',
@@ -26776,6 +26779,65 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     }
 
     const modal = findingDetailModalRef.current;
+    if (!modal) {
+      return;
+    }
+
+    const focusableElements = Array.from(modal.querySelectorAll<HTMLElement>(MODAL_FOCUSABLE_SELECTOR)).filter(
+      (element) => element.getAttribute('aria-hidden') !== 'true'
+    );
+    if (focusableElements.length === 0) {
+      event.preventDefault();
+      modal.focus();
+      return;
+    }
+
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusIsOutsideModal = !activeElement || !modal.contains(activeElement);
+
+    if (event.shiftKey) {
+      if (focusIsOutsideModal || activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      }
+      return;
+    }
+
+    if (focusIsOutsideModal || activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  };
+
+  const closeFindingDeleteDialog = (options: { allowDuringLoading?: boolean } = {}) => {
+    if (deleteLoading && !options.allowDuringLoading) {
+      return;
+    }
+    setDeleteCandidate(null);
+    setDeleteError('');
+    const opener = findingDeleteOpenerRef.current;
+    findingDeleteOpenerRef.current = null;
+    if (opener && document.contains(opener) && typeof opener.focus === 'function') {
+      opener.focus();
+    }
+  };
+
+  const handleFindingDeleteModalKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      if (!deleteLoading) {
+        closeFindingDeleteDialog();
+      }
+      return;
+    }
+
+    if (event.key !== 'Tab') {
+      return;
+    }
+
+    const modal = findingDeleteModalRef.current;
     if (!modal) {
       return;
     }
@@ -27059,10 +27121,15 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     setDeleteError('');
   };
 
-  const requestDeleteFinding = (finding: ApiFinding) => {
+  const requestDeleteFinding = (finding: ApiFinding, opener: HTMLElement | null = null) => {
     setFindingMenuKey('');
     setDeleteCandidate(finding);
     setDeleteError('');
+    findingDeleteOpenerRef.current =
+      opener ??
+      (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null);
   };
 
   const handleConfirmDeleteFinding = async () => {
@@ -27105,7 +27172,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
           findingDetailOpenerRef.current = null;
         }
       }
-      setDeleteCandidate(null);
+      closeFindingDeleteDialog({ allowDuringLoading: true });
     } catch (requestError) {
       if (findDeleteRequestRef.current !== requestID) {
         return;
@@ -27351,6 +27418,32 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     });
     return () => window.cancelAnimationFrame(frame);
   }, [findingDetailOpen, selectedFindingKey]);
+
+  useEffect(() => {
+    if (!deleteCandidate || typeof document === 'undefined') {
+      return undefined;
+    }
+    const root = document.documentElement;
+    const body = document.body;
+    const previousRootOverflow = root.style.overflow;
+    const previousBodyOverflow = body.style.overflow;
+    root.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    return () => {
+      root.style.overflow = previousRootOverflow;
+      body.style.overflow = previousBodyOverflow;
+    };
+  }, [deleteCandidate]);
+
+  useEffect(() => {
+    if (!deleteCandidate || typeof window === 'undefined') {
+      return undefined;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      findingDeleteCloseRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [deleteCandidate]);
 
   const closeFindingDetail = () => {
     setFindingDetailOpen(false);
@@ -27862,6 +27955,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                                 setFindingMenuKey((current) => (current === selectionKey ? '' : selectionKey));
                                                 setDeleteError('');
                                               }}
+                                              onKeyDown={handleFindingMenuKeyDown}
                                             >
                                               <MoreHorizontal size={16} strokeWidth={2} aria-hidden="true" />
                                             </button>
@@ -27871,7 +27965,13 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                                   type="button"
                                                   role="menuitem"
                                                   className="idt-repo-finding-menu-item is-danger"
-                                                  onClick={() => requestDeleteFinding(finding)}
+                                                  onClick={(event) => {
+                                                    const rowContainer = event.currentTarget.closest('.idt-repo-finding-row');
+                                                    const menuTrigger = rowContainer?.querySelector<HTMLButtonElement>(
+                                                      '.idt-repo-finding-menu-trigger'
+                                                    );
+                                                    requestDeleteFinding(finding, menuTrigger);
+                                                  }}
                                                 >
                                                   <Trash2 size={15} strokeWidth={2} aria-hidden="true" />
                                                   Delete permanently
@@ -28170,8 +28270,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget && !deleteLoading) {
-              setDeleteCandidate(null);
-              setDeleteError('');
+              closeFindingDeleteDialog();
             }
           }}
         >
@@ -28179,7 +28278,10 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
             aria-modal="true"
             aria-labelledby="repo-finding-delete-title"
             className="idt-danger-modal idt-repo-finding-delete-modal"
+            ref={findingDeleteModalRef}
             role="dialog"
+            tabIndex={-1}
+            onKeyDown={handleFindingDeleteModalKeyDown}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <header>
@@ -28199,13 +28301,9 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
               <div className="idt-danger-modal-actions">
                 <button
                   type="button"
+                  ref={findingDeleteCloseRef}
                   className="idt-btn idt-btn-ghost"
-                  onClick={() => {
-                    if (!deleteLoading) {
-                      setDeleteCandidate(null);
-                      setDeleteError('');
-                    }
-                  }}
+                  onClick={() => closeFindingDeleteDialog()}
                   disabled={deleteLoading}
                 >
                   Cancel
