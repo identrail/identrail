@@ -27172,6 +27172,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
           findingDetailOpenerRef.current = null;
         }
       }
+      await loadTrendSignals(scope, 'refresh');
       closeFindingDeleteDialog({ allowDuringLoading: true });
     } catch (requestError) {
       if (findDeleteRequestRef.current !== requestID) {

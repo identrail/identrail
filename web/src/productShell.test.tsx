@@ -31,6 +31,7 @@ import type {
   RepoFindingsSummary,
   RepoFindingRemediationPreview,
   RepoFindingRemediationPublishResponse,
+  RepoRiskGraph,
   RepoScanRecord,
   ScanPolicyRecord,
   WhoAmIResponse
@@ -7337,6 +7338,8 @@ describe('Domain-first app routes', () => {
       repoFindings?: Finding[];
       repoFindingSummary?: RepoFindingsSummary;
       listRepoFindings?: (params: unknown, call: number) => { items: Finding[]; summary?: RepoFindingsSummary };
+      getRepoFindingsTrends?: (params: unknown) => { items: { date: string; count: number }[] };
+      getRepoRiskGraph?: (params: unknown) => RepoRiskGraph;
       role?: CurrentUserContext['role'];
     } = {}
   ) {
@@ -7399,8 +7402,34 @@ describe('Domain-first app routes', () => {
       };
     });
     const deleteRepoFinding = vi.spyOn(api.apiClient, 'deleteRepoFinding').mockResolvedValue(undefined);
-    vi.spyOn(api.apiClient, 'getRepoFindingsTrends').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockRejectedValue(new Error('no graph'));
+    const getRepoFindingsTrends = vi
+      .spyOn(api.apiClient, 'getRepoFindingsTrends')
+      .mockImplementation(async (params) => {
+        if (options.getRepoFindingsTrends) {
+          return { items: options.getRepoFindingsTrends(params).items };
+        }
+        return { items: [] };
+      });
+    const getRepoRiskGraph = vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockImplementation(async (params) => {
+      if (options.getRepoRiskGraph) {
+        return options.getRepoRiskGraph(params);
+      }
+      return {
+        repository: 'repo-a',
+        nodes: [],
+        edges: [],
+        scores: [],
+        summary: {
+          finding_count: 0,
+          node_count: 0,
+          edge_count: 0,
+          unknown_node_count: 0,
+          unknown_edge_count: 0,
+          high_risk_findings: 0,
+          critical_findings: 0
+        }
+      };
+    });
 
     const { ProductFindingsPage } = await import('./productShell');
     render(
@@ -7411,7 +7440,14 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    return { listRepoScans, listRepoFindings, triageFinding, deleteRepoFinding };
+    return {
+      listRepoScans,
+      listRepoFindings,
+      triageFinding,
+      deleteRepoFinding,
+      getRepoFindingsTrends,
+      getRepoRiskGraph
+    };
   }
 
 describe('ProductFindingsPage states', () => {
@@ -7695,6 +7731,81 @@ describe('ProductFindingsPage states', () => {
     });
     await waitFor(() => {
       expect(screen.queryByText('Potential token exposed in workflow history')).not.toBeInTheDocument();
+    });
+  });
+
+  it('refreshes trend and risk graphs after deleting a finding', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-with-actionable-finding-refresh',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 1
+    };
+
+    const finding: Finding = {
+      id: 'finding-refresh-1',
+      scan_id: scan.id,
+      type: 'secret_exposure',
+      severity: 'high',
+      title: 'Potential token exposed in stale trend data',
+      human_summary: 'A token-like value appears in a stale workflow file.',
+      remediation: 'Rotate the credential and remove the stale evidence.',
+      source_url: 'https://github.com/identrail/identrail/blob/main/.github/workflows/stale.yml#L12',
+      created_at: '2026-05-17T11:06:00Z'
+    };
+
+    const { deleteRepoFinding, getRepoFindingsTrends, getRepoRiskGraph } = await renderFindings({
+      repoScans: [scan],
+      repoFindings: [finding],
+      getRepoFindingsTrends: () => ({ items: [{ date: '2026-05-17', count: 1 }] }),
+      getRepoRiskGraph: () => ({
+        repository: 'repo-a',
+        nodes: [],
+        edges: [],
+        scores: [],
+        summary: {
+          finding_count: 1,
+          node_count: 0,
+          edge_count: 0,
+          unknown_node_count: 0,
+          unknown_edge_count: 0,
+          high_risk_findings: 0,
+          critical_findings: 0
+        }
+      })
+    });
+
+    const row = (await screen.findAllByRole('listitem')).find((node) =>
+      node.textContent?.includes('Potential token exposed in stale trend data')
+    ) as HTMLElement | undefined;
+    expect(row).toBeDefined();
+    if (!row) return;
+
+    await waitFor(() => {
+      expect(getRepoFindingsTrends).toHaveBeenCalled();
+      expect(getRepoRiskGraph).toHaveBeenCalled();
+    });
+    const initialTrendCalls = getRepoFindingsTrends.mock.calls.length;
+    const initialRiskCalls = getRepoRiskGraph.mock.calls.length;
+    expect(initialTrendCalls).toBeGreaterThanOrEqual(1);
+    expect(initialRiskCalls).toBeGreaterThanOrEqual(1);
+
+    fireEvent.click(within(row).getByRole('button', { name: /Open actions for Potential token exposed/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete permanently/i }));
+    const confirmDialog = await screen.findByRole('dialog', { name: /Delete this finding/i });
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete permanently/i }));
+
+    await waitFor(() => {
+      expect(deleteRepoFinding).toHaveBeenCalledWith(
+        finding.id,
+        scan.id,
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      );
+    });
+    await waitFor(() => {
+      expect(getRepoFindingsTrends).toHaveBeenCalledTimes(initialTrendCalls + 1);
+      expect(getRepoRiskGraph).toHaveBeenCalledTimes(initialRiskCalls + 1);
     });
   });
 
