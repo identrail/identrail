@@ -7,13 +7,11 @@ import type {
 } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  Archive,
   BarChart3,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
-  CheckCircle2,
   ExternalLink,
   FolderKanban,
   HelpCircle,
@@ -21,13 +19,13 @@ import {
   LogOut,
   Monitor,
   Moon,
+  MoreHorizontal,
   Palette,
   Pencil,
-  RotateCcw,
   Search,
   Settings as SettingsIcon,
-  ShieldCheck,
-  Sun
+  Sun,
+  Trash2
 } from 'lucide-react';
 import {
   ApiError,
@@ -239,8 +237,7 @@ import { OnboardingUnavailableNotice, useOnboardingAvailable } from './component
 import {
   buildRepoFindingSelectionKey,
   findRepoFindingBySelectionKey,
-  groupRepoFindingsByRepositoryDateSeverity,
-  mergeUpdatedRepoFinding
+  groupRepoFindingsByRepositoryDateSeverity
 } from './repoFindingDisplay';
 
 type ProductSession = {
@@ -421,32 +418,6 @@ const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low
 const REPO_FINDING_TYPE_FILTERS = ['all', 'secret_exposure', 'repo_misconfiguration'] as const;
 const REPO_FINDING_SORT_FIELDS = ['severity', 'created_at', 'type', 'title'] as const;
 const REPO_FINDING_STATUS_FILTERS = ['all', 'open', 'ack', 'suppressed', 'resolved'] as const;
-const REPO_FINDING_WORKFLOW_ACTIONS: Array<{
-  status: FindingLifecycleStatus;
-  label: string;
-  description: string;
-}> = [
-  {
-    status: 'ack',
-    label: 'Acknowledge',
-    description: 'Keep the finding visible while showing an owner has accepted triage.'
-  },
-  {
-    status: 'suppressed',
-    label: 'Suppress',
-    description: 'Remove it from the active queue with a required audit reason and optional expiry.'
-  },
-  {
-    status: 'resolved',
-    label: 'Resolve',
-    description: 'Move it out of active review after validating the underlying risk is gone.'
-  },
-  {
-    status: 'open',
-    label: 'Reopen',
-    description: 'Return the finding to active review when the risk needs another look.'
-  }
-];
 const ENVIRONMENT_QUERY_PARAM = 'environment';
 const OVERVIEW_FINDING_LIMIT = 50;
 const OVERVIEW_RISK_DISPLAY_LIMIT = 8;
@@ -1192,15 +1163,6 @@ function downloadExecutiveReport(report: ExecutiveReport, highPriorityFindings: 
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function toLocalDateTimeInputValue(value: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return '';
-  }
-  const localTimestamp = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60 * 1000);
-  return localTimestamp.toISOString().slice(0, 16);
-}
-
 function normalizeFindingStatus(value: string | undefined): FindingLifecycleStatus {
   const normalized = normalizeValue(value ?? '').toLowerCase();
   if (normalized === 'ack' || normalized === 'suppressed' || normalized === 'resolved') {
@@ -1223,22 +1185,65 @@ function normalizeRepoFindingLifecycleStatus(value: string | undefined): RepoFin
   return 'open';
 }
 
-function repoFindingStatusClass(status: FindingLifecycleStatus | RepoFindingLifecycleStatus): string {
-  return `idt-repo-finding-status is-${status}`;
+function decrementSummaryBucket(values: Record<string, number>, rawKey: string | undefined): Record<string, number> {
+  const key = normalizeValue(rawKey ?? '');
+  if (!key || !Object.prototype.hasOwnProperty.call(values, key)) {
+    return values;
+  }
+  return {
+    ...values,
+    [key]: Math.max(0, (values[key] ?? 0) - 1)
+  };
 }
 
-function repoFindingWorkflowActionIcon(status: FindingLifecycleStatus): ReactNode {
-  switch (status) {
-    case 'ack':
-      return <ShieldCheck size={16} strokeWidth={2} aria-hidden="true" />;
-    case 'suppressed':
-      return <Archive size={16} strokeWidth={2} aria-hidden="true" />;
-    case 'resolved':
-      return <CheckCircle2 size={16} strokeWidth={2} aria-hidden="true" />;
-    case 'open':
-    default:
-      return <RotateCcw size={16} strokeWidth={2} aria-hidden="true" />;
+function repoFindingCountsTowardSLAAged(finding: ApiFinding, now = Date.now()): boolean {
+  const lifecycle = normalizeRepoFindingLifecycleStatus(finding.lifecycle_status);
+  if (lifecycle !== 'open' && lifecycle !== 'reopened') {
+    return false;
   }
+  const severity = normalizeValue(finding.severity).toLowerCase();
+  if (severity !== 'high' && severity !== 'critical') {
+    return false;
+  }
+  const firstSeen = new Date(finding.first_seen_at || finding.created_at).getTime();
+  if (!Number.isFinite(firstSeen)) {
+    return false;
+  }
+  return now - firstSeen >= 14 * 24 * 60 * 60 * 1000;
+}
+
+export function decrementRepoFindingsSummaryForDeletedFinding(
+  summary: RepoFindingsSummary | null,
+  finding: ApiFinding
+): RepoFindingsSummary | null {
+  if (!summary) {
+    return summary;
+  }
+  const lifecycle = normalizeRepoFindingLifecycleStatus(finding.lifecycle_status);
+  const nextSummary: RepoFindingsSummary = {
+    ...summary,
+    by_owner: decrementSummaryBucket(summary.by_owner, finding.owner || 'unassigned'),
+    by_detector: decrementSummaryBucket(summary.by_detector, finding.detector || 'unknown'),
+    by_severity: decrementSummaryBucket(summary.by_severity, finding.severity || 'unknown')
+  };
+  if (lifecycle === 'fixed') {
+    nextSummary.fixed_count = Math.max(0, summary.fixed_count - 1);
+  } else if (lifecycle === 'reopened') {
+    nextSummary.reopened_count = Math.max(0, summary.reopened_count - 1);
+    nextSummary.total_open = Math.max(0, summary.total_open - 1);
+  } else if (lifecycle === 'suppressed' || lifecycle === 'risk_accepted' || lifecycle === 'false_positive') {
+    nextSummary.suppressed_count = Math.max(0, summary.suppressed_count - 1);
+  } else {
+    nextSummary.total_open = Math.max(0, summary.total_open - 1);
+  }
+  if (repoFindingCountsTowardSLAAged(finding)) {
+    nextSummary.sla_aged_count = Math.max(0, summary.sla_aged_count - 1);
+  }
+  return nextSummary;
+}
+
+function repoFindingStatusClass(status: FindingLifecycleStatus | RepoFindingLifecycleStatus): string {
+  return `idt-repo-finding-status is-${status}`;
 }
 
 function buildProductAuthContext(scope: ProductSession): RequestAuthContext {
@@ -1727,6 +1732,10 @@ function hasWorkspaceAdminAccess(scope: ProductSession, whoAmI: WhoAmIResponse |
     return false;
   }
   return activeRole === 'owner' || activeRole === 'admin';
+}
+
+function hasRepoFindingDeleteAccess(me: CurrentUserContext | null | undefined): boolean {
+  return me?.role === 'owner' || me?.role === 'admin';
 }
 
 function sourceConnection(connections: SourceConnectionMap, provider: SourceProvider) {
@@ -26709,13 +26718,10 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   });
   const [selectedFindingKey, setSelectedFindingKey] = useState('');
   const [findingDetailOpen, setFindingDetailOpen] = useState(false);
-  const [workflowStatus, setWorkflowStatus] = useState<FindingLifecycleStatus>('open');
-  const [workflowAssignee, setWorkflowAssignee] = useState('');
-  const [workflowComment, setWorkflowComment] = useState('');
-  const [workflowSuppressionExpiresAt, setWorkflowSuppressionExpiresAt] = useState('');
-  const [workflowLoading, setWorkflowLoading] = useState(false);
-  const [workflowSuccess, setWorkflowSuccess] = useState('');
-  const [workflowError, setWorkflowError] = useState('');
+  const [findingMenuKey, setFindingMenuKey] = useState('');
+  const [deleteCandidate, setDeleteCandidate] = useState<ApiFinding | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [remediationPreview, setRemediationPreview] = useState<RepoFindingRemediationPreview | null>(null);
   const [remediationPreviewFindingKey, setRemediationPreviewFindingKey] = useState('');
   const [remediationPreviewLoading, setRemediationPreviewLoading] = useState(false);
@@ -26732,13 +26738,12 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
 
   const requestRef = useRef(0);
   const signalRequestRef = useRef(0);
+  const findDeleteRequestRef = useRef(0);
   const remediationPreviewRequestRef = useRef(0);
   const remediationPublishRequestRef = useRef(0);
   const findingDetailCloseRef = useRef<HTMLButtonElement | null>(null);
   const findingDetailModalRef = useRef<HTMLElement | null>(null);
   const findingDetailOpenerRef = useRef<HTMLElement | null>(null);
-
-  const hasTriageAccess = Boolean(me?.role === 'owner' || me?.role === 'admin');
 
   const updateHierarchyOpenState = (
     level: 'repositories' | 'scans' | 'severities',
@@ -26800,6 +26805,14 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     if (focusIsOutsideModal || activeElement === lastElement) {
       event.preventDefault();
       firstElement.focus();
+    }
+  };
+
+  const handleFindingMenuKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    event.stopPropagation();
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setFindingMenuKey('');
     }
   };
 
@@ -26909,6 +26922,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const slaAgedFindingCount = repoFindingSummary?.sla_aged_count ?? 0;
   const mttrSeconds = repoFindingSummary?.mean_time_to_resolve_seconds;
   const mttrLabel = typeof mttrSeconds === 'number' && Number.isFinite(mttrSeconds) ? formatExecutiveDuration(mttrSeconds) : 'N/A';
+  const canDeleteRepoFindings = hasRepoFindingDeleteAccess(me);
 
   const loadRepoFindings = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
     const requestID = ++requestRef.current;
@@ -27038,97 +27052,75 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     }
   };
 
-  const handleApplyWorkflow = async () => {
-    if (!scope || !selectedFinding || workflowLoading) {
+  const invalidateFindingDeleteState = () => {
+    findDeleteRequestRef.current += 1;
+    setDeleteCandidate(null);
+    setDeleteLoading(false);
+    setDeleteError('');
+  };
+
+  const requestDeleteFinding = (finding: ApiFinding) => {
+    setFindingMenuKey('');
+    setDeleteCandidate(finding);
+    setDeleteError('');
+  };
+
+  const handleConfirmDeleteFinding = async () => {
+    if (!scope || !deleteCandidate || deleteLoading) {
       return;
     }
-
-    const nextStatus = normalizeFindingStatus(workflowStatus);
-    const nextAssignee = normalizeValue(workflowAssignee);
-    const currentStatus = normalizeFindingStatus(selectedFinding.triage?.status);
-    const currentAssignee = normalizeValue(selectedFinding.triage?.assignee ?? '');
-    const trackingSuppression = nextStatus === 'suppressed';
-    const updatingSuppression = trackingSuppression;
-    const currentSuppression = normalizeValue(toLocalDateTimeInputValue(selectedFinding.triage?.suppression_expires_at ?? ''));
-    const nextSuppression = normalizeValue(workflowSuppressionExpiresAt);
-    const hasChanges =
-      nextStatus !== currentStatus ||
-      nextAssignee !== currentAssignee ||
-      normalizeValue(workflowComment).length > 0 ||
-      (trackingSuppression && nextSuppression !== currentSuppression);
-
-    if (!hasChanges) {
-      setWorkflowError('Make a workflow change before saving.');
-      return;
-    }
-
-    setWorkflowLoading(true);
-    setWorkflowError('');
-    setWorkflowSuccess('');
+    const candidate = deleteCandidate;
+    const deletedKey = buildRepoFindingSelectionKey(candidate);
+    const requestID = ++findDeleteRequestRef.current;
+    setDeleteLoading(true);
+    setDeleteError('');
     try {
-      const auth = buildProductAuthContext(scope);
-      const request: {
-        status?: FindingLifecycleStatus;
-        assignee?: string;
-        suppression_expires_at?: string;
-        comment?: string;
-      } = {};
-      const trimmedComment = normalizeValue(workflowComment);
-      if (updatingSuppression && !trimmedComment) {
-        setWorkflowError('Suppression requires a reason.');
-        setWorkflowLoading(false);
+      await apiClient.deleteRepoFinding(candidate.id, candidate.scan_id, buildProductAuthContext(scope));
+      if (findDeleteRequestRef.current !== requestID) {
         return;
       }
-      if (trackingSuppression && nextSuppression) {
-        const parsedExpiry = new Date(nextSuppression);
-        if (Number.isNaN(parsedExpiry.getTime())) {
-          setWorkflowError('Suppression expiry must be a valid date/time.');
-          setWorkflowLoading(false);
-          return;
+      const normalizedLifecycleStatus = normalizeRepoFindingLifecycleStatus(candidate.lifecycle_status);
+      const repoScanFilterSelected = normalizeValue(repoScanFilter);
+      const shouldReloadFindings = normalizedLifecycleStatus === 'fixed' || repoScanFilterSelected === '';
+      if (shouldReloadFindings) {
+        if (selectedFindingKey === deletedKey) {
+          setSelectedFindingKey('');
+          setFindingDetailOpen(false);
+          findingDetailOpenerRef.current = null;
         }
-        if (parsedExpiry.getTime() <= Date.now()) {
-          setWorkflowError('Suppression expiry must be set in the future.');
-          setWorkflowLoading(false);
-          return;
+        await loadRepoFindings(scope, 'refresh');
+      } else {
+        setRepoFindings((current) => current.filter((finding) => buildRepoFindingSelectionKey(finding) !== deletedKey));
+        setRepoScans((current) =>
+          current.map((scan) =>
+            scan.id === candidate.scan_id
+              ? { ...scan, finding_count: Math.max(0, (scan.finding_count ?? 0) - 1) }
+              : scan
+          )
+        );
+        setRepoFindingSummary((current) => decrementRepoFindingsSummaryForDeletedFinding(current, candidate));
+        if (selectedFindingKey === deletedKey) {
+          setSelectedFindingKey('');
+          setFindingDetailOpen(false);
+          findingDetailOpenerRef.current = null;
         }
-        request.suppression_expires_at = parsedExpiry.toISOString();
       }
-      if (nextStatus !== currentStatus) {
-        request.status = nextStatus;
-      }
-      if (nextAssignee !== currentAssignee) {
-        request.assignee = nextAssignee;
-      }
-      if (trimmedComment) {
-        request.comment = trimmedComment;
-      }
-      const response = await apiClient.triageFinding(selectedFinding.id, request, selectedFinding.scan_id, auth);
-      setRepoFindings((current) => mergeUpdatedRepoFinding(current, response.finding));
-      setWorkflowSuccess('Workflow state updated successfully.');
-      setWorkflowComment('');
+      setDeleteCandidate(null);
     } catch (requestError) {
-      const message = requestError instanceof Error ? requestError.message : 'Failed to update workflow state.';
-      setWorkflowError(message);
+      if (findDeleteRequestRef.current !== requestID) {
+        return;
+      }
+      setDeleteError(requestError instanceof Error ? requestError.message : 'Failed to delete finding.');
     } finally {
-      setWorkflowLoading(false);
-      setTimeout(() => setWorkflowSuccess(''), 2200);
+      if (findDeleteRequestRef.current === requestID) {
+        setDeleteLoading(false);
+      }
     }
   };
 
-  const primeWorkflowAction = (nextStatus: FindingLifecycleStatus) => {
-    if (workflowLoading || !hasTriageAccess) {
-      return;
-    }
-    setWorkflowStatus(nextStatus);
-    setWorkflowError('');
-    setWorkflowSuccess('');
-    if (nextStatus !== 'suppressed') {
-      setWorkflowSuppressionExpiresAt('');
-      return;
-    }
-    if (!workflowSuppressionExpiresAt && selectedFinding?.triage?.suppression_expires_at) {
-      setWorkflowSuppressionExpiresAt(toLocalDateTimeInputValue(selectedFinding.triage.suppression_expires_at));
-    }
+  const reloadRepoFindings = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
+    invalidateFindingDeleteState();
+    await loadRepoFindings(targetScope, mode);
   };
 
   const handleLoadRemediationPreview = async () => {
@@ -27197,6 +27189,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const selectRepoFinding = (key: string, openDetail = true, opener: HTMLElement | null = null) => {
     remediationPreviewRequestRef.current += 1;
     remediationPublishRequestRef.current += 1;
+    setFindingMenuKey('');
     const willOpenDialog = Boolean(key) && openDetail;
     if (willOpenDialog) {
       findingDetailOpenerRef.current =
@@ -27281,7 +27274,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       setError('Workspace route context is missing.');
       return;
     }
-    void loadRepoFindings(scope, 'initial');
+    void reloadRepoFindings(scope, 'initial');
     void loadTrendSignals(scope, 'initial');
     return () => {
       requestRef.current += 1;
@@ -27303,10 +27296,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
 
   useEffect(() => {
     if (!selectedFinding) {
-      setWorkflowStatus('open');
-      setWorkflowAssignee('');
-      setWorkflowComment('');
-      setWorkflowSuppressionExpiresAt('');
       remediationPreviewRequestRef.current += 1;
       remediationPublishRequestRef.current += 1;
       setRemediationPreview(null);
@@ -27317,12 +27306,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       return;
     }
 
-    setWorkflowStatus(normalizeFindingStatus(selectedFinding.triage?.status));
-    setWorkflowAssignee(selectedFinding.triage?.assignee ?? '');
-    setWorkflowComment('');
-    setWorkflowSuppressionExpiresAt(
-      selectedFinding.triage?.suppression_expires_at ? toLocalDateTimeInputValue(selectedFinding.triage.suppression_expires_at) : ''
-    );
     remediationPreviewRequestRef.current += 1;
     remediationPublishRequestRef.current += 1;
     setRemediationPreview(null);
@@ -27332,10 +27315,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     resetRemediationPublishState();
   }, [
     selectedFinding?.id,
-    selectedFinding?.scan_id,
-    selectedFinding?.triage?.status,
-    selectedFinding?.triage?.assignee,
-    selectedFinding?.triage?.suppression_expires_at
+    selectedFinding?.scan_id
   ]);
 
   useEffect(() => {
@@ -27404,7 +27384,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   }
 
   const handleRefresh = () => {
-    void loadRepoFindings(scope, 'refresh');
+    void reloadRepoFindings(scope, 'refresh');
     void loadTrendSignals(scope, 'refresh');
   };
 
@@ -27833,13 +27813,22 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                     const isSelected = selectedFindingKey === selectionKey;
                                     const lifecycle = normalizeRepoFindingLifecycleStatus(finding.lifecycle_status);
                                     return (
-                                      <button
+                                      <div
                                         key={selectionKey}
-                                        type="button"
                                         role="listitem"
+                                        tabIndex={0}
                                         aria-haspopup="dialog"
                                         className={`idt-repo-finding-row${isSelected ? ' is-selected' : ''}`}
                                         onClick={(event) => selectRepoFinding(selectionKey, true, event.currentTarget)}
+                                        onKeyDown={(event) => {
+                                          if (event.target !== event.currentTarget) {
+                                            return;
+                                          }
+                                          if (event.key === 'Enter' || event.key === ' ') {
+                                            event.preventDefault();
+                                            selectRepoFinding(selectionKey, true, event.currentTarget);
+                                          }
+                                        }}
                                       >
                                         <SourceLogoMark provider="github" className="is-row" />
                                         <div className="idt-repo-finding-row-copy">
@@ -27857,7 +27846,41 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                             <span>{finding.owner || finding.triage?.assignee || 'Unassigned'}</span>
                                           </div>
                                         </div>
-                                      </button>
+                                        {canDeleteRepoFindings ? (
+                                          <div
+                                            className="idt-repo-finding-row-actions"
+                                            onClick={(event) => event.stopPropagation()}
+                                            onKeyDown={handleFindingMenuKeyDown}
+                                          >
+                                            <button
+                                              type="button"
+                                              className="idt-repo-finding-menu-trigger"
+                                              aria-label={`Open actions for ${finding.title}`}
+                                              aria-haspopup="menu"
+                                              aria-expanded={findingMenuKey === selectionKey}
+                                              onClick={() => {
+                                                setFindingMenuKey((current) => (current === selectionKey ? '' : selectionKey));
+                                                setDeleteError('');
+                                              }}
+                                            >
+                                              <MoreHorizontal size={16} strokeWidth={2} aria-hidden="true" />
+                                            </button>
+                                            {findingMenuKey === selectionKey ? (
+                                              <div className="idt-repo-finding-menu" role="menu">
+                                                <button
+                                                  type="button"
+                                                  role="menuitem"
+                                                  className="idt-repo-finding-menu-item is-danger"
+                                                  onClick={() => requestDeleteFinding(finding)}
+                                                >
+                                                  <Trash2 size={15} strokeWidth={2} aria-hidden="true" />
+                                                  Delete permanently
+                                                </button>
+                                              </div>
+                                            ) : null}
+                                          </div>
+                                        ) : null}
+                                      </div>
                                     );
                                   })}
                                 </div>
@@ -28136,101 +28159,66 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                 ) : null}
               </section>
 
-              <section className="idt-repo-finding-detail-section idt-repo-finding-triage-form">
-                <div className="idt-repo-finding-action-head">
-                  <div>
-                    <h4>Finding actions</h4>
-                    <p>
-                      Remove findings from the active queue through lifecycle states while preserving evidence,
-                      history, and audit context.
-                    </p>
-                  </div>
-                  <span className={repoFindingStatusClass(normalizeFindingStatus(selectedFinding.triage?.status))}>
-                    {formatTokenLabel(normalizeFindingStatus(selectedFinding.triage?.status))}
-                  </span>
-                </div>
-                {workflowError ? <div className="idt-app-alert idt-app-alert-error">{workflowError}</div> : null}
-                {workflowSuccess ? <div className="idt-app-alert idt-app-alert-success">{workflowSuccess}</div> : null}
-                <div className="idt-repo-finding-action-grid" role="group" aria-label="Finding lifecycle actions">
-                  {REPO_FINDING_WORKFLOW_ACTIONS.map((action) => (
-                    <button
-                      key={action.status}
-                      type="button"
-                      className={`idt-repo-finding-action-card${workflowStatus === action.status ? ' is-selected' : ''}`}
-                      onClick={() => primeWorkflowAction(action.status)}
-                      disabled={workflowLoading || !hasTriageAccess}
-                      aria-pressed={workflowStatus === action.status}
-                    >
-                      <span className="idt-repo-finding-action-icon">{repoFindingWorkflowActionIcon(action.status)}</span>
-                      <span className="idt-repo-finding-action-copy">
-                        <strong>{action.label}</strong>
-                        <span>{action.description}</span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <label>
-                  Status
-                  <select
-                    value={workflowStatus}
-                    onChange={(event) => primeWorkflowAction(event.target.value as FindingLifecycleStatus)}
-                    disabled={workflowLoading || !hasTriageAccess}
-                  >
-                    {REPO_FINDING_STATUS_FILTERS.filter((status) => status !== 'all').map((status) => (
-                      <option key={status} value={status}>
-                        {formatTokenLabel(status)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Suppression expiry
-                  <input
-                    type="datetime-local"
-                    value={workflowSuppressionExpiresAt}
-                    onChange={(event) => setWorkflowSuppressionExpiresAt(event.target.value)}
-                    min={toLocalDateTimeInputValue(new Date().toISOString())}
-                    disabled={workflowLoading || !hasTriageAccess || workflowStatus !== 'suppressed'}
-                    placeholder="YYYY-MM-DDThh:mm"
-                  />
-                  <span className="idt-app-field-hint">
-                    Optional expiry for temporary suppressions. A suppression reason is required in the comment.
-                  </span>
-                </label>
-                <label>
-                  Assignee
-                  <input
-                    type="text"
-                    value={workflowAssignee}
-                    onChange={(event) => setWorkflowAssignee(event.target.value)}
-                    disabled={workflowLoading || !hasTriageAccess}
-                    placeholder="analyst handle"
-                  />
-                </label>
-                <label>
-                  Comment
-                  <textarea
-                    rows={3}
-                    value={workflowComment}
-                    onChange={(event) => setWorkflowComment(event.target.value)}
-                    disabled={workflowLoading || !hasTriageAccess}
-                    placeholder={
-                      workflowStatus === 'suppressed'
-                        ? 'Required: why this finding can leave the active queue'
-                        : 'Optional workflow comment'
-                    }
-                    maxLength={500}
-                  />
-                </label>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {deleteCandidate ? (
+        <div
+          className="idt-modal-backdrop idt-repo-finding-delete-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !deleteLoading) {
+              setDeleteCandidate(null);
+              setDeleteError('');
+            }
+          }}
+        >
+          <section
+            aria-modal="true"
+            aria-labelledby="repo-finding-delete-title"
+            className="idt-danger-modal idt-repo-finding-delete-modal"
+            role="dialog"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <p className="idt-app-kicker">Permanent delete</p>
+                <h3 id="repo-finding-delete-title">Delete this finding?</h3>
+              </div>
+            </header>
+            <div className="idt-danger-modal-body">
+              <p>
+                This permanently removes <strong>{deleteCandidate.title}</strong> from this repository scan.
+              </p>
+              <p className="idt-danger-modal-help">
+                The finding can appear again if a future scan rediscovers the same risk.
+              </p>
+              {deleteError ? <div className="idt-danger-modal-error">{deleteError}</div> : null}
+              <div className="idt-danger-modal-actions">
                 <button
                   type="button"
-                  className="idt-btn idt-btn-primary"
-                  onClick={handleApplyWorkflow}
-                  disabled={workflowLoading || !hasTriageAccess}
+                  className="idt-btn idt-btn-ghost"
+                  onClick={() => {
+                    if (!deleteLoading) {
+                      setDeleteCandidate(null);
+                      setDeleteError('');
+                    }
+                  }}
+                  disabled={deleteLoading}
                 >
-                  {workflowLoading ? 'Saving...' : 'Apply action'}
+                  Cancel
                 </button>
-              </section>
+                <button
+                  type="button"
+                  className="idt-btn idt-btn-danger"
+                  onClick={() => void handleConfirmDeleteFinding()}
+                  disabled={deleteLoading}
+                >
+                  {deleteLoading ? 'Deleting...' : 'Delete permanently'}
+                </button>
+              </div>
             </div>
           </section>
         </div>

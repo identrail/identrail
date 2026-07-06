@@ -3334,6 +3334,7 @@ type Store interface {
 	UpsertRepoScanCursor(ctx context.Context, cursor RepoScanCursor) error
 	UpsertRepoFindings(ctx context.Context, repoScanID string, findings []domain.Finding) error
 	DeleteRepoFindings(ctx context.Context, repoScanID string) error
+	DeleteRepoFinding(ctx context.Context, repoScanID string, findingID string) error
 	ListRepoScans(ctx context.Context, limit int) ([]RepoScanRecord, error)
 	ListRepoFindings(ctx context.Context, filter RepoFindingFilter, limit int) ([]domain.Finding, error)
 	ListRepoFindingClusters(ctx context.Context, filter RepoFindingClusterListFilter) ([]domain.RepoFindingCluster, error)

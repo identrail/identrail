@@ -2591,6 +2591,17 @@ func (s *Service) GetRepoFindingsSummary(ctx context.Context, filter db.RepoFind
 	return summarizeRepoFindings(withTriage, s.Now().UTC()), nil
 }
 
+// DeleteRepoFinding permanently removes one repository finding from one scan.
+func (s *Service) DeleteRepoFinding(ctx context.Context, findingID string, repoScanID string) error {
+	ctx = s.scopeContext(ctx)
+	findingID = strings.TrimSpace(findingID)
+	repoScanID = strings.TrimSpace(repoScanID)
+	if findingID == "" || repoScanID == "" {
+		return ErrInvalidRepoRemediationRequest
+	}
+	return s.Store.DeleteRepoFinding(ctx, repoScanID, findingID)
+}
+
 func (s *Service) listRepoFindingsWithPostTriageFilter(
 	ctx context.Context,
 	repoLimit int,

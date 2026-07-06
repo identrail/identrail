@@ -21,6 +21,14 @@ function okJSON(payload: unknown) {
   };
 }
 
+function okNoContent() {
+  return {
+    ok: true,
+    status: 204,
+    json: async () => ({})
+  };
+}
+
 function errorJSON(status: number, error: string) {
   return {
     ok: false,
@@ -2068,15 +2076,15 @@ describe('App', () => {
     expect(await screen.findByText(/Critical 0 \/ High 1 \/ Medium 0 \/ Low 0 \/ Info 0/i)).toBeInTheDocument();
     expect(await screen.findByText(/Risk \(high/i)).toBeInTheDocument();
     const missingSeverityFinding = await screen.findByText(/Finding record with a missing severity/i);
-    const missingSeverityRow = missingSeverityFinding.closest('button');
+    const missingSeverityRow = missingSeverityFinding.closest('.idt-repo-finding-row');
     expect(missingSeverityRow).not.toBeNull();
     if (!missingSeverityRow) {
       throw new Error('missing finding row');
     }
-    expect(within(missingSeverityRow).getByText('Unknown')).toBeInTheDocument();
+    expect(within(missingSeverityRow as HTMLElement).getByText('Unknown')).toBeInTheDocument();
 
     const linkedFinding = await screen.findByText(/Potential AWS access key exposed in commit history/i);
-    const linkedFindingRow = linkedFinding.closest('button');
+    const linkedFindingRow = linkedFinding.closest('.idt-repo-finding-row');
     expect(linkedFindingRow).not.toBeNull();
     if (!linkedFindingRow) {
       throw new Error('linked finding row');
@@ -2343,30 +2351,12 @@ describe('App', () => {
     expect(screen.queryByText(/Failed to load AI \/ Agentic Risk/i)).not.toBeInTheDocument();
   });
 
-  it('requires a suppression reason before updating suppressed repository findings', async () => {
+  it('deletes repository findings from the row actions menu', async () => {
     const suppressionExpiresAt = '2027-01-01T00:00:00Z';
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith('/v1/me')) {
         return okJSON(currentMePayload('tenant-a', 'workspace-a'));
-      }
-      if (url.includes('/v1/findings/repo-f1/triage')) {
-        return okJSON({
-          finding: {
-            id: 'repo-f1',
-            scan_id: 'repo-scan-1',
-            type: 'secret_exposure',
-            severity: 'high',
-            title: 'Potential AWS access key exposed in commit history',
-            human_summary: 'A line added in commit history appears to contain an AWS access key identifier.',
-            repository: 'owner/repo',
-            file_path: 'config/app.env',
-            line_number: 7,
-            remediation: 'Rotate the key and move the credential to a secret manager.',
-            triage: { status: 'suppressed', assignee: 'platform', suppression_expires_at: suppressionExpiresAt },
-            created_at: '2026-01-01T00:00:00Z'
-          }
-        });
       }
       if (url.includes('/v1/repo-scans')) {
         return okJSON({
@@ -2390,6 +2380,9 @@ describe('App', () => {
       }
       if (url.includes('/v1/repo-risk-graph')) {
         return okJSON(repoRiskGraphPayload());
+      }
+      if (init?.method === 'DELETE' && url.includes('/v1/repo-findings/repo-f1')) {
+        return okNoContent();
       }
       if (url.includes('/v1/repo-findings')) {
         return okJSON({
@@ -2418,44 +2411,29 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a/github/findings');
     render(<App />);
 
-    const findingRow = (await screen.findByText(/Potential AWS access key exposed in commit history/i)).closest('button');
+    const findingRow = (await screen.findByText(/Potential AWS access key exposed in commit history/i)).closest(
+      '.idt-repo-finding-row'
+    );
     expect(findingRow).not.toBeNull();
     if (!findingRow) {
       throw new Error('finding row');
     }
-    fireEvent.click(findingRow);
 
-    const findingDialog = await screen.findByRole('dialog', {
-      name: /Potential AWS access key exposed in commit history/i
-    });
-    const workflowControls = within(findingDialog).getByText(/Finding actions/i).closest('.idt-repo-finding-triage-form');
-    expect(workflowControls).toBeInTheDocument();
-
-    fireEvent.change(within(workflowControls as HTMLElement).getByLabelText(/Assignee/i), { target: { value: 'platform' } });
-    fireEvent.click(within(workflowControls as HTMLElement).getByRole('button', { name: /Apply action/i }));
-
-    expect(await within(workflowControls as HTMLElement).findByText(/Suppression requires a reason/i)).toBeInTheDocument();
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/v1/findings/repo-f1/triage'))).toBe(false);
-
-    fireEvent.change(
-      within(workflowControls as HTMLElement).getByPlaceholderText(/Required: why this finding can leave the active queue/i),
-      {
-        target: { value: 'Extending the suppression while the owner validates the fixture.' }
-      }
-    );
-    fireEvent.click(within(workflowControls as HTMLElement).getByRole('button', { name: /Apply action/i }));
+    fireEvent.click(within(findingRow as HTMLElement).getByRole('button', { name: /Open actions for Potential AWS access key/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete permanently/i }));
+    const deleteDialog = await screen.findByRole('dialog', { name: /Delete this finding/i });
+    fireEvent.click(within(deleteDialog).getByRole('button', { name: /Delete permanently/i }));
 
     await waitFor(() => {
       expect(
-        fetchMock.mock.calls.some(([url]) => String(url).includes('/v1/findings/repo-f1/triage'))
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            String(url).includes('/v1/repo-findings/repo-f1?repo_scan_id=repo-scan-1') &&
+            (init as RequestInit | undefined)?.method === 'DELETE'
+        )
       ).toBe(true);
     });
-
-    const triageCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/v1/findings/repo-f1/triage'));
-    const payload = JSON.parse(String((triageCall?.[1] as RequestInit | undefined)?.body));
-    expect(payload.assignee).toBe('platform');
-    expect(payload.comment).toBe('Extending the suppression while the owner validates the fixture.');
-    expect(payload.status).toBeUndefined();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/v1/findings/repo-f1/triage'))).toBe(false);
   });
 
   it('renders real workspace settings from account, member, and auth config APIs', async () => {

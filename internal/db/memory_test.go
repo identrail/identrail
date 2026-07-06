@@ -773,6 +773,9 @@ func TestMemoryStoreDeleteRepoFindings(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("upsert repo finding: %v", err)
 	}
+	if err := store.CompleteRepoScan(defaultScopeContext(), repoScan.ID, "completed", now.Add(time.Minute), 1, 1, 1, false, RepoScanContext{}, ""); err != nil {
+		t.Fatalf("complete repo scan: %v", err)
+	}
 	if err := store.DeleteRepoFindings(defaultScopeContext(), repoScan.ID); err != nil {
 		t.Fatalf("delete repo findings: %v", err)
 	}
@@ -782,6 +785,52 @@ func TestMemoryStoreDeleteRepoFindings(t *testing.T) {
 	}
 	if len(findings) != 0 {
 		t.Fatalf("expected repo findings to be deleted, got %+v", findings)
+	}
+	storedScan, err := store.GetRepoScan(defaultScopeContext(), repoScan.ID)
+	if err != nil {
+		t.Fatalf("get repo scan: %v", err)
+	}
+	if storedScan.FindingCount != 0 {
+		t.Fatalf("expected repo scan finding count to reset after delete, got %d", storedScan.FindingCount)
+	}
+}
+
+func TestMemoryStoreDeleteRepoFindingUpdatesScanCount(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{
+		{ID: "rf-1", Type: domain.FindingSecretExposure, Severity: domain.SeverityHigh, CreatedAt: now},
+		{ID: "rf-2", Type: domain.FindingRepoMisconfig, Severity: domain.SeverityMedium, CreatedAt: now.Add(time.Minute)},
+	}); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+	if err := store.CompleteRepoScan(defaultScopeContext(), repoScan.ID, "completed", now.Add(2*time.Minute), 2, 2, 2, false, RepoScanContext{}, ""); err != nil {
+		t.Fatalf("complete repo scan: %v", err)
+	}
+	if err := store.DeleteRepoFinding(defaultScopeContext(), repoScan.ID, "rf-1"); err != nil {
+		t.Fatalf("delete repo finding: %v", err)
+	}
+	storedScan, err := store.GetRepoScan(defaultScopeContext(), repoScan.ID)
+	if err != nil {
+		t.Fatalf("get repo scan: %v", err)
+	}
+	if storedScan.FindingCount != 1 {
+		t.Fatalf("expected repo scan finding count to decrement after single delete, got %d", storedScan.FindingCount)
+	}
+	if err := store.DeleteRepoFinding(defaultScopeContext(), repoScan.ID, "rf-2"); err != nil {
+		t.Fatalf("delete final repo finding: %v", err)
+	}
+	storedScan, err = store.GetRepoScan(defaultScopeContext(), repoScan.ID)
+	if err != nil {
+		t.Fatalf("get repo scan after final delete: %v", err)
+	}
+	if storedScan.FindingCount != 0 {
+		t.Fatalf("expected repo scan finding count to reach zero after final delete, got %d", storedScan.FindingCount)
 	}
 }
 

@@ -9833,6 +9833,15 @@ export const apiClient = {
       auth
     );
   },
+  deleteRepoFinding(findingID: string, repoScanID: string, auth?: RequestAuthContext) {
+    return request<void>(
+      `/v1/repo-findings/${encodeURIComponent(findingID)}${buildQuery({ repo_scan_id: repoScanID })}`,
+      auth,
+      {
+        method: 'DELETE'
+      }
+    );
+  },
   getRepoRiskGraph(
     filters: {
       repo_scan_id?: string;

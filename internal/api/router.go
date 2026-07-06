@@ -497,6 +497,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		v1.GET("/repo-findings", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"items": []any{}})
 		})
+		v1.DELETE("/repo-findings/:finding_id", func(c *gin.Context) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "repo scan service unavailable"})
+		})
 		v1.POST("/repo-findings/:finding_id/remediation/preview", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "repo scan service unavailable"})
 		})
@@ -1000,6 +1003,35 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		response := paginatedItemsResponse(items, offset, limit)
 		response["summary"] = summary
 		c.JSON(http.StatusOK, response)
+	})
+
+	v1.DELETE("/repo-findings/:finding_id", func(c *gin.Context) {
+		repoScanID := strings.TrimSpace(c.Query("repo_scan_id"))
+		if repoScanID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "repo_scan_id is required"})
+			return
+		}
+		if !isValidUUID(repoScanID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo_scan_id"})
+			return
+		}
+		if err := svc.DeleteRepoFinding(
+			c.Request.Context(),
+			strings.TrimSpace(c.Param("finding_id")),
+			repoScanID,
+		); err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "repo finding not found"})
+			case errors.Is(err, ErrInvalidRepoRemediationRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo finding delete request"})
+			default:
+				logger.Error("delete repo finding", telemetry.ZapError(err))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete repo finding"})
+			}
+			return
+		}
+		c.Status(http.StatusNoContent)
 	})
 
 	v1.POST("/repo-findings/:finding_id/remediation/preview", func(c *gin.Context) {

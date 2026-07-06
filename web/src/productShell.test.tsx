@@ -28,6 +28,7 @@ import type {
   GitHubRepositoryPosture,
   KubernetesConnectorStartResponse,
   KubernetesConnectionStatus,
+  RepoFindingsSummary,
   RepoFindingRemediationPreview,
   RepoFindingRemediationPublishResponse,
   RepoScanRecord,
@@ -7330,74 +7331,88 @@ describe('Domain-first app routes', () => {
 });
 
 
-async function renderFindings(options: { repoScans?: RepoScanRecord[]; repoFindings?: Finding[] } = {}) {
-  vi.resetModules();
-  vi.doMock('./hooks/useMe', () => ({
-    useMe: () => ({
-      me: { ...loggedInWithoutWorkspace, role: 'owner' } as CurrentUserContext,
-      loading: false,
-      error: '',
-      unauthenticated: false,
-      refresh: vi.fn()
-    })
-  }));
+  async function renderFindings(
+    options: {
+      repoScans?: RepoScanRecord[];
+      repoFindings?: Finding[];
+      repoFindingSummary?: RepoFindingsSummary;
+      listRepoFindings?: (params: unknown, call: number) => { items: Finding[]; summary?: RepoFindingsSummary };
+      role?: CurrentUserContext['role'];
+    } = {}
+  ) {
+    vi.resetModules();
+    vi.doMock('./hooks/useMe', () => ({
+      useMe: () => ({
+        me: { ...loggedInWithoutWorkspace, role: options.role ?? 'owner' } as CurrentUserContext,
+        loading: false,
+        error: '',
+        unauthenticated: false,
+        refresh: vi.fn()
+      })
+    }));
 
-  const api = await import('./api/client');
-  const listRepoScans = vi
-    .spyOn(api.apiClient, 'listRepoScans')
-    .mockResolvedValue({ items: options.repoScans ?? [] });
-  const listRepoFindings = vi
-    .spyOn(api.apiClient, 'listRepoFindings')
-    .mockImplementation(async (params) => {
-      // Apply the server-side filters (severity/type) the component passes so
-      // tests that exercise filtering observe a realistic empty result.
-      let items = options.repoFindings ?? [];
-      if (params?.severity) {
-        items = items.filter((finding) => finding.severity === params.severity);
-      }
-      if (params?.type) {
-        items = items.filter((finding) => finding.type === params.type);
-      }
-      return { items, summary: undefined };
-    });
-  const triageFinding = vi.spyOn(api.apiClient, 'triageFinding').mockImplementation(async (findingID, payload, scanID) => {
-    const existing = options.repoFindings?.find((finding) => finding.id === findingID) ?? options.repoFindings?.[0];
-    return {
-      finding: {
-        ...(existing ?? {
-          id: findingID,
-          scan_id: scanID ?? 'repo-scan-default',
-          type: 'secret_exposure',
-          severity: 'high',
-          title: 'Default finding',
-          human_summary: 'Default finding summary.',
-          remediation: 'Rotate and remove the exposed secret.',
-          created_at: '2026-05-17T11:00:00Z'
-        }),
-        triage: {
-          status: payload.status ?? existing?.triage?.status ?? 'open',
-          assignee: payload.assignee ?? existing?.triage?.assignee,
-          suppression_expires_at: payload.suppression_expires_at ?? existing?.triage?.suppression_expires_at,
-          updated_at: '2026-05-17T11:12:00Z',
-          updated_by: 'test-operator'
+    const api = await import('./api/client');
+    const listRepoScans = vi
+      .spyOn(api.apiClient, 'listRepoScans')
+      .mockResolvedValue({ items: options.repoScans ?? [] });
+    let listRepoFindingsCall = 0;
+    const listRepoFindings = vi
+      .spyOn(api.apiClient, 'listRepoFindings')
+      .mockImplementation(async (params) => {
+        listRepoFindingsCall += 1;
+        if (options.listRepoFindings) {
+          return options.listRepoFindings(params, listRepoFindingsCall);
         }
-      }
-    };
-  });
-  vi.spyOn(api.apiClient, 'getRepoFindingsTrends').mockResolvedValue({ items: [] });
-  vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockRejectedValue(new Error('no graph'));
+        // Apply the server-side filters (severity/type) the component passes so
+        // tests that exercise filtering observe a realistic empty result.
+        let items = options.repoFindings ?? [];
+        if (params?.severity) {
+          items = items.filter((finding) => finding.severity === params.severity);
+        }
+        if (params?.type) {
+          items = items.filter((finding) => finding.type === params.type);
+        }
+        return { items, summary: options.repoFindingSummary };
+      });
+    const triageFinding = vi.spyOn(api.apiClient, 'triageFinding').mockImplementation(async (findingID, payload, scanID) => {
+      const existing = options.repoFindings?.find((finding) => finding.id === findingID) ?? options.repoFindings?.[0];
+      return {
+        finding: {
+          ...(existing ?? {
+            id: findingID,
+            scan_id: scanID ?? 'repo-scan-default',
+            type: 'secret_exposure',
+            severity: 'high',
+            title: 'Default finding',
+            human_summary: 'Default finding summary.',
+            remediation: 'Rotate and remove the exposed secret.',
+            created_at: '2026-05-17T11:00:00Z'
+          }),
+          triage: {
+            status: payload.status ?? existing?.triage?.status ?? 'open',
+            assignee: payload.assignee ?? existing?.triage?.assignee,
+            suppression_expires_at: payload.suppression_expires_at ?? existing?.triage?.suppression_expires_at,
+            updated_at: '2026-05-17T11:12:00Z',
+            updated_by: 'test-operator'
+          }
+        }
+      };
+    });
+    const deleteRepoFinding = vi.spyOn(api.apiClient, 'deleteRepoFinding').mockResolvedValue(undefined);
+    vi.spyOn(api.apiClient, 'getRepoFindingsTrends').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockRejectedValue(new Error('no graph'));
 
-  const { ProductFindingsPage } = await import('./productShell');
-  render(
-    <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/findings']}>
-      <Routes>
-        <Route path="/app/:tenantID/:workspaceID/github/findings" element={<ProductFindingsPage />} />
-      </Routes>
-    </MemoryRouter>
-  );
+    const { ProductFindingsPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/github/findings']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/github/findings" element={<ProductFindingsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
 
-  return { listRepoScans, listRepoFindings, triageFinding };
-}
+    return { listRepoScans, listRepoFindings, triageFinding, deleteRepoFinding };
+  }
 
 describe('ProductFindingsPage states', () => {
   afterEach(() => {
@@ -7605,7 +7620,7 @@ describe('ProductFindingsPage states', () => {
     });
   });
 
-  it('surfaces audited finding actions and requires a reason before suppressing', async () => {
+  it('deletes repository findings from the row overflow menu', async () => {
     const scan: RepoScanRecord = {
       ...queuedRepoScan,
       id: 'repo-scan-with-actionable-finding',
@@ -7626,41 +7641,443 @@ describe('ProductFindingsPage states', () => {
       created_at: '2026-05-17T11:06:00Z'
     };
 
-    const { triageFinding } = await renderFindings({ repoScans: [scan], repoFindings: [finding] });
-
-    const rowButton = (await screen.findAllByRole('listitem')).find((node) =>
-      node.textContent?.includes('Potential token exposed in workflow history')
-    ) as HTMLButtonElement | undefined;
-    expect(rowButton).toBeDefined();
-    if (!rowButton) return;
-    fireEvent.click(rowButton);
-
-    const dialog = await screen.findByRole('dialog', { name: /Potential token exposed in workflow history/i });
-    expect(within(dialog).getByRole('heading', { name: 'Finding actions' })).toBeInTheDocument();
-
-    fireEvent.click(within(dialog).getByRole('button', { name: /Suppress/i }));
-    expect(within(dialog).getByLabelText('Status')).toHaveValue('suppressed');
-    fireEvent.click(within(dialog).getByRole('button', { name: /Apply action/i }));
-
-    expect(await within(dialog).findByText('Suppression requires a reason.')).toBeInTheDocument();
-    expect(triageFinding).not.toHaveBeenCalled();
-
-    fireEvent.change(within(dialog).getByLabelText('Comment'), {
-      target: { value: 'Suppressed while the repository owner validates this legacy test fixture.' }
+    const { deleteRepoFinding } = await renderFindings({
+      repoScans: [scan],
+      repoFindings: [finding],
+      listRepoFindings: (_params, call) => {
+        if (call === 1) {
+          return { items: [finding] };
+        }
+        return { items: [] };
+      }
     });
-    fireEvent.click(within(dialog).getByRole('button', { name: /Apply action/i }));
+
+    const row = (await screen.findAllByRole('listitem')).find((node) =>
+      node.textContent?.includes('Potential token exposed in workflow history')
+    ) as HTMLElement | undefined;
+    expect(row).toBeDefined();
+    if (!row) return;
+
+    fireEvent.click(within(row).getByRole('button', { name: /Open actions for Potential token exposed/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete permanently/i }));
+
+    const confirmDialog = await screen.findByRole('dialog', { name: /Delete this finding/i });
+    expect(within(confirmDialog).getByText(/This permanently removes/i)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Finding actions' })).not.toBeInTheDocument();
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete permanently/i }));
 
     await waitFor(() => {
-      expect(triageFinding).toHaveBeenCalledWith(
+      expect(deleteRepoFinding).toHaveBeenCalledWith(
         finding.id,
-        expect.objectContaining({
-          status: 'suppressed',
-          comment: 'Suppressed while the repository owner validates this legacy test fixture.'
-        }),
         scan.id,
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       );
     });
+    await waitFor(() => {
+      expect(screen.queryByText('Potential token exposed in workflow history')).not.toBeInTheDocument();
+    });
+  });
+
+  it('ignores stale finding delete completions after refreshing the findings list', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-with-actionable-finding',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 1
+    };
+
+    const finding: Finding = {
+      id: 'finding-action-2',
+      scan_id: scan.id,
+      type: 'secret_exposure',
+      severity: 'critical',
+      title: 'Potential token exposed in release artifacts',
+      human_summary: 'A token-like value appears in release metadata.',
+      remediation: 'Rotate the credential and remove the exposed value.',
+      source_url: 'https://github.com/identrail/identrail/blob/main/.github/workflows/release.yml#L22',
+      created_at: '2026-05-17T11:06:00Z'
+    };
+    const deleteCompletion = deferred<void>();
+
+    const { deleteRepoFinding } = await renderFindings({ repoScans: [scan], repoFindings: [finding] });
+    deleteRepoFinding.mockImplementation(() => deleteCompletion.promise);
+
+    const row = (await screen.findAllByRole('listitem')).find((node) =>
+      node.textContent?.includes('Potential token exposed in release artifacts')
+    ) as HTMLElement | undefined;
+    expect(row).toBeDefined();
+    if (!row) return;
+
+    fireEvent.click(within(row).getByRole('button', { name: /Open actions for Potential token exposed in release artifacts/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete permanently/i }));
+
+    const confirmDialog = await screen.findByRole('dialog', { name: /Delete this finding/i });
+    expect(within(confirmDialog).getByText(/This permanently removes/i)).toBeInTheDocument();
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete permanently/i }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Refresh/i }));
+    await waitFor(() => {
+      expect(deleteRepoFinding).toHaveBeenCalledWith(
+        finding.id,
+        scan.id,
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      );
+    });
+
+    await act(async () => {
+      deleteCompletion.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Potential token exposed in release artifacts')).toBeInTheDocument();
+    });
+  });
+
+  it('reconciles all-scan deduped rows after deleting a finding', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-with-actionable-finding',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 2
+    };
+
+    const deletedFinding: Finding = {
+      id: 'finding-action-1',
+      scan_id: scan.id,
+      type: 'secret_exposure',
+      severity: 'critical',
+      title: 'Potential token exposed in workflow history',
+      human_summary: 'A token-like value appears in a committed workflow.',
+      remediation: 'Rotate the credential and remove the committed value.',
+      source_url: 'https://github.com/identrail/identrail/blob/main/.github/workflows/deploy.yml#L12',
+      created_at: '2026-05-17T11:06:00Z'
+    };
+
+    const promotedFinding: Finding = {
+      id: 'finding-action-promoted',
+      scan_id: 'repo-scan-older-evidence',
+      type: 'secret_exposure',
+      severity: 'critical',
+      title: 'Promoted token exposure finding',
+      human_summary: 'A token-like value appears in an older scan lifecycle result.',
+      remediation: 'Rotate the credential and remove the committed value.',
+      source_url: 'https://github.com/identrail/identrail/blob/main/.github/workflows/deploy.yml#L13',
+      created_at: '2026-05-17T10:00:00Z'
+    };
+
+    await renderFindings({
+      repoScans: [scan],
+      listRepoFindings: (_params, call) => {
+        if (call === 1) {
+          return { items: [deletedFinding] };
+        }
+        return { items: [promotedFinding] };
+      }
+    });
+
+    const row = (await screen.findAllByRole('listitem')).find((node) =>
+      node.textContent?.includes('Potential token exposed in workflow history')
+    ) as HTMLElement | undefined;
+    expect(row).toBeDefined();
+    if (!row) return;
+
+    fireEvent.click(within(row).getByRole('button', { name: /Open actions for Potential token exposed/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete permanently/i }));
+    const confirmDialog = await screen.findByRole('dialog', { name: /Delete this finding/i });
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete permanently/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Potential token exposed in workflow history')).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.getByText('Promoted token exposure finding')).toBeInTheDocument();
+    });
+  });
+
+  it('preserves server finding summary totals after deleting a paginated row', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-with-many-findings',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 230
+    };
+
+    const finding: Finding = {
+      id: 'finding-visible-page-1',
+      scan_id: scan.id,
+      type: 'secret_exposure',
+      severity: 'critical',
+      detector: 'github_secret_scanning',
+      title: 'Visible paginated token finding',
+      human_summary: 'A token-like value appears in a committed workflow.',
+      remediation: 'Rotate the credential and remove the committed value.',
+      owner: 'platform',
+      first_seen_at: '2026-05-01T11:06:00Z',
+      created_at: '2026-05-01T11:06:00Z'
+    };
+
+    await renderFindings({
+      repoScans: [scan],
+      listRepoFindings: (_params, call) => {
+        if (call === 1) {
+          return { items: [finding], summary: {
+            total_open: 230,
+            fixed_count: 4,
+            reopened_count: 3,
+            suppressed_count: 2,
+            sla_aged_count: 8,
+            mttr_ready_resolved_count: 4,
+            mean_time_to_resolve_seconds: 60 * 60 * 24,
+            oldest_open_first_seen_at: '2026-05-01T11:06:00Z',
+            by_owner: { platform: 12 },
+            by_detector: { github_secret_scanning: 17 },
+            by_severity: { critical: 11 }
+          }};
+        }
+        return { items: [], summary: {
+          total_open: 229,
+          fixed_count: 3,
+          reopened_count: 3,
+          suppressed_count: 2,
+          sla_aged_count: 8,
+          mttr_ready_resolved_count: 4,
+          mean_time_to_resolve_seconds: 60 * 60 * 24,
+          oldest_open_first_seen_at: '2026-05-01T11:06:00Z',
+          by_owner: { platform: 11 },
+          by_detector: { github_secret_scanning: 16 },
+          by_severity: { critical: 10 }
+        }};
+      },
+      repoFindingSummary: {
+        total_open: 230,
+        fixed_count: 4,
+        reopened_count: 3,
+        suppressed_count: 2,
+        sla_aged_count: 8,
+        mttr_ready_resolved_count: 4,
+        mean_time_to_resolve_seconds: 60 * 60 * 24,
+        oldest_open_first_seen_at: '2026-05-01T11:06:00Z',
+        by_owner: { platform: 12 },
+        by_detector: { github_secret_scanning: 17 },
+        by_severity: { critical: 11 }
+      }
+    });
+
+    const summary = (await screen.findAllByLabelText('Repository finding summary')).find((node) =>
+      node.classList.contains('idt-repo-finding-stats')
+    ) as HTMLElement | undefined;
+    expect(summary).toBeDefined();
+    if (!summary) return;
+    expect(within(summary).getByText('230')).toBeInTheDocument();
+
+    const row = (await screen.findAllByRole('listitem')).find((node) =>
+      node.textContent?.includes('Visible paginated token finding')
+    ) as HTMLElement | undefined;
+    expect(row).toBeDefined();
+    if (!row) return;
+
+    fireEvent.click(within(row).getByRole('button', { name: /Open actions for Visible paginated token finding/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete permanently/i }));
+    const confirmDialog = await screen.findByRole('dialog', { name: /Delete this finding/i });
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete permanently/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Visible paginated token finding')).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(within(summary).getByText('229')).toBeInTheDocument();
+    });
+  });
+
+  it('recomputes mean time to fix after deleting fixed findings', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-with-fixed-finding',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 1
+    };
+
+    const fixedFinding: Finding = {
+      id: 'finding-fixed-1',
+      scan_id: scan.id,
+      type: 'secret_exposure',
+      severity: 'critical',
+      lifecycle_status: 'fixed',
+      title: 'Fixed token exposure finding',
+      human_summary: 'This finding was resolved last week.',
+      remediation: 'No action required.',
+      created_at: '2026-05-17T10:00:00Z'
+    };
+
+    const initialSummary: RepoFindingsSummary = {
+      total_open: 0,
+      fixed_count: 1,
+      reopened_count: 0,
+      suppressed_count: 0,
+      sla_aged_count: 0,
+      mttr_ready_resolved_count: 1,
+      mean_time_to_resolve_seconds: 3600,
+      by_owner: {},
+      by_detector: { github_secret_scanning: 1 },
+      by_severity: { critical: 1 },
+      oldest_open_first_seen_at: '2026-05-17T10:00:00Z'
+    };
+
+    const refreshedSummary: RepoFindingsSummary = {
+      total_open: 0,
+      fixed_count: 0,
+      reopened_count: 0,
+      suppressed_count: 0,
+      sla_aged_count: 0,
+      mttr_ready_resolved_count: 0,
+      mean_time_to_resolve_seconds: 1800,
+      by_owner: {},
+      by_detector: {},
+      by_severity: {},
+      oldest_open_first_seen_at: '2026-05-17T10:00:00Z'
+    };
+
+    await renderFindings({
+      repoScans: [scan],
+      listRepoFindings: (_params, call) => {
+        if (call === 1) {
+          return { items: [fixedFinding], summary: initialSummary };
+        }
+        return { items: [], summary: refreshedSummary };
+      }
+    });
+
+    const summary = (await screen.findAllByLabelText('Repository finding summary')).find((node) =>
+      node.classList.contains('idt-repo-finding-stats')
+    ) as HTMLElement | undefined;
+    expect(summary).toBeDefined();
+    if (!summary) return;
+    const mttrCard = within(summary).getByText('Mean time to fix').closest('article');
+    expect(mttrCard).toBeTruthy();
+    expect(within(mttrCard!).getByText('1h')).toBeInTheDocument();
+
+    const row = (await screen.findAllByRole('listitem')).find((node) =>
+      node.textContent?.includes('Fixed token exposure finding')
+    ) as HTMLElement | undefined;
+    expect(row).toBeDefined();
+    if (!row) return;
+
+    fireEvent.click(within(row).getByRole('button', { name: /Open actions for Fixed token exposure finding/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete permanently/i }));
+    const confirmDialog = await screen.findByRole('dialog', { name: /Delete this finding/i });
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete permanently/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Fixed token exposure finding')).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(within(mttrCard!).getByText('30m')).toBeInTheDocument();
+    });
+  });
+
+  it('decrements unknown detector/severity buckets when deleting findings without those values', async () => {
+    const { decrementRepoFindingsSummaryForDeletedFinding } = await import('./productShell');
+    const summary: RepoFindingsSummary = {
+      total_open: 1,
+      fixed_count: 0,
+      reopened_count: 0,
+      suppressed_count: 0,
+      sla_aged_count: 0,
+      mttr_ready_resolved_count: 0,
+      by_owner: { platform: 1 },
+      by_detector: { unknown: 1 },
+      by_severity: { unknown: 1 },
+      oldest_open_first_seen_at: '2026-05-01T11:00:00Z'
+    };
+    const finding: Finding = {
+      id: 'finding-unknown-summary',
+      scan_id: 'repo-scan-summary-unknown',
+      type: 'secret_exposure',
+      severity: '',
+      owner: 'platform',
+      title: 'Finding with unknown metadata',
+      human_summary: 'A finding with unset detector and severity.',
+      remediation: 'Treat as a non-actionable placeholder.',
+      created_at: '2026-05-01T11:00:00Z'
+    };
+
+    const nextSummary = decrementRepoFindingsSummaryForDeletedFinding(summary, finding);
+    expect(nextSummary).toBeTruthy();
+    expect(nextSummary).toMatchObject({
+      by_detector: { unknown: 0 },
+      by_severity: { unknown: 0 },
+      total_open: 0,
+      by_owner: { platform: 0 }
+    });
+  });
+
+  it('hides the repository finding delete menu from read-only users', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-read-only-finding',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 1
+    };
+
+    const finding: Finding = {
+      id: 'finding-read-only-action',
+      scan_id: scan.id,
+      type: 'secret_exposure',
+      severity: 'critical',
+      title: 'Viewer-visible token finding',
+      human_summary: 'A token-like value appears in a committed workflow.',
+      remediation: 'Rotate the credential and remove the committed value.',
+      created_at: '2026-05-17T11:06:00Z'
+    };
+
+    await renderFindings({ repoScans: [scan], repoFindings: [finding], role: 'viewer' });
+
+    const row = (await screen.findAllByRole('listitem')).find((node) =>
+      node.textContent?.includes('Viewer-visible token finding')
+    );
+    expect(row).toBeDefined();
+    expect(screen.queryByRole('button', { name: /Open actions for Viewer-visible token finding/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps keyboard interaction on the row overflow menu out of the detail dialog', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-keyboard-action',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 1
+    };
+
+    const finding: Finding = {
+      id: 'finding-keyboard-action',
+      scan_id: scan.id,
+      type: 'secret_exposure',
+      severity: 'critical',
+      title: 'Keyboard menu finding',
+      human_summary: 'A token-like value appears in a committed workflow.',
+      remediation: 'Rotate the credential and remove the committed value.',
+      created_at: '2026-05-17T11:06:00Z'
+    };
+
+    await renderFindings({ repoScans: [scan], repoFindings: [finding] });
+
+    const trigger = await screen.findByRole('button', { name: /Open actions for Keyboard menu finding/i });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: 'Enter' });
+
+    expect(screen.queryByRole('dialog', { name: /Keyboard menu finding/i })).not.toBeInTheDocument();
+
+    fireEvent.click(trigger);
+    expect(screen.getByRole('menuitem', { name: /Delete permanently/i })).toBeInTheDocument();
+
+    fireEvent.keyDown(trigger, { key: 'Escape' });
+    expect(screen.queryByRole('menuitem', { name: /Delete permanently/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /Keyboard menu finding/i })).not.toBeInTheDocument();
   });
 
   it('does not mark ordinary source lines that start with plus or dash prefixes as diffs', async () => {

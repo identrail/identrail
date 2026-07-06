@@ -2416,6 +2416,43 @@ func (m *MemoryStore) DeleteRepoFindings(ctx context.Context, repoScanID string)
 		delete(m.repoFindings, key)
 	}
 	delete(m.repoFindingIDs, repoScanID)
+	repoScan.FindingCount = 0
+	m.repoScans[repoScanID] = repoScan
+	return nil
+}
+
+// DeleteRepoFinding removes one persisted repository finding for one scan.
+func (m *MemoryStore) DeleteRepoFinding(ctx context.Context, repoScanID string, findingID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	repoScan, exists := m.repoScans[repoScanID]
+	if !exists || !MatchScope(scope, repoScan.TenantID, repoScan.WorkspaceID) {
+		return ErrNotFound
+	}
+	key := repoScanID + "|" + strings.TrimSpace(findingID)
+	if _, exists := m.repoFindings[key]; !exists {
+		return ErrNotFound
+	}
+	delete(m.repoFindings, key)
+	keys := m.repoFindingIDs[repoScanID]
+	nextKeys := keys[:0]
+	for _, existing := range keys {
+		if existing != key {
+			nextKeys = append(nextKeys, existing)
+		}
+	}
+	if len(nextKeys) == 0 {
+		delete(m.repoFindingIDs, repoScanID)
+	} else {
+		m.repoFindingIDs[repoScanID] = nextKeys
+	}
+	repoScan.FindingCount = len(nextKeys)
+	m.repoScans[repoScanID] = repoScan
 	return nil
 }
 

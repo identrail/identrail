@@ -659,6 +659,7 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodGet, Path: "/v1/repo-scans", Action: policyActionRepoScansRead, ResourceType: "repo_scan"},
 		{Method: http.MethodGet, Path: "/v1/repo-scans/:repo_scan_id", Action: policyActionRepoScansRead, ResourceType: "repo_scan", ResourceIDParam: "repo_scan_id"},
 		{Method: http.MethodGet, Path: "/v1/repo-findings", Action: policyActionRepoScansRead, ResourceType: "repo_finding"},
+		{Method: http.MethodDelete, Path: "/v1/repo-findings/:finding_id", Action: policyActionRepoScansRun, ResourceType: "repo_finding", ResourceIDParam: "finding_id"},
 		{Method: http.MethodPost, Path: "/v1/repo-findings/:finding_id/remediation/preview", Action: policyActionRepoScansRead, ResourceType: "repo_finding", ResourceIDParam: "finding_id"},
 		{Method: http.MethodPost, Path: "/v1/repo-findings/:finding_id/remediation/publish", Action: policyActionRepoScansRun, ResourceType: "repo_finding", ResourceIDParam: "finding_id"},
 		{Method: http.MethodGet, Path: "/v1/repo-finding-clusters", Action: policyActionRepoScansRead, ResourceType: "repo_finding_cluster"},

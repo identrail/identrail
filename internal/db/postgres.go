@@ -3725,7 +3725,15 @@ func (p *PostgresStore) DeleteRepoFindings(ctx context.Context, repoScanID strin
 	if err != nil {
 		return err
 	}
-	_, err = p.execContext(
+	tx, err := p.beginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	_, err = tx.ExecContext(
 		ctx,
 		`DELETE FROM repo_findings rf
 		 USING repo_scans rs
@@ -3739,6 +3747,64 @@ func (p *PostgresStore) DeleteRepoFindings(ctx context.Context, repoScanID strin
 	)
 	if err != nil {
 		return fmt.Errorf("delete repo findings: %w", err)
+	}
+	_, err = tx.ExecContext(
+		ctx,
+		`UPDATE repo_scans
+		 SET finding_count = 0
+		 WHERE id = $1
+		   AND tenant_id = $2
+		   AND workspace_id = $3`,
+		repoScanID,
+		scope.TenantID,
+		scope.WorkspaceID,
+	)
+	if err != nil {
+		return fmt.Errorf("reset repo scan finding count: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit repo finding deletion: %w", err)
+	}
+	return nil
+}
+
+// DeleteRepoFinding removes one repository finding for one scan.
+func (p *PostgresStore) DeleteRepoFinding(ctx context.Context, repoScanID string, findingID string) error {
+	if err := p.ensureRepoScanInScope(ctx, repoScanID); err != nil {
+		return err
+	}
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	result, err := p.execContext(
+		ctx,
+		`WITH deleted AS (
+			DELETE FROM repo_findings rf
+			USING repo_scans rs
+			WHERE rf.repo_scan_id = rs.id
+			  AND rf.repo_scan_id = $1
+			  AND rf.finding_id = $2
+			  AND rs.tenant_id = $3
+			  AND rs.workspace_id = $4
+			RETURNING rf.repo_scan_id
+		)
+		UPDATE repo_scans rs
+		SET finding_count = GREATEST(0, rs.finding_count - (SELECT COUNT(*) FROM deleted))
+		WHERE rs.id = $1
+		  AND rs.tenant_id = $3
+		  AND rs.workspace_id = $4
+		  AND EXISTS (SELECT 1 FROM deleted)`,
+		repoScanID,
+		strings.TrimSpace(findingID),
+		scope.TenantID,
+		scope.WorkspaceID,
+	)
+	if err != nil {
+		return fmt.Errorf("delete repo finding: %w", err)
+	}
+	if err := ensureRowsAffected(result); err != nil {
+		return err
 	}
 	return nil
 }

@@ -6317,6 +6317,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
 
 .idt-repo-finding-row {
   width: 100%;
+  position: relative;
   text-align: left;
   border: 1px solid rgba(126, 157, 211, 0.24);
   border-radius: 0.75rem;
@@ -6360,6 +6361,70 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   gap: 0.45rem 0.75rem;
   color: #9fb5d8;
   font-size: 0.82rem;
+}
+
+.idt-repo-finding-row-actions {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+.idt-repo-finding-menu-trigger {
+  width: 2rem;
+  height: 2rem;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--app-muted);
+  cursor: pointer;
+}
+
+.idt-repo-finding-menu-trigger:hover,
+.idt-repo-finding-menu-trigger:focus-visible {
+  border-color: rgba(255, 255, 255, 0.48);
+  color: var(--app-text);
+  outline: none;
+}
+
+.idt-repo-finding-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  min-width: 12.5rem;
+  z-index: 10;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: #080809;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.42);
+  padding: 0.35rem;
+}
+
+.idt-repo-finding-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--app-text);
+  font-weight: 800;
+  padding: 0.6rem 0.7rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.idt-repo-finding-menu-item:hover,
+.idt-repo-finding-menu-item:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  outline: none;
+}
+
+.idt-repo-finding-menu-item.is-danger {
+  color: #fecaca;
 }
 
 .idt-repo-finding-severity {

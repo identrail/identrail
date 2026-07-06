@@ -1001,6 +1001,80 @@ func TestRouterRepoFindingRemediationPreview(t *testing.T) {
 	}
 }
 
+func TestRouterDeleteRepoFinding(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 13, 11, 10, 0, 0, time.UTC)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	findings := []domain.Finding{
+		{
+			ID:           "repo-delete-route",
+			Type:         domain.FindingSecretExposure,
+			Severity:     domain.SeverityCritical,
+			Title:        "token exposed",
+			HumanSummary: "Token-like value in repository history.",
+			CreatedAt:    now,
+		},
+		{
+			ID:           "repo-keep-route",
+			Type:         domain.FindingRepoMisconfig,
+			Severity:     domain.SeverityHigh,
+			Title:        "workflow write all",
+			HumanSummary: "Workflow uses write-all.",
+			CreatedAt:    now,
+		},
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, findings); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+	if err := store.CompleteRepoScan(defaultScopeContext(), repoScan.ID, "completed", now.Add(time.Minute), 2, 2, len(findings), false, db.RepoScanContext{}, ""); err != nil {
+		t.Fatalf("complete repo scan: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	req := httptest.NewRequest(
+		http.MethodDelete,
+		"/v1/repo-findings/repo-delete-route?repo_scan_id="+repoScan.ID,
+		nil,
+	)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected delete repo finding 204, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	remaining, err := svc.ListRepoFindings(defaultScopeContext(), 10, db.RepoFindingFilter{RepoScanID: repoScan.ID})
+	if err != nil {
+		t.Fatalf("list repo findings: %v", err)
+	}
+	if len(remaining) != 1 || remaining[0].ID != "repo-keep-route" {
+		t.Fatalf("expected only repo-keep-route after delete, got %+v", remaining)
+	}
+	repoScans, err := svc.Store.ListRepoScans(defaultScopeContext(), 10)
+	if err != nil {
+		t.Fatalf("list repo scans: %v", err)
+	}
+	if len(repoScans) != 1 || repoScans[0].FindingCount != 1 {
+		t.Fatalf("expected repo scan count to refresh after delete, got %+v", repoScans)
+	}
+
+	secondDelete := httptest.NewRequest(
+		http.MethodDelete,
+		"/v1/repo-findings/repo-delete-route?repo_scan_id="+repoScan.ID,
+		nil,
+	)
+	secondW := httptest.NewRecorder()
+	r.ServeHTTP(secondW, secondDelete)
+	if secondW.Code != http.StatusNotFound {
+		t.Fatalf("expected second delete 404, got %d body=%s", secondW.Code, secondW.Body.String())
+	}
+}
+
 func TestRouterRepoFindingRemediationPublish(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()

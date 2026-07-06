@@ -370,6 +370,23 @@ describe('apiClient', () => {
     expect(options.body).toBe(JSON.stringify({ status: 'ack', assignee: 'platform', comment: 'acknowledged' }));
   });
 
+  it('deletes repo findings with scan scope', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      text: async () => ''
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.deleteRepoFinding('finding/1', 'repo-scan-1', { apiKey: 'writer' });
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/repo-findings/finding%2F1?repo_scan_id=repo-scan-1');
+    expect(options.method).toBe('DELETE');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-api-key')).toBe('writer');
+  });
+
   it('posts workspace member invite/update payload and includes scoped headers', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

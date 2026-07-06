@@ -109,6 +109,23 @@ func TestDefaultRoutePolicyBundleUsesRepoScansReadForRepoFindingsTrends(t *testi
 	}
 }
 
+func TestDefaultRoutePolicyBundleUsesRepoScansRunForDeleteRepoFinding(t *testing.T) {
+	compiled, err := compileRouteAuthorizationPolicyBundle(defaultBuiltInRouteAuthorizationPolicyBundle())
+	if err != nil {
+		t.Fatalf("compile built-in policy bundle: %v", err)
+	}
+	policy, exists := compiled.RouteRegistry.lookup("DELETE", "/v1/repo-findings/:finding_id")
+	if !exists {
+		t.Fatal("expected built-in authz policy for DELETE /v1/repo-findings/:finding_id")
+	}
+	if policy.Action != policyActionRepoScansRun {
+		t.Fatalf("expected action %q, got %q", policyActionRepoScansRun, policy.Action)
+	}
+	if policy.ResourceIDParam != "finding_id" {
+		t.Fatalf("expected finding_id resource param, got %q", policy.ResourceIDParam)
+	}
+}
+
 func TestDefaultRoutePolicyBundleUsesRepoScansRunForCancel(t *testing.T) {
 	compiled, err := compileRouteAuthorizationPolicyBundle(defaultBuiltInRouteAuthorizationPolicyBundle())
 	if err != nil {

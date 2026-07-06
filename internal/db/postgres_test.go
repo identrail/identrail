@@ -997,20 +997,75 @@ func TestPostgresStoreDeleteRepoFindings(t *testing.T) {
 			WHERE id = $1
 			  AND tenant_id = $2
 			  AND workspace_id = $3
-		)`)).
+			)`)).
 		WithArgs(scanID, "default", "default").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM repo_findings rf
-		 USING repo_scans rs
-		 WHERE rf.repo_scan_id = rs.id
-		   AND rf.repo_scan_id = $1
-		   AND rs.tenant_id = $2
-		   AND rs.workspace_id = $3`)).
+			 USING repo_scans rs
+			 WHERE rf.repo_scan_id = rs.id
+			   AND rf.repo_scan_id = $1
+			   AND rs.tenant_id = $2
+			   AND rs.workspace_id = $3`)).
 		WithArgs(scanID, "default", "default").
 		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE repo_scans
+		 SET finding_count = 0
+		 WHERE id = $1
+		   AND tenant_id = $2
+		   AND workspace_id = $3`)).
+		WithArgs(scanID, "default", "default").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	if err := store.DeleteRepoFindings(defaultScopeContext(), scanID); err != nil {
 		t.Fatalf("delete repo findings: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreDeleteRepoFindingDecrementsScanCount(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	scanID := "11111111-1111-1111-1111-111111111111"
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
+			SELECT 1
+			FROM repo_scans
+			WHERE id = $1
+			  AND tenant_id = $2
+			  AND workspace_id = $3
+		)`)).
+		WithArgs(scanID, "default", "default").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec(regexp.QuoteMeta(`WITH deleted AS (
+			DELETE FROM repo_findings rf
+			USING repo_scans rs
+			WHERE rf.repo_scan_id = rs.id
+			  AND rf.repo_scan_id = $1
+			  AND rf.finding_id = $2
+			  AND rs.tenant_id = $3
+			  AND rs.workspace_id = $4
+			RETURNING rf.repo_scan_id
+		)
+		UPDATE repo_scans rs
+		SET finding_count = GREATEST(0, rs.finding_count - (SELECT COUNT(*) FROM deleted))
+		WHERE rs.id = $1
+		  AND rs.tenant_id = $3
+		  AND rs.workspace_id = $4
+		  AND EXISTS (SELECT 1 FROM deleted)`)).
+		WithArgs(scanID, "rf-1", "default", "default").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := store.DeleteRepoFinding(defaultScopeContext(), scanID, "rf-1"); err != nil {
+		t.Fatalf("delete repo finding: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
