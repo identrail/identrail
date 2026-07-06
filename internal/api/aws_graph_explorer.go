@@ -488,12 +488,11 @@ func (b *awsGraphExplorerBuilder) addAgents(result AWSAIAgentIdentityInventoryRe
 				LastSeenAt:   record.CollectedAt,
 			})
 		}
-		for _, target := range dedupeStrings(
-			append(
-				append(append([]string{}, record.ToolTargetRefs...), record.ResourceReferenceRefs...),
-				append(record.CredentialReferenceRefs, record.EncryptionKeyARN)...,
-			),
-		) {
+		targets := append(append([]string{}, record.ToolTargetRefs...), record.ResourceReferenceRefs...)
+		if record.EncryptionKeyARN != "" {
+			targets = append(targets, record.EncryptionKeyARN)
+		}
+		for _, target := range dedupeStrings(targets) {
 			nodeID := awsGraphExplorerResourceNodeID(target)
 			b.addNode(AWSGraphExplorerNode{
 				NodeID:       nodeID,
@@ -799,7 +798,20 @@ func (b *awsGraphExplorerBuilder) addPassRole(result AWSIAMPassRoleRelationshipI
 		if record.ToNodeID != "" && !record.UnresolvedTarget && strings.EqualFold(record.Effect, "Allow") {
 			edgeIDs := dedupeStrings(passRoleEdgeIDsByGrant[awsGraphExplorerPassRoleGrantKey(record.FromNodeID, record.ToNodeID, record.EvidenceRef)])
 			if len(edgeIDs) == 0 {
-				edgeIDs = []string{"aws-graph-edge:" + stableAWSBlastRadiusToken("iam_passrole_relationships", "can_pass_role", record.FromNodeID, record.ToNodeID, record.EvidenceRef)}
+				edgeID := "aws-graph-edge:" + stableAWSBlastRadiusToken("iam_passrole_relationships", "can_pass_role", record.FromNodeID, record.ToNodeID, record.EvidenceRef)
+				b.addEdge(AWSGraphExplorerEdge{
+					EdgeID:      edgeID,
+					Type:        "can_pass_role",
+					Label:       formatAWSBlastRadiusLabel("can_pass_role"),
+					FromNodeID:  record.FromNodeID,
+					ToNodeID:    record.ToNodeID,
+					Source:      "iam_passrole_relationships",
+					Status:      result.Status,
+					Confidence:  result.Confidence,
+					EvidenceRef: record.EvidenceRef,
+				})
+				edgeIDs = []string{edgeID}
+				b.attachEvidenceEdge(record.EvidenceRef, edgeID)
 			}
 			b.addPath(AWSGraphExplorerPath{
 				PathID:       "aws-graph-path:" + stableAWSBlastRadiusToken("passrole", record.FromNodeID, record.ToNodeID, record.EvidenceRef),

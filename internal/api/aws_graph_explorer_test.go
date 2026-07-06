@@ -522,6 +522,102 @@ func TestAWSGraphExplorerPassRolePathEdgesStayEvidenceScoped(t *testing.T) {
 	}
 }
 
+func TestAWSGraphExplorerPassRolePathAddsSyntheticEdgeWhenRelationshipMissing(t *testing.T) {
+	now := time.Date(2026, 7, 5, 18, 0, 0, 0, time.UTC)
+	record := AWSIAMPassRoleRelationshipRecord{
+		AccountID:        "111111111111",
+		Region:           "us-east-1",
+		SourceRoleARN:    "arn:aws:iam::111111111111:role/source",
+		SourceRoleName:   "source",
+		TargetResource:   "arn:aws:iam::111111111111:role/target",
+		PolicyName:       "policy-a",
+		StatementSid:     "AllowA",
+		Effect:           "Allow",
+		EvidenceRef:      "passrole-evidence://policy-a",
+		FromNodeID:       "aws:identity:source",
+		ToNodeID:         "aws:identity:target",
+		RelationshipType: "can_pass_role",
+		Confidence:       0.9,
+		CollectedAt:      now,
+		Status:           "ready",
+	}
+	expectedEdgeID := "aws-graph-edge:" + stableAWSBlastRadiusToken("iam_passrole_relationships", "can_pass_role", record.FromNodeID, record.ToNodeID, record.EvidenceRef)
+
+	builder := newAWSGraphExplorerBuilder()
+	builder.addPassRole(AWSIAMPassRoleRelationshipInventoryResult{
+		Status:        "ready",
+		Confidence:    0.9,
+		Records:       []AWSIAMPassRoleRelationshipRecord{record},
+		Relationships: nil,
+	})
+
+	if got := len(builder.sortedPaths()); got != 1 {
+		t.Fatalf("expected one path to be created from pass-role record, got %d", got)
+	}
+	paths := builder.sortedPaths()
+	if got := len(paths[0].EdgeIDs); got != 1 {
+		t.Fatalf("expected synthetic path edge for missing relationship: %+v", paths[0])
+	}
+	if got, want := paths[0].EdgeIDs[0], expectedEdgeID; got != want {
+		t.Fatalf("expected pass-role path to reference synthetic edge %q, got %q", want, got)
+	}
+	if got := len(builder.sortedEdges()); got != 1 {
+		t.Fatalf("expected synthetic pass-role edge to be materialized, got %d", got)
+	}
+	edges := builder.sortedEdges()
+	if got, want := edges[0].EdgeID, expectedEdgeID; got != want {
+		t.Fatalf("expected synthetic edge %q, got %q", want, got)
+	}
+	if edges[0].Type != "can_pass_role" || edges[0].FromNodeID != record.FromNodeID || edges[0].ToNodeID != record.ToNodeID || edges[0].EvidenceRef != record.EvidenceRef {
+		t.Fatalf("unexpected synthetic pass-role edge payload: %+v", edges[0])
+	}
+}
+
+func TestAWSGraphExplorerAgentsUsesCredentialNodeForCredentialRefsAndGenericTargetForEncryptionKey(t *testing.T) {
+	now := time.Date(2026, 7, 5, 18, 10, 0, 0, time.UTC)
+	record := AWSAIAgentIdentityRecord{
+		AccountID:               "111111111111",
+		Region:                  "us-east-1",
+		AgentNodeID:             "aws:agent:test",
+		AgentName:               "test-agent",
+		AgentType:               "custom",
+		CredentialReferenceRefs: []string{"secretsmanager:prod/ai/openai-key"},
+		EncryptionKeyARN:        "arn:aws:kms:us-east-1:111111111111:key/cmk",
+		AgentID:                 "agent-1",
+		EvidenceRef:             "ai-agent-evidence://agent-1",
+		Confidence:              0.9,
+		CollectedAt:             now,
+		Status:                  "ready",
+	}
+	credentialRefNodeID := awsCredentialReferenceNodeID(record.AgentNodeID, record.CredentialReferenceRefs[0])
+	encryptionNodeID := awsGraphExplorerResourceNodeID(record.EncryptionKeyARN)
+	genericCredentialNodeID := awsGraphExplorerResourceNodeID(record.CredentialReferenceRefs[0])
+
+	builder := newAWSGraphExplorerBuilder()
+	builder.addAgents(AWSAIAgentIdentityInventoryResult{
+		Status:  "ready",
+		Records: []AWSAIAgentIdentityRecord{record},
+	})
+
+	nodes := builder.sortedNodes()
+	nodeByID := map[string]AWSGraphExplorerNode{}
+	for _, node := range nodes {
+		nodeByID[node.NodeID] = node
+	}
+	if _, ok := nodeByID[credentialRefNodeID]; !ok {
+		t.Fatalf("expected credential reference to render as dedicated credential node: %q", credentialRefNodeID)
+	}
+	if _, ok := nodeByID[genericCredentialNodeID]; ok {
+		t.Fatalf("expected no generic resource node for credential references: %q", genericCredentialNodeID)
+	}
+	if _, ok := nodeByID[encryptionNodeID]; !ok {
+		t.Fatalf("expected encryption key ARN to render as generic resource node: %q", encryptionNodeID)
+	}
+	if len(nodes) == 0 || nodeByID[credentialRefNodeID].NodeType != "credential_reference" {
+		t.Fatalf("expected dedicated credential node type to be credential_reference, got %+v", nodeByID[credentialRefNodeID])
+	}
+}
+
 func TestPaginateAWSGraphExplorerExpandsSingleHop(t *testing.T) {
 	nodes := []AWSGraphExplorerNode{
 		{NodeID: "node-a", NodeType: "identity", Label: "A"},
