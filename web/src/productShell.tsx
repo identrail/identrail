@@ -102,6 +102,11 @@ import {
   type AWSAgentCoreGatewayPolicyAdvisoryResult,
   type AWSTrustPolicyHardeningExecutorEntry,
   type AWSTrustPolicyHardeningExecutorResult,
+  type AWSGraphExplorerNode,
+  type AWSGraphExplorerResult,
+  type AWSGraphExplorerEdge,
+  type AWSGraphExplorerPath,
+  type AWSGraphExplorerEvidence,
   type AWSBlastRadiusFinding,
   type AWSBlastRadiusResult,
   type AWSLeastPrivilegeRecommendation,
@@ -11026,9 +11031,14 @@ const AWS_RISK_OPERATION_FILTERS: AWSRiskOperationFilterConfigMap = {
         { label: 'All nodes', value: 'all' },
         { label: 'Identity', value: 'identity' },
         { label: 'Agent', value: 'agent' },
+        { label: 'Agent gateway', value: 'agent_gateway' },
+        { label: 'Session', value: 'session' },
         { label: 'Resource', value: 'resource' },
-        { label: 'Finding', value: 'finding' },
-        { label: 'Owner', value: 'owner' }
+        { label: 'Secret', value: 'secret' },
+        { label: 'KMS key', value: 'kms_key' },
+        { label: 'S3 bucket', value: 's3_bucket' },
+        { label: 'Credential reference', value: 'credential_reference' },
+        { label: 'Unknown', value: 'unknown' }
       ]
     },
     {
@@ -11036,10 +11046,21 @@ const AWS_RISK_OPERATION_FILTERS: AWSRiskOperationFilterConfigMap = {
       label: 'Edge',
       options: [
         { label: 'All edges', value: 'all' },
-        { label: 'Can assume', value: 'can-assume' },
-        { label: 'Can read secret', value: 'can-read-secret' },
-        { label: 'Can decrypt', value: 'can-decrypt' },
-        { label: 'Owns', value: 'owns' }
+        { label: 'Runs as', value: 'runs_as' },
+        { label: 'Calls tool', value: 'calls_tool' },
+        { label: 'Uses secret', value: 'uses_secret' },
+        { label: 'Invokes', value: 'invokes' },
+        { label: 'Runtime action', value: 'observed_runtime_action' },
+        { label: 'Runtime session', value: 'has_runtime_session' },
+        { label: 'Session action', value: 'runtime_session_performed_action' },
+        { label: 'Agent action', value: 'agent_invoked_runtime_action' },
+        { label: 'PassRole', value: 'can_pass_role' },
+        { label: 'Impacted path', value: 'impacted_path' },
+        { label: 'Original actor session', value: 'original_actor_started_session' },
+        { label: 'Role chained session', value: 'role_chained_into_session' },
+        { label: 'Blast radius path', value: 'blast_radius_path' },
+        { label: 'Cross-account blast radius', value: 'cross_account_blast_radius' },
+        { label: 'Least privilege scope', value: 'least_privilege_scope' }
       ]
     },
     {
@@ -11047,9 +11068,11 @@ const AWS_RISK_OPERATION_FILTERS: AWSRiskOperationFilterConfigMap = {
       label: 'Evidence',
       options: [
         { label: 'All evidence', value: 'all' },
-        { label: 'Known', value: 'known' },
-        { label: 'Unknown', value: 'unknown' },
-        { label: 'Planned', value: 'planned' }
+        { label: 'Runtime events', value: 'runtime_events' },
+        { label: 'AI agents', value: 'ai_agent_identities' },
+        { label: 'PassRole', value: 'iam_passrole_relationships' },
+        { label: 'Blast radius', value: 'blast_radius' },
+        { label: 'Least privilege', value: 'least_privilege' }
       ]
     }
   ],
@@ -11264,7 +11287,8 @@ function AWSRiskOperationScope({
   selectedEnvironmentID: string;
 }) {
   const facts = [
-    ['Status', copy.statusLabel],
+    ['Status', copy.statusLabel || awsConnectionLabel(connection)],
+    ['Connector', connection?.display_name || connection?.connector_id || 'Connected AWS connector'],
     ['Scope', connection?.account_id ? awsAccountRegionLabel(connection) : selectedEnvironmentID ? 'Pending connector' : 'No environment'],
     ['Role', connection?.role_arn ? awsConnectionRoleLabel(connection) : 'Not connected'],
     ['Mode', copy.routeID === 'governance' ? 'Advisory' : 'Read-only']
@@ -14935,90 +14959,252 @@ function awsGovernanceAuditReportingQueryFromFilters(filters: AWSInventoryFilter
 }
 
 function AWSGraphExplorerContent({
-  connection,
+  graph,
+  loading,
+  error,
   filters,
-  onFiltersChange
+  onFiltersChange,
+  onRetry,
+  hasMore,
+  onLoadMore,
+  isLoadingMore
 }: {
-  connection: AWSConnectionStatus | null;
+  graph: AWSGraphExplorerResult | null;
+  loading: boolean;
+  error: string;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
+  onRetry: () => void;
+  hasMore: boolean;
+  onLoadMore: () => void;
+  isLoadingMore: boolean;
 }) {
-  const rows: AWSRiskOperationTableRow[] = [
-    {
-      id: 'identity-anchor',
-      title: awsConnectionRoleLabel(connection),
-      category: 'Identity',
-      evidence: connection?.role_arn ? 'Connector' : 'Unknown',
-      owner: 'Security',
-      blastRadius: awsAccountRegionLabel(connection),
-      nextAction: 'Join policies',
-      status: connection?.role_arn ? 'known' : 'unknown',
-      stage: connection?.role_arn ? 'wired' : 'coming',
-      filters: { node: 'identity', edge: 'can-assume', evidence: connection?.role_arn ? 'known' : 'unknown', search: '' },
-      searchText: inventorySearchText([connection?.role_arn, connection?.principal_arn, 'identity', 'role anchor'])
-    },
-    {
-      id: 'secret-node',
-      title: 'Secrets Manager metadata node',
-      category: 'Resource',
-      evidence: 'Planned',
-      owner: 'Application',
-      blastRadius: 'Secret reachability pending',
-      nextAction: 'Collect metadata',
-      status: 'planned',
-      stage: 'coming',
-      filters: { node: 'resource', edge: 'can-read-secret', evidence: 'planned', search: '' },
-      searchText: inventorySearchText(['secret', 'resource', 'can read secret', 'metadata'])
-    },
-    {
-      id: 'kms-node',
-      title: 'KMS decrypt path',
-      category: 'Resource',
-      evidence: 'Planned',
-      owner: 'Platform',
-      blastRadius: 'Key grants pending',
-      nextAction: 'Attach key policy',
-      status: 'planned',
-      stage: 'coming',
-      filters: { node: 'resource', edge: 'can-decrypt', evidence: 'planned', search: '' },
-      searchText: inventorySearchText(['kms', 'decrypt', 'resource'])
-    },
-    {
-      id: 'finding-node',
-      title: 'AWS finding node',
-      category: 'Finding',
-      evidence: 'Unknown',
-      owner: 'Security',
-      blastRadius: 'No finding selected',
-      nextAction: 'Wire findings',
-      status: 'unavailable',
-      stage: 'not-available',
-      filters: { node: 'finding', edge: 'owns', evidence: 'unknown', search: '' },
-      searchText: inventorySearchText(['finding', 'risk path', 'evidence'])
-    }
-  ];
-  const displayedRows = filterAWSInventoryRows(rows, filters);
+  const graphRows =
+    !error &&
+    !loading &&
+    graph &&
+    graph.status !== 'blocked' &&
+    (graph.nodes.length > 0 || graph.edges.length > 0 || graph.paths.length > 0 || graph.evidence.length > 0)
+      ? graph
+      : null;
 
   return (
     <>
       <AWSRiskOperationFilterSet routeID="graph" filters={filters} onChange={onFiltersChange} />
-      <DomainDataTable
-        label="AWS graph nodes and edges"
-        rows={displayedRows}
-        getRowKey={(row) => row.id}
-        columns={[
-          {
-            key: 'node',
-            header: 'Node / edge',
-            render: (row) => <strong>{row.title}</strong>
-          },
-          { key: 'category', header: 'Type', render: (row) => row.category },
-          { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
-          { key: 'blast', header: 'Blast radius', render: (row) => row.blastRadius },
-          { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
-        ]}
-      />
+      {error ? <DomainErrorState title="Couldn't load AWS graph" body={error} retryAction={{ label: 'Retry', onClick: onRetry }} /> : null}
+      {!error && loading ? <DomainLoadingState label="Loading AWS graph explorer" /> : null}
+      {!error && !loading && graph && graph.status === 'blocked' ? (
+        <DomainEmptyState
+          eyebrow="Permission required"
+          title="AWS graph needs read-only metadata access"
+          body={graph.failure_reasons[0] ?? 'AWS graph sources returned a permission-denied state.'}
+        />
+      ) : null}
+      {!error && !loading && graph && graph.nodes.length === 0 && graph.status !== 'blocked' ? (
+        <DomainEmptyState
+          eyebrow={graph.status === 'empty' ? 'Empty' : 'No matches'}
+          title="No AWS graph nodes matched"
+          body={graph.failure_reasons[0] ?? 'Clear filters or expand the AWS evidence scope.'}
+        />
+      ) : null}
+      {graph ? (
+        <DomainKpiStrip
+          label="AWS graph explorer metrics"
+          items={[
+            {
+              label: 'Nodes',
+              value: graph.summary.filtered_nodes,
+              detail: `${graph.summary.identity_count} identities · ${graph.summary.agent_count} agents`
+            },
+            {
+              label: 'Edges',
+              value: graph.summary.filtered_edges,
+              detail: `${graph.summary.runtime_action_count} runtime · ${graph.summary.trust_edge_count} trust`
+            },
+            {
+              label: 'Paths',
+              value: graph.summary.filtered_paths,
+              detail: `${graph.summary.passrole_path_count} PassRole · ${graph.summary.remediation_link_count} remediation`
+            },
+            {
+              label: 'Confidence',
+              value: `${Math.round(graph.confidence * 100)}%`,
+              detail: formatTokenLabel(graph.status),
+              tone: graph.status === 'blocked' ? 'danger' : graph.status === 'degraded' ? 'warning' : graph.status === 'empty' ? 'neutral' : 'success'
+            }
+          ]}
+        />
+      ) : null}
+      {graphRows ? (
+        <>
+          <DomainDataTable
+            label="AWS graph nodes"
+            rows={graphRows.nodes}
+            getRowKey={(row) => row.node_id}
+            emptyState={<DomainEmptyState eyebrow="Empty" title="No graph nodes" body="No AWS graph nodes matched this view." />}
+            columns={[
+              {
+                key: 'node',
+                header: 'Node',
+                render: (row) => (
+                  <>
+                    <strong>{row.label}</strong>
+                    <p>{row.node_id}</p>
+                  </>
+                )
+              },
+              { key: 'type', header: 'Type', render: (row) => formatTokenLabel(row.node_type) },
+              { key: 'source', header: 'Source', render: (row) => formatTokenLabel(row.source) },
+              { key: 'scope', header: 'Account / region', render: (row) => awsGraphExplorerScopeLabel(row) },
+              { key: 'confidence', header: 'Confidence', render: (row) => `${Math.round(row.confidence * 100)}%`, align: 'right' },
+              { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={awsGraphExplorerStage(row.status)} label={formatTokenLabel(row.status)} /> }
+            ]}
+          />
+          <DomainDataTable
+            label="AWS graph relationships"
+            rows={graphRows.edges}
+            getRowKey={(row) => row.edge_id}
+            emptyState={<DomainEmptyState eyebrow="Empty" title="No graph edges" body="No AWS graph relationships matched this view." />}
+            columns={[
+              {
+                key: 'edge',
+                header: 'Relationship',
+                render: (row) => (
+                  <>
+                    <strong>{formatTokenLabel(row.type)}</strong>
+                    {row.runtime_action ? <p>{row.runtime_action}</p> : null}
+                  </>
+                )
+              },
+              { key: 'from', header: 'From', render: (row) => shortGraphNodeID(row.from_node_id) },
+              { key: 'to', header: 'To', render: (row) => shortGraphNodeID(row.to_node_id) },
+              { key: 'source', header: 'Source', render: (row) => formatTokenLabel(row.source) },
+              { key: 'evidence', header: 'Evidence', render: (row) => shortEvidenceRef(row.evidence_ref) },
+              { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={awsGraphExplorerStage(row.status)} label={formatTokenLabel(row.status)} /> }
+            ]}
+          />
+          <DomainDataTable
+            label="AWS graph paths"
+            rows={graphRows.paths}
+            getRowKey={(row) => row.path_id}
+            emptyState={<DomainEmptyState eyebrow="Empty" title="No graph paths" body="No AWS graph paths matched this view." />}
+            columns={[
+              {
+                key: 'path',
+                header: 'Path',
+                render: (row) => (
+                  <>
+                    <strong>{row.title}</strong>
+                    <p>{formatTokenLabel(row.path_type)}</p>
+                  </>
+                )
+              },
+              { key: 'severity', header: 'Severity', render: (row) => formatTokenLabel(row.severity ?? 'info') },
+              { key: 'nodes', header: 'Nodes', render: (row) => row.node_ids.length, align: 'right' },
+              { key: 'next', header: 'Next action', render: (row) => row.next_action ?? 'Review evidence' },
+              { key: 'remediation', header: 'Remediation', render: (row) => row.remediation_ref ? shortGraphNodeID(row.remediation_ref) : 'Read-only' },
+              { key: 'evidence', header: 'Evidence', render: (row) => <AWSGraphEvidenceDrawer refs={row.evidence_refs ?? []} /> }
+            ]}
+          />
+          <DomainDataTable
+            label="AWS graph evidence"
+            rows={graphRows.evidence}
+            getRowKey={(row) => row.evidence_id}
+            emptyState={<DomainEmptyState eyebrow="Empty" title="No evidence entries" body="No graph evidence matched the displayed nodes and paths." />}
+            columns={[
+              {
+                key: 'evidence',
+                header: 'Evidence',
+                render: (row) => (
+                  <>
+                    <strong>{row.label}</strong>
+                    <p>{shortEvidenceRef(row.evidence_ref)}</p>
+                  </>
+                )
+              },
+              { key: 'source', header: 'Source', render: (row) => formatTokenLabel(row.source) },
+              { key: 'scope', header: 'Scope', render: (row) => `${row.node_ids?.length ?? 0} nodes · ${row.edge_ids?.length ?? 0} edges` },
+              { key: 'confidence', header: 'Confidence', render: (row) => `${Math.round(row.confidence * 100)}%`, align: 'right' },
+              { key: 'boundary', header: 'Boundary', render: (row) => formatTokenLabel(row.redaction_boundary) }
+            ]}
+          />
+          {hasMore ? (
+            <div className="idt-domain-actions" style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>
+              <button
+                type="button"
+                className="idt-btn idt-btn-primary"
+                onClick={onLoadMore}
+                disabled={isLoadingMore}
+              >
+                {isLoadingMore ? 'Loading more' : 'Load more'}
+              </button>
+            </div>
+          ) : null}
+        </>
+      ) : null}
     </>
+  );
+}
+
+function awsGraphExplorerStage(status: string): AWSCapabilityStage {
+  switch (status) {
+    case 'ready':
+    case 'known':
+    case 'confirmed':
+      return 'wired';
+    case 'degraded':
+    case 'partial_failure':
+    case 'review':
+    case 'action_required':
+    case 'monitor':
+      return 'coming';
+    default:
+      return 'not-available';
+  }
+}
+
+function awsGraphExplorerScopeLabel(node: AWSGraphExplorerNode): string {
+  if (node.account_id && node.region) {
+    return `${node.account_id} / ${node.region}`;
+  }
+  return node.account_id || node.region || 'Global';
+}
+
+function shortGraphNodeID(value: string): string {
+  if (!value) {
+    return '—';
+  }
+  const slash = value.lastIndexOf('/');
+  if (slash >= 0 && slash < value.length - 1) {
+    return value.slice(slash + 1);
+  }
+  const colon = value.lastIndexOf(':');
+  if (colon >= 0 && colon < value.length - 1) {
+    return value.slice(colon + 1);
+  }
+  return value;
+}
+
+function shortEvidenceRef(value?: string): string {
+  if (!value) {
+    return '—';
+  }
+  return value.length > 72 ? `${value.slice(0, 69)}...` : value;
+}
+
+function AWSGraphEvidenceDrawer({ refs }: { refs: string[] }) {
+  if (refs.length === 0) {
+    return 'No evidence';
+  }
+  return (
+    <details className="idt-aws-graph-evidence-drawer">
+      <summary>{refs.length} refs</summary>
+      <ul>
+        {refs.map((ref) => (
+          <li key={ref}>{shortEvidenceRef(ref)}</li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -15258,6 +15444,15 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [runtimeEventsLoading, setRuntimeEventsLoading] = useState(false);
   const [runtimeEventsError, setRuntimeEventsError] = useState('');
   const runtimeEventsRequestRef = useRef(0);
+  const [graphExplorer, setGraphExplorer] = useState<AWSGraphExplorerResult | null>(null);
+  const [graphExplorerLoading, setGraphExplorerLoading] = useState(false);
+  const [graphExplorerError, setGraphExplorerError] = useState('');
+  const [graphExplorerHasMore, setGraphExplorerHasMore] = useState(false);
+  const [graphExplorerCursor, setGraphExplorerCursor] = useState<string | undefined>(undefined);
+  const [graphExplorerLoadingMore, setGraphExplorerLoadingMore] = useState(false);
+  const graphExplorerHasMoreRef = useRef(graphExplorerHasMore);
+  const graphExplorerCursorRef = useRef(graphExplorerCursor);
+  const graphExplorerRequestRef = useRef(0);
   const [secretsKMSAccess, setSecretsKMSAccess] = useState<AWSSecretsKMSRuntimeAccessResult | null>(null);
   const [secretsKMSAccessLoading, setSecretsKMSAccessLoading] = useState(false);
   const [secretsKMSAccessError, setSecretsKMSAccessError] = useState('');
@@ -15392,6 +15587,133 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   }, [routeID]);
 
   const showSecretPermissionEquivalence = routeID === 'runtime' || routeID === 'findings';
+
+  const loadGraphExplorer = useCallback(async ({ append = false }: { append?: boolean } = {}) => {
+    const requestID = ++graphExplorerRequestRef.current;
+    setGraphExplorerError('');
+    if (routeID !== 'graph' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setGraphExplorer(null);
+      setGraphExplorerHasMore(false);
+      setGraphExplorerCursor(undefined);
+      setGraphExplorerLoading(false);
+      setGraphExplorerLoadingMore(false);
+      graphExplorerHasMoreRef.current = false;
+      graphExplorerCursorRef.current = undefined;
+      return;
+    }
+
+    const requestCursor = append ? graphExplorerCursorRef.current : undefined;
+    if (append) {
+      if (!graphExplorerHasMoreRef.current || !requestCursor) {
+        return;
+      }
+      setGraphExplorerLoadingMore(true);
+    } else {
+      setGraphExplorer(null);
+      setGraphExplorerHasMore(false);
+      setGraphExplorerCursor(undefined);
+      graphExplorerHasMoreRef.current = false;
+      graphExplorerCursorRef.current = undefined;
+      setGraphExplorerLoadingMore(false);
+      setGraphExplorerLoading(true);
+    }
+
+    try {
+      const response = await apiClient.getAWSProjectGraphExplorer(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id,
+          nodeType: activeFilters.node && activeFilters.node !== 'all' ? activeFilters.node : undefined,
+          edgeType: activeFilters.edge && activeFilters.edge !== 'all' ? activeFilters.edge : undefined,
+          evidence: activeFilters.evidence && activeFilters.evidence !== 'all' ? activeFilters.evidence : undefined,
+          search: activeFilters.search?.trim() || undefined,
+          expand: 'neighbors',
+          limit: 80,
+          cursor: requestCursor
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== graphExplorerRequestRef.current) {
+        return;
+      }
+      if (append) {
+        const getNodeID = (row: AWSGraphExplorerNode) => row.node_id;
+        const getEdgeID = (row: AWSGraphExplorerEdge) => row.edge_id;
+        const getPathID = (row: AWSGraphExplorerPath) => row.path_id;
+        const getEvidenceID = (row: AWSGraphExplorerEvidence) => row.evidence_id;
+        const mergeByID = <T,>(existing: T[], added: T[], getKey: (entry: T) => string) => {
+          const seen = new Map<string, boolean>();
+          const merged: T[] = [];
+          for (const entry of [...existing, ...added]) {
+            const key = getKey(entry);
+            if (!key || seen.has(key)) {
+              continue;
+            }
+            seen.set(key, true);
+            merged.push(entry);
+          }
+          return merged;
+        };
+
+        setGraphExplorer((current) => {
+          if (!current) {
+            return response.graph;
+          }
+          return {
+            ...response.graph,
+            nodes: mergeByID(current.nodes, response.graph.nodes, getNodeID),
+            edges: mergeByID(current.edges, response.graph.edges, getEdgeID),
+            paths: mergeByID(current.paths, response.graph.paths, getPathID),
+            evidence: mergeByID(current.evidence, response.graph.evidence, getEvidenceID)
+          };
+        });
+      } else {
+        setGraphExplorer(response.graph);
+      }
+      const nextHasMore = response.graph.summary.has_more;
+      const nextCursor = response.graph.summary.next_cursor;
+      setGraphExplorerHasMore(nextHasMore);
+      setGraphExplorerCursor(nextCursor);
+      graphExplorerHasMoreRef.current = nextHasMore;
+      graphExplorerCursorRef.current = nextCursor;
+    } catch (error) {
+      if (requestID !== graphExplorerRequestRef.current) {
+        return;
+      }
+      setGraphExplorerError(formatAPIError(error, 'Unable to load AWS graph explorer.'));
+    } finally {
+      if (requestID === graphExplorerRequestRef.current) {
+        if (append) {
+          setGraphExplorerLoadingMore(false);
+        } else {
+          setGraphExplorerLoading(false);
+        }
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id,
+    activeFilters.node,
+    activeFilters.edge,
+    activeFilters.evidence,
+    activeFilters.search
+  ]);
+
+  useEffect(() => {
+    void loadGraphExplorer();
+    return () => {
+      graphExplorerRequestRef.current += 1;
+    };
+  }, [loadGraphExplorer]);
+
+  const loadMoreGraphExplorer = useCallback(() => {
+    void loadGraphExplorer({ append: true });
+  }, [loadGraphExplorer]);
 
   const loadRuntimeEvents = useCallback(async () => {
     const requestID = ++runtimeEventsRequestRef.current;
@@ -17034,6 +17356,9 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             connectPath={connectPath}
           />
         ) : null}
+        {!environmentScope.loading && !connectionLoading && !connectionError && connection?.connected ? (
+          <AWSRiskOperationScope copy={copy} connection={connection} selectedEnvironmentID={selectedEnvironmentID} />
+        ) : null}
 
         {routeID === 'runtime' ? (
           <AWSRuntimeEvidenceContent
@@ -17271,9 +17596,15 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
         ) : null}
         {routeID === 'graph' ? (
           <AWSGraphExplorerContent
-            connection={connection}
+            graph={graphExplorer}
+            loading={graphExplorerLoading}
+            error={graphExplorerError}
             filters={activeFilters}
             onFiltersChange={onFiltersChange}
+            onRetry={loadGraphExplorer}
+            hasMore={graphExplorerHasMore}
+            onLoadMore={loadMoreGraphExplorer}
+            isLoadingMore={graphExplorerLoadingMore}
           />
         ) : null}
         {routeID === 'findings' ? (

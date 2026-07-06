@@ -6128,6 +6128,152 @@ export type AWSTrustPolicyHardeningExecutorQuery = {
   search?: string;
 };
 
+export type AWSGraphExplorerStatus = 'ready' | 'degraded' | 'blocked' | 'empty';
+export type AWSGraphExplorerFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+
+export type AWSGraphExplorerEvidence = {
+  evidence_id: string;
+  source: string;
+  evidence_ref: string;
+  label: string;
+  status: string;
+  confidence: number;
+  observed_at?: string;
+  node_ids?: string[];
+  edge_ids?: string[];
+  redaction_boundary: string;
+};
+
+export type AWSGraphExplorerNode = {
+  node_id: string;
+  node_type: string;
+  label: string;
+  account_id?: string;
+  region?: string;
+  source: string;
+  status: string;
+  confidence: number;
+  evidence_refs?: string[];
+  last_seen_at?: string;
+  metadata?: Record<string, string>;
+};
+
+export type AWSGraphExplorerEdge = {
+  edge_id: string;
+  type: string;
+  label: string;
+  from_node_id: string;
+  to_node_id: string;
+  account_id?: string;
+  region?: string;
+  source: string;
+  status: string;
+  confidence: number;
+  evidence_ref?: string;
+  runtime_action?: string;
+  metadata?: Record<string, string>;
+};
+
+export type AWSGraphExplorerPath = {
+  path_id: string;
+  path_type: string;
+  title: string;
+  severity?: string;
+  status: string;
+  confidence: number;
+  node_ids: string[];
+  edge_ids: string[];
+  evidence_refs?: string[];
+  next_action?: string;
+  remediation_ref?: string;
+  source: string;
+};
+
+export type AWSGraphExplorerSummary = {
+  total_nodes: number;
+  total_edges: number;
+  total_paths: number;
+  filtered_nodes: number;
+  filtered_edges: number;
+  filtered_paths: number;
+  identity_count: number;
+  agent_count: number;
+  resource_count: number;
+  session_count: number;
+  runtime_action_count: number;
+  trust_edge_count: number;
+  passrole_path_count: number;
+  remediation_link_count: number;
+  evidence_count: number;
+  node_type_counts: Record<string, number>;
+  edge_type_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  page_size: number;
+  next_cursor?: string;
+  has_more: boolean;
+};
+
+export type AWSGraphExplorerDiagnostic = {
+  collector: string;
+  source_id?: string;
+  code: string;
+  message: string;
+  remediation?: string;
+  retryable: boolean;
+};
+
+export type AWSGraphExplorerCoverageGap = {
+  capability: string;
+  status: string;
+  reason: string;
+  remediation?: string;
+};
+
+export type AWSGraphExplorerResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSGraphExplorerStatus;
+  fixture_state?: AWSGraphExplorerFixtureState;
+  confidence: number;
+  applied_filters: Record<string, string>;
+  summary: AWSGraphExplorerSummary;
+  nodes: AWSGraphExplorerNode[];
+  edges: AWSGraphExplorerEdge[];
+  paths: AWSGraphExplorerPath[];
+  evidence: AWSGraphExplorerEvidence[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSGraphExplorerCoverageGap[];
+  diagnostics: AWSGraphExplorerDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSGraphExplorerQuery = {
+  connectorID?: string;
+  fixtureState?: AWSGraphExplorerFixtureState;
+  accountID?: string;
+  region?: string;
+  nodeType?: string;
+  edgeType?: string;
+  status?: string;
+  evidence?: string;
+  search?: string;
+  expand?: string;
+  cursor?: string;
+  limit?: number;
+};
+
 export type AWSBlastRadiusStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSBlastRadiusFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSBlastRadiusSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
@@ -10782,6 +10928,30 @@ export const apiClient = {
         state: query?.state,
         severity: query?.severity,
         search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectGraphExplorer(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSGraphExplorerQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ graph: AWSGraphExplorerResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/graph-explorer${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        node_type: query?.nodeType,
+        edge_type: query?.edgeType,
+        status: query?.status,
+        evidence: query?.evidence,
+        search: query?.search,
+        expand: query?.expand,
+        cursor: query?.cursor,
+        limit: query?.limit
       })}`,
       auth
     );

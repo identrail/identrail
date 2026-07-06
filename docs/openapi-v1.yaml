@@ -484,6 +484,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/graph-explorer
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/validation-harness
     action: tenancy.read
     resource_type: project
@@ -7027,6 +7032,101 @@ paths:
                     $ref: "#/components/schemas/AWSTrustPolicyHardeningExecutorResult"
         "400":
           description: Invalid AWS trust-policy hardening executor request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/graph-explorer:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS graph explorer
+      operationId: getAWSProjectGraphExplorer
+      description: Composes a read-only AWS operator graph from agent identity, runtime event, IAM PassRole, blast-radius, and least-privilege evidence. The response returns paginated nodes plus adjacent relationships, ranked paths, metadata-only evidence, diagnostics, and coverage gaps without reading secret values, object contents, prompts, completions, tool payloads, browser pages, code-interpreter output, database rows, or customer payloads.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope account, region, and read-only evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: node_type
+          schema:
+            type: string
+            enum: [all, identity, agent, agent_gateway, session, resource, secret, kms_key, s3_bucket, credential_reference, unknown]
+          description: Optional node type filter. Hyphenated aliases are accepted and normalized to underscores.
+        - in: query
+          name: edge_type
+          schema:
+            type: string
+            enum: [all, runs_as, calls_tool, uses_secret, invokes, observed_runtime_action, has_runtime_session, runtime_session_performed_action, agent_invoked_runtime_action, can_pass_role, impacted_path, original_actor_started_session, role_chained_into_session, blast_radius_path, cross_account_blast_radius, least_privilege_scope]
+          description: Optional relationship type filter. Hyphenated aliases are accepted and normalized to underscores.
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [all, ready, degraded, blocked, empty, review, action_required, monitor]
+        - in: query
+          name: evidence
+          schema: { type: string }
+          description: Optional evidence source or evidence-ref filter, such as runtime_events, ai_agent_identities, iam_passrole_relationships, blast_radius, or least_privilege.
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: expand
+          schema:
+            type: string
+            enum: [neighbors]
+          description: Optional neighbor expansion for edges adjacent to the paginated nodes.
+        - in: query
+          name: cursor
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+      responses:
+        "200":
+          description: AWS graph explorer contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  graph:
+                    $ref: "#/components/schemas/AWSGraphExplorerResult"
+        "400":
+          description: Invalid AWS graph explorer request
           content:
             application/json:
               schema:
@@ -14966,6 +15066,216 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSAgentRuntimeAccessDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSGraphExplorerEvidence:
+      type: object
+      properties:
+        evidence_id: { type: string }
+        source: { type: string }
+        evidence_ref: { type: string }
+        label: { type: string }
+        status: { type: string }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        observed_at:
+          type: string
+          format: date-time
+        node_ids:
+          type: array
+          items: { type: string }
+        edge_ids:
+          type: array
+          items: { type: string }
+        redaction_boundary:
+          type: string
+          enum: [metadata_only]
+    AWSGraphExplorerNode:
+      type: object
+      properties:
+        node_id: { type: string }
+        node_type:
+          type: string
+          enum: [identity, agent, agent_gateway, session, resource, secret, kms_key, s3_bucket, credential_reference, unknown]
+        label: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        source: { type: string }
+        status: { type: string }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        evidence_refs:
+          type: array
+          items: { type: string }
+        last_seen_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: { type: string }
+    AWSGraphExplorerEdge:
+      type: object
+      properties:
+        edge_id: { type: string }
+        type: { type: string }
+        label: { type: string }
+        from_node_id: { type: string }
+        to_node_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        source: { type: string }
+        status: { type: string }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        evidence_ref: { type: string }
+        runtime_action: { type: string }
+        metadata:
+          type: object
+          additionalProperties: { type: string }
+    AWSGraphExplorerPath:
+      type: object
+      properties:
+        path_id: { type: string }
+        path_type: { type: string }
+        title: { type: string }
+        severity:
+          type: string
+          enum: [critical, high, medium, low, info]
+        status: { type: string }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        node_ids:
+          type: array
+          items: { type: string }
+        edge_ids:
+          type: array
+          items: { type: string }
+        evidence_refs:
+          type: array
+          items: { type: string }
+        next_action: { type: string }
+        remediation_ref: { type: string }
+        source: { type: string }
+    AWSGraphExplorerSummary:
+      type: object
+      properties:
+        total_nodes: { type: integer }
+        total_edges: { type: integer }
+        total_paths: { type: integer }
+        filtered_nodes: { type: integer }
+        filtered_edges: { type: integer }
+        filtered_paths: { type: integer }
+        identity_count: { type: integer }
+        agent_count: { type: integer }
+        resource_count: { type: integer }
+        session_count: { type: integer }
+        runtime_action_count: { type: integer }
+        trust_edge_count: { type: integer }
+        passrole_path_count: { type: integer }
+        remediation_link_count: { type: integer }
+        evidence_count: { type: integer }
+        node_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        edge_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        page_size: { type: integer }
+        next_cursor: { type: string }
+        has_more: { type: boolean }
+    AWSGraphExplorerDiagnostic:
+      type: object
+      properties:
+        collector: { type: string }
+        source_id: { type: string }
+        code: { type: string }
+        message: { type: string }
+        remediation: { type: string }
+        retryable: { type: boolean }
+    AWSGraphExplorerCoverageGap:
+      type: object
+      properties:
+        capability: { type: string }
+        status: { type: string }
+        reason: { type: string }
+        remediation: { type: string }
+    AWSGraphExplorerResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked, empty]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSGraphExplorerSummary"
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSGraphExplorerNode"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSGraphExplorerEdge"
+        paths:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSGraphExplorerPath"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSGraphExplorerEvidence"
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSGraphExplorerCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSGraphExplorerDiagnostic"
         generated_at:
           type: string
           format: date-time

@@ -2510,6 +2510,55 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		c.JSON(http.StatusOK, gin.H{"index": record})
 	})
 
+	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/graph-explorer", func(c *gin.Context) {
+		if svc == nil {
+			tenancyServiceUnavailable(c)
+			return
+		}
+		limit := 0
+		if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
+			parsed, parseErr := strconv.Atoi(rawLimit)
+			if parseErr != nil || parsed < 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws graph explorer request"})
+				return
+			}
+			limit = parsed
+		}
+		record, err := svc.GetAWSGraphExplorer(c.Request.Context(), c.Param("workspace_id"), c.Param("project_id"), AWSGraphExplorerRequest{
+			ConnectorID:  strings.TrimSpace(c.Query("connector_id")),
+			FixtureState: strings.TrimSpace(c.Query("fixture_state")),
+			AccountID:    strings.TrimSpace(c.Query("account_id")),
+			Region:       strings.TrimSpace(c.Query("region")),
+			NodeType:     strings.TrimSpace(c.Query("node_type")),
+			EdgeType:     strings.TrimSpace(c.Query("edge_type")),
+			Status:       strings.TrimSpace(c.Query("status")),
+			Evidence:     strings.TrimSpace(c.Query("evidence")),
+			Search:       strings.TrimSpace(c.Query("search")),
+			Expand:       strings.TrimSpace(c.Query("expand")),
+			Cursor:       strings.TrimSpace(c.Query("cursor")),
+			Limit:        limit,
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "project or connector not found"})
+			case errors.Is(err, ErrInvalidAWSConnectionRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws graph explorer request"})
+			default:
+				if logger != nil {
+					logger.Error("get aws graph explorer",
+						zap.String("workspace_id", c.Param("workspace_id")),
+						zap.String("project_id", c.Param("project_id")),
+						telemetry.ZapError(err),
+					)
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get aws graph explorer"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"graph": record})
+	})
+
 	v1.GET("/workspaces/:workspace_id/projects/:project_id/aws/validation-harness", func(c *gin.Context) {
 		if svc == nil {
 			tenancyServiceUnavailable(c)

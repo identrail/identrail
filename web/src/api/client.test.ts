@@ -79,6 +79,62 @@ describe('apiClient', () => {
     expect(url).toContain('/v1/scans?sort_by=started_at&sort_order=desc');
   });
 
+  it('builds AWS graph explorer URL with filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ graph: { nodes: [], edges: [], paths: [], evidence: [] } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectGraphExplorer(
+      'workspace-a',
+      'project-a',
+      {
+        connectorID: 'aws-prod',
+        nodeType: 'identity',
+        edgeType: 'can_pass_role',
+        evidence: 'runtime_events',
+        search: 'billing',
+        expand: 'neighbors',
+        limit: 80
+      },
+      { tenantID: 'tenant-a', workspaceID: 'workspace-a' }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(
+      '/v1/workspaces/workspace-a/projects/project-a/aws/graph-explorer?connector_id=aws-prod&node_type=identity&edge_type=can_pass_role&evidence=runtime_events&search=billing&expand=neighbors&limit=80'
+    );
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace-a');
+  });
+
+  it('passes graph explorer cursor for paging', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ graph: { nodes: [], edges: [], paths: [], evidence: [] } })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.getAWSProjectGraphExplorer(
+      'workspace-a',
+      'project-a',
+      {
+        connectorID: 'aws-prod',
+        cursor: 'cursor-3',
+        limit: 80
+      },
+      { tenantID: 'tenant-a', workspaceID: 'workspace-a' }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('cursor=cursor-3');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace-a');
+  });
+
   it('starts scans through the authenticated scan endpoint', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
