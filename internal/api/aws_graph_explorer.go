@@ -1613,7 +1613,7 @@ func awsGraphExplorerAPIToken(value string) string {
 func awsGraphExplorerCanonicalNodeType(value string) string {
 	token := awsGraphExplorerAPIToken(value)
 	switch token {
-	case "":
+	case "", "all":
 		return ""
 	case "agent", "ai_agent", "runtime_agent", "bedrock_agent", "agentcore_runtime", "aws::bedrock::agent", "aws::bedrock_agentcore::runtime":
 		return "agent"

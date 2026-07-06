@@ -354,6 +354,7 @@ func TestAWSGraphExplorerRuntimeIdentityNodesUseARNAccountScope(t *testing.T) {
 }
 
 func TestAWSGraphExplorerRuntimeResourceNodeUsesTargetResourceARNScope(t *testing.T) {
+	targetResourceNodeID := "aws:resource:s3/example-bucket"
 	record := AWSRuntimeEventRecord{
 		AccountID:           "111111111111",
 		Region:              "us-east-1",
@@ -382,7 +383,7 @@ func TestAWSGraphExplorerRuntimeResourceNodeUsesTargetResourceARNScope(t *testin
 	for _, node := range builder.sortedNodes() {
 		nodesByID[node.NodeID] = node
 	}
-	resourceNode, ok := nodesByID["aws:resource:s3/example-bucket"]
+	resourceNode, ok := nodesByID[targetResourceNodeID]
 	if !ok {
 		t.Fatalf("expected runtime target resource node to be materialized; nodes=%+v", nodesByID)
 	}
@@ -391,6 +392,13 @@ func TestAWSGraphExplorerRuntimeResourceNodeUsesTargetResourceARNScope(t *testin
 	}
 	if resourceNode.Region != "us-west-2" {
 		t.Fatalf("expected runtime target resource region to be derived from target ARN, got %q", resourceNode.Region)
+	}
+	evidence := builder.sortedEvidence()
+	if len(evidence) != 1 {
+		t.Fatalf("expected one runtime evidence entry; got %+v", evidence)
+	}
+	if !containsString(evidence[0].NodeIDs, targetResourceNodeID) {
+		t.Fatalf("expected runtime evidence to reference target resource node %q: %+v", targetResourceNodeID, evidence[0].NodeIDs)
 	}
 }
 
