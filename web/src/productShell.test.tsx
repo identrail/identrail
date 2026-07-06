@@ -32,6 +32,7 @@ import type {
   RepoFindingRemediationPreview,
   RepoFindingRemediationPublishResponse,
   RepoRiskGraph,
+  TrendPoint,
   RepoScanRecord,
   ScanPolicyRecord,
   WhoAmIResponse
@@ -7338,7 +7339,7 @@ describe('Domain-first app routes', () => {
       repoFindings?: Finding[];
       repoFindingSummary?: RepoFindingsSummary;
       listRepoFindings?: (params: unknown, call: number) => { items: Finding[]; summary?: RepoFindingsSummary };
-      getRepoFindingsTrends?: (params: unknown) => { items: { date: string; count: number }[] };
+      getRepoFindingsTrends?: (params: unknown) => { items: TrendPoint[] };
       getRepoRiskGraph?: (params: unknown) => RepoRiskGraph;
       role?: CurrentUserContext['role'];
     } = {}
@@ -7755,10 +7756,24 @@ describe('ProductFindingsPage states', () => {
       created_at: '2026-05-17T11:06:00Z'
     };
 
-    const { deleteRepoFinding, getRepoFindingsTrends, getRepoRiskGraph } = await renderFindings({
+      const { deleteRepoFinding, getRepoFindingsTrends, getRepoRiskGraph } = await renderFindings({
       repoScans: [scan],
       repoFindings: [finding],
-      getRepoFindingsTrends: () => ({ items: [{ date: '2026-05-17', count: 1 }] }),
+      getRepoFindingsTrends: () => ({
+        items: [
+          {
+            scan_id: 'repo-scan-with-actionable-finding-refresh',
+            started_at: '2026-05-17T11:06:00Z',
+            total: 1,
+            by_severity: {
+              critical: 0,
+              high: 1,
+              medium: 0,
+              low: 0
+            }
+          }
+        ]
+      }),
       getRepoRiskGraph: () => ({
         repository: 'repo-a',
         nodes: [],
