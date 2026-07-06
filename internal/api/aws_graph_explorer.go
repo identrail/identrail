@@ -16,6 +16,8 @@ const (
 	awsGraphExplorerMaxLimit     = 200
 )
 
+var awsGraphExplorerTokenReplacer = strings.NewReplacer(" ", "_", "-", "_")
+
 // AWSGraphExplorerRequest scopes the operator graph explorer to one AWS
 // connector and optional graph drill-down filters. The response is read-only:
 // remediation fields are links and previews, never AWS write intents.
@@ -1257,6 +1259,9 @@ func paginateAWSGraphExplorer(nodes []AWSGraphExplorerNode, allNodes []AWSGraphE
 				edgeOffset = offset - len(nodes) - len(paths)
 			}
 			edgeEnd := edgeOffset + remaining
+			if edgeEnd > edgePageTotal {
+				edgeEnd = edgePageTotal
+			}
 			if edgeEnd > len(edges) {
 				edgeEnd = len(edges)
 			}
@@ -1602,7 +1607,7 @@ func awsGraphExplorerOffset(cursor string) int {
 }
 
 func awsGraphExplorerAPIToken(value string) string {
-	return strings.ToLower(strings.NewReplacer(" ", "_", "-", "_").Replace(strings.TrimSpace(value)))
+	return strings.ToLower(awsGraphExplorerTokenReplacer.Replace(strings.TrimSpace(value)))
 }
 
 func awsGraphExplorerCanonicalNodeType(value string) string {

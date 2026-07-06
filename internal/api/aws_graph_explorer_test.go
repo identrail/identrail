@@ -718,7 +718,7 @@ func TestPaginateAWSGraphExplorerPagesMixedNodeAndPathSearch(t *testing.T) {
 		{PathID: "path-b-c", PathType: "blast_radius_path", Status: "ready", NodeIDs: []string{"node-b", "node-c"}, EdgeIDs: []string{"edge-b-c"}, NextAction: "Investigate needle path"},
 	}
 
-	filteredNodes, filteredEdges, filteredPaths, _ := filterAWSGraphExplorer(nodes, edges, paths, AWSGraphExplorerRequest{Search: "needle"})
+	filteredNodes, filteredEdges, filteredPaths, _ := filterAWSGraphExplorer(nodes, edges, paths, AWSGraphExplorerRequest{Search: "needle", Expand: "neighbors"})
 	if len(filteredNodes) != 1 || filteredNodes[0].NodeID != "node-a" {
 		t.Fatalf("expected search to match node-a, got %+v", filteredNodes)
 	}
@@ -763,6 +763,51 @@ func TestPaginateAWSGraphExplorerPagesMixedNodeAndPathSearch(t *testing.T) {
 	}
 	if finalHasMore || finalCursor != "" {
 		t.Fatalf("expected second mixed search page to exhaust cursor, cursor=%q hasMore=%t", finalCursor, finalHasMore)
+	}
+}
+
+func TestPaginateAWSGraphExplorerMixedSearchCapsEdgePageTotalForNeighborFallback(t *testing.T) {
+	nodes := []AWSGraphExplorerNode{
+		{NodeID: "node-a", NodeType: "identity", Label: "needle identity"},
+		{NodeID: "node-b", NodeType: "resource", Label: "B"},
+		{NodeID: "node-c", NodeType: "resource", Label: "C"},
+	}
+	edges := []AWSGraphExplorerEdge{
+		{EdgeID: "edge-needle", Type: "impacted_path", FromNodeID: "node-a", ToNodeID: "node-b", Label: "needle edge", Source: "blast_radius", Status: "ready"},
+		{EdgeID: "edge-fallback", Type: "observed_runtime_action", FromNodeID: "node-a", ToNodeID: "node-c", Label: "other edge", Source: "runtime_events", Status: "ready"},
+	}
+	paths := []AWSGraphExplorerPath{
+		{PathID: "path-a", PathType: "blast_radius_path", Status: "ready", NodeIDs: []string{"node-b", "node-c"}, EdgeIDs: []string{"edge-needle"}, NextAction: "Investigate needle path"},
+	}
+
+	filteredNodes, filteredEdges, filteredPaths, _ := filterAWSGraphExplorer(nodes, edges, paths, AWSGraphExplorerRequest{Search: "needle", Expand: "neighbors"})
+	if len(filteredNodes) != 1 || filteredNodes[0].NodeID != "node-a" {
+		t.Fatalf("expected node filter match, got %+v", filteredNodes)
+	}
+	if len(filteredEdges) != 2 {
+		t.Fatalf("expected matching edge plus fallback edge, got %d: %+v", len(filteredEdges), filteredEdges)
+	}
+	if len(filteredPaths) != 1 || filteredPaths[0].PathID != "path-a" {
+		t.Fatalf("expected matching path, got %+v", filteredPaths)
+	}
+
+	_, firstPageEdges, _, cursor, hasMore := paginateAWSGraphExplorer(filteredNodes, nodes, edges, filteredEdges, filteredPaths, AWSGraphExplorerRequest{Search: "needle", Expand: "neighbors", Limit: 2})
+	if len(firstPageEdges) != 2 {
+		t.Fatalf("expected first mixed page to include node-expansion edges, got edges=%+v", firstPageEdges)
+	}
+	if !hasMore || cursor != "2" {
+		t.Fatalf("expected first mixed page to advance cursor to path stage, cursor=%q hasMore=%t", cursor, hasMore)
+	}
+
+	_, secondPageEdges, _, finalCursor, finalHasMore := paginateAWSGraphExplorer(filteredNodes, nodes, edges, filteredEdges, filteredPaths, AWSGraphExplorerRequest{Search: "needle", Expand: "neighbors", Limit: 2, Cursor: cursor})
+	if len(secondPageEdges) != 1 {
+		t.Fatalf("expected only searchable edges to be paged, got %+v", secondPageEdges)
+	}
+	if got, want := secondPageEdges[0].EdgeID, "edge-needle"; got != want {
+		t.Fatalf("expected edge %q, got %q", want, got)
+	}
+	if finalHasMore || finalCursor != "" {
+		t.Fatalf("expected mixed search pages to finish after searchable edges, cursor=%q hasMore=%t", finalCursor, finalHasMore)
 	}
 }
 
