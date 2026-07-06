@@ -1033,6 +1033,23 @@ func TestGetAWSGraphExplorerPermissionDeniedIsExplicit(t *testing.T) {
 	}
 }
 
+func TestNormalizeAWSGraphExplorerFixtureStateHonorsExplicitRequest(t *testing.T) {
+	disconnected := AWSConnectionStatus{Connected: false}
+
+	if got := normalizeAWSGraphExplorerFixtureState("success", disconnected, true); got != "success" {
+		t.Fatalf("expected explicit success to be preserved, got %q", got)
+	}
+	if got := normalizeAWSGraphExplorerFixtureState("ready", disconnected, false); got != "success" {
+		t.Fatalf("expected explicit ready to be preserved, got %q", got)
+	}
+	if got := normalizeAWSGraphExplorerFixtureState("", disconnected, false); got != "permission_denied" {
+		t.Fatalf("expected blank fixture_state to map to permission_denied without live connection, got %q", got)
+	}
+	if got := normalizeAWSGraphExplorerFixtureState("invalid", disconnected, true); got != "" {
+		t.Fatalf("invalid fixture_state should return empty, got %q", got)
+	}
+}
+
 func TestRouterAWSGraphExplorer(t *testing.T) {
 	validator := &fakeAWSConnectorValidator{
 		result: AWSConnectionValidationResult{
@@ -1075,5 +1092,10 @@ func TestRouterAWSGraphExplorer(t *testing.T) {
 	bad := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/workspace-a/projects/project-1/aws/graph-explorer?fixture_state=bogus", "")
 	if bad.Code != http.StatusBadRequest {
 		t.Fatalf("expected invalid fixture 400, got %d body=%s", bad.Code, bad.Body.String())
+	}
+
+	zeroLimit := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/workspaces/workspace-a/projects/project-1/aws/graph-explorer?connector_id=aws-prod&limit=0", "")
+	if zeroLimit.Code != http.StatusBadRequest {
+		t.Fatalf("expected limit=0 to be 400, got %d body=%s", zeroLimit.Code, zeroLimit.Body.String())
 	}
 }

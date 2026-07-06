@@ -2518,7 +2518,7 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 		limit := 0
 		if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
 			parsed, parseErr := parseOptionalNonNegativeInt(rawLimit)
-			if parseErr != nil {
+			if parseErr != nil || parsed == 0 {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid aws graph explorer request"})
 				return
 			}

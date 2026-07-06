@@ -310,10 +310,12 @@ func (s *Service) GetAWSGraphExplorer(ctx context.Context, workspaceID string, p
 
 func normalizeAWSGraphExplorerFixtureState(requested string, connection AWSConnectionStatus, hasConnection bool) string {
 	switch strings.ToLower(strings.TrimSpace(requested)) {
-	case "", "success", "ready":
+	case "":
 		if !hasConnection || !connection.Connected {
 			return "permission_denied"
 		}
+		return "success"
+	case "success", "ready":
 		return "success"
 	case "empty", "degraded", "partial_failure", "permission_denied":
 		return strings.ToLower(strings.TrimSpace(requested))
