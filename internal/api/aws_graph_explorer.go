@@ -916,6 +916,13 @@ func (b *awsGraphExplorerBuilder) addBlastRadius(result AWSBlastRadiusResult) {
 }
 
 func (b *awsGraphExplorerBuilder) addLeastPrivilege(result AWSLeastPrivilegeResult) {
+	recommendationEdgeRelationships := make(map[string][]AWSLeastPrivilegeRelationship, len(result.Relationships))
+	for _, rel := range result.Relationships {
+		recommendationEdgeRelationships[rel.RecommendationID] = append(
+			recommendationEdgeRelationships[rel.RecommendationID],
+			rel,
+		)
+	}
 	for _, recommendation := range result.Recommendations {
 		for _, step := range recommendation.ImpactedPath {
 			b.addNode(AWSGraphExplorerNode{
@@ -932,10 +939,7 @@ func (b *awsGraphExplorerBuilder) addLeastPrivilege(result AWSLeastPrivilegeResu
 			})
 		}
 		edgeIDs := []string{}
-		for _, rel := range result.Relationships {
-			if rel.RecommendationID != recommendation.RecommendationID {
-				continue
-			}
+		for _, rel := range recommendationEdgeRelationships[recommendation.RecommendationID] {
 			edgeID := "aws-graph-edge:" + stableAWSBlastRadiusToken("least_privilege", rel.Type, rel.FromNodeID, rel.ToNodeID, rel.EvidenceRef)
 			b.addEdge(AWSGraphExplorerEdge{
 				EdgeID:      edgeID,
@@ -1641,7 +1645,7 @@ func awsGraphExplorerCanonicalNodeType(value string) string {
 		return "credential_reference"
 	case strings.Contains(token, "secret"):
 		return "secret"
-	case strings.Contains(token, "kms") || strings.Contains(token, "key"):
+	case strings.Contains(token, "kms") || token == "key":
 		return "kms_key"
 	case strings.Contains(token, "s3") || strings.Contains(token, "bucket"):
 		return "s3_bucket"

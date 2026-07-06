@@ -912,6 +912,105 @@ func TestAWSGraphExplorerCanonicalNodeTypeAliases(t *testing.T) {
 	}
 }
 
+func TestAWSGraphExplorerCanonicalNodeTypeAvoidsOverBroadKeyMatch(t *testing.T) {
+	cases := map[string]string{
+		"api_key":    "resource",
+		"access_key": "resource",
+		"ssh_key":    "resource",
+		"secret_key": "secret",
+	}
+	for raw, want := range cases {
+		if got := awsGraphExplorerCanonicalNodeType(raw); got != want {
+			t.Fatalf("canonical node type %q = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestAWSGraphExplorerLeastPrivilegeIndexesRelationshipsByRecommendation(t *testing.T) {
+	now := time.Date(2026, 7, 6, 10, 30, 0, 0, time.UTC)
+	builder := newAWSGraphExplorerBuilder()
+	builder.addLeastPrivilege(AWSLeastPrivilegeResult{
+		Recommendations: []AWSLeastPrivilegeRecommendation{
+			{
+				RecommendationID: "recommendation-alpha",
+				Status:           "ready",
+				Confidence:       0.91,
+				UpdatedAt:        now,
+				ImpactedPath: []AWSLeastPrivilegePathStep{
+					{NodeID: "aws:identity:alpha-user", NodeType: "identity", Label: "Alpha User"},
+					{NodeID: "aws:resource:alpha-target", NodeType: "resource", Label: "Alpha Target"},
+				},
+				ImpactedNodes: []string{"aws:identity:alpha-user", "aws:resource:alpha-target"},
+				Evidence: []AWSLeastPrivilegeEvidence{
+					{
+						Source:       "least_privilege",
+						EvidenceRef:  "least-privilege-evidence-alpha",
+						Label:        "Alpha recommendation evidence",
+						Confidence:   0.91,
+						ObservedAt:   now,
+						Relationship: "policy-alpha",
+					},
+				},
+				NextAction: "Review recommendation alpha",
+				Rationale:  "Alpha rationale",
+			},
+			{
+				RecommendationID: "recommendation-beta",
+				Status:           "review",
+				Confidence:       0.82,
+				UpdatedAt:        now,
+				ImpactedPath: []AWSLeastPrivilegePathStep{
+					{NodeID: "aws:identity:beta-user", NodeType: "identity", Label: "Beta User"},
+					{NodeID: "aws:resource:beta-target", NodeType: "resource", Label: "Beta Target"},
+				},
+				ImpactedNodes: []string{"aws:identity:beta-user", "aws:resource:beta-target"},
+				Evidence: []AWSLeastPrivilegeEvidence{
+					{
+						Source:       "least_privilege",
+						EvidenceRef:  "least-privilege-evidence-beta",
+						Label:        "Beta recommendation evidence",
+						Confidence:   0.82,
+						ObservedAt:   now,
+						Relationship: "policy-beta",
+					},
+				},
+				NextAction: "Review recommendation beta",
+				Rationale:  "Beta rationale",
+			},
+		},
+		Relationships: []AWSLeastPrivilegeRelationship{
+			{RecommendationID: "recommendation-alpha", Type: "least_privilege_scope", FromNodeID: "aws:identity:alpha-user", ToNodeID: "aws:resource:alpha-target", EvidenceRef: "least-privilege-edge-alpha"},
+			{RecommendationID: "recommendation-alpha", Type: "least_privilege_scope", FromNodeID: "aws:identity:alpha-user", ToNodeID: "aws:resource:alpha-target", EvidenceRef: "least-privilege-edge-alpha-2"},
+			{RecommendationID: "recommendation-beta", Type: "least_privilege_scope", FromNodeID: "aws:identity:beta-user", ToNodeID: "aws:resource:beta-target", EvidenceRef: "least-privilege-edge-beta"},
+			{RecommendationID: "unrelated", Type: "least_privilege_scope", FromNodeID: "aws:identity:ignored", ToNodeID: "aws:resource:ignored", EvidenceRef: "least-privilege-edge-ignored"},
+		},
+	})
+
+	edges := builder.sortedEdges()
+	if len(edges) != 3 {
+		t.Fatalf("expected least-privilege edges to be scoped by recommendation, got %d edges: %+v", len(edges), edges)
+	}
+
+	paths := builder.sortedPaths()
+	if len(paths) != 2 {
+		t.Fatalf("expected one path per recommendation, got %d", len(paths))
+	}
+	for _, path := range paths {
+		switch path.Title {
+		case "Alpha rationale":
+			if len(path.EdgeIDs) != 2 {
+				t.Fatalf("expected alpha path to reference two edges, got %+v", path)
+			}
+		case "Beta rationale":
+			if len(path.EdgeIDs) != 1 {
+				t.Fatalf("expected beta path to reference one edge, got %+v", path)
+			}
+		default:
+			t.Fatalf("unexpected least-privilege path: %+v", path)
+		}
+	}
+}
+
 func TestGetAWSGraphExplorerPermissionDeniedIsExplicit(t *testing.T) {
 	now := time.Date(2026, 7, 4, 12, 10, 0, 0, time.UTC)
 	svc, ws := newBlastRadiusService(t, "project-graph-explorer-denied", now)

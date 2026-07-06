@@ -14979,14 +14979,8 @@ function AWSGraphExplorerContent({
   onLoadMore: () => void;
   isLoadingMore: boolean;
 }) {
-  const graphRows =
-    !error &&
-    !loading &&
-    graph &&
-    graph.status !== 'blocked' &&
-    (graph.nodes.length > 0 || graph.edges.length > 0 || graph.paths.length > 0 || graph.evidence.length > 0)
-      ? graph
-      : null;
+  const hasGraphData = graph && (graph.nodes.length > 0 || graph.edges.length > 0 || graph.paths.length > 0 || graph.evidence.length > 0);
+  const graphRows = !loading && graph && graph.status !== 'blocked' && hasGraphData ? graph : null;
 
   return (
     <>
@@ -15000,10 +14994,10 @@ function AWSGraphExplorerContent({
           body={graph.failure_reasons[0] ?? 'AWS graph sources returned a permission-denied state.'}
         />
       ) : null}
-      {!error && !loading && graph && graph.nodes.length === 0 && graph.status !== 'blocked' ? (
+      {!error && !loading && graph && !hasGraphData && graph.status !== 'blocked' ? (
         <DomainEmptyState
           eyebrow={graph.status === 'empty' ? 'Empty' : 'No matches'}
-          title="No AWS graph nodes matched"
+          title="No AWS graph entries matched"
           body={graph.failure_reasons[0] ?? 'Clear filters or expand the AWS evidence scope.'}
         />
       ) : null}
