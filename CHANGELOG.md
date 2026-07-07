@@ -1,6 +1,20 @@
 # Changelog
 
 ## Unreleased
+- Add the **AWS Remediation Center unified experience** (read-only). A new
+  `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/remediation-center`
+  endpoint stitches remediation cases, the approval queue, dry-run projections,
+  low-risk live actions, and post-remediation verification and rollback into
+  case-keyed lifecycle rollups, backing the app route
+  `/app/{tenant_id}/{workspace_id}/aws/remediation/center`. Operators get one
+  scoped surface with overview, cases, approvals, dry-runs, live actions,
+  verification, and audit tabs; filters for account, region, severity,
+  confidence, identity type, action type, status, and stage; and per-case
+  tradeoffs and safety gates surfaced before any action. The most
+  safety-critical verification state is retained per case so kill-switch,
+  failed, and rollback states are never masked by a later verified record. The
+  contract is metadata-only and never exposes rendered policy bodies, secret
+  values, or workload payloads.
 - Add a **precision suppression gate** to the repository secret scanner so it
   surfaces real, actionable secrets instead of a flood of low-value matches.
   The classifier already recognized placeholders, sequential/repeated fillers,

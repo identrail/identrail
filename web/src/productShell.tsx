@@ -48,6 +48,8 @@ import {
   type AWSAIAgentIdentityInventoryResult,
   type AWSMachineIdentityDetailResult,
   type AWSAgentIdentityDetailResult,
+  type AWSRemediationCenterResult,
+  type AWSRemediationCenterCase,
   type AWSBedrockAgentsInventoryResult,
   type AWSBedrockAgentRecord,
   type AWSAIAgentIdentityRecord,
@@ -10879,6 +10881,420 @@ export function ProductAWSAgentIdentityDetailPage() {
               detail={detail}
             />
             <AWSAgentIdentityDetailTabContent detail={detail} activeTab={activeTab} />
+          </>
+        ) : null}
+      </div>
+    </DomainPageShell>
+  );
+}
+
+const AWS_REMEDIATION_CENTER_TAB_IDS = ['overview', 'cases', 'approvals', 'dry_runs', 'live_actions', 'verification', 'audit'] as const;
+type AWSRemediationCenterTabID = (typeof AWS_REMEDIATION_CENTER_TAB_IDS)[number];
+const AWS_REMEDIATION_CENTER_TAB_LABELS: Record<AWSRemediationCenterTabID, string> = {
+  overview: 'Overview',
+  cases: 'Cases',
+  approvals: 'Approvals',
+  dry_runs: 'Dry-runs',
+  live_actions: 'Live actions',
+  verification: 'Verification',
+  audit: 'Audit'
+};
+
+function normalizeAWSRemediationCenterTab(value: string | null): AWSRemediationCenterTabID {
+  const normalized = normalizeValue(value ?? '').toLowerCase();
+  return AWS_REMEDIATION_CENTER_TAB_IDS.includes(normalized as AWSRemediationCenterTabID)
+    ? (normalized as AWSRemediationCenterTabID)
+    : 'overview';
+}
+
+function awsRemediationCenterStatusStage(status: string): AWSCapabilityStage {
+  if (status === 'ready') {
+    return 'wired';
+  }
+  if (status === 'blocked' || status === 'permission_denied') {
+    return 'not-available';
+  }
+  return 'coming';
+}
+
+function awsRemediationCenterStatusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral' {
+  if (status === 'ready') {
+    return 'success';
+  }
+  if (status === 'blocked' || status === 'permission_denied') {
+    return 'danger';
+  }
+  if (status === 'degraded') {
+    return 'warning';
+  }
+  return 'neutral';
+}
+
+function awsRemediationCenterStageStage(stage: string, killSwitch: boolean): AWSCapabilityStage {
+  if (killSwitch || stage === 'rollback') {
+    return 'not-available';
+  }
+  if (stage === 'verification') {
+    return 'wired';
+  }
+  return 'coming';
+}
+
+function awsRemediationCenterLink(scope: ProductSession, environmentID: string, tab: AWSRemediationCenterTabID): string {
+  const params = new URLSearchParams();
+  const normalizedEnvironmentID = normalizeValue(environmentID);
+  if (normalizedEnvironmentID) {
+    params.set(ENVIRONMENT_QUERY_PARAM, normalizedEnvironmentID);
+  }
+  if (tab && tab !== 'overview') {
+    params.set('tab', tab);
+  }
+  const search = params.toString();
+  return `${buildScopedPath(scope, 'aws/remediation/center')}${search ? `?${search}` : ''}`;
+}
+
+function AWSRemediationCenterTabs({
+  scope,
+  selectedEnvironmentID,
+  activeTab,
+  center
+}: {
+  scope: ProductSession;
+  selectedEnvironmentID: string;
+  activeTab: AWSRemediationCenterTabID;
+  center: AWSRemediationCenterResult | null;
+}) {
+  const tabCounts = new Map((center?.tabs ?? []).map((tab) => [tab.id, tab.count]));
+  return (
+    <div className="idt-inline-actions" role="tablist" aria-label="Remediation center tabs">
+      {AWS_REMEDIATION_CENTER_TAB_IDS.map((tabID) => (
+        <Link
+          key={tabID}
+          role="tab"
+          aria-selected={activeTab === tabID}
+          aria-label={`${AWS_REMEDIATION_CENTER_TAB_LABELS[tabID]} ${tabCounts.get(tabID) ?? 0}`}
+          className={`idt-btn ${activeTab === tabID ? 'idt-btn-primary' : 'idt-btn-ghost'}`}
+          to={awsRemediationCenterLink(scope, selectedEnvironmentID, tabID)}
+        >
+          <span>{AWS_REMEDIATION_CENTER_TAB_LABELS[tabID]}</span>
+          <span>{tabCounts.get(tabID) ?? 0}</span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function awsRemediationCenterCaseGateLabel(entry: AWSRemediationCenterCase): string {
+  const blocked = entry.safety_gates.filter((gate) => gate.status === 'blocked' || gate.status === 'failed').length;
+  return `${entry.safety_gates.length - blocked}/${entry.safety_gates.length} gates`;
+}
+
+function AWSRemediationCenterCasesTable({ cases }: { cases: AWSRemediationCenterCase[] }) {
+  return (
+    <DomainDataTable
+      label="Remediation center case lifecycle"
+      rows={cases}
+      getRowKey={(row) => row.case_id}
+      emptyState={<DomainEmptyState eyebrow="Empty" title="No remediation cases" body="No remediation case matched the current filters for this environment." />}
+      columns={[
+        { key: 'case', header: 'Case', render: (row) => <strong>{row.title}</strong> },
+        { key: 'action', header: 'Action', render: (row) => formatTokenLabel(row.action_type) },
+        { key: 'stage', header: 'Stage', render: (row) => formatTokenLabel(row.stage) },
+        { key: 'gates', header: 'Safety gates', render: (row) => awsRemediationCenterCaseGateLabel(row) },
+        { key: 'next', header: 'Next action', render: (row) => row.next_action },
+        {
+          key: 'severity',
+          header: 'Severity',
+          render: (row) => (
+            <AWSInventoryPill
+              stage={awsRemediationCenterStageStage(row.stage, row.kill_switch_engaged)}
+              label={`${formatTokenLabel(row.severity)} / ${formatConfidenceScore(row.confidence)}`}
+            />
+          )
+        }
+      ]}
+    />
+  );
+}
+
+function AWSRemediationCenterTabContent({
+  center,
+  activeTab
+}: {
+  center: AWSRemediationCenterResult;
+  activeTab: AWSRemediationCenterTabID;
+}) {
+  if (activeTab === 'approvals') {
+    return (
+      <DomainDataTable
+        label="Remediation center approval queue"
+        rows={center.approval_queue.entries}
+        getRowKey={(row) => row.approval_id}
+        emptyState={<DomainEmptyState eyebrow="Empty" title="No approvals" body="No approval-queue entry matched the current filters." />}
+        columns={[
+          { key: 'approval', header: 'Approval', render: (row) => <strong>{row.title}</strong> },
+          { key: 'case', header: 'Case', render: (row) => row.case_id },
+          { key: 'state', header: 'State', render: (row) => formatTokenLabel(row.state) },
+          { key: 'ready', header: 'Ready', render: (row) => (row.ready_for_execution ? 'Ready' : 'Not ready') },
+          { key: 'severity', header: 'Severity', render: (row) => formatTokenLabel(row.severity) }
+        ]}
+      />
+    );
+  }
+  if (activeTab === 'dry_runs') {
+    return (
+      <DomainDataTable
+        label="Remediation center dry-runs"
+        rows={center.dry_runs.entries}
+        getRowKey={(row) => row.dry_run_id}
+        emptyState={<DomainEmptyState eyebrow="Empty" title="No dry-runs" body="No dry-run projection matched the current filters." />}
+        columns={[
+          { key: 'dryrun', header: 'Dry-run', render: (row) => <strong>{row.title}</strong> },
+          { key: 'case', header: 'Case', render: (row) => row.case_id },
+          { key: 'outcome', header: 'Outcome', render: (row) => formatTokenLabel(row.outcome) },
+          { key: 'ready', header: 'Ready', render: (row) => (row.ready_for_apply ? 'Ready for apply' : 'Not ready') },
+          { key: 'severity', header: 'Severity', render: (row) => formatTokenLabel(row.severity) }
+        ]}
+      />
+    );
+  }
+  if (activeTab === 'live_actions') {
+    return (
+      <DomainDataTable
+        label="Remediation center live actions"
+        rows={center.live_actions.entries}
+        getRowKey={(row) => row.execution_id}
+        emptyState={<DomainEmptyState eyebrow="Empty" title="No live actions" body="No low-risk live action matched the current filters." />}
+        columns={[
+          { key: 'action', header: 'Action', render: (row) => <strong>{row.title}</strong> },
+          { key: 'case', header: 'Case', render: (row) => row.case_id },
+          { key: 'state', header: 'State', render: (row) => formatTokenLabel(row.state) },
+          { key: 'next', header: 'Next action', render: (row) => row.next_action },
+          { key: 'severity', header: 'Severity', render: (row) => formatTokenLabel(row.severity) }
+        ]}
+      />
+    );
+  }
+  if (activeTab === 'verification') {
+    return (
+      <DomainDataTable
+        label="Remediation center verification and rollback"
+        rows={center.verification.entries}
+        getRowKey={(row) => row.verification_id}
+        emptyState={<DomainEmptyState eyebrow="Empty" title="No verification records" body="No post-remediation verification record matched the current filters." />}
+        columns={[
+          { key: 'verification', header: 'Verification', render: (row) => <strong>{row.title}</strong> },
+          { key: 'case', header: 'Case', render: (row) => row.case_id },
+          { key: 'state', header: 'State', render: (row) => formatTokenLabel(row.state) },
+          { key: 'rollback', header: 'Rollback', render: (row) => formatTokenLabel(row.rollback.state) },
+          { key: 'next', header: 'Next action', render: (row) => row.next_action }
+        ]}
+      />
+    );
+  }
+  if (activeTab === 'audit') {
+    const auditRows = center.verification.entries.flatMap((entry) =>
+      entry.audit_trail.map((audit) => ({ ...audit, verification_id: entry.verification_id, case_id: entry.case_id }))
+    );
+    return (
+      <DomainDataTable
+        label="Remediation center audit trail"
+        rows={auditRows}
+        getRowKey={(row) => `${row.verification_id}-${row.event_id}`}
+        emptyState={<DomainEmptyState eyebrow="Empty" title="No audit entries" body="No immutable audit record matched the current filters." />}
+        columns={[
+          { key: 'event', header: 'Event', render: (row) => formatTokenLabel(row.event_type) },
+          { key: 'actor', header: 'Actor', render: (row) => row.actor },
+          { key: 'case', header: 'Case', render: (row) => row.case_id },
+          { key: 'occurred', header: 'Occurred', render: (row) => formatDateLabel(row.occurred_at) },
+          { key: 'notes', header: 'Notes', render: (row) => row.notes || '-' }
+        ]}
+      />
+    );
+  }
+  return <AWSRemediationCenterCasesTable cases={center.cases} />;
+}
+
+export function ProductAWSRemediationCenterPage() {
+  const data = useAWSInventoryData();
+  const { scope, environmentScope, selectedEnvironmentID, connection, connectionLoading, connectionError } = data;
+  const location = useLocation();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const activeTab = normalizeAWSRemediationCenterTab(searchParams.get('tab'));
+  const [center, setCenter] = useState<AWSRemediationCenterResult | null>(null);
+  const [centerLoading, setCenterLoading] = useState(false);
+  const [centerError, setCenterError] = useState('');
+  const centerRequestRef = useRef(0);
+
+  const loadCenter = useCallback(async () => {
+    const requestID = ++centerRequestRef.current;
+    setCenter(null);
+    setCenterError('');
+    if (!scope || !selectedEnvironmentID || !connection?.connector_id) {
+      setCenterLoading(false);
+      return;
+    }
+    setCenterLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectRemediationCenter(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id,
+          tab: activeTab
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== centerRequestRef.current) {
+        return;
+      }
+      setCenter(response.remediation_center);
+    } catch (error) {
+      if (requestID !== centerRequestRef.current) {
+        return;
+      }
+      setCenterError(formatAPIError(error, 'Unable to load AWS remediation center.'));
+    } finally {
+      if (requestID === centerRequestRef.current) {
+        setCenterLoading(false);
+      }
+    }
+  }, [
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    activeTab,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadCenter();
+    return () => {
+      centerRequestRef.current += 1;
+    };
+  }, [loadCenter]);
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">Remediation Center</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before loading the AWS Remediation Center.</p>
+      </section>
+    );
+  }
+
+  const remediationPath = awsRouteLink(scope, 'remediation', selectedEnvironmentID);
+  const governancePath = awsRouteLink(scope, 'governance', selectedEnvironmentID);
+  const status = environmentScope.loading || connectionLoading || centerLoading
+    ? 'Loading center'
+    : connectionError || centerError
+      ? 'Needs retry'
+      : center
+        ? formatTokenLabel(center.status)
+        : 'Not loaded';
+  const statusTone = connectionError || centerError
+    ? 'danger'
+    : center
+      ? awsRemediationCenterStatusTone(center.status)
+      : awsDomainTone(connection, environmentScope.loading || connectionLoading);
+
+  return (
+    <DomainPageShell
+      domain="aws"
+      eyebrow={null}
+      hideLogo
+      title="Remediation Center"
+      description="Unified read-only view of remediation cases, approvals, dry-runs, live actions, verification, rollback, and audit — with tradeoffs and safety gates before action."
+      scope={<ProductEnvironmentSelector state={environmentScope} onChange={data.onChangeEnvironment} />}
+      status={status}
+      statusTone={statusTone}
+      primaryAction={{ label: 'Back to remediation', to: remediationPath, variant: 'secondary' }}
+    >
+      <div className="idt-aws-risk-page">
+        {connectionError ? (
+          <DomainErrorState
+            title="Couldn't load AWS status"
+            body={connectionError}
+            retryAction={{ label: 'Retry', onClick: data.refreshConnection }}
+          />
+        ) : null}
+        {!connectionError && !connectionLoading && !connection?.connector_id ? (
+          <DomainEmptyState
+            eyebrow="Connector required"
+            title="AWS connector is unavailable"
+            body="The selected environment does not have an AWS connector identifier to scope the remediation center request."
+          />
+        ) : null}
+        {centerError ? (
+          <DomainErrorState
+            title="Couldn't load the remediation center"
+            body={centerError}
+            retryAction={{ label: 'Retry', onClick: loadCenter }}
+          />
+        ) : null}
+        {!centerError && centerLoading ? <DomainLoadingState label="Loading remediation center" /> : null}
+        {center ? (
+          <>
+            <DomainKpiStrip
+              label="Remediation center metrics"
+              items={[
+                { label: 'Cases', value: center.summary.filtered_cases, detail: 'in lifecycle' },
+                { label: 'Approvals', value: center.summary.approval_pending_count, detail: 'pending' },
+                { label: 'Dry-runs', value: center.summary.dry_run_count, detail: 'projected' },
+                { label: 'Live actions', value: center.summary.live_action_count, detail: 'recorded' },
+                { label: 'Verification', value: center.summary.verification_count, detail: 'checks' },
+                { label: 'Blocked gates', value: center.summary.blocked_safety_gate_count, detail: 'safety gates' }
+              ]}
+            />
+            <DomainStatusPanel
+              eyebrow="Evidence contract"
+              title="Read-only remediation lifecycle"
+              status={<AWSInventoryPill stage={awsRemediationCenterStatusStage(center.status)} label={formatTokenLabel(center.status)} />}
+              tone={awsRemediationCenterStatusTone(center.status)}
+              actions={[
+                { label: 'Remediation', to: remediationPath, variant: 'secondary' },
+                { label: 'Governance', to: governancePath, variant: 'secondary' }
+              ]}
+            >
+              <dl className="idt-domain-route-facts">
+                <div>
+                  <dt>Ready for apply</dt>
+                  <dd>{center.summary.ready_for_apply_count}</dd>
+                </div>
+                <div>
+                  <dt>Kill switch engaged</dt>
+                  <dd>{center.summary.kill_switch_engaged_count}</dd>
+                </div>
+                <div>
+                  <dt>Rollbacks</dt>
+                  <dd>{center.summary.rollback_count}</dd>
+                </div>
+                <div>
+                  <dt>Account</dt>
+                  <dd>{center.account_id || 'Not reported'}</dd>
+                </div>
+                <div>
+                  <dt>Confidence</dt>
+                  <dd>{formatConfidenceScore(center.confidence)}</dd>
+                </div>
+                <div>
+                  <dt>Policy</dt>
+                  <dd>{center.policy_version}</dd>
+                </div>
+                <div>
+                  <dt>Issue</dt>
+                  <dd>{center.current_issue_ref}</dd>
+                </div>
+              </dl>
+            </DomainStatusPanel>
+            <AWSRemediationCenterTabs
+              scope={scope}
+              selectedEnvironmentID={selectedEnvironmentID}
+              activeTab={activeTab}
+              center={center}
+            />
+            <AWSRemediationCenterTabContent center={center} activeTab={activeTab} />
           </>
         ) : null}
       </div>

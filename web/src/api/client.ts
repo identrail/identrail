@@ -2496,6 +2496,135 @@ export type AWSAgentIdentityDetailResult = {
   updated_at: string;
 };
 
+export type AWSRemediationCenterStatus = 'ready' | 'degraded' | 'blocked' | 'permission_denied' | string;
+export type AWSRemediationCenterStage =
+  | 'case'
+  | 'approval'
+  | 'dry_run'
+  | 'live_action'
+  | 'verification'
+  | 'rollback'
+  | string;
+
+export type AWSRemediationCenterQuery = {
+  connectorID?: string;
+  fixtureState?: AWSMachineIdentityDetailFixtureState;
+  accountID?: string;
+  region?: string;
+  severity?: string;
+  confidence?: string;
+  identityType?: string;
+  actionType?: string;
+  status?: string;
+  stage?: string;
+  caseID?: string;
+  tab?: string;
+  search?: string;
+};
+
+export type AWSRemediationCenterSafetyGate = {
+  source: string;
+  name: string;
+  status: string;
+  rationale?: string;
+};
+
+export type AWSRemediationCenterCase = {
+  case_id: string;
+  title: string;
+  summary: string;
+  source_type: string;
+  action_type: string;
+  lifecycle: string;
+  stage: AWSRemediationCenterStage;
+  severity: string;
+  score: number;
+  confidence: number;
+  account_id?: string;
+  target_account_ids?: string[];
+  region?: string;
+  identity_node_id?: string;
+  identity_name?: string;
+  identity_type?: string;
+  owner?: string;
+  owner_assigned: boolean;
+  approval_required: boolean;
+  approval_state?: string;
+  approval_id?: string;
+  dry_run_id?: string;
+  dry_run_outcome?: string;
+  execution_id?: string;
+  execution_state?: string;
+  verification_id?: string;
+  verification_state?: string;
+  rollback_state?: string;
+  rollback_strategy?: string;
+  ready_for_apply: boolean;
+  kill_switch_engaged: boolean;
+  tradeoffs: AWSRemediationTradeoff[];
+  safety_gates: AWSRemediationCenterSafetyGate[];
+  next_action: string;
+  evidence_refs?: string[];
+  evidence_boundary: string;
+  audit_entry_count: number;
+  updated_at?: string;
+};
+
+export type AWSRemediationCenterSummary = {
+  total_cases: number;
+  filtered_cases: number;
+  stage_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+  action_type_counts: Record<string, number>;
+  identity_type_counts: Record<string, number>;
+  approval_pending_count: number;
+  dry_run_count: number;
+  live_action_count: number;
+  verification_count: number;
+  rollback_count: number;
+  ready_for_apply_count: number;
+  kill_switch_engaged_count: number;
+  blocked_safety_gate_count: number;
+  audit_entry_count: number;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSRemediationCenterResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSRemediationCenterStatus;
+  fixture_state?: AWSMachineIdentityDetailFixtureState;
+  confidence: number;
+  policy_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSRemediationCenterSummary;
+  tabs: AWSMachineIdentityDetailTab[];
+  cases: AWSRemediationCenterCase[];
+  remediation_cases: AWSRemediationCaseResult;
+  approval_queue: AWSRemediationApprovalResult;
+  dry_runs: AWSRemediationDryRunResult;
+  live_actions: AWSLowRiskRemediationResult;
+  verification: AWSPostRemediationVerificationResult;
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSMachineIdentityDetailCoverageGap[];
+  diagnostics: AWSMachineIdentityDetailDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
 export type AWSRuntimeEventStatus = 'ready' | 'degraded' | 'blocked';
 // AWSRuntimeEventFixtureStateRequest is the query-side enum: every
 // value here is one the backend accepts as `?fixture_state=...`. It
@@ -10315,6 +10444,31 @@ export const apiClient = {
         resource: query.resource,
         severity: query.severity,
         status: query.status
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectRemediationCenter(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSRemediationCenterQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ remediation_center: AWSRemediationCenterResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/remediation-center${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        severity: query?.severity,
+        confidence: query?.confidence,
+        identity_type: query?.identityType,
+        action_type: query?.actionType,
+        status: query?.status,
+        stage: query?.stage,
+        case_id: query?.caseID,
+        tab: query?.tab,
+        search: query?.search
       })}`,
       auth
     );

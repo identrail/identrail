@@ -1,0 +1,861 @@
+package api
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/identrail/identrail/internal/db"
+)
+
+const (
+	awsRemediationCenterCurrentIssue = 1552
+	awsRemediationCenterVersion      = "aws-remediation-center-v1"
+	awsRemediationCenterPolicyID     = "aws-remediation-center-policy-v1"
+
+	// Lifecycle stages a case can reach, ordered from earliest to latest.
+	awsRemediationCenterStageCase         = "case"
+	awsRemediationCenterStageApproval     = "approval"
+	awsRemediationCenterStageDryRun       = "dry_run"
+	awsRemediationCenterStageLiveAction   = "live_action"
+	awsRemediationCenterStageVerification = "verification"
+	awsRemediationCenterStageRollback     = "rollback"
+)
+
+// AWSRemediationCenterRequest scopes the unified remediation center to one AWS
+// connector plus the operator drill-down filters shared across the remediation
+// lifecycle (severity, confidence, account, identity type, action type, status).
+type AWSRemediationCenterRequest struct {
+	ConnectorID  string `json:"connector_id,omitempty"`
+	FixtureState string `json:"fixture_state,omitempty"`
+	AccountID    string `json:"account_id,omitempty"`
+	Region       string `json:"region,omitempty"`
+	Severity     string `json:"severity,omitempty"`
+	Confidence   string `json:"confidence,omitempty"`
+	IdentityType string `json:"identity_type,omitempty"`
+	ActionType   string `json:"action_type,omitempty"`
+	Status       string `json:"status,omitempty"`
+	Stage        string `json:"stage,omitempty"`
+	CaseID       string `json:"case_id,omitempty"`
+	Tab          string `json:"tab,omitempty"`
+	Search       string `json:"search,omitempty"`
+}
+
+// Reuse the shared detail-page shapes so the remediation center's tabs,
+// diagnostics, and coverage-gap contracts stay consistent with the rest of
+// the Wave 10 app surface.
+type AWSRemediationCenterTab = AWSMachineIdentityDetailTab
+type AWSRemediationCenterDiagnostic = AWSMachineIdentityDetailDiagnostic
+type AWSRemediationCenterCoverageGap = AWSMachineIdentityDetailCoverageGap
+
+// AWSRemediationCenterSafetyGate is one consolidated safety gate an operator
+// must clear before a case advances. Gates are gathered across the approval
+// (RBAC + feature flags), dry-run (prerequisites), and verification
+// (preconditions) stages so the "safety gates before action" summary is a
+// single list.
+type AWSRemediationCenterSafetyGate struct {
+	Source    string `json:"source"`
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	Rationale string `json:"rationale,omitempty"`
+}
+
+// AWSRemediationCenterCase is one case-keyed rollup across the remediation
+// lifecycle. It stitches the case, its approval-queue entry, dry-run, live
+// action, and verification/rollback record into a single row so operators can
+// see where each fix is without reading every stage table. It is
+// metadata-only and never carries rendered policy bodies or secret values.
+type AWSRemediationCenterCase struct {
+	CaseID            string                           `json:"case_id"`
+	Title             string                           `json:"title"`
+	Summary           string                           `json:"summary"`
+	SourceType        string                           `json:"source_type"`
+	ActionType        string                           `json:"action_type"`
+	Lifecycle         string                           `json:"lifecycle"`
+	Stage             string                           `json:"stage"`
+	Severity          string                           `json:"severity"`
+	Score             int                              `json:"score"`
+	Confidence        float64                          `json:"confidence"`
+	AccountID         string                           `json:"account_id,omitempty"`
+	TargetAccountIDs  []string                         `json:"target_account_ids,omitempty"`
+	Region            string                           `json:"region,omitempty"`
+	IdentityNodeID    string                           `json:"identity_node_id,omitempty"`
+	IdentityName      string                           `json:"identity_name,omitempty"`
+	IdentityType      string                           `json:"identity_type,omitempty"`
+	Owner             string                           `json:"owner,omitempty"`
+	OwnerAssigned     bool                             `json:"owner_assigned"`
+	ApprovalRequired  bool                             `json:"approval_required"`
+	ApprovalState     string                           `json:"approval_state,omitempty"`
+	ApprovalID        string                           `json:"approval_id,omitempty"`
+	DryRunID          string                           `json:"dry_run_id,omitempty"`
+	DryRunOutcome     string                           `json:"dry_run_outcome,omitempty"`
+	ExecutionID       string                           `json:"execution_id,omitempty"`
+	ExecutionState    string                           `json:"execution_state,omitempty"`
+	VerificationID    string                           `json:"verification_id,omitempty"`
+	VerificationState string                           `json:"verification_state,omitempty"`
+	RollbackState     string                           `json:"rollback_state,omitempty"`
+	RollbackStrategy  string                           `json:"rollback_strategy,omitempty"`
+	ReadyForApply     bool                             `json:"ready_for_apply"`
+	KillSwitchEngaged bool                             `json:"kill_switch_engaged"`
+	Tradeoffs         []AWSRemediationTradeoff         `json:"tradeoffs"`
+	SafetyGates       []AWSRemediationCenterSafetyGate `json:"safety_gates"`
+	NextAction        string                           `json:"next_action"`
+	EvidenceRefs      []string                         `json:"evidence_refs,omitempty"`
+	EvidenceBoundary  string                           `json:"evidence_boundary"`
+	AuditEntryCount   int                              `json:"audit_entry_count"`
+	UpdatedAt         time.Time                        `json:"updated_at,omitzero"`
+}
+
+// AWSRemediationCenterSummary aggregates the unfiltered and filtered case set
+// plus lifecycle-stage and safety rollups.
+type AWSRemediationCenterSummary struct {
+	TotalCases           int            `json:"total_cases"`
+	FilteredCases        int            `json:"filtered_cases"`
+	StageCounts          map[string]int `json:"stage_counts"`
+	SeverityCounts       map[string]int `json:"severity_counts"`
+	StatusCounts         map[string]int `json:"status_counts"`
+	ActionTypeCounts     map[string]int `json:"action_type_counts"`
+	IdentityTypeCounts   map[string]int `json:"identity_type_counts"`
+	ApprovalPendingCount int            `json:"approval_pending_count"`
+	DryRunCount          int            `json:"dry_run_count"`
+	LiveActionCount      int            `json:"live_action_count"`
+	VerificationCount    int            `json:"verification_count"`
+	RollbackCount        int            `json:"rollback_count"`
+	ReadyForApplyCount   int            `json:"ready_for_apply_count"`
+	KillSwitchCount      int            `json:"kill_switch_engaged_count"`
+	BlockedGateCount     int            `json:"blocked_safety_gate_count"`
+	AuditEntryCount      int            `json:"audit_entry_count"`
+	HighestScore         int            `json:"highest_score"`
+	AverageConfidencePct int            `json:"average_confidence_pct"`
+}
+
+// AWSRemediationCenterResult is the deterministic unified-center envelope. It
+// embeds the underlying stage results so the app tabs can render full stage
+// tables, mirroring the Wave 10 detail-page pattern.
+type AWSRemediationCenterResult struct {
+	TenantID           string                               `json:"tenant_id"`
+	WorkspaceID        string                               `json:"workspace_id"`
+	ProjectID          string                               `json:"project_id"`
+	ConnectorID        string                               `json:"connector_id,omitempty"`
+	AccountID          string                               `json:"account_id,omitempty"`
+	Region             string                               `json:"region,omitempty"`
+	ParentIssueNumber  int                                  `json:"parent_issue_number"`
+	ParentIssueRef     string                               `json:"parent_issue_ref"`
+	CurrentIssueNumber int                                  `json:"current_issue_number"`
+	CurrentIssueRef    string                               `json:"current_issue_ref"`
+	Version            string                               `json:"version"`
+	Status             string                               `json:"status"`
+	FixtureState       string                               `json:"fixture_state,omitempty"`
+	Confidence         float64                              `json:"confidence"`
+	PolicyVersion      string                               `json:"policy_version"`
+	AppliedFilters     map[string]string                    `json:"applied_filters"`
+	Summary            AWSRemediationCenterSummary          `json:"summary"`
+	Tabs               []AWSRemediationCenterTab            `json:"tabs"`
+	Cases              []AWSRemediationCenterCase           `json:"cases"`
+	RemediationCases   AWSRemediationCaseResult             `json:"remediation_cases"`
+	ApprovalQueue      AWSRemediationApprovalResult         `json:"approval_queue"`
+	DryRuns            AWSRemediationDryRunResult           `json:"dry_runs"`
+	LiveActions        AWSLowRiskRemediationResult          `json:"live_actions"`
+	Verification       AWSPostRemediationVerificationResult `json:"verification"`
+	FailureReasons     []string                             `json:"failure_reasons"`
+	RemediationHints   []string                             `json:"remediation_hints"`
+	EvidenceLinks      []string                             `json:"evidence_links"`
+	CoverageGaps       []AWSRemediationCenterCoverageGap    `json:"coverage_gaps"`
+	Diagnostics        []AWSRemediationCenterDiagnostic     `json:"diagnostics"`
+	GeneratedAt        time.Time                            `json:"generated_at"`
+	UpdatedAt          time.Time                            `json:"updated_at"`
+}
+
+// GetAWSRemediationCenter composes the unified operator remediation center by
+// joining the remediation case engine (#1529), approval queue (#1536), dry-run
+// executor (#1537), low-risk live remediation (#1538), and post-remediation
+// verification/rollback (#1542) into one case-keyed lifecycle view. It is
+// read-only: it never mutates AWS, never reads secret values or workload
+// payloads, and surfaces unknown/permission-denied/degraded states explicitly.
+func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID string, projectID string, request AWSRemediationCenterRequest) (AWSRemediationCenterResult, error) {
+	project, scope, err := s.requireScopedProject(ctx, workspaceID, projectID)
+	if err != nil {
+		return AWSRemediationCenterResult{}, err
+	}
+	connection, hasConnection, err := s.awsBaselineConnection(ctx, project, strings.TrimSpace(request.ConnectorID))
+	if err != nil {
+		return AWSRemediationCenterResult{}, err
+	}
+	now := s.Now().UTC()
+	fixtureState := normalizeAWSRemediationCenterFixtureState(request.FixtureState, connection, hasConnection)
+	if fixtureState == "" {
+		return AWSRemediationCenterResult{}, ErrInvalidAWSConnectionRequest
+	}
+	sourceFixtureState := fixtureState
+	if strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected {
+		sourceFixtureState = ""
+	}
+	accountID := firstNonEmptyAWSValue(connection.AccountID, strings.TrimSpace(request.AccountID), "123456789012")
+	region := firstNonEmptyAWSValue(connection.Region, strings.TrimSpace(request.Region), "us-east-1")
+	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID), "aws-fixture")
+
+	cases, err := s.GetAWSRemediationCases(ctx, workspaceID, projectID, AWSRemediationCaseRequest{
+		ConnectorID:  connectorID,
+		FixtureState: sourceFixtureState,
+		AccountID:    request.AccountID,
+		Region:       request.Region,
+		Severity:     request.Severity,
+	})
+	if err != nil {
+		return AWSRemediationCenterResult{}, fmt.Errorf("remediation center cases: %w", err)
+	}
+	approvals, err := s.GetAWSRemediationApprovalQueue(ctx, workspaceID, projectID, AWSRemediationApprovalRequest{
+		ConnectorID:  connectorID,
+		FixtureState: sourceFixtureState,
+		AccountID:    request.AccountID,
+		Region:       request.Region,
+		Severity:     request.Severity,
+	})
+	if err != nil {
+		return AWSRemediationCenterResult{}, fmt.Errorf("remediation center approvals: %w", err)
+	}
+	dryRuns, err := s.GetAWSRemediationDryRun(ctx, workspaceID, projectID, AWSRemediationDryRunRequest{
+		ConnectorID:  connectorID,
+		FixtureState: sourceFixtureState,
+		AccountID:    request.AccountID,
+		Region:       request.Region,
+		Severity:     request.Severity,
+	})
+	if err != nil {
+		return AWSRemediationCenterResult{}, fmt.Errorf("remediation center dry runs: %w", err)
+	}
+	liveActions, err := s.GetAWSLowRiskRemediation(ctx, workspaceID, projectID, AWSLowRiskRemediationRequest{
+		ConnectorID:  connectorID,
+		FixtureState: sourceFixtureState,
+		AccountID:    request.AccountID,
+		Region:       request.Region,
+		Severity:     request.Severity,
+	})
+	if err != nil {
+		return AWSRemediationCenterResult{}, fmt.Errorf("remediation center live actions: %w", err)
+	}
+	verification, err := s.GetAWSPostRemediationVerification(ctx, workspaceID, projectID, AWSPostRemediationVerificationRequest{
+		ConnectorID:  connectorID,
+		FixtureState: sourceFixtureState,
+		AccountID:    request.AccountID,
+		Region:       request.Region,
+		Severity:     request.Severity,
+	})
+	if err != nil {
+		return AWSRemediationCenterResult{}, fmt.Errorf("remediation center verification: %w", err)
+	}
+
+	centerCases := awsRemediationCenterCases(cases, approvals, dryRuns, liveActions, verification)
+	sort.SliceStable(centerCases, func(i, j int) bool {
+		if centerCases[i].Score == centerCases[j].Score {
+			return centerCases[i].CaseID < centerCases[j].CaseID
+		}
+		return centerCases[i].Score > centerCases[j].Score
+	})
+	filtered, applied := filterAWSRemediationCenterCases(centerCases, request)
+	summary := summarizeAWSRemediationCenterCases(centerCases, filtered)
+	diagnostics := awsRemediationCenterDiagnostics(cases, approvals, dryRuns, liveActions, verification)
+	coverageGaps := awsRemediationCenterCoverageGaps(cases, verification)
+	evidenceLinks := awsRemediationCenterEvidenceLinks(scope, project, cases, approvals, dryRuns, liveActions, verification)
+	status, confidence := summarizeAWSRemediationCenterStatus(fixtureState, cases, approvals, dryRuns, liveActions, verification, diagnostics)
+
+	return AWSRemediationCenterResult{
+		TenantID:           scope.TenantID,
+		WorkspaceID:        project.WorkspaceID,
+		ProjectID:          project.ProjectID,
+		ConnectorID:        connectorID,
+		AccountID:          accountID,
+		Region:             region,
+		ParentIssueNumber:  awsPlatformDependencyParentIssue,
+		ParentIssueRef:     awsIssueRef(awsPlatformDependencyParentIssue),
+		CurrentIssueNumber: awsRemediationCenterCurrentIssue,
+		CurrentIssueRef:    awsIssueRef(awsRemediationCenterCurrentIssue),
+		Version:            awsRemediationCenterVersion,
+		Status:             status,
+		FixtureState:       fixtureState,
+		Confidence:         confidence,
+		PolicyVersion:      awsRemediationCenterPolicyID,
+		AppliedFilters:     applied,
+		Summary:            summary,
+		Tabs:               awsRemediationCenterTabs(summary, status),
+		Cases:              filtered,
+		RemediationCases:   cases,
+		ApprovalQueue:      approvals,
+		DryRuns:            dryRuns,
+		LiveActions:        liveActions,
+		Verification:       verification,
+		FailureReasons:     awsRemediationCenterFailureReasons(cases, approvals, dryRuns, liveActions, verification),
+		RemediationHints:   awsRemediationCenterRemediationHints(cases, approvals, dryRuns, liveActions, verification),
+		EvidenceLinks:      evidenceLinks,
+		CoverageGaps:       coverageGaps,
+		Diagnostics:        diagnostics,
+		GeneratedAt:        now,
+		UpdatedAt:          now,
+	}, nil
+}
+
+func normalizeAWSRemediationCenterFixtureState(requested string, connection AWSConnectionStatus, hasConnection bool) string {
+	switch strings.ToLower(strings.TrimSpace(requested)) {
+	case "":
+		if hasConnection && !connection.Connected {
+			return "permission_denied"
+		}
+		return "success"
+	case "success", "empty", "degraded", "partial_failure", "permission_denied":
+		return strings.ToLower(strings.TrimSpace(requested))
+	default:
+		return ""
+	}
+}
+
+// awsRemediationCenterCases builds the case-keyed lifecycle rollups by joining
+// every stage back to its originating case.
+func awsRemediationCenterCases(cases AWSRemediationCaseResult, approvals AWSRemediationApprovalResult, dryRuns AWSRemediationDryRunResult, liveActions AWSLowRiskRemediationResult, verification AWSPostRemediationVerificationResult) []AWSRemediationCenterCase {
+	approvalByCase := map[string]AWSRemediationApprovalEntry{}
+	for _, entry := range approvals.Entries {
+		if key := strings.TrimSpace(entry.CaseID); key != "" {
+			if _, ok := approvalByCase[key]; !ok {
+				approvalByCase[key] = entry
+			}
+		}
+	}
+	dryRunByCase := map[string]AWSRemediationDryRunEntry{}
+	for _, entry := range dryRuns.Entries {
+		if key := strings.TrimSpace(entry.CaseID); key != "" {
+			if _, ok := dryRunByCase[key]; !ok {
+				dryRunByCase[key] = entry
+			}
+		}
+	}
+	liveByCase := map[string]AWSLowRiskRemediationEntry{}
+	for _, entry := range liveActions.Entries {
+		if key := strings.TrimSpace(entry.CaseID); key != "" {
+			if _, ok := liveByCase[key]; !ok {
+				liveByCase[key] = entry
+			}
+		}
+	}
+	// Keep the most safety-critical verification per case so a failed or
+	// kill-switched verification on any target still drives the rollup.
+	verificationByCase := map[string]AWSPostRemediationVerificationEntry{}
+	for _, entry := range verification.Entries {
+		key := strings.TrimSpace(entry.CaseID)
+		if key == "" {
+			continue
+		}
+		existing, ok := verificationByCase[key]
+		if !ok || awsRemediationCenterVerificationRank(entry) > awsRemediationCenterVerificationRank(existing) {
+			verificationByCase[key] = entry
+		}
+	}
+
+	out := make([]AWSRemediationCenterCase, 0, len(cases.Cases))
+	for _, c := range cases.Cases {
+		approval, hasApproval := approvalByCase[c.CaseID]
+		dryRun, hasDryRun := dryRunByCase[c.CaseID]
+		live, hasLive := liveByCase[c.CaseID]
+		verify, hasVerify := verificationByCase[c.CaseID]
+		out = append(out, awsRemediationCenterCaseFromLifecycle(c, approval, hasApproval, dryRun, hasDryRun, live, hasLive, verify, hasVerify))
+	}
+	return out
+}
+
+func awsRemediationCenterVerificationRank(entry AWSPostRemediationVerificationEntry) int {
+	if entry.KillSwitchEngaged {
+		return 100
+	}
+	switch entry.State {
+	case awsPostRemediationVerificationStateFailed, awsPostRemediationVerificationStateRollback:
+		return 90
+	case awsPostRemediationVerificationStateBlocked:
+		return 80
+	case awsPostRemediationVerificationStateNotReady:
+		return 40
+	case awsPostRemediationVerificationStatePending:
+		return 30
+	case awsPostRemediationVerificationStateSkipped:
+		return 20
+	case awsPostRemediationVerificationStateVerified:
+		return 10
+	}
+	return 0
+}
+
+func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRemediationApprovalEntry, hasApproval bool, dryRun AWSRemediationDryRunEntry, hasDryRun bool, live AWSLowRiskRemediationEntry, hasLive bool, verify AWSPostRemediationVerificationEntry, hasVerify bool) AWSRemediationCenterCase {
+	stage := awsRemediationCenterStageCase
+	killSwitch := false
+	tradeoffs := append([]AWSRemediationTradeoff{}, c.Tradeoffs...)
+	gates := []AWSRemediationCenterSafetyGate{}
+	auditCount := len(c.AuditTrail)
+	entry := AWSRemediationCenterCase{
+		CaseID:           c.CaseID,
+		Title:            c.Title,
+		Summary:          c.Summary,
+		SourceType:       c.SourceType,
+		ActionType:       awsRemediationCenterActionType(c),
+		Lifecycle:        c.Lifecycle,
+		Severity:         c.Severity,
+		Score:            c.Score,
+		Confidence:       c.Confidence,
+		AccountID:        firstNonEmptyAWSValue(c.AccountID, firstString(c.TargetAccountIDs)),
+		TargetAccountIDs: emptyStrings(dedupeStrings(c.TargetAccountIDs)),
+		Region:           c.Region,
+		IdentityNodeID:   c.IdentityNodeID,
+		IdentityName:     firstNonEmptyAWSValue(c.IdentityName, c.IdentityARN),
+		IdentityType:     c.IdentityType,
+		Owner:            c.Owner,
+		OwnerAssigned:    c.OwnerAssigned,
+		ApprovalRequired: c.ApprovalRequired,
+		ApprovalState:    c.ApprovalState,
+		EvidenceBoundary: awsRemediationCenterEvidenceBoundary(),
+		UpdatedAt:        c.UpdatedAt,
+	}
+	evidenceRefs := awsRemediationCenterCaseEvidenceRefs(c)
+
+	if hasApproval {
+		stage = awsRemediationCenterStageApproval
+		entry.ApprovalID = approval.ApprovalID
+		entry.ApprovalState = firstNonEmptyAWSValue(approval.State, entry.ApprovalState)
+		killSwitch = killSwitch || approval.KillSwitchEngaged
+		auditCount += len(approval.AuditTrail)
+		tradeoffs = append(tradeoffs, approval.Tradeoffs...)
+		for _, gate := range approval.RBACGates {
+			gates = append(gates, AWSRemediationCenterSafetyGate{Source: "approval_rbac", Name: gate.Name, Status: gate.Status, Rationale: gate.Rationale})
+		}
+		for _, flag := range approval.FeatureFlags {
+			gates = append(gates, AWSRemediationCenterSafetyGate{Source: "approval_feature_flag", Name: flag.Name, Status: awsRemediationCenterFlagStatus(flag.Enabled), Rationale: flag.Rationale})
+		}
+	}
+	if hasDryRun {
+		stage = awsRemediationCenterStageDryRun
+		entry.DryRunID = dryRun.DryRunID
+		entry.DryRunOutcome = dryRun.Outcome
+		killSwitch = killSwitch || dryRun.KillSwitchEngaged
+		auditCount += len(dryRun.AuditTrail)
+		for _, prereq := range dryRun.SatisfiedPrereqs {
+			gates = append(gates, AWSRemediationCenterSafetyGate{Source: "dry_run_prerequisite", Name: prereq.Name, Status: firstNonEmptyAWSValue(prereq.Status, "passed"), Rationale: prereq.Rationale})
+		}
+		for _, prereq := range dryRun.FailedPrereqs {
+			gates = append(gates, AWSRemediationCenterSafetyGate{Source: "dry_run_prerequisite", Name: prereq.Name, Status: firstNonEmptyAWSValue(prereq.Status, "blocked"), Rationale: prereq.Rationale})
+		}
+		entry.ReadyForApply = dryRun.ReadyForApply
+	}
+	if hasLive {
+		stage = awsRemediationCenterStageLiveAction
+		entry.ExecutionID = live.ExecutionID
+		entry.ExecutionState = live.State
+		killSwitch = killSwitch || live.KillSwitchEngaged
+		auditCount += len(live.AuditTrail)
+		for _, preflight := range live.Preflights {
+			gates = append(gates, AWSRemediationCenterSafetyGate{Source: "live_action_preflight", Name: preflight.Name, Status: preflight.Status, Rationale: preflight.Rationale})
+		}
+	}
+	if hasVerify {
+		stage = awsRemediationCenterStageVerification
+		entry.VerificationID = verify.VerificationID
+		entry.VerificationState = verify.State
+		entry.ExecutionID = firstNonEmptyAWSValue(entry.ExecutionID, verify.SourceExecutionID)
+		entry.RollbackState = verify.Rollback.State
+		entry.RollbackStrategy = verify.Rollback.Strategy
+		killSwitch = killSwitch || verify.KillSwitchEngaged
+		auditCount += len(verify.AuditTrail)
+		if verify.State == awsPostRemediationVerificationStateRollback || verify.State == awsPostRemediationVerificationStateFailed {
+			stage = awsRemediationCenterStageRollback
+		}
+		for _, precondition := range verify.Preconditions {
+			gates = append(gates, AWSRemediationCenterSafetyGate{Source: "verification_precondition", Name: precondition.Name, Status: precondition.Status, Rationale: precondition.Rationale})
+		}
+		entry.NextAction = verify.NextAction
+	}
+	if entry.NextAction == "" {
+		entry.NextAction = firstNonEmptyAWSValue(firstString(c.NextActions), awsRemediationCenterStageNextAction(stage))
+	}
+	entry.Stage = stage
+	entry.KillSwitchEngaged = killSwitch
+	entry.Tradeoffs = awsRemediationCenterDedupeTradeoffs(tradeoffs)
+	entry.SafetyGates = gates
+	entry.EvidenceRefs = evidenceRefs
+	entry.AuditEntryCount = auditCount
+	return entry
+}
+
+func awsRemediationCenterActionType(c AWSRemediationCase) string {
+	if kind := strings.TrimSpace(c.DiffIntent.Kind); kind != "" {
+		return kind
+	}
+	return c.SourceType
+}
+
+func awsRemediationCenterFlagStatus(enabled bool) string {
+	if enabled {
+		return "enabled"
+	}
+	return "disabled"
+}
+
+func awsRemediationCenterStageNextAction(stage string) string {
+	switch stage {
+	case awsRemediationCenterStageCase:
+		return "Assign an owner and advance the case to the approval queue."
+	case awsRemediationCenterStageApproval:
+		return "Advance the approval workflow so the case can reach a dry-run."
+	case awsRemediationCenterStageDryRun:
+		return "Review the dry-run projection and its prerequisites before scheduling a live action."
+	case awsRemediationCenterStageLiveAction:
+		return "Confirm live-action preflights and let the wave-8 apply runtime record verification."
+	case awsRemediationCenterStageVerification:
+		return "Confirm verification checks pass; the change is recorded once verified."
+	case awsRemediationCenterStageRollback:
+		return "Verification failed or rolled back; follow the rollback plan and refresh upstream evidence."
+	}
+	return "Inspect the case for its next action."
+}
+
+func awsRemediationCenterCaseEvidenceRefs(c AWSRemediationCase) []string {
+	refs := []string{}
+	if ref := strings.TrimSpace(c.DiffIntent.BeforeRef); ref != "" {
+		refs = append(refs, ref)
+	}
+	for _, evidence := range c.Evidence {
+		if ref := strings.TrimSpace(evidence.EvidenceRef); ref != "" {
+			refs = append(refs, ref)
+		}
+	}
+	return dedupeStrings(refs)
+}
+
+func awsRemediationCenterDedupeTradeoffs(items []AWSRemediationTradeoff) []AWSRemediationTradeoff {
+	seen := map[string]struct{}{}
+	out := []AWSRemediationTradeoff{}
+	for _, item := range items {
+		key := strings.ToLower(strings.Join([]string{item.Dimension, item.Direction, item.Description, item.Severity}, "\x00"))
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, item)
+	}
+	return out
+}
+
+func filterAWSRemediationCenterCases(centerCases []AWSRemediationCenterCase, request AWSRemediationCenterRequest) ([]AWSRemediationCenterCase, map[string]string) {
+	filters := map[string]string{
+		"account_id":    strings.TrimSpace(request.AccountID),
+		"region":        strings.TrimSpace(request.Region),
+		"severity":      normalizeAWSRuntimeEventFilterToken(request.Severity),
+		"identity_type": normalizeAWSRuntimeEventFilterToken(request.IdentityType),
+		"action_type":   normalizeAWSRuntimeEventFilterToken(request.ActionType),
+		"status":        normalizeAWSRuntimeEventFilterToken(request.Status),
+		"stage":         normalizeAWSRuntimeEventFilterToken(request.Stage),
+		"case_id":       strings.TrimSpace(request.CaseID),
+		"confidence":    strings.TrimSpace(request.Confidence),
+		"search":        strings.TrimSpace(request.Search),
+	}
+	for key, value := range filters {
+		if strings.TrimSpace(value) == "" || strings.EqualFold(value, "all") {
+			delete(filters, key)
+		}
+	}
+	minConfidence, hasMinConfidence := awsRemediationCenterConfidenceFloor(filters["confidence"])
+	applied := map[string]string{}
+	for key, value := range filters {
+		applied[key] = value
+	}
+	filtered := make([]AWSRemediationCenterCase, 0, len(centerCases))
+	for _, entry := range centerCases {
+		if filters["account_id"] != "" && !awsRemediationCenterAccountMatch(entry, filters["account_id"]) {
+			continue
+		}
+		if filters["region"] != "" && strings.TrimSpace(entry.Region) != "" && !strings.EqualFold(filters["region"], strings.TrimSpace(entry.Region)) {
+			continue
+		}
+		if filters["severity"] != "" && filters["severity"] != normalizeAWSRuntimeEventFilterToken(entry.Severity) {
+			continue
+		}
+		if filters["identity_type"] != "" && filters["identity_type"] != normalizeAWSRuntimeEventFilterToken(entry.IdentityType) {
+			continue
+		}
+		if filters["action_type"] != "" && filters["action_type"] != normalizeAWSRuntimeEventFilterToken(entry.ActionType) && filters["action_type"] != normalizeAWSRuntimeEventFilterToken(entry.SourceType) {
+			continue
+		}
+		if filters["status"] != "" && !awsRemediationCenterStatusMatch(entry, filters["status"]) {
+			continue
+		}
+		if filters["stage"] != "" && filters["stage"] != normalizeAWSRuntimeEventFilterToken(entry.Stage) {
+			continue
+		}
+		if filters["case_id"] != "" && !strings.EqualFold(filters["case_id"], entry.CaseID) {
+			continue
+		}
+		if hasMinConfidence && entry.Confidence < minConfidence {
+			continue
+		}
+		if filters["search"] != "" && !awsRemediationCenterSearchMatch(entry, filters["search"]) {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered, applied
+}
+
+// awsRemediationCenterConfidenceFloor parses the confidence filter as either a
+// 0..1 float threshold or a high/medium/low bucket floor.
+func awsRemediationCenterConfidenceFloor(value string) (float64, bool) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return 0, false
+	}
+	switch value {
+	case "high":
+		return 0.85, true
+	case "medium", "med":
+		return 0.6, true
+	case "low":
+		return 0, true
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil || parsed < 0 || parsed > 1 {
+		return 0, false
+	}
+	return parsed, true
+}
+
+func awsRemediationCenterAccountMatch(entry AWSRemediationCenterCase, accountID string) bool {
+	if strings.EqualFold(strings.TrimSpace(entry.AccountID), accountID) {
+		return true
+	}
+	for _, target := range entry.TargetAccountIDs {
+		if strings.EqualFold(strings.TrimSpace(target), accountID) {
+			return true
+		}
+	}
+	return false
+}
+
+// awsRemediationCenterStatusMatch matches the status filter against the
+// case lifecycle, approval state, or the furthest execution/verification
+// state so operators can filter by any lifecycle status token.
+func awsRemediationCenterStatusMatch(entry AWSRemediationCenterCase, status string) bool {
+	for _, value := range []string{entry.Lifecycle, entry.ApprovalState, entry.ExecutionState, entry.VerificationState, entry.Stage} {
+		if status == normalizeAWSRuntimeEventFilterToken(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func awsRemediationCenterSearchMatch(entry AWSRemediationCenterCase, needle string) bool {
+	needle = strings.ToLower(strings.TrimSpace(needle))
+	if needle == "" {
+		return true
+	}
+	values := []string{
+		entry.CaseID, entry.Title, entry.Summary, entry.SourceType, entry.ActionType,
+		entry.Lifecycle, entry.Stage, entry.Severity, entry.IdentityNodeID, entry.IdentityName,
+		entry.IdentityType, entry.Owner, entry.ApprovalState, entry.ApprovalID, entry.DryRunID,
+		entry.DryRunOutcome, entry.ExecutionID, entry.ExecutionState, entry.VerificationID,
+		entry.VerificationState, entry.RollbackState, entry.RollbackStrategy, entry.NextAction,
+	}
+	values = append(values, entry.TargetAccountIDs...)
+	values = append(values, entry.EvidenceRefs...)
+	for _, gate := range entry.SafetyGates {
+		values = append(values, gate.Name, gate.Status, gate.Rationale)
+	}
+	for _, tradeoff := range entry.Tradeoffs {
+		values = append(values, tradeoff.Dimension, tradeoff.Description)
+	}
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func summarizeAWSRemediationCenterCases(all, filtered []AWSRemediationCenterCase) AWSRemediationCenterSummary {
+	summary := AWSRemediationCenterSummary{
+		TotalCases:         len(all),
+		FilteredCases:      len(filtered),
+		StageCounts:        map[string]int{},
+		SeverityCounts:     map[string]int{},
+		StatusCounts:       map[string]int{},
+		ActionTypeCounts:   map[string]int{},
+		IdentityTypeCounts: map[string]int{},
+	}
+	confidenceTotal := 0.0
+	for _, entry := range filtered {
+		if entry.Stage != "" {
+			summary.StageCounts[entry.Stage]++
+		}
+		if entry.Severity != "" {
+			summary.SeverityCounts[entry.Severity]++
+		}
+		if entry.Lifecycle != "" {
+			summary.StatusCounts[entry.Lifecycle]++
+		}
+		if entry.ActionType != "" {
+			summary.ActionTypeCounts[entry.ActionType]++
+		}
+		if entry.IdentityType != "" {
+			summary.IdentityTypeCounts[entry.IdentityType]++
+		}
+		if entry.ApprovalID != "" && !strings.EqualFold(entry.ApprovalState, "approved") {
+			summary.ApprovalPendingCount++
+		}
+		if entry.DryRunID != "" {
+			summary.DryRunCount++
+		}
+		if entry.ExecutionID != "" {
+			summary.LiveActionCount++
+		}
+		if entry.VerificationID != "" {
+			summary.VerificationCount++
+		}
+		if entry.Stage == awsRemediationCenterStageRollback {
+			summary.RollbackCount++
+		}
+		if entry.ReadyForApply {
+			summary.ReadyForApplyCount++
+		}
+		if entry.KillSwitchEngaged {
+			summary.KillSwitchCount++
+		}
+		for _, gate := range entry.SafetyGates {
+			if gate.Status == "blocked" || gate.Status == "failed" {
+				summary.BlockedGateCount++
+			}
+		}
+		summary.AuditEntryCount += entry.AuditEntryCount
+		if entry.Score > summary.HighestScore {
+			summary.HighestScore = entry.Score
+		}
+		confidenceTotal += entry.Confidence
+	}
+	if len(filtered) > 0 {
+		summary.AverageConfidencePct = int((confidenceTotal/float64(len(filtered)))*100 + 0.5)
+	}
+	return summary
+}
+
+func awsRemediationCenterTabs(summary AWSRemediationCenterSummary, status string) []AWSRemediationCenterTab {
+	tabStatus := status
+	if tabStatus == "" {
+		tabStatus = "success"
+	}
+	return []AWSRemediationCenterTab{
+		{ID: "overview", Label: "Overview", Status: tabStatus, Count: summary.FilteredCases},
+		{ID: "cases", Label: "Cases", Status: tabStatus, Count: summary.FilteredCases},
+		{ID: "approvals", Label: "Approvals", Status: tabStatus, Count: summary.ApprovalPendingCount},
+		{ID: "dry_runs", Label: "Dry-runs", Status: tabStatus, Count: summary.DryRunCount},
+		{ID: "live_actions", Label: "Live actions", Status: tabStatus, Count: summary.LiveActionCount},
+		{ID: "verification", Label: "Verification", Status: tabStatus, Count: summary.VerificationCount},
+		{ID: "audit", Label: "Audit", Status: tabStatus, Count: summary.AuditEntryCount},
+	}
+}
+
+func summarizeAWSRemediationCenterStatus(fixtureState string, cases AWSRemediationCaseResult, approvals AWSRemediationApprovalResult, dryRuns AWSRemediationDryRunResult, liveActions AWSLowRiskRemediationResult, verification AWSPostRemediationVerificationResult, diagnostics []AWSRemediationCenterDiagnostic) (string, float64) {
+	if fixtureState == "permission_denied" {
+		return "permission_denied", 0.2
+	}
+	statuses := []string{cases.Status, approvals.Status, dryRuns.Status, liveActions.Status, verification.Status}
+	for _, status := range statuses {
+		if status == awsPlatformDependencyStatusBlocked {
+			return awsPlatformDependencyStatusBlocked, 0.35
+		}
+	}
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Retryable {
+			return awsPlatformDependencyStatusDegraded, 0.72
+		}
+	}
+	for _, status := range statuses {
+		if status == awsPlatformDependencyStatusDegraded {
+			return awsPlatformDependencyStatusDegraded, 0.74
+		}
+	}
+	if fixtureState == "degraded" || fixtureState == "partial_failure" {
+		return awsPlatformDependencyStatusDegraded, 0.74
+	}
+	if len(cases.Cases) == 0 {
+		return awsPlatformDependencyStatusReady, 0.82
+	}
+	return awsPlatformDependencyStatusReady, 0.9
+}
+
+func awsRemediationCenterFailureReasons(cases AWSRemediationCaseResult, approvals AWSRemediationApprovalResult, dryRuns AWSRemediationDryRunResult, liveActions AWSLowRiskRemediationResult, verification AWSPostRemediationVerificationResult) []string {
+	out := []string{}
+	out = append(out, cases.FailureReasons...)
+	out = append(out, approvals.FailureReasons...)
+	out = append(out, dryRuns.FailureReasons...)
+	out = append(out, liveActions.FailureReasons...)
+	out = append(out, verification.FailureReasons...)
+	return dedupeStrings(out)
+}
+
+func awsRemediationCenterRemediationHints(cases AWSRemediationCaseResult, approvals AWSRemediationApprovalResult, dryRuns AWSRemediationDryRunResult, liveActions AWSLowRiskRemediationResult, verification AWSPostRemediationVerificationResult) []string {
+	out := []string{}
+	out = append(out, cases.RemediationHints...)
+	out = append(out, approvals.RemediationHints...)
+	out = append(out, dryRuns.RemediationHints...)
+	out = append(out, liveActions.RemediationHints...)
+	out = append(out, verification.RemediationHints...)
+	return dedupeStrings(out)
+}
+
+func awsRemediationCenterDiagnostics(cases AWSRemediationCaseResult, approvals AWSRemediationApprovalResult, dryRuns AWSRemediationDryRunResult, liveActions AWSLowRiskRemediationResult, verification AWSPostRemediationVerificationResult) []AWSRemediationCenterDiagnostic {
+	out := []AWSRemediationCenterDiagnostic{}
+	for _, d := range cases.Diagnostics {
+		out = append(out, AWSRemediationCenterDiagnostic{Collector: d.Collector, SourceID: d.SourceID, Code: d.Code, Message: d.Message, Remediation: d.Remediation, Retryable: d.Retryable})
+	}
+	for _, d := range approvals.Diagnostics {
+		out = append(out, AWSRemediationCenterDiagnostic{Collector: d.Collector, SourceID: d.SourceID, Code: d.Code, Message: d.Message, Remediation: d.Remediation, Retryable: d.Retryable})
+	}
+	for _, d := range dryRuns.Diagnostics {
+		out = append(out, AWSRemediationCenterDiagnostic{Collector: d.Collector, SourceID: d.SourceID, Code: d.Code, Message: d.Message, Remediation: d.Remediation, Retryable: d.Retryable})
+	}
+	for _, d := range liveActions.Diagnostics {
+		out = append(out, AWSRemediationCenterDiagnostic{Collector: d.Collector, SourceID: d.SourceID, Code: d.Code, Message: d.Message, Remediation: d.Remediation, Retryable: d.Retryable})
+	}
+	for _, d := range verification.Diagnostics {
+		out = append(out, AWSRemediationCenterDiagnostic{Collector: d.Collector, SourceID: d.SourceID, Code: d.Code, Message: d.Message, Remediation: d.Remediation, Retryable: d.Retryable})
+	}
+	return awsMachineIdentityDedupeDiagnostics(out)
+}
+
+func awsRemediationCenterCoverageGaps(cases AWSRemediationCaseResult, verification AWSPostRemediationVerificationResult) []AWSRemediationCenterCoverageGap {
+	out := []AWSRemediationCenterCoverageGap{}
+	for _, gap := range cases.CoverageGaps {
+		out = append(out, AWSRemediationCenterCoverageGap{Capability: gap.Capability, Status: gap.Status, Reason: gap.Reason, Remediation: gap.Remediation})
+	}
+	for _, gap := range verification.CoverageGaps {
+		out = append(out, AWSRemediationCenterCoverageGap{Capability: gap.Capability, Status: gap.Status, Reason: gap.Reason, Remediation: gap.Remediation})
+	}
+	return out
+}
+
+func awsRemediationCenterEvidenceLinks(scope db.Scope, project db.TenancyProject, cases AWSRemediationCaseResult, approvals AWSRemediationApprovalResult, dryRuns AWSRemediationDryRunResult, liveActions AWSLowRiskRemediationResult, verification AWSPostRemediationVerificationResult) []string {
+	links := []string{
+		awsIssueURL(awsPlatformDependencyParentIssue),
+		awsIssueURL(awsRemediationCenterCurrentIssue),
+		awsIssueURL(awsRemediationCaseCurrentIssue),
+		awsIssueURL(awsRemediationApprovalCurrentIssue),
+		awsIssueURL(awsRemediationDryRunCurrentIssue),
+		awsIssueURL(awsLowRiskRemediationCurrentIssue),
+		awsIssueURL(awsPostRemediationVerificationCurrentIssue),
+		"/docs/aws-remediation-center",
+		awsBaselineProjectEvidenceURL(scope, project),
+	}
+	links = append(links, cases.EvidenceLinks...)
+	links = append(links, approvals.EvidenceLinks...)
+	links = append(links, dryRuns.EvidenceLinks...)
+	links = append(links, liveActions.EvidenceLinks...)
+	links = append(links, verification.EvidenceLinks...)
+	return dedupeStrings(links)
+}
+
+func awsRemediationCenterEvidenceBoundary() string {
+	return "metadata_only_no_rendered_policy_bodies_no_secret_values_no_workload_payloads_tenant_workspace_project_connector_account_region_scoped"
+}

@@ -564,6 +564,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/remediation-center
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/bedrock-agents
     action: tenancy.read
     resource_type: project
@@ -4844,6 +4849,95 @@ paths:
                 $ref: "#/components/schemas/AWSAgentIdentityDetailResponse"
         "400":
           description: Invalid AWS agent identity detail request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/remediation-center:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS Remediation Center
+      operationId: getAWSProjectRemediationCenter
+      description: Returns the unified, metadata-only AWS Remediation Center by joining remediation cases, the approval queue, dry-run projections, low-risk live actions, and post-remediation verification/rollback into one case-keyed lifecycle view. Each case rollup surfaces its lifecycle stage, tradeoffs, and the consolidated safety gates that must clear before action. The endpoint is read-only and never mutates AWS or returns secret values, rendered policy bodies, payload bodies, prompts, completions, browser pages, code-interpreter output, or database rows.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+          description: Optional AWS connector ID used to scope account, region, and read-only evidence.
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+          description: Optional deterministic fixture state for UI validation and contract tests.
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: severity
+          schema: { type: string }
+        - in: query
+          name: confidence
+          schema: { type: string }
+          description: Minimum confidence floor as a 0..1 threshold or a high/medium/low bucket.
+        - in: query
+          name: identity_type
+          schema: { type: string }
+        - in: query
+          name: action_type
+          schema: { type: string }
+          description: Remediation action type (case diff kind or source type).
+        - in: query
+          name: status
+          schema: { type: string }
+          description: Lifecycle status token matched against case lifecycle, approval, execution, verification, or stage.
+        - in: query
+          name: stage
+          schema:
+            type: string
+            enum: [case, approval, dry_run, live_action, verification, rollback]
+          description: Optional lifecycle-stage focus.
+        - in: query
+          name: case_id
+          schema: { type: string }
+        - in: query
+          name: tab
+          schema:
+            type: string
+            enum: [overview, cases, approvals, dry_runs, live_actions, verification, audit]
+          description: Optional detail tab selector used by the app route.
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS Remediation Center contract
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AWSRemediationCenterResponse"
+        "400":
+          description: Invalid AWS remediation center request
           content:
             application/json:
               schema:
@@ -14166,6 +14260,179 @@ components:
           $ref: "#/components/schemas/AWSRemediationCaseResult"
         governance:
           $ref: "#/components/schemas/AWSGovernanceAuditReportingResult"
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSMachineIdentityDetailCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSMachineIdentityDetailDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSRemediationCenterResponse:
+      type: object
+      required: [remediation_center]
+      properties:
+        remediation_center:
+          $ref: "#/components/schemas/AWSRemediationCenterResult"
+    AWSRemediationCenterSafetyGate:
+      type: object
+      properties:
+        source: { type: string }
+        name: { type: string }
+        status: { type: string }
+        rationale: { type: string }
+    AWSRemediationCenterCase:
+      type: object
+      properties:
+        case_id: { type: string }
+        title: { type: string }
+        summary: { type: string }
+        source_type: { type: string }
+        action_type: { type: string }
+        lifecycle: { type: string }
+        stage:
+          type: string
+          enum: [case, approval, dry_run, live_action, verification, rollback]
+        severity: { type: string }
+        score: { type: integer }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        account_id: { type: string }
+        target_account_ids:
+          type: array
+          items: { type: string }
+        region: { type: string }
+        identity_node_id: { type: string }
+        identity_name: { type: string }
+        identity_type: { type: string }
+        owner: { type: string }
+        owner_assigned: { type: boolean }
+        approval_required: { type: boolean }
+        approval_state: { type: string }
+        approval_id: { type: string }
+        dry_run_id: { type: string }
+        dry_run_outcome: { type: string }
+        execution_id: { type: string }
+        execution_state: { type: string }
+        verification_id: { type: string }
+        verification_state: { type: string }
+        rollback_state: { type: string }
+        rollback_strategy: { type: string }
+        ready_for_apply: { type: boolean }
+        kill_switch_engaged: { type: boolean }
+        tradeoffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationTradeoff"
+        safety_gates:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationCenterSafetyGate"
+        next_action: { type: string }
+        evidence_refs:
+          type: array
+          items: { type: string }
+        evidence_boundary: { type: string }
+        audit_entry_count: { type: integer }
+        updated_at:
+          type: string
+          format: date-time
+    AWSRemediationCenterSummary:
+      type: object
+      properties:
+        total_cases: { type: integer }
+        filtered_cases: { type: integer }
+        stage_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        action_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        identity_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        approval_pending_count: { type: integer }
+        dry_run_count: { type: integer }
+        live_action_count: { type: integer }
+        verification_count: { type: integer }
+        rollback_count: { type: integer }
+        ready_for_apply_count: { type: integer }
+        kill_switch_engaged_count: { type: integer }
+        blocked_safety_gate_count: { type: integer }
+        audit_entry_count: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSRemediationCenterResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked, permission_denied]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        policy_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSRemediationCenterSummary"
+        tabs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSMachineIdentityDetailTab"
+        cases:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationCenterCase"
+        remediation_cases:
+          $ref: "#/components/schemas/AWSRemediationCaseResult"
+        approval_queue:
+          $ref: "#/components/schemas/AWSRemediationApprovalResult"
+        dry_runs:
+          $ref: "#/components/schemas/AWSRemediationDryRunResult"
+        live_actions:
+          $ref: "#/components/schemas/AWSLowRiskRemediationResult"
+        verification:
+          $ref: "#/components/schemas/AWSPostRemediationVerificationResult"
         failure_reasons:
           type: array
           items: { type: string }

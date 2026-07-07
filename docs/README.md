@@ -102,6 +102,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - AWS advisory authorization decision API: `aws-advisory-authorization.md`
 - AWS limited enforcement framework: `aws-limited-enforcement.md`
 - AWS high-confidence limited enforcement pilot: `aws-limited-enforcement-pilot.md`
+- AWS Remediation Center unified experience: `aws-remediation-center.md`
 - AWS governance audit reporting: `aws-governance-audit-reporting.md`
 - AWS session policy recommendation path: `aws-session-policy-recommendation.md`
 - AWS AgentCore gateway policy advisory: `aws-agentcore-gateway-policy-advisory.md`
