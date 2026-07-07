@@ -375,6 +375,63 @@ func TestGetAWSRemediationCenterScopesPayloadsToFilteredCases(t *testing.T) {
 	}
 }
 
+func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
+	centerCases := []AWSRemediationCenterCase{
+		{
+			CaseID:                 "case-mixed",
+			VerificationID:         "verify-failed",
+			VerificationState:      awsPostRemediationVerificationStateFailed,
+			VerificationEntryCount: 2,
+			VerificationStates:     []string{awsPostRemediationVerificationStateFailed, awsPostRemediationVerificationStateVerified},
+		},
+		{
+			CaseID:                 "case-verified",
+			VerificationID:         "verify-verified",
+			VerificationState:      awsPostRemediationVerificationStateVerified,
+			VerificationEntryCount: 1,
+			VerificationStates:     []string{awsPostRemediationVerificationStateVerified},
+		},
+	}
+	verificationRows := []AWSPostRemediationVerificationEntry{
+		{CaseID: "case-mixed", VerificationID: "verify-failed", State: awsPostRemediationVerificationStateFailed},
+		{CaseID: "case-mixed", VerificationID: "verify-verified", State: awsPostRemediationVerificationStateVerified},
+		{CaseID: "case-verified", VerificationID: "verify-only-verified", State: awsPostRemediationVerificationStateVerified},
+		{CaseID: "case-unfiltered", VerificationID: "verify-outside-case-filter", State: awsPostRemediationVerificationStateVerified},
+	}
+
+	filtered, _ := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{Status: awsPostRemediationVerificationStateVerified})
+	scopedRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(filtered), awsPostRemediationVerificationStateVerified)
+	filtered = awsRemediationCenterCasesWithVerificationEntryCounts(filtered, scopedRows)
+	summary := summarizeAWSRemediationCenterCases(centerCases, filtered)
+
+	if len(filtered) != 2 {
+		t.Fatalf("case-level status filter should keep both verified cases, got %+v", filtered)
+	}
+	if len(scopedRows) != 2 {
+		t.Fatalf("status-scoped verification rows should keep only matching rows from filtered cases, got %+v", scopedRows)
+	}
+	for _, row := range scopedRows {
+		if row.State != awsPostRemediationVerificationStateVerified {
+			t.Errorf("verification row %s leaked state %s", row.VerificationID, row.State)
+		}
+		if row.CaseID == "case-unfiltered" {
+			t.Errorf("verification row %s leaked outside filtered case set", row.VerificationID)
+		}
+	}
+	countsByCase := map[string]int{}
+	for _, row := range scopedRows {
+		countsByCase[row.CaseID]++
+	}
+	for _, entry := range filtered {
+		if entry.VerificationEntryCount != countsByCase[entry.CaseID] {
+			t.Errorf("case %s verification_entry_count=%d want rendered rows=%d", entry.CaseID, entry.VerificationEntryCount, countsByCase[entry.CaseID])
+		}
+	}
+	if summary.VerificationCount != len(scopedRows) {
+		t.Fatalf("verification_count must match rendered status-scoped rows: count=%d rows=%d", summary.VerificationCount, len(scopedRows))
+	}
+}
+
 func TestGetAWSRemediationCenterPreservesUnfilteredTotals(t *testing.T) {
 	now := time.Date(2026, 7, 4, 10, 40, 0, 0, time.UTC)
 	svc, ws := newRemediationCenterService(t, "project-remediation-center-unfiltered-totals", now)

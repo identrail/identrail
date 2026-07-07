@@ -264,7 +264,6 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 		return centerCases[i].Score > centerCases[j].Score
 	})
 	filtered, applied := filterAWSRemediationCenterCases(centerCases, request)
-	summary := summarizeAWSRemediationCenterCases(centerCases, filtered)
 	diagnostics := awsRemediationCenterDiagnostics(cases, approvals, dryRuns, liveActions, verification)
 	coverageGaps := awsRemediationCenterCoverageGaps(cases, verification)
 	evidenceLinks := awsRemediationCenterEvidenceLinks(scope, project, cases, approvals, dryRuns, liveActions, verification)
@@ -279,7 +278,9 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	approvals.Entries = awsRemediationCenterScopeEntries(approvals.Entries, scopedCaseIDs, func(e AWSRemediationApprovalEntry) string { return e.CaseID })
 	dryRuns.Entries = awsRemediationCenterScopeEntries(dryRuns.Entries, scopedCaseIDs, func(e AWSRemediationDryRunEntry) string { return e.CaseID })
 	liveActions.Entries = awsRemediationCenterScopeEntries(liveActions.Entries, scopedCaseIDs, func(e AWSLowRiskRemediationEntry) string { return e.CaseID })
-	verification.Entries = awsRemediationCenterScopeEntries(verification.Entries, scopedCaseIDs, func(e AWSPostRemediationVerificationEntry) string { return e.CaseID })
+	verification.Entries = awsRemediationCenterScopeVerificationEntries(verification.Entries, scopedCaseIDs, request.Status)
+	filtered = awsRemediationCenterCasesWithVerificationEntryCounts(filtered, verification.Entries)
+	summary := summarizeAWSRemediationCenterCases(centerCases, filtered)
 	auditTrail := awsRemediationCenterAuditTrail(filtered)
 
 	return AWSRemediationCenterResult{
@@ -743,6 +744,42 @@ func awsRemediationCenterScopeEntries[T any](entries []T, allow map[string]struc
 	return out
 }
 
+// awsRemediationCenterScopeVerificationEntries keeps verification rows in sync
+// with both the filtered case set and an active status filter. The case rollup
+// may match a status through any verification row; the tab renders individual
+// rows, so row state must be checked before returning/counting them.
+func awsRemediationCenterScopeVerificationEntries(entries []AWSPostRemediationVerificationEntry, allow map[string]struct{}, status string) []AWSPostRemediationVerificationEntry {
+	status = normalizeAWSRuntimeEventFilterToken(status)
+	statusFilter := status != "" && !strings.EqualFold(status, "all")
+	out := make([]AWSPostRemediationVerificationEntry, 0, len(entries))
+	for _, entry := range entries {
+		if _, ok := allow[strings.TrimSpace(entry.CaseID)]; !ok {
+			continue
+		}
+		if statusFilter && status != normalizeAWSRuntimeEventFilterToken(entry.State) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func awsRemediationCenterCasesWithVerificationEntryCounts(cases []AWSRemediationCenterCase, entries []AWSPostRemediationVerificationEntry) []AWSRemediationCenterCase {
+	counts := map[string]int{}
+	for _, entry := range entries {
+		if key := strings.TrimSpace(entry.CaseID); key != "" {
+			counts[key]++
+		}
+	}
+	out := append([]AWSRemediationCenterCase{}, cases...)
+	for i := range out {
+		if out[i].VerificationID != "" {
+			out[i].VerificationEntryCount = counts[strings.TrimSpace(out[i].CaseID)]
+		}
+	}
+	return out
+}
+
 // awsRemediationCenterAuditTrail flattens the per-case audit records into one
 // consolidated, filter-scoped list so the audit tab renders the same entries its
 // count reflects, across every lifecycle stage rather than verification alone.
@@ -1027,7 +1064,7 @@ func summarizeAWSRemediationCenterCases(all, filtered []AWSRemediationCenterCase
 		}
 		if entry.VerificationID != "" {
 			verificationCount := entry.VerificationEntryCount
-			if verificationCount == 0 {
+			if verificationCount == 0 && len(entry.VerificationStates) == 0 {
 				verificationCount = 1
 			}
 			summary.VerificationCount += verificationCount
