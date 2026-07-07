@@ -8265,6 +8265,35 @@ describe('ProductFindingsPage states', () => {
     });
   });
 
+  it('invalidates GitHub domain cache epochs without revisiting reinserted keys', async () => {
+    const productShell = await import('./productShell');
+    productShell.clearProductAuthSessionCacheForTests();
+    const matchingKey = productShell.primeGitHubDomainDataCacheEpochForTests(
+      { tenantID: 'tenant-a', workspaceID: 'workspace-a' },
+      'project-a',
+      50,
+      2
+    );
+    const secondMatchingKey = productShell.primeGitHubDomainDataCacheEpochForTests(
+      { tenantID: 'tenant-a', workspaceID: 'workspace-a' },
+      'project-b',
+      50,
+      4
+    );
+    const unrelatedKey = productShell.primeGitHubDomainDataCacheEpochForTests(
+      { tenantID: 'tenant-b', workspaceID: 'workspace-b' },
+      'project-a',
+      50,
+      7
+    );
+
+    productShell.invalidateGitHubDomainDataCacheForScopeForTests({ tenantID: 'tenant-a', workspaceID: 'workspace-a' });
+
+    expect(productShell.readGitHubDomainDataCacheEpochForTests(matchingKey)).toBe(3);
+    expect(productShell.readGitHubDomainDataCacheEpochForTests(secondMatchingKey)).toBe(5);
+    expect(productShell.readGitHubDomainDataCacheEpochForTests(unrelatedKey)).toBe(7);
+  });
+
   it('hides the repository finding delete menu from read-only users', async () => {
     const scan: RepoScanRecord = {
       ...queuedRepoScan,

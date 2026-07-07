@@ -671,20 +671,17 @@ function invalidateGitHubDomainDataCacheForScope(scope: ProductSession | null) {
     return;
   }
   const cachePrefix = `${productScopedCacheKey([scope.tenantID, scope.workspaceID])}::`;
-  for (const key of gitHubDomainDataCache.keys()) {
-    if (key.startsWith(cachePrefix)) {
-      gitHubDomainDataCache.delete(key);
-    }
+  const cacheKeys = [...gitHubDomainDataCache.keys()].filter((key) => key.startsWith(cachePrefix));
+  const requestKeys = [...gitHubDomainDataRequests.keys()].filter((key) => key.startsWith(cachePrefix));
+  const epochKeys = [...gitHubDomainDataCacheEpochs.keys()].filter((key) => key.startsWith(cachePrefix));
+  for (const key of cacheKeys) {
+    gitHubDomainDataCache.delete(key);
   }
-  for (const key of gitHubDomainDataRequests.keys()) {
-    if (key.startsWith(cachePrefix)) {
-      gitHubDomainDataRequests.delete(key);
-    }
+  for (const key of requestKeys) {
+    gitHubDomainDataRequests.delete(key);
   }
-  for (const key of gitHubDomainDataCacheEpochs.keys()) {
-    if (key.startsWith(cachePrefix)) {
-      bumpGitHubDomainDataCacheEpoch(key);
-    }
+  for (const key of epochKeys) {
+    bumpGitHubDomainDataCacheEpoch(key);
   }
 }
 
@@ -20061,6 +20058,25 @@ function gitHubDomainDataCacheKey(
     return '';
   }
   return productScopedCacheKey([scope.tenantID, scope.workspaceID, trimmedProject, String(scanLimit)]);
+}
+
+export function primeGitHubDomainDataCacheEpochForTests(
+  scope: ProductSession,
+  projectID: string,
+  scanLimit: number,
+  epoch: number
+): string {
+  const key = gitHubDomainDataCacheKey(scope, projectID, scanLimit);
+  rememberGitHubDomainDataCacheEpoch(key, epoch);
+  return key;
+}
+
+export function readGitHubDomainDataCacheEpochForTests(key: string): number | undefined {
+  return gitHubDomainDataCacheEpochs.get(key);
+}
+
+export function invalidateGitHubDomainDataCacheForScopeForTests(scope: ProductSession | null) {
+  invalidateGitHubDomainDataCacheForScope(scope);
 }
 
 function rememberGitHubDomainDataCacheEpoch(key: string, epoch: number) {
