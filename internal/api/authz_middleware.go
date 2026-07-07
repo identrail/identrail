@@ -299,6 +299,26 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 			return
 		}
 
+		if usesBodyAwareAuthorization(policy) {
+			blocked, workspace, err := inactiveWorkspaceBlock(c, policy, store)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "authorization failed"})
+				return
+			}
+			if blocked {
+				c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+					"error":        "workspace is not active",
+					"code":         "workspace_inactive",
+					"status":       workspace.Status,
+					"suspended_at": workspace.SuspendedAt,
+					"deleted_at":   workspace.DeletedAt,
+				})
+				return
+			}
+			c.Next()
+			return
+		}
+
 		input, err := buildPolicyInputFromGinContext(c, policy, normalizedWriteKeys, scopedKeys, store)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "authorization failed"})
@@ -377,6 +397,10 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 
 		c.Next()
 	}
+}
+
+func usesBodyAwareAuthorization(policy routePolicy) bool {
+	return strings.TrimSpace(policy.ResourceType) == "repo_finding_bulk_delete"
 }
 
 func inactiveWorkspaceBlock(c *gin.Context, policy routePolicy, store db.Store) (bool, db.TenancyWorkspace, error) {

@@ -27633,8 +27633,14 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       let failureMessage = 'Failed to delete finding.';
       if (bulkDeleteActive) {
         const responses: RepoFindingsBulkDeleteResponse[] = [];
+        let batchError: unknown = null;
         for (const batch of chunkRepoFindingDeleteTargets(candidates.map(repoFindingDeleteTargetFromFinding))) {
-          responses.push(await apiClient.deleteRepoFindings(batch, auth));
+          try {
+            responses.push(await apiClient.deleteRepoFindings(batch, auth));
+          } catch (requestError) {
+            batchError = requestError;
+            break;
+          }
         }
         const response = mergeRepoFindingsBulkDeleteResponses(responses);
         const deletedKeys = new Set(response.deleted.map(repoFindingDeleteTargetKey));
@@ -27646,7 +27652,10 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
           const key = repoFindingDeleteTargetKeyFromFinding(candidate);
           return failedKeys.has(key) || !deletedKeys.has(key);
         });
-        failureMessage = response.failed?.[0]?.error || failureMessage;
+        failureMessage =
+          batchError instanceof Error
+            ? batchError.message
+            : response.failed?.[0]?.error || failureMessage;
       } else {
         const candidate = candidates[0];
         if (candidate) {
@@ -27670,9 +27679,10 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       }
       const repoScanFilterSelected = normalizeValue(repoScanFilter);
       const shouldReloadFindings =
-        !bulkDeleteActive &&
-        (deletedFindings.some((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'fixed') ||
-          repoScanFilterSelected === '');
+        bulkDeleteActive
+          ? !agenticOnly
+          : deletedFindings.some((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'fixed') ||
+            repoScanFilterSelected === '';
       if (shouldReloadFindings) {
         await loadRepoFindings(scope, 'refresh');
       }
