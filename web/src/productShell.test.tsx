@@ -7338,7 +7338,10 @@ describe('Domain-first app routes', () => {
       repoScans?: RepoScanRecord[];
       repoFindings?: Finding[];
       repoFindingSummary?: RepoFindingsSummary;
-      listRepoFindings?: (params: unknown, call: number) => { items: Finding[]; summary?: RepoFindingsSummary };
+      listRepoFindings?: (
+        params: unknown,
+        call: number
+      ) => { items: Finding[]; summary?: RepoFindingsSummary } | Promise<{ items: Finding[]; summary?: RepoFindingsSummary }>;
       getRepoFindingsTrends?: (params: unknown) => { items: TrendPoint[] };
       getRepoRiskGraph?: (params: unknown) => RepoRiskGraph;
       role?: CurrentUserContext['role'];
@@ -7862,7 +7865,7 @@ describe('ProductFindingsPage states', () => {
     expect(within(confirmDialog).getByText(/Remove/i)).toBeInTheDocument();
     fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete/i }));
 
-    fireEvent.click(screen.getByRole('button', { name: /Refresh/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Refresh$/i }));
     await waitFor(() => {
       expect(deleteRepoFinding).toHaveBeenCalledWith(
         finding.id,
@@ -8091,6 +8094,52 @@ describe('ProductFindingsPage states', () => {
       expect(screen.queryByText('Second clearable workflow finding')).not.toBeInTheDocument();
     });
     expect(await screen.findByText('No exposure found')).toBeInTheDocument();
+  });
+
+  it('disables clear all while repository findings are refreshing', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-clear-all-refreshing',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 1
+    };
+
+    const finding: Finding = {
+      id: 'finding-clear-all-refreshing',
+      scan_id: scan.id,
+      type: 'secret_exposure',
+      severity: 'critical',
+      title: 'Refresh-protected token finding',
+      human_summary: 'A token-like value appears in a committed workflow.',
+      remediation: 'Rotate the credential and remove the committed value.',
+      created_at: '2026-05-17T11:06:00Z'
+    };
+    const refreshFindings = deferred<{ items: Finding[] }>();
+
+    const { deleteRepoFinding } = await renderFindings({
+      repoScans: [scan],
+      listRepoFindings: (_params, call) => (call === 1 ? { items: [finding] } : refreshFindings.promise)
+    });
+
+    expect(await screen.findByText('Refresh-protected token finding')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Refresh$/i }));
+    const clearAllButton = screen.getByRole('button', { name: /Clear all/i });
+    await waitFor(() => {
+      expect(clearAllButton).toBeDisabled();
+    });
+
+    fireEvent.click(clearAllButton);
+    expect(screen.queryByRole('dialog', { name: /Clear findings/i })).not.toBeInTheDocument();
+    expect(deleteRepoFinding).not.toHaveBeenCalled();
+
+    await act(async () => {
+      refreshFindings.resolve({ items: [] });
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('Refresh-protected token finding')).not.toBeInTheDocument();
+    });
   });
 
   it('recomputes mean time to fix after deleting fixed findings', async () => {

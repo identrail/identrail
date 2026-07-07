@@ -27351,6 +27351,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       ? [deleteCandidate]
       : [];
   const bulkDeleteActive = bulkDeleteCandidates.length > 0;
+  const deleteActionsDisabled = deleteLoading || refreshing || signalsRefreshing;
 
   const loadRepoFindings = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
     const requestID = ++requestRef.current;
@@ -27501,7 +27502,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   };
 
   const requestDeleteAllVisibleFindings = (opener: HTMLElement | null = null) => {
-    if (filteredFindings.length === 0) {
+    if (deleteActionsDisabled || filteredFindings.length === 0) {
       return;
     }
     setFindingMenuKey('');
@@ -28067,7 +28068,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
               className="idt-btn idt-btn-danger idt-repo-clear-all-btn"
               type="button"
               onClick={(event) => requestDeleteAllVisibleFindings(event.currentTarget)}
-              disabled={deleteLoading}
+              disabled={deleteActionsDisabled}
             >
               <Trash2 size={15} strokeWidth={2} aria-hidden="true" />
               Clear all
@@ -28379,6 +28380,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                               aria-label={`Open actions for ${finding.title}`}
                                               aria-haspopup="menu"
                                               aria-expanded={findingMenuKey === selectionKey}
+                                              disabled={deleteActionsDisabled}
                                               onClick={(event) => {
                                                 const nextOpen = findingMenuKey !== selectionKey;
                                                 if (nextOpen && typeof window !== 'undefined') {
