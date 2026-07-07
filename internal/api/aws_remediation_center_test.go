@@ -303,6 +303,9 @@ func TestAWSRemediationCenterCaseAggregatesAllVerificationAuditTrails(t *testing
 	if entry.VerificationEntryCount != len(verifications) {
 		t.Fatalf("case rollup must retain rendered verification row count, got %+v", entry)
 	}
+	if got, want := strings.Join(entry.VerificationStates, ","), strings.Join([]string{awsPostRemediationVerificationStateVerified, awsPostRemediationVerificationStateFailed}, ","); got != want {
+		t.Fatalf("case rollup must retain every verification state, got %q want %q", got, want)
+	}
 	wantEvents := map[string]bool{"case-created": true, "verify-target-a": true, "verify-target-b": true}
 	for _, audit := range entry.AuditTrail {
 		delete(wantEvents, audit.EventID)
@@ -427,7 +430,7 @@ func TestGetAWSRemediationCenterPreservesUnfilteredTotals(t *testing.T) {
 func TestFilterAWSRemediationCenterCases(t *testing.T) {
 	entries := []AWSRemediationCenterCase{
 		{CaseID: "c-1", Severity: "critical", Confidence: 0.95, IdentityType: "iam_role", ActionType: "iam_policy_diff", SourceType: "least_privilege", Lifecycle: "proposed", Stage: "dry_run", AccountID: "111111111111", Region: "us-east-1"},
-		{CaseID: "c-2", Severity: "high", Confidence: 0.6, IdentityType: "iam_identity", ActionType: "secret_rotation", SourceType: "aws_secret_key_rotation", Lifecycle: "in_review", Stage: "verification", AccountID: "222222222222", Region: "us-west-2", VerificationState: "verification_verified"},
+		{CaseID: "c-2", Severity: "high", Confidence: 0.6, IdentityType: "iam_identity", ActionType: "secret_rotation", SourceType: "aws_secret_key_rotation", Lifecycle: "in_review", Stage: "verification", AccountID: "222222222222", Region: "us-west-2", VerificationState: "verification_failed", VerificationStates: []string{"verification_failed", "verification_verified"}},
 	}
 
 	// Each filter is independent of the others, so report every failure rather

@@ -2568,6 +2568,8 @@ export type AWSRemediationCenterCase = {
   execution_state?: string;
   verification_id?: string;
   verification_state?: string;
+  verification_entry_count?: number;
+  verification_states?: string[];
   rollback_state?: string;
   rollback_strategy?: string;
   ready_for_apply: boolean;

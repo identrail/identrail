@@ -97,6 +97,7 @@ type AWSRemediationCenterCase struct {
 	VerificationID         string                           `json:"verification_id,omitempty"`
 	VerificationState      string                           `json:"verification_state,omitempty"`
 	VerificationEntryCount int                              `json:"verification_entry_count,omitempty"`
+	VerificationStates     []string                         `json:"verification_states,omitempty"`
 	RollbackState          string                           `json:"rollback_state,omitempty"`
 	RollbackStrategy       string                           `json:"rollback_strategy,omitempty"`
 	ReadyForApply          bool                             `json:"ready_for_apply"`
@@ -690,6 +691,7 @@ func awsRemediationCenterCaseFromLifecycleWithVerifications(c AWSRemediationCase
 			entry.VerificationEntryCount = 1
 			verifications = []AWSPostRemediationVerificationEntry{verify}
 		}
+		entry.VerificationStates = awsRemediationCenterVerificationStates(verifications)
 		entry.RollbackState = verify.Rollback.State
 		entry.RollbackStrategy = verify.Rollback.Strategy
 		if verify.State == awsPostRemediationVerificationStateRollback || verify.State == awsPostRemediationVerificationStateFailed {
@@ -777,6 +779,16 @@ func awsRemediationCenterAuditEntries(caseID, stage string, trail []AWSRemediati
 		})
 	}
 	return out
+}
+
+func awsRemediationCenterVerificationStates(entries []AWSPostRemediationVerificationEntry) []string {
+	states := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if state := strings.TrimSpace(entry.State); state != "" {
+			states = append(states, state)
+		}
+	}
+	return dedupeStrings(states)
 }
 
 func awsRemediationCenterActionType(c AWSRemediationCase) string {
@@ -937,6 +949,11 @@ func awsRemediationCenterAccountMatch(entry AWSRemediationCenterCase, accountID 
 // state so operators can filter by any lifecycle status token.
 func awsRemediationCenterStatusMatch(entry AWSRemediationCenterCase, status string) bool {
 	for _, value := range []string{entry.Lifecycle, entry.ApprovalState, entry.ExecutionState, entry.VerificationState, entry.Stage} {
+		if status == normalizeAWSRuntimeEventFilterToken(value) {
+			return true
+		}
+	}
+	for _, value := range entry.VerificationStates {
 		if status == normalizeAWSRuntimeEventFilterToken(value) {
 			return true
 		}

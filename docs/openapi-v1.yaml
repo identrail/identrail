@@ -14333,6 +14333,10 @@ components:
         execution_state: { type: string }
         verification_id: { type: string }
         verification_state: { type: string }
+        verification_entry_count: { type: integer }
+        verification_states:
+          type: array
+          items: { type: string }
         rollback_state: { type: string }
         rollback_strategy: { type: string }
         ready_for_apply: { type: boolean }
