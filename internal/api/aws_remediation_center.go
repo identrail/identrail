@@ -278,7 +278,7 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	approvals.Entries = awsRemediationCenterScopeEntries(approvals.Entries, scopedCaseIDs, func(e AWSRemediationApprovalEntry) string { return e.CaseID })
 	dryRuns.Entries = awsRemediationCenterScopeEntries(dryRuns.Entries, scopedCaseIDs, func(e AWSRemediationDryRunEntry) string { return e.CaseID })
 	liveActions.Entries = awsRemediationCenterScopeEntries(liveActions.Entries, scopedCaseIDs, func(e AWSLowRiskRemediationEntry) string { return e.CaseID })
-	verification.Entries = awsRemediationCenterScopeVerificationEntries(verification.Entries, scopedCaseIDs, request.Status)
+	verification.Entries = awsRemediationCenterScopeVerificationEntries(verification.Entries, scopedCaseIDs, filtered, request.Status)
 	filtered = awsRemediationCenterCasesWithScopedVerificationRows(filtered, verification.Entries)
 	summary := summarizeAWSRemediationCenterCases(centerCases, filtered)
 	auditTrail := awsRemediationCenterAuditTrail(filtered)
@@ -745,21 +745,40 @@ func awsRemediationCenterScopeEntries[T any](entries []T, allow map[string]struc
 }
 
 // awsRemediationCenterScopeVerificationEntries keeps verification rows in sync
-// with both the filtered case set and an active status filter. The case rollup
-// may match a status through any verification row; the tab renders individual
-// rows, so row state must be checked before returning/counting them.
-func awsRemediationCenterScopeVerificationEntries(entries []AWSPostRemediationVerificationEntry, allow map[string]struct{}, status string) []AWSPostRemediationVerificationEntry {
+// with the filtered case set. If a case matched status through a verification
+// row state, the tab renders only matching rows; lifecycle/approval/stage status
+// matches keep all verification rows for that case.
+func awsRemediationCenterScopeVerificationEntries(entries []AWSPostRemediationVerificationEntry, allow map[string]struct{}, cases []AWSRemediationCenterCase, status string) []AWSPostRemediationVerificationEntry {
 	status = normalizeAWSRuntimeEventFilterToken(status)
-	statusFilter := status != "" && !strings.EqualFold(status, "all")
+	statusCaseIDs := awsRemediationCenterVerificationStatusCaseIDSet(cases, status)
 	out := make([]AWSPostRemediationVerificationEntry, 0, len(entries))
 	for _, entry := range entries {
-		if _, ok := allow[strings.TrimSpace(entry.CaseID)]; !ok {
+		caseID := strings.TrimSpace(entry.CaseID)
+		if _, ok := allow[caseID]; !ok {
 			continue
 		}
-		if statusFilter && status != normalizeAWSRuntimeEventFilterToken(entry.State) {
+		if _, ok := statusCaseIDs[caseID]; ok && status != normalizeAWSRuntimeEventFilterToken(entry.State) {
 			continue
 		}
 		out = append(out, entry)
+	}
+	return out
+}
+
+func awsRemediationCenterVerificationStatusCaseIDSet(cases []AWSRemediationCenterCase, status string) map[string]struct{} {
+	out := map[string]struct{}{}
+	if status == "" || strings.EqualFold(status, "all") {
+		return out
+	}
+	for _, entry := range cases {
+		for _, state := range entry.VerificationStates {
+			if status == normalizeAWSRuntimeEventFilterToken(state) {
+				if caseID := strings.TrimSpace(entry.CaseID); caseID != "" {
+					out[caseID] = struct{}{}
+				}
+				break
+			}
+		}
 	}
 	return out
 }

@@ -383,6 +383,7 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 			VerificationState:      awsPostRemediationVerificationStateFailed,
 			VerificationEntryCount: 2,
 			VerificationStates:     []string{awsPostRemediationVerificationStateFailed, awsPostRemediationVerificationStateVerified},
+			ApprovalState:          awsRemediationApprovalStateApproved,
 			AuditTrail: []AWSRemediationCenterAuditEntry{
 				{CaseID: "case-mixed", Stage: awsRemediationCenterStageCase, EventID: "case-mixed-created"},
 				{CaseID: "case-mixed", Stage: awsRemediationCenterStageVerification, EventID: "case-mixed-failed"},
@@ -411,7 +412,7 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 	}
 
 	filtered, _ := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{Status: awsPostRemediationVerificationStateVerified})
-	scopedRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(filtered), awsPostRemediationVerificationStateVerified)
+	scopedRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(filtered), filtered, awsPostRemediationVerificationStateVerified)
 	filtered = awsRemediationCenterCasesWithScopedVerificationRows(filtered, scopedRows)
 	summary := summarizeAWSRemediationCenterCases(centerCases, filtered)
 	auditTrail := awsRemediationCenterAuditTrail(filtered)
@@ -449,6 +450,29 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 	}
 	if got, want := summary.AuditEntryCount, len(auditTrail); got != want {
 		t.Fatalf("audit_entry_count must match status-scoped audit rows: got=%d want=%d trail=%+v", got, want, auditTrail)
+	}
+
+	approvedCases, _ := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{Status: awsRemediationApprovalStateApproved})
+	approvedRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(approvedCases), approvedCases, awsRemediationApprovalStateApproved)
+	approvedCases = awsRemediationCenterCasesWithScopedVerificationRows(approvedCases, approvedRows)
+	approvedSummary := summarizeAWSRemediationCenterCases(centerCases, approvedCases)
+	approvedAudit := awsRemediationCenterAuditTrail(approvedCases)
+
+	if len(approvedCases) != 1 || approvedCases[0].CaseID != "case-mixed" {
+		t.Fatalf("approval status filter should keep the approved case, got %+v", approvedCases)
+	}
+	if len(approvedRows) != 2 {
+		t.Fatalf("approval status must not row-filter verification entries, got %+v", approvedRows)
+	}
+	if approvedSummary.VerificationCount != len(approvedRows) {
+		t.Fatalf("approval status verification_count must keep all rendered rows: count=%d rows=%d", approvedSummary.VerificationCount, len(approvedRows))
+	}
+	approvedAuditEvents := map[string]bool{}
+	for _, audit := range approvedAudit {
+		approvedAuditEvents[audit.EventID] = true
+	}
+	if !approvedAuditEvents["case-mixed-failed"] || !approvedAuditEvents["case-mixed-verified"] {
+		t.Fatalf("approval status must keep all verification audit events, got %+v", approvedAudit)
 	}
 }
 
