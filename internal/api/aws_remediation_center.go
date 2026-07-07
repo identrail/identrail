@@ -279,7 +279,7 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	dryRuns.Entries = awsRemediationCenterScopeEntries(dryRuns.Entries, scopedCaseIDs, func(e AWSRemediationDryRunEntry) string { return e.CaseID })
 	liveActions.Entries = awsRemediationCenterScopeEntries(liveActions.Entries, scopedCaseIDs, func(e AWSLowRiskRemediationEntry) string { return e.CaseID })
 	verification.Entries = awsRemediationCenterScopeVerificationEntries(verification.Entries, scopedCaseIDs, request.Status)
-	filtered = awsRemediationCenterCasesWithVerificationEntryCounts(filtered, verification.Entries)
+	filtered = awsRemediationCenterCasesWithScopedVerificationRows(filtered, verification.Entries)
 	summary := summarizeAWSRemediationCenterCases(centerCases, filtered)
 	auditTrail := awsRemediationCenterAuditTrail(filtered)
 
@@ -764,18 +764,46 @@ func awsRemediationCenterScopeVerificationEntries(entries []AWSPostRemediationVe
 	return out
 }
 
-func awsRemediationCenterCasesWithVerificationEntryCounts(cases []AWSRemediationCenterCase, entries []AWSPostRemediationVerificationEntry) []AWSRemediationCenterCase {
+func awsRemediationCenterCasesWithScopedVerificationRows(cases []AWSRemediationCenterCase, entries []AWSPostRemediationVerificationEntry) []AWSRemediationCenterCase {
 	counts := map[string]int{}
+	verificationAuditEvents := map[string]map[string]struct{}{}
 	for _, entry := range entries {
-		if key := strings.TrimSpace(entry.CaseID); key != "" {
-			counts[key]++
+		key := strings.TrimSpace(entry.CaseID)
+		if key == "" {
+			continue
+		}
+		counts[key]++
+		if _, ok := verificationAuditEvents[key]; !ok {
+			verificationAuditEvents[key] = map[string]struct{}{}
+		}
+		for _, audit := range entry.AuditTrail {
+			if eventID := strings.TrimSpace(audit.EventID); eventID != "" {
+				verificationAuditEvents[key][eventID] = struct{}{}
+			}
 		}
 	}
 	out := append([]AWSRemediationCenterCase{}, cases...)
 	for i := range out {
-		if out[i].VerificationID != "" {
-			out[i].VerificationEntryCount = counts[strings.TrimSpace(out[i].CaseID)]
+		if out[i].VerificationID == "" {
+			continue
 		}
+		caseID := strings.TrimSpace(out[i].CaseID)
+		out[i].VerificationEntryCount = counts[caseID]
+		out[i].AuditTrail = awsRemediationCenterAuditTrailWithScopedVerificationEvents(out[i].AuditTrail, verificationAuditEvents[caseID])
+		out[i].AuditEntryCount = len(out[i].AuditTrail)
+	}
+	return out
+}
+
+func awsRemediationCenterAuditTrailWithScopedVerificationEvents(entries []AWSRemediationCenterAuditEntry, verificationEvents map[string]struct{}) []AWSRemediationCenterAuditEntry {
+	out := make([]AWSRemediationCenterAuditEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Stage == awsRemediationCenterStageVerification {
+			if _, ok := verificationEvents[strings.TrimSpace(entry.EventID)]; !ok {
+				continue
+			}
+		}
+		out = append(out, entry)
 	}
 	return out
 }

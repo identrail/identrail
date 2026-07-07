@@ -383,6 +383,12 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 			VerificationState:      awsPostRemediationVerificationStateFailed,
 			VerificationEntryCount: 2,
 			VerificationStates:     []string{awsPostRemediationVerificationStateFailed, awsPostRemediationVerificationStateVerified},
+			AuditTrail: []AWSRemediationCenterAuditEntry{
+				{CaseID: "case-mixed", Stage: awsRemediationCenterStageCase, EventID: "case-mixed-created"},
+				{CaseID: "case-mixed", Stage: awsRemediationCenterStageVerification, EventID: "case-mixed-failed"},
+				{CaseID: "case-mixed", Stage: awsRemediationCenterStageVerification, EventID: "case-mixed-verified"},
+			},
+			AuditEntryCount: 3,
 		},
 		{
 			CaseID:                 "case-verified",
@@ -390,19 +396,25 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 			VerificationState:      awsPostRemediationVerificationStateVerified,
 			VerificationEntryCount: 1,
 			VerificationStates:     []string{awsPostRemediationVerificationStateVerified},
+			AuditTrail: []AWSRemediationCenterAuditEntry{
+				{CaseID: "case-verified", Stage: awsRemediationCenterStageCase, EventID: "case-verified-created"},
+				{CaseID: "case-verified", Stage: awsRemediationCenterStageVerification, EventID: "case-verified-verified"},
+			},
+			AuditEntryCount: 2,
 		},
 	}
 	verificationRows := []AWSPostRemediationVerificationEntry{
-		{CaseID: "case-mixed", VerificationID: "verify-failed", State: awsPostRemediationVerificationStateFailed},
-		{CaseID: "case-mixed", VerificationID: "verify-verified", State: awsPostRemediationVerificationStateVerified},
-		{CaseID: "case-verified", VerificationID: "verify-only-verified", State: awsPostRemediationVerificationStateVerified},
-		{CaseID: "case-unfiltered", VerificationID: "verify-outside-case-filter", State: awsPostRemediationVerificationStateVerified},
+		{CaseID: "case-mixed", VerificationID: "verify-failed", State: awsPostRemediationVerificationStateFailed, AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-mixed-failed"}}},
+		{CaseID: "case-mixed", VerificationID: "verify-verified", State: awsPostRemediationVerificationStateVerified, AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-mixed-verified"}}},
+		{CaseID: "case-verified", VerificationID: "verify-only-verified", State: awsPostRemediationVerificationStateVerified, AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-verified-verified"}}},
+		{CaseID: "case-unfiltered", VerificationID: "verify-outside-case-filter", State: awsPostRemediationVerificationStateVerified, AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-unfiltered-verified"}}},
 	}
 
 	filtered, _ := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{Status: awsPostRemediationVerificationStateVerified})
 	scopedRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(filtered), awsPostRemediationVerificationStateVerified)
-	filtered = awsRemediationCenterCasesWithVerificationEntryCounts(filtered, scopedRows)
+	filtered = awsRemediationCenterCasesWithScopedVerificationRows(filtered, scopedRows)
 	summary := summarizeAWSRemediationCenterCases(centerCases, filtered)
+	auditTrail := awsRemediationCenterAuditTrail(filtered)
 
 	if len(filtered) != 2 {
 		t.Fatalf("case-level status filter should keep both verified cases, got %+v", filtered)
@@ -429,6 +441,14 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 	}
 	if summary.VerificationCount != len(scopedRows) {
 		t.Fatalf("verification_count must match rendered status-scoped rows: count=%d rows=%d", summary.VerificationCount, len(scopedRows))
+	}
+	for _, audit := range auditTrail {
+		if audit.EventID == "case-mixed-failed" || audit.EventID == "case-unfiltered-verified" {
+			t.Errorf("audit event %s leaked outside status-scoped verification rows", audit.EventID)
+		}
+	}
+	if got, want := summary.AuditEntryCount, len(auditTrail); got != want {
+		t.Fatalf("audit_entry_count must match status-scoped audit rows: got=%d want=%d trail=%+v", got, want, auditTrail)
 	}
 }
 
