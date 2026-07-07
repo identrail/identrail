@@ -213,7 +213,10 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	}
 	accountID := firstNonEmptyAWSValue(connection.AccountID, strings.TrimSpace(request.AccountID), "123456789012")
 	region := firstNonEmptyAWSValue(connection.Region, strings.TrimSpace(request.Region), "us-east-1")
-	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID), "aws-fixture")
+	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID))
+	if !hasConnection && sourceFixtureState == "permission_denied" {
+		return awsRemediationCenterNoConnectorResult(scope, project, request, connectorID, accountID, region, sourceFixtureState, now), nil
+	}
 
 	cases, err := s.GetAWSRemediationCases(ctx, workspaceID, projectID, AWSRemediationCaseRequest{
 		ConnectorID:  connectorID,
@@ -328,10 +331,205 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	}, nil
 }
 
+func awsRemediationCenterNoConnectorResult(scope db.Scope, project db.TenancyProject, request AWSRemediationCenterRequest, connectorID, accountID, region, fixtureState string, now time.Time) AWSRemediationCenterResult {
+	status := "permission_denied"
+	confidence := 0.2
+	filtered, applied := filterAWSRemediationCenterCases(nil, request)
+	summary := summarizeAWSRemediationCenterCases(nil, filtered)
+	failureReasons := []string{"AWS access is unavailable because this project has no AWS connector."}
+	remediationHints := []string{"Connect an AWS connector before viewing remediation lifecycle evidence."}
+	cases := AWSRemediationCaseResult{
+		TenantID:           scope.TenantID,
+		WorkspaceID:        project.WorkspaceID,
+		ProjectID:          project.ProjectID,
+		ConnectorID:        connectorID,
+		AccountID:          accountID,
+		Region:             region,
+		ParentIssueNumber:  awsPlatformDependencyParentIssue,
+		ParentIssueRef:     awsIssueRef(awsPlatformDependencyParentIssue),
+		CurrentIssueNumber: awsRemediationCaseCurrentIssue,
+		CurrentIssueRef:    awsIssueRef(awsRemediationCaseCurrentIssue),
+		Version:            awsRemediationCaseVersion,
+		Status:             status,
+		FixtureState:       fixtureState,
+		Confidence:         confidence,
+		CalculationVersion: awsRemediationCaseVersion,
+		AppliedFilters:     map[string]string{},
+		Summary:            summarizeAWSRemediationCases(nil, nil, nil),
+		Caveats:            awsRemediationCaseCaveats(),
+		FailureReasons:     failureReasons,
+		RemediationHints:   remediationHints,
+		EvidenceLinks: dedupeStrings([]string{
+			awsIssueURL(awsPlatformDependencyParentIssue),
+			awsIssueURL(awsRemediationCaseCurrentIssue),
+			"/docs/aws-remediation-case-model",
+			awsBaselineProjectEvidenceURL(scope, project),
+		}),
+		GeneratedAt: now,
+		UpdatedAt:   now,
+	}
+	approvals := AWSRemediationApprovalResult{
+		TenantID:           scope.TenantID,
+		WorkspaceID:        project.WorkspaceID,
+		ProjectID:          project.ProjectID,
+		ConnectorID:        connectorID,
+		AccountID:          accountID,
+		Region:             region,
+		ParentIssueNumber:  awsPlatformDependencyParentIssue,
+		ParentIssueRef:     awsIssueRef(awsPlatformDependencyParentIssue),
+		CurrentIssueNumber: awsRemediationApprovalCurrentIssue,
+		CurrentIssueRef:    awsIssueRef(awsRemediationApprovalCurrentIssue),
+		Version:            awsRemediationApprovalVersion,
+		Status:             status,
+		FixtureState:       fixtureState,
+		Confidence:         confidence,
+		CalculationVersion: awsRemediationApprovalVersion,
+		AppliedFilters:     map[string]string{},
+		Summary:            summarizeAWSRemediationApprovalEntries(nil, nil, nil),
+		Caveats:            awsRemediationApprovalCaveats(),
+		FailureReasons:     failureReasons,
+		RemediationHints:   remediationHints,
+		EvidenceLinks: dedupeStrings([]string{
+			awsIssueURL(awsPlatformDependencyParentIssue),
+			awsIssueURL(awsRemediationApprovalCurrentIssue),
+			awsIssueURL(awsRemediationCaseCurrentIssue),
+			"/docs/aws-remediation-approval-rbac",
+			awsBaselineProjectEvidenceURL(scope, project),
+		}),
+		GeneratedAt: now,
+		UpdatedAt:   now,
+	}
+	dryRuns := AWSRemediationDryRunResult{
+		TenantID:           scope.TenantID,
+		WorkspaceID:        project.WorkspaceID,
+		ProjectID:          project.ProjectID,
+		ConnectorID:        connectorID,
+		AccountID:          accountID,
+		Region:             region,
+		ParentIssueNumber:  awsPlatformDependencyParentIssue,
+		ParentIssueRef:     awsIssueRef(awsPlatformDependencyParentIssue),
+		CurrentIssueNumber: awsRemediationDryRunCurrentIssue,
+		CurrentIssueRef:    awsIssueRef(awsRemediationDryRunCurrentIssue),
+		Version:            awsRemediationDryRunVersion,
+		Status:             status,
+		FixtureState:       fixtureState,
+		Confidence:         confidence,
+		CalculationVersion: awsRemediationDryRunVersion,
+		AppliedFilters:     map[string]string{},
+		Summary:            summarizeAWSRemediationDryRunEntries(nil, nil, nil),
+		Caveats:            awsRemediationDryRunCaveats(),
+		FailureReasons:     failureReasons,
+		RemediationHints:   remediationHints,
+		EvidenceLinks: dedupeStrings([]string{
+			awsIssueURL(awsPlatformDependencyParentIssue),
+			awsIssueURL(awsRemediationDryRunCurrentIssue),
+			awsIssueURL(awsRemediationApprovalCurrentIssue),
+			"/docs/aws-remediation-dry-run-executor",
+			awsBaselineProjectEvidenceURL(scope, project),
+		}),
+		GeneratedAt: now,
+		UpdatedAt:   now,
+	}
+	liveActions := AWSLowRiskRemediationResult{
+		TenantID:           scope.TenantID,
+		WorkspaceID:        project.WorkspaceID,
+		ProjectID:          project.ProjectID,
+		ConnectorID:        connectorID,
+		AccountID:          accountID,
+		Region:             region,
+		ParentIssueNumber:  awsPlatformDependencyParentIssue,
+		ParentIssueRef:     awsIssueRef(awsPlatformDependencyParentIssue),
+		CurrentIssueNumber: awsLowRiskRemediationCurrentIssue,
+		CurrentIssueRef:    awsIssueRef(awsLowRiskRemediationCurrentIssue),
+		Version:            awsLowRiskRemediationVersion,
+		Status:             status,
+		FixtureState:       fixtureState,
+		Confidence:         confidence,
+		CalculationVersion: awsLowRiskRemediationVersion,
+		AppliedFilters:     map[string]string{},
+		Allowlist:          awsLowRiskRemediationAllowlist(),
+		Summary:            summarizeAWSLowRiskRemediationEntries(nil, nil, nil),
+		Caveats:            awsLowRiskRemediationCaveats(),
+		FailureReasons:     failureReasons,
+		RemediationHints:   remediationHints,
+		EvidenceLinks: dedupeStrings([]string{
+			awsIssueURL(awsPlatformDependencyParentIssue),
+			awsIssueURL(awsLowRiskRemediationCurrentIssue),
+			awsIssueURL(awsRemediationDryRunCurrentIssue),
+			"/docs/aws-low-risk-live-remediation",
+			awsBaselineProjectEvidenceURL(scope, project),
+		}),
+		GeneratedAt: now,
+		UpdatedAt:   now,
+	}
+	verification := AWSPostRemediationVerificationResult{
+		TenantID:           scope.TenantID,
+		WorkspaceID:        project.WorkspaceID,
+		ProjectID:          project.ProjectID,
+		ConnectorID:        connectorID,
+		AccountID:          accountID,
+		Region:             region,
+		ParentIssueNumber:  awsPlatformDependencyParentIssue,
+		ParentIssueRef:     awsIssueRef(awsPlatformDependencyParentIssue),
+		CurrentIssueNumber: awsPostRemediationVerificationCurrentIssue,
+		CurrentIssueRef:    awsIssueRef(awsPostRemediationVerificationCurrentIssue),
+		Version:            awsPostRemediationVerificationVersion,
+		Status:             status,
+		FixtureState:       fixtureState,
+		Confidence:         confidence,
+		CalculationVersion: awsPostRemediationVerificationVersion,
+		AppliedFilters:     map[string]string{},
+		Summary:            summarizeAWSPostRemediationVerificationEntries(nil, nil, nil),
+		Caveats:            awsPostRemediationVerificationCaveats(),
+		FailureReasons:     failureReasons,
+		RemediationHints:   remediationHints,
+		EvidenceLinks: dedupeStrings([]string{
+			awsIssueURL(awsPlatformDependencyParentIssue),
+			awsIssueURL(awsPostRemediationVerificationCurrentIssue),
+			awsIssueURL(awsLowRiskRemediationCurrentIssue),
+			"/docs/aws-post-remediation-verification",
+			awsBaselineProjectEvidenceURL(scope, project),
+		}),
+		GeneratedAt: now,
+		UpdatedAt:   now,
+	}
+	return AWSRemediationCenterResult{
+		TenantID:           scope.TenantID,
+		WorkspaceID:        project.WorkspaceID,
+		ProjectID:          project.ProjectID,
+		ConnectorID:        connectorID,
+		AccountID:          accountID,
+		Region:             region,
+		ParentIssueNumber:  awsPlatformDependencyParentIssue,
+		ParentIssueRef:     awsIssueRef(awsPlatformDependencyParentIssue),
+		CurrentIssueNumber: awsRemediationCenterCurrentIssue,
+		CurrentIssueRef:    awsIssueRef(awsRemediationCenterCurrentIssue),
+		Version:            awsRemediationCenterVersion,
+		Status:             status,
+		FixtureState:       fixtureState,
+		Confidence:         confidence,
+		PolicyVersion:      awsRemediationCenterPolicyID,
+		AppliedFilters:     applied,
+		Summary:            summary,
+		Tabs:               awsRemediationCenterTabs(summary, status),
+		Cases:              filtered,
+		RemediationCases:   cases,
+		ApprovalQueue:      approvals,
+		DryRuns:            dryRuns,
+		LiveActions:        liveActions,
+		Verification:       verification,
+		FailureReasons:     failureReasons,
+		RemediationHints:   remediationHints,
+		EvidenceLinks:      awsRemediationCenterEvidenceLinks(scope, project, cases, approvals, dryRuns, liveActions, verification),
+		GeneratedAt:        now,
+		UpdatedAt:          now,
+	}
+}
+
 func normalizeAWSRemediationCenterFixtureState(requested string, connection AWSConnectionStatus, hasConnection bool) string {
 	switch strings.ToLower(strings.TrimSpace(requested)) {
 	case "":
-		if hasConnection && !connection.Connected {
+		if !hasConnection || !connection.Connected {
 			return "permission_denied"
 		}
 		return "success"

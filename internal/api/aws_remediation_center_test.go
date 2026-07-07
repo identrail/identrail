@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
@@ -396,6 +397,27 @@ func TestGetAWSRemediationCenterFixtureStates(t *testing.T) {
 		if state == "permission_denied" && result.Status != "permission_denied" {
 			t.Fatalf("permission denied must surface as explicit status, got %q", result.Status)
 		}
+	}
+}
+
+func TestGetAWSRemediationCenterMissingConnectorIsPermissionDenied(t *testing.T) {
+	now := time.Date(2026, 7, 4, 11, 30, 0, 0, time.UTC)
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	projectID := "project-remediation-center-no-connector"
+	seedDefaultProject(t, store, ctx, projectID)
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	result, err := svc.GetAWSRemediationCenter(ctx, "default", projectID, AWSRemediationCenterRequest{})
+	if err != nil {
+		t.Fatalf("missing connector must return explicit remediation center payload: %v", err)
+	}
+	if result.FixtureState != "permission_denied" || result.Status != "permission_denied" {
+		t.Fatalf("missing connector must surface permission_denied, got fixture=%q status=%q", result.FixtureState, result.Status)
+	}
+	if len(result.Cases) != 0 || len(result.ApprovalQueue.Entries) != 0 || len(result.DryRuns.Entries) != 0 || len(result.LiveActions.Entries) != 0 || len(result.Verification.Entries) != 0 {
+		t.Fatalf("missing connector must not fabricate remediation lifecycle rows: %+v", result)
 	}
 }
 
