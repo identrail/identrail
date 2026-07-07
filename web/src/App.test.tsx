@@ -2420,9 +2420,9 @@ describe('App', () => {
     }
 
     fireEvent.click(within(findingRow as HTMLElement).getByRole('button', { name: /Open actions for Potential AWS access key/i }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Delete permanently/i }));
-    const deleteDialog = await screen.findByRole('dialog', { name: /Delete this finding/i });
-    fireEvent.click(within(deleteDialog).getByRole('button', { name: /Delete permanently/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete/i }));
+    const deleteDialog = await screen.findByRole('dialog', { name: /Delete finding/i });
+    fireEvent.click(within(deleteDialog).getByRole('button', { name: /Delete/i }));
 
     await waitFor(() => {
       expect(
