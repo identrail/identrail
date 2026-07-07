@@ -7697,10 +7697,10 @@ describe('ProductFindingsPage states', () => {
 
     const actionButton = within(row).getByRole('button', { name: /Open actions for Potential token exposed/i });
     fireEvent.click(actionButton);
-    fireEvent.click(screen.getByRole('menuitem', { name: /Delete permanently/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete/i }));
 
-    const confirmDialog = await screen.findByRole('dialog', { name: /Delete this finding/i });
-    expect(within(confirmDialog).getByText(/This permanently removes/i)).toBeInTheDocument();
+    const confirmDialog = await screen.findByRole('dialog', { name: /Delete finding/i });
+    expect(within(confirmDialog).getByText(/Remove/i)).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Finding actions' })).not.toBeInTheDocument();
 
     const confirmCancelButton = within(confirmDialog).getByRole('button', { name: /Cancel/i });
@@ -7710,18 +7710,18 @@ describe('ProductFindingsPage states', () => {
 
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
     await waitFor(() => {
-      expect(screen.queryByRole('dialog', { name: /Delete this finding/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('dialog', { name: /Delete finding/i })).not.toBeInTheDocument();
     });
     await waitFor(() => {
       expect(document.activeElement).toBe(actionButton);
     });
 
     fireEvent.click(screen.getByRole('button', { name: /Open actions for Potential token exposed/i }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Delete permanently/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete/i }));
 
-    const reopenConfirmDialog = await screen.findByRole('dialog', { name: /Delete this finding/i });
+    const reopenConfirmDialog = await screen.findByRole('dialog', { name: /Delete finding/i });
     expect(reopenConfirmDialog).toBeInTheDocument();
-    fireEvent.click(within(reopenConfirmDialog).getByRole('button', { name: /Delete permanently/i }));
+    fireEvent.click(within(reopenConfirmDialog).getByRole('button', { name: /Delete/i }));
 
     await waitFor(() => {
       expect(deleteRepoFinding).toHaveBeenCalledWith(
@@ -7807,9 +7807,9 @@ describe('ProductFindingsPage states', () => {
     expect(initialRiskCalls).toBeGreaterThanOrEqual(1);
 
     fireEvent.click(within(row).getByRole('button', { name: /Open actions for Potential token exposed/i }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Delete permanently/i }));
-    const confirmDialog = await screen.findByRole('dialog', { name: /Delete this finding/i });
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete permanently/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete/i }));
+    const confirmDialog = await screen.findByRole('dialog', { name: /Delete finding/i });
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete/i }));
 
     await waitFor(() => {
       expect(deleteRepoFinding).toHaveBeenCalledWith(
@@ -7856,11 +7856,11 @@ describe('ProductFindingsPage states', () => {
     if (!row) return;
 
     fireEvent.click(within(row).getByRole('button', { name: /Open actions for Potential token exposed in release artifacts/i }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Delete permanently/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete/i }));
 
-    const confirmDialog = await screen.findByRole('dialog', { name: /Delete this finding/i });
-    expect(within(confirmDialog).getByText(/This permanently removes/i)).toBeInTheDocument();
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete permanently/i }));
+    const confirmDialog = await screen.findByRole('dialog', { name: /Delete finding/i });
+    expect(within(confirmDialog).getByText(/Remove/i)).toBeInTheDocument();
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete/i }));
 
     fireEvent.click(screen.getByRole('button', { name: /Refresh/i }));
     await waitFor(() => {
@@ -7930,9 +7930,9 @@ describe('ProductFindingsPage states', () => {
     if (!row) return;
 
     fireEvent.click(within(row).getByRole('button', { name: /Open actions for Potential token exposed/i }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Delete permanently/i }));
-    const confirmDialog = await screen.findByRole('dialog', { name: /Delete this finding/i });
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete permanently/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete/i }));
+    const confirmDialog = await screen.findByRole('dialog', { name: /Delete finding/i });
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete/i }));
 
     await waitFor(() => {
       expect(screen.queryByText('Potential token exposed in workflow history')).not.toBeInTheDocument();
@@ -8026,9 +8026,9 @@ describe('ProductFindingsPage states', () => {
     if (!row) return;
 
     fireEvent.click(within(row).getByRole('button', { name: /Open actions for Visible paginated token finding/i }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Delete permanently/i }));
-    const confirmDialog = await screen.findByRole('dialog', { name: /Delete this finding/i });
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete permanently/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete/i }));
+    const confirmDialog = await screen.findByRole('dialog', { name: /Delete finding/i });
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete/i }));
 
     await waitFor(() => {
       expect(screen.queryByText('Visible paginated token finding')).not.toBeInTheDocument();
@@ -8036,6 +8036,61 @@ describe('ProductFindingsPage states', () => {
     await waitFor(() => {
       expect(within(summary).getByText('229')).toBeInTheDocument();
     });
+  });
+
+  it('clears all visible repository findings and updates loaded counts', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-clear-all-findings',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 2
+    };
+
+    const findings: Finding[] = [
+      {
+        id: 'finding-clear-all-1',
+        scan_id: scan.id,
+        type: 'secret_exposure',
+        severity: 'critical',
+        title: 'First clearable token finding',
+        human_summary: 'A token-like value appears in a committed workflow.',
+        remediation: 'Rotate the credential and remove the committed value.',
+        created_at: '2026-05-17T11:06:00Z'
+      },
+      {
+        id: 'finding-clear-all-2',
+        scan_id: scan.id,
+        type: 'workflow_permission',
+        severity: 'high',
+        title: 'Second clearable workflow finding',
+        human_summary: 'A workflow grants broad repository permissions.',
+        remediation: 'Limit workflow permissions.',
+        created_at: '2026-05-17T11:07:00Z'
+      }
+    ];
+
+    const { deleteRepoFinding } = await renderFindings({
+      repoScans: [scan],
+      listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [] })
+    });
+
+    expect(await screen.findByText('First clearable token finding')).toBeInTheDocument();
+    expect(await screen.findByText('Second clearable workflow finding')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Clear all/i }));
+    const confirmDialog = await screen.findByRole('dialog', { name: /Clear findings/i });
+    expect(within(confirmDialog).getByText(/2 visible findings/i)).toBeInTheDocument();
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete all/i }));
+
+    await waitFor(() => {
+      expect(deleteRepoFinding).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('First clearable token finding')).not.toBeInTheDocument();
+      expect(screen.queryByText('Second clearable workflow finding')).not.toBeInTheDocument();
+    });
+    expect(await screen.findByText('No exposure found')).toBeInTheDocument();
   });
 
   it('recomputes mean time to fix after deleting fixed findings', async () => {
@@ -8113,9 +8168,9 @@ describe('ProductFindingsPage states', () => {
     if (!row) return;
 
     fireEvent.click(within(row).getByRole('button', { name: /Open actions for Fixed token exposure finding/i }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Delete permanently/i }));
-    const confirmDialog = await screen.findByRole('dialog', { name: /Delete this finding/i });
-    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete permanently/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Delete/i }));
+    const confirmDialog = await screen.findByRole('dialog', { name: /Delete finding/i });
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete/i }));
 
     await waitFor(() => {
       expect(screen.queryByText('Fixed token exposure finding')).not.toBeInTheDocument();
@@ -8219,10 +8274,10 @@ describe('ProductFindingsPage states', () => {
     expect(screen.queryByRole('dialog', { name: /Keyboard menu finding/i })).not.toBeInTheDocument();
 
     fireEvent.click(trigger);
-    expect(screen.getByRole('menuitem', { name: /Delete permanently/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Delete/i })).toBeInTheDocument();
 
     fireEvent.keyDown(trigger, { key: 'Escape' });
-    expect(screen.queryByRole('menuitem', { name: /Delete permanently/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /Delete/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: /Keyboard menu finding/i })).not.toBeInTheDocument();
   });
 

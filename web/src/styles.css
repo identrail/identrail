@@ -6198,7 +6198,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   border: 1px solid rgba(126, 157, 211, 0.24);
   border-radius: 0.75rem;
   background: rgba(8, 13, 22, 0.72);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .idt-repo-finding-bucket summary {
@@ -6225,6 +6225,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   gap: 0.75rem;
   border-top: 1px solid rgba(126, 157, 211, 0.18);
   padding: 0.85rem;
+  overflow: visible;
 }
 
 .idt-repo-finding-scan,
@@ -6330,6 +6331,20 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
 }
 
+.idt-repo-finding-action-row {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 0.9rem;
+  row-gap: 0.45rem;
+  overflow: visible;
+}
+
+.idt-repo-finding-action-row .idt-source-logo-mark.is-row,
+.idt-repo-finding-action-row .idt-repo-finding-severity,
+.idt-repo-finding-action-row .idt-repo-finding-row-actions {
+  align-self: center;
+}
+
 .idt-repo-finding-row:hover,
 .idt-repo-finding-row:focus-visible,
 .idt-repo-finding-row.is-selected {
@@ -6342,7 +6357,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   display: flex;
   justify-content: space-between;
   gap: 0.8rem;
-  align-items: flex-start;
+  align-items: center;
 }
 
 .idt-repo-finding-row-top strong {
@@ -6365,7 +6380,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
 
 .idt-repo-finding-row-actions {
   position: relative;
-  z-index: 2;
+  z-index: 8;
   flex: 0 0 auto;
   align-self: center;
 }
@@ -6402,6 +6417,11 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   padding: 0.35rem;
 }
 
+.idt-repo-finding-menu.is-up {
+  top: auto;
+  bottom: calc(100% + 0.35rem);
+}
+
 .idt-repo-finding-menu-item {
   width: 100%;
   display: flex;
@@ -6425,6 +6445,12 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
 
 .idt-repo-finding-menu-item.is-danger {
   color: #fecaca;
+}
+
+.idt-repo-clear-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
 }
 
 .idt-repo-finding-severity {
@@ -6584,6 +6610,12 @@ html[data-diff-markers='symbols'] .idt-repo-finding-code-marker {
 .idt-repo-finding-modal-backdrop {
   align-items: start;
   overflow-y: auto;
+}
+
+.idt-repo-finding-delete-backdrop {
+  background: #000000;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .idt-repo-finding-detail-modal {
@@ -26210,6 +26242,20 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-severity-grou
     padding: 0.85rem;
   }
 
+  .idt-app-console-layout .idt-repo-finding-action-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .idt-app-console-layout .idt-repo-finding-action-row .idt-repo-finding-severity {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .idt-app-console-layout .idt-repo-finding-action-row .idt-repo-finding-row-actions {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+
   .idt-app-console-layout .idt-repo-finding-row-copy,
   .idt-app-console-layout .idt-repo-finding-row-top,
   .idt-app-console-layout .idt-repo-finding-row-meta,
@@ -27774,8 +27820,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 
 .idt-domain-flyout-link {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 1rem;
-  gap: 0.8rem;
+  grid-template-columns: minmax(0, 1fr) 1.25rem;
+  gap: 0.65rem;
   align-items: center;
   min-height: 2.28rem;
   border: 1px solid transparent;
@@ -27804,6 +27850,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 .idt-domain-flyout-link-copy {
   display: grid;
   gap: 0.08rem;
+  min-width: 0;
+  align-self: center;
 }
 
 .idt-domain-flyout-link-copy strong {
@@ -27816,6 +27864,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 
 .idt-domain-flyout-link > svg {
   justify-self: end;
+  align-self: center;
   width: 1rem;
   min-width: 1rem;
 }
@@ -27836,8 +27885,9 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 }
 
 .idt-domain-flyout-nested summary {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1.25rem;
+  align-items: start;
   gap: 0.6rem;
   border-radius: 7px;
   padding: 0.45rem 0.5rem;
@@ -27853,7 +27903,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 .idt-domain-flyout-nested summary > span {
   display: grid;
   gap: 0.1rem;
-  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .idt-domain-flyout-nested summary strong {
@@ -27862,8 +27912,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 }
 
 .idt-domain-flyout-nested summary svg {
-  flex: 0 0 auto;
-  margin-left: auto;
+  justify-self: end;
+  margin-top: 0.18rem;
   color: #8f98a4;
   transition: transform 0.14s ease;
 }
