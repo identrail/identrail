@@ -222,9 +222,6 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	cases, err := s.GetAWSRemediationCases(ctx, workspaceID, projectID, AWSRemediationCaseRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
-		Severity:     request.Severity,
 	})
 	if err != nil {
 		return AWSRemediationCenterResult{}, fmt.Errorf("remediation center cases: %w", err)
@@ -232,9 +229,6 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	approvals, err := s.GetAWSRemediationApprovalQueue(ctx, workspaceID, projectID, AWSRemediationApprovalRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
-		Severity:     request.Severity,
 	})
 	if err != nil {
 		return AWSRemediationCenterResult{}, fmt.Errorf("remediation center approvals: %w", err)
@@ -242,9 +236,6 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	dryRuns, err := s.GetAWSRemediationDryRun(ctx, workspaceID, projectID, AWSRemediationDryRunRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
-		Severity:     request.Severity,
 	})
 	if err != nil {
 		return AWSRemediationCenterResult{}, fmt.Errorf("remediation center dry runs: %w", err)
@@ -252,9 +243,6 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	liveActions, err := s.GetAWSLowRiskRemediation(ctx, workspaceID, projectID, AWSLowRiskRemediationRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
-		Severity:     request.Severity,
 	})
 	if err != nil {
 		return AWSRemediationCenterResult{}, fmt.Errorf("remediation center live actions: %w", err)
@@ -262,9 +250,6 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	verification, err := s.GetAWSPostRemediationVerification(ctx, workspaceID, projectID, AWSPostRemediationVerificationRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
-		Severity:     request.Severity,
 	})
 	if err != nil {
 		return AWSRemediationCenterResult{}, fmt.Errorf("remediation center verification: %w", err)

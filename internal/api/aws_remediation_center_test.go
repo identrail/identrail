@@ -372,6 +372,58 @@ func TestGetAWSRemediationCenterScopesPayloadsToFilteredCases(t *testing.T) {
 	}
 }
 
+func TestGetAWSRemediationCenterPreservesUnfilteredTotals(t *testing.T) {
+	now := time.Date(2026, 7, 4, 10, 40, 0, 0, time.UTC)
+	svc, ws := newRemediationCenterService(t, "project-remediation-center-unfiltered-totals", now)
+
+	full, err := svc.GetAWSRemediationCenter(defaultScopeContext(), ws, "project-remediation-center-unfiltered-totals", AWSRemediationCenterRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+	})
+	if err != nil {
+		t.Fatalf("get remediation center: %v", err)
+	}
+	if len(full.Cases) < 2 {
+		t.Fatalf("expected multiple cases to filter, got %d", len(full.Cases))
+	}
+
+	severity := ""
+	filteredCount := 0
+	for value, count := range full.Summary.SeverityCounts {
+		if count > 0 && count < full.Summary.TotalCases {
+			severity = value
+			filteredCount = count
+			break
+		}
+	}
+	if severity == "" {
+		t.Fatalf("expected fixture to include a severity subset, got summary=%+v", full.Summary)
+	}
+
+	scoped, err := svc.GetAWSRemediationCenter(defaultScopeContext(), ws, "project-remediation-center-unfiltered-totals", AWSRemediationCenterRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Severity:     severity,
+	})
+	if err != nil {
+		t.Fatalf("get remediation center (severity scoped): %v", err)
+	}
+	if scoped.Summary.TotalCases != full.Summary.TotalCases {
+		t.Fatalf("severity filter must preserve connector-wide total_cases: got=%d want=%d", scoped.Summary.TotalCases, full.Summary.TotalCases)
+	}
+	if scoped.Summary.FilteredCases != filteredCount || len(scoped.Cases) != filteredCount {
+		t.Fatalf("severity filter must only narrow filtered cases: summary=%+v len=%d want=%d severity=%s", scoped.Summary, len(scoped.Cases), filteredCount, severity)
+	}
+	if scoped.Summary.SeverityCounts[severity] != filteredCount || len(scoped.Summary.SeverityCounts) != 1 {
+		t.Fatalf("filtered severity facets must reflect the filtered case set: %+v severity=%s", scoped.Summary.SeverityCounts, severity)
+	}
+	for _, entry := range scoped.Cases {
+		if entry.Severity != severity {
+			t.Fatalf("severity filter leaked case %s with severity %s under severity=%s", entry.CaseID, entry.Severity, severity)
+		}
+	}
+}
+
 func TestFilterAWSRemediationCenterCases(t *testing.T) {
 	entries := []AWSRemediationCenterCase{
 		{CaseID: "c-1", Severity: "critical", Confidence: 0.95, IdentityType: "iam_role", ActionType: "iam_policy_diff", SourceType: "least_privilege", Lifecycle: "proposed", Stage: "dry_run", AccountID: "111111111111", Region: "us-east-1"},
