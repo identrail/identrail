@@ -27499,6 +27499,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
 
   const invalidateFindingDeleteState = () => {
     findDeleteRequestRef.current += 1;
+    setFindingMenuKey('');
     setDeleteCandidate(null);
     setBulkDeleteCandidates([]);
     setDeleteLoading(false);
@@ -27506,6 +27507,10 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   };
 
   const requestDeleteFinding = (finding: ApiFinding, opener: HTMLElement | null = null) => {
+    if (deleteActionsDisabled) {
+      setFindingMenuKey('');
+      return;
+    }
     setFindingMenuKey('');
     setDeleteCandidate(finding);
     setBulkDeleteCandidates([]);
@@ -27560,7 +27565,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   };
 
   const handleConfirmDeleteFinding = async () => {
-    if (!scope || activeDeleteCandidates.length === 0 || deleteLoading) {
+    if (!scope || activeDeleteCandidates.length === 0 || deleteActionsDisabled) {
       return;
     }
     const candidates = activeDeleteCandidates;
@@ -28412,7 +28417,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                             >
                                               <MoreHorizontal size={16} strokeWidth={2} aria-hidden="true" />
                                             </button>
-                                            {findingMenuKey === selectionKey ? (
+                                            {findingMenuKey === selectionKey && !deleteActionsDisabled ? (
                                               <div
                                                 className={`idt-repo-finding-menu${findingMenuPlacement === 'up' ? ' is-up' : ''}`}
                                                 role="menu"

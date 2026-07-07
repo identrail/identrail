@@ -8142,6 +8142,59 @@ describe('ProductFindingsPage states', () => {
     });
   });
 
+  it('closes open finding delete menus while repository findings are refreshing', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-row-menu-refreshing',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 1
+    };
+
+    const finding: Finding = {
+      id: 'finding-row-menu-refreshing',
+      scan_id: scan.id,
+      type: 'secret_exposure',
+      severity: 'critical',
+      title: 'Refresh-protected row menu finding',
+      human_summary: 'A token-like value appears in a committed workflow.',
+      remediation: 'Rotate the credential and remove the committed value.',
+      created_at: '2026-05-17T11:06:00Z'
+    };
+    const refreshFindings = deferred<{ items: Finding[] }>();
+
+    const { deleteRepoFinding } = await renderFindings({
+      repoScans: [scan],
+      listRepoFindings: (_params, call) => (call === 1 ? { items: [finding] } : refreshFindings.promise)
+    });
+
+    expect(await screen.findByText('Refresh-protected row menu finding')).toBeInTheDocument();
+
+    const row = screen
+      .getAllByRole('listitem')
+      .find((node) => node.textContent?.includes('Refresh-protected row menu finding')) as HTMLElement | undefined;
+    expect(row).toBeDefined();
+    if (!row) return;
+
+    const actionButton = within(row).getByRole('button', { name: /Open actions for Refresh-protected row menu finding/i });
+    fireEvent.click(actionButton);
+    expect(screen.getByRole('menuitem', { name: /Delete/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Refresh$/i }));
+    await waitFor(() => {
+      expect(actionButton).toBeDisabled();
+    });
+    expect(screen.queryByRole('menuitem', { name: /Delete/i })).not.toBeInTheDocument();
+
+    fireEvent.click(actionButton);
+    expect(screen.queryByRole('dialog', { name: /Delete finding/i })).not.toBeInTheDocument();
+    expect(deleteRepoFinding).not.toHaveBeenCalled();
+
+    await act(async () => {
+      refreshFindings.resolve({ items: [] });
+    });
+  });
+
   it('recomputes mean time to fix after deleting fixed findings', async () => {
     const scan: RepoScanRecord = {
       ...queuedRepoScan,
