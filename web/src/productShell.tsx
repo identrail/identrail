@@ -50,6 +50,7 @@ import {
   type AWSAgentIdentityDetailResult,
   type AWSRemediationCenterResult,
   type AWSRemediationCenterCase,
+  type AWSRemediationCenterQuery,
   type AWSBedrockAgentsInventoryResult,
   type AWSBedrockAgentRecord,
   type AWSAIAgentIdentityRecord,
@@ -10907,6 +10908,33 @@ function normalizeAWSRemediationCenterTab(value: string | null): AWSRemediationC
     : 'overview';
 }
 
+// URL filter params for the remediation center, mapped to their API query keys.
+// These are preserved across tab navigation and forwarded to the API so deep
+// links with filters fetch the expected subset.
+const AWS_REMEDIATION_CENTER_FILTER_PARAMS: Record<string, Exclude<keyof AWSRemediationCenterQuery, 'fixtureState'>> = {
+  account_id: 'accountID',
+  region: 'region',
+  severity: 'severity',
+  confidence: 'confidence',
+  identity_type: 'identityType',
+  action_type: 'actionType',
+  status: 'status',
+  stage: 'stage',
+  case_id: 'caseID',
+  search: 'search'
+};
+
+function awsRemediationCenterFiltersFromParams(searchParams: URLSearchParams): Partial<AWSRemediationCenterQuery> {
+  const query: Partial<AWSRemediationCenterQuery> = {};
+  for (const [param, key] of Object.entries(AWS_REMEDIATION_CENTER_FILTER_PARAMS)) {
+    const value = normalizeValue(searchParams.get(param) ?? '');
+    if (value) {
+      query[key] = value;
+    }
+  }
+  return query;
+}
+
 function awsRemediationCenterStatusStage(status: string): AWSCapabilityStage {
   if (status === 'ready') {
     return 'wired';
@@ -10940,11 +10968,22 @@ function awsRemediationCenterStageStage(stage: string, killSwitch: boolean): AWS
   return 'coming';
 }
 
-function awsRemediationCenterLink(scope: ProductSession, environmentID: string, tab: AWSRemediationCenterTabID): string {
+function awsRemediationCenterLink(
+  scope: ProductSession,
+  environmentID: string,
+  tab: AWSRemediationCenterTabID,
+  searchParams: URLSearchParams
+): string {
   const params = new URLSearchParams();
   const normalizedEnvironmentID = normalizeValue(environmentID);
   if (normalizedEnvironmentID) {
     params.set(ENVIRONMENT_QUERY_PARAM, normalizedEnvironmentID);
+  }
+  for (const param of Object.keys(AWS_REMEDIATION_CENTER_FILTER_PARAMS)) {
+    const value = normalizeValue(searchParams.get(param) ?? '');
+    if (value) {
+      params.set(param, value);
+    }
   }
   if (tab && tab !== 'overview') {
     params.set('tab', tab);
@@ -10957,12 +10996,14 @@ function AWSRemediationCenterTabs({
   scope,
   selectedEnvironmentID,
   activeTab,
-  center
+  center,
+  searchParams
 }: {
   scope: ProductSession;
   selectedEnvironmentID: string;
   activeTab: AWSRemediationCenterTabID;
   center: AWSRemediationCenterResult | null;
+  searchParams: URLSearchParams;
 }) {
   const tabCounts = new Map((center?.tabs ?? []).map((tab) => [tab.id, tab.count]));
   return (
@@ -10974,7 +11015,7 @@ function AWSRemediationCenterTabs({
           aria-selected={activeTab === tabID}
           aria-label={`${AWS_REMEDIATION_CENTER_TAB_LABELS[tabID]} ${tabCounts.get(tabID) ?? 0}`}
           className={`idt-btn ${activeTab === tabID ? 'idt-btn-primary' : 'idt-btn-ghost'}`}
-          to={awsRemediationCenterLink(scope, selectedEnvironmentID, tabID)}
+          to={awsRemediationCenterLink(scope, selectedEnvironmentID, tabID, searchParams)}
         >
           <span>{AWS_REMEDIATION_CENTER_TAB_LABELS[tabID]}</span>
           <span>{tabCounts.get(tabID) ?? 0}</span>
@@ -10984,9 +11025,54 @@ function AWSRemediationCenterTabs({
   );
 }
 
+// A gate is considered blocking when it is explicitly blocked or failed, matching
+// the backend's blocked_safety_gate_count semantics. Every other state (passed,
+// pending, skipped, unknown, …) is reported as non-blocking rather than being
+// implicitly counted as passing, so the label never overstates gate health.
 function awsRemediationCenterCaseGateLabel(entry: AWSRemediationCenterCase): string {
+  const total = entry.safety_gates.length;
+  if (total === 0) {
+    return 'No gates';
+  }
   const blocked = entry.safety_gates.filter((gate) => gate.status === 'blocked' || gate.status === 'failed').length;
-  return `${entry.safety_gates.length - blocked}/${entry.safety_gates.length} gates`;
+  return blocked > 0 ? `${blocked}/${total} blocked` : `${total} clear`;
+}
+
+function awsRemediationCenterCaseTradeoffLabel(entry: AWSRemediationCenterCase): string {
+  const total = entry.tradeoffs.length;
+  if (total === 0) {
+    return 'None recorded';
+  }
+  const worsens = entry.tradeoffs.filter((tradeoff) => tradeoff.direction === 'worsens').length;
+  return worsens > 0 ? `${worsens}/${total} worsen` : `${total} recorded`;
+}
+
+function AWSRemediationCenterOverviewTable({ cases }: { cases: AWSRemediationCenterCase[] }) {
+  return (
+    <DomainDataTable
+      label="Remediation center safety review"
+      rows={cases}
+      getRowKey={(row) => row.case_id}
+      emptyState={<DomainEmptyState eyebrow="Empty" title="No remediation cases" body="No remediation case matched the current filters for this environment." />}
+      columns={[
+        { key: 'case', header: 'Case', render: (row) => <strong>{row.title}</strong> },
+        { key: 'tradeoffs', header: 'Tradeoffs', render: (row) => awsRemediationCenterCaseTradeoffLabel(row) },
+        { key: 'gates', header: 'Safety gates', render: (row) => awsRemediationCenterCaseGateLabel(row) },
+        { key: 'apply', header: 'Ready for apply', render: (row) => (row.ready_for_apply ? 'Ready' : 'Not ready') },
+        { key: 'kill', header: 'Kill switch', render: (row) => (row.kill_switch_engaged ? 'Engaged' : 'Clear') },
+        {
+          key: 'severity',
+          header: 'Severity',
+          render: (row) => (
+            <AWSInventoryPill
+              stage={awsRemediationCenterStageStage(row.stage, row.kill_switch_engaged)}
+              label={`${formatTokenLabel(row.severity)} / ${formatConfidenceScore(row.confidence)}`}
+            />
+          )
+        }
+      ]}
+    />
+  );
 }
 
 function AWSRemediationCenterCasesTable({ cases }: { cases: AWSRemediationCenterCase[] }) {
@@ -11024,6 +11110,9 @@ function AWSRemediationCenterTabContent({
   center: AWSRemediationCenterResult;
   activeTab: AWSRemediationCenterTabID;
 }) {
+  if (activeTab === 'overview') {
+    return <AWSRemediationCenterOverviewTable cases={center.cases} />;
+  }
   if (activeTab === 'approvals') {
     return (
       <DomainDataTable
@@ -11121,6 +11210,7 @@ export function ProductAWSRemediationCenterPage() {
   const location = useLocation();
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const activeTab = normalizeAWSRemediationCenterTab(searchParams.get('tab'));
+  const filters = useMemo(() => awsRemediationCenterFiltersFromParams(searchParams), [searchParams]);
   const [center, setCenter] = useState<AWSRemediationCenterResult | null>(null);
   const [centerLoading, setCenterLoading] = useState(false);
   const [centerError, setCenterError] = useState('');
@@ -11141,7 +11231,8 @@ export function ProductAWSRemediationCenterPage() {
         selectedEnvironmentID,
         {
           connectorID: connection.connector_id,
-          tab: activeTab
+          tab: activeTab,
+          ...filters
         },
         buildProductAuthContext(scope)
       );
@@ -11164,6 +11255,7 @@ export function ProductAWSRemediationCenterPage() {
     scope?.workspaceID,
     selectedEnvironmentID,
     activeTab,
+    filters,
     connection?.connector_id
   ]);
 
@@ -11293,6 +11385,7 @@ export function ProductAWSRemediationCenterPage() {
               selectedEnvironmentID={selectedEnvironmentID}
               activeTab={activeTab}
               center={center}
+              searchParams={searchParams}
             />
             <AWSRemediationCenterTabContent center={center} activeTab={activeTab} />
           </>

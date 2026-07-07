@@ -118,45 +118,45 @@ func TestFilterAWSRemediationCenterCases(t *testing.T) {
 		{CaseID: "c-2", Severity: "high", Confidence: 0.6, IdentityType: "iam_identity", ActionType: "secret_rotation", SourceType: "aws_secret_key_rotation", Lifecycle: "in_review", Stage: "verification", AccountID: "222222222222", Region: "us-west-2", VerificationState: "verification_verified"},
 	}
 
-	filtered, applied := filterAWSRemediationCenterCases(entries, AWSRemediationCenterRequest{Severity: "critical"})
-	if applied["severity"] != normalizeAWSRuntimeEventFilterToken("critical") || len(filtered) != 1 || filtered[0].CaseID != "c-1" {
-		t.Fatalf("severity filter did not scope: applied=%+v filtered=%+v", applied, filtered)
+	// Each filter is independent of the others, so report every failure rather
+	// than aborting on the first — a regression in one filter must not hide a
+	// regression in the rest.
+	expectSingleCase := func(name string, filtered []AWSRemediationCenterCase, wantCaseID string) {
+		t.Helper()
+		if len(filtered) != 1 || filtered[0].CaseID != wantCaseID {
+			t.Errorf("%s filter did not scope to %s: %+v", name, wantCaseID, filtered)
+		}
 	}
+
+	filtered, applied := filterAWSRemediationCenterCases(entries, AWSRemediationCenterRequest{Severity: "critical"})
+	if applied["severity"] != normalizeAWSRuntimeEventFilterToken("critical") {
+		t.Errorf("severity filter did not record applied token: applied=%+v", applied)
+	}
+	expectSingleCase("severity", filtered, "c-1")
 
 	filtered, _ = filterAWSRemediationCenterCases(entries, AWSRemediationCenterRequest{Stage: "verification"})
-	if len(filtered) != 1 || filtered[0].CaseID != "c-2" {
-		t.Fatalf("stage filter did not scope: %+v", filtered)
-	}
+	expectSingleCase("stage", filtered, "c-2")
 
 	filtered, applied = filterAWSRemediationCenterCases(entries, AWSRemediationCenterRequest{Confidence: "0.9"})
-	if applied["confidence"] != "0.9" || len(filtered) != 1 || filtered[0].CaseID != "c-1" {
-		t.Fatalf("numeric confidence floor did not scope: applied=%+v filtered=%+v", applied, filtered)
+	if applied["confidence"] != "0.9" {
+		t.Errorf("numeric confidence floor did not record applied token: applied=%+v", applied)
 	}
+	expectSingleCase("numeric confidence floor", filtered, "c-1")
 
 	filtered, _ = filterAWSRemediationCenterCases(entries, AWSRemediationCenterRequest{Confidence: "high"})
-	if len(filtered) != 1 || filtered[0].CaseID != "c-1" {
-		t.Fatalf("bucket confidence floor did not scope: %+v", filtered)
-	}
+	expectSingleCase("bucket confidence floor", filtered, "c-1")
 
 	filtered, _ = filterAWSRemediationCenterCases(entries, AWSRemediationCenterRequest{IdentityType: "iam_role"})
-	if len(filtered) != 1 || filtered[0].CaseID != "c-1" {
-		t.Fatalf("identity_type filter did not scope: %+v", filtered)
-	}
+	expectSingleCase("identity_type", filtered, "c-1")
 
 	filtered, _ = filterAWSRemediationCenterCases(entries, AWSRemediationCenterRequest{ActionType: "secret_rotation"})
-	if len(filtered) != 1 || filtered[0].CaseID != "c-2" {
-		t.Fatalf("action_type filter did not scope: %+v", filtered)
-	}
+	expectSingleCase("action_type", filtered, "c-2")
 
 	filtered, _ = filterAWSRemediationCenterCases(entries, AWSRemediationCenterRequest{AccountID: "222222222222"})
-	if len(filtered) != 1 || filtered[0].CaseID != "c-2" {
-		t.Fatalf("account_id filter did not scope: %+v", filtered)
-	}
+	expectSingleCase("account_id", filtered, "c-2")
 
 	filtered, _ = filterAWSRemediationCenterCases(entries, AWSRemediationCenterRequest{Status: "verification_verified"})
-	if len(filtered) != 1 || filtered[0].CaseID != "c-2" {
-		t.Fatalf("status filter must match execution/verification state: %+v", filtered)
-	}
+	expectSingleCase("status", filtered, "c-2")
 }
 
 func TestAWSRemediationCenterConfidenceFloor(t *testing.T) {

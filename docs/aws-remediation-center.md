@@ -48,8 +48,8 @@ environment, connector, or tab changes.
 
 The UI exposes seven tabs:
 
-- `overview`: case lifecycle table with stage, safety gates, next action, and severity/confidence
-- `cases`: the same case lifecycle rollup
+- `overview`: pre-action safety review — per-case tradeoffs, safety-gate status, apply readiness, kill-switch state, and severity/confidence
+- `cases`: case lifecycle rollup with stage, safety gates, next action, and severity/confidence
 - `approvals`: approval-queue entries with state, readiness, and severity
 - `dry_runs`: dry-run projections with outcome, apply readiness, and severity
 - `live_actions`: low-risk live actions with state and next action
@@ -59,6 +59,11 @@ The UI exposes seven tabs:
 Key metrics, safety-gate status, ready-for-apply, kill-switch, and rollback
 counts surface above the tabs, and the page links back to the broader AWS
 remediation and governance surfaces.
+
+Filters are driven by URL query parameters (`account_id`, `region`, `severity`,
+`confidence`, `identity_type`, `action_type`, `status`, `stage`, `case_id`, and
+`search`). They are forwarded to the API and preserved across tab navigation, so
+deep links with filters fetch and keep the expected subset.
 
 ## Safety boundaries
 
