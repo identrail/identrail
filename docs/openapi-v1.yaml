@@ -14350,10 +14350,29 @@ components:
           type: array
           items: { type: string }
         evidence_boundary: { type: string }
+        audit_trail:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationCenterAuditEntry"
         audit_entry_count: { type: integer }
         updated_at:
           type: string
           format: date-time
+    AWSRemediationCenterAuditEntry:
+      type: object
+      properties:
+        case_id: { type: string }
+        stage:
+          type: string
+          enum: [case, approval, dry_run, live_action, verification, rollback]
+        event_id: { type: string }
+        event_type: { type: string }
+        actor: { type: string }
+        occurred_at:
+          type: string
+          format: date-time
+        evidence_ref: { type: string }
+        notes: { type: string }
     AWSRemediationCenterSummary:
       type: object
       properties:
@@ -14433,6 +14452,10 @@ components:
           $ref: "#/components/schemas/AWSLowRiskRemediationResult"
         verification:
           $ref: "#/components/schemas/AWSPostRemediationVerificationResult"
+        audit_trail:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSRemediationCenterAuditEntry"
         failure_reasons:
           type: array
           items: { type: string }

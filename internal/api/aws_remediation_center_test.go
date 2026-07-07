@@ -110,6 +110,85 @@ func TestGetAWSRemediationCenterStitchesLifecycle(t *testing.T) {
 	if result.Summary.DryRunCount == 0 || result.Summary.VerificationCount == 0 {
 		t.Fatalf("summary must count dry-run and verification stages: %+v", result.Summary)
 	}
+
+	// The consolidated audit trail must match its own count and span more than the
+	// verification stage, so the audit tab is not empty for earlier lifecycle
+	// states that still recorded audit entries.
+	if len(result.AuditTrail) != result.Summary.AuditEntryCount {
+		t.Fatalf("consolidated audit trail must match audit_entry_count: trail=%d count=%d", len(result.AuditTrail), result.Summary.AuditEntryCount)
+	}
+	stages := map[string]int{}
+	for _, audit := range result.AuditTrail {
+		if audit.CaseID == "" || audit.EventID == "" {
+			t.Fatalf("audit entry must carry its case and event id: %+v", audit)
+		}
+		stages[audit.Stage]++
+	}
+	nonVerification := 0
+	for stage, count := range stages {
+		if stage != awsRemediationCenterStageVerification {
+			nonVerification += count
+		}
+	}
+	if nonVerification == 0 {
+		t.Fatalf("audit trail must include non-verification lifecycle stages, got %+v", stages)
+	}
+}
+
+func TestGetAWSRemediationCenterScopesPayloadsToFilteredCases(t *testing.T) {
+	now := time.Date(2026, 7, 4, 10, 30, 0, 0, time.UTC)
+	svc, ws := newRemediationCenterService(t, "project-remediation-center-scope", now)
+
+	full, err := svc.GetAWSRemediationCenter(defaultScopeContext(), ws, "project-remediation-center-scope", AWSRemediationCenterRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+	})
+	if err != nil {
+		t.Fatalf("get remediation center: %v", err)
+	}
+	if len(full.Cases) < 2 {
+		t.Fatalf("expected multiple cases to scope against, got %d", len(full.Cases))
+	}
+	target := full.Cases[0].CaseID
+
+	scoped, err := svc.GetAWSRemediationCenter(defaultScopeContext(), ws, "project-remediation-center-scope", AWSRemediationCenterRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		CaseID:       target,
+	})
+	if err != nil {
+		t.Fatalf("get remediation center (scoped): %v", err)
+	}
+	if len(scoped.Cases) != 1 || scoped.Cases[0].CaseID != target {
+		t.Fatalf("case_id filter must scope cases to %s: %+v", target, scoped.Cases)
+	}
+	// Every embedded lifecycle payload rendered by the tabs must be reconciled to
+	// the filtered case so a deep link never shows unrelated rows.
+	for _, e := range scoped.ApprovalQueue.Entries {
+		if e.CaseID != target {
+			t.Errorf("approval queue leaked case %s under case_id=%s", e.CaseID, target)
+		}
+	}
+	for _, e := range scoped.DryRuns.Entries {
+		if e.CaseID != target {
+			t.Errorf("dry-run leaked case %s under case_id=%s", e.CaseID, target)
+		}
+	}
+	for _, e := range scoped.LiveActions.Entries {
+		if e.CaseID != target {
+			t.Errorf("live action leaked case %s under case_id=%s", e.CaseID, target)
+		}
+	}
+	for _, e := range scoped.Verification.Entries {
+		if e.CaseID != target {
+			t.Errorf("verification leaked case %s under case_id=%s", e.CaseID, target)
+		}
+	}
+	for _, e := range scoped.AuditTrail {
+		if e.CaseID != target {
+			t.Errorf("audit trail leaked case %s under case_id=%s", e.CaseID, target)
+		}
+	}
 }
 
 func TestFilterAWSRemediationCenterCases(t *testing.T) {

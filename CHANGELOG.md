@@ -12,9 +12,14 @@
   confidence, identity type, action type, status, and stage; and per-case
   tradeoffs and safety gates surfaced before any action. The most
   safety-critical verification state is retained per case so kill-switch,
-  failed, and rollback states are never masked by a later verified record. The
-  contract is metadata-only and never exposes rendered policy bodies, secret
-  values, or workload payloads.
+  failed, and rollback states are never masked by a later verified record. When
+  a filter narrows the case set, the embedded approval, dry-run, live-action,
+  verification, and audit payloads are reconciled to the filtered cases so a tab
+  never renders rows outside the current filter, and the audit tab draws from a
+  consolidated audit trail spanning every lifecycle stage (not just
+  verification) so its rows always match its count. The contract is
+  metadata-only and never exposes rendered policy bodies, secret values, or
+  workload payloads.
 - Add a **precision suppression gate** to the repository secret scanner so it
   surfaces real, actionable secrets instead of a flood of low-value matches.
   The classifier already recognized placeholders, sequential/repeated fillers,

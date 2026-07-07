@@ -2529,6 +2529,17 @@ export type AWSRemediationCenterSafetyGate = {
   rationale?: string;
 };
 
+export type AWSRemediationCenterAuditEntry = {
+  case_id: string;
+  stage: AWSRemediationCenterStage;
+  event_id: string;
+  event_type: string;
+  actor: string;
+  occurred_at: string;
+  evidence_ref?: string;
+  notes?: string;
+};
+
 export type AWSRemediationCenterCase = {
   case_id: string;
   title: string;
@@ -2566,6 +2577,7 @@ export type AWSRemediationCenterCase = {
   next_action: string;
   evidence_refs?: string[];
   evidence_boundary: string;
+  audit_trail: AWSRemediationCenterAuditEntry[];
   audit_entry_count: number;
   updated_at?: string;
 };
@@ -2616,6 +2628,7 @@ export type AWSRemediationCenterResult = {
   dry_runs: AWSRemediationDryRunResult;
   live_actions: AWSLowRiskRemediationResult;
   verification: AWSPostRemediationVerificationResult;
+  audit_trail: AWSRemediationCenterAuditEntry[];
   failure_reasons: string[];
   remediation_hints: string[];
   evidence_links: string[];

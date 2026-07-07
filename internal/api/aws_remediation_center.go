@@ -105,8 +105,25 @@ type AWSRemediationCenterCase struct {
 	NextAction        string                           `json:"next_action"`
 	EvidenceRefs      []string                         `json:"evidence_refs,omitempty"`
 	EvidenceBoundary  string                           `json:"evidence_boundary"`
+	AuditTrail        []AWSRemediationCenterAuditEntry `json:"audit_trail"`
 	AuditEntryCount   int                              `json:"audit_entry_count"`
 	UpdatedAt         time.Time                        `json:"updated_at,omitzero"`
+}
+
+// AWSRemediationCenterAuditEntry is one immutable audit record projected from a
+// lifecycle stage (case, approval, dry-run, live action, or verification) and
+// tagged with the case it belongs to plus the stage that produced it, so the
+// audit tab consolidates the whole lifecycle rather than only verification. It
+// is metadata-only.
+type AWSRemediationCenterAuditEntry struct {
+	CaseID      string    `json:"case_id"`
+	Stage       string    `json:"stage"`
+	EventID     string    `json:"event_id"`
+	EventType   string    `json:"event_type"`
+	Actor       string    `json:"actor"`
+	OccurredAt  time.Time `json:"occurred_at"`
+	EvidenceRef string    `json:"evidence_ref,omitempty"`
+	Notes       string    `json:"notes,omitempty"`
 }
 
 // AWSRemediationCenterSummary aggregates the unfiltered and filtered case set
@@ -160,6 +177,7 @@ type AWSRemediationCenterResult struct {
 	DryRuns            AWSRemediationDryRunResult           `json:"dry_runs"`
 	LiveActions        AWSLowRiskRemediationResult          `json:"live_actions"`
 	Verification       AWSPostRemediationVerificationResult `json:"verification"`
+	AuditTrail         []AWSRemediationCenterAuditEntry     `json:"audit_trail"`
 	FailureReasons     []string                             `json:"failure_reasons"`
 	RemediationHints   []string                             `json:"remediation_hints"`
 	EvidenceLinks      []string                             `json:"evidence_links"`
@@ -262,6 +280,18 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	evidenceLinks := awsRemediationCenterEvidenceLinks(scope, project, cases, approvals, dryRuns, liveActions, verification)
 	status, confidence := summarizeAWSRemediationCenterStatus(fixtureState, cases, approvals, dryRuns, liveActions, verification, diagnostics)
 
+	// Scope the embedded lifecycle payloads (rendered directly by the app tabs)
+	// and the consolidated audit trail to the filtered case set, so a filtered
+	// deep link never surfaces rows from cases that fell outside the filter.
+	// Diagnostics, status, and evidence links stay on the full source results
+	// because they report collector health across the whole connector scope.
+	scopedCaseIDs := awsRemediationCenterCaseIDSet(filtered)
+	approvals.Entries = awsRemediationCenterScopeEntries(approvals.Entries, scopedCaseIDs, func(e AWSRemediationApprovalEntry) string { return e.CaseID })
+	dryRuns.Entries = awsRemediationCenterScopeEntries(dryRuns.Entries, scopedCaseIDs, func(e AWSRemediationDryRunEntry) string { return e.CaseID })
+	liveActions.Entries = awsRemediationCenterScopeEntries(liveActions.Entries, scopedCaseIDs, func(e AWSLowRiskRemediationEntry) string { return e.CaseID })
+	verification.Entries = awsRemediationCenterScopeEntries(verification.Entries, scopedCaseIDs, func(e AWSPostRemediationVerificationEntry) string { return e.CaseID })
+	auditTrail := awsRemediationCenterAuditTrail(filtered)
+
 	return AWSRemediationCenterResult{
 		TenantID:           scope.TenantID,
 		WorkspaceID:        project.WorkspaceID,
@@ -287,6 +317,7 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 		DryRuns:            dryRuns,
 		LiveActions:        liveActions,
 		Verification:       verification,
+		AuditTrail:         auditTrail,
 		FailureReasons:     awsRemediationCenterFailureReasons(cases, approvals, dryRuns, liveActions, verification),
 		RemediationHints:   awsRemediationCenterRemediationHints(cases, approvals, dryRuns, liveActions, verification),
 		EvidenceLinks:      evidenceLinks,
@@ -389,7 +420,7 @@ func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRem
 	killSwitch := false
 	tradeoffs := append([]AWSRemediationTradeoff{}, c.Tradeoffs...)
 	gates := []AWSRemediationCenterSafetyGate{}
-	auditCount := len(c.AuditTrail)
+	audit := awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageCase, c.AuditTrail)
 	entry := AWSRemediationCenterCase{
 		CaseID:           c.CaseID,
 		Title:            c.Title,
@@ -420,7 +451,7 @@ func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRem
 		entry.ApprovalID = approval.ApprovalID
 		entry.ApprovalState = firstNonEmptyAWSValue(approval.State, entry.ApprovalState)
 		killSwitch = killSwitch || approval.KillSwitchEngaged
-		auditCount += len(approval.AuditTrail)
+		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageApproval, approval.AuditTrail)...)
 		tradeoffs = append(tradeoffs, approval.Tradeoffs...)
 		for _, gate := range approval.RBACGates {
 			gates = append(gates, AWSRemediationCenterSafetyGate{Source: "approval_rbac", Name: gate.Name, Status: gate.Status, Rationale: gate.Rationale})
@@ -434,7 +465,7 @@ func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRem
 		entry.DryRunID = dryRun.DryRunID
 		entry.DryRunOutcome = dryRun.Outcome
 		killSwitch = killSwitch || dryRun.KillSwitchEngaged
-		auditCount += len(dryRun.AuditTrail)
+		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageDryRun, dryRun.AuditTrail)...)
 		for _, prereq := range dryRun.SatisfiedPrereqs {
 			gates = append(gates, AWSRemediationCenterSafetyGate{Source: "dry_run_prerequisite", Name: prereq.Name, Status: firstNonEmptyAWSValue(prereq.Status, "passed"), Rationale: prereq.Rationale})
 		}
@@ -448,7 +479,7 @@ func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRem
 		entry.ExecutionID = live.ExecutionID
 		entry.ExecutionState = live.State
 		killSwitch = killSwitch || live.KillSwitchEngaged
-		auditCount += len(live.AuditTrail)
+		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageLiveAction, live.AuditTrail)...)
 		for _, preflight := range live.Preflights {
 			gates = append(gates, AWSRemediationCenterSafetyGate{Source: "live_action_preflight", Name: preflight.Name, Status: preflight.Status, Rationale: preflight.Rationale})
 		}
@@ -461,7 +492,7 @@ func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRem
 		entry.RollbackState = verify.Rollback.State
 		entry.RollbackStrategy = verify.Rollback.Strategy
 		killSwitch = killSwitch || verify.KillSwitchEngaged
-		auditCount += len(verify.AuditTrail)
+		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageVerification, verify.AuditTrail)...)
 		if verify.State == awsPostRemediationVerificationStateRollback || verify.State == awsPostRemediationVerificationStateFailed {
 			stage = awsRemediationCenterStageRollback
 		}
@@ -478,8 +509,64 @@ func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRem
 	entry.Tradeoffs = awsRemediationCenterDedupeTradeoffs(tradeoffs)
 	entry.SafetyGates = gates
 	entry.EvidenceRefs = evidenceRefs
-	entry.AuditEntryCount = auditCount
+	entry.AuditTrail = audit
+	entry.AuditEntryCount = len(audit)
 	return entry
+}
+
+// awsRemediationCenterCaseIDSet collects the case IDs of the given rollups so
+// the embedded lifecycle payloads can be reconciled against the filtered set.
+func awsRemediationCenterCaseIDSet(cases []AWSRemediationCenterCase) map[string]struct{} {
+	set := make(map[string]struct{}, len(cases))
+	for _, c := range cases {
+		if key := strings.TrimSpace(c.CaseID); key != "" {
+			set[key] = struct{}{}
+		}
+	}
+	return set
+}
+
+// awsRemediationCenterScopeEntries keeps only the entries whose case ID is in the
+// allowed set, preserving order.
+func awsRemediationCenterScopeEntries[T any](entries []T, allow map[string]struct{}, caseID func(T) string) []T {
+	out := make([]T, 0, len(entries))
+	for _, entry := range entries {
+		if _, ok := allow[strings.TrimSpace(caseID(entry))]; ok {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
+// awsRemediationCenterAuditTrail flattens the per-case audit records into one
+// consolidated, filter-scoped list so the audit tab renders the same entries its
+// count reflects, across every lifecycle stage rather than verification alone.
+func awsRemediationCenterAuditTrail(cases []AWSRemediationCenterCase) []AWSRemediationCenterAuditEntry {
+	out := []AWSRemediationCenterAuditEntry{}
+	for _, c := range cases {
+		out = append(out, c.AuditTrail...)
+	}
+	return out
+}
+
+// awsRemediationCenterAuditEntries projects a stage's audit trail into the
+// center's consolidated audit record, tagging each with the owning case and the
+// stage that produced it.
+func awsRemediationCenterAuditEntries(caseID, stage string, trail []AWSRemediationAuditEntry) []AWSRemediationCenterAuditEntry {
+	out := make([]AWSRemediationCenterAuditEntry, 0, len(trail))
+	for _, a := range trail {
+		out = append(out, AWSRemediationCenterAuditEntry{
+			CaseID:      caseID,
+			Stage:       stage,
+			EventID:     a.EventID,
+			EventType:   a.EventType,
+			Actor:       a.Actor,
+			OccurredAt:  a.OccurredAt,
+			EvidenceRef: a.EvidenceRef,
+			Notes:       a.Notes,
+		})
+	}
+	return out
 }
 
 func awsRemediationCenterActionType(c AWSRemediationCase) string {

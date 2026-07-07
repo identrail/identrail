@@ -11182,17 +11182,15 @@ function AWSRemediationCenterTabContent({
     );
   }
   if (activeTab === 'audit') {
-    const auditRows = center.verification.entries.flatMap((entry) =>
-      entry.audit_trail.map((audit) => ({ ...audit, verification_id: entry.verification_id, case_id: entry.case_id }))
-    );
     return (
       <DomainDataTable
         label="Remediation center audit trail"
-        rows={auditRows}
-        getRowKey={(row) => `${row.verification_id}-${row.event_id}`}
+        rows={center.audit_trail}
+        getRowKey={(row) => `${row.case_id}-${row.stage}-${row.event_id}`}
         emptyState={<DomainEmptyState eyebrow="Empty" title="No audit entries" body="No immutable audit record matched the current filters." />}
         columns={[
           { key: 'event', header: 'Event', render: (row) => formatTokenLabel(row.event_type) },
+          { key: 'stage', header: 'Stage', render: (row) => formatTokenLabel(row.stage) },
           { key: 'actor', header: 'Actor', render: (row) => row.actor },
           { key: 'case', header: 'Case', render: (row) => row.case_id },
           { key: 'occurred', header: 'Occurred', render: (row) => formatDateLabel(row.occurred_at) },

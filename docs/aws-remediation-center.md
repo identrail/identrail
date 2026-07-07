@@ -54,7 +54,7 @@ The UI exposes seven tabs:
 - `dry_runs`: dry-run projections with outcome, apply readiness, and severity
 - `live_actions`: low-risk live actions with state and next action
 - `verification`: post-remediation verification and rollback state
-- `audit`: the immutable audit trail flattened from verification records
+- `audit`: the consolidated immutable audit trail across every lifecycle stage (case, approval, dry-run, live action, and verification), tagged with the owning case and stage
 
 Key metrics, safety-gate status, ready-for-apply, kill-switch, and rollback
 counts surface above the tabs, and the page links back to the broader AWS
@@ -63,7 +63,11 @@ remediation and governance surfaces.
 Filters are driven by URL query parameters (`account_id`, `region`, `severity`,
 `confidence`, `identity_type`, `action_type`, `status`, `stage`, `case_id`, and
 `search`). They are forwarded to the API and preserved across tab navigation, so
-deep links with filters fetch and keep the expected subset.
+deep links with filters fetch and keep the expected subset. When filters narrow
+the case set, the embedded approval, dry-run, live-action, verification, and
+audit payloads are reconciled to the filtered cases so a tab never renders rows
+from cases outside the current filter. The consolidated `audit_trail` is scoped
+the same way, so its entries always match the audit tab count.
 
 ## Safety boundaries
 
