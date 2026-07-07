@@ -7406,6 +7406,9 @@ describe('Domain-first app routes', () => {
       };
     });
     const deleteRepoFinding = vi.spyOn(api.apiClient, 'deleteRepoFinding').mockResolvedValue(undefined);
+    const deleteRepoFindings = vi
+      .spyOn(api.apiClient, 'deleteRepoFindings')
+      .mockImplementation(async (items) => ({ deleted: items }));
     const getRepoFindingsTrends = vi
       .spyOn(api.apiClient, 'getRepoFindingsTrends')
       .mockImplementation(async (params) => {
@@ -7449,6 +7452,7 @@ describe('Domain-first app routes', () => {
       listRepoFindings,
       triageFinding,
       deleteRepoFinding,
+      deleteRepoFindings,
       getRepoFindingsTrends,
       getRepoRiskGraph
     };
@@ -8073,7 +8077,7 @@ describe('ProductFindingsPage states', () => {
       }
     ];
 
-    const { deleteRepoFinding } = await renderFindings({
+    const { deleteRepoFinding, deleteRepoFindings } = await renderFindings({
       repoScans: [scan],
       listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [] })
     });
@@ -8087,13 +8091,76 @@ describe('ProductFindingsPage states', () => {
     fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete all/i }));
 
     await waitFor(() => {
-      expect(deleteRepoFinding).toHaveBeenCalledTimes(2);
+      expect(deleteRepoFindings).toHaveBeenCalledWith(
+        [
+          { finding_id: findings[0].id, repo_scan_id: scan.id },
+          { finding_id: findings[1].id, repo_scan_id: scan.id }
+        ],
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      );
     });
+    expect(deleteRepoFinding).not.toHaveBeenCalled();
     await waitFor(() => {
       expect(screen.queryByText('First clearable token finding')).not.toBeInTheDocument();
       expect(screen.queryByText('Second clearable workflow finding')).not.toBeInTheDocument();
     });
     expect(await screen.findByText('No exposure found')).toBeInTheDocument();
+  });
+
+  it('keeps only failed repository findings in the clear all dialog', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-clear-all-partial',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 2
+    };
+
+    const findings: Finding[] = [
+      {
+        id: 'finding-clear-partial-deleted',
+        scan_id: scan.id,
+        type: 'secret_exposure',
+        severity: 'critical',
+        title: 'Deleted bulk token finding',
+        human_summary: 'A token-like value appears in a committed workflow.',
+        remediation: 'Rotate the credential and remove the committed value.',
+        created_at: '2026-05-17T11:06:00Z'
+      },
+      {
+        id: 'finding-clear-partial-remaining',
+        scan_id: scan.id,
+        type: 'workflow_permission',
+        severity: 'high',
+        title: 'Remaining bulk workflow finding',
+        human_summary: 'A workflow grants broad repository permissions.',
+        remediation: 'Limit workflow permissions.',
+        created_at: '2026-05-17T11:07:00Z'
+      }
+    ];
+
+    const { deleteRepoFindings } = await renderFindings({
+      repoScans: [scan],
+      repoFindings: findings
+    });
+    deleteRepoFindings.mockResolvedValueOnce({
+      deleted: [{ finding_id: findings[0].id, repo_scan_id: scan.id }],
+      failed: [{ finding_id: findings[1].id, repo_scan_id: scan.id, error: 'repo finding not found' }]
+    });
+
+    expect(await screen.findByText('Deleted bulk token finding')).toBeInTheDocument();
+    expect(await screen.findByText('Remaining bulk workflow finding')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Clear all/i }));
+    const confirmDialog = await screen.findByRole('dialog', { name: /Clear findings/i });
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete all/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Deleted bulk token finding')).not.toBeInTheDocument();
+    });
+    expect(await screen.findByText('Remaining bulk workflow finding')).toBeInTheDocument();
+    expect(await screen.findByText('1 deleted. 1 remaining.')).toBeInTheDocument();
+    expect(within(confirmDialog).getByText(/1 visible finding/i)).toBeInTheDocument();
   });
 
   it('disables clear all while repository findings are refreshing', async () => {

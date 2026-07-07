@@ -120,6 +120,10 @@ x-identrail-route-authorizations:
     path: /v1/repo-findings
     action: repo_scans.read
     resource_type: repo_finding
+  - method: POST
+    path: /v1/repo-findings/bulk-delete
+    action: repo_scans.run
+    resource_type: repo_finding
   - method: DELETE
     path: /v1/repo-findings/{finding_id}
     action: repo_scans.run
@@ -9695,6 +9699,33 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/repo-findings/bulk-delete:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    post:
+      tags: [RepositoryExposure]
+      summary: Delete selected repository findings
+      operationId: bulkDeleteRepoFindings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoFindingsBulkDeleteRequest"
+      responses:
+        "200":
+          description: Selected repository findings delete result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoFindingsBulkDeleteResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalServerError"
   /v1/repo-findings/{finding_id}:
@@ -24562,6 +24593,43 @@ components:
           type: string
         summary:
           $ref: "#/components/schemas/RepoFindingsSummary"
+    RepoFindingDeleteTarget:
+      type: object
+      required: [finding_id, repo_scan_id]
+      properties:
+        finding_id:
+          type: string
+        repo_scan_id:
+          type: string
+    RepoFindingDeleteFailure:
+      allOf:
+        - $ref: "#/components/schemas/RepoFindingDeleteTarget"
+        - type: object
+          required: [error]
+          properties:
+            error:
+              type: string
+    RepoFindingsBulkDeleteRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/RepoFindingDeleteTarget"
+    RepoFindingsBulkDeleteResponse:
+      type: object
+      properties:
+        deleted:
+          type: array
+          items:
+            $ref: "#/components/schemas/RepoFindingDeleteTarget"
+        failed:
+          type: array
+          items:
+            $ref: "#/components/schemas/RepoFindingDeleteFailure"
     RepoFindingRemediationPreviewRequest:
       type: object
       properties:

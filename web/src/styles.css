@@ -6332,11 +6332,16 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
 }
 
 .idt-repo-finding-action-row {
+  position: relative;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   column-gap: 0.9rem;
   row-gap: 0.45rem;
   overflow: visible;
+}
+
+.idt-repo-finding-action-row.is-menu-open {
+  z-index: 24;
 }
 
 .idt-repo-finding-action-row .idt-source-logo-mark.is-row,
@@ -6380,7 +6385,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
 
 .idt-repo-finding-row-actions {
   position: relative;
-  z-index: 8;
+  z-index: 28;
   flex: 0 0 auto;
   align-self: center;
 }
@@ -6409,7 +6414,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   right: 0;
   top: calc(100% + 0.35rem);
   min-width: 12.5rem;
-  z-index: 10;
+  z-index: 32;
   border: 1px solid var(--app-border);
   border-radius: 8px;
   background: #080809;
@@ -26001,6 +26006,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-severity-grou
   border-left-width: 4px;
   border-radius: 8px;
   background: #070708;
+  overflow: visible;
 }
 
 .idt-app-console-layout .idt-repo-finding-severity-group.is-critical,
@@ -27754,11 +27760,11 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 
 .idt-domain-flyout {
   position: absolute;
-  top: -0.45rem;
+  top: 0;
   left: calc(100% + 0.72rem);
   z-index: 50;
   display: grid;
-  gap: 0.58rem;
+  gap: 0.5rem;
   width: min(27rem, calc(100vw - var(--idt-sidebar-width, 15.5rem) - 1.8rem));
   max-height: min(78vh, 42rem);
   overflow: auto;
@@ -27768,25 +27774,26 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   border-radius: 8px;
   padding: 0.68rem;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 8rem),
-    #050607;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 7rem),
+    #030405;
   box-shadow:
     0 28px 90px rgba(0, 0, 0, 0.62),
     0 0 0 1px rgba(255, 255, 255, 0.04) inset;
-  transform-origin: top left;
+  text-align: left;
+  transform-origin: left 1.08rem;
   animation: idtFlyoutRevealIn var(--idt-motion-slow) var(--idt-motion-ease) both;
 }
 
 .idt-domain-flyout::before {
   content: '';
   position: absolute;
-  top: 1.25rem;
+  top: 1.08rem;
   left: -0.45rem;
   width: 0.85rem;
   height: 0.85rem;
   border-left: 1px solid rgba(255, 255, 255, 0.13);
   border-bottom: 1px solid rgba(255, 255, 255, 0.13);
-  background: #050607;
+  background: #030405;
   transform: rotate(45deg);
 }
 
@@ -27820,15 +27827,16 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 
 .idt-domain-flyout-link {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 1.25rem;
+  grid-template-columns: minmax(0, 1fr) 1rem;
   gap: 0.65rem;
   align-items: center;
-  min-height: 2.28rem;
+  min-height: 2.34rem;
   border: 1px solid transparent;
   border-radius: 7px;
   padding: 0.44rem 0.54rem;
   color: #dce3eb;
   text-decoration: none;
+  text-align: left;
   transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
@@ -27852,6 +27860,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   gap: 0.08rem;
   min-width: 0;
   align-self: center;
+  justify-items: start;
+  text-align: left;
 }
 
 .idt-domain-flyout-link-copy strong {
@@ -27886,12 +27896,14 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 
 .idt-domain-flyout-nested summary {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 1.25rem;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) 1rem;
+  align-items: center;
   gap: 0.6rem;
+  min-height: 2.42rem;
   border-radius: 7px;
   padding: 0.45rem 0.5rem;
   color: #f3f5f7;
+  text-align: left;
   cursor: pointer;
   list-style: none;
 }
@@ -27904,6 +27916,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   display: grid;
   gap: 0.1rem;
   min-width: 0;
+  justify-items: start;
+  text-align: left;
 }
 
 .idt-domain-flyout-nested summary strong {
@@ -27913,7 +27927,6 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 
 .idt-domain-flyout-nested summary svg {
   justify-self: end;
-  margin-top: 0.18rem;
   color: #8f98a4;
   transition: transform 0.14s ease;
 }

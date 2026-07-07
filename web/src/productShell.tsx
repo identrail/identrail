@@ -174,6 +174,7 @@ import {
   type ProjectRecord,
   type RepoFindingRemediationPublishResponse,
   type RepoFindingRemediationPreview,
+  type RepoFindingDeleteTarget,
   type RepoFindingsSummary,
   type RepoFindingLifecycleStatus,
   type RepoRiskGraph,
@@ -1598,6 +1599,21 @@ function countGitHubPostureChecks(
 
 function formatCountLabel(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function repoFindingDeleteTargetFromFinding(finding: ApiFinding): RepoFindingDeleteTarget {
+  return {
+    finding_id: finding.id,
+    repo_scan_id: finding.scan_id
+  };
+}
+
+function repoFindingDeleteTargetKey(target: RepoFindingDeleteTarget): string {
+  return `${target.repo_scan_id}::${target.finding_id}`;
+}
+
+function repoFindingDeleteTargetKeyFromFinding(finding: ApiFinding): string {
+  return repoFindingDeleteTargetKey(repoFindingDeleteTargetFromFinding(finding));
 }
 
 function sortRepoRiskGraphScores(scores: RepoRiskGraphFindingScore[]): RepoRiskGraphFindingScore[] {
@@ -27564,6 +27580,21 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     }
   };
 
+  const applyFailedRepoFindingDeletes = (
+    failedCandidates: ApiFinding[],
+    deletedCount: number,
+    fallback = 'Failed to delete finding.',
+    keepBulkContext = false
+  ) => {
+    setBulkDeleteCandidates(keepBulkContext ? failedCandidates : failedCandidates.length > 1 ? failedCandidates : []);
+    setDeleteCandidate(keepBulkContext ? null : failedCandidates.length === 1 ? failedCandidates[0] : null);
+    setDeleteError(
+      deletedCount > 0
+        ? `${deletedCount} deleted. ${failedCandidates.length} remaining.`
+        : fallback
+    );
+  };
+
   const handleConfirmDeleteFinding = async () => {
     if (!scope || activeDeleteCandidates.length === 0 || deleteActionsDisabled) {
       return;
@@ -27574,39 +27605,47 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     setDeleteError('');
     try {
       const auth = buildProductAuthContext(scope);
-      const settled = await Promise.allSettled(
-        candidates.map((candidate) => apiClient.deleteRepoFinding(candidate.id, candidate.scan_id, auth))
-      );
+      let deletedFindings: ApiFinding[] = [];
+      let failedCandidates: ApiFinding[] = [];
+      let failureMessage = 'Failed to delete finding.';
+      if (bulkDeleteActive) {
+        const response = await apiClient.deleteRepoFindings(candidates.map(repoFindingDeleteTargetFromFinding), auth);
+        const deletedKeys = new Set(response.deleted.map(repoFindingDeleteTargetKey));
+        const failedKeys = new Set((response.failed ?? []).map(repoFindingDeleteTargetKey));
+        deletedFindings = candidates.filter((candidate) =>
+          deletedKeys.has(repoFindingDeleteTargetKeyFromFinding(candidate))
+        );
+        failedCandidates = candidates.filter((candidate) => {
+          const key = repoFindingDeleteTargetKeyFromFinding(candidate);
+          return failedKeys.has(key) || !deletedKeys.has(key);
+        });
+        failureMessage = response.failed?.[0]?.error || failureMessage;
+      } else {
+        const candidate = candidates[0];
+        if (candidate) {
+          await apiClient.deleteRepoFinding(candidate.id, candidate.scan_id, auth);
+          deletedFindings = [candidate];
+        }
+      }
       if (findDeleteRequestRef.current !== requestID) {
         return;
       }
-      const deletedFindings = candidates.filter((_, index) => settled[index]?.status === 'fulfilled');
-      const failedDeletes = settled.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
       if (deletedFindings.length > 0) {
         invalidateGitHubDomainDataCacheForScope(scope);
         applyDeletedRepoFindings(deletedFindings);
       }
-      if (failedDeletes.length > 0) {
-        const failedCandidates = candidates.filter((_, index) => settled[index]?.status === 'rejected');
-        setBulkDeleteCandidates(failedCandidates.length > 1 ? failedCandidates : []);
-        setDeleteCandidate(failedCandidates.length === 1 ? failedCandidates[0] : null);
-        setDeleteError(
-          deletedFindings.length > 0
-            ? `${deletedFindings.length} deleted. ${failedDeletes.length} could not be deleted.`
-            : failedDeletes[0].reason instanceof Error
-              ? failedDeletes[0].reason.message
-              : 'Failed to delete finding.'
-        );
+      if (failedCandidates.length > 0) {
+        applyFailedRepoFindingDeletes(failedCandidates, deletedFindings.length, failureMessage, bulkDeleteActive);
         if (deletedFindings.length > 0) {
-          await loadRepoFindings(scope, 'refresh');
           await loadTrendSignals(scope, 'refresh');
         }
         return;
       }
       const repoScanFilterSelected = normalizeValue(repoScanFilter);
       const shouldReloadFindings =
-        deletedFindings.some((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'fixed') ||
-        repoScanFilterSelected === '';
+        !bulkDeleteActive &&
+        (deletedFindings.some((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'fixed') ||
+          repoScanFilterSelected === '');
       if (shouldReloadFindings) {
         await loadRepoFindings(scope, 'refresh');
       }
@@ -28361,7 +28400,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                         role="listitem"
                                         tabIndex={0}
                                         aria-haspopup="dialog"
-                                        className={`idt-repo-finding-row idt-repo-finding-action-row${isSelected ? ' is-selected' : ''}`}
+                                        className={`idt-repo-finding-row idt-repo-finding-action-row${isSelected ? ' is-selected' : ''}${findingMenuKey === selectionKey ? ' is-menu-open' : ''}`}
                                         onClick={(event) => selectRepoFinding(selectionKey, true, event.currentTarget)}
                                         onKeyDown={(event) => {
                                           if (event.target !== event.currentTarget) {

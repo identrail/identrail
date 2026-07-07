@@ -65,6 +65,20 @@ export type RepoFindingsSummary = {
   by_severity: Record<string, number>;
 };
 
+export type RepoFindingDeleteTarget = {
+  finding_id: string;
+  repo_scan_id: string;
+};
+
+export type RepoFindingDeleteFailure = RepoFindingDeleteTarget & {
+  error: string;
+};
+
+export type RepoFindingsBulkDeleteResponse = {
+  deleted: RepoFindingDeleteTarget[];
+  failed?: RepoFindingDeleteFailure[];
+};
+
 export type RepoScanSourceHealthStatus =
   | 'complete'
   | 'partial'
@@ -9987,6 +10001,12 @@ export const apiClient = {
         method: 'DELETE'
       }
     );
+  },
+  deleteRepoFindings(items: RepoFindingDeleteTarget[], auth?: RequestAuthContext) {
+    return request<RepoFindingsBulkDeleteResponse>('/v1/repo-findings/bulk-delete', auth, {
+      method: 'POST',
+      body: JSON.stringify({ items })
+    });
   },
   getRepoRiskGraph(
     filters: {
