@@ -111,6 +111,9 @@ func TestGetAWSRemediationCenterStitchesLifecycle(t *testing.T) {
 	if result.Summary.DryRunCount == 0 || result.Summary.VerificationCount == 0 {
 		t.Fatalf("summary must count dry-run and verification stages: %+v", result.Summary)
 	}
+	if result.Summary.VerificationCount != len(result.Verification.Entries) {
+		t.Fatalf("verification count must match rendered verification rows: count=%d rows=%d", result.Summary.VerificationCount, len(result.Verification.Entries))
+	}
 
 	// The consolidated audit trail must match its own count and span more than the
 	// verification stage, so the audit tab is not empty for earlier lifecycle
@@ -133,6 +136,20 @@ func TestGetAWSRemediationCenterStitchesLifecycle(t *testing.T) {
 	}
 	if nonVerification == 0 {
 		t.Fatalf("audit trail must include non-verification lifecycle stages, got %+v", stages)
+	}
+	auditByCaseEvent := map[string]struct{}{}
+	for _, audit := range result.AuditTrail {
+		auditByCaseEvent[audit.CaseID+"\x00"+audit.EventID] = struct{}{}
+	}
+	for _, verification := range result.Verification.Entries {
+		for _, audit := range verification.AuditTrail {
+			if strings.TrimSpace(audit.EventID) == "" {
+				continue
+			}
+			if _, ok := auditByCaseEvent[verification.CaseID+"\x00"+audit.EventID]; !ok {
+				t.Fatalf("consolidated audit trail omitted verification audit event %q for case %q", audit.EventID, verification.CaseID)
+			}
+		}
 	}
 }
 
@@ -245,6 +262,57 @@ func TestAWSRemediationCenterAuditTrailDeduplicatesInheritedEvents(t *testing.T)
 		if wantStages[audit.EventID] != audit.Stage {
 			t.Fatalf("audit event %s stage=%s want=%s trail=%+v", audit.EventID, audit.Stage, wantStages[audit.EventID], entry.AuditTrail)
 		}
+	}
+}
+
+func TestAWSRemediationCenterCaseAggregatesAllVerificationAuditTrails(t *testing.T) {
+	now := time.Date(2026, 7, 4, 10, 55, 0, 0, time.UTC)
+	caseAudit := AWSRemediationAuditEntry{EventID: "case-created", EventType: "case_projected", Actor: "case-engine", OccurredAt: now}
+	verifyA := AWSRemediationAuditEntry{EventID: "verify-target-a", EventType: "post_remediation_verification_projected", Actor: "verification-engine", OccurredAt: now}
+	verifyB := AWSRemediationAuditEntry{EventID: "verify-target-b", EventType: "post_remediation_verification_projected", Actor: "verification-engine", OccurredAt: now}
+	verifications := []AWSPostRemediationVerificationEntry{
+		{
+			VerificationID: "verify-a",
+			CaseID:         "case-multi-verify",
+			State:          awsPostRemediationVerificationStateVerified,
+			AuditTrail:     []AWSPostRemediationVerificationAuditEntry{caseAudit, verifyA},
+		},
+		{
+			VerificationID: "verify-b",
+			CaseID:         "case-multi-verify",
+			State:          awsPostRemediationVerificationStateFailed,
+			AuditTrail:     []AWSPostRemediationVerificationAuditEntry{caseAudit, verifyB},
+		},
+	}
+	selected, hasSelected := awsRemediationCenterSelectedVerification(verifications)
+	if !hasSelected {
+		t.Fatalf("expected selected verification")
+	}
+	entry := awsRemediationCenterCaseFromLifecycleWithVerifications(
+		AWSRemediationCase{CaseID: "case-multi-verify", Title: "Multi-target verification", AuditTrail: []AWSRemediationAuditEntry{caseAudit}},
+		AWSRemediationApprovalEntry{}, false,
+		AWSRemediationDryRunEntry{}, false,
+		AWSLowRiskRemediationEntry{}, false,
+		selected, true,
+		verifications,
+	)
+
+	if entry.VerificationID != "verify-b" || entry.Stage != awsRemediationCenterStageRollback {
+		t.Fatalf("case rollup must keep the worst verification state, got %+v", entry)
+	}
+	if entry.VerificationEntryCount != len(verifications) {
+		t.Fatalf("case rollup must retain rendered verification row count, got %+v", entry)
+	}
+	wantEvents := map[string]bool{"case-created": true, "verify-target-a": true, "verify-target-b": true}
+	for _, audit := range entry.AuditTrail {
+		delete(wantEvents, audit.EventID)
+	}
+	if len(wantEvents) != 0 || entry.AuditEntryCount != 3 {
+		t.Fatalf("case rollup must aggregate every unique verification audit event: missing=%+v trail=%+v", wantEvents, entry.AuditTrail)
+	}
+	summary := summarizeAWSRemediationCenterCases([]AWSRemediationCenterCase{entry}, []AWSRemediationCenterCase{entry})
+	if summary.VerificationCount != len(verifications) || summary.AuditEntryCount != entry.AuditEntryCount {
+		t.Fatalf("summary must count rendered verification rows and aggregated audit entries: %+v entry=%+v", summary, entry)
 	}
 }
 

@@ -69,45 +69,46 @@ type AWSRemediationCenterSafetyGate struct {
 // see where each fix is without reading every stage table. It is
 // metadata-only and never carries rendered policy bodies or secret values.
 type AWSRemediationCenterCase struct {
-	CaseID            string                           `json:"case_id"`
-	Title             string                           `json:"title"`
-	Summary           string                           `json:"summary"`
-	SourceType        string                           `json:"source_type"`
-	ActionType        string                           `json:"action_type"`
-	Lifecycle         string                           `json:"lifecycle"`
-	Stage             string                           `json:"stage"`
-	Severity          string                           `json:"severity"`
-	Score             int                              `json:"score"`
-	Confidence        float64                          `json:"confidence"`
-	AccountID         string                           `json:"account_id,omitempty"`
-	TargetAccountIDs  []string                         `json:"target_account_ids,omitempty"`
-	Region            string                           `json:"region,omitempty"`
-	IdentityNodeID    string                           `json:"identity_node_id,omitempty"`
-	IdentityName      string                           `json:"identity_name,omitempty"`
-	IdentityType      string                           `json:"identity_type,omitempty"`
-	Owner             string                           `json:"owner,omitempty"`
-	OwnerAssigned     bool                             `json:"owner_assigned"`
-	ApprovalRequired  bool                             `json:"approval_required"`
-	ApprovalState     string                           `json:"approval_state,omitempty"`
-	ApprovalID        string                           `json:"approval_id,omitempty"`
-	DryRunID          string                           `json:"dry_run_id,omitempty"`
-	DryRunOutcome     string                           `json:"dry_run_outcome,omitempty"`
-	ExecutionID       string                           `json:"execution_id,omitempty"`
-	ExecutionState    string                           `json:"execution_state,omitempty"`
-	VerificationID    string                           `json:"verification_id,omitempty"`
-	VerificationState string                           `json:"verification_state,omitempty"`
-	RollbackState     string                           `json:"rollback_state,omitempty"`
-	RollbackStrategy  string                           `json:"rollback_strategy,omitempty"`
-	ReadyForApply     bool                             `json:"ready_for_apply"`
-	KillSwitchEngaged bool                             `json:"kill_switch_engaged"`
-	Tradeoffs         []AWSRemediationTradeoff         `json:"tradeoffs"`
-	SafetyGates       []AWSRemediationCenterSafetyGate `json:"safety_gates"`
-	NextAction        string                           `json:"next_action"`
-	EvidenceRefs      []string                         `json:"evidence_refs,omitempty"`
-	EvidenceBoundary  string                           `json:"evidence_boundary"`
-	AuditTrail        []AWSRemediationCenterAuditEntry `json:"audit_trail"`
-	AuditEntryCount   int                              `json:"audit_entry_count"`
-	UpdatedAt         time.Time                        `json:"updated_at,omitzero"`
+	CaseID                 string                           `json:"case_id"`
+	Title                  string                           `json:"title"`
+	Summary                string                           `json:"summary"`
+	SourceType             string                           `json:"source_type"`
+	ActionType             string                           `json:"action_type"`
+	Lifecycle              string                           `json:"lifecycle"`
+	Stage                  string                           `json:"stage"`
+	Severity               string                           `json:"severity"`
+	Score                  int                              `json:"score"`
+	Confidence             float64                          `json:"confidence"`
+	AccountID              string                           `json:"account_id,omitempty"`
+	TargetAccountIDs       []string                         `json:"target_account_ids,omitempty"`
+	Region                 string                           `json:"region,omitempty"`
+	IdentityNodeID         string                           `json:"identity_node_id,omitempty"`
+	IdentityName           string                           `json:"identity_name,omitempty"`
+	IdentityType           string                           `json:"identity_type,omitempty"`
+	Owner                  string                           `json:"owner,omitempty"`
+	OwnerAssigned          bool                             `json:"owner_assigned"`
+	ApprovalRequired       bool                             `json:"approval_required"`
+	ApprovalState          string                           `json:"approval_state,omitempty"`
+	ApprovalID             string                           `json:"approval_id,omitempty"`
+	DryRunID               string                           `json:"dry_run_id,omitempty"`
+	DryRunOutcome          string                           `json:"dry_run_outcome,omitempty"`
+	ExecutionID            string                           `json:"execution_id,omitempty"`
+	ExecutionState         string                           `json:"execution_state,omitempty"`
+	VerificationID         string                           `json:"verification_id,omitempty"`
+	VerificationState      string                           `json:"verification_state,omitempty"`
+	VerificationEntryCount int                              `json:"verification_entry_count,omitempty"`
+	RollbackState          string                           `json:"rollback_state,omitempty"`
+	RollbackStrategy       string                           `json:"rollback_strategy,omitempty"`
+	ReadyForApply          bool                             `json:"ready_for_apply"`
+	KillSwitchEngaged      bool                             `json:"kill_switch_engaged"`
+	Tradeoffs              []AWSRemediationTradeoff         `json:"tradeoffs"`
+	SafetyGates            []AWSRemediationCenterSafetyGate `json:"safety_gates"`
+	NextAction             string                           `json:"next_action"`
+	EvidenceRefs           []string                         `json:"evidence_refs,omitempty"`
+	EvidenceBoundary       string                           `json:"evidence_boundary"`
+	AuditTrail             []AWSRemediationCenterAuditEntry `json:"audit_trail"`
+	AuditEntryCount        int                              `json:"audit_entry_count"`
+	UpdatedAt              time.Time                        `json:"updated_at,omitzero"`
 }
 
 // AWSRemediationCenterAuditEntry is one immutable audit record projected from a
@@ -567,18 +568,13 @@ func awsRemediationCenterCases(cases AWSRemediationCaseResult, approvals AWSReme
 			}
 		}
 	}
-	// Keep the most safety-critical verification per case so a failed or
-	// kill-switched verification on any target still drives the rollup.
-	verificationByCase := map[string]AWSPostRemediationVerificationEntry{}
+	verificationByCase := map[string][]AWSPostRemediationVerificationEntry{}
 	for _, entry := range verification.Entries {
 		key := strings.TrimSpace(entry.CaseID)
 		if key == "" {
 			continue
 		}
-		existing, ok := verificationByCase[key]
-		if !ok || awsRemediationCenterVerificationRank(entry) > awsRemediationCenterVerificationRank(existing) {
-			verificationByCase[key] = entry
-		}
+		verificationByCase[key] = append(verificationByCase[key], entry)
 	}
 
 	out := make([]AWSRemediationCenterCase, 0, len(cases.Cases))
@@ -586,10 +582,23 @@ func awsRemediationCenterCases(cases AWSRemediationCaseResult, approvals AWSReme
 		approval, hasApproval := approvalByCase[c.CaseID]
 		dryRun, hasDryRun := dryRunByCase[c.CaseID]
 		live, hasLive := liveByCase[c.CaseID]
-		verify, hasVerify := verificationByCase[c.CaseID]
-		out = append(out, awsRemediationCenterCaseFromLifecycle(c, approval, hasApproval, dryRun, hasDryRun, live, hasLive, verify, hasVerify))
+		verifications := verificationByCase[c.CaseID]
+		verify, hasVerify := awsRemediationCenterSelectedVerification(verifications)
+		out = append(out, awsRemediationCenterCaseFromLifecycleWithVerifications(c, approval, hasApproval, dryRun, hasDryRun, live, hasLive, verify, hasVerify, verifications))
 	}
 	return out
+}
+
+func awsRemediationCenterSelectedVerification(entries []AWSPostRemediationVerificationEntry) (AWSPostRemediationVerificationEntry, bool) {
+	var selected AWSPostRemediationVerificationEntry
+	hasSelected := false
+	for _, entry := range entries {
+		if !hasSelected || awsRemediationCenterVerificationRank(entry) > awsRemediationCenterVerificationRank(selected) {
+			selected = entry
+			hasSelected = true
+		}
+	}
+	return selected, hasSelected
 }
 
 func awsRemediationCenterVerificationRank(entry AWSPostRemediationVerificationEntry) int {
@@ -614,6 +623,10 @@ func awsRemediationCenterVerificationRank(entry AWSPostRemediationVerificationEn
 }
 
 func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRemediationApprovalEntry, hasApproval bool, dryRun AWSRemediationDryRunEntry, hasDryRun bool, live AWSLowRiskRemediationEntry, hasLive bool, verify AWSPostRemediationVerificationEntry, hasVerify bool) AWSRemediationCenterCase {
+	return awsRemediationCenterCaseFromLifecycleWithVerifications(c, approval, hasApproval, dryRun, hasDryRun, live, hasLive, verify, hasVerify, nil)
+}
+
+func awsRemediationCenterCaseFromLifecycleWithVerifications(c AWSRemediationCase, approval AWSRemediationApprovalEntry, hasApproval bool, dryRun AWSRemediationDryRunEntry, hasDryRun bool, live AWSLowRiskRemediationEntry, hasLive bool, verify AWSPostRemediationVerificationEntry, hasVerify bool, verifications []AWSPostRemediationVerificationEntry) AWSRemediationCenterCase {
 	stage := awsRemediationCenterStageCase
 	killSwitch := false
 	tradeoffs := append([]AWSRemediationTradeoff{}, c.Tradeoffs...)
@@ -687,15 +700,22 @@ func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRem
 		stage = awsRemediationCenterStageVerification
 		entry.VerificationID = verify.VerificationID
 		entry.VerificationState = verify.State
+		entry.VerificationEntryCount = len(verifications)
+		if entry.VerificationEntryCount == 0 {
+			entry.VerificationEntryCount = 1
+			verifications = []AWSPostRemediationVerificationEntry{verify}
+		}
 		entry.RollbackState = verify.Rollback.State
 		entry.RollbackStrategy = verify.Rollback.Strategy
-		killSwitch = killSwitch || verify.KillSwitchEngaged
-		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageVerification, verify.AuditTrail, seenAuditEvents)...)
 		if verify.State == awsPostRemediationVerificationStateRollback || verify.State == awsPostRemediationVerificationStateFailed {
 			stage = awsRemediationCenterStageRollback
 		}
-		for _, precondition := range verify.Preconditions {
-			gates = append(gates, AWSRemediationCenterSafetyGate{Source: "verification_precondition", Name: precondition.Name, Status: precondition.Status, Rationale: precondition.Rationale})
+		for _, verification := range verifications {
+			killSwitch = killSwitch || verification.KillSwitchEngaged
+			audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageVerification, verification.AuditTrail, seenAuditEvents)...)
+			for _, precondition := range verification.Preconditions {
+				gates = append(gates, AWSRemediationCenterSafetyGate{Source: "verification_precondition", Name: precondition.Name, Status: precondition.Status, Rationale: precondition.Rationale})
+			}
 		}
 		entry.NextAction = verify.NextAction
 	}
@@ -1004,7 +1024,11 @@ func summarizeAWSRemediationCenterCases(all, filtered []AWSRemediationCenterCase
 			summary.LiveActionCount++
 		}
 		if entry.VerificationID != "" {
-			summary.VerificationCount++
+			verificationCount := entry.VerificationEntryCount
+			if verificationCount == 0 {
+				verificationCount = 1
+			}
+			summary.VerificationCount += verificationCount
 		}
 		if entry.Stage == awsRemediationCenterStageRollback {
 			summary.RollbackCount++
