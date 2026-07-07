@@ -488,7 +488,6 @@ func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRem
 		stage = awsRemediationCenterStageVerification
 		entry.VerificationID = verify.VerificationID
 		entry.VerificationState = verify.State
-		entry.ExecutionID = firstNonEmptyAWSValue(entry.ExecutionID, verify.SourceExecutionID)
 		entry.RollbackState = verify.Rollback.State
 		entry.RollbackStrategy = verify.Rollback.Strategy
 		killSwitch = killSwitch || verify.KillSwitchEngaged
@@ -789,7 +788,7 @@ func summarizeAWSRemediationCenterCases(all, filtered []AWSRemediationCenterCase
 		if entry.IdentityType != "" {
 			summary.IdentityTypeCounts[entry.IdentityType]++
 		}
-		if entry.ApprovalID != "" && !strings.EqualFold(entry.ApprovalState, "approved") {
+		if entry.ApprovalID != "" && awsRemediationCenterApprovalIsPending(entry.ApprovalState) {
 			summary.ApprovalPendingCount++
 		}
 		if entry.DryRunID != "" {
@@ -825,6 +824,16 @@ func summarizeAWSRemediationCenterCases(all, filtered []AWSRemediationCenterCase
 		summary.AverageConfidencePct = int((confidenceTotal/float64(len(filtered)))*100 + 0.5)
 	}
 	return summary
+}
+
+func awsRemediationCenterApprovalIsPending(state string) bool {
+	switch normalizeAWSRuntimeEventFilterToken(state) {
+	case normalizeAWSRuntimeEventFilterToken(awsRemediationApprovalStateRequested),
+		normalizeAWSRuntimeEventFilterToken(awsRemediationApprovalStateReview),
+		"pending", "pending-approver", "in-review", "review":
+		return true
+	}
+	return false
 }
 
 func awsRemediationCenterTabs(summary AWSRemediationCenterSummary, status string) []AWSRemediationCenterTab {

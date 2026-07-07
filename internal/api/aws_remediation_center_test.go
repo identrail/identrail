@@ -135,6 +135,64 @@ func TestGetAWSRemediationCenterStitchesLifecycle(t *testing.T) {
 	}
 }
 
+func TestAWSRemediationCenterCaseDoesNotPromoteVerificationSourceExecution(t *testing.T) {
+	source := AWSRemediationCase{
+		CaseID:           "case-boundary",
+		Title:            "Permission boundary verification",
+		SourceType:       "permission_boundary_diff",
+		Lifecycle:        "approved",
+		Severity:         "high",
+		Confidence:       0.91,
+		ApprovalRequired: true,
+		ApprovalState:    awsRemediationApprovalStateApproved,
+		UpdatedAt:        time.Date(2026, 7, 4, 10, 45, 0, 0, time.UTC),
+	}
+	verify := AWSPostRemediationVerificationEntry{
+		VerificationID:    "verify-boundary",
+		SourceExecutionID: "exec-boundary-only",
+		State:             awsPostRemediationVerificationStateVerified,
+	}
+
+	entry := awsRemediationCenterCaseFromLifecycle(
+		source,
+		AWSRemediationApprovalEntry{}, false,
+		AWSRemediationDryRunEntry{}, false,
+		AWSLowRiskRemediationEntry{}, false,
+		verify, true,
+	)
+	if entry.ExecutionID != "" {
+		t.Fatalf("verification source execution must not be counted as a live action execution: %+v", entry)
+	}
+	if entry.VerificationID != verify.VerificationID || entry.Stage != awsRemediationCenterStageVerification {
+		t.Fatalf("verification evidence must still be retained on the case rollup: %+v", entry)
+	}
+	summary := summarizeAWSRemediationCenterCases([]AWSRemediationCenterCase{entry}, []AWSRemediationCenterCase{entry})
+	if summary.LiveActionCount != 0 || summary.VerificationCount != 1 {
+		t.Fatalf("verification-only case must not inflate live action count: %+v", summary)
+	}
+}
+
+func TestAWSRemediationCenterSummaryCountsOnlyActionablePendingApprovals(t *testing.T) {
+	entries := []AWSRemediationCenterCase{
+		{CaseID: "requested", ApprovalID: "approval-requested", ApprovalState: awsRemediationApprovalStateRequested},
+		{CaseID: "review", ApprovalID: "approval-review", ApprovalState: awsRemediationApprovalStateReview},
+		{CaseID: "approved", ApprovalID: "approval-approved", ApprovalState: awsRemediationApprovalStateApproved},
+		{CaseID: "denied", ApprovalID: "approval-denied", ApprovalState: awsRemediationApprovalStateDenied},
+		{CaseID: "expired", ApprovalID: "approval-expired", ApprovalState: awsRemediationApprovalStateExpired},
+		{CaseID: "blocked", ApprovalID: "approval-blocked", ApprovalState: awsRemediationApprovalStateBlocked},
+		{CaseID: "live", ExecutionID: "exec-low-risk"},
+		{CaseID: "verification-only", VerificationID: "verify-boundary", VerificationState: awsPostRemediationVerificationStateVerified},
+	}
+
+	summary := summarizeAWSRemediationCenterCases(entries, entries)
+	if summary.ApprovalPendingCount != 2 {
+		t.Fatalf("pending approvals must count only requested/under-review entries, got %+v", summary)
+	}
+	if summary.LiveActionCount != 1 || summary.VerificationCount != 1 {
+		t.Fatalf("summary must keep live-action and verification counts distinct: %+v", summary)
+	}
+}
+
 func TestGetAWSRemediationCenterScopesPayloadsToFilteredCases(t *testing.T) {
 	now := time.Date(2026, 7, 4, 10, 30, 0, 0, time.UTC)
 	svc, ws := newRemediationCenterService(t, "project-remediation-center-scope", now)
