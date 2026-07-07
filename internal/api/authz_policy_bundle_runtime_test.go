@@ -114,6 +114,19 @@ func TestDefaultRoutePolicyBundleUsesRepoScansRunForDeleteRepoFinding(t *testing
 	if err != nil {
 		t.Fatalf("compile built-in policy bundle: %v", err)
 	}
+	bulkPolicy, exists := compiled.RouteRegistry.lookup("POST", "/v1/repo-findings/bulk-delete")
+	if !exists {
+		t.Fatal("expected built-in authz policy for POST /v1/repo-findings/bulk-delete")
+	}
+	if bulkPolicy.Action != policyActionRepoScansRun {
+		t.Fatalf("expected action %q, got %q", policyActionRepoScansRun, bulkPolicy.Action)
+	}
+	if bulkPolicy.ResourceType != "repo_finding_bulk_delete" {
+		t.Fatalf("expected bulk delete resource type, got %q", bulkPolicy.ResourceType)
+	}
+	if bulkPolicy.ResourceIDParam != "" {
+		t.Fatalf("expected bulk delete route to defer target IDs to the request body, got %q", bulkPolicy.ResourceIDParam)
+	}
 	policy, exists := compiled.RouteRegistry.lookup("DELETE", "/v1/repo-findings/:finding_id")
 	if !exists {
 		t.Fatal("expected built-in authz policy for DELETE /v1/repo-findings/:finding_id")

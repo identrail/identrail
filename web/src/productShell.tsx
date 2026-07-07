@@ -175,6 +175,7 @@ import {
   type RepoFindingRemediationPublishResponse,
   type RepoFindingRemediationPreview,
   type RepoFindingDeleteTarget,
+  type RepoFindingsBulkDeleteResponse,
   type RepoFindingsSummary,
   type RepoFindingLifecycleStatus,
   type RepoRiskGraph,
@@ -1614,6 +1615,28 @@ function repoFindingDeleteTargetKey(target: RepoFindingDeleteTarget): string {
 
 function repoFindingDeleteTargetKeyFromFinding(finding: ApiFinding): string {
   return repoFindingDeleteTargetKey(repoFindingDeleteTargetFromFinding(finding));
+}
+
+const REPO_FINDING_BULK_DELETE_BATCH_SIZE = 500;
+
+function chunkRepoFindingDeleteTargets(targets: RepoFindingDeleteTarget[]): RepoFindingDeleteTarget[][] {
+  const chunks: RepoFindingDeleteTarget[][] = [];
+  for (let index = 0; index < targets.length; index += REPO_FINDING_BULK_DELETE_BATCH_SIZE) {
+    chunks.push(targets.slice(index, index + REPO_FINDING_BULK_DELETE_BATCH_SIZE));
+  }
+  return chunks;
+}
+
+function mergeRepoFindingsBulkDeleteResponses(
+  responses: RepoFindingsBulkDeleteResponse[]
+): RepoFindingsBulkDeleteResponse {
+  return responses.reduce<RepoFindingsBulkDeleteResponse>(
+    (acc, response) => ({
+      deleted: [...acc.deleted, ...response.deleted],
+      failed: [...(acc.failed ?? []), ...(response.failed ?? [])]
+    }),
+    { deleted: [], failed: [] }
+  );
 }
 
 function sortRepoRiskGraphScores(scores: RepoRiskGraphFindingScore[]): RepoRiskGraphFindingScore[] {
@@ -27609,7 +27632,11 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       let failedCandidates: ApiFinding[] = [];
       let failureMessage = 'Failed to delete finding.';
       if (bulkDeleteActive) {
-        const response = await apiClient.deleteRepoFindings(candidates.map(repoFindingDeleteTargetFromFinding), auth);
+        const responses: RepoFindingsBulkDeleteResponse[] = [];
+        for (const batch of chunkRepoFindingDeleteTargets(candidates.map(repoFindingDeleteTargetFromFinding))) {
+          responses.push(await apiClient.deleteRepoFindings(batch, auth));
+        }
+        const response = mergeRepoFindingsBulkDeleteResponses(responses);
         const deletedKeys = new Set(response.deleted.map(repoFindingDeleteTargetKey));
         const failedKeys = new Set((response.failed ?? []).map(repoFindingDeleteTargetKey));
         deletedFindings = candidates.filter((candidate) =>

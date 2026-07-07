@@ -1157,6 +1157,36 @@ func TestRouterBulkDeleteRepoFindings(t *testing.T) {
 	if len(repoScans) != 1 || repoScans[0].FindingCount != 1 {
 		t.Fatalf("expected repo scan count to refresh after bulk delete, got %+v", repoScans)
 	}
+
+	t.Run("reports missing items", func(t *testing.T) {
+		missingPayload, err := json.Marshal(RepoFindingsBulkDeleteRequest{
+			Items: []RepoFindingDeleteTarget{
+				{FindingID: "repo-bulk-missing", RepoScanID: repoScan.ID},
+				{FindingID: "repo-bulk-keep", RepoScanID: repoScan.ID},
+			},
+		})
+		if err != nil {
+			t.Fatalf("marshal bulk delete missing request: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/v1/repo-findings/bulk-delete", bytes.NewReader(missingPayload))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected partial bulk delete 200, got %d body=%s", w.Code, w.Body.String())
+		}
+		var body RepoFindingsBulkDeleteResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode partial bulk delete response: %v", err)
+		}
+		if len(body.Deleted) != 1 || body.Deleted[0].FindingID != "repo-bulk-keep" {
+			t.Fatalf("expected repo-bulk-keep deleted, got %+v", body.Deleted)
+		}
+		if len(body.Failed) != 1 || body.Failed[0].FindingID != "repo-bulk-missing" || body.Failed[0].Error == "" {
+			t.Fatalf("expected missing finding failure, got %+v", body.Failed)
+		}
+	})
 }
 
 func TestRouterRepoFindingRemediationPublish(t *testing.T) {

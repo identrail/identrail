@@ -8085,7 +8085,7 @@ describe('ProductFindingsPage states', () => {
     expect(await screen.findByText('First clearable token finding')).toBeInTheDocument();
     expect(await screen.findByText('Second clearable workflow finding')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Clear all/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Clear all$/i }));
     const confirmDialog = await screen.findByRole('dialog', { name: /Clear findings/i });
     expect(within(confirmDialog).getByText(/2 visible findings/i)).toBeInTheDocument();
     fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete all/i }));
@@ -8105,6 +8105,47 @@ describe('ProductFindingsPage states', () => {
       expect(screen.queryByText('Second clearable workflow finding')).not.toBeInTheDocument();
     });
     expect(await screen.findByText('No exposure found')).toBeInTheDocument();
+  });
+
+  it('chunks clear all requests above the repository finding bulk limit', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-clear-all-large',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 501
+    };
+    const findings: Finding[] = Array.from({ length: 501 }, (_, index) => ({
+      id: `finding-clear-all-large-${index}`,
+      scan_id: scan.id,
+      type: 'workflow_permission',
+      severity: 'high',
+      title: `Large clear all finding ${index}`,
+      human_summary: 'A workflow grants broad repository permissions.',
+      remediation: 'Limit workflow permissions.',
+      created_at: '2026-05-17T11:07:00Z'
+    }));
+
+    const { deleteRepoFindings } = await renderFindings({
+      repoScans: [scan],
+      repoFindings: findings
+    });
+
+    expect(await screen.findByText('Large clear all finding 0')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Clear all$/i }));
+    const confirmDialog = await screen.findByRole('dialog', { name: /Clear findings/i });
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete all/i }));
+
+    await waitFor(() => {
+      expect(deleteRepoFindings).toHaveBeenCalledTimes(2);
+    });
+    const firstBatch = deleteRepoFindings.mock.calls[0]?.[0] ?? [];
+    const secondBatch = deleteRepoFindings.mock.calls[1]?.[0] ?? [];
+    expect(firstBatch).toHaveLength(500);
+    expect(secondBatch).toHaveLength(1);
+    expect(firstBatch[0]).toEqual({ finding_id: findings[0].id, repo_scan_id: scan.id });
+    expect(secondBatch[0]).toEqual({ finding_id: findings[500].id, repo_scan_id: scan.id });
   });
 
   it('keeps only failed repository findings in the clear all dialog', async () => {

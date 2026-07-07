@@ -123,7 +123,7 @@ x-identrail-route-authorizations:
   - method: POST
     path: /v1/repo-findings/bulk-delete
     action: repo_scans.run
-    resource_type: repo_finding
+    resource_type: repo_finding_bulk_delete
   - method: DELETE
     path: /v1/repo-findings/{finding_id}
     action: repo_scans.run
@@ -9726,6 +9726,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/InternalServerError"
   /v1/repo-findings/{finding_id}:

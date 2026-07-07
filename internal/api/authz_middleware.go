@@ -636,6 +636,67 @@ func buildPolicyInputFromGinContext(c *gin.Context, policy routePolicy, writeKey
 	return input, nil
 }
 
+func authorizeRepoFindingDeleteTargets(
+	c *gin.Context,
+	resolver centralPolicyRuntimeResolver,
+	writeKeys []string,
+	scopedKeys map[string][]string,
+	store db.Store,
+	fingerprinter *audit.Fingerprinter,
+	targets []RepoFindingDeleteTarget,
+) (bool, error) {
+	if !hasAuthContext(c) {
+		return true, nil
+	}
+	if resolver == nil {
+		resolver = newCentralPolicyRuntimeResolver(store)
+	}
+	runtimePolicy, err := resolver.Resolve(c.Request.Context())
+	if err != nil {
+		return false, err
+	}
+	normalizedWriteKeys := normalizeKeyList(writeKeys)
+	policy := routePolicy{
+		Action:       policyActionRepoScansRun,
+		ResourceType: "repo_finding",
+	}
+	for _, target := range targets {
+		input, err := buildPolicyInputFromGinContext(c, policy, normalizedWriteKeys, scopedKeys, store)
+		if err != nil {
+			return false, err
+		}
+		input.Resource.ID = strings.TrimSpace(target.FindingID)
+		input.Resource.Attributes = nil
+		input.Context.Attributes[policyContextABACResourceAttrsLoadedKey] = "false"
+		input.Context.Attributes["repo_scan_id"] = strings.TrimSpace(target.RepoScanID)
+		if err := loadTrustedPolicyAttributes(c.Request.Context(), store, &input); err != nil {
+			return false, err
+		}
+
+		decisionEngine := runtimePolicy.Engine
+		decisionSource := runtimePolicy.Source
+		decisionVersion := runtimePolicy.Version
+		if runtimePolicy.Rollout.Mode == db.AuthzPolicyRolloutModeEnforce &&
+			shouldTargetRolloutRequest(runtimePolicy.Rollout, input) &&
+			runtimePolicy.CandidateEngine != nil &&
+			rolloutVersionValidated(runtimePolicy.Rollout, runtimePolicy.CandidateVersion) {
+			decisionEngine = runtimePolicy.CandidateEngine
+			decisionSource = runtimePolicy.CandidateSource
+			decisionVersion = runtimePolicy.CandidateVersion
+		}
+
+		decision, err := decisionEngine.Decide(c.Request.Context(), input)
+		if err != nil {
+			return false, err
+		}
+		if !decision.Allowed {
+			setAuthzDecisionContext(c, runtimePolicy.PolicySetID, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision, input, fingerprinter)
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 func firstNonEmpty(primary string, fallback string) string {
 	if strings.TrimSpace(primary) != "" {
 		return strings.TrimSpace(primary)

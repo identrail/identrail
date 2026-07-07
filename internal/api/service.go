@@ -2650,7 +2650,10 @@ func (s *Service) DeleteRepoFindings(ctx context.Context, targets []RepoFindingD
 			})
 			continue
 		}
-		return response, err
+		response.Failed = append(response.Failed, RepoFindingDeleteFailure{
+			RepoFindingDeleteTarget: target,
+			Error:                   "failed to delete repo finding",
+		})
 	}
 	return response, nil
 }

@@ -46,6 +46,83 @@ func TestPolicyRolesFromScope(t *testing.T) {
 	}
 }
 
+func TestAuthorizeRepoFindingDeleteTargetsChecksRequestBodyTargets(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := NewPolicyEngine(
+		newTenantIsolationEvaluator(),
+		newRBACPolicyEvaluator(nil),
+		newABACPolicyEvaluator(map[string]abacActionPolicy{
+			policyActionRepoScansRun: {
+				OnNoMatch: PolicyOutcomeDeny,
+				AnyOf: []abacClause{{
+					AllOf: []abacPredicate{
+						{
+							Source:   abacAttributeSourceResource,
+							Key:      "id",
+							Operator: abacOperatorEquals,
+							Value:    "finding-allowed",
+						},
+						{
+							Source:   abacAttributeSourceContext,
+							Key:      "repo_scan_id",
+							Operator: abacOperatorEquals,
+							Value:    "repo-scan-1",
+						},
+					},
+				}},
+			},
+		}),
+		nil,
+	)
+	resolver := staticPolicyRuntimeResolver{
+		runtime: resolvedCentralPolicyRuntime{
+			PolicySetID: defaultCentralPolicySetID,
+			Version:     1,
+			Source:      "test",
+			RolloutMode: db.AuthzPolicyRolloutModeDisabled,
+			Engine:      engine,
+			Rollout:     db.AuthzPolicyRollout{Mode: db.AuthzPolicyRolloutModeDisabled},
+		},
+	}
+
+	runRequest := func(targets []RepoFindingDeleteTarget) int {
+		r := gin.New()
+		r.Use(func(c *gin.Context) {
+			c.Request = c.Request.WithContext(db.WithScope(c.Request.Context(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}))
+			c.Set("auth.scope_set", newScopeSet([]string{scopeWrite}))
+			c.Set("auth.principal_type", "subject")
+			c.Set("auth.principal_id", "principal-1")
+			c.Next()
+		})
+		r.POST("/v1/repo-findings/bulk-delete", func(c *gin.Context) {
+			allowed, err := authorizeRepoFindingDeleteTargets(c, resolver, nil, nil, nil, nil, targets)
+			if err != nil {
+				t.Fatalf("authorize targets: %v", err)
+			}
+			if !allowed {
+				c.Status(http.StatusForbidden)
+				return
+			}
+			c.Status(http.StatusNoContent)
+		})
+
+		req := httptest.NewRequest(http.MethodPost, "/v1/repo-findings/bulk-delete", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	if got := runRequest([]RepoFindingDeleteTarget{{FindingID: "finding-allowed", RepoScanID: "repo-scan-1"}}); got != http.StatusNoContent {
+		t.Fatalf("expected allowed target to pass, got %d", got)
+	}
+	if got := runRequest([]RepoFindingDeleteTarget{
+		{FindingID: "finding-allowed", RepoScanID: "repo-scan-1"},
+		{FindingID: "finding-denied", RepoScanID: "repo-scan-1"},
+	}); got != http.StatusForbidden {
+		t.Fatalf("expected denied body target to fail, got %d", got)
+	}
+}
+
 func TestPolicyRolesFromAuthLegacyKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
