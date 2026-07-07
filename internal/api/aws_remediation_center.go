@@ -420,7 +420,8 @@ func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRem
 	killSwitch := false
 	tradeoffs := append([]AWSRemediationTradeoff{}, c.Tradeoffs...)
 	gates := []AWSRemediationCenterSafetyGate{}
-	audit := awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageCase, c.AuditTrail)
+	seenAuditEvents := map[string]struct{}{}
+	audit := awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageCase, c.AuditTrail, seenAuditEvents)
 	entry := AWSRemediationCenterCase{
 		CaseID:           c.CaseID,
 		Title:            c.Title,
@@ -451,7 +452,7 @@ func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRem
 		entry.ApprovalID = approval.ApprovalID
 		entry.ApprovalState = firstNonEmptyAWSValue(approval.State, entry.ApprovalState)
 		killSwitch = killSwitch || approval.KillSwitchEngaged
-		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageApproval, approval.AuditTrail)...)
+		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageApproval, approval.AuditTrail, seenAuditEvents)...)
 		tradeoffs = append(tradeoffs, approval.Tradeoffs...)
 		for _, gate := range approval.RBACGates {
 			gates = append(gates, AWSRemediationCenterSafetyGate{Source: "approval_rbac", Name: gate.Name, Status: gate.Status, Rationale: gate.Rationale})
@@ -465,7 +466,7 @@ func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRem
 		entry.DryRunID = dryRun.DryRunID
 		entry.DryRunOutcome = dryRun.Outcome
 		killSwitch = killSwitch || dryRun.KillSwitchEngaged
-		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageDryRun, dryRun.AuditTrail)...)
+		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageDryRun, dryRun.AuditTrail, seenAuditEvents)...)
 		for _, prereq := range dryRun.SatisfiedPrereqs {
 			gates = append(gates, AWSRemediationCenterSafetyGate{Source: "dry_run_prerequisite", Name: prereq.Name, Status: firstNonEmptyAWSValue(prereq.Status, "passed"), Rationale: prereq.Rationale})
 		}
@@ -479,7 +480,7 @@ func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRem
 		entry.ExecutionID = live.ExecutionID
 		entry.ExecutionState = live.State
 		killSwitch = killSwitch || live.KillSwitchEngaged
-		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageLiveAction, live.AuditTrail)...)
+		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageLiveAction, live.AuditTrail, seenAuditEvents)...)
 		for _, preflight := range live.Preflights {
 			gates = append(gates, AWSRemediationCenterSafetyGate{Source: "live_action_preflight", Name: preflight.Name, Status: preflight.Status, Rationale: preflight.Rationale})
 		}
@@ -491,7 +492,7 @@ func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRem
 		entry.RollbackState = verify.Rollback.State
 		entry.RollbackStrategy = verify.Rollback.Strategy
 		killSwitch = killSwitch || verify.KillSwitchEngaged
-		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageVerification, verify.AuditTrail)...)
+		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageVerification, verify.AuditTrail, seenAuditEvents)...)
 		if verify.State == awsPostRemediationVerificationStateRollback || verify.State == awsPostRemediationVerificationStateFailed {
 			stage = awsRemediationCenterStageRollback
 		}
@@ -548,16 +549,23 @@ func awsRemediationCenterAuditTrail(cases []AWSRemediationCenterCase) []AWSRemed
 	return out
 }
 
-// awsRemediationCenterAuditEntries projects a stage's audit trail into the
-// center's consolidated audit record, tagging each with the owning case and the
-// stage that produced it.
-func awsRemediationCenterAuditEntries(caseID, stage string, trail []AWSRemediationAuditEntry) []AWSRemediationCenterAuditEntry {
+// awsRemediationCenterAuditEntries projects only the first occurrence of each
+// event ID into the center trail. Downstream stage trails are cumulative, so the
+// first lifecycle stage that emits an event is the stage that owns it.
+func awsRemediationCenterAuditEntries(caseID, stage string, trail []AWSRemediationAuditEntry, seen map[string]struct{}) []AWSRemediationCenterAuditEntry {
 	out := make([]AWSRemediationCenterAuditEntry, 0, len(trail))
 	for _, a := range trail {
+		eventID := strings.TrimSpace(a.EventID)
+		if eventID != "" {
+			if _, ok := seen[eventID]; ok {
+				continue
+			}
+			seen[eventID] = struct{}{}
+		}
 		out = append(out, AWSRemediationCenterAuditEntry{
 			CaseID:      caseID,
 			Stage:       stage,
-			EventID:     a.EventID,
+			EventID:     eventID,
 			EventType:   a.EventType,
 			Actor:       a.Actor,
 			OccurredAt:  a.OccurredAt,

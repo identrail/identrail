@@ -193,6 +193,60 @@ func TestAWSRemediationCenterSummaryCountsOnlyActionablePendingApprovals(t *test
 	}
 }
 
+func TestAWSRemediationCenterAuditTrailDeduplicatesInheritedEvents(t *testing.T) {
+	now := time.Date(2026, 7, 4, 10, 50, 0, 0, time.UTC)
+	caseAudit := AWSRemediationAuditEntry{EventID: "case-created", EventType: "case_projected", Actor: "case-engine", OccurredAt: now}
+	approvalAudit := AWSRemediationAuditEntry{EventID: "approval-requested", EventType: "approval_requested", Actor: "approval-engine", OccurredAt: now}
+	dryRunAudit := AWSRemediationAuditEntry{EventID: "dry-run-simulated", EventType: "dry_run_simulated", Actor: "dry-run-engine", OccurredAt: now}
+	liveAudit := AWSRemediationAuditEntry{EventID: "live-projected", EventType: "low_risk_execution_projected", Actor: "live-engine", OccurredAt: now}
+	verifyAudit := AWSRemediationAuditEntry{EventID: "verification-projected", EventType: "post_remediation_verification_projected", Actor: "verification-engine", OccurredAt: now}
+
+	entry := awsRemediationCenterCaseFromLifecycle(
+		AWSRemediationCase{CaseID: "case-audit", Title: "Audit lifecycle", AuditTrail: []AWSRemediationAuditEntry{caseAudit}},
+		AWSRemediationApprovalEntry{
+			ApprovalID: "approval-audit",
+			State:      awsRemediationApprovalStateApproved,
+			AuditTrail: []AWSRemediationApprovalAuditEntry{caseAudit, approvalAudit},
+		}, true,
+		AWSRemediationDryRunEntry{
+			DryRunID:   "dry-run-audit",
+			Outcome:    "would_succeed",
+			AuditTrail: []AWSRemediationApprovalAuditEntry{caseAudit, approvalAudit, dryRunAudit},
+		}, true,
+		AWSLowRiskRemediationEntry{
+			ExecutionID: "exec-audit",
+			State:       "projected",
+			AuditTrail:  []AWSLowRiskRemediationAuditEntry{caseAudit, approvalAudit, dryRunAudit, liveAudit},
+		}, true,
+		AWSPostRemediationVerificationEntry{
+			VerificationID: "verify-audit",
+			State:          awsPostRemediationVerificationStateVerified,
+			AuditTrail:     []AWSPostRemediationVerificationAuditEntry{caseAudit, approvalAudit, dryRunAudit, liveAudit, verifyAudit},
+		}, true,
+	)
+
+	wantStages := map[string]string{
+		"case-created":           awsRemediationCenterStageCase,
+		"approval-requested":     awsRemediationCenterStageApproval,
+		"dry-run-simulated":      awsRemediationCenterStageDryRun,
+		"live-projected":         awsRemediationCenterStageLiveAction,
+		"verification-projected": awsRemediationCenterStageVerification,
+	}
+	if len(entry.AuditTrail) != len(wantStages) || entry.AuditEntryCount != len(wantStages) {
+		t.Fatalf("audit trail must keep only unique lifecycle events: count=%d trail=%+v", entry.AuditEntryCount, entry.AuditTrail)
+	}
+	seen := map[string]struct{}{}
+	for _, audit := range entry.AuditTrail {
+		if _, ok := seen[audit.EventID]; ok {
+			t.Fatalf("audit event %s was duplicated: %+v", audit.EventID, entry.AuditTrail)
+		}
+		seen[audit.EventID] = struct{}{}
+		if wantStages[audit.EventID] != audit.Stage {
+			t.Fatalf("audit event %s stage=%s want=%s trail=%+v", audit.EventID, audit.Stage, wantStages[audit.EventID], entry.AuditTrail)
+		}
+	}
+}
+
 func TestGetAWSRemediationCenterScopesPayloadsToFilteredCases(t *testing.T) {
 	now := time.Date(2026, 7, 4, 10, 30, 0, 0, time.UTC)
 	svc, ws := newRemediationCenterService(t, "project-remediation-center-scope", now)
