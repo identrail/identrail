@@ -310,7 +310,7 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 		PolicyVersion:      awsRemediationCenterPolicyID,
 		AppliedFilters:     applied,
 		Summary:            summary,
-		Tabs:               awsRemediationCenterTabs(summary, status),
+		Tabs:               awsRemediationCenterTabs(summary, status, len(approvals.Entries)),
 		Cases:              filtered,
 		RemediationCases:   cases,
 		ApprovalQueue:      approvals,
@@ -508,7 +508,7 @@ func awsRemediationCenterNoConnectorResult(scope db.Scope, project db.TenancyPro
 		PolicyVersion:      awsRemediationCenterPolicyID,
 		AppliedFilters:     applied,
 		Summary:            summary,
-		Tabs:               awsRemediationCenterTabs(summary, status),
+		Tabs:               awsRemediationCenterTabs(summary, status, 0),
 		Cases:              filtered,
 		RemediationCases:   cases,
 		ApprovalQueue:      approvals,
@@ -1171,7 +1171,7 @@ func awsRemediationCenterApprovalIsPending(state string) bool {
 	return false
 }
 
-func awsRemediationCenterTabs(summary AWSRemediationCenterSummary, status string) []AWSRemediationCenterTab {
+func awsRemediationCenterTabs(summary AWSRemediationCenterSummary, status string, approvalEntryCount int) []AWSRemediationCenterTab {
 	tabStatus := status
 	if tabStatus == "" {
 		tabStatus = "success"
@@ -1179,7 +1179,7 @@ func awsRemediationCenterTabs(summary AWSRemediationCenterSummary, status string
 	return []AWSRemediationCenterTab{
 		{ID: "overview", Label: "Overview", Status: tabStatus, Count: summary.FilteredCases},
 		{ID: "cases", Label: "Cases", Status: tabStatus, Count: summary.FilteredCases},
-		{ID: "approvals", Label: "Approvals", Status: tabStatus, Count: summary.ApprovalPendingCount},
+		{ID: "approvals", Label: "Approvals", Status: tabStatus, Count: approvalEntryCount},
 		{ID: "dry_runs", Label: "Dry-runs", Status: tabStatus, Count: summary.DryRunCount},
 		{ID: "live_actions", Label: "Live actions", Status: tabStatus, Count: summary.LiveActionCount},
 		{ID: "verification", Label: "Verification", Status: tabStatus, Count: summary.VerificationCount},

@@ -346,6 +346,10 @@ func TestGetAWSRemediationCenterScopesPayloadsToFilteredCases(t *testing.T) {
 	if len(scoped.Cases) != 1 || scoped.Cases[0].CaseID != target {
 		t.Fatalf("case_id filter must scope cases to %s: %+v", target, scoped.Cases)
 	}
+	tabCounts := map[string]int{}
+	for _, tab := range scoped.Tabs {
+		tabCounts[tab.ID] = tab.Count
+	}
 	// Every embedded lifecycle payload rendered by the tabs must be reconciled to
 	// the filtered case so a deep link never shows unrelated rows.
 	for _, e := range scoped.ApprovalQueue.Entries {
@@ -375,6 +379,9 @@ func TestGetAWSRemediationCenterScopesPayloadsToFilteredCases(t *testing.T) {
 	}
 	if scoped.ApprovalQueue.Summary.FilteredEntries != len(scoped.ApprovalQueue.Entries) || scoped.ApprovalQueue.Summary.RelationshipCount != len(scoped.ApprovalQueue.Relationships) {
 		t.Fatalf("approval summary must match scoped payload: summary=%+v entries=%d relationships=%d", scoped.ApprovalQueue.Summary, len(scoped.ApprovalQueue.Entries), len(scoped.ApprovalQueue.Relationships))
+	}
+	if tabCounts["approvals"] != len(scoped.ApprovalQueue.Entries) {
+		t.Fatalf("approvals tab count must match rendered approval rows: tab=%d rows=%d", tabCounts["approvals"], len(scoped.ApprovalQueue.Entries))
 	}
 	if scoped.DryRuns.Summary.FilteredEntries != len(scoped.DryRuns.Entries) || scoped.DryRuns.Summary.RelationshipCount != len(scoped.DryRuns.Relationships) {
 		t.Fatalf("dry-run summary must match scoped payload: summary=%+v entries=%d relationships=%d", scoped.DryRuns.Summary, len(scoped.DryRuns.Entries), len(scoped.DryRuns.Relationships))
