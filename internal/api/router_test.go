@@ -1075,6 +1075,120 @@ func TestRouterDeleteRepoFinding(t *testing.T) {
 	}
 }
 
+func TestRouterBulkDeleteRepoFindings(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 13, 11, 10, 0, 0, time.UTC)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	findings := []domain.Finding{
+		{
+			ID:           "repo-bulk-delete-a",
+			Type:         domain.FindingSecretExposure,
+			Severity:     domain.SeverityCritical,
+			Title:        "token exposed",
+			HumanSummary: "Token-like value in repository history.",
+			CreatedAt:    now,
+		},
+		{
+			ID:           "repo-bulk-delete-b",
+			Type:         domain.FindingRepoMisconfig,
+			Severity:     domain.SeverityHigh,
+			Title:        "workflow write all",
+			HumanSummary: "Workflow uses write-all.",
+			CreatedAt:    now,
+		},
+		{
+			ID:           "repo-bulk-keep",
+			Type:         domain.FindingRepoMisconfig,
+			Severity:     domain.SeverityMedium,
+			Title:        "workflow read all",
+			HumanSummary: "Workflow reads too broadly.",
+			CreatedAt:    now,
+		},
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, findings); err != nil {
+		t.Fatalf("upsert repo findings: %v", err)
+	}
+	if err := store.CompleteRepoScan(defaultScopeContext(), repoScan.ID, "completed", now.Add(time.Minute), 3, 3, len(findings), false, db.RepoScanContext{}, ""); err != nil {
+		t.Fatalf("complete repo scan: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+	payload, err := json.Marshal(RepoFindingsBulkDeleteRequest{
+		Items: []RepoFindingDeleteTarget{
+			{FindingID: "repo-bulk-delete-a", RepoScanID: repoScan.ID},
+			{FindingID: "repo-bulk-delete-b", RepoScanID: repoScan.ID},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal bulk delete request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-findings/bulk-delete", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected bulk delete repo findings 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var body RepoFindingsBulkDeleteResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode bulk delete response: %v", err)
+	}
+	if len(body.Deleted) != 2 || len(body.Failed) != 0 {
+		t.Fatalf("expected two deleted and no failures, got %+v", body)
+	}
+
+	remaining, err := svc.ListRepoFindings(defaultScopeContext(), 10, db.RepoFindingFilter{RepoScanID: repoScan.ID})
+	if err != nil {
+		t.Fatalf("list repo findings: %v", err)
+	}
+	if len(remaining) != 1 || remaining[0].ID != "repo-bulk-keep" {
+		t.Fatalf("expected only repo-bulk-keep after bulk delete, got %+v", remaining)
+	}
+	repoScans, err := svc.Store.ListRepoScans(defaultScopeContext(), 10)
+	if err != nil {
+		t.Fatalf("list repo scans: %v", err)
+	}
+	if len(repoScans) != 1 || repoScans[0].FindingCount != 1 {
+		t.Fatalf("expected repo scan count to refresh after bulk delete, got %+v", repoScans)
+	}
+
+	t.Run("reports missing items", func(t *testing.T) {
+		missingPayload, err := json.Marshal(RepoFindingsBulkDeleteRequest{
+			Items: []RepoFindingDeleteTarget{
+				{FindingID: "repo-bulk-missing", RepoScanID: repoScan.ID},
+				{FindingID: "repo-bulk-keep", RepoScanID: repoScan.ID},
+			},
+		})
+		if err != nil {
+			t.Fatalf("marshal bulk delete missing request: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/v1/repo-findings/bulk-delete", bytes.NewReader(missingPayload))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected partial bulk delete 200, got %d body=%s", w.Code, w.Body.String())
+		}
+		var body RepoFindingsBulkDeleteResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode partial bulk delete response: %v", err)
+		}
+		if len(body.Deleted) != 1 || body.Deleted[0].FindingID != "repo-bulk-keep" {
+			t.Fatalf("expected repo-bulk-keep deleted, got %+v", body.Deleted)
+		}
+		if len(body.Failed) != 1 || body.Failed[0].FindingID != "repo-bulk-missing" || body.Failed[0].Error == "" {
+			t.Fatalf("expected missing finding failure, got %+v", body.Failed)
+		}
+	})
+}
+
 func TestRouterRepoFindingRemediationPublish(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()

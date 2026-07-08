@@ -497,6 +497,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		v1.GET("/repo-findings", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"items": []any{}})
 		})
+		v1.POST("/repo-findings/bulk-delete", func(c *gin.Context) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "repo scan service unavailable"})
+		})
 		v1.DELETE("/repo-findings/:finding_id", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "repo scan service unavailable"})
 		})
@@ -1032,6 +1035,59 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		c.Status(http.StatusNoContent)
+	})
+
+	v1.POST("/repo-findings/bulk-delete", func(c *gin.Context) {
+		var request RepoFindingsBulkDeleteRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo finding delete request"})
+			return
+		}
+		targets, err := normalizeRepoFindingDeleteTargets(request.Items)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo finding delete request"})
+			return
+		}
+		for _, item := range targets {
+			repoScanID := strings.TrimSpace(item.RepoScanID)
+			if repoScanID == "" || !isValidUUID(repoScanID) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo_scan_id"})
+				return
+			}
+		}
+		authorized, err := authorizeRepoFindingDeleteTargets(
+			c,
+			centralPolicyResolver,
+			opts.WriteAPIKeys,
+			opts.APIKeyScopes,
+			authzStore,
+			opts.AuditFingerprinter,
+			metrics,
+			targets,
+		)
+		if err != nil {
+			if logger != nil {
+				logger.Error("authorize repo findings bulk delete", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "authorization failed"})
+			return
+		}
+		if !authorized {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+		response, err := svc.DeleteRepoFindings(c.Request.Context(), targets)
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrInvalidRepoRemediationRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo finding delete request"})
+			default:
+				logger.Error("delete repo findings", telemetry.ZapError(err))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete repo findings"})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, response)
 	})
 
 	v1.POST("/repo-findings/:finding_id/remediation/preview", func(c *gin.Context) {

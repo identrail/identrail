@@ -52,6 +52,7 @@ const (
 	repoFindingsTriageFilterStep     = maxCursorFetchLimit
 	repoFindingsTriageFilterCap      = maxCursorFetchLimit * 4
 	repoFindingSLAHighCritical       = 7 * 24 * time.Hour
+	maxRepoFindingBulkDeleteItems    = 500
 )
 
 const (
@@ -474,6 +475,29 @@ type RepoFindingsSummary struct {
 	ByOwner                  map[string]int `json:"by_owner"`
 	ByDetector               map[string]int `json:"by_detector"`
 	BySeverity               map[string]int `json:"by_severity"`
+}
+
+// RepoFindingDeleteTarget identifies one repository finding inside one scan.
+type RepoFindingDeleteTarget struct {
+	FindingID  string `json:"finding_id"`
+	RepoScanID string `json:"repo_scan_id"`
+}
+
+// RepoFindingsBulkDeleteRequest captures selected repository findings to remove.
+type RepoFindingsBulkDeleteRequest struct {
+	Items []RepoFindingDeleteTarget `json:"items"`
+}
+
+// RepoFindingDeleteFailure records a selected finding that could not be removed.
+type RepoFindingDeleteFailure struct {
+	RepoFindingDeleteTarget
+	Error string `json:"error"`
+}
+
+// RepoFindingsBulkDeleteResponse reports which selected findings were removed.
+type RepoFindingsBulkDeleteResponse struct {
+	Deleted []RepoFindingDeleteTarget  `json:"deleted"`
+	Failed  []RepoFindingDeleteFailure `json:"failed,omitempty"`
 }
 
 // ScanDiff captures delta between one scan and its previous scan for same provider.
@@ -2600,6 +2624,66 @@ func (s *Service) DeleteRepoFinding(ctx context.Context, findingID string, repoS
 		return ErrInvalidRepoRemediationRequest
 	}
 	return s.Store.DeleteRepoFinding(ctx, repoScanID, findingID)
+}
+
+// DeleteRepoFindings permanently removes selected repository findings.
+func (s *Service) DeleteRepoFindings(ctx context.Context, targets []RepoFindingDeleteTarget) (RepoFindingsBulkDeleteResponse, error) {
+	ctx = s.scopeContext(ctx)
+	normalized, err := normalizeRepoFindingDeleteTargets(targets)
+	if err != nil {
+		return RepoFindingsBulkDeleteResponse{}, err
+	}
+	response := RepoFindingsBulkDeleteResponse{
+		Deleted: []RepoFindingDeleteTarget{},
+		Failed:  []RepoFindingDeleteFailure{},
+	}
+	for _, target := range normalized {
+		err := s.Store.DeleteRepoFinding(ctx, target.RepoScanID, target.FindingID)
+		if err == nil {
+			response.Deleted = append(response.Deleted, target)
+			continue
+		}
+		if errors.Is(err, db.ErrNotFound) {
+			response.Failed = append(response.Failed, RepoFindingDeleteFailure{
+				RepoFindingDeleteTarget: target,
+				Error:                   "repo finding not found",
+			})
+			continue
+		}
+		response.Failed = append(response.Failed, RepoFindingDeleteFailure{
+			RepoFindingDeleteTarget: target,
+			Error:                   "failed to delete repo finding",
+		})
+	}
+	return response, nil
+}
+
+func normalizeRepoFindingDeleteTargets(targets []RepoFindingDeleteTarget) ([]RepoFindingDeleteTarget, error) {
+	if len(targets) == 0 || len(targets) > maxRepoFindingBulkDeleteItems {
+		return nil, ErrInvalidRepoRemediationRequest
+	}
+	normalized := make([]RepoFindingDeleteTarget, 0, len(targets))
+	seen := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		findingID := strings.TrimSpace(target.FindingID)
+		repoScanID := strings.TrimSpace(target.RepoScanID)
+		if findingID == "" || repoScanID == "" {
+			return nil, ErrInvalidRepoRemediationRequest
+		}
+		key := repoScanID + "::" + findingID
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, RepoFindingDeleteTarget{
+			FindingID:  findingID,
+			RepoScanID: repoScanID,
+		})
+	}
+	if len(normalized) == 0 {
+		return nil, ErrInvalidRepoRemediationRequest
+	}
+	return normalized, nil
 }
 
 func (s *Service) listRepoFindingsWithPostTriageFilter(
