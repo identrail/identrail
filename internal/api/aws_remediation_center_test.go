@@ -645,6 +645,26 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 		t.Fatalf("account+verification status blocked gates must not count filtered sibling rows: %+v", matchedStatusSummary)
 	}
 
+	statusStageCases, applied := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{
+		Status: awsPostRemediationVerificationStateVerified,
+		Stage:  awsRemediationCenterStageVerification,
+	})
+	statusStageRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(statusStageCases), statusStageCases, applied["status"], applied["account_id"])
+	statusStageCases = awsRemediationCenterCasesWithScopedVerificationRows(statusStageCases, statusStageRows, applied["status"], applied["stage"])
+
+	foundMixedStatusStage := false
+	for _, entry := range statusStageCases {
+		if entry.CaseID == "case-mixed" {
+			foundMixedStatusStage = true
+			if entry.Stage != awsRemediationCenterStageVerification || entry.VerificationID != "verify-verified" {
+				t.Fatalf("verification status+stage filter must rewrite the mixed case before applying stage: %+v", entry)
+			}
+		}
+	}
+	if !foundMixedStatusStage {
+		t.Fatalf("verification status+stage filter must keep the matching mixed case: got %+v rows=%+v", statusStageCases, statusStageRows)
+	}
+
 	stageVerificationCases, applied := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{AccountID: "222222222222", Stage: awsRemediationCenterStageVerification})
 	stageVerificationRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(stageVerificationCases), stageVerificationCases, applied["status"], applied["account_id"])
 	stageVerificationCases = awsRemediationCenterCasesWithScopedVerificationRows(stageVerificationCases, stageVerificationRows, applied["status"], applied["stage"])

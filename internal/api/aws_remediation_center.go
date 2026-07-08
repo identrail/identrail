@@ -1141,13 +1141,13 @@ func awsRemediationCenterShouldDeferStatusFilter(filters map[string]string) bool
 
 func awsRemediationCenterFilterTokenIsVerificationState(status string) bool {
 	switch normalizeAWSRuntimeEventFilterToken(status) {
-	case awsPostRemediationVerificationStatePending,
-		awsPostRemediationVerificationStateVerified,
-		awsPostRemediationVerificationStateFailed,
-		awsPostRemediationVerificationStateRollback,
-		awsPostRemediationVerificationStateSkipped,
-		awsPostRemediationVerificationStateBlocked,
-		awsPostRemediationVerificationStateNotReady:
+	case normalizeAWSRuntimeEventFilterToken(awsPostRemediationVerificationStatePending),
+		normalizeAWSRuntimeEventFilterToken(awsPostRemediationVerificationStateVerified),
+		normalizeAWSRuntimeEventFilterToken(awsPostRemediationVerificationStateFailed),
+		normalizeAWSRuntimeEventFilterToken(awsPostRemediationVerificationStateRollback),
+		normalizeAWSRuntimeEventFilterToken(awsPostRemediationVerificationStateSkipped),
+		normalizeAWSRuntimeEventFilterToken(awsPostRemediationVerificationStateBlocked),
+		normalizeAWSRuntimeEventFilterToken(awsPostRemediationVerificationStateNotReady):
 		return true
 	default:
 		return false
