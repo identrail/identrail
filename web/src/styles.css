@@ -5859,7 +5859,8 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
 .idt-repo-scan-health-remove:hover,
 .idt-repo-scan-health-remove:focus-visible {
   color: #ffffff;
-  outline: none;
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 .idt-repo-scan-health-panel {
