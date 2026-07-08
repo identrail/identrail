@@ -2769,6 +2769,42 @@ describe('ProductShellLayout', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /GitHub findings content/i })).toBeInTheDocument();
   });
 
+  it('preserves the selected environment when routing to AWS coverage from workspace finder', async () => {
+    mockConnectorFeatureFlags({ github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const { ProductShellLayout } = await import('./productShell');
+
+    function LocationHeading() {
+      const location = useLocation();
+      return <h2>{`${location.pathname}${location.search}`}</h2>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/identities?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
+            <Route path="aws/identities" element={<h2>AWS identities content</h2>} />
+            <Route path="aws/coverage" element={<LocationHeading />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS identities content' })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: '/' });
+    const finder = screen.getByRole('dialog', { name: /Workspace finder/i });
+    fireEvent.change(within(finder).getByLabelText(/Search workspace commands/i), { target: { value: 'aws coverage' } });
+    fireEvent.keyDown(within(finder).getByLabelText(/Search workspace commands/i), { key: 'Enter' });
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 2,
+        name: '/app/tenant-a/workspace-a/aws/coverage?environment=production'
+      })
+    ).toBeInTheDocument();
+  });
+
   it('uses Windows shortcut labels when rendering the app shell outside macOS', async () => {
     vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32');
     mockConnectorFeatureFlags({ github: true, kubernetes: true });

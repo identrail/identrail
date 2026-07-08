@@ -24125,6 +24125,8 @@ export function ProductShellLayout() {
     if (!scope) {
       return [];
     }
+    const currentEnvironmentID = environmentIDFromSearch(location.search);
+    const domainCommandPath = (path: string) => appendEnvironmentQuery(path, currentEnvironmentID);
     const items: CommandPaletteItem[] = [
       {
         id: 'overview',
@@ -24141,21 +24143,21 @@ export function ProductShellLayout() {
         label: 'AWS',
         description: 'AWS machine identity control center',
         keywords: ['aws', 'cloud', 'iam', 'identity'],
-        path: `${basePath}/aws`
+        path: domainCommandPath(`${basePath}/aws`)
       });
       items.push({
         id: 'aws-coverage',
         label: 'AWS coverage',
         description: 'Account, region, service, and collector coverage dashboard',
         keywords: ['aws', 'coverage', 'account', 'region', 'collector'],
-        path: `${basePath}/aws/coverage`
+        path: domainCommandPath(`${basePath}/aws/coverage`)
       });
       items.push({
         id: 'aws-findings',
         label: 'AWS findings',
         description: 'Domain-scoped AWS risk queue',
         keywords: ['aws', 'findings', 'risk', 'iam'],
-        path: `${basePath}/aws/findings`
+        path: domainCommandPath(`${basePath}/aws/findings`)
       });
       if (sourceAvailability.aws.available) {
         items.push({
@@ -24163,7 +24165,7 @@ export function ProductShellLayout() {
           label: 'Connect AWS',
           description: 'Start AWS account and identity onboarding',
           keywords: ['aws', 'connect', 'account', 'role'],
-          path: `${basePath}/aws/connect`
+          path: domainCommandPath(`${basePath}/aws/connect`)
         });
       }
     }
@@ -24174,21 +24176,21 @@ export function ProductShellLayout() {
         label: 'GitHub',
         description: 'Repositories, Actions/OIDC, and agentic risk',
         keywords: ['github', 'repositories', 'actions', 'oidc'],
-        path: `${basePath}/github`
+        path: domainCommandPath(`${basePath}/github`)
       });
       items.push({
         id: 'github-findings',
         label: 'GitHub findings',
         description: 'Repository risk inside the GitHub section',
         keywords: ['github', 'findings', 'repository', 'triage'],
-        path: `${basePath}/github/findings`
+        path: domainCommandPath(`${basePath}/github/findings`)
       });
       items.push({
         id: 'github-agentic-risk',
         label: 'GitHub AI / Agentic Risk',
         description: 'Agent identities, MCP tools, prompts, secrets, and workflow trust paths',
         keywords: ['github', 'agentic', 'ai', 'mcp', 'tools', 'prompts', 'secrets', 'workflow'],
-        path: `${basePath}/github/agentic-risk`
+        path: domainCommandPath(`${basePath}/github/agentic-risk`)
       });
       if (sourceAvailability.github.available) {
         items.push({
@@ -24196,7 +24198,7 @@ export function ProductShellLayout() {
           label: 'Connect GitHub',
           description: 'Start GitHub App onboarding',
           keywords: ['github', 'connect', 'app', 'install'],
-          path: `${basePath}/github/connect`
+          path: domainCommandPath(`${basePath}/github/connect`)
         });
       }
     }
@@ -24207,14 +24209,14 @@ export function ProductShellLayout() {
         label: 'Kubernetes',
         description: 'Clusters, workloads, service accounts, and RBAC',
         keywords: ['kubernetes', 'k8s', 'clusters', 'rbac'],
-        path: `${basePath}/kubernetes`
+        path: domainCommandPath(`${basePath}/kubernetes`)
       });
       items.push({
         id: 'kubernetes-findings',
         label: 'Kubernetes findings',
         description: 'Cluster and service-account risk queue',
         keywords: ['kubernetes', 'k8s', 'findings', 'rbac'],
-        path: `${basePath}/kubernetes/findings`
+        path: domainCommandPath(`${basePath}/kubernetes/findings`)
       });
       if (sourceAvailability.kubernetes.available) {
         items.push({
@@ -24222,7 +24224,7 @@ export function ProductShellLayout() {
           label: 'Connect Kubernetes',
           description: 'Start cluster onboarding',
           keywords: ['kubernetes', 'k8s', 'connect', 'cluster'],
-          path: `${basePath}/kubernetes/connect`
+          path: domainCommandPath(`${basePath}/kubernetes/connect`)
         });
       }
     }
@@ -24258,7 +24260,7 @@ export function ProductShellLayout() {
       }
     );
     return items;
-  }, [basePath, navigate, scope, sourceAvailability]);
+  }, [basePath, location.search, navigate, scope, sourceAvailability]);
 
   useEffect(() => {
     setOpenDomainFlyout(null);
