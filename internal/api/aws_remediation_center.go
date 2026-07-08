@@ -285,10 +285,10 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	liveActions.Entries = awsRemediationCenterScopeEntries(liveActions.Entries, scopedCaseIDs, func(e AWSLowRiskRemediationEntry) string { return e.CaseID })
 	liveActions.Relationships = awsRemediationCenterScopeEntries(liveActions.Relationships, awsRemediationCenterStringSet(liveActions.Entries, func(e AWSLowRiskRemediationEntry) string { return e.ExecutionID }), func(r AWSLowRiskRemediationRelationship) string { return r.ExecutionID })
 	liveActions.Summary = summarizeAWSLowRiskRemediationEntries(allLiveActionEntries, liveActions.Entries, liveActions.Relationships)
-	verification.Entries = awsRemediationCenterScopeVerificationEntries(verification.Entries, scopedCaseIDs, filtered, request.Status, request.AccountID)
+	verification.Entries = awsRemediationCenterScopeVerificationEntries(verification.Entries, scopedCaseIDs, filtered, applied["status"], applied["account_id"])
 	verification.Relationships = awsRemediationCenterScopeEntries(verification.Relationships, awsRemediationCenterStringSet(verification.Entries, func(e AWSPostRemediationVerificationEntry) string { return e.VerificationID }), func(r AWSPostRemediationVerificationRelationship) string { return r.VerificationID })
 	verification.Summary = summarizeAWSPostRemediationVerificationEntries(allVerificationEntries, verification.Entries, verification.Relationships)
-	filtered = awsRemediationCenterCasesWithScopedVerificationRows(filtered, verification.Entries)
+	filtered = awsRemediationCenterCasesWithScopedVerificationRows(filtered, verification.Entries, applied["status"])
 	summary := summarizeAWSRemediationCenterCases(centerCases, filtered)
 	auditTrail := awsRemediationCenterAuditTrail(filtered)
 
@@ -818,8 +818,9 @@ func awsRemediationCenterVerificationStatusCaseIDSet(cases []AWSRemediationCente
 	return out
 }
 
-func awsRemediationCenterCasesWithScopedVerificationRows(cases []AWSRemediationCenterCase, entries []AWSPostRemediationVerificationEntry) []AWSRemediationCenterCase {
+func awsRemediationCenterCasesWithScopedVerificationRows(cases []AWSRemediationCenterCase, entries []AWSPostRemediationVerificationEntry, status string) []AWSRemediationCenterCase {
 	counts := map[string]int{}
+	entriesByCase := map[string][]AWSPostRemediationVerificationEntry{}
 	verificationAuditEvents := map[string]map[string]struct{}{}
 	for _, entry := range entries {
 		key := strings.TrimSpace(entry.CaseID)
@@ -827,6 +828,7 @@ func awsRemediationCenterCasesWithScopedVerificationRows(cases []AWSRemediationC
 			continue
 		}
 		counts[key]++
+		entriesByCase[key] = append(entriesByCase[key], entry)
 		if _, ok := verificationAuditEvents[key]; !ok {
 			verificationAuditEvents[key] = map[string]struct{}{}
 		}
@@ -836,15 +838,34 @@ func awsRemediationCenterCasesWithScopedVerificationRows(cases []AWSRemediationC
 			}
 		}
 	}
-	out := append([]AWSRemediationCenterCase{}, cases...)
-	for i := range out {
-		if out[i].VerificationID == "" {
+	statusCaseIDs := awsRemediationCenterVerificationStatusCaseIDSet(cases, normalizeAWSRuntimeEventFilterToken(status))
+	out := make([]AWSRemediationCenterCase, 0, len(cases))
+	for _, entry := range cases {
+		caseID := strings.TrimSpace(entry.CaseID)
+		if entry.VerificationID == "" {
+			out = append(out, entry)
 			continue
 		}
-		caseID := strings.TrimSpace(out[i].CaseID)
-		out[i].VerificationEntryCount = counts[caseID]
-		out[i].AuditTrail = awsRemediationCenterAuditTrailWithScopedVerificationEvents(out[i].AuditTrail, verificationAuditEvents[caseID])
-		out[i].AuditEntryCount = len(out[i].AuditTrail)
+		scopedRows := entriesByCase[caseID]
+		if _, ok := statusCaseIDs[caseID]; ok && len(scopedRows) == 0 {
+			continue
+		}
+		entry.VerificationEntryCount = counts[caseID]
+		if selected, ok := awsRemediationCenterSelectedVerification(scopedRows); ok {
+			entry.VerificationID = selected.VerificationID
+			entry.VerificationState = selected.State
+			entry.VerificationStates = awsRemediationCenterVerificationStates(scopedRows)
+			entry.RollbackState = selected.Rollback.State
+			entry.RollbackStrategy = selected.Rollback.Strategy
+			entry.Stage = awsRemediationCenterStageVerification
+			if selected.State == awsPostRemediationVerificationStateRollback || selected.State == awsPostRemediationVerificationStateFailed {
+				entry.Stage = awsRemediationCenterStageRollback
+			}
+			entry.NextAction = selected.NextAction
+		}
+		entry.AuditTrail = awsRemediationCenterAuditTrailWithScopedVerificationEvents(entry.AuditTrail, verificationAuditEvents[caseID])
+		entry.AuditEntryCount = len(entry.AuditTrail)
+		out = append(out, entry)
 	}
 	return out
 }

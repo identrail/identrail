@@ -441,7 +441,7 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 
 	filtered, _ := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{Status: awsPostRemediationVerificationStateVerified})
 	scopedRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(filtered), filtered, awsPostRemediationVerificationStateVerified, "")
-	filtered = awsRemediationCenterCasesWithScopedVerificationRows(filtered, scopedRows)
+	filtered = awsRemediationCenterCasesWithScopedVerificationRows(filtered, scopedRows, awsPostRemediationVerificationStateVerified)
 	summary := summarizeAWSRemediationCenterCases(centerCases, filtered)
 	auditTrail := awsRemediationCenterAuditTrail(filtered)
 
@@ -482,7 +482,7 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 
 	approvedCases, _ := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{Status: awsRemediationApprovalStateApproved})
 	approvedRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(approvedCases), approvedCases, awsRemediationApprovalStateApproved, "")
-	approvedCases = awsRemediationCenterCasesWithScopedVerificationRows(approvedCases, approvedRows)
+	approvedCases = awsRemediationCenterCasesWithScopedVerificationRows(approvedCases, approvedRows, awsRemediationApprovalStateApproved)
 	approvedSummary := summarizeAWSRemediationCenterCases(centerCases, approvedCases)
 	approvedAudit := awsRemediationCenterAuditTrail(approvedCases)
 
@@ -505,7 +505,7 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 
 	accountCases, _ := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{AccountID: "222222222222"})
 	accountRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(accountCases), accountCases, "", "222222222222")
-	accountCases = awsRemediationCenterCasesWithScopedVerificationRows(accountCases, accountRows)
+	accountCases = awsRemediationCenterCasesWithScopedVerificationRows(accountCases, accountRows, "")
 	accountSummary := summarizeAWSRemediationCenterCases(centerCases, accountCases)
 	accountAudit := awsRemediationCenterAuditTrail(accountCases)
 
@@ -514,6 +514,9 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 	}
 	if len(accountRows) != 1 || accountRows[0].VerificationID != "verify-verified" {
 		t.Fatalf("account-scoped verification rows should keep only matching target rows, got %+v", accountRows)
+	}
+	if accountCases[0].VerificationID != "verify-verified" || accountCases[0].VerificationState != awsPostRemediationVerificationStateVerified {
+		t.Fatalf("account-scoped case rollup must use the remaining verification row, got %+v", accountCases[0])
 	}
 	if accountSummary.VerificationCount != len(accountRows) {
 		t.Fatalf("account-scoped verification_count must match rendered rows: count=%d rows=%d", accountSummary.VerificationCount, len(accountRows))
@@ -525,6 +528,31 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 	}
 	if got, want := accountSummary.AuditEntryCount, len(accountAudit); got != want {
 		t.Fatalf("account-scoped audit_entry_count must match audit rows: got=%d want=%d trail=%+v", got, want, accountAudit)
+	}
+
+	allAccountCases, applied := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{AccountID: "all"})
+	allAccountRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(allAccountCases), allAccountCases, "", applied["account_id"])
+	if _, ok := applied["account_id"]; ok {
+		t.Fatalf("account_id=all must be treated as an unset account filter, applied=%+v", applied)
+	}
+	if len(allAccountRows) != 3 {
+		t.Fatalf("account_id=all must not row-filter verification entries, got %+v", allAccountRows)
+	}
+
+	mismatchedStatusCases, applied := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{AccountID: "222222222222", Status: awsPostRemediationVerificationStateFailed})
+	mismatchedStatusRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(mismatchedStatusCases), mismatchedStatusCases, applied["status"], applied["account_id"])
+	mismatchedStatusCases = awsRemediationCenterCasesWithScopedVerificationRows(mismatchedStatusCases, mismatchedStatusRows, applied["status"])
+	mismatchedStatusSummary := summarizeAWSRemediationCenterCases(centerCases, mismatchedStatusCases)
+	mismatchedStatusAudit := awsRemediationCenterAuditTrail(mismatchedStatusCases)
+
+	if len(mismatchedStatusRows) != 0 {
+		t.Fatalf("account+status filter must not keep verification rows from a different account, got %+v", mismatchedStatusRows)
+	}
+	if len(mismatchedStatusCases) != 0 || mismatchedStatusSummary.VerificationCount != 0 || mismatchedStatusSummary.FilteredCases != 0 {
+		t.Fatalf("case set must drop verification-status matches that do not survive account row scoping: cases=%+v summary=%+v", mismatchedStatusCases, mismatchedStatusSummary)
+	}
+	if len(mismatchedStatusAudit) != 0 || mismatchedStatusSummary.AuditEntryCount != 0 {
+		t.Fatalf("account+status audit must stay empty when no scoped verification row matched: summary=%+v audit=%+v", mismatchedStatusSummary, mismatchedStatusAudit)
 	}
 }
 
