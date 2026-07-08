@@ -211,6 +211,45 @@ func TestAWSRemediationCenterSummaryCountsOnlyActionablePendingApprovals(t *test
 	}
 }
 
+func TestAWSRemediationCenterCountsDisabledApprovalFeatureFlagsAsBlocked(t *testing.T) {
+	entry := awsRemediationCenterCaseFromLifecycle(
+		AWSRemediationCase{
+			CaseID:        "case-feature-flag",
+			Title:         "Feature flag gate",
+			SourceType:    "permission_boundary_diff",
+			Lifecycle:     "approved",
+			ApprovalState: awsRemediationApprovalStateApproved,
+		},
+		AWSRemediationApprovalEntry{
+			ApprovalID: "approval-feature-flag",
+			State:      awsRemediationApprovalStateApproved,
+			FeatureFlags: []AWSRemediationApprovalFeatureFlag{
+				{Name: "live_aws_mutation", Enabled: false, Scope: "tenant", Rationale: "Live mutation is disabled."},
+			},
+		}, true,
+		AWSRemediationDryRunEntry{}, false,
+		AWSLowRiskRemediationEntry{}, false,
+		AWSPostRemediationVerificationEntry{}, false,
+	)
+
+	foundFlagGate := false
+	for _, gate := range entry.SafetyGates {
+		if gate.Source == "approval_feature_flag" && gate.Name == "live_aws_mutation" {
+			foundFlagGate = true
+			if gate.Status != "blocked" {
+				t.Fatalf("disabled approval feature flag must become a blocked safety gate, got %+v", gate)
+			}
+		}
+	}
+	if !foundFlagGate {
+		t.Fatalf("case rollup must include approval feature flag gate: %+v", entry.SafetyGates)
+	}
+	summary := summarizeAWSRemediationCenterCases([]AWSRemediationCenterCase{entry}, []AWSRemediationCenterCase{entry})
+	if summary.BlockedGateCount != 1 {
+		t.Fatalf("summary must count disabled approval feature flags as blocked gates: %+v", summary)
+	}
+}
+
 func TestAWSRemediationCenterAuditTrailDeduplicatesInheritedEvents(t *testing.T) {
 	now := time.Date(2026, 7, 4, 10, 50, 0, 0, time.UTC)
 	caseAudit := AWSRemediationAuditEntry{EventID: "case-created", EventType: "case_projected", Actor: "case-engine", OccurredAt: now}

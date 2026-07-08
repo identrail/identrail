@@ -1018,7 +1018,7 @@ func awsRemediationCenterFlagStatus(enabled bool) string {
 	if enabled {
 		return "enabled"
 	}
-	return "disabled"
+	return "blocked"
 }
 
 func awsRemediationCenterStageNextAction(stage string) string {
