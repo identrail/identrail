@@ -2717,6 +2717,42 @@ describe('Domain-first app routes', () => {
     expect(DOMAIN_APP_ROUTE_MANIFEST).not.toContain('/app/:tenantID/:workspaceID/findings');
   });
 
+  it('links the AWS remediation page to the remediation center', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+
+    const { ProductAWSRemediationPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/remediation?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/remediation" element={<ProductAWSRemediationPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Remediation' })).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS remediation plan surfaces' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open center' })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/remediation/center?environment=production'
+    );
+  });
+
   it('renders premium domain route shells with provider marks and environment scope', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({

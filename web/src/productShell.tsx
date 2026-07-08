@@ -3280,6 +3280,10 @@ function awsRouteLink(scope: ProductSession, routeID: ProductDomainRouteID, envi
   return appendEnvironmentQuery(domainRoutePath(scope, 'aws', findDomainRoute('aws', routeID)), environmentID);
 }
 
+function awsRemediationCenterPath(scope: ProductSession, environmentID: string): string {
+  return appendEnvironmentQuery(buildScopedPath(scope, 'aws/remediation/center'), environmentID);
+}
+
 function awsMachineIdentityDetailLink(
   scope: ProductSession,
   environmentID: string,
@@ -17865,6 +17869,7 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const graphPath = awsRouteLink(scope, 'graph', selectedEnvironmentID);
   const findingsPath = awsRouteLink(scope, 'findings', selectedEnvironmentID);
   const remediationPath = awsRouteLink(scope, 'remediation', selectedEnvironmentID);
+  const remediationCenterPath = awsRemediationCenterPath(scope, selectedEnvironmentID);
   const governancePath = awsRouteLink(scope, 'governance', selectedEnvironmentID);
   const status =
     environmentScope.loading || connectionLoading
@@ -17897,6 +17902,18 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   void governancePath;
   void homePath;
 
+  const actionsUnavailable = connectionError || environmentScope.loading || connectionLoading;
+  const primaryAction = actionsUnavailable
+    ? undefined
+    : routeID === 'remediation' && connection?.connected
+      ? { label: 'Open center', to: remediationCenterPath, variant: 'primary' as const }
+      : connection?.connected
+        ? undefined
+        : { label: 'Connect AWS', to: connectPath, variant: 'primary' as const };
+  const secondaryActions = !actionsUnavailable && routeID === 'remediation' && !connection?.connected
+    ? [{ label: 'Open center', to: remediationCenterPath, variant: 'secondary' as const }]
+    : undefined;
+
   return (
     <DomainPageShell
       domain="aws"
@@ -17906,13 +17923,8 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       description={riskSubtitle}
       scope={<ProductEnvironmentSelector state={environmentScope} onChange={data.onChangeEnvironment} />}
       statusTone={connectionError ? 'danger' : statusTone}
-      primaryAction={
-        connectionError || environmentScope.loading || connectionLoading
-          ? undefined
-          : connection?.connected
-            ? undefined
-            : { label: 'Connect AWS', to: connectPath, variant: 'primary' }
-      }
+      primaryAction={primaryAction}
+      secondaryActions={secondaryActions}
     >
       <div className="idt-aws-risk-page">
         {connectionError ? (
