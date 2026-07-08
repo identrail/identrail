@@ -1639,6 +1639,66 @@ function mergeRepoFindingsBulkDeleteResponses(
   );
 }
 
+async function deleteRepoFindingsBatchWithFallback(
+  targets: RepoFindingDeleteTarget[],
+  auth: RequestAuthContext
+): Promise<RepoFindingsBulkDeleteResponse> {
+  try {
+    return await apiClient.deleteRepoFindings(targets, auth);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) {
+      throw error;
+    }
+  }
+
+  const response: RepoFindingsBulkDeleteResponse = { deleted: [], failed: [] };
+  for (const target of targets) {
+    try {
+      await apiClient.deleteRepoFinding(target.finding_id, target.repo_scan_id, auth);
+      response.deleted.push(target);
+    } catch (deleteError) {
+      response.failed?.push({
+        ...target,
+        error: deleteError instanceof Error ? deleteError.message : 'Failed to delete finding.'
+      });
+    }
+  }
+  return response;
+}
+
+const DISMISSED_REPO_FAILED_SCAN_STORAGE_KEY = 'idt:repo-failed-scan-dismissals:v1';
+
+function failedRepoScanDismissalKey(scope: ProductSession, scanID: string): string {
+  return `${scope.tenantID}:${scope.workspaceID}:${scanID}`;
+}
+
+function readDismissedRepoFailedScanKeys(): Set<string> {
+  if (typeof window === 'undefined') {
+    return new Set();
+  }
+  try {
+    const raw = window.localStorage.getItem(DISMISSED_REPO_FAILED_SCAN_STORAGE_KEY);
+    if (!raw) {
+      return new Set();
+    }
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeDismissedRepoFailedScanKeys(keys: Set<string>) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.localStorage.setItem(DISMISSED_REPO_FAILED_SCAN_STORAGE_KEY, JSON.stringify([...keys]));
+  } catch {
+    // Local storage is an enhancement here; the in-memory dismissal still applies.
+  }
+}
+
 function sortRepoRiskGraphScores(scores: RepoRiskGraphFindingScore[]): RepoRiskGraphFindingScore[] {
   return [...scores].sort((left, right) => {
     if (right.score !== left.score) {
@@ -27117,6 +27177,9 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const [sortBy, setSortBy] = useState<(typeof REPO_FINDING_SORT_FIELDS)[number]>('severity');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [filtersExpanded, setFiltersExpanded] = useState(true);
+  const [dismissedFailedScanKeys, setDismissedFailedScanKeys] = useState<Set<string>>(() =>
+    readDismissedRepoFailedScanKeys()
+  );
   const [hierarchyOpenState, setHierarchyOpenState] = useState<{
     repositories: Set<string>;
     scans: Set<string>;
@@ -27636,7 +27699,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         let batchError: unknown = null;
         for (const batch of chunkRepoFindingDeleteTargets(candidates.map(repoFindingDeleteTargetFromFinding))) {
           try {
-            responses.push(await apiClient.deleteRepoFindings(batch, auth));
+            responses.push(await deleteRepoFindingsBatchWithFallback(batch, auth));
           } catch (requestError) {
             batchError = requestError;
             break;
@@ -27996,6 +28059,18 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     void loadTrendSignals(scope, 'refresh');
   };
 
+  const dismissFailedRepoScan = (scan: RepoScanRecord | null) => {
+    if (!scan) {
+      return;
+    }
+    setDismissedFailedScanKeys((current) => {
+      const next = new Set(current);
+      next.add(failedRepoScanDismissalKey(scope, scan.id));
+      writeDismissedRepoFailedScanKeys(next);
+      return next;
+    });
+  };
+
   const connectPath = buildScopedPath(scope, 'github/connect');
   const remediationPath = appendEnvironmentQuery(
     buildScopedPath(scope, 'github/remediation'),
@@ -28006,11 +28081,17 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   );
   const succeededScanCount = repoScans.filter((scan) => repoScanStatusTone(scan.status) === 'success').length;
   const failedScans = scansByRecency.filter((scan) => isFailedScanStatus(scan.status));
+  const visibleFailedScans = failedScans.filter(
+    (scan) => !dismissedFailedScanKeys.has(failedRepoScanDismissalKey(scope, scan.id))
+  );
   const latestScan = scansByRecency[0] ?? null;
-  const latestFailedScan = failedScans[0] ?? null;
+  const latestFailedScan = visibleFailedScans[0] ?? null;
   const hasQueuedOrRunningScan = scansByRecency.some((scan) => isActiveScanStatus(scan.status));
   const latestScanSucceeded = latestScan ? repoScanStatusTone(latestScan.status) === 'success' : false;
-  const latestScanFailed = latestScan ? isFailedScanStatus(latestScan.status) : false;
+  const latestScanFailed = latestScan
+    ? isFailedScanStatus(latestScan.status) &&
+      !dismissedFailedScanKeys.has(failedRepoScanDismissalKey(scope, latestScan.id))
+    : false;
   const neverScanned = repoScans.length === 0;
   // "Has findings" must be independent of both active finding filters and the
   // recent-scan window (listRepoScans is capped). Combine the server-side
@@ -28106,6 +28187,13 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
               <button
                 className="idt-btn idt-btn-ghost"
                 type="button"
+                onClick={() => dismissFailedRepoScan(latestFailedScan)}
+              >
+                Remove
+              </button>
+              <button
+                className="idt-btn idt-btn-ghost"
+                type="button"
                 onClick={handleRefresh}
                 disabled={refreshing || signalsRefreshing}
               >
@@ -28185,7 +28273,16 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       {latestScanFailed ? (
         <div className="idt-app-alert idt-app-alert-error idt-repo-scan-health">
           <span>Last scan failed: {describeScanFailure(latestFailedScan)}</span>
-          <Link to={connectPath}>Review &amp; re-run</Link>
+          <span className="idt-repo-scan-health-actions-inline">
+            <button
+              className="idt-repo-scan-health-remove"
+              type="button"
+              onClick={() => dismissFailedRepoScan(latestFailedScan)}
+            >
+              Remove
+            </button>
+            <Link to={connectPath}>Review &amp; re-run</Link>
+          </span>
         </div>
       ) : null}
 
