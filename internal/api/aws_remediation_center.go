@@ -285,7 +285,7 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	liveActions.Entries = awsRemediationCenterScopeEntries(liveActions.Entries, scopedCaseIDs, func(e AWSLowRiskRemediationEntry) string { return e.CaseID })
 	liveActions.Relationships = awsRemediationCenterScopeEntries(liveActions.Relationships, awsRemediationCenterStringSet(liveActions.Entries, func(e AWSLowRiskRemediationEntry) string { return e.ExecutionID }), func(r AWSLowRiskRemediationRelationship) string { return r.ExecutionID })
 	liveActions.Summary = summarizeAWSLowRiskRemediationEntries(allLiveActionEntries, liveActions.Entries, liveActions.Relationships)
-	verification.Entries = awsRemediationCenterScopeVerificationEntries(verification.Entries, scopedCaseIDs, filtered, request.Status)
+	verification.Entries = awsRemediationCenterScopeVerificationEntries(verification.Entries, scopedCaseIDs, filtered, request.Status, request.AccountID)
 	verification.Relationships = awsRemediationCenterScopeEntries(verification.Relationships, awsRemediationCenterStringSet(verification.Entries, func(e AWSPostRemediationVerificationEntry) string { return e.VerificationID }), func(r AWSPostRemediationVerificationRelationship) string { return r.VerificationID })
 	verification.Summary = summarizeAWSPostRemediationVerificationEntries(allVerificationEntries, verification.Entries, verification.Relationships)
 	filtered = awsRemediationCenterCasesWithScopedVerificationRows(filtered, verification.Entries)
@@ -767,13 +767,17 @@ func awsRemediationCenterScopeEntries[T any](entries []T, allow map[string]struc
 // with the filtered case set. If a case matched status through a verification
 // row state, the tab renders only matching rows; lifecycle/approval/stage status
 // matches keep all verification rows for that case.
-func awsRemediationCenterScopeVerificationEntries(entries []AWSPostRemediationVerificationEntry, allow map[string]struct{}, cases []AWSRemediationCenterCase, status string) []AWSPostRemediationVerificationEntry {
+func awsRemediationCenterScopeVerificationEntries(entries []AWSPostRemediationVerificationEntry, allow map[string]struct{}, cases []AWSRemediationCenterCase, status, accountID string) []AWSPostRemediationVerificationEntry {
 	status = normalizeAWSRuntimeEventFilterToken(status)
+	accountID = strings.TrimSpace(accountID)
 	statusCaseIDs := awsRemediationCenterVerificationStatusCaseIDSet(cases, status)
 	out := make([]AWSPostRemediationVerificationEntry, 0, len(entries))
 	for _, entry := range entries {
 		caseID := strings.TrimSpace(entry.CaseID)
 		if _, ok := allow[caseID]; !ok {
+			continue
+		}
+		if accountID != "" && !awsRemediationCenterVerificationAccountMatch(entry, accountID) {
 			continue
 		}
 		if _, ok := statusCaseIDs[caseID]; ok && status != normalizeAWSRuntimeEventFilterToken(entry.State) {
@@ -782,6 +786,18 @@ func awsRemediationCenterScopeVerificationEntries(entries []AWSPostRemediationVe
 		out = append(out, entry)
 	}
 	return out
+}
+
+func awsRemediationCenterVerificationAccountMatch(entry AWSPostRemediationVerificationEntry, accountID string) bool {
+	if strings.EqualFold(strings.TrimSpace(entry.AccountID), accountID) {
+		return true
+	}
+	for _, target := range entry.TargetAccountIDs {
+		if strings.EqualFold(strings.TrimSpace(target), accountID) {
+			return true
+		}
+	}
+	return false
 }
 
 func awsRemediationCenterVerificationStatusCaseIDSet(cases []AWSRemediationCenterCase, status string) map[string]struct{} {

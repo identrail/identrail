@@ -404,6 +404,8 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 	centerCases := []AWSRemediationCenterCase{
 		{
 			CaseID:                 "case-mixed",
+			AccountID:              "111111111111",
+			TargetAccountIDs:       []string{"111111111111", "222222222222"},
 			VerificationID:         "verify-failed",
 			VerificationState:      awsPostRemediationVerificationStateFailed,
 			VerificationEntryCount: 2,
@@ -418,6 +420,7 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 		},
 		{
 			CaseID:                 "case-verified",
+			AccountID:              "333333333333",
 			VerificationID:         "verify-verified",
 			VerificationState:      awsPostRemediationVerificationStateVerified,
 			VerificationEntryCount: 1,
@@ -430,14 +433,14 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 		},
 	}
 	verificationRows := []AWSPostRemediationVerificationEntry{
-		{CaseID: "case-mixed", VerificationID: "verify-failed", State: awsPostRemediationVerificationStateFailed, AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-mixed-failed"}}},
-		{CaseID: "case-mixed", VerificationID: "verify-verified", State: awsPostRemediationVerificationStateVerified, AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-mixed-verified"}}},
-		{CaseID: "case-verified", VerificationID: "verify-only-verified", State: awsPostRemediationVerificationStateVerified, AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-verified-verified"}}},
-		{CaseID: "case-unfiltered", VerificationID: "verify-outside-case-filter", State: awsPostRemediationVerificationStateVerified, AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-unfiltered-verified"}}},
+		{CaseID: "case-mixed", VerificationID: "verify-failed", State: awsPostRemediationVerificationStateFailed, AccountID: "111111111111", AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-mixed-failed"}}},
+		{CaseID: "case-mixed", VerificationID: "verify-verified", State: awsPostRemediationVerificationStateVerified, AccountID: "222222222222", TargetAccountIDs: []string{"222222222222"}, AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-mixed-verified"}}},
+		{CaseID: "case-verified", VerificationID: "verify-only-verified", State: awsPostRemediationVerificationStateVerified, AccountID: "333333333333", AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-verified-verified"}}},
+		{CaseID: "case-unfiltered", VerificationID: "verify-outside-case-filter", State: awsPostRemediationVerificationStateVerified, AccountID: "222222222222", AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-unfiltered-verified"}}},
 	}
 
 	filtered, _ := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{Status: awsPostRemediationVerificationStateVerified})
-	scopedRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(filtered), filtered, awsPostRemediationVerificationStateVerified)
+	scopedRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(filtered), filtered, awsPostRemediationVerificationStateVerified, "")
 	filtered = awsRemediationCenterCasesWithScopedVerificationRows(filtered, scopedRows)
 	summary := summarizeAWSRemediationCenterCases(centerCases, filtered)
 	auditTrail := awsRemediationCenterAuditTrail(filtered)
@@ -478,7 +481,7 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 	}
 
 	approvedCases, _ := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{Status: awsRemediationApprovalStateApproved})
-	approvedRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(approvedCases), approvedCases, awsRemediationApprovalStateApproved)
+	approvedRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(approvedCases), approvedCases, awsRemediationApprovalStateApproved, "")
 	approvedCases = awsRemediationCenterCasesWithScopedVerificationRows(approvedCases, approvedRows)
 	approvedSummary := summarizeAWSRemediationCenterCases(centerCases, approvedCases)
 	approvedAudit := awsRemediationCenterAuditTrail(approvedCases)
@@ -498,6 +501,30 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 	}
 	if !approvedAuditEvents["case-mixed-failed"] || !approvedAuditEvents["case-mixed-verified"] {
 		t.Fatalf("approval status must keep all verification audit events, got %+v", approvedAudit)
+	}
+
+	accountCases, _ := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{AccountID: "222222222222"})
+	accountRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(accountCases), accountCases, "", "222222222222")
+	accountCases = awsRemediationCenterCasesWithScopedVerificationRows(accountCases, accountRows)
+	accountSummary := summarizeAWSRemediationCenterCases(centerCases, accountCases)
+	accountAudit := awsRemediationCenterAuditTrail(accountCases)
+
+	if len(accountCases) != 1 || accountCases[0].CaseID != "case-mixed" {
+		t.Fatalf("account filter should keep the multi-account matching case, got %+v", accountCases)
+	}
+	if len(accountRows) != 1 || accountRows[0].VerificationID != "verify-verified" {
+		t.Fatalf("account-scoped verification rows should keep only matching target rows, got %+v", accountRows)
+	}
+	if accountSummary.VerificationCount != len(accountRows) {
+		t.Fatalf("account-scoped verification_count must match rendered rows: count=%d rows=%d", accountSummary.VerificationCount, len(accountRows))
+	}
+	for _, audit := range accountAudit {
+		if audit.EventID == "case-mixed-failed" || audit.EventID == "case-unfiltered-verified" {
+			t.Errorf("audit event %s leaked outside account-scoped verification rows", audit.EventID)
+		}
+	}
+	if got, want := accountSummary.AuditEntryCount, len(accountAudit); got != want {
+		t.Fatalf("account-scoped audit_entry_count must match audit rows: got=%d want=%d trail=%+v", got, want, accountAudit)
 	}
 }
 
