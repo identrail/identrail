@@ -1062,6 +1062,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			opts.APIKeyScopes,
 			authzStore,
 			opts.AuditFingerprinter,
+			metrics,
 			targets,
 		)
 		if err != nil {

@@ -347,30 +347,7 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 		}
 		recordPolicyDecisionMetric(metrics, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision.Allowed)
 
-		if runtimePolicy.Rollout.Mode == db.AuthzPolicyRolloutModeShadow &&
-			targeted &&
-			runtimePolicy.CandidateEngine != nil &&
-			rolloutVersionValidated(runtimePolicy.Rollout, runtimePolicy.CandidateVersion) {
-			if metrics != nil && metrics.AuthzPolicyShadowEvaluationsTotal != nil {
-				metrics.AuthzPolicyShadowEvaluationsTotal.Inc()
-			}
-			totalEvaluations := atomic.AddUint64(&shadowEvalCount, 1)
-			candidateDecision, err := runtimePolicy.CandidateEngine.Decide(c.Request.Context(), input)
-			if err != nil {
-				if metrics != nil && metrics.AuthzPolicyShadowEvaluationErrorsTotal != nil {
-					metrics.AuthzPolicyShadowEvaluationErrorsTotal.Inc()
-				}
-			} else if policyDecisionsDiverge(decision, candidateDecision) {
-				if metrics != nil && metrics.AuthzPolicyShadowDivergencesTotal != nil {
-					metrics.AuthzPolicyShadowDivergencesTotal.Inc()
-				}
-				atomic.AddUint64(&shadowDivergenceCount, 1)
-			}
-			if metrics != nil && metrics.AuthzPolicyShadowDivergenceRate != nil && totalEvaluations > 0 {
-				divergences := atomic.LoadUint64(&shadowDivergenceCount)
-				metrics.AuthzPolicyShadowDivergenceRate.Set(float64(divergences) / float64(totalEvaluations))
-			}
-		}
+		recordPolicyShadowEvaluation(c.Request.Context(), runtimePolicy, targeted, input, decision, metrics, &shadowEvalCount, &shadowDivergenceCount)
 
 		setAuthzDecisionContext(c, runtimePolicy.PolicySetID, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision, input, fingerprinter)
 
@@ -396,6 +373,48 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 		}
 
 		c.Next()
+	}
+}
+
+func recordPolicyShadowEvaluation(
+	ctx context.Context,
+	runtimePolicy resolvedCentralPolicyRuntime,
+	targeted bool,
+	input PolicyInput,
+	decision PolicyDecision,
+	metrics *telemetry.Metrics,
+	shadowEvalCount *uint64,
+	shadowDivergenceCount *uint64,
+) {
+	if runtimePolicy.Rollout.Mode != db.AuthzPolicyRolloutModeShadow ||
+		!targeted ||
+		runtimePolicy.CandidateEngine == nil ||
+		!rolloutVersionValidated(runtimePolicy.Rollout, runtimePolicy.CandidateVersion) {
+		return
+	}
+	if metrics != nil && metrics.AuthzPolicyShadowEvaluationsTotal != nil {
+		metrics.AuthzPolicyShadowEvaluationsTotal.Inc()
+	}
+	totalEvaluations := uint64(0)
+	if shadowEvalCount != nil {
+		totalEvaluations = atomic.AddUint64(shadowEvalCount, 1)
+	}
+	candidateDecision, err := runtimePolicy.CandidateEngine.Decide(ctx, input)
+	if err != nil {
+		if metrics != nil && metrics.AuthzPolicyShadowEvaluationErrorsTotal != nil {
+			metrics.AuthzPolicyShadowEvaluationErrorsTotal.Inc()
+		}
+	} else if policyDecisionsDiverge(decision, candidateDecision) {
+		if metrics != nil && metrics.AuthzPolicyShadowDivergencesTotal != nil {
+			metrics.AuthzPolicyShadowDivergencesTotal.Inc()
+		}
+		if shadowDivergenceCount != nil {
+			atomic.AddUint64(shadowDivergenceCount, 1)
+		}
+	}
+	if metrics != nil && metrics.AuthzPolicyShadowDivergenceRate != nil && totalEvaluations > 0 && shadowDivergenceCount != nil {
+		divergences := atomic.LoadUint64(shadowDivergenceCount)
+		metrics.AuthzPolicyShadowDivergenceRate.Set(float64(divergences) / float64(totalEvaluations))
 	}
 }
 
@@ -667,6 +686,7 @@ func authorizeRepoFindingDeleteTargets(
 	scopedKeys map[string][]string,
 	store db.Store,
 	fingerprinter *audit.Fingerprinter,
+	metrics *telemetry.Metrics,
 	targets []RepoFindingDeleteTarget,
 ) (bool, error) {
 	if !hasAuthContext(c) {
@@ -704,8 +724,9 @@ func authorizeRepoFindingDeleteTargets(
 		decisionEngine := runtimePolicy.Engine
 		decisionSource := runtimePolicy.Source
 		decisionVersion := runtimePolicy.Version
+		targeted := shouldTargetRolloutRequest(runtimePolicy.Rollout, input)
 		if runtimePolicy.Rollout.Mode == db.AuthzPolicyRolloutModeEnforce &&
-			shouldTargetRolloutRequest(runtimePolicy.Rollout, input) &&
+			targeted &&
 			runtimePolicy.CandidateEngine != nil &&
 			rolloutVersionValidated(runtimePolicy.Rollout, runtimePolicy.CandidateVersion) {
 			decisionEngine = runtimePolicy.CandidateEngine
@@ -717,6 +738,8 @@ func authorizeRepoFindingDeleteTargets(
 		if err != nil {
 			return false, err
 		}
+		recordPolicyDecisionMetric(metrics, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision.Allowed)
+		recordPolicyShadowEvaluation(c.Request.Context(), runtimePolicy, targeted, input, decision, metrics, nil, nil)
 		if !decision.Allowed {
 			setAuthzDecisionContext(c, runtimePolicy.PolicySetID, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision, input, fingerprinter)
 			return false, nil

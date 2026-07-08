@@ -95,7 +95,7 @@ func TestAuthorizeRepoFindingDeleteTargetsChecksRequestBodyTargets(t *testing.T)
 			c.Next()
 		})
 		r.POST("/v1/repo-findings/bulk-delete", func(c *gin.Context) {
-			allowed, err := authorizeRepoFindingDeleteTargets(c, resolver, nil, nil, nil, nil, targets)
+			allowed, err := authorizeRepoFindingDeleteTargets(c, resolver, nil, nil, nil, nil, nil, targets)
 			if err != nil {
 				t.Fatalf("authorize targets: %v", err)
 			}
@@ -192,6 +192,7 @@ func TestRequireCentralPolicyMiddlewareDefersBulkDeleteToBodyAuthorization(t *te
 			nil,
 			nil,
 			nil,
+			nil,
 			[]RepoFindingDeleteTarget{{FindingID: "finding-allowed", RepoScanID: "repo-scan-1"}},
 		)
 		if err != nil {
@@ -209,6 +210,89 @@ func TestRequireCentralPolicyMiddlewareDefersBulkDeleteToBodyAuthorization(t *te
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected body-authorized bulk delete to pass, got %d", w.Code)
+	}
+}
+
+func TestAuthorizeRepoFindingDeleteTargetsShadowEvaluatesCandidate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	currentCompiled, err := compileRouteAuthorizationPolicyBundle(defaultBuiltInRouteAuthorizationPolicyBundle())
+	if err != nil {
+		t.Fatalf("compile current policy bundle: %v", err)
+	}
+	candidateBundle := defaultBuiltInRouteAuthorizationPolicyBundle()
+	candidateBundle.RBACActionRole[policyActionRepoScansRun] = []string{scopeAdmin}
+	candidateCompiled, err := compileRouteAuthorizationPolicyBundle(candidateBundle)
+	if err != nil {
+		t.Fatalf("compile candidate policy bundle: %v", err)
+	}
+
+	activeVersion := 1
+	candidateVersion := 2
+	resolver := staticPolicyRuntimeResolver{
+		runtime: resolvedCentralPolicyRuntime{
+			PolicySetID: defaultCentralPolicySetID,
+			Version:     activeVersion,
+			Source:      "persisted_active_version",
+			RolloutMode: db.AuthzPolicyRolloutModeShadow,
+			Engine:      newCentralPolicyEngineFromCompiled(nil, currentCompiled),
+			Registry:    currentCompiled.RouteRegistry,
+			Rollout: db.AuthzPolicyRollout{
+				PolicySetID:        defaultCentralPolicySetID,
+				ActiveVersion:      &activeVersion,
+				CandidateVersion:   &candidateVersion,
+				Mode:               db.AuthzPolicyRolloutModeShadow,
+				CanaryPercentage:   100,
+				TenantAllowlist:    []string{"tenant-a"},
+				WorkspaceAllowlist: []string{"workspace-a"},
+				ValidatedVersions:  []int{activeVersion, candidateVersion},
+			},
+			CandidateEngine:  newCentralPolicyEngineFromCompiled(nil, candidateCompiled),
+			CandidateSource:  "persisted_candidate_version",
+			CandidateVersion: candidateVersion,
+		},
+	}
+
+	metrics := telemetry.NewMetrics()
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(db.WithScope(c.Request.Context(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}))
+		c.Set("auth.scope_set", newScopeSet([]string{scopeWrite}))
+		c.Set("auth.principal_type", "subject")
+		c.Set("auth.principal_id", "principal-1")
+		c.Next()
+	})
+	r.POST("/v1/repo-findings/bulk-delete", func(c *gin.Context) {
+		allowed, err := authorizeRepoFindingDeleteTargets(
+			c,
+			resolver,
+			nil,
+			nil,
+			nil,
+			nil,
+			metrics,
+			[]RepoFindingDeleteTarget{{FindingID: "finding-allowed", RepoScanID: "repo-scan-1"}},
+		)
+		if err != nil {
+			t.Fatalf("authorize targets: %v", err)
+		}
+		if !allowed {
+			c.Status(http.StatusForbidden)
+			return
+		}
+		c.Status(http.StatusNoContent)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-findings/bulk-delete", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", w.Code)
+	}
+	if got := testutil.ToFloat64(metrics.AuthzPolicyShadowEvaluationsTotal); got != 1 {
+		t.Fatalf("expected one shadow evaluation, got %v", got)
+	}
+	if got := testutil.ToFloat64(metrics.AuthzPolicyShadowDivergencesTotal); got != 1 {
+		t.Fatalf("expected one shadow divergence, got %v", got)
 	}
 }
 
