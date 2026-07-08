@@ -3427,6 +3427,115 @@ describe('Domain-first app routes', () => {
     );
   });
 
+  it('loads the AWS remediation center without a connector identifier', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+    const remediationCenter = {
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: 'production',
+      status: 'permission_denied',
+      fixture_state: 'permission_denied',
+      confidence: 0,
+      policy_version: 'aws-remediation-center-policy-v1',
+      parent_issue_number: 1472,
+      parent_issue_ref: '#1472',
+      current_issue_number: 1552,
+      current_issue_ref: '#1552',
+      version: 'aws-remediation-center-v1',
+      applied_filters: {},
+      summary: {
+        total_cases: 0,
+        filtered_cases: 0,
+        stage_counts: {},
+        severity_counts: {},
+        status_counts: {},
+        action_type_counts: {},
+        identity_type_counts: {},
+        approval_pending_count: 0,
+        dry_run_count: 0,
+        live_action_count: 0,
+        verification_count: 0,
+        rollback_count: 0,
+        ready_for_apply_count: 0,
+        kill_switch_engaged_count: 0,
+        blocked_safety_gate_count: 0,
+        audit_entry_count: 0,
+        highest_score: 0,
+        average_confidence_pct: 0
+      },
+      tabs: [
+        { id: 'overview', label: 'Overview', status: 'permission_denied', count: 0 },
+        { id: 'cases', label: 'Cases', status: 'permission_denied', count: 0 },
+        { id: 'approvals', label: 'Approvals', status: 'permission_denied', count: 0 },
+        { id: 'dry_runs', label: 'Dry-runs', status: 'permission_denied', count: 0 },
+        { id: 'live_actions', label: 'Live actions', status: 'permission_denied', count: 0 },
+        { id: 'verification', label: 'Verification', status: 'permission_denied', count: 0 },
+        { id: 'audit', label: 'Audit', status: 'permission_denied', count: 0 }
+      ],
+      cases: [],
+      remediation_cases: { cases: [] },
+      approval_queue: { entries: [] },
+      dry_runs: { entries: [] },
+      live_actions: { entries: [] },
+      verification: { entries: [] },
+      audit_trail: [],
+      failure_reasons: ['Connect an AWS connector before viewing remediation lifecycle evidence.'],
+      remediation_hints: ['Finish AWS connector setup or choose another environment.'],
+      evidence_links: [],
+      coverage_gaps: [],
+      diagnostics: [],
+      generated_at: '2026-07-04T10:00:00Z',
+      updated_at: '2026-07-04T10:00:00Z'
+    } as unknown as AWSRemediationCenterResult;
+    const getRemediationCenter = vi
+      .spyOn(api.apiClient, 'getAWSProjectRemediationCenter')
+      .mockResolvedValue({ remediation_center: remediationCenter });
+
+    const { ProductAWSRemediationCenterPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/remediation/center?environment=production']}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/aws/remediation/center"
+            element={<ProductAWSRemediationCenterPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Connect an AWS connector before viewing remediation lifecycle evidence.')).toBeInTheDocument();
+    expect(screen.getByText('Finish AWS connector setup or choose another environment.')).toBeInTheDocument();
+    expect(screen.queryByText('AWS connector is unavailable')).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Overview\s+0/i })).toHaveAttribute('aria-selected', 'true');
+    expect(getRemediationCenter).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      {
+        tab: 'overview'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a'
+      }
+    );
+  });
+
   it('renders the consolidated remediation center audit trail across lifecycle stages', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({

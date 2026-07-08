@@ -11247,20 +11247,23 @@ export function ProductAWSRemediationCenterPage() {
     const requestID = ++centerRequestRef.current;
     setCenter(null);
     setCenterError('');
-    if (!scope || !selectedEnvironmentID || !connection?.connector_id) {
+    if (!scope || !selectedEnvironmentID || connectionLoading || connectionError) {
       setCenterLoading(false);
       return;
+    }
+    const request: AWSRemediationCenterQuery = {
+      tab: activeTab,
+      ...filters
+    };
+    if (connection?.connector_id) {
+      request.connectorID = connection.connector_id;
     }
     setCenterLoading(true);
     try {
       const response = await apiClient.getAWSProjectRemediationCenter(
         scope.workspaceID,
         selectedEnvironmentID,
-        {
-          connectorID: connection.connector_id,
-          tab: activeTab,
-          ...filters
-        },
+        request,
         buildProductAuthContext(scope)
       );
       if (requestID !== centerRequestRef.current) {
@@ -11283,6 +11286,8 @@ export function ProductAWSRemediationCenterPage() {
     selectedEnvironmentID,
     activeTab,
     filters,
+    connectionLoading,
+    connectionError,
     connection?.connector_id
   ]);
 
@@ -11336,13 +11341,6 @@ export function ProductAWSRemediationCenterPage() {
             title="Couldn't load AWS status"
             body={connectionError}
             retryAction={{ label: 'Retry', onClick: data.refreshConnection }}
-          />
-        ) : null}
-        {!connectionError && !connectionLoading && !connection?.connector_id ? (
-          <DomainEmptyState
-            eyebrow="Connector required"
-            title="AWS connector is unavailable"
-            body="The selected environment does not have an AWS connector identifier to scope the remediation center request."
           />
         ) : null}
         {centerError ? (
@@ -11404,6 +11402,14 @@ export function ProductAWSRemediationCenterPage() {
                 <div>
                   <dt>Issue</dt>
                   <dd>{center.current_issue_ref}</dd>
+                </div>
+                <div>
+                  <dt>Failures</dt>
+                  <dd>{center.failure_reasons.length ? center.failure_reasons.join(', ') : 'None'}</dd>
+                </div>
+                <div>
+                  <dt>Next actions</dt>
+                  <dd>{center.remediation_hints.length ? center.remediation_hints.join(', ') : 'None'}</dd>
                 </div>
               </dl>
             </DomainStatusPanel>
