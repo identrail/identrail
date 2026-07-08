@@ -31,6 +31,7 @@ import {
   ProductAuthCallbackRedirectPage,
   ProductAIRisksPage,
   ProductAWSAccountsPage,
+  ProductAWSCoveragePage,
   ProductAWSAgentsPage,
   ProductAWSControlCenterPage,
   ProductAWSFindingsPage,
@@ -4827,6 +4828,7 @@ export function RoutedSite() {
             <Route path="aws" element={<ProductAWSControlCenterPage />} />
             <Route path="aws/connect" element={<ProductAWSConnectPage />} />
             <Route path="aws/accounts" element={<ProductAWSAccountsPage />} />
+            <Route path="aws/coverage" element={<ProductAWSCoveragePage />} />
             <Route path="aws/identities" element={<ProductAWSIdentitiesPage />} />
             <Route path="aws/identities/detail" element={<ProductAWSMachineIdentityDetailPage />} />
             <Route path="aws/agents" element={<ProductAWSAgentsPage />} />
