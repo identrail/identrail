@@ -1036,36 +1036,69 @@ func TestPostgresStoreDeleteRepoFindingDecrementsScanCount(t *testing.T) {
 	store := NewPostgresStoreWithDB(db)
 	scanID := "11111111-1111-1111-1111-111111111111"
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
-			SELECT 1
-			FROM repo_scans
-			WHERE id = $1
-			  AND tenant_id = $2
-			  AND workspace_id = $3
-		)`)).
-		WithArgs(scanID, "default", "default").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectExec(regexp.QuoteMeta(`WITH deleted AS (
-			DELETE FROM repo_findings rf
-			USING repo_scans rs
-			WHERE rf.repo_scan_id = rs.id
-			  AND rf.repo_scan_id = $1
-			  AND rf.finding_id = $2
-			  AND rs.tenant_id = $3
-			  AND rs.workspace_id = $4
-			RETURNING rf.repo_scan_id
-		)
-		UPDATE repo_scans rs
-		SET finding_count = GREATEST(0, rs.finding_count - (SELECT COUNT(*) FROM deleted))
-		WHERE rs.id = $1
-		  AND rs.tenant_id = $3
-		  AND rs.workspace_id = $4
-		  AND EXISTS (SELECT 1 FROM deleted)`)).
-		WithArgs(scanID, "rf-1", "default", "default").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectedPayload := `[{"repo_scan_id":"11111111-1111-1111-1111-111111111111","finding_id":"rf-1"}]`
+	mock.ExpectQuery("WITH targets AS").
+		WithArgs(expectedPayload, "default", "default").
+		WillReturnRows(sqlmock.NewRows([]string{"repo_scan_id", "finding_id"}).AddRow(scanID, "rf-1"))
 
 	if err := store.DeleteRepoFinding(defaultScopeContext(), scanID, "rf-1"); err != nil {
 		t.Fatalf("delete repo finding: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreDeleteRepoScan(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	scanID := "11111111-1111-1111-1111-111111111111"
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM repo_scans
+		 WHERE id = $1
+		   AND tenant_id = $2
+		   AND workspace_id = $3`)).
+		WithArgs(scanID, "default", "default").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := store.DeleteRepoScan(defaultScopeContext(), scanID); err != nil {
+		t.Fatalf("delete repo scan: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreExpandRepoFindingDeleteTargetsReturnsConcreteTargets(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	scanID := "11111111-1111-1111-1111-111111111111"
+	oldScanID := "22222222-2222-2222-2222-222222222222"
+	expandedRows := sqlmock.NewRows([]string{"repo_scan_id", "finding_id"}).
+		AddRow(oldScanID, "rf-old").
+		AddRow(scanID, "rf-latest")
+	expectedPayload := `[{"repo_scan_id":"11111111-1111-1111-1111-111111111111","finding_id":"rf-latest"}]`
+	mock.ExpectQuery("WITH targets AS").
+		WithArgs(expectedPayload, "default", "default").
+		WillReturnRows(expandedRows)
+
+	expanded, err := store.ExpandRepoFindingDeleteTargets(defaultScopeContext(), []RepoFindingDeleteTarget{
+		{RepoScanID: scanID, FindingID: "rf-latest"},
+	})
+	if err != nil {
+		t.Fatalf("expand repo finding targets: %v", err)
+	}
+	if len(expanded) != 2 || expanded[0].FindingID != "rf-old" || expanded[1].FindingID != "rf-latest" {
+		t.Fatalf("unexpected expanded targets: %+v", expanded)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)

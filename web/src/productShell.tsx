@@ -1292,6 +1292,13 @@ function buildProductAuthContext(scope: ProductSession): RequestAuthContext {
   };
 }
 
+function productSessionKey(scope: ProductSession | null | undefined): string {
+  if (!scope) {
+    return '';
+  }
+  return `${scope.tenantID}:${scope.workspaceID}:${scope.projectID ?? ''}`;
+}
+
 function normalizeMemberID(value: string): string {
   const normalized = value
     .toLowerCase()
@@ -1665,6 +1672,41 @@ export async function deleteRepoFindingTargetsInBatches(
     }
   }
   return { response: mergeRepoFindingsBulkDeleteResponses(responses) };
+}
+
+function isUnsupportedDeleteEndpointError(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 404 || error.status === 405);
+}
+
+async function deleteRepoFindingTargetsWithCompatibilityFallback(
+  targets: RepoFindingDeleteTarget[],
+  auth: RequestAuthContext
+): Promise<RepoFindingBulkDeleteBatchResult> {
+  try {
+    return await deleteRepoFindingTargetsInBatches(targets, (batch) => apiClient.deleteRepoFindings(batch, auth));
+  } catch (error) {
+    if (!isUnsupportedDeleteEndpointError(error)) {
+      throw error;
+    }
+  }
+
+  const failed: NonNullable<RepoFindingsBulkDeleteResponse['failed']> = [];
+  const response: RepoFindingsBulkDeleteResponse = { deleted: [], failed };
+  for (const target of targets) {
+    try {
+      await apiClient.deleteRepoFinding(target.finding_id, target.repo_scan_id, auth);
+      response.deleted.push(target);
+    } catch (fallbackError) {
+      failed.push({
+        ...target,
+        error: formatAPIError(fallbackError, 'Failed to delete finding.')
+      });
+    }
+  }
+  return {
+    response,
+    errorMessage: failed[0]?.error
+  };
 }
 
 function repoFindingDeleteTargetKey(target: RepoFindingDeleteTarget): string {
@@ -27683,6 +27725,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const location = useLocation();
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
+  const scopeKey = productSessionKey(scope);
   const { me } = useMe();
 
   const [loading, setLoading] = useState(true);
@@ -27711,6 +27754,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const [dismissedFailedScanKeys, setDismissedFailedScanKeys] = useState<Set<string>>(() =>
     readDismissedRepoFailedScanKeys()
   );
+  const [removingFailedScanID, setRemovingFailedScanID] = useState('');
   const [hierarchyOpenState, setHierarchyOpenState] = useState<{
     repositories: Set<string>;
     scans: Set<string>;
@@ -27747,6 +27791,8 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const requestRef = useRef(0);
   const signalRequestRef = useRef(0);
   const findDeleteRequestRef = useRef(0);
+  const failedScanRemoveRequestRef = useRef(0);
+  const currentScopeKeyRef = useRef(scopeKey);
   const remediationPreviewRequestRef = useRef(0);
   const remediationPublishRequestRef = useRef(0);
   const findingDetailCloseRef = useRef<HTMLButtonElement | null>(null);
@@ -27755,6 +27801,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const findingDeleteCloseRef = useRef<HTMLButtonElement | null>(null);
   const findingDeleteModalRef = useRef<HTMLElement | null>(null);
   const findingDeleteOpenerRef = useRef<HTMLElement | null>(null);
+  currentScopeKeyRef.current = scopeKey;
 
   const updateHierarchyOpenState = (
     level: 'repositories' | 'scans' | 'severities',
@@ -27999,6 +28046,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const mttrSeconds = repoFindingSummary?.mean_time_to_resolve_seconds;
   const mttrLabel = typeof mttrSeconds === 'number' && Number.isFinite(mttrSeconds) ? formatExecutiveDuration(mttrSeconds) : 'N/A';
   const canDeleteRepoFindings = hasRepoFindingDeleteAccess(me);
+  const canRemoveFailedRepoScans = canDeleteRepoFindings;
   const activeDeleteCandidates = bulkDeleteCandidates.length > 0
     ? bulkDeleteCandidates
     : deleteCandidate
@@ -28235,9 +28283,9 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       let failedCandidates: ApiFinding[] = [];
       let failureMessage = 'Failed to delete finding.';
       if (bulkDeleteActive) {
-        const { response, errorMessage } = await deleteRepoFindingTargetsInBatches(
+        const { response, errorMessage } = await deleteRepoFindingTargetsWithCompatibilityFallback(
           candidates.map(repoFindingDeleteTargetFromFinding),
-          (batch) => apiClient.deleteRepoFindings(batch, auth)
+          auth
         );
         const deletedKeys = new Set(response.deleted.map(repoFindingDeleteTargetKey));
         const failedKeys = new Set((response.failed ?? []).map(repoFindingDeleteTargetKey));
@@ -28437,6 +28485,11 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   };
 
   useEffect(() => {
+    failedScanRemoveRequestRef.current += 1;
+    setRemovingFailedScanID('');
+  }, [scopeKey]);
+
+  useEffect(() => {
     if (!scope) {
       setLoading(false);
       setError('Workspace route context is missing.');
@@ -28582,7 +28635,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     void loadTrendSignals(scope, 'refresh');
   };
 
-  const dismissFailedRepoScan = (scan: RepoScanRecord | null) => {
+  const hideFailedRepoScan = (scan: RepoScanRecord | null) => {
     if (!scan) {
       return;
     }
@@ -28592,6 +28645,51 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       writeDismissedRepoFailedScanKeys(next);
       return next;
     });
+  };
+
+  const removeFailedRepoScan = async (scan: RepoScanRecord | null) => {
+    if (!scope || !scan || removingFailedScanID) {
+      return;
+    }
+    const targetScope = scope;
+    const targetScopeKey = productSessionKey(targetScope);
+    const requestID = ++failedScanRemoveRequestRef.current;
+    const isActiveRequest = () =>
+      failedScanRemoveRequestRef.current === requestID && currentScopeKeyRef.current === targetScopeKey;
+    const auth = buildProductAuthContext(targetScope);
+    setRemovingFailedScanID(scan.id);
+    setError('');
+    try {
+      await apiClient.deleteRepoScan(scan.id, auth);
+      if (!isActiveRequest()) {
+        return;
+      }
+      setRepoScans((current) => current.filter((item) => item.id !== scan.id));
+      setDismissedFailedScanKeys((current) => {
+        const next = new Set(current);
+        next.add(failedRepoScanDismissalKey(targetScope, scan.id));
+        writeDismissedRepoFailedScanKeys(next);
+        return next;
+      });
+      await loadRepoFindings(targetScope, 'refresh');
+      if (!isActiveRequest()) {
+        return;
+      }
+      await loadTrendSignals(targetScope, 'refresh');
+    } catch (requestError) {
+      if (!isActiveRequest()) {
+        return;
+      }
+      if (isUnsupportedDeleteEndpointError(requestError)) {
+        hideFailedRepoScan(scan);
+        return;
+      }
+      setError(formatAPIError(requestError, 'Failed to remove failed scan.'));
+    } finally {
+      if (isActiveRequest()) {
+        setRemovingFailedScanID('');
+      }
+    }
   };
 
   const connectPath = buildScopedPath(scope, 'github/connect');
@@ -28707,13 +28805,24 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
               <Link className="idt-app-empty-state-action" to={connectPath}>
                 Review &amp; re-run scan
               </Link>
-              <button
-                className="idt-btn idt-btn-ghost"
-                type="button"
-                onClick={() => dismissFailedRepoScan(latestFailedScan)}
-              >
-                Remove
-              </button>
+              {canRemoveFailedRepoScans ? (
+                <button
+                  className="idt-btn idt-btn-ghost"
+                  type="button"
+                  onClick={() => void removeFailedRepoScan(latestFailedScan)}
+                  disabled={Boolean(removingFailedScanID)}
+                >
+                  {removingFailedScanID === latestFailedScan?.id ? 'Removing...' : 'Remove'}
+                </button>
+              ) : (
+                <button
+                  className="idt-btn idt-btn-ghost"
+                  type="button"
+                  onClick={() => hideFailedRepoScan(latestFailedScan)}
+                >
+                  Dismiss
+                </button>
+              )}
               <button
                 className="idt-btn idt-btn-ghost"
                 type="button"
@@ -28802,13 +28911,24 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         <div className="idt-app-alert idt-app-alert-error idt-repo-scan-health">
           <span>Last scan failed: {describeScanFailure(latestFailedScan)}</span>
           <span className="idt-repo-scan-health-actions-inline">
-            <button
-              className="idt-repo-scan-health-remove"
-              type="button"
-              onClick={() => dismissFailedRepoScan(latestFailedScan)}
-            >
-              Remove
-            </button>
+            {canRemoveFailedRepoScans ? (
+              <button
+                className="idt-repo-scan-health-remove"
+                type="button"
+                onClick={() => void removeFailedRepoScan(latestFailedScan)}
+                disabled={Boolean(removingFailedScanID)}
+              >
+                {removingFailedScanID === latestFailedScan?.id ? 'Removing...' : 'Remove'}
+              </button>
+            ) : (
+              <button
+                className="idt-repo-scan-health-remove"
+                type="button"
+                onClick={() => hideFailedRepoScan(latestFailedScan)}
+              >
+                Dismiss
+              </button>
+            )}
             <Link to={connectPath}>Review &amp; re-run</Link>
           </span>
         </div>

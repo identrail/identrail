@@ -912,6 +912,160 @@ func TestMemoryStoreDeleteRepoFindingTargetsUpdatesScanCounts(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreExpandRepoFindingDeleteTargetsIncludesLifecycleGroup(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	oldScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, RepoScanContext{}, now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("create old repo scan: %v", err)
+	}
+	latestScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create latest repo scan: %v", err)
+	}
+	oldFinding := domain.Finding{
+		ID:           "rf-lifecycle-old",
+		Type:         domain.FindingRepoMisconfig,
+		Severity:     domain.SeverityHigh,
+		Title:        "workflow write all",
+		HumanSummary: "Workflow uses write-all.",
+		Repository:   "owner/repo",
+		LifecycleKey: "repo-finding:workflow-write-all",
+		CreatedAt:    now.Add(-time.Hour),
+	}
+	latestFinding := oldFinding
+	latestFinding.ID = "rf-lifecycle-latest"
+	latestFinding.CreatedAt = now
+	if err := store.UpsertRepoFindings(defaultScopeContext(), oldScan.ID, []domain.Finding{oldFinding}); err != nil {
+		t.Fatalf("upsert old finding: %v", err)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), latestScan.ID, []domain.Finding{latestFinding}); err != nil {
+		t.Fatalf("upsert latest finding: %v", err)
+	}
+	if err := store.CompleteRepoScan(defaultScopeContext(), oldScan.ID, "completed", now.Add(-59*time.Minute), 1, 1, 1, false, RepoScanContext{}, ""); err != nil {
+		t.Fatalf("complete old repo scan: %v", err)
+	}
+	if err := store.CompleteRepoScan(defaultScopeContext(), latestScan.ID, "completed", now.Add(time.Minute), 1, 1, 1, false, RepoScanContext{}, ""); err != nil {
+		t.Fatalf("complete latest repo scan: %v", err)
+	}
+
+	expanded, err := store.ExpandRepoFindingDeleteTargets(defaultScopeContext(), []RepoFindingDeleteTarget{
+		{RepoScanID: latestScan.ID, FindingID: latestFinding.ID},
+	})
+	if err != nil {
+		t.Fatalf("expand lifecycle target: %v", err)
+	}
+	if len(expanded) != 2 {
+		t.Fatalf("expected lifecycle group to expand to two concrete targets, got %+v", expanded)
+	}
+	expandedKeys := map[string]struct{}{}
+	for _, target := range expanded {
+		expandedKeys[target.RepoScanID+"::"+target.FindingID] = struct{}{}
+	}
+	for _, want := range []RepoFindingDeleteTarget{
+		{RepoScanID: oldScan.ID, FindingID: oldFinding.ID},
+		{RepoScanID: latestScan.ID, FindingID: latestFinding.ID},
+	} {
+		if _, exists := expandedKeys[want.RepoScanID+"::"+want.FindingID]; !exists {
+			t.Fatalf("expected expanded targets to include %+v, got %+v", want, expanded)
+		}
+	}
+	deleted, err := store.DeleteRepoFindingTargets(defaultScopeContext(), expanded)
+	if err != nil {
+		t.Fatalf("delete expanded lifecycle targets: %v", err)
+	}
+	if len(deleted) != 2 {
+		t.Fatalf("expected expanded lifecycle group to be deleted, got %+v", deleted)
+	}
+	remaining, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{}, 10)
+	if err != nil {
+		t.Fatalf("list repo findings: %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("expected lifecycle group to be removed, got %+v", remaining)
+	}
+	for _, scanID := range []string{oldScan.ID, latestScan.ID} {
+		scan, err := store.GetRepoScan(defaultScopeContext(), scanID)
+		if err != nil {
+			t.Fatalf("get repo scan %s: %v", scanID, err)
+		}
+		if scan.FindingCount != 0 {
+			t.Fatalf("expected scan %s finding count to be zero, got %d", scanID, scan.FindingCount)
+		}
+	}
+}
+
+func TestMemoryStoreDeleteRepoFindingTargetsDeletesExactTargetsOnly(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	oldScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, RepoScanContext{}, now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("create old repo scan: %v", err)
+	}
+	latestScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create latest repo scan: %v", err)
+	}
+	oldFinding := domain.Finding{
+		ID:           "rf-exact-old",
+		Type:         domain.FindingRepoMisconfig,
+		Severity:     domain.SeverityHigh,
+		Repository:   "owner/repo",
+		LifecycleKey: "repo-finding:exact-delete",
+		CreatedAt:    now.Add(-time.Hour),
+	}
+	latestFinding := oldFinding
+	latestFinding.ID = "rf-exact-latest"
+	latestFinding.CreatedAt = now
+	if err := store.UpsertRepoFindings(defaultScopeContext(), oldScan.ID, []domain.Finding{oldFinding}); err != nil {
+		t.Fatalf("upsert old finding: %v", err)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), latestScan.ID, []domain.Finding{latestFinding}); err != nil {
+		t.Fatalf("upsert latest finding: %v", err)
+	}
+
+	deleted, err := store.DeleteRepoFindingTargets(defaultScopeContext(), []RepoFindingDeleteTarget{
+		{RepoScanID: latestScan.ID, FindingID: latestFinding.ID},
+	})
+	if err != nil {
+		t.Fatalf("delete exact target: %v", err)
+	}
+	if len(deleted) != 1 || deleted[0].FindingID != latestFinding.ID {
+		t.Fatalf("expected only latest target to be reported deleted, got %+v", deleted)
+	}
+	remaining, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{}, 10)
+	if err != nil {
+		t.Fatalf("list repo findings: %v", err)
+	}
+	if len(remaining) != 1 || remaining[0].ID != oldFinding.ID {
+		t.Fatalf("expected old lifecycle sibling to remain after exact delete, got %+v", remaining)
+	}
+}
+
+func TestMemoryStoreDeleteRepoScanCascadesFindings(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	repoScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", RepoScanSource{}, RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan: %v", err)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), repoScan.ID, []domain.Finding{
+		{ID: "rf-delete-scan", Type: domain.FindingRepoMisconfig, Severity: domain.SeverityHigh, CreatedAt: now},
+	}); err != nil {
+		t.Fatalf("upsert repo finding: %v", err)
+	}
+	if err := store.DeleteRepoScan(defaultScopeContext(), repoScan.ID); err != nil {
+		t.Fatalf("delete repo scan: %v", err)
+	}
+	if _, err := store.GetRepoScan(defaultScopeContext(), repoScan.ID); err != ErrNotFound {
+		t.Fatalf("expected deleted repo scan to be missing, got %v", err)
+	}
+	remaining, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{RepoScanID: repoScan.ID}, 10)
+	if err != ErrNotFound {
+		t.Fatalf("expected deleted scan findings to be missing, got findings=%+v err=%v", remaining, err)
+	}
+}
+
 func TestMemoryStoreGetRepoScanCursorCopiesPointerFields(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)

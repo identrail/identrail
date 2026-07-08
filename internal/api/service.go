@@ -572,6 +572,9 @@ var ErrRepoScanInProgress = errors.New("repo scan already in progress")
 // ErrRepoScanCancelUnavailable is returned when a repository scan is already terminal.
 var ErrRepoScanCancelUnavailable = errors.New("repo scan cancel is unavailable")
 
+// ErrRepoScanDeleteUnavailable is returned when a repository scan should remain auditable.
+var ErrRepoScanDeleteUnavailable = errors.New("repo scan delete is unavailable")
+
 var errRepoScanTerminalStateChanged = errors.New("repo scan terminal state changed")
 
 // ErrInvalidFindingTriageRequest indicates invalid triage payload or state transition.
@@ -2594,6 +2597,27 @@ func (s *Service) GetRepoScan(ctx context.Context, repoScanID string) (db.RepoSc
 	return s.Store.GetRepoScan(ctx, id)
 }
 
+// DeleteRepoScan removes a failed repository scan record.
+func (s *Service) DeleteRepoScan(ctx context.Context, repoScanID string) error {
+	ctx = s.scopeContext(ctx)
+	id := strings.TrimSpace(repoScanID)
+	if id == "" {
+		return db.ErrNotFound
+	}
+	record, err := s.Store.GetRepoScan(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !isFailedRepoScanRecord(record) {
+		return ErrRepoScanDeleteUnavailable
+	}
+	return s.Store.DeleteRepoScan(ctx, id)
+}
+
+func isFailedRepoScanRecord(record db.RepoScanRecord) bool {
+	return strings.EqualFold(strings.TrimSpace(record.Status), scanLifecycleFailed)
+}
+
 // ListRepoFindings returns repository findings using optional filters.
 func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.RepoFindingFilter) ([]domain.Finding, error) {
 	ctx = s.scopeContext(ctx)
@@ -2659,12 +2683,12 @@ func (s *Service) DeleteRepoFinding(ctx context.Context, findingID string, repoS
 	return s.Store.DeleteRepoFinding(ctx, repoScanID, findingID)
 }
 
-// DeleteRepoFindings permanently removes selected repository findings.
-func (s *Service) DeleteRepoFindings(ctx context.Context, targets []RepoFindingDeleteTarget) (RepoFindingsBulkDeleteResponse, error) {
+// ExpandRepoFindingDeleteTargets returns the concrete repository finding rows a delete request can remove.
+func (s *Service) ExpandRepoFindingDeleteTargets(ctx context.Context, targets []RepoFindingDeleteTarget) ([]RepoFindingDeleteTarget, error) {
 	ctx = s.scopeContext(ctx)
 	normalized, err := normalizeRepoFindingDeleteTargets(targets)
 	if err != nil {
-		return RepoFindingsBulkDeleteResponse{}, err
+		return nil, err
 	}
 	storeTargets := make([]db.RepoFindingDeleteTarget, 0, len(normalized))
 	for _, target := range normalized {
@@ -2673,9 +2697,34 @@ func (s *Service) DeleteRepoFindings(ctx context.Context, targets []RepoFindingD
 			FindingID:  target.FindingID,
 		})
 	}
-	deletedTargets, err := s.Store.DeleteRepoFindingTargets(ctx, storeTargets)
+	expandedTargets, err := s.Store.ExpandRepoFindingDeleteTargets(ctx, storeTargets)
+	if err != nil {
+		return nil, err
+	}
+	return repoFindingDeleteTargetsFromStore(expandedTargets), nil
+}
+
+// DeleteRepoFindings permanently removes selected repository findings.
+func (s *Service) DeleteRepoFindings(ctx context.Context, targets []RepoFindingDeleteTarget, deleteTargetsOverride ...[]RepoFindingDeleteTarget) (RepoFindingsBulkDeleteResponse, error) {
+	ctx = s.scopeContext(ctx)
+	normalized, err := normalizeRepoFindingDeleteTargets(targets)
 	if err != nil {
 		return RepoFindingsBulkDeleteResponse{}, err
+	}
+	normalizedDeleteTargets := normalized
+	if len(deleteTargetsOverride) > 0 {
+		normalizedDeleteTargets, err = normalizeRepoFindingDeleteTargetsAllowEmpty(deleteTargetsOverride[0])
+		if err != nil {
+			return RepoFindingsBulkDeleteResponse{}, err
+		}
+	}
+	deletedTargets := []db.RepoFindingDeleteTarget{}
+	if len(normalizedDeleteTargets) > 0 {
+		storeTargets := repoFindingDeleteTargetsToStore(normalizedDeleteTargets)
+		deletedTargets, err = s.Store.DeleteRepoFindingTargets(ctx, storeTargets)
+		if err != nil {
+			return RepoFindingsBulkDeleteResponse{}, err
+		}
 	}
 	deletedSet := make(map[string]struct{}, len(deletedTargets))
 	for _, target := range deletedTargets {
@@ -2696,6 +2745,63 @@ func (s *Service) DeleteRepoFindings(ctx context.Context, targets []RepoFindingD
 		})
 	}
 	return response, nil
+}
+
+func repoFindingDeleteTargetsToStore(targets []RepoFindingDeleteTarget) []db.RepoFindingDeleteTarget {
+	storeTargets := make([]db.RepoFindingDeleteTarget, 0, len(targets))
+	for _, target := range targets {
+		storeTargets = append(storeTargets, db.RepoFindingDeleteTarget{
+			RepoScanID: target.RepoScanID,
+			FindingID:  target.FindingID,
+		})
+	}
+	return storeTargets
+}
+
+func repoFindingDeleteTargetsFromStore(targets []db.RepoFindingDeleteTarget) []RepoFindingDeleteTarget {
+	apiTargets := make([]RepoFindingDeleteTarget, 0, len(targets))
+	seen := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		repoScanID := strings.TrimSpace(target.RepoScanID)
+		findingID := strings.TrimSpace(target.FindingID)
+		if repoScanID == "" || findingID == "" {
+			continue
+		}
+		key := repoFindingDeleteTargetKey(repoScanID, findingID)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		apiTargets = append(apiTargets, RepoFindingDeleteTarget{
+			FindingID:  findingID,
+			RepoScanID: repoScanID,
+		})
+	}
+	return apiTargets
+}
+
+func mergeRepoFindingDeleteTargets(groups ...[]RepoFindingDeleteTarget) []RepoFindingDeleteTarget {
+	merged := []RepoFindingDeleteTarget{}
+	seen := map[string]struct{}{}
+	for _, targets := range groups {
+		for _, target := range targets {
+			repoScanID := strings.TrimSpace(target.RepoScanID)
+			findingID := strings.TrimSpace(target.FindingID)
+			if repoScanID == "" || findingID == "" {
+				continue
+			}
+			key := repoFindingDeleteTargetKey(repoScanID, findingID)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			merged = append(merged, RepoFindingDeleteTarget{
+				FindingID:  findingID,
+				RepoScanID: repoScanID,
+			})
+		}
+	}
+	return merged
 }
 
 func repoFindingDeleteTargetKey(repoScanID string, findingID string) string {
@@ -2726,6 +2832,31 @@ func normalizeRepoFindingDeleteTargets(targets []RepoFindingDeleteTarget) ([]Rep
 	}
 	if len(normalized) == 0 {
 		return nil, ErrInvalidRepoRemediationRequest
+	}
+	return normalized, nil
+}
+
+func normalizeRepoFindingDeleteTargetsAllowEmpty(targets []RepoFindingDeleteTarget) ([]RepoFindingDeleteTarget, error) {
+	if len(targets) == 0 {
+		return []RepoFindingDeleteTarget{}, nil
+	}
+	normalized := make([]RepoFindingDeleteTarget, 0, len(targets))
+	seen := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		findingID := strings.TrimSpace(target.FindingID)
+		repoScanID := strings.TrimSpace(target.RepoScanID)
+		if findingID == "" || repoScanID == "" {
+			return nil, ErrInvalidRepoRemediationRequest
+		}
+		key := repoScanID + "::" + findingID
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, RepoFindingDeleteTarget{
+			FindingID:  findingID,
+			RepoScanID: repoScanID,
+		})
 	}
 	return normalized, nil
 }

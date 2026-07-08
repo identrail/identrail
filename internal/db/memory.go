@@ -2233,6 +2233,34 @@ func (m *MemoryStore) GetRepoScan(ctx context.Context, repoScanID string) (RepoS
 	return record, nil
 }
 
+// DeleteRepoScan removes one persisted repository scan and its findings.
+func (m *MemoryStore) DeleteRepoScan(ctx context.Context, repoScanID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	record, exists := m.repoScans[repoScanID]
+	if !exists || !MatchScope(scope, record.TenantID, record.WorkspaceID) {
+		return ErrNotFound
+	}
+	for _, key := range m.repoFindingIDs[repoScanID] {
+		delete(m.repoFindings, key)
+	}
+	delete(m.repoFindingIDs, repoScanID)
+	delete(m.repoScans, repoScanID)
+	nextScanIDs := m.repoScanIDs[:0]
+	for _, existing := range m.repoScanIDs {
+		if existing != repoScanID {
+			nextScanIDs = append(nextScanIDs, existing)
+		}
+	}
+	m.repoScanIDs = nextScanIDs
+	return nil
+}
+
 // CancelRepoScan marks a queued or running repository scan as terminal failed.
 func (m *MemoryStore) CancelRepoScan(ctx context.Context, repoScanID string, finishedAt time.Time, errorMessage string) (RepoScanRecord, error) {
 	m.mu.Lock()
@@ -2426,37 +2454,91 @@ func (m *MemoryStore) DeleteRepoFindings(ctx context.Context, repoScanID string)
 
 // DeleteRepoFinding removes one persisted repository finding for one scan.
 func (m *MemoryStore) DeleteRepoFinding(ctx context.Context, repoScanID string, findingID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	scope, err := RequireScope(ctx)
+	deleted, err := m.DeleteRepoFindingTargets(ctx, []RepoFindingDeleteTarget{{
+		RepoScanID: repoScanID,
+		FindingID:  findingID,
+	}})
 	if err != nil {
 		return err
 	}
-	repoScan, exists := m.repoScans[repoScanID]
-	if !exists || !MatchScope(scope, repoScan.TenantID, repoScan.WorkspaceID) {
+	if len(deleted) == 0 {
 		return ErrNotFound
 	}
-	key := repoScanID + "|" + strings.TrimSpace(findingID)
-	if _, exists := m.repoFindings[key]; !exists {
-		return ErrNotFound
+	return nil
+}
+
+// ExpandRepoFindingDeleteTargets returns every concrete finding row a delete request may remove.
+func (m *MemoryStore) ExpandRepoFindingDeleteTargets(ctx context.Context, targets []RepoFindingDeleteTarget) ([]RepoFindingDeleteTarget, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
 	}
-	delete(m.repoFindings, key)
-	keys := m.repoFindingIDs[repoScanID]
-	nextKeys := keys[:0]
-	for _, existing := range keys {
-		if existing != key {
-			nextKeys = append(nextKeys, existing)
+
+	expanded := make([]RepoFindingDeleteTarget, 0, len(targets))
+	seen := map[string]struct{}{}
+	addTarget := func(repoScanID string, findingID string) {
+		key := repoScanID + "::" + findingID
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		expanded = append(expanded, RepoFindingDeleteTarget{RepoScanID: repoScanID, FindingID: findingID})
+	}
+
+	for _, target := range targets {
+		repoScanID := strings.TrimSpace(target.RepoScanID)
+		findingID := strings.TrimSpace(target.FindingID)
+		if repoScanID == "" || findingID == "" {
+			continue
+		}
+		repoScan, exists := m.repoScans[repoScanID]
+		if !exists || !MatchScope(scope, repoScan.TenantID, repoScan.WorkspaceID) {
+			continue
+		}
+		key := repoScanID + "|" + findingID
+		finding, exists := m.repoFindings[key]
+		if !exists {
+			continue
+		}
+		if finding.Repository == "" {
+			finding.Repository = repoScan.Repository
+		}
+		domain.NormalizeRepoFindingMetadata(&finding)
+		repositoryKey := strings.ToLower(strings.TrimSpace(finding.Repository))
+		lifecycleKey := strings.TrimSpace(finding.LifecycleKey)
+		addTarget(repoScanID, findingID)
+		if lifecycleKey == "" {
+			continue
+		}
+		for candidateKey, candidate := range m.repoFindings {
+			candidateScan, scanExists := m.repoScans[candidate.ScanID]
+			if !scanExists || !MatchScope(scope, candidateScan.TenantID, candidateScan.WorkspaceID) {
+				continue
+			}
+			if candidate.Repository == "" {
+				candidate.Repository = candidateScan.Repository
+			}
+			domain.NormalizeRepoFindingMetadata(&candidate)
+			if strings.TrimSpace(candidate.LifecycleKey) != lifecycleKey ||
+				!strings.EqualFold(strings.TrimSpace(candidate.Repository), repositoryKey) {
+				continue
+			}
+			keyParts := strings.SplitN(candidateKey, "|", 2)
+			if len(keyParts) != 2 {
+				continue
+			}
+			addTarget(candidate.ScanID, keyParts[1])
 		}
 	}
-	if len(nextKeys) == 0 {
-		delete(m.repoFindingIDs, repoScanID)
-	} else {
-		m.repoFindingIDs[repoScanID] = nextKeys
-	}
-	repoScan.FindingCount = len(nextKeys)
-	m.repoScans[repoScanID] = repoScan
-	return nil
+	sort.Slice(expanded, func(left, right int) bool {
+		if expanded[left].RepoScanID == expanded[right].RepoScanID {
+			return expanded[left].FindingID < expanded[right].FindingID
+		}
+		return expanded[left].RepoScanID < expanded[right].RepoScanID
+	})
+	return expanded, nil
 }
 
 // DeleteRepoFindingTargets removes selected persisted repository findings.
@@ -2469,6 +2551,7 @@ func (m *MemoryStore) DeleteRepoFindingTargets(ctx context.Context, targets []Re
 		return nil, err
 	}
 	deleted := make([]RepoFindingDeleteTarget, 0, len(targets))
+	deletedTargetKeys := map[string]struct{}{}
 	deletedByScan := map[string]map[string]struct{}{}
 	for _, target := range targets {
 		repoScanID := strings.TrimSpace(target.RepoScanID)
@@ -2489,7 +2572,11 @@ func (m *MemoryStore) DeleteRepoFindingTargets(ctx context.Context, targets []Re
 			deletedByScan[repoScanID] = map[string]struct{}{}
 		}
 		deletedByScan[repoScanID][key] = struct{}{}
-		deleted = append(deleted, RepoFindingDeleteTarget{RepoScanID: repoScanID, FindingID: findingID})
+		targetKey := repoScanID + "::" + findingID
+		if _, exists := deletedTargetKeys[targetKey]; !exists {
+			deleted = append(deleted, RepoFindingDeleteTarget{RepoScanID: repoScanID, FindingID: findingID})
+			deletedTargetKeys[targetKey] = struct{}{}
+		}
 	}
 	for repoScanID, keysToDelete := range deletedByScan {
 		keys := m.repoFindingIDs[repoScanID]

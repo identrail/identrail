@@ -10094,6 +10094,11 @@ export const apiClient = {
       method: 'POST'
     });
   },
+  deleteRepoScan(repoScanID: string, auth?: RequestAuthContext) {
+    return request<void>(`/v1/repo-scans/${encodeURIComponent(repoScanID)}`, auth, {
+      method: 'DELETE'
+    });
+  },
   listFindings(
     filters: {
       limit?: number;

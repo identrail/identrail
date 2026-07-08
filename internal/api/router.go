@@ -494,6 +494,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		v1.GET("/repo-scans/:repo_scan_id", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "repo scan service unavailable"})
 		})
+		v1.DELETE("/repo-scans/:repo_scan_id", func(c *gin.Context) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "repo scan service unavailable"})
+		})
 		v1.GET("/repo-findings", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"items": []any{}})
 		})
@@ -946,6 +949,26 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		c.JSON(http.StatusOK, item)
 	})
 
+	v1.DELETE("/repo-scans/:repo_scan_id", func(c *gin.Context) {
+		repoScanID, ok := requiredUUIDParam(c, c.Param("repo_scan_id"), "repo_scan_id")
+		if !ok {
+			return
+		}
+		if err := svc.DeleteRepoScan(c.Request.Context(), repoScanID); err != nil {
+			switch {
+			case errors.Is(err, db.ErrNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "repo scan not found"})
+			case errors.Is(err, ErrRepoScanDeleteUnavailable):
+				c.JSON(http.StatusConflict, gin.H{"error": "repo scan cannot be removed"})
+			default:
+				logger.Error("delete repo scan", requestErrorLogFields(c, opts.AuditFingerprinter, "delete_repo_scan", telemetry.ZapError(err))...)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete repo scan"})
+			}
+			return
+		}
+		c.Status(http.StatusNoContent)
+	})
+
 	v1.GET("/repo-findings", func(c *gin.Context) {
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
 		offset := parseCursor(c.Query("cursor"))
@@ -1024,20 +1047,59 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo_scan_id"})
 			return
 		}
-		if err := svc.DeleteRepoFinding(
-			c.Request.Context(),
-			strings.TrimSpace(c.Param("finding_id")),
-			repoScanID,
-		); err != nil {
+		targets, err := normalizeRepoFindingDeleteTargets([]RepoFindingDeleteTarget{{
+			FindingID:  strings.TrimSpace(c.Param("finding_id")),
+			RepoScanID: repoScanID,
+		}})
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo finding delete request"})
+			return
+		}
+		expandedTargets, err := svc.ExpandRepoFindingDeleteTargets(c.Request.Context(), targets)
+		if err != nil {
 			switch {
-			case errors.Is(err, db.ErrNotFound):
-				c.JSON(http.StatusNotFound, gin.H{"error": "repo finding not found"})
+			case errors.Is(err, ErrInvalidRepoRemediationRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo finding delete request"})
+			default:
+				logger.Error("expand repo finding delete targets", telemetry.ZapError(err))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete repo finding"})
+			}
+			return
+		}
+		authorized, err := authorizeRepoFindingDeleteTargets(
+			c,
+			centralPolicyResolver,
+			opts.WriteAPIKeys,
+			opts.APIKeyScopes,
+			authzStore,
+			opts.AuditFingerprinter,
+			metrics,
+			mergeRepoFindingDeleteTargets(targets, expandedTargets),
+		)
+		if err != nil {
+			if logger != nil {
+				logger.Error("authorize repo finding delete", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "authorization failed"})
+			return
+		}
+		if !authorized {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+		response, err := svc.DeleteRepoFindings(c.Request.Context(), targets, expandedTargets)
+		if err != nil {
+			switch {
 			case errors.Is(err, ErrInvalidRepoRemediationRequest):
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo finding delete request"})
 			default:
 				logger.Error("delete repo finding", telemetry.ZapError(err))
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete repo finding"})
 			}
+			return
+		}
+		if len(response.Deleted) == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "repo finding not found"})
 			return
 		}
 		c.Status(http.StatusNoContent)
@@ -1061,6 +1123,17 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 				return
 			}
 		}
+		expandedTargets, err := svc.ExpandRepoFindingDeleteTargets(c.Request.Context(), targets)
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrInvalidRepoRemediationRequest):
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo finding delete request"})
+			default:
+				logger.Error("expand repo finding delete targets", telemetry.ZapError(err))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete repo findings"})
+			}
+			return
+		}
 		authorized, err := authorizeRepoFindingDeleteTargets(
 			c,
 			centralPolicyResolver,
@@ -1069,7 +1142,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			authzStore,
 			opts.AuditFingerprinter,
 			metrics,
-			targets,
+			mergeRepoFindingDeleteTargets(targets, expandedTargets),
 		)
 		if err != nil {
 			if logger != nil {
@@ -1082,7 +1155,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}
-		response, err := svc.DeleteRepoFindings(c.Request.Context(), targets)
+		response, err := svc.DeleteRepoFindings(c.Request.Context(), targets, expandedTargets)
 		if err != nil {
 			switch {
 			case errors.Is(err, ErrInvalidRepoRemediationRequest):

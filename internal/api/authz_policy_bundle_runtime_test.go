@@ -139,7 +139,7 @@ func TestDefaultRoutePolicyBundleUsesRepoScansRunForDeleteRepoFinding(t *testing
 	}
 }
 
-func TestDefaultRoutePolicyBundleUsesRepoScansRunForCancel(t *testing.T) {
+func TestDefaultRoutePolicyBundleUsesRepoScansRunForCancelAndDeleteScan(t *testing.T) {
 	compiled, err := compileRouteAuthorizationPolicyBundle(defaultBuiltInRouteAuthorizationPolicyBundle())
 	if err != nil {
 		t.Fatalf("compile built-in policy bundle: %v", err)
@@ -156,6 +156,19 @@ func TestDefaultRoutePolicyBundleUsesRepoScansRunForCancel(t *testing.T) {
 	}
 	if policy.ResourceIDParam != "repo_scan_id" {
 		t.Fatalf("expected resource id param %q, got %q", "repo_scan_id", policy.ResourceIDParam)
+	}
+	deletePolicy, exists := compiled.RouteRegistry.lookup("DELETE", "/v1/repo-scans/:repo_scan_id")
+	if !exists {
+		t.Fatal("expected built-in authz policy for DELETE /v1/repo-scans/:repo_scan_id")
+	}
+	if deletePolicy.Action != policyActionRepoScansRun {
+		t.Fatalf("expected delete action %q, got %q", policyActionRepoScansRun, deletePolicy.Action)
+	}
+	if deletePolicy.ResourceType != "repo_scan" {
+		t.Fatalf("expected delete resource type %q, got %q", "repo_scan", deletePolicy.ResourceType)
+	}
+	if deletePolicy.ResourceIDParam != "repo_scan_id" {
+		t.Fatalf("expected delete resource id param %q, got %q", "repo_scan_id", deletePolicy.ResourceIDParam)
 	}
 }
 

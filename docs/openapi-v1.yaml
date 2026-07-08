@@ -111,6 +111,11 @@ x-identrail-route-authorizations:
     action: repo_scans.read
     resource_type: repo_scan
     resource_id_param: repo_scan_id
+  - method: DELETE
+    path: /v1/repo-scans/{repo_scan_id}
+    action: repo_scans.run
+    resource_type: repo_scan
+    resource_id_param: repo_scan_id
   - method: POST
     path: /v1/repo-scans/{repo_scan_id}/cancel
     action: repo_scans.run
@@ -9665,6 +9670,33 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    delete:
+      tags: [RepositoryExposure]
+      summary: Remove failed repository scan
+      operationId: deleteRepoScan
+      description: Removes a failed repository scan record and cascades any findings attached to that scan.
+      parameters:
+        - in: path
+          name: repo_scan_id
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Failed repository scan removed
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/InternalServerError"
         "503":

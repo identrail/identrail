@@ -3230,6 +3230,28 @@ func (p *PostgresStore) GetRepoScan(ctx context.Context, repoScanID string) (Rep
 	return record, nil
 }
 
+// DeleteRepoScan removes one repository scan and cascades its findings.
+func (p *PostgresStore) DeleteRepoScan(ctx context.Context, repoScanID string) error {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	result, err := p.execContext(
+		ctx,
+		`DELETE FROM repo_scans
+		 WHERE id = $1
+		   AND tenant_id = $2
+		   AND workspace_id = $3`,
+		repoScanID,
+		scope.TenantID,
+		scope.WorkspaceID,
+	)
+	if err != nil {
+		return fmt.Errorf("delete repo scan: %w", err)
+	}
+	return ensureRowsAffected(result)
+}
+
 // CancelRepoScan atomically marks a queued or running repository scan as terminal failed.
 func (p *PostgresStore) CancelRepoScan(ctx context.Context, repoScanID string, finishedAt time.Time, errorMessage string) (RepoScanRecord, error) {
 	scope, err := RequireScope(ctx)
@@ -3783,43 +3805,111 @@ func (p *PostgresStore) DeleteRepoFindings(ctx context.Context, repoScanID strin
 
 // DeleteRepoFinding removes one repository finding for one scan.
 func (p *PostgresStore) DeleteRepoFinding(ctx context.Context, repoScanID string, findingID string) error {
-	if err := p.ensureRepoScanInScope(ctx, repoScanID); err != nil {
-		return err
-	}
-	scope, err := RequireScope(ctx)
+	deleted, err := p.DeleteRepoFindingTargets(ctx, []RepoFindingDeleteTarget{{
+		RepoScanID: repoScanID,
+		FindingID:  findingID,
+	}})
 	if err != nil {
 		return err
 	}
-	result, err := p.execContext(
+	if len(deleted) == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ExpandRepoFindingDeleteTargets returns every concrete repository finding row a delete request may remove.
+func (p *PostgresStore) ExpandRepoFindingDeleteTargets(ctx context.Context, targets []RepoFindingDeleteTarget) ([]RepoFindingDeleteTarget, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	type repoFindingDeleteTargetPayload struct {
+		RepoScanID string `json:"repo_scan_id"`
+		FindingID  string `json:"finding_id"`
+	}
+	payloadTargets := make([]repoFindingDeleteTargetPayload, 0, len(targets))
+	for _, target := range targets {
+		payloadTargets = append(payloadTargets, repoFindingDeleteTargetPayload{
+			RepoScanID: target.RepoScanID,
+			FindingID:  target.FindingID,
+		})
+	}
+	payload, err := json.Marshal(payloadTargets)
+	if err != nil {
+		return nil, fmt.Errorf("marshal repo finding delete targets: %w", err)
+	}
+	rows, err := p.queryContext(
 		ctx,
-		`WITH deleted AS (
-			DELETE FROM repo_findings rf
-			USING repo_scans rs
-			WHERE rf.repo_scan_id = rs.id
-			  AND rf.repo_scan_id = $1
-			  AND rf.finding_id = $2
-			  AND rs.tenant_id = $3
-			  AND rs.workspace_id = $4
-			RETURNING rf.repo_scan_id
+		`WITH targets AS (
+			SELECT DISTINCT
+			       NULLIF(TRIM(repo_scan_id), '')::uuid AS repo_scan_id,
+			       NULLIF(TRIM(finding_id), '') AS finding_id
+			  FROM jsonb_to_recordset($1::jsonb) AS t(repo_scan_id text, finding_id text)
+			 WHERE NULLIF(TRIM(repo_scan_id), '') IS NOT NULL
+			   AND NULLIF(TRIM(finding_id), '') IS NOT NULL
+		), matched AS (
+			SELECT
+			       rf.repo_scan_id AS matched_repo_scan_id,
+			       rf.finding_id AS matched_finding_id,
+			       LOWER(TRIM(COALESCE(NULLIF(rf.evidence->>'repository', ''), rs.repository))) AS repository_key,
+			       COALESCE(NULLIF(TRIM(rf.lifecycle_key), ''), NULLIF(TRIM(rf.evidence->>'lifecycle_key'), '')) AS lifecycle_key
+			  FROM targets t
+			  JOIN repo_findings rf
+			    ON rf.repo_scan_id = t.repo_scan_id
+			   AND rf.finding_id = t.finding_id
+			  JOIN repo_scans rs
+			    ON rs.id = rf.repo_scan_id
+			   AND rs.tenant_id = $2
+			   AND rs.workspace_id = $3
+		), expanded AS (
+			SELECT DISTINCT
+			       rf.repo_scan_id::text AS repo_scan_id,
+			       rf.finding_id
+			  FROM matched m
+			  JOIN repo_findings rf
+			    ON (
+			      (rf.repo_scan_id = m.matched_repo_scan_id AND rf.finding_id = m.matched_finding_id)
+			      OR (
+			        m.lifecycle_key IS NOT NULL
+			        AND m.lifecycle_key <> ''
+			        AND COALESCE(NULLIF(TRIM(rf.lifecycle_key), ''), NULLIF(TRIM(rf.evidence->>'lifecycle_key'), '')) = m.lifecycle_key
+			      )
+			    )
+			  JOIN repo_scans rs
+			    ON rs.id = rf.repo_scan_id
+			   AND rs.tenant_id = $2
+			   AND rs.workspace_id = $3
+			 WHERE rf.repo_scan_id = m.matched_repo_scan_id
+			    OR (
+			      m.lifecycle_key IS NOT NULL
+			      AND m.lifecycle_key <> ''
+			      AND LOWER(TRIM(COALESCE(NULLIF(rf.evidence->>'repository', ''), rs.repository))) = m.repository_key
+			    )
 		)
-		UPDATE repo_scans rs
-		SET finding_count = GREATEST(0, rs.finding_count - (SELECT COUNT(*) FROM deleted))
-		WHERE rs.id = $1
-		  AND rs.tenant_id = $3
-		  AND rs.workspace_id = $4
-		  AND EXISTS (SELECT 1 FROM deleted)`,
-		repoScanID,
-		strings.TrimSpace(findingID),
+		SELECT repo_scan_id, finding_id
+		  FROM expanded
+		 ORDER BY repo_scan_id, finding_id`,
+		string(payload),
 		scope.TenantID,
 		scope.WorkspaceID,
 	)
 	if err != nil {
-		return fmt.Errorf("delete repo finding: %w", err)
+		return nil, fmt.Errorf("expand repo finding delete targets: %w", err)
 	}
-	if err := ensureRowsAffected(result); err != nil {
-		return err
+	defer rows.Close()
+	expanded := []RepoFindingDeleteTarget{}
+	for rows.Next() {
+		var target RepoFindingDeleteTarget
+		if err := rows.Scan(&target.RepoScanID, &target.FindingID); err != nil {
+			return nil, fmt.Errorf("scan expanded repo finding delete target: %w", err)
+		}
+		expanded = append(expanded, target)
 	}
-	return nil
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate expanded repo finding delete targets: %w", err)
+	}
+	return expanded, nil
 }
 
 // DeleteRepoFindingTargets removes selected repository findings in one scoped operation.
@@ -3854,10 +3944,10 @@ func (p *PostgresStore) DeleteRepoFindingTargets(ctx context.Context, targets []
 			   AND NULLIF(TRIM(finding_id), '') IS NOT NULL
 		), deleted AS (
 			DELETE FROM repo_findings rf
-			USING repo_scans rs, targets t
-			WHERE rf.repo_scan_id = rs.id
-			  AND rf.repo_scan_id = t.repo_scan_id
+			USING targets t, repo_scans rs
+			WHERE rf.repo_scan_id = t.repo_scan_id
 			  AND rf.finding_id = t.finding_id
+			  AND rs.id = rf.repo_scan_id
 			  AND rs.tenant_id = $2
 			  AND rs.workspace_id = $3
 			RETURNING rf.repo_scan_id::text, rf.finding_id
@@ -3865,7 +3955,7 @@ func (p *PostgresStore) DeleteRepoFindingTargets(ctx context.Context, targets []
 			UPDATE repo_scans rs
 			SET finding_count = GREATEST(0, rs.finding_count - counts.deleted_count)
 			FROM (
-				SELECT repo_scan_id, COUNT(*)::int AS deleted_count
+				SELECT repo_scan_id::uuid AS repo_scan_id, COUNT(*)::int AS deleted_count
 				FROM deleted
 				GROUP BY repo_scan_id
 			) counts
