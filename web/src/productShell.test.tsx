@@ -7460,6 +7460,7 @@ describe('Domain-first app routes', () => {
 
 describe('ProductFindingsPage states', () => {
   afterEach(() => {
+    window.localStorage.clear();
     vi.restoreAllMocks();
     vi.doUnmock('./hooks/useMe');
     vi.resetModules();
@@ -7589,6 +7590,68 @@ describe('ProductFindingsPage states', () => {
     expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
     expect(await screen.findByText('Completed scans')).toBeInTheDocument();
     expect(await screen.findByText('Legacy finding')).toBeInTheDocument();
+  });
+
+  it('lets operators remove a failed scan banner without hiding findings', async () => {
+    const failedScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-failed-dismissible',
+      status: 'failed',
+      started_at: '2026-05-17T12:00:00Z',
+      finished_at: '2026-05-17T12:01:00Z',
+      error_message: 'Repository not found or access revoked'
+    };
+    const oldSucceededScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-dismissible-succeeded',
+      status: 'succeeded',
+      started_at: '2026-05-17T11:00:00Z',
+      finished_at: '2026-05-17T11:30:00Z',
+      finding_count: 1
+    };
+    const finding: Finding = {
+      id: 'finding-dismissible',
+      scan_id: oldSucceededScan.id,
+      type: 'workflow_permission',
+      severity: 'high',
+      title: 'Historical workflow finding',
+      human_summary: 'A workflow grants broad repository permissions.',
+      remediation: 'Limit workflow permissions.',
+      created_at: '2026-05-17T11:07:00Z'
+    };
+
+    await renderFindings({
+      repoScans: [failedScan, oldSucceededScan],
+      repoFindings: [finding]
+    });
+
+    expect(await screen.findByText(/Last scan failed:/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Remove$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Last scan failed:/i)).not.toBeInTheDocument();
+    });
+    expect(await screen.findByText('Historical workflow finding')).toBeInTheDocument();
+  });
+
+  it('lets operators remove a failed-only scan state', async () => {
+    const failedScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-failed-only-dismissible',
+      status: 'failed',
+      finished_at: '2026-05-17T11:05:00Z',
+      error_message: 'Repository not found or access revoked'
+    };
+
+    await renderFindings({ repoScans: [failedScan] });
+
+    expect(await screen.findByText('Your last repository scan failed')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Remove$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
+    });
+    expect(await screen.findByText('No completed scan results')).toBeInTheDocument();
   });
 
   it('does not report cancellation as a failed scan', async () => {
@@ -8103,6 +8166,74 @@ describe('ProductFindingsPage states', () => {
     await waitFor(() => {
       expect(screen.queryByText('First clearable token finding')).not.toBeInTheDocument();
       expect(screen.queryByText('Second clearable workflow finding')).not.toBeInTheDocument();
+    });
+    expect(await screen.findByText('No exposure found')).toBeInTheDocument();
+  });
+
+  it('falls back to individual deletes when the bulk endpoint is unavailable', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-clear-all-bulk-missing',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 2
+    };
+    const findings: Finding[] = [
+      {
+        id: 'finding-clear-fallback-first',
+        scan_id: scan.id,
+        type: 'secret_exposure',
+        severity: 'critical',
+        title: 'Fallback clearable token finding',
+        human_summary: 'A token-like value appears in a committed workflow.',
+        remediation: 'Rotate the credential and remove the committed value.',
+        created_at: '2026-05-17T11:06:00Z'
+      },
+      {
+        id: 'finding-clear-fallback-second',
+        scan_id: scan.id,
+        type: 'workflow_permission',
+        severity: 'high',
+        title: 'Fallback clearable workflow finding',
+        human_summary: 'A workflow grants broad repository permissions.',
+        remediation: 'Limit workflow permissions.',
+        created_at: '2026-05-17T11:07:00Z'
+      }
+    ];
+
+    const { deleteRepoFinding, deleteRepoFindings } = await renderFindings({
+      repoScans: [scan],
+      listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [] })
+    });
+    const { ApiError } = await import('./api/client');
+    deleteRepoFindings.mockRejectedValueOnce(new ApiError('Request failed (404)', 404));
+
+    expect(await screen.findByText('Fallback clearable token finding')).toBeInTheDocument();
+    expect(await screen.findByText('Fallback clearable workflow finding')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Clear all$/i }));
+    const confirmDialog = await screen.findByRole('dialog', { name: /Clear findings/i });
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete all/i }));
+
+    await waitFor(() => {
+      expect(deleteRepoFindings).toHaveBeenCalledTimes(1);
+      expect(deleteRepoFinding).toHaveBeenCalledTimes(2);
+    });
+    expect(deleteRepoFinding).toHaveBeenNthCalledWith(
+      1,
+      findings[0].id,
+      scan.id,
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(deleteRepoFinding).toHaveBeenNthCalledWith(
+      2,
+      findings[1].id,
+      scan.id,
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    await waitFor(() => {
+      expect(screen.queryByText('Fallback clearable token finding')).not.toBeInTheDocument();
+      expect(screen.queryByText('Fallback clearable workflow finding')).not.toBeInTheDocument();
     });
     expect(await screen.findByText('No exposure found')).toBeInTheDocument();
   });
