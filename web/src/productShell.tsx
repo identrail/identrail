@@ -1638,6 +1638,35 @@ function mergeRepoFindingsBulkDeleteResponses(
   );
 }
 
+type RepoFindingBulkDeleteBatchResult = {
+  response: RepoFindingsBulkDeleteResponse;
+  errorMessage?: string;
+};
+
+function repoFindingDeleteBatchErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Failed to delete finding.';
+}
+
+export async function deleteRepoFindingTargetsInBatches(
+  targets: RepoFindingDeleteTarget[],
+  deleteTargets: (batch: RepoFindingDeleteTarget[]) => Promise<RepoFindingsBulkDeleteResponse>,
+  batchSize = REPO_FINDING_BULK_DELETE_BATCH_SIZE
+): Promise<RepoFindingBulkDeleteBatchResult> {
+  const responses: RepoFindingsBulkDeleteResponse[] = [];
+  for (const batch of chunkRepoFindingDeleteTargets(targets, batchSize)) {
+    try {
+      responses.push(await deleteTargets(batch));
+    } catch (requestError) {
+      const response = mergeRepoFindingsBulkDeleteResponses(responses);
+      if (response.deleted.length === 0 && (response.failed ?? []).length === 0) {
+        throw requestError;
+      }
+      return { response, errorMessage: repoFindingDeleteBatchErrorMessage(requestError) };
+    }
+  }
+  return { response: mergeRepoFindingsBulkDeleteResponses(responses) };
+}
+
 function repoFindingDeleteTargetKey(target: RepoFindingDeleteTarget): string {
   return `${target.repo_scan_id}::${target.finding_id}`;
 }
@@ -28206,12 +28235,10 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       let failedCandidates: ApiFinding[] = [];
       let failureMessage = 'Failed to delete finding.';
       if (bulkDeleteActive) {
-        const batches = chunkRepoFindingDeleteTargets(candidates.map(repoFindingDeleteTargetFromFinding));
-        const responses: RepoFindingsBulkDeleteResponse[] = [];
-        for (const batch of batches) {
-          responses.push(await apiClient.deleteRepoFindings(batch, auth));
-        }
-        const response = mergeRepoFindingsBulkDeleteResponses(responses);
+        const { response, errorMessage } = await deleteRepoFindingTargetsInBatches(
+          candidates.map(repoFindingDeleteTargetFromFinding),
+          (batch) => apiClient.deleteRepoFindings(batch, auth)
+        );
         const deletedKeys = new Set(response.deleted.map(repoFindingDeleteTargetKey));
         const failedKeys = new Set((response.failed ?? []).map(repoFindingDeleteTargetKey));
         deletedFindings = candidates.filter((candidate) =>
@@ -28221,7 +28248,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
           const key = repoFindingDeleteTargetKeyFromFinding(candidate);
           return failedKeys.has(key) || !deletedKeys.has(key);
         });
-        failureMessage = response.failed?.[0]?.error || failureMessage;
+        failureMessage = response.failed?.[0]?.error || errorMessage || failureMessage;
       } else {
         const candidate = candidates[0];
         if (candidate) {

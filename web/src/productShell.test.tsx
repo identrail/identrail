@@ -8458,7 +8458,7 @@ describe('ProductFindingsPage states', () => {
       title: 'Source-filtered workflow permission',
       human_summary: 'A workflow grants broad repository permissions.',
       remediation: 'Limit workflow permissions.',
-      source: 'github_code_scanning',
+      adapter_source: 'github_code_scanning',
       created_at: '2026-05-17T11:06:00Z'
     };
 
@@ -8906,6 +8906,25 @@ describe('ProductFindingsPage states', () => {
     expect(batches).toHaveLength(2);
     expect(batches[0]).toHaveLength(REPO_FINDING_BULK_DELETE_BATCH_SIZE);
     expect(batches[1]).toEqual([{ finding_id: 'finding-bulk-limit-5000', repo_scan_id: 'repo-scan-bulk-limit' }]);
+  });
+
+  it('preserves completed clear all batches when a later batch request fails', async () => {
+    const { deleteRepoFindingTargetsInBatches } = await import('./productShell');
+    const targets = Array.from({ length: 3 }, (_, index) => ({
+      finding_id: `finding-bulk-partial-${index}`,
+      repo_scan_id: 'repo-scan-bulk-partial'
+    }));
+    const deleteTargets = vi
+      .fn()
+      .mockResolvedValueOnce({ deleted: targets.slice(0, 2) })
+      .mockRejectedValueOnce(new Error('rate limit exceeded'));
+
+    const result = await deleteRepoFindingTargetsInBatches(targets, deleteTargets, 2);
+
+    expect(deleteTargets).toHaveBeenCalledTimes(2);
+    expect(result.response.deleted).toEqual(targets.slice(0, 2));
+    expect(result.response.failed).toEqual([]);
+    expect(result.errorMessage).toBe('rate limit exceeded');
   });
 
   it('sends large clear all requests below the server limit as one repository finding bulk operation', async () => {
