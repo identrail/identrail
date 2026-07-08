@@ -103,6 +103,20 @@ func TestAuthorizeRepoFindingDeleteTargetsChecksRequestBodyTargets(t *testing.T)
 				c.Status(http.StatusForbidden)
 				return
 			}
+			authzDecision, exists := c.Get("authz.audit_decision")
+			if !exists {
+				t.Fatal("expected allowed body-aware delete target to set authz audit decision")
+			}
+			auditDecision, ok := authzDecision.(audit.AuditAuthzDecision)
+			if !ok {
+				t.Fatalf("expected authz audit decision, got %T", authzDecision)
+			}
+			if !auditDecision.Allowed {
+				t.Fatal("expected allowed authz audit decision")
+			}
+			if auditDecision.Input.ResourceType != "repo_finding" {
+				t.Fatalf("expected repo_finding audit resource type, got %q", auditDecision.Input.ResourceType)
+			}
 			c.Status(http.StatusNoContent)
 		})
 

@@ -684,6 +684,10 @@ func authorizeRepoFindingDeleteTargets(
 		Action:       policyActionRepoScansRun,
 		ResourceType: "repo_finding",
 	}
+	var allowedDecision *PolicyDecision
+	var allowedInput PolicyInput
+	var allowedDecisionSource string
+	var allowedDecisionVersion int
 	for _, target := range targets {
 		input, err := buildPolicyInputFromGinContext(c, policy, normalizedWriteKeys, scopedKeys, store)
 		if err != nil {
@@ -717,6 +721,13 @@ func authorizeRepoFindingDeleteTargets(
 			setAuthzDecisionContext(c, runtimePolicy.PolicySetID, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision, input, fingerprinter)
 			return false, nil
 		}
+		allowedDecision = &decision
+		allowedInput = input
+		allowedDecisionSource = decisionSource
+		allowedDecisionVersion = decisionVersion
+	}
+	if allowedDecision != nil {
+		setAuthzDecisionContext(c, runtimePolicy.PolicySetID, allowedDecisionVersion, allowedDecisionSource, runtimePolicy.RolloutMode, *allowedDecision, allowedInput, fingerprinter)
 	}
 	return true, nil
 }
