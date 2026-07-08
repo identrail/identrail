@@ -621,6 +621,22 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 	if len(stageRollbackCases) != 0 {
 		t.Fatalf("stage=rollback must not keep a case rewritten to verification after account scoping, got %+v", stageRollbackCases)
 	}
+
+	statusVerificationCases, applied := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{AccountID: "222222222222", Status: awsRemediationCenterStageVerification})
+	statusVerificationRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(statusVerificationCases), statusVerificationCases, applied["status"], applied["account_id"])
+	statusVerificationCases = awsRemediationCenterCasesWithScopedVerificationRows(statusVerificationCases, statusVerificationRows, applied["status"], applied["stage"])
+
+	if len(statusVerificationCases) != 1 || statusVerificationCases[0].CaseID != "case-mixed" || statusVerificationCases[0].Stage != awsRemediationCenterStageVerification {
+		t.Fatalf("status=verification must be applied after account-scoped verification row rewrite, got %+v", statusVerificationCases)
+	}
+
+	statusRollbackCases, applied := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{AccountID: "222222222222", Status: awsRemediationCenterStageRollback})
+	statusRollbackRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(statusRollbackCases), statusRollbackCases, applied["status"], applied["account_id"])
+	statusRollbackCases = awsRemediationCenterCasesWithScopedVerificationRows(statusRollbackCases, statusRollbackRows, applied["status"], applied["stage"])
+
+	if len(statusRollbackCases) != 0 {
+		t.Fatalf("status=rollback must not keep a case rewritten to verification after account scoping, got %+v", statusRollbackCases)
+	}
 }
 
 func TestGetAWSRemediationCenterPreservesUnfilteredTotals(t *testing.T) {

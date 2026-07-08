@@ -268,6 +268,7 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	})
 	filtered, applied := filterAWSRemediationCenterCases(centerCases, request)
 	stageDeferred := awsRemediationCenterShouldDeferStageFilter(applied)
+	statusDeferred := awsRemediationCenterShouldDeferStatusFilter(applied)
 	diagnostics := awsRemediationCenterDiagnostics(cases, approvals, dryRuns, liveActions, verification)
 	coverageGaps := awsRemediationCenterCoverageGaps(cases, verification)
 	evidenceLinks := awsRemediationCenterEvidenceLinks(scope, project, cases, approvals, dryRuns, liveActions, verification)
@@ -293,7 +294,7 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	verification.Relationships = awsRemediationCenterScopeEntries(verification.Relationships, awsRemediationCenterStringSet(verification.Entries, func(e AWSPostRemediationVerificationEntry) string { return e.VerificationID }), func(r AWSPostRemediationVerificationRelationship) string { return r.VerificationID })
 	verification.Summary = summarizeAWSPostRemediationVerificationEntries(allVerificationEntries, verification.Entries, verification.Relationships)
 	filtered = awsRemediationCenterCasesWithScopedVerificationRows(filtered, verification.Entries, applied["status"], applied["stage"])
-	if stageDeferred {
+	if stageDeferred || statusDeferred {
 		scopedCaseIDs = awsRemediationCenterCaseIDSet(filtered)
 		approvals.Entries = awsRemediationCenterScopeEntries(approvals.Entries, scopedCaseIDs, func(e AWSRemediationApprovalEntry) string { return e.CaseID })
 		approvals.Relationships = awsRemediationCenterScopeEntries(approvals.Relationships, awsRemediationCenterStringSet(approvals.Entries, func(e AWSRemediationApprovalEntry) string { return e.ApprovalID }), func(r AWSRemediationApprovalRelationship) string { return r.ApprovalID })
@@ -866,11 +867,15 @@ func awsRemediationCenterCasesWithScopedVerificationRows(cases []AWSRemediationC
 		}
 	}
 	statusCaseIDs := awsRemediationCenterVerificationStatusCaseIDSet(cases, normalizeAWSRuntimeEventFilterToken(status))
+	status = normalizeAWSRuntimeEventFilterToken(status)
 	stage = normalizeAWSRuntimeEventFilterToken(stage)
 	out := make([]AWSRemediationCenterCase, 0, len(cases))
 	for _, entry := range cases {
 		caseID := strings.TrimSpace(entry.CaseID)
 		if entry.VerificationID == "" {
+			if status != "" && !awsRemediationCenterStatusMatch(entry, status) {
+				continue
+			}
 			if stage != "" && stage != normalizeAWSRuntimeEventFilterToken(entry.Stage) {
 				continue
 			}
@@ -900,6 +905,9 @@ func awsRemediationCenterCasesWithScopedVerificationRows(cases []AWSRemediationC
 		entry.KillSwitchEngaged = entry.nonVerificationKillSwitchEngaged || scopedVerificationKillSwitch || (entry.KillSwitchEngaged && !entry.verificationKillSwitchEngaged)
 		entry.verificationKillSwitchEngaged = scopedVerificationKillSwitch
 		entry.AuditEntryCount = len(entry.AuditTrail)
+		if status != "" && !awsRemediationCenterStatusMatch(entry, status) {
+			continue
+		}
 		if stage != "" && stage != normalizeAWSRuntimeEventFilterToken(entry.Stage) {
 			continue
 		}
@@ -1078,6 +1086,7 @@ func filterAWSRemediationCenterCases(centerCases []AWSRemediationCenterCase, req
 	}
 	minConfidence, hasMinConfidence := awsRemediationCenterConfidenceFloor(filters["confidence"])
 	deferStageFilter := awsRemediationCenterShouldDeferStageFilter(filters)
+	deferStatusFilter := awsRemediationCenterShouldDeferStatusFilter(filters)
 	applied := map[string]string{}
 	for key, value := range filters {
 		applied[key] = value
@@ -1099,7 +1108,7 @@ func filterAWSRemediationCenterCases(centerCases []AWSRemediationCenterCase, req
 		if filters["action_type"] != "" && filters["action_type"] != normalizeAWSRuntimeEventFilterToken(entry.ActionType) && filters["action_type"] != normalizeAWSRuntimeEventFilterToken(entry.SourceType) {
 			continue
 		}
-		if filters["status"] != "" && !awsRemediationCenterStatusMatch(entry, filters["status"]) {
+		if filters["status"] != "" && !deferStatusFilter && !awsRemediationCenterStatusMatch(entry, filters["status"]) {
 			continue
 		}
 		if filters["stage"] != "" && !deferStageFilter && filters["stage"] != normalizeAWSRuntimeEventFilterToken(entry.Stage) {
@@ -1124,6 +1133,10 @@ func awsRemediationCenterShouldDeferStageFilter(filters map[string]string) bool 
 		return false
 	}
 	return filters["account_id"] != "" || awsRemediationCenterFilterTokenIsVerificationState(filters["status"])
+}
+
+func awsRemediationCenterShouldDeferStatusFilter(filters map[string]string) bool {
+	return filters["status"] != "" && filters["account_id"] != ""
 }
 
 func awsRemediationCenterFilterTokenIsVerificationState(status string) bool {
