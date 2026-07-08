@@ -52,7 +52,8 @@ const (
 	repoFindingsTriageFilterStep     = maxCursorFetchLimit
 	repoFindingsTriageFilterCap      = maxCursorFetchLimit * 4
 	repoFindingSLAHighCritical       = 7 * 24 * time.Hour
-	maxRepoFindingBulkDeleteItems    = 500
+	maxRepoFindingBulkDeleteItems    = 5000
+	gitHubRepoFindingConfidenceFloor = 0.90
 )
 
 const (
@@ -396,6 +397,7 @@ type RepoRiskGraphFilter struct {
 	Repository    string
 	Severity      string
 	Type          string
+	MinConfidence float64
 	DefaultBranch string
 }
 
@@ -1926,6 +1928,7 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	sourceHealth, _ := db.NormalizeRepoScanSourceHealth("", sourceHealthDetails)
 	partialSourceRun := sourceHealth != db.RepoScanSourceHealthComplete
 	result.Findings = enrichFindingsWithRepoContext(result.Findings, result.Repository, record.Repository)
+	result.Findings = filterReportableRepoFindings(result.Findings)
 	if err := s.Store.UpsertRepoFindings(ctx, record.ID, result.Findings); err != nil {
 		if errors.Is(err, db.ErrConflict) {
 			if cleanupErr := s.clearRepoScanFindingsAfterTerminalChange(ctx, record.ID); cleanupErr != nil {
@@ -2218,6 +2221,42 @@ func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoSc
 		}
 	}
 	return findings, sourceErrors, nil
+}
+
+func filterRepoFindingsByMinimumConfidence(findings []domain.Finding, floor float64) []domain.Finding {
+	if floor <= 0 {
+		return findings
+	}
+	filtered := findings[:0]
+	for _, finding := range findings {
+		if finding.ConfidenceScore >= floor {
+			filtered = append(filtered, finding)
+		}
+	}
+	return filtered
+}
+
+func filterReportableRepoFindings(findings []domain.Finding) []domain.Finding {
+	filtered := findings[:0]
+	for _, finding := range findings {
+		if finding.ConfidenceScore < gitHubRepoFindingConfidenceFloor {
+			continue
+		}
+		if !isHighImpactRepoFinding(finding) {
+			continue
+		}
+		filtered = append(filtered, finding)
+	}
+	return filtered
+}
+
+func isHighImpactRepoFinding(finding domain.Finding) bool {
+	switch finding.Severity {
+	case domain.SeverityCritical, domain.SeverityHigh:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) repoScanSourceHealthDetails(record db.RepoScanRecord, truncated bool, sourceErrors []providers.SourceError) []db.RepoScanSourceHealth {
@@ -2633,29 +2672,40 @@ func (s *Service) DeleteRepoFindings(ctx context.Context, targets []RepoFindingD
 	if err != nil {
 		return RepoFindingsBulkDeleteResponse{}, err
 	}
+	storeTargets := make([]db.RepoFindingDeleteTarget, 0, len(normalized))
+	for _, target := range normalized {
+		storeTargets = append(storeTargets, db.RepoFindingDeleteTarget{
+			RepoScanID: target.RepoScanID,
+			FindingID:  target.FindingID,
+		})
+	}
+	deletedTargets, err := s.Store.DeleteRepoFindingTargets(ctx, storeTargets)
+	if err != nil {
+		return RepoFindingsBulkDeleteResponse{}, err
+	}
+	deletedSet := make(map[string]struct{}, len(deletedTargets))
+	for _, target := range deletedTargets {
+		deletedSet[repoFindingDeleteTargetKey(target.RepoScanID, target.FindingID)] = struct{}{}
+	}
 	response := RepoFindingsBulkDeleteResponse{
 		Deleted: []RepoFindingDeleteTarget{},
 		Failed:  []RepoFindingDeleteFailure{},
 	}
 	for _, target := range normalized {
-		err := s.Store.DeleteRepoFinding(ctx, target.RepoScanID, target.FindingID)
-		if err == nil {
+		if _, ok := deletedSet[repoFindingDeleteTargetKey(target.RepoScanID, target.FindingID)]; ok {
 			response.Deleted = append(response.Deleted, target)
-			continue
-		}
-		if errors.Is(err, db.ErrNotFound) {
-			response.Failed = append(response.Failed, RepoFindingDeleteFailure{
-				RepoFindingDeleteTarget: target,
-				Error:                   "repo finding not found",
-			})
 			continue
 		}
 		response.Failed = append(response.Failed, RepoFindingDeleteFailure{
 			RepoFindingDeleteTarget: target,
-			Error:                   "failed to delete repo finding",
+			Error:                   "repo finding not found",
 		})
 	}
 	return response, nil
+}
+
+func repoFindingDeleteTargetKey(repoScanID string, findingID string) string {
+	return strings.TrimSpace(repoScanID) + "::" + strings.TrimSpace(findingID)
 }
 
 func normalizeRepoFindingDeleteTargets(targets []RepoFindingDeleteTarget) ([]RepoFindingDeleteTarget, error) {
@@ -2762,12 +2812,13 @@ func (s *Service) GetRepoRiskGraph(ctx context.Context, filter RepoRiskGraphFilt
 	}
 
 	findings, err := s.Store.ListRepoFindings(ctx, db.RepoFindingFilter{
-		RepoScanID: strings.TrimSpace(filter.RepoScanID),
-		Repository: repository,
-		Severity:   strings.TrimSpace(filter.Severity),
-		Type:       strings.TrimSpace(filter.Type),
-		SortBy:     "created_at",
-		SortDesc:   true,
+		RepoScanID:    strings.TrimSpace(filter.RepoScanID),
+		Repository:    repository,
+		Severity:      strings.TrimSpace(filter.Severity),
+		Type:          strings.TrimSpace(filter.Type),
+		MinConfidence: filter.MinConfidence,
+		SortBy:        "created_at",
+		SortDesc:      true,
 	}, 0)
 	if err != nil {
 		return domain.RepoRiskGraph{}, err
@@ -3853,11 +3904,11 @@ func (s *Service) GetFindingsTrendFiltered(ctx context.Context, points int, seve
 
 // GetRepoFindingsTrend returns repository finding trend totals by repo scan.
 func (s *Service) GetRepoFindingsTrend(ctx context.Context, points int) ([]TrendPoint, error) {
-	return s.GetRepoFindingsTrendFiltered(ctx, points, "", "")
+	return s.GetRepoFindingsTrendFiltered(ctx, points, "", "", 0)
 }
 
 // GetRepoFindingsTrendFiltered returns repository finding trend with optional severity/type filters.
-func (s *Service) GetRepoFindingsTrendFiltered(ctx context.Context, points int, severity string, findingType string) ([]TrendPoint, error) {
+func (s *Service) GetRepoFindingsTrendFiltered(ctx context.Context, points int, severity string, findingType string, minConfidence float64) ([]TrendPoint, error) {
 	ctx = s.scopeContext(ctx)
 	if points <= 0 {
 		points = 10
@@ -3884,7 +3935,7 @@ func (s *Service) GetRepoFindingsTrendFiltered(ctx context.Context, points int, 
 		index[scan.ID] = &result[len(result)-1]
 	}
 
-	counts, err := s.Store.ListRepoFindingTrendCounts(ctx, repoScanIDs, severity, findingType)
+	counts, err := s.Store.ListRepoFindingTrendCounts(ctx, repoScanIDs, severity, findingType, minConfidence)
 	if err != nil {
 		return nil, err
 	}

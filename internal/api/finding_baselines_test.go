@@ -57,6 +57,18 @@ func TestScoreFindingConfidenceHonorsClassifierScore(t *testing.T) {
 	}
 }
 
+func TestScoreFindingConfidenceHonorsExplicitAdapterScore(t *testing.T) {
+	finding := domain.Finding{
+		Type:            domain.FindingRepoMisconfig,
+		ConfidenceScore: 0.92,
+		Repository:      "owner/repo",
+		Evidence:        map[string]any{"adapter_source": "github_posture"},
+	}
+	if got := scoreFindingConfidence(finding); got != 0.92 {
+		t.Fatalf("expected explicit adapter confidence score to win, got %.2f", got)
+	}
+}
+
 func TestScoreFindingConfidenceClampsClassifierScore(t *testing.T) {
 	finding := domain.Finding{
 		Type:            domain.FindingSecretExposure,

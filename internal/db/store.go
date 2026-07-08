@@ -2772,6 +2772,12 @@ type RepoFindingFilter struct {
 	IncludeHistorical bool
 }
 
+// RepoFindingDeleteTarget identifies one persisted repository finding row.
+type RepoFindingDeleteTarget struct {
+	RepoScanID string
+	FindingID  string
+}
+
 // RepoFindingClusterListFilter controls repository finding cluster list queries.
 type RepoFindingClusterListFilter struct {
 	RepoScanID string
@@ -3061,7 +3067,7 @@ type Store interface {
 	ListFindingMetasByScan(ctx context.Context, scanID string) ([]FindingMeta, error)
 	ListFindingsByScanAndIDs(ctx context.Context, scanID string, findingIDs []string) ([]domain.Finding, error)
 	ListFindingTrendCounts(ctx context.Context, scanIDs []string, severity string, findingType string) ([]FindingTrendCount, error)
-	ListRepoFindingTrendCounts(ctx context.Context, repoScanIDs []string, severity string, findingType string) ([]FindingTrendCount, error)
+	ListRepoFindingTrendCounts(ctx context.Context, repoScanIDs []string, severity string, findingType string, minConfidence float64) ([]FindingTrendCount, error)
 	UpsertAuthzEntityAttributes(ctx context.Context, attributes AuthzEntityAttributes) error
 	GetAuthzEntityAttributes(ctx context.Context, entityKind string, entityType string, entityID string) (AuthzEntityAttributes, error)
 	UpsertAuthzRelationship(ctx context.Context, relationship AuthzRelationship) error
@@ -3335,6 +3341,7 @@ type Store interface {
 	UpsertRepoFindings(ctx context.Context, repoScanID string, findings []domain.Finding) error
 	DeleteRepoFindings(ctx context.Context, repoScanID string) error
 	DeleteRepoFinding(ctx context.Context, repoScanID string, findingID string) error
+	DeleteRepoFindingTargets(ctx context.Context, targets []RepoFindingDeleteTarget) ([]RepoFindingDeleteTarget, error)
 	ListRepoScans(ctx context.Context, limit int) ([]RepoScanRecord, error)
 	ListRepoFindings(ctx context.Context, filter RepoFindingFilter, limit int) ([]domain.Finding, error)
 	ListRepoFindingClusters(ctx context.Context, filter RepoFindingClusterListFilter) ([]domain.RepoFindingCluster, error)

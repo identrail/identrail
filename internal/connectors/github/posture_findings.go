@@ -181,7 +181,7 @@ func postureFindingSeverity(check RepositoryPostureCheck, detector string) domai
 func postureFindingConfidence(state RepositoryPostureState) float64 {
 	switch state {
 	case RepositoryPostureStateInsecure:
-		return 0.88
+		return 0.92
 	case RepositoryPostureStatePermissionLimited:
 		return 0.72
 	case RepositoryPostureStateUnavailable:

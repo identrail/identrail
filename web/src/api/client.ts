@@ -10025,7 +10025,7 @@ export const apiClient = {
     return request<{ items: TrendPoint[] }>(`/v1/findings/trends${buildQuery(filters)}`, auth);
   },
   getRepoFindingsTrends(
-    filters: { points?: number; severity?: string; type?: string } = {},
+    filters: { points?: number; severity?: string; type?: string; min_confidence?: number } = {},
     auth?: RequestAuthContext
   ) {
     return request<{ items: TrendPoint[] }>(`/v1/repo-findings/trends${buildQuery(filters)}`, auth);
@@ -10159,6 +10159,7 @@ export const apiClient = {
       default_branch?: string;
       severity?: string;
       type?: string;
+      min_confidence?: number;
     } = {},
     auth?: RequestAuthContext
   ) {

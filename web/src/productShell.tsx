@@ -1620,55 +1620,6 @@ function repoFindingDeleteTargetKeyFromFinding(finding: ApiFinding): string {
   return repoFindingDeleteTargetKey(repoFindingDeleteTargetFromFinding(finding));
 }
 
-const REPO_FINDING_BULK_DELETE_BATCH_SIZE = 500;
-
-function chunkRepoFindingDeleteTargets(targets: RepoFindingDeleteTarget[]): RepoFindingDeleteTarget[][] {
-  const chunks: RepoFindingDeleteTarget[][] = [];
-  for (let index = 0; index < targets.length; index += REPO_FINDING_BULK_DELETE_BATCH_SIZE) {
-    chunks.push(targets.slice(index, index + REPO_FINDING_BULK_DELETE_BATCH_SIZE));
-  }
-  return chunks;
-}
-
-function mergeRepoFindingsBulkDeleteResponses(
-  responses: RepoFindingsBulkDeleteResponse[]
-): RepoFindingsBulkDeleteResponse {
-  return responses.reduce<RepoFindingsBulkDeleteResponse>(
-    (acc, response) => ({
-      deleted: [...acc.deleted, ...response.deleted],
-      failed: [...(acc.failed ?? []), ...(response.failed ?? [])]
-    }),
-    { deleted: [], failed: [] }
-  );
-}
-
-async function deleteRepoFindingsBatchWithFallback(
-  targets: RepoFindingDeleteTarget[],
-  auth: RequestAuthContext
-): Promise<RepoFindingsBulkDeleteResponse> {
-  try {
-    return await apiClient.deleteRepoFindings(targets, auth);
-  } catch (error) {
-    if (!(error instanceof ApiError) || error.status !== 404) {
-      throw error;
-    }
-  }
-
-  const response: RepoFindingsBulkDeleteResponse = { deleted: [], failed: [] };
-  for (const target of targets) {
-    try {
-      await apiClient.deleteRepoFinding(target.finding_id, target.repo_scan_id, auth);
-      response.deleted.push(target);
-    } catch (deleteError) {
-      response.failed?.push({
-        ...target,
-        error: deleteError instanceof Error ? deleteError.message : 'Failed to delete finding.'
-      });
-    }
-  }
-  return response;
-}
-
 const DISMISSED_REPO_FAILED_SCAN_STORAGE_KEY = 'idt:repo-failed-scan-dismissals:v1';
 
 function failedRepoScanDismissalKey(scope: ProductSession, scanID: string): string {
@@ -28077,12 +28028,15 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       const severity = severityFilter !== 'all' ? severityFilter : undefined;
       const type = typeFilter !== 'all' ? typeFilter : undefined;
       const repoScanID = normalizeValue(repoScanFilter) || undefined;
+      const normalizedMinConfidence = Number.parseFloat(normalizeValue(minConfidenceFilter));
+      const minConfidence = Number.isFinite(normalizedMinConfidence) ? normalizedMinConfidence : undefined;
       const [trendResult, riskGraphResult] = await Promise.allSettled([
         apiClient.getRepoFindingsTrends(
           {
             points: TREND_POINTS,
             severity,
-            type
+            type,
+            min_confidence: minConfidence
           },
           auth
         ),
@@ -28090,7 +28044,8 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
           {
             repo_scan_id: repoScanID,
             severity,
-            type
+            type,
+            min_confidence: minConfidence
           },
           auth
         )
@@ -28220,17 +28175,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       let failedCandidates: ApiFinding[] = [];
       let failureMessage = 'Failed to delete finding.';
       if (bulkDeleteActive) {
-        const responses: RepoFindingsBulkDeleteResponse[] = [];
-        let batchError: unknown = null;
-        for (const batch of chunkRepoFindingDeleteTargets(candidates.map(repoFindingDeleteTargetFromFinding))) {
-          try {
-            responses.push(await deleteRepoFindingsBatchWithFallback(batch, auth));
-          } catch (requestError) {
-            batchError = requestError;
-            break;
-          }
-        }
-        const response = mergeRepoFindingsBulkDeleteResponses(responses);
+        const response = await apiClient.deleteRepoFindings(candidates.map(repoFindingDeleteTargetFromFinding), auth);
         const deletedKeys = new Set(response.deleted.map(repoFindingDeleteTargetKey));
         const failedKeys = new Set((response.failed ?? []).map(repoFindingDeleteTargetKey));
         deletedFindings = candidates.filter((candidate) =>
@@ -28240,10 +28185,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
           const key = repoFindingDeleteTargetKeyFromFinding(candidate);
           return failedKeys.has(key) || !deletedKeys.has(key);
         });
-        failureMessage =
-          batchError instanceof Error
-            ? batchError.message
-            : response.failed?.[0]?.error || failureMessage;
+        failureMessage = response.failed?.[0]?.error || failureMessage;
       } else {
         const candidate = candidates[0];
         if (candidate) {
@@ -28261,19 +28203,12 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       if (failedCandidates.length > 0) {
         applyFailedRepoFindingDeletes(failedCandidates, deletedFindings.length, failureMessage, bulkDeleteActive);
         if (deletedFindings.length > 0) {
+          await loadRepoFindings(scope, 'refresh');
           await loadTrendSignals(scope, 'refresh');
         }
         return;
       }
-      const repoScanFilterSelected = normalizeValue(repoScanFilter);
-      const shouldReloadFindings =
-        bulkDeleteActive
-          ? !agenticOnly
-          : deletedFindings.some((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'fixed') ||
-            repoScanFilterSelected === '';
-      if (shouldReloadFindings) {
-        await loadRepoFindings(scope, 'refresh');
-      }
+      await loadRepoFindings(scope, 'refresh');
       await loadTrendSignals(scope, 'refresh');
       closeFindingDeleteDialog({ allowDuringLoading: true });
     } catch (requestError) {
@@ -28751,7 +28686,8 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   });
 
   const trendDisplayLoading = signalsLoading;
-  const riskGraphSummary = repoRiskGraph?.summary;
+  const visibleRepoRiskGraph = filteredFindings.length > 0 ? repoRiskGraph : null;
+  const riskGraphSummary = visibleRepoRiskGraph?.summary;
   const riskGraphUnknownEvidenceCount =
     (riskGraphSummary?.unknown_node_count ?? 0) + (riskGraphSummary?.unknown_edge_count ?? 0);
   const selectedFindingPreviewKey = selectedFinding ? buildRepoFindingSelectionKey(selectedFinding) : '';
@@ -29489,8 +29425,8 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
           <h3>Risk graph</h3>
           {trendDisplayLoading ? <span className="idt-app-alert idt-app-alert-success">Loading graph</span> : null}
           <span className="idt-repo-finding-trend-subtitle">
-            {repoRiskGraph
-              ? `${repoRiskGraph.nodes.length} nodes · ${repoRiskGraph.edges.length} paths · ${canonicalGitHubRepositoryDisplay(repoRiskGraph.repository) || repoRiskGraph.repository || 'repository scope'}`
+            {visibleRepoRiskGraph
+              ? `${visibleRepoRiskGraph.nodes.length} nodes · ${visibleRepoRiskGraph.edges.length} paths · ${canonicalGitHubRepositoryDisplay(visibleRepoRiskGraph.repository) || visibleRepoRiskGraph.repository || 'repository scope'}`
               : 'No graph loaded yet'}
           </span>
         </summary>

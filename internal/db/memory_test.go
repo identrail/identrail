@@ -515,18 +515,18 @@ func TestMemoryStoreListRepoFindingTrendCounts(t *testing.T) {
 		t.Fatalf("create repo scan B: %v", err)
 	}
 	if err := store.UpsertRepoFindings(ctx, scanA.ID, []domain.Finding{
-		{ID: "f1", ScanID: scanA.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now.Add(time.Second)},
-		{ID: "f2", ScanID: scanA.ID, Type: domain.FindingEscalationPath, Severity: domain.SeverityCritical, CreatedAt: now.Add(2 * time.Second)},
+		{ID: "f1", ScanID: scanA.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, ConfidenceScore: 0.89, CreatedAt: now.Add(time.Second)},
+		{ID: "f2", ScanID: scanA.ID, Type: domain.FindingEscalationPath, Severity: domain.SeverityCritical, ConfidenceScore: 0.92, CreatedAt: now.Add(2 * time.Second)},
 	}); err != nil {
 		t.Fatalf("upsert repo findings for scan A: %v", err)
 	}
 	if err := store.UpsertRepoFindings(ctx, scanB.ID, []domain.Finding{
-		{ID: "f3", ScanID: scanB.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityLow, CreatedAt: now.Add(3 * time.Second)},
+		{ID: "f3", ScanID: scanB.ID, Type: domain.FindingOwnerless, Severity: domain.SeverityLow, ConfidenceScore: 0.95, CreatedAt: now.Add(3 * time.Second)},
 	}); err != nil {
 		t.Fatalf("upsert repo findings for scan B: %v", err)
 	}
 
-	trend, err := store.ListRepoFindingTrendCounts(ctx, []string{scanA.ID, scanB.ID}, "", "")
+	trend, err := store.ListRepoFindingTrendCounts(ctx, []string{scanA.ID, scanB.ID}, "", "", 0)
 	if err != nil {
 		t.Fatalf("list repo finding trend counts: %v", err)
 	}
@@ -534,7 +534,7 @@ func TestMemoryStoreListRepoFindingTrendCounts(t *testing.T) {
 		t.Fatalf("expected 3 repo trend rows, got %+v", trend)
 	}
 
-	filteredTrend, err := store.ListRepoFindingTrendCounts(ctx, []string{scanA.ID, scanB.ID}, "critical", "escalation_path")
+	filteredTrend, err := store.ListRepoFindingTrendCounts(ctx, []string{scanA.ID, scanB.ID}, "critical", "escalation_path", 0)
 	if err != nil {
 		t.Fatalf("list filtered repo finding trend counts: %v", err)
 	}
@@ -546,6 +546,20 @@ func TestMemoryStoreListRepoFindingTrendCounts(t *testing.T) {
 	}
 	if filteredTrend[1].ScanID != scanB.ID || filteredTrend[1].TotalCount != 0 {
 		t.Fatalf("unexpected filtered repo trend row for scan B: %+v", filteredTrend[1])
+	}
+
+	confidenceFilteredTrend, err := store.ListRepoFindingTrendCounts(ctx, []string{scanA.ID, scanB.ID}, "", "", 0.9)
+	if err != nil {
+		t.Fatalf("list confidence-filtered repo finding trend counts: %v", err)
+	}
+	if len(confidenceFilteredTrend) != 2 {
+		t.Fatalf("expected 2 confidence-filtered repo trend rows, got %+v", confidenceFilteredTrend)
+	}
+	if confidenceFilteredTrend[0].ScanID != scanA.ID || confidenceFilteredTrend[0].Severity != "critical" || confidenceFilteredTrend[0].TotalCount != 1 {
+		t.Fatalf("unexpected confidence-filtered repo trend row for scan A: %+v", confidenceFilteredTrend[0])
+	}
+	if confidenceFilteredTrend[1].ScanID != scanB.ID || confidenceFilteredTrend[1].Severity != "low" || confidenceFilteredTrend[1].TotalCount != 1 {
+		t.Fatalf("unexpected confidence-filtered repo trend row for scan B: %+v", confidenceFilteredTrend[1])
 	}
 }
 
@@ -831,6 +845,70 @@ func TestMemoryStoreDeleteRepoFindingUpdatesScanCount(t *testing.T) {
 	}
 	if storedScan.FindingCount != 0 {
 		t.Fatalf("expected repo scan finding count to reach zero after final delete, got %d", storedScan.FindingCount)
+	}
+}
+
+func TestMemoryStoreDeleteRepoFindingTargetsUpdatesScanCounts(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+
+	scanA, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-a", RepoScanSource{}, RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create repo scan A: %v", err)
+	}
+	scanB, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo-b", RepoScanSource{}, RepoScanContext{}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("create repo scan B: %v", err)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), scanA.ID, []domain.Finding{
+		{ID: "rf-a-1", Type: domain.FindingSecretExposure, Severity: domain.SeverityHigh, CreatedAt: now},
+		{ID: "rf-a-2", Type: domain.FindingRepoMisconfig, Severity: domain.SeverityMedium, CreatedAt: now},
+	}); err != nil {
+		t.Fatalf("upsert repo findings for scan A: %v", err)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), scanB.ID, []domain.Finding{
+		{ID: "rf-b-1", Type: domain.FindingOwnerless, Severity: domain.SeverityLow, CreatedAt: now},
+	}); err != nil {
+		t.Fatalf("upsert repo findings for scan B: %v", err)
+	}
+	if err := store.CompleteRepoScan(defaultScopeContext(), scanA.ID, "completed", now.Add(time.Minute), 2, 2, 2, false, RepoScanContext{}, ""); err != nil {
+		t.Fatalf("complete repo scan A: %v", err)
+	}
+	if err := store.CompleteRepoScan(defaultScopeContext(), scanB.ID, "completed", now.Add(2*time.Minute), 1, 1, 1, false, RepoScanContext{}, ""); err != nil {
+		t.Fatalf("complete repo scan B: %v", err)
+	}
+
+	deleted, err := store.DeleteRepoFindingTargets(defaultScopeContext(), []RepoFindingDeleteTarget{
+		{RepoScanID: scanA.ID, FindingID: "rf-a-1"},
+		{RepoScanID: scanA.ID, FindingID: "missing"},
+		{RepoScanID: scanB.ID, FindingID: "rf-b-1"},
+	})
+	if err != nil {
+		t.Fatalf("delete repo finding targets: %v", err)
+	}
+	if len(deleted) != 2 {
+		t.Fatalf("expected two deleted targets, got %+v", deleted)
+	}
+	storedScanA, err := store.GetRepoScan(defaultScopeContext(), scanA.ID)
+	if err != nil {
+		t.Fatalf("get repo scan A: %v", err)
+	}
+	if storedScanA.FindingCount != 1 {
+		t.Fatalf("expected scan A finding count to decrement, got %d", storedScanA.FindingCount)
+	}
+	storedScanB, err := store.GetRepoScan(defaultScopeContext(), scanB.ID)
+	if err != nil {
+		t.Fatalf("get repo scan B: %v", err)
+	}
+	if storedScanB.FindingCount != 0 {
+		t.Fatalf("expected scan B finding count to reset, got %d", storedScanB.FindingCount)
+	}
+	remaining, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{}, 10)
+	if err != nil {
+		t.Fatalf("list repo findings: %v", err)
+	}
+	if len(remaining) != 1 || remaining[0].ID != "rf-a-2" {
+		t.Fatalf("expected only rf-a-2 to remain, got %+v", remaining)
 	}
 }
 

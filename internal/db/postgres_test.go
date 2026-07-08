@@ -1072,6 +1072,37 @@ func TestPostgresStoreDeleteRepoFindingDecrementsScanCount(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreDeleteRepoFindingTargetsReturnsDeletedTargets(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	scanID := "11111111-1111-1111-1111-111111111111"
+	deletedRows := sqlmock.NewRows([]string{"repo_scan_id", "finding_id"}).
+		AddRow(scanID, "rf-1").
+		AddRow(scanID, "rf-2")
+	mock.ExpectQuery("WITH targets AS").
+		WithArgs(sqlmock.AnyArg(), "default", "default").
+		WillReturnRows(deletedRows)
+
+	deleted, err := store.DeleteRepoFindingTargets(defaultScopeContext(), []RepoFindingDeleteTarget{
+		{RepoScanID: scanID, FindingID: "rf-1"},
+		{RepoScanID: scanID, FindingID: "rf-2"},
+	})
+	if err != nil {
+		t.Fatalf("delete repo finding targets: %v", err)
+	}
+	if len(deleted) != 2 || deleted[0].FindingID != "rf-1" || deleted[1].FindingID != "rf-2" {
+		t.Fatalf("unexpected deleted targets: %+v", deleted)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreListRepoFindingClustersPagesInStore(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -3588,14 +3619,15 @@ func TestPostgresStoreListRepoFindingTrendCounts(t *testing.T) {
 		   ON rf.repo_scan_id = rs.id
 		  AND ($3 = '' OR LOWER(rf.severity) = $3)
 		  AND ($4 = '' OR LOWER(rf.type) = $4)
+		  AND ($5 <= 0 OR rf.confidence_score >= $5)
 		 WHERE rs.tenant_id = $1
 		   AND rs.workspace_id = $2
-		   AND rs.id IN ($5,$6)
+		   AND rs.id IN ($6,$7)
 		 GROUP BY rs.id, rs.started_at, rf.severity`)).
-		WithArgs("default", "default", "critical", "escalation_path", "scan-1", "scan-2").
+		WithArgs("default", "default", "critical", "escalation_path", 0.9, "scan-1", "scan-2").
 		WillReturnRows(trendRows)
 
-	trend, err := store.ListRepoFindingTrendCounts(defaultScopeContext(), []string{"scan-1", "scan-2", "scan-1"}, "critical", "escalation_path")
+	trend, err := store.ListRepoFindingTrendCounts(defaultScopeContext(), []string{"scan-1", "scan-2", "scan-1"}, "critical", "escalation_path", 0.9)
 	if err != nil {
 		t.Fatalf("list repo finding trend counts: %v", err)
 	}

@@ -1212,7 +1212,7 @@ func (m *MemoryStore) ListFindingTrendCounts(ctx context.Context, scanIDs []stri
 }
 
 // ListRepoFindingTrendCounts aggregates repository finding totals by repo scan and severity.
-func (m *MemoryStore) ListRepoFindingTrendCounts(ctx context.Context, repoScanIDs []string, severity string, findingType string) ([]FindingTrendCount, error) {
+func (m *MemoryStore) ListRepoFindingTrendCounts(ctx context.Context, repoScanIDs []string, severity string, findingType string, minConfidence float64) ([]FindingTrendCount, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -1257,6 +1257,9 @@ func (m *MemoryStore) ListRepoFindingTrendCounts(ctx context.Context, repoScanID
 				continue
 			}
 			if normalizedType != "" && strings.ToLower(string(finding.Type)) != normalizedType {
+				continue
+			}
+			if minConfidence > 0 && finding.ConfidenceScore < minConfidence {
 				continue
 			}
 			counts[string(finding.Severity)]++
@@ -2454,6 +2457,58 @@ func (m *MemoryStore) DeleteRepoFinding(ctx context.Context, repoScanID string, 
 	repoScan.FindingCount = len(nextKeys)
 	m.repoScans[repoScanID] = repoScan
 	return nil
+}
+
+// DeleteRepoFindingTargets removes selected persisted repository findings.
+func (m *MemoryStore) DeleteRepoFindingTargets(ctx context.Context, targets []RepoFindingDeleteTarget) ([]RepoFindingDeleteTarget, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	deleted := make([]RepoFindingDeleteTarget, 0, len(targets))
+	deletedByScan := map[string]map[string]struct{}{}
+	for _, target := range targets {
+		repoScanID := strings.TrimSpace(target.RepoScanID)
+		findingID := strings.TrimSpace(target.FindingID)
+		if repoScanID == "" || findingID == "" {
+			continue
+		}
+		repoScan, exists := m.repoScans[repoScanID]
+		if !exists || !MatchScope(scope, repoScan.TenantID, repoScan.WorkspaceID) {
+			continue
+		}
+		key := repoScanID + "|" + findingID
+		if _, exists := m.repoFindings[key]; !exists {
+			continue
+		}
+		delete(m.repoFindings, key)
+		if deletedByScan[repoScanID] == nil {
+			deletedByScan[repoScanID] = map[string]struct{}{}
+		}
+		deletedByScan[repoScanID][key] = struct{}{}
+		deleted = append(deleted, RepoFindingDeleteTarget{RepoScanID: repoScanID, FindingID: findingID})
+	}
+	for repoScanID, keysToDelete := range deletedByScan {
+		keys := m.repoFindingIDs[repoScanID]
+		nextKeys := keys[:0]
+		for _, existing := range keys {
+			if _, remove := keysToDelete[existing]; !remove {
+				nextKeys = append(nextKeys, existing)
+			}
+		}
+		if len(nextKeys) == 0 {
+			delete(m.repoFindingIDs, repoScanID)
+		} else {
+			m.repoFindingIDs[repoScanID] = nextKeys
+		}
+		repoScan := m.repoScans[repoScanID]
+		repoScan.FindingCount = len(nextKeys)
+		m.repoScans[repoScanID] = repoScan
+	}
+	return deleted, nil
 }
 
 // ListRepoScans returns latest repo scans first.

@@ -2402,8 +2402,8 @@ func TestServiceGetRepoFindingsTrendFiltered(t *testing.T) {
 		t.Fatalf("create repo scan A: %v", err)
 	}
 	if err := store.UpsertRepoFindings(ctx, scanA.ID, []domain.Finding{
-		{ID: "f1", Severity: domain.SeverityCritical, Type: domain.FindingEscalationPath, CreatedAt: now},
-		{ID: "f2", Severity: domain.SeverityHigh, Type: domain.FindingOwnerless, CreatedAt: now},
+		{ID: "f1", Severity: domain.SeverityCritical, Type: domain.FindingEscalationPath, ConfidenceScore: 0.92, CreatedAt: now},
+		{ID: "f2", Severity: domain.SeverityHigh, Type: domain.FindingOwnerless, ConfidenceScore: 0.88, CreatedAt: now},
 	}); err != nil {
 		t.Fatalf("upsert repo findings for scan A: %v", err)
 	}
@@ -2413,18 +2413,26 @@ func TestServiceGetRepoFindingsTrendFiltered(t *testing.T) {
 		t.Fatalf("create repo scan B: %v", err)
 	}
 	if err := store.UpsertRepoFindings(ctx, scanB.ID, []domain.Finding{
-		{ID: "f3", Severity: domain.SeverityLow, Type: domain.FindingOwnerless, CreatedAt: now.Add(3 * time.Minute)},
+		{ID: "f3", Severity: domain.SeverityLow, Type: domain.FindingOwnerless, ConfidenceScore: 0.95, CreatedAt: now.Add(3 * time.Minute)},
 	}); err != nil {
 		t.Fatalf("upsert repo findings for scan B: %v", err)
 	}
 
 	svc := NewService(store, fakeScanner{}, "aws")
-	points, err := svc.GetRepoFindingsTrendFiltered(ctx, 10, "critical", "escalation_path")
+	points, err := svc.GetRepoFindingsTrendFiltered(ctx, 10, "critical", "escalation_path", 0)
 	if err != nil {
 		t.Fatalf("get filtered repo findings trend: %v", err)
 	}
 	if len(points) != 2 || points[0].Total != 1 || points[1].Total != 0 {
 		t.Fatalf("unexpected filtered repo trend points: %+v", points)
+	}
+
+	confidencePoints, err := svc.GetRepoFindingsTrendFiltered(ctx, 10, "", "", 0.9)
+	if err != nil {
+		t.Fatalf("get confidence-filtered repo findings trend: %v", err)
+	}
+	if len(confidencePoints) != 2 || confidencePoints[0].Total != 1 || confidencePoints[1].Total != 1 {
+		t.Fatalf("unexpected confidence-filtered repo trend points: %+v", confidencePoints)
 	}
 }
 
@@ -2464,6 +2472,40 @@ func TestServiceRunRepoScanSuccess(t *testing.T) {
 	}
 	if gotHistory != 800 || gotMax != 300 {
 		t.Fatalf("unexpected scanner args history=%d max=%d", gotHistory, gotMax)
+	}
+}
+
+func TestServiceRunRepoScanFiltersLowSignalFindings(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.RepoScanAllowedTargets = []string{"owner/repo"}
+	svc.RepoScannerFactory = func(int, int) RepoScanExecutor {
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/repo",
+				CommitsScanned: 1,
+				FilesScanned:   2,
+				Findings: []domain.Finding{
+					{ID: "high-confidence-secret", Type: domain.FindingSecretExposure, Severity: domain.SeverityHigh},
+					{ID: "lower-confidence-policy", Type: domain.FindingOverPrivileged, Severity: domain.SeverityHigh},
+					{ID: "high-confidence-medium", Type: domain.FindingRepoMisconfig, Severity: domain.SeverityMedium, ConfidenceScore: 0.95},
+				},
+			},
+		}
+	}
+
+	result, err := svc.RunRepoScan(defaultScopeContext(), RepoScanRequest{Repository: "owner/repo"})
+	if err != nil {
+		t.Fatalf("run repo scan: %v", err)
+	}
+	if len(result.Findings) != 1 || result.Findings[0].ID != "high-confidence-secret" {
+		t.Fatalf("expected only high-confidence finding to remain, got %+v", result.Findings)
+	}
+	if result.Findings[0].ConfidenceScore < gitHubRepoFindingConfidenceFloor {
+		t.Fatalf("expected remaining finding to meet confidence floor, got %.2f", result.Findings[0].ConfidenceScore)
+	}
+	if !isHighImpactRepoFinding(result.Findings[0]) {
+		t.Fatalf("expected remaining finding to meet severity floor, got %q", result.Findings[0].Severity)
 	}
 }
 

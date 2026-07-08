@@ -8718,7 +8718,7 @@ describe('ProductFindingsPage states', () => {
     expect(await screen.findByText('No exposure found')).toBeInTheDocument();
   });
 
-  it('falls back to individual deletes when the bulk endpoint is unavailable', async () => {
+  it('keeps clear all on the bulk path when the bulk endpoint fails', async () => {
     const scan: RepoScanRecord = {
       ...queuedRepoScan,
       id: 'repo-scan-clear-all-bulk-missing',
@@ -8765,25 +8765,11 @@ describe('ProductFindingsPage states', () => {
 
     await waitFor(() => {
       expect(deleteRepoFindings).toHaveBeenCalledTimes(1);
-      expect(deleteRepoFinding).toHaveBeenCalledTimes(2);
+      expect(deleteRepoFinding).not.toHaveBeenCalled();
+      expect(screen.getByText('Request failed (404)')).toBeInTheDocument();
     });
-    expect(deleteRepoFinding).toHaveBeenNthCalledWith(
-      1,
-      findings[0].id,
-      scan.id,
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    );
-    expect(deleteRepoFinding).toHaveBeenNthCalledWith(
-      2,
-      findings[1].id,
-      scan.id,
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-    );
-    await waitFor(() => {
-      expect(screen.queryByText('Fallback clearable token finding')).not.toBeInTheDocument();
-      expect(screen.queryByText('Fallback clearable workflow finding')).not.toBeInTheDocument();
-    });
-    expect(await screen.findByText('No exposure found')).toBeInTheDocument();
+    expect(await screen.findByText('Fallback clearable token finding')).toBeInTheDocument();
+    expect(await screen.findByText('Fallback clearable workflow finding')).toBeInTheDocument();
   });
 
   it('reloads repository findings after clearing a paged list', async () => {
@@ -8833,7 +8819,7 @@ describe('ProductFindingsPage states', () => {
     expect(await screen.findByText('Next page workflow finding')).toBeInTheDocument();
   });
 
-  it('chunks clear all requests above the repository finding bulk limit', async () => {
+  it('sends large clear all requests as one repository finding bulk operation', async () => {
     const scan: RepoScanRecord = {
       ...queuedRepoScan,
       id: 'repo-scan-clear-all-large',
@@ -8852,10 +8838,10 @@ describe('ProductFindingsPage states', () => {
       created_at: '2026-05-17T11:07:00Z'
     }));
 
-    const { deleteRepoFindings } = await renderFindings({
-      repoScans: [scan],
-      repoFindings: findings
-    });
+	const { deleteRepoFindings } = await renderFindings({
+	  repoScans: [scan],
+	  listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[500]] })
+	});
 
     expect(await screen.findByText('Large clear all finding 0')).toBeInTheDocument();
 
@@ -8864,17 +8850,15 @@ describe('ProductFindingsPage states', () => {
     fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete all/i }));
 
     await waitFor(() => {
-      expect(deleteRepoFindings).toHaveBeenCalledTimes(2);
+      expect(deleteRepoFindings).toHaveBeenCalledTimes(1);
     });
-    const firstBatch = deleteRepoFindings.mock.calls[0]?.[0] ?? [];
-    const secondBatch = deleteRepoFindings.mock.calls[1]?.[0] ?? [];
-    expect(firstBatch).toHaveLength(500);
-    expect(secondBatch).toHaveLength(1);
-    expect(firstBatch[0]).toEqual({ finding_id: findings[0].id, repo_scan_id: scan.id });
-    expect(secondBatch[0]).toEqual({ finding_id: findings[500].id, repo_scan_id: scan.id });
+    const targets = deleteRepoFindings.mock.calls[0]?.[0] ?? [];
+    expect(targets).toHaveLength(501);
+    expect(targets[0]).toEqual({ finding_id: findings[0].id, repo_scan_id: scan.id });
+    expect(targets[500]).toEqual({ finding_id: findings[500].id, repo_scan_id: scan.id });
   });
 
-  it('preserves completed clear all batches when a later batch fails', async () => {
+  it('preserves completed clear all deletes when the bulk response is partial', async () => {
     const scan: RepoScanRecord = {
       ...queuedRepoScan,
       id: 'repo-scan-clear-all-batch-failure',
@@ -8895,16 +8879,15 @@ describe('ProductFindingsPage states', () => {
 
     const { deleteRepoFindings } = await renderFindings({
       repoScans: [scan],
-      repoFindings: findings
+      listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[500]] })
     });
-    deleteRepoFindings
-      .mockResolvedValueOnce({
-        deleted: findings.slice(0, 500).map((finding) => ({
-          finding_id: finding.id,
-          repo_scan_id: finding.scan_id
-        }))
-      })
-      .mockRejectedValueOnce(new Error('rate limit exceeded'));
+    deleteRepoFindings.mockResolvedValueOnce({
+      deleted: findings.slice(0, 500).map((finding) => ({
+        finding_id: finding.id,
+        repo_scan_id: finding.scan_id
+      })),
+      failed: [{ finding_id: findings[500].id, repo_scan_id: findings[500].scan_id, error: 'repo finding not found' }]
+    });
 
     expect(await screen.findByText('Batch failure finding 0')).toBeInTheDocument();
     expect(await screen.findByText('Batch failure finding 500')).toBeInTheDocument();
@@ -8914,7 +8897,7 @@ describe('ProductFindingsPage states', () => {
     fireEvent.click(within(confirmDialog).getByRole('button', { name: /Delete all/i }));
 
     await waitFor(() => {
-      expect(deleteRepoFindings).toHaveBeenCalledTimes(2);
+      expect(deleteRepoFindings).toHaveBeenCalledTimes(1);
     });
     expect(await screen.findByText('500 deleted. 1 remaining.')).toBeInTheDocument();
     expect(screen.queryByText('Batch failure finding 0')).not.toBeInTheDocument();
@@ -8954,10 +8937,10 @@ describe('ProductFindingsPage states', () => {
       }
     ];
 
-    const { deleteRepoFindings } = await renderFindings({
-      repoScans: [scan],
-      repoFindings: findings
-    });
+	const { deleteRepoFindings } = await renderFindings({
+	  repoScans: [scan],
+	  listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[1]] })
+	});
     deleteRepoFindings.mockResolvedValueOnce({
       deleted: [{ finding_id: findings[0].id, repo_scan_id: scan.id }],
       failed: [{ finding_id: findings[1].id, repo_scan_id: scan.id, error: 'repo finding not found' }]

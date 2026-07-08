@@ -707,11 +707,17 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 
 	v1.GET("/repo-findings/trends", func(c *gin.Context) {
 		points := parseLimit(c.Query("points"), 10, 100)
+		minConfidence, _, err := parseOptionalFloat(firstNonEmpty(c.Query("confidence"), c.Query("min_confidence")))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid confidence"})
+			return
+		}
 		items, err := svc.GetRepoFindingsTrendFiltered(
 			c.Request.Context(),
 			points,
 			strings.TrimSpace(c.Query("severity")),
 			strings.TrimSpace(c.Query("type")),
+			minConfidence,
 		)
 		if err != nil {
 			logger.Error("repo findings trends", telemetry.ZapError(err))
@@ -1213,6 +1219,18 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo_scan_id"})
 			return
 		}
+		minConfidence, ok, err := parseOptionalFloat(c.Query("confidence"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid confidence"})
+			return
+		}
+		if !ok {
+			minConfidence, _, err = parseOptionalFloat(c.Query("min_confidence"))
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid min_confidence"})
+				return
+			}
+		}
 		graph, err := svc.GetRepoRiskGraph(
 			c.Request.Context(),
 			RepoRiskGraphFilter{
@@ -1220,6 +1238,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 				Repository:    strings.TrimSpace(c.Query("repository")),
 				Severity:      strings.TrimSpace(c.Query("severity")),
 				Type:          strings.TrimSpace(c.Query("type")),
+				MinConfidence: minConfidence,
 				DefaultBranch: strings.TrimSpace(c.Query("default_branch")),
 			},
 		)
