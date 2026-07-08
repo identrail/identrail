@@ -110,6 +110,9 @@ type AWSRemediationCenterCase struct {
 	AuditTrail             []AWSRemediationCenterAuditEntry `json:"audit_trail"`
 	AuditEntryCount        int                              `json:"audit_entry_count"`
 	UpdatedAt              time.Time                        `json:"updated_at,omitzero"`
+
+	nonVerificationKillSwitchEngaged bool
+	verificationKillSwitchEngaged    bool
 }
 
 // AWSRemediationCenterAuditEntry is one immutable audit record projected from a
@@ -625,6 +628,8 @@ func awsRemediationCenterCaseFromLifecycle(c AWSRemediationCase, approval AWSRem
 func awsRemediationCenterCaseFromLifecycleWithVerifications(c AWSRemediationCase, approval AWSRemediationApprovalEntry, hasApproval bool, dryRun AWSRemediationDryRunEntry, hasDryRun bool, live AWSLowRiskRemediationEntry, hasLive bool, verify AWSPostRemediationVerificationEntry, hasVerify bool, verifications []AWSPostRemediationVerificationEntry) AWSRemediationCenterCase {
 	stage := awsRemediationCenterStageCase
 	killSwitch := false
+	nonVerificationKillSwitch := false
+	verificationKillSwitch := false
 	tradeoffs := append([]AWSRemediationTradeoff{}, c.Tradeoffs...)
 	gates := []AWSRemediationCenterSafetyGate{}
 	seenAuditEvents := map[string]struct{}{}
@@ -659,6 +664,7 @@ func awsRemediationCenterCaseFromLifecycleWithVerifications(c AWSRemediationCase
 		entry.ApprovalID = approval.ApprovalID
 		entry.ApprovalState = firstNonEmptyAWSValue(approval.State, entry.ApprovalState)
 		killSwitch = killSwitch || approval.KillSwitchEngaged
+		nonVerificationKillSwitch = nonVerificationKillSwitch || approval.KillSwitchEngaged
 		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageApproval, approval.AuditTrail, seenAuditEvents)...)
 		tradeoffs = append(tradeoffs, approval.Tradeoffs...)
 		for _, gate := range approval.RBACGates {
@@ -673,6 +679,7 @@ func awsRemediationCenterCaseFromLifecycleWithVerifications(c AWSRemediationCase
 		entry.DryRunID = dryRun.DryRunID
 		entry.DryRunOutcome = dryRun.Outcome
 		killSwitch = killSwitch || dryRun.KillSwitchEngaged
+		nonVerificationKillSwitch = nonVerificationKillSwitch || dryRun.KillSwitchEngaged
 		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageDryRun, dryRun.AuditTrail, seenAuditEvents)...)
 		for _, prereq := range dryRun.SatisfiedPrereqs {
 			gates = append(gates, AWSRemediationCenterSafetyGate{Source: "dry_run_prerequisite", Name: prereq.Name, Status: firstNonEmptyAWSValue(prereq.Status, "passed"), Rationale: prereq.Rationale})
@@ -687,6 +694,7 @@ func awsRemediationCenterCaseFromLifecycleWithVerifications(c AWSRemediationCase
 		entry.ExecutionID = live.ExecutionID
 		entry.ExecutionState = live.State
 		killSwitch = killSwitch || live.KillSwitchEngaged
+		nonVerificationKillSwitch = nonVerificationKillSwitch || live.KillSwitchEngaged
 		audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageLiveAction, live.AuditTrail, seenAuditEvents)...)
 		for _, preflight := range live.Preflights {
 			gates = append(gates, AWSRemediationCenterSafetyGate{Source: "live_action_preflight", Name: preflight.Name, Status: preflight.Status, Rationale: preflight.Rationale})
@@ -709,6 +717,7 @@ func awsRemediationCenterCaseFromLifecycleWithVerifications(c AWSRemediationCase
 		}
 		for _, verification := range verifications {
 			killSwitch = killSwitch || verification.KillSwitchEngaged
+			verificationKillSwitch = verificationKillSwitch || verification.KillSwitchEngaged
 			audit = append(audit, awsRemediationCenterAuditEntries(c.CaseID, awsRemediationCenterStageVerification, verification.AuditTrail, seenAuditEvents)...)
 			for _, precondition := range verification.Preconditions {
 				gates = append(gates, AWSRemediationCenterSafetyGate{Source: "verification_precondition", Name: precondition.Name, Status: precondition.Status, Rationale: precondition.Rationale})
@@ -721,6 +730,8 @@ func awsRemediationCenterCaseFromLifecycleWithVerifications(c AWSRemediationCase
 	}
 	entry.Stage = stage
 	entry.KillSwitchEngaged = killSwitch
+	entry.nonVerificationKillSwitchEngaged = nonVerificationKillSwitch
+	entry.verificationKillSwitchEngaged = verificationKillSwitch
 	entry.Tradeoffs = awsRemediationCenterDedupeTradeoffs(tradeoffs)
 	entry.SafetyGates = gates
 	entry.EvidenceRefs = evidenceRefs
@@ -864,10 +875,44 @@ func awsRemediationCenterCasesWithScopedVerificationRows(cases []AWSRemediationC
 			entry.NextAction = selected.NextAction
 		}
 		entry.AuditTrail = awsRemediationCenterAuditTrailWithScopedVerificationEvents(entry.AuditTrail, verificationAuditEvents[caseID])
+		entry.SafetyGates = awsRemediationCenterSafetyGatesWithScopedVerificationRows(entry.SafetyGates, scopedRows)
+		scopedVerificationKillSwitch := awsRemediationCenterVerificationKillSwitch(scopedRows)
+		entry.KillSwitchEngaged = entry.nonVerificationKillSwitchEngaged || scopedVerificationKillSwitch || (entry.KillSwitchEngaged && !entry.verificationKillSwitchEngaged)
+		entry.verificationKillSwitchEngaged = scopedVerificationKillSwitch
 		entry.AuditEntryCount = len(entry.AuditTrail)
 		out = append(out, entry)
 	}
 	return out
+}
+
+func awsRemediationCenterSafetyGatesWithScopedVerificationRows(gates []AWSRemediationCenterSafetyGate, rows []AWSPostRemediationVerificationEntry) []AWSRemediationCenterSafetyGate {
+	out := make([]AWSRemediationCenterSafetyGate, 0, len(gates))
+	for _, gate := range gates {
+		if gate.Source == "verification_precondition" {
+			continue
+		}
+		out = append(out, gate)
+	}
+	for _, row := range rows {
+		for _, precondition := range row.Preconditions {
+			out = append(out, AWSRemediationCenterSafetyGate{
+				Source:    "verification_precondition",
+				Name:      precondition.Name,
+				Status:    precondition.Status,
+				Rationale: precondition.Rationale,
+			})
+		}
+	}
+	return out
+}
+
+func awsRemediationCenterVerificationKillSwitch(rows []AWSPostRemediationVerificationEntry) bool {
+	for _, row := range rows {
+		if row.KillSwitchEngaged {
+			return true
+		}
+	}
+	return false
 }
 
 func awsRemediationCenterAuditTrailWithScopedVerificationEvents(entries []AWSRemediationCenterAuditEntry, verificationEvents map[string]struct{}) []AWSRemediationCenterAuditEntry {

@@ -411,12 +411,18 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 			VerificationEntryCount: 2,
 			VerificationStates:     []string{awsPostRemediationVerificationStateFailed, awsPostRemediationVerificationStateVerified},
 			ApprovalState:          awsRemediationApprovalStateApproved,
+			KillSwitchEngaged:      true,
+			SafetyGates: []AWSRemediationCenterSafetyGate{
+				{Source: "verification_precondition", Name: "failed-target-ready", Status: "blocked"},
+				{Source: "verification_precondition", Name: "verified-target-ready", Status: "passed"},
+			},
 			AuditTrail: []AWSRemediationCenterAuditEntry{
 				{CaseID: "case-mixed", Stage: awsRemediationCenterStageCase, EventID: "case-mixed-created"},
 				{CaseID: "case-mixed", Stage: awsRemediationCenterStageVerification, EventID: "case-mixed-failed"},
 				{CaseID: "case-mixed", Stage: awsRemediationCenterStageVerification, EventID: "case-mixed-verified"},
 			},
-			AuditEntryCount: 3,
+			AuditEntryCount:               3,
+			verificationKillSwitchEngaged: true,
 		},
 		{
 			CaseID:                 "case-verified",
@@ -433,8 +439,24 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 		},
 	}
 	verificationRows := []AWSPostRemediationVerificationEntry{
-		{CaseID: "case-mixed", VerificationID: "verify-failed", State: awsPostRemediationVerificationStateFailed, AccountID: "111111111111", AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-mixed-failed"}}},
-		{CaseID: "case-mixed", VerificationID: "verify-verified", State: awsPostRemediationVerificationStateVerified, AccountID: "222222222222", TargetAccountIDs: []string{"222222222222"}, AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-mixed-verified"}}},
+		{
+			CaseID:            "case-mixed",
+			VerificationID:    "verify-failed",
+			State:             awsPostRemediationVerificationStateFailed,
+			AccountID:         "111111111111",
+			KillSwitchEngaged: true,
+			Preconditions:     []AWSPostRemediationVerificationGate{{Name: "failed-target-ready", Status: "blocked"}},
+			AuditTrail:        []AWSPostRemediationVerificationAuditEntry{{EventID: "case-mixed-failed"}},
+		},
+		{
+			CaseID:           "case-mixed",
+			VerificationID:   "verify-verified",
+			State:            awsPostRemediationVerificationStateVerified,
+			AccountID:        "222222222222",
+			TargetAccountIDs: []string{"222222222222"},
+			Preconditions:    []AWSPostRemediationVerificationGate{{Name: "verified-target-ready", Status: "passed"}},
+			AuditTrail:       []AWSPostRemediationVerificationAuditEntry{{EventID: "case-mixed-verified"}},
+		},
 		{CaseID: "case-verified", VerificationID: "verify-only-verified", State: awsPostRemediationVerificationStateVerified, AccountID: "333333333333", AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-verified-verified"}}},
 		{CaseID: "case-unfiltered", VerificationID: "verify-outside-case-filter", State: awsPostRemediationVerificationStateVerified, AccountID: "222222222222", AuditTrail: []AWSPostRemediationVerificationAuditEntry{{EventID: "case-unfiltered-verified"}}},
 	}
@@ -521,6 +543,15 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 	if accountSummary.VerificationCount != len(accountRows) {
 		t.Fatalf("account-scoped verification_count must match rendered rows: count=%d rows=%d", accountSummary.VerificationCount, len(accountRows))
 	}
+	if accountCases[0].KillSwitchEngaged || accountSummary.KillSwitchCount != 0 {
+		t.Fatalf("account-scoped rollup must drop kill switches from filtered-out verification rows: case=%+v summary=%+v", accountCases[0], accountSummary)
+	}
+	if got, want := len(accountCases[0].SafetyGates), 1; got != want || accountCases[0].SafetyGates[0].Name != "verified-target-ready" {
+		t.Fatalf("account-scoped safety gates must be rebuilt from rendered verification rows: %+v", accountCases[0].SafetyGates)
+	}
+	if accountSummary.BlockedGateCount != 0 {
+		t.Fatalf("account-scoped blocked gate count must ignore filtered-out verification rows: %+v", accountSummary)
+	}
 	for _, audit := range accountAudit {
 		if audit.EventID == "case-mixed-failed" || audit.EventID == "case-unfiltered-verified" {
 			t.Errorf("audit event %s leaked outside account-scoped verification rows", audit.EventID)
@@ -553,6 +584,24 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 	}
 	if len(mismatchedStatusAudit) != 0 || mismatchedStatusSummary.AuditEntryCount != 0 {
 		t.Fatalf("account+status audit must stay empty when no scoped verification row matched: summary=%+v audit=%+v", mismatchedStatusSummary, mismatchedStatusAudit)
+	}
+
+	matchedStatusCases, applied := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{AccountID: "222222222222", Status: awsPostRemediationVerificationStateVerified})
+	matchedStatusRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(matchedStatusCases), matchedStatusCases, applied["status"], applied["account_id"])
+	matchedStatusCases = awsRemediationCenterCasesWithScopedVerificationRows(matchedStatusCases, matchedStatusRows, applied["status"])
+	matchedStatusSummary := summarizeAWSRemediationCenterCases(centerCases, matchedStatusCases)
+
+	if len(matchedStatusCases) != 1 || matchedStatusCases[0].CaseID != "case-mixed" {
+		t.Fatalf("account+verification status filter should keep the matching row's case, got %+v", matchedStatusCases)
+	}
+	if matchedStatusCases[0].KillSwitchEngaged || matchedStatusSummary.KillSwitchCount != 0 {
+		t.Fatalf("account+verification status rollup must drop sibling-row kill switches: case=%+v summary=%+v", matchedStatusCases[0], matchedStatusSummary)
+	}
+	if got, want := len(matchedStatusCases[0].SafetyGates), 1; got != want || matchedStatusCases[0].SafetyGates[0].Name != "verified-target-ready" {
+		t.Fatalf("account+verification status safety gates must come from scoped rows only: %+v", matchedStatusCases[0].SafetyGates)
+	}
+	if matchedStatusSummary.BlockedGateCount != 0 {
+		t.Fatalf("account+verification status blocked gates must not count filtered sibling rows: %+v", matchedStatusSummary)
 	}
 }
 
