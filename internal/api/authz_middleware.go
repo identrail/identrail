@@ -700,14 +700,22 @@ func authorizeRepoFindingDeleteTargets(
 		return false, err
 	}
 	normalizedWriteKeys := normalizeKeyList(writeKeys)
+	targetAction := policyActionRepoScansRun
+	if routePolicy, exists := runtimePolicy.Registry.lookup(c.Request.Method, c.FullPath()); exists && usesBodyAwareAuthorization(routePolicy) {
+		if action := strings.TrimSpace(routePolicy.Action); action != "" {
+			targetAction = action
+		}
+	}
 	policy := routePolicy{
-		Action:       policyActionRepoScansRun,
+		Action:       targetAction,
 		ResourceType: "repo_finding",
 	}
 	var allowedDecision *PolicyDecision
 	var allowedInput PolicyInput
 	var allowedDecisionSource string
 	var allowedDecisionVersion int
+	var shadowEvalCount uint64
+	var shadowDivergenceCount uint64
 	for _, target := range targets {
 		input, err := buildPolicyInputFromGinContext(c, policy, normalizedWriteKeys, scopedKeys, store)
 		if err != nil {
@@ -739,7 +747,7 @@ func authorizeRepoFindingDeleteTargets(
 			return false, err
 		}
 		recordPolicyDecisionMetric(metrics, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision.Allowed)
-		recordPolicyShadowEvaluation(c.Request.Context(), runtimePolicy, targeted, input, decision, metrics, nil, nil)
+		recordPolicyShadowEvaluation(c.Request.Context(), runtimePolicy, targeted, input, decision, metrics, &shadowEvalCount, &shadowDivergenceCount)
 		if !decision.Allowed {
 			setAuthzDecisionContext(c, runtimePolicy.PolicySetID, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision, input, fingerprinter)
 			return false, nil
