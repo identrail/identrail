@@ -373,6 +373,24 @@ func TestGetAWSRemediationCenterScopesPayloadsToFilteredCases(t *testing.T) {
 			t.Errorf("audit trail leaked case %s under case_id=%s", e.CaseID, target)
 		}
 	}
+	if scoped.ApprovalQueue.Summary.FilteredEntries != len(scoped.ApprovalQueue.Entries) || scoped.ApprovalQueue.Summary.RelationshipCount != len(scoped.ApprovalQueue.Relationships) {
+		t.Fatalf("approval summary must match scoped payload: summary=%+v entries=%d relationships=%d", scoped.ApprovalQueue.Summary, len(scoped.ApprovalQueue.Entries), len(scoped.ApprovalQueue.Relationships))
+	}
+	if scoped.DryRuns.Summary.FilteredEntries != len(scoped.DryRuns.Entries) || scoped.DryRuns.Summary.RelationshipCount != len(scoped.DryRuns.Relationships) {
+		t.Fatalf("dry-run summary must match scoped payload: summary=%+v entries=%d relationships=%d", scoped.DryRuns.Summary, len(scoped.DryRuns.Entries), len(scoped.DryRuns.Relationships))
+	}
+	if scoped.LiveActions.Summary.FilteredEntries != len(scoped.LiveActions.Entries) || scoped.LiveActions.Summary.RelationshipCount != len(scoped.LiveActions.Relationships) {
+		t.Fatalf("live-action summary must match scoped payload: summary=%+v entries=%d relationships=%d", scoped.LiveActions.Summary, len(scoped.LiveActions.Entries), len(scoped.LiveActions.Relationships))
+	}
+	if scoped.Verification.Summary.FilteredEntries != len(scoped.Verification.Entries) || scoped.Verification.Summary.RelationshipCount != len(scoped.Verification.Relationships) {
+		t.Fatalf("verification summary must match scoped payload: summary=%+v entries=%d relationships=%d", scoped.Verification.Summary, len(scoped.Verification.Entries), len(scoped.Verification.Relationships))
+	}
+	if scoped.ApprovalQueue.Summary.TotalEntries < scoped.ApprovalQueue.Summary.FilteredEntries ||
+		scoped.DryRuns.Summary.TotalEntries < scoped.DryRuns.Summary.FilteredEntries ||
+		scoped.LiveActions.Summary.TotalEntries < scoped.LiveActions.Summary.FilteredEntries ||
+		scoped.Verification.Summary.TotalEntries < scoped.Verification.Summary.FilteredEntries {
+		t.Fatalf("scoped lifecycle summaries must preserve source totals while narrowing filtered counts: approvals=%+v dryRuns=%+v live=%+v verification=%+v", scoped.ApprovalQueue.Summary, scoped.DryRuns.Summary, scoped.LiveActions.Summary, scoped.Verification.Summary)
+	}
 }
 
 func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {

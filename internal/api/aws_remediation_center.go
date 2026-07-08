@@ -275,10 +275,19 @@ func (s *Service) GetAWSRemediationCenter(ctx context.Context, workspaceID strin
 	// Diagnostics, status, and evidence links stay on the full source results
 	// because they report collector health across the whole connector scope.
 	scopedCaseIDs := awsRemediationCenterCaseIDSet(filtered)
+	allApprovalEntries, allDryRunEntries, allLiveActionEntries, allVerificationEntries := approvals.Entries, dryRuns.Entries, liveActions.Entries, verification.Entries
 	approvals.Entries = awsRemediationCenterScopeEntries(approvals.Entries, scopedCaseIDs, func(e AWSRemediationApprovalEntry) string { return e.CaseID })
+	approvals.Relationships = awsRemediationCenterScopeEntries(approvals.Relationships, awsRemediationCenterStringSet(approvals.Entries, func(e AWSRemediationApprovalEntry) string { return e.ApprovalID }), func(r AWSRemediationApprovalRelationship) string { return r.ApprovalID })
+	approvals.Summary = summarizeAWSRemediationApprovalEntries(allApprovalEntries, approvals.Entries, approvals.Relationships)
 	dryRuns.Entries = awsRemediationCenterScopeEntries(dryRuns.Entries, scopedCaseIDs, func(e AWSRemediationDryRunEntry) string { return e.CaseID })
+	dryRuns.Relationships = awsRemediationCenterScopeEntries(dryRuns.Relationships, awsRemediationCenterStringSet(dryRuns.Entries, func(e AWSRemediationDryRunEntry) string { return e.DryRunID }), func(r AWSRemediationDryRunRelationship) string { return r.DryRunID })
+	dryRuns.Summary = summarizeAWSRemediationDryRunEntries(allDryRunEntries, dryRuns.Entries, dryRuns.Relationships)
 	liveActions.Entries = awsRemediationCenterScopeEntries(liveActions.Entries, scopedCaseIDs, func(e AWSLowRiskRemediationEntry) string { return e.CaseID })
+	liveActions.Relationships = awsRemediationCenterScopeEntries(liveActions.Relationships, awsRemediationCenterStringSet(liveActions.Entries, func(e AWSLowRiskRemediationEntry) string { return e.ExecutionID }), func(r AWSLowRiskRemediationRelationship) string { return r.ExecutionID })
+	liveActions.Summary = summarizeAWSLowRiskRemediationEntries(allLiveActionEntries, liveActions.Entries, liveActions.Relationships)
 	verification.Entries = awsRemediationCenterScopeVerificationEntries(verification.Entries, scopedCaseIDs, filtered, request.Status)
+	verification.Relationships = awsRemediationCenterScopeEntries(verification.Relationships, awsRemediationCenterStringSet(verification.Entries, func(e AWSPostRemediationVerificationEntry) string { return e.VerificationID }), func(r AWSPostRemediationVerificationRelationship) string { return r.VerificationID })
+	verification.Summary = summarizeAWSPostRemediationVerificationEntries(allVerificationEntries, verification.Entries, verification.Relationships)
 	filtered = awsRemediationCenterCasesWithScopedVerificationRows(filtered, verification.Entries)
 	summary := summarizeAWSRemediationCenterCases(centerCases, filtered)
 	auditTrail := awsRemediationCenterAuditTrail(filtered)
@@ -727,6 +736,16 @@ func awsRemediationCenterCaseIDSet(cases []AWSRemediationCenterCase) map[string]
 	for _, c := range cases {
 		if key := strings.TrimSpace(c.CaseID); key != "" {
 			set[key] = struct{}{}
+		}
+	}
+	return set
+}
+
+func awsRemediationCenterStringSet[T any](items []T, key func(T) string) map[string]struct{} {
+	set := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		if value := strings.TrimSpace(key(item)); value != "" {
+			set[value] = struct{}{}
 		}
 	}
 	return set
