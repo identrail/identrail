@@ -40,6 +40,9 @@ const (
 
 	policyContextABACSubjectAttrsLoadedKey  = "abac.subject_attributes_loaded"
 	policyContextABACResourceAttrsLoadedKey = "abac.resource_attributes_loaded"
+
+	authzShadowEvalCountKey       = "authz.shadow_eval_count"
+	authzShadowDivergenceCountKey = "authz.shadow_divergence_count"
 )
 
 type routePolicy struct {
@@ -315,6 +318,7 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 				})
 				return
 			}
+			setAuthzShadowCounters(c, &shadowEvalCount, &shadowDivergenceCount)
 			c.Next()
 			return
 		}
@@ -374,6 +378,33 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 
 		c.Next()
 	}
+}
+
+func setAuthzShadowCounters(c *gin.Context, shadowEvalCount *uint64, shadowDivergenceCount *uint64) {
+	if c == nil {
+		return
+	}
+	c.Set(authzShadowEvalCountKey, shadowEvalCount)
+	c.Set(authzShadowDivergenceCountKey, shadowDivergenceCount)
+}
+
+func authzShadowCounters(c *gin.Context) (*uint64, *uint64) {
+	if c == nil {
+		return nil, nil
+	}
+	var shadowEvalCount *uint64
+	if value, exists := c.Get(authzShadowEvalCountKey); exists {
+		if typed, ok := value.(*uint64); ok {
+			shadowEvalCount = typed
+		}
+	}
+	var shadowDivergenceCount *uint64
+	if value, exists := c.Get(authzShadowDivergenceCountKey); exists {
+		if typed, ok := value.(*uint64); ok {
+			shadowDivergenceCount = typed
+		}
+	}
+	return shadowEvalCount, shadowDivergenceCount
 }
 
 func recordPolicyShadowEvaluation(
@@ -714,8 +745,7 @@ func authorizeRepoFindingDeleteTargets(
 	var allowedInput PolicyInput
 	var allowedDecisionSource string
 	var allowedDecisionVersion int
-	var shadowEvalCount uint64
-	var shadowDivergenceCount uint64
+	shadowEvalCount, shadowDivergenceCount := authzShadowCounters(c)
 	for _, target := range targets {
 		input, err := buildPolicyInputFromGinContext(c, policy, normalizedWriteKeys, scopedKeys, store)
 		if err != nil {
@@ -747,7 +777,7 @@ func authorizeRepoFindingDeleteTargets(
 			return false, err
 		}
 		recordPolicyDecisionMetric(metrics, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision.Allowed)
-		recordPolicyShadowEvaluation(c.Request.Context(), runtimePolicy, targeted, input, decision, metrics, &shadowEvalCount, &shadowDivergenceCount)
+		recordPolicyShadowEvaluation(c.Request.Context(), runtimePolicy, targeted, input, decision, metrics, shadowEvalCount, shadowDivergenceCount)
 		if !decision.Allowed {
 			setAuthzDecisionContext(c, runtimePolicy.PolicySetID, decisionVersion, decisionSource, runtimePolicy.RolloutMode, decision, input, fingerprinter)
 			return false, nil

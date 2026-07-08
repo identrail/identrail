@@ -286,7 +286,17 @@ func TestAuthorizeRepoFindingDeleteTargetsShadowEvaluatesCandidate(t *testing.T)
 		t.Fatalf("compile current policy bundle: %v", err)
 	}
 	candidateBundle := defaultBuiltInRouteAuthorizationPolicyBundle()
-	candidateBundle.RBACActionRole[policyActionRepoScansRun] = []string{scopeAdmin}
+	candidateBundle.ABACPolicies[policyActionRepoScansRun] = abacActionPolicy{
+		OnNoMatch: PolicyOutcomeDeny,
+		AnyOf: []abacClause{{
+			AllOf: []abacPredicate{{
+				Source:   abacAttributeSourceResource,
+				Key:      "id",
+				Operator: abacOperatorEquals,
+				Value:    "finding-shared",
+			}},
+		}},
+	}
 	candidateCompiled, err := compileRouteAuthorizationPolicyBundle(candidateBundle)
 	if err != nil {
 		t.Fatalf("compile candidate policy bundle: %v", err)
@@ -327,7 +337,12 @@ func TestAuthorizeRepoFindingDeleteTargetsShadowEvaluatesCandidate(t *testing.T)
 		c.Set("auth.principal_id", "principal-1")
 		c.Next()
 	})
+	r.Use(requireCentralPolicyMiddleware(resolver, nil, nil, nil, metrics, nil))
 	r.POST("/v1/repo-findings/bulk-delete", func(c *gin.Context) {
+		findingID := strings.TrimSpace(c.Query("finding"))
+		if findingID == "" {
+			findingID = "finding-divergent"
+		}
 		allowed, err := authorizeRepoFindingDeleteTargets(
 			c,
 			resolver,
@@ -336,7 +351,7 @@ func TestAuthorizeRepoFindingDeleteTargetsShadowEvaluatesCandidate(t *testing.T)
 			nil,
 			nil,
 			metrics,
-			[]RepoFindingDeleteTarget{{FindingID: "finding-allowed", RepoScanID: "repo-scan-1"}},
+			[]RepoFindingDeleteTarget{{FindingID: findingID, RepoScanID: "repo-scan-1"}},
 		)
 		if err != nil {
 			t.Fatalf("authorize targets: %v", err)
@@ -348,19 +363,21 @@ func TestAuthorizeRepoFindingDeleteTargetsShadowEvaluatesCandidate(t *testing.T)
 		c.Status(http.StatusNoContent)
 	})
 
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/repo-findings/bulk-delete", nil)
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d", w.Code)
+	for _, findingID := range []string{"finding-divergent", "finding-shared"} {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/repo-findings/bulk-delete?finding="+findingID, nil)
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("expected 204 for %s, got %d", findingID, w.Code)
+		}
 	}
-	if got := testutil.ToFloat64(metrics.AuthzPolicyShadowEvaluationsTotal); got != 1 {
-		t.Fatalf("expected one shadow evaluation, got %v", got)
+	if got := testutil.ToFloat64(metrics.AuthzPolicyShadowEvaluationsTotal); got != 2 {
+		t.Fatalf("expected two shadow evaluations, got %v", got)
 	}
 	if got := testutil.ToFloat64(metrics.AuthzPolicyShadowDivergencesTotal); got != 1 {
 		t.Fatalf("expected one shadow divergence, got %v", got)
 	}
-	if got := testutil.ToFloat64(metrics.AuthzPolicyShadowDivergenceRate); got != 1 {
+	if got := testutil.ToFloat64(metrics.AuthzPolicyShadowDivergenceRate); got != 0.5 {
 		t.Fatalf("expected shadow divergence rate to update, got %v", got)
 	}
 }
