@@ -2476,6 +2476,25 @@ func TestServiceRunRepoScanSuccess(t *testing.T) {
 }
 
 func TestServiceRunRepoScanFiltersLowSignalFindings(t *testing.T) {
+	findings := []domain.Finding{
+		{ID: "high-confidence-secret", Type: domain.FindingSecretExposure, Severity: domain.SeverityHigh, ConfidenceScore: 0.95},
+		{ID: "lower-confidence-policy", Type: domain.FindingOverPrivileged, Severity: domain.SeverityHigh, ConfidenceScore: 0.78},
+		{ID: "high-confidence-medium", Type: domain.FindingRepoMisconfig, Severity: domain.SeverityMedium, ConfidenceScore: 0.95},
+	}
+
+	filtered := filterReportableRepoFindings(findings)
+	if len(filtered) != 1 || filtered[0].ID != "high-confidence-secret" {
+		t.Fatalf("expected only high-confidence finding to remain, got %+v", filtered)
+	}
+	if filtered[0].ConfidenceScore < gitHubRepoFindingConfidenceFloor {
+		t.Fatalf("expected remaining finding to meet confidence floor, got %.2f", filtered[0].ConfidenceScore)
+	}
+	if !isHighImpactRepoFinding(filtered[0]) {
+		t.Fatalf("expected remaining finding to meet severity floor, got %q", filtered[0].Severity)
+	}
+}
+
+func TestServiceRunRepoScanKeepsLowSignalFindingsForManualScans(t *testing.T) {
 	store := db.NewMemoryStore()
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.RepoScanAllowedTargets = []string{"owner/repo"}
@@ -2498,14 +2517,8 @@ func TestServiceRunRepoScanFiltersLowSignalFindings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run repo scan: %v", err)
 	}
-	if len(result.Findings) != 1 || result.Findings[0].ID != "high-confidence-secret" {
-		t.Fatalf("expected only high-confidence finding to remain, got %+v", result.Findings)
-	}
-	if result.Findings[0].ConfidenceScore < gitHubRepoFindingConfidenceFloor {
-		t.Fatalf("expected remaining finding to meet confidence floor, got %.2f", result.Findings[0].ConfidenceScore)
-	}
-	if !isHighImpactRepoFinding(result.Findings[0]) {
-		t.Fatalf("expected remaining finding to meet severity floor, got %q", result.Findings[0].Severity)
+	if len(result.Findings) != 3 {
+		t.Fatalf("expected manual scan findings to remain unfiltered, got %+v", result.Findings)
 	}
 }
 

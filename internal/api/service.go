@@ -1928,7 +1928,9 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	sourceHealth, _ := db.NormalizeRepoScanSourceHealth("", sourceHealthDetails)
 	partialSourceRun := sourceHealth != db.RepoScanSourceHealthComplete
 	result.Findings = enrichFindingsWithRepoContext(result.Findings, result.Repository, record.Repository)
-	result.Findings = filterReportableRepoFindings(result.Findings)
+	if repoScanUsesGitHubAppSource(record) {
+		result.Findings = filterReportableRepoFindings(result.Findings)
+	}
 	if err := s.Store.UpsertRepoFindings(ctx, record.ID, result.Findings); err != nil {
 		if errors.Is(err, db.ErrConflict) {
 			if cleanupErr := s.clearRepoScanFindingsAfterTerminalChange(ctx, record.ID); cleanupErr != nil {
@@ -2223,17 +2225,9 @@ func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoSc
 	return findings, sourceErrors, nil
 }
 
-func filterRepoFindingsByMinimumConfidence(findings []domain.Finding, floor float64) []domain.Finding {
-	if floor <= 0 {
-		return findings
-	}
-	filtered := findings[:0]
-	for _, finding := range findings {
-		if finding.ConfidenceScore >= floor {
-			filtered = append(filtered, finding)
-		}
-	}
-	return filtered
+func repoScanUsesGitHubAppSource(record db.RepoScanRecord) bool {
+	source := record.Source.Normalize()
+	return source.Provider == "github_app"
 }
 
 func filterReportableRepoFindings(findings []domain.Finding) []domain.Finding {

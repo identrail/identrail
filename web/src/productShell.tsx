@@ -1612,6 +1612,32 @@ function repoFindingDeleteTargetFromFinding(finding: ApiFinding): RepoFindingDel
   };
 }
 
+export const REPO_FINDING_BULK_DELETE_BATCH_SIZE = 5000;
+
+export function chunkRepoFindingDeleteTargets(
+  targets: RepoFindingDeleteTarget[],
+  batchSize = REPO_FINDING_BULK_DELETE_BATCH_SIZE
+): RepoFindingDeleteTarget[][] {
+  const normalizedBatchSize = Math.max(1, Math.floor(batchSize));
+  const batches: RepoFindingDeleteTarget[][] = [];
+  for (let index = 0; index < targets.length; index += normalizedBatchSize) {
+    batches.push(targets.slice(index, index + normalizedBatchSize));
+  }
+  return batches;
+}
+
+function mergeRepoFindingsBulkDeleteResponses(
+  responses: RepoFindingsBulkDeleteResponse[]
+): RepoFindingsBulkDeleteResponse {
+  return responses.reduce<RepoFindingsBulkDeleteResponse>(
+    (acc, response) => ({
+      deleted: [...acc.deleted, ...response.deleted],
+      failed: [...(acc.failed ?? []), ...(response.failed ?? [])]
+    }),
+    { deleted: [], failed: [] }
+  );
+}
+
 function repoFindingDeleteTargetKey(target: RepoFindingDeleteTarget): string {
   return `${target.repo_scan_id}::${target.finding_id}`;
 }
@@ -27863,6 +27889,11 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     });
   }, [scopedRepoFindings, statusFilter, assigneeFilter]);
 
+  const riskGraphFiltersUnsupported =
+    statusFilter !== 'all' ||
+    normalizeValue(assigneeFilter) !== '' ||
+    normalizeValue(sourceFilter) !== '';
+
   const findingHierarchy = useMemo(
     () =>
       groupRepoFindingsByRepositoryDateSeverity(filteredFindings, {
@@ -27904,7 +27935,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
 
   const topRiskGraphScores = useMemo(
     () => {
-      if (filteredFindings.length === 0) {
+      if (filteredFindings.length === 0 || riskGraphFiltersUnsupported) {
         return [];
       }
       const visibleFindingIDs = new Set(filteredFindings.map((finding) => finding.id));
@@ -27912,7 +27943,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         .filter((score) => visibleFindingIDs.has(score.finding_id))
         .slice(0, 3);
     },
-    [filteredFindings, repoRiskGraph]
+    [filteredFindings, repoRiskGraph, riskGraphFiltersUnsupported]
   );
 
   const criticalFindingCount = useMemo(
@@ -28175,7 +28206,12 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       let failedCandidates: ApiFinding[] = [];
       let failureMessage = 'Failed to delete finding.';
       if (bulkDeleteActive) {
-        const response = await apiClient.deleteRepoFindings(candidates.map(repoFindingDeleteTargetFromFinding), auth);
+        const batches = chunkRepoFindingDeleteTargets(candidates.map(repoFindingDeleteTargetFromFinding));
+        const responses: RepoFindingsBulkDeleteResponse[] = [];
+        for (const batch of batches) {
+          responses.push(await apiClient.deleteRepoFindings(batch, auth));
+        }
+        const response = mergeRepoFindingsBulkDeleteResponses(responses);
         const deletedKeys = new Set(response.deleted.map(repoFindingDeleteTargetKey));
         const failedKeys = new Set((response.failed ?? []).map(repoFindingDeleteTargetKey));
         deletedFindings = candidates.filter((candidate) =>
@@ -28686,8 +28722,12 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   });
 
   const trendDisplayLoading = signalsLoading;
-  const visibleRepoRiskGraph = filteredFindings.length > 0 ? repoRiskGraph : null;
+  const visibleRepoRiskGraph = filteredFindings.length > 0 && !riskGraphFiltersUnsupported ? repoRiskGraph : null;
   const riskGraphSummary = visibleRepoRiskGraph?.summary;
+  const riskGraphHiddenByFilters = filteredFindings.length > 0 && riskGraphFiltersUnsupported;
+  const riskGraphUnavailableBody = riskGraphHiddenByFilters
+    ? 'Clear source, assignee, or lifecycle filters to view the graph.'
+    : 'Run a repository exposure scan so machine-identity paths and finding risk scores can appear here.';
   const riskGraphUnknownEvidenceCount =
     (riskGraphSummary?.unknown_node_count ?? 0) + (riskGraphSummary?.unknown_edge_count ?? 0);
   const selectedFindingPreviewKey = selectedFinding ? buildRepoFindingSelectionKey(selectedFinding) : '';
@@ -29427,6 +29467,8 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
           <span className="idt-repo-finding-trend-subtitle">
             {visibleRepoRiskGraph
               ? `${visibleRepoRiskGraph.nodes.length} nodes · ${visibleRepoRiskGraph.edges.length} paths · ${canonicalGitHubRepositoryDisplay(visibleRepoRiskGraph.repository) || visibleRepoRiskGraph.repository || 'repository scope'}`
+              : riskGraphHiddenByFilters
+                ? 'Hidden for current filters'
               : 'No graph loaded yet'}
           </span>
         </summary>
@@ -29469,7 +29511,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         ) : (
           <AppShellEmptyState
             title="Risk graph unavailable"
-            body="Run a repository exposure scan so machine-identity paths and finding risk scores can appear here."
+            body={riskGraphUnavailableBody}
           />
         )}
       </details>

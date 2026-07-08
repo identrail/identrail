@@ -1084,8 +1084,9 @@ func TestPostgresStoreDeleteRepoFindingTargetsReturnsDeletedTargets(t *testing.T
 	deletedRows := sqlmock.NewRows([]string{"repo_scan_id", "finding_id"}).
 		AddRow(scanID, "rf-1").
 		AddRow(scanID, "rf-2")
+	expectedPayload := `[{"repo_scan_id":"11111111-1111-1111-1111-111111111111","finding_id":"rf-1"},{"repo_scan_id":"11111111-1111-1111-1111-111111111111","finding_id":"rf-2"}]`
 	mock.ExpectQuery("WITH targets AS").
-		WithArgs(sqlmock.AnyArg(), "default", "default").
+		WithArgs(expectedPayload, "default", "default").
 		WillReturnRows(deletedRows)
 
 	deleted, err := store.DeleteRepoFindingTargets(defaultScopeContext(), []RepoFindingDeleteTarget{
@@ -3619,7 +3620,10 @@ func TestPostgresStoreListRepoFindingTrendCounts(t *testing.T) {
 		   ON rf.repo_scan_id = rs.id
 		  AND ($3 = '' OR LOWER(rf.severity) = $3)
 		  AND ($4 = '' OR LOWER(rf.type) = $4)
-		  AND ($5 <= 0 OR rf.confidence_score >= $5)
+		  AND ($5 <= 0 OR CASE
+		WHEN COALESCE(rf.evidence->>'confidence_score', '') ~ '^[0-9]+(\.[0-9]+)?$' THEN (rf.evidence->>'confidence_score')::double precision
+		ELSE 0
+	END >= $5)
 		 WHERE rs.tenant_id = $1
 		   AND rs.workspace_id = $2
 		   AND rs.id IN ($6,$7)

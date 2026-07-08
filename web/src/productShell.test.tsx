@@ -8442,6 +8442,81 @@ describe('ProductFindingsPage states', () => {
     });
   });
 
+  it('hides the risk graph when unsupported finding filters are active', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-risk-graph-source-filter',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 1
+    };
+    const finding: Finding = {
+      id: 'finding-risk-graph-source-filter',
+      scan_id: scan.id,
+      type: 'workflow_permission',
+      severity: 'high',
+      title: 'Source-filtered workflow permission',
+      human_summary: 'A workflow grants broad repository permissions.',
+      remediation: 'Limit workflow permissions.',
+      source: 'github_code_scanning',
+      created_at: '2026-05-17T11:06:00Z'
+    };
+
+    await renderFindings({
+      repoScans: [scan],
+      repoFindings: [finding],
+      getRepoRiskGraph: () => ({
+        repository: 'identrail/identrail',
+        nodes: [
+          {
+            id: 'node-1',
+            kind: 'finding',
+            label: 'Finding',
+            repository: 'identrail/identrail',
+            evidence_state: 'known'
+          }
+        ],
+        edges: [],
+        scores: [
+          {
+            finding_id: finding.id,
+            finding_node_id: 'node-1',
+            score: 92,
+            severity: 'high',
+            confidence: 0.92,
+            factors: {
+              severity: 80,
+              confidence: 92,
+              exploitability: 80,
+              privilege: 70,
+              exposure: 70,
+              environment_criticality: 60,
+              freshness: 90
+            },
+            unknowns: []
+          }
+        ],
+        summary: {
+          finding_count: 1,
+          node_count: 1,
+          edge_count: 0,
+          unknown_node_count: 0,
+          unknown_edge_count: 0,
+          high_risk_findings: 1,
+          critical_findings: 0
+        }
+      })
+    });
+
+    expect(await screen.findByText('1 nodes · 0 paths · identrail/identrail')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('Source name'), { target: { value: 'github_code_scanning' } });
+
+    expect(await screen.findByText('Hidden for current filters')).toBeInTheDocument();
+    expect(screen.getByText('Clear source, assignee, or lifecycle filters to view the graph.')).toBeInTheDocument();
+    expect(screen.queryByText('High-risk findings')).not.toBeInTheDocument();
+  });
+
   it('ignores stale finding delete completions after refreshing the findings list', async () => {
     const scan: RepoScanRecord = {
       ...queuedRepoScan,
@@ -8819,7 +8894,21 @@ describe('ProductFindingsPage states', () => {
     expect(await screen.findByText('Next page workflow finding')).toBeInTheDocument();
   });
 
-  it('sends large clear all requests as one repository finding bulk operation', async () => {
+  it('chunks clear all targets at the repository finding bulk limit', async () => {
+    const { chunkRepoFindingDeleteTargets, REPO_FINDING_BULK_DELETE_BATCH_SIZE } = await import('./productShell');
+    const targets = Array.from({ length: REPO_FINDING_BULK_DELETE_BATCH_SIZE + 1 }, (_, index) => ({
+      finding_id: `finding-bulk-limit-${index}`,
+      repo_scan_id: 'repo-scan-bulk-limit'
+    }));
+
+    const batches = chunkRepoFindingDeleteTargets(targets);
+
+    expect(batches).toHaveLength(2);
+    expect(batches[0]).toHaveLength(REPO_FINDING_BULK_DELETE_BATCH_SIZE);
+    expect(batches[1]).toEqual([{ finding_id: 'finding-bulk-limit-5000', repo_scan_id: 'repo-scan-bulk-limit' }]);
+  });
+
+  it('sends large clear all requests below the server limit as one repository finding bulk operation', async () => {
     const scan: RepoScanRecord = {
       ...queuedRepoScan,
       id: 'repo-scan-clear-all-large',
