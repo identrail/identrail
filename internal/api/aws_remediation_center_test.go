@@ -406,6 +406,7 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 			CaseID:                 "case-mixed",
 			AccountID:              "111111111111",
 			TargetAccountIDs:       []string{"111111111111", "222222222222"},
+			Stage:                  awsRemediationCenterStageRollback,
 			VerificationID:         "verify-failed",
 			VerificationState:      awsPostRemediationVerificationStateFailed,
 			VerificationEntryCount: 2,
@@ -427,6 +428,7 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 		{
 			CaseID:                 "case-verified",
 			AccountID:              "333333333333",
+			Stage:                  awsRemediationCenterStageVerification,
 			VerificationID:         "verify-verified",
 			VerificationState:      awsPostRemediationVerificationStateVerified,
 			VerificationEntryCount: 1,
@@ -463,7 +465,7 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 
 	filtered, _ := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{Status: awsPostRemediationVerificationStateVerified})
 	scopedRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(filtered), filtered, awsPostRemediationVerificationStateVerified, "")
-	filtered = awsRemediationCenterCasesWithScopedVerificationRows(filtered, scopedRows, awsPostRemediationVerificationStateVerified)
+	filtered = awsRemediationCenterCasesWithScopedVerificationRows(filtered, scopedRows, awsPostRemediationVerificationStateVerified, "")
 	summary := summarizeAWSRemediationCenterCases(centerCases, filtered)
 	auditTrail := awsRemediationCenterAuditTrail(filtered)
 
@@ -504,7 +506,7 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 
 	approvedCases, _ := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{Status: awsRemediationApprovalStateApproved})
 	approvedRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(approvedCases), approvedCases, awsRemediationApprovalStateApproved, "")
-	approvedCases = awsRemediationCenterCasesWithScopedVerificationRows(approvedCases, approvedRows, awsRemediationApprovalStateApproved)
+	approvedCases = awsRemediationCenterCasesWithScopedVerificationRows(approvedCases, approvedRows, awsRemediationApprovalStateApproved, "")
 	approvedSummary := summarizeAWSRemediationCenterCases(centerCases, approvedCases)
 	approvedAudit := awsRemediationCenterAuditTrail(approvedCases)
 
@@ -527,7 +529,7 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 
 	accountCases, _ := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{AccountID: "222222222222"})
 	accountRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(accountCases), accountCases, "", "222222222222")
-	accountCases = awsRemediationCenterCasesWithScopedVerificationRows(accountCases, accountRows, "")
+	accountCases = awsRemediationCenterCasesWithScopedVerificationRows(accountCases, accountRows, "", "")
 	accountSummary := summarizeAWSRemediationCenterCases(centerCases, accountCases)
 	accountAudit := awsRemediationCenterAuditTrail(accountCases)
 
@@ -572,7 +574,7 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 
 	mismatchedStatusCases, applied := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{AccountID: "222222222222", Status: awsPostRemediationVerificationStateFailed})
 	mismatchedStatusRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(mismatchedStatusCases), mismatchedStatusCases, applied["status"], applied["account_id"])
-	mismatchedStatusCases = awsRemediationCenterCasesWithScopedVerificationRows(mismatchedStatusCases, mismatchedStatusRows, applied["status"])
+	mismatchedStatusCases = awsRemediationCenterCasesWithScopedVerificationRows(mismatchedStatusCases, mismatchedStatusRows, applied["status"], "")
 	mismatchedStatusSummary := summarizeAWSRemediationCenterCases(centerCases, mismatchedStatusCases)
 	mismatchedStatusAudit := awsRemediationCenterAuditTrail(mismatchedStatusCases)
 
@@ -588,7 +590,7 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 
 	matchedStatusCases, applied := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{AccountID: "222222222222", Status: awsPostRemediationVerificationStateVerified})
 	matchedStatusRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(matchedStatusCases), matchedStatusCases, applied["status"], applied["account_id"])
-	matchedStatusCases = awsRemediationCenterCasesWithScopedVerificationRows(matchedStatusCases, matchedStatusRows, applied["status"])
+	matchedStatusCases = awsRemediationCenterCasesWithScopedVerificationRows(matchedStatusCases, matchedStatusRows, applied["status"], "")
 	matchedStatusSummary := summarizeAWSRemediationCenterCases(centerCases, matchedStatusCases)
 
 	if len(matchedStatusCases) != 1 || matchedStatusCases[0].CaseID != "case-mixed" {
@@ -602,6 +604,22 @@ func TestAWSRemediationCenterScopesVerificationRowsToStatus(t *testing.T) {
 	}
 	if matchedStatusSummary.BlockedGateCount != 0 {
 		t.Fatalf("account+verification status blocked gates must not count filtered sibling rows: %+v", matchedStatusSummary)
+	}
+
+	stageVerificationCases, applied := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{AccountID: "222222222222", Stage: awsRemediationCenterStageVerification})
+	stageVerificationRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(stageVerificationCases), stageVerificationCases, applied["status"], applied["account_id"])
+	stageVerificationCases = awsRemediationCenterCasesWithScopedVerificationRows(stageVerificationCases, stageVerificationRows, applied["status"], applied["stage"])
+
+	if len(stageVerificationCases) != 1 || stageVerificationCases[0].CaseID != "case-mixed" || stageVerificationCases[0].Stage != awsRemediationCenterStageVerification {
+		t.Fatalf("stage=verification must be applied after account-scoped verification row rewrite, got %+v", stageVerificationCases)
+	}
+
+	stageRollbackCases, applied := filterAWSRemediationCenterCases(centerCases, AWSRemediationCenterRequest{AccountID: "222222222222", Stage: awsRemediationCenterStageRollback})
+	stageRollbackRows := awsRemediationCenterScopeVerificationEntries(verificationRows, awsRemediationCenterCaseIDSet(stageRollbackCases), stageRollbackCases, applied["status"], applied["account_id"])
+	stageRollbackCases = awsRemediationCenterCasesWithScopedVerificationRows(stageRollbackCases, stageRollbackRows, applied["status"], applied["stage"])
+
+	if len(stageRollbackCases) != 0 {
+		t.Fatalf("stage=rollback must not keep a case rewritten to verification after account scoping, got %+v", stageRollbackCases)
 	}
 }
 
