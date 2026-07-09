@@ -144,25 +144,46 @@ func TestAWSExecutiveOutcomeViewKeepsRequestedScopeMetricsVisible(t *testing.T) 
 	result, err := svc.GetAWSExecutiveOutcomeView(defaultScopeContext(), ws, "project-executive-outcomes-scope", AWSExecutiveOutcomeViewRequest{
 		ConnectorID:  "aws-prod",
 		FixtureState: "success",
-		AccountID:    "222222222222",
-		Region:       "us-west-2",
+		AccountID:    "123456789012",
+		Region:       "us-east-1",
 	})
 	if err != nil {
 		t.Fatalf("get scoped executive outcome view: %v", err)
 	}
-	if result.AccountID != "222222222222" || result.Region != "us-west-2" {
+	if result.AccountID != "123456789012" || result.Region != "us-east-1" {
 		t.Fatalf("expected requested scope on result, got account=%q region=%q", result.AccountID, result.Region)
 	}
 	if len(result.Metrics) == 0 {
 		t.Fatalf("expected requested scope to keep executive metrics visible")
 	}
 	for _, metric := range result.Metrics {
-		if metric.AccountID != "222222222222" || metric.Region != "us-west-2" {
+		if metric.AccountID != "123456789012" || metric.Region != "us-east-1" {
 			t.Fatalf("expected metric to keep requested scope, got %+v", metric)
 		}
 	}
 	if result.Summary.FilteredMetrics != len(result.Metrics) {
 		t.Fatalf("expected filtered summary to match visible metrics, got summary=%+v metrics=%+v", result.Summary, result.Metrics)
+	}
+}
+
+func TestAWSExecutiveOutcomeViewHidesUnsupportedRequestedScopeMetrics(t *testing.T) {
+	now := time.Date(2026, 7, 9, 12, 37, 0, 0, time.UTC)
+	svc, ws := newExecutiveOutcomeViewService(t, "project-executive-outcomes-empty-scope", now)
+
+	result, err := svc.GetAWSExecutiveOutcomeView(defaultScopeContext(), ws, "project-executive-outcomes-empty-scope", AWSExecutiveOutcomeViewRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		AccountID:    "999999999999",
+		Region:       "eu-north-1",
+	})
+	if err != nil {
+		t.Fatalf("get unsupported scoped executive outcome view: %v", err)
+	}
+	if result.AppliedFilters["account_id"] != "999999999999" || result.AppliedFilters["region"] != "eu-north-1" {
+		t.Fatalf("expected requested scope filters to be applied, got %+v", result.AppliedFilters)
+	}
+	if len(result.Metrics) != 0 || result.Summary.FilteredMetrics != 0 {
+		t.Fatalf("expected unsupported requested scope to hide aggregate metrics, summary=%+v metrics=%+v", result.Summary, result.Metrics)
 	}
 }
 

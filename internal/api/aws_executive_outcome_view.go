@@ -224,7 +224,10 @@ func (s *Service) GetAWSExecutiveOutcomeView(ctx context.Context, workspaceID st
 		return AWSExecutiveOutcomeViewResult{}, err
 	}
 
-	metrics := awsExecutiveOutcomeMetrics(coverage, blast, least, cases, verification, enforcement, governance, accountID, region, now)
+	hasScopedSourceRows := awsExecutiveOutcomeHasSourceRows(coverage, blast, least, cases, verification, enforcement, governance)
+	metricAccountID := awsExecutiveOutcomeMetricScopeValue(request.AccountID, connection.AccountID, "123456789012", hasScopedSourceRows)
+	metricRegion := awsExecutiveOutcomeMetricScopeValue(request.Region, connection.Region, "us-east-1", hasScopedSourceRows)
+	metrics := awsExecutiveOutcomeMetrics(coverage, blast, least, cases, verification, enforcement, governance, metricAccountID, metricRegion, now)
 	filtered, applied := filterAWSExecutiveOutcomeMetrics(metrics, request)
 	summary := summarizeAWSExecutiveOutcomeView(metrics, filtered, coverage, blast, least, cases, verification, enforcement, governance)
 	status, confidence := summarizeAWSExecutiveOutcomeViewStatus(filtered, awsExecutiveOutcomeSourceStatuses(request, sourceFixtureState, coverage, blast, least, cases, verification, enforcement, governance)...)
@@ -439,12 +442,32 @@ func awsExecutiveOutcomeScopeValue(requestValue string, connectionValue string, 
 	return firstNonEmptyAWSValue(connectionValue, fallback)
 }
 
+func awsExecutiveOutcomeMetricScopeValue(requestValue string, connectionValue string, fallback string, hasScopedSourceRows bool) string {
+	requestValue = strings.TrimSpace(requestValue)
+	if requestValue != "" && !strings.EqualFold(requestValue, "all") && hasScopedSourceRows {
+		return requestValue
+	}
+	return firstNonEmptyAWSValue(connectionValue, fallback)
+}
+
 func awsExecutiveOutcomeSourceScopeFilter(value string) string {
 	value = strings.TrimSpace(value)
 	if strings.EqualFold(value, "all") {
 		return ""
 	}
 	return value
+}
+
+func awsExecutiveOutcomeHasSourceRows(
+	coverage AWSAccountRegionCoverageResult,
+	blast AWSBlastRadiusResult,
+	least AWSLeastPrivilegeResult,
+	cases AWSRemediationCaseResult,
+	verification AWSPostRemediationVerificationResult,
+	enforcement AWSLimitedEnforcementResult,
+	governance AWSGovernanceAuditReportingResult,
+) bool {
+	return len(coverage.Records)+len(blast.Findings)+len(least.Recommendations)+len(cases.Cases)+len(verification.Entries)+len(enforcement.Entries)+len(governance.Records) > 0
 }
 
 func awsExecutiveOutcomeFilterLimitedEnforcementRows(result AWSLimitedEnforcementResult, request AWSExecutiveOutcomeViewRequest) AWSLimitedEnforcementResult {
