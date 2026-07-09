@@ -12174,7 +12174,6 @@ type AWSRuntimeTimelineFilterContext = {
   eventIDs: Set<string>;
   sessionIDs: Set<string>;
   evidenceRefs: Set<string>;
-  nodeIDs: Set<string>;
   agentIDs: Set<string>;
 };
 
@@ -12337,18 +12336,12 @@ function awsRuntimeTimelineFilterContext(records: AWSRuntimeEventRecord[]): AWSR
     eventIDs: new Set(),
     sessionIDs: new Set(),
     evidenceRefs: new Set(),
-    nodeIDs: new Set(),
     agentIDs: new Set()
   };
   for (const record of records) {
     addToSet(context.eventIDs, record.event_id);
     addToSet(context.sessionIDs, record.session?.session_id);
     addToSet(context.evidenceRefs, record.evidence_ref);
-    addToSet(context.nodeIDs, record.actor_identity_node_id);
-    addToSet(context.nodeIDs, record.resource_node_id);
-    addToSet(context.nodeIDs, record.session?.session_node_id);
-    addToSet(context.nodeIDs, record.session?.original_actor_node_id);
-    addToSet(context.nodeIDs, record.session?.chained_from_node_id);
     addToSet(context.agentIDs, record.agent_id);
     addToSet(context.agentIDs, record.agent_node_id);
   }
@@ -12489,7 +12482,6 @@ function awsRuntimeCorrelationHighlights(
         eventIDs: record.observed_event_ids,
         sessionIDs: record.session_ids,
         evidenceRefs: [record.evidence_ref, ...(record.evidence_refs ?? [])],
-        nodeIDs: [record.identity_node_id, record.resource_node_id, record.agent_node_id],
         agentIDs: [record.agent_id, record.agent_node_id]
       })
     )
@@ -12516,7 +12508,6 @@ function awsRuntimeCorrelationHighlights(
         eventIDs: record.observed_event_ids,
         sessionIDs: record.session_ids,
         evidenceRefs: [record.evidence_ref, ...(record.evidence_refs ?? [])],
-        nodeIDs: [record.identity_node_id, record.resource_node_id, record.agent_node_id],
         agentIDs: [record.agent_id, record.agent_node_id]
       })
     )
@@ -12544,12 +12535,6 @@ function awsRuntimeCorrelationHighlights(
         eventIDs: record.observed_event_ids,
         sessionIDs: record.session_ids,
         evidenceRefs: [record.evidence_ref, ...(record.evidence_refs ?? [])],
-        nodeIDs: [
-          record.agent_node_id,
-          record.declared_backing_role_node_id,
-          ...(record.backing_role_node_ids ?? []),
-          ...(record.target_resource_node_ids ?? [])
-        ],
         agentIDs: [record.agent_id, record.agent_node_id]
       })
     )
@@ -12579,7 +12564,6 @@ function awsRuntimeMatchesFilterContext(
     eventIDs?: string[];
     sessionIDs?: string[];
     evidenceRefs?: Array<string | undefined>;
-    nodeIDs?: Array<string | undefined>;
     agentIDs?: Array<string | undefined>;
   }
 ): boolean {
@@ -12590,7 +12574,6 @@ function awsRuntimeMatchesFilterContext(
     intersectsSet(context.eventIDs, values.eventIDs) ||
     intersectsSet(context.sessionIDs, values.sessionIDs) ||
     intersectsSet(context.evidenceRefs, values.evidenceRefs) ||
-    intersectsSet(context.nodeIDs, values.nodeIDs) ||
     intersectsSet(context.agentIDs, values.agentIDs)
   );
 }
@@ -12626,12 +12609,6 @@ function awsRuntimeRemediationMarkers(
           remediationCase.rollback_plan.evidence_ref,
           remediationCase.verification_plan.evidence_ref,
           ...remediationCase.evidence.map((evidence) => evidence.evidence_ref)
-        ],
-        nodeIDs: [
-          remediationCase.identity_node_id,
-          ...(remediationCase.resource_node_ids ?? []),
-          ...remediationCase.impacted_nodes,
-          ...remediationCase.impacted_path.map((step) => step.node_id)
         ]
       })
     )
@@ -12658,8 +12635,7 @@ function awsRuntimeRemediationMarkers(
           entry.rollback_plan.evidence_ref,
           entry.verification_plan.evidence_ref,
           ...entry.evidence.map((evidence) => evidence.evidence_ref)
-        ],
-        nodeIDs: [...entry.impacted_nodes, ...entry.impacted_path.map((step) => step.node_id)]
+        ]
       })
     )
     .slice(0, 2)
@@ -12679,8 +12655,7 @@ function awsRuntimeRemediationMarkers(
   const verificationMarkers = (postRemediationVerification?.entries ?? [])
     .filter((entry) =>
       awsRuntimeMatchesFilterContext(filterContext, {
-        evidenceRefs: entry.evidence_links,
-        nodeIDs: entry.impacted_nodes
+        evidenceRefs: entry.evidence_links
       })
     )
     .slice(0, 2)

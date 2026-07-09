@@ -6920,10 +6920,12 @@ describe('Domain-first app routes', () => {
     );
     expect(screen.getByText(/Access Analyzer: Finding/i)).toBeInTheDocument();
     expect(screen.queryByText(/CloudTrail: GetObject/i)).not.toBeInTheDocument();
-    expect(within(runtimeTimeline).queryByText(/Secret · prod\/ai\/openai-key/i)).not.toBeInTheDocument();
-    expect(within(runtimeTimeline).queryByText(/S3 · billing-artifacts-123456789012/i)).not.toBeInTheDocument();
-    expect(within(runtimeTimeline).queryByText(/Agent · runtime-case-triage · case-router/i)).not.toBeInTheDocument();
-    expect(within(runtimeTimeline).queryByText(/Case · Rotate external credential for support-assistant/i)).not.toBeInTheDocument();
+    const staleRuntimeTimeline = screen.getByRole('region', { name: 'AWS runtime correlation timeline' });
+    expect(within(staleRuntimeTimeline).getByText(/Access Analyzer.*Finding/i)).toBeInTheDocument();
+    expect(within(staleRuntimeTimeline).queryByText(/Secret · prod\/ai\/openai-key/i)).not.toBeInTheDocument();
+    expect(within(staleRuntimeTimeline).queryByText(/S3 · billing-artifacts-123456789012/i)).not.toBeInTheDocument();
+    expect(within(staleRuntimeTimeline).queryByText(/Agent · runtime-case-triage · case-router/i)).not.toBeInTheDocument();
+    expect(within(staleRuntimeTimeline).queryByText(/Case · Rotate external credential for support-assistant/i)).not.toBeInTheDocument();
   });
 
   it('shows AWS limited enforcement framework on the governance route', async () => {
