@@ -185,6 +185,22 @@ func TestAWSExecutiveOutcomeViewHidesUnsupportedRequestedScopeMetrics(t *testing
 	if len(result.Metrics) != 0 || result.Summary.FilteredMetrics != 0 {
 		t.Fatalf("expected unsupported requested scope to hide aggregate metrics, summary=%+v metrics=%+v", result.Summary, result.Metrics)
 	}
+
+	prefixScoped, err := svc.GetAWSExecutiveOutcomeView(defaultScopeContext(), ws, "project-executive-outcomes-empty-scope", AWSExecutiveOutcomeViewRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		AccountID:    "12345678901",
+		Region:       "us",
+	})
+	if err != nil {
+		t.Fatalf("get prefix scoped executive outcome view: %v", err)
+	}
+	if prefixScoped.AppliedFilters["account_id"] != "12345678901" || prefixScoped.AppliedFilters["region"] != "us" {
+		t.Fatalf("expected prefix scope filters to be applied, got %+v", prefixScoped.AppliedFilters)
+	}
+	if len(prefixScoped.Metrics) != 0 || prefixScoped.Summary.FilteredMetrics != 0 {
+		t.Fatalf("expected prefix scoped request to hide aggregate metrics, summary=%+v metrics=%+v", prefixScoped.Summary, prefixScoped.Metrics)
+	}
 }
 
 func TestAWSExecutiveOutcomeViewTreatsAllAccountRegionAsUnscoped(t *testing.T) {

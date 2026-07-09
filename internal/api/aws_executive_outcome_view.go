@@ -529,34 +529,46 @@ func awsExecutiveOutcomeFilteredSourceSummaries(
 
 func filterAWSExecutiveOutcomeMetrics(metrics []AWSExecutiveOutcomeMetric, request AWSExecutiveOutcomeViewRequest) ([]AWSExecutiveOutcomeMetric, map[string]string) {
 	applied := map[string]string{}
-	matchText := func(value, want string) bool {
+	matchToken := func(value, want string) bool {
 		want = strings.ToLower(strings.TrimSpace(want))
 		if want == "" || want == "all" {
 			return true
 		}
-		return strings.Contains(strings.ToLower(value), want)
+		return strings.ToLower(strings.TrimSpace(value)) == want
+	}
+	matchDelimitedToken := func(value, want string) bool {
+		want = strings.ToLower(strings.TrimSpace(want))
+		if want == "" || want == "all" {
+			return true
+		}
+		for _, token := range strings.Split(value, ",") {
+			if strings.ToLower(strings.TrimSpace(token)) == want {
+				return true
+			}
+		}
+		return false
 	}
 	filtered := make([]AWSExecutiveOutcomeMetric, 0, len(metrics))
 	for _, metric := range metrics {
-		if !matchText(metric.AccountID, request.AccountID) {
+		if !matchToken(metric.AccountID, request.AccountID) {
 			continue
 		}
-		if !matchText(metric.Region, request.Region) {
+		if !matchToken(metric.Region, request.Region) {
 			continue
 		}
-		if !matchText(metric.OU, request.OU) {
+		if !matchDelimitedToken(metric.OU, request.OU) {
 			continue
 		}
-		if !matchText(metric.IdentityType, request.IdentityType) {
+		if !matchToken(metric.IdentityType, request.IdentityType) {
 			continue
 		}
-		if !matchText(metric.Severity, request.Severity) {
+		if !matchToken(metric.Severity, request.Severity) {
 			continue
 		}
-		if !matchText(metric.OutcomeType, request.OutcomeType) {
+		if !matchToken(metric.OutcomeType, request.OutcomeType) {
 			continue
 		}
-		if !matchText(metric.Trend, request.Trend) {
+		if !matchToken(metric.Trend, request.Trend) {
 			continue
 		}
 		search := strings.ToLower(strings.TrimSpace(request.Search))
