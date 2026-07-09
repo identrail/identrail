@@ -64,6 +64,42 @@ The response is returned as `{ "runtime": ... }` and includes:
 - graph relationships from observed actors, runtime sessions, chained actors, or agents to target resources
 - explicit diagnostics, coverage gaps, failure reasons, and remediation hints
 
+## App runtime timeline UX (#1554)
+
+The AWS Runtime app page now presents the runtime envelope as a metadata-only
+timeline before the raw event table. The timeline keeps the existing API
+contract intact and composes records from the runtime events endpoint with the
+Secrets Manager/KMS, S3, agent-runtime, remediation-case, live-action, and
+post-remediation verification envelopes when those responses are available.
+
+Each timeline entry shows only:
+
+- event type, event name, action, observed timestamp, status, and confidence
+- actor principal ARN / identity node ID and STS session lineage metadata
+- SourceIdentity, role-session name, original actor, chained actor, and lineage state when supplied
+- target resource metadata such as ARN, node ID, resource type, or redacted display name
+- evidence refs and the explicit redaction boundary
+
+The correlation highlight block is likewise metadata-only. It surfaces observed
+event IDs, session IDs, action names, safe S3 prefixes, static source labels,
+agent/tool identifiers, and correlation status. It never renders secret values,
+decrypted plaintext, object bodies, object keys, prompts, completions, tool
+payloads, browser pages, code-interpreter output, database rows, or customer
+payloads.
+
+The remediation marker block joins before/after refs from remediation cases,
+low-risk live-action projections, and post-remediation verification records.
+These markers are audit/projection metadata only. They do not imply the app has
+mutated AWS state, and they preserve the same tenant/workspace/project/
+connector/account/region scope as the source envelope.
+
+The runtime filter bar supports the API-backed `event_type`, `evidence`,
+`owner`, and `status` filters plus local text search. Filtered timeline entries
+and raw rows share the same client-side filter normalization so CloudTrail,
+STS, Secrets Manager, KMS, agent-tool, IAM last-used, Access Analyzer, observed,
+delayed, permission-denied, resolved, archived, and stale states stay aligned
+between the app and API request.
+
 ## Safety boundaries
 
 The runtime contract is read-only and metadata-only. It must not read, expose,
