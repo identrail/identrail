@@ -219,6 +219,45 @@ func TestAWSExecutiveOutcomeViewStatusPreservesSourceStateWithNoMetrics(t *testi
 	}
 }
 
+func TestAWSExecutiveOutcomeViewStatusTreatsFilteredEmptySourcesAsReady(t *testing.T) {
+	statuses := awsExecutiveOutcomeSourceStatuses(
+		AWSExecutiveOutcomeViewRequest{Severity: "critical"},
+		"success",
+		AWSAccountRegionCoverageResult{Status: awsPlatformDependencyStatusReady},
+		AWSBlastRadiusResult{Status: awsPlatformDependencyStatusDegraded},
+		AWSLeastPrivilegeResult{Status: awsPlatformDependencyStatusDegraded},
+		AWSRemediationCaseResult{Status: awsPlatformDependencyStatusDegraded},
+		AWSPostRemediationVerificationResult{Status: awsPlatformDependencyStatusReady},
+		AWSLimitedEnforcementResult{Status: awsPlatformDependencyStatusReady},
+		AWSGovernanceAuditReportingResult{Status: awsPlatformDependencyStatusReady},
+	)
+	status, confidence := summarizeAWSExecutiveOutcomeViewStatus(nil, statuses...)
+	if status != awsPlatformDependencyStatusReady || confidence != 0.8 {
+		t.Fatalf("expected empty filtered sources to stay ready, got status=%q confidence=%v statuses=%+v", status, confidence, statuses)
+	}
+}
+
+func TestAWSExecutiveOutcomeViewStatusKeepsRealSourceDegradation(t *testing.T) {
+	statuses := awsExecutiveOutcomeSourceStatuses(
+		AWSExecutiveOutcomeViewRequest{Severity: "critical"},
+		"success",
+		AWSAccountRegionCoverageResult{Status: awsPlatformDependencyStatusReady},
+		AWSBlastRadiusResult{
+			Status:         awsPlatformDependencyStatusDegraded,
+			FailureReasons: []string{"blast radius source returned retryable diagnostics"},
+		},
+		AWSLeastPrivilegeResult{Status: awsPlatformDependencyStatusReady},
+		AWSRemediationCaseResult{Status: awsPlatformDependencyStatusReady},
+		AWSPostRemediationVerificationResult{Status: awsPlatformDependencyStatusReady},
+		AWSLimitedEnforcementResult{Status: awsPlatformDependencyStatusReady},
+		AWSGovernanceAuditReportingResult{Status: awsPlatformDependencyStatusReady},
+	)
+	status, confidence := summarizeAWSExecutiveOutcomeViewStatus(nil, statuses...)
+	if status != awsPlatformDependencyStatusDegraded || confidence != 0.74 {
+		t.Fatalf("expected real source degradation to survive empty filters, got status=%q confidence=%v statuses=%+v", status, confidence, statuses)
+	}
+}
+
 func TestAWSExecutiveOutcomeViewPermissionDeniedIsExplicit(t *testing.T) {
 	now := time.Date(2026, 7, 9, 13, 0, 0, 0, time.UTC)
 	svc, ws := newExecutiveOutcomeViewService(t, "project-executive-outcomes-denied", now)

@@ -224,7 +224,7 @@ func (s *Service) GetAWSExecutiveOutcomeView(ctx context.Context, workspaceID st
 	metrics := awsExecutiveOutcomeMetrics(coverage, blast, least, cases, verification, enforcement, governance, accountID, region, now)
 	filtered, applied := filterAWSExecutiveOutcomeMetrics(metrics, request)
 	summary := summarizeAWSExecutiveOutcomeView(metrics, filtered, coverage, blast, least, cases, verification, enforcement, governance)
-	status, confidence := summarizeAWSExecutiveOutcomeViewStatus(filtered, coverage.Status, blast.Status, least.Status, cases.Status, verification.Status, enforcement.Status, governance.Status)
+	status, confidence := summarizeAWSExecutiveOutcomeViewStatus(filtered, awsExecutiveOutcomeSourceStatuses(request, sourceFixtureState, coverage, blast, least, cases, verification, enforcement, governance)...)
 	return AWSExecutiveOutcomeViewResult{
 		TenantID:           scope.TenantID,
 		WorkspaceID:        project.WorkspaceID,
@@ -554,6 +554,46 @@ func summarizeAWSExecutiveOutcomeView(
 		summary.AverageConfidencePct = int((confidenceTotal/float64(len(filtered)))*100 + 0.5)
 	}
 	return summary
+}
+
+func awsExecutiveOutcomeSourceStatuses(
+	request AWSExecutiveOutcomeViewRequest,
+	sourceFixtureState string,
+	coverage AWSAccountRegionCoverageResult,
+	blast AWSBlastRadiusResult,
+	least AWSLeastPrivilegeResult,
+	cases AWSRemediationCaseResult,
+	verification AWSPostRemediationVerificationResult,
+	enforcement AWSLimitedEnforcementResult,
+	governance AWSGovernanceAuditReportingResult,
+) []string {
+	accountRegionFilterActive := strings.TrimSpace(request.AccountID) != "" || strings.TrimSpace(request.Region) != ""
+	severitySourceFilterActive := accountRegionFilterActive || strings.TrimSpace(request.Severity) != ""
+	governanceFilterActive := accountRegionFilterActive || strings.TrimSpace(request.OU) != "" || strings.TrimSpace(request.Search) != ""
+
+	return []string{
+		coverage.Status,
+		awsExecutiveOutcomeFilteredEmptyStatus(blast.Status, len(blast.Findings), severitySourceFilterActive, sourceFixtureState, blast.FailureReasons, len(blast.Diagnostics)),
+		awsExecutiveOutcomeFilteredEmptyStatus(least.Status, len(least.Recommendations), severitySourceFilterActive, sourceFixtureState, least.FailureReasons, len(least.Diagnostics)),
+		awsExecutiveOutcomeFilteredEmptyStatus(cases.Status, len(cases.Cases), severitySourceFilterActive, sourceFixtureState, cases.FailureReasons, len(cases.Diagnostics)),
+		awsExecutiveOutcomeFilteredEmptyStatus(verification.Status, len(verification.Entries), severitySourceFilterActive, sourceFixtureState, verification.FailureReasons, len(verification.Diagnostics)),
+		awsExecutiveOutcomeFilteredEmptyStatus(enforcement.Status, len(enforcement.Entries), accountRegionFilterActive, sourceFixtureState, enforcement.FailureReasons, len(enforcement.Diagnostics)),
+		awsExecutiveOutcomeFilteredEmptyStatus(governance.Status, len(governance.Records), governanceFilterActive, sourceFixtureState, governance.FailureReasons, len(governance.Diagnostics)),
+	}
+}
+
+func awsExecutiveOutcomeFilteredEmptyStatus(status string, rowCount int, filterActive bool, sourceFixtureState string, failureReasons []string, diagnosticCount int) string {
+	if strings.ToLower(strings.TrimSpace(status)) != awsPlatformDependencyStatusDegraded {
+		return status
+	}
+	if rowCount != 0 || !filterActive || len(failureReasons) != 0 || diagnosticCount != 0 {
+		return status
+	}
+	fixtureState := strings.ToLower(strings.TrimSpace(sourceFixtureState))
+	if fixtureState != "" && fixtureState != "success" {
+		return status
+	}
+	return awsPlatformDependencyStatusReady
 }
 
 func summarizeAWSExecutiveOutcomeViewStatus(metrics []AWSExecutiveOutcomeMetric, statuses ...string) (string, float64) {
