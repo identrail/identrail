@@ -428,6 +428,17 @@ const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low
 const REPO_FINDING_TYPE_FILTERS = ['all', 'secret_exposure', 'repo_misconfiguration'] as const;
 const REPO_FINDING_SORT_FIELDS = ['severity', 'created_at', 'type', 'title'] as const;
 const REPO_FINDING_STATUS_FILTERS = ['all', 'open', 'ack', 'suppressed', 'resolved'] as const;
+type RepoFindingFilterSnapshot = {
+  repoScanFilter: string;
+  severityFilter: (typeof REPO_FINDING_SEVERITY_FILTERS)[number];
+  typeFilter: (typeof REPO_FINDING_TYPE_FILTERS)[number];
+  statusFilter: (typeof REPO_FINDING_STATUS_FILTERS)[number];
+  assigneeFilter: string;
+  sourceFilter: string;
+  minConfidenceFilter: string;
+  sortBy: (typeof REPO_FINDING_SORT_FIELDS)[number];
+  sortOrder: 'asc' | 'desc';
+};
 const ENVIRONMENT_QUERY_PARAM = 'environment';
 const OVERVIEW_FINDING_LIMIT = 50;
 const OVERVIEW_RISK_DISPLAY_LIMIT = 8;
@@ -1294,6 +1305,13 @@ function buildProductAuthContext(scope: ProductSession): RequestAuthContext {
   };
 }
 
+function productSessionKey(scope: ProductSession | null | undefined): string {
+  if (!scope) {
+    return '';
+  }
+  return `${scope.tenantID}:${scope.workspaceID}:${scope.projectID ?? ''}`;
+}
+
 function normalizeMemberID(value: string): string {
   const normalized = value
     .toLowerCase()
@@ -1667,6 +1685,37 @@ export async function deleteRepoFindingTargetsInBatches(
     }
   }
   return { response: mergeRepoFindingsBulkDeleteResponses(responses) };
+}
+
+function isUnsupportedDeleteEndpointError(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 404 || error.status === 405);
+}
+
+const UNSUPPORTED_REPO_FINDING_BULK_DELETE_MESSAGE =
+  'Clear all requires the bulk delete API. Delete findings individually or update the API.';
+
+async function deleteRepoFindingTargetsWithBulkEndpoint(
+  targets: RepoFindingDeleteTarget[],
+  auth: RequestAuthContext
+): Promise<RepoFindingBulkDeleteBatchResult> {
+  try {
+    return await deleteRepoFindingTargetsInBatches(targets, (batch) => apiClient.deleteRepoFindings(batch, auth));
+  } catch (error) {
+    if (!isUnsupportedDeleteEndpointError(error)) {
+      throw error;
+    }
+  }
+
+  return {
+    response: {
+      deleted: [],
+      failed: targets.map((target) => ({
+        ...target,
+        error: UNSUPPORTED_REPO_FINDING_BULK_DELETE_MESSAGE
+      }))
+    },
+    errorMessage: UNSUPPORTED_REPO_FINDING_BULK_DELETE_MESSAGE
+  };
 }
 
 function repoFindingDeleteTargetKey(target: RepoFindingDeleteTarget): string {
@@ -28328,6 +28377,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const location = useLocation();
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
+  const scopeKey = productSessionKey(scope);
   const { me } = useMe();
 
   const [loading, setLoading] = useState(true);
@@ -28352,10 +28402,22 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const [minConfidenceFilter, setMinConfidenceFilter] = useState('');
   const [sortBy, setSortBy] = useState<(typeof REPO_FINDING_SORT_FIELDS)[number]>('severity');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const repoFindingFilterSnapshot: RepoFindingFilterSnapshot = {
+    repoScanFilter,
+    severityFilter,
+    typeFilter,
+    statusFilter,
+    assigneeFilter,
+    sourceFilter,
+    minConfidenceFilter,
+    sortBy,
+    sortOrder
+  };
   const [filtersExpanded, setFiltersExpanded] = useState(true);
   const [dismissedFailedScanKeys, setDismissedFailedScanKeys] = useState<Set<string>>(() =>
     readDismissedRepoFailedScanKeys()
   );
+  const [removingFailedScanID, setRemovingFailedScanID] = useState('');
   const [hierarchyOpenState, setHierarchyOpenState] = useState<{
     repositories: Set<string>;
     scans: Set<string>;
@@ -28392,6 +28454,9 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const requestRef = useRef(0);
   const signalRequestRef = useRef(0);
   const findDeleteRequestRef = useRef(0);
+  const failedScanRemoveRequestRef = useRef(0);
+  const currentScopeKeyRef = useRef(scopeKey);
+  const repoFindingFilterRef = useRef<RepoFindingFilterSnapshot>(repoFindingFilterSnapshot);
   const remediationPreviewRequestRef = useRef(0);
   const remediationPublishRequestRef = useRef(0);
   const findingDetailCloseRef = useRef<HTMLButtonElement | null>(null);
@@ -28400,6 +28465,8 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const findingDeleteCloseRef = useRef<HTMLButtonElement | null>(null);
   const findingDeleteModalRef = useRef<HTMLElement | null>(null);
   const findingDeleteOpenerRef = useRef<HTMLElement | null>(null);
+  currentScopeKeyRef.current = scopeKey;
+  repoFindingFilterRef.current = repoFindingFilterSnapshot;
 
   const updateHierarchyOpenState = (
     level: 'repositories' | 'scans' | 'severities',
@@ -28644,6 +28711,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const mttrSeconds = repoFindingSummary?.mean_time_to_resolve_seconds;
   const mttrLabel = typeof mttrSeconds === 'number' && Number.isFinite(mttrSeconds) ? formatExecutiveDuration(mttrSeconds) : 'N/A';
   const canDeleteRepoFindings = hasRepoFindingDeleteAccess(me);
+  const canRemoveFailedRepoScans = canDeleteRepoFindings;
   const activeDeleteCandidates = bulkDeleteCandidates.length > 0
     ? bulkDeleteCandidates
     : deleteCandidate
@@ -28652,7 +28720,11 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const bulkDeleteActive = bulkDeleteCandidates.length > 0;
   const deleteActionsDisabled = deleteLoading || refreshing || signalsRefreshing;
 
-  const loadRepoFindings = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
+  const loadRepoFindings = async (
+    targetScope: ProductSession,
+    mode: 'initial' | 'refresh',
+    overrides?: Partial<RepoFindingFilterSnapshot>
+  ) => {
     const requestID = ++requestRef.current;
     if (mode === 'initial') {
       setLoading(true);
@@ -28662,17 +28734,18 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     setError('');
     try {
       const auth = buildProductAuthContext(targetScope);
-      const sourceFilterValue = normalizeValue(sourceFilter).toLowerCase();
-      const normalizedMinConfidence = Number.parseFloat(normalizeValue(minConfidenceFilter));
+      const filters = { ...repoFindingFilterRef.current, ...overrides };
+      const sourceFilterValue = normalizeValue(filters.sourceFilter).toLowerCase();
+      const normalizedMinConfidence = Number.parseFloat(normalizeValue(filters.minConfidenceFilter));
       const repoFindingRequest = {
-        repo_scan_id: normalizeValue(repoScanFilter) || undefined,
-        severity: severityFilter !== 'all' ? severityFilter : undefined,
-        type: typeFilter !== 'all' ? typeFilter : undefined,
+        repo_scan_id: normalizeValue(filters.repoScanFilter) || undefined,
+        severity: filters.severityFilter !== 'all' ? filters.severityFilter : undefined,
+        type: filters.typeFilter !== 'all' ? filters.typeFilter : undefined,
         source: sourceFilterValue || undefined,
-        assignee: normalizeValue(assigneeFilter) || undefined,
+        assignee: normalizeValue(filters.assigneeFilter) || undefined,
         min_confidence: Number.isFinite(normalizedMinConfidence) ? normalizedMinConfidence : undefined,
-        sort_by: sortBy,
-        sort_order: sortOrder
+        sort_by: filters.sortBy,
+        sort_order: filters.sortOrder
       };
 
       const [repoScanResponse, repoFindingResponse] = await Promise.all([
@@ -28683,7 +28756,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
               {
                 ...repoFindingRequest,
                 limit: 100,
-                lifecycle_status: statusFilter !== 'all' ? statusFilter : undefined
+                lifecycle_status: filters.statusFilter !== 'all' ? filters.statusFilter : undefined
               },
               auth
             )
@@ -28718,7 +28791,11 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     }
   };
 
-  const loadTrendSignals = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
+  const loadTrendSignals = async (
+    targetScope: ProductSession,
+    mode: 'initial' | 'refresh',
+    overrides?: Partial<RepoFindingFilterSnapshot>
+  ) => {
     const requestID = ++signalRequestRef.current;
     if (mode === 'initial') {
       setSignalsLoading(true);
@@ -28730,10 +28807,11 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     setRiskGraphError('');
     try {
       const auth = buildProductAuthContext(targetScope);
-      const severity = severityFilter !== 'all' ? severityFilter : undefined;
-      const type = typeFilter !== 'all' ? typeFilter : undefined;
-      const repoScanID = normalizeValue(repoScanFilter) || undefined;
-      const normalizedMinConfidence = Number.parseFloat(normalizeValue(minConfidenceFilter));
+      const filters = { ...repoFindingFilterRef.current, ...overrides };
+      const severity = filters.severityFilter !== 'all' ? filters.severityFilter : undefined;
+      const type = filters.typeFilter !== 'all' ? filters.typeFilter : undefined;
+      const repoScanID = normalizeValue(filters.repoScanFilter) || undefined;
+      const normalizedMinConfidence = Number.parseFloat(normalizeValue(filters.minConfidenceFilter));
       const minConfidence = Number.isFinite(normalizedMinConfidence) ? normalizedMinConfidence : undefined;
       const [trendResult, riskGraphResult] = await Promise.allSettled([
         apiClient.getRepoFindingsTrends(
@@ -28880,9 +28958,9 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       let failedCandidates: ApiFinding[] = [];
       let failureMessage = 'Failed to delete finding.';
       if (bulkDeleteActive) {
-        const { response, errorMessage } = await deleteRepoFindingTargetsInBatches(
+        const { response, errorMessage } = await deleteRepoFindingTargetsWithBulkEndpoint(
           candidates.map(repoFindingDeleteTargetFromFinding),
-          (batch) => apiClient.deleteRepoFindings(batch, auth)
+          auth
         );
         const deletedKeys = new Set(response.deleted.map(repoFindingDeleteTargetKey));
         const failedKeys = new Set((response.failed ?? []).map(repoFindingDeleteTargetKey));
@@ -29082,6 +29160,11 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   };
 
   useEffect(() => {
+    failedScanRemoveRequestRef.current += 1;
+    setRemovingFailedScanID('');
+  }, [scopeKey]);
+
+  useEffect(() => {
     if (!scope) {
       setLoading(false);
       setError('Workspace route context is missing.');
@@ -29227,7 +29310,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     void loadTrendSignals(scope, 'refresh');
   };
 
-  const dismissFailedRepoScan = (scan: RepoScanRecord | null) => {
+  const hideFailedRepoScan = (scan: RepoScanRecord | null) => {
     if (!scan) {
       return;
     }
@@ -29237,6 +29320,57 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       writeDismissedRepoFailedScanKeys(next);
       return next;
     });
+  };
+
+  const removeFailedRepoScan = async (scan: RepoScanRecord | null) => {
+    if (!scope || !scan || removingFailedScanID) {
+      return;
+    }
+    const targetScope = scope;
+    const targetScopeKey = productSessionKey(targetScope);
+    const requestID = ++failedScanRemoveRequestRef.current;
+    const isActiveRequest = () =>
+      failedScanRemoveRequestRef.current === requestID && currentScopeKeyRef.current === targetScopeKey;
+    const auth = buildProductAuthContext(targetScope);
+    setRemovingFailedScanID(scan.id);
+    setError('');
+    try {
+      await apiClient.deleteRepoScan(scan.id, auth);
+      if (!isActiveRequest()) {
+        return;
+      }
+      setRepoScans((current) => current.filter((item) => item.id !== scan.id));
+      setDismissedFailedScanKeys((current) => {
+        const next = new Set(current);
+        next.add(failedRepoScanDismissalKey(targetScope, scan.id));
+        writeDismissedRepoFailedScanKeys(next);
+        return next;
+      });
+      const refreshOverrides: RepoFindingFilterSnapshot = { ...repoFindingFilterRef.current };
+      if (normalizeValue(refreshOverrides.repoScanFilter) === scan.id) {
+        refreshOverrides.repoScanFilter = '';
+        repoFindingFilterRef.current = { ...repoFindingFilterRef.current, repoScanFilter: '' };
+        setRepoScanFilter('');
+      }
+      await loadRepoFindings(targetScope, 'refresh', refreshOverrides);
+      if (!isActiveRequest()) {
+        return;
+      }
+      await loadTrendSignals(targetScope, 'refresh', repoFindingFilterRef.current);
+    } catch (requestError) {
+      if (!isActiveRequest()) {
+        return;
+      }
+      if (isUnsupportedDeleteEndpointError(requestError)) {
+        hideFailedRepoScan(scan);
+        return;
+      }
+      setError(formatAPIError(requestError, 'Failed to remove failed scan.'));
+    } finally {
+      if (isActiveRequest()) {
+        setRemovingFailedScanID('');
+      }
+    }
   };
 
   const connectPath = buildScopedPath(scope, 'github/connect');
@@ -29352,13 +29486,24 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
               <Link className="idt-app-empty-state-action" to={connectPath}>
                 Review &amp; re-run scan
               </Link>
-              <button
-                className="idt-btn idt-btn-ghost"
-                type="button"
-                onClick={() => dismissFailedRepoScan(latestFailedScan)}
-              >
-                Remove
-              </button>
+              {canRemoveFailedRepoScans ? (
+                <button
+                  className="idt-btn idt-btn-ghost"
+                  type="button"
+                  onClick={() => void removeFailedRepoScan(latestFailedScan)}
+                  disabled={Boolean(removingFailedScanID)}
+                >
+                  {removingFailedScanID === latestFailedScan?.id ? 'Removing...' : 'Remove'}
+                </button>
+              ) : (
+                <button
+                  className="idt-btn idt-btn-ghost"
+                  type="button"
+                  onClick={() => hideFailedRepoScan(latestFailedScan)}
+                >
+                  Dismiss
+                </button>
+              )}
               <button
                 className="idt-btn idt-btn-ghost"
                 type="button"
@@ -29447,13 +29592,24 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         <div className="idt-app-alert idt-app-alert-error idt-repo-scan-health">
           <span>Last scan failed: {describeScanFailure(latestFailedScan)}</span>
           <span className="idt-repo-scan-health-actions-inline">
-            <button
-              className="idt-repo-scan-health-remove"
-              type="button"
-              onClick={() => dismissFailedRepoScan(latestFailedScan)}
-            >
-              Remove
-            </button>
+            {canRemoveFailedRepoScans ? (
+              <button
+                className="idt-repo-scan-health-remove"
+                type="button"
+                onClick={() => void removeFailedRepoScan(latestFailedScan)}
+                disabled={Boolean(removingFailedScanID)}
+              >
+                {removingFailedScanID === latestFailedScan?.id ? 'Removing...' : 'Remove'}
+              </button>
+            ) : (
+              <button
+                className="idt-repo-scan-health-remove"
+                type="button"
+                onClick={() => hideFailedRepoScan(latestFailedScan)}
+              >
+                Dismiss
+              </button>
+            )}
             <Link to={connectPath}>Review &amp; re-run</Link>
           </span>
         </div>

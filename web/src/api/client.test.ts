@@ -301,6 +301,23 @@ describe('apiClient', () => {
     expect(headers.get('X-Identrail-Workspace-ID')).toBe('workspace-a');
   });
 
+  it('deletes failed repository scans with the scoped auth headers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({})
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.deleteRepoScan('repo/scan with space', { tenantID: 'tenant-a', workspaceID: 'workspace-a' });
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/repo-scans/repo%2Fscan%20with%20space');
+    expect(options.method).toBe('DELETE');
+    const headers = options.headers as Headers;
+    expect(headers.get('X-Identrail-Tenant-ID')).toBe('tenant-a');
+    expect(headers.get('X-Identrail-Workspace-ID')).toBe('workspace-a');
+  });
+
   it('encodes scan id for diff URL', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

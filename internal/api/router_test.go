@@ -1189,6 +1189,116 @@ func TestRouterBulkDeleteRepoFindings(t *testing.T) {
 	})
 }
 
+func TestRouterBulkDeleteRepoFindingsRemovesLifecycleGroup(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 13, 11, 10, 0, 0, time.UTC)
+	oldScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("create old repo scan: %v", err)
+	}
+	latestScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create latest repo scan: %v", err)
+	}
+	oldFinding := domain.Finding{
+		ID:           "repo-bulk-lifecycle-old",
+		Type:         domain.FindingRepoMisconfig,
+		Severity:     domain.SeverityHigh,
+		Title:        "workflow write all",
+		HumanSummary: "Workflow uses write-all.",
+		Repository:   "owner/repo",
+		LifecycleKey: "repo-finding:workflow-write-all",
+		CreatedAt:    now.Add(-time.Hour),
+	}
+	latestFinding := oldFinding
+	latestFinding.ID = "repo-bulk-lifecycle-latest"
+	latestFinding.CreatedAt = now
+	if err := store.UpsertRepoFindings(defaultScopeContext(), oldScan.ID, []domain.Finding{oldFinding}); err != nil {
+		t.Fatalf("upsert old repo finding: %v", err)
+	}
+	if err := store.UpsertRepoFindings(defaultScopeContext(), latestScan.ID, []domain.Finding{latestFinding}); err != nil {
+		t.Fatalf("upsert latest repo finding: %v", err)
+	}
+	if err := store.CompleteRepoScan(defaultScopeContext(), oldScan.ID, "completed", now.Add(-59*time.Minute), 1, 1, 1, false, db.RepoScanContext{}, ""); err != nil {
+		t.Fatalf("complete old repo scan: %v", err)
+	}
+	if err := store.CompleteRepoScan(defaultScopeContext(), latestScan.ID, "completed", now.Add(time.Minute), 1, 1, 1, false, db.RepoScanContext{}, ""); err != nil {
+		t.Fatalf("complete latest repo scan: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+	payload, err := json.Marshal(RepoFindingsBulkDeleteRequest{
+		Items: []RepoFindingDeleteTarget{{FindingID: latestFinding.ID, RepoScanID: latestScan.ID}},
+	})
+	if err != nil {
+		t.Fatalf("marshal bulk delete request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-findings/bulk-delete", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected bulk delete repo findings 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var body RepoFindingsBulkDeleteResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode bulk delete response: %v", err)
+	}
+	if len(body.Deleted) != 1 || body.Deleted[0].FindingID != latestFinding.ID {
+		t.Fatalf("expected latest target to be reported deleted, got %+v", body)
+	}
+	remaining, err := svc.ListRepoFindings(defaultScopeContext(), 10, db.RepoFindingFilter{})
+	if err != nil {
+		t.Fatalf("list repo findings: %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("expected lifecycle group to be removed, got %+v", remaining)
+	}
+}
+
+func TestRouterDeleteFailedRepoScan(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 5, 13, 11, 10, 0, 0, time.UTC)
+	failedScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now)
+	if err != nil {
+		t.Fatalf("create failed repo scan: %v", err)
+	}
+	if err := store.CompleteRepoScan(defaultScopeContext(), failedScan.ID, "failed", now.Add(time.Minute), 0, 0, 0, false, db.RepoScanContext{}, "repository not found"); err != nil {
+		t.Fatalf("complete failed repo scan: %v", err)
+	}
+	succeededScan, err := store.CreateRepoScan(defaultScopeContext(), "owner/repo", db.RepoScanSource{}, db.RepoScanContext{}, now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("create succeeded repo scan: %v", err)
+	}
+	if err := store.CompleteRepoScan(defaultScopeContext(), succeededScan.ID, "completed", now.Add(time.Hour+time.Minute), 0, 0, 0, false, db.RepoScanContext{}, ""); err != nil {
+		t.Fatalf("complete succeeded repo scan: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/repo-scans/"+failedScan.ID, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected failed repo scan delete 204, got %d body=%s", w.Code, w.Body.String())
+	}
+	if _, err := svc.GetRepoScan(defaultScopeContext(), failedScan.ID); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("expected failed repo scan to be removed, got %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/v1/repo-scans/"+succeededScan.ID, nil)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected succeeded repo scan delete conflict, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestRouterRepoFindingRemediationPublish(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
