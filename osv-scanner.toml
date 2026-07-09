@@ -1,0 +1,3 @@
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+reason = "Identrail does not import golang.org/x/crypto/openpgp; x/crypto is retained for crewjam/saml XML encryption RIPEMD-160 support, verified with go list -deps ./..."

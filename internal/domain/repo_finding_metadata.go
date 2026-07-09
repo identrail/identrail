@@ -3,6 +3,7 @@ package domain
 import (
 	"encoding/json"
 	"maps"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -58,7 +59,7 @@ func NormalizeRepoFindingMetadata(finding *Finding) {
 		}
 	}
 	if finding.LineNumber == 0 {
-		finding.LineNumber = intFromAny(finding.Evidence["line_number"])
+		finding.LineNumber = EvidenceLineNumberFromAny(finding.Evidence["line_number"])
 	}
 	if finding.Detector == "" {
 		finding.Detector = stringFromAny(finding.Evidence["detector"])
@@ -292,7 +293,7 @@ func RepoFindingLifecycleKey(finding Finding) string {
 	}
 	lineNumber := finding.LineNumber
 	if lineNumber == 0 {
-		lineNumber = intFromAny(finding.Evidence["line_number"])
+		lineNumber = EvidenceLineNumberFromAny(finding.Evidence["line_number"])
 	}
 	if filePath != "" || lineNumber > 0 || detector != "" {
 		parts = append(parts, filePath, strconv.Itoa(lineNumber), strings.ToLower(strings.TrimSpace(finding.Title)))
@@ -336,25 +337,47 @@ func stringFromAny(value any) string {
 	}
 }
 
-func intFromAny(value any) int {
+// EvidenceLineNumberFromAny coerces untrusted scanner line-number evidence into
+// a portable int. Invalid, negative, fractional, or oversized values normalize
+// to zero, matching the repo finding "unknown line" convention.
+func EvidenceLineNumberFromAny(value any) int {
 	switch typed := value.(type) {
 	case int:
-		return typed
+		return boundedEvidenceLineNumber(int64(typed))
 	case int32:
-		return int(typed)
+		return boundedEvidenceLineNumber(int64(typed))
 	case int64:
-		return int(typed)
+		return boundedEvidenceLineNumber(typed)
 	case float64:
-		return int(typed)
+		return boundedEvidenceLineNumberFloat(typed)
 	case json.Number:
-		number, err := typed.Int64()
+		number, err := strconv.ParseInt(typed.String(), 10, 32)
 		if err == nil {
-			return int(number)
+			return boundedEvidenceLineNumber(number)
+		}
+	case string:
+		number, err := strconv.ParseInt(strings.TrimSpace(typed), 10, 32)
+		if err == nil {
+			return boundedEvidenceLineNumber(number)
 		}
 	default:
 		return 0
 	}
 	return 0
+}
+
+func boundedEvidenceLineNumber(value int64) int {
+	if value < 0 || value > math.MaxInt32 {
+		return 0
+	}
+	return int(value)
+}
+
+func boundedEvidenceLineNumberFloat(value float64) int {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > math.MaxInt32 || math.Trunc(value) != value {
+		return 0
+	}
+	return int(value)
 }
 
 func floatFromAny(value any) (float64, bool) {

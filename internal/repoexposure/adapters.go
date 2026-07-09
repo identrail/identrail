@@ -2,7 +2,6 @@ package repoexposure
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -219,22 +218,11 @@ func evidenceInt(evidence map[string]any, key string) int {
 	if evidence == nil {
 		return 0
 	}
-	switch value := evidence[key].(type) {
-	case int:
-		return value
-	case int64:
-		return int(value)
-	case float64:
-		return int(value)
-	case json.Number:
-		parsed, _ := strconv.Atoi(value.String())
-		return parsed
-	case string:
-		parsed, _ := strconv.Atoi(strings.TrimSpace(value))
-		return parsed
-	default:
+	value, ok := evidence[key]
+	if !ok || value == nil {
 		return 0
 	}
+	return domain.EvidenceLineNumberFromAny(value)
 }
 
 func compactFindingText(value string) string {

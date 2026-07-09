@@ -2,6 +2,7 @@ package repoexposure
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -185,6 +186,19 @@ func TestGitHubCodeScanningAlertsNormalizeToRepoFindings(t *testing.T) {
 	}
 	if got := finding.Evidence["adapter_rule_id"]; got != "js/sql-injection" {
 		t.Fatalf("expected rule id evidence, got %v", got)
+	}
+}
+
+func TestNormalizeExternalFindingRejectsUnsafeEvidenceLineNumbers(t *testing.T) {
+	finding := normalizeExternalFinding(domain.Finding{
+		Type: domain.FindingRepoMisconfig,
+		Evidence: map[string]any{
+			"line_number": float64(math.MaxInt32) + 1,
+		},
+	})
+
+	if finding.LineNumber != 0 {
+		t.Fatalf("expected unsafe evidence line number to normalize to 0, got %d", finding.LineNumber)
 	}
 }
 
