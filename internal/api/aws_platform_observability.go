@@ -190,9 +190,9 @@ func (s *Service) GetAWSPlatformObservability(ctx context.Context, workspaceID s
 	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID))
 	sourceAccountID := awsExecutiveOutcomeSourceScopeFilter(request.AccountID)
 	sourceRegion := awsExecutiveOutcomeSourceScopeFilter(request.Region)
-	sourceService := awsExecutiveOutcomeSourceScopeFilter(request.Service)
-	accountID := awsExecutiveOutcomeScopeValue(request.AccountID, connection.AccountID, "123456789012")
-	region := awsExecutiveOutcomeScopeValue(request.Region, connection.Region, "us-east-1")
+	sourceService := awsPlatformObservabilitySourceServiceFilter(request.Service)
+	accountID := awsPlatformObservabilityRequestedScopeValue(request.AccountID)
+	region := awsPlatformObservabilityRequestedScopeValue(request.Region)
 
 	coverage, err := s.GetAWSAccountRegionCoverage(ctx, workspaceID, projectID, AWSAccountRegionCoverageRequest{
 		ConnectorID:  connectorID,
@@ -1008,8 +1008,28 @@ func awsPlatformObservabilityFanOutSummaryStatus(summary AWSFanOutExecutionSumma
 func awsPlatformObservabilityHasSourceScopeFilter(request AWSPlatformObservabilityRequest) bool {
 	service := awsPlatformObservabilityServiceToken(request.Service)
 	return (service != "" && service != "all") ||
-		strings.TrimSpace(request.AccountID) != "" ||
-		strings.TrimSpace(request.Region) != ""
+		awsPlatformObservabilityRequestedScopeValue(request.AccountID) != "" ||
+		awsPlatformObservabilityRequestedScopeValue(request.Region) != ""
+}
+
+func awsPlatformObservabilityRequestedScopeValue(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.EqualFold(value, "all") {
+		return ""
+	}
+	return value
+}
+
+func awsPlatformObservabilitySourceServiceFilter(value string) string {
+	value = awsExecutiveOutcomeSourceScopeFilter(value)
+	if value == "" {
+		return ""
+	}
+	service := awsPlatformObservabilityServiceToken(value)
+	if service == "all" {
+		return ""
+	}
+	return service
 }
 
 func awsPlatformObservabilityServiceToken(value string) string {

@@ -64,6 +64,70 @@ func TestGetAWSPlatformObservabilityBuildsContract(t *testing.T) {
 	}
 }
 
+func TestGetAWSPlatformObservabilityLeavesUnfilteredScopeUnlabeled(t *testing.T) {
+	now := time.Date(2026, 7, 9, 15, 0, 30, 0, time.UTC)
+	svc, ws := newPlatformObservabilityService(t, "project-platform-observability-unfiltered-scope", now)
+
+	result, err := svc.GetAWSPlatformObservability(defaultScopeContext(), ws, "project-platform-observability-unfiltered-scope", AWSPlatformObservabilityRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+	})
+	if err != nil {
+		t.Fatalf("get unfiltered platform observability: %v", err)
+	}
+	if result.AccountID != "" || result.Region != "" {
+		t.Fatalf("expected unfiltered platform scope to remain empty, got account=%q region=%q", result.AccountID, result.Region)
+	}
+	for _, metric := range result.Metrics {
+		if metric.AccountID != "" || metric.Region != "" {
+			t.Fatalf("expected aggregate platform metric scope to remain empty, got %+v", metric)
+		}
+	}
+	if result.Summary.AccountCounts["123456789012"] == 0 || result.Summary.RegionCounts["us-east-1"] == 0 {
+		t.Fatalf("expected source traces to preserve real account/region counts, got %+v", result.Summary)
+	}
+}
+
+func TestGetAWSPlatformObservabilityNormalizesServiceBeforeSourcePushdown(t *testing.T) {
+	now := time.Date(2026, 7, 9, 15, 0, 45, 0, time.UTC)
+	svc, ws := newPlatformObservabilityService(t, "project-platform-observability-service-pushdown", now)
+
+	result, err := svc.GetAWSPlatformObservability(defaultScopeContext(), ws, "project-platform-observability-service-pushdown", AWSPlatformObservabilityRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Service:      "secrets-manager.amazonaws.com",
+	})
+	if err != nil {
+		t.Fatalf("get service-filtered platform observability: %v", err)
+	}
+	if result.AppliedFilters["service"] != "secrets-manager.amazonaws.com" {
+		t.Fatalf("expected original service filter to remain visible, got %+v", result.AppliedFilters)
+	}
+	collectorTrace := false
+	for _, trace := range result.Traces {
+		if trace.Component != "collector" {
+			continue
+		}
+		collectorTrace = true
+		if trace.Service != "secretsmanager" {
+			t.Fatalf("expected collector trace to use canonical service token, got %+v", trace)
+		}
+	}
+	if !collectorTrace {
+		t.Fatalf("expected normalized service pushdown to keep collector traces, got %+v", result.Traces)
+	}
+	for _, metric := range result.Metrics {
+		if metric.Component == "collector" || metric.Component == "queue" {
+			if metric.Service != "secretsmanager" {
+				t.Fatalf("expected source-scoped metric to use canonical service token, got %+v", metric)
+			}
+			if metric.AccountID != "" || metric.Region != "" {
+				t.Fatalf("expected service-only metrics to avoid connector account/region labels, got %+v", metric)
+			}
+		}
+	}
+}
+
 func TestAWSPlatformObservabilityMetricsUseLagAndScopedServiceLabels(t *testing.T) {
 	now := time.Date(2026, 7, 9, 15, 2, 0, 0, time.UTC)
 	sources := awsPlatformObservabilitySources{
