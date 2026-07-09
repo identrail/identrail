@@ -28123,7 +28123,11 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const bulkDeleteActive = bulkDeleteCandidates.length > 0;
   const deleteActionsDisabled = deleteLoading || refreshing || signalsRefreshing;
 
-  const loadRepoFindings = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
+  const loadRepoFindings = async (
+    targetScope: ProductSession,
+    mode: 'initial' | 'refresh',
+    overrides?: { repoScanFilter?: string }
+  ) => {
     const requestID = ++requestRef.current;
     if (mode === 'initial') {
       setLoading(true);
@@ -28135,8 +28139,9 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       const auth = buildProductAuthContext(targetScope);
       const sourceFilterValue = normalizeValue(sourceFilter).toLowerCase();
       const normalizedMinConfidence = Number.parseFloat(normalizeValue(minConfidenceFilter));
+      const selectedRepoScanFilter = overrides?.repoScanFilter ?? repoScanFilter;
       const repoFindingRequest = {
-        repo_scan_id: normalizeValue(repoScanFilter) || undefined,
+        repo_scan_id: normalizeValue(selectedRepoScanFilter) || undefined,
         severity: severityFilter !== 'all' ? severityFilter : undefined,
         type: typeFilter !== 'all' ? typeFilter : undefined,
         source: sourceFilterValue || undefined,
@@ -28189,7 +28194,11 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     }
   };
 
-  const loadTrendSignals = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
+  const loadTrendSignals = async (
+    targetScope: ProductSession,
+    mode: 'initial' | 'refresh',
+    overrides?: { repoScanFilter?: string }
+  ) => {
     const requestID = ++signalRequestRef.current;
     if (mode === 'initial') {
       setSignalsLoading(true);
@@ -28203,7 +28212,8 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       const auth = buildProductAuthContext(targetScope);
       const severity = severityFilter !== 'all' ? severityFilter : undefined;
       const type = typeFilter !== 'all' ? typeFilter : undefined;
-      const repoScanID = normalizeValue(repoScanFilter) || undefined;
+      const selectedRepoScanFilter = overrides?.repoScanFilter ?? repoScanFilter;
+      const repoScanID = normalizeValue(selectedRepoScanFilter) || undefined;
       const normalizedMinConfidence = Number.parseFloat(normalizeValue(minConfidenceFilter));
       const minConfidence = Number.isFinite(normalizedMinConfidence) ? normalizedMinConfidence : undefined;
       const [trendResult, riskGraphResult] = await Promise.allSettled([
@@ -28739,11 +28749,15 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         writeDismissedRepoFailedScanKeys(next);
         return next;
       });
-      await loadRepoFindings(targetScope, 'refresh');
+      const refreshOverrides = normalizeValue(repoScanFilter) === scan.id ? { repoScanFilter: '' } : undefined;
+      if (refreshOverrides) {
+        setRepoScanFilter('');
+      }
+      await loadRepoFindings(targetScope, 'refresh', refreshOverrides);
       if (!isActiveRequest()) {
         return;
       }
-      await loadTrendSignals(targetScope, 'refresh');
+      await loadTrendSignals(targetScope, 'refresh', refreshOverrides);
     } catch (requestError) {
       if (!isActiveRequest()) {
         return;
