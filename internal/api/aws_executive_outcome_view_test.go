@@ -153,6 +153,40 @@ func TestAWSExecutiveOutcomeViewKeepsRequestedScopeMetricsVisible(t *testing.T) 
 	}
 }
 
+func TestAWSExecutiveOutcomeViewTreatsAllAccountRegionAsUnscoped(t *testing.T) {
+	now := time.Date(2026, 7, 9, 12, 40, 0, 0, time.UTC)
+	svc, ws := newExecutiveOutcomeViewService(t, "project-executive-outcomes-all-scope", now)
+
+	unscoped, err := svc.GetAWSExecutiveOutcomeView(defaultScopeContext(), ws, "project-executive-outcomes-all-scope", AWSExecutiveOutcomeViewRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+	})
+	if err != nil {
+		t.Fatalf("get unscoped executive outcome view: %v", err)
+	}
+	allScoped, err := svc.GetAWSExecutiveOutcomeView(defaultScopeContext(), ws, "project-executive-outcomes-all-scope", AWSExecutiveOutcomeViewRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		AccountID:    "all",
+		Region:       "all",
+	})
+	if err != nil {
+		t.Fatalf("get all-scoped executive outcome view: %v", err)
+	}
+	if _, ok := allScoped.AppliedFilters["account_id"]; ok {
+		t.Fatalf("expected account_id=all to stay unapplied, got %+v", allScoped.AppliedFilters)
+	}
+	if _, ok := allScoped.AppliedFilters["region"]; ok {
+		t.Fatalf("expected region=all to stay unapplied, got %+v", allScoped.AppliedFilters)
+	}
+	if allScoped.Summary.ScanCoveragePct == 0 || allScoped.Summary.ScanCoveragePct != unscoped.Summary.ScanCoveragePct {
+		t.Fatalf("expected account/region all to preserve unscoped coverage, unscoped=%+v all=%+v", unscoped.Summary, allScoped.Summary)
+	}
+	if allScoped.Summary.TotalMetrics != unscoped.Summary.TotalMetrics || len(allScoped.Metrics) != len(unscoped.Metrics) {
+		t.Fatalf("expected account/region all to preserve unscoped metrics, unscoped=%+v all=%+v", unscoped.Summary, allScoped.Summary)
+	}
+}
+
 func TestAWSExecutiveOutcomeViewSummaryHighestScoreUsesCoveragePercent(t *testing.T) {
 	summary := summarizeAWSExecutiveOutcomeView(nil, nil,
 		AWSAccountRegionCoverageResult{

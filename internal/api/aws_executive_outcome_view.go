@@ -146,6 +146,8 @@ func (s *Service) GetAWSExecutiveOutcomeView(ctx context.Context, workspaceID st
 	accountID := awsExecutiveOutcomeScopeValue(request.AccountID, connection.AccountID, "123456789012")
 	region := awsExecutiveOutcomeScopeValue(request.Region, connection.Region, "us-east-1")
 	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID))
+	sourceAccountID := awsExecutiveOutcomeSourceScopeFilter(request.AccountID)
+	sourceRegion := awsExecutiveOutcomeSourceScopeFilter(request.Region)
 	sourceFixtureState := fixtureState
 	if strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected {
 		sourceFixtureState = ""
@@ -154,8 +156,8 @@ func (s *Service) GetAWSExecutiveOutcomeView(ctx context.Context, workspaceID st
 	coverage, err := s.GetAWSAccountRegionCoverage(ctx, workspaceID, projectID, AWSAccountRegionCoverageRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
-		Account:      request.AccountID,
-		Region:       request.Region,
+		Account:      sourceAccountID,
+		Region:       sourceRegion,
 	})
 	if err != nil {
 		return AWSExecutiveOutcomeViewResult{}, err
@@ -163,8 +165,8 @@ func (s *Service) GetAWSExecutiveOutcomeView(ctx context.Context, workspaceID st
 	blast, err := s.GetAWSBlastRadius(ctx, workspaceID, projectID, AWSBlastRadiusRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
+		AccountID:    sourceAccountID,
+		Region:       sourceRegion,
 		Severity:     request.Severity,
 	})
 	if err != nil {
@@ -173,8 +175,8 @@ func (s *Service) GetAWSExecutiveOutcomeView(ctx context.Context, workspaceID st
 	least, err := s.GetAWSLeastPrivilegeRecommendations(ctx, workspaceID, projectID, AWSLeastPrivilegeRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
+		AccountID:    sourceAccountID,
+		Region:       sourceRegion,
 		Severity:     request.Severity,
 	})
 	if err != nil {
@@ -183,8 +185,8 @@ func (s *Service) GetAWSExecutiveOutcomeView(ctx context.Context, workspaceID st
 	cases, err := s.GetAWSRemediationCases(ctx, workspaceID, projectID, AWSRemediationCaseRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
+		AccountID:    sourceAccountID,
+		Region:       sourceRegion,
 		Severity:     request.Severity,
 	})
 	if err != nil {
@@ -193,8 +195,8 @@ func (s *Service) GetAWSExecutiveOutcomeView(ctx context.Context, workspaceID st
 	verification, err := s.GetAWSPostRemediationVerification(ctx, workspaceID, projectID, AWSPostRemediationVerificationRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
+		AccountID:    sourceAccountID,
+		Region:       sourceRegion,
 		Severity:     request.Severity,
 	})
 	if err != nil {
@@ -203,8 +205,8 @@ func (s *Service) GetAWSExecutiveOutcomeView(ctx context.Context, workspaceID st
 	enforcement, err := s.GetAWSLimitedEnforcement(ctx, workspaceID, projectID, AWSLimitedEnforcementRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
+		AccountID:    sourceAccountID,
+		Region:       sourceRegion,
 	})
 	if err != nil {
 		return AWSExecutiveOutcomeViewResult{}, err
@@ -213,8 +215,8 @@ func (s *Service) GetAWSExecutiveOutcomeView(ctx context.Context, workspaceID st
 	governance, err := s.GetAWSGovernanceAuditReporting(ctx, workspaceID, projectID, AWSGovernanceAuditReportingRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
-		AccountID:    request.AccountID,
-		Region:       request.Region,
+		AccountID:    sourceAccountID,
+		Region:       sourceRegion,
 		OU:           request.OU,
 		Search:       request.Search,
 	})
@@ -437,6 +439,14 @@ func awsExecutiveOutcomeScopeValue(requestValue string, connectionValue string, 
 	return firstNonEmptyAWSValue(connectionValue, fallback)
 }
 
+func awsExecutiveOutcomeSourceScopeFilter(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.EqualFold(value, "all") {
+		return ""
+	}
+	return value
+}
+
 func awsExecutiveOutcomeFilterLimitedEnforcementRows(result AWSLimitedEnforcementResult, request AWSExecutiveOutcomeViewRequest) AWSLimitedEnforcementResult {
 	severity := normalizeAWSRuntimeEventFilterToken(request.Severity)
 	if severity == "" || severity == "all" {
@@ -614,7 +624,7 @@ func awsExecutiveOutcomeSourceStatuses(
 	enforcement AWSLimitedEnforcementResult,
 	governance AWSGovernanceAuditReportingResult,
 ) []string {
-	accountRegionFilterActive := strings.TrimSpace(request.AccountID) != "" || strings.TrimSpace(request.Region) != ""
+	accountRegionFilterActive := awsExecutiveOutcomeSourceScopeFilter(request.AccountID) != "" || awsExecutiveOutcomeSourceScopeFilter(request.Region) != ""
 	severitySourceFilterActive := accountRegionFilterActive || strings.TrimSpace(request.Severity) != ""
 	governanceFilterActive := accountRegionFilterActive || strings.TrimSpace(request.OU) != "" || strings.TrimSpace(request.Search) != ""
 
