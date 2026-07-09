@@ -1680,7 +1680,10 @@ function isUnsupportedDeleteEndpointError(error: unknown): boolean {
   return error instanceof ApiError && (error.status === 404 || error.status === 405);
 }
 
-async function deleteRepoFindingTargetsWithCompatibilityFallback(
+const UNSUPPORTED_REPO_FINDING_BULK_DELETE_MESSAGE =
+  'Clear all requires the bulk delete API. Delete findings individually or update the API.';
+
+async function deleteRepoFindingTargetsWithBulkEndpoint(
   targets: RepoFindingDeleteTarget[],
   auth: RequestAuthContext
 ): Promise<RepoFindingBulkDeleteBatchResult> {
@@ -1692,22 +1695,15 @@ async function deleteRepoFindingTargetsWithCompatibilityFallback(
     }
   }
 
-  const failed: NonNullable<RepoFindingsBulkDeleteResponse['failed']> = [];
-  const response: RepoFindingsBulkDeleteResponse = { deleted: [], failed };
-  for (const target of targets) {
-    try {
-      await apiClient.deleteRepoFinding(target.finding_id, target.repo_scan_id, auth);
-      response.deleted.push(target);
-    } catch (fallbackError) {
-      failed.push({
-        ...target,
-        error: formatAPIError(fallbackError, 'Failed to delete finding.')
-      });
-    }
-  }
   return {
-    response,
-    errorMessage: failed[0]?.error
+    response: {
+      deleted: [],
+      failed: targets.map((target) => ({
+        ...target,
+        error: UNSUPPORTED_REPO_FINDING_BULK_DELETE_MESSAGE
+      }))
+    },
+    errorMessage: UNSUPPORTED_REPO_FINDING_BULK_DELETE_MESSAGE
   };
 }
 
@@ -28361,7 +28357,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       let failedCandidates: ApiFinding[] = [];
       let failureMessage = 'Failed to delete finding.';
       if (bulkDeleteActive) {
-        const { response, errorMessage } = await deleteRepoFindingTargetsWithCompatibilityFallback(
+        const { response, errorMessage } = await deleteRepoFindingTargetsWithBulkEndpoint(
           candidates.map(repoFindingDeleteTargetFromFinding),
           auth
         );

@@ -9551,7 +9551,7 @@ describe('ProductFindingsPage states', () => {
     expect(await screen.findByText('No exposure found')).toBeInTheDocument();
   });
 
-  it('falls back to single finding deletes when the bulk endpoint is not deployed yet', async () => {
+  it('does not report clear all success when the bulk endpoint is not deployed yet', async () => {
     const scan: RepoScanRecord = {
       ...queuedRepoScan,
       id: 'repo-scan-clear-all-bulk-missing',
@@ -9584,7 +9584,7 @@ describe('ProductFindingsPage states', () => {
 
     const { deleteRepoFinding, deleteRepoFindings } = await renderFindings({
       repoScans: [scan],
-      listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [] })
+      listRepoFindings: (_params, call) => ({ items: call === 1 ? findings : [findings[1]] })
     });
     const { ApiError } = await import('./api/client');
     deleteRepoFindings.mockRejectedValueOnce(new ApiError('Request failed (404)', 404));
@@ -9598,25 +9598,13 @@ describe('ProductFindingsPage states', () => {
 
     await waitFor(() => {
       expect(deleteRepoFindings).toHaveBeenCalledTimes(1);
-      expect(deleteRepoFinding).toHaveBeenCalledTimes(2);
-      expect(deleteRepoFinding).toHaveBeenNthCalledWith(
-        1,
-        findings[0].id,
-        scan.id,
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      );
-      expect(deleteRepoFinding).toHaveBeenNthCalledWith(
-        2,
-        findings[1].id,
-        scan.id,
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      );
+      expect(deleteRepoFinding).not.toHaveBeenCalled();
     });
-    await waitFor(() => {
-      expect(screen.queryByText('Fallback clearable token finding')).not.toBeInTheDocument();
-      expect(screen.queryByText('Fallback clearable workflow finding')).not.toBeInTheDocument();
-    });
-    expect(await screen.findByText('No exposure found')).toBeInTheDocument();
+    expect(await screen.findByText(/Clear all requires the bulk delete API/i)).toBeInTheDocument();
+    expect(await screen.findByText('Fallback clearable token finding')).toBeInTheDocument();
+    expect(await screen.findByText('Fallback clearable workflow finding')).toBeInTheDocument();
+    expect(screen.queryByText('No exposure found')).not.toBeInTheDocument();
+    expect(within(confirmDialog).getByText(/2 visible findings/i)).toBeInTheDocument();
   });
 
   it('reloads repository findings after clearing a paged list', async () => {
