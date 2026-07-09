@@ -3,24 +3,29 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-rou
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   AuthConfigResponse,
+  AWSAccountRegionCoverageResult,
   AWSConnectorStartResponse,
   AWSCodeBuildServiceRoleInventoryResult,
   AWSConnectionStatus,
   AWSAIAgentIdentityInventoryResult,
   AWSBedrockAgentsInventoryResult,
+  AWSCoveragePlanResult,
   AWSEC2InstanceProfileInventoryResult,
   AWSEKSWorkloadIdentityInventoryResult,
   AWSECSTaskRoleInventoryResult,
+  AWSFanOutExecutionResult,
   AWSLambdaExecutionRoleInventoryResult,
   AWSLeastPrivilegeResult,
   AWSAgentIdentityDetailResult,
   AWSMachineIdentityDetailResult,
+  AWSOrganizationsTopologyResult,
   AWSPlatformBaselineResult,
   AWSPlatformDependencyIndexResult,
   AWSPlatformValidationHarnessResult,
   AWSRemediationCenterResult,
   AWSRuntimeEventResult,
   AWSServiceCollectorContractResult,
+  AWSStackSetOnboardingResult,
   AWSUnusedDormantAccessResult,
   CurrentUserContext,
   Finding,
@@ -164,6 +169,463 @@ const connectedAWS: AWSConnectionStatus = {
   updated_at: '2026-05-17T10:00:00Z',
   last_validated_at: '2026-05-17T10:00:00Z'
 };
+
+const readyAWSCoveragePlan: AWSCoveragePlanResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  parent_issue_number: 1503,
+  parent_issue_ref: '#1503',
+  current_issue_number: 1553,
+  current_issue_ref: '#1553',
+  version: 'aws-coverage-plan-v1',
+  status: 'degraded',
+  fixture_state: 'partial_failure',
+  confidence: 0.96,
+  filtered_targets: 2,
+  summary: {
+    total_targets: 2,
+    enabled_targets: 2,
+    disabled_targets: 0,
+    account_count: 1,
+    region_count: 2,
+    service_count: 2,
+    outstanding_targets: 1,
+    covered_targets: 1,
+    blocked_targets: 0,
+    failed_targets: 1,
+    permission_denied_targets: 0,
+    resumable_targets: 1,
+    coverage_percent: 50,
+    state_counts: { covered: 1, partial: 1 },
+    priority_counts: { critical: 1, high: 1 },
+    prerequisites: []
+  },
+  targets: [
+    {
+      key: '123456789012/us-east-1/iam',
+      account_id: '123456789012',
+      account_name: 'Production',
+      region: 'us-east-1',
+      region_name: 'US East (N. Virginia)',
+      service: 'iam',
+      service_name: 'IAM',
+      collector: 'iam_roles',
+      global: true,
+      enabled: true,
+      priority: 'critical',
+      priority_rank: 1,
+      reason: 'Global IAM anchor',
+      prerequisites: [],
+      state: 'covered',
+      resumable: false,
+      next_action: 'No action required.',
+      evidence_ref: 'aws-coverage-plan:iam',
+      observed_at: '2026-06-12T12:00:00Z'
+    },
+    {
+      key: '123456789012/us-west-2/lambda',
+      account_id: '123456789012',
+      account_name: 'Production',
+      region: 'us-west-2',
+      region_name: 'US West (Oregon)',
+      service: 'lambda',
+      service_name: 'Lambda',
+      collector: 'lambda_execution_roles',
+      global: false,
+      enabled: true,
+      priority: 'high',
+      priority_rank: 2,
+      reason: 'Regional execution-role collector',
+      prerequisites: ['Deploy the read-only StackSet instance to us-west-2.'],
+      state: 'partial',
+      cursor: 'lambda-page-2',
+      failure_reason: 'Lambda collector stopped at page 2.',
+      attempts: 2,
+      resumable: true,
+      next_action: 'Resume Lambda collector from saved cursor.',
+      evidence_ref: 'aws-coverage-plan:lambda',
+      observed_at: '2026-06-12T12:05:00Z'
+    }
+  ],
+  failure_reasons: ['Lambda collector stopped at page 2.'],
+  remediation_hints: ['Resume Lambda collector from saved cursor.'],
+  evidence_links: ['/docs/aws-account-region-coverage-planner'],
+  partial_failure_reports: [
+    {
+      key: '123456789012/us-west-2/lambda',
+      account_id: '123456789012',
+      region: 'us-west-2',
+      service: 'lambda',
+      collector: 'lambda_execution_roles',
+      state: 'partial',
+      worker_state: 'failed',
+      reason_code: 'collector_partial_failure',
+      failure_reason: 'Lambda collector stopped at page 2.',
+      retryable: true,
+      attempts: 2,
+      cursor: 'lambda-page-2',
+      evidence_ref: 'aws-coverage-partial:lambda',
+      next_action: 'Resume Lambda collector from saved cursor.',
+      observed_at: '2026-06-12T12:05:00Z'
+    }
+  ],
+  coverage_gaps: [
+    {
+      capability: 'regional_lambda',
+      status: 'partial',
+      reason: 'US West 2 Lambda coverage is partial.',
+      remediation: 'Resume Lambda collector from the stored checkpoint.'
+    }
+  ],
+  diagnostics: [
+    {
+      source: 'coverage_planner',
+      scope: '123456789012/us-west-2/lambda',
+      code: 'collector_partial_failure',
+      message: 'Lambda coverage is partial.',
+      remediation: 'Resume Lambda collector from checkpoint.',
+      retryable: true
+    }
+  ],
+  generated_at: '2026-06-12T12:10:00Z',
+  updated_at: '2026-06-12T12:10:00Z'
+};
+
+const readyAWSAccountRegionCoverage: AWSAccountRegionCoverageResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  parent_issue_number: 1503,
+  parent_issue_ref: '#1503',
+  current_issue_number: 1553,
+  current_issue_ref: '#1553',
+  version: 'aws-account-region-coverage-v1',
+  status: 'degraded',
+  fixture_state: 'partial_failure',
+  confidence: 0.96,
+  summary: {
+    total_records: 2,
+    filtered_records: 2,
+    account_count: 1,
+    region_count: 2,
+    service_count: 2,
+    covered_records: 1,
+    missing_records: 0,
+    degraded_records: 1,
+    unreachable_records: 0,
+    suspended_records: 0,
+    disabled_records: 0,
+    stale_records: 0,
+    permission_denied_records: 0,
+    retryable_records: 1,
+    status_counts: { covered: 1, degraded: 1 },
+    state_counts: { covered: 1, partial: 1 },
+    collector_counts: { iam_roles: 1, lambda_execution_roles: 1 }
+  },
+  records: [
+    {
+      key: '123456789012/us-east-1/iam',
+      account_id: '123456789012',
+      account_name: 'Production',
+      region: 'us-east-1',
+      region_name: 'US East (N. Virginia)',
+      service: 'iam',
+      service_name: 'IAM',
+      collector: 'iam_roles',
+      global: true,
+      enabled: true,
+      state: 'covered',
+      coverage_status: 'covered',
+      retryable: false,
+      stale: false,
+      evidence_ref: 'aws-account-region-coverage:iam',
+      next_action: 'No action required.',
+      observed_at: '2026-06-12T12:00:00Z',
+      updated_at: '2026-06-12T12:00:00Z'
+    },
+    {
+      key: '123456789012/us-west-2/lambda',
+      account_id: '123456789012',
+      account_name: 'Production',
+      region: 'us-west-2',
+      region_name: 'US West (Oregon)',
+      service: 'lambda',
+      service_name: 'Lambda',
+      collector: 'lambda_execution_roles',
+      global: false,
+      enabled: true,
+      state: 'partial',
+      coverage_status: 'degraded',
+      cursor: 'lambda-page-2',
+      checkpoint: 'lambda-page-2',
+      attempts: 2,
+      failure_reason: 'Lambda collector stopped at page 2.',
+      retryable: true,
+      stale: false,
+      evidence_ref: 'aws-account-region-coverage:lambda',
+      next_action: 'Resume Lambda collector from saved cursor.',
+      observed_at: '2026-06-12T12:05:00Z',
+      updated_at: '2026-06-12T12:05:00Z'
+    }
+  ],
+  failure_reasons: ['Lambda collector stopped at page 2.'],
+  remediation_hints: ['Resume Lambda collector from saved cursor.'],
+  evidence_links: ['/docs/aws-account-region-coverage-planner'],
+  coverage_gaps: readyAWSCoveragePlan.coverage_gaps,
+  diagnostics: readyAWSCoveragePlan.diagnostics,
+  generated_at: '2026-06-12T12:10:00Z',
+  updated_at: '2026-06-12T12:10:00Z'
+};
+
+const readyAWSFanOutExecution: AWSFanOutExecutionResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  parent_issue_number: 1503,
+  parent_issue_ref: '#1503',
+  current_issue_number: 1553,
+  current_issue_ref: '#1553',
+  version: 'aws-fanout-execution-v1',
+  status: 'degraded',
+  fixture_state: 'partial_failure',
+  confidence: 0.94,
+  filtered_targets: 2,
+  summary: {
+    total_targets: 2,
+    executable_targets: 2,
+    skipped_targets: 0,
+    queued_targets: 1,
+    in_progress_targets: 1,
+    covered_targets: 1,
+    partial_targets: 1,
+    failed_targets: 0,
+    permission_denied_targets: 0,
+    throttled_targets: 0,
+    retryable_targets: 1,
+    concurrency_limit: 4,
+    max_attempts: 3
+  },
+  targets: [],
+  failure_reasons: ['Lambda collector stopped at page 2.'],
+  remediation_hints: ['Queue or resume retryable targets from their checkpoints.'],
+  evidence_links: ['/docs/aws-account-region-coverage-planner'],
+  partial_failure_reports: readyAWSCoveragePlan.partial_failure_reports,
+  coverage_gaps: readyAWSCoveragePlan.coverage_gaps,
+  diagnostics: [],
+  generated_at: '2026-06-12T12:10:00Z',
+  updated_at: '2026-06-12T12:10:00Z'
+};
+
+const readyAWSOrganizationsTopology: AWSOrganizationsTopologyResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  parent_issue_number: 1503,
+  parent_issue_ref: '#1503',
+  current_issue_number: 1553,
+  current_issue_ref: '#1553',
+  organization_id: 'o-identrail',
+  management_account_id: '123456789012',
+  partition: 'aws',
+  version: 'aws-organizations-topology-v1',
+  status: 'ready',
+  fixture_state: 'success',
+  confidence: 0.95,
+  filtered_accounts: 1,
+  summary: {
+    account_count: 1,
+    organizational_unit_count: 1,
+    management_account_count: 1,
+    delegated_admin_account_count: 0,
+    suspended_account_count: 0,
+    connector_scoped_accounts: 1,
+    scan_eligible_accounts: 1,
+    blocked_accounts: 0,
+    permission_denied_accounts: 0,
+    failed_accounts: 0,
+    resumable_accounts: 0,
+    state_counts: { covered: 1 },
+    status_counts: { active: 1 }
+  },
+  organizational_units: [{ id: 'r-identrail', name: 'Root', path: '/', enabled: true }],
+  accounts: [
+    {
+      account_id: '123456789012',
+      account_name: 'Production',
+      status: 'active',
+      parent_id: 'r-identrail',
+      ou_path: '/',
+      partition: 'aws',
+      management: true,
+      delegated_admin_services: [],
+      connector_scoped: true,
+      scan_eligible: true,
+      state: 'covered',
+      resumable: false,
+      next_action: 'Use this account for downstream coverage.',
+      evidence_ref: 'aws-organizations:aws-connector-1:123456789012'
+    }
+  ],
+  relationships: [
+    {
+      parent_id: 'r-identrail',
+      child_id: '123456789012',
+      child_type: 'account',
+      relationship: 'contains'
+    }
+  ],
+  failure_reasons: [],
+  remediation_hints: [],
+  evidence_links: ['/docs/aws-account-region-coverage-planner'],
+  coverage_gaps: [],
+  diagnostics: [],
+  generated_at: '2026-06-12T12:10:00Z',
+  updated_at: '2026-06-12T12:10:00Z'
+};
+
+const readyAWSStackSetOnboarding: AWSStackSetOnboardingResult = {
+  tenant_id: 'tenant-a',
+  workspace_id: 'workspace-a',
+  project_id: 'production',
+  connector_id: 'aws-connector-1',
+  account_id: '123456789012',
+  region: 'us-east-1',
+  organization_id: 'o-identrail',
+  management_account_id: '123456789012',
+  stack_set_name: 'IdentrailReadOnlyCoverage',
+  deployment_mode: 'service_managed',
+  partition: 'aws',
+  parent_issue_number: 1503,
+  parent_issue_ref: '#1503',
+  current_issue_number: 1553,
+  current_issue_ref: '#1553',
+  version: 'aws-stackset-onboarding-v1',
+  status: 'degraded',
+  fixture_state: 'partial_failure',
+  confidence: 0.92,
+  validation: {
+    status: 'degraded',
+    confidence: 0.92,
+    blocking_count: 0,
+    advisory_count: 1,
+    prerequisites: [
+      {
+        id: 'us-west-2-instance',
+        title: 'Deploy us-west-2 read-only role',
+        severity: 'advisory',
+        satisfied: false,
+        reason: 'The regional StackSet instance has not reported active yet.',
+        remediation: 'Deploy the read-only StackSet instance to us-west-2.'
+      }
+    ],
+    failure_reasons: ['The regional StackSet instance has not reported active yet.'],
+    remediation_hints: ['Deploy the read-only StackSet instance to us-west-2.']
+  },
+  permission_preview: [],
+  targets: {
+    organization_id: 'o-identrail',
+    organizational_units: [{ id: 'r-identrail', name: 'Root', path: '/', enabled: true }],
+    accounts: [{ account_id: '123456789012', name: 'Production', ou_path: '/', management: true }],
+    regions: [
+      { region: 'us-east-1', name: 'US East (N. Virginia)' },
+      { region: 'us-west-2', name: 'US West (Oregon)', opt_in: false }
+    ]
+  },
+  instances: [
+    {
+      key: '123456789012/us-west-2',
+      account_id: '123456789012',
+      account_name: 'Production',
+      ou_path: '/',
+      region: 'us-west-2',
+      region_name: 'US West (Oregon)',
+      state: 'degraded',
+      failure_reason: 'The regional StackSet instance has not reported active yet.',
+      attempts: 1,
+      resumable: true,
+      next_action: 'Redeploy or refresh the StackSet instance.',
+      coverage_targets: 1,
+      evidence_ref: 'aws-stackset-onboarding:us-west-2',
+      observed_at: '2026-06-12T12:05:00Z'
+    }
+  ],
+  coverage_expectation: {
+    expected_accounts: 1,
+    expected_regions: 2,
+    expected_instances: 2,
+    expected_coverage_targets: 2,
+    coverage_percent: 50,
+    global_service_notes: 'IAM remains anchored in the home region.'
+  },
+  recovery_actions: [
+    {
+      id: 'redeploy-us-west-2',
+      title: 'Redeploy regional StackSet instance',
+      description: 'Refresh the us-west-2 read-only role so collectors can continue.',
+      targets: ['123456789012/us-west-2']
+    }
+  ],
+  summary: {
+    target_accounts: 1,
+    target_regions: 2,
+    total_instances: 2,
+    pending_instances: 0,
+    active_instances: 1,
+    blocked_instances: 0,
+    failed_instances: 0,
+    degraded_instances: 1,
+    suspended_instances: 0,
+    permission_denied_instances: 0,
+    unsupported_instances: 0,
+    resumable_instances: 1,
+    deployed_percent: 50,
+    state_counts: { active: 1, degraded: 1 }
+  },
+  failure_reasons: ['The regional StackSet instance has not reported active yet.'],
+  remediation_hints: ['Deploy the read-only StackSet instance to us-west-2.'],
+  evidence_links: ['/docs/aws-account-region-coverage-planner'],
+  coverage_gaps: [{ capability: 'regional_stackset', status: 'degraded', reason: 'us-west-2 needs a read-only role.' }],
+  diagnostics: [],
+  generated_at: '2026-06-12T12:10:00Z',
+  updated_at: '2026-06-12T12:10:00Z'
+};
+
+function mockAWSCoverageDashboardAPIs(api: typeof import('./api/client')) {
+  const getCoveragePlan = vi.spyOn(api.apiClient, 'getAWSProjectCoveragePlan').mockResolvedValue({ plan: readyAWSCoveragePlan });
+  const getAccountRegionCoverage = vi
+    .spyOn(api.apiClient, 'getAWSProjectAccountRegionCoverage')
+    .mockResolvedValue({ coverage: readyAWSAccountRegionCoverage });
+  const getFanOutExecution = vi
+    .spyOn(api.apiClient, 'getAWSProjectFanOutExecution')
+    .mockResolvedValue({ execution: readyAWSFanOutExecution });
+  const getOrganizationsTopology = vi
+    .spyOn(api.apiClient, 'getAWSProjectOrganizationsTopology')
+    .mockResolvedValue({ topology: readyAWSOrganizationsTopology });
+  const getStackSetOnboarding = vi
+    .spyOn(api.apiClient, 'getAWSProjectStackSetOnboarding')
+    .mockResolvedValue({ onboarding: readyAWSStackSetOnboarding });
+
+  return {
+    getCoveragePlan,
+    getAccountRegionCoverage,
+    getFanOutExecution,
+    getOrganizationsTopology,
+    getStackSetOnboarding
+  };
+}
 
 const readyAWSRuntimeEvents: AWSRuntimeEventResult = {
   tenant_id: 'tenant-a',
@@ -2307,6 +2769,42 @@ describe('ProductShellLayout', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /GitHub findings content/i })).toBeInTheDocument();
   });
 
+  it('preserves the selected environment when routing to AWS coverage from workspace finder', async () => {
+    mockConnectorFeatureFlags({ github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const { ProductShellLayout } = await import('./productShell');
+
+    function LocationHeading() {
+      const location = useLocation();
+      return <h2>{`${location.pathname}${location.search}`}</h2>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/identities?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
+            <Route path="aws/identities" element={<h2>AWS identities content</h2>} />
+            <Route path="aws/coverage" element={<LocationHeading />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS identities content' })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: '/' });
+    const finder = screen.getByRole('dialog', { name: /Workspace finder/i });
+    fireEvent.change(within(finder).getByLabelText(/Search workspace commands/i), { target: { value: 'aws coverage' } });
+    fireEvent.keyDown(within(finder).getByLabelText(/Search workspace commands/i), { key: 'Enter' });
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 2,
+        name: '/app/tenant-a/workspace-a/aws/coverage?environment=production'
+      })
+    ).toBeInTheDocument();
+  });
+
   it('uses Windows shortcut labels when rendering the app shell outside macOS', async () => {
     vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32');
     mockConnectorFeatureFlags({ github: true, kubernetes: true });
@@ -2678,6 +3176,7 @@ describe('Domain-first app routes', () => {
       '/app/:tenantID/:workspaceID/aws',
       '/app/:tenantID/:workspaceID/aws/connect',
       '/app/:tenantID/:workspaceID/aws/accounts',
+      '/app/:tenantID/:workspaceID/aws/coverage',
       '/app/:tenantID/:workspaceID/aws/identities',
       '/app/:tenantID/:workspaceID/aws/identities/detail',
       '/app/:tenantID/:workspaceID/aws/agents',
@@ -3051,6 +3550,7 @@ describe('Domain-first app routes', () => {
       ]
     });
     vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    mockAWSCoverageDashboardAPIs(api);
 
     const { ProductAWSAccountsPage } = await import('./productShell');
 
@@ -3070,6 +3570,97 @@ describe('Domain-first app routes', () => {
     expect(screen.getByRole('link', { name: /Open Connect AWS/i })).toHaveAttribute(
       'href',
       '/app/tenant-a/workspace-a/aws/connect?environment=production'
+    );
+  });
+
+  it('renders AWS coverage dashboard with scoped coverage, topology, fan-out, and onboarding data', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const {
+      getCoveragePlan,
+      getAccountRegionCoverage,
+      getFanOutExecution,
+      getOrganizationsTopology,
+      getStackSetOnboarding
+    } = mockAWSCoverageDashboardAPIs(api);
+
+    const { ProductAWSCoveragePage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/coverage?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/coverage" element={<ProductAWSCoveragePage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Coverage' })).toBeInTheDocument();
+    expect(await screen.findByText('Public account and region coverage records')).toBeInTheDocument();
+    expect(screen.getByRole('search', { name: /Coverage filters/i })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'AWS account-region coverage API records' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'AWS account and region coverage' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'AWS Organizations topology' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'StackSet onboarding instances' })).toBeInTheDocument();
+    expect(screen.getByText('Partial failure reporting')).toBeInTheDocument();
+    expect(screen.getByText('Queue or resume retryable targets from their checkpoints.')).toBeInTheDocument();
+    expect(screen.getAllByText(/Lambda collector stopped at page 2/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: /Open Connect AWS/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/connect?environment=production'
+    );
+    expect(getCoveragePlan).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      'aws-connector-1',
+      undefined,
+      undefined,
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getAccountRegionCoverage).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      'aws-connector-1',
+      undefined,
+      undefined,
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getFanOutExecution).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      'aws-connector-1',
+      undefined,
+      { maxConcurrency: 4 },
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getOrganizationsTopology).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      'aws-connector-1',
+      undefined,
+      undefined,
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getStackSetOnboarding).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      'aws-connector-1',
+      undefined,
+      undefined,
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
   });
 
@@ -12672,9 +13263,9 @@ describe('AWS copy redundancy guard (#1582)', () => {
   );
 
   it('AWS inventory copy entries keep the legacy roadmap-in-UI fields blank', () => {
-    // The four AWSInventoryPageCopy entries were the source of every
+    // The AWSInventoryPageCopy entries were the source of every
     // `Wired now / Planned coverage / Statuslabel` repeat across the
-    // Accounts / Identities / Agents / Resources sub-pages. The fields
+    // AWS inventory sub-pages. The fields
     // still exist on the type so the surrounding shell continues to
     // compile, but their *values* must stay empty so the deleted panel
     // cannot accidentally reappear if a future PR re-renders them.

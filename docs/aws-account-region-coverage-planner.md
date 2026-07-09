@@ -111,6 +111,34 @@ Use the planner endpoint when you need target expansion and prerequisites. Use
 the public coverage API when an operator or dashboard needs filterable coverage
 state without reading logs or internal tables.
 
+## App Coverage Dashboard
+
+The app exposes the operator dashboard at:
+
+```text
+/app/{tenant_id}/{workspace_id}/aws/coverage?environment={project_id}
+```
+
+The page is read-only and composes the existing scoped coverage contracts:
+
+- coverage-plan targets for account, region, service, collector, cursor, and
+  next-action state
+- public account/region coverage records for filterable dashboard rows
+- fan-out execution summary for queued, retryable, denied, partial, and
+  throttled targets
+- AWS Organizations topology for account eligibility and OU context
+- StackSet onboarding status for missing read-only role rollout
+
+The dashboard preserves the tenant, workspace, project, connector, account, and
+region boundaries already enforced by the APIs. It shows loading, empty, error,
+degraded, and permission-denied states from the API payloads instead of
+inferring success from a partial response.
+
+Filters are local to the page and support account, region, coverage state, and
+search. Use the page when an operator needs to answer which account or region is
+covered, which service or collector is blocked, what cursor can be resumed, and
+which onboarding action closes the gap.
+
 ## Partial Failure Reports
 
 `partial_failure_reports` is a normalized dashboard and rerun contract. Each
