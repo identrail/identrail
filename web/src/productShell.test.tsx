@@ -8924,6 +8924,90 @@ describe('ProductFindingsPage states', () => {
     ).toBe(false);
   });
 
+  it('uses live finding filters when failed scan removal refreshes', async () => {
+    const failedScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-failed-live-finding-filters',
+      status: 'failed',
+      started_at: '2026-05-17T12:00:00Z',
+      finished_at: '2026-05-17T12:01:00Z',
+      error_message: 'Repository not found or access revoked'
+    };
+    const oldSucceededScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-live-finding-filter-succeeded',
+      status: 'succeeded',
+      started_at: '2026-05-17T11:00:00Z',
+      finished_at: '2026-05-17T11:30:00Z',
+      finding_count: 1
+    };
+    const finding: Finding = {
+      id: 'finding-live-finding-filter',
+      scan_id: oldSucceededScan.id,
+      type: 'workflow_permission',
+      severity: 'critical',
+      title: 'Historical live finding-filter finding',
+      human_summary: 'A workflow grants broad repository permissions.',
+      remediation: 'Limit workflow permissions.',
+      created_at: '2026-05-17T11:07:00Z'
+    };
+    const deleteCompletion = deferred<void>();
+
+    const { deleteRepoScan, listRepoFindings, getRepoFindingsTrends, getRepoRiskGraph } = await renderFindings({
+      repoScans: [failedScan, oldSucceededScan],
+      repoFindings: [finding]
+    });
+    deleteRepoScan.mockImplementation(() => deleteCompletion.promise);
+
+    expect(await screen.findByText(/Last scan failed:/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Remove$/i }));
+    await waitFor(() => {
+      expect(deleteRepoScan).toHaveBeenCalledWith(
+        failedScan.id,
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText(/Severity/i), { target: { value: 'critical' } });
+    await waitFor(() => {
+      expect(
+        listRepoFindings.mock.calls.some(
+          ([params]) => (params as { severity?: string } | undefined)?.severity === 'critical'
+        )
+      ).toBe(true);
+    });
+
+    listRepoFindings.mockClear();
+    getRepoFindingsTrends.mockClear();
+    getRepoRiskGraph.mockClear();
+    await act(async () => {
+      deleteCompletion.resolve();
+      await deleteCompletion.promise;
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Last scan failed:/i)).not.toBeInTheDocument();
+      expect(listRepoFindings).toHaveBeenCalled();
+      expect(getRepoFindingsTrends).toHaveBeenCalled();
+      expect(getRepoRiskGraph).toHaveBeenCalled();
+    });
+    expect(
+      listRepoFindings.mock.calls.every(
+        ([params]) => (params as { severity?: string } | undefined)?.severity === 'critical'
+      )
+    ).toBe(true);
+    expect(
+      getRepoFindingsTrends.mock.calls.every(
+        ([params]) => (params as { severity?: string } | undefined)?.severity === 'critical'
+      )
+    ).toBe(true);
+    expect(
+      getRepoRiskGraph.mock.calls.every(
+        ([params]) => (params as { severity?: string } | undefined)?.severity === 'critical'
+      )
+    ).toBe(true);
+  });
+
   it('lets viewers dismiss a failed scan banner without deleting the scan', async () => {
     const failedScan: RepoScanRecord = {
       ...queuedRepoScan,

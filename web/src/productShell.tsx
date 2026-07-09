@@ -428,6 +428,17 @@ const REPO_FINDING_SEVERITY_FILTERS = ['all', 'critical', 'high', 'medium', 'low
 const REPO_FINDING_TYPE_FILTERS = ['all', 'secret_exposure', 'repo_misconfiguration'] as const;
 const REPO_FINDING_SORT_FIELDS = ['severity', 'created_at', 'type', 'title'] as const;
 const REPO_FINDING_STATUS_FILTERS = ['all', 'open', 'ack', 'suppressed', 'resolved'] as const;
+type RepoFindingFilterSnapshot = {
+  repoScanFilter: string;
+  severityFilter: (typeof REPO_FINDING_SEVERITY_FILTERS)[number];
+  typeFilter: (typeof REPO_FINDING_TYPE_FILTERS)[number];
+  statusFilter: (typeof REPO_FINDING_STATUS_FILTERS)[number];
+  assigneeFilter: string;
+  sourceFilter: string;
+  minConfidenceFilter: string;
+  sortBy: (typeof REPO_FINDING_SORT_FIELDS)[number];
+  sortOrder: 'asc' | 'desc';
+};
 const ENVIRONMENT_QUERY_PARAM = 'environment';
 const OVERVIEW_FINDING_LIMIT = 50;
 const OVERVIEW_RISK_DISPLAY_LIMIT = 8;
@@ -27814,6 +27825,17 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const [minConfidenceFilter, setMinConfidenceFilter] = useState('');
   const [sortBy, setSortBy] = useState<(typeof REPO_FINDING_SORT_FIELDS)[number]>('severity');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const repoFindingFilterSnapshot: RepoFindingFilterSnapshot = {
+    repoScanFilter,
+    severityFilter,
+    typeFilter,
+    statusFilter,
+    assigneeFilter,
+    sourceFilter,
+    minConfidenceFilter,
+    sortBy,
+    sortOrder
+  };
   const [filtersExpanded, setFiltersExpanded] = useState(true);
   const [dismissedFailedScanKeys, setDismissedFailedScanKeys] = useState<Set<string>>(() =>
     readDismissedRepoFailedScanKeys()
@@ -27857,7 +27879,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const findDeleteRequestRef = useRef(0);
   const failedScanRemoveRequestRef = useRef(0);
   const currentScopeKeyRef = useRef(scopeKey);
-  const repoScanFilterRef = useRef(repoScanFilter);
+  const repoFindingFilterRef = useRef<RepoFindingFilterSnapshot>(repoFindingFilterSnapshot);
   const remediationPreviewRequestRef = useRef(0);
   const remediationPublishRequestRef = useRef(0);
   const findingDetailCloseRef = useRef<HTMLButtonElement | null>(null);
@@ -27867,7 +27889,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const findingDeleteModalRef = useRef<HTMLElement | null>(null);
   const findingDeleteOpenerRef = useRef<HTMLElement | null>(null);
   currentScopeKeyRef.current = scopeKey;
-  repoScanFilterRef.current = repoScanFilter;
+  repoFindingFilterRef.current = repoFindingFilterSnapshot;
 
   const updateHierarchyOpenState = (
     level: 'repositories' | 'scans' | 'severities',
@@ -28124,7 +28146,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const loadRepoFindings = async (
     targetScope: ProductSession,
     mode: 'initial' | 'refresh',
-    overrides?: { repoScanFilter?: string }
+    overrides?: Partial<RepoFindingFilterSnapshot>
   ) => {
     const requestID = ++requestRef.current;
     if (mode === 'initial') {
@@ -28135,18 +28157,18 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     setError('');
     try {
       const auth = buildProductAuthContext(targetScope);
-      const sourceFilterValue = normalizeValue(sourceFilter).toLowerCase();
-      const normalizedMinConfidence = Number.parseFloat(normalizeValue(minConfidenceFilter));
-      const selectedRepoScanFilter = overrides?.repoScanFilter ?? repoScanFilter;
+      const filters = { ...repoFindingFilterRef.current, ...overrides };
+      const sourceFilterValue = normalizeValue(filters.sourceFilter).toLowerCase();
+      const normalizedMinConfidence = Number.parseFloat(normalizeValue(filters.minConfidenceFilter));
       const repoFindingRequest = {
-        repo_scan_id: normalizeValue(selectedRepoScanFilter) || undefined,
-        severity: severityFilter !== 'all' ? severityFilter : undefined,
-        type: typeFilter !== 'all' ? typeFilter : undefined,
+        repo_scan_id: normalizeValue(filters.repoScanFilter) || undefined,
+        severity: filters.severityFilter !== 'all' ? filters.severityFilter : undefined,
+        type: filters.typeFilter !== 'all' ? filters.typeFilter : undefined,
         source: sourceFilterValue || undefined,
-        assignee: normalizeValue(assigneeFilter) || undefined,
+        assignee: normalizeValue(filters.assigneeFilter) || undefined,
         min_confidence: Number.isFinite(normalizedMinConfidence) ? normalizedMinConfidence : undefined,
-        sort_by: sortBy,
-        sort_order: sortOrder
+        sort_by: filters.sortBy,
+        sort_order: filters.sortOrder
       };
 
       const [repoScanResponse, repoFindingResponse] = await Promise.all([
@@ -28157,7 +28179,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
               {
                 ...repoFindingRequest,
                 limit: 100,
-                lifecycle_status: statusFilter !== 'all' ? statusFilter : undefined
+                lifecycle_status: filters.statusFilter !== 'all' ? filters.statusFilter : undefined
               },
               auth
             )
@@ -28195,7 +28217,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const loadTrendSignals = async (
     targetScope: ProductSession,
     mode: 'initial' | 'refresh',
-    overrides?: { repoScanFilter?: string }
+    overrides?: Partial<RepoFindingFilterSnapshot>
   ) => {
     const requestID = ++signalRequestRef.current;
     if (mode === 'initial') {
@@ -28208,11 +28230,11 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     setRiskGraphError('');
     try {
       const auth = buildProductAuthContext(targetScope);
-      const severity = severityFilter !== 'all' ? severityFilter : undefined;
-      const type = typeFilter !== 'all' ? typeFilter : undefined;
-      const selectedRepoScanFilter = overrides?.repoScanFilter ?? repoScanFilter;
-      const repoScanID = normalizeValue(selectedRepoScanFilter) || undefined;
-      const normalizedMinConfidence = Number.parseFloat(normalizeValue(minConfidenceFilter));
+      const filters = { ...repoFindingFilterRef.current, ...overrides };
+      const severity = filters.severityFilter !== 'all' ? filters.severityFilter : undefined;
+      const type = filters.typeFilter !== 'all' ? filters.typeFilter : undefined;
+      const repoScanID = normalizeValue(filters.repoScanFilter) || undefined;
+      const normalizedMinConfidence = Number.parseFloat(normalizeValue(filters.minConfidenceFilter));
       const minConfidence = Number.isFinite(normalizedMinConfidence) ? normalizedMinConfidence : undefined;
       const [trendResult, riskGraphResult] = await Promise.allSettled([
         apiClient.getRepoFindingsTrends(
@@ -28747,16 +28769,17 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         writeDismissedRepoFailedScanKeys(next);
         return next;
       });
-      const refreshOverrides = normalizeValue(repoScanFilterRef.current) === scan.id ? { repoScanFilter: '' } : undefined;
-      if (refreshOverrides) {
-        repoScanFilterRef.current = '';
+      const refreshOverrides: RepoFindingFilterSnapshot = { ...repoFindingFilterRef.current };
+      if (normalizeValue(refreshOverrides.repoScanFilter) === scan.id) {
+        refreshOverrides.repoScanFilter = '';
+        repoFindingFilterRef.current = { ...repoFindingFilterRef.current, repoScanFilter: '' };
         setRepoScanFilter('');
       }
       await loadRepoFindings(targetScope, 'refresh', refreshOverrides);
       if (!isActiveRequest()) {
         return;
       }
-      await loadTrendSignals(targetScope, 'refresh', refreshOverrides);
+      await loadTrendSignals(targetScope, 'refresh', repoFindingFilterRef.current);
     } catch (requestError) {
       if (!isActiveRequest()) {
         return;
