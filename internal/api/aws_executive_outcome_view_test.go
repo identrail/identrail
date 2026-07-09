@@ -343,6 +343,58 @@ func TestAWSExecutiveOutcomeViewDerivesEnforcementSeverityFromRows(t *testing.T)
 	}
 }
 
+func TestAWSExecutiveOutcomeViewDoesNotTagEmptySeverityRollupsLow(t *testing.T) {
+	now := time.Date(2026, 7, 9, 12, 52, 0, 0, time.UTC)
+	metrics := awsExecutiveOutcomeMetrics(
+		AWSAccountRegionCoverageResult{},
+		AWSBlastRadiusResult{},
+		AWSLeastPrivilegeResult{},
+		AWSRemediationCaseResult{},
+		AWSPostRemediationVerificationResult{},
+		AWSLimitedEnforcementResult{},
+		AWSGovernanceAuditReportingResult{},
+		"123456789012",
+		"us-east-1",
+		now,
+	)
+	low, applied := filterAWSExecutiveOutcomeMetrics(metrics, AWSExecutiveOutcomeViewRequest{Severity: "low"})
+	if applied["severity"] != "low" {
+		t.Fatalf("expected low severity filter to be recorded, got %+v", applied)
+	}
+	if len(low) != 0 {
+		t.Fatalf("expected empty source rollups to stay hidden from low severity filter, got %+v", low)
+	}
+
+	metrics = awsExecutiveOutcomeMetrics(
+		AWSAccountRegionCoverageResult{},
+		AWSBlastRadiusResult{},
+		AWSLeastPrivilegeResult{
+			Recommendations: []AWSLeastPrivilegeRecommendation{{
+				RecommendationID: "lp-low-review",
+				Decision:         "review",
+				Severity:         "low",
+				Status:           "open",
+				Score:            16,
+				Confidence:       0.88,
+				AccountID:        "123456789012",
+				Region:           "us-east-1",
+				Service:          "iam",
+			}},
+		},
+		AWSRemediationCaseResult{},
+		AWSPostRemediationVerificationResult{},
+		AWSLimitedEnforcementResult{},
+		AWSGovernanceAuditReportingResult{},
+		"123456789012",
+		"us-east-1",
+		now,
+	)
+	low, _ = filterAWSExecutiveOutcomeMetrics(metrics, AWSExecutiveOutcomeViewRequest{Severity: "low"})
+	if _, ok := metricByID(low, "remaining-exposure"); !ok {
+		t.Fatalf("expected real low severity source rows to stay visible, got %+v", low)
+	}
+}
+
 func TestAWSExecutiveOutcomeViewCountsDistinctEnforcementReadyRows(t *testing.T) {
 	now := time.Date(2026, 7, 9, 12, 55, 0, 0, time.UTC)
 	enforcement := AWSLimitedEnforcementResult{

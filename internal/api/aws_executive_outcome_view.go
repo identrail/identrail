@@ -322,7 +322,7 @@ func awsExecutiveOutcomeMetrics(
 			AccountID:        accountID,
 			Region:           region,
 			IdentityType:     "coverage_target",
-			Severity:         severityFromFailureCount(degradedCoverage),
+			Severity:         severityFromFailureCount(degradedCoverage, summaries.Coverage.TotalRecords),
 			EvidenceLinks:    coverage.EvidenceLinks,
 			EvidenceRef:      "aws-executive-outcome://scan-coverage",
 			EvidenceBoundary: awsExecutiveOutcomeViewBoundary,
@@ -411,7 +411,7 @@ func awsExecutiveOutcomeMetrics(
 			Region:           region,
 			OU:               awsExecutiveOutcomeMetricOU(governance.Records),
 			IdentityType:     "governance_record",
-			Severity:         severityFromFailureCount(summaries.Governance.ExceptionCount),
+			Severity:         severityFromFailureCount(summaries.Governance.ExceptionCount, summaries.Governance.FilteredRecords),
 			EvidenceLinks:    governance.EvidenceLinks,
 			EvidenceRef:      "aws-executive-outcome://governance-outcomes",
 			EvidenceBoundary: awsExecutiveOutcomeViewBoundary,
@@ -811,7 +811,11 @@ func trendFromDelta(delta int) string {
 }
 
 func severityFromCounts(groups ...map[string]int) string {
+	total := 0
 	for _, group := range groups {
+		for _, count := range group {
+			total += count
+		}
 		if group["critical"] > 0 {
 			return "critical"
 		}
@@ -826,12 +830,23 @@ func severityFromCounts(groups ...map[string]int) string {
 			return "medium"
 		}
 	}
+	for _, group := range groups {
+		if group["low"] > 0 {
+			return "low"
+		}
+	}
+	if total == 0 {
+		return ""
+	}
 	return "low"
 }
 
-func severityFromFailureCount(count int) string {
+func severityFromFailureCount(count int, total int) string {
 	if count > 0 {
 		return "high"
+	}
+	if total <= 0 {
+		return ""
 	}
 	return "low"
 }
