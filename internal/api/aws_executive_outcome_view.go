@@ -485,11 +485,12 @@ func summarizeAWSExecutiveOutcomeView(
 	enforcement AWSLimitedEnforcementResult,
 	governance AWSGovernanceAuditReportingResult,
 ) AWSExecutiveOutcomeViewSummary {
+	scanCoveragePct := percent(coverage.Summary.CoveredRecords, coverage.Summary.TotalRecords)
 	summary := AWSExecutiveOutcomeViewSummary{
 		TotalMetrics:             len(all),
 		FilteredMetrics:          len(filtered),
 		RiskReductionScore:       0,
-		ScanCoveragePct:          percent(coverage.Summary.CoveredRecords, coverage.Summary.TotalRecords),
+		ScanCoveragePct:          scanCoveragePct,
 		VerifiedRemediationCount: verification.Summary.VerifiedCount,
 		EnforcementReadyCount:    enforcement.Summary.CanaryReadyCount + enforcement.Summary.ReadyForEnforcementCount,
 		RemainingExposureCount:   blast.Summary.FilteredFindings + least.Summary.ReviewCount,
@@ -502,7 +503,7 @@ func summarizeAWSExecutiveOutcomeView(
 		SeverityCounts:           map[string]int{},
 		OutcomeTypeCounts:        map[string]int{},
 		TrendCounts:              map[string]int{},
-		HighestScore:             maxInt(coverage.Summary.CoveredRecords, blast.Summary.HighestScore, least.Summary.HighestScore, cases.Summary.HighestScore, verification.Summary.HighestScore, enforcement.Summary.HighestScore, governance.Summary.HighestScore),
+		HighestScore:             maxInt(scanCoveragePct, blast.Summary.HighestScore, least.Summary.HighestScore, cases.Summary.HighestScore, verification.Summary.HighestScore, enforcement.Summary.HighestScore, governance.Summary.HighestScore),
 	}
 	confidenceTotal := 0.0
 	for _, metric := range filtered {
@@ -524,9 +525,6 @@ func summarizeAWSExecutiveOutcomeView(
 }
 
 func summarizeAWSExecutiveOutcomeViewStatus(metrics []AWSExecutiveOutcomeMetric, statuses ...string) (string, float64) {
-	if len(metrics) == 0 {
-		return "degraded", 0.65
-	}
 	blocked := false
 	degraded := false
 	for _, status := range statuses {
@@ -542,6 +540,9 @@ func summarizeAWSExecutiveOutcomeViewStatus(metrics []AWSExecutiveOutcomeMetric,
 	}
 	if degraded {
 		return "degraded", 0.74
+	}
+	if len(metrics) == 0 {
+		return "ready", 0.8
 	}
 	return "ready", 0.9
 }

@@ -99,6 +99,59 @@ func TestAWSExecutiveOutcomeViewFiltersOutcomeSeverityAndSearch(t *testing.T) {
 	if result.Summary.FilteredMetrics != 1 || result.Summary.OutcomeTypeCounts["coverage"] != 1 {
 		t.Fatalf("expected filtered summary to reflect coverage metric, got %+v", result.Summary)
 	}
+
+	severityResult, err := svc.GetAWSExecutiveOutcomeView(defaultScopeContext(), ws, "project-executive-outcomes-filter", AWSExecutiveOutcomeViewRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Severity:     "high",
+	})
+	if err != nil {
+		t.Fatalf("get severity-filtered executive outcome view: %v", err)
+	}
+	if severityResult.AppliedFilters["severity"] != "high" {
+		t.Fatalf("expected severity filter to be applied, got %+v", severityResult.AppliedFilters)
+	}
+	if len(severityResult.Metrics) == 0 {
+		t.Fatalf("expected high severity executive metrics, got none")
+	}
+	for _, metric := range severityResult.Metrics {
+		if metric.Severity != "high" {
+			t.Fatalf("expected only high severity metrics, got %+v", severityResult.Metrics)
+		}
+	}
+	if severityResult.Summary.SeverityCounts["high"] != len(severityResult.Metrics) {
+		t.Fatalf("expected severity summary to match filtered metrics, got %+v", severityResult.Summary)
+	}
+}
+
+func TestAWSExecutiveOutcomeViewSummaryHighestScoreUsesCoveragePercent(t *testing.T) {
+	summary := summarizeAWSExecutiveOutcomeView(nil, nil,
+		AWSAccountRegionCoverageResult{Summary: AWSAccountRegionCoverageSummary{CoveredRecords: 250, TotalRecords: 500}},
+		AWSBlastRadiusResult{Summary: AWSBlastRadiusSummary{HighestScore: 40}},
+		AWSLeastPrivilegeResult{Summary: AWSLeastPrivilegeSummary{HighestScore: 30}},
+		AWSRemediationCaseResult{Summary: AWSRemediationCaseSummary{HighestScore: 20}},
+		AWSPostRemediationVerificationResult{Summary: AWSPostRemediationVerificationSummary{HighestScore: 10}},
+		AWSLimitedEnforcementResult{Summary: AWSLimitedEnforcementSummary{HighestScore: 45}},
+		AWSGovernanceAuditReportingResult{Summary: AWSGovernanceAuditReportingSummary{HighestScore: 35}},
+	)
+	if summary.ScanCoveragePct != 50 {
+		t.Fatalf("expected scan coverage percent 50, got %+v", summary)
+	}
+	if summary.HighestScore != 50 {
+		t.Fatalf("expected highest score to use coverage percent, got %+v", summary)
+	}
+}
+
+func TestAWSExecutiveOutcomeViewStatusPreservesSourceStateWithNoMetrics(t *testing.T) {
+	status, confidence := summarizeAWSExecutiveOutcomeViewStatus(nil, "permission_denied", "ready")
+	if status != "blocked" || confidence != 0.55 {
+		t.Fatalf("expected blocked source status to survive empty filters, got status=%q confidence=%v", status, confidence)
+	}
+
+	status, confidence = summarizeAWSExecutiveOutcomeViewStatus(nil, "ready")
+	if status != "ready" || confidence != 0.8 {
+		t.Fatalf("expected empty ready source to stay ready, got status=%q confidence=%v", status, confidence)
+	}
 }
 
 func TestAWSExecutiveOutcomeViewPermissionDeniedIsExplicit(t *testing.T) {
