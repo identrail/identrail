@@ -74,8 +74,11 @@ func TestAWSPlatformObservabilityMetricsUseLagAndScopedServiceLabels(t *testing.
 		FanOut: AWSFanOutExecutionResult{
 			Status:     awsPlatformDependencyStatusReady,
 			Confidence: 0.96,
-			Summary: AWSFanOutExecutionSummary{
-				QueuedTargets: 8,
+			Targets: []AWSFanOutExecutionTarget{
+				{Key: "ecs-queued-1", AccountID: "123456789012", Region: "us-east-1", Service: "ecs", State: "queued", WorkerState: "queued", Enabled: true, Retryable: true},
+				{Key: "ecs-queued-2", AccountID: "123456789012", Region: "us-east-1", Service: "ecs", State: "queued", WorkerState: "queued", Enabled: true, Retryable: true},
+				{Key: "ecs-queued-3", AccountID: "123456789012", Region: "us-east-1", Service: "ecs", State: "queued", WorkerState: "queued", Enabled: true, Retryable: true},
+				{Key: "ecs-queued-4", AccountID: "123456789012", Region: "us-east-1", Service: "ecs", State: "queued", WorkerState: "queued", Enabled: true, Retryable: true},
 			},
 		},
 		Runtime: AWSRuntimeEventResult{
@@ -139,6 +142,72 @@ func TestAWSPlatformObservabilityMetricsUseLagAndScopedServiceLabels(t *testing.
 		if metric.Service != "ecs" {
 			t.Fatalf("service filter should not keep unscoped aggregate metrics: %+v", metric)
 		}
+	}
+}
+
+func TestAWSPlatformObservabilityFanOutMetricsUseFilteredTargets(t *testing.T) {
+	now := time.Date(2026, 7, 9, 15, 3, 0, 0, time.UTC)
+	sources := awsPlatformObservabilitySources{
+		Coverage: AWSAccountRegionCoverageResult{
+			Status:     awsPlatformDependencyStatusReady,
+			Confidence: 0.98,
+		},
+		FanOut: AWSFanOutExecutionResult{
+			Status:     awsPlatformDependencyStatusReady,
+			Confidence: 0.96,
+			Summary: AWSFanOutExecutionSummary{
+				CoveredTargets:   12,
+				QueuedTargets:    9,
+				ThrottledTargets: 7,
+				RetryableTargets: 7,
+			},
+			Targets: []AWSFanOutExecutionTarget{
+				{Key: "ecs-covered", AccountID: "123456789012", Region: "us-east-1", Service: "ecs", State: "covered", WorkerState: "covered", Enabled: true},
+			},
+		},
+	}
+
+	metrics := awsPlatformObservabilityMetrics(sources, AWSPlatformObservabilityRequest{Service: "ecs"}, "123456789012", "us-east-1", "ecs", now)
+	byID := map[string]AWSPlatformObservabilityMetric{}
+	for _, metric := range metrics {
+		byID[metric.MetricID] = metric
+	}
+	if got := byID["scan-throughput"].Value; got != 1 {
+		t.Fatalf("expected scan throughput to use filtered fan-out targets, got %d", got)
+	}
+	if got := byID["queue-lag"].Value; got != 0 {
+		t.Fatalf("expected queue lag to ignore unfiltered fan-out summary backlog, got %d", got)
+	}
+	if metric := byID["throttling"]; metric.Value != 0 || metric.Status != awsPlatformDependencyStatusReady {
+		t.Fatalf("expected throttling to use filtered fan-out targets, got %+v", metric)
+	}
+}
+
+func TestAWSPlatformObservabilityRuntimeTraceStatusIncludesDelayed(t *testing.T) {
+	now := time.Date(2026, 7, 9, 15, 4, 0, 0, time.UTC)
+	traces := awsPlatformObservabilityTraces(awsPlatformObservabilitySources{
+		Runtime: AWSRuntimeEventResult{
+			Records: []AWSRuntimeEventRecord{
+				{
+					EventID:     "delayed-runtime",
+					AccountID:   "123456789012",
+					Region:      "us-east-1",
+					EventSource: "cloudtrail",
+					Status:      "delayed",
+					ObservedAt:  now.Add(-20 * time.Minute),
+					CollectedAt: now,
+					EvidenceRef: "aws-runtime://delayed-runtime",
+					NextAction:  "Wait for delayed runtime delivery to catch up.",
+					Confidence:  0.71,
+				},
+			},
+		},
+	}, now)
+	if len(traces) != 1 {
+		t.Fatalf("expected one runtime trace, got %+v", traces)
+	}
+	if traces[0].Status != awsPlatformDependencyStatusDegraded {
+		t.Fatalf("expected delayed runtime trace to be degraded, got %+v", traces[0])
 	}
 }
 

@@ -342,8 +342,9 @@ func awsPlatformObservabilityMetrics(sources awsPlatformObservabilitySources, re
 		service = "all"
 	}
 	aggregateService := "all"
+	fanOutSummary := awsPlatformObservabilityFanOutSummary(sources.FanOut)
 	collectorFailures := sources.Coverage.Summary.DegradedRecords + sources.Coverage.Summary.UnreachableRecords + sources.Coverage.Summary.StaleRecords + sources.Coverage.Summary.PermissionDeniedRecords + len(sources.Coverage.Diagnostics)
-	queueLag := awsPlatformObservabilityQueueLag(sources.FanOut.Summary)
+	queueLag := awsPlatformObservabilityQueueLag(fanOutSummary)
 	runtimeLag := awsPlatformObservabilityRuntimeLag(sources.Runtime.Records)
 	remediationPending := sources.Cases.Summary.ApprovalRequiredCount + sources.Verification.Summary.PendingCount
 	verificationFailures := sources.Verification.Summary.FailedCount + sources.Verification.Summary.RollbackPlannedCount + sources.Verification.Summary.BlockedCount
@@ -355,7 +356,7 @@ func awsPlatformObservabilityMetrics(sources awsPlatformObservabilitySources, re
 			Signal:           "scan_throughput",
 			Title:            "Scan throughput",
 			Summary:          "Account, region, and service targets completed by the bounded fan-out and coverage collectors.",
-			Value:            maxInt(sources.FanOut.Summary.CoveredTargets, sources.Coverage.Summary.CoveredRecords),
+			Value:            maxInt(fanOutSummary.CoveredTargets, sources.Coverage.Summary.CoveredRecords),
 			Unit:             "targets_per_hour",
 			Status:           awsPlatformObservabilitySourceStatus(sources.Coverage.Status, sources.FanOut.Status),
 			Severity:         awsPlatformObservabilityMetricSeverity(sources.Coverage.Status, sources.FanOut.Status),
@@ -399,10 +400,10 @@ func awsPlatformObservabilityMetrics(sources awsPlatformObservabilitySources, re
 			Signal:           "throttling",
 			Title:            "Throttling",
 			Summary:          "Fan-out targets currently throttled or waiting for bounded retry.",
-			Value:            sources.FanOut.Summary.ThrottledTargets,
+			Value:            fanOutSummary.ThrottledTargets,
 			Unit:             "targets",
-			Status:           awsPlatformObservabilityCountStatus(sources.FanOut.Summary.ThrottledTargets, sources.FanOut.Status),
-			Severity:         awsPlatformObservabilityCountSeverity(sources.FanOut.Summary.ThrottledTargets, sources.FanOut.Status),
+			Status:           awsPlatformObservabilityCountStatus(fanOutSummary.ThrottledTargets, sources.FanOut.Status),
+			Severity:         awsPlatformObservabilityCountSeverity(fanOutSummary.ThrottledTargets, sources.FanOut.Status),
 			Confidence:       sources.FanOut.Confidence,
 			AccountID:        accountID,
 			Region:           region,
@@ -865,6 +866,47 @@ func awsPlatformObservabilityQueueLag(summary AWSFanOutExecutionSummary) int {
 	return (summary.QueuedTargets * int((2 * time.Minute).Milliseconds())) + (summary.InProgressTargets * int((30 * time.Second).Milliseconds())) + (summary.RetryableTargets * int((5 * time.Minute).Milliseconds()))
 }
 
+func awsPlatformObservabilityFanOutSummary(result AWSFanOutExecutionResult) AWSFanOutExecutionSummary {
+	summary := AWSFanOutExecutionSummary{
+		ConcurrencyLimit: result.Summary.ConcurrencyLimit,
+		MaxAttempts:      result.Summary.MaxAttempts,
+	}
+	for _, target := range result.Targets {
+		state := strings.ToLower(strings.TrimSpace(target.State))
+		workerState := strings.ToLower(strings.TrimSpace(target.WorkerState))
+		combined := strings.TrimSpace(state + " " + workerState + " " + strings.ToLower(strings.TrimSpace(target.FailureReason)))
+		summary.TotalTargets++
+		if target.Enabled {
+			summary.ExecutableTargets++
+		} else {
+			summary.SkippedTargets++
+		}
+		switch {
+		case strings.Contains(combined, "permission_denied"):
+			summary.PermissionDeniedTargets++
+		case strings.Contains(combined, "partial"):
+			summary.PartialTargets++
+		case strings.Contains(combined, "failed"):
+			summary.FailedTargets++
+		case state == "covered" || workerState == "covered" || workerState == "complete" || workerState == "completed":
+			summary.CoveredTargets++
+		}
+		if state == "queued" || workerState == "queued" {
+			summary.QueuedTargets++
+		}
+		if state == "in_progress" || workerState == "in_progress" || workerState == "running" {
+			summary.InProgressTargets++
+		}
+		if target.Throttled || strings.Contains(combined, "throttled") {
+			summary.ThrottledTargets++
+		}
+		if target.Retryable {
+			summary.RetryableTargets++
+		}
+	}
+	return summary
+}
+
 func awsPlatformObservabilityTargetQueueLag(target AWSFanOutExecutionTarget) int {
 	state := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(target.WorkerState, target.State)))
 	switch {
@@ -924,7 +966,7 @@ func awsPlatformObservabilityRuntimeStatus(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "permission_denied", "blocked":
 		return awsPlatformDependencyStatusBlocked
-	case "partial", "partial_failure", "degraded", "stale":
+	case "partial", "partial_failure", "degraded", "stale", "delayed":
 		return awsPlatformDependencyStatusDegraded
 	default:
 		return awsPlatformDependencyStatusReady
