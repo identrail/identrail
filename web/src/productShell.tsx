@@ -11737,7 +11737,7 @@ const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOpera
 type AWSRiskOperationFilterConfigMap = Record<AWSRiskOperationRouteID, AWSInventoryFilterConfig[]>;
 
 const AWS_RISK_OPERATION_FILTER_DEFAULTS: Record<AWSRiskOperationRouteID, AWSInventoryFilterState> = {
-  runtime: { event: 'all', evidence: 'all', owner: 'all', search: '' },
+  runtime: { event: 'all', evidence: 'all', owner: 'all', status: 'all', search: '' },
   graph: { node: 'all', edge: 'all', evidence: 'all', search: '' },
   findings: { severity: 'all', account: 'all', region: 'all', evidence: 'all', status: 'all', search: '' },
   remediation: { change: 'all', approval: 'all', stage: 'all', search: '' },
@@ -11779,6 +11779,19 @@ const AWS_RISK_OPERATION_FILTERS: AWSRiskOperationFilterConfigMap = {
         { label: 'Security', value: 'security' },
         { label: 'Platform', value: 'platform' },
         { label: 'Application', value: 'application' }
+      ]
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      options: [
+        { label: 'All statuses', value: 'all' },
+        { label: 'Observed', value: 'observed' },
+        { label: 'Delayed', value: 'delayed' },
+        { label: 'Permission denied', value: 'permission-denied' },
+        { label: 'Resolved', value: 'resolved' },
+        { label: 'Archived', value: 'archived' },
+        { label: 'Stale', value: 'stale' }
       ]
     }
   ],
@@ -12105,6 +12118,12 @@ function AWSRiskOperationPrerequisites({
 
 function AWSRuntimeEvidenceContent({
   runtime,
+  secretsKMSAccess,
+  s3RuntimeAccess,
+  agentRuntimeAccess,
+  remediationCases,
+  lowRiskRemediation,
+  postRemediationVerification,
   loading,
   error,
   filters,
@@ -12112,6 +12131,12 @@ function AWSRuntimeEvidenceContent({
   onRetry
 }: {
   runtime: AWSRuntimeEventResult | null;
+  secretsKMSAccess: AWSSecretsKMSRuntimeAccessResult | null;
+  s3RuntimeAccess: AWSS3RuntimeAccessResult | null;
+  agentRuntimeAccess: AWSAgentRuntimeAccessResult | null;
+  remediationCases: AWSRemediationCaseResult | null;
+  lowRiskRemediation: AWSLowRiskRemediationResult | null;
+  postRemediationVerification: AWSPostRemediationVerificationResult | null;
   loading: boolean;
   error: string;
   filters: AWSInventoryFilterState;
@@ -12121,6 +12146,9 @@ function AWSRuntimeEvidenceContent({
   const rows: AWSRiskOperationTableRow[] = runtime ? runtime.records.map((record) => awsRuntimeEventRow(record)) : [];
   const displayFilters = awsRuntimeEventDisplayFilters(filters);
   const displayedRows = filterAWSInventoryRows(rows, displayFilters);
+  const displayedRecordIDs = new Set(displayedRows.map((row) => row.id.replace(/^runtime-/, '')));
+  const displayedRecords = runtime?.records.filter((record) => displayedRecordIDs.has(record.event_id)) ?? [];
+  const timelineFiltered = awsRuntimeTimelineHasActiveFilters(displayFilters);
 
   return (
     <>
@@ -12138,6 +12166,19 @@ function AWSRuntimeEvidenceContent({
           eyebrow={runtime.status === 'blocked' ? 'Permission required' : 'No runtime events'}
           title={runtime.status === 'blocked' ? 'Runtime events need read-only event access' : 'No runtime events matched'}
           body={runtime.failure_reasons[0] ?? 'Runtime event ingestion returned no events for the current environment and filters.'}
+        />
+      ) : null}
+      {!error && !loading && runtime ? (
+        <AWSRuntimeTimelineOverview
+          runtime={runtime}
+          records={displayedRecords}
+          filtered={timelineFiltered}
+          secretsKMSAccess={secretsKMSAccess}
+          s3RuntimeAccess={s3RuntimeAccess}
+          agentRuntimeAccess={agentRuntimeAccess}
+          remediationCases={remediationCases}
+          lowRiskRemediation={lowRiskRemediation}
+          postRemediationVerification={postRemediationVerification}
         />
       ) : null}
       <DomainDataTable
@@ -12159,6 +12200,533 @@ function AWSRuntimeEvidenceContent({
       />
     </>
   );
+}
+
+type AWSRuntimeCorrelationHighlight = {
+  id: string;
+  title: string;
+  detail: string;
+  evidenceRef: string;
+  status: string;
+  stage: AWSCapabilityStage;
+};
+
+type AWSRuntimeRemediationMarker = {
+  id: string;
+  title: string;
+  detail: string;
+  status: string;
+  stage: AWSCapabilityStage;
+};
+
+type AWSRuntimeTimelineFilterContext = {
+  eventIDs: Set<string>;
+  sessionIDs: Set<string>;
+  evidenceRefs: Set<string>;
+  agentIDs: Set<string>;
+};
+
+type AWSRuntimeEvidenceLink = {
+  href: string;
+  label: string;
+  external: boolean;
+};
+
+function AWSRuntimeTimelineOverview({
+  runtime,
+  records,
+  filtered,
+  secretsKMSAccess,
+  s3RuntimeAccess,
+  agentRuntimeAccess,
+  remediationCases,
+  lowRiskRemediation,
+  postRemediationVerification
+}: {
+  runtime: AWSRuntimeEventResult;
+  records: AWSRuntimeEventRecord[];
+  filtered: boolean;
+  secretsKMSAccess: AWSSecretsKMSRuntimeAccessResult | null;
+  s3RuntimeAccess: AWSS3RuntimeAccessResult | null;
+  agentRuntimeAccess: AWSAgentRuntimeAccessResult | null;
+  remediationCases: AWSRemediationCaseResult | null;
+  lowRiskRemediation: AWSLowRiskRemediationResult | null;
+  postRemediationVerification: AWSPostRemediationVerificationResult | null;
+}) {
+  if (runtime.records.length === 0) {
+    return null;
+  }
+
+  const entries = awsRuntimeTimelineEntries(records);
+  const filterContext = filtered ? awsRuntimeTimelineFilterContext(records) : null;
+  const highlights = awsRuntimeCorrelationHighlights(secretsKMSAccess, s3RuntimeAccess, agentRuntimeAccess, filterContext);
+  const markers = awsRuntimeRemediationMarkers(remediationCases, lowRiskRemediation, postRemediationVerification, filterContext);
+  const evidenceLinks = runtime.evidence_links.map((link) => awsRuntimeSafeEvidenceLink(link)).filter((link): link is AWSRuntimeEvidenceLink => Boolean(link)).slice(0, 4);
+  const boundaryNotes = awsRuntimeBoundaryNotes(runtime);
+  const summaryItems = awsRuntimeTimelineSummaryItems(runtime, records, highlights, markers);
+
+  return (
+    <section className="idt-aws-runtime-timeline-panel" aria-label="AWS runtime correlation timeline">
+      <header className="idt-aws-runtime-timeline-header">
+        <div>
+          <h3>Runtime timeline</h3>
+          <p className="idt-app-kicker">
+            {awsAccountRegionInventoryLabel(runtime.account_id, runtime.region)} · {formatTokenLabel(runtime.fixture_state)} ·{' '}
+            {formatConfidenceScore(runtime.confidence)}
+          </p>
+        </div>
+        <AWSInventoryPill stage={awsRuntimeStatusStage(runtime.status)} label={formatTokenLabel(runtime.status)} />
+      </header>
+      <dl className="idt-aws-runtime-timeline-summary">
+        {summaryItems.map((item) => (
+          <div key={item.label}>
+            <dt>{item.label}</dt>
+            <dd>{item.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {evidenceLinks.length > 0 ? (
+        <div className="idt-aws-runtime-evidence-links" aria-label="Runtime evidence links">
+          {evidenceLinks.map((link) =>
+            link.external ? (
+              <a key={link.href} href={link.href} target="_blank" rel="noreferrer">
+                {link.label}
+              </a>
+            ) : (
+              <Link key={link.href} to={link.href}>
+                {link.label}
+              </Link>
+            )
+          )}
+        </div>
+      ) : null}
+      {boundaryNotes.length > 0 ? (
+        <ul className="idt-aws-runtime-boundary-notes">
+          {boundaryNotes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      ) : null}
+      {entries.length > 0 ? (
+        <DomainTimeline label="AWS runtime timeline" entries={entries} />
+      ) : (
+        <DomainEmptyState
+          eyebrow="Filtered"
+          title="No runtime timeline events matched"
+          body="The current filters did not match any runtime event rows."
+        />
+      )}
+      {highlights.length > 0 ? (
+        <div className="idt-aws-runtime-highlight-block" aria-label="Runtime correlation highlights">
+          <h4>Correlation highlights</h4>
+          <ul>
+            {highlights.map((highlight) => (
+              <li key={highlight.id}>
+                <div>
+                  <strong>{highlight.title}</strong>
+                  <span>{highlight.detail}</span>
+                  <code>{highlight.evidenceRef}</code>
+                </div>
+                <AWSInventoryPill stage={highlight.stage} label={formatTokenLabel(highlight.status)} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {markers.length > 0 ? (
+        <div className="idt-aws-runtime-highlight-block" aria-label="Runtime remediation markers">
+          <h4>Before / after remediation markers</h4>
+          <ul>
+            {markers.map((marker) => (
+              <li key={marker.id}>
+                <div>
+                  <strong>{marker.title}</strong>
+                  <span>{marker.detail}</span>
+                </div>
+                <AWSInventoryPill stage={marker.stage} label={formatTokenLabel(marker.status)} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function awsRuntimeTimelineSummaryItems(
+  runtime: AWSRuntimeEventResult,
+  records: AWSRuntimeEventRecord[],
+  highlights: AWSRuntimeCorrelationHighlight[],
+  markers: AWSRuntimeRemediationMarker[]
+): Array<{ label: string; value: string }> {
+  const sessionIDs = new Set(records.map((record) => record.session?.session_id).filter(Boolean));
+  const actorIDs = new Set(records.map((record) => record.actor_identity_node_id).filter(Boolean));
+  return [
+    { label: 'Shown', value: `${records.length}/${runtime.summary.filtered_events || runtime.records.length}` },
+    { label: 'Sessions', value: String(sessionIDs.size) },
+    { label: 'Actors', value: String(actorIDs.size) },
+    { label: 'Graph edges', value: String(runtime.summary.relationship_count) },
+    { label: 'Correlations', value: String(highlights.length) },
+    { label: 'Markers', value: String(markers.length) }
+  ];
+}
+
+function awsRuntimeTimelineHasActiveFilters(filters: AWSInventoryFilterState): boolean {
+  return Object.entries(filters).some(([filterID, value]) => {
+    if (filterID === 'search') {
+      return Boolean(value.trim());
+    }
+    return Boolean(value && value !== 'all');
+  });
+}
+
+function awsRuntimeTimelineFilterContext(records: AWSRuntimeEventRecord[]): AWSRuntimeTimelineFilterContext {
+  const context: AWSRuntimeTimelineFilterContext = {
+    eventIDs: new Set(),
+    sessionIDs: new Set(),
+    evidenceRefs: new Set(),
+    agentIDs: new Set()
+  };
+  for (const record of records) {
+    addToSet(context.eventIDs, record.event_id);
+    addToSet(context.sessionIDs, record.session?.session_id);
+    addToSet(context.evidenceRefs, record.evidence_ref);
+    addToSet(context.agentIDs, record.agent_id);
+    addToSet(context.agentIDs, record.agent_node_id);
+  }
+  return context;
+}
+
+function addToSet(set: Set<string>, value: string | undefined): void {
+  if (value) {
+    set.add(value);
+  }
+}
+
+function awsRuntimeSafeEvidenceLink(value: string): AWSRuntimeEvidenceLink | null {
+  const trimmed = value.trim();
+  if (!trimmed || /[\u0000-\u001F\u007F]/.test(trimmed)) {
+    return null;
+  }
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//') && !trimmed.startsWith('/\\')) {
+    return { href: trimmed, label: trimmed, external: false };
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return { href: parsed.href, label: trimmed, external: true };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function awsRuntimeBoundaryNotes(runtime: AWSRuntimeEventResult): string[] {
+  const notes = [
+    ...runtime.failure_reasons.map((reason) => `Failure: ${reason}`),
+    ...runtime.remediation_hints.map((hint) => `Hint: ${hint}`),
+    ...runtime.coverage_gaps.map((gap) =>
+      `${formatTokenLabel(gap.status)} ${formatTokenLabel(gap.capability)}: ${gap.reason}${gap.remediation ? ` · ${gap.remediation}` : ''}`
+    ),
+    ...runtime.diagnostics.map((diagnostic) =>
+      `${formatTokenLabel(diagnostic.code)} from ${formatTokenLabel(diagnostic.collector)}: ${diagnostic.message}`
+    )
+  ];
+  if (runtime.status !== 'ready' && notes.length === 0) {
+    notes.push(`${formatTokenLabel(runtime.status)} runtime coverage is explicit for this scope.`);
+  }
+  return notes.slice(0, 4);
+}
+
+function awsRuntimeTimelineEntries(records: AWSRuntimeEventRecord[]): DomainTimelineEntry[] {
+  return [...records]
+    .sort((left, right) => awsTimestampValue(left.observed_at) - awsTimestampValue(right.observed_at))
+    .slice(0, 10)
+    .map((record) => ({
+      id: `runtime-timeline-${record.event_id}`,
+      timestamp: formatDateLabel(record.observed_at),
+      title: `${awsRuntimeEventLabel(record)} · ${record.event_name}`,
+      detail: awsRuntimeTimelineDetail(record),
+      actor: formatTokenLabel(record.status),
+      tone: awsRuntimeTimelineTone(record)
+    }));
+}
+
+function awsRuntimeTimelineDetail(record: AWSRuntimeEventRecord): string {
+  return [
+    record.action,
+    awsRuntimeEventActorLabel(record),
+    awsRuntimeEventSessionSummary(record),
+    awsRuntimeEventTargetLabel(record),
+    record.evidence_ref,
+    formatConfidenceScore(record.confidence),
+    formatTokenLabel(record.redaction_boundary)
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function awsRuntimeEventActorLabel(record: AWSRuntimeEventRecord): string {
+  const actor = record.actor_principal_arn || record.actor_identity_node_id || 'Unknown actor';
+  return `Actor ${actor}`;
+}
+
+function awsRuntimeEventSessionSummary(record: AWSRuntimeEventRecord): string {
+  const session = record.session;
+  if (!session) {
+    return 'Session unknown';
+  }
+  const labels = [
+    session.session_id ? `Session ${session.session_id}` : '',
+    session.source_identity ? `SourceIdentity ${session.source_identity}` : '',
+    session.role_session_name ? `Role session ${session.role_session_name}` : '',
+    session.original_actor_arn ? `Original ${session.original_actor_arn}` : '',
+    session.chained_from_principal_arn ? `Chained from ${session.chained_from_principal_arn}` : '',
+    awsRuntimeEventLineageLabel(record)
+  ].filter(Boolean);
+  return labels.length > 0 ? labels.join(' · ') : 'Session unknown';
+}
+
+function awsRuntimeEventTargetLabel(record: AWSRuntimeEventRecord): string {
+  const target = record.target_resource_name || record.target_resource_type || record.target_resource_arn || record.resource_node_id;
+  if (target) {
+    return `Target ${target}`;
+  }
+  if (record.tool_name || record.tool_target_ref) {
+    return `Tool ${[record.tool_name, record.tool_target_ref].filter(Boolean).join(' / ')}`;
+  }
+  return 'Target unknown';
+}
+
+function awsRuntimeTimelineTone(record: AWSRuntimeEventRecord): DomainTimelineEntry['tone'] {
+  if (record.status === 'permission-denied' || record.session?.lineage_status === 'ambiguous') {
+    return 'danger';
+  }
+  if (record.status === 'delayed' || record.status === 'stale' || record.session?.lineage_status === 'source_identity_missing') {
+    return 'warning';
+  }
+  return 'success';
+}
+
+function awsRuntimeStatusStage(status: string): AWSCapabilityStage {
+  if (status === 'ready') {
+    return 'wired';
+  }
+  if (status === 'blocked') {
+    return 'not-available';
+  }
+  return 'coming';
+}
+
+function awsRuntimeCorrelationHighlights(
+  secretsKMSAccess: AWSSecretsKMSRuntimeAccessResult | null,
+  s3RuntimeAccess: AWSS3RuntimeAccessResult | null,
+  agentRuntimeAccess: AWSAgentRuntimeAccessResult | null,
+  filterContext: AWSRuntimeTimelineFilterContext | null
+): AWSRuntimeCorrelationHighlight[] {
+  const secretHighlights = (secretsKMSAccess?.records ?? [])
+    .filter((record) =>
+      awsRuntimeMatchesFilterContext(filterContext, {
+        eventIDs: record.observed_event_ids,
+        sessionIDs: record.session_ids,
+        evidenceRefs: [record.evidence_ref, ...(record.evidence_refs ?? [])],
+        agentIDs: [record.agent_id, record.agent_node_id]
+      })
+    )
+    .slice(0, 3)
+    .map((record) => ({
+      id: `secret-kms-${record.correlation_id}`,
+      title: `${record.resource_kind === 'kms_key' ? 'KMS' : 'Secret'} · ${record.resource_name || record.resource_arn}`,
+      detail: awsRuntimeCorrelationDetail([
+        record.principal_arn || record.identity_node_id,
+        `${record.observed_count} observed`,
+        awsRuntimeJoinedLabel('events', record.observed_event_ids),
+        awsRuntimeJoinedLabel('sessions', record.session_ids),
+        awsRuntimeJoinedLabel('actions', record.actions),
+        formatConfidenceScore(record.confidence),
+        formatTokenLabel(record.redaction_boundary)
+      ]),
+      evidenceRef: record.evidence_ref,
+      status: record.status,
+      stage: awsSecretsKMSCorrelationStage(record.status)
+    }));
+  const s3Highlights = (s3RuntimeAccess?.records ?? [])
+    .filter((record) =>
+      awsRuntimeMatchesFilterContext(filterContext, {
+        eventIDs: record.observed_event_ids,
+        sessionIDs: record.session_ids,
+        evidenceRefs: [record.evidence_ref, ...(record.evidence_refs ?? [])],
+        agentIDs: [record.agent_id, record.agent_node_id]
+      })
+    )
+    .slice(0, 3)
+    .map((record) => ({
+      id: `s3-${record.correlation_id}`,
+      title: `S3 · ${record.bucket_name || record.bucket_arn}`,
+      detail: awsRuntimeCorrelationDetail([
+        record.principal_arn || record.identity_node_id,
+        `${record.observed_count} observed`,
+        awsRuntimeJoinedLabel('events', record.observed_event_ids),
+        awsRuntimeJoinedLabel('sessions', record.session_ids),
+        awsRuntimeJoinedLabel('modes', record.observed_modes),
+        record.sensitivity ? `Sensitivity ${formatTokenLabel(record.sensitivity)}` : '',
+        formatConfidenceScore(record.confidence),
+        formatTokenLabel(record.redaction_boundary)
+      ]),
+      evidenceRef: record.evidence_ref,
+      status: record.status,
+      stage: awsSecretsKMSCorrelationStage(record.status)
+    }));
+  const agentHighlights = (agentRuntimeAccess?.records ?? [])
+    .filter((record) =>
+      awsRuntimeMatchesFilterContext(filterContext, {
+        eventIDs: record.observed_event_ids,
+        sessionIDs: record.session_ids,
+        evidenceRefs: [record.evidence_ref, ...(record.evidence_refs ?? [])],
+        agentIDs: [record.agent_id, record.agent_node_id]
+      })
+    )
+    .slice(0, 3)
+    .map((record) => ({
+      id: `agent-runtime-${record.correlation_id}`,
+      title: `Agent · ${awsAgentRuntimeAccessLabel(record)}`,
+      detail: awsRuntimeCorrelationDetail([
+        awsRuntimeJoinedLabel('roles', record.backing_role_arns),
+        `${record.observed_count} observed`,
+        awsRuntimeJoinedLabel('events', record.observed_event_ids),
+        awsRuntimeJoinedLabel('sessions', record.session_ids),
+        awsRuntimeJoinedLabel('targets', record.target_resource_arns),
+        formatConfidenceScore(record.confidence),
+        formatTokenLabel(record.redaction_boundary)
+      ]),
+      evidenceRef: record.evidence_ref,
+      status: record.status,
+      stage: awsAgentRuntimeAccessStage(record.status)
+    }));
+  return [...secretHighlights, ...s3Highlights, ...agentHighlights].slice(0, 6);
+}
+
+function awsRuntimeMatchesFilterContext(
+  context: AWSRuntimeTimelineFilterContext | null,
+  values: {
+    eventIDs?: string[];
+    sessionIDs?: string[];
+    evidenceRefs?: Array<string | undefined>;
+    agentIDs?: Array<string | undefined>;
+  }
+): boolean {
+  if (!context) {
+    return true;
+  }
+  return (
+    intersectsSet(context.eventIDs, values.eventIDs) ||
+    intersectsSet(context.sessionIDs, values.sessionIDs) ||
+    intersectsSet(context.evidenceRefs, values.evidenceRefs) ||
+    intersectsSet(context.agentIDs, values.agentIDs)
+  );
+}
+
+function intersectsSet(set: Set<string>, values: Array<string | undefined> | undefined): boolean {
+  return (values ?? []).some((value) => Boolean(value && set.has(value)));
+}
+
+function awsRuntimeCorrelationDetail(parts: Array<string | undefined>): string {
+  return parts.filter((part): part is string => Boolean(part && part.trim().length > 0)).join(' · ');
+}
+
+function awsRuntimeJoinedLabel(label: string, values: string[] | undefined): string {
+  const safeValues = (values ?? []).filter(Boolean);
+  if (safeValues.length === 0) {
+    return '';
+  }
+  return `${label} ${safeValues.slice(0, 3).join(', ')}${safeValues.length > 3 ? ` +${safeValues.length - 3}` : ''}`;
+}
+
+function awsRuntimeRemediationMarkers(
+  remediationCases: AWSRemediationCaseResult | null,
+  lowRiskRemediation: AWSLowRiskRemediationResult | null,
+  postRemediationVerification: AWSPostRemediationVerificationResult | null,
+  filterContext: AWSRuntimeTimelineFilterContext | null
+): AWSRuntimeRemediationMarker[] {
+  const caseMarkers = (remediationCases?.cases ?? [])
+    .filter((remediationCase) =>
+      awsRuntimeMatchesFilterContext(filterContext, {
+        evidenceRefs: [
+          remediationCase.diff_intent.before_ref,
+          remediationCase.diff_intent.after_ref,
+          remediationCase.rollback_plan.evidence_ref,
+          remediationCase.verification_plan.evidence_ref,
+          ...remediationCase.evidence.map((evidence) => evidence.evidence_ref)
+        ]
+      })
+    )
+    .slice(0, 3)
+    .map((remediationCase) => ({
+      id: `runtime-marker-case-${remediationCase.case_id}`,
+      title: `Case · ${remediationCase.title}`,
+      detail: awsRuntimeCorrelationDetail([
+        `Before ${remediationCase.diff_intent.before_ref || remediationCase.evidence[0]?.evidence_ref || 'pending'}`,
+        `After ${remediationCase.diff_intent.after_ref || 'pending'}`,
+        formatTokenLabel(remediationCase.diff_intent.kind),
+        `Verification ${formatTokenLabel(remediationCase.verification_plan.strategy)}`,
+        `Boundary ${formatTokenLabel(remediationCase.evidence_boundary)}`
+      ]),
+      status: `${remediationCase.severity} / ${remediationCase.approval_state}`,
+      stage: awsRemediationCaseStage(remediationCase)
+    }));
+  const liveMarkers = (lowRiskRemediation?.entries ?? [])
+    .filter((entry) =>
+      awsRuntimeMatchesFilterContext(filterContext, {
+        evidenceRefs: [
+          entry.mutation.before_ref,
+          entry.mutation.after_ref,
+          entry.rollback_plan.evidence_ref,
+          entry.verification_plan.evidence_ref,
+          ...entry.evidence.map((evidence) => evidence.evidence_ref)
+        ]
+      })
+    )
+    .slice(0, 2)
+    .map((entry) => ({
+      id: `runtime-marker-live-${entry.execution_id}`,
+      title: `Live projection · ${entry.title}`,
+      detail: awsRuntimeCorrelationDetail([
+        `Before ${entry.mutation.before_ref || 'captured evidence'}`,
+        `After ${entry.mutation.after_ref || 'projected mutation'}`,
+        `${entry.mutation.service}:${entry.mutation.operation}`,
+        `Projected ${formatDateLabel(entry.projected_at)}`,
+        `Boundary ${formatTokenLabel(entry.evidence_boundary)}`
+      ]),
+      status: entry.state,
+      stage: awsLowRiskRemediationStage(entry)
+    }));
+  const verificationMarkers = (postRemediationVerification?.entries ?? [])
+    .filter((entry) =>
+      awsRuntimeMatchesFilterContext(filterContext, {
+        evidenceRefs: entry.evidence_links
+      })
+    )
+    .slice(0, 2)
+    .map((entry) => ({
+      id: `runtime-marker-verification-${entry.verification_id}`,
+      title: `Verification · ${entry.title}`,
+      detail: awsRuntimeCorrelationDetail([
+        entry.operation,
+        entry.target_resource,
+        `${entry.checks.length} check(s)`,
+        `Projected ${formatDateLabel(entry.projected_at)}`,
+        `Boundary ${formatTokenLabel(entry.evidence_boundary)}`
+      ]),
+      status: entry.state,
+      stage: awsPostRemediationVerificationStage(entry)
+    }));
+  return [...caseMarkers, ...liveMarkers, ...verificationMarkers].slice(0, 6);
+}
+
+function awsTimestampValue(value: string): number {
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 function awsSecretsKMSCorrelationStatusLabel(status: string): string {
@@ -15467,6 +16035,7 @@ function awsRuntimeEventRow(record: AWSRuntimeEventRecord): AWSRiskOperationTabl
       event: awsRuntimeEventUIEventFilterToken(record.event_type),
       evidence: awsRuntimeEventFilterToken(record.evidence_category),
       owner: awsRuntimeEventFilterToken(record.owner),
+      status: awsRuntimeEventFilterToken(record.status),
       search: ''
     },
     searchText: inventorySearchText([
@@ -16485,7 +17054,8 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
           connectorID: connection.connector_id,
           eventType: awsRuntimeEventAPIEventFilterToken(activeFilters.event),
           evidence: awsRuntimeEventAPIEvidenceFilterToken(activeFilters.evidence),
-          owner: activeFilters.owner && activeFilters.owner !== 'all' ? activeFilters.owner : undefined
+          owner: activeFilters.owner && activeFilters.owner !== 'all' ? activeFilters.owner : undefined,
+          status: activeFilters.status && activeFilters.status !== 'all' ? activeFilters.status : undefined
         },
         buildProductAuthContext(scope)
       );
@@ -16512,7 +17082,8 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     connection?.connector_id,
     activeFilters.event,
     activeFilters.evidence,
-    activeFilters.owner
+    activeFilters.owner,
+    activeFilters.status
   ]);
 
   useEffect(() => {
@@ -18124,6 +18695,12 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
         {routeID === 'runtime' ? (
           <AWSRuntimeEvidenceContent
             runtime={runtimeEvents}
+            secretsKMSAccess={secretsKMSAccess}
+            s3RuntimeAccess={s3RuntimeAccess}
+            agentRuntimeAccess={agentRuntimeAccess}
+            remediationCases={remediationCases}
+            lowRiskRemediation={lowRiskRemediation}
+            postRemediationVerification={postRemediationVerification}
             loading={runtimeEventsLoading}
             error={runtimeEventsError}
             filters={activeFilters}

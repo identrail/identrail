@@ -644,27 +644,75 @@ const readyAWSRuntimeEvents: AWSRuntimeEventResult = {
   confidence: 0.92,
   applied_filters: {},
   summary: {
-    total_events: 3,
-    filtered_events: 3,
-    event_type_counts: { 'api-call': 1, 'agent-tool': 1, 'access-analyzer': 1 },
-    status_counts: { observed: 3 },
-    owner_counts: { security: 3 },
+    total_events: 6,
+    filtered_events: 6,
+    event_type_counts: { 'sts-session': 1, 'api-call': 1, 'secret-read': 1, 'kms-decrypt': 1, 'agent-tool': 1, 'access-analyzer': 1 },
+    status_counts: { observed: 5, stale: 1 },
+    owner_counts: { security: 6 },
     account_count: 1,
     region_count: 1,
-    identity_count: 1,
-    resource_count: 3,
+    identity_count: 3,
+    resource_count: 5,
     agent_event_count: 1,
-    secret_read_count: 0,
-    kms_decrypt_count: 0,
+    secret_read_count: 1,
+    kms_decrypt_count: 1,
     api_call_count: 1,
-    sts_session_count: 0,
+    sts_session_count: 1,
     iam_last_used_signal_count: 0,
     access_analyzer_finding_count: 1,
     dormant_access_count: 0,
-    relationship_count: 2,
+    lineage_resolved_count: 4,
+    missing_source_identity_count: 0,
+    ambiguous_lineage_count: 0,
+    relationship_count: 5,
     permission_denied_events: 0
   },
   records: [
+    {
+      event_id: 'evt-assume-role',
+      account_id: '123456789012',
+      region: 'us-east-1',
+      event_type: 'sts-session',
+      event_source: 'sts.amazonaws.com',
+      event_name: 'AssumeRole',
+      action: 'sts:AssumeRole',
+      actor_principal_arn: 'arn:aws:iam::123456789012:user/billing-operator',
+      actor_principal_type: 'iam_user',
+      actor_identity_node_id: 'aws:identity:user/billing-operator',
+      session: {
+        session_id: 'sess-invoice-agent',
+        session_node_id: 'aws:runtime-session:sess-invoice-agent',
+        principal_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
+        principal_type: 'assumed_role',
+        assumed_role_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
+        session_issuer_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
+        source_identity: 'billing-operator@example.com',
+        role_session_name: 'invoice-agent-run',
+        session_tag_keys: ['tenant', 'job'],
+        transitive_tag_keys: ['tenant'],
+        original_actor_arn: 'arn:aws:iam::123456789012:user/billing-operator',
+        original_actor_node_id: 'aws:identity:user/billing-operator',
+        lineage_status: 'resolved',
+        lineage_reason: 'SourceIdentity and role session name matched the CloudTrail STS event.',
+        source_ip_address: '203.0.113.10',
+        user_agent: 'aws-sdk-js/3',
+        started_at: '2026-06-14T17:00:00Z',
+        expires_at: '2026-06-14T18:00:00Z'
+      },
+      target_resource_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
+      target_resource_type: 'AWS::IAM::Role',
+      target_resource_name: 'lambda-invoice-agent',
+      resource_node_id: 'aws:identity:lambda-invoice-agent',
+      owner: 'security',
+      evidence_category: 'cloudtrail',
+      evidence_ref: 'runtime-evidence://123456789012/us-east-1/evt-assume-role',
+      confidence: 0.93,
+      observed_at: '2026-06-14T17:01:00Z',
+      collected_at: '2026-06-14T17:03:00Z',
+      status: 'observed',
+      next_action: 'Use the resolved STS lineage to correlate downstream actions.',
+      redaction_boundary: 'metadata_only_no_payloads_no_secret_values'
+    },
     {
       event_id: 'evt-s3-access',
       account_id: '123456789012',
@@ -678,9 +726,17 @@ const readyAWSRuntimeEvents: AWSRuntimeEventResult = {
       actor_identity_node_id: 'aws:identity:lambda-invoice-agent',
       session: {
         session_id: 'sess-invoice-agent',
+        session_node_id: 'aws:runtime-session:sess-invoice-agent',
         principal_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
         principal_type: 'assumed_role',
-        started_at: '2026-06-14T17:00:00Z'
+        source_identity: 'billing-operator@example.com',
+        role_session_name: 'invoice-agent-run',
+        original_actor_arn: 'arn:aws:iam::123456789012:user/billing-operator',
+        original_actor_node_id: 'aws:identity:user/billing-operator',
+        lineage_status: 'resolved',
+        lineage_reason: 'Downstream data event reused the resolved STS session.',
+        started_at: '2026-06-14T17:00:00Z',
+        expires_at: '2026-06-14T18:00:00Z'
       },
       target_resource_arn: 'arn:aws:s3:::billing-artifacts-123456789012/reports/redacted',
       target_resource_type: 's3_object_metadata',
@@ -695,6 +751,84 @@ const readyAWSRuntimeEvents: AWSRuntimeEventResult = {
       status: 'observed',
       next_action: 'Correlate runtime evidence with identity and resource graph context.',
       redaction_boundary: 'metadata_only_no_payloads_no_secret_values'
+    },
+    {
+      event_id: 'evt-secret-read',
+      account_id: '123456789012',
+      region: 'us-east-1',
+      event_type: 'secret-read',
+      event_source: 'secretsmanager.amazonaws.com',
+      event_name: 'GetSecretValue',
+      action: 'secretsmanager:GetSecretValue',
+      actor_principal_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
+      actor_principal_type: 'assumed_role',
+      actor_identity_node_id: 'aws:identity:lambda-invoice-agent',
+      session: {
+        session_id: 'sess-invoice-agent',
+        session_node_id: 'aws:runtime-session:sess-invoice-agent',
+        principal_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
+        principal_type: 'assumed_role',
+        source_identity: 'billing-operator@example.com',
+        role_session_name: 'invoice-agent-run',
+        original_actor_arn: 'arn:aws:iam::123456789012:user/billing-operator',
+        original_actor_node_id: 'aws:identity:user/billing-operator',
+        lineage_status: 'resolved',
+        lineage_reason: 'Secret read reused the resolved STS session.',
+        started_at: '2026-06-14T17:00:00Z',
+        expires_at: '2026-06-14T18:00:00Z'
+      },
+      target_resource_arn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/ai/openai-key',
+      target_resource_type: 'AWS::SecretsManager::Secret',
+      target_resource_name: 'prod/ai/openai-key',
+      resource_node_id: 'aws:runtime-resource:aws--secretsmanager--secret:openai-key',
+      owner: 'security',
+      evidence_category: 'cloudtrail',
+      evidence_ref: 'runtime-evidence://123456789012/us-east-1/evt-secret-read',
+      confidence: 0.91,
+      observed_at: '2026-06-14T17:16:00Z',
+      collected_at: '2026-06-14T17:18:00Z',
+      status: 'observed',
+      next_action: 'Join the secret read with static secret reachability and rotation evidence.',
+      redaction_boundary: 'metadata_only_no_payloads_no_secret_values'
+    },
+    {
+      event_id: 'evt-kms-decrypt',
+      account_id: '123456789012',
+      region: 'us-east-1',
+      event_type: 'kms-decrypt',
+      event_source: 'kms.amazonaws.com',
+      event_name: 'Decrypt',
+      action: 'kms:Decrypt',
+      actor_principal_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
+      actor_principal_type: 'assumed_role',
+      actor_identity_node_id: 'aws:identity:lambda-invoice-agent',
+      session: {
+        session_id: 'sess-invoice-agent',
+        session_node_id: 'aws:runtime-session:sess-invoice-agent',
+        principal_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
+        principal_type: 'assumed_role',
+        source_identity: 'billing-operator@example.com',
+        role_session_name: 'invoice-agent-run',
+        original_actor_arn: 'arn:aws:iam::123456789012:user/billing-operator',
+        original_actor_node_id: 'aws:identity:user/billing-operator',
+        lineage_status: 'resolved',
+        lineage_reason: 'KMS decrypt reused the resolved STS session.',
+        started_at: '2026-06-14T17:00:00Z',
+        expires_at: '2026-06-14T18:00:00Z'
+      },
+      target_resource_arn: 'arn:aws:kms:us-east-1:123456789012:key/openai-provider',
+      target_resource_type: 'AWS::KMS::Key',
+      target_resource_name: 'openai-provider',
+      resource_node_id: 'aws:runtime-resource:kms-key:openai-provider',
+      owner: 'security',
+      evidence_category: 'cloudtrail',
+      evidence_ref: 'runtime-evidence://123456789012/us-east-1/evt-kms-decrypt',
+      confidence: 0.91,
+      observed_at: '2026-06-14T17:16:30Z',
+      collected_at: '2026-06-14T17:18:00Z',
+      status: 'observed',
+      next_action: 'Join the decrypt event with static KMS reachability.',
+      redaction_boundary: 'metadata_only_no_payloads_no_secret_values_no_decrypted_plaintext'
     },
     {
       event_id: 'evt-agent-tool',
@@ -761,7 +895,7 @@ const readyAWSRuntimeEvents: AWSRuntimeEventResult = {
       confidence: 0.9,
       observed_at: '2026-06-14T17:49:00Z',
       collected_at: '2026-06-14T17:58:00Z',
-      status: 'observed',
+      status: 'stale',
       next_action: 'Review Access Analyzer scope and finding status before trusting or remediating access.',
       redaction_boundary: 'metadata_only_no_payloads_no_secret_values'
     }
@@ -769,7 +903,7 @@ const readyAWSRuntimeEvents: AWSRuntimeEventResult = {
   relationships: [],
   failure_reasons: [],
   remediation_hints: [],
-  evidence_links: ['/docs/aws-runtime-events'],
+  evidence_links: ['/docs/aws-runtime-events', 'javascript:alert(1)', 'https://docs.identrail.com/aws-runtime-events'],
   coverage_gaps: [],
   diagnostics: [],
   generated_at: '2026-06-14T17:30:00Z',
@@ -3796,6 +3930,29 @@ describe('Domain-first app routes', () => {
       ]
     });
     vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const s3RuntimeRecord = readyAWSRuntimeEvents.records.find((record) => record.event_id === 'evt-s3-access') ?? readyAWSRuntimeEvents.records[0];
+    const machineIdentityRuntimeEvents: AWSRuntimeEventResult = {
+      ...readyAWSRuntimeEvents,
+      summary: {
+        ...readyAWSRuntimeEvents.summary,
+        total_events: 1,
+        filtered_events: 1,
+        event_type_counts: { 'api-call': 1 },
+        status_counts: { observed: 1 },
+        owner_counts: { security: 1 },
+        identity_count: 1,
+        resource_count: 1,
+        agent_event_count: 0,
+        secret_read_count: 0,
+        kms_decrypt_count: 0,
+        api_call_count: 1,
+        sts_session_count: 0,
+        access_analyzer_finding_count: 0,
+        lineage_resolved_count: 1,
+        relationship_count: 1
+      },
+      records: [s3RuntimeRecord]
+    };
     const machineIdentityDetail = {
       tenant_id: 'tenant-a',
       workspace_id: 'workspace-a',
@@ -3853,7 +4010,7 @@ describe('Domain-first app routes', () => {
       findings: [],
       governance_decisions: [],
       relationships: [],
-      runtime: { ...readyAWSRuntimeEvents, records: [readyAWSRuntimeEvents.records[0]] },
+      runtime: machineIdentityRuntimeEvents,
       permissions: readyAWSLeastPrivilege,
       secrets: { findings: [] },
       blast_radius: { findings: [] },
@@ -4835,13 +4992,208 @@ describe('Domain-first app routes', () => {
       .spyOn(api.apiClient, 'getAWSProjectRuntimeEvents')
       .mockResolvedValue({ runtime: readyAWSRuntimeEvents });
     vi.spyOn(api.apiClient, 'getAWSProjectSecretsKMSRuntimeAccess').mockResolvedValue({
-      correlation: { status: 'degraded', records: [], summary: {}, caveats: [], failure_reasons: [], remediation_hints: [] } as any
+      correlation: {
+        status: 'ready',
+        fixture_state: 'success',
+        confidence: 0.91,
+        applied_filters: {},
+        summary: {
+          total_correlations: 2,
+          filtered_correlations: 2,
+          status_counts: { confirmed: 2 },
+          confirmed_count: 2,
+          observed_without_grant_count: 0,
+          granted_unused_count: 0,
+          secret_correlation_count: 1,
+          kms_key_correlation_count: 1,
+          identity_count: 1,
+          resource_count: 2,
+          observed_access_count: 2,
+          static_grant_count: 2,
+          relationship_count: 2
+        },
+        records: [
+          {
+            correlation_id: 'secret-openai-key',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            identity_node_id: 'aws:identity:lambda-invoice-agent',
+            principal_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
+            resource_kind: 'secret',
+            resource_arn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/ai/openai-key',
+            resource_name: 'prod/ai/openai-key',
+            resource_node_id: 'aws:runtime-resource:aws--secretsmanager--secret:openai-key',
+            status: 'confirmed',
+            confidence: 0.91,
+            observed_count: 1,
+            observed_event_ids: ['evt-secret-read'],
+            actions: ['secretsmanager:GetSecretValue'],
+            session_ids: ['sess-invoice-agent'],
+            first_observed_at: '2026-06-14T17:16:00Z',
+            last_observed_at: '2026-06-14T17:16:00Z',
+            static_sources: ['identity_policy'],
+            evidence_ref: 'secrets-kms-runtime-access://secret-openai-key',
+            evidence_refs: ['runtime-evidence://123456789012/us-east-1/evt-secret-read'],
+            next_action: 'Review secret read scope before approving rotation.',
+            redaction_boundary: 'metadata_only_no_secret_values_no_decrypted_plaintext'
+          },
+          {
+            correlation_id: 'kms-openai-provider',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            identity_node_id: 'aws:identity:lambda-invoice-agent',
+            principal_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
+            resource_kind: 'kms_key',
+            resource_arn: 'arn:aws:kms:us-east-1:123456789012:key/openai-provider',
+            resource_name: 'openai-provider',
+            resource_node_id: 'aws:runtime-resource:kms-key:openai-provider',
+            status: 'confirmed',
+            confidence: 0.91,
+            observed_count: 1,
+            observed_event_ids: ['evt-kms-decrypt'],
+            actions: ['kms:Decrypt'],
+            session_ids: ['sess-invoice-agent'],
+            first_observed_at: '2026-06-14T17:16:30Z',
+            last_observed_at: '2026-06-14T17:16:30Z',
+            static_sources: ['identity_policy'],
+            evidence_ref: 'secrets-kms-runtime-access://kms-openai-provider',
+            evidence_refs: ['runtime-evidence://123456789012/us-east-1/evt-kms-decrypt'],
+            next_action: 'Review decrypt scope before approving key policy changes.',
+            redaction_boundary: 'metadata_only_no_secret_values_no_decrypted_plaintext'
+          }
+        ],
+        relationships: [],
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
     });
     vi.spyOn(api.apiClient, 'getAWSProjectS3RuntimeAccess').mockResolvedValue({
-      correlation: { status: 'degraded', records: [], summary: {}, caveats: [], failure_reasons: [], remediation_hints: [] } as any
+      correlation: {
+        status: 'ready',
+        fixture_state: 'success',
+        confidence: 0.9,
+        applied_filters: {},
+        summary: {
+          total_correlations: 1,
+          filtered_correlations: 1,
+          status_counts: { confirmed: 1 },
+          confirmed_count: 1,
+          observed_without_grant_count: 0,
+          granted_unused_count: 0,
+          read_count: 1,
+          write_count: 0,
+          list_count: 0,
+          sensitive_exposed_count: 0,
+          mode_exceeds_grant_count: 0,
+          identity_count: 1,
+          bucket_count: 1,
+          observed_access_count: 1,
+          static_grant_count: 1,
+          relationship_count: 1
+        },
+        records: [
+          {
+            correlation_id: 's3-billing-artifacts',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            identity_node_id: 'aws:identity:lambda-invoice-agent',
+            principal_arn: 'arn:aws:iam::123456789012:role/lambda-invoice-agent',
+            bucket_arn: 'arn:aws:s3:::billing-artifacts-123456789012',
+            bucket_name: 'billing-artifacts-123456789012',
+            resource_node_id: 'aws:runtime-resource:s3-bucket:billing-artifacts',
+            status: 'confirmed',
+            confidence: 0.9,
+            observed_count: 1,
+            observed_event_ids: ['evt-s3-access'],
+            observed_modes: ['read'],
+            granted_modes: ['read'],
+            safe_prefixes: ['reports/redacted'],
+            actions: ['s3:GetObject'],
+            session_ids: ['sess-invoice-agent'],
+            first_observed_at: '2026-06-14T17:15:00Z',
+            last_observed_at: '2026-06-14T17:15:00Z',
+            static_sources: ['identity_policy'],
+            sensitivity: 'business_metadata',
+            evidence_ref: 's3-runtime-access://billing-artifacts',
+            evidence_refs: ['runtime-evidence://123456789012/us-east-1/evt-s3-access'],
+            next_action: 'Keep object-key details redacted and verify prefix-level scope.',
+            redaction_boundary: 'metadata_only_no_object_keys_no_object_payloads'
+          }
+        ],
+        relationships: [],
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
     });
     vi.spyOn(api.apiClient, 'getAWSProjectAgentRuntimeAccess').mockResolvedValue({
-      correlation: { status: 'degraded', records: [], summary: {}, caveats: [], failure_reasons: [], remediation_hints: [] } as any
+      correlation: {
+        status: 'ready',
+        fixture_state: 'success',
+        confidence: 0.9,
+        applied_filters: {},
+        summary: {
+          total_correlations: 1,
+          filtered_correlations: 1,
+          status_counts: { confirmed: 1 },
+          confirmed_count: 1,
+          observed_without_declaration_count: 0,
+          declared_unused_count: 0,
+          shadow_agent_count: 0,
+          undeclared_tool_count: 0,
+          backing_role_mismatch_count: 0,
+          failed_tool_call_count: 0,
+          agent_count: 1,
+          tool_count: 1,
+          observed_tool_call_count: 1,
+          declared_tool_count: 1,
+          relationship_count: 1
+        },
+        records: [
+          {
+            correlation_id: 'agent-runtime-case-router',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            agent_node_id: 'aws:agent:runtime-case-triage',
+            agent_id: 'runtime-case-triage',
+            agent_name: 'runtime-case-triage',
+            agent_type: 'agentcore_runtime',
+            tool_name: 'case-router',
+            tool_target_ref: 'case-router-policy-checker',
+            status: 'confirmed',
+            confidence: 0.9,
+            observed_count: 1,
+            observed_event_ids: ['evt-agent-tool'],
+            backing_role_arns: ['arn:aws:iam::123456789012:role/agentcore-case-triage-runtime'],
+            target_resource_arns: [
+              'arn:aws:bedrock-agentcore:us-east-1:123456789012:agent-runtime-endpoint/runtime-case-triage/blue'
+            ],
+            outcomes: ['allowed'],
+            session_ids: ['sess-agentcore-runtime'],
+            first_observed_at: '2026-06-14T17:19:00Z',
+            last_observed_at: '2026-06-14T17:19:00Z',
+            declared_in_inventory: true,
+            evidence_ref: 'agent-runtime-access://case-router',
+            evidence_refs: ['runtime-evidence://123456789012/us-east-1/evt-agent-tool'],
+            next_action: 'Review declared tool target and backing role scope.',
+            redaction_boundary: 'metadata_only_no_prompts_no_completions_no_tool_payloads'
+          }
+        ],
+        relationships: [],
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
     });
     const getAIAgentRisk = vi.spyOn(api.apiClient, 'getAWSProjectAIAgentRisk').mockResolvedValue({
       findings: {
@@ -6376,10 +6728,30 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('heading', { level: 2, name: 'Runtime' })).toBeInTheDocument();
     expect(await screen.findByText(/CloudTrail: GetObject/i)).toBeInTheDocument();
     expect(await screen.findByText(/Access Analyzer: Finding/i)).toBeInTheDocument();
+    const runtimeTimeline = await screen.findByRole('region', { name: 'AWS runtime correlation timeline' });
+    expect(within(runtimeTimeline).getByRole('heading', { level: 3, name: 'Runtime timeline' })).toBeInTheDocument();
+    expect(within(runtimeTimeline).getByText(/STS AssumeRole.*AssumeRole/i)).toBeInTheDocument();
+    expect(within(runtimeTimeline).getAllByText(/SourceIdentity billing-operator@example.com/i).length).toBeGreaterThan(0);
+    expect(within(runtimeTimeline).getByText(/runtime-evidence:\/\/123456789012\/us-east-1\/evt-assume-role/i)).toBeInTheDocument();
+    expect(within(runtimeTimeline).getByRole('link', { name: '/docs/aws-runtime-events' })).toHaveAttribute(
+      'href',
+      '/docs/aws-runtime-events'
+    );
+    expect(within(runtimeTimeline).getByRole('link', { name: 'https://docs.identrail.com/aws-runtime-events' })).toHaveAttribute(
+      'href',
+      'https://docs.identrail.com/aws-runtime-events'
+    );
+    expect(within(runtimeTimeline).queryByRole('link', { name: /javascript:alert/i })).not.toBeInTheDocument();
+    expect(await within(runtimeTimeline).findByText(/Secret · prod\/ai\/openai-key/i)).toBeInTheDocument();
+    expect(within(runtimeTimeline).getByText(/S3 · billing-artifacts-123456789012/i)).toBeInTheDocument();
+    expect(within(runtimeTimeline).getByText(/Agent · runtime-case-triage · case-router/i)).toBeInTheDocument();
+    expect(await within(runtimeTimeline).findByText(/Case · Rotate external credential for support-assistant/i)).toBeInTheDocument();
+    expect(within(runtimeTimeline).getByText(/Before evidence:\/\/agent\/support-assistant\/anthropic/i)).toBeInTheDocument();
+    expect(within(runtimeTimeline).getByText(/After secret:\/\/aws:resource:credential-reference:support-anthropic-key\/scoped-projection/i)).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS AI agent risk findings' })).toBeInTheDocument();
     expect(screen.getAllByText(/External credential exposure/i).length).toBeGreaterThan(0);
     expect(await screen.findByRole('table', { name: 'AWS remediation cases' })).toBeInTheDocument();
-    expect(screen.getByText(/Rotate external credential for support-assistant/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Rotate external credential for support-assistant/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Secret rotation/i).length).toBeGreaterThan(0);
     expect(await screen.findByRole('table', { name: 'AWS IAM policy diffs' })).toBeInTheDocument();
     expect(screen.getByText(/Scope data-loader: remove 2 action\(s\)/i)).toBeInTheDocument();
@@ -6527,6 +6899,33 @@ describe('Domain-first app routes', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Event type' }), {
+      target: { value: 'all' }
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Evidence' }), {
+      target: { value: 'all' }
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Status' }), {
+      target: { value: 'stale' }
+    });
+
+    await waitFor(() =>
+      expect(getRuntimeEvents).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1', status: 'stale' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(screen.getByText(/Access Analyzer: Finding/i)).toBeInTheDocument();
+    expect(screen.queryByText(/CloudTrail: GetObject/i)).not.toBeInTheDocument();
+    const staleRuntimeTimeline = screen.getByRole('region', { name: 'AWS runtime correlation timeline' });
+    expect(within(staleRuntimeTimeline).getByText(/Access Analyzer.*Finding/i)).toBeInTheDocument();
+    expect(within(staleRuntimeTimeline).queryByText(/Secret · prod\/ai\/openai-key/i)).not.toBeInTheDocument();
+    expect(within(staleRuntimeTimeline).queryByText(/S3 · billing-artifacts-123456789012/i)).not.toBeInTheDocument();
+    expect(within(staleRuntimeTimeline).queryByText(/Agent · runtime-case-triage · case-router/i)).not.toBeInTheDocument();
+    expect(within(staleRuntimeTimeline).queryByText(/Case · Rotate external credential for support-assistant/i)).not.toBeInTheDocument();
   });
 
   it('shows AWS limited enforcement framework on the governance route', async () => {

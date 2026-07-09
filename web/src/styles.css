@@ -24154,6 +24154,156 @@ html[data-theme='light'] .idt-app-shell-screen select {
   padding: 1rem;
 }
 
+.idt-aws-runtime-timeline-panel {
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.82rem;
+  background: #080809;
+}
+
+.idt-aws-runtime-timeline-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.idt-aws-runtime-timeline-header h3,
+.idt-aws-runtime-highlight-block h4 {
+  margin: 0;
+  color: #ffffff;
+  font-size: 0.98rem;
+}
+
+.idt-aws-runtime-timeline-summary {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+}
+
+.idt-aws-runtime-timeline-summary div {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  border-right: 1px solid var(--app-border-soft);
+  padding: 0.55rem 0.65rem;
+}
+
+.idt-aws-runtime-timeline-summary div:last-child {
+  border-right: 0;
+}
+
+.idt-aws-runtime-timeline-summary dt {
+  color: var(--app-dim);
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.idt-aws-runtime-timeline-summary dd {
+  margin: 0;
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.idt-aws-runtime-evidence-links,
+.idt-aws-runtime-boundary-notes,
+.idt-aws-runtime-highlight-block ul {
+  margin: 0;
+}
+
+.idt-aws-runtime-evidence-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.idt-aws-runtime-evidence-links a,
+.idt-aws-runtime-highlight-block code {
+  border: 1px solid var(--app-border-soft);
+  border-radius: 999px;
+  padding: 0.2rem 0.5rem;
+  background: #050505;
+  color: #b9d7ff;
+  font-family: var(--idt-mono);
+  font-size: 0.72rem;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.idt-aws-runtime-boundary-notes {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0;
+  list-style: none;
+}
+
+.idt-aws-runtime-boundary-notes li {
+  border-left: 2px solid rgba(245, 196, 81, 0.58);
+  padding: 0.18rem 0 0.18rem 0.5rem;
+  color: var(--app-muted);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.idt-aws-runtime-highlight-block {
+  display: grid;
+  gap: 0.48rem;
+  min-width: 0;
+}
+
+.idt-aws-runtime-highlight-block ul {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0;
+  list-style: none;
+}
+
+.idt-aws-runtime-highlight-block li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: start;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.62rem 0.72rem;
+  background: #050505;
+}
+
+.idt-aws-runtime-highlight-block li > div {
+  display: grid;
+  gap: 0.24rem;
+  min-width: 0;
+}
+
+.idt-aws-runtime-highlight-block strong {
+  color: #ffffff;
+  font-size: 0.84rem;
+  overflow-wrap: anywhere;
+}
+
+.idt-aws-runtime-highlight-block span {
+  color: var(--app-muted);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.idt-aws-runtime-highlight-block code {
+  width: fit-content;
+  max-width: 100%;
+  border-radius: 8px;
+}
+
 .idt-kubernetes-page {
   display: grid;
   gap: 0.85rem;
@@ -24388,6 +24538,28 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
   }
 
   .idt-aws-risk-scope div:nth-child(n + 3) {
+    border-top: 1px solid var(--app-border-soft);
+  }
+
+  .idt-aws-runtime-timeline-header,
+  .idt-aws-runtime-highlight-block li {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .idt-aws-runtime-timeline-header {
+    display: grid;
+  }
+
+  .idt-aws-runtime-timeline-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .idt-aws-runtime-timeline-summary div:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .idt-aws-runtime-timeline-summary div:nth-child(n + 3) {
     border-top: 1px solid var(--app-border-soft);
   }
 
