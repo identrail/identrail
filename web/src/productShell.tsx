@@ -99,6 +99,9 @@ import {
   type AWSGovernanceAuditReportRecord,
   type AWSGovernanceAuditReportingQuery,
   type AWSGovernanceAuditReportingResult,
+  type AWSExecutiveOutcomeMetric,
+  type AWSExecutiveOutcomeViewQuery,
+  type AWSExecutiveOutcomeViewResult,
   type AWSSessionPolicyRecommendationEntry,
   type AWSSessionPolicyRecommendationResult,
   type AWSAgentCoreGatewayPolicyAdvisoryEntry,
@@ -460,6 +463,7 @@ type ProductDomainRouteID =
   | 'graph'
   | 'findings'
   | 'remediation'
+  | 'outcomes'
   | 'governance'
   | 'repositories'
   | 'actions'
@@ -558,6 +562,7 @@ const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
       productDomainRoute('graph', 'Graph', 'graph', 'Graph', '', 'How AWS roles can reach things, visualised.'),
       productDomainRoute('findings', 'Findings', 'findings', 'Findings', '', 'Risks Identrail found in your AWS setup.'),
       productDomainRoute('remediation', 'Remediation', 'remediation', 'Remediation', '', 'AWS fixes Identrail prepares for you to approve.'),
+      productDomainRoute('outcomes', 'Outcomes', 'outcomes', 'Outcomes', '', 'Executive outcome view for coverage, risk reduction, verified fixes, enforcement, and remaining exposure.'),
       productDomainRoute('governance', 'Governance', 'governance', 'Governance', '', "Advice on AWS access. Identrail won't apply changes for you.")
     ]
   },
@@ -11655,7 +11660,7 @@ export function ProductAWSResourcesPage() {
 
 type AWSRiskOperationRouteID = Extract<
   ProductDomainRouteID,
-  'runtime' | 'graph' | 'findings' | 'remediation' | 'governance'
+  'runtime' | 'graph' | 'findings' | 'remediation' | 'outcomes' | 'governance'
 >;
 
 type AWSRiskOperationPageCopy = {
@@ -11720,6 +11725,18 @@ const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOpera
     unavailableTitle: 'No fixes prepared',
     unavailableBody: 'Fixes will appear here after a finding has been triaged.'
   },
+  outcomes: {
+    routeID: 'outcomes',
+    title: 'Outcomes',
+    eyebrow: '',
+    description: 'Executive outcome view for risk reduction, coverage, verified fixes, enforcement status, and remaining exposure.',
+    statusLabel: '',
+    currentCapability: '',
+    plannedCapability: '',
+    nextAction: '',
+    unavailableTitle: 'No outcomes yet',
+    unavailableBody: 'Outcome metrics will appear once Identrail has AWS coverage, risk, remediation, and governance evidence.'
+  },
   governance: {
     routeID: 'governance',
     title: 'Governance',
@@ -11741,6 +11758,7 @@ const AWS_RISK_OPERATION_FILTER_DEFAULTS: Record<AWSRiskOperationRouteID, AWSInv
   graph: { node: 'all', edge: 'all', evidence: 'all', search: '' },
   findings: { severity: 'all', account: 'all', region: 'all', evidence: 'all', status: 'all', search: '' },
   remediation: { change: 'all', approval: 'all', stage: 'all', search: '' },
+  outcomes: { outcome: 'all', trend: 'all', severity: 'all', identity: 'all', search: '' },
   governance: { decision: 'all', mode: 'all', evidence: 'all', search: '' }
 };
 
@@ -11935,6 +11953,54 @@ const AWS_RISK_OPERATION_FILTERS: AWSRiskOperationFilterConfigMap = {
       ]
     }
   ],
+  outcomes: [
+    {
+      id: 'outcome',
+      label: 'Outcome',
+      options: [
+        { label: 'All outcomes', value: 'all' },
+        { label: 'Risk reduction', value: 'risk_reduction' },
+        { label: 'Coverage', value: 'coverage' },
+        { label: 'Remediation', value: 'remediation' },
+        { label: 'Enforcement', value: 'enforcement' },
+        { label: 'Exposure', value: 'exposure' },
+        { label: 'Governance', value: 'governance' }
+      ]
+    },
+    {
+      id: 'trend',
+      label: 'Trend',
+      options: [
+        { label: 'All trends', value: 'all' },
+        { label: 'Improving', value: 'improving' },
+        { label: 'Stable', value: 'stable' },
+        { label: 'Needs attention', value: 'needs_attention' }
+      ]
+    },
+    {
+      id: 'severity',
+      label: 'Severity',
+      options: [
+        { label: 'All severities', value: 'all' },
+        { label: 'Critical', value: 'critical' },
+        { label: 'High', value: 'high' },
+        { label: 'Medium', value: 'medium' },
+        { label: 'Low', value: 'low' }
+      ]
+    },
+    {
+      id: 'identity',
+      label: 'Identity',
+      options: [
+        { label: 'All identities', value: 'all' },
+        { label: 'Machine identity', value: 'machine_identity' },
+        { label: 'Coverage target', value: 'coverage_target' },
+        { label: 'Remediation target', value: 'remediation_target' },
+        { label: 'Governed identity', value: 'governed_identity' },
+        { label: 'Governance record', value: 'governance_record' }
+      ]
+    }
+  ],
   governance: [
     {
       id: 'decision',
@@ -11996,6 +12062,7 @@ function AWSRiskOperationFilterSet({
     graph: 'Search graph',
     findings: 'Search findings',
     remediation: 'Search changes',
+    outcomes: 'Search outcomes',
     governance: 'Search decisions'
   };
   const onFilterChange = (id: string, value: string): void => {
@@ -12063,7 +12130,7 @@ function AWSRiskOperationScope({
     ['Connector', connection?.display_name || connection?.connector_id || 'Connected AWS connector'],
     ['Scope', connection?.account_id ? awsAccountRegionLabel(connection) : selectedEnvironmentID ? 'Pending connector' : 'No environment'],
     ['Role', connection?.role_arn ? awsConnectionRoleLabel(connection) : 'Not connected'],
-    ['Mode', copy.routeID === 'governance' ? 'Advisory' : 'Read-only']
+    ['Mode', copy.routeID === 'governance' || copy.routeID === 'outcomes' ? 'Advisory' : 'Read-only']
   ];
 
   return (
@@ -14028,6 +14095,94 @@ function awsGovernanceAuditReportingStage(record: AWSGovernanceAuditReportRecord
     return 'wired';
   }
   return 'coming';
+}
+
+function awsExecutiveOutcomeStage(metric: AWSExecutiveOutcomeMetric): AWSCapabilityStage {
+  if (metric.trend === 'needs_attention') {
+    return metric.severity === 'critical' || metric.severity === 'high' ? 'not-available' : 'coming';
+  }
+  if (metric.trend === 'improving' || metric.outcome_type === 'coverage' || metric.outcome_type === 'risk_reduction') {
+    return 'wired';
+  }
+  return 'coming';
+}
+
+function AWSExecutiveOutcomeViewContent({
+  result,
+  loading,
+  error,
+  onRetry
+}: {
+  result: AWSExecutiveOutcomeViewResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const summaryLine = result
+    ? `${result.summary.risk_reduction_score} risk score · ${result.summary.scan_coverage_pct}% coverage · ${result.summary.verified_remediation_count} verified · ${result.summary.enforcement_ready_count} enforcement-ready · ${result.summary.remaining_exposure_count} exposure remaining`
+    : '';
+  const panelResult = result
+    ? {
+        status: result.status,
+        entries: result.metrics,
+        caveats: result.caveats,
+        failure_reasons: result.failure_reasons
+      }
+    : null;
+  return (
+    <>
+      {result ? (
+        <section className="idt-aws-inventory-coverage" aria-label="AWS executive outcome summary">
+          <DomainCoverageCard label="Risk reduction" scanned={result.summary.risk_reduction_score} total={100} detail="executive score" />
+          <DomainCoverageCard label="Scan coverage" scanned={result.summary.scan_coverage_pct} total={100} detail={`${result.summary.degraded_coverage_count} degraded`} />
+          <DomainCoverageCard label="Verified fixes" scanned={result.summary.verified_remediation_count} total={Math.max(result.summary.verified_remediation_count + result.summary.remaining_exposure_count, 1)} detail="post-remediation" />
+          <DomainCoverageCard label="Enforcement ready" scanned={result.summary.enforcement_ready_count} total={Math.max(result.summary.enforcement_ready_count + result.summary.exception_count, 1)} detail={`${result.summary.exception_count} exceptions`} />
+          <DomainCoverageCard
+            label="Exposure reduction"
+            scanned={result.summary.verified_remediation_count + result.summary.enforcement_ready_count}
+            total={Math.max(result.summary.verified_remediation_count + result.summary.enforcement_ready_count + result.summary.remaining_exposure_count, 1)}
+            detail={`${result.summary.remaining_exposure_count} remaining`}
+          />
+          <DomainCoverageCard
+            label="Governance records"
+            scanned={result.summary.governance_record_count}
+            total={Math.max(result.summary.governance_record_count + result.summary.exception_count, 1)}
+            detail={`${result.summary.exception_count} exceptions`}
+          />
+        </section>
+      ) : null}
+      <AWSExecutorProjectionPanel<AWSExecutiveOutcomeMetric>
+        result={panelResult}
+        loading={loading}
+        error={error}
+        onRetry={onRetry}
+        ariaLabel="AWS executive outcome view"
+        heading="AWS executive outcome view"
+        description={`Executive rollup for risk reduction, scan coverage, verified remediation, enforcement readiness, governance records, and remaining exposure. Metrics are metadata-only and keep evidence refs, confidence, account/region context, and next actions without exposing secrets or payloads. ${summaryLine}`}
+        errorTitle="Couldn't load AWS executive outcomes"
+        loadingTitle="Building executive outcome view"
+        loadingBody="Identrail is composing AWS coverage, risk, remediation, verification, enforcement, and governance signals into an executive rollup."
+        emptyEyebrow={(current) => (current.status === 'blocked' ? 'Permission required' : 'No outcomes')}
+        emptyTitle={(current) => (current.status === 'blocked' ? 'Executive outcomes need source evidence' : 'No executive outcome metrics matched')}
+        emptyBody={(current) => current.failure_reasons[0] ?? 'No AWS outcome metric matched the current filters.'}
+        tableLabel="AWS executive outcome metrics"
+        getRowKey={(row) => row.metric_id}
+        columns={[
+          { key: 'metric', header: 'Metric', render: (row) => <strong>{row.title}</strong> },
+          { key: 'outcome', header: 'Outcome', render: (row) => formatTokenLabel(row.outcome_type) },
+          { key: 'value', header: 'Value', render: (row) => `${row.value}${row.unit === 'percent' ? '%' : ` ${formatTokenLabel(row.unit)}`}` },
+          { key: 'trend', header: 'Trend', render: (row) => `${formatTokenLabel(row.trend)} (${row.trend_delta})` },
+          { key: 'scope', header: 'Scope', render: (row) => awsAccountRegionInventoryLabel(row.account_id, row.region) },
+          { key: 'next', header: 'Next action', render: (row) => row.next_action },
+          {
+            key: 'confidence',
+            header: 'Confidence',
+            render: (row) => <AWSInventoryPill stage={awsExecutiveOutcomeStage(row)} label={`${Math.round(row.confidence * 100)}%`} />
+          }
+        ]}
+      />
+    </>
+  );
 }
 
 function AWSGovernanceAuditReportingContent({
@@ -16286,6 +16441,16 @@ function awsGovernanceAuditReportingQueryFromFilters(filters: AWSInventoryFilter
   return query;
 }
 
+function awsExecutiveOutcomeViewQueryFromFilters(filters: AWSInventoryFilterState): Partial<AWSExecutiveOutcomeViewQuery> {
+  return {
+    outcomeType: awsSecretPermissionEquivalenceFilterToken(filters.outcome),
+    trend: awsSecretPermissionEquivalenceFilterToken(filters.trend),
+    severity: awsSecretPermissionEquivalenceFilterToken(filters.severity),
+    identityType: awsSecretPermissionEquivalenceFilterToken(filters.identity),
+    search: normalizeFilterValue(filters.search ?? '') || undefined
+  };
+}
+
 function AWSGraphExplorerContent({
   graph,
   loading,
@@ -16835,6 +17000,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [governanceAuditReportingLoading, setGovernanceAuditReportingLoading] = useState(false);
   const [governanceAuditReportingError, setGovernanceAuditReportingError] = useState('');
   const governanceAuditReportingRequestRef = useRef(0);
+  const [executiveOutcomes, setExecutiveOutcomes] = useState<AWSExecutiveOutcomeViewResult | null>(null);
+  const [executiveOutcomesLoading, setExecutiveOutcomesLoading] = useState(false);
+  const [executiveOutcomesError, setExecutiveOutcomesError] = useState('');
+  const executiveOutcomesRequestRef = useRef(0);
   const [sessionPolicyRecommendations, setSessionPolicyRecommendations] = useState<AWSSessionPolicyRecommendationResult | null>(null);
   const [sessionPolicyRecommendationsLoading, setSessionPolicyRecommendationsLoading] = useState(false);
   const [sessionPolicyRecommendationsError, setSessionPolicyRecommendationsError] = useState('');
@@ -17818,6 +17987,61 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       governanceAuditReportingRequestRef.current += 1;
     };
   }, [loadGovernanceAuditReporting]);
+
+  const loadExecutiveOutcomes = useCallback(async () => {
+    const requestID = ++executiveOutcomesRequestRef.current;
+    setExecutiveOutcomes(null);
+    setExecutiveOutcomesError('');
+    if (routeID !== 'outcomes' || !scope || !selectedEnvironmentID || !connection?.connector_id) {
+      setExecutiveOutcomesLoading(false);
+      return;
+    }
+    setExecutiveOutcomesLoading(true);
+    const requestFilters = awsExecutiveOutcomeViewQueryFromFilters(activeFilters);
+    try {
+      const response = await apiClient.getAWSProjectExecutiveOutcomes(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id,
+          ...requestFilters
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== executiveOutcomesRequestRef.current) {
+        return;
+      }
+      setExecutiveOutcomes(response.executive_outcomes);
+    } catch (error) {
+      if (requestID !== executiveOutcomesRequestRef.current) {
+        return;
+      }
+      setExecutiveOutcomesError(formatAPIError(error, 'Unable to load AWS executive outcomes.'));
+    } finally {
+      if (requestID === executiveOutcomesRequestRef.current) {
+        setExecutiveOutcomesLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    activeFilters.outcome,
+    activeFilters.trend,
+    activeFilters.severity,
+    activeFilters.identity,
+    activeFilters.search,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadExecutiveOutcomes();
+    return () => {
+      executiveOutcomesRequestRef.current += 1;
+    };
+  }, [loadExecutiveOutcomes]);
 
   const loadSessionPolicyRecommendations = useCallback(async () => {
     const requestID = ++sessionPolicyRecommendationsRequestRef.current;
@@ -18954,6 +19178,17 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
         {routeID === 'remediation' ? (
           <AWSRemediationContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
         ) : null}
+        {routeID === 'outcomes' ? (
+          <AWSRiskOperationFilterSet routeID="outcomes" filters={activeFilters} onChange={onFiltersChange} />
+        ) : null}
+        {routeID === 'outcomes' ? (
+          <AWSExecutiveOutcomeViewContent
+            result={executiveOutcomes}
+            loading={executiveOutcomesLoading}
+            error={executiveOutcomesError}
+            onRetry={loadExecutiveOutcomes}
+          />
+        ) : null}
         {routeID === 'governance' ? (
           <AWSGovernanceContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
         ) : null}
@@ -19000,6 +19235,10 @@ export function ProductAWSFindingsPage() {
 
 export function ProductAWSRemediationPage() {
   return <ProductAWSRiskOperationsPage routeID="remediation" />;
+}
+
+export function ProductAWSOutcomesPage() {
+  return <ProductAWSRiskOperationsPage routeID="outcomes" />;
 }
 
 export function ProductAWSGovernancePage() {

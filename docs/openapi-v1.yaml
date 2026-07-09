@@ -663,6 +663,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/executive-outcomes
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/session-policy-recommendations
     action: tenancy.read
     resource_type: project
@@ -6398,6 +6403,84 @@ paths:
                     $ref: "#/components/schemas/AWSGovernanceAuditReportingResult"
         "400":
           description: Invalid AWS governance audit reporting request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/executive-outcomes:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS executive outcome view
+      operationId: getAWSProjectExecutiveOutcomes
+      description: Composes executive AWS outcome metrics for risk reduction, scan coverage, verified remediation, enforcement readiness, remaining exposure, and governance outcomes from existing metadata-only AWS evidence contracts. The endpoint exposes confidence, trends, source evidence links, coverage gaps, and diagnostics without calling AWS write APIs or returning rendered policies, secret values, prompts, completions, database rows, object contents, or workload payloads.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: ou
+          schema: { type: string }
+        - in: query
+          name: identity_type
+          schema: { type: string }
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - in: query
+          name: outcome_type
+          schema:
+            type: string
+            enum: [risk_reduction, coverage, remediation, enforcement, exposure, governance]
+        - in: query
+          name: trend
+          schema:
+            type: string
+            enum: [improving, stable, needs_attention]
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS executive outcome view contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  executive_outcomes:
+                    $ref: "#/components/schemas/AWSExecutiveOutcomeViewResult"
+        "400":
+          description: Invalid AWS executive outcome view request
           content:
             application/json:
               schema:
@@ -18568,6 +18651,134 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSGovernanceAuditReportRecord"
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        coverage_gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeCoverageGap"
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSExecutiveOutcomeMetric:
+      type: object
+      properties:
+        metric_id: { type: string }
+        category: { type: string }
+        outcome_type:
+          type: string
+          enum: [risk_reduction, coverage, remediation, enforcement, exposure, governance]
+        title: { type: string }
+        summary: { type: string }
+        value: { type: integer }
+        unit: { type: string }
+        trend:
+          type: string
+          enum: [improving, stable, needs_attention]
+        trend_delta: { type: integer }
+        score: { type: integer }
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        account_id: { type: string }
+        region: { type: string }
+        ou: { type: string }
+        identity_type: { type: string }
+        severity: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        evidence_ref: { type: string }
+        evidence_boundary: { type: string }
+        next_action: { type: string }
+        updated_at:
+          type: string
+          format: date-time
+    AWSExecutiveOutcomeViewSummary:
+      type: object
+      properties:
+        total_metrics: { type: integer }
+        filtered_metrics: { type: integer }
+        risk_reduction_score: { type: integer }
+        scan_coverage_pct: { type: integer }
+        verified_remediation_count: { type: integer }
+        enforcement_ready_count: { type: integer }
+        remaining_exposure_count: { type: integer }
+        degraded_coverage_count: { type: integer }
+        governance_record_count: { type: integer }
+        exception_count: { type: integer }
+        account_counts:
+          type: object
+          additionalProperties: { type: integer }
+        ou_counts:
+          type: object
+          additionalProperties: { type: integer }
+        identity_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        severity_counts:
+          type: object
+          additionalProperties: { type: integer }
+        outcome_type_counts:
+          type: object
+          additionalProperties: { type: integer }
+        trend_counts:
+          type: object
+          additionalProperties: { type: integer }
+        highest_score: { type: integer }
+        average_confidence_pct: { type: integer }
+    AWSExecutiveOutcomeViewResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSExecutiveOutcomeViewSummary"
+        metrics:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSExecutiveOutcomeMetric"
         caveats:
           type: array
           items: { type: string }

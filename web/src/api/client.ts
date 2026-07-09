@@ -4989,6 +4989,96 @@ export type AWSGovernanceAuditReportingQuery = {
   search?: string;
 };
 
+export type AWSExecutiveOutcomeViewStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSExecutiveOutcomeViewFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+
+export type AWSExecutiveOutcomeMetric = {
+  metric_id: string;
+  category: string;
+  outcome_type: string;
+  title: string;
+  summary: string;
+  value: number;
+  unit: string;
+  trend: string;
+  trend_delta: number;
+  score: number;
+  confidence: number;
+  account_id?: string;
+  region?: string;
+  ou?: string;
+  identity_type?: string;
+  severity?: string;
+  evidence_links: string[];
+  evidence_ref?: string;
+  evidence_boundary: string;
+  next_action: string;
+  updated_at: string;
+};
+
+export type AWSExecutiveOutcomeViewSummary = {
+  total_metrics: number;
+  filtered_metrics: number;
+  risk_reduction_score: number;
+  scan_coverage_pct: number;
+  verified_remediation_count: number;
+  enforcement_ready_count: number;
+  remaining_exposure_count: number;
+  degraded_coverage_count: number;
+  governance_record_count: number;
+  exception_count: number;
+  account_counts: Record<string, number>;
+  ou_counts: Record<string, number>;
+  identity_type_counts: Record<string, number>;
+  severity_counts: Record<string, number>;
+  outcome_type_counts: Record<string, number>;
+  trend_counts: Record<string, number>;
+  highest_score: number;
+  average_confidence_pct: number;
+};
+
+export type AWSExecutiveOutcomeViewResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSExecutiveOutcomeViewStatus;
+  fixture_state?: AWSExecutiveOutcomeViewFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSExecutiveOutcomeViewSummary;
+  metrics: AWSExecutiveOutcomeMetric[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSExecutiveOutcomeViewQuery = {
+  connectorID?: string;
+  fixtureState?: AWSExecutiveOutcomeViewFixtureState;
+  accountID?: string;
+  region?: string;
+  ou?: string;
+  identityType?: string;
+  severity?: string;
+  outcomeType?: string;
+  trend?: string;
+  search?: string;
+};
+
 export type AWSSessionPolicyRecommendationStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSSessionPolicyRecommendationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSSessionPolicyRecommendationDecision = 'remove' | 'review' | string;
@@ -10915,6 +11005,28 @@ export const apiClient = {
         source_type: query?.sourceType,
         from: query?.from,
         to: query?.to,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectExecutiveOutcomes(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSExecutiveOutcomeViewQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ executive_outcomes: AWSExecutiveOutcomeViewResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/executive-outcomes${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        ou: query?.ou,
+        identity_type: query?.identityType,
+        severity: query?.severity,
+        outcome_type: query?.outcomeType,
+        trend: query?.trend,
         search: query?.search
       })}`,
       auth

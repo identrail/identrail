@@ -7441,6 +7441,164 @@ describe('Domain-first app routes', () => {
     expect(screen.getByText(/Organizations read access denied/i)).toBeInTheDocument();
   });
 
+  it('shows AWS executive outcome view and forwards outcome filters', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const getExecutiveOutcomes = vi.spyOn(api.apiClient, 'getAWSProjectExecutiveOutcomes').mockResolvedValue({
+      executive_outcomes: {
+        status: 'ready',
+        confidence: 0.9,
+        current_issue_ref: '#1555',
+        version: 'aws-executive-outcome-view-v1',
+        applied_filters: {},
+        summary: {
+          total_metrics: 3,
+          filtered_metrics: 3,
+          risk_reduction_score: 72,
+          scan_coverage_pct: 83,
+          verified_remediation_count: 2,
+          enforcement_ready_count: 1,
+          remaining_exposure_count: 4,
+          degraded_coverage_count: 1,
+          governance_record_count: 3,
+          exception_count: 0,
+          account_counts: { '123456789012': 3 },
+          ou_counts: {},
+          identity_type_counts: { machine_identity: 2, coverage_target: 1 },
+          severity_counts: { high: 2, low: 1 },
+          outcome_type_counts: { risk_reduction: 1, coverage: 1, exposure: 1 },
+          trend_counts: { improving: 2, needs_attention: 1 },
+          highest_score: 92,
+          average_confidence_pct: 90
+        },
+        metrics: [
+          {
+            metric_id: 'risk-reduction',
+            category: 'risk_reduction',
+            outcome_type: 'risk_reduction',
+            title: 'Risk reduction',
+            summary: 'Projected reduction from remediation and verification.',
+            value: 72,
+            unit: 'score',
+            trend: 'improving',
+            trend_delta: 12,
+            score: 72,
+            confidence: 0.91,
+            account_id: '123456789012',
+            region: 'us-east-1',
+            identity_type: 'machine_identity',
+            severity: 'high',
+            evidence_links: ['/docs/aws-executive-outcome-view'],
+            evidence_ref: 'aws-executive-outcome://risk-reduction',
+            evidence_boundary: 'metadata_only_outcome_metrics_no_secret_values_no_customer_payloads',
+            next_action: 'Approve low-breakage remediation plans.',
+            updated_at: '2026-07-09T12:00:00Z'
+          },
+          {
+            metric_id: 'scan-coverage',
+            category: 'scan_coverage',
+            outcome_type: 'coverage',
+            title: 'Scan coverage',
+            summary: 'Account and region coverage.',
+            value: 83,
+            unit: 'percent',
+            trend: 'improving',
+            trend_delta: 5,
+            score: 83,
+            confidence: 0.9,
+            account_id: '123456789012',
+            region: 'us-east-1',
+            identity_type: 'coverage_target',
+            severity: 'low',
+            evidence_links: ['/docs/aws-account-region-coverage-planner'],
+            evidence_ref: 'aws-executive-outcome://scan-coverage',
+            evidence_boundary: 'metadata_only_outcome_metrics_no_secret_values_no_customer_payloads',
+            next_action: 'Close degraded coverage.',
+            updated_at: '2026-07-09T12:00:00Z'
+          },
+          {
+            metric_id: 'remaining-exposure',
+            category: 'remaining_exposure',
+            outcome_type: 'exposure',
+            title: 'Remaining exposure',
+            summary: 'Open high-severity exposure.',
+            value: 4,
+            unit: 'open',
+            trend: 'needs_attention',
+            trend_delta: -4,
+            score: 92,
+            confidence: 0.88,
+            account_id: '123456789012',
+            region: 'us-east-1',
+            identity_type: 'machine_identity',
+            severity: 'high',
+            evidence_links: ['/docs/aws-blast-radius-engine'],
+            evidence_ref: 'aws-executive-outcome://remaining-exposure',
+            evidence_boundary: 'metadata_only_outcome_metrics_no_secret_values_no_customer_payloads',
+            next_action: 'Prioritize critical and high exposure.',
+            updated_at: '2026-07-09T12:00:00Z'
+          }
+        ],
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: ['/docs/aws-executive-outcome-view'],
+        coverage_gaps: [],
+        diagnostics: [],
+        generated_at: '2026-07-09T12:00:00Z',
+        updated_at: '2026-07-09T12:00:00Z'
+      } as any
+    });
+
+    const { ProductAWSOutcomesPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/outcomes?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/outcomes" element={<ProductAWSOutcomesPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Outcomes' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'AWS executive outcome summary' })).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS executive outcome metrics' })).toBeInTheDocument();
+    expect(screen.getAllByText(/Risk reduction/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Remaining exposure/i).length).toBeGreaterThan(0);
+    expect(getExecutiveOutcomes).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Outcome' }), {
+      target: { value: 'exposure' }
+    });
+    await waitFor(() =>
+      expect(getExecutiveOutcomes).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1', outcomeType: 'exposure' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+  });
+
   it('passes AWS findings filters to secret-permission equivalence queries', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({

@@ -1,6 +1,20 @@
 # Changelog
 
 ## Unreleased
+- Add an **AWS executive outcome view** (#1555). Adds the metadata-only
+  `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/executive-outcomes`
+  endpoint, composing account/region coverage, blast radius,
+  least-privilege recommendations, remediation cases, post-remediation
+  verification, limited enforcement, and governance audit reporting into
+  executive metrics for risk reduction, scan coverage, verified remediation,
+  enforcement readiness, remaining exposure, and governance outcomes. The
+  result supports connector, account, region, OU, identity type, severity,
+  outcome type, trend, and search filters, carries source evidence refs and
+  confidence, and stays inside the same export-safe boundary as the underlying
+  AWS contracts: no AWS write calls and no rendered policies, secret values,
+  prompts, completions, database rows, object contents, or workload payloads.
+  The app adds `/app/{tenant_id}/{workspace_id}/aws/outcomes` with summary
+  cards and a filterable outcome metric table for leadership review.
 - Add the **AWS Remediation Center unified experience** (read-only). A new
   `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/remediation-center`
   endpoint stitches remediation cases, the approval queue, dry-run projections,
