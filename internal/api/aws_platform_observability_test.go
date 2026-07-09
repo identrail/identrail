@@ -64,6 +64,93 @@ func TestGetAWSPlatformObservabilityBuildsContract(t *testing.T) {
 	}
 }
 
+func TestAWSPlatformObservabilityMetricsUseLagAndScopedServiceLabels(t *testing.T) {
+	now := time.Date(2026, 7, 9, 15, 2, 0, 0, time.UTC)
+	sources := awsPlatformObservabilitySources{
+		Coverage: AWSAccountRegionCoverageResult{
+			Status:     awsPlatformDependencyStatusReady,
+			Confidence: 0.98,
+		},
+		FanOut: AWSFanOutExecutionResult{
+			Status:     awsPlatformDependencyStatusReady,
+			Confidence: 0.96,
+			Summary: AWSFanOutExecutionSummary{
+				QueuedTargets: 8,
+			},
+		},
+		Runtime: AWSRuntimeEventResult{
+			Status:     awsPlatformDependencyStatusReady,
+			Confidence: 0.94,
+			Records: []AWSRuntimeEventRecord{
+				{
+					EventID:     "runtime-lagged",
+					AccountID:   "123456789012",
+					Region:      "us-east-1",
+					EventSource: "cloudtrail",
+					ObservedAt:  now.Add(-20 * time.Minute),
+					CollectedAt: now,
+				},
+			},
+		},
+		Cases: AWSRemediationCaseResult{
+			Status:     awsPlatformDependencyStatusReady,
+			Confidence: 0.93,
+		},
+		Verification: AWSPostRemediationVerificationResult{
+			Status:     awsPlatformDependencyStatusReady,
+			Confidence: 0.92,
+		},
+		Enforcement: AWSLimitedEnforcementResult{
+			Status:     awsPlatformDependencyStatusReady,
+			Confidence: 0.91,
+		},
+		Governance: AWSGovernanceAuditReportingResult{
+			Status:     awsPlatformDependencyStatusReady,
+			Confidence: 0.9,
+		},
+	}
+
+	metrics := awsPlatformObservabilityMetrics(sources, AWSPlatformObservabilityRequest{Service: "ecs"}, "123456789012", "us-east-1", "ecs", now)
+	byID := map[string]AWSPlatformObservabilityMetric{}
+	for _, metric := range metrics {
+		byID[metric.MetricID] = metric
+	}
+	for _, id := range []string{"queue-lag", "runtime-lag"} {
+		metric, ok := byID[id]
+		if !ok {
+			t.Fatalf("missing lag metric %q in %+v", id, metrics)
+		}
+		if metric.Status != awsPlatformDependencyStatusDegraded || metric.Severity != "high" {
+			t.Fatalf("expected lag metric %q to be degraded/high, got %+v", id, metric)
+		}
+	}
+	for _, id := range []string{"runtime-lag", "remediation-state", "verification-outcomes", "enforcement-health", "governance-outcomes"} {
+		metric, ok := byID[id]
+		if !ok {
+			t.Fatalf("missing aggregate metric %q in %+v", id, metrics)
+		}
+		if metric.Service != "all" {
+			t.Fatalf("expected aggregate metric %q to remain service=all, got %+v", id, metric)
+		}
+	}
+
+	filtered, _, _ := filterAWSPlatformObservability(metrics, nil, AWSPlatformObservabilityRequest{Service: "ecs"})
+	for _, metric := range filtered {
+		if metric.Service != "ecs" {
+			t.Fatalf("service filter should not keep unscoped aggregate metrics: %+v", metric)
+		}
+	}
+}
+
+func TestAWSPlatformObservabilityP95UsesNearestRank(t *testing.T) {
+	if got := awsPlatformObservabilityP95([]int{10, 100}); got != 100 {
+		t.Fatalf("expected two-sample p95 to select upper nearest rank, got %d", got)
+	}
+	if got := awsPlatformObservabilityP95([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}); got != 10 {
+		t.Fatalf("expected ten-sample p95 to select upper nearest rank, got %d", got)
+	}
+}
+
 func TestAWSPlatformObservabilityFiltersComponentStatusAndSearch(t *testing.T) {
 	now := time.Date(2026, 7, 9, 15, 5, 0, 0, time.UTC)
 	svc, ws := newPlatformObservabilityService(t, "project-platform-observability-filter", now)

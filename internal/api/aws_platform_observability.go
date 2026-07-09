@@ -341,6 +341,7 @@ func awsPlatformObservabilityMetrics(sources awsPlatformObservabilitySources, re
 	if service == "" {
 		service = "all"
 	}
+	aggregateService := "all"
 	collectorFailures := sources.Coverage.Summary.DegradedRecords + sources.Coverage.Summary.UnreachableRecords + sources.Coverage.Summary.StaleRecords + sources.Coverage.Summary.PermissionDeniedRecords + len(sources.Coverage.Diagnostics)
 	queueLag := awsPlatformObservabilityQueueLag(sources.FanOut.Summary)
 	runtimeLag := awsPlatformObservabilityRuntimeLag(sources.Runtime.Records)
@@ -378,8 +379,8 @@ func awsPlatformObservabilityMetrics(sources awsPlatformObservabilitySources, re
 			Summary:          "Estimated backlog lag from queued and in-progress fan-out targets.",
 			Value:            queueLag,
 			Unit:             "milliseconds",
-			Status:           awsPlatformObservabilitySourceStatus(sources.FanOut.Status),
-			Severity:         awsPlatformObservabilityMetricSeverity(sources.FanOut.Status),
+			Status:           awsPlatformObservabilityLagStatus(queueLag, sources.FanOut.Status),
+			Severity:         awsPlatformObservabilityLagSeverity(queueLag, sources.FanOut.Status),
 			Confidence:       sources.FanOut.Confidence,
 			AccountID:        accountID,
 			Region:           region,
@@ -444,13 +445,13 @@ func awsPlatformObservabilityMetrics(sources awsPlatformObservabilitySources, re
 			Summary:          "P95 delay between runtime observation and collection for CloudTrail, last-used, and Access Analyzer signals.",
 			Value:            runtimeLag,
 			Unit:             "milliseconds",
-			Status:           awsPlatformObservabilitySourceStatus(sources.Runtime.Status),
-			Severity:         awsPlatformObservabilityMetricSeverity(sources.Runtime.Status),
+			Status:           awsPlatformObservabilityLagStatus(runtimeLag, sources.Runtime.Status),
+			Severity:         awsPlatformObservabilityLagSeverity(runtimeLag, sources.Runtime.Status),
 			Confidence:       sources.Runtime.Confidence,
 			AccountID:        accountID,
 			Region:           region,
-			Service:          service,
-			TraceID:          awsPlatformObservabilityTraceID("metric", "runtime", accountID, region, service, "runtime-lag"),
+			Service:          aggregateService,
+			TraceID:          awsPlatformObservabilityTraceID("metric", "runtime", accountID, region, aggregateService, "runtime-lag"),
 			EvidenceRef:      "aws-platform-observability://runtime-lag",
 			EvidenceLinks:    sources.Runtime.EvidenceLinks,
 			EvidenceBoundary: awsPlatformObservabilityBoundary,
@@ -471,8 +472,8 @@ func awsPlatformObservabilityMetrics(sources awsPlatformObservabilitySources, re
 			Confidence:       averageFloat64(sources.Cases.Confidence, sources.Verification.Confidence),
 			AccountID:        accountID,
 			Region:           region,
-			Service:          service,
-			TraceID:          awsPlatformObservabilityTraceID("metric", "remediation", accountID, region, service, "remediation-state"),
+			Service:          aggregateService,
+			TraceID:          awsPlatformObservabilityTraceID("metric", "remediation", accountID, region, aggregateService, "remediation-state"),
 			EvidenceRef:      "aws-platform-observability://remediation-state",
 			EvidenceLinks:    dedupeStrings(append(append([]string{}, sources.Cases.EvidenceLinks...), sources.Verification.EvidenceLinks...)),
 			EvidenceBoundary: awsPlatformObservabilityBoundary,
@@ -493,8 +494,8 @@ func awsPlatformObservabilityMetrics(sources awsPlatformObservabilitySources, re
 			Confidence:       sources.Verification.Confidence,
 			AccountID:        accountID,
 			Region:           region,
-			Service:          service,
-			TraceID:          awsPlatformObservabilityTraceID("metric", "verification", accountID, region, service, "verification-outcomes"),
+			Service:          aggregateService,
+			TraceID:          awsPlatformObservabilityTraceID("metric", "verification", accountID, region, aggregateService, "verification-outcomes"),
 			EvidenceRef:      "aws-platform-observability://verification-outcomes",
 			EvidenceLinks:    sources.Verification.EvidenceLinks,
 			EvidenceBoundary: awsPlatformObservabilityBoundary,
@@ -515,8 +516,8 @@ func awsPlatformObservabilityMetrics(sources awsPlatformObservabilitySources, re
 			Confidence:       sources.Enforcement.Confidence,
 			AccountID:        accountID,
 			Region:           region,
-			Service:          service,
-			TraceID:          awsPlatformObservabilityTraceID("metric", "enforcement", accountID, region, service, "enforcement-health"),
+			Service:          aggregateService,
+			TraceID:          awsPlatformObservabilityTraceID("metric", "enforcement", accountID, region, aggregateService, "enforcement-health"),
 			EvidenceRef:      "aws-platform-observability://enforcement-health",
 			EvidenceLinks:    sources.Enforcement.EvidenceLinks,
 			EvidenceBoundary: awsPlatformObservabilityBoundary,
@@ -537,8 +538,8 @@ func awsPlatformObservabilityMetrics(sources awsPlatformObservabilitySources, re
 			Confidence:       sources.Governance.Confidence,
 			AccountID:        accountID,
 			Region:           region,
-			Service:          service,
-			TraceID:          awsPlatformObservabilityTraceID("metric", "governance", accountID, region, service, "governance-outcomes"),
+			Service:          aggregateService,
+			TraceID:          awsPlatformObservabilityTraceID("metric", "governance", accountID, region, aggregateService, "governance-outcomes"),
 			EvidenceRef:      "aws-platform-observability://governance-outcomes",
 			EvidenceLinks:    sources.Governance.EvidenceLinks,
 			EvidenceBoundary: awsPlatformObservabilityBoundary,
@@ -903,7 +904,7 @@ func awsPlatformObservabilityP95(values []int) int {
 		return 0
 	}
 	sort.Ints(values)
-	index := int(float64(len(values)-1) * 0.95)
+	index := ((95*len(values))+99)/100 - 1
 	return values[index]
 }
 

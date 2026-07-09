@@ -18953,7 +18953,9 @@ components:
       properties:
         alert_id: { type: string }
         severity: { type: string }
-        component: { type: string }
+        component:
+          type: string
+          enum: [collector, queue, runtime, remediation, verification, enforcement, governance]
         status:
           type: string
           enum: [ready, degraded, blocked]
