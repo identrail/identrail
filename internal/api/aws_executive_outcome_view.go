@@ -574,30 +574,34 @@ func summarizeAWSExecutiveOutcomeView(
 	governance AWSGovernanceAuditReportingResult,
 ) AWSExecutiveOutcomeViewSummary {
 	summaries := awsExecutiveOutcomeFilteredSourceSummaries(coverage, blast, least, cases, verification, enforcement, governance)
-	scanCoveragePct := percent(summaries.Coverage.CoveredRecords, summaries.Coverage.TotalRecords)
 	summary := AWSExecutiveOutcomeViewSummary{
-		TotalMetrics:             len(all),
-		FilteredMetrics:          len(filtered),
-		RiskReductionScore:       0,
-		ScanCoveragePct:          scanCoveragePct,
-		VerifiedRemediationCount: summaries.Verification.VerifiedCount,
-		EnforcementReadyCount:    awsExecutiveOutcomeLimitedEnforcementReadyCount(enforcement.Entries),
-		RemainingExposureCount:   summaries.Blast.FilteredFindings + summaries.Least.ReviewCount,
-		DegradedCoverageCount:    summaries.Coverage.DegradedRecords + summaries.Coverage.UnreachableRecords + summaries.Coverage.PermissionDeniedRecords + summaries.Coverage.StaleRecords,
-		GovernanceRecordCount:    summaries.Governance.FilteredRecords,
-		ExceptionCount:           summaries.Governance.ExceptionCount,
-		AccountCounts:            map[string]int{},
-		OUCounts:                 map[string]int{},
-		IdentityTypeCounts:       map[string]int{},
-		SeverityCounts:           map[string]int{},
-		OutcomeTypeCounts:        map[string]int{},
-		TrendCounts:              map[string]int{},
-		HighestScore:             maxInt(scanCoveragePct, summaries.Blast.HighestScore, summaries.Least.HighestScore, summaries.Cases.HighestScore, summaries.Verification.HighestScore, summaries.Enforcement.HighestScore, summaries.Governance.HighestScore),
+		TotalMetrics:       len(all),
+		FilteredMetrics:    len(filtered),
+		RiskReductionScore: 0,
+		AccountCounts:      map[string]int{},
+		OUCounts:           map[string]int{},
+		IdentityTypeCounts: map[string]int{},
+		SeverityCounts:     map[string]int{},
+		OutcomeTypeCounts:  map[string]int{},
+		TrendCounts:        map[string]int{},
 	}
 	confidenceTotal := 0.0
 	for _, metric := range filtered {
-		if metric.MetricID == "risk-reduction" {
+		switch metric.MetricID {
+		case "risk-reduction":
 			summary.RiskReductionScore = metric.Value
+		case "scan-coverage":
+			summary.ScanCoveragePct = metric.Value
+			summary.DegradedCoverageCount = summaries.Coverage.DegradedRecords + summaries.Coverage.UnreachableRecords + summaries.Coverage.PermissionDeniedRecords + summaries.Coverage.StaleRecords
+		case "verified-remediation":
+			summary.VerifiedRemediationCount = metric.Value
+		case "enforcement-status":
+			summary.EnforcementReadyCount = metric.Value
+		case "remaining-exposure":
+			summary.RemainingExposureCount = metric.Value
+		case "governance-outcomes":
+			summary.GovernanceRecordCount = metric.Value
+			summary.ExceptionCount = summaries.Governance.ExceptionCount
 		}
 		incrementCount(summary.AccountCounts, metric.AccountID)
 		incrementDelimitedCount(summary.OUCounts, metric.OU)
@@ -605,6 +609,7 @@ func summarizeAWSExecutiveOutcomeView(
 		incrementCount(summary.SeverityCounts, metric.Severity)
 		incrementCount(summary.OutcomeTypeCounts, metric.OutcomeType)
 		incrementCount(summary.TrendCounts, metric.Trend)
+		summary.HighestScore = maxInt(summary.HighestScore, metric.Score)
 		confidenceTotal += metric.Confidence
 	}
 	if len(filtered) > 0 {

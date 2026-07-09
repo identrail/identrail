@@ -99,6 +99,19 @@ func TestAWSExecutiveOutcomeViewFiltersOutcomeSeverityAndSearch(t *testing.T) {
 	if result.Summary.FilteredMetrics != 1 || result.Summary.OutcomeTypeCounts["coverage"] != 1 {
 		t.Fatalf("expected filtered summary to reflect coverage metric, got %+v", result.Summary)
 	}
+	if result.Summary.ScanCoveragePct == 0 || result.Summary.ScanCoveragePct != result.Metrics[0].Value {
+		t.Fatalf("expected scan coverage summary to follow visible coverage metric, got metric=%+v summary=%+v", result.Metrics[0], result.Summary)
+	}
+	if result.Summary.HighestScore != result.Metrics[0].Score {
+		t.Fatalf("expected highest score to come from visible metrics, got metric=%+v summary=%+v", result.Metrics[0], result.Summary)
+	}
+	if result.Summary.VerifiedRemediationCount != 0 ||
+		result.Summary.EnforcementReadyCount != 0 ||
+		result.Summary.RemainingExposureCount != 0 ||
+		result.Summary.GovernanceRecordCount != 0 ||
+		result.Summary.ExceptionCount != 0 {
+		t.Fatalf("expected hidden outcome summary buckets to be zeroed, got %+v", result.Summary)
+	}
 
 	severityResult, err := svc.GetAWSExecutiveOutcomeView(defaultScopeContext(), ws, "project-executive-outcomes-filter", AWSExecutiveOutcomeViewRequest{
 		ConnectorID:  "aws-prod",
@@ -188,14 +201,20 @@ func TestAWSExecutiveOutcomeViewTreatsAllAccountRegionAsUnscoped(t *testing.T) {
 }
 
 func TestAWSExecutiveOutcomeViewSummaryHighestScoreUsesCoveragePercent(t *testing.T) {
-	summary := summarizeAWSExecutiveOutcomeView(nil, nil,
-		AWSAccountRegionCoverageResult{
-			Summary: AWSAccountRegionCoverageSummary{CoveredRecords: 250, TotalRecords: 500},
-			Records: []AWSAccountRegionCoverageRecord{
-				{AccountID: "123456789012", Region: "us-east-1", Service: "iam", CoverageStatus: "covered"},
-				{AccountID: "123456789012", Region: "us-east-1", Service: "s3", CoverageStatus: "missing"},
-			},
+	coverage := AWSAccountRegionCoverageResult{
+		Summary: AWSAccountRegionCoverageSummary{CoveredRecords: 250, TotalRecords: 500},
+		Records: []AWSAccountRegionCoverageRecord{
+			{AccountID: "123456789012", Region: "us-east-1", Service: "iam", CoverageStatus: "covered"},
+			{AccountID: "123456789012", Region: "us-east-1", Service: "s3", CoverageStatus: "missing"},
 		},
+	}
+	metrics := []AWSExecutiveOutcomeMetric{{
+		MetricID: "scan-coverage",
+		Value:    50,
+		Score:    50,
+	}}
+	summary := summarizeAWSExecutiveOutcomeView(metrics, metrics,
+		coverage,
 		AWSBlastRadiusResult{Summary: AWSBlastRadiusSummary{HighestScore: 40}},
 		AWSLeastPrivilegeResult{Summary: AWSLeastPrivilegeSummary{HighestScore: 30}},
 		AWSRemediationCaseResult{Summary: AWSRemediationCaseSummary{HighestScore: 20}},
