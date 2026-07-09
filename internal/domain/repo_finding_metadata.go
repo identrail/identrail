@@ -58,6 +58,9 @@ func NormalizeRepoFindingMetadata(finding *Finding) {
 			finding.FilePath = finding.Path[0]
 		}
 	}
+	if finding.LineNumber != 0 {
+		finding.LineNumber = EvidenceLineNumberFromAny(finding.LineNumber)
+	}
 	if finding.LineNumber == 0 {
 		finding.LineNumber = EvidenceLineNumberFromAny(finding.Evidence["line_number"])
 	}

@@ -3,6 +3,7 @@ package domain
 import (
 	"encoding/json"
 	"math"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -90,6 +91,28 @@ func TestNormalizeRepoFindingMetadataCanonicalizesStringLineNumber(t *testing.T)
 	}
 	if got := finding.Evidence["line_number"]; got != 42 {
 		t.Fatalf("expected canonical integer line_number evidence, got %v", got)
+	}
+}
+
+func TestNormalizeRepoFindingMetadataRejectsUnsafeStructuredLineNumber(t *testing.T) {
+	if strconv.IntSize <= 32 {
+		t.Skip("oversized structured int line number requires a 64-bit int")
+	}
+	finding := Finding{
+		Type:       FindingRepoMisconfig,
+		LineNumber: int(int64(math.MaxInt32) + 1),
+		Evidence: map[string]any{
+			"line_number": int64(math.MaxInt32) + 1,
+		},
+	}
+
+	NormalizeRepoFindingMetadata(&finding)
+
+	if finding.LineNumber != 0 {
+		t.Fatalf("expected unsafe structured line number to normalize to 0, got %d", finding.LineNumber)
+	}
+	if _, exists := finding.Evidence["line_number"]; exists {
+		t.Fatalf("expected unsafe structured line_number evidence to be removed, got %+v", finding.Evidence)
 	}
 }
 
