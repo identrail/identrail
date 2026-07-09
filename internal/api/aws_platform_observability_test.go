@@ -260,6 +260,51 @@ func TestAWSPlatformObservabilityFanOutMetricsUseFilteredTargets(t *testing.T) {
 	}
 }
 
+func TestAWSPlatformObservabilityTreatsPendingFanOutAsQueuedBacklog(t *testing.T) {
+	now := time.Date(2026, 7, 9, 15, 3, 30, 0, time.UTC)
+	targets := make([]AWSFanOutExecutionTarget, 0, 8)
+	for i := 0; i < 8; i++ {
+		targets = append(targets, AWSFanOutExecutionTarget{
+			Key:         "ecs-pending",
+			AccountID:   "123456789012",
+			Region:      "us-east-1",
+			Service:     "ecs",
+			State:       "pending",
+			WorkerState: "pending",
+			Enabled:     true,
+		})
+	}
+	sources := awsPlatformObservabilitySources{
+		FanOut: AWSFanOutExecutionResult{
+			Status:     awsPlatformDependencyStatusReady,
+			Confidence: 0.96,
+			Targets:    targets,
+		},
+	}
+
+	metrics := awsPlatformObservabilityMetrics(sources, AWSPlatformObservabilityRequest{Service: "ecs"}, "123456789012", "us-east-1", "ecs", now)
+	byID := map[string]AWSPlatformObservabilityMetric{}
+	for _, metric := range metrics {
+		byID[metric.MetricID] = metric
+	}
+	if metric := byID["queue-lag"]; metric.Value != int((16*time.Minute).Milliseconds()) || metric.Status != awsPlatformDependencyStatusDegraded {
+		t.Fatalf("expected pending fan-out rows to contribute queued backlog, got %+v", metric)
+	}
+
+	traces := awsPlatformObservabilityTraces(sources, now)
+	if len(traces) == 0 {
+		t.Fatalf("expected pending fan-out traces, got none")
+	}
+	for _, trace := range traces {
+		if trace.Component != "collector" {
+			continue
+		}
+		if trace.QueueLagMs != int((2 * time.Minute).Milliseconds()) {
+			t.Fatalf("expected pending fan-out trace to use queued lag, got %+v", trace)
+		}
+	}
+}
+
 func TestAWSPlatformObservabilityRuntimeTraceStatusIncludesDelayed(t *testing.T) {
 	now := time.Date(2026, 7, 9, 15, 4, 0, 0, time.UTC)
 	traces := awsPlatformObservabilityTraces(awsPlatformObservabilitySources{

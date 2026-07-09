@@ -971,7 +971,7 @@ func awsPlatformObservabilityFanOutSummary(result AWSFanOutExecutionResult) AWSF
 		case state == "covered" || workerState == "covered" || workerState == "complete" || workerState == "completed":
 			summary.CoveredTargets++
 		}
-		if state == "queued" || workerState == "queued" {
+		if awsPlatformObservabilityIsQueuedFanOutState(state) || awsPlatformObservabilityIsQueuedFanOutState(workerState) {
 			summary.QueuedTargets++
 		}
 		if state == "in_progress" || workerState == "in_progress" || workerState == "running" {
@@ -1063,7 +1063,7 @@ func awsPlatformObservabilityTargetQueueLag(target AWSFanOutExecutionTarget) int
 	switch {
 	case target.Throttled:
 		return int((5 * time.Minute).Milliseconds())
-	case state == "queued":
+	case awsPlatformObservabilityIsQueuedFanOutState(state):
 		return int((2 * time.Minute).Milliseconds())
 	case state == "in_progress":
 		return int((30 * time.Second).Milliseconds())
@@ -1071,6 +1071,15 @@ func awsPlatformObservabilityTargetQueueLag(target AWSFanOutExecutionTarget) int
 		return int((5 * time.Minute).Milliseconds())
 	default:
 		return 0
+	}
+}
+
+func awsPlatformObservabilityIsQueuedFanOutState(state string) bool {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "queued", "pending":
+		return true
+	default:
+		return false
 	}
 }
 
