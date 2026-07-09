@@ -236,6 +236,69 @@ func TestAWSExecutiveOutcomeViewUsesFilteredSourceRowsForExecutiveTotals(t *test
 	}
 }
 
+func TestAWSExecutiveOutcomeViewDerivesEnforcementSeverityFromRows(t *testing.T) {
+	now := time.Date(2026, 7, 9, 12, 50, 0, 0, time.UTC)
+	metrics := awsExecutiveOutcomeMetrics(
+		AWSAccountRegionCoverageResult{},
+		AWSBlastRadiusResult{},
+		AWSLeastPrivilegeResult{},
+		AWSRemediationCaseResult{},
+		AWSPostRemediationVerificationResult{},
+		AWSLimitedEnforcementResult{
+			Entries: []AWSLimitedEnforcementEntry{{
+				Severity:            "critical",
+				ReadyForCanary:      true,
+				ReadyForEnforcement: true,
+				Score:               92,
+				Confidence:          0.93,
+			}},
+		},
+		AWSGovernanceAuditReportingResult{},
+		"123456789012",
+		"us-east-1",
+		now,
+	)
+
+	critical, _ := filterAWSExecutiveOutcomeMetrics(metrics, AWSExecutiveOutcomeViewRequest{Severity: "critical"})
+	if _, ok := metricByID(critical, "enforcement-status"); !ok {
+		t.Fatalf("expected critical enforcement rows to keep enforcement metric visible: %+v", critical)
+	}
+
+	metrics = awsExecutiveOutcomeMetrics(
+		AWSAccountRegionCoverageResult{},
+		AWSBlastRadiusResult{},
+		AWSLeastPrivilegeResult{},
+		AWSRemediationCaseResult{},
+		AWSPostRemediationVerificationResult{},
+		AWSLimitedEnforcementResult{
+			Entries: []AWSLimitedEnforcementEntry{{
+				Severity:            "medium",
+				ReadyForCanary:      true,
+				ReadyForEnforcement: true,
+				Score:               48,
+				Confidence:          0.82,
+			}},
+		},
+		AWSGovernanceAuditReportingResult{},
+		"123456789012",
+		"us-east-1",
+		now,
+	)
+	high, _ := filterAWSExecutiveOutcomeMetrics(metrics, AWSExecutiveOutcomeViewRequest{Severity: "high"})
+	if metric, ok := metricByID(high, "enforcement-status"); ok {
+		t.Fatalf("expected high filter to drop medium enforcement metric, got %+v", metric)
+	}
+}
+
+func metricByID(metrics []AWSExecutiveOutcomeMetric, id string) (AWSExecutiveOutcomeMetric, bool) {
+	for _, metric := range metrics {
+		if metric.MetricID == id {
+			return metric, true
+		}
+	}
+	return AWSExecutiveOutcomeMetric{}, false
+}
+
 func TestAWSExecutiveOutcomeViewStatusPreservesSourceStateWithNoMetrics(t *testing.T) {
 	status, confidence := summarizeAWSExecutiveOutcomeViewStatus(nil, "permission_denied", "ready")
 	if status != "blocked" || confidence != 0.55 {

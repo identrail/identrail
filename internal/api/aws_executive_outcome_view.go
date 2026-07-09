@@ -362,7 +362,7 @@ func awsExecutiveOutcomeMetrics(
 			AccountID:        accountID,
 			Region:           region,
 			IdentityType:     "governed_identity",
-			Severity:         "high",
+			Severity:         awsExecutiveOutcomeLimitedEnforcementSeverity(enforcement.Entries),
 			EvidenceLinks:    enforcement.EvidenceLinks,
 			EvidenceRef:      "aws-executive-outcome://enforcement-status",
 			EvidenceBoundary: awsExecutiveOutcomeViewBoundary,
@@ -433,6 +433,18 @@ func awsExecutiveOutcomeScopeValue(requestValue string, connectionValue string, 
 		return requestValue
 	}
 	return firstNonEmptyAWSValue(connectionValue, fallback)
+}
+
+func awsExecutiveOutcomeLimitedEnforcementSeverity(entries []AWSLimitedEnforcementEntry) string {
+	counts := map[string]int{}
+	for _, entry := range entries {
+		severity := normalizeAWSRuntimeEventFilterToken(entry.Severity)
+		if severity == "" || severity == "all" {
+			continue
+		}
+		counts[severity]++
+	}
+	return severityFromCounts(counts)
 }
 
 func awsExecutiveOutcomeFilteredSourceSummaries(
