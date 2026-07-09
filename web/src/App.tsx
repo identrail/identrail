@@ -38,6 +38,7 @@ import {
   ProductAWSGovernancePage,
   ProductAWSGraphPage,
   ProductAWSOutcomesPage,
+  ProductAWSPlatformObservabilityPage,
   ProductAWSRemediationPage,
   ProductAWSRuntimePage,
   ProductAWSAgentIdentityDetailPage,
@@ -4836,6 +4837,7 @@ export function RoutedSite() {
             <Route path="aws/agents/detail" element={<ProductAWSAgentIdentityDetailPage />} />
             <Route path="aws/resources" element={<ProductAWSResourcesPage />} />
             <Route path="aws/runtime" element={<ProductAWSRuntimePage />} />
+            <Route path="aws/observability" element={<ProductAWSPlatformObservabilityPage />} />
             <Route path="aws/graph" element={<ProductAWSGraphPage />} />
             <Route path="aws/findings" element={<ProductAWSFindingsPage />} />
             <Route path="aws/remediation" element={<ProductAWSRemediationPage />} />

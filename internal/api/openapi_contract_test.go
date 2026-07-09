@@ -187,6 +187,7 @@ func TestOpenAPIV1SpecContainsTenancyProjectContracts(t *testing.T) {
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/aws/lambda-execution-roles:",
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/aws/eks-workload-identities:",
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/aws/graph-explorer:",
+		"/v1/workspaces/{workspace_id}/projects/{project_id}/aws/platform-observability:",
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/start:",
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/github/connect/complete:",
 		"/v1/workspaces/{workspace_id}/projects/{project_id}/github/connection:",

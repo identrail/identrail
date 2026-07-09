@@ -105,6 +105,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - AWS Remediation Center unified experience: `aws-remediation-center.md`
 - AWS governance audit reporting: `aws-governance-audit-reporting.md`
 - AWS executive outcome view: `aws-executive-outcome-view.md`
+- AWS platform observability: `aws-platform-observability.md`
 - AWS session policy recommendation path: `aws-session-policy-recommendation.md`
 - AWS AgentCore gateway policy advisory: `aws-agentcore-gateway-policy-advisory.md`
 - AWS normalizer and graph: `aws-normalizer-graph.md`

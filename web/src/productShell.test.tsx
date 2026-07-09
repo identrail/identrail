@@ -3346,6 +3346,7 @@ describe('Domain-first app routes', () => {
       '/app/:tenantID/:workspaceID/aws/agents/detail',
       '/app/:tenantID/:workspaceID/aws/resources',
       '/app/:tenantID/:workspaceID/aws/runtime',
+      '/app/:tenantID/:workspaceID/aws/observability',
       '/app/:tenantID/:workspaceID/aws/graph',
       '/app/:tenantID/:workspaceID/aws/findings',
       '/app/:tenantID/:workspaceID/aws/remediation',
@@ -7440,6 +7441,183 @@ describe('Domain-first app routes', () => {
     );
     expect(await screen.findByText(/Permission required/i)).toBeInTheDocument();
     expect(screen.getByText(/Organizations read access denied/i)).toBeInTheDocument();
+  });
+
+  it('shows AWS platform observability and forwards health filters', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const getPlatformObservability = vi.spyOn(api.apiClient, 'getAWSProjectPlatformObservability').mockResolvedValue({
+      platform_observability: {
+        status: 'degraded',
+        confidence: 0.82,
+        current_issue_ref: '#1556',
+        version: 'aws-platform-observability-v1',
+        applied_filters: {},
+        summary: {
+          total_metrics: 2,
+          filtered_metrics: 2,
+          total_traces: 1,
+          filtered_traces: 1,
+          ready_signals: 1,
+          degraded_signals: 1,
+          blocked_signals: 0,
+          alert_count: 1,
+          critical_alert_count: 0,
+          scan_throughput_per_hour: 12,
+          queue_lag_p95_ms: 120000,
+          runtime_lag_p95_ms: 60000,
+          collector_failure_count: 0,
+          throttled_target_count: 0,
+          remediation_pending_count: 3,
+          verification_failed_count: 1,
+          governance_exception_count: 0,
+          account_counts: { '123456789012': 2 },
+          region_counts: { 'us-east-1': 2 },
+          service_counts: { iam: 1, all: 1 },
+          component_counts: { collector: 1, verification: 1 },
+          status_counts: { ready: 1, degraded: 1 }
+        },
+        metrics: [
+          {
+            metric_id: 'scan-throughput',
+            component: 'collector',
+            signal: 'scan_throughput',
+            title: 'Scan throughput',
+            summary: 'Targets completed by fan-out.',
+            value: 12,
+            unit: 'targets_per_hour',
+            status: 'ready',
+            severity: 'low',
+            confidence: 0.94,
+            account_id: '123456789012',
+            region: 'us-east-1',
+            service: 'iam',
+            trace_id: 'metric:collector:scan-throughput',
+            evidence_links: ['/docs/aws-platform-observability'],
+            evidence_ref: 'aws-platform-observability://scan-throughput',
+            evidence_boundary: 'metadata_only_platform_observability_no_secret_values_no_customer_payloads',
+            next_action: 'Confirm expected targets are advancing.',
+            observed_at: '2026-07-09T12:00:00Z',
+            updated_at: '2026-07-09T12:00:00Z'
+          },
+          {
+            metric_id: 'verification-outcomes',
+            component: 'verification',
+            signal: 'verification_outcomes',
+            title: 'Verification outcomes',
+            summary: 'Failed verification outcomes.',
+            value: 1,
+            unit: 'outcomes',
+            status: 'degraded',
+            severity: 'high',
+            confidence: 0.78,
+            account_id: '123456789012',
+            region: 'us-east-1',
+            service: 'all',
+            trace_id: 'metric:verification:verification-outcomes',
+            evidence_links: ['/docs/aws-post-remediation-verification'],
+            evidence_ref: 'aws-platform-observability://verification-outcomes',
+            evidence_boundary: 'metadata_only_platform_observability_no_secret_values_no_customer_payloads',
+            next_action: 'Review failed checks before reporting closure.',
+            observed_at: '2026-07-09T12:00:00Z',
+            updated_at: '2026-07-09T12:00:00Z'
+          }
+        ],
+        traces: [
+          {
+            trace_id: 'trace:verification:case-1',
+            span_name: 'aws.remediation.verify',
+            component: 'verification',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            service: 'aws_scp_guardrail_executor',
+            status: 'degraded',
+            duration_ms: 2000,
+            queue_lag_ms: 0,
+            runtime_lag_ms: 0,
+            retry_count: 1,
+            throttled: false,
+            evidence_links: ['/docs/aws-post-remediation-verification'],
+            evidence_ref: 'verification://case-1',
+            evidence_boundary: 'metadata_only_platform_observability_no_secret_values_no_customer_payloads',
+            next_action: 'Review failed checks.',
+            started_at: '2026-07-09T11:59:00Z',
+            ended_at: '2026-07-09T12:00:00Z'
+          }
+        ],
+        alerts: [
+          {
+            alert_id: 'alert:verification',
+            severity: 'high',
+            component: 'verification',
+            status: 'degraded',
+            title: 'Verification outcomes',
+            summary: 'Failed verification outcomes.',
+            evidence_ref: 'aws-platform-observability://verification-outcomes',
+            evidence_boundary: 'metadata_only_platform_observability_no_secret_values_no_customer_payloads',
+            next_action: 'Review failed checks before reporting closure.',
+            triggered_at: '2026-07-09T12:00:00Z'
+          }
+        ],
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: ['/docs/aws-platform-observability'],
+        coverage_gaps: [],
+        diagnostics: [],
+        generated_at: '2026-07-09T12:00:00Z',
+        updated_at: '2026-07-09T12:00:00Z'
+      } as any
+    });
+
+    const { ProductAWSPlatformObservabilityPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/observability?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/observability" element={<ProductAWSPlatformObservabilityPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Observability' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'AWS platform observability summary' })).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS platform observability metrics' })).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS platform observability traces' })).toBeInTheDocument();
+    expect(screen.getAllByText(/Scan throughput/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Verification outcomes/i).length).toBeGreaterThan(0);
+    expect(getPlatformObservability).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Component' }), {
+      target: { value: 'verification' }
+    });
+    await waitFor(() =>
+      expect(getPlatformObservability).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1', component: 'verification' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
   });
 
   it('shows AWS executive outcome view and forwards outcome filters', async () => {

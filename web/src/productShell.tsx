@@ -102,6 +102,10 @@ import {
   type AWSExecutiveOutcomeMetric,
   type AWSExecutiveOutcomeViewQuery,
   type AWSExecutiveOutcomeViewResult,
+  type AWSPlatformObservabilityMetric,
+  type AWSPlatformObservabilityQuery,
+  type AWSPlatformObservabilityResult,
+  type AWSPlatformObservabilityTrace,
   type AWSSessionPolicyRecommendationEntry,
   type AWSSessionPolicyRecommendationResult,
   type AWSAgentCoreGatewayPolicyAdvisoryEntry,
@@ -460,6 +464,7 @@ type ProductDomainRouteID =
   | 'agents'
   | 'resources'
   | 'runtime'
+  | 'observability'
   | 'graph'
   | 'findings'
   | 'remediation'
@@ -559,6 +564,7 @@ const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
       productDomainRoute('agents', 'Agents', 'agents', 'Agents', '', 'Bedrock and MCP agents Identrail can see.'),
       productDomainRoute('resources', 'Resources', 'resources', 'Resources', '', 'Secrets, KMS keys, and S3 buckets your AWS roles can reach.'),
       productDomainRoute('runtime', 'Runtime', 'runtime', 'Runtime', '', 'What your AWS roles actually did, from runtime evidence.'),
+      productDomainRoute('observability', 'Observability', 'observability', 'Observability', '', 'Platform health, metrics, traces, and alerts for AWS collection and governance.'),
       productDomainRoute('graph', 'Graph', 'graph', 'Graph', '', 'How AWS roles can reach things, visualised.'),
       productDomainRoute('findings', 'Findings', 'findings', 'Findings', '', 'Risks Identrail found in your AWS setup.'),
       productDomainRoute('remediation', 'Remediation', 'remediation', 'Remediation', '', 'AWS fixes Identrail prepares for you to approve.'),
@@ -11660,7 +11666,7 @@ export function ProductAWSResourcesPage() {
 
 type AWSRiskOperationRouteID = Extract<
   ProductDomainRouteID,
-  'runtime' | 'graph' | 'findings' | 'remediation' | 'outcomes' | 'governance'
+  'runtime' | 'observability' | 'graph' | 'findings' | 'remediation' | 'outcomes' | 'governance'
 >;
 
 type AWSRiskOperationPageCopy = {
@@ -11688,6 +11694,18 @@ const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOpera
     nextAction: '',
     unavailableTitle: 'No runtime events yet',
     unavailableBody: "Runtime activity will appear here once Identrail starts ingesting your AWS logs."
+  },
+  observability: {
+    routeID: 'observability',
+    title: 'Observability',
+    eyebrow: '',
+    description: 'Platform health, metrics, traces, and alerts for AWS collection and governance.',
+    statusLabel: '',
+    currentCapability: '',
+    plannedCapability: '',
+    nextAction: '',
+    unavailableTitle: 'No observability signals yet',
+    unavailableBody: 'Platform observability will appear once Identrail has collector, runtime, remediation, verification, and governance evidence.'
   },
   graph: {
     routeID: 'graph',
@@ -11755,6 +11773,7 @@ type AWSRiskOperationFilterConfigMap = Record<AWSRiskOperationRouteID, AWSInvent
 
 const AWS_RISK_OPERATION_FILTER_DEFAULTS: Record<AWSRiskOperationRouteID, AWSInventoryFilterState> = {
   runtime: { event: 'all', evidence: 'all', owner: 'all', status: 'all', search: '' },
+  observability: { component: 'all', status: 'all', service: 'all', search: '' },
   graph: { node: 'all', edge: 'all', evidence: 'all', search: '' },
   findings: { severity: 'all', account: 'all', region: 'all', evidence: 'all', status: 'all', search: '' },
   remediation: { change: 'all', approval: 'all', stage: 'all', search: '' },
@@ -11810,6 +11829,46 @@ const AWS_RISK_OPERATION_FILTERS: AWSRiskOperationFilterConfigMap = {
         { label: 'Resolved', value: 'resolved' },
         { label: 'Archived', value: 'archived' },
         { label: 'Stale', value: 'stale' }
+      ]
+    }
+  ],
+  observability: [
+    {
+      id: 'component',
+      label: 'Component',
+      options: [
+        { label: 'All components', value: 'all' },
+        { label: 'Collector', value: 'collector' },
+        { label: 'Queue', value: 'queue' },
+        { label: 'Runtime', value: 'runtime' },
+        { label: 'Remediation', value: 'remediation' },
+        { label: 'Verification', value: 'verification' },
+        { label: 'Enforcement', value: 'enforcement' },
+        { label: 'Governance', value: 'governance' }
+      ]
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      options: [
+        { label: 'All statuses', value: 'all' },
+        { label: 'Ready', value: 'ready' },
+        { label: 'Degraded', value: 'degraded' },
+        { label: 'Blocked', value: 'blocked' }
+      ]
+    },
+    {
+      id: 'service',
+      label: 'Service',
+      options: [
+        { label: 'All services', value: 'all' },
+        { label: 'IAM', value: 'iam' },
+        { label: 'Lambda', value: 'lambda' },
+        { label: 'ECS', value: 'ecs' },
+        { label: 'Secrets Manager', value: 'secretsmanager' },
+        { label: 'S3', value: 's3.amazonaws.com' },
+        { label: 'KMS', value: 'kms.amazonaws.com' },
+        { label: 'Agent runtime', value: 'bedrock-agentcore.amazonaws.com' }
       ]
     }
   ],
@@ -12059,6 +12118,7 @@ function AWSRiskOperationFilterSet({
 }) {
   const searchPlaceholder: Record<AWSRiskOperationRouteID, string> = {
     runtime: 'Search events',
+    observability: 'Search signals',
     graph: 'Search graph',
     findings: 'Search findings',
     remediation: 'Search changes',
@@ -14181,6 +14241,115 @@ function AWSExecutiveOutcomeViewContent({
           }
         ]}
       />
+    </>
+  );
+}
+
+function awsPlatformObservabilityStage(status: string): AWSCapabilityStage {
+  if (status === 'blocked') {
+    return 'not-available';
+  }
+  if (status === 'degraded') {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsPlatformObservabilityMetricValue(metric: AWSPlatformObservabilityMetric): string {
+  if (metric.unit === 'milliseconds') {
+    return `${Math.round(metric.value / 1000)}s`;
+  }
+  return `${metric.value} ${formatTokenLabel(metric.unit)}`;
+}
+
+function AWSPlatformObservabilityContent({
+  result,
+  loading,
+  error,
+  onRetry
+}: {
+  result: AWSPlatformObservabilityResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const summaryLine = result
+    ? `${result.summary.filtered_metrics} metrics · ${result.summary.filtered_traces} traces · ${result.summary.alert_count} alerts · ${Math.round(result.confidence * 100)}% confidence`
+    : '';
+  const panelResult = result
+    ? {
+        status: result.status,
+        entries: result.metrics,
+        caveats: result.caveats,
+        failure_reasons: result.failure_reasons
+      }
+    : null;
+  return (
+    <>
+      {result ? (
+        <section className="idt-aws-inventory-coverage" aria-label="AWS platform observability summary">
+          <DomainCoverageCard label="Scan throughput" scanned={result.summary.scan_throughput_per_hour} total={Math.max(result.summary.scan_throughput_per_hour, 1)} detail="targets/hour" />
+          <DomainCoverageCard label="Queue lag" scanned={Math.max(0, 900000 - result.summary.queue_lag_p95_ms)} total={900000} detail={`${Math.round(result.summary.queue_lag_p95_ms / 1000)}s p95`} />
+          <DomainCoverageCard label="Runtime lag" scanned={Math.max(0, 900000 - result.summary.runtime_lag_p95_ms)} total={900000} detail={`${Math.round(result.summary.runtime_lag_p95_ms / 1000)}s p95`} />
+          <DomainCoverageCard label="Collector failures" scanned={Math.max(0, result.summary.filtered_metrics - result.summary.collector_failure_count)} total={Math.max(result.summary.filtered_metrics, 1)} detail={`${result.summary.collector_failure_count} signals`} />
+          <DomainCoverageCard label="Verification alerts" scanned={Math.max(0, result.summary.filtered_metrics - result.summary.verification_failed_count)} total={Math.max(result.summary.filtered_metrics, 1)} detail={`${result.summary.verification_failed_count} outcomes`} />
+          <DomainCoverageCard label="Platform alerts" scanned={Math.max(0, result.summary.filtered_metrics - result.summary.alert_count)} total={Math.max(result.summary.filtered_metrics, 1)} detail={`${result.summary.critical_alert_count} critical`} />
+        </section>
+      ) : null}
+      <AWSExecutorProjectionPanel<AWSPlatformObservabilityMetric>
+        result={panelResult}
+        loading={loading}
+        error={error}
+        onRetry={onRetry}
+        ariaLabel="AWS platform observability"
+        heading="AWS platform observability"
+        description={`Read-only platform health across scan throughput, queue lag, throttling, collector failures, runtime lag, remediation state, verification outcomes, enforcement safety, and governance exceptions. Signals keep trace IDs, evidence refs, account/region/service context, and metadata-only boundaries. ${summaryLine}`}
+        errorTitle="Couldn't load AWS platform observability"
+        loadingTitle="Loading platform observability"
+        loadingBody="Identrail is composing collector, queue, runtime, remediation, verification, enforcement, and governance health signals."
+        emptyEyebrow={(current) => (current.status === 'blocked' ? 'Permission required' : 'No signals')}
+        emptyTitle={(current) => (current.status === 'blocked' ? 'Observability needs source evidence' : 'No platform observability signals matched')}
+        emptyBody={(current) => current.failure_reasons[0] ?? 'No platform observability signal matched the current filters.'}
+        tableLabel="AWS platform observability metrics"
+        getRowKey={(row) => row.metric_id}
+        columns={[
+          { key: 'metric', header: 'Metric', render: (row) => <strong>{row.title}</strong> },
+          { key: 'component', header: 'Component', render: (row) => formatTokenLabel(row.component) },
+          { key: 'value', header: 'Value', render: (row) => awsPlatformObservabilityMetricValue(row) },
+          { key: 'scope', header: 'Scope', render: (row) => awsAccountRegionInventoryLabel(row.account_id, row.region) },
+          { key: 'trace', header: 'Trace', render: (row) => row.trace_id },
+          { key: 'next', header: 'Next action', render: (row) => row.next_action },
+          {
+            key: 'status',
+            header: 'Status',
+            render: (row) => <AWSInventoryPill stage={awsPlatformObservabilityStage(row.status)} label={formatTokenLabel(row.status)} />
+          }
+        ]}
+      />
+      {!error && !loading && result && result.traces.length > 0 ? (
+        <section className="idt-aws-runtime-correlation" aria-label="AWS platform observability traces">
+          <h3>AWS platform traces</h3>
+          <p className="idt-app-kicker">Trace rows connect health metrics to account, region, service, status, evidence refs, lag, retry, and next-action context.</p>
+          <DomainDataTable<AWSPlatformObservabilityTrace>
+            label="AWS platform observability traces"
+            rows={result.traces.slice(0, 40)}
+            getRowKey={(row) => row.trace_id}
+            columns={[
+              { key: 'span', header: 'Span', render: (row) => <strong>{row.span_name}</strong> },
+              { key: 'component', header: 'Component', render: (row) => formatTokenLabel(row.component) },
+              { key: 'service', header: 'Service', render: (row) => formatTokenLabel(row.service ?? 'all') },
+              { key: 'scope', header: 'Scope', render: (row) => awsAccountRegionInventoryLabel(row.account_id, row.region) },
+              { key: 'lag', header: 'Lag', render: (row) => `${Math.round(((row.queue_lag_ms ?? 0) + (row.runtime_lag_ms ?? 0)) / 1000)}s` },
+              { key: 'next', header: 'Next action', render: (row) => row.next_action },
+              {
+                key: 'status',
+                header: 'Status',
+                render: (row) => <AWSInventoryPill stage={awsPlatformObservabilityStage(row.status)} label={formatTokenLabel(row.status)} />
+              }
+            ]}
+          />
+        </section>
+      ) : null}
     </>
   );
 }
@@ -16451,6 +16620,15 @@ function awsExecutiveOutcomeViewQueryFromFilters(filters: AWSInventoryFilterStat
   };
 }
 
+function awsPlatformObservabilityQueryFromFilters(filters: AWSInventoryFilterState): Partial<AWSPlatformObservabilityQuery> {
+  return {
+    component: awsSecretPermissionEquivalenceFilterToken(filters.component),
+    status: awsSecretPermissionEquivalenceFilterToken(filters.status),
+    service: awsSecretPermissionEquivalenceFilterToken(filters.service),
+    search: normalizeFilterValue(filters.search ?? '') || undefined
+  };
+}
+
 function AWSGraphExplorerContent({
   graph,
   loading,
@@ -17004,6 +17182,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [executiveOutcomesLoading, setExecutiveOutcomesLoading] = useState(false);
   const [executiveOutcomesError, setExecutiveOutcomesError] = useState('');
   const executiveOutcomesRequestRef = useRef(0);
+  const [platformObservability, setPlatformObservability] = useState<AWSPlatformObservabilityResult | null>(null);
+  const [platformObservabilityLoading, setPlatformObservabilityLoading] = useState(false);
+  const [platformObservabilityError, setPlatformObservabilityError] = useState('');
+  const platformObservabilityRequestRef = useRef(0);
   const [sessionPolicyRecommendations, setSessionPolicyRecommendations] = useState<AWSSessionPolicyRecommendationResult | null>(null);
   const [sessionPolicyRecommendationsLoading, setSessionPolicyRecommendationsLoading] = useState(false);
   const [sessionPolicyRecommendationsError, setSessionPolicyRecommendationsError] = useState('');
@@ -18042,6 +18224,60 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       executiveOutcomesRequestRef.current += 1;
     };
   }, [loadExecutiveOutcomes]);
+
+  const loadPlatformObservability = useCallback(async () => {
+    const requestID = ++platformObservabilityRequestRef.current;
+    setPlatformObservability(null);
+    setPlatformObservabilityError('');
+    if (routeID !== 'observability' || !scope || !selectedEnvironmentID || !connection?.connector_id) {
+      setPlatformObservabilityLoading(false);
+      return;
+    }
+    setPlatformObservabilityLoading(true);
+    const requestFilters = awsPlatformObservabilityQueryFromFilters(activeFilters);
+    try {
+      const response = await apiClient.getAWSProjectPlatformObservability(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id,
+          ...requestFilters
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== platformObservabilityRequestRef.current) {
+        return;
+      }
+      setPlatformObservability(response.platform_observability);
+    } catch (error) {
+      if (requestID !== platformObservabilityRequestRef.current) {
+        return;
+      }
+      setPlatformObservabilityError(formatAPIError(error, 'Unable to load AWS platform observability.'));
+    } finally {
+      if (requestID === platformObservabilityRequestRef.current) {
+        setPlatformObservabilityLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    activeFilters.component,
+    activeFilters.status,
+    activeFilters.service,
+    activeFilters.search,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadPlatformObservability();
+    return () => {
+      platformObservabilityRequestRef.current += 1;
+    };
+  }, [loadPlatformObservability]);
 
   const loadSessionPolicyRecommendations = useCallback(async () => {
     const requestID = ++sessionPolicyRecommendationsRequestRef.current;
@@ -19156,6 +19392,17 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             onRetry={loadSecretPermissionEquivalence}
           />
         ) : null}
+        {routeID === 'observability' ? (
+          <AWSRiskOperationFilterSet routeID="observability" filters={activeFilters} onChange={onFiltersChange} />
+        ) : null}
+        {routeID === 'observability' ? (
+          <AWSPlatformObservabilityContent
+            result={platformObservability}
+            loading={platformObservabilityLoading}
+            error={platformObservabilityError}
+            onRetry={loadPlatformObservability}
+          />
+        ) : null}
         {routeID === 'graph' ? (
           <AWSGraphExplorerContent
             graph={graphExplorer}
@@ -19223,6 +19470,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
 
 export function ProductAWSRuntimePage() {
   return <ProductAWSRiskOperationsPage routeID="runtime" />;
+}
+
+export function ProductAWSPlatformObservabilityPage() {
+  return <ProductAWSRiskOperationsPage routeID="observability" />;
 }
 
 export function ProductAWSGraphPage() {

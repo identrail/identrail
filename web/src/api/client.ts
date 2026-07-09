@@ -5079,6 +5079,134 @@ export type AWSExecutiveOutcomeViewQuery = {
   search?: string;
 };
 
+export type AWSPlatformObservabilityStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSPlatformObservabilityFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+
+export type AWSPlatformObservabilityMetric = {
+  metric_id: string;
+  component: string;
+  signal: string;
+  title: string;
+  summary: string;
+  value: number;
+  unit: string;
+  status: AWSPlatformObservabilityStatus | string;
+  severity?: string;
+  confidence: number;
+  account_id?: string;
+  region?: string;
+  service?: string;
+  trace_id: string;
+  evidence_ref?: string;
+  evidence_links: string[];
+  evidence_boundary: string;
+  next_action: string;
+  observed_at: string;
+  updated_at: string;
+};
+
+export type AWSPlatformObservabilityTrace = {
+  trace_id: string;
+  parent_trace_id?: string;
+  span_name: string;
+  component: string;
+  account_id?: string;
+  region?: string;
+  service?: string;
+  status: AWSPlatformObservabilityStatus | string;
+  duration_ms?: number;
+  queue_lag_ms?: number;
+  runtime_lag_ms?: number;
+  retry_count?: number;
+  throttled: boolean;
+  evidence_ref?: string;
+  evidence_links: string[];
+  evidence_boundary: string;
+  next_action: string;
+  started_at?: string;
+  ended_at?: string;
+};
+
+export type AWSPlatformObservabilityAlert = {
+  alert_id: string;
+  severity: string;
+  component: string;
+  status: AWSPlatformObservabilityStatus | string;
+  title: string;
+  summary: string;
+  evidence_ref?: string;
+  evidence_boundary: string;
+  next_action: string;
+  triggered_at: string;
+};
+
+export type AWSPlatformObservabilitySummary = {
+  total_metrics: number;
+  filtered_metrics: number;
+  total_traces: number;
+  filtered_traces: number;
+  ready_signals: number;
+  degraded_signals: number;
+  blocked_signals: number;
+  alert_count: number;
+  critical_alert_count: number;
+  scan_throughput_per_hour: number;
+  queue_lag_p95_ms: number;
+  runtime_lag_p95_ms: number;
+  collector_failure_count: number;
+  throttled_target_count: number;
+  remediation_pending_count: number;
+  verification_failed_count: number;
+  governance_exception_count: number;
+  account_counts: Record<string, number>;
+  region_counts: Record<string, number>;
+  service_counts: Record<string, number>;
+  component_counts: Record<string, number>;
+  status_counts: Record<string, number>;
+};
+
+export type AWSPlatformObservabilityResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSPlatformObservabilityStatus;
+  fixture_state?: AWSPlatformObservabilityFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSPlatformObservabilitySummary;
+  metrics: AWSPlatformObservabilityMetric[];
+  traces: AWSPlatformObservabilityTrace[];
+  alerts: AWSPlatformObservabilityAlert[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  coverage_gaps: AWSLeastPrivilegeCoverageGap[];
+  diagnostics: AWSLeastPrivilegeDiagnostic[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSPlatformObservabilityQuery = {
+  connectorID?: string;
+  fixtureState?: AWSPlatformObservabilityFixtureState;
+  accountID?: string;
+  region?: string;
+  service?: string;
+  component?: string;
+  status?: string;
+  search?: string;
+};
+
 export type AWSSessionPolicyRecommendationStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSSessionPolicyRecommendationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSSessionPolicyRecommendationDecision = 'remove' | 'review' | string;
@@ -11027,6 +11155,26 @@ export const apiClient = {
         severity: query?.severity,
         outcome_type: query?.outcomeType,
         trend: query?.trend,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectPlatformObservability(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSPlatformObservabilityQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ platform_observability: AWSPlatformObservabilityResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/platform-observability${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        service: query?.service,
+        component: query?.component,
+        status: query?.status,
         search: query?.search
       })}`,
       auth
