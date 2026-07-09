@@ -661,7 +661,7 @@ const readyAWSRuntimeEvents: AWSRuntimeEventResult = {
     iam_last_used_signal_count: 0,
     access_analyzer_finding_count: 1,
     dormant_access_count: 0,
-    lineage_resolved_count: 1,
+    lineage_resolved_count: 4,
     missing_source_identity_count: 0,
     ambiguous_lineage_count: 0,
     relationship_count: 5,
@@ -903,7 +903,7 @@ const readyAWSRuntimeEvents: AWSRuntimeEventResult = {
   relationships: [],
   failure_reasons: [],
   remediation_hints: [],
-  evidence_links: ['/docs/aws-runtime-events'],
+  evidence_links: ['/docs/aws-runtime-events', 'javascript:alert(1)', 'https://docs.identrail.com/aws-runtime-events'],
   coverage_gaps: [],
   diagnostics: [],
   generated_at: '2026-06-14T17:30:00Z',
@@ -3931,6 +3931,28 @@ describe('Domain-first app routes', () => {
     });
     vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
     const s3RuntimeRecord = readyAWSRuntimeEvents.records.find((record) => record.event_id === 'evt-s3-access') ?? readyAWSRuntimeEvents.records[0];
+    const machineIdentityRuntimeEvents: AWSRuntimeEventResult = {
+      ...readyAWSRuntimeEvents,
+      summary: {
+        ...readyAWSRuntimeEvents.summary,
+        total_events: 1,
+        filtered_events: 1,
+        event_type_counts: { 'api-call': 1 },
+        status_counts: { observed: 1 },
+        owner_counts: { security: 1 },
+        identity_count: 1,
+        resource_count: 1,
+        agent_event_count: 0,
+        secret_read_count: 0,
+        kms_decrypt_count: 0,
+        api_call_count: 1,
+        sts_session_count: 0,
+        access_analyzer_finding_count: 0,
+        lineage_resolved_count: 1,
+        relationship_count: 1
+      },
+      records: [s3RuntimeRecord]
+    };
     const machineIdentityDetail = {
       tenant_id: 'tenant-a',
       workspace_id: 'workspace-a',
@@ -3988,7 +4010,7 @@ describe('Domain-first app routes', () => {
       findings: [],
       governance_decisions: [],
       relationships: [],
-      runtime: { ...readyAWSRuntimeEvents, records: [s3RuntimeRecord] },
+      runtime: machineIdentityRuntimeEvents,
       permissions: readyAWSLeastPrivilege,
       secrets: { findings: [] },
       blast_radius: { findings: [] },
@@ -6711,6 +6733,15 @@ describe('Domain-first app routes', () => {
     expect(within(runtimeTimeline).getByText(/STS AssumeRole.*AssumeRole/i)).toBeInTheDocument();
     expect(within(runtimeTimeline).getAllByText(/SourceIdentity billing-operator@example.com/i).length).toBeGreaterThan(0);
     expect(within(runtimeTimeline).getByText(/runtime-evidence:\/\/123456789012\/us-east-1\/evt-assume-role/i)).toBeInTheDocument();
+    expect(within(runtimeTimeline).getByRole('link', { name: '/docs/aws-runtime-events' })).toHaveAttribute(
+      'href',
+      '/docs/aws-runtime-events'
+    );
+    expect(within(runtimeTimeline).getByRole('link', { name: 'https://docs.identrail.com/aws-runtime-events' })).toHaveAttribute(
+      'href',
+      'https://docs.identrail.com/aws-runtime-events'
+    );
+    expect(within(runtimeTimeline).queryByRole('link', { name: /javascript:alert/i })).not.toBeInTheDocument();
     expect(await within(runtimeTimeline).findByText(/Secret · prod\/ai\/openai-key/i)).toBeInTheDocument();
     expect(within(runtimeTimeline).getByText(/S3 · billing-artifacts-123456789012/i)).toBeInTheDocument();
     expect(within(runtimeTimeline).getByText(/Agent · runtime-case-triage · case-router/i)).toBeInTheDocument();
@@ -6889,6 +6920,10 @@ describe('Domain-first app routes', () => {
     );
     expect(screen.getByText(/Access Analyzer: Finding/i)).toBeInTheDocument();
     expect(screen.queryByText(/CloudTrail: GetObject/i)).not.toBeInTheDocument();
+    expect(within(runtimeTimeline).queryByText(/Secret · prod\/ai\/openai-key/i)).not.toBeInTheDocument();
+    expect(within(runtimeTimeline).queryByText(/S3 · billing-artifacts-123456789012/i)).not.toBeInTheDocument();
+    expect(within(runtimeTimeline).queryByText(/Agent · runtime-case-triage · case-router/i)).not.toBeInTheDocument();
+    expect(within(runtimeTimeline).queryByText(/Case · Rotate external credential for support-assistant/i)).not.toBeInTheDocument();
   });
 
   it('shows AWS limited enforcement framework on the governance route', async () => {

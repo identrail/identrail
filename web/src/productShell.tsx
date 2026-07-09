@@ -12099,6 +12099,7 @@ function AWSRuntimeEvidenceContent({
   const displayedRows = filterAWSInventoryRows(rows, displayFilters);
   const displayedRecordIDs = new Set(displayedRows.map((row) => row.id.replace(/^runtime-/, '')));
   const displayedRecords = runtime?.records.filter((record) => displayedRecordIDs.has(record.event_id)) ?? [];
+  const timelineFiltered = awsRuntimeTimelineHasActiveFilters(displayFilters);
 
   return (
     <>
@@ -12122,6 +12123,7 @@ function AWSRuntimeEvidenceContent({
         <AWSRuntimeTimelineOverview
           runtime={runtime}
           records={displayedRecords}
+          filtered={timelineFiltered}
           secretsKMSAccess={secretsKMSAccess}
           s3RuntimeAccess={s3RuntimeAccess}
           agentRuntimeAccess={agentRuntimeAccess}
@@ -12168,9 +12170,24 @@ type AWSRuntimeRemediationMarker = {
   stage: AWSCapabilityStage;
 };
 
+type AWSRuntimeTimelineFilterContext = {
+  eventIDs: Set<string>;
+  sessionIDs: Set<string>;
+  evidenceRefs: Set<string>;
+  nodeIDs: Set<string>;
+  agentIDs: Set<string>;
+};
+
+type AWSRuntimeEvidenceLink = {
+  href: string;
+  label: string;
+  external: boolean;
+};
+
 function AWSRuntimeTimelineOverview({
   runtime,
   records,
+  filtered,
   secretsKMSAccess,
   s3RuntimeAccess,
   agentRuntimeAccess,
@@ -12180,6 +12197,7 @@ function AWSRuntimeTimelineOverview({
 }: {
   runtime: AWSRuntimeEventResult;
   records: AWSRuntimeEventRecord[];
+  filtered: boolean;
   secretsKMSAccess: AWSSecretsKMSRuntimeAccessResult | null;
   s3RuntimeAccess: AWSS3RuntimeAccessResult | null;
   agentRuntimeAccess: AWSAgentRuntimeAccessResult | null;
@@ -12192,9 +12210,10 @@ function AWSRuntimeTimelineOverview({
   }
 
   const entries = awsRuntimeTimelineEntries(records);
-  const highlights = awsRuntimeCorrelationHighlights(secretsKMSAccess, s3RuntimeAccess, agentRuntimeAccess);
-  const markers = awsRuntimeRemediationMarkers(remediationCases, lowRiskRemediation, postRemediationVerification);
-  const evidenceLinks = runtime.evidence_links.slice(0, 4);
+  const filterContext = filtered ? awsRuntimeTimelineFilterContext(records) : null;
+  const highlights = awsRuntimeCorrelationHighlights(secretsKMSAccess, s3RuntimeAccess, agentRuntimeAccess, filterContext);
+  const markers = awsRuntimeRemediationMarkers(remediationCases, lowRiskRemediation, postRemediationVerification, filterContext);
+  const evidenceLinks = runtime.evidence_links.map((link) => awsRuntimeSafeEvidenceLink(link)).filter((link): link is AWSRuntimeEvidenceLink => Boolean(link)).slice(0, 4);
   const boundaryNotes = awsRuntimeBoundaryNotes(runtime);
   const summaryItems = awsRuntimeTimelineSummaryItems(runtime, records, highlights, markers);
 
@@ -12221,14 +12240,14 @@ function AWSRuntimeTimelineOverview({
       {evidenceLinks.length > 0 ? (
         <div className="idt-aws-runtime-evidence-links" aria-label="Runtime evidence links">
           {evidenceLinks.map((link) =>
-            link.startsWith('/') ? (
-              <Link key={link} to={link}>
-                {link}
-              </Link>
-            ) : (
-              <a key={link} href={link} target="_blank" rel="noreferrer">
-                {link}
+            link.external ? (
+              <a key={link.href} href={link.href} target="_blank" rel="noreferrer">
+                {link.label}
               </a>
+            ) : (
+              <Link key={link.href} to={link.href}>
+                {link.label}
+              </Link>
             )
           )}
         </div>
@@ -12302,6 +12321,63 @@ function awsRuntimeTimelineSummaryItems(
     { label: 'Correlations', value: String(highlights.length) },
     { label: 'Markers', value: String(markers.length) }
   ];
+}
+
+function awsRuntimeTimelineHasActiveFilters(filters: AWSInventoryFilterState): boolean {
+  return Object.entries(filters).some(([filterID, value]) => {
+    if (filterID === 'search') {
+      return Boolean(value.trim());
+    }
+    return Boolean(value && value !== 'all');
+  });
+}
+
+function awsRuntimeTimelineFilterContext(records: AWSRuntimeEventRecord[]): AWSRuntimeTimelineFilterContext {
+  const context: AWSRuntimeTimelineFilterContext = {
+    eventIDs: new Set(),
+    sessionIDs: new Set(),
+    evidenceRefs: new Set(),
+    nodeIDs: new Set(),
+    agentIDs: new Set()
+  };
+  for (const record of records) {
+    addToSet(context.eventIDs, record.event_id);
+    addToSet(context.sessionIDs, record.session?.session_id);
+    addToSet(context.evidenceRefs, record.evidence_ref);
+    addToSet(context.nodeIDs, record.actor_identity_node_id);
+    addToSet(context.nodeIDs, record.resource_node_id);
+    addToSet(context.nodeIDs, record.session?.session_node_id);
+    addToSet(context.nodeIDs, record.session?.original_actor_node_id);
+    addToSet(context.nodeIDs, record.session?.chained_from_node_id);
+    addToSet(context.agentIDs, record.agent_id);
+    addToSet(context.agentIDs, record.agent_node_id);
+  }
+  return context;
+}
+
+function addToSet(set: Set<string>, value: string | undefined): void {
+  if (value) {
+    set.add(value);
+  }
+}
+
+function awsRuntimeSafeEvidenceLink(value: string): AWSRuntimeEvidenceLink | null {
+  const trimmed = value.trim();
+  if (!trimmed || /[\u0000-\u001F\u007F]/.test(trimmed)) {
+    return null;
+  }
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//') && !trimmed.startsWith('/\\')) {
+    return { href: trimmed, label: trimmed, external: false };
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return { href: parsed.href, label: trimmed, external: true };
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function awsRuntimeBoundaryNotes(runtime: AWSRuntimeEventResult): string[] {
@@ -12404,58 +12480,123 @@ function awsRuntimeStatusStage(status: string): AWSCapabilityStage {
 function awsRuntimeCorrelationHighlights(
   secretsKMSAccess: AWSSecretsKMSRuntimeAccessResult | null,
   s3RuntimeAccess: AWSS3RuntimeAccessResult | null,
-  agentRuntimeAccess: AWSAgentRuntimeAccessResult | null
+  agentRuntimeAccess: AWSAgentRuntimeAccessResult | null,
+  filterContext: AWSRuntimeTimelineFilterContext | null
 ): AWSRuntimeCorrelationHighlight[] {
-  const secretHighlights = (secretsKMSAccess?.records ?? []).slice(0, 3).map((record) => ({
-    id: `secret-kms-${record.correlation_id}`,
-    title: `${record.resource_kind === 'kms_key' ? 'KMS' : 'Secret'} · ${record.resource_name || record.resource_arn}`,
-    detail: awsRuntimeCorrelationDetail([
-      record.principal_arn || record.identity_node_id,
-      `${record.observed_count} observed`,
-      awsRuntimeJoinedLabel('events', record.observed_event_ids),
-      awsRuntimeJoinedLabel('sessions', record.session_ids),
-      awsRuntimeJoinedLabel('actions', record.actions),
-      formatConfidenceScore(record.confidence),
-      formatTokenLabel(record.redaction_boundary)
-    ]),
-    evidenceRef: record.evidence_ref,
-    status: record.status,
-    stage: awsSecretsKMSCorrelationStage(record.status)
-  }));
-  const s3Highlights = (s3RuntimeAccess?.records ?? []).slice(0, 3).map((record) => ({
-    id: `s3-${record.correlation_id}`,
-    title: `S3 · ${record.bucket_name || record.bucket_arn}`,
-    detail: awsRuntimeCorrelationDetail([
-      record.principal_arn || record.identity_node_id,
-      `${record.observed_count} observed`,
-      awsRuntimeJoinedLabel('events', record.observed_event_ids),
-      awsRuntimeJoinedLabel('sessions', record.session_ids),
-      awsRuntimeJoinedLabel('modes', record.observed_modes),
-      record.sensitivity ? `Sensitivity ${formatTokenLabel(record.sensitivity)}` : '',
-      formatConfidenceScore(record.confidence),
-      formatTokenLabel(record.redaction_boundary)
-    ]),
-    evidenceRef: record.evidence_ref,
-    status: record.status,
-    stage: awsSecretsKMSCorrelationStage(record.status)
-  }));
-  const agentHighlights = (agentRuntimeAccess?.records ?? []).slice(0, 3).map((record) => ({
-    id: `agent-runtime-${record.correlation_id}`,
-    title: `Agent · ${awsAgentRuntimeAccessLabel(record)}`,
-    detail: awsRuntimeCorrelationDetail([
-      awsRuntimeJoinedLabel('roles', record.backing_role_arns),
-      `${record.observed_count} observed`,
-      awsRuntimeJoinedLabel('events', record.observed_event_ids),
-      awsRuntimeJoinedLabel('sessions', record.session_ids),
-      awsRuntimeJoinedLabel('targets', record.target_resource_arns),
-      formatConfidenceScore(record.confidence),
-      formatTokenLabel(record.redaction_boundary)
-    ]),
-    evidenceRef: record.evidence_ref,
-    status: record.status,
-    stage: awsAgentRuntimeAccessStage(record.status)
-  }));
+  const secretHighlights = (secretsKMSAccess?.records ?? [])
+    .filter((record) =>
+      awsRuntimeMatchesFilterContext(filterContext, {
+        eventIDs: record.observed_event_ids,
+        sessionIDs: record.session_ids,
+        evidenceRefs: [record.evidence_ref, ...(record.evidence_refs ?? [])],
+        nodeIDs: [record.identity_node_id, record.resource_node_id, record.agent_node_id],
+        agentIDs: [record.agent_id, record.agent_node_id]
+      })
+    )
+    .slice(0, 3)
+    .map((record) => ({
+      id: `secret-kms-${record.correlation_id}`,
+      title: `${record.resource_kind === 'kms_key' ? 'KMS' : 'Secret'} · ${record.resource_name || record.resource_arn}`,
+      detail: awsRuntimeCorrelationDetail([
+        record.principal_arn || record.identity_node_id,
+        `${record.observed_count} observed`,
+        awsRuntimeJoinedLabel('events', record.observed_event_ids),
+        awsRuntimeJoinedLabel('sessions', record.session_ids),
+        awsRuntimeJoinedLabel('actions', record.actions),
+        formatConfidenceScore(record.confidence),
+        formatTokenLabel(record.redaction_boundary)
+      ]),
+      evidenceRef: record.evidence_ref,
+      status: record.status,
+      stage: awsSecretsKMSCorrelationStage(record.status)
+    }));
+  const s3Highlights = (s3RuntimeAccess?.records ?? [])
+    .filter((record) =>
+      awsRuntimeMatchesFilterContext(filterContext, {
+        eventIDs: record.observed_event_ids,
+        sessionIDs: record.session_ids,
+        evidenceRefs: [record.evidence_ref, ...(record.evidence_refs ?? [])],
+        nodeIDs: [record.identity_node_id, record.resource_node_id, record.agent_node_id],
+        agentIDs: [record.agent_id, record.agent_node_id]
+      })
+    )
+    .slice(0, 3)
+    .map((record) => ({
+      id: `s3-${record.correlation_id}`,
+      title: `S3 · ${record.bucket_name || record.bucket_arn}`,
+      detail: awsRuntimeCorrelationDetail([
+        record.principal_arn || record.identity_node_id,
+        `${record.observed_count} observed`,
+        awsRuntimeJoinedLabel('events', record.observed_event_ids),
+        awsRuntimeJoinedLabel('sessions', record.session_ids),
+        awsRuntimeJoinedLabel('modes', record.observed_modes),
+        record.sensitivity ? `Sensitivity ${formatTokenLabel(record.sensitivity)}` : '',
+        formatConfidenceScore(record.confidence),
+        formatTokenLabel(record.redaction_boundary)
+      ]),
+      evidenceRef: record.evidence_ref,
+      status: record.status,
+      stage: awsSecretsKMSCorrelationStage(record.status)
+    }));
+  const agentHighlights = (agentRuntimeAccess?.records ?? [])
+    .filter((record) =>
+      awsRuntimeMatchesFilterContext(filterContext, {
+        eventIDs: record.observed_event_ids,
+        sessionIDs: record.session_ids,
+        evidenceRefs: [record.evidence_ref, ...(record.evidence_refs ?? [])],
+        nodeIDs: [
+          record.agent_node_id,
+          record.declared_backing_role_node_id,
+          ...(record.backing_role_node_ids ?? []),
+          ...(record.target_resource_node_ids ?? [])
+        ],
+        agentIDs: [record.agent_id, record.agent_node_id]
+      })
+    )
+    .slice(0, 3)
+    .map((record) => ({
+      id: `agent-runtime-${record.correlation_id}`,
+      title: `Agent · ${awsAgentRuntimeAccessLabel(record)}`,
+      detail: awsRuntimeCorrelationDetail([
+        awsRuntimeJoinedLabel('roles', record.backing_role_arns),
+        `${record.observed_count} observed`,
+        awsRuntimeJoinedLabel('events', record.observed_event_ids),
+        awsRuntimeJoinedLabel('sessions', record.session_ids),
+        awsRuntimeJoinedLabel('targets', record.target_resource_arns),
+        formatConfidenceScore(record.confidence),
+        formatTokenLabel(record.redaction_boundary)
+      ]),
+      evidenceRef: record.evidence_ref,
+      status: record.status,
+      stage: awsAgentRuntimeAccessStage(record.status)
+    }));
   return [...secretHighlights, ...s3Highlights, ...agentHighlights].slice(0, 6);
+}
+
+function awsRuntimeMatchesFilterContext(
+  context: AWSRuntimeTimelineFilterContext | null,
+  values: {
+    eventIDs?: string[];
+    sessionIDs?: string[];
+    evidenceRefs?: Array<string | undefined>;
+    nodeIDs?: Array<string | undefined>;
+    agentIDs?: Array<string | undefined>;
+  }
+): boolean {
+  if (!context) {
+    return true;
+  }
+  return (
+    intersectsSet(context.eventIDs, values.eventIDs) ||
+    intersectsSet(context.sessionIDs, values.sessionIDs) ||
+    intersectsSet(context.evidenceRefs, values.evidenceRefs) ||
+    intersectsSet(context.nodeIDs, values.nodeIDs) ||
+    intersectsSet(context.agentIDs, values.agentIDs)
+  );
+}
+
+function intersectsSet(set: Set<string>, values: Array<string | undefined> | undefined): boolean {
+  return (values ?? []).some((value) => Boolean(value && set.has(value)));
 }
 
 function awsRuntimeCorrelationDetail(parts: Array<string | undefined>): string {
@@ -12473,47 +12614,89 @@ function awsRuntimeJoinedLabel(label: string, values: string[] | undefined): str
 function awsRuntimeRemediationMarkers(
   remediationCases: AWSRemediationCaseResult | null,
   lowRiskRemediation: AWSLowRiskRemediationResult | null,
-  postRemediationVerification: AWSPostRemediationVerificationResult | null
+  postRemediationVerification: AWSPostRemediationVerificationResult | null,
+  filterContext: AWSRuntimeTimelineFilterContext | null
 ): AWSRuntimeRemediationMarker[] {
-  const caseMarkers = (remediationCases?.cases ?? []).slice(0, 3).map((remediationCase) => ({
-    id: `runtime-marker-case-${remediationCase.case_id}`,
-    title: `Case · ${remediationCase.title}`,
-    detail: awsRuntimeCorrelationDetail([
-      `Before ${remediationCase.diff_intent.before_ref || remediationCase.evidence[0]?.evidence_ref || 'pending'}`,
-      `After ${remediationCase.diff_intent.after_ref || 'pending'}`,
-      formatTokenLabel(remediationCase.diff_intent.kind),
-      `Verification ${formatTokenLabel(remediationCase.verification_plan.strategy)}`,
-      `Boundary ${formatTokenLabel(remediationCase.evidence_boundary)}`
-    ]),
-    status: `${remediationCase.severity} / ${remediationCase.approval_state}`,
-    stage: awsRemediationCaseStage(remediationCase)
-  }));
-  const liveMarkers = (lowRiskRemediation?.entries ?? []).slice(0, 2).map((entry) => ({
-    id: `runtime-marker-live-${entry.execution_id}`,
-    title: `Live projection · ${entry.title}`,
-    detail: awsRuntimeCorrelationDetail([
-      `Before ${entry.mutation.before_ref || 'captured evidence'}`,
-      `After ${entry.mutation.after_ref || 'projected mutation'}`,
-      `${entry.mutation.service}:${entry.mutation.operation}`,
-      `Projected ${formatDateLabel(entry.projected_at)}`,
-      `Boundary ${formatTokenLabel(entry.evidence_boundary)}`
-    ]),
-    status: entry.state,
-    stage: awsLowRiskRemediationStage(entry)
-  }));
-  const verificationMarkers = (postRemediationVerification?.entries ?? []).slice(0, 2).map((entry) => ({
-    id: `runtime-marker-verification-${entry.verification_id}`,
-    title: `Verification · ${entry.title}`,
-    detail: awsRuntimeCorrelationDetail([
-      entry.operation,
-      entry.target_resource,
-      `${entry.checks.length} check(s)`,
-      `Projected ${formatDateLabel(entry.projected_at)}`,
-      `Boundary ${formatTokenLabel(entry.evidence_boundary)}`
-    ]),
-    status: entry.state,
-    stage: awsPostRemediationVerificationStage(entry)
-  }));
+  const caseMarkers = (remediationCases?.cases ?? [])
+    .filter((remediationCase) =>
+      awsRuntimeMatchesFilterContext(filterContext, {
+        evidenceRefs: [
+          remediationCase.diff_intent.before_ref,
+          remediationCase.diff_intent.after_ref,
+          remediationCase.rollback_plan.evidence_ref,
+          remediationCase.verification_plan.evidence_ref,
+          ...remediationCase.evidence.map((evidence) => evidence.evidence_ref)
+        ],
+        nodeIDs: [
+          remediationCase.identity_node_id,
+          ...(remediationCase.resource_node_ids ?? []),
+          ...remediationCase.impacted_nodes,
+          ...remediationCase.impacted_path.map((step) => step.node_id)
+        ]
+      })
+    )
+    .slice(0, 3)
+    .map((remediationCase) => ({
+      id: `runtime-marker-case-${remediationCase.case_id}`,
+      title: `Case · ${remediationCase.title}`,
+      detail: awsRuntimeCorrelationDetail([
+        `Before ${remediationCase.diff_intent.before_ref || remediationCase.evidence[0]?.evidence_ref || 'pending'}`,
+        `After ${remediationCase.diff_intent.after_ref || 'pending'}`,
+        formatTokenLabel(remediationCase.diff_intent.kind),
+        `Verification ${formatTokenLabel(remediationCase.verification_plan.strategy)}`,
+        `Boundary ${formatTokenLabel(remediationCase.evidence_boundary)}`
+      ]),
+      status: `${remediationCase.severity} / ${remediationCase.approval_state}`,
+      stage: awsRemediationCaseStage(remediationCase)
+    }));
+  const liveMarkers = (lowRiskRemediation?.entries ?? [])
+    .filter((entry) =>
+      awsRuntimeMatchesFilterContext(filterContext, {
+        evidenceRefs: [
+          entry.mutation.before_ref,
+          entry.mutation.after_ref,
+          entry.rollback_plan.evidence_ref,
+          entry.verification_plan.evidence_ref,
+          ...entry.evidence.map((evidence) => evidence.evidence_ref)
+        ],
+        nodeIDs: [...entry.impacted_nodes, ...entry.impacted_path.map((step) => step.node_id)]
+      })
+    )
+    .slice(0, 2)
+    .map((entry) => ({
+      id: `runtime-marker-live-${entry.execution_id}`,
+      title: `Live projection · ${entry.title}`,
+      detail: awsRuntimeCorrelationDetail([
+        `Before ${entry.mutation.before_ref || 'captured evidence'}`,
+        `After ${entry.mutation.after_ref || 'projected mutation'}`,
+        `${entry.mutation.service}:${entry.mutation.operation}`,
+        `Projected ${formatDateLabel(entry.projected_at)}`,
+        `Boundary ${formatTokenLabel(entry.evidence_boundary)}`
+      ]),
+      status: entry.state,
+      stage: awsLowRiskRemediationStage(entry)
+    }));
+  const verificationMarkers = (postRemediationVerification?.entries ?? [])
+    .filter((entry) =>
+      awsRuntimeMatchesFilterContext(filterContext, {
+        evidenceRefs: entry.evidence_links,
+        nodeIDs: entry.impacted_nodes
+      })
+    )
+    .slice(0, 2)
+    .map((entry) => ({
+      id: `runtime-marker-verification-${entry.verification_id}`,
+      title: `Verification · ${entry.title}`,
+      detail: awsRuntimeCorrelationDetail([
+        entry.operation,
+        entry.target_resource,
+        `${entry.checks.length} check(s)`,
+        `Projected ${formatDateLabel(entry.projected_at)}`,
+        `Boundary ${formatTokenLabel(entry.evidence_boundary)}`
+      ]),
+      status: entry.state,
+      stage: awsPostRemediationVerificationStage(entry)
+    }));
   return [...caseMarkers, ...liveMarkers, ...verificationMarkers].slice(0, 6);
 }
 
