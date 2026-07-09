@@ -35,7 +35,7 @@ Good contributions include:
 ## Before You Start
 
 Prerequisites:
-- Go `1.25.11` (see `go.mod`)
+- Go `1.25.12` (see `go.mod`)
 - Node.js `24` for `web/`
 - Docker for local Compose and image validation
 - PostgreSQL (or Docker) for integration test flows

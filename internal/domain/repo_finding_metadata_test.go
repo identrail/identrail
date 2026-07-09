@@ -43,13 +43,17 @@ func TestNormalizeRepoFindingMetadataBackfillsFieldsFromEvidence(t *testing.T) {
 
 func TestNormalizeRepoFindingMetadataRejectsUnsafeLineNumbers(t *testing.T) {
 	for name, value := range map[string]any{
-		"negative int64":    int64(-1),
-		"oversized int64":   int64(math.MaxInt32) + 1,
-		"fractional float":  42.5,
-		"oversized float":   float64(math.MaxInt32) + 1,
-		"nan":               math.NaN(),
-		"positive infinity": math.Inf(1),
-		"oversized json":    json.Number("2147483648"),
+		"negative int64":     int64(-1),
+		"oversized int64":    int64(math.MaxInt32) + 1,
+		"fractional float":   42.5,
+		"oversized float":    float64(math.MaxInt32) + 1,
+		"nan":                math.NaN(),
+		"positive infinity":  math.Inf(1),
+		"oversized json":     json.Number("2147483648"),
+		"non-numeric string": "abc",
+		"negative string":    "-1",
+		"empty string":       "",
+		"oversized string":   " 2147483648 ",
 	} {
 		t.Run(name, func(t *testing.T) {
 			finding := Finding{
@@ -64,7 +68,28 @@ func TestNormalizeRepoFindingMetadataRejectsUnsafeLineNumbers(t *testing.T) {
 			if finding.LineNumber != 0 {
 				t.Fatalf("expected unsafe line number to normalize to 0, got %d", finding.LineNumber)
 			}
+			if _, exists := finding.Evidence["line_number"]; exists {
+				t.Fatalf("expected unsafe line_number evidence to be removed, got %+v", finding.Evidence)
+			}
 		})
+	}
+}
+
+func TestNormalizeRepoFindingMetadataCanonicalizesStringLineNumber(t *testing.T) {
+	finding := Finding{
+		Type: FindingRepoMisconfig,
+		Evidence: map[string]any{
+			"line_number": " 42 ",
+		},
+	}
+
+	NormalizeRepoFindingMetadata(&finding)
+
+	if finding.LineNumber != 42 {
+		t.Fatalf("expected string line number to normalize to 42, got %d", finding.LineNumber)
+	}
+	if got := finding.Evidence["line_number"]; got != 42 {
+		t.Fatalf("expected canonical integer line_number evidence, got %v", got)
 	}
 }
 

@@ -177,6 +177,8 @@ func NormalizeRepoFindingMetadata(finding *Finding) {
 	}
 	if finding.LineNumber > 0 {
 		finding.Evidence["line_number"] = finding.LineNumber
+	} else {
+		delete(finding.Evidence, "line_number")
 	}
 	if finding.Detector != "" {
 		finding.Evidence["detector"] = finding.Detector
@@ -370,14 +372,22 @@ func boundedEvidenceLineNumber(value int64) int {
 	if value < 0 || value > math.MaxInt32 {
 		return 0
 	}
-	return int(value)
+	number, err := strconv.Atoi(strconv.FormatInt(value, 10))
+	if err != nil {
+		return 0
+	}
+	return number
 }
 
 func boundedEvidenceLineNumberFloat(value float64) int {
 	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > math.MaxInt32 || math.Trunc(value) != value {
 		return 0
 	}
-	return int(value)
+	number, err := strconv.Atoi(strconv.FormatFloat(value, 'f', 0, 64))
+	if err != nil {
+		return 0
+	}
+	return number
 }
 
 func floatFromAny(value any) (float64, bool) {
