@@ -4483,7 +4483,7 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   gap: 0.45rem;
 }
 
-.idt-app-shell-nav a {
+.idt-app-shell-nav > a {
   color: #bfd2ee;
   text-decoration: none;
   font-weight: 600;
@@ -4493,7 +4493,7 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   background: rgba(14, 23, 36, 0.72);
 }
 
-.idt-app-shell-nav a.active {
+.idt-app-shell-nav > a.active {
   color: #0f223f;
   background: #d7e5ff;
   border-color: #d7e5ff;
@@ -8111,13 +8111,13 @@ html[data-theme='light'] .idt-app-panel {
   border-color: rgba(35, 64, 111, 0.2);
 }
 
-html[data-theme='light'] .idt-app-shell-nav a {
+html[data-theme='light'] .idt-app-shell-nav > a {
   color: #24406e;
   background: rgba(239, 246, 255, 0.95);
   border-color: rgba(35, 64, 111, 0.23);
 }
 
-html[data-theme='light'] .idt-app-shell-nav a.active {
+html[data-theme='light'] .idt-app-shell-nav > a.active {
   color: #12284c;
   background: #dbe8ff;
   border-color: #dbe8ff;
@@ -21571,8 +21571,8 @@ html[data-theme='light'] .idt-executive-report-shell .idt-btn-dark {
   gap: 0.28rem;
 }
 
-.idt-app-console-layout .idt-app-shell-nav a,
-html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
+.idt-app-console-layout .idt-app-shell-nav > a,
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav > a {
   display: flex;
   align-items: center;
   min-height: 2.45rem;
@@ -21591,12 +21591,12 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
  * in this file (search for "Workspace shell redesign"). Keeping only the
  * shared text-decoration reset here so the higher-specificity light-theme
  * rule doesn't repaint the active item white in the dark console shell. */
-.idt-app-console-layout .idt-app-shell-nav a:hover,
-.idt-app-console-layout .idt-app-shell-nav a:focus-visible,
-.idt-app-console-layout .idt-app-shell-nav a.active,
-html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a:hover,
-html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a:focus-visible,
-html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a.active {
+.idt-app-console-layout .idt-app-shell-nav > a:hover,
+.idt-app-console-layout .idt-app-shell-nav > a:focus-visible,
+.idt-app-console-layout .idt-app-shell-nav > a.active,
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav > a:hover,
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav > a:focus-visible,
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav > a.active {
   text-decoration: none;
 }
 
@@ -22469,7 +22469,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-github-intelligence-trend 
     padding-bottom: 0.2rem;
   }
 
-  .idt-app-console-layout .idt-app-shell-nav a {
+  .idt-app-console-layout .idt-app-shell-nav > a {
     flex: 0 0 auto;
   }
 
@@ -22519,7 +22519,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-github-intelligence-trend 
     overflow-x: visible;
   }
 
-  .idt-app-console-layout .idt-app-shell-nav a {
+  .idt-app-console-layout .idt-app-shell-nav > a {
     min-width: 0;
     width: 100%;
     justify-content: center;
@@ -27652,8 +27652,8 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   padding: 0.55rem 0;
 }
 
-.idt-app-console-layout.is-sidebar-collapsed .idt-app-shell-nav a,
-html[data-theme='light'] .idt-app-console-layout.is-sidebar-collapsed .idt-app-shell-nav a {
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-shell-nav > a,
+html[data-theme='light'] .idt-app-console-layout.is-sidebar-collapsed .idt-app-shell-nav > a {
   grid-template-columns: 1fr;
   justify-items: center;
   justify-content: center;
@@ -27708,8 +27708,8 @@ html[data-theme='light'] .idt-app-console-layout.is-sidebar-collapsed .idt-app-s
   gap: 0.1rem;
 }
 
-.idt-app-console-layout .idt-app-shell-nav a,
-html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
+.idt-app-console-layout .idt-app-shell-nav > a,
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav > a {
   box-sizing: border-box;
   display: grid;
   grid-template-columns: 1.35rem minmax(0, 1fr);
@@ -27731,20 +27731,20 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 }
 
 @media (min-width: 641px) and (max-width: 960px) {
-  .idt-app-console-layout .idt-app-shell-nav a,
-  html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
+  .idt-app-console-layout .idt-app-shell-nav > a,
+  html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav > a {
     width: auto;
   }
 }
 
-.idt-app-console-layout .idt-app-shell-nav a:hover,
-.idt-app-console-layout .idt-app-shell-nav a:focus-visible {
+.idt-app-console-layout .idt-app-shell-nav > a:hover,
+.idt-app-console-layout .idt-app-shell-nav > a:focus-visible {
   background: #131318;
   color: #ffffff;
   border-color: transparent;
 }
 
-.idt-app-console-layout .idt-app-shell-nav a.active {
+.idt-app-console-layout .idt-app-shell-nav > a.active {
   background: #1c1c22;
   color: #ffffff;
   border-color: transparent;
@@ -27769,15 +27769,15 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
   opacity: 1;
 }
 
-.idt-app-console-layout .idt-app-shell-nav a:hover .idt-app-nav-icon,
-.idt-app-console-layout .idt-app-shell-nav a:focus-visible .idt-app-nav-icon,
-.idt-app-console-layout .idt-app-shell-nav a.active .idt-app-nav-icon {
+.idt-app-console-layout .idt-app-shell-nav > a:hover .idt-app-nav-icon,
+.idt-app-console-layout .idt-app-shell-nav > a:focus-visible .idt-app-nav-icon,
+.idt-app-console-layout .idt-app-shell-nav > a.active .idt-app-nav-icon {
   color: #ffffff;
 }
 
-.idt-app-console-layout .idt-app-shell-nav a:hover .idt-app-nav-icon img,
-.idt-app-console-layout .idt-app-shell-nav a:focus-visible .idt-app-nav-icon img,
-.idt-app-console-layout .idt-app-shell-nav a.active .idt-app-nav-icon img {
+.idt-app-console-layout .idt-app-shell-nav > a:hover .idt-app-nav-icon img,
+.idt-app-console-layout .idt-app-shell-nav > a:focus-visible .idt-app-nav-icon img,
+.idt-app-console-layout .idt-app-shell-nav > a.active .idt-app-nav-icon img {
   filter: none;
   opacity: 1;
 }
@@ -29398,16 +29398,16 @@ html[data-theme='light'] .idt-app-scroll-navigator-thumb {
 
 /* Active-nav fix: dark fill + a left accent bar instead of the broken white
  * default that bled through from the light theme. */
-.idt-app-console-layout .idt-app-shell-nav a {
+.idt-app-console-layout .idt-app-shell-nav > a {
   position: relative;
 }
 
-.idt-app-console-layout .idt-app-shell-nav a.active {
+.idt-app-console-layout .idt-app-shell-nav > a.active {
   background: transparent;
   color: #ffffff;
 }
 
-.idt-app-console-layout .idt-app-shell-nav a.active::before {
+.idt-app-console-layout .idt-app-shell-nav > a.active::before {
   content: '';
   position: absolute;
   left: 0;
@@ -29418,14 +29418,14 @@ html[data-theme='light'] .idt-app-scroll-navigator-thumb {
   background: #ffffff;
 }
 
-.idt-app-console-layout.is-sidebar-collapsed .idt-app-shell-nav a.active::before {
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-shell-nav > a.active::before {
   top: 4px;
   bottom: 4px;
 }
 
 /* Hover state is quieter than active — no accent bar, soft background only. */
-.idt-app-console-layout .idt-app-shell-nav a:hover:not(.active),
-.idt-app-console-layout .idt-app-shell-nav a:focus-visible:not(.active) {
+.idt-app-console-layout .idt-app-shell-nav > a:hover:not(.active),
+.idt-app-console-layout .idt-app-shell-nav > a:focus-visible:not(.active) {
   background: #131318;
   color: #ffffff;
 }
@@ -29630,26 +29630,26 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-quick-find {
   background: var(--idt-console-rail-hover);
 }
 
-.idt-app-console-layout .idt-app-shell-nav a,
-html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
+.idt-app-console-layout .idt-app-shell-nav > a,
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav > a {
   color: var(--app-muted);
 }
 
-.idt-app-console-layout .idt-app-shell-nav a:hover:not(.active),
-.idt-app-console-layout .idt-app-shell-nav a:focus-visible:not(.active),
-html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a:hover:not(.active),
-html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a:focus-visible:not(.active) {
+.idt-app-console-layout .idt-app-shell-nav > a:hover:not(.active),
+.idt-app-console-layout .idt-app-shell-nav > a:focus-visible:not(.active),
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav > a:hover:not(.active),
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav > a:focus-visible:not(.active) {
   background: var(--idt-console-rail-hover);
   color: var(--app-text);
 }
 
-.idt-app-console-layout .idt-app-shell-nav a.active,
-html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a.active {
+.idt-app-console-layout .idt-app-shell-nav > a.active,
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav > a.active {
   background: transparent;
   color: var(--app-text);
 }
 
-.idt-app-console-layout .idt-app-shell-nav a.active::before {
+.idt-app-console-layout .idt-app-shell-nav > a.active::before {
   background: var(--idt-console-focus);
 }
 
@@ -31012,7 +31012,7 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
     padding-bottom: 0;
   }
 
-  .idt-app-console-layout .idt-app-shell-nav a,
+  .idt-app-console-layout .idt-app-shell-nav > a,
   .idt-app-console-layout .idt-app-nav-domain-trigger {
     min-width: 0;
     width: 100%;
@@ -31716,7 +31716,7 @@ html[data-appearance-ready='true'] .idt-app-console-layout :is(
 }
 
 html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-quick-find,
-html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a {
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav > a {
   color: var(--app-muted);
 }
 
@@ -31744,19 +31744,19 @@ html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-work
 html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-account-trigger:hover,
 html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-account-trigger:focus-visible,
 html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-account-trigger[aria-expanded='true'],
-html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a:hover:not(.active),
-html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a:focus-visible:not(.active) {
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav > a:hover:not(.active),
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav > a:focus-visible:not(.active) {
   color: var(--app-text);
 }
 
-html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a.active {
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav > a.active {
   background: transparent;
   color: var(--app-text);
 }
 
-html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a:hover .idt-app-nav-icon,
-html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a:focus-visible .idt-app-nav-icon,
-html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a.active .idt-app-nav-icon {
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav > a:hover .idt-app-nav-icon,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav > a:focus-visible .idt-app-nav-icon,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav > a.active .idt-app-nav-icon {
   color: var(--app-text);
 }
 

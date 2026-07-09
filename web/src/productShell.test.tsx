@@ -1,4 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -48,6 +50,8 @@ import type { BackendFeatureState } from './hooks/useBackendFeatures';
 // time, so the AWS copy-redundancy guard below can scan productShell.tsx
 // without needing node's `require` or fs typings.
 import productShellSource from './productShell.tsx?raw';
+
+const stylesSource = readFileSync(join(process.cwd(), 'src/styles.css'), 'utf8');
 
 const loggedInWithoutWorkspace: CurrentUserContext = {
   user: {
@@ -2901,6 +2905,31 @@ describe('ProductShellLayout', () => {
     fireEvent.keyDown(screen.getByLabelText(/Search workspace commands/i), { key: 'Enter' });
 
     expect(await screen.findByRole('heading', { level: 2, name: /GitHub findings content/i })).toBeInTheDocument();
+  });
+
+  it('keeps collapsed sidebar styles from centering domain flyout links', async () => {
+    mockConnectorFeatureFlags({ github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    window.localStorage.setItem('idt:sidebar:collapsed', '1');
+    const { ProductShellLayout } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
+            <Route index element={<h2>Overview content</h2>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
+    const awsFlyout = screen.getByRole('dialog', { name: 'AWS' });
+    expect(within(awsFlyout).getByRole('link', { name: 'AWS Overview' })).toHaveClass('idt-domain-flyout-link');
+    expect(stylesSource).toContain('.idt-domain-flyout-link {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) 1.25rem;');
+    expect(stylesSource).toContain('.idt-app-console-layout.is-sidebar-collapsed .idt-app-shell-nav > a');
+    expect(stylesSource).not.toContain('.idt-app-console-layout.is-sidebar-collapsed .idt-app-shell-nav a,');
+    expect(stylesSource).not.toMatch(/idt-app-shell-nav\s+a/);
   });
 
   it('preserves the selected environment when routing to AWS coverage from workspace finder', async () => {
