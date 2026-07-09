@@ -126,7 +126,13 @@ func TestAWSExecutiveOutcomeViewFiltersOutcomeSeverityAndSearch(t *testing.T) {
 
 func TestAWSExecutiveOutcomeViewSummaryHighestScoreUsesCoveragePercent(t *testing.T) {
 	summary := summarizeAWSExecutiveOutcomeView(nil, nil,
-		AWSAccountRegionCoverageResult{Summary: AWSAccountRegionCoverageSummary{CoveredRecords: 250, TotalRecords: 500}},
+		AWSAccountRegionCoverageResult{
+			Summary: AWSAccountRegionCoverageSummary{CoveredRecords: 250, TotalRecords: 500},
+			Records: []AWSAccountRegionCoverageRecord{
+				{AccountID: "123456789012", Region: "us-east-1", Service: "iam", CoverageStatus: "covered"},
+				{AccountID: "123456789012", Region: "us-east-1", Service: "s3", CoverageStatus: "missing"},
+			},
+		},
 		AWSBlastRadiusResult{Summary: AWSBlastRadiusSummary{HighestScore: 40}},
 		AWSLeastPrivilegeResult{Summary: AWSLeastPrivilegeSummary{HighestScore: 30}},
 		AWSRemediationCaseResult{Summary: AWSRemediationCaseSummary{HighestScore: 20}},
@@ -139,6 +145,65 @@ func TestAWSExecutiveOutcomeViewSummaryHighestScoreUsesCoveragePercent(t *testin
 	}
 	if summary.HighestScore != 50 {
 		t.Fatalf("expected highest score to use coverage percent, got %+v", summary)
+	}
+}
+
+func TestAWSExecutiveOutcomeViewUsesFilteredSourceRowsForExecutiveTotals(t *testing.T) {
+	now := time.Date(2026, 7, 9, 12, 45, 0, 0, time.UTC)
+
+	metrics := awsExecutiveOutcomeMetrics(
+		AWSAccountRegionCoverageResult{
+			Summary: AWSAccountRegionCoverageSummary{CoveredRecords: 1000, TotalRecords: 1000},
+			Records: []AWSAccountRegionCoverageRecord{
+				{AccountID: "123456789012", Region: "us-east-1", Service: "iam", CoverageStatus: "covered"},
+				{AccountID: "123456789012", Region: "us-east-1", Service: "s3", CoverageStatus: "missing"},
+			},
+		},
+		AWSBlastRadiusResult{Summary: AWSBlastRadiusSummary{FilteredFindings: 99, HighestScore: 99}},
+		AWSLeastPrivilegeResult{
+			Summary: AWSLeastPrivilegeSummary{RemoveCount: 99, ReviewCount: 99, HighestScore: 99},
+			Recommendations: []AWSLeastPrivilegeRecommendation{{
+				RecommendationID: "lp-filtered-review",
+				Decision:         "review",
+				Severity:         "critical",
+				Status:           "open",
+				Score:            42,
+				Confidence:       0.9,
+				AccountID:        "123456789012",
+				Region:           "us-east-1",
+				Service:          "iam",
+			}},
+		},
+		AWSRemediationCaseResult{Summary: AWSRemediationCaseSummary{VerificationPlanCount: 99, HighestScore: 99}},
+		AWSPostRemediationVerificationResult{Summary: AWSPostRemediationVerificationSummary{VerifiedCount: 99, HighestScore: 99}},
+		AWSLimitedEnforcementResult{Summary: AWSLimitedEnforcementSummary{CanaryReadyCount: 99, HighestScore: 99}},
+		AWSGovernanceAuditReportingResult{Summary: AWSGovernanceAuditReportingSummary{FilteredRecords: 99, HighestScore: 99}},
+		"123456789012",
+		"us-east-1",
+		now,
+	)
+
+	byID := map[string]AWSExecutiveOutcomeMetric{}
+	for _, metric := range metrics {
+		byID[metric.MetricID] = metric
+	}
+	if got := byID["scan-coverage"].Value; got != 50 {
+		t.Fatalf("expected scan coverage to use filtered coverage records, got %d", got)
+	}
+	if got := byID["remaining-exposure"].Value; got != 1 {
+		t.Fatalf("expected remaining exposure to use filtered findings/recommendations, got %d", got)
+	}
+	if got := byID["risk-reduction"].Value; got != 0 {
+		t.Fatalf("expected risk reduction to ignore unfiltered source summary totals, got %d", got)
+	}
+	if got := byID["verified-remediation"].Value; got != 0 {
+		t.Fatalf("expected verified remediation to use filtered verification entries, got %d", got)
+	}
+	if got := byID["enforcement-status"].Value; got != 0 {
+		t.Fatalf("expected enforcement readiness to use filtered enforcement entries, got %d", got)
+	}
+	if got := byID["governance-outcomes"].Value; got != 0 {
+		t.Fatalf("expected governance outcomes to use filtered governance records, got %d", got)
 	}
 }
 

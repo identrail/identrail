@@ -119,6 +119,16 @@ type AWSExecutiveOutcomeViewResult struct {
 	UpdatedAt          time.Time                        `json:"updated_at"`
 }
 
+type awsExecutiveOutcomeSourceSummaries struct {
+	Coverage     AWSAccountRegionCoverageSummary
+	Blast        AWSBlastRadiusSummary
+	Least        AWSLeastPrivilegeSummary
+	Cases        AWSRemediationCaseSummary
+	Verification AWSPostRemediationVerificationSummary
+	Enforcement  AWSLimitedEnforcementSummary
+	Governance   AWSGovernanceAuditReportingSummary
+}
+
 func (s *Service) GetAWSExecutiveOutcomeView(ctx context.Context, workspaceID string, projectID string, request AWSExecutiveOutcomeViewRequest) (AWSExecutiveOutcomeViewResult, error) {
 	project, scope, err := s.requireScopedProject(ctx, workspaceID, projectID)
 	if err != nil {
@@ -265,10 +275,11 @@ func awsExecutiveOutcomeMetrics(
 	region string,
 	now time.Time,
 ) []AWSExecutiveOutcomeMetric {
-	coveragePct := percent(coverage.Summary.CoveredRecords, coverage.Summary.TotalRecords)
-	remainingExposure := blast.Summary.FilteredFindings + least.Summary.ReviewCount
-	riskReduction := clampInt(least.Summary.RemoveCount*12+cases.Summary.VerificationPlanCount*10+verification.Summary.VerifiedCount*18+enforcement.Summary.CanaryReadyCount*8-remainingExposure*5, 0, 100)
-	degradedCoverage := coverage.Summary.DegradedRecords + coverage.Summary.UnreachableRecords + coverage.Summary.PermissionDeniedRecords + coverage.Summary.StaleRecords
+	summaries := awsExecutiveOutcomeFilteredSourceSummaries(coverage, blast, least, cases, verification, enforcement, governance)
+	coveragePct := percent(summaries.Coverage.CoveredRecords, summaries.Coverage.TotalRecords)
+	remainingExposure := summaries.Blast.FilteredFindings + summaries.Least.ReviewCount
+	riskReduction := clampInt(summaries.Least.RemoveCount*12+summaries.Cases.VerificationPlanCount*10+summaries.Verification.VerifiedCount*18+summaries.Enforcement.CanaryReadyCount*8-remainingExposure*5, 0, 100)
+	degradedCoverage := summaries.Coverage.DegradedRecords + summaries.Coverage.UnreachableRecords + summaries.Coverage.PermissionDeniedRecords + summaries.Coverage.StaleRecords
 	metrics := []AWSExecutiveOutcomeMetric{
 		{
 			MetricID:         "risk-reduction",
@@ -285,7 +296,7 @@ func awsExecutiveOutcomeMetrics(
 			AccountID:        accountID,
 			Region:           region,
 			IdentityType:     "machine_identity",
-			Severity:         severityFromCounts(blast.Summary.SeverityCounts, least.Summary.SeverityCounts, cases.Summary.SeverityCounts),
+			Severity:         severityFromCounts(summaries.Blast.SeverityCounts, summaries.Least.SeverityCounts, summaries.Cases.SeverityCounts),
 			EvidenceLinks:    dedupeStrings(append(append([]string{}, least.EvidenceLinks...), cases.EvidenceLinks...)),
 			EvidenceRef:      "aws-executive-outcome://risk-reduction",
 			EvidenceBoundary: awsExecutiveOutcomeViewBoundary,
@@ -300,8 +311,8 @@ func awsExecutiveOutcomeMetrics(
 			Summary:          "Account, region, service, and collector coverage across the selected AWS connector.",
 			Value:            coveragePct,
 			Unit:             "percent",
-			Trend:            trendFromDelta(coverage.Summary.CoveredRecords - degradedCoverage),
-			TrendDelta:       coverage.Summary.CoveredRecords - degradedCoverage,
+			Trend:            trendFromDelta(summaries.Coverage.CoveredRecords - degradedCoverage),
+			TrendDelta:       summaries.Coverage.CoveredRecords - degradedCoverage,
 			Score:            coveragePct,
 			Confidence:       coverage.Confidence,
 			AccountID:        accountID,
@@ -320,16 +331,16 @@ func awsExecutiveOutcomeMetrics(
 			OutcomeType:      "remediation",
 			Title:            "Verified remediation",
 			Summary:          "Post-remediation verification and rollback state from read-only executor projections.",
-			Value:            verification.Summary.VerifiedCount,
+			Value:            summaries.Verification.VerifiedCount,
 			Unit:             "verified",
-			Trend:            trendFromDelta(verification.Summary.VerifiedCount - verification.Summary.FailedCount - verification.Summary.BlockedCount),
-			TrendDelta:       verification.Summary.VerifiedCount - verification.Summary.FailedCount - verification.Summary.BlockedCount,
-			Score:            verification.Summary.HighestScore,
+			Trend:            trendFromDelta(summaries.Verification.VerifiedCount - summaries.Verification.FailedCount - summaries.Verification.BlockedCount),
+			TrendDelta:       summaries.Verification.VerifiedCount - summaries.Verification.FailedCount - summaries.Verification.BlockedCount,
+			Score:            summaries.Verification.HighestScore,
 			Confidence:       verification.Confidence,
 			AccountID:        accountID,
 			Region:           region,
 			IdentityType:     "remediation_target",
-			Severity:         severityFromCounts(verification.Summary.SeverityCounts),
+			Severity:         severityFromCounts(summaries.Verification.SeverityCounts),
 			EvidenceLinks:    verification.EvidenceLinks,
 			EvidenceRef:      "aws-executive-outcome://verified-remediation",
 			EvidenceBoundary: awsExecutiveOutcomeViewBoundary,
@@ -342,11 +353,11 @@ func awsExecutiveOutcomeMetrics(
 			OutcomeType:      "enforcement",
 			Title:            "Enforcement readiness",
 			Summary:          "Limited enforcement readiness, canary safety, and kill-switch status.",
-			Value:            enforcement.Summary.CanaryReadyCount + enforcement.Summary.ReadyForEnforcementCount,
+			Value:            summaries.Enforcement.CanaryReadyCount + summaries.Enforcement.ReadyForEnforcementCount,
 			Unit:             "ready",
-			Trend:            trendFromDelta(enforcement.Summary.CanaryReadyCount + enforcement.Summary.ReadyForEnforcementCount - enforcement.Summary.KillSwitchEngagedCount - enforcement.Summary.FailedGateCount),
-			TrendDelta:       enforcement.Summary.CanaryReadyCount + enforcement.Summary.ReadyForEnforcementCount - enforcement.Summary.KillSwitchEngagedCount - enforcement.Summary.FailedGateCount,
-			Score:            enforcement.Summary.HighestScore,
+			Trend:            trendFromDelta(summaries.Enforcement.CanaryReadyCount + summaries.Enforcement.ReadyForEnforcementCount - summaries.Enforcement.KillSwitchEngagedCount - summaries.Enforcement.FailedGateCount),
+			TrendDelta:       summaries.Enforcement.CanaryReadyCount + summaries.Enforcement.ReadyForEnforcementCount - summaries.Enforcement.KillSwitchEngagedCount - summaries.Enforcement.FailedGateCount,
+			Score:            summaries.Enforcement.HighestScore,
 			Confidence:       enforcement.Confidence,
 			AccountID:        accountID,
 			Region:           region,
@@ -368,12 +379,12 @@ func awsExecutiveOutcomeMetrics(
 			Unit:             "open",
 			Trend:            trendFromDelta(-remainingExposure),
 			TrendDelta:       -remainingExposure,
-			Score:            maxInt(blast.Summary.HighestScore, least.Summary.HighestScore),
+			Score:            maxInt(summaries.Blast.HighestScore, summaries.Least.HighestScore),
 			Confidence:       averageFloat64(blast.Confidence, least.Confidence),
 			AccountID:        accountID,
 			Region:           region,
 			IdentityType:     "machine_identity",
-			Severity:         severityFromCounts(blast.Summary.SeverityCounts, least.Summary.SeverityCounts),
+			Severity:         severityFromCounts(summaries.Blast.SeverityCounts, summaries.Least.SeverityCounts),
 			EvidenceLinks:    dedupeStrings(append(append([]string{}, blast.EvidenceLinks...), least.EvidenceLinks...)),
 			EvidenceRef:      "aws-executive-outcome://remaining-exposure",
 			EvidenceBoundary: awsExecutiveOutcomeViewBoundary,
@@ -386,17 +397,17 @@ func awsExecutiveOutcomeMetrics(
 			OutcomeType:      "governance",
 			Title:            "Governance outcomes",
 			Summary:          "Export-safe decision, approval, remediation, enforcement, and exception rows available to leadership.",
-			Value:            governance.Summary.FilteredRecords,
+			Value:            summaries.Governance.FilteredRecords,
 			Unit:             "records",
-			Trend:            trendFromDelta(governance.Summary.EnforcementOutcomeCount + governance.Summary.RemediationCount - governance.Summary.ExceptionCount),
-			TrendDelta:       governance.Summary.EnforcementOutcomeCount + governance.Summary.RemediationCount - governance.Summary.ExceptionCount,
-			Score:            governance.Summary.HighestScore,
+			Trend:            trendFromDelta(summaries.Governance.EnforcementOutcomeCount + summaries.Governance.RemediationCount - summaries.Governance.ExceptionCount),
+			TrendDelta:       summaries.Governance.EnforcementOutcomeCount + summaries.Governance.RemediationCount - summaries.Governance.ExceptionCount,
+			Score:            summaries.Governance.HighestScore,
 			Confidence:       governance.Confidence,
 			AccountID:        accountID,
 			Region:           region,
 			OU:               awsExecutiveOutcomeMetricOU(governance.Records),
 			IdentityType:     "governance_record",
-			Severity:         severityFromFailureCount(governance.Summary.ExceptionCount),
+			Severity:         severityFromFailureCount(summaries.Governance.ExceptionCount),
 			EvidenceLinks:    governance.EvidenceLinks,
 			EvidenceRef:      "aws-executive-outcome://governance-outcomes",
 			EvidenceBoundary: awsExecutiveOutcomeViewBoundary,
@@ -414,6 +425,26 @@ func awsExecutiveOutcomeMetrics(
 		return metrics[i].Score > metrics[j].Score
 	})
 	return metrics
+}
+
+func awsExecutiveOutcomeFilteredSourceSummaries(
+	coverage AWSAccountRegionCoverageResult,
+	blast AWSBlastRadiusResult,
+	least AWSLeastPrivilegeResult,
+	cases AWSRemediationCaseResult,
+	verification AWSPostRemediationVerificationResult,
+	enforcement AWSLimitedEnforcementResult,
+	governance AWSGovernanceAuditReportingResult,
+) awsExecutiveOutcomeSourceSummaries {
+	return awsExecutiveOutcomeSourceSummaries{
+		Coverage:     summarizeAWSAccountRegionCoverage(coverage.Records, len(coverage.Records)),
+		Blast:        summarizeAWSBlastRadius(blast.Findings, blast.Findings, nil),
+		Least:        summarizeAWSLeastPrivilege(least.Recommendations, least.Recommendations, nil),
+		Cases:        summarizeAWSRemediationCases(cases.Cases, cases.Cases, nil),
+		Verification: summarizeAWSPostRemediationVerificationEntries(verification.Entries, verification.Entries, nil),
+		Enforcement:  summarizeAWSLimitedEnforcementEntries(enforcement.Entries, enforcement.Entries, nil),
+		Governance:   summarizeAWSGovernanceAuditReportRecords(governance.Records, governance.Records),
+	}
 }
 
 func filterAWSExecutiveOutcomeMetrics(metrics []AWSExecutiveOutcomeMetric, request AWSExecutiveOutcomeViewRequest) ([]AWSExecutiveOutcomeMetric, map[string]string) {
@@ -485,25 +516,26 @@ func summarizeAWSExecutiveOutcomeView(
 	enforcement AWSLimitedEnforcementResult,
 	governance AWSGovernanceAuditReportingResult,
 ) AWSExecutiveOutcomeViewSummary {
-	scanCoveragePct := percent(coverage.Summary.CoveredRecords, coverage.Summary.TotalRecords)
+	summaries := awsExecutiveOutcomeFilteredSourceSummaries(coverage, blast, least, cases, verification, enforcement, governance)
+	scanCoveragePct := percent(summaries.Coverage.CoveredRecords, summaries.Coverage.TotalRecords)
 	summary := AWSExecutiveOutcomeViewSummary{
 		TotalMetrics:             len(all),
 		FilteredMetrics:          len(filtered),
 		RiskReductionScore:       0,
 		ScanCoveragePct:          scanCoveragePct,
-		VerifiedRemediationCount: verification.Summary.VerifiedCount,
-		EnforcementReadyCount:    enforcement.Summary.CanaryReadyCount + enforcement.Summary.ReadyForEnforcementCount,
-		RemainingExposureCount:   blast.Summary.FilteredFindings + least.Summary.ReviewCount,
-		DegradedCoverageCount:    coverage.Summary.DegradedRecords + coverage.Summary.UnreachableRecords + coverage.Summary.PermissionDeniedRecords + coverage.Summary.StaleRecords,
-		GovernanceRecordCount:    governance.Summary.FilteredRecords,
-		ExceptionCount:           governance.Summary.ExceptionCount,
+		VerifiedRemediationCount: summaries.Verification.VerifiedCount,
+		EnforcementReadyCount:    summaries.Enforcement.CanaryReadyCount + summaries.Enforcement.ReadyForEnforcementCount,
+		RemainingExposureCount:   summaries.Blast.FilteredFindings + summaries.Least.ReviewCount,
+		DegradedCoverageCount:    summaries.Coverage.DegradedRecords + summaries.Coverage.UnreachableRecords + summaries.Coverage.PermissionDeniedRecords + summaries.Coverage.StaleRecords,
+		GovernanceRecordCount:    summaries.Governance.FilteredRecords,
+		ExceptionCount:           summaries.Governance.ExceptionCount,
 		AccountCounts:            map[string]int{},
 		OUCounts:                 map[string]int{},
 		IdentityTypeCounts:       map[string]int{},
 		SeverityCounts:           map[string]int{},
 		OutcomeTypeCounts:        map[string]int{},
 		TrendCounts:              map[string]int{},
-		HighestScore:             maxInt(scanCoveragePct, blast.Summary.HighestScore, least.Summary.HighestScore, cases.Summary.HighestScore, verification.Summary.HighestScore, enforcement.Summary.HighestScore, governance.Summary.HighestScore),
+		HighestScore:             maxInt(scanCoveragePct, summaries.Blast.HighestScore, summaries.Least.HighestScore, summaries.Cases.HighestScore, summaries.Verification.HighestScore, summaries.Enforcement.HighestScore, summaries.Governance.HighestScore),
 	}
 	confidenceTotal := 0.0
 	for _, metric := range filtered {
