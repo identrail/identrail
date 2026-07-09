@@ -27857,6 +27857,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const findDeleteRequestRef = useRef(0);
   const failedScanRemoveRequestRef = useRef(0);
   const currentScopeKeyRef = useRef(scopeKey);
+  const repoScanFilterRef = useRef(repoScanFilter);
   const remediationPreviewRequestRef = useRef(0);
   const remediationPublishRequestRef = useRef(0);
   const findingDetailCloseRef = useRef<HTMLButtonElement | null>(null);
@@ -27866,6 +27867,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const findingDeleteModalRef = useRef<HTMLElement | null>(null);
   const findingDeleteOpenerRef = useRef<HTMLElement | null>(null);
   currentScopeKeyRef.current = scopeKey;
+  repoScanFilterRef.current = repoScanFilter;
 
   const updateHierarchyOpenState = (
     level: 'repositories' | 'scans' | 'severities',
@@ -28745,8 +28747,9 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         writeDismissedRepoFailedScanKeys(next);
         return next;
       });
-      const refreshOverrides = normalizeValue(repoScanFilter) === scan.id ? { repoScanFilter: '' } : undefined;
+      const refreshOverrides = normalizeValue(repoScanFilterRef.current) === scan.id ? { repoScanFilter: '' } : undefined;
       if (refreshOverrides) {
+        repoScanFilterRef.current = '';
         setRepoScanFilter('');
       }
       await loadRepoFindings(targetScope, 'refresh', refreshOverrides);

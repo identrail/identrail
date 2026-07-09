@@ -8847,6 +8847,83 @@ describe('ProductFindingsPage states', () => {
     ).toBe(false);
   });
 
+  it('clears a failed scan filter selected while removal is in flight', async () => {
+    const failedScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-failed-live-filter',
+      status: 'failed',
+      started_at: '2026-05-17T12:00:00Z',
+      finished_at: '2026-05-17T12:01:00Z',
+      error_message: 'Repository not found or access revoked'
+    };
+    const oldSucceededScan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-live-filter-succeeded',
+      status: 'succeeded',
+      started_at: '2026-05-17T11:00:00Z',
+      finished_at: '2026-05-17T11:30:00Z',
+      finding_count: 1
+    };
+    const finding: Finding = {
+      id: 'finding-live-filter',
+      scan_id: oldSucceededScan.id,
+      type: 'workflow_permission',
+      severity: 'high',
+      title: 'Historical live-filter finding',
+      human_summary: 'A workflow grants broad repository permissions.',
+      remediation: 'Limit workflow permissions.',
+      created_at: '2026-05-17T11:07:00Z'
+    };
+    const deleteCompletion = deferred<void>();
+
+    const { deleteRepoScan, listRepoFindings, getRepoRiskGraph } = await renderFindings({
+      repoScans: [failedScan, oldSucceededScan],
+      repoFindings: [finding]
+    });
+    deleteRepoScan.mockImplementation(() => deleteCompletion.promise);
+
+    expect(await screen.findByText(/Last scan failed:/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Remove$/i }));
+    await waitFor(() => {
+      expect(deleteRepoScan).toHaveBeenCalledWith(
+        failedScan.id,
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      );
+    });
+
+    const repositoryScanFilter = screen.getByLabelText(/Repository scan/i) as HTMLSelectElement;
+    fireEvent.change(repositoryScanFilter, { target: { value: failedScan.id } });
+    await waitFor(() => {
+      expect(
+        listRepoFindings.mock.calls.some(
+          ([params]) => (params as { repo_scan_id?: string } | undefined)?.repo_scan_id === failedScan.id
+        )
+      ).toBe(true);
+    });
+
+    listRepoFindings.mockClear();
+    getRepoRiskGraph.mockClear();
+    await act(async () => {
+      deleteCompletion.resolve();
+      await deleteCompletion.promise;
+    });
+
+    await waitFor(() => {
+      expect((screen.getByLabelText(/Repository scan/i) as HTMLSelectElement).value).toBe('');
+      expect(screen.queryByText(/Last scan failed:/i)).not.toBeInTheDocument();
+    });
+    expect(
+      listRepoFindings.mock.calls.some(
+        ([params]) => (params as { repo_scan_id?: string } | undefined)?.repo_scan_id === failedScan.id
+      )
+    ).toBe(false);
+    expect(
+      getRepoRiskGraph.mock.calls.some(
+        ([params]) => (params as { repo_scan_id?: string } | undefined)?.repo_scan_id === failedScan.id
+      )
+    ).toBe(false);
+  });
+
   it('lets viewers dismiss a failed scan banner without deleting the scan', async () => {
     const failedScan: RepoScanRecord = {
       ...queuedRepoScan,
