@@ -290,6 +290,105 @@ func TestAWSExecutiveOutcomeViewDerivesEnforcementSeverityFromRows(t *testing.T)
 	}
 }
 
+func TestAWSExecutiveOutcomeViewCountsDistinctEnforcementReadyRows(t *testing.T) {
+	now := time.Date(2026, 7, 9, 12, 55, 0, 0, time.UTC)
+	enforcement := AWSLimitedEnforcementResult{
+		Entries: []AWSLimitedEnforcementEntry{{
+			Severity:            "high",
+			ReadyForCanary:      true,
+			ReadyForEnforcement: true,
+			Score:               88,
+			Confidence:          0.91,
+		}},
+	}
+	metrics := awsExecutiveOutcomeMetrics(
+		AWSAccountRegionCoverageResult{},
+		AWSBlastRadiusResult{},
+		AWSLeastPrivilegeResult{},
+		AWSRemediationCaseResult{},
+		AWSPostRemediationVerificationResult{},
+		enforcement,
+		AWSGovernanceAuditReportingResult{},
+		"123456789012",
+		"us-east-1",
+		now,
+	)
+
+	metric, ok := metricByID(metrics, "enforcement-status")
+	if !ok {
+		t.Fatalf("expected enforcement metric in executive view: %+v", metrics)
+	}
+	if metric.Value != 1 || metric.TrendDelta != 1 {
+		t.Fatalf("expected one distinct ready enforcement row, got metric=%+v", metric)
+	}
+
+	summary := summarizeAWSExecutiveOutcomeView(metrics, metrics,
+		AWSAccountRegionCoverageResult{},
+		AWSBlastRadiusResult{},
+		AWSLeastPrivilegeResult{},
+		AWSRemediationCaseResult{},
+		AWSPostRemediationVerificationResult{},
+		enforcement,
+		AWSGovernanceAuditReportingResult{},
+	)
+	if summary.EnforcementReadyCount != 1 {
+		t.Fatalf("expected summary to count one distinct ready enforcement row, got %+v", summary)
+	}
+}
+
+func TestAWSExecutiveOutcomeViewFiltersEnforcementRowsBeforeSeverityRollup(t *testing.T) {
+	now := time.Date(2026, 7, 9, 13, 0, 0, 0, time.UTC)
+	enforcement := awsExecutiveOutcomeFilterLimitedEnforcementRows(AWSLimitedEnforcementResult{
+		Entries: []AWSLimitedEnforcementEntry{
+			{
+				Severity:   "high",
+				Score:      42,
+				Confidence: 0.84,
+			},
+			{
+				Severity:            "low",
+				ReadyForCanary:      true,
+				ReadyForEnforcement: true,
+				Score:               96,
+				Confidence:          0.96,
+			},
+		},
+	}, AWSExecutiveOutcomeViewRequest{Severity: "high"})
+	metrics := awsExecutiveOutcomeMetrics(
+		AWSAccountRegionCoverageResult{},
+		AWSBlastRadiusResult{},
+		AWSLeastPrivilegeResult{},
+		AWSRemediationCaseResult{},
+		AWSPostRemediationVerificationResult{},
+		enforcement,
+		AWSGovernanceAuditReportingResult{},
+		"123456789012",
+		"us-east-1",
+		now,
+	)
+	high, _ := filterAWSExecutiveOutcomeMetrics(metrics, AWSExecutiveOutcomeViewRequest{Severity: "high"})
+	metric, ok := metricByID(high, "enforcement-status")
+	if !ok {
+		t.Fatalf("expected high enforcement metric after severity rollup filtering: %+v", high)
+	}
+	if metric.Value != 0 || metric.Score != 42 {
+		t.Fatalf("expected high rollup to exclude low ready rows, got %+v", metric)
+	}
+
+	summary := summarizeAWSExecutiveOutcomeView(metrics, high,
+		AWSAccountRegionCoverageResult{},
+		AWSBlastRadiusResult{},
+		AWSLeastPrivilegeResult{},
+		AWSRemediationCaseResult{},
+		AWSPostRemediationVerificationResult{},
+		enforcement,
+		AWSGovernanceAuditReportingResult{},
+	)
+	if summary.EnforcementReadyCount != 0 {
+		t.Fatalf("expected high summary to exclude low ready rows, got %+v", summary)
+	}
+}
+
 func metricByID(metrics []AWSExecutiveOutcomeMetric, id string) (AWSExecutiveOutcomeMetric, bool) {
 	for _, metric := range metrics {
 		if metric.MetricID == id {

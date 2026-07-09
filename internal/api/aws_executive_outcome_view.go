@@ -209,6 +209,7 @@ func (s *Service) GetAWSExecutiveOutcomeView(ctx context.Context, workspaceID st
 	if err != nil {
 		return AWSExecutiveOutcomeViewResult{}, err
 	}
+	enforcement = awsExecutiveOutcomeFilterLimitedEnforcementRows(enforcement, request)
 	governance, err := s.GetAWSGovernanceAuditReporting(ctx, workspaceID, projectID, AWSGovernanceAuditReportingRequest{
 		ConnectorID:  connectorID,
 		FixtureState: sourceFixtureState,
@@ -280,6 +281,7 @@ func awsExecutiveOutcomeMetrics(
 	remainingExposure := summaries.Blast.FilteredFindings + summaries.Least.ReviewCount
 	riskReduction := clampInt(summaries.Least.RemoveCount*12+summaries.Cases.VerificationPlanCount*10+summaries.Verification.VerifiedCount*18+summaries.Enforcement.CanaryReadyCount*8-remainingExposure*5, 0, 100)
 	degradedCoverage := summaries.Coverage.DegradedRecords + summaries.Coverage.UnreachableRecords + summaries.Coverage.PermissionDeniedRecords + summaries.Coverage.StaleRecords
+	enforcementReady := awsExecutiveOutcomeLimitedEnforcementReadyCount(enforcement.Entries)
 	metrics := []AWSExecutiveOutcomeMetric{
 		{
 			MetricID:         "risk-reduction",
@@ -353,10 +355,10 @@ func awsExecutiveOutcomeMetrics(
 			OutcomeType:      "enforcement",
 			Title:            "Enforcement readiness",
 			Summary:          "Limited enforcement readiness, canary safety, and kill-switch status.",
-			Value:            summaries.Enforcement.CanaryReadyCount + summaries.Enforcement.ReadyForEnforcementCount,
+			Value:            enforcementReady,
 			Unit:             "ready",
-			Trend:            trendFromDelta(summaries.Enforcement.CanaryReadyCount + summaries.Enforcement.ReadyForEnforcementCount - summaries.Enforcement.KillSwitchEngagedCount - summaries.Enforcement.FailedGateCount),
-			TrendDelta:       summaries.Enforcement.CanaryReadyCount + summaries.Enforcement.ReadyForEnforcementCount - summaries.Enforcement.KillSwitchEngagedCount - summaries.Enforcement.FailedGateCount,
+			Trend:            trendFromDelta(enforcementReady - summaries.Enforcement.KillSwitchEngagedCount - summaries.Enforcement.FailedGateCount),
+			TrendDelta:       enforcementReady - summaries.Enforcement.KillSwitchEngagedCount - summaries.Enforcement.FailedGateCount,
 			Score:            summaries.Enforcement.HighestScore,
 			Confidence:       enforcement.Confidence,
 			AccountID:        accountID,
@@ -433,6 +435,31 @@ func awsExecutiveOutcomeScopeValue(requestValue string, connectionValue string, 
 		return requestValue
 	}
 	return firstNonEmptyAWSValue(connectionValue, fallback)
+}
+
+func awsExecutiveOutcomeFilterLimitedEnforcementRows(result AWSLimitedEnforcementResult, request AWSExecutiveOutcomeViewRequest) AWSLimitedEnforcementResult {
+	severity := normalizeAWSRuntimeEventFilterToken(request.Severity)
+	if severity == "" || severity == "all" {
+		return result
+	}
+	out := result
+	out.Entries = make([]AWSLimitedEnforcementEntry, 0, len(result.Entries))
+	for _, entry := range result.Entries {
+		if normalizeAWSRuntimeEventFilterToken(entry.Severity) == severity {
+			out.Entries = append(out.Entries, entry)
+		}
+	}
+	return out
+}
+
+func awsExecutiveOutcomeLimitedEnforcementReadyCount(entries []AWSLimitedEnforcementEntry) int {
+	count := 0
+	for _, entry := range entries {
+		if entry.ReadyForCanary || entry.ReadyForEnforcement {
+			count++
+		}
+	}
+	return count
 }
 
 func awsExecutiveOutcomeLimitedEnforcementSeverity(entries []AWSLimitedEnforcementEntry) string {
@@ -544,7 +571,7 @@ func summarizeAWSExecutiveOutcomeView(
 		RiskReductionScore:       0,
 		ScanCoveragePct:          scanCoveragePct,
 		VerifiedRemediationCount: summaries.Verification.VerifiedCount,
-		EnforcementReadyCount:    summaries.Enforcement.CanaryReadyCount + summaries.Enforcement.ReadyForEnforcementCount,
+		EnforcementReadyCount:    awsExecutiveOutcomeLimitedEnforcementReadyCount(enforcement.Entries),
 		RemainingExposureCount:   summaries.Blast.FilteredFindings + summaries.Least.ReviewCount,
 		DegradedCoverageCount:    summaries.Coverage.DegradedRecords + summaries.Coverage.UnreachableRecords + summaries.Coverage.PermissionDeniedRecords + summaries.Coverage.StaleRecords,
 		GovernanceRecordCount:    summaries.Governance.FilteredRecords,
