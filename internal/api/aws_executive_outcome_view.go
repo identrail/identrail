@@ -143,8 +143,8 @@ func (s *Service) GetAWSExecutiveOutcomeView(ctx context.Context, workspaceID st
 	if fixtureState == "" {
 		return AWSExecutiveOutcomeViewResult{}, ErrInvalidAWSConnectionRequest
 	}
-	accountID := firstNonEmptyAWSValue(connection.AccountID, strings.TrimSpace(request.AccountID), "123456789012")
-	region := firstNonEmptyAWSValue(connection.Region, strings.TrimSpace(request.Region), "us-east-1")
+	accountID := awsExecutiveOutcomeScopeValue(request.AccountID, connection.AccountID, "123456789012")
+	region := awsExecutiveOutcomeScopeValue(request.Region, connection.Region, "us-east-1")
 	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID))
 	sourceFixtureState := fixtureState
 	if strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected {
@@ -425,6 +425,14 @@ func awsExecutiveOutcomeMetrics(
 		return metrics[i].Score > metrics[j].Score
 	})
 	return metrics
+}
+
+func awsExecutiveOutcomeScopeValue(requestValue string, connectionValue string, fallback string) string {
+	requestValue = strings.TrimSpace(requestValue)
+	if requestValue != "" && !strings.EqualFold(requestValue, "all") {
+		return requestValue
+	}
+	return firstNonEmptyAWSValue(connectionValue, fallback)
 }
 
 func awsExecutiveOutcomeFilteredSourceSummaries(

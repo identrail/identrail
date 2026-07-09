@@ -124,6 +124,35 @@ func TestAWSExecutiveOutcomeViewFiltersOutcomeSeverityAndSearch(t *testing.T) {
 	}
 }
 
+func TestAWSExecutiveOutcomeViewKeepsRequestedScopeMetricsVisible(t *testing.T) {
+	now := time.Date(2026, 7, 9, 12, 35, 0, 0, time.UTC)
+	svc, ws := newExecutiveOutcomeViewService(t, "project-executive-outcomes-scope", now)
+
+	result, err := svc.GetAWSExecutiveOutcomeView(defaultScopeContext(), ws, "project-executive-outcomes-scope", AWSExecutiveOutcomeViewRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		AccountID:    "222222222222",
+		Region:       "us-west-2",
+	})
+	if err != nil {
+		t.Fatalf("get scoped executive outcome view: %v", err)
+	}
+	if result.AccountID != "222222222222" || result.Region != "us-west-2" {
+		t.Fatalf("expected requested scope on result, got account=%q region=%q", result.AccountID, result.Region)
+	}
+	if len(result.Metrics) == 0 {
+		t.Fatalf("expected requested scope to keep executive metrics visible")
+	}
+	for _, metric := range result.Metrics {
+		if metric.AccountID != "222222222222" || metric.Region != "us-west-2" {
+			t.Fatalf("expected metric to keep requested scope, got %+v", metric)
+		}
+	}
+	if result.Summary.FilteredMetrics != len(result.Metrics) {
+		t.Fatalf("expected filtered summary to match visible metrics, got summary=%+v metrics=%+v", result.Summary, result.Metrics)
+	}
+}
+
 func TestAWSExecutiveOutcomeViewSummaryHighestScoreUsesCoveragePercent(t *testing.T) {
 	summary := summarizeAWSExecutiveOutcomeView(nil, nil,
 		AWSAccountRegionCoverageResult{
