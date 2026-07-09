@@ -428,6 +428,50 @@ func TestAWSExecutiveOutcomeViewStatusTreatsFilteredEmptySourcesAsReady(t *testi
 	}
 }
 
+func TestAWSExecutiveOutcomeViewStatusScopesCoverageToFilteredRows(t *testing.T) {
+	request := AWSExecutiveOutcomeViewRequest{AccountID: "222222222222", Region: "us-west-2"}
+	healthyScopedCoverage := AWSAccountRegionCoverageResult{
+		Status: awsPlatformDependencyStatusDegraded,
+		Records: []AWSAccountRegionCoverageRecord{
+			{AccountID: "222222222222", Region: "us-west-2", Service: "iam", CoverageStatus: "covered"},
+		},
+	}
+	statuses := awsExecutiveOutcomeSourceStatuses(
+		request,
+		"",
+		healthyScopedCoverage,
+		AWSBlastRadiusResult{Status: awsPlatformDependencyStatusReady},
+		AWSLeastPrivilegeResult{Status: awsPlatformDependencyStatusReady},
+		AWSRemediationCaseResult{Status: awsPlatformDependencyStatusReady},
+		AWSPostRemediationVerificationResult{Status: awsPlatformDependencyStatusReady},
+		AWSLimitedEnforcementResult{Status: awsPlatformDependencyStatusReady},
+		AWSGovernanceAuditReportingResult{Status: awsPlatformDependencyStatusReady},
+	)
+	status, confidence := summarizeAWSExecutiveOutcomeViewStatus(nil, statuses...)
+	if status != awsPlatformDependencyStatusReady || confidence != 0.8 {
+		t.Fatalf("expected healthy scoped coverage rows to override unscoped degradation, got status=%q confidence=%v statuses=%+v", status, confidence, statuses)
+	}
+
+	scopedPermissionDenied := healthyScopedCoverage
+	scopedPermissionDenied.Status = awsPlatformDependencyStatusReady
+	scopedPermissionDenied.Records[0].CoverageStatus = "permission_denied"
+	statuses = awsExecutiveOutcomeSourceStatuses(
+		request,
+		"",
+		scopedPermissionDenied,
+		AWSBlastRadiusResult{Status: awsPlatformDependencyStatusReady},
+		AWSLeastPrivilegeResult{Status: awsPlatformDependencyStatusReady},
+		AWSRemediationCaseResult{Status: awsPlatformDependencyStatusReady},
+		AWSPostRemediationVerificationResult{Status: awsPlatformDependencyStatusReady},
+		AWSLimitedEnforcementResult{Status: awsPlatformDependencyStatusReady},
+		AWSGovernanceAuditReportingResult{Status: awsPlatformDependencyStatusReady},
+	)
+	status, confidence = summarizeAWSExecutiveOutcomeViewStatus(nil, statuses...)
+	if status != awsPlatformDependencyStatusBlocked || confidence != 0.55 {
+		t.Fatalf("expected scoped permission-denied coverage row to stay blocked, got status=%q confidence=%v statuses=%+v", status, confidence, statuses)
+	}
+}
+
 func TestAWSExecutiveOutcomeViewStatusKeepsRealSourceDegradation(t *testing.T) {
 	statuses := awsExecutiveOutcomeSourceStatuses(
 		AWSExecutiveOutcomeViewRequest{Severity: "critical"},

@@ -619,13 +619,35 @@ func awsExecutiveOutcomeSourceStatuses(
 	governanceFilterActive := accountRegionFilterActive || strings.TrimSpace(request.OU) != "" || strings.TrimSpace(request.Search) != ""
 
 	return []string{
-		coverage.Status,
+		awsExecutiveOutcomeCoverageStatus(coverage, accountRegionFilterActive, sourceFixtureState),
 		awsExecutiveOutcomeFilteredEmptyStatus(blast.Status, len(blast.Findings), severitySourceFilterActive, sourceFixtureState, blast.FailureReasons, len(blast.Diagnostics)),
 		awsExecutiveOutcomeFilteredEmptyStatus(least.Status, len(least.Recommendations), severitySourceFilterActive, sourceFixtureState, least.FailureReasons, len(least.Diagnostics)),
 		awsExecutiveOutcomeFilteredEmptyStatus(cases.Status, len(cases.Cases), severitySourceFilterActive, sourceFixtureState, cases.FailureReasons, len(cases.Diagnostics)),
 		awsExecutiveOutcomeFilteredEmptyStatus(verification.Status, len(verification.Entries), severitySourceFilterActive, sourceFixtureState, verification.FailureReasons, len(verification.Diagnostics)),
 		awsExecutiveOutcomeFilteredEmptyStatus(enforcement.Status, len(enforcement.Entries), accountRegionFilterActive, sourceFixtureState, enforcement.FailureReasons, len(enforcement.Diagnostics)),
 		awsExecutiveOutcomeFilteredEmptyStatus(governance.Status, len(governance.Records), governanceFilterActive, sourceFixtureState, governance.FailureReasons, len(governance.Diagnostics)),
+	}
+}
+
+func awsExecutiveOutcomeCoverageStatus(coverage AWSAccountRegionCoverageResult, filterActive bool, sourceFixtureState string) string {
+	if !filterActive {
+		return coverage.Status
+	}
+	fixtureState := strings.ToLower(strings.TrimSpace(sourceFixtureState))
+	if fixtureState != "" && fixtureState != "success" {
+		return coverage.Status
+	}
+	if len(coverage.Records) == 0 {
+		return awsExecutiveOutcomeFilteredEmptyStatus(coverage.Status, 0, true, sourceFixtureState, coverage.FailureReasons, len(coverage.Diagnostics))
+	}
+	summary := summarizeAWSAccountRegionCoverage(coverage.Records, len(coverage.Records))
+	switch {
+	case summary.PermissionDeniedRecords > 0:
+		return awsPlatformDependencyStatusBlocked
+	case summary.DegradedRecords+summary.UnreachableRecords+summary.SuspendedRecords+summary.StaleRecords > 0:
+		return awsPlatformDependencyStatusDegraded
+	default:
+		return awsPlatformDependencyStatusReady
 	}
 }
 

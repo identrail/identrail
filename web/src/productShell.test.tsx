@@ -3350,6 +3350,7 @@ describe('Domain-first app routes', () => {
       '/app/:tenantID/:workspaceID/aws/findings',
       '/app/:tenantID/:workspaceID/aws/remediation',
       '/app/:tenantID/:workspaceID/aws/remediation/center',
+      '/app/:tenantID/:workspaceID/aws/outcomes',
       '/app/:tenantID/:workspaceID/aws/governance',
       '/app/:tenantID/:workspaceID/github',
       '/app/:tenantID/:workspaceID/github/connect',
@@ -7575,6 +7576,9 @@ describe('Domain-first app routes', () => {
     );
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Outcomes' })).toBeInTheDocument();
+    const scope = await screen.findByRole('region', { name: 'Outcomes scope' });
+    expect(within(scope).getByText('Read-only')).toBeInTheDocument();
+    expect(within(scope).queryByText('Advisory')).not.toBeInTheDocument();
     expect(await screen.findByRole('region', { name: 'AWS executive outcome summary' })).toBeInTheDocument();
     expect(await screen.findByRole('table', { name: 'AWS executive outcome metrics' })).toBeInTheDocument();
     expect(screen.getAllByText(/Risk reduction/i).length).toBeGreaterThan(0);

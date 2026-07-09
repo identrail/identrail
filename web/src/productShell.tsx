@@ -12130,7 +12130,7 @@ function AWSRiskOperationScope({
     ['Connector', connection?.display_name || connection?.connector_id || 'Connected AWS connector'],
     ['Scope', connection?.account_id ? awsAccountRegionLabel(connection) : selectedEnvironmentID ? 'Pending connector' : 'No environment'],
     ['Role', connection?.role_arn ? awsConnectionRoleLabel(connection) : 'Not connected'],
-    ['Mode', copy.routeID === 'governance' || copy.routeID === 'outcomes' ? 'Advisory' : 'Read-only']
+    ['Mode', copy.routeID === 'governance' ? 'Advisory' : 'Read-only']
   ];
 
   return (
