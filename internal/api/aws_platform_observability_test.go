@@ -149,11 +149,18 @@ func TestAWSPlatformObservabilityFanOutMetricsUseFilteredTargets(t *testing.T) {
 	now := time.Date(2026, 7, 9, 15, 3, 0, 0, time.UTC)
 	sources := awsPlatformObservabilitySources{
 		Coverage: AWSAccountRegionCoverageResult{
-			Status:     awsPlatformDependencyStatusReady,
+			Status:     awsPlatformDependencyStatusDegraded,
 			Confidence: 0.98,
+			Summary: AWSAccountRegionCoverageSummary{
+				CoveredRecords:  12,
+				DegradedRecords: 4,
+			},
+			Records: []AWSAccountRegionCoverageRecord{
+				{Key: "ecs-covered", AccountID: "123456789012", Region: "us-east-1", Service: "ecs", CoverageStatus: "covered", State: "covered"},
+			},
 		},
 		FanOut: AWSFanOutExecutionResult{
-			Status:     awsPlatformDependencyStatusReady,
+			Status:     awsPlatformDependencyStatusDegraded,
 			Confidence: 0.96,
 			Summary: AWSFanOutExecutionSummary{
 				CoveredTargets:   12,
@@ -175,11 +182,17 @@ func TestAWSPlatformObservabilityFanOutMetricsUseFilteredTargets(t *testing.T) {
 	if got := byID["scan-throughput"].Value; got != 1 {
 		t.Fatalf("expected scan throughput to use filtered fan-out targets, got %d", got)
 	}
+	if metric := byID["scan-throughput"]; metric.Status != awsPlatformDependencyStatusReady || metric.Severity != "low" {
+		t.Fatalf("expected scan throughput status to use filtered source rows, got %+v", metric)
+	}
 	if got := byID["queue-lag"].Value; got != 0 {
 		t.Fatalf("expected queue lag to ignore unfiltered fan-out summary backlog, got %d", got)
 	}
 	if metric := byID["throttling"]; metric.Value != 0 || metric.Status != awsPlatformDependencyStatusReady {
 		t.Fatalf("expected throttling to use filtered fan-out targets, got %+v", metric)
+	}
+	if metric := byID["collector-failures"]; metric.Value != 0 || metric.Status != awsPlatformDependencyStatusReady {
+		t.Fatalf("expected collector failures to use filtered coverage rows, got %+v", metric)
 	}
 }
 
@@ -208,6 +221,41 @@ func TestAWSPlatformObservabilityRuntimeTraceStatusIncludesDelayed(t *testing.T)
 	}
 	if traces[0].Status != awsPlatformDependencyStatusDegraded {
 		t.Fatalf("expected delayed runtime trace to be degraded, got %+v", traces[0])
+	}
+}
+
+func TestAWSPlatformObservabilityNormalizesRuntimeServiceTokens(t *testing.T) {
+	now := time.Date(2026, 7, 9, 15, 4, 30, 0, time.UTC)
+	traces := awsPlatformObservabilityTraces(awsPlatformObservabilitySources{
+		Runtime: AWSRuntimeEventResult{
+			Records: []AWSRuntimeEventRecord{
+				{
+					EventID:     "secret-runtime",
+					AccountID:   "123456789012",
+					Region:      "us-east-1",
+					EventSource: "secretsmanager.amazonaws.com",
+					Status:      "observed",
+					ObservedAt:  now.Add(-5 * time.Minute),
+					CollectedAt: now,
+					EvidenceRef: "aws-runtime://secret-runtime",
+					NextAction:  "Review secret runtime access.",
+				},
+			},
+		},
+	}, now)
+	if len(traces) != 1 || traces[0].Service != "secretsmanager" {
+		t.Fatalf("expected runtime event source to normalize to service token, got %+v", traces)
+	}
+
+	metrics := []AWSPlatformObservabilityMetric{
+		{MetricID: "s3-throughput", Component: "collector", Service: "s3", Status: awsPlatformDependencyStatusReady},
+	}
+	serviceTraces := []AWSPlatformObservabilityTrace{
+		{TraceID: "runtime-s3", Component: "runtime", Service: "s3", Status: awsPlatformDependencyStatusReady},
+	}
+	filteredMetrics, filteredTraces, _ := filterAWSPlatformObservability(metrics, serviceTraces, AWSPlatformObservabilityRequest{Service: "s3.amazonaws.com"})
+	if len(filteredMetrics) != 1 || len(filteredTraces) != 1 {
+		t.Fatalf("expected endpoint-form service filter to match canonical service tokens, metrics=%+v traces=%+v", filteredMetrics, filteredTraces)
 	}
 }
 

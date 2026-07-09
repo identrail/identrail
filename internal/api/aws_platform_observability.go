@@ -342,8 +342,15 @@ func awsPlatformObservabilityMetrics(sources awsPlatformObservabilitySources, re
 		service = "all"
 	}
 	aggregateService := "all"
+	sourceScoped := awsPlatformObservabilityHasSourceScopeFilter(request)
+	coverageSummary := awsPlatformObservabilityCoverageSummary(sources.Coverage)
 	fanOutSummary := awsPlatformObservabilityFanOutSummary(sources.FanOut)
-	collectorFailures := sources.Coverage.Summary.DegradedRecords + sources.Coverage.Summary.UnreachableRecords + sources.Coverage.Summary.StaleRecords + sources.Coverage.Summary.PermissionDeniedRecords + len(sources.Coverage.Diagnostics)
+	coverageStatus := awsPlatformObservabilityCoverageStatus(coverageSummary, sources.Coverage.Status, sourceScoped)
+	fanOutStatus := awsPlatformObservabilityFanOutSummaryStatus(fanOutSummary, sources.FanOut.Status, sourceScoped)
+	collectorFailures := coverageSummary.DegradedRecords + coverageSummary.UnreachableRecords + coverageSummary.StaleRecords + coverageSummary.PermissionDeniedRecords
+	if !sourceScoped {
+		collectorFailures += len(sources.Coverage.Diagnostics)
+	}
 	queueLag := awsPlatformObservabilityQueueLag(fanOutSummary)
 	runtimeLag := awsPlatformObservabilityRuntimeLag(sources.Runtime.Records)
 	remediationPending := sources.Cases.Summary.ApprovalRequiredCount + sources.Verification.Summary.PendingCount
@@ -356,10 +363,10 @@ func awsPlatformObservabilityMetrics(sources awsPlatformObservabilitySources, re
 			Signal:           "scan_throughput",
 			Title:            "Scan throughput",
 			Summary:          "Account, region, and service targets completed by the bounded fan-out and coverage collectors.",
-			Value:            maxInt(fanOutSummary.CoveredTargets, sources.Coverage.Summary.CoveredRecords),
+			Value:            maxInt(fanOutSummary.CoveredTargets, coverageSummary.CoveredRecords),
 			Unit:             "targets_per_hour",
-			Status:           awsPlatformObservabilitySourceStatus(sources.Coverage.Status, sources.FanOut.Status),
-			Severity:         awsPlatformObservabilityMetricSeverity(sources.Coverage.Status, sources.FanOut.Status),
+			Status:           awsPlatformObservabilitySourceStatus(coverageStatus, fanOutStatus),
+			Severity:         awsPlatformObservabilityMetricSeverity(coverageStatus, fanOutStatus),
 			Confidence:       averageFloat64(sources.Coverage.Confidence, sources.FanOut.Confidence),
 			AccountID:        accountID,
 			Region:           region,
@@ -380,8 +387,8 @@ func awsPlatformObservabilityMetrics(sources awsPlatformObservabilitySources, re
 			Summary:          "Estimated backlog lag from queued and in-progress fan-out targets.",
 			Value:            queueLag,
 			Unit:             "milliseconds",
-			Status:           awsPlatformObservabilityLagStatus(queueLag, sources.FanOut.Status),
-			Severity:         awsPlatformObservabilityLagSeverity(queueLag, sources.FanOut.Status),
+			Status:           awsPlatformObservabilityLagStatus(queueLag, fanOutStatus),
+			Severity:         awsPlatformObservabilityLagSeverity(queueLag, fanOutStatus),
 			Confidence:       sources.FanOut.Confidence,
 			AccountID:        accountID,
 			Region:           region,
@@ -402,8 +409,8 @@ func awsPlatformObservabilityMetrics(sources awsPlatformObservabilitySources, re
 			Summary:          "Fan-out targets currently throttled or waiting for bounded retry.",
 			Value:            fanOutSummary.ThrottledTargets,
 			Unit:             "targets",
-			Status:           awsPlatformObservabilityCountStatus(fanOutSummary.ThrottledTargets, sources.FanOut.Status),
-			Severity:         awsPlatformObservabilityCountSeverity(fanOutSummary.ThrottledTargets, sources.FanOut.Status),
+			Status:           awsPlatformObservabilityCountStatus(fanOutSummary.ThrottledTargets, fanOutStatus),
+			Severity:         awsPlatformObservabilityCountSeverity(fanOutSummary.ThrottledTargets, fanOutStatus),
 			Confidence:       sources.FanOut.Confidence,
 			AccountID:        accountID,
 			Region:           region,
@@ -424,8 +431,8 @@ func awsPlatformObservabilityMetrics(sources awsPlatformObservabilitySources, re
 			Summary:          "Explicit degraded, unreachable, stale, permission-denied, or diagnostic collector states.",
 			Value:            collectorFailures,
 			Unit:             "signals",
-			Status:           awsPlatformObservabilityCountStatus(collectorFailures, sources.Coverage.Status),
-			Severity:         awsPlatformObservabilityCountSeverity(collectorFailures, sources.Coverage.Status),
+			Status:           awsPlatformObservabilityCountStatus(collectorFailures, coverageStatus),
+			Severity:         awsPlatformObservabilityCountSeverity(collectorFailures, coverageStatus),
 			Confidence:       sources.Coverage.Confidence,
 			AccountID:        accountID,
 			Region:           region,
@@ -583,7 +590,7 @@ func awsPlatformObservabilityTraces(sources awsPlatformObservabilitySources, now
 			Component:        "runtime",
 			AccountID:        record.AccountID,
 			Region:           record.Region,
-			Service:          record.EventSource,
+			Service:          awsPlatformObservabilityServiceToken(record.EventSource),
 			Status:           awsPlatformObservabilityRuntimeStatus(record.Status),
 			RuntimeLagMs:     awsPlatformObservabilityDurationMs(record.ObservedAt, record.CollectedAt),
 			EvidenceRef:      record.EvidenceRef,
@@ -629,6 +636,13 @@ func filterAWSPlatformObservability(metrics []AWSPlatformObservabilityMetric, tr
 		}
 		return strings.ToLower(strings.TrimSpace(value)) == want
 	}
+	matchServiceToken := func(value, want string) bool {
+		want = awsPlatformObservabilityServiceToken(want)
+		if want == "" || want == "all" {
+			return true
+		}
+		return awsPlatformObservabilityServiceToken(value) == want
+	}
 	matchSearch := func(values ...string) bool {
 		search := strings.ToLower(strings.TrimSpace(request.Search))
 		if search == "" {
@@ -638,7 +652,7 @@ func filterAWSPlatformObservability(metrics []AWSPlatformObservabilityMetric, tr
 	}
 	filteredMetrics := make([]AWSPlatformObservabilityMetric, 0, len(metrics))
 	for _, metric := range metrics {
-		if !matchToken(metric.AccountID, request.AccountID) || !matchToken(metric.Region, request.Region) || !matchToken(metric.Service, request.Service) {
+		if !matchToken(metric.AccountID, request.AccountID) || !matchToken(metric.Region, request.Region) || !matchServiceToken(metric.Service, request.Service) {
 			continue
 		}
 		if !matchToken(metric.Component, request.Component) || !matchToken(metric.Status, request.Status) {
@@ -651,7 +665,7 @@ func filterAWSPlatformObservability(metrics []AWSPlatformObservabilityMetric, tr
 	}
 	filteredTraces := make([]AWSPlatformObservabilityTrace, 0, len(traces))
 	for _, trace := range traces {
-		if !matchToken(trace.AccountID, request.AccountID) || !matchToken(trace.Region, request.Region) || !matchToken(trace.Service, request.Service) {
+		if !matchToken(trace.AccountID, request.AccountID) || !matchToken(trace.Region, request.Region) || !matchServiceToken(trace.Service, request.Service) {
 			continue
 		}
 		if !matchToken(trace.Component, request.Component) || !matchToken(trace.Status, request.Status) {
@@ -866,6 +880,72 @@ func awsPlatformObservabilityQueueLag(summary AWSFanOutExecutionSummary) int {
 	return (summary.QueuedTargets * int((2 * time.Minute).Milliseconds())) + (summary.InProgressTargets * int((30 * time.Second).Milliseconds())) + (summary.RetryableTargets * int((5 * time.Minute).Milliseconds()))
 }
 
+func awsPlatformObservabilityCoverageSummary(result AWSAccountRegionCoverageResult) AWSAccountRegionCoverageSummary {
+	summary := AWSAccountRegionCoverageSummary{
+		TotalRecords:    len(result.Records),
+		FilteredRecords: len(result.Records),
+		StatusCounts:    map[string]int{},
+		StateCounts:     map[string]int{},
+		CollectorCounts: map[string]int{},
+	}
+	accounts := map[string]struct{}{}
+	regions := map[string]struct{}{}
+	services := map[string]struct{}{}
+	for _, record := range result.Records {
+		accounts[strings.TrimSpace(record.AccountID)] = struct{}{}
+		regions[strings.ToLower(strings.TrimSpace(record.Region))] = struct{}{}
+		services[awsPlatformObservabilityServiceToken(record.Service)] = struct{}{}
+		summary.StatusCounts[record.CoverageStatus]++
+		summary.StateCounts[record.State]++
+		if strings.TrimSpace(record.Collector) != "" {
+			summary.CollectorCounts[record.Collector]++
+		}
+		if record.Retryable {
+			summary.RetryableRecords++
+		}
+		switch strings.ToLower(strings.TrimSpace(record.CoverageStatus)) {
+		case "covered":
+			summary.CoveredRecords++
+		case "missing":
+			summary.MissingRecords++
+		case "degraded":
+			summary.DegradedRecords++
+		case "unreachable":
+			summary.UnreachableRecords++
+		case "suspended":
+			summary.SuspendedRecords++
+		case "disabled":
+			summary.DisabledRecords++
+		case "stale":
+			summary.StaleRecords++
+		case "permission_denied":
+			summary.PermissionDeniedRecords++
+		}
+	}
+	summary.AccountCount = len(accounts)
+	summary.RegionCount = len(regions)
+	summary.ServiceCount = len(services)
+	return summary
+}
+
+func awsPlatformObservabilityCoverageStatus(summary AWSAccountRegionCoverageSummary, fallback string, sourceScoped bool) string {
+	if summary.TotalRecords == 0 {
+		status := awsPlatformObservabilitySourceStatus(fallback)
+		if sourceScoped && status != awsPlatformDependencyStatusBlocked {
+			return awsPlatformDependencyStatusReady
+		}
+		return status
+	}
+	switch {
+	case summary.PermissionDeniedRecords > 0:
+		return awsPlatformDependencyStatusBlocked
+	case summary.StaleRecords > 0 || summary.DegradedRecords > 0 || summary.UnreachableRecords > 0 || summary.SuspendedRecords > 0:
+		return awsPlatformDependencyStatusDegraded
+	default:
+		return awsPlatformDependencyStatusReady
+	}
+}
+
 func awsPlatformObservabilityFanOutSummary(result AWSFanOutExecutionResult) AWSFanOutExecutionSummary {
 	summary := AWSFanOutExecutionSummary{
 		ConcurrencyLimit: result.Summary.ConcurrencyLimit,
@@ -905,6 +985,57 @@ func awsPlatformObservabilityFanOutSummary(result AWSFanOutExecutionResult) AWSF
 		}
 	}
 	return summary
+}
+
+func awsPlatformObservabilityFanOutSummaryStatus(summary AWSFanOutExecutionSummary, fallback string, sourceScoped bool) string {
+	if summary.TotalTargets == 0 {
+		status := awsPlatformObservabilitySourceStatus(fallback)
+		if sourceScoped && status != awsPlatformDependencyStatusBlocked {
+			return awsPlatformDependencyStatusReady
+		}
+		return status
+	}
+	switch {
+	case summary.PermissionDeniedTargets > 0:
+		return awsPlatformDependencyStatusBlocked
+	case summary.FailedTargets > 0 || summary.PartialTargets > 0 || summary.ThrottledTargets > 0:
+		return awsPlatformDependencyStatusDegraded
+	default:
+		return awsPlatformDependencyStatusReady
+	}
+}
+
+func awsPlatformObservabilityHasSourceScopeFilter(request AWSPlatformObservabilityRequest) bool {
+	service := awsPlatformObservabilityServiceToken(request.Service)
+	return (service != "" && service != "all") ||
+		strings.TrimSpace(request.AccountID) != "" ||
+		strings.TrimSpace(request.Region) != ""
+}
+
+func awsPlatformObservabilityServiceToken(value string) string {
+	token := strings.ToLower(strings.TrimSpace(value))
+	token = strings.TrimPrefix(token, "aws-service://")
+	token = strings.TrimSuffix(token, ".")
+	for _, suffix := range []string{".amazonaws.com.cn", ".amazonaws.com"} {
+		if strings.HasSuffix(token, suffix) {
+			token = strings.TrimSuffix(token, suffix)
+			break
+		}
+	}
+	if dot := strings.Index(token, "."); dot > 0 {
+		token = token[:dot]
+	}
+	token = normalizeAWSRuntimeEventFilterToken(token)
+	switch token {
+	case "secrets-manager":
+		return "secretsmanager"
+	case "states":
+		return "stepfunctions"
+	case "events":
+		return "eventbridge"
+	default:
+		return token
+	}
 }
 
 func awsPlatformObservabilityTargetQueueLag(target AWSFanOutExecutionTarget) int {
