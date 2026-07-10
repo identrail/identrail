@@ -272,9 +272,10 @@ func (s *Service) GetAWSPlatformObservability(ctx context.Context, workspaceID s
 	metrics := awsPlatformObservabilityMetrics(sources, request, accountID, region, sourceService, now)
 	traces := awsPlatformObservabilityTraces(sources, now)
 	filteredMetrics, filteredTraces, applied := filterAWSPlatformObservability(metrics, traces, request)
-	alerts := awsPlatformObservabilityAlerts(filteredMetrics, filteredTraces, now)
+	includeTraceSignals := awsPlatformObservabilityHasResultFilter(request)
+	alerts := awsPlatformObservabilityAlerts(filteredMetrics, filteredTraces, includeTraceSignals, now)
 	summary := summarizeAWSPlatformObservability(metrics, filteredMetrics, traces, filteredTraces, alerts)
-	status, confidence := summarizeAWSPlatformObservabilityStatus(filteredMetrics, filteredTraces)
+	status, confidence := summarizeAWSPlatformObservabilityStatus(filteredMetrics, filteredTraces, includeTraceSignals)
 	return AWSPlatformObservabilityResult{
 		TenantID:           scope.TenantID,
 		WorkspaceID:        project.WorkspaceID,
@@ -687,6 +688,15 @@ func filterAWSPlatformObservability(metrics []AWSPlatformObservabilityMetric, tr
 	return filteredMetrics, filteredTraces, applied
 }
 
+func awsPlatformObservabilityHasResultFilter(request AWSPlatformObservabilityRequest) bool {
+	return awsPlatformObservabilityRequestedScopeValue(request.AccountID) != "" ||
+		awsPlatformObservabilityRequestedScopeValue(request.Region) != "" ||
+		awsPlatformObservabilitySourceServiceFilter(request.Service) != "" ||
+		strings.TrimSpace(request.Component) != "" ||
+		strings.TrimSpace(request.Status) != "" ||
+		strings.TrimSpace(request.Search) != ""
+}
+
 func summarizeAWSPlatformObservability(allMetrics []AWSPlatformObservabilityMetric, filteredMetrics []AWSPlatformObservabilityMetric, allTraces []AWSPlatformObservabilityTrace, filteredTraces []AWSPlatformObservabilityTrace, alerts []AWSPlatformObservabilityAlert) AWSPlatformObservabilitySummary {
 	summary := AWSPlatformObservabilitySummary{
 		TotalMetrics:    len(allMetrics),
@@ -754,9 +764,11 @@ func summarizeAWSPlatformObservability(allMetrics []AWSPlatformObservabilityMetr
 	return summary
 }
 
-func summarizeAWSPlatformObservabilityStatus(metrics []AWSPlatformObservabilityMetric, traces []AWSPlatformObservabilityTrace) (string, float64) {
+func summarizeAWSPlatformObservabilityStatus(metrics []AWSPlatformObservabilityMetric, traces []AWSPlatformObservabilityTrace, includeTraceSignals bool) (string, float64) {
 	statuses := awsPlatformObservabilityMetricStatuses(metrics)
-	if len(statuses) == 0 {
+	if includeTraceSignals {
+		statuses = append(statuses, awsPlatformObservabilityTraceStatuses(traces)...)
+	} else if len(statuses) == 0 {
 		statuses = awsPlatformObservabilityTraceStatuses(traces)
 	}
 	status := awsPlatformObservabilitySourceStatus(statuses...)
@@ -865,7 +877,7 @@ func awsPlatformObservabilityLagSeverity(lagMs int, statuses ...string) string {
 	return "low"
 }
 
-func awsPlatformObservabilityAlerts(metrics []AWSPlatformObservabilityMetric, traces []AWSPlatformObservabilityTrace, now time.Time) []AWSPlatformObservabilityAlert {
+func awsPlatformObservabilityAlerts(metrics []AWSPlatformObservabilityMetric, traces []AWSPlatformObservabilityTrace, includeTraceSignals bool, now time.Time) []AWSPlatformObservabilityAlert {
 	alerts := []AWSPlatformObservabilityAlert{}
 	for _, metric := range metrics {
 		if metric.Status == awsPlatformDependencyStatusReady {
@@ -884,7 +896,7 @@ func awsPlatformObservabilityAlerts(metrics []AWSPlatformObservabilityMetric, tr
 			TriggeredAt:      now,
 		})
 	}
-	if len(metrics) > 0 {
+	if !includeTraceSignals && len(metrics) > 0 {
 		return alerts
 	}
 	for _, trace := range traces {

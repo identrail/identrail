@@ -180,13 +180,47 @@ func TestAWSPlatformObservabilityTraceOnlyStatusAndAlerts(t *testing.T) {
 	if len(filteredMetrics) != 0 || len(filteredTraces) != 1 {
 		t.Fatalf("expected service filter to leave only runtime trace rows, metrics=%+v traces=%+v", filteredMetrics, filteredTraces)
 	}
-	status, confidence := summarizeAWSPlatformObservabilityStatus(filteredMetrics, filteredTraces)
+	status, confidence := summarizeAWSPlatformObservabilityStatus(filteredMetrics, filteredTraces, true)
 	if status != awsPlatformDependencyStatusDegraded || confidence != 0.72 {
 		t.Fatalf("expected trace-only degraded response status, got status=%q confidence=%v", status, confidence)
 	}
-	alerts := awsPlatformObservabilityAlerts(filteredMetrics, filteredTraces, now)
+	alerts := awsPlatformObservabilityAlerts(filteredMetrics, filteredTraces, true, now)
 	if len(alerts) != 1 || alerts[0].Status != awsPlatformDependencyStatusDegraded || alerts[0].Component != "runtime" {
 		t.Fatalf("expected trace-only degraded alert, got %+v", alerts)
+	}
+}
+
+func TestAWSPlatformObservabilityScopedStatusIncludesMetricAndTraceSignals(t *testing.T) {
+	now := time.Date(2026, 7, 9, 15, 1, 45, 0, time.UTC)
+	metrics := []AWSPlatformObservabilityMetric{
+		{MetricID: "scan-throughput", Component: "collector", Service: "secretsmanager", Status: awsPlatformDependencyStatusReady},
+		{MetricID: "queue-lag", Component: "queue", Service: "secretsmanager", Status: awsPlatformDependencyStatusReady},
+	}
+	traces := []AWSPlatformObservabilityTrace{
+		{
+			TraceID:     "runtime-secretsmanager-delayed",
+			SpanName:    "aws.runtime.collect",
+			Component:   "runtime",
+			AccountID:   "123456789012",
+			Region:      "us-east-1",
+			Service:     "secretsmanager",
+			Status:      awsPlatformDependencyStatusDegraded,
+			EvidenceRef: "aws-runtime://secret-runtime",
+			NextAction:  "Review delayed runtime delivery.",
+		},
+	}
+
+	filteredMetrics, filteredTraces, _ := filterAWSPlatformObservability(metrics, traces, AWSPlatformObservabilityRequest{Service: "secretsmanager"})
+	if len(filteredMetrics) != 2 || len(filteredTraces) != 1 {
+		t.Fatalf("expected service filter to keep ready metrics and degraded trace, metrics=%+v traces=%+v", filteredMetrics, filteredTraces)
+	}
+	status, confidence := summarizeAWSPlatformObservabilityStatus(filteredMetrics, filteredTraces, true)
+	if status != awsPlatformDependencyStatusDegraded || confidence != 0.72 {
+		t.Fatalf("expected scoped status to include degraded trace beside ready metrics, got status=%q confidence=%v", status, confidence)
+	}
+	alerts := awsPlatformObservabilityAlerts(filteredMetrics, filteredTraces, true, now)
+	if len(alerts) != 1 || alerts[0].Status != awsPlatformDependencyStatusDegraded || alerts[0].Component != "runtime" {
+		t.Fatalf("expected scoped trace alert beside ready metrics, got %+v", alerts)
 	}
 }
 
