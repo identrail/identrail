@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -207,7 +209,7 @@ func (s *Service) GetAWSGADemoHardening(ctx context.Context, workspaceID string,
 		Outcomes:      outcomes,
 		Observability: observability,
 	}
-	stages := awsGADemoHardeningStages(sources, accountID, region, now)
+	stages := awsGADemoHardeningStages(sources, accountID, region, scope.TenantID, project.WorkspaceID, project.ProjectID, now)
 	filteredStages, applied := filterAWSGADemoHardeningStages(stages, request)
 	checks := awsGADemoHardeningReadinessChecks(sources)
 	filteredChecks := filterAWSGADemoHardeningReadinessChecks(checks, request)
@@ -252,20 +254,35 @@ func validAWSGADemoHardeningFilter(request AWSGADemoHardeningRequest) bool {
 		validAWSPlatformObservabilityToken(request.Stage, []string{"onboarding", "discovery", "agents", "runtime", "risk", "remediation", "approval", "verification", "governance", "reporting", "observability"})
 }
 
-func awsGADemoHardeningStages(s awsGADemoHardeningSources, accountID, region string, now time.Time) []AWSGADemoHardeningStage {
+func awsGADemoHardeningStages(s awsGADemoHardeningSources, accountID, region, tenantID, workspaceID, projectID string, now time.Time) []AWSGADemoHardeningStage {
 	return []AWSGADemoHardeningStage{
-		awsGADemoStage("onboarding", 1, "Onboarding and validation", "AWS connector setup and deterministic app/API validation fixtures are available for the operator walkthrough.", s.Validation.Status, s.Validation.Confidence, accountID, region, "/app/aws/connect", "aws-ga-demo://onboarding", s.Validation.EvidenceLinks, "Open connector diagnostics and run success, empty, degraded, and permission-denied fixtures.", firstAWSGADemoString(s.Validation.FailureReasons), now),
-		awsGADemoStage("discovery", 2, "Discovery and graph", "Machine identities, resources, edges, impacted paths, and evidence refs are ready for graph drilldown.", s.Graph.Status, s.Graph.Confidence, accountID, region, "/app/aws/graph", "aws-ga-demo://discovery-graph", s.Graph.EvidenceLinks, "Review graph nodes, edges, runtime paths, PassRole paths, and evidence refs.", firstAWSGADemoString(s.Graph.FailureReasons), now),
-		awsGADemoStage("agents", 3, "Agent identities", "Bedrock, AgentCore, gateway, capability, custom, and external provider agent identities are mapped without resolving secrets.", s.Agents.Status, s.Agents.Confidence, accountID, region, "/app/aws/agents", "aws-ga-demo://agent-identities", s.Agents.EvidenceLinks, "Open agent details to inspect provider, runtime role, tools, capability metadata, and credential-reference refs.", firstAWSGADemoString(s.Agents.FailureReasons), now),
-		awsGADemoStage("runtime", 4, "Runtime evidence", "Runtime traces and platform lag signals show what roles and agents actually did across observed evidence sources.", s.Observability.Status, s.Observability.Confidence, accountID, region, "/app/aws/runtime", "aws-ga-demo://runtime-evidence", s.Observability.EvidenceLinks, "Use runtime and observability filters to confirm lag, throttling, and source diagnostics.", firstAWSGADemoString(s.Observability.FailureReasons), now),
-		awsGADemoStage("risk", 5, "Risk and outcomes", "Executive outcome metrics summarize risk reduction, scan coverage, verified fixes, enforcement readiness, and remaining exposure.", s.Outcomes.Status, s.Outcomes.Confidence, accountID, region, "/app/aws/outcomes", "aws-ga-demo://risk-outcomes", s.Outcomes.EvidenceLinks, "Review outcome metrics and remaining exposure before reporting GA readiness.", firstAWSGADemoString(s.Outcomes.FailureReasons), now),
-		awsGADemoStage("remediation", 6, "Remediation center", "Cases, approvals, dry-runs, live-action projections, verification, rollback, and audit trail rows are joined by case.", s.Remediation.Status, s.Remediation.Confidence, accountID, region, "/app/aws/remediation/center", "aws-ga-demo://remediation-center", s.Remediation.EvidenceLinks, "Assign owners and keep approvals, dry-runs, and verification evidence attached before closure.", firstAWSGADemoString(s.Remediation.FailureReasons), now),
-		awsGADemoStage("approval", 7, "Approval and safety gates", "Approval, RBAC, feature-flag, dry-run, kill-switch, and rollback gates remain operator-visible before any execution layer.", s.Remediation.Status, s.Remediation.Confidence, accountID, region, "/app/aws/remediation/center", "aws-ga-demo://approval-safety", s.Remediation.EvidenceLinks, "Confirm approval and dry-run gates before treating a remediation as executable.", firstAWSGADemoString(s.Remediation.FailureReasons), now),
-		awsGADemoStage("verification", 8, "Verification", "Post-remediation verification and rollback states are visible in remediation and observability signals.", s.Observability.Status, s.Observability.Confidence, accountID, region, "/app/aws/observability", "aws-ga-demo://verification", s.Observability.EvidenceLinks, "Investigate failed or rollback-planned verification outcomes before marking success.", firstAWSGADemoString(s.Observability.FailureReasons), now),
-		awsGADemoStage("governance", 9, "Governance reporting", "Decision, approval, remediation, enforcement, exception, and audit metadata can be exported without payloads.", s.Governance.Status, s.Governance.Confidence, accountID, region, "/app/aws/governance", "aws-ga-demo://governance-reporting", s.Governance.EvidenceLinks, "Export governance rows and resolve exceptions before executive handoff.", firstAWSGADemoString(s.Governance.FailureReasons), now),
-		awsGADemoStage("reporting", 10, "Executive handoff", "Leadership-ready coverage, risk, remediation, enforcement, governance, confidence, caveats, and evidence links are in one flow.", s.Outcomes.Status, s.Outcomes.Confidence, accountID, region, "/app/aws/outcomes", "aws-ga-demo://executive-handoff", s.Outcomes.EvidenceLinks, "Share outcome view together with permission, limitation, and troubleshooting docs.", firstAWSGADemoString(s.Outcomes.FailureReasons), now),
-		awsGADemoStage("observability", 11, "GA operations", "Platform health metrics, traces, alerts, degraded states, and confidence handling are visible to operators.", s.Observability.Status, s.Observability.Confidence, accountID, region, "/app/aws/observability", "aws-ga-demo://ga-operations", s.Observability.EvidenceLinks, "Keep observability clear of critical alerts before GA handoff.", firstAWSGADemoString(s.Observability.FailureReasons), now),
+		awsGADemoStage("onboarding", 1, "Onboarding and validation", "AWS connector setup and deterministic app/API validation fixtures are available for the operator walkthrough.", s.Validation.Status, s.Validation.Confidence, accountID, region, awsGADemoHardeningAppRoute(tenantID, workspaceID, projectID, "connect"), "aws-ga-demo://onboarding", s.Validation.EvidenceLinks, "Open connector diagnostics and run success, empty, degraded, and permission-denied fixtures.", firstAWSGADemoString(s.Validation.FailureReasons), now),
+		awsGADemoStage("discovery", 2, "Discovery and graph", "Machine identities, resources, edges, impacted paths, and evidence refs are ready for graph drilldown.", s.Graph.Status, s.Graph.Confidence, accountID, region, awsGADemoHardeningAppRoute(tenantID, workspaceID, projectID, "graph"), "aws-ga-demo://discovery-graph", s.Graph.EvidenceLinks, "Review graph nodes, edges, runtime paths, PassRole paths, and evidence refs.", firstAWSGADemoString(s.Graph.FailureReasons), now),
+		awsGADemoStage("agents", 3, "Agent identities", "Bedrock, AgentCore, gateway, capability, custom, and external provider agent identities are mapped without resolving secrets.", s.Agents.Status, s.Agents.Confidence, accountID, region, awsGADemoHardeningAppRoute(tenantID, workspaceID, projectID, "agents"), "aws-ga-demo://agent-identities", s.Agents.EvidenceLinks, "Open agent details to inspect provider, runtime role, tools, capability metadata, and credential-reference refs.", firstAWSGADemoString(s.Agents.FailureReasons), now),
+		awsGADemoStage("runtime", 4, "Runtime evidence", "Runtime traces and platform lag signals show what roles and agents actually did across observed evidence sources.", s.Observability.Status, s.Observability.Confidence, accountID, region, awsGADemoHardeningAppRoute(tenantID, workspaceID, projectID, "runtime"), "aws-ga-demo://runtime-evidence", s.Observability.EvidenceLinks, "Use runtime and observability filters to confirm lag, throttling, and source diagnostics.", firstAWSGADemoString(s.Observability.FailureReasons), now),
+		awsGADemoStage("risk", 5, "Risk and outcomes", "Executive outcome metrics summarize risk reduction, scan coverage, verified fixes, enforcement readiness, and remaining exposure.", s.Outcomes.Status, s.Outcomes.Confidence, accountID, region, awsGADemoHardeningAppRoute(tenantID, workspaceID, projectID, "outcomes"), "aws-ga-demo://risk-outcomes", s.Outcomes.EvidenceLinks, "Review outcome metrics and remaining exposure before reporting GA readiness.", firstAWSGADemoString(s.Outcomes.FailureReasons), now),
+		awsGADemoStage("remediation", 6, "Remediation center", "Cases, approvals, dry-runs, live-action projections, verification, rollback, and audit trail rows are joined by case.", s.Remediation.Status, s.Remediation.Confidence, accountID, region, awsGADemoHardeningAppRoute(tenantID, workspaceID, projectID, "remediation/center"), "aws-ga-demo://remediation-center", s.Remediation.EvidenceLinks, "Assign owners and keep approvals, dry-runs, and verification evidence attached before closure.", firstAWSGADemoString(s.Remediation.FailureReasons), now),
+		awsGADemoStage("approval", 7, "Approval and safety gates", "Approval, RBAC, feature-flag, dry-run, kill-switch, and rollback gates remain operator-visible before any execution layer.", s.Remediation.Status, s.Remediation.Confidence, accountID, region, awsGADemoHardeningAppRoute(tenantID, workspaceID, projectID, "remediation/center"), "aws-ga-demo://approval-safety", s.Remediation.EvidenceLinks, "Confirm approval and dry-run gates before treating a remediation as executable.", firstAWSGADemoString(s.Remediation.FailureReasons), now),
+		awsGADemoStage("verification", 8, "Verification", "Post-remediation verification and rollback states are visible in remediation and observability signals.", s.Observability.Status, s.Observability.Confidence, accountID, region, awsGADemoHardeningAppRoute(tenantID, workspaceID, projectID, "observability"), "aws-ga-demo://verification", s.Observability.EvidenceLinks, "Investigate failed or rollback-planned verification outcomes before marking success.", firstAWSGADemoString(s.Observability.FailureReasons), now),
+		awsGADemoStage("governance", 9, "Governance reporting", "Decision, approval, remediation, enforcement, exception, and audit metadata can be exported without payloads.", s.Governance.Status, s.Governance.Confidence, accountID, region, awsGADemoHardeningAppRoute(tenantID, workspaceID, projectID, "governance"), "aws-ga-demo://governance-reporting", s.Governance.EvidenceLinks, "Export governance rows and resolve exceptions before executive handoff.", firstAWSGADemoString(s.Governance.FailureReasons), now),
+		awsGADemoStage("reporting", 10, "Executive handoff", "Leadership-ready coverage, risk, remediation, enforcement, governance, confidence, caveats, and evidence links are in one flow.", s.Outcomes.Status, s.Outcomes.Confidence, accountID, region, awsGADemoHardeningAppRoute(tenantID, workspaceID, projectID, "outcomes"), "aws-ga-demo://executive-handoff", s.Outcomes.EvidenceLinks, "Share outcome view together with permission, limitation, and troubleshooting docs.", firstAWSGADemoString(s.Outcomes.FailureReasons), now),
+		awsGADemoStage("observability", 11, "GA operations", "Platform health metrics, traces, alerts, degraded states, and confidence handling are visible to operators.", s.Observability.Status, s.Observability.Confidence, accountID, region, awsGADemoHardeningAppRoute(tenantID, workspaceID, projectID, "observability"), "aws-ga-demo://ga-operations", s.Observability.EvidenceLinks, "Keep observability clear of critical alerts before GA handoff.", firstAWSGADemoString(s.Observability.FailureReasons), now),
 	}
+}
+
+func awsGADemoHardeningAppRoute(tenantID string, workspaceID string, projectID string, suffix string) string {
+	path := "aws"
+	suffix = strings.Trim(strings.TrimSpace(suffix), "/")
+	if suffix != "" {
+		path += "/" + suffix
+	}
+	return fmt.Sprintf(
+		"/app/%s/%s/%s?environment=%s",
+		url.PathEscape(tenantID),
+		url.PathEscape(workspaceID),
+		path,
+		url.QueryEscape(projectID),
+	)
 }
 
 func awsGADemoStage(id string, order int, title, summary, status string, confidence float64, accountID, region, route, evidenceRef string, evidenceLinks []string, nextAction, failureReason string, now time.Time) AWSGADemoHardeningStage {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,6 +50,12 @@ func TestGetAWSGADemoHardeningBuildsContract(t *testing.T) {
 	for _, stage := range result.Stages {
 		if stage.EvidenceBoundary != awsGADemoHardeningBoundary {
 			t.Fatalf("unexpected evidence boundary: %+v", stage)
+		}
+		if stage.PrimaryRoute == "" || stage.PrimaryRoute[0:13] != "/app/default/" {
+			t.Fatalf("expected scoped app route, got %+v", stage)
+		}
+		if !strings.Contains(stage.PrimaryRoute, "?environment=project-ga-demo-hardening") {
+			t.Fatalf("expected stage route to preserve project environment, got %+v", stage)
 		}
 		if _, ok := required[stage.StageID]; ok {
 			required[stage.StageID] = true
