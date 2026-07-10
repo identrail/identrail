@@ -210,8 +210,9 @@ func (s *Service) GetAWSGADemoHardening(ctx context.Context, workspaceID string,
 	stages := awsGADemoHardeningStages(sources, accountID, region, now)
 	filteredStages, applied := filterAWSGADemoHardeningStages(stages, request)
 	checks := awsGADemoHardeningReadinessChecks(sources)
-	summary := summarizeAWSGADemoHardening(stages, filteredStages, checks)
-	status, confidence := summarizeAWSGADemoHardeningStatus(filteredStages, checks)
+	filteredChecks := filterAWSGADemoHardeningReadinessChecks(checks, request)
+	summary := summarizeAWSGADemoHardening(stages, filteredStages, filteredChecks)
+	status, confidence := summarizeAWSGADemoHardeningStatus(filteredStages, filteredChecks)
 
 	return AWSGADemoHardeningResult{
 		TenantID:           scope.TenantID,
@@ -232,7 +233,7 @@ func (s *Service) GetAWSGADemoHardening(ctx context.Context, workspaceID string,
 		AppliedFilters:     applied,
 		Summary:            summary,
 		Stages:             filteredStages,
-		ReadinessChecks:    checks,
+		ReadinessChecks:    filteredChecks,
 		Permissions:        awsGADemoHardeningPermissions(),
 		SafetyNotes:        awsGADemoHardeningSafetyNotes(),
 		Limitations:        awsGADemoHardeningLimitations(),
@@ -320,6 +321,41 @@ func filterAWSGADemoHardeningStages(stages []AWSGADemoHardeningStage, request AW
 	return filtered, applied
 }
 
+func filterAWSGADemoHardeningReadinessChecks(checks []AWSGADemoHardeningReadinessCheck, request AWSGADemoHardeningRequest) []AWSGADemoHardeningReadinessCheck {
+	filtered := make([]AWSGADemoHardeningReadinessCheck, 0, len(checks))
+	matchStatus := func(status string) bool {
+		want := strings.ToLower(strings.TrimSpace(request.Status))
+		if want == "" || want == "all" {
+			return true
+		}
+		return strings.ToLower(strings.TrimSpace(status)) == want
+	}
+	matchSearch := func(check AWSGADemoHardeningReadinessCheck) bool {
+		search := strings.ToLower(strings.TrimSpace(request.Search))
+		if search == "" {
+			return true
+		}
+		values := []string{
+			check.CheckID,
+			check.Title,
+			check.Status,
+			check.Owner,
+			check.Summary,
+			check.NextAction,
+		}
+		values = append(values, check.Evidence...)
+		values = append(values, check.Permissions...)
+		return strings.Contains(strings.ToLower(strings.Join(values, " ")), search)
+	}
+	for _, check := range checks {
+		if !matchStatus(check.Status) || !matchSearch(check) {
+			continue
+		}
+		filtered = append(filtered, check)
+	}
+	return filtered
+}
+
 func summarizeAWSGADemoHardening(all []AWSGADemoHardeningStage, filtered []AWSGADemoHardeningStage, checks []AWSGADemoHardeningReadinessCheck) AWSGADemoHardeningSummary {
 	summary := AWSGADemoHardeningSummary{
 		TotalStages:     len(all),
@@ -392,12 +428,14 @@ func awsGADemoHardeningReadinessChecks(s awsGADemoHardeningSources) []AWSGADemoH
 
 func awsGADemoHardeningStatus(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
+	case awsPlatformDependencyStatusReady:
+		return awsPlatformDependencyStatusReady
 	case awsPlatformDependencyStatusBlocked, "permission_denied":
 		return awsPlatformDependencyStatusBlocked
 	case awsPlatformDependencyStatusDegraded, "partial_failure":
 		return awsPlatformDependencyStatusDegraded
 	default:
-		return awsPlatformDependencyStatusReady
+		return awsPlatformDependencyStatusDegraded
 	}
 }
 

@@ -11,6 +11,7 @@ export const DOMAIN_APP_ROUTE_MANIFEST = [
   '/app/:tenantID/:workspaceID/aws/resources',
   '/app/:tenantID/:workspaceID/aws/runtime',
   '/app/:tenantID/:workspaceID/aws/observability',
+  '/app/:tenantID/:workspaceID/aws/ga-demo',
   '/app/:tenantID/:workspaceID/aws/graph',
   '/app/:tenantID/:workspaceID/aws/findings',
   '/app/:tenantID/:workspaceID/aws/remediation',

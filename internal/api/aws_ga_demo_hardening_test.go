@@ -86,12 +86,47 @@ func TestAWSGADemoHardeningFiltersStageStatusAndSearch(t *testing.T) {
 	if len(result.Stages) != 1 || result.Stages[0].StageID != "governance" {
 		t.Fatalf("expected only governance stage, got %+v", result.Stages)
 	}
+	for _, check := range result.ReadinessChecks {
+		if check.CheckID != "governance-export" {
+			t.Fatalf("expected search-filtered readiness checks to stay relevant, got %+v", result.ReadinessChecks)
+		}
+	}
 	if _, err := svc.GetAWSGADemoHardening(defaultScopeContext(), ws, "project-ga-demo-hardening-filter", AWSGADemoHardeningRequest{
 		ConnectorID:  "aws-prod",
 		FixtureState: "success",
 		Stage:        "not-a-stage",
 	}); err != ErrInvalidAWSConnectionRequest {
 		t.Fatalf("expected invalid stage to be rejected, got %v", err)
+	}
+}
+
+func TestAWSGADemoHardeningFiltersReadinessChecksOutOfStatus(t *testing.T) {
+	stages := []AWSGADemoHardeningStage{
+		{StageID: "onboarding", Status: awsPlatformDependencyStatusReady, Confidence: 0.95},
+	}
+	checks := []AWSGADemoHardeningReadinessCheck{
+		{CheckID: "ready-check", Title: "Ready check", Status: awsPlatformDependencyStatusReady, Required: true},
+		{CheckID: "blocked-check", Title: "Blocked check", Status: awsPlatformDependencyStatusBlocked, Required: true},
+	}
+
+	filteredChecks := filterAWSGADemoHardeningReadinessChecks(checks, AWSGADemoHardeningRequest{Status: awsPlatformDependencyStatusReady})
+	status, confidence := summarizeAWSGADemoHardeningStatus(stages, filteredChecks)
+	if len(filteredChecks) != 1 || filteredChecks[0].CheckID != "ready-check" {
+		t.Fatalf("expected only ready readiness check, got %+v", filteredChecks)
+	}
+	if status != awsPlatformDependencyStatusReady || confidence != 0.95 {
+		t.Fatalf("filtered-out blocked check should not affect status, got status=%q confidence=%v", status, confidence)
+	}
+}
+
+func TestAWSGADemoHardeningUnknownStatusDegrades(t *testing.T) {
+	for _, status := range []string{"", "unexpected", "ok"} {
+		if got := awsGADemoHardeningStatus(status); got != awsPlatformDependencyStatusDegraded {
+			t.Fatalf("expected unknown status %q to degrade, got %q", status, got)
+		}
+	}
+	if got := awsGADemoHardeningStatus(awsPlatformDependencyStatusReady); got != awsPlatformDependencyStatusReady {
+		t.Fatalf("expected ready to remain ready, got %q", got)
 	}
 }
 
