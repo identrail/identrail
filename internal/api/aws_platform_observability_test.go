@@ -157,6 +157,39 @@ func TestGetAWSPlatformObservabilityScopesStatusToFilteredSignals(t *testing.T) 
 	}
 }
 
+func TestAWSPlatformObservabilityTraceOnlyStatusAndAlerts(t *testing.T) {
+	now := time.Date(2026, 7, 9, 15, 1, 30, 0, time.UTC)
+	metrics := []AWSPlatformObservabilityMetric{
+		{MetricID: "runtime-lag", Component: "runtime", Service: "all", Status: awsPlatformDependencyStatusReady},
+	}
+	traces := []AWSPlatformObservabilityTrace{
+		{
+			TraceID:     "runtime-secretsmanager-delayed",
+			SpanName:    "aws.runtime.collect",
+			Component:   "runtime",
+			AccountID:   "123456789012",
+			Region:      "us-east-1",
+			Service:     "secretsmanager",
+			Status:      awsPlatformDependencyStatusDegraded,
+			EvidenceRef: "aws-runtime://secret-runtime",
+			NextAction:  "Review delayed runtime delivery.",
+		},
+	}
+
+	filteredMetrics, filteredTraces, _ := filterAWSPlatformObservability(metrics, traces, AWSPlatformObservabilityRequest{Service: "secretsmanager"})
+	if len(filteredMetrics) != 0 || len(filteredTraces) != 1 {
+		t.Fatalf("expected service filter to leave only runtime trace rows, metrics=%+v traces=%+v", filteredMetrics, filteredTraces)
+	}
+	status, confidence := summarizeAWSPlatformObservabilityStatus(filteredMetrics, filteredTraces)
+	if status != awsPlatformDependencyStatusDegraded || confidence != 0.72 {
+		t.Fatalf("expected trace-only degraded response status, got status=%q confidence=%v", status, confidence)
+	}
+	alerts := awsPlatformObservabilityAlerts(filteredMetrics, filteredTraces, now)
+	if len(alerts) != 1 || alerts[0].Status != awsPlatformDependencyStatusDegraded || alerts[0].Component != "runtime" {
+		t.Fatalf("expected trace-only degraded alert, got %+v", alerts)
+	}
+}
+
 func TestAWSPlatformObservabilityMetricsUseLagAndScopedServiceLabels(t *testing.T) {
 	now := time.Date(2026, 7, 9, 15, 2, 0, 0, time.UTC)
 	sources := awsPlatformObservabilitySources{
