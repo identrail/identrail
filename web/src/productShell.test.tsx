@@ -7620,6 +7620,151 @@ describe('Domain-first app routes', () => {
     );
   });
 
+  it('shows AWS GA demo hardening and forwards stage filters', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const getGADemoHardening = vi.spyOn(api.apiClient, 'getAWSProjectGADemoHardening').mockResolvedValue({
+      ga_demo_hardening: {
+        status: 'degraded',
+        confidence: 0.86,
+        current_issue_ref: '#1557',
+        version: 'aws-ga-demo-hardening-v1',
+        applied_filters: {},
+        summary: {
+          total_stages: 2,
+          filtered_stages: 2,
+          ready_stages: 1,
+          degraded_stages: 1,
+          blocked_stages: 0,
+          readiness_checks: 2,
+          passed_checks: 1,
+          required_checks: 2,
+          failed_checks: 0,
+          permission_warnings: 1,
+          status_counts: { ready: 1, degraded: 1 },
+          stage_counts: { onboarding: 1, governance: 1 }
+        },
+        stages: [
+          {
+            stage_id: 'onboarding',
+            order: 1,
+            title: 'Onboarding and validation',
+            summary: 'AWS connector setup and validation fixtures.',
+            status: 'ready',
+            confidence: 0.94,
+            account_id: '123456789012',
+            region: 'us-east-1',
+            primary_route: '/app/aws/connect',
+            evidence_ref: 'aws-ga-demo://onboarding',
+            evidence_links: ['/docs/aws-ga-demo-hardening'],
+            evidence_boundary: 'metadata_only_ga_demo_no_secret_values_no_customer_payloads',
+            next_action: 'Open connector diagnostics.',
+            updated_at: '2026-07-10T09:00:00Z'
+          },
+          {
+            stage_id: 'governance',
+            order: 9,
+            title: 'Governance reporting',
+            summary: 'Export-safe governance metadata.',
+            status: 'degraded',
+            confidence: 0.78,
+            account_id: '123456789012',
+            region: 'us-east-1',
+            primary_route: '/app/aws/governance',
+            evidence_ref: 'aws-ga-demo://governance-reporting',
+            evidence_links: ['/docs/aws-governance-audit-reporting'],
+            evidence_boundary: 'metadata_only_ga_demo_no_secret_values_no_customer_payloads',
+            next_action: 'Resolve governance exceptions.',
+            failure_reason: 'Governance exception requires review.',
+            updated_at: '2026-07-10T09:00:00Z'
+          }
+        ],
+        readiness_checks: [
+          {
+            check_id: 'validation-fixtures',
+            title: 'App and API fixtures',
+            status: 'ready',
+            owner: 'platform',
+            summary: 'Fixture states are documented.',
+            evidence: ['/docs/aws-platform-validation-harness'],
+            next_action: 'Run the validation harness.',
+            required: true
+          },
+          {
+            check_id: 'permission-docs',
+            title: 'Permission documentation',
+            status: 'degraded',
+            owner: 'security',
+            summary: 'Permission docs need review.',
+            evidence: ['/docs/aws-ga-demo-hardening'],
+            next_action: 'Attach permission docs to handoff.',
+            required: true,
+            permissions: ['sts:GetCallerIdentity']
+          }
+        ],
+        permissions: ['sts:GetCallerIdentity'],
+        safety_notes: ['Read-only.'],
+        limitations: ['Coverage is bounded by source contracts.'],
+        troubleshooting: ['Review connector diagnostics.'],
+        caveats: [],
+        failure_reasons: ['Governance exception requires review.'],
+        remediation_hints: ['Resolve governance exceptions before handoff.'],
+        evidence_links: ['/docs/aws-ga-demo-hardening'],
+        generated_at: '2026-07-10T09:00:00Z',
+        updated_at: '2026-07-10T09:00:00Z'
+      } as any
+    });
+
+    const { ProductAWSGADemoPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/ga-demo?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/ga-demo" element={<ProductAWSGADemoPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'GA Demo' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'AWS GA demo readiness summary' })).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS GA demo stages' })).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS GA readiness checks' })).toBeInTheDocument();
+    expect(screen.getAllByText(/Governance reporting/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Permission documentation/i).length).toBeGreaterThan(0);
+    expect(getGADemoHardening).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Stage' }), {
+      target: { value: 'governance' }
+    });
+    await waitFor(() =>
+      expect(getGADemoHardening).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1', stage: 'governance' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+  });
+
   it('shows AWS executive outcome view and forwards outcome filters', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({

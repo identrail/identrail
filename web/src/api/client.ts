@@ -5207,6 +5207,96 @@ export type AWSPlatformObservabilityQuery = {
   search?: string;
 };
 
+export type AWSGADemoHardeningStatus = 'ready' | 'degraded' | 'blocked';
+export type AWSGADemoHardeningFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
+
+export type AWSGADemoHardeningStage = {
+  stage_id: string;
+  order: number;
+  title: string;
+  summary: string;
+  status: AWSGADemoHardeningStatus;
+  confidence: number;
+  account_id?: string;
+  region?: string;
+  primary_route: string;
+  evidence_ref: string;
+  evidence_links: string[];
+  evidence_boundary: string;
+  next_action: string;
+  failure_reason?: string;
+  updated_at: string;
+};
+
+export type AWSGADemoHardeningReadinessCheck = {
+  check_id: string;
+  title: string;
+  status: AWSGADemoHardeningStatus;
+  owner: string;
+  summary: string;
+  evidence: string[];
+  next_action: string;
+  required: boolean;
+  permissions?: string[];
+};
+
+export type AWSGADemoHardeningSummary = {
+  total_stages: number;
+  filtered_stages: number;
+  ready_stages: number;
+  degraded_stages: number;
+  blocked_stages: number;
+  readiness_checks: number;
+  passed_checks: number;
+  required_checks: number;
+  failed_checks: number;
+  permission_warnings: number;
+  status_counts: Record<string, number>;
+  stage_counts: Record<string, number>;
+};
+
+export type AWSGADemoHardeningResult = {
+  tenant_id: string;
+  workspace_id: string;
+  project_id: string;
+  connector_id?: string;
+  account_id?: string;
+  region?: string;
+  parent_issue_number: number;
+  parent_issue_ref: string;
+  current_issue_number: number;
+  current_issue_ref: string;
+  version: string;
+  status: AWSGADemoHardeningStatus;
+  fixture_state?: AWSGADemoHardeningFixtureState;
+  confidence: number;
+  calculation_version: string;
+  applied_filters: Record<string, string>;
+  summary: AWSGADemoHardeningSummary;
+  stages: AWSGADemoHardeningStage[];
+  readiness_checks: AWSGADemoHardeningReadinessCheck[];
+  permissions: string[];
+  safety_notes: string[];
+  limitations: string[];
+  troubleshooting: string[];
+  caveats: string[];
+  failure_reasons: string[];
+  remediation_hints: string[];
+  evidence_links: string[];
+  generated_at: string;
+  updated_at: string;
+};
+
+export type AWSGADemoHardeningQuery = {
+  connectorID?: string;
+  fixtureState?: AWSGADemoHardeningFixtureState;
+  accountID?: string;
+  region?: string;
+  stage?: string;
+  status?: string;
+  search?: string;
+};
+
 export type AWSSessionPolicyRecommendationStatus = 'ready' | 'degraded' | 'blocked';
 export type AWSSessionPolicyRecommendationFixtureState = 'success' | 'empty' | 'degraded' | 'partial_failure' | 'permission_denied';
 export type AWSSessionPolicyRecommendationDecision = 'remove' | 'review' | string;
@@ -11174,6 +11264,25 @@ export const apiClient = {
         region: query?.region,
         service: query?.service,
         component: query?.component,
+        status: query?.status,
+        search: query?.search
+      })}`,
+      auth
+    );
+  },
+  getAWSProjectGADemoHardening(
+    workspaceID: string,
+    projectID: string,
+    query?: AWSGADemoHardeningQuery,
+    auth?: RequestAuthContext
+  ) {
+    return request<{ ga_demo_hardening: AWSGADemoHardeningResult }>(
+      `/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}/aws/ga-demo-hardening${buildQuery({
+        connector_id: query?.connectorID,
+        fixture_state: query?.fixtureState,
+        account_id: query?.accountID,
+        region: query?.region,
+        stage: query?.stage,
         status: query?.status,
         search: query?.search
       })}`,

@@ -106,6 +106,10 @@ import {
   type AWSPlatformObservabilityQuery,
   type AWSPlatformObservabilityResult,
   type AWSPlatformObservabilityTrace,
+  type AWSGADemoHardeningQuery,
+  type AWSGADemoHardeningResult,
+  type AWSGADemoHardeningStage,
+  type AWSGADemoHardeningReadinessCheck,
   type AWSSessionPolicyRecommendationEntry,
   type AWSSessionPolicyRecommendationResult,
   type AWSAgentCoreGatewayPolicyAdvisoryEntry,
@@ -465,6 +469,7 @@ type ProductDomainRouteID =
   | 'resources'
   | 'runtime'
   | 'observability'
+  | 'ga-demo'
   | 'graph'
   | 'findings'
   | 'remediation'
@@ -565,6 +570,7 @@ const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
       productDomainRoute('resources', 'Resources', 'resources', 'Resources', '', 'Secrets, KMS keys, and S3 buckets your AWS roles can reach.'),
       productDomainRoute('runtime', 'Runtime', 'runtime', 'Runtime', '', 'What your AWS roles actually did, from runtime evidence.'),
       productDomainRoute('observability', 'Observability', 'observability', 'Observability', '', 'Platform health, metrics, traces, and alerts for AWS collection and governance.'),
+      productDomainRoute('ga-demo', 'GA Demo', 'ga-demo', 'GA Demo', '', 'End-to-end AWS operator walkthrough, permission docs, and GA readiness checks.'),
       productDomainRoute('graph', 'Graph', 'graph', 'Graph', '', 'How AWS roles can reach things, visualised.'),
       productDomainRoute('findings', 'Findings', 'findings', 'Findings', '', 'Risks Identrail found in your AWS setup.'),
       productDomainRoute('remediation', 'Remediation', 'remediation', 'Remediation', '', 'AWS fixes Identrail prepares for you to approve.'),
@@ -11666,7 +11672,7 @@ export function ProductAWSResourcesPage() {
 
 type AWSRiskOperationRouteID = Extract<
   ProductDomainRouteID,
-  'runtime' | 'observability' | 'graph' | 'findings' | 'remediation' | 'outcomes' | 'governance'
+  'runtime' | 'observability' | 'ga-demo' | 'graph' | 'findings' | 'remediation' | 'outcomes' | 'governance'
 >;
 
 type AWSRiskOperationPageCopy = {
@@ -11706,6 +11712,18 @@ const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOpera
     nextAction: '',
     unavailableTitle: 'No observability signals yet',
     unavailableBody: 'Platform observability will appear once Identrail has collector, runtime, remediation, verification, and governance evidence.'
+  },
+  'ga-demo': {
+    routeID: 'ga-demo',
+    title: 'GA Demo',
+    eyebrow: '',
+    description: 'End-to-end AWS operator walkthrough, permission documentation, limitations, troubleshooting, and GA readiness checks.',
+    statusLabel: '',
+    currentCapability: '',
+    plannedCapability: '',
+    nextAction: '',
+    unavailableTitle: 'No GA demo stages yet',
+    unavailableBody: 'GA demo hardening will appear once Identrail can compose validation, discovery, runtime, remediation, governance, outcome, and observability evidence.'
   },
   graph: {
     routeID: 'graph',
@@ -11774,6 +11792,7 @@ type AWSRiskOperationFilterConfigMap = Record<AWSRiskOperationRouteID, AWSInvent
 const AWS_RISK_OPERATION_FILTER_DEFAULTS: Record<AWSRiskOperationRouteID, AWSInventoryFilterState> = {
   runtime: { event: 'all', evidence: 'all', owner: 'all', status: 'all', search: '' },
   observability: { component: 'all', status: 'all', service: 'all', search: '' },
+  'ga-demo': { stage: 'all', status: 'all', search: '' },
   graph: { node: 'all', edge: 'all', evidence: 'all', search: '' },
   findings: { severity: 'all', account: 'all', region: 'all', evidence: 'all', status: 'all', search: '' },
   remediation: { change: 'all', approval: 'all', stage: 'all', search: '' },
@@ -11869,6 +11888,36 @@ const AWS_RISK_OPERATION_FILTERS: AWSRiskOperationFilterConfigMap = {
         { label: 'S3', value: 's3.amazonaws.com' },
         { label: 'KMS', value: 'kms.amazonaws.com' },
         { label: 'Agent runtime', value: 'bedrock-agentcore.amazonaws.com' }
+      ]
+    }
+  ],
+  'ga-demo': [
+    {
+      id: 'stage',
+      label: 'Stage',
+      options: [
+        { label: 'All stages', value: 'all' },
+        { label: 'Onboarding', value: 'onboarding' },
+        { label: 'Discovery', value: 'discovery' },
+        { label: 'Agents', value: 'agents' },
+        { label: 'Runtime', value: 'runtime' },
+        { label: 'Risk', value: 'risk' },
+        { label: 'Remediation', value: 'remediation' },
+        { label: 'Approval', value: 'approval' },
+        { label: 'Verification', value: 'verification' },
+        { label: 'Governance', value: 'governance' },
+        { label: 'Reporting', value: 'reporting' },
+        { label: 'Observability', value: 'observability' }
+      ]
+    },
+    {
+      id: 'status',
+      label: 'Status',
+      options: [
+        { label: 'All statuses', value: 'all' },
+        { label: 'Ready', value: 'ready' },
+        { label: 'Degraded', value: 'degraded' },
+        { label: 'Blocked', value: 'blocked' }
       ]
     }
   ],
@@ -12119,6 +12168,7 @@ function AWSRiskOperationFilterSet({
   const searchPlaceholder: Record<AWSRiskOperationRouteID, string> = {
     runtime: 'Search events',
     observability: 'Search signals',
+    'ga-demo': 'Search stages',
     graph: 'Search graph',
     findings: 'Search findings',
     remediation: 'Search changes',
@@ -14345,6 +14395,110 @@ function AWSPlatformObservabilityContent({
                 key: 'status',
                 header: 'Status',
                 render: (row) => <AWSInventoryPill stage={awsPlatformObservabilityStage(row.status)} label={formatTokenLabel(row.status)} />
+              }
+            ]}
+          />
+        </section>
+      ) : null}
+    </>
+  );
+}
+
+function awsGADemoHardeningStageStatus(status: string): AWSCapabilityStage {
+  if (status === 'blocked') {
+    return 'not-available';
+  }
+  if (status === 'degraded') {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function AWSGADemoHardeningContent({
+  result,
+  loading,
+  error,
+  onRetry
+}: {
+  result: AWSGADemoHardeningResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const summaryLine = result
+    ? `${result.summary.filtered_stages}/${result.summary.total_stages} stages · ${result.summary.passed_checks}/${result.summary.readiness_checks} checks · ${Math.round(result.confidence * 100)}% confidence`
+    : '';
+  const panelResult = result
+    ? {
+        status: result.status,
+        entries: result.stages,
+        caveats: result.caveats,
+        failure_reasons: result.failure_reasons
+      }
+    : null;
+  return (
+    <>
+      {result ? (
+        <section className="idt-aws-inventory-coverage" aria-label="AWS GA demo readiness summary">
+          <DomainCoverageCard label="Ready stages" scanned={result.summary.ready_stages} total={Math.max(result.summary.filtered_stages, 1)} detail={`${result.summary.degraded_stages} degraded`} />
+          <DomainCoverageCard label="Blocked stages" scanned={Math.max(0, result.summary.filtered_stages - result.summary.blocked_stages)} total={Math.max(result.summary.filtered_stages, 1)} detail={`${result.summary.blocked_stages} blocked`} />
+          <DomainCoverageCard label="Checks passed" scanned={result.summary.passed_checks} total={Math.max(result.summary.readiness_checks, 1)} detail={`${result.summary.required_checks} required`} />
+          <DomainCoverageCard label="Permission warnings" scanned={Math.max(0, result.summary.readiness_checks - result.summary.permission_warnings)} total={Math.max(result.summary.readiness_checks, 1)} detail={`${result.summary.permission_warnings} warnings`} />
+          <DomainCoverageCard label="Confidence" scanned={Math.round(result.confidence * 100)} total={100} detail="source average" />
+          <DomainCoverageCard label="Evidence links" scanned={result.evidence_links.length} total={Math.max(result.evidence_links.length, 1)} detail="metadata-only" />
+        </section>
+      ) : null}
+      <AWSExecutorProjectionPanel<AWSGADemoHardeningStage>
+        result={panelResult}
+        loading={loading}
+        error={error}
+        onRetry={onRetry}
+        ariaLabel="AWS GA demo hardening"
+        heading="AWS GA demo hardening"
+        description={`End-to-end operator walkthrough from onboarding to discovery, agents, runtime, risk, remediation, approval, verification, governance reporting, and platform observability. Stages keep evidence refs, confidence, account/region context, and next actions without exposing secrets or payloads. ${summaryLine}`}
+        errorTitle="Couldn't load AWS GA demo hardening"
+        loadingTitle="Building AWS GA demo"
+        loadingBody="Identrail is composing validation, discovery, agent, runtime, remediation, governance, outcome, and observability evidence."
+        emptyEyebrow={(current) => (current.status === 'blocked' ? 'Permission required' : 'No stages')}
+        emptyTitle={(current) => (current.status === 'blocked' ? 'GA demo needs source evidence' : 'No GA demo stages matched')}
+        emptyBody={(current) => current.failure_reasons[0] ?? 'No GA demo stage matched the current filters.'}
+        tableLabel="AWS GA demo stages"
+        getRowKey={(row) => row.stage_id}
+        columns={[
+          { key: 'stage', header: 'Stage', render: (row) => <strong>{row.title}</strong> },
+          { key: 'scope', header: 'Scope', render: (row) => awsAccountRegionInventoryLabel(row.account_id, row.region) },
+          { key: 'evidence', header: 'Evidence', render: (row) => row.evidence_ref },
+          { key: 'next', header: 'Next action', render: (row) => row.next_action },
+          {
+            key: 'confidence',
+            header: 'Confidence',
+            render: (row) => <AWSInventoryPill stage={awsGADemoHardeningStageStatus(row.status)} label={`${Math.round(row.confidence * 100)}%`} />
+          },
+          {
+            key: 'status',
+            header: 'Status',
+            render: (row) => <AWSInventoryPill stage={awsGADemoHardeningStageStatus(row.status)} label={formatTokenLabel(row.status)} />
+          }
+        ]}
+      />
+      {!error && !loading && result ? (
+        <section className="idt-aws-runtime-correlation" aria-label="AWS GA readiness checks">
+          <h3>AWS GA readiness checks</h3>
+          <p className="idt-app-kicker">Checks keep owner, required/optional scope, permission coverage, evidence links, and next-action context for handoff.</p>
+          <DomainDataTable<AWSGADemoHardeningReadinessCheck>
+            label="AWS GA readiness checks"
+            rows={result.readiness_checks}
+            getRowKey={(row) => row.check_id}
+            columns={[
+              { key: 'check', header: 'Check', render: (row) => <strong>{row.title}</strong> },
+              { key: 'owner', header: 'Owner', render: (row) => formatTokenLabel(row.owner) },
+              { key: 'required', header: 'Required', render: (row) => (row.required ? 'Required' : 'Optional') },
+              { key: 'evidence', header: 'Evidence', render: (row) => `${row.evidence.length} links` },
+              { key: 'next', header: 'Next action', render: (row) => row.next_action },
+              {
+                key: 'status',
+                header: 'Status',
+                render: (row) => <AWSInventoryPill stage={awsGADemoHardeningStageStatus(row.status)} label={formatTokenLabel(row.status)} />
               }
             ]}
           />
@@ -16629,6 +16783,14 @@ function awsPlatformObservabilityQueryFromFilters(filters: AWSInventoryFilterSta
   };
 }
 
+function awsGADemoHardeningQueryFromFilters(filters: AWSInventoryFilterState): Partial<AWSGADemoHardeningQuery> {
+  return {
+    stage: awsSecretPermissionEquivalenceFilterToken(filters.stage),
+    status: awsSecretPermissionEquivalenceFilterToken(filters.status),
+    search: normalizeFilterValue(filters.search ?? '') || undefined
+  };
+}
+
 function AWSGraphExplorerContent({
   graph,
   loading,
@@ -17186,6 +17348,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [platformObservabilityLoading, setPlatformObservabilityLoading] = useState(false);
   const [platformObservabilityError, setPlatformObservabilityError] = useState('');
   const platformObservabilityRequestRef = useRef(0);
+  const [gaDemoHardening, setGADemoHardening] = useState<AWSGADemoHardeningResult | null>(null);
+  const [gaDemoHardeningLoading, setGADemoHardeningLoading] = useState(false);
+  const [gaDemoHardeningError, setGADemoHardeningError] = useState('');
+  const gaDemoHardeningRequestRef = useRef(0);
   const [sessionPolicyRecommendations, setSessionPolicyRecommendations] = useState<AWSSessionPolicyRecommendationResult | null>(null);
   const [sessionPolicyRecommendationsLoading, setSessionPolicyRecommendationsLoading] = useState(false);
   const [sessionPolicyRecommendationsError, setSessionPolicyRecommendationsError] = useState('');
@@ -18278,6 +18444,59 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       platformObservabilityRequestRef.current += 1;
     };
   }, [loadPlatformObservability]);
+
+  const loadGADemoHardening = useCallback(async () => {
+    const requestID = ++gaDemoHardeningRequestRef.current;
+    setGADemoHardening(null);
+    setGADemoHardeningError('');
+    if (routeID !== 'ga-demo' || !scope || !selectedEnvironmentID || !connection?.connector_id) {
+      setGADemoHardeningLoading(false);
+      return;
+    }
+    setGADemoHardeningLoading(true);
+    const requestFilters = awsGADemoHardeningQueryFromFilters(activeFilters);
+    try {
+      const response = await apiClient.getAWSProjectGADemoHardening(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id,
+          ...requestFilters
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== gaDemoHardeningRequestRef.current) {
+        return;
+      }
+      setGADemoHardening(response.ga_demo_hardening);
+    } catch (error) {
+      if (requestID !== gaDemoHardeningRequestRef.current) {
+        return;
+      }
+      setGADemoHardeningError(formatAPIError(error, 'Unable to load AWS GA demo hardening.'));
+    } finally {
+      if (requestID === gaDemoHardeningRequestRef.current) {
+        setGADemoHardeningLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    activeFilters.stage,
+    activeFilters.status,
+    activeFilters.search,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadGADemoHardening();
+    return () => {
+      gaDemoHardeningRequestRef.current += 1;
+    };
+  }, [loadGADemoHardening]);
 
   const loadSessionPolicyRecommendations = useCallback(async () => {
     const requestID = ++sessionPolicyRecommendationsRequestRef.current;
@@ -19403,6 +19622,17 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             onRetry={loadPlatformObservability}
           />
         ) : null}
+        {routeID === 'ga-demo' ? (
+          <AWSRiskOperationFilterSet routeID="ga-demo" filters={activeFilters} onChange={onFiltersChange} />
+        ) : null}
+        {routeID === 'ga-demo' ? (
+          <AWSGADemoHardeningContent
+            result={gaDemoHardening}
+            loading={gaDemoHardeningLoading}
+            error={gaDemoHardeningError}
+            onRetry={loadGADemoHardening}
+          />
+        ) : null}
         {routeID === 'graph' ? (
           <AWSGraphExplorerContent
             graph={graphExplorer}
@@ -19474,6 +19704,10 @@ export function ProductAWSRuntimePage() {
 
 export function ProductAWSPlatformObservabilityPage() {
   return <ProductAWSRiskOperationsPage routeID="observability" />;
+}
+
+export function ProductAWSGADemoPage() {
+  return <ProductAWSRiskOperationsPage routeID="ga-demo" />;
 }
 
 export function ProductAWSGraphPage() {

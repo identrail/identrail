@@ -209,6 +209,7 @@ func TestOpenAPIV1SpecContainsTenancyProjectContracts(t *testing.T) {
 		"AWSLambdaExecutionRoleInventoryResult:",
 		"AWSCodeBuildServiceRoleInventoryResult:",
 		"AWSGraphExplorerResult:",
+		"AWSGADemoHardeningResult:",
 		"GitHubConnectionStartRequest:",
 		"GitHubConnectionCompleteRequest:",
 		"GitHubConnectionRepositorySelectionRequest:",

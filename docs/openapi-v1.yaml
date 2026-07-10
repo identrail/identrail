@@ -673,6 +673,11 @@ x-identrail-route-authorizations:
     resource_type: project
     resource_id_param: project_id
   - method: GET
+    path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/ga-demo-hardening
+    action: tenancy.read
+    resource_type: project
+    resource_id_param: project_id
+  - method: GET
     path: /v1/workspaces/{workspace_id}/projects/{project_id}/aws/session-policy-recommendations
     action: tenancy.read
     resource_type: project
@@ -6556,6 +6561,73 @@ paths:
                     $ref: "#/components/schemas/AWSPlatformObservabilityResult"
         "400":
           description: Invalid AWS platform observability request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/workspaces/{workspace_id}/projects/{project_id}/aws/ga-demo-hardening:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+      - in: path
+        name: workspace_id
+        required: true
+        schema: { type: string }
+      - in: path
+        name: project_id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [ProjectManagement]
+      summary: Get AWS GA demo hardening
+      operationId: getAWSProjectGADemoHardening
+      description: Composes the metadata-only AWS end-to-end operator walkthrough for onboarding, discovery, agent identities, runtime evidence, risk, remediation, approval, verification, governance reporting, executive handoff, and platform observability. The endpoint exposes confidence, evidence refs, permission documentation, limitations, troubleshooting, and degraded or permission-denied states without calling AWS write APIs or returning secret values, prompts, completions, browser pages, database rows, object contents, or customer payloads.
+      parameters:
+        - in: query
+          name: connector_id
+          schema: { type: string }
+        - in: query
+          name: fixture_state
+          schema:
+            type: string
+            enum: [success, empty, degraded, partial_failure, permission_denied]
+        - in: query
+          name: account_id
+          schema: { type: string }
+        - in: query
+          name: region
+          schema: { type: string }
+        - in: query
+          name: stage
+          schema:
+            type: string
+            enum: [onboarding, discovery, agents, runtime, risk, remediation, approval, verification, governance, reporting, observability]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [ready, degraded, blocked]
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        "200":
+          description: AWS GA demo hardening contract
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ga_demo_hardening:
+                    $ref: "#/components/schemas/AWSGADemoHardeningResult"
+        "400":
+          description: Invalid AWS GA demo hardening request
           content:
             application/json:
               schema:
@@ -19064,6 +19136,138 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSLeastPrivilegeDiagnostic"
+        generated_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AWSGADemoHardeningStage:
+      type: object
+      properties:
+        stage_id: { type: string }
+        order: { type: integer }
+        title: { type: string }
+        summary: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        account_id: { type: string }
+        region: { type: string }
+        primary_route: { type: string }
+        evidence_ref: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
+        evidence_boundary: { type: string }
+        next_action: { type: string }
+        failure_reason: { type: string }
+        updated_at:
+          type: string
+          format: date-time
+    AWSGADemoHardeningReadinessCheck:
+      type: object
+      properties:
+        check_id: { type: string }
+        title: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        owner: { type: string }
+        summary: { type: string }
+        evidence:
+          type: array
+          items: { type: string }
+        next_action: { type: string }
+        required: { type: boolean }
+        permissions:
+          type: array
+          items: { type: string }
+    AWSGADemoHardeningSummary:
+      type: object
+      properties:
+        total_stages: { type: integer }
+        filtered_stages: { type: integer }
+        ready_stages: { type: integer }
+        degraded_stages: { type: integer }
+        blocked_stages: { type: integer }
+        readiness_checks: { type: integer }
+        passed_checks: { type: integer }
+        required_checks: { type: integer }
+        failed_checks: { type: integer }
+        permission_warnings: { type: integer }
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+        stage_counts:
+          type: object
+          additionalProperties: { type: integer }
+    AWSGADemoHardeningResult:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        workspace_id: { type: string }
+        project_id: { type: string }
+        connector_id: { type: string }
+        account_id: { type: string }
+        region: { type: string }
+        parent_issue_number: { type: integer }
+        parent_issue_ref: { type: string }
+        current_issue_number: { type: integer }
+        current_issue_ref: { type: string }
+        version: { type: string }
+        status:
+          type: string
+          enum: [ready, degraded, blocked]
+        fixture_state:
+          type: string
+          enum: [success, empty, degraded, partial_failure, permission_denied]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        calculation_version: { type: string }
+        applied_filters:
+          type: object
+          additionalProperties: { type: string }
+        summary:
+          $ref: "#/components/schemas/AWSGADemoHardeningSummary"
+        stages:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSGADemoHardeningStage"
+        readiness_checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSGADemoHardeningReadinessCheck"
+        permissions:
+          type: array
+          items: { type: string }
+        safety_notes:
+          type: array
+          items: { type: string }
+        limitations:
+          type: array
+          items: { type: string }
+        troubleshooting:
+          type: array
+          items: { type: string }
+        caveats:
+          type: array
+          items: { type: string }
+        failure_reasons:
+          type: array
+          items: { type: string }
+        remediation_hints:
+          type: array
+          items: { type: string }
+        evidence_links:
+          type: array
+          items: { type: string }
         generated_at:
           type: string
           format: date-time
