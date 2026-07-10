@@ -274,7 +274,7 @@ func (s *Service) GetAWSPlatformObservability(ctx context.Context, workspaceID s
 	filteredMetrics, filteredTraces, applied := filterAWSPlatformObservability(metrics, traces, request)
 	alerts := awsPlatformObservabilityAlerts(filteredMetrics, now)
 	summary := summarizeAWSPlatformObservability(metrics, filteredMetrics, traces, filteredTraces, alerts)
-	status, confidence := summarizeAWSPlatformObservabilityStatus(filteredMetrics, awsPlatformObservabilitySourceStatuses(sources)...)
+	status, confidence := summarizeAWSPlatformObservabilityStatus(filteredMetrics)
 	return AWSPlatformObservabilityResult{
 		TenantID:           scope.TenantID,
 		WorkspaceID:        project.WorkspaceID,
@@ -754,8 +754,8 @@ func summarizeAWSPlatformObservability(allMetrics []AWSPlatformObservabilityMetr
 	return summary
 }
 
-func summarizeAWSPlatformObservabilityStatus(metrics []AWSPlatformObservabilityMetric, statuses ...string) (string, float64) {
-	statuses = append(statuses, awsPlatformObservabilityMetricStatuses(metrics)...)
+func summarizeAWSPlatformObservabilityStatus(metrics []AWSPlatformObservabilityMetric) (string, float64) {
+	statuses := awsPlatformObservabilityMetricStatuses(metrics)
 	status := awsPlatformObservabilitySourceStatus(statuses...)
 	switch status {
 	case awsPlatformDependencyStatusBlocked:

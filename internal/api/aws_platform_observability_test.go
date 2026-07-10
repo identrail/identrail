@@ -128,6 +128,35 @@ func TestGetAWSPlatformObservabilityNormalizesServiceBeforeSourcePushdown(t *tes
 	}
 }
 
+func TestGetAWSPlatformObservabilityScopesStatusToFilteredSignals(t *testing.T) {
+	now := time.Date(2026, 7, 9, 15, 1, 0, 0, time.UTC)
+	svc, ws := newPlatformObservabilityService(t, "project-platform-observability-filtered-status", now)
+
+	result, err := svc.GetAWSPlatformObservability(defaultScopeContext(), ws, "project-platform-observability-filtered-status", AWSPlatformObservabilityRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "success",
+		Component:    "collector",
+		Status:       awsPlatformDependencyStatusReady,
+	})
+	if err != nil {
+		t.Fatalf("get status-filtered platform observability: %v", err)
+	}
+	if result.Status != awsPlatformDependencyStatusReady || result.Confidence != 0.9 {
+		t.Fatalf("expected response status to follow returned ready collector signals, got %+v", result)
+	}
+	if len(result.Metrics) == 0 {
+		t.Fatalf("expected ready collector metrics, got %+v", result)
+	}
+	for _, metric := range result.Metrics {
+		if metric.Component != "collector" || metric.Status != awsPlatformDependencyStatusReady {
+			t.Fatalf("expected only ready collector metrics, got %+v", metric)
+		}
+	}
+	if len(result.Alerts) != 0 {
+		t.Fatalf("expected no alerts for ready filtered response, got %+v", result.Alerts)
+	}
+}
+
 func TestAWSPlatformObservabilityMetricsUseLagAndScopedServiceLabels(t *testing.T) {
 	now := time.Date(2026, 7, 9, 15, 2, 0, 0, time.UTC)
 	sources := awsPlatformObservabilitySources{
