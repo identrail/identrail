@@ -692,8 +692,8 @@ func awsPlatformObservabilityHasResultFilter(request AWSPlatformObservabilityReq
 	return awsPlatformObservabilityRequestedScopeValue(request.AccountID) != "" ||
 		awsPlatformObservabilityRequestedScopeValue(request.Region) != "" ||
 		awsPlatformObservabilitySourceServiceFilter(request.Service) != "" ||
-		strings.TrimSpace(request.Component) != "" ||
-		strings.TrimSpace(request.Status) != "" ||
+		awsPlatformObservabilityRequestedScopeValue(request.Component) != "" ||
+		awsPlatformObservabilityRequestedScopeValue(request.Status) != "" ||
 		strings.TrimSpace(request.Search) != ""
 }
 
@@ -754,6 +754,14 @@ func summarizeAWSPlatformObservability(allMetrics []AWSPlatformObservabilityMetr
 		incrementCount(summary.ServiceCounts, trace.Service)
 		incrementCount(summary.ComponentCounts, trace.Component)
 		incrementCount(summary.StatusCounts, trace.Status)
+		switch trace.Status {
+		case awsPlatformDependencyStatusBlocked:
+			summary.BlockedSignals++
+		case awsPlatformDependencyStatusDegraded:
+			summary.DegradedSignals++
+		default:
+			summary.ReadySignals++
+		}
 		if trace.QueueLagMs > summary.QueueLagP95Ms {
 			summary.QueueLagP95Ms = trace.QueueLagMs
 		}

@@ -222,6 +222,29 @@ func TestAWSPlatformObservabilityScopedStatusIncludesMetricAndTraceSignals(t *te
 	if len(alerts) != 1 || alerts[0].Status != awsPlatformDependencyStatusDegraded || alerts[0].Component != "runtime" {
 		t.Fatalf("expected scoped trace alert beside ready metrics, got %+v", alerts)
 	}
+	summary := summarizeAWSPlatformObservability(metrics, filteredMetrics, traces, filteredTraces, alerts)
+	if summary.ReadySignals != 2 || summary.DegradedSignals != 1 || summary.StatusCounts[awsPlatformDependencyStatusDegraded] != 1 {
+		t.Fatalf("expected trace status to contribute to scoped signal totals, got %+v", summary)
+	}
+}
+
+func TestAWSPlatformObservabilityAllFiltersDoNotEnableScopedTraceSignals(t *testing.T) {
+	request := AWSPlatformObservabilityRequest{Component: "all", Status: "all"}
+	if awsPlatformObservabilityHasResultFilter(request) {
+		t.Fatalf("expected all component/status tokens to behave like absent result filters")
+	}
+
+	metrics := []AWSPlatformObservabilityMetric{
+		{MetricID: "scan-throughput", Component: "collector", Service: "all", Status: awsPlatformDependencyStatusReady},
+	}
+	traces := []AWSPlatformObservabilityTrace{
+		{TraceID: "runtime-delayed", Component: "runtime", Service: "secretsmanager", Status: awsPlatformDependencyStatusDegraded},
+	}
+	filteredMetrics, filteredTraces, _ := filterAWSPlatformObservability(metrics, traces, request)
+	status, confidence := summarizeAWSPlatformObservabilityStatus(filteredMetrics, filteredTraces, awsPlatformObservabilityHasResultFilter(request))
+	if status != awsPlatformDependencyStatusReady || confidence != 0.9 {
+		t.Fatalf("expected explicit all filters to match omitted filter status behavior, got status=%q confidence=%v", status, confidence)
+	}
 }
 
 func TestAWSPlatformObservabilityMetricsUseLagAndScopedServiceLabels(t *testing.T) {
