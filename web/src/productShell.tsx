@@ -3210,9 +3210,9 @@ const AWS_CONTROL_CARDS: AWSControlCard[] = [
     id: 'accounts',
     label: 'Accounts',
     routeID: 'accounts',
-    stage: 'coming',
+    stage: 'wired',
     metric: '',
-    detail: "Which AWS account and region you're connected to."
+    detail: 'Connected accounts, regions, and coverage anchors.'
   },
   {
     id: 'coverage',
@@ -3226,60 +3226,60 @@ const AWS_CONTROL_CARDS: AWSControlCard[] = [
     id: 'identities',
     label: 'Identities',
     routeID: 'identities',
-    stage: 'coming',
+    stage: 'wired',
     metric: '',
-    detail: 'IAM roles, workload identities, and what they can reach.'
+    detail: 'IAM roles and workload identities with reachability evidence.'
   },
   {
     id: 'agents',
     label: 'Agents',
     routeID: 'agents',
-    stage: 'coming',
+    stage: 'wired',
     metric: '',
-    detail: 'Bedrock and MCP agents Identrail can see.'
+    detail: 'Bedrock, AgentCore, custom, and MCP-backed agent identities.'
   },
   {
     id: 'resources',
     label: 'Resources',
     routeID: 'resources',
-    stage: 'coming',
+    stage: 'wired',
     metric: '',
-    detail: 'Secrets, KMS keys, and S3 buckets your AWS roles can reach.'
+    detail: 'Secrets, KMS keys, S3, queues, databases, parameters, ECR, and credential references.'
   },
   {
     id: 'runtime',
     label: 'Runtime',
     routeID: 'runtime',
-    stage: 'coming',
+    stage: 'wired',
     metric: '',
-    detail: 'What your AWS roles actually did, from runtime evidence.'
+    detail: 'CloudTrail, runtime, tool-call, and policy-use evidence.'
   },
   {
     id: 'findings',
     label: 'Findings',
     routeID: 'findings',
-    stage: 'not-available',
+    stage: 'wired',
     metric: '',
-    detail: 'Risks Identrail found in your AWS setup.'
+    detail: 'AWS risks produced from graph, runtime, and inventory evidence.'
   },
   {
     id: 'remediation',
     label: 'Remediation',
     routeID: 'remediation',
-    stage: 'not-available',
+    stage: 'wired',
     metric: '',
-    detail: 'AWS fixes Identrail prepares for you to approve.'
+    detail: 'Reviewable AWS fixes, dry-runs, approvals, and verification.'
   }
 ];
 
 function awsStageLabel(stage: AWSCapabilityStage): string {
   if (stage === 'wired') {
-    return 'Wired now';
+    return 'Ready';
   }
   if (stage === 'coming') {
-    return 'Coming';
+    return 'Needs evidence';
   }
-  return 'Not yet available';
+  return 'Unavailable';
 }
 
 function awsStageTone(stage: AWSCapabilityStage): 'success' | 'warning' | 'neutral' {
@@ -4261,7 +4261,7 @@ const AWS_INVENTORY_FILTER_DEFAULTS: Record<AWSInventoryRouteID, AWSInventoryFil
 
 const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
   accounts: [
-    { id: 'account', label: 'Account', options: [{ label: 'All accounts', value: 'all' }, { label: 'Connected account', value: 'connected' }, { label: 'Planned accounts', value: 'planned' }] },
+    { id: 'account', label: 'Account', options: [{ label: 'All accounts', value: 'all' }, { label: 'Connected account', value: 'connected' }, { label: 'Additional accounts', value: 'planned' }] },
     { id: 'region', label: 'Region', options: [{ label: 'All regions', value: 'all' }, { label: 'Current region', value: 'current' }, { label: 'Uncovered regions', value: 'uncovered' }] },
     {
       id: 'coverage',
@@ -4269,7 +4269,7 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
       options: [
         { label: 'All coverage', value: 'all' },
         { label: 'Covered', value: 'covered' },
-        { label: 'Planned', value: 'planned' },
+        { label: 'Queued', value: 'planned' },
         { label: 'Missing', value: 'missing' },
         { label: 'Blocked', value: 'blocked' },
         { label: 'Unsupported', value: 'unsupported' },
@@ -4277,12 +4277,12 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'Degraded', value: 'degraded' },
         { label: 'Failed', value: 'failed' },
         { label: 'Permission denied', value: 'permission_denied' },
-        { label: 'Not yet available', value: 'not-yet-available' }
+        { label: 'Unavailable', value: 'not-yet-available' }
       ]
     }
   ],
   coverage: [
-    { id: 'account', label: 'Account', options: [{ label: 'All accounts', value: 'all' }, { label: 'Connected account', value: 'connected' }, { label: 'Planned accounts', value: 'planned' }] },
+    { id: 'account', label: 'Account', options: [{ label: 'All accounts', value: 'all' }, { label: 'Connected account', value: 'connected' }, { label: 'Additional accounts', value: 'planned' }] },
     { id: 'region', label: 'Region', options: [{ label: 'All regions', value: 'all' }, { label: 'Current region', value: 'current' }, { label: 'Uncovered regions', value: 'uncovered' }] },
     {
       id: 'coverage',
@@ -4290,7 +4290,7 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
       options: [
         { label: 'All coverage', value: 'all' },
         { label: 'Covered', value: 'covered' },
-        { label: 'Planned', value: 'planned' },
+        { label: 'Queued', value: 'planned' },
         { label: 'Missing', value: 'missing' },
         { label: 'Blocked', value: 'blocked' },
         { label: 'Unsupported', value: 'unsupported' },
@@ -4298,7 +4298,7 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'Degraded', value: 'degraded' },
         { label: 'Failed', value: 'failed' },
         { label: 'Permission denied', value: 'permission_denied' },
-        { label: 'Not yet available', value: 'not-yet-available' }
+        { label: 'Unavailable', value: 'not-yet-available' }
       ]
     }
   ],
@@ -4332,11 +4332,11 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
       label: 'Status',
       options: [
         { label: 'All status', value: 'all' },
-        { label: 'Wired now', value: 'wired-now' },
+        { label: 'Ready', value: 'wired-now' },
         { label: 'Degraded', value: 'degraded' },
         { label: 'Disabled', value: 'disabled' },
-        { label: 'Coming', value: 'coming' },
-        { label: 'Not yet available', value: 'not-yet-available' }
+        { label: 'Needs evidence', value: 'coming' },
+        { label: 'Unavailable', value: 'not-yet-available' }
       ]
     }
   ],
@@ -4418,7 +4418,7 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
     {
       id: 'status',
       label: 'Status',
-      options: [{ label: 'All status', value: 'all' }, { label: 'Role anchor', value: 'role-anchor' }, { label: 'Candidate', value: 'candidate' }, { label: 'Degraded', value: 'degraded' }, { label: 'Coming', value: 'coming' }, { label: 'Not yet available', value: 'not-yet-available' }]
+      options: [{ label: 'All status', value: 'all' }, { label: 'Role anchor', value: 'role-anchor' }, { label: 'Candidate', value: 'candidate' }, { label: 'Degraded', value: 'degraded' }, { label: 'Needs evidence', value: 'coming' }, { label: 'Unavailable', value: 'not-yet-available' }]
     }
   ],
   resources: [
@@ -4654,6 +4654,24 @@ function awsInventoryPillTone(stage: AWSCapabilityStage): 'success' | 'warning' 
   return awsStageTone(stage);
 }
 
+function awsDisplayStatusLabel(label: string): string {
+  const normalizedLabel = normalizeValue(label).toLowerCase();
+  switch (normalizedLabel) {
+    case 'wired now':
+    case 'wired-now':
+      return 'Ready';
+    case 'coming':
+      return 'Needs evidence';
+    case 'not yet available':
+    case 'not-yet-available':
+      return 'Unavailable';
+    case 'planned':
+      return 'Queued';
+    default:
+      return label;
+  }
+}
+
 function AWSInventoryPill({
   stage,
   label
@@ -4661,7 +4679,7 @@ function AWSInventoryPill({
   stage: AWSCapabilityStage;
   label?: string;
 }) {
-  return <span className={`idt-aws-inventory-pill is-${awsInventoryPillTone(stage)}`}>{label ?? awsStageLabel(stage)}</span>;
+  return <span className={`idt-aws-inventory-pill is-${awsInventoryPillTone(stage)}`}>{label ? awsDisplayStatusLabel(label) : awsStageLabel(stage)}</span>;
 }
 
 function awsCoveragePlanFilterValue(state: string): string {
@@ -5267,8 +5285,8 @@ function AWSInventoryPrerequisites({
     return (
       <DomainEmptyState
         eyebrow="Connector prerequisite"
-        title="Connect AWS to populate current inventory anchors"
-        body="These pages stay honest until the read-only AWS role is validated. The planned tables remain visible, but current account, region, role, permission, and diagnostic data come from Connect AWS."
+        title="Connect AWS to load live inventory"
+        body="Inventory pages show the workspace shape now. Connect the read-only role to load account, region, role, permission, and diagnostic evidence."
         nextAction={{ label: 'Connect AWS', to: connectPath }}
       />
     );
@@ -5772,7 +5790,7 @@ function AWSMachineIdentitiesContent({
             scope: awsAccountRegionLabel(connection),
             status: connection.connected ? 'wired now' : 'pending validation',
             stage: connection.connected ? ('wired' as AWSCapabilityStage) : ('coming' as AWSCapabilityStage),
-            detail: connection.principal_arn ?? 'Role principal will appear after validation.',
+            detail: connection.principal_arn ?? 'Role principal appears after validation.',
             filters: {
               identityType: 'iam-role',
               service: 'iam',
@@ -7774,7 +7792,7 @@ function buildAWSAIAgentIdentityRows(
       scope: 'Account and region expansion',
       status: 'coming',
       stage: 'coming',
-      detail: 'Bedrock, AgentCore, custom, external-provider-backed, and gateway metadata will attach agents to runtime roles, tools, and credential references.',
+      detail: 'Bedrock, AgentCore, custom, external-provider-backed, and gateway metadata maps agents to runtime roles, tools, and credential references.',
       filters: { surface: 'bedrock-agents,agentcore-runtime,mcp-gateway,external-provider-keys', relationship: 'agent-to-role,agent-to-tool,agent-to-secret', status: 'coming', search: '' },
       searchText: inventorySearchText(['bedrock agentcore custom external provider gateway ai agent'])
     }
@@ -8090,8 +8108,8 @@ function AWSResourcesInventoryContent({
           total={1}
           detail={credentialReferencesState.loading ? 'Loading' : credentialReferencesInventory ? formatTokenLabel(credentialReferencesInventory.status) : 'Pending'}
         />
-        <DomainCoverageCard label="KMS reachability" scanned={0} total={1} detail="Coming wave" />
-        <DomainCoverageCard label="S3 sensitivity" scanned={0} total={1} detail="Coming wave" />
+        <DomainCoverageCard label="KMS reachability" scanned={0} total={1} detail="Needs evidence" />
+        <DomainCoverageCard label="S3 sensitivity" scanned={0} total={1} detail="Needs evidence" />
       </section>
       {secretsManagerState.loading ? <DomainLoadingState label="Loading Secrets Manager metadata" /> : null}
       {secretsManagerState.error ? (
@@ -11699,7 +11717,7 @@ const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOpera
     plannedCapability: '',
     nextAction: '',
     unavailableTitle: 'No runtime events yet',
-    unavailableBody: "Runtime activity will appear here once Identrail starts ingesting your AWS logs."
+    unavailableBody: 'Runtime activity appears after AWS runtime evidence is connected.'
   },
   observability: {
     routeID: 'observability',
@@ -11711,7 +11729,7 @@ const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOpera
     plannedCapability: '',
     nextAction: '',
     unavailableTitle: 'No observability signals yet',
-    unavailableBody: 'Platform observability will appear once Identrail has collector, runtime, remediation, verification, and governance evidence.'
+    unavailableBody: 'Platform observability appears once collector, runtime, remediation, verification, and governance evidence is available.'
   },
   'ga-demo': {
     routeID: 'ga-demo',
@@ -11723,7 +11741,7 @@ const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOpera
     plannedCapability: '',
     nextAction: '',
     unavailableTitle: 'No GA demo stages yet',
-    unavailableBody: 'GA demo hardening will appear once Identrail can compose validation, discovery, runtime, remediation, governance, outcome, and observability evidence.'
+    unavailableBody: 'GA demo hardening appears once validation, discovery, runtime, remediation, governance, outcome, and observability evidence is available.'
   },
   graph: {
     routeID: 'graph',
@@ -11735,7 +11753,7 @@ const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOpera
     plannedCapability: '',
     nextAction: '',
     unavailableTitle: 'No graph yet',
-    unavailableBody: 'The graph will populate once Identrail has scanned your AWS roles and resources.'
+    unavailableBody: 'The graph populates after AWS roles and resources are scanned.'
   },
   findings: {
     routeID: 'findings',
@@ -11747,7 +11765,7 @@ const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOpera
     plannedCapability: '',
     nextAction: '',
     unavailableTitle: 'No findings yet',
-    unavailableBody: "Findings will appear here after your first AWS scan."
+    unavailableBody: 'Findings appear after the first AWS scan.'
   },
   remediation: {
     routeID: 'remediation',
@@ -11759,7 +11777,7 @@ const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOpera
     plannedCapability: '',
     nextAction: '',
     unavailableTitle: 'No fixes prepared',
-    unavailableBody: 'Fixes will appear here after a finding has been triaged.'
+    unavailableBody: 'Fixes appear after a finding is triaged.'
   },
   outcomes: {
     routeID: 'outcomes',
@@ -11771,19 +11789,19 @@ const AWS_RISK_OPERATION_PAGE_COPY: Record<AWSRiskOperationRouteID, AWSRiskOpera
     plannedCapability: '',
     nextAction: '',
     unavailableTitle: 'No outcomes yet',
-    unavailableBody: 'Outcome metrics will appear once Identrail has AWS coverage, risk, remediation, and governance evidence.'
+    unavailableBody: 'Outcome metrics appear after Identrail has AWS coverage, risk, remediation, and governance evidence.'
   },
   governance: {
     routeID: 'governance',
     title: 'Governance',
     eyebrow: '',
-    description: "Advice on AWS access. Identrail won't apply changes for you.",
+    description: 'Review AWS access decisions, approvals, enforcement posture, and audit evidence.',
     statusLabel: '',
     currentCapability: '',
     plannedCapability: '',
     nextAction: '',
     unavailableTitle: 'No advice yet',
-    unavailableBody: "Identrail will flag risky AWS access requests here once it has graph and runtime evidence."
+    unavailableBody: 'Identrail flags risky AWS access requests here after graph and runtime evidence is available.'
   }
 };
 
@@ -13883,7 +13901,15 @@ function AWSExecutorProjectionPanel<Row>({
   getRowKey: (row: Row) => string;
   columns: DomainDataTableColumn<Row>[];
 }) {
-  const rows = result?.entries ?? [];
+  const normalizedResult = result
+    ? {
+        ...result,
+        entries: Array.isArray(result.entries) ? result.entries : [],
+        caveats: Array.isArray(result.caveats) ? result.caveats : [],
+        failure_reasons: Array.isArray(result.failure_reasons) ? result.failure_reasons : []
+      }
+    : null;
+  const rows = normalizedResult?.entries ?? [];
   return (
     <section className="idt-aws-runtime-correlation" aria-label={ariaLabel}>
       <h3>{heading}</h3>
@@ -13902,16 +13928,16 @@ function AWSExecutorProjectionPanel<Row>({
           body={loadingBody}
         />
       ) : null}
-      {!error && !loading && result && rows.length === 0 ? (
+      {!error && !loading && normalizedResult && rows.length === 0 ? (
         <DomainEmptyState
-          eyebrow={emptyEyebrow(result)}
-          title={emptyTitle(result)}
-          body={emptyBody(result)}
+          eyebrow={emptyEyebrow(normalizedResult)}
+          title={emptyTitle(normalizedResult)}
+          body={emptyBody(normalizedResult)}
         />
       ) : null}
-      {!error && !loading && result && result.caveats.length > 0 ? (
+      {!error && !loading && normalizedResult && normalizedResult.caveats.length > 0 ? (
         <ul className="idt-aws-runtime-correlation-caveats">
-          {result.caveats.slice(0, 3).map((caveat) => (
+          {normalizedResult.caveats.slice(0, 3).map((caveat) => (
             <li key={caveat}>{caveat}</li>
           ))}
         </ul>
@@ -14553,7 +14579,7 @@ function AWSGovernanceAuditReportingContent({
         { key: 'decision_type', header: 'Decision type', render: (row) => formatTokenLabel(row.decision_type) },
         { key: 'state', header: 'State', render: (row) => formatTokenLabel(row.state) },
         { key: 'actor', header: 'Actor / approver', render: (row) => row.approver || row.actor || 'system' },
-        { key: 'evidence', header: 'Evidence', render: (row) => `${row.evidence_summary.length} refs · ${row.audit_trail.length} audit rows` },
+        { key: 'evidence', header: 'Evidence', render: (row) => `${row.evidence_summary?.length ?? 0} refs · ${row.audit_trail?.length ?? 0} audit rows` },
         {
           key: 'status',
           header: 'Status',
@@ -17056,7 +17082,7 @@ function AWSFindingsContent({
           <DomainEmptyState
             eyebrow="Empty"
             title="No AWS findings"
-            body="Finding generation is not connected yet."
+            body="No AWS finding matches this environment yet. Connect AWS or clear filters to load graph, runtime, and inventory evidence."
           />
         }
         columns={[

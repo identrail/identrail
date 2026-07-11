@@ -3613,7 +3613,7 @@ describe('Domain-first app routes', () => {
       'href',
       '/app/tenant-a/workspace-a/aws/resources?environment=production'
     );
-    expect(screen.getByRole('link', { name: /Identities/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /^Identities/i })).toHaveAttribute(
       'href',
       '/app/tenant-a/workspace-a/aws/identities?environment=production'
     );
@@ -4843,7 +4843,7 @@ describe('Domain-first app routes', () => {
     );
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Agents' })).toBeInTheDocument();
-    expect(screen.getAllByText(/Connect AWS to populate current inventory anchors/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Connect AWS to load live inventory/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Bedrock agents/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/AgentCore runtime and gateway identity/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Secret metadata only, no value reads/i)).toBeInTheDocument();
@@ -7003,12 +7003,10 @@ describe('Domain-first app routes', () => {
             title: 'Governance audit: orders deployer',
             summary: 'Export-safe enforcement outcome report row.',
             input_hash: 'audit-hash-a',
-            evidence_summary: [
-              { source: 'source_link', label: 'pilot evidence', evidence_ref: '/docs/aws-limited-enforcement-pilot', exportable: true, redacted: true }
-            ],
+            evidence_summary: null,
             evidence_links: ['/docs/aws-limited-enforcement-pilot'],
             evidence_boundary: 'metadata_only_exportable_refs_no_secret_values_no_rendered_policy_bodies_no_customer_payloads',
-            audit_trail: [],
+            audit_trail: null,
             read_only_projection: true,
             exception: false,
             next_action: 'Export the audit row.',
@@ -7091,8 +7089,8 @@ describe('Domain-first app routes', () => {
           highest_score: 80,
           average_confidence_pct: 95
         },
-        caveats: [],
-        failure_reasons: [],
+        caveats: null,
+        failure_reasons: null,
         remediation_hints: [],
         evidence_links: [],
         coverage_gaps: [],
