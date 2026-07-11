@@ -42,7 +42,7 @@ Identrail Cloud production web builds should set:
 VITE_FEATURE_ONBOARDING_WIZARD=true
 ```
 
-The token-based Vercel production deploy workflow upserts this value before the deploy action runs. It defaults to `true` for Identrail Cloud and reads the repository variable `VITE_FEATURE_ONBOARDING_WIZARD` when an operator needs to set the matching web rollback value to `false`. If the workflow falls back to a deploy hook, GitHub Actions cannot update Vercel project env values; keep `VITE_FEATURE_ONBOARDING_WIZARD=true` configured directly in Vercel before using hook-only deploys, or flip that Vercel value directly during rollback.
+The token-based Vercel production deploy workflow upserts this value before the Vercel CLI deploy runs. It defaults to `true` for Identrail Cloud and reads the repository variable `VITE_FEATURE_ONBOARDING_WIZARD` when an operator needs to set the matching web rollback value to `false`. The workflow waits for Vercel to report the deployment as ready, so GitHub Actions fails if Vercel fails during build initialization or deployment.
 
 ### Connector web flags
 
