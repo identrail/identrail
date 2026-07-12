@@ -1948,6 +1948,51 @@ func cloneAWSPlatformBaselineResult(result AWSPlatformBaselineResult) AWSPlatfor
 	return cloned
 }
 
+// CreateTenancyConnectorSecretEnvelopeIfAbsent creates a secret envelope or
+// returns the existing envelope unchanged when the scoped secret key exists.
+func (m *MemoryStore) CreateTenancyConnectorSecretEnvelopeIfAbsent(ctx context.Context, envelope TenancyConnectorSecretEnvelope) (TenancyConnectorSecretEnvelope, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, err
+	}
+	envelope.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, envelope.WorkspaceID)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, err
+	}
+	envelope.WorkspaceID = resolvedWorkspaceID
+	normalized, err := NormalizeTenancyConnectorSecretEnvelopeForWrite(envelope)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, err
+	}
+	connectorKey := tenancyConnectorKey(
+		normalized.TenantID,
+		normalized.WorkspaceID,
+		normalized.ProjectID,
+		normalized.ConnectorID,
+	)
+	if _, exists := m.connectors[connectorKey]; !exists {
+		return TenancyConnectorSecretEnvelope{}, false, ErrNotFound
+	}
+	secretKey := tenancyConnectorSecretKey(
+		normalized.TenantID,
+		normalized.WorkspaceID,
+		normalized.ProjectID,
+		normalized.ConnectorID,
+		normalized.SecretName,
+	)
+	if existing, exists := m.connSecrets[secretKey]; exists {
+		existing.Envelope.Nonce = append([]byte(nil), existing.Envelope.Nonce...)
+		existing.Envelope.Ciphertext = append([]byte(nil), existing.Envelope.Ciphertext...)
+		return existing, false, nil
+	}
+	m.connSecrets[secretKey] = normalized
+	return normalized, true, nil
+}
+
 // UpsertTenancyConnectorSecretEnvelope persists one encrypted connector secret envelope.
 func (m *MemoryStore) UpsertTenancyConnectorSecretEnvelope(ctx context.Context, envelope TenancyConnectorSecretEnvelope) error {
 	m.mu.Lock()

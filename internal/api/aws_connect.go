@@ -453,10 +453,13 @@ func (s *Service) resumeAWSConnectorStart(
 		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
 	}
 
-	externalID := s.awsExternalIDFromStored(ctx, stored)
+	externalID, externalIDConfigured, err := s.awsExternalIDFromStoredStrict(ctx, stored)
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
 	generatedExternalID := false
 	var rotatedAt time.Time
-	if externalID == "" {
+	if !externalIDConfigured || externalID == "" {
 		var err error
 		externalID, err = generateAWSExternalID()
 		if err != nil {
@@ -464,8 +467,21 @@ func (s *Service) resumeAWSConnectorStart(
 		}
 		generatedExternalID = true
 		rotatedAt = s.Now().UTC()
-		if err := s.persistAWSExternalID(ctx, stored.Connector.TenantID, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID, externalID, rotatedAt); err != nil {
+		secret, err := s.newAWSExternalIDSecretEnvelope(stored.Connector.TenantID, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID, externalID, rotatedAt)
+		if err != nil {
 			return AWSConnectorStartResponse{}, err
+		}
+		secret, created, err := s.Store.CreateTenancyConnectorSecretEnvelopeIfAbsent(db.WithScope(ctx, db.Scope{TenantID: stored.Connector.TenantID, WorkspaceID: stored.Connector.WorkspaceID}), secret)
+		if err != nil {
+			return AWSConnectorStartResponse{}, fmt.Errorf("recover aws connector external id envelope: %w", err)
+		}
+		if !created {
+			recoveredExternalID, err := s.decryptAWSExternalIDEnvelope(stored.Connector, secret)
+			if err != nil {
+				return AWSConnectorStartResponse{}, err
+			}
+			externalID = recoveredExternalID
+			generatedExternalID = false
 		}
 	}
 
@@ -488,8 +504,8 @@ func (s *Service) resumeAWSConnectorStart(
 	if !generatedExternalID {
 		launchURL = awsMetadataString(stored.State.Metadata, "launch_url")
 	}
-	rebuiltLaunchMetadata := launchURL == ""
-	if launchURL == "" {
+	rebuiltLaunchMetadata := launchURL == "" || (externalID != "" && !strings.Contains(launchURL, externalID))
+	if rebuiltLaunchMetadata {
 		launchURL = awsconnector.BuildCloudFormationLaunchURL(awsconnector.CloudFormationLaunchInput{
 			TemplateURL:        templateURL,
 			Region:             region,
@@ -1266,8 +1282,17 @@ func (s *Service) awsConnectionStatusFromStored(ctx context.Context, stored db.T
 }
 
 func (s *Service) awsExternalIDFromStored(ctx context.Context, stored db.TenancyConnectorWithState) string {
+	externalID, _, err := s.awsExternalIDFromStoredStrict(ctx, stored)
+	if err != nil {
+		return ""
+	}
+	return externalID
+}
+
+func (s *Service) awsExternalIDFromStoredStrict(ctx context.Context, stored db.TenancyConnectorWithState) (string, bool, error) {
 	if s == nil || s.Store == nil {
-		return awsMetadataString(stored.State.Metadata, "external_id")
+		externalID := awsMetadataString(stored.State.Metadata, "external_id")
+		return externalID, externalID != "", nil
 	}
 	secret, err := s.Store.GetTenancyConnectorSecretEnvelope(
 		db.WithScope(ctx, db.Scope{TenantID: stored.Connector.TenantID, WorkspaceID: stored.Connector.WorkspaceID}),
@@ -1277,13 +1302,28 @@ func (s *Service) awsExternalIDFromStored(ctx context.Context, stored db.Tenancy
 		awsExternalIDSecretName,
 	)
 	if err != nil {
-		return awsMetadataString(stored.State.Metadata, "external_id")
+		externalID := awsMetadataString(stored.State.Metadata, "external_id")
+		if errors.Is(err, db.ErrNotFound) {
+			return externalID, externalID != "", nil
+		}
+		if externalID != "" {
+			return externalID, true, nil
+		}
+		return "", false, fmt.Errorf("load aws connector external id envelope: %w", err)
 	}
-	plaintext, err := s.connectorSecretManager().Decrypt(secret.Envelope, awsExternalIDAAD(stored.Connector.TenantID, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID))
+	externalID, err := s.decryptAWSExternalIDEnvelope(stored.Connector, secret)
 	if err != nil {
-		return ""
+		return "", true, err
 	}
-	return strings.TrimSpace(string(plaintext))
+	return externalID, true, nil
+}
+
+func (s *Service) decryptAWSExternalIDEnvelope(connector db.TenancyConnector, secret db.TenancyConnectorSecretEnvelope) (string, error) {
+	plaintext, err := s.connectorSecretManager().Decrypt(secret.Envelope, awsExternalIDAAD(connector.TenantID, connector.WorkspaceID, connector.ProjectID, connector.ConnectorID))
+	if err != nil {
+		return "", fmt.Errorf("decrypt aws connector external id envelope: %w", err)
+	}
+	return strings.TrimSpace(string(plaintext)), nil
 }
 
 func (s *Service) persistAWSExternalID(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, externalID string, rotatedAt time.Time) error {

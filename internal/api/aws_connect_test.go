@@ -706,15 +706,47 @@ func TestAWSConnectorStartPersistsRecoveredExternalIDLaunchState(t *testing.T) {
 		t.Fatalf("delete external id envelope: %v", err)
 	}
 
-	recovered, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
-		WorkspaceID: "workspace-a",
-		ProjectID:   "project-1",
-		ConnectorID: "aws-prod",
-		DisplayName: "Production AWS",
-		Region:      "us-east-1",
-	})
-	if err != nil {
+	const workers = 8
+	start := make(chan struct{})
+	responses := make(chan AWSConnectorStartResponse, workers)
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			response, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+				WorkspaceID: "workspace-a",
+				ProjectID:   "project-1",
+				ConnectorID: "aws-prod",
+				DisplayName: "Production AWS",
+				Region:      "us-east-1",
+			})
+			if err != nil {
+				errs <- err
+				return
+			}
+			responses <- response
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	close(responses)
+	for err := range errs {
 		t.Fatalf("recover aws connector external id: %v", err)
+	}
+
+	var recovered AWSConnectorStartResponse
+	for response := range responses {
+		if recovered.ConnectorID == "" {
+			recovered = response
+			continue
+		}
+		if response.ExternalID != recovered.ExternalID || response.LaunchURL != recovered.LaunchURL {
+			t.Fatalf("expected concurrent recovery to return one launch plan\nrecovered=%+v\nresponse=%+v", recovered, response)
+		}
 	}
 	if recovered.ExternalID == "" || recovered.ExternalID == first.ExternalID {
 		t.Fatalf("expected regenerated external id after envelope loss, first=%q recovered=%q", first.ExternalID, recovered.ExternalID)
@@ -746,6 +778,62 @@ func TestAWSConnectorStartPersistsRecoveredExternalIDLaunchState(t *testing.T) {
 	}
 	if again.ExternalID != recovered.ExternalID || again.LaunchURL != recovered.LaunchURL {
 		t.Fatalf("expected later resume to keep recovered launch state\nrecovered=%+v\nagain=%+v", recovered, again)
+	}
+}
+
+func TestAWSConnectorStartFailsOnUnreadableExternalIDEnvelope(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSAccountID = "999999999999"
+
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("start aws connector: %v", err)
+	}
+	secret, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
+	if err != nil {
+		t.Fatalf("load external id envelope: %v", err)
+	}
+	secret.Envelope.Ciphertext[0] ^= 0xff
+	if err := store.UpsertTenancyConnectorSecretEnvelope(ctx, secret); err != nil {
+		t.Fatalf("corrupt external id envelope: %v", err)
+	}
+
+	if _, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	}); err == nil || !strings.Contains(err.Error(), "decrypt aws connector external id envelope") {
+		t.Fatalf("expected decrypt failure instead of external id rotation, got %v", err)
+	}
+
+	corrupt, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
+	if err != nil {
+		t.Fatalf("reload corrupt external id envelope: %v", err)
+	}
+	corrupt.Envelope.Ciphertext[0] ^= 0xff
+	plaintext, err := manager.Decrypt(corrupt.Envelope, awsExternalIDAAD("tenant-a", "workspace-a", "project-1", "aws-prod"))
+	if err != nil {
+		t.Fatalf("decrypt restored external id envelope: %v", err)
+	}
+	if got := strings.TrimSpace(string(plaintext)); got != started.ExternalID {
+		t.Fatalf("expected failed resume not to rotate external id, got %q want %q", got, started.ExternalID)
 	}
 }
 

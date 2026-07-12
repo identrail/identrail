@@ -2805,6 +2805,65 @@ func scanTenancyConnectorRows(rows rowsScanner) ([]TenancyConnectorWithState, er
 	return results, rows.Err()
 }
 
+// CreateTenancyConnectorSecretEnvelopeIfAbsent creates an encrypted connector
+// secret envelope or returns the existing envelope when the scoped secret key
+// already exists.
+func (p *PostgresStore) CreateTenancyConnectorSecretEnvelopeIfAbsent(ctx context.Context, envelope TenancyConnectorSecretEnvelope) (TenancyConnectorSecretEnvelope, bool, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, err
+	}
+	envelope.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, envelope.WorkspaceID)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, err
+	}
+	envelope.WorkspaceID = resolvedWorkspaceID
+	normalized, err := NormalizeTenancyConnectorSecretEnvelopeForWrite(envelope)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, err
+	}
+	result, err := p.execContext(
+		ctx,
+		`INSERT INTO tenancy_connector_secret_envelopes (
+		     tenant_id, workspace_id, project_id, connector_id, secret_name, envelope_version,
+		     algorithm, key_version, nonce, ciphertext, secret_ref_id, rotated_at, rotation_due_at, created_at, updated_at
+		 )
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULLIF($11, ''), $12, $13, $14, $15)
+		 ON CONFLICT (tenant_id, workspace_id, project_id, connector_id, secret_name) DO NOTHING`,
+		normalized.TenantID,
+		normalized.WorkspaceID,
+		normalized.ProjectID,
+		normalized.ConnectorID,
+		normalized.SecretName,
+		normalized.EnvelopeVersion,
+		normalized.Envelope.Algorithm,
+		normalized.Envelope.KeyVersion,
+		normalized.Envelope.Nonce,
+		normalized.Envelope.Ciphertext,
+		normalized.SecretRefID,
+		normalized.RotatedAt,
+		normalized.RotationDueAt,
+		normalized.CreatedAt,
+		normalized.UpdatedAt,
+	)
+	if isTenancyFKViolation(err) {
+		return TenancyConnectorSecretEnvelope{}, false, ErrNotFound
+	}
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, fmt.Errorf("create connector secret envelope if absent: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, err
+	}
+	if affected == 0 {
+		existing, err := p.GetTenancyConnectorSecretEnvelope(ctx, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID, normalized.SecretName)
+		return existing, false, err
+	}
+	return normalized, true, nil
+}
+
 // UpsertTenancyConnectorSecretEnvelope persists one encrypted connector secret envelope.
 func (p *PostgresStore) UpsertTenancyConnectorSecretEnvelope(ctx context.Context, envelope TenancyConnectorSecretEnvelope) error {
 	scope, err := RequireScope(ctx)
