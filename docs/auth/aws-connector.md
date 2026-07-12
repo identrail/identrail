@@ -1,6 +1,6 @@
 # AWS Connector
 
-PR 7 adds the hosted AWS connector onboarding path behind two feature flags:
+The hosted AWS connector onboarding path is behind two feature flags:
 
 - Backend: `IDENTRAIL_FEATURE_CONNECTOR_AWS=true`
 - Frontend: `VITE_FEATURE_CONNECTOR_AWS=true`
@@ -30,11 +30,13 @@ When a persistent database is configured and AWS connector setup is enabled, `ID
 
 ## Flow
 
-1. The UI calls `POST /v1/connectors/aws` with `workspace_id` and `project_id`.
-2. The API generates a 32-byte External ID, stores it encrypted, creates a pending AWS connector, and returns an AWS CloudFormation launch URL.
+1. The UI calls `POST /v1/connectors/aws` with `workspace_id`, `project_id`, and optional connector display fields.
+2. The API normalizes the single-account CloudFormation setup, generates a 32-byte External ID, stores it encrypted, creates a pending AWS connector, and returns an AWS CloudFormation launch URL.
 3. The user launches the stack in AWS. The stack creates an `IdentrailReadOnly` role with a trust policy requiring the External ID.
 4. The user pastes the created role ARN back into Identrail.
 5. The API uses the stored External ID, assumes the role with STS, verifies caller identity, checks scanner-critical IAM read access, and marks the connector active or degraded.
+
+If the app calls `POST /v1/connectors/aws` again with the same `connector_id`, the API resumes the existing setup instead of rotating the External ID or changing the launch parameters. This keeps the AWS trust policy, CloudFormation stack parameters, and Identrail connector record aligned while a user retries or returns to setup. Poll and status responses expose lifecycle fields, setup summary, launch URL, template URL, policy hash, diagnostics, and next actions, but they do not serialize the External ID.
 
 The read-only policy and rationale live together under `deploy/connectors/aws/policies/`.
 
@@ -69,11 +71,10 @@ organization and selected scopes must use a StackSet deployment method,
 selected OUs/accounts must include targets, and malformed AWS account IDs, OU
 IDs, and regions fail validation.
 
-This foundation only establishes the shared contract. The executable
-`POST /v1/connectors/aws` setup path still starts the existing
-`single_account`/`cloudformation` read-only connector. Organization,
-selected-OU, selected-account, Terraform, and full manual app flows are reserved
-for the follow-on implementation issues.
+The executable `POST /v1/connectors/aws` setup path currently supports
+`single_account`/`cloudformation` read-only onboarding. Organization,
+selected-OU, selected-account, Terraform, and full manual app flows remain
+reserved for the follow-on implementation issues.
 
 ## Account and Region Coverage Registry
 

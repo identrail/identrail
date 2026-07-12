@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- Implement the **single-account AWS CloudFormation one-click backend** (#1749).
+  `POST /v1/connectors/aws` now safely resumes an existing setup when the same
+  connector ID is supplied, preserving the encrypted External ID, launch URL,
+  role name, stack name, permission preview, setup summary, onboarding status,
+  and typed next actions instead of rotating trust parameters during retries.
+  Poll/status responses keep lifecycle and launch metadata available to the app
+  while continuing to hide the External ID outside the start/resume response.
 - Add the **AWS connector scope contract** (#1748). `POST /v1/connectors/aws`
   and AWS connection status now expose explicit setup intent for
   `scope_type`, `deployment_method`, onboarding lifecycle, target regions,

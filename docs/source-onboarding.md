@@ -35,8 +35,8 @@ POST /v1/connectors/aws/{connector_id}/validate
 POST /v1/connectors/aws/{connector_id}/refresh-policy
 ```
 
-`POST /v1/connectors/aws` starts onboarding and returns an AWS launch URL plus permission preview.
-`GET /v1/connectors/aws/{connector_id}/poll` returns status for long-running setup.
+`POST /v1/connectors/aws` starts onboarding and returns an AWS launch URL plus permission preview. Repeating the call with the same `connector_id` resumes the existing setup and preserves the External ID and launch parameters.
+`GET /v1/connectors/aws/{connector_id}/poll` returns status for long-running setup without serializing the External ID.
 `POST /v1/connectors/aws/{connector_id}/validate` validates the role created by that flow with scanner-critical IAM checks, permission checks, and diagnostics that are surfaced in the connector status.
 `POST /v1/connectors/aws/{connector_id}/refresh-policy` regenerates the read-only policy preview and capability matrix for the same connector.
 

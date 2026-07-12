@@ -334,19 +334,30 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	if templateURL == "" || accountID == "" {
 		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
 	}
-	externalID, err := generateAWSExternalID()
-	if err != nil {
-		return AWSConnectorStartResponse{}, err
-	}
-	now := s.Now().UTC()
 	connectorID := strings.TrimSpace(request.ConnectorID)
 	if connectorID == "" {
 		connectorID = "aws-" + uuid.NewString()
+	} else {
+		stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
+		if err == nil {
+			return s.resumeAWSConnectorStart(ctx, stored, setup, request, templateURL, accountID)
+		}
+		if !errors.Is(err, db.ErrNotFound) {
+			return AWSConnectorStartResponse{}, err
+		}
 	}
 	displayName := strings.TrimSpace(request.DisplayName)
 	if displayName == "" {
 		displayName = "AWS account"
 	}
+	if err := validateAWSConnectorStartIdentity(connectorID, displayName); err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	externalID, err := generateAWSExternalID()
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	now := s.Now().UTC()
 	region := setup.TargetRegions[0]
 	roleName := firstNonEmptyAWSValue(strings.TrimSpace(request.RoleName), "IdentrailReadOnly")
 	stackName := firstNonEmptyAWSValue(strings.TrimSpace(request.StackName), "identrail-readonly-connector")
@@ -422,9 +433,84 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	}
 	status := s.awsConnectionStatusFromStored(ctx, stored)
 	status.ExternalID = externalID
+	return awsConnectorStartResponse(status, externalID, launchURL, templateURL, roleName, stackName, policyHash), nil
+}
+
+func (s *Service) resumeAWSConnectorStart(
+	ctx context.Context,
+	stored db.TenancyConnectorWithState,
+	requestedSetup awsConnectorSetupContract,
+	request AWSConnectorStartRequest,
+	templateURL string,
+	accountID string,
+) (AWSConnectorStartResponse, error) {
+	if stored.Connector.Type != domain.ConnectorTypeAWS {
+		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+	}
+	setup := awsMetadataSetupContract(stored.State.Metadata, AWSConnectorScopeSingleAccount, AWSConnectorDeploymentCloudFormation)
+	if setup.ScopeType != AWSConnectorScopeSingleAccount || setup.DeploymentMethod != AWSConnectorDeploymentCloudFormation {
+		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+	}
+
+	externalID := s.awsExternalIDFromStored(ctx, stored)
+	generatedExternalID := false
+	if externalID == "" {
+		var err error
+		externalID, err = generateAWSExternalID()
+		if err != nil {
+			return AWSConnectorStartResponse{}, err
+		}
+		generatedExternalID = true
+		now := s.Now().UTC()
+		if err := s.persistAWSExternalID(ctx, stored.Connector.TenantID, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID, externalID, now); err != nil {
+			return AWSConnectorStartResponse{}, err
+		}
+	}
+
+	region := firstAWSRegion(setup.TargetRegions)
+	if region == "" {
+		region = firstAWSRegion(requestedSetup.TargetRegions)
+	}
+	region = firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "region"), region, "us-east-1")
+	roleName := firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "role_name"), strings.TrimSpace(request.RoleName), "IdentrailReadOnly")
+	stackName := firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "stack_name"), strings.TrimSpace(request.StackName), "identrail-readonly-connector")
+	policyHash := awsMetadataString(stored.State.Metadata, "policy_hash")
+	if policyHash == "" {
+		hash, err := awsconnector.ReadOnlyPolicyHash()
+		if err != nil {
+			return AWSConnectorStartResponse{}, err
+		}
+		policyHash = hash
+	}
+	launchURL := ""
+	if !generatedExternalID {
+		launchURL = awsMetadataString(stored.State.Metadata, "launch_url")
+	}
+	if launchURL == "" {
+		launchURL = awsconnector.BuildCloudFormationLaunchURL(awsconnector.CloudFormationLaunchInput{
+			TemplateURL:        templateURL,
+			Region:             region,
+			StackName:          stackName,
+			IdentrailAccountID: accountID,
+			ExternalID:         externalID,
+			RoleName:           roleName,
+		})
+	}
+
+	status := s.awsConnectionStatusFromStored(ctx, stored)
+	status.ExternalID = externalID
+	status.ExternalIDConfigured = true
+	status.Region = firstNonEmptyAWSValue(status.Region, region)
+	status.LaunchURL = firstNonEmptyAWSValue(launchURL, status.LaunchURL)
+	status.TemplateURL = firstNonEmptyAWSValue(status.TemplateURL, templateURL)
+	status.PolicyHash = firstNonEmptyAWSValue(status.PolicyHash, policyHash)
+	return awsConnectorStartResponse(status, externalID, launchURL, templateURL, roleName, stackName, policyHash), nil
+}
+
+func awsConnectorStartResponse(status AWSConnectionStatus, externalID string, launchURL string, templateURL string, roleName string, stackName string, policyHash string) AWSConnectorStartResponse {
 	return AWSConnectorStartResponse{
 		Connection:             status,
-		ConnectorID:            connectorID,
+		ConnectorID:            status.ConnectorID,
 		ExternalID:             externalID,
 		LaunchURL:              launchURL,
 		TemplateURL:            templateURL,
@@ -443,7 +529,29 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 		NextActions:            copyAWSConnectorNextActions(status.NextActions),
 		PermissionPreview:      awsconnector.PermissionPreview(),
 		PermissionTiers:        awsconnector.CapabilityPermissionTiers(),
-	}, nil
+	}
+}
+
+func validateAWSConnectorStartIdentity(connectorID string, displayName string) error {
+	connector := domain.Connector{
+		ID:          connectorID,
+		WorkspaceID: "workspace-placeholder",
+		ProjectID:   "project-placeholder",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: displayName,
+		Status:      domain.ConnectorStatusPending,
+	}
+	if err := connector.Validate(); err != nil {
+		return ErrInvalidAWSConnectionRequest
+	}
+	return nil
+}
+
+func firstAWSRegion(regions []string) string {
+	if len(regions) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(regions[0])
 }
 
 func (s *Service) ValidateAWSConnector(ctx context.Context, connectorID string, request AWSConnectorValidateRequest) (AWSConnectionStatus, error) {

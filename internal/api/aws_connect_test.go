@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -453,6 +454,9 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	if startBody.ConnectorID == "" || startBody.ExternalID == "" || startBody.LaunchURL == "" || len(startBody.PermissionPreview) == 0 {
 		t.Fatalf("expected launch data and permission preview, got %+v", startBody)
 	}
+	if !strings.Contains(startResp.Body.String(), `"external_id"`) {
+		t.Fatalf("expected start response to include one-time external id, got %s", startResp.Body.String())
+	}
 	if startBody.Connection.Status != domain.ConnectorStatusPending || !startBody.Connection.ExternalIDConfigured {
 		t.Fatalf("expected pending connector with external id configured, got %+v", startBody.Connection)
 	}
@@ -470,6 +474,9 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	pollResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/aws/"+startBody.ConnectorID+"/poll?workspace_id=workspace-a&project_id=project-1", "")
 	if pollResp.Code != http.StatusOK {
 		t.Fatalf("expected connector poll 200, got %d body=%s", pollResp.Code, pollResp.Body.String())
+	}
+	if strings.Contains(pollResp.Body.String(), `"external_id"`) {
+		t.Fatalf("expected poll response to hide external id, got %s", pollResp.Body.String())
 	}
 	var pollBody struct {
 		Connection AWSConnectionStatus `json:"connection"`
@@ -533,6 +540,77 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	if validateBody.Connection.ScopeType != AWSConnectorScopeSingleAccount || validateBody.Connection.DeploymentMethod != AWSConnectorDeploymentCloudFormation ||
 		validateBody.Connection.OnboardingStatus != AWSConnectorOnboardingConnected {
 		t.Fatalf("expected validation to preserve setup contract and mark connected, got %+v", validateBody.Connection)
+	}
+}
+
+func TestAWSConnectorStartResumesExistingCloudFormationSetup(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSAccountID = "999999999999"
+
+	first, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+		RoleName:    "IdentrailReadOnly",
+		StackName:   "identrail-readonly-connector",
+	})
+	if err != nil {
+		t.Fatalf("start aws connector: %v", err)
+	}
+	second, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Different AWS",
+		Region:      "us-west-2",
+		RoleName:    "DifferentRole",
+		StackName:   "different-stack",
+	})
+	if err != nil {
+		t.Fatalf("resume aws connector: %v", err)
+	}
+
+	if second.ExternalID != first.ExternalID {
+		t.Fatalf("expected resume to preserve external id, first=%q second=%q", first.ExternalID, second.ExternalID)
+	}
+	if second.LaunchURL != first.LaunchURL || second.RoleName != first.RoleName || second.StackName != first.StackName {
+		t.Fatalf("expected resume to preserve launch parameters\nfirst=%+v\nsecond=%+v", first, second)
+	}
+	if second.Connection.DisplayName != "Production AWS" || second.Connection.Region != "us-east-1" {
+		t.Fatalf("expected resume to return persisted connector identity, got %+v", second.Connection)
+	}
+	if second.OnboardingStatus != AWSConnectorOnboardingLaunchReady || len(second.NextActions) == 0 || second.SetupSummary == "" {
+		t.Fatalf("expected resumed lifecycle fields, got %+v", second)
+	}
+
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
+	if err != nil {
+		t.Fatalf("load stored connector: %v", err)
+	}
+	if _, ok := stored.State.Metadata["external_id"]; ok {
+		t.Fatalf("external id must not be persisted in connector metadata: %+v", stored.State.Metadata)
+	}
+	secret, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
+	if err != nil {
+		t.Fatalf("load external id envelope: %v", err)
+	}
+	plaintext, err := manager.Decrypt(secret.Envelope, awsExternalIDAAD("tenant-a", "workspace-a", "project-1", "aws-prod"))
+	if err != nil {
+		t.Fatalf("decrypt external id envelope: %v", err)
+	}
+	if got := strings.TrimSpace(string(plaintext)); got != first.ExternalID {
+		t.Fatalf("expected encrypted external id %q, got %q", first.ExternalID, got)
 	}
 }
 
