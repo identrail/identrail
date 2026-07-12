@@ -11388,6 +11388,42 @@ components:
         degraded_at:
           type: string
           format: date-time
+    AWSConnectorScopeType:
+      type: string
+      enum:
+        - single_account
+        - organization
+        - selected_ous
+        - selected_accounts
+        - manual_role
+    AWSConnectorDeploymentMethod:
+      type: string
+      enum:
+        - cloudformation
+        - stackset_service_managed
+        - stackset_self_managed
+        - terraform
+        - manual
+    AWSConnectorOnboardingStatus:
+      type: string
+      enum:
+        - draft
+        - launch_ready
+        - waiting_for_aws
+        - validating
+        - connected
+        - partial
+        - needs_fix
+        - failed
+    AWSConnectorNextAction:
+      type: string
+      enum:
+        - launch_stack
+        - open_stackset
+        - validate_role
+        - refresh_status
+        - repair_permissions
+        - start_intelligence
     AWSConnectorStartRequest:
       type: object
       properties:
@@ -11408,6 +11444,28 @@ components:
         stack_name:
           type: string
           default: identrail-readonly-connector
+        scope_type:
+          $ref: "#/components/schemas/AWSConnectorScopeType"
+        deployment_method:
+          $ref: "#/components/schemas/AWSConnectorDeploymentMethod"
+        target_regions:
+          type: array
+          items:
+            type: string
+        target_account_ids:
+          type: array
+          items:
+            type: string
+        target_ou_ids:
+          type: array
+          items:
+            type: string
+        excluded_account_ids:
+          type: array
+          items:
+            type: string
+        auto_onboard_new_accounts:
+          type: boolean
     AWSConnectorValidateRequest:
       type: object
       required: [role_arn]
@@ -11432,6 +11490,28 @@ components:
           description: Optional requested capability tiers. Defaults to discovery (read-only).
           items:
             $ref: "#/components/schemas/ConnectorCapability"
+        scope_type:
+          $ref: "#/components/schemas/AWSConnectorScopeType"
+        deployment_method:
+          $ref: "#/components/schemas/AWSConnectorDeploymentMethod"
+        target_regions:
+          type: array
+          items:
+            type: string
+        target_account_ids:
+          type: array
+          items:
+            type: string
+        target_ou_ids:
+          type: array
+          items:
+            type: string
+        excluded_account_ids:
+          type: array
+          items:
+            type: string
+        auto_onboard_new_accounts:
+          type: boolean
     AWSConnectorPollRequest:
       type: object
       properties:
@@ -11461,6 +11541,36 @@ components:
           type: string
         policy_hash:
           type: string
+        scope_type:
+          $ref: "#/components/schemas/AWSConnectorScopeType"
+        deployment_method:
+          $ref: "#/components/schemas/AWSConnectorDeploymentMethod"
+        onboarding_status:
+          $ref: "#/components/schemas/AWSConnectorOnboardingStatus"
+        target_regions:
+          type: array
+          items:
+            type: string
+        target_account_ids:
+          type: array
+          items:
+            type: string
+        target_ou_ids:
+          type: array
+          items:
+            type: string
+        excluded_account_ids:
+          type: array
+          items:
+            type: string
+        auto_onboard_new_accounts:
+          type: boolean
+        setup_summary:
+          type: string
+        next_actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSConnectorNextAction"
         permission_preview:
           type: array
           items:
@@ -11634,6 +11744,36 @@ components:
           type: string
         region:
           type: string
+        scope_type:
+          $ref: "#/components/schemas/AWSConnectorScopeType"
+        deployment_method:
+          $ref: "#/components/schemas/AWSConnectorDeploymentMethod"
+        onboarding_status:
+          $ref: "#/components/schemas/AWSConnectorOnboardingStatus"
+        target_regions:
+          type: array
+          items:
+            type: string
+        target_account_ids:
+          type: array
+          items:
+            type: string
+        target_ou_ids:
+          type: array
+          items:
+            type: string
+        excluded_account_ids:
+          type: array
+          items:
+            type: string
+        auto_onboard_new_accounts:
+          type: boolean
+        setup_summary:
+          type: string
+        next_actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSConnectorNextAction"
         permission_checks:
           type: array
           items:

@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- Add the **AWS connector scope contract** (#1748). `POST /v1/connectors/aws`
+  and AWS connection status now expose explicit setup intent for
+  `scope_type`, `deployment_method`, onboarding lifecycle, target regions,
+  target accounts/OUs, exclusions, auto-onboard intent, setup summary, and
+  typed next actions. Existing one-click CloudFormation starts remain
+  backward compatible as `single_account`/`cloudformation`; legacy direct role
+  validation reports `manual_role`/`manual`; invalid scope/deployment
+  combinations and malformed AWS account, OU, or region values fail before
+  connector metadata is persisted. This is contract-only foundation work:
+  executable onboarding still remains on the existing single-account
+  CloudFormation path until the follow-on AWS Connect issues wire StackSet,
+  Terraform, and manual app flows.
 - Add an **AWS executive outcome view** (#1555). Adds the metadata-only
   `GET /v1/workspaces/{workspace_id}/projects/{project_id}/aws/executive-outcomes`
   endpoint, composing account/region coverage, blast radius,

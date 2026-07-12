@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -357,6 +358,16 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	if startBody.Connection.Status != domain.ConnectorStatusPending || !startBody.Connection.ExternalIDConfigured {
 		t.Fatalf("expected pending connector with external id configured, got %+v", startBody.Connection)
 	}
+	if startBody.ScopeType != AWSConnectorScopeSingleAccount || startBody.DeploymentMethod != AWSConnectorDeploymentCloudFormation ||
+		startBody.OnboardingStatus != AWSConnectorOnboardingLaunchReady {
+		t.Fatalf("expected single-account cloudformation launch contract, got scope=%q method=%q status=%q", startBody.ScopeType, startBody.DeploymentMethod, startBody.OnboardingStatus)
+	}
+	if len(startBody.TargetRegions) != 1 || startBody.TargetRegions[0] != "us-east-1" {
+		t.Fatalf("expected normalized target region, got %+v", startBody.TargetRegions)
+	}
+	if len(startBody.NextActions) == 0 || startBody.SetupSummary == "" {
+		t.Fatalf("expected setup summary and next actions, got summary=%q actions=%+v", startBody.SetupSummary, startBody.NextActions)
+	}
 
 	pollResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/aws/"+startBody.ConnectorID+"/poll?workspace_id=workspace-a&project_id=project-1", "")
 	if pollResp.Code != http.StatusOK {
@@ -370,6 +381,10 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	}
 	if pollBody.Connection.ConnectorID != startBody.ConnectorID || pollBody.Connection.Status != domain.ConnectorStatusPending {
 		t.Fatalf("expected pending polled connection, got %+v", pollBody.Connection)
+	}
+	if pollBody.Connection.ScopeType != AWSConnectorScopeSingleAccount || pollBody.Connection.DeploymentMethod != AWSConnectorDeploymentCloudFormation ||
+		pollBody.Connection.OnboardingStatus != AWSConnectorOnboardingLaunchReady {
+		t.Fatalf("expected polled setup contract to persist, got %+v", pollBody.Connection)
 	}
 
 	policyResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws/"+startBody.ConnectorID+"/refresh-policy", `{
@@ -398,6 +413,16 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	if validator.seen.ExternalID != startBody.ExternalID {
 		t.Fatalf("expected validator to receive decrypted external id, got %q want %q", validator.seen.ExternalID, startBody.ExternalID)
 	}
+	var validateBody struct {
+		Connection AWSConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(validateResp.Body.Bytes(), &validateBody); err != nil {
+		t.Fatalf("decode validate response: %v", err)
+	}
+	if validateBody.Connection.ScopeType != AWSConnectorScopeSingleAccount || validateBody.Connection.DeploymentMethod != AWSConnectorDeploymentCloudFormation ||
+		validateBody.Connection.OnboardingStatus != AWSConnectorOnboardingConnected {
+		t.Fatalf("expected validation to preserve setup contract and mark connected, got %+v", validateBody.Connection)
+	}
 }
 
 func TestRouterAWSConnectorFeatureFlagDisabled(t *testing.T) {
@@ -419,6 +444,15 @@ func TestRouterAWSConnectorValidationErrors(t *testing.T) {
 	if startResp.Code != http.StatusBadRequest {
 		t.Fatalf("expected invalid start 400, got %d body=%s", startResp.Code, startResp.Body.String())
 	}
+	invalidScopeResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"scope_type":"organization",
+		"deployment_method":"cloudformation"
+	}`)
+	if invalidScopeResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid scope/deployment 400, got %d body=%s", invalidScopeResp.Code, invalidScopeResp.Body.String())
+	}
 
 	pollResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/aws/missing/poll", "")
 	if pollResp.Code != http.StatusBadRequest {
@@ -437,6 +471,166 @@ func TestRouterAWSConnectorValidationErrors(t *testing.T) {
 	}`)
 	if validateResp.Code != http.StatusNotFound {
 		t.Fatalf("expected missing connector validate 404, got %d body=%s", validateResp.Code, validateResp.Body.String())
+	}
+}
+
+func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   awsConnectorSetupInput
+		want    awsConnectorSetupContract
+		wantErr bool
+	}{
+		{
+			name: "defaults legacy start to single account cloudformation",
+			input: awsConnectorSetupInput{
+				Region:                  "us-east-1",
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			want: awsConnectorSetupContract{
+				ScopeType:        AWSConnectorScopeSingleAccount,
+				DeploymentMethod: AWSConnectorDeploymentCloudFormation,
+				TargetRegions:    []string{"us-east-1"},
+			},
+		},
+		{
+			name: "organization stackset with exclusions",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeOrganization,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1", "us-west-2", "us-east-1"},
+				ExcludedAccountIDs:      []string{"123456789012"},
+				AutoOnboardNewAccounts:  true,
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			want: awsConnectorSetupContract{
+				ScopeType:              AWSConnectorScopeOrganization,
+				DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:          []string{"us-east-1", "us-west-2"},
+				ExcludedAccountIDs:     []string{"123456789012"},
+				AutoOnboardNewAccounts: true,
+			},
+		},
+		{
+			name: "selected OUs requires OU ids",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedOUs,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "selected accounts accepts account ids",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetSelfManaged,
+				TargetRegions:           []string{"us-gov-west-1"},
+				TargetAccountIDs:        []string{"111122223333", "111122223333"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			want: awsConnectorSetupContract{
+				ScopeType:        AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod: AWSConnectorDeploymentStackSetSelfManaged,
+				TargetRegions:    []string{"us-gov-west-1"},
+				TargetAccountIDs: []string{"111122223333"},
+			},
+		},
+		{
+			name: "manual role must use manual deployment",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeManualRole,
+				DeploymentMethod:        AWSConnectorDeploymentCloudFormation,
+				Region:                  "us-east-1",
+				DefaultScopeType:        AWSConnectorScopeManualRole,
+				DefaultDeploymentMethod: AWSConnectorDeploymentManual,
+			},
+			wantErr: true,
+		},
+		{
+			name: "organization must use stackset deployment",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeOrganization,
+				DeploymentMethod:        AWSConnectorDeploymentTerraform,
+				TargetRegions:           []string{"us-east-1"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "stackset requires a target region",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeOrganization,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "rejects malformed account ids",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetAccountIDs:        []string{"123"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "rejects malformed ou ids",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedOUs,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetOUIDs:             []string{"ou-invalid"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "rejects malformed regions",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSingleAccount,
+				DeploymentMethod:        AWSConnectorDeploymentCloudFormation,
+				TargetRegions:           []string{"not-a-region"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := normalizeAWSConnectorSetupContract(tt.input)
+			if tt.wantErr {
+				if !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+					t.Fatalf("expected invalid setup error, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("normalize setup: %v", err)
+			}
+			if got.ScopeType != tt.want.ScopeType || got.DeploymentMethod != tt.want.DeploymentMethod ||
+				!slices.Equal(got.TargetRegions, tt.want.TargetRegions) ||
+				!slices.Equal(got.TargetAccountIDs, tt.want.TargetAccountIDs) ||
+				!slices.Equal(got.TargetOUIDs, tt.want.TargetOUIDs) ||
+				!slices.Equal(got.ExcludedAccountIDs, tt.want.ExcludedAccountIDs) ||
+				got.AutoOnboardNewAccounts != tt.want.AutoOnboardNewAccounts {
+				t.Fatalf("unexpected setup contract\n got: %+v\nwant: %+v", got, tt.want)
+			}
+		})
 	}
 }
 

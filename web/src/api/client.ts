@@ -836,6 +836,16 @@ export type AWSConnectionStatus = {
   principal_arn?: string;
   user_id?: string;
   region?: string;
+  scope_type: AWSConnectorScopeType;
+  deployment_method: AWSConnectorDeploymentMethod;
+  onboarding_status: AWSConnectorOnboardingStatus;
+  target_regions: string[];
+  target_account_ids: string[];
+  target_ou_ids: string[];
+  excluded_account_ids: string[];
+  auto_onboard_new_accounts: boolean;
+  setup_summary: string;
+  next_actions: AWSConnectorNextAction[];
   permission_checks: AWSConnectionPermissionCheck[];
   diagnostics: AWSConnectionDiagnostic[];
   capabilities: AWSConnectorCapabilities;
@@ -9603,7 +9613,38 @@ export type AWSConnectorStartRequest = {
   region?: string;
   role_name?: string;
   stack_name?: string;
+  scope_type?: AWSConnectorScopeType;
+  deployment_method?: AWSConnectorDeploymentMethod;
+  target_regions?: string[];
+  target_account_ids?: string[];
+  target_ou_ids?: string[];
+  excluded_account_ids?: string[];
+  auto_onboard_new_accounts?: boolean;
 };
+
+export type AWSConnectorScopeType = 'single_account' | 'organization' | 'selected_ous' | 'selected_accounts' | 'manual_role';
+export type AWSConnectorDeploymentMethod =
+  | 'cloudformation'
+  | 'stackset_service_managed'
+  | 'stackset_self_managed'
+  | 'terraform'
+  | 'manual';
+export type AWSConnectorOnboardingStatus =
+  | 'draft'
+  | 'launch_ready'
+  | 'waiting_for_aws'
+  | 'validating'
+  | 'connected'
+  | 'partial'
+  | 'needs_fix'
+  | 'failed';
+export type AWSConnectorNextAction =
+  | 'launch_stack'
+  | 'open_stackset'
+  | 'validate_role'
+  | 'refresh_status'
+  | 'repair_permissions'
+  | 'start_intelligence';
 
 export type AWSConnectorStartResponse = {
   connection: AWSConnectionStatus;
@@ -9614,6 +9655,16 @@ export type AWSConnectorStartResponse = {
   role_name: string;
   stack_name: string;
   policy_hash: string;
+  scope_type: AWSConnectorScopeType;
+  deployment_method: AWSConnectorDeploymentMethod;
+  onboarding_status: AWSConnectorOnboardingStatus;
+  target_regions: string[];
+  target_account_ids: string[];
+  target_ou_ids: string[];
+  excluded_account_ids: string[];
+  auto_onboard_new_accounts: boolean;
+  setup_summary: string;
+  next_actions: AWSConnectorNextAction[];
   permission_preview: AWSPermissionPreviewItem[];
   permission_tiers: AWSCapabilityPermissionTier[];
 };
@@ -9626,6 +9677,13 @@ export type AWSConnectorValidateRequest = {
   region?: string;
   session_name?: string;
   capabilities?: ConnectorCapability[];
+  scope_type?: AWSConnectorScopeType;
+  deployment_method?: AWSConnectorDeploymentMethod;
+  target_regions?: string[];
+  target_account_ids?: string[];
+  target_ou_ids?: string[];
+  excluded_account_ids?: string[];
+  auto_onboard_new_accounts?: boolean;
 };
 
 export type AWSConnectorPolicyResponse = {

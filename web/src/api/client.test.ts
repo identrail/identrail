@@ -757,6 +757,89 @@ describe('apiClient', () => {
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 
+  it('posts AWS connector scope contract payloads', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        connection: {
+          provider: 'aws',
+          connected: false,
+          scope_type: 'selected_accounts',
+          deployment_method: 'stackset_service_managed',
+          onboarding_status: 'draft',
+          target_regions: ['us-east-1'],
+          target_account_ids: ['123456789012'],
+          target_ou_ids: [],
+          excluded_account_ids: [],
+          auto_onboard_new_accounts: false,
+          setup_summary: 'Selected AWS accounts setup planned through CloudFormation StackSets.',
+          next_actions: ['open_stackset', 'refresh_status'],
+          permission_checks: [],
+          diagnostics: [],
+          capabilities: { requested: ['discovery'], validated: ['discovery'], effective: ['discovery'], unavailable: [] }
+        },
+        connector_id: 'aws-selected',
+        external_id: 'external-prod',
+        launch_url: 'https://console.aws.amazon.com/cloudformation',
+        template_url: 'https://cdn.example.com/identrail-readonly.yaml',
+        role_name: 'IdentrailReadOnly',
+        stack_name: 'identrail-readonly-connector',
+        policy_hash: 'sha256:example',
+        scope_type: 'selected_accounts',
+        deployment_method: 'stackset_service_managed',
+        onboarding_status: 'draft',
+        target_regions: ['us-east-1'],
+        target_account_ids: ['123456789012'],
+        target_ou_ids: [],
+        excluded_account_ids: [],
+        auto_onboard_new_accounts: false,
+        setup_summary: 'Selected AWS accounts setup planned through CloudFormation StackSets.',
+        next_actions: ['open_stackset', 'refresh_status'],
+        permission_preview: [],
+        permission_tiers: []
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.startAWSConnector(
+      {
+        workspace_id: 'workspace/a',
+        project_id: 'project 1',
+        scope_type: 'selected_accounts',
+        deployment_method: 'stackset_service_managed',
+        target_regions: ['us-east-1'],
+        target_account_ids: ['123456789012'],
+        excluded_account_ids: ['210987654321'],
+        auto_onboard_new_accounts: false
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace/a',
+        bearerToken: 'token-a'
+      }
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/connectors/aws');
+    expect(options.method).toBe('POST');
+    expect(options.body).toBe(
+      JSON.stringify({
+        workspace_id: 'workspace/a',
+        project_id: 'project 1',
+        scope_type: 'selected_accounts',
+        deployment_method: 'stackset_service_managed',
+        target_regions: ['us-east-1'],
+        target_account_ids: ['123456789012'],
+        excluded_account_ids: ['210987654321'],
+        auto_onboard_new_accounts: false
+      })
+    );
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace/a');
+    expect(headers.get('authorization')).toBe('Bearer token-a');
+  });
+
   it('gets and verifies AWS project baseline gate with scoped headers', async () => {
     const fetchMock = vi
       .fn()

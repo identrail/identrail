@@ -38,6 +38,43 @@ When a persistent database is configured and AWS connector setup is enabled, `ID
 
 The read-only policy and rationale live together under `deploy/connectors/aws/policies/`.
 
+## Scope Contract
+
+AWS connector setup now carries an explicit onboarding contract in both the
+start request and connection status response. The contract describes operator
+intent; it does not prove that Identrail has observed every account or region
+yet. Runtime coverage remains separate in the account and region coverage
+registry.
+
+The contract fields are:
+
+- `scope_type`: `single_account`, `organization`, `selected_ous`,
+  `selected_accounts`, or `manual_role`.
+- `deployment_method`: `cloudformation`, `stackset_service_managed`,
+  `stackset_self_managed`, `terraform`, or `manual`.
+- `onboarding_status`: `draft`, `launch_ready`, `waiting_for_aws`,
+  `validating`, `connected`, `partial`, `needs_fix`, or `failed`.
+- `target_regions`, `target_account_ids`, `target_ou_ids`, and
+  `excluded_account_ids`: normalized setup target lists.
+- `auto_onboard_new_accounts`: whether future organization accounts should be
+  included automatically once StackSet onboarding owns that path.
+- `setup_summary` and `next_actions`: short app-facing guidance for the next
+  safe operator action.
+
+For backward compatibility, an omitted scope on `POST /v1/connectors/aws`
+defaults to `single_account` with `cloudformation`. The legacy direct role
+validation path reports `manual_role` with `manual`. Invalid combinations are
+rejected before setup is persisted: manual role setup must use `manual`,
+organization and selected scopes must use a StackSet deployment method,
+selected OUs/accounts must include targets, and malformed AWS account IDs, OU
+IDs, and regions fail validation.
+
+This foundation only establishes the shared contract. The executable
+`POST /v1/connectors/aws` setup path still starts the existing
+`single_account`/`cloudformation` read-only connector. Organization,
+selected-OU, selected-account, Terraform, and full manual app flows are reserved
+for the follow-on implementation issues.
+
 ## Account and Region Coverage Registry
 
 AWS connector health answers whether Identrail can assume the configured connector role. The account and region coverage registry answers a separate product question: which AWS accounts and regions are currently in scope, covered, pending, or blocked.
