@@ -1496,6 +1496,68 @@ func awsPlatformBaselineKey(tenantID string, workspaceID string, projectID strin
 	return tenancyCompositeKey(strings.TrimSpace(tenantID), strings.TrimSpace(workspaceID), strings.TrimSpace(projectID), strings.TrimSpace(connectorID))
 }
 
+// CreateTenancyConnectorWithSecretEnvelopeIfAbsent creates a connector, state,
+// and secret envelope atomically, or returns the existing connector unchanged.
+func (m *MemoryStore) CreateTenancyConnectorWithSecretEnvelopeIfAbsent(ctx context.Context, connector TenancyConnector, state TenancyConnectorState, envelope TenancyConnectorSecretEnvelope) (TenancyConnectorWithState, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyConnectorWithState{}, false, err
+	}
+	connector.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, connector.WorkspaceID)
+	if err != nil {
+		return TenancyConnectorWithState{}, false, err
+	}
+	connector.WorkspaceID = resolvedWorkspaceID
+	state.TenantID = scope.TenantID
+	state.WorkspaceID = resolvedWorkspaceID
+	state.ProjectID = connector.ProjectID
+	state.ConnectorID = connector.ConnectorID
+	envelope.TenantID = scope.TenantID
+	envelope.WorkspaceID = resolvedWorkspaceID
+	envelope.ProjectID = connector.ProjectID
+	envelope.ConnectorID = connector.ConnectorID
+
+	normalizedConnector, err := NormalizeTenancyConnectorForWrite(connector)
+	if err != nil {
+		return TenancyConnectorWithState{}, false, err
+	}
+	normalizedState, err := NormalizeTenancyConnectorStateForWrite(state)
+	if err != nil {
+		return TenancyConnectorWithState{}, false, err
+	}
+	normalizedEnvelope, err := NormalizeTenancyConnectorSecretEnvelopeForWrite(envelope)
+	if err != nil {
+		return TenancyConnectorWithState{}, false, err
+	}
+
+	key := tenancyConnectorKey(normalizedConnector.TenantID, normalizedConnector.WorkspaceID, normalizedConnector.ProjectID, normalizedConnector.ConnectorID)
+	if existing, exists := m.connectors[key]; exists {
+		existingState := m.connStates[key]
+		existingState.Metadata = cloneMetadataMap(existingState.Metadata)
+		return TenancyConnectorWithState{Connector: existing, State: existingState}, false, nil
+	}
+	if _, exists := m.projects[tenancyProjectKey(normalizedConnector.TenantID, normalizedConnector.WorkspaceID, normalizedConnector.ProjectID)]; !exists {
+		return TenancyConnectorWithState{}, false, ErrNotFound
+	}
+
+	secretKey := tenancyConnectorSecretKey(
+		normalizedEnvelope.TenantID,
+		normalizedEnvelope.WorkspaceID,
+		normalizedEnvelope.ProjectID,
+		normalizedEnvelope.ConnectorID,
+		normalizedEnvelope.SecretName,
+	)
+	m.connectors[key] = normalizedConnector
+	m.connStates[key] = normalizedState
+	m.connSecrets[secretKey] = normalizedEnvelope
+	normalizedState.Metadata = cloneMetadataMap(normalizedState.Metadata)
+	return TenancyConnectorWithState{Connector: normalizedConnector, State: normalizedState}, true, nil
+}
+
 // UpsertTenancyConnector persists one connector and its latest state atomically.
 func (m *MemoryStore) UpsertTenancyConnector(ctx context.Context, connector TenancyConnector, state TenancyConnectorState) error {
 	m.mu.Lock()

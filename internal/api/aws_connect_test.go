@@ -749,6 +749,80 @@ func TestAWSConnectorStartPersistsRecoveredExternalIDLaunchState(t *testing.T) {
 	}
 }
 
+func TestAWSConnectorStartPersistsRebuiltLaunchMetadataWithExistingExternalID(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSAccountID = "999999999999"
+
+	first, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("start aws connector: %v", err)
+	}
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
+	if err != nil {
+		t.Fatalf("load stored connector: %v", err)
+	}
+	metadata := copyAWSMetadata(stored.State.Metadata)
+	delete(metadata, "launch_url")
+	delete(metadata, "template_url")
+	stored.State.Metadata = metadata
+	if err := store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
+		t.Fatalf("remove launch metadata: %v", err)
+	}
+
+	recovered, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("rebuild launch metadata: %v", err)
+	}
+	if recovered.ExternalID != first.ExternalID {
+		t.Fatalf("expected existing external id to be preserved, first=%q recovered=%q", first.ExternalID, recovered.ExternalID)
+	}
+	if recovered.LaunchURL == "" || recovered.TemplateURL == "" {
+		t.Fatalf("expected rebuilt launch metadata, got %+v", recovered)
+	}
+
+	persisted, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
+	if err != nil {
+		t.Fatalf("load rebuilt connector: %v", err)
+	}
+	if got := awsMetadataString(persisted.State.Metadata, "launch_url"); got != recovered.LaunchURL {
+		t.Fatalf("expected rebuilt launch URL to persist, got %q want %q", got, recovered.LaunchURL)
+	}
+	again, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("resume rebuilt launch metadata: %v", err)
+	}
+	if again.ExternalID != recovered.ExternalID || again.LaunchURL != recovered.LaunchURL {
+		t.Fatalf("expected later resume to keep rebuilt launch metadata\nrecovered=%+v\nagain=%+v", recovered, again)
+	}
+}
+
 func TestRouterAWSConnectorFeatureFlagDisabled(t *testing.T) {
 	r := newAWSConnectionTestRouter(t, &fakeAWSConnectorValidator{})
 

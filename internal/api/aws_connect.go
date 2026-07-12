@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,8 +22,6 @@ var (
 	awsAccountIDPattern = regexp.MustCompile(`^[0-9]{12}$`)
 	awsOUIDPattern      = regexp.MustCompile(`^ou-[a-z0-9]{4,32}-[a-z0-9]{8,32}$`)
 )
-
-var awsConnectorStartLocks sync.Map
 
 const (
 	awsExternalIDSecretName     = "external_id"
@@ -341,8 +338,6 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	if connectorID == "" {
 		connectorID = "aws-" + uuid.NewString()
 	} else {
-		unlock := lockAWSConnectorStart(scope.TenantID, project.WorkspaceID, project.ProjectID, connectorID)
-		defer unlock()
 		stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
 		if err == nil {
 			return s.resumeAWSConnectorStart(ctx, stored, setup, request, templateURL, accountID)
@@ -426,15 +421,16 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 		ObservedAt:   now,
 		UpdatedAt:    now,
 	}
-	if err := s.Store.UpsertTenancyConnector(ctx, connector, state); err != nil {
-		return AWSConnectorStartResponse{}, fmt.Errorf("persist aws connector: %w", err)
-	}
-	if err := s.persistAWSExternalID(ctx, scope.TenantID, project.WorkspaceID, project.ProjectID, connectorID, externalID, now); err != nil {
+	envelope, err := s.newAWSExternalIDSecretEnvelope(scope.TenantID, project.WorkspaceID, project.ProjectID, connectorID, externalID, now)
+	if err != nil {
 		return AWSConnectorStartResponse{}, err
 	}
-	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
+	stored, created, err := s.Store.CreateTenancyConnectorWithSecretEnvelopeIfAbsent(ctx, connector, state, envelope)
 	if err != nil {
-		return AWSConnectorStartResponse{}, fmt.Errorf("load persisted aws connector: %w", err)
+		return AWSConnectorStartResponse{}, fmt.Errorf("create aws connector: %w", err)
+	}
+	if !created {
+		return s.resumeAWSConnectorStart(ctx, stored, setup, request, templateURL, accountID)
 	}
 	status := s.awsConnectionStatusFromStored(ctx, stored)
 	status.ExternalID = externalID
@@ -492,6 +488,7 @@ func (s *Service) resumeAWSConnectorStart(
 	if !generatedExternalID {
 		launchURL = awsMetadataString(stored.State.Metadata, "launch_url")
 	}
+	rebuiltLaunchMetadata := launchURL == ""
 	if launchURL == "" {
 		launchURL = awsconnector.BuildCloudFormationLaunchURL(awsconnector.CloudFormationLaunchInput{
 			TemplateURL:        templateURL,
@@ -502,7 +499,10 @@ func (s *Service) resumeAWSConnectorStart(
 			RoleName:           roleName,
 		})
 	}
-	if generatedExternalID {
+	if generatedExternalID || rebuiltLaunchMetadata {
+		if rotatedAt.IsZero() {
+			rotatedAt = s.Now().UTC()
+		}
 		stored = persistRecoveredAWSConnectorLaunchState(stored, externalID, region, roleName, stackName, templateURL, launchURL, policyHash, s.connectorSecretManager().ActiveKeyVersion(), rotatedAt)
 		if err := s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
 			return AWSConnectorStartResponse{}, fmt.Errorf("persist recovered aws connector launch state: %w", err)
@@ -517,19 +517,6 @@ func (s *Service) resumeAWSConnectorStart(
 	status.TemplateURL = firstNonEmptyAWSValue(status.TemplateURL, templateURL)
 	status.PolicyHash = firstNonEmptyAWSValue(status.PolicyHash, policyHash)
 	return awsConnectorStartResponse(status, externalID, launchURL, status.TemplateURL, roleName, stackName, policyHash), nil
-}
-
-func lockAWSConnectorStart(tenantID string, workspaceID string, projectID string, connectorID string) func() {
-	key := strings.Join([]string{
-		strings.TrimSpace(tenantID),
-		strings.TrimSpace(workspaceID),
-		strings.TrimSpace(projectID),
-		strings.TrimSpace(connectorID),
-	}, "/")
-	value, _ := awsConnectorStartLocks.LoadOrStore(key, &sync.Mutex{})
-	lock := value.(*sync.Mutex)
-	lock.Lock()
-	return lock.Unlock
 }
 
 func persistRecoveredAWSConnectorLaunchState(
@@ -1300,14 +1287,28 @@ func (s *Service) awsExternalIDFromStored(ctx context.Context, stored db.Tenancy
 }
 
 func (s *Service) persistAWSExternalID(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, externalID string, rotatedAt time.Time) error {
+	if strings.TrimSpace(externalID) == "" {
+		return nil
+	}
+	secret, err := s.newAWSExternalIDSecretEnvelope(tenantID, workspaceID, projectID, connectorID, externalID, rotatedAt)
+	if err != nil {
+		return err
+	}
+	if err := s.Store.UpsertTenancyConnectorSecretEnvelope(db.WithScope(ctx, db.Scope{TenantID: tenantID, WorkspaceID: workspaceID}), secret); err != nil {
+		return fmt.Errorf("persist aws connector external id envelope: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) newAWSExternalIDSecretEnvelope(tenantID string, workspaceID string, projectID string, connectorID string, externalID string, rotatedAt time.Time) (db.TenancyConnectorSecretEnvelope, error) {
 	externalID = strings.TrimSpace(externalID)
 	if externalID == "" {
-		return nil
+		return db.TenancyConnectorSecretEnvelope{}, nil
 	}
 	manager := s.connectorSecretManager()
 	envelope, err := manager.Encrypt([]byte(externalID), awsExternalIDAAD(tenantID, workspaceID, projectID, connectorID))
 	if err != nil {
-		return fmt.Errorf("encrypt aws connector external id: %w", err)
+		return db.TenancyConnectorSecretEnvelope{}, fmt.Errorf("encrypt aws connector external id: %w", err)
 	}
 	secret := db.TenancyConnectorSecretEnvelope{
 		TenantID:        tenantID,
@@ -1322,10 +1323,7 @@ func (s *Service) persistAWSExternalID(ctx context.Context, tenantID string, wor
 		CreatedAt:       rotatedAt,
 		UpdatedAt:       rotatedAt,
 	}
-	if err := s.Store.UpsertTenancyConnectorSecretEnvelope(db.WithScope(ctx, db.Scope{TenantID: tenantID, WorkspaceID: workspaceID}), secret); err != nil {
-		return fmt.Errorf("persist aws connector external id envelope: %w", err)
-	}
-	return nil
+	return secret, nil
 }
 
 func (s *Service) clearAWSExternalID(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string) error {
