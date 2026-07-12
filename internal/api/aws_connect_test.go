@@ -402,6 +402,19 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 		t.Fatalf("expected policy hash and preview, got %+v", policyBody)
 	}
 
+	validateOverrideResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws/"+startBody.ConnectorID+"/validate", `{
+		"workspace_id":"workspace-a",
+		"project_id":"project-1",
+		"role_arn":"arn:aws:iam::123456789012:role/IdentrailReadOnly",
+		"scope_type":"organization",
+		"deployment_method":"stackset_service_managed",
+		"target_regions":["us-east-1"],
+		"auto_onboard_new_accounts":true
+	}`)
+	if validateOverrideResp.Code != http.StatusBadRequest {
+		t.Fatalf("expected validate setup override 400, got %d body=%s", validateOverrideResp.Code, validateOverrideResp.Body.String())
+	}
+
 	validateResp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/connectors/aws/"+startBody.ConnectorID+"/validate", `{
 		"workspace_id":"workspace-a",
 		"project_id":"project-1",
@@ -603,6 +616,19 @@ func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
 				ScopeType:               AWSConnectorScopeSingleAccount,
 				DeploymentMethod:        AWSConnectorDeploymentCloudFormation,
 				TargetRegions:           []string{"not-a-region"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "rejects malformed region even when target regions are present",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				Region:                  "not-a-region",
+				TargetRegions:           []string{"us-east-1"},
+				TargetAccountIDs:        []string{"123456789012"},
 				DefaultScopeType:        AWSConnectorScopeSingleAccount,
 				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
 			},

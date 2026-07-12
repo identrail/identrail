@@ -470,24 +470,8 @@ func (s *Service) ValidateAWSConnector(ctx context.Context, connectorID string, 
 		requestedCapabilities = awsMetadataCapabilities(stored.State.Metadata, "capabilities").Requested
 	}
 	setup := awsMetadataSetupContract(stored.State.Metadata, AWSConnectorScopeSingleAccount, AWSConnectorDeploymentCloudFormation)
-	if strings.TrimSpace(string(request.ScopeType)) != "" || strings.TrimSpace(string(request.DeploymentMethod)) != "" || len(request.TargetRegions) > 0 ||
-		len(request.TargetAccountIDs) > 0 || len(request.TargetOUIDs) > 0 || len(request.ExcludedAccountIDs) > 0 || request.AutoOnboardNewAccounts {
-		var err error
-		setup, err = normalizeAWSConnectorSetupContract(awsConnectorSetupInput{
-			ScopeType:               firstNonEmptyAWSConnectorScope(request.ScopeType, setup.ScopeType),
-			DeploymentMethod:        firstNonEmptyAWSConnectorDeployment(request.DeploymentMethod, setup.DeploymentMethod),
-			Region:                  firstNonEmptyAWSValue(strings.TrimSpace(request.Region), awsMetadataString(stored.State.Metadata, "region")),
-			TargetRegions:           firstNonEmptyAWSStringSlice(request.TargetRegions, setup.TargetRegions),
-			TargetAccountIDs:        firstNonEmptyAWSStringSlice(request.TargetAccountIDs, setup.TargetAccountIDs),
-			TargetOUIDs:             firstNonEmptyAWSStringSlice(request.TargetOUIDs, setup.TargetOUIDs),
-			ExcludedAccountIDs:      firstNonEmptyAWSStringSlice(request.ExcludedAccountIDs, setup.ExcludedAccountIDs),
-			AutoOnboardNewAccounts:  request.AutoOnboardNewAccounts || setup.AutoOnboardNewAccounts,
-			DefaultScopeType:        AWSConnectorScopeSingleAccount,
-			DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
-		})
-		if err != nil {
-			return AWSConnectionStatus{}, err
-		}
+	if awsConnectorValidateRequestHasSetupOverride(request) {
+		return AWSConnectionStatus{}, ErrInvalidAWSConnectionRequest
 	}
 	return s.UpsertAWSConnection(ctx, project.WorkspaceID, project.ProjectID, AWSConnectionUpsertRequest{
 		ConnectorID:            connectorID,
@@ -734,6 +718,16 @@ func (s *Service) ListAWSAccountRegionCoverages(ctx context.Context, workspaceID
 	return s.Store.ListAWSAccountRegionCoverages(ctx, filter)
 }
 
+func awsConnectorValidateRequestHasSetupOverride(request AWSConnectorValidateRequest) bool {
+	return strings.TrimSpace(string(request.ScopeType)) != "" ||
+		strings.TrimSpace(string(request.DeploymentMethod)) != "" ||
+		len(request.TargetRegions) > 0 ||
+		len(request.TargetAccountIDs) > 0 ||
+		len(request.TargetOUIDs) > 0 ||
+		len(request.ExcludedAccountIDs) > 0 ||
+		request.AutoOnboardNewAccounts
+}
+
 func normalizeAWSConnectorSetupContract(input awsConnectorSetupInput) (awsConnectorSetupContract, error) {
 	scopeType := AWSConnectorScopeType(strings.TrimSpace(string(input.ScopeType)))
 	if scopeType == "" {
@@ -762,12 +756,14 @@ func normalizeAWSConnectorSetupContract(input awsConnectorSetupInput) (awsConnec
 		return awsConnectorSetupContract{}, err
 	}
 	region := strings.TrimSpace(input.Region)
-	if len(targetRegions) == 0 && region != "" {
+	if region != "" {
 		normalizedRegion := awsconnector.NormalizeRegion(region)
 		if normalizedRegion != region {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
-		targetRegions = []string{normalizedRegion}
+		if len(targetRegions) == 0 {
+			targetRegions = []string{normalizedRegion}
+		}
 	}
 	if len(targetRegions) == 0 && (scopeType == AWSConnectorScopeSingleAccount || scopeType == AWSConnectorScopeManualRole) {
 		targetRegions = []string{"us-east-1"}
@@ -1231,33 +1227,6 @@ func copyAWSConnectorNextActions(actions []AWSConnectorNextAction) []AWSConnecto
 func firstNonEmptyAWSValue(values ...string) string {
 	for _, value := range values {
 		if value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func firstNonEmptyAWSStringSlice(values ...[]string) []string {
-	for _, value := range values {
-		if len(value) > 0 {
-			return copyAWSStringSlice(value)
-		}
-	}
-	return []string{}
-}
-
-func firstNonEmptyAWSConnectorScope(values ...AWSConnectorScopeType) AWSConnectorScopeType {
-	for _, value := range values {
-		if strings.TrimSpace(string(value)) != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func firstNonEmptyAWSConnectorDeployment(values ...AWSConnectorDeploymentMethod) AWSConnectorDeploymentMethod {
-	for _, value := range values {
-		if strings.TrimSpace(string(value)) != "" {
 			return value
 		}
 	}
