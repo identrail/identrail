@@ -175,6 +175,52 @@ func TestAWSConnectionPersistsAcrossServiceInstances(t *testing.T) {
 	}
 }
 
+func TestGetAWSConnectionTreatsLegacyRoleMetadataAsManualScope(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	now := time.Date(2026, 7, 12, 15, 0, 0, 0, time.UTC)
+	if err := store.UpsertTenancyConnector(ctx, db.TenancyConnector{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-123456789012",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "Legacy AWS",
+		Status:      domain.ConnectorStatusActive,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}, db.TenancyConnectorState{
+		TenantID:     "tenant-a",
+		WorkspaceID:  "workspace-a",
+		ProjectID:    "project-1",
+		ConnectorID:  "aws-123456789012",
+		HealthStatus: "healthy",
+		Metadata: map[string]any{
+			"role_arn":    "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+			"account_id":  "123456789012",
+			"region":      "us-west-2",
+			"external_id": "tenant-external-id",
+		},
+		ObservedAt: now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("seed legacy connector: %v", err)
+	}
+
+	svc := NewService(store, routerScanner{}, "aws")
+	status, err := svc.GetAWSConnection(ctx, "workspace-a", "project-1")
+	if err != nil {
+		t.Fatalf("get legacy aws connection: %v", err)
+	}
+	if status.ScopeType != AWSConnectorScopeManualRole || status.DeploymentMethod != AWSConnectorDeploymentManual {
+		t.Fatalf("expected legacy direct-role setup, got scope=%q method=%q", status.ScopeType, status.DeploymentMethod)
+	}
+	if status.LaunchURL != "" || status.TemplateURL != "" {
+		t.Fatalf("expected legacy direct-role record without launch metadata, got launch=%q template=%q", status.LaunchURL, status.TemplateURL)
+	}
+}
+
 func TestAWSConnectionClearsPersistedExternalID(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
@@ -668,6 +714,18 @@ func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
 				ScopeType:               AWSConnectorScopeSingleAccount,
 				DeploymentMethod:        AWSConnectorDeploymentCloudFormation,
 				TargetRegions:           []string{"not-a-region"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "rejects single account target account ids",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSingleAccount,
+				DeploymentMethod:        AWSConnectorDeploymentCloudFormation,
+				TargetRegions:           []string{"us-east-1"},
+				TargetAccountIDs:        []string{"123456789012"},
 				DefaultScopeType:        AWSConnectorScopeSingleAccount,
 				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
 			},

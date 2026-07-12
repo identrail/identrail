@@ -817,10 +817,7 @@ func normalizeAWSConnectorSetupContract(input awsConnectorSetupInput) (awsConnec
 		if deploymentMethod != AWSConnectorDeploymentCloudFormation && deploymentMethod != AWSConnectorDeploymentTerraform {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
-		if len(targetOUIDs) > 0 || len(excludedAccountIDs) > 0 || input.AutoOnboardNewAccounts {
-			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
-		}
-		if len(targetAccountIDs) > 1 {
+		if len(targetAccountIDs) > 0 || len(targetOUIDs) > 0 || len(excludedAccountIDs) > 0 || input.AutoOnboardNewAccounts {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
 	case AWSConnectorScopeManualRole:
@@ -1055,7 +1052,8 @@ func awsConnectionStatusFromStored(stored db.TenancyConnectorWithState) AWSConne
 		observed := stored.State.ObservedAt
 		validatedAt = &observed
 	}
-	setup := awsMetadataSetupContract(metadata, AWSConnectorScopeSingleAccount, AWSConnectorDeploymentCloudFormation)
+	defaultScope, defaultDeployment := awsMetadataSetupFallback(metadata)
+	setup := awsMetadataSetupContract(metadata, defaultScope, defaultDeployment)
 	onboardingStatus := awsMetadataOnboardingStatus(metadata, "onboarding_status")
 	if onboardingStatus == "" {
 		onboardingStatus = awsConnectorOnboardingStatusFromHealth(stored.Connector.Status, stored.State.HealthStatus, awsMetadataString(metadata, "launch_url"))
@@ -1340,6 +1338,16 @@ func awsMetadataSetupContract(metadata map[string]any, defaultScope AWSConnector
 		})
 	}
 	return setup
+}
+
+func awsMetadataSetupFallback(metadata map[string]any) (AWSConnectorScopeType, AWSConnectorDeploymentMethod) {
+	if strings.TrimSpace(awsMetadataString(metadata, "scope_type")) != "" || strings.TrimSpace(awsMetadataString(metadata, "deployment_method")) != "" {
+		return AWSConnectorScopeSingleAccount, AWSConnectorDeploymentCloudFormation
+	}
+	if strings.TrimSpace(awsMetadataString(metadata, "launch_url")) != "" || strings.TrimSpace(awsMetadataString(metadata, "template_url")) != "" {
+		return AWSConnectorScopeSingleAccount, AWSConnectorDeploymentCloudFormation
+	}
+	return AWSConnectorScopeManualRole, AWSConnectorDeploymentManual
 }
 
 func awsMetadataOnboardingStatus(metadata map[string]any, key string) AWSConnectorOnboardingStatus {
