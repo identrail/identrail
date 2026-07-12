@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +23,8 @@ var (
 	awsAccountIDPattern = regexp.MustCompile(`^[0-9]{12}$`)
 	awsOUIDPattern      = regexp.MustCompile(`^ou-[a-z0-9]{4,32}-[a-z0-9]{8,32}$`)
 )
+
+var awsConnectorStartLocks sync.Map
 
 const (
 	awsExternalIDSecretName     = "external_id"
@@ -338,6 +341,8 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	if connectorID == "" {
 		connectorID = "aws-" + uuid.NewString()
 	} else {
+		unlock := lockAWSConnectorStart(scope.TenantID, project.WorkspaceID, project.ProjectID, connectorID)
+		defer unlock()
 		stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
 		if err == nil {
 			return s.resumeAWSConnectorStart(ctx, stored, setup, request, templateURL, accountID)
@@ -454,6 +459,7 @@ func (s *Service) resumeAWSConnectorStart(
 
 	externalID := s.awsExternalIDFromStored(ctx, stored)
 	generatedExternalID := false
+	var rotatedAt time.Time
 	if externalID == "" {
 		var err error
 		externalID, err = generateAWSExternalID()
@@ -461,8 +467,8 @@ func (s *Service) resumeAWSConnectorStart(
 			return AWSConnectorStartResponse{}, err
 		}
 		generatedExternalID = true
-		now := s.Now().UTC()
-		if err := s.persistAWSExternalID(ctx, stored.Connector.TenantID, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID, externalID, now); err != nil {
+		rotatedAt = s.Now().UTC()
+		if err := s.persistAWSExternalID(ctx, stored.Connector.TenantID, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID, externalID, rotatedAt); err != nil {
 			return AWSConnectorStartResponse{}, err
 		}
 	}
@@ -496,6 +502,12 @@ func (s *Service) resumeAWSConnectorStart(
 			RoleName:           roleName,
 		})
 	}
+	if generatedExternalID {
+		stored = persistRecoveredAWSConnectorLaunchState(stored, externalID, region, roleName, stackName, templateURL, launchURL, policyHash, s.connectorSecretManager().ActiveKeyVersion(), rotatedAt)
+		if err := s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
+			return AWSConnectorStartResponse{}, fmt.Errorf("persist recovered aws connector launch state: %w", err)
+		}
+	}
 
 	status := s.awsConnectionStatusFromStored(ctx, stored)
 	status.ExternalID = externalID
@@ -504,7 +516,60 @@ func (s *Service) resumeAWSConnectorStart(
 	status.LaunchURL = firstNonEmptyAWSValue(launchURL, status.LaunchURL)
 	status.TemplateURL = firstNonEmptyAWSValue(status.TemplateURL, templateURL)
 	status.PolicyHash = firstNonEmptyAWSValue(status.PolicyHash, policyHash)
-	return awsConnectorStartResponse(status, externalID, launchURL, templateURL, roleName, stackName, policyHash), nil
+	return awsConnectorStartResponse(status, externalID, launchURL, status.TemplateURL, roleName, stackName, policyHash), nil
+}
+
+func lockAWSConnectorStart(tenantID string, workspaceID string, projectID string, connectorID string) func() {
+	key := strings.Join([]string{
+		strings.TrimSpace(tenantID),
+		strings.TrimSpace(workspaceID),
+		strings.TrimSpace(projectID),
+		strings.TrimSpace(connectorID),
+	}, "/")
+	value, _ := awsConnectorStartLocks.LoadOrStore(key, &sync.Mutex{})
+	lock := value.(*sync.Mutex)
+	lock.Lock()
+	return lock.Unlock
+}
+
+func persistRecoveredAWSConnectorLaunchState(
+	stored db.TenancyConnectorWithState,
+	externalID string,
+	region string,
+	roleName string,
+	stackName string,
+	templateURL string,
+	launchURL string,
+	policyHash string,
+	secretRefVersion string,
+	rotatedAt time.Time,
+) db.TenancyConnectorWithState {
+	metadata := copyAWSMetadata(stored.State.Metadata)
+	metadata["external_id_configured"] = strings.TrimSpace(externalID) != ""
+	metadata["region"] = region
+	metadata["role_name"] = roleName
+	metadata["stack_name"] = stackName
+	metadata["template_url"] = templateURL
+	metadata["launch_url"] = launchURL
+	metadata["policy_hash"] = policyHash
+	metadata["last_started_at"] = rotatedAt.Format(time.RFC3339Nano)
+	stored.State.Metadata = metadata
+	stored.State.ObservedAt = rotatedAt
+	stored.State.UpdatedAt = rotatedAt
+	stored.Connector.SecretProvider = "secret-envelope"
+	stored.Connector.SecretRefID = awsExternalIDSecretRef(stored.Connector.ConnectorID)
+	stored.Connector.SecretRefVersion = secretRefVersion
+	stored.Connector.SecretLastRotatedAt = &rotatedAt
+	stored.Connector.UpdatedAt = rotatedAt
+	return stored
+}
+
+func copyAWSMetadata(metadata map[string]any) map[string]any {
+	out := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		out[key] = value
+	}
+	return out
 }
 
 func awsConnectorStartResponse(status AWSConnectionStatus, externalID string, launchURL string, templateURL string, roleName string, stackName string, policyHash string) AWSConnectorStartResponse {
