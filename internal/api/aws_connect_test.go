@@ -77,6 +77,58 @@ func TestRouterAWSConnectionOnboardingActive(t *testing.T) {
 	}
 }
 
+func TestRouterAWSConnectionRejectsUnsupportedScopeOverride(t *testing.T) {
+	r := newAWSConnectionTestRouter(t, &fakeAWSConnectorValidator{})
+
+	resp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/aws/connection", `{
+		"role_arn":"arn:aws:iam::123456789012:role/IdentrailReadOnly",
+		"region":"us-east-1",
+		"scope_type":"organization",
+		"deployment_method":"stackset_service_managed",
+		"target_regions":["us-east-1"],
+		"auto_onboard_new_accounts":true
+	}`)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected unsupported scope override 400, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestRouterAWSConnectionKeepsLegacyManualScope(t *testing.T) {
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			AccountID:    "123456789012",
+			PrincipalARN: "arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/identrail-connector-validation",
+			UserID:       "AROATEST:identrail-connector-validation",
+			Region:       "us-west-2",
+			PermissionChecks: []AWSConnectionPermissionCheck{
+				{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+				{Name: "iam:ListRoles", Passed: true, Message: "IAM role listing permission is available."},
+			},
+		},
+	}
+	r := newAWSConnectionTestRouter(t, validator)
+
+	resp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/aws/connection", `{
+		"role_arn":"arn:aws:iam::123456789012:role/IdentrailReadOnly",
+		"region":"us-west-2",
+		"scope_type":"manual_role",
+		"deployment_method":"manual"
+	}`)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected manual scope upsert 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Connection AWSConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Connection.ScopeType != AWSConnectorScopeManualRole || body.Connection.DeploymentMethod != AWSConnectorDeploymentManual {
+		t.Fatalf("expected legacy manual setup, got scope=%q method=%q", body.Connection.ScopeType, body.Connection.DeploymentMethod)
+	}
+}
+
 func TestAWSConnectionPersistsAcrossServiceInstances(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

@@ -112,6 +112,7 @@ type AWSConnectionUpsertRequest struct {
 	TargetOUIDs            []string                     `json:"target_ou_ids,omitempty"`
 	ExcludedAccountIDs     []string                     `json:"excluded_account_ids,omitempty"`
 	AutoOnboardNewAccounts bool                         `json:"auto_onboard_new_accounts,omitempty"`
+	allowSetupContract     bool
 }
 
 // AWSConnectorStartRequest starts the CloudFormation-based AWS connector flow.
@@ -488,6 +489,7 @@ func (s *Service) ValidateAWSConnector(ctx context.Context, connectorID string, 
 		TargetOUIDs:            setup.TargetOUIDs,
 		ExcludedAccountIDs:     setup.ExcludedAccountIDs,
 		AutoOnboardNewAccounts: setup.AutoOnboardNewAccounts,
+		allowSetupContract:     true,
 	})
 }
 
@@ -537,18 +539,30 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 	if err != nil {
 		return AWSConnectionStatus{}, err
 	}
-	setup, err := normalizeAWSConnectorSetupContract(awsConnectorSetupInput{
-		ScopeType:               normalized.ScopeType,
-		DeploymentMethod:        normalized.DeploymentMethod,
+	setupInput := awsConnectorSetupInput{
+		ScopeType:               AWSConnectorScopeManualRole,
+		DeploymentMethod:        AWSConnectorDeploymentManual,
 		Region:                  normalized.Region,
-		TargetRegions:           normalized.TargetRegions,
-		TargetAccountIDs:        normalized.TargetAccountIDs,
-		TargetOUIDs:             normalized.TargetOUIDs,
-		ExcludedAccountIDs:      normalized.ExcludedAccountIDs,
-		AutoOnboardNewAccounts:  normalized.AutoOnboardNewAccounts,
 		DefaultScopeType:        AWSConnectorScopeManualRole,
 		DefaultDeploymentMethod: AWSConnectorDeploymentManual,
-	})
+	}
+	if normalized.allowSetupContract {
+		setupInput = awsConnectorSetupInput{
+			ScopeType:               normalized.ScopeType,
+			DeploymentMethod:        normalized.DeploymentMethod,
+			Region:                  normalized.Region,
+			TargetRegions:           normalized.TargetRegions,
+			TargetAccountIDs:        normalized.TargetAccountIDs,
+			TargetOUIDs:             normalized.TargetOUIDs,
+			ExcludedAccountIDs:      normalized.ExcludedAccountIDs,
+			AutoOnboardNewAccounts:  normalized.AutoOnboardNewAccounts,
+			DefaultScopeType:        AWSConnectorScopeManualRole,
+			DefaultDeploymentMethod: AWSConnectorDeploymentManual,
+		}
+	} else if awsConnectionUpsertRequestHasUnsupportedSetupOverride(normalized) {
+		return AWSConnectionStatus{}, ErrInvalidAWSConnectionRequest
+	}
+	setup, err := normalizeAWSConnectorSetupContract(setupInput)
 	if err != nil {
 		return AWSConnectionStatus{}, err
 	}
@@ -721,6 +735,18 @@ func (s *Service) ListAWSAccountRegionCoverages(ctx context.Context, workspaceID
 func awsConnectorValidateRequestHasSetupOverride(request AWSConnectorValidateRequest) bool {
 	return strings.TrimSpace(string(request.ScopeType)) != "" ||
 		strings.TrimSpace(string(request.DeploymentMethod)) != "" ||
+		len(request.TargetRegions) > 0 ||
+		len(request.TargetAccountIDs) > 0 ||
+		len(request.TargetOUIDs) > 0 ||
+		len(request.ExcludedAccountIDs) > 0 ||
+		request.AutoOnboardNewAccounts
+}
+
+func awsConnectionUpsertRequestHasUnsupportedSetupOverride(request AWSConnectionUpsertRequest) bool {
+	scopeType := AWSConnectorScopeType(strings.TrimSpace(string(request.ScopeType)))
+	deploymentMethod := AWSConnectorDeploymentMethod(strings.TrimSpace(string(request.DeploymentMethod)))
+	return (scopeType != "" && scopeType != AWSConnectorScopeManualRole) ||
+		(deploymentMethod != "" && deploymentMethod != AWSConnectorDeploymentManual) ||
 		len(request.TargetRegions) > 0 ||
 		len(request.TargetAccountIDs) > 0 ||
 		len(request.TargetOUIDs) > 0 ||
