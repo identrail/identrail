@@ -522,6 +522,9 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	if startBody.Connection.Status != domain.ConnectorStatusPending || !startBody.Connection.ExternalIDConfigured {
 		t.Fatalf("expected pending connector with external id configured, got %+v", startBody.Connection)
 	}
+	if startBody.Connection.LaunchURL != "" {
+		t.Fatalf("expected nested start connection to redact launch URL, got %q", startBody.Connection.LaunchURL)
+	}
 	if startBody.ScopeType != AWSConnectorScopeSingleAccount || startBody.DeploymentMethod != AWSConnectorDeploymentCloudFormation ||
 		startBody.OnboardingStatus != AWSConnectorOnboardingLaunchReady {
 		t.Fatalf("expected single-account cloudformation launch contract, got scope=%q method=%q status=%q", startBody.ScopeType, startBody.DeploymentMethod, startBody.OnboardingStatus)
@@ -539,6 +542,9 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	}
 	if strings.Contains(pollResp.Body.String(), `"external_id"`) {
 		t.Fatalf("expected poll response to hide external id, got %s", pollResp.Body.String())
+	}
+	if strings.Contains(pollResp.Body.String(), startBody.ExternalID) || strings.Contains(pollResp.Body.String(), `"launch_url"`) {
+		t.Fatalf("expected poll response to redact launch URL and external id, got %s", pollResp.Body.String())
 	}
 	var pollBody struct {
 		Connection AWSConnectionStatus `json:"connection"`
@@ -602,6 +608,17 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	if validateBody.Connection.ScopeType != AWSConnectorScopeSingleAccount || validateBody.Connection.DeploymentMethod != AWSConnectorDeploymentCloudFormation ||
 		validateBody.Connection.OnboardingStatus != AWSConnectorOnboardingConnected {
 		t.Fatalf("expected validation to preserve setup contract and mark connected, got %+v", validateBody.Connection)
+	}
+	if strings.Contains(validateResp.Body.String(), startBody.ExternalID) || strings.Contains(validateResp.Body.String(), `"launch_url"`) {
+		t.Fatalf("expected validate response to redact launch URL and external id, got %s", validateResp.Body.String())
+	}
+
+	validatedPollResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/aws/"+startBody.ConnectorID+"/poll?workspace_id=workspace-a&project_id=project-1", "")
+	if validatedPollResp.Code != http.StatusOK {
+		t.Fatalf("expected validated connector poll 200, got %d body=%s", validatedPollResp.Code, validatedPollResp.Body.String())
+	}
+	if strings.Contains(validatedPollResp.Body.String(), startBody.ExternalID) || strings.Contains(validatedPollResp.Body.String(), `"launch_url"`) {
+		t.Fatalf("expected validated poll response to redact launch URL and external id, got %s", validatedPollResp.Body.String())
 	}
 }
 

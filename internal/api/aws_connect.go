@@ -609,9 +609,14 @@ func preserveAWSConnectorLaunchMetadata(metadata map[string]any, preserved map[s
 	}
 }
 
+func publicAWSConnectionStatus(status AWSConnectionStatus) AWSConnectionStatus {
+	status.LaunchURL = ""
+	return status
+}
+
 func awsConnectorStartResponse(status AWSConnectionStatus, externalID string, launchURL string, templateURL string, roleName string, stackName string, policyHash string) AWSConnectorStartResponse {
 	return AWSConnectorStartResponse{
-		Connection:             status,
+		Connection:             publicAWSConnectionStatus(status),
 		ConnectorID:            status.ConnectorID,
 		ExternalID:             externalID,
 		LaunchURL:              launchURL,
@@ -720,7 +725,7 @@ func (s *Service) PollAWSConnector(ctx context.Context, connectorID string, requ
 	if err != nil {
 		return AWSConnectionStatus{}, err
 	}
-	return s.awsConnectionStatusFromStored(ctx, stored), nil
+	return publicAWSConnectionStatus(s.awsConnectionStatusFromStored(ctx, stored)), nil
 }
 
 func (s *Service) AWSConnectorPolicy(ctx context.Context, connectorID string, request AWSConnectorPollRequest) (AWSConnectorPolicyResponse, error) {
@@ -885,7 +890,7 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 	}
 	response := s.awsConnectionStatusFromStored(ctx, stored)
 
-	return response, nil
+	return publicAWSConnectionStatus(response), nil
 }
 
 func (s *Service) GetAWSConnection(ctx context.Context, workspaceID string, projectID string) (AWSConnectionStatus, error) {
@@ -919,7 +924,7 @@ func (s *Service) GetAWSConnection(ctx context.Context, workspaceID string, proj
 			Capabilities:           defaultAWSConnectorCapabilities(),
 		}, nil
 	}
-	return s.awsConnectionStatusFromStored(ctx, items[0]), nil
+	return publicAWSConnectionStatus(s.awsConnectionStatusFromStored(ctx, items[0])), nil
 }
 
 // UpsertAWSAccountRegionCoverage stores account/region coverage for future AWS fan-out.
