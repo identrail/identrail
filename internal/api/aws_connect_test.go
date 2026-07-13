@@ -757,6 +757,97 @@ func TestAWSConnectorValidatePreservesCloudFormationLaunchMetadata(t *testing.T)
 	}
 }
 
+func TestAWSConnectorValidateDropsLaunchMetadataWhenExternalIDChanges(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			AccountID:    "123456789012",
+			PrincipalARN: "arn:aws:sts::123456789012:assumed-role/IdentrailCustomRole/identrail-connector-validation",
+			UserID:       "AROATEST:identrail-connector-validation",
+			Region:       "us-east-1",
+			PermissionChecks: []AWSConnectionPermissionCheck{
+				{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+			},
+		},
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.AWSConnectorValidator = validator
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly-v1.yaml"
+	svc.AWSAccountID = "999999999999"
+
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+		RoleName:    "IdentrailCustomRole",
+		StackName:   "identrail-custom-stack",
+	})
+	if err != nil {
+		t.Fatalf("start aws connector: %v", err)
+	}
+	newExternalID := "operator-supplied-external-id"
+	if strings.Contains(started.LaunchURL, newExternalID) {
+		t.Fatalf("test setup expected original launch URL to use a different external id: %s", started.LaunchURL)
+	}
+	if _, err := svc.ValidateAWSConnector(ctx, "aws-prod", AWSConnectorValidateRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		RoleARN:     "arn:aws:iam::123456789012:role/IdentrailCustomRole",
+		ExternalID:  newExternalID,
+	}); err != nil {
+		t.Fatalf("validate aws connector: %v", err)
+	}
+	if validator.seen.ExternalID != newExternalID {
+		t.Fatalf("expected validator to receive updated external id %q, got %q", newExternalID, validator.seen.ExternalID)
+	}
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
+	if err != nil {
+		t.Fatalf("load validated connector: %v", err)
+	}
+	for _, key := range []string{"launch_url", "template_url", "role_name", "stack_name"} {
+		if got := awsMetadataString(stored.State.Metadata, key); got != "" {
+			t.Fatalf("expected validation to drop stale %s, got %q", key, got)
+		}
+	}
+	secret, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
+	if err != nil {
+		t.Fatalf("load external id envelope: %v", err)
+	}
+	plaintext, err := manager.Decrypt(secret.Envelope, awsExternalIDAAD("tenant-a", "workspace-a", "project-1", "aws-prod"))
+	if err != nil {
+		t.Fatalf("decrypt external id envelope: %v", err)
+	}
+	if got := strings.TrimSpace(string(plaintext)); got != newExternalID {
+		t.Fatalf("expected encrypted external id %q, got %q", newExternalID, got)
+	}
+
+	resumed, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("resume validated aws connector: %v", err)
+	}
+	if !strings.Contains(resumed.LaunchURL, newExternalID) {
+		t.Fatalf("expected rebuilt launch URL to contain updated external id %q, got %q", newExternalID, resumed.LaunchURL)
+	}
+	if strings.Contains(resumed.LaunchURL, started.ExternalID) {
+		t.Fatalf("expected rebuilt launch URL to drop original external id %q, got %q", started.ExternalID, resumed.LaunchURL)
+	}
+}
+
 func TestAWSConnectorStartSerializesConcurrentExplicitConnectorStarts(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

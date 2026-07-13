@@ -591,6 +591,15 @@ func awsConnectorLaunchMetadata(metadata map[string]any) map[string]any {
 	return out
 }
 
+func awsConnectorLaunchMetadataForExternalID(metadata map[string]any, externalID string) map[string]any {
+	externalID = strings.TrimSpace(externalID)
+	launchURL := awsMetadataString(metadata, "launch_url")
+	if externalID == "" || launchURL == "" || !strings.Contains(launchURL, externalID) {
+		return nil
+	}
+	return awsConnectorLaunchMetadata(metadata)
+}
+
 func preserveAWSConnectorLaunchMetadata(metadata map[string]any, preserved map[string]any) {
 	if metadata == nil || len(preserved) == 0 {
 		return
@@ -695,7 +704,7 @@ func (s *Service) ValidateAWSConnector(ctx context.Context, connectorID string, 
 		ExcludedAccountIDs:     setup.ExcludedAccountIDs,
 		AutoOnboardNewAccounts: setup.AutoOnboardNewAccounts,
 		allowSetupContract:     true,
-		preserveLaunchMetadata: awsConnectorLaunchMetadata(stored.State.Metadata),
+		preserveLaunchMetadata: awsConnectorLaunchMetadataForExternalID(stored.State.Metadata, externalID),
 	})
 }
 
