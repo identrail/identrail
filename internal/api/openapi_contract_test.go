@@ -118,6 +118,28 @@ func TestOpenAPIV1SpecContainsPagingFilterSortParameters(t *testing.T) {
 	}
 }
 
+func TestOpenAPIV1SpecDoesNotExposeRejectedAWSValidateSetupOverrides(t *testing.T) {
+	spec := readOpenAPISpec(t)
+	block := schemaBlock(t, spec, "AWSConnectorValidateRequest")
+	if !strings.Contains(block, "role_arn:") {
+		t.Fatalf("openapi AWSConnectorValidateRequest block should include request fields, got:\n%s", block)
+	}
+	rejected := []string{
+		"scope_type:",
+		"deployment_method:",
+		"target_regions:",
+		"target_account_ids:",
+		"target_ou_ids:",
+		"excluded_account_ids:",
+		"auto_onboard_new_accounts:",
+	}
+	for _, item := range rejected {
+		if strings.Contains(block, item) {
+			t.Fatalf("openapi AWSConnectorValidateRequest should not expose rejected setup override field %q", item)
+		}
+	}
+}
+
 func TestOpenAPIV1SpecDocumentsGitHubInstallationIDFallback(t *testing.T) {
 	spec := readOpenAPISpec(t)
 	required := []string{
@@ -555,6 +577,42 @@ func pathBlock(t *testing.T, spec string, path string) string {
 		}
 	}
 
+	return spec[start:end]
+}
+
+func schemaBlock(t *testing.T, spec string, name string) string {
+	t.Helper()
+	start := strings.Index(spec, "\n    "+name+":")
+	if start >= 0 {
+		start++
+	} else {
+		prefix := "    " + name + ":"
+		if strings.HasPrefix(spec, prefix) {
+			start = 0
+		} else {
+			t.Fatalf("openapi schema block not found for %q", name)
+		}
+	}
+
+	end := len(spec)
+	nextSchemaPattern := regexp.MustCompile(`(?m)^    [A-Za-z0-9_]+:\s*$`)
+	for _, loc := range nextSchemaPattern.FindAllStringIndex(spec[start+1:], -1) {
+		candidate := start + 1 + loc[0]
+		if candidate > start {
+			end = candidate
+			break
+		}
+	}
+	if end == len(spec) {
+		if nextSection := strings.Index(spec[start+1:], "\n  "); nextSection >= 0 {
+			end = start + 1 + nextSection
+		}
+	}
+	if end == len(spec) {
+		if nextSchema := strings.Index(spec[start+1:], "\n    "); nextSchema >= 0 {
+			end = start + 1 + nextSchema
+		}
+	}
 	return spec[start:end]
 }
 
