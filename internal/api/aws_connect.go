@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -506,7 +507,7 @@ func (s *Service) resumeAWSConnectorStart(
 	if !generatedExternalID {
 		launchURL = awsMetadataString(stored.State.Metadata, "launch_url")
 	}
-	rebuiltLaunchMetadata := launchURL == "" || (externalID != "" && !strings.Contains(launchURL, externalID))
+	rebuiltLaunchMetadata := launchURL == "" || (externalID != "" && !awsCloudFormationLaunchURLMatchesExternalID(launchURL, externalID))
 	if rebuiltLaunchMetadata {
 		launchURL = awsconnector.BuildCloudFormationLaunchURL(awsconnector.CloudFormationLaunchInput{
 			TemplateURL:        templateURL,
@@ -592,12 +593,37 @@ func awsConnectorLaunchMetadata(metadata map[string]any) map[string]any {
 }
 
 func awsConnectorLaunchMetadataForExternalID(metadata map[string]any, externalID string) map[string]any {
-	externalID = strings.TrimSpace(externalID)
 	launchURL := awsMetadataString(metadata, "launch_url")
-	if externalID == "" || launchURL == "" || !strings.Contains(launchURL, externalID) {
+	if !awsCloudFormationLaunchURLMatchesExternalID(launchURL, externalID) {
 		return nil
 	}
 	return awsConnectorLaunchMetadata(metadata)
+}
+
+func awsCloudFormationLaunchURLMatchesExternalID(launchURL string, externalID string) bool {
+	externalID = strings.TrimSpace(externalID)
+	if externalID == "" {
+		return false
+	}
+	return awsCloudFormationLaunchURLExternalID(launchURL) == externalID
+}
+
+func awsCloudFormationLaunchURLExternalID(launchURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(launchURL))
+	if err != nil {
+		return ""
+	}
+	rawQuery := parsed.RawQuery
+	if fragment := parsed.EscapedFragment(); fragment != "" {
+		if index := strings.Index(fragment, "?"); index >= 0 {
+			rawQuery = fragment[index+1:]
+		}
+	}
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(values.Get("param_ExternalId"))
 }
 
 func preserveAWSConnectorLaunchMetadata(metadata map[string]any, preserved map[string]any) {

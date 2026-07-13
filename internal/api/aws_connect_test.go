@@ -811,9 +811,15 @@ func TestAWSConnectorValidateDropsLaunchMetadataWhenExternalIDChanges(t *testing
 	if err != nil {
 		t.Fatalf("start aws connector: %v", err)
 	}
-	newExternalID := "operator-supplied-external-id"
-	if strings.Contains(started.LaunchURL, newExternalID) {
-		t.Fatalf("test setup expected original launch URL to use a different external id: %s", started.LaunchURL)
+	if len(started.ExternalID) < 12 {
+		t.Fatalf("test setup expected generated external id to be long enough, got %q", started.ExternalID)
+	}
+	newExternalID := started.ExternalID[:12]
+	if !strings.Contains(started.LaunchURL, newExternalID) {
+		t.Fatalf("test setup expected original launch URL to contain the new substring external id: %s", started.LaunchURL)
+	}
+	if awsCloudFormationLaunchURLExternalID(started.LaunchURL) != started.ExternalID {
+		t.Fatalf("test setup expected original launch URL external id %q, got %q", started.ExternalID, awsCloudFormationLaunchURLExternalID(started.LaunchURL))
 	}
 	if _, err := svc.ValidateAWSConnector(ctx, "aws-prod", AWSConnectorValidateRequest{
 		WorkspaceID: "workspace-a",
