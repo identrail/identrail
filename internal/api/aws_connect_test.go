@@ -223,6 +223,67 @@ func TestGetAWSConnectionTreatsLegacyRoleMetadataAsManualScope(t *testing.T) {
 	}
 }
 
+func TestAWSConnectorStartRejectsLegacyManualConnectorResume(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	now := time.Date(2026, 7, 12, 15, 0, 0, 0, time.UTC)
+	if err := store.UpsertTenancyConnector(ctx, db.TenancyConnector{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-legacy",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "Legacy AWS",
+		Status:      domain.ConnectorStatusActive,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}, db.TenancyConnectorState{
+		TenantID:     "tenant-a",
+		WorkspaceID:  "workspace-a",
+		ProjectID:    "project-1",
+		ConnectorID:  "aws-legacy",
+		HealthStatus: "healthy",
+		Metadata: map[string]any{
+			"role_arn":    "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+			"account_id":  "123456789012",
+			"region":      "us-west-2",
+			"external_id": "tenant-external-id",
+		},
+		ObservedAt: now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("seed legacy connector: %v", err)
+	}
+
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSAccountID = "999999999999"
+	if _, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-legacy",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	}); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+		t.Fatalf("expected legacy manual connector resume to be rejected, got %v", err)
+	}
+
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-legacy")
+	if err != nil {
+		t.Fatalf("load legacy connector: %v", err)
+	}
+	if stored.Connector.SecretProvider != "" || stored.Connector.SecretRefID != "" {
+		t.Fatalf("expected rejected resume not to add secret refs, got %+v", stored.Connector)
+	}
+	if stored.State.Metadata["launch_url"] != nil || stored.State.Metadata["template_url"] != nil {
+		t.Fatalf("expected rejected resume not to add launch metadata, got %+v", stored.State.Metadata)
+	}
+	if _, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-legacy", awsExternalIDSecretName); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("expected rejected resume not to persist external id envelope, got %v", err)
+	}
+}
+
 func TestAWSConnectionClearsPersistedExternalID(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

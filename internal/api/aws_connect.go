@@ -448,7 +448,8 @@ func (s *Service) resumeAWSConnectorStart(
 	if stored.Connector.Type != domain.ConnectorTypeAWS {
 		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
 	}
-	setup := awsMetadataSetupContract(stored.State.Metadata, AWSConnectorScopeSingleAccount, AWSConnectorDeploymentCloudFormation)
+	defaultScope, defaultDeployment := awsMetadataSetupFallback(stored.State.Metadata)
+	setup := awsMetadataSetupContract(stored.State.Metadata, defaultScope, defaultDeployment)
 	if setup.ScopeType != AWSConnectorScopeSingleAccount || setup.DeploymentMethod != AWSConnectorDeploymentCloudFormation {
 		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
 	}
