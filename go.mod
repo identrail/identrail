@@ -5,41 +5,41 @@ go 1.25.12
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/aws/aws-sdk-go-v2 v1.42.1
-	github.com/aws/aws-sdk-go-v2/config v1.32.27
-	github.com/aws/aws-sdk-go-v2/credentials v1.19.26
-	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.49.7
-	github.com/aws/aws-sdk-go-v2/service/apprunner v1.40.8
-	github.com/aws/aws-sdk-go-v2/service/batch v1.66.2
-	github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.45.2
-	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.56.6
-	github.com/aws/aws-sdk-go-v2/service/codebuild v1.70.1
-	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.47.7
-	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.59.2
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.311.0
-	github.com/aws/aws-sdk-go-v2/service/ecr v1.58.6
-	github.com/aws/aws-sdk-go-v2/service/ecs v1.86.2
-	github.com/aws/aws-sdk-go-v2/service/eks v1.88.1
-	github.com/aws/aws-sdk-go-v2/service/emr v1.61.3
-	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.46.8
-	github.com/aws/aws-sdk-go-v2/service/glue v1.147.1
-	github.com/aws/aws-sdk-go-v2/service/iam v1.54.7
-	github.com/aws/aws-sdk-go-v2/service/kms v1.53.6
-	github.com/aws/aws-sdk-go-v2/service/lambda v1.94.1
-	github.com/aws/aws-sdk-go-v2/service/pipes v1.24.8
-	github.com/aws/aws-sdk-go-v2/service/rds v1.119.5
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.104.2
-	github.com/aws/aws-sdk-go-v2/service/s3control v1.71.7
-	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.256.2
-	github.com/aws/aws-sdk-go-v2/service/scheduler v1.18.9
-	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.42.5
-	github.com/aws/aws-sdk-go-v2/service/sfn v1.43.2
-	github.com/aws/aws-sdk-go-v2/service/sns v1.40.3
-	github.com/aws/aws-sdk-go-v2/service/sqs v1.44.2
-	github.com/aws/aws-sdk-go-v2/service/ssm v1.69.5
-	github.com/aws/aws-sdk-go-v2/service/sts v1.43.5
+	github.com/aws/aws-sdk-go-v2/config v1.32.29
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.28
+	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.50.0
+	github.com/aws/aws-sdk-go-v2/service/apprunner v1.41.0
+	github.com/aws/aws-sdk-go-v2/service/batch v1.67.0
+	github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol v1.47.0
+	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.57.0
+	github.com/aws/aws-sdk-go-v2/service/codebuild v1.71.0
+	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.48.0
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.60.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.316.0
+	github.com/aws/aws-sdk-go-v2/service/ecr v1.59.0
+	github.com/aws/aws-sdk-go-v2/service/ecs v1.88.0
+	github.com/aws/aws-sdk-go-v2/service/eks v1.89.0
+	github.com/aws/aws-sdk-go-v2/service/emr v1.62.0
+	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.47.0
+	github.com/aws/aws-sdk-go-v2/service/glue v1.148.0
+	github.com/aws/aws-sdk-go-v2/service/iam v1.55.0
+	github.com/aws/aws-sdk-go-v2/service/kms v1.54.0
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.97.0
+	github.com/aws/aws-sdk-go-v2/service/pipes v1.25.0
+	github.com/aws/aws-sdk-go-v2/service/rds v1.120.0
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.105.0
+	github.com/aws/aws-sdk-go-v2/service/s3control v1.72.0
+	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.258.0
+	github.com/aws/aws-sdk-go-v2/service/scheduler v1.19.0
+	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.43.0
+	github.com/aws/aws-sdk-go-v2/service/sfn v1.44.0
+	github.com/aws/aws-sdk-go-v2/service/sns v1.41.0
+	github.com/aws/aws-sdk-go-v2/service/sqs v1.45.0
+	github.com/aws/aws-sdk-go-v2/service/ssm v1.71.0
+	github.com/aws/aws-sdk-go-v2/service/sts v1.44.0
 	github.com/aws/smithy-go v1.27.3
-	github.com/beevik/etree v1.6.0
-	github.com/coreos/go-oidc/v3 v3.19.0
+	github.com/beevik/etree v1.7.0
+	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/crewjam/saml v0.5.1
 	github.com/gin-gonic/gin v1.12.0
 	github.com/goccy/go-yaml v1.19.2
@@ -50,7 +50,7 @@ require (
 	github.com/russellhaering/goxmldsig v1.6.0
 	github.com/spf13/cobra v1.10.2
 	github.com/workos/workos-go/v6 v6.5.0
-	github.com/zclconf/go-cty v1.18.1
+	github.com/zclconf/go-cty v1.19.0
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.44.0
 	go.opentelemetry.io/otel/sdk v1.44.0
@@ -63,6 +63,7 @@ require (
 require (
 	github.com/agext/levenshtein v1.2.1 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
+	github.com/apparentlymart/go-textseg/v17 v17.0.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.14 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.30 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.30 // indirect
@@ -73,9 +74,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.12.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.30 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.31 // indirect
-	github.com/aws/aws-sdk-go-v2/service/signin v1.2.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.31.5 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.36.8 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.4.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.32.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.37.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect
