@@ -23961,6 +23961,146 @@ html[data-theme='light'] .idt-app-shell-screen select {
   gap: 0.85rem;
 }
 
+.idt-aws-scope-wizard {
+  gap: 1rem;
+}
+
+.idt-aws-wizard-header {
+  align-items: flex-start;
+}
+
+.idt-aws-scope-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.idt-aws-scope-option {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+  min-height: 6.4rem;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.72rem;
+  background: #050505;
+  color: var(--app-muted);
+  text-align: left;
+}
+
+.idt-aws-scope-option span,
+.idt-aws-step-heading span {
+  color: var(--app-dim);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.idt-aws-scope-option strong {
+  min-width: 0;
+  color: #ffffff;
+  font-size: 0.92rem;
+  line-height: 1.25;
+}
+
+.idt-aws-scope-option small {
+  color: var(--app-muted);
+  font-weight: 800;
+}
+
+.idt-aws-scope-option.is-selected {
+  border-color: rgba(126, 105, 255, 0.74);
+  background: #0d0b18;
+  box-shadow: inset 0 0 0 1px rgba(126, 105, 255, 0.32);
+}
+
+.idt-aws-scope-option.is-planned {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.idt-aws-wizard-step {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 0.75rem;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.86rem;
+  background: #080809;
+}
+
+.idt-aws-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid rgba(126, 105, 255, 0.5);
+  border-radius: 50%;
+  background: #111022;
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.idt-aws-step-body {
+  display: grid;
+  gap: 0.78rem;
+  min-width: 0;
+}
+
+.idt-aws-step-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.idt-aws-step-heading h4,
+.idt-aws-connect-summary h3 {
+  margin: 0;
+  color: #ffffff;
+}
+
+.idt-aws-step-heading p,
+.idt-aws-connect-summary p {
+  margin: 0.18rem 0 0;
+  color: var(--app-muted);
+}
+
+.idt-aws-step-heading > span {
+  flex: 0 0 auto;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 999px;
+  padding: 0.22rem 0.48rem;
+  background: #050505;
+  color: #ffffff;
+}
+
+.idt-aws-permission-summary {
+  display: grid;
+  gap: 0.44rem;
+}
+
+.idt-aws-permission-summary span {
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.58rem 0.65rem;
+  background: #050505;
+  color: var(--app-muted);
+  font-size: 0.84rem;
+  font-weight: 760;
+}
+
+.idt-aws-connect-summary {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.idt-app-console-layout .idt-aws-connect-summary .idt-source-meta {
+  grid-template-columns: 1fr;
+}
+
 .idt-aws-connect-side {
   display: grid;
   gap: 1rem;
@@ -24490,6 +24630,10 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
   .idt-domain-header-aside {
     justify-items: start;
   }
+
+  .idt-aws-scope-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
@@ -24578,6 +24722,21 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
 
   .idt-aws-runtime-timeline-summary div:nth-child(n + 3) {
     border-top: 1px solid var(--app-border-soft);
+  }
+
+  .idt-aws-scope-options,
+  .idt-aws-wizard-step,
+  .idt-aws-step-heading {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-aws-step-heading {
+    display: grid;
+  }
+
+  .idt-aws-step-index {
+    width: 1.8rem;
+    height: 1.8rem;
   }
 
 }

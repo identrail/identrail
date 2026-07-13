@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Replace the first-run **Connect AWS** screen with a scope-first single-account
+  setup wizard (#1750). Operators now choose the supported account scope, enter
+  a display name and setup region, launch the CloudFormation stack through a
+  clear `Connect AWS account` action, and only see the stack role ARN field
+  during post-launch validation or existing connector recovery. The page keeps
+  baseline and diagnostics out of the first-run state, preserves connected and
+  degraded operational panels, and keeps environment switching/stale async
+  guards around connector drafts.
 - Implement the **single-account AWS CloudFormation one-click backend** (#1749).
   `POST /v1/connectors/aws` now safely resumes an existing setup when the same
   connector ID is supplied, preserving the encrypted External ID, launch URL,

@@ -30,11 +30,30 @@ When a persistent database is configured and AWS connector setup is enabled, `ID
 
 ## Flow
 
-1. The UI calls `POST /v1/connectors/aws` with `workspace_id`, `project_id`, and optional connector display fields.
-2. The API normalizes the single-account CloudFormation setup, generates a 32-byte External ID, stores it encrypted, creates a pending AWS connector, and returns an AWS CloudFormation launch URL.
-3. The user launches the stack in AWS. The stack creates an `IdentrailReadOnly` role with a trust policy requiring the External ID.
-4. The user pastes the created role ARN back into Identrail.
-5. The API uses the stored External ID, assumes the role with STS, verifies caller identity, checks scanner-critical IAM read access, and marks the connector active or degraded.
+The app presents AWS setup as a scope-first wizard. The only executable scope
+today is **Single AWS account**. Organization, selected OU/account, and existing
+manual-role setup are visible as planned paths so operators understand the
+roadmap without seeing raw credential fields on the first screen.
+
+1. The operator chooses **Single AWS account**, adds a display name, and picks
+   the home region used for setup.
+2. The UI calls `POST /v1/connectors/aws` with `workspace_id`, `project_id`,
+   display name, region, and the CloudFormation defaults.
+3. The API normalizes the single-account CloudFormation setup, generates a
+   32-byte External ID, stores it encrypted, creates a pending AWS connector,
+   and returns an AWS CloudFormation launch URL.
+4. The operator opens the AWS stack. The stack creates an `IdentrailReadOnly`
+   role with a trust policy requiring the generated External ID.
+5. After the stack finishes, the operator refreshes connector status and pastes
+   the created role ARN from the stack output into Identrail.
+6. The API uses the stored External ID, assumes the role with STS, verifies
+   caller identity, checks scanner-critical IAM read access, and marks the
+   connector active or degraded.
+
+The first-run UI intentionally does not ask for External ID, session name, or a
+raw role ARN. The role ARN appears only after a connector launch or existing
+connection is present, because it belongs to the post-CloudFormation validation
+step.
 
 If the app calls `POST /v1/connectors/aws` again with the same `connector_id`, the API resumes the existing setup instead of rotating the External ID or changing the launch parameters. This keeps the AWS trust policy, CloudFormation stack parameters, and Identrail connector record aligned while a user retries or returns to setup. Poll and status responses expose lifecycle fields, setup summary, launch URL, template URL, policy hash, diagnostics, and next actions, but they do not serialize the External ID.
 
