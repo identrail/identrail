@@ -113,6 +113,7 @@ type AWSConnectionUpsertRequest struct {
 	ExcludedAccountIDs     []string                     `json:"excluded_account_ids,omitempty"`
 	AutoOnboardNewAccounts bool                         `json:"auto_onboard_new_accounts,omitempty"`
 	allowSetupContract     bool
+	preserveLaunchMetadata map[string]any
 }
 
 // AWSConnectorStartRequest starts the CloudFormation-based AWS connector flow.
@@ -520,7 +521,7 @@ func (s *Service) resumeAWSConnectorStart(
 		if rotatedAt.IsZero() {
 			rotatedAt = s.Now().UTC()
 		}
-		stored = persistRecoveredAWSConnectorLaunchState(stored, externalID, region, roleName, stackName, templateURL, launchURL, policyHash, s.connectorSecretManager().ActiveKeyVersion(), rotatedAt)
+		stored = persistRecoveredAWSConnectorLaunchState(stored, externalID, region, roleName, stackName, templateURL, launchURL, policyHash, s.connectorSecretManager().ActiveKeyVersion(), rotatedAt, generatedExternalID)
 		if err := s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
 			return AWSConnectorStartResponse{}, fmt.Errorf("persist recovered aws connector launch state: %w", err)
 		}
@@ -547,6 +548,7 @@ func persistRecoveredAWSConnectorLaunchState(
 	policyHash string,
 	secretRefVersion string,
 	rotatedAt time.Time,
+	updateSecretRef bool,
 ) db.TenancyConnectorWithState {
 	metadata := copyAWSMetadata(stored.State.Metadata)
 	metadata["external_id_configured"] = strings.TrimSpace(externalID) != ""
@@ -560,10 +562,12 @@ func persistRecoveredAWSConnectorLaunchState(
 	stored.State.Metadata = metadata
 	stored.State.ObservedAt = rotatedAt
 	stored.State.UpdatedAt = rotatedAt
-	stored.Connector.SecretProvider = "secret-envelope"
-	stored.Connector.SecretRefID = awsExternalIDSecretRef(stored.Connector.ConnectorID)
-	stored.Connector.SecretRefVersion = secretRefVersion
-	stored.Connector.SecretLastRotatedAt = &rotatedAt
+	if updateSecretRef {
+		stored.Connector.SecretProvider = "secret-envelope"
+		stored.Connector.SecretRefID = awsExternalIDSecretRef(stored.Connector.ConnectorID)
+		stored.Connector.SecretRefVersion = secretRefVersion
+		stored.Connector.SecretLastRotatedAt = &rotatedAt
+	}
 	stored.Connector.UpdatedAt = rotatedAt
 	return stored
 }
@@ -574,6 +578,26 @@ func copyAWSMetadata(metadata map[string]any) map[string]any {
 		out[key] = value
 	}
 	return out
+}
+
+func awsConnectorLaunchMetadata(metadata map[string]any) map[string]any {
+	keys := []string{"role_name", "stack_name", "template_url", "launch_url", "policy_hash"}
+	out := map[string]any{}
+	for _, key := range keys {
+		if value, ok := metadata[key]; ok {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func preserveAWSConnectorLaunchMetadata(metadata map[string]any, preserved map[string]any) {
+	if metadata == nil || len(preserved) == 0 {
+		return
+	}
+	for key, value := range preserved {
+		metadata[key] = value
+	}
 }
 
 func awsConnectorStartResponse(status AWSConnectionStatus, externalID string, launchURL string, templateURL string, roleName string, stackName string, policyHash string) AWSConnectorStartResponse {
@@ -671,6 +695,7 @@ func (s *Service) ValidateAWSConnector(ctx context.Context, connectorID string, 
 		ExcludedAccountIDs:     setup.ExcludedAccountIDs,
 		AutoOnboardNewAccounts: setup.AutoOnboardNewAccounts,
 		allowSetupContract:     true,
+		preserveLaunchMetadata: awsConnectorLaunchMetadata(stored.State.Metadata),
 	})
 }
 
@@ -804,6 +829,7 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 		"last_validated_at":      now.Format(time.RFC3339Nano),
 	}
 	applyAWSConnectorSetupMetadata(metadata, setup, onboardingStatus)
+	preserveAWSConnectorLaunchMetadata(metadata, normalized.preserveLaunchMetadata)
 	state := db.TenancyConnectorState{
 		TenantID:     scope.TenantID,
 		WorkspaceID:  project.WorkspaceID,
