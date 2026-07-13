@@ -640,7 +640,11 @@ func (s *Service) ValidateAWSConnector(ctx context.Context, connectorID string, 
 	}
 	externalID := strings.TrimSpace(request.ExternalID)
 	if externalID == "" {
-		externalID = s.awsExternalIDFromStored(ctx, stored)
+		var err error
+		externalID, _, err = s.awsExternalIDFromStoredStrict(ctx, stored)
+		if err != nil {
+			return AWSConnectionStatus{}, err
+		}
 	}
 	requestedCapabilities := request.Capabilities
 	if len(requestedCapabilities) == 0 {

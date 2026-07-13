@@ -822,6 +822,25 @@ func TestAWSConnectorStartFailsOnUnreadableExternalIDEnvelope(t *testing.T) {
 	}); err == nil || !strings.Contains(err.Error(), "decrypt aws connector external id envelope") {
 		t.Fatalf("expected decrypt failure instead of external id rotation, got %v", err)
 	}
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			AccountID:    "123456789012",
+			PrincipalARN: "arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/identrail-connector-validation",
+			UserID:       "AROATEST:identrail-connector-validation",
+			Region:       "us-east-1",
+		},
+	}
+	svc.AWSConnectorValidator = validator
+	if _, err := svc.ValidateAWSConnector(ctx, "aws-prod", AWSConnectorValidateRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		RoleARN:     "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+	}); err == nil || !strings.Contains(err.Error(), "decrypt aws connector external id envelope") {
+		t.Fatalf("expected validate to surface decrypt failure instead of clearing external id, got %v", err)
+	}
+	if validator.seen.RoleARN != "" {
+		t.Fatalf("expected unreadable external id envelope to block validation, validator saw %+v", validator.seen)
+	}
 
 	corrupt, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
 	if err != nil {
