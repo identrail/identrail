@@ -415,6 +415,7 @@ const SOURCE_PROFILES: Record<SourceProvider, SourceProfile> = {
 };
 const GITHUB_REPOSITORY_SPLIT_PATTERN = /[\n,]+/;
 const AWS_ROLE_ARN_PATTERN = /^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_/-]{1,512}$/;
+const AWS_REGION_PATTERN = /^[a-z]{2}(-gov)?-[a-z]+-[0-9]$/;
 const SOURCE_ORDER: SourceProvider[] = [
   ...(FEATURE_CONNECTOR_GITHUB_V2 ? (['github'] as SourceProvider[]) : []),
   'aws',
@@ -20595,6 +20596,12 @@ export function ProductAWSConnectPage() {
     const requestID = ++awsStartRequestRef.current;
     const requestEnvironmentID = selectedEnvironmentID;
     const requestScopeKey = scopeKeyRef.current;
+    const region = normalizeValue(awsForm.region) || 'us-east-1';
+    if (!AWS_REGION_PATTERN.test(region)) {
+      setSubmitting(false);
+      setErrorMessage('Enter a valid AWS region, for example us-east-1.');
+      return;
+    }
     const isStale = () =>
       requestID !== awsStartRequestRef.current ||
       selectedEnvironmentIDRef.current !== requestEnvironmentID ||
@@ -20605,7 +20612,7 @@ export function ProductAWSConnectPage() {
           workspace_id: scope.workspaceID,
           project_id: requestEnvironmentID,
           display_name: normalizeValue(awsForm.displayName) || undefined,
-          region: normalizeValue(awsForm.region) || 'us-east-1',
+          region,
           role_name: normalizeValue(awsForm.roleName) || undefined,
           stack_name: normalizeValue(awsForm.stackName) || undefined
         },
@@ -20617,7 +20624,13 @@ export function ProductAWSConnectPage() {
       setAWSCloudFormationStart(response);
       setAWSPermissionPreview(response.permission_preview);
       setAWSPermissionTiers(response.permission_tiers ?? []);
-      setAWSForm((current) => ({ ...current, externalID: response.external_id }));
+      setAWSForm((current) => ({
+        ...current,
+        externalID: response.external_id,
+        roleARN: response.connection.role_arn ?? current.roleARN,
+        region: response.connection.region ?? current.region,
+        displayName: response.connection.display_name ?? current.displayName
+      }));
       setConnection(response.connection);
       setSuccessMessage('AWS CloudFormation launch is ready. Open the stack, then refresh status or validate the role.');
       if (typeof window !== 'undefined' && !/jsdom/i.test(window.navigator.userAgent)) {
@@ -20661,6 +20674,12 @@ export function ProductAWSConnectPage() {
         return;
       }
       setConnection(response.connection);
+      setAWSForm((current) => ({
+        ...current,
+        roleARN: response.connection.role_arn ?? current.roleARN,
+        region: response.connection.region ?? current.region,
+        displayName: response.connection.display_name ?? current.displayName
+      }));
       setSuccessMessage(response.connection.connected ? 'AWS connector is active.' : 'AWS status refreshed.');
       if (response.connection.connected) {
         void verifyBaseline();
@@ -20699,10 +20718,14 @@ export function ProductAWSConnectPage() {
       if (!AWS_ROLE_ARN_PATTERN.test(roleARN)) {
         throw new Error('Enter a valid IAM role ARN, for example arn:aws:iam::123456789012:role/IdentrailReadOnly.');
       }
+      const region = normalizeValue(awsForm.region) || 'us-east-1';
+      if (!AWS_REGION_PATTERN.test(region)) {
+        throw new Error('Enter a valid AWS region, for example us-east-1.');
+      }
       const payload = {
         role_arn: roleARN,
         external_id: normalizeValue(awsForm.externalID) || undefined,
-        region: normalizeValue(awsForm.region) || 'us-east-1',
+        region,
         display_name: normalizeValue(awsForm.displayName) || undefined,
         session_name: normalizeValue(awsForm.sessionName) || undefined
       };
@@ -20726,6 +20749,12 @@ export function ProductAWSConnectPage() {
         return;
       }
       setConnection(response.connection);
+      setAWSForm((current) => ({
+        ...current,
+        roleARN: response.connection.role_arn ?? current.roleARN,
+        region: response.connection.region ?? current.region,
+        displayName: response.connection.display_name ?? current.displayName
+      }));
       setSuccessMessage(
         response.connection.connected ? 'AWS connector is active.' : 'AWS connector saved with diagnostics to resolve.'
       );
@@ -20870,64 +20899,94 @@ export function ProductAWSConnectPage() {
                     </label>
                     <label>
                       Home region
-                      <select
+                      <input
                         value={awsForm.region}
                         onChange={(event) => setAWSForm((current) => ({ ...current, region: event.target.value }))}
-                      >
-                        <option value="us-east-1">us-east-1</option>
-                        <option value="us-east-2">us-east-2</option>
-                        <option value="us-west-1">us-west-1</option>
-                        <option value="us-west-2">us-west-2</option>
-                        <option value="eu-west-1">eu-west-1</option>
-                        <option value="eu-central-1">eu-central-1</option>
-                        <option value="ap-southeast-1">ap-southeast-1</option>
-                        <option value="ap-northeast-1">ap-northeast-1</option>
-                      </select>
+                        placeholder="us-east-1"
+                        pattern="[a-z]{2}(-gov)?-[a-z]+-[0-9]"
+                      />
                     </label>
                   </div>
                 </div>
               </div>
 
-              <div className="idt-aws-wizard-step">
-                <div className="idt-aws-step-index" aria-hidden="true">2</div>
-                <div className="idt-aws-step-body">
-                  <div className="idt-aws-step-heading">
-                    <div>
-                      <h4>Grant read-only access</h4>
-                      <p>Identrail creates a CloudFormation launch with a unique trust guard for this environment.</p>
+              {FEATURE_CONNECTOR_AWS ? (
+                <div className="idt-aws-wizard-step">
+                  <div className="idt-aws-step-index" aria-hidden="true">2</div>
+                  <div className="idt-aws-step-body">
+                    <div className="idt-aws-step-heading">
+                      <div>
+                        <h4>Grant read-only access</h4>
+                        <p>Identrail creates a CloudFormation launch with a unique trust guard for this environment.</p>
+                      </div>
+                      {awsCloudFormationStart ? <span>Launch ready</span> : <span>Read-only</span>}
                     </div>
-                    {awsCloudFormationStart ? <span>Launch ready</span> : <span>Read-only</span>}
-                  </div>
-                  <div className="idt-aws-permission-summary" aria-label="AWS permission summary">
-                    <span>IAM, STS, CloudTrail, Access Analyzer, compute, storage, secrets, and service metadata</span>
-                    <span>No remediation or write access in this connector</span>
-                    <span>External ID is generated and stored by Identrail</span>
-                  </div>
-                  <div className="idt-source-actions">
-                    <button
-                      className="idt-btn idt-btn-primary"
-                      type="button"
-                      onClick={handleAWSCloudFormationStart}
-                      disabled={!canSubmit || !FEATURE_CONNECTOR_AWS}
-                    >
-                      {submitting ? 'Preparing...' : 'Connect AWS account'}
-                    </button>
-                    {awsCloudFormationStart ? (
-                      <a className="idt-btn idt-btn-dark" href={awsCloudFormationStart.launch_url} target="_blank" rel="noreferrer">
-                        <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
-                        <span>Open AWS stack</span>
-                      </a>
-                    ) : null}
-                    {awsPermissionPreview.length > 0 ? (
-                      <button className="idt-btn idt-btn-ghost" type="button" onClick={() => setAWSPreviewOpen(true)}>
-                        Preview permissions
+                    <div className="idt-aws-permission-summary" aria-label="AWS permission summary">
+                      <span>IAM, STS, CloudTrail, Access Analyzer, compute, storage, secrets, and service metadata</span>
+                      <span>No remediation or write access in this connector</span>
+                      <span>External ID is generated and stored by Identrail</span>
+                    </div>
+                    <div className="idt-source-actions">
+                      <button
+                        className="idt-btn idt-btn-primary"
+                        type="button"
+                        onClick={handleAWSCloudFormationStart}
+                        disabled={!canSubmit}
+                      >
+                        {submitting ? 'Preparing...' : 'Connect AWS account'}
                       </button>
-                    ) : null}
+                      {awsCloudFormationStart ? (
+                        <a className="idt-btn idt-btn-dark" href={awsCloudFormationStart.launch_url} target="_blank" rel="noreferrer">
+                          <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
+                          <span>Open AWS stack</span>
+                        </a>
+                      ) : null}
+                      {awsPermissionPreview.length > 0 ? (
+                        <button className="idt-btn idt-btn-ghost" type="button" onClick={() => setAWSPreviewOpen(true)}>
+                          Preview permissions
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="idt-aws-wizard-step">
+                  <div className="idt-aws-step-index" aria-hidden="true">2</div>
+                  <div className="idt-aws-step-body">
+                    <div className="idt-aws-step-heading">
+                      <div>
+                        <h4>Validate an existing role</h4>
+                        <p>Use the legacy read-only role path while CloudFormation setup is disabled for this build.</p>
+                      </div>
+                      <span>Manual role</span>
+                    </div>
+                    <label>
+                      Role ARN
+                      <input
+                        value={awsForm.roleARN}
+                        onChange={(event) => setAWSForm((current) => ({ ...current, roleARN: event.target.value }))}
+                        placeholder="arn:aws:iam::123456789012:role/IdentrailReadOnly"
+                        required
+                      />
+                    </label>
+                    <label>
+                      External ID
+                      <input
+                        value={awsForm.externalID}
+                        onChange={(event) => setAWSForm((current) => ({ ...current, externalID: event.target.value }))}
+                        placeholder="optional trust-policy guard"
+                      />
+                    </label>
+                    <div className="idt-source-actions">
+                      <button className="idt-btn idt-btn-primary" type="submit" disabled={!canSubmit || !canValidateRole}>
+                        {submitting ? 'Validating...' : 'Validate and save AWS'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-              {(awsCloudFormationStart || connection?.connector_id || connection?.role_arn) ? (
+              {FEATURE_CONNECTOR_AWS && (awsCloudFormationStart || connection?.connector_id || connection?.role_arn) ? (
                 <div className="idt-aws-wizard-step">
                   <div className="idt-aws-step-index" aria-hidden="true">3</div>
                   <div className="idt-aws-step-body">
