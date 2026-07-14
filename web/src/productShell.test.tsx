@@ -8492,6 +8492,53 @@ describe('Domain-first app routes', () => {
     expect(screen.getByLabelText('Stack role ARN')).toHaveValue('arn:aws:iam::123456789012:role/CorrectedConnectorRole');
   });
 
+  it('keeps legacy role-only AWS connections out of connector validation', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: undefined,
+        deployment_method: 'manual',
+        onboarding_status: 'connected',
+        setup_summary: 'Existing IAM role connection.'
+      }
+    });
+    const validateAWSConnector = vi.spyOn(api.apiClient, 'validateAWSConnector');
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 3, name: /Choose what Identrail should cover/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Stack role ARN')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Validate connection/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Start CloudFormation setup to move it onto the connector flow/i)).toBeInTheDocument();
+    expect(validateAWSConnector).not.toHaveBeenCalled();
+  });
+
   it('renders the Kubernetes Control Center with connected cluster coverage', async () => {
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
     mockBackendFeatures({ github: true, kubernetes: true });

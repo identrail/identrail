@@ -20829,7 +20829,8 @@ export function ProductAWSConnectPage() {
     return bits.join(' · ');
   })();
   const launchURL = awsCloudFormationStart?.launch_url ?? connection?.launch_url ?? '';
-  const hasConnectorSetup = Boolean(awsCloudFormationStart || connection?.connector_id || connection?.role_arn);
+  const hasConnectorSetup = Boolean(awsCloudFormationStart || connection?.connector_id);
+  const hasRoleOnlyConnection = Boolean(connection?.role_arn && !connection?.connector_id && !awsCloudFormationStart);
   const showOperationalPanels = Boolean(
     connection?.connected ||
       connection?.status === 'degraded' ||
@@ -20856,6 +20857,9 @@ export function ProductAWSConnectPage() {
     return 'Connect this account';
   })();
   const setupSummaryBody = (() => {
+    if (hasRoleOnlyConnection) {
+      return 'This environment has a saved IAM role. Start CloudFormation setup to move it onto the connector flow.';
+    }
     if ((connectedNow || hasConnectorSetup) && connection?.setup_summary) {
       return connection.setup_summary;
     }
@@ -21082,11 +21086,6 @@ export function ProductAWSConnectPage() {
                     <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
                     <span>Open AWS stack</span>
                   </a>
-                ) : null}
-                {activeConnectorID ? (
-                  <button className="idt-btn idt-btn-ghost" type="button" onClick={handleAWSPoll} disabled={submitting}>
-                    {submitting ? 'Refreshing...' : 'Refresh status'}
-                  </button>
                 ) : null}
               </div>
             </section>
