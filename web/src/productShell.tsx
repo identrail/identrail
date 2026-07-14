@@ -415,6 +415,37 @@ const SOURCE_PROFILES: Record<SourceProvider, SourceProfile> = {
 const GITHUB_REPOSITORY_SPLIT_PATTERN = /[\n,]+/;
 const AWS_ROLE_ARN_PATTERN = /^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_/-]{1,512}$/;
 const AWS_REGION_PATTERN = /^[a-z]{2}(-gov)?-[a-z]+-[0-9]$/;
+
+type AWSSetupMode = 'cloudformation' | 'manual';
+
+function buildAWSManualTrustPolicy(identrailAccountID: string, externalID: string): string {
+  const accountID = normalizeValue(identrailAccountID);
+  const trustGuard = normalizeValue(externalID);
+  if (!accountID || !trustGuard) {
+    return '';
+  }
+  return JSON.stringify(
+    {
+      Version: '2012-10-17',
+      Statement: [
+        {
+          Effect: 'Allow',
+          Principal: {
+            AWS: `arn:aws:iam::${accountID}:root`
+          },
+          Action: 'sts:AssumeRole',
+          Condition: {
+            StringEquals: {
+              'sts:ExternalId': trustGuard
+            }
+          }
+        }
+      ]
+    },
+    null,
+    2
+  );
+}
 const SOURCE_ORDER: SourceProvider[] = [
   ...(FEATURE_CONNECTOR_GITHUB_V2 ? (['github'] as SourceProvider[]) : []),
   'aws',
@@ -20377,6 +20408,8 @@ export function ProductAWSConnectPage() {
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [awsSetupMessage, setAWSSetupMessage] = useState('');
+  const [awsSetupMode, setAWSSetupMode] = useState<AWSSetupMode>('cloudformation');
+  const [awsCopiedField, setAWSCopiedField] = useState('');
   const [baseline, setBaseline] = useState<AWSPlatformBaselineResult | null>(null);
   const [baselineLoading, setBaselineLoading] = useState(false);
   const [baselineError, setBaselineError] = useState('');
@@ -20398,6 +20431,7 @@ export function ProductAWSConnectPage() {
   const awsStartRequestRef = useRef(0);
   const awsPollRequestRef = useRef(0);
   const awsValidationRequestRef = useRef(0);
+  const awsSetupModeTouchedRef = useRef(false);
   const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
   const scopeKey = scope ? `${scope.tenantID}::${scope.workspaceID}` : '';
   const scopeKeyRef = useRef(scopeKey);
@@ -20436,11 +20470,20 @@ export function ProductAWSConnectPage() {
           return;
         }
         setConnection(response.connection);
+        setAWSSetupMode((current) =>
+          awsSetupModeTouchedRef.current
+            ? current
+            : response.connection.deployment_method === 'manual'
+              ? 'manual'
+              : 'cloudformation'
+        );
         setAWSForm((current) => ({
           ...current,
           roleARN: response.connection.role_arn ?? '',
+          externalID: '',
           region: response.connection.region ?? 'us-east-1',
-          displayName: response.connection.display_name ?? ''
+          displayName: response.connection.display_name ?? '',
+          sessionName: 'identrail-connector-validation'
         }));
       } catch (error) {
         if (isStale()) {
@@ -20546,6 +20589,9 @@ export function ProductAWSConnectPage() {
     setSuccessMessage('');
     setErrorMessage('');
     setAWSSetupMessage('');
+    awsSetupModeTouchedRef.current = false;
+    setAWSSetupMode('cloudformation');
+    setAWSCopiedField('');
     setBaseline(null);
     setBaselineError('');
     setSubmitting(false);
@@ -20558,7 +20604,8 @@ export function ProductAWSConnectPage() {
       roleARN: '',
       externalID: '',
       region: 'us-east-1',
-      displayName: ''
+      displayName: '',
+      sessionName: 'identrail-connector-validation'
     }));
     void refreshConnection('initial');
     void refreshBaseline();
@@ -20606,8 +20653,32 @@ export function ProductAWSConnectPage() {
   const baselineTone = awsBaselineTone(baseline, baselineLoading || environmentScope.loading);
   const canSubmit = !submitting && !loadingConnection && Boolean(selectedEnvironmentID);
   const activeConnectorID = awsCloudFormationStart?.connector_id ?? connection?.connector_id ?? '';
-  const canValidateRole = Boolean(normalizeValue(awsForm.roleARN));
+  const isManualSetup =
+    awsSetupMode === 'manual' ||
+    awsCloudFormationStart?.deployment_method === 'manual';
+  const canValidateRole = Boolean(normalizeValue(awsForm.roleARN)) && (!isManualSetup || Boolean(activeConnectorID));
   const selectedAWSRegion = normalizeValue(awsForm.region) || 'us-east-1';
+  const manualExternalID = normalizeValue(awsForm.externalID);
+  const manualIdentrailAccountID = normalizeValue(awsCloudFormationStart?.identrail_account_id);
+  const manualTrustPolicy = buildAWSManualTrustPolicy(manualIdentrailAccountID, manualExternalID);
+
+  const copyAWSManualValue = async (field: 'external-id' | 'trust-policy', value: string) => {
+    const text = normalizeValue(value);
+    if (!text || typeof navigator === 'undefined' || !navigator.clipboard) {
+      return;
+    }
+    await navigator.clipboard.writeText(text);
+    setAWSCopiedField(field);
+  };
+
+  const chooseAWSSetupMode = (mode: AWSSetupMode) => {
+    awsSetupModeTouchedRef.current = true;
+    setAWSSetupMode(mode);
+    setAWSSetupMessage('');
+    setErrorMessage('');
+    setSuccessMessage('');
+    setAWSCopiedField('');
+  };
 
   const handleAWSCloudFormationStart = async () => {
     if (!selectedEnvironmentID) {
@@ -20657,6 +20728,8 @@ export function ProductAWSConnectPage() {
         displayName: current.displayName || response.connection.display_name || ''
       }));
       setConnection(response.connection);
+      awsSetupModeTouchedRef.current = true;
+      setAWSSetupMode('cloudformation');
       setSuccessMessage('AWS CloudFormation launch is ready. Open the stack, then refresh status or validate the role.');
       if (typeof window !== 'undefined' && !/jsdom/i.test(window.navigator.userAgent)) {
         window.open(response.launch_url, '_blank', 'noopener,noreferrer');
@@ -20667,6 +20740,71 @@ export function ProductAWSConnectPage() {
       }
       const message = formatAWSConnectorSetupError(error);
       setAWSSetupMessage(message);
+    } finally {
+      if (!isStale()) {
+        setSubmitting(false);
+      }
+    }
+  };
+
+  const handleAWSManualStart = async () => {
+    if (!selectedEnvironmentID) {
+      setErrorMessage('Choose an environment before preparing manual AWS setup.');
+      return;
+    }
+    setSubmitting(true);
+    setSuccessMessage('');
+    setErrorMessage('');
+    setAWSSetupMessage('');
+    setAWSCopiedField('');
+    const requestID = ++awsStartRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKeyRef.current;
+    const region = normalizeValue(awsForm.region) || 'us-east-1';
+    if (!AWS_REGION_PATTERN.test(region)) {
+      setSubmitting(false);
+      setErrorMessage('Enter a valid AWS region, for example us-east-1.');
+      return;
+    }
+    const isStale = () =>
+      requestID !== awsStartRequestRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
+    try {
+      const response = await apiClient.startAWSConnector(
+        {
+          workspace_id: scope.workspaceID,
+          project_id: requestEnvironmentID,
+          connector_id: activeConnectorID || undefined,
+          display_name: normalizeValue(awsForm.displayName) || undefined,
+          region,
+          scope_type: 'manual_role',
+          deployment_method: 'manual'
+        },
+        buildProductAuthContext(scope)
+      );
+      if (isStale()) {
+        return;
+      }
+      setAWSCloudFormationStart(response);
+      setAWSPermissionPreview(response.permission_preview);
+      setAWSPermissionTiers(response.permission_tiers ?? []);
+      setAWSForm((current) => ({
+        ...current,
+        externalID: response.external_id,
+        roleARN: current.roleARN || response.connection.role_arn || '',
+        region: current.region || response.connection.region || 'us-east-1',
+        displayName: current.displayName || response.connection.display_name || ''
+      }));
+      setConnection(response.connection);
+      awsSetupModeTouchedRef.current = true;
+      setAWSSetupMode('manual');
+      setSuccessMessage('Manual setup is ready. Add the trust policy in AWS, then validate the role.');
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      setAWSSetupMessage(formatAWSConnectorSetupError(error));
     } finally {
       if (!isStale()) {
         setSubmitting(false);
@@ -20759,7 +20897,11 @@ export function ProductAWSConnectPage() {
       };
       const auth = buildProductAuthContext(scope);
       if (!requestConnectorID) {
-        throw new Error('Start CloudFormation setup before validating the AWS role.');
+        throw new Error(
+          isManualSetup
+            ? 'Generate the manual setup External ID before validating the role.'
+            : 'Start CloudFormation setup before validating the AWS role.'
+        );
       }
       const response = await apiClient.validateAWSConnector(
         requestConnectorID,
@@ -20860,6 +21002,12 @@ export function ProductAWSConnectPage() {
     if (hasRoleOnlyConnection) {
       return 'This environment has a saved IAM role. Start CloudFormation setup to move it onto the connector flow.';
     }
+    if (isManualSetup && !manualExternalID && !connectedNow) {
+      return 'Generate the External ID, add it to your IAM trust policy, then validate the role.';
+    }
+    if (isManualSetup && manualExternalID && !connectedNow) {
+      return 'Add the trust policy in AWS, paste the role ARN, then validate the role.';
+    }
     if ((connectedNow || hasConnectorSetup) && connection?.setup_summary) {
       return connection.setup_summary;
     }
@@ -20931,20 +21079,34 @@ export function ProductAWSConnectPage() {
                 <strong>All accounts</strong>
                 <small>Coming later</small>
               </div>
-              <div className="idt-aws-scope-option is-selected" role="listitem" aria-current="true">
-                <span>Single account</span>
-                <strong>This AWS account</strong>
-                <small>Available now</small>
+              <div className="idt-aws-scope-option-shell" role="listitem">
+                <button
+                  className={`idt-aws-scope-option ${!isManualSetup ? 'is-selected' : ''}`}
+                  type="button"
+                  aria-current={!isManualSetup ? 'true' : undefined}
+                  onClick={() => chooseAWSSetupMode('cloudformation')}
+                >
+                  <span>Single account</span>
+                  <strong>This AWS account</strong>
+                  <small>Available now</small>
+                </button>
               </div>
               <div className="idt-aws-scope-option is-planned" role="listitem" aria-disabled="true">
                 <span>Selected scope</span>
                 <strong>OUs or accounts</strong>
                 <small>Coming later</small>
               </div>
-              <div className="idt-aws-scope-option is-planned" role="listitem" aria-disabled="true">
-                <span>Advanced</span>
-                <strong>Existing IAM role</strong>
-                <small>Manual setup later</small>
+              <div className="idt-aws-scope-option-shell" role="listitem">
+                <button
+                  className={`idt-aws-scope-option ${isManualSetup ? 'is-selected' : ''}`}
+                  type="button"
+                  aria-current={isManualSetup ? 'true' : undefined}
+                  onClick={() => chooseAWSSetupMode('manual')}
+                >
+                  <span>Advanced</span>
+                  <strong>Existing IAM role</strong>
+                  <small>Use your change process</small>
+                </button>
               </div>
             </div>
 
@@ -20981,51 +21143,122 @@ export function ProductAWSConnectPage() {
                 </div>
               </div>
 
-              <div className="idt-aws-wizard-step">
-                <div className="idt-aws-step-index" aria-hidden="true">2</div>
-                <div className="idt-aws-step-body">
-                  <div className="idt-aws-step-heading">
-                    <div>
-                      <h4>Connect with CloudFormation</h4>
-                      <p>Identrail creates a read-only role with a trust guard for this environment.</p>
+              {!isManualSetup ? (
+                <div className="idt-aws-wizard-step">
+                  <div className="idt-aws-step-index" aria-hidden="true">2</div>
+                  <div className="idt-aws-step-body">
+                    <div className="idt-aws-step-heading">
+                      <div>
+                        <h4>Connect with CloudFormation</h4>
+                        <p>Identrail creates a read-only role with a trust guard for this environment.</p>
+                      </div>
+                      {awsCloudFormationStart ? <span>Launch ready</span> : <span>Read-only</span>}
                     </div>
-                    {awsCloudFormationStart ? <span>Launch ready</span> : <span>Read-only</span>}
-                  </div>
-                  <div className="idt-aws-permission-summary" aria-label="AWS permission summary">
-                    <span>Read-only discovery across IAM, STS, CloudTrail, Access Analyzer, compute, storage, and secrets.</span>
-                    <span>No write, delete, or remediation permissions.</span>
-                    <span>Unique trust guard generated for this environment.</span>
-                  </div>
-                  {awsSetupMessage ? (
-                    <p role="status" className="idt-aws-setup-note">
-                      {awsSetupMessage}
-                    </p>
-                  ) : null}
-                  <div className="idt-source-actions">
-                    <button
-                      className="idt-btn idt-btn-primary"
-                      type="button"
-                      onClick={handleAWSCloudFormationStart}
-                      disabled={!canSubmit}
-                    >
-                      {submitting ? 'Preparing...' : launchURL ? 'Prepare stack again' : 'Connect AWS account'}
-                    </button>
-                    {launchURL ? (
-                      <a className="idt-btn idt-btn-dark" href={launchURL} target="_blank" rel="noreferrer">
-                        <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
-                        <span>Open AWS stack</span>
-                      </a>
+                    <div className="idt-aws-permission-summary" aria-label="AWS permission summary">
+                      <span>Read-only discovery across IAM, STS, CloudTrail, Access Analyzer, compute, storage, and secrets.</span>
+                      <span>No write, delete, or remediation permissions.</span>
+                      <span>Unique trust guard generated for this environment.</span>
+                    </div>
+                    {awsSetupMessage ? (
+                      <p role="status" className="idt-aws-setup-note">
+                        {awsSetupMessage}
+                      </p>
                     ) : null}
-                    {awsPermissionPreview.length > 0 ? (
-                      <button className="idt-btn idt-btn-ghost" type="button" onClick={() => setAWSPreviewOpen(true)}>
-                        Preview permissions
+                    <div className="idt-source-actions">
+                      <button
+                        className="idt-btn idt-btn-primary"
+                        type="button"
+                        onClick={handleAWSCloudFormationStart}
+                        disabled={!canSubmit}
+                      >
+                        {submitting ? 'Preparing...' : launchURL ? 'Prepare stack again' : 'Connect AWS account'}
                       </button>
-                    ) : null}
+                      {launchURL ? (
+                        <a className="idt-btn idt-btn-dark" href={launchURL} target="_blank" rel="noreferrer">
+                          <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
+                          <span>Open AWS stack</span>
+                        </a>
+                      ) : null}
+                      {awsPermissionPreview.length > 0 ? (
+                        <button className="idt-btn idt-btn-ghost" type="button" onClick={() => setAWSPreviewOpen(true)}>
+                          Preview permissions
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="idt-aws-wizard-step idt-aws-manual-step">
+                  <div className="idt-aws-step-index" aria-hidden="true">2</div>
+                  <div className="idt-aws-step-body">
+                    <div className="idt-aws-step-heading">
+                      <div>
+                        <h4>Use an existing IAM role</h4>
+                        <p>For teams that manage IAM through Terraform, CDK, tickets, or change windows.</p>
+                      </div>
+                      <span>Manual</span>
+                    </div>
+                    <div className="idt-aws-permission-summary" aria-label="Manual AWS permission summary">
+                      <span>Use the same read-only permissions as the one-click stack.</span>
+                      <span>Add an External ID condition to the role trust policy.</span>
+                      <span>Identrail never asks for AWS access keys.</span>
+                    </div>
+                    {awsSetupMessage ? (
+                      <p role="status" className="idt-aws-setup-note">
+                        {awsSetupMessage}
+                      </p>
+                    ) : null}
+                    {!manualExternalID ? (
+                      <div className="idt-source-actions">
+                        <button
+                          className="idt-btn idt-btn-secondary"
+                          type="button"
+                          onClick={handleAWSManualStart}
+                          disabled={!canSubmit}
+                        >
+                          {submitting ? 'Preparing...' : 'Generate External ID'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="idt-aws-manual-guidance" aria-label="Manual IAM role guidance">
+                        <label>
+                          External ID
+                          <div className="idt-aws-copy-row">
+                            <input value={manualExternalID} readOnly />
+                            <button
+                              className="idt-btn idt-btn-ghost"
+                              type="button"
+                              onClick={() => void copyAWSManualValue('external-id', manualExternalID)}
+                            >
+                              {awsCopiedField === 'external-id' ? 'Copied' : 'Copy'}
+                            </button>
+                          </div>
+                        </label>
+                        {manualTrustPolicy ? (
+                          <label>
+                            Trust policy
+                            <textarea value={manualTrustPolicy} readOnly rows={10} />
+                            <button
+                              className="idt-btn idt-btn-ghost"
+                              type="button"
+                              onClick={() => void copyAWSManualValue('trust-policy', manualTrustPolicy)}
+                            >
+                              {awsCopiedField === 'trust-policy' ? 'Copied trust policy' : 'Copy trust policy'}
+                            </button>
+                          </label>
+                        ) : null}
+                        {awsPermissionPreview.length > 0 ? (
+                          <button className="idt-btn idt-btn-ghost" type="button" onClick={() => setAWSPreviewOpen(true)}>
+                            Preview permissions
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
-              {hasConnectorSetup ? (
+              {hasConnectorSetup && !isManualSetup ? (
                 <div className="idt-aws-wizard-step">
                   <div className="idt-aws-step-index" aria-hidden="true">3</div>
                   <div className="idt-aws-step-body">
@@ -21041,7 +21274,7 @@ export function ProductAWSConnectPage() {
                       <input
                         value={awsForm.roleARN}
                         onChange={(event) => setAWSForm((current) => ({ ...current, roleARN: event.target.value }))}
-                        placeholder="arn:aws:iam::123456789012:role/IdentrailReadOnly"
+                        placeholder="Paste the role ARN from the stack output"
                         required={canValidateRole}
                       />
                     </label>
@@ -21058,6 +21291,51 @@ export function ProductAWSConnectPage() {
                   </div>
                 </div>
               ) : null}
+
+              {isManualSetup && manualExternalID ? (
+                <div className="idt-aws-wizard-step">
+                  <div className="idt-aws-step-index" aria-hidden="true">3</div>
+                  <div className="idt-aws-step-body">
+                    <div className="idt-aws-step-heading">
+                      <div>
+                        <h4>Validate the role</h4>
+                        <p>Paste the role ARN after your IAM change is live.</p>
+                      </div>
+                      <span>{connectionHealth(connection ?? undefined)}</span>
+                    </div>
+                    <label>
+                      Role ARN
+                      <input
+                        value={awsForm.roleARN}
+                        onChange={(event) => setAWSForm((current) => ({ ...current, roleARN: event.target.value }))}
+                        placeholder="Paste the IAM role ARN"
+                        required={canValidateRole}
+                      />
+                    </label>
+                    <details className="idt-aws-manual-advanced">
+                      <summary>Advanced details</summary>
+                      <label>
+                        Session name
+                        <input
+                          value={awsForm.sessionName}
+                          onChange={(event) => setAWSForm((current) => ({ ...current, sessionName: event.target.value }))}
+                          placeholder="identrail-connector-validation"
+                        />
+                      </label>
+                    </details>
+                    <div className="idt-source-actions">
+                      {activeConnectorID ? (
+                        <button className="idt-btn idt-btn-secondary" type="button" onClick={handleAWSPoll} disabled={submitting}>
+                          {submitting ? 'Refreshing...' : 'Refresh status'}
+                        </button>
+                      ) : null}
+                      <button className="idt-btn idt-btn-primary" type="submit" disabled={!canSubmit || !canValidateRole}>
+                        {submitting ? 'Validating...' : 'Validate role'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </form>
           </section>
 
@@ -21068,7 +21346,7 @@ export function ProductAWSConnectPage() {
               <dl className="idt-source-meta">
                 <div>
                   <dt>Scope</dt>
-                  <dd>Single account</dd>
+                  <dd>{isManualSetup ? 'Existing IAM role' : 'Single account'}</dd>
                 </div>
                 <div>
                   <dt>Health</dt>

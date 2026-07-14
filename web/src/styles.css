@@ -23975,6 +23975,10 @@ html[data-theme='light'] .idt-app-shell-screen select {
   gap: 0.65rem;
 }
 
+.idt-aws-scope-option-shell {
+  display: contents;
+}
+
 .idt-aws-scope-option {
   display: grid;
   gap: 0.22rem;
@@ -23985,6 +23989,8 @@ html[data-theme='light'] .idt-app-shell-screen select {
   padding: 0.72rem;
   background: #050505;
   color: var(--app-muted);
+  cursor: pointer;
+  font: inherit;
   text-align: left;
 }
 
@@ -24017,6 +24023,48 @@ html[data-theme='light'] .idt-app-shell-screen select {
 .idt-aws-scope-option.is-planned {
   cursor: not-allowed;
   opacity: 0.72;
+}
+
+.idt-aws-manual-guidance {
+  display: grid;
+  gap: 0.78rem;
+}
+
+.idt-aws-copy-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.idt-aws-manual-guidance textarea {
+  width: 100%;
+  min-height: 13rem;
+  resize: vertical;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  padding: 0.78rem;
+  background: #050505;
+  color: #d9f9e6;
+  font: 0.78rem/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.idt-aws-manual-advanced {
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.66rem;
+  background: #050505;
+}
+
+.idt-aws-manual-advanced summary {
+  cursor: pointer;
+  color: #ffffff;
+  font-weight: 850;
+}
+
+.idt-aws-manual-advanced label {
+  margin-top: 0.65rem;
 }
 
 .idt-aws-wizard-step {
@@ -24746,7 +24794,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
 
   .idt-aws-scope-options,
   .idt-aws-wizard-step,
-  .idt-aws-step-heading {
+  .idt-aws-step-heading,
+  .idt-aws-copy-row {
     grid-template-columns: 1fr;
   }
 

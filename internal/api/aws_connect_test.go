@@ -131,6 +131,87 @@ func TestRouterAWSConnectionKeepsLegacyManualScope(t *testing.T) {
 	}
 }
 
+func TestAWSConnectorManualStartAndValidateUsesStoredExternalID(t *testing.T) {
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			AccountID:    "123456789012",
+			PrincipalARN: "arn:aws:sts::123456789012:assumed-role/CustomerManagedIdentrail/identrail-connector-validation",
+			UserID:       "AROATEST:identrail-connector-validation",
+			Region:       "us-west-2",
+			PermissionChecks: []AWSConnectionPermissionCheck{
+				{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+				{Name: "iam:ListRoles", Passed: true, Message: "IAM role listing permission is available."},
+			},
+		},
+	}
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSConnectorValidator = validator
+	svc.AWSAccountID = "999999999999"
+
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:      "workspace-a",
+		ProjectID:        "project-1",
+		ConnectorID:      "aws-manual-prod",
+		DisplayName:      "Customer-managed AWS",
+		Region:           "us-west-2",
+		ScopeType:        AWSConnectorScopeManualRole,
+		DeploymentMethod: AWSConnectorDeploymentManual,
+	})
+	if err != nil {
+		t.Fatalf("start manual aws connector: %v", err)
+	}
+	if started.ExternalID == "" || started.LaunchURL != "" || started.TemplateURL != "" || started.IdentrailAccountID != "999999999999" {
+		t.Fatalf("expected manual setup external id without launch metadata, got %+v", started)
+	}
+	if started.ScopeType != AWSConnectorScopeManualRole || started.DeploymentMethod != AWSConnectorDeploymentManual {
+		t.Fatalf("expected manual setup contract, got scope=%q method=%q", started.ScopeType, started.DeploymentMethod)
+	}
+	if !slices.Contains(started.NextActions, AWSConnectorNextActionValidateRole) || slices.Contains(started.NextActions, AWSConnectorNextActionLaunchStack) {
+		t.Fatalf("expected manual setup next actions to validate role without launch stack, got %+v", started.NextActions)
+	}
+
+	validated, err := svc.ValidateAWSConnector(ctx, started.ConnectorID, AWSConnectorValidateRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		RoleARN:     "arn:aws:iam::123456789012:role/CustomerManagedIdentrail",
+		Region:      "us-west-2",
+	})
+	if err != nil {
+		t.Fatalf("validate manual aws connector: %v", err)
+	}
+	if !validated.Connected || validated.ScopeType != AWSConnectorScopeManualRole || validated.DeploymentMethod != AWSConnectorDeploymentManual {
+		t.Fatalf("expected connected manual connector, got %+v", validated)
+	}
+	if validated.ExternalID != "" {
+		t.Fatalf("public validate response must not expose external id, got %q", validated.ExternalID)
+	}
+	if validator.seen.ExternalID != started.ExternalID {
+		t.Fatalf("expected validation to use stored external id, got %q want %q", validator.seen.ExternalID, started.ExternalID)
+	}
+
+	resumed, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:      "workspace-a",
+		ProjectID:        "project-1",
+		ConnectorID:      started.ConnectorID,
+		ScopeType:        AWSConnectorScopeManualRole,
+		DeploymentMethod: AWSConnectorDeploymentManual,
+	})
+	if err != nil {
+		t.Fatalf("resume manual aws connector: %v", err)
+	}
+	if resumed.ExternalID != started.ExternalID || resumed.LaunchURL != "" {
+		t.Fatalf("expected manual resume to preserve external id without launch URL, got %+v", resumed)
+	}
+}
+
 func TestAWSConnectionPersistsAcrossServiceInstances(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

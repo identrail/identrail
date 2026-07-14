@@ -9652,6 +9652,7 @@ export type AWSConnectorStartResponse = {
   external_id: string;
   launch_url: string;
   template_url: string;
+  identrail_account_id?: string;
   role_name: string;
   stack_name: string;
   policy_hash: string;
@@ -9677,6 +9678,13 @@ export type AWSConnectorValidateRequest = {
   region?: string;
   session_name?: string;
   capabilities?: ConnectorCapability[];
+  scope_type?: AWSConnectorScopeType;
+  deployment_method?: AWSConnectorDeploymentMethod;
+  target_regions?: string[];
+  target_account_ids?: string[];
+  target_ou_ids?: string[];
+  excluded_account_ids?: string[];
+  auto_onboard_new_accounts?: boolean;
 };
 
 export type AWSConnectorPolicyResponse = {

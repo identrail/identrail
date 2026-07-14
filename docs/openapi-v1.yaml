@@ -11490,6 +11490,28 @@ components:
           description: Optional requested capability tiers. Defaults to discovery (read-only).
           items:
             $ref: "#/components/schemas/ConnectorCapability"
+        scope_type:
+          $ref: "#/components/schemas/AWSConnectorScopeType"
+        deployment_method:
+          $ref: "#/components/schemas/AWSConnectorDeploymentMethod"
+        target_regions:
+          type: array
+          items:
+            type: string
+        target_account_ids:
+          type: array
+          items:
+            type: string
+        target_ou_ids:
+          type: array
+          items:
+            type: string
+        excluded_account_ids:
+          type: array
+          items:
+            type: string
+        auto_onboard_new_accounts:
+          type: boolean
     AWSConnectorPollRequest:
       type: object
       properties:
@@ -11513,6 +11535,9 @@ components:
         template_url:
           type: string
           format: uri
+        identrail_account_id:
+          type: string
+          description: AWS account ID that should be trusted by manually managed IAM roles.
         role_name:
           type: string
         stack_name:

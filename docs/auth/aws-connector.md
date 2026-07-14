@@ -30,10 +30,10 @@ When a persistent database is configured and AWS connector setup is enabled, `ID
 
 ## Flow
 
-The app presents AWS setup as a scope-first wizard. The only executable scope
-today is **Single AWS account**. Organization, selected OU/account, and existing
-manual-role setup are visible as planned paths so operators understand the
-roadmap without seeing raw credential fields on the first screen.
+The app presents AWS setup as a scope-first wizard. The default executable path
+is **Single AWS account** through CloudFormation. Existing manual-role setup is
+available under **Advanced** for teams that manage IAM through their own change
+process. Organization and selected OU/account setup remain planned paths.
 
 1. The operator chooses **Single AWS account**, adds a display name, and picks
    the home region used for setup.
@@ -56,6 +56,57 @@ connection is present, because it belongs to the post-CloudFormation validation
 step.
 
 If the app calls `POST /v1/connectors/aws` again with the same `connector_id`, the API resumes the existing setup instead of rotating the External ID or changing the launch parameters. This keeps the AWS trust policy, CloudFormation stack parameters, and Identrail connector record aligned while a user retries or returns to setup. Poll and status responses expose lifecycle fields, setup summary, launch URL, template URL, policy hash, diagnostics, and next actions, but they do not serialize the External ID.
+
+## Manual IAM role setup
+
+Manual setup uses the same standard connector API as the CloudFormation path:
+
+```json
+{
+  "workspace_id": "workspace-a",
+  "project_id": "production",
+  "scope_type": "manual_role",
+  "deployment_method": "manual",
+  "display_name": "Production AWS",
+  "region": "us-east-1"
+}
+```
+
+The API creates a pending AWS connector, generates a connector-specific
+External ID, stores it encrypted, and returns that External ID only in the setup
+response. The app uses it to render a copyable trust policy for the operator's
+IAM change process. Status and poll responses report that an External ID is
+configured, but do not return the value.
+
+The customer's role trust policy must allow the Identrail deployment AWS account
+to call `sts:AssumeRole` and must require the generated External ID:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::<IDENTRAIL_AWS_ACCOUNT_ID>:root"
+      },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": {
+          "sts:ExternalId": "<GENERATED_EXTERNAL_ID>"
+        }
+      }
+    }
+  ]
+}
+```
+
+After the role exists, the app calls
+`POST /v1/connectors/aws/{connector_id}/validate` with the role ARN, project
+scope, region, and optional session name. If `external_id` is omitted, the API
+loads the External ID from the connector-scoped secret envelope. That fallback is
+deliberate: validation must never silently use a value from another workspace,
+project, or connector.
 
 The read-only policy and rationale live together under `deploy/connectors/aws/policies/`.
 
@@ -91,9 +142,9 @@ selected OUs/accounts must include targets, and malformed AWS account IDs, OU
 IDs, and regions fail validation.
 
 The executable `POST /v1/connectors/aws` setup path currently supports
-`single_account`/`cloudformation` read-only onboarding. Organization,
-selected-OU, selected-account, Terraform, and full manual app flows remain
-reserved for the follow-on implementation issues.
+`single_account`/`cloudformation` and `manual_role`/`manual` read-only
+onboarding. Organization, selected-OU, selected-account, and Terraform flows
+remain reserved for follow-on implementation issues.
 
 ## Account and Region Coverage Registry
 
