@@ -26,7 +26,14 @@ The action uses the tenant/workspace scope headers from the product session, sho
 
 ## AWS
 
-AWS onboarding now follows the CloudFormation connector flow:
+AWS onboarding uses a scope-first app wizard. The first supported path is
+**Single AWS account**: the operator names the account, chooses a setup region,
+launches the CloudFormation stack from Identrail, then validates the role AWS
+created after the stack finishes. Organization-wide setup, selected OUs/accounts,
+and existing manual-role setup are shown as planned paths, not editable raw
+forms.
+
+The wizard follows the CloudFormation connector flow:
 
 ```text
 POST /v1/connectors/aws
@@ -35,12 +42,16 @@ POST /v1/connectors/aws/{connector_id}/validate
 POST /v1/connectors/aws/{connector_id}/refresh-policy
 ```
 
-`POST /v1/connectors/aws` starts onboarding and returns an AWS launch URL plus permission preview.
-`GET /v1/connectors/aws/{connector_id}/poll` returns status for long-running setup.
+`POST /v1/connectors/aws` starts onboarding and returns an AWS launch URL plus permission preview. Repeating the call with the same `connector_id` resumes the existing setup and preserves the External ID and launch parameters.
+`GET /v1/connectors/aws/{connector_id}/poll` returns status for long-running setup without serializing the External ID.
 `POST /v1/connectors/aws/{connector_id}/validate` validates the role created by that flow with scanner-critical IAM checks, permission checks, and diagnostics that are surfaced in the connector status.
 `POST /v1/connectors/aws/{connector_id}/refresh-policy` regenerates the read-only policy preview and capability matrix for the same connector.
 
 Current product behavior remains IAM-focused and read-only. CloudFormation creates a role with scanner-only permissions and does not execute cloud-side mutation or remediation.
+
+The default screen does not ask for External ID or a role ARN. Identrail
+generates and stores the External ID server-side, and the role ARN field appears
+only during the post-launch validation step or for an existing connector.
 
 Keep in mind the older project-scoped route remains for compatibility only:
 

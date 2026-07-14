@@ -3144,6 +3144,7 @@ type Store interface {
 	GetProject(ctx context.Context, workspaceID string, projectID string) (TenancyProject, error)
 	ListProjects(ctx context.Context, workspaceID string, includeArchived bool, limit int) ([]TenancyProject, error)
 	DeleteProject(ctx context.Context, workspaceID string, projectID string) error
+	CreateTenancyConnectorWithSecretEnvelopeIfAbsent(ctx context.Context, connector TenancyConnector, state TenancyConnectorState, envelope TenancyConnectorSecretEnvelope) (TenancyConnectorWithState, bool, error)
 	UpsertTenancyConnector(ctx context.Context, connector TenancyConnector, state TenancyConnectorState) error
 	GetTenancyConnector(ctx context.Context, workspaceID string, projectID string, connectorID string) (TenancyConnectorWithState, error)
 	ListTenancyConnectors(ctx context.Context, workspaceID string, projectID string, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error)
@@ -3159,6 +3160,7 @@ type Store interface {
 	ListScheduledTenancyScanPolicies(ctx context.Context, limit int, offset int) ([]TenancyScanPolicy, error)
 	ClaimTenancyScanPolicySchedule(ctx context.Context, workspaceID string, projectID string, policyID string, scheduledAt time.Time, now time.Time) (bool, error)
 	DeleteTenancyScanPolicy(ctx context.Context, workspaceID string, projectID string, policyID string) error
+	CreateTenancyConnectorSecretEnvelopeIfAbsent(ctx context.Context, envelope TenancyConnectorSecretEnvelope) (TenancyConnectorSecretEnvelope, bool, error)
 	UpsertTenancyConnectorSecretEnvelope(ctx context.Context, envelope TenancyConnectorSecretEnvelope) error
 	GetTenancyConnectorSecretEnvelope(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string) (TenancyConnectorSecretEnvelope, error)
 	DeleteTenancyConnectorSecretEnvelope(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string) error

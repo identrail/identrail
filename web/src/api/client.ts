@@ -9677,13 +9677,6 @@ export type AWSConnectorValidateRequest = {
   region?: string;
   session_name?: string;
   capabilities?: ConnectorCapability[];
-  scope_type?: AWSConnectorScopeType;
-  deployment_method?: AWSConnectorDeploymentMethod;
-  target_regions?: string[];
-  target_account_ids?: string[];
-  target_ou_ids?: string[];
-  excluded_account_ids?: string[];
-  auto_onboard_new_accounts?: boolean;
 };
 
 export type AWSConnectorPolicyResponse = {

@@ -303,7 +303,29 @@ jobs:
           npm install --global "vercel@${VERCEL_CLI_VERSION}"
           vercel --version
 
-      - name: Deploy to Vercel
+      - name: Pull Vercel production settings
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.verify-token.outputs.token_verified == 'true'
+        env:
+          VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          # The linked Vercel project already sets web/ as its root directory.
+          # Running the CLI with --cwd web makes Vercel resolve web/web.
+          vercel pull --yes --environment=production
+
+      - name: Build Vercel production artifact
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.verify-token.outputs.token_verified == 'true'
+        env:
+          VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          vercel build --prod
+
+      - name: Deploy prebuilt artifact to Vercel
         id: deploy
         if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.verify-token.outputs.token_verified == 'true'
         env:
@@ -312,7 +334,7 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           set -euo pipefail
-          deploy_output="$(vercel --cwd web deploy --prod --force --yes)"
+          deploy_output="$(vercel deploy --prebuilt --prod --yes)"
           printf '%s\n' "$deploy_output"
 
           deployment_url="$(printf '%s\n' "$deploy_output" | awk '/^https:\/\// { url=$0 } END { print url }')"

@@ -840,6 +840,82 @@ describe('apiClient', () => {
     expect(headers.get('authorization')).toBe('Bearer token-a');
   });
 
+  it('uses the AWS connector start, poll, and validate paths', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ connector_id: 'aws-prod', external_id: 'external-prod', launch_url: 'https://console.aws.amazon.com/cloudformation' })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ connection: { provider: 'aws', connector_id: 'aws-prod', onboarding_status: 'launch_ready' } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ connection: { provider: 'aws', connector_id: 'aws-prod', onboarding_status: 'connected' } })
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const auth = {
+      tenantID: 'tenant-a',
+      workspaceID: 'workspace/a',
+      bearerToken: 'token-a'
+    };
+
+    await apiClient.startAWSConnector(
+      {
+        workspace_id: 'workspace/a',
+        project_id: 'project 1',
+        connector_id: 'aws-prod',
+        display_name: 'Production AWS',
+        region: 'us-east-1'
+      },
+      auth
+    );
+    await apiClient.pollAWSConnector('aws/prod', 'workspace/a', 'project 1', auth);
+    await apiClient.validateAWSConnector(
+      'aws/prod',
+      {
+        workspace_id: 'workspace/a',
+        project_id: 'project 1',
+        role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly'
+      },
+      auth
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const [startURL, startOptions] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(startURL).toContain('/v1/connectors/aws');
+    expect(startOptions.method).toBe('POST');
+    expect(startOptions.body).toBe(
+      JSON.stringify({
+        workspace_id: 'workspace/a',
+        project_id: 'project 1',
+        connector_id: 'aws-prod',
+        display_name: 'Production AWS',
+        region: 'us-east-1'
+      })
+    );
+
+    const [pollURL, pollOptions] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(pollURL).toContain('/v1/connectors/aws/aws%2Fprod/poll');
+    expect(pollURL).toContain('workspace_id=workspace%2Fa');
+    expect(pollURL).toContain('project_id=project+1');
+    expect(pollOptions.method).toBeUndefined();
+
+    const [validateURL, validateOptions] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(validateURL).toContain('/v1/connectors/aws/aws%2Fprod/validate');
+    expect(validateOptions.method).toBe('POST');
+    expect(validateOptions.body).toBe(
+      JSON.stringify({
+        workspace_id: 'workspace/a',
+        project_id: 'project 1',
+        role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly'
+      })
+    );
+  });
+
   it('gets and verifies AWS project baseline gate with scoped headers', async () => {
     const fetchMock = vi
       .fn()

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -113,6 +114,7 @@ type AWSConnectionUpsertRequest struct {
 	ExcludedAccountIDs     []string                     `json:"excluded_account_ids,omitempty"`
 	AutoOnboardNewAccounts bool                         `json:"auto_onboard_new_accounts,omitempty"`
 	allowSetupContract     bool
+	preserveLaunchMetadata map[string]any
 }
 
 // AWSConnectorStartRequest starts the CloudFormation-based AWS connector flow.
@@ -334,19 +336,30 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	if templateURL == "" || accountID == "" {
 		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
 	}
-	externalID, err := generateAWSExternalID()
-	if err != nil {
-		return AWSConnectorStartResponse{}, err
-	}
-	now := s.Now().UTC()
 	connectorID := strings.TrimSpace(request.ConnectorID)
 	if connectorID == "" {
 		connectorID = "aws-" + uuid.NewString()
+	} else {
+		stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
+		if err == nil {
+			return s.resumeAWSConnectorStart(ctx, stored, setup, request, templateURL, accountID)
+		}
+		if !errors.Is(err, db.ErrNotFound) {
+			return AWSConnectorStartResponse{}, err
+		}
 	}
 	displayName := strings.TrimSpace(request.DisplayName)
 	if displayName == "" {
 		displayName = "AWS account"
 	}
+	if err := validateAWSConnectorStartIdentity(connectorID, displayName); err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	externalID, err := generateAWSExternalID()
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	now := s.Now().UTC()
 	region := setup.TargetRegions[0]
 	roleName := firstNonEmptyAWSValue(strings.TrimSpace(request.RoleName), "IdentrailReadOnly")
 	stackName := firstNonEmptyAWSValue(strings.TrimSpace(request.StackName), "identrail-readonly-connector")
@@ -410,21 +423,227 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 		ObservedAt:   now,
 		UpdatedAt:    now,
 	}
-	if err := s.Store.UpsertTenancyConnector(ctx, connector, state); err != nil {
-		return AWSConnectorStartResponse{}, fmt.Errorf("persist aws connector: %w", err)
-	}
-	if err := s.persistAWSExternalID(ctx, scope.TenantID, project.WorkspaceID, project.ProjectID, connectorID, externalID, now); err != nil {
+	envelope, err := s.newAWSExternalIDSecretEnvelope(scope.TenantID, project.WorkspaceID, project.ProjectID, connectorID, externalID, now)
+	if err != nil {
 		return AWSConnectorStartResponse{}, err
 	}
-	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
+	stored, created, err := s.Store.CreateTenancyConnectorWithSecretEnvelopeIfAbsent(ctx, connector, state, envelope)
 	if err != nil {
-		return AWSConnectorStartResponse{}, fmt.Errorf("load persisted aws connector: %w", err)
+		return AWSConnectorStartResponse{}, fmt.Errorf("create aws connector: %w", err)
+	}
+	if !created {
+		return s.resumeAWSConnectorStart(ctx, stored, setup, request, templateURL, accountID)
 	}
 	status := s.awsConnectionStatusFromStored(ctx, stored)
 	status.ExternalID = externalID
+	return awsConnectorStartResponse(status, externalID, launchURL, templateURL, roleName, stackName, policyHash), nil
+}
+
+func (s *Service) resumeAWSConnectorStart(
+	ctx context.Context,
+	stored db.TenancyConnectorWithState,
+	requestedSetup awsConnectorSetupContract,
+	request AWSConnectorStartRequest,
+	templateURL string,
+	accountID string,
+) (AWSConnectorStartResponse, error) {
+	if stored.Connector.Type != domain.ConnectorTypeAWS {
+		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+	}
+	defaultScope, defaultDeployment := awsMetadataSetupFallback(stored.State.Metadata)
+	setup := awsMetadataSetupContract(stored.State.Metadata, defaultScope, defaultDeployment)
+	if setup.ScopeType != AWSConnectorScopeSingleAccount || setup.DeploymentMethod != AWSConnectorDeploymentCloudFormation {
+		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+	}
+
+	externalID, externalIDConfigured, err := s.awsExternalIDFromStoredStrict(ctx, stored)
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	generatedExternalID := false
+	var rotatedAt time.Time
+	if !externalIDConfigured || externalID == "" {
+		var err error
+		externalID, err = generateAWSExternalID()
+		if err != nil {
+			return AWSConnectorStartResponse{}, err
+		}
+		generatedExternalID = true
+		rotatedAt = s.Now().UTC()
+		secret, err := s.newAWSExternalIDSecretEnvelope(stored.Connector.TenantID, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID, externalID, rotatedAt)
+		if err != nil {
+			return AWSConnectorStartResponse{}, err
+		}
+		secret, created, err := s.Store.CreateTenancyConnectorSecretEnvelopeIfAbsent(db.WithScope(ctx, db.Scope{TenantID: stored.Connector.TenantID, WorkspaceID: stored.Connector.WorkspaceID}), secret)
+		if err != nil {
+			return AWSConnectorStartResponse{}, fmt.Errorf("recover aws connector external id envelope: %w", err)
+		}
+		if !created {
+			recoveredExternalID, err := s.decryptAWSExternalIDEnvelope(stored.Connector, secret)
+			if err != nil {
+				return AWSConnectorStartResponse{}, err
+			}
+			externalID = recoveredExternalID
+			generatedExternalID = false
+		}
+	}
+
+	region := firstAWSRegion(setup.TargetRegions)
+	if region == "" {
+		region = firstAWSRegion(requestedSetup.TargetRegions)
+	}
+	region = firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "region"), region, "us-east-1")
+	roleName := firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "role_name"), strings.TrimSpace(request.RoleName), "IdentrailReadOnly")
+	stackName := firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "stack_name"), strings.TrimSpace(request.StackName), "identrail-readonly-connector")
+	policyHash := awsMetadataString(stored.State.Metadata, "policy_hash")
+	if policyHash == "" {
+		hash, err := awsconnector.ReadOnlyPolicyHash()
+		if err != nil {
+			return AWSConnectorStartResponse{}, err
+		}
+		policyHash = hash
+	}
+	launchURL := ""
+	if !generatedExternalID {
+		launchURL = awsMetadataString(stored.State.Metadata, "launch_url")
+	}
+	rebuiltLaunchMetadata := launchURL == "" || (externalID != "" && !awsCloudFormationLaunchURLMatchesExternalID(launchURL, externalID))
+	if rebuiltLaunchMetadata {
+		launchURL = awsconnector.BuildCloudFormationLaunchURL(awsconnector.CloudFormationLaunchInput{
+			TemplateURL:        templateURL,
+			Region:             region,
+			StackName:          stackName,
+			IdentrailAccountID: accountID,
+			ExternalID:         externalID,
+			RoleName:           roleName,
+		})
+	}
+	if generatedExternalID || rebuiltLaunchMetadata {
+		if rotatedAt.IsZero() {
+			rotatedAt = s.Now().UTC()
+		}
+		stored = persistRecoveredAWSConnectorLaunchState(stored, externalID, region, roleName, stackName, templateURL, launchURL, policyHash, s.connectorSecretManager().ActiveKeyVersion(), rotatedAt, generatedExternalID)
+		if err := s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
+			return AWSConnectorStartResponse{}, fmt.Errorf("persist recovered aws connector launch state: %w", err)
+		}
+	}
+
+	status := s.awsConnectionStatusFromStored(ctx, stored)
+	status.ExternalID = externalID
+	status.ExternalIDConfigured = true
+	status.Region = firstNonEmptyAWSValue(status.Region, region)
+	status.LaunchURL = firstNonEmptyAWSValue(launchURL, status.LaunchURL)
+	status.TemplateURL = firstNonEmptyAWSValue(status.TemplateURL, templateURL)
+	status.PolicyHash = firstNonEmptyAWSValue(status.PolicyHash, policyHash)
+	return awsConnectorStartResponse(status, externalID, launchURL, status.TemplateURL, roleName, stackName, policyHash), nil
+}
+
+func persistRecoveredAWSConnectorLaunchState(
+	stored db.TenancyConnectorWithState,
+	externalID string,
+	region string,
+	roleName string,
+	stackName string,
+	templateURL string,
+	launchURL string,
+	policyHash string,
+	secretRefVersion string,
+	rotatedAt time.Time,
+	updateSecretRef bool,
+) db.TenancyConnectorWithState {
+	metadata := copyAWSMetadata(stored.State.Metadata)
+	metadata["external_id_configured"] = strings.TrimSpace(externalID) != ""
+	metadata["region"] = region
+	metadata["role_name"] = roleName
+	metadata["stack_name"] = stackName
+	metadata["template_url"] = templateURL
+	metadata["launch_url"] = launchURL
+	metadata["policy_hash"] = policyHash
+	metadata["last_started_at"] = rotatedAt.Format(time.RFC3339Nano)
+	stored.State.Metadata = metadata
+	stored.State.ObservedAt = rotatedAt
+	stored.State.UpdatedAt = rotatedAt
+	if updateSecretRef {
+		stored.Connector.SecretProvider = "secret-envelope"
+		stored.Connector.SecretRefID = awsExternalIDSecretRef(stored.Connector.ConnectorID)
+		stored.Connector.SecretRefVersion = secretRefVersion
+		stored.Connector.SecretLastRotatedAt = &rotatedAt
+	}
+	stored.Connector.UpdatedAt = rotatedAt
+	return stored
+}
+
+func copyAWSMetadata(metadata map[string]any) map[string]any {
+	out := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		out[key] = value
+	}
+	return out
+}
+
+func awsConnectorLaunchMetadata(metadata map[string]any) map[string]any {
+	keys := []string{"role_name", "stack_name", "template_url", "launch_url", "policy_hash"}
+	out := map[string]any{}
+	for _, key := range keys {
+		if value, ok := metadata[key]; ok {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func awsConnectorLaunchMetadataForExternalID(metadata map[string]any, externalID string) map[string]any {
+	launchURL := awsMetadataString(metadata, "launch_url")
+	if !awsCloudFormationLaunchURLMatchesExternalID(launchURL, externalID) {
+		return nil
+	}
+	return awsConnectorLaunchMetadata(metadata)
+}
+
+func awsCloudFormationLaunchURLMatchesExternalID(launchURL string, externalID string) bool {
+	externalID = strings.TrimSpace(externalID)
+	if externalID == "" {
+		return false
+	}
+	return awsCloudFormationLaunchURLExternalID(launchURL) == externalID
+}
+
+func awsCloudFormationLaunchURLExternalID(launchURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(launchURL))
+	if err != nil {
+		return ""
+	}
+	rawQuery := parsed.RawQuery
+	if fragment := parsed.EscapedFragment(); fragment != "" {
+		if index := strings.Index(fragment, "?"); index >= 0 {
+			rawQuery = fragment[index+1:]
+		}
+	}
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(values.Get("param_ExternalId"))
+}
+
+func preserveAWSConnectorLaunchMetadata(metadata map[string]any, preserved map[string]any) {
+	if metadata == nil || len(preserved) == 0 {
+		return
+	}
+	for key, value := range preserved {
+		metadata[key] = value
+	}
+}
+
+func publicAWSConnectionStatus(status AWSConnectionStatus) AWSConnectionStatus {
+	status.LaunchURL = ""
+	return status
+}
+
+func awsConnectorStartResponse(status AWSConnectionStatus, externalID string, launchURL string, templateURL string, roleName string, stackName string, policyHash string) AWSConnectorStartResponse {
 	return AWSConnectorStartResponse{
-		Connection:             status,
-		ConnectorID:            connectorID,
+		Connection:             publicAWSConnectionStatus(status),
+		ConnectorID:            status.ConnectorID,
 		ExternalID:             externalID,
 		LaunchURL:              launchURL,
 		TemplateURL:            templateURL,
@@ -443,7 +662,29 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 		NextActions:            copyAWSConnectorNextActions(status.NextActions),
 		PermissionPreview:      awsconnector.PermissionPreview(),
 		PermissionTiers:        awsconnector.CapabilityPermissionTiers(),
-	}, nil
+	}
+}
+
+func validateAWSConnectorStartIdentity(connectorID string, displayName string) error {
+	connector := domain.Connector{
+		ID:          connectorID,
+		WorkspaceID: "workspace-placeholder",
+		ProjectID:   "project-placeholder",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: displayName,
+		Status:      domain.ConnectorStatusPending,
+	}
+	if err := connector.Validate(); err != nil {
+		return ErrInvalidAWSConnectionRequest
+	}
+	return nil
+}
+
+func firstAWSRegion(regions []string) string {
+	if len(regions) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(regions[0])
 }
 
 func (s *Service) ValidateAWSConnector(ctx context.Context, connectorID string, request AWSConnectorValidateRequest) (AWSConnectionStatus, error) {
@@ -464,7 +705,11 @@ func (s *Service) ValidateAWSConnector(ctx context.Context, connectorID string, 
 	}
 	externalID := strings.TrimSpace(request.ExternalID)
 	if externalID == "" {
-		externalID = s.awsExternalIDFromStored(ctx, stored)
+		var err error
+		externalID, _, err = s.awsExternalIDFromStoredStrict(ctx, stored)
+		if err != nil {
+			return AWSConnectionStatus{}, err
+		}
 	}
 	requestedCapabilities := request.Capabilities
 	if len(requestedCapabilities) == 0 {
@@ -490,6 +735,7 @@ func (s *Service) ValidateAWSConnector(ctx context.Context, connectorID string, 
 		ExcludedAccountIDs:     setup.ExcludedAccountIDs,
 		AutoOnboardNewAccounts: setup.AutoOnboardNewAccounts,
 		allowSetupContract:     true,
+		preserveLaunchMetadata: awsConnectorLaunchMetadataForExternalID(stored.State.Metadata, externalID),
 	})
 }
 
@@ -505,7 +751,7 @@ func (s *Service) PollAWSConnector(ctx context.Context, connectorID string, requ
 	if err != nil {
 		return AWSConnectionStatus{}, err
 	}
-	return s.awsConnectionStatusFromStored(ctx, stored), nil
+	return publicAWSConnectionStatus(s.awsConnectionStatusFromStored(ctx, stored)), nil
 }
 
 func (s *Service) AWSConnectorPolicy(ctx context.Context, connectorID string, request AWSConnectorPollRequest) (AWSConnectorPolicyResponse, error) {
@@ -623,6 +869,7 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 		"last_validated_at":      now.Format(time.RFC3339Nano),
 	}
 	applyAWSConnectorSetupMetadata(metadata, setup, onboardingStatus)
+	preserveAWSConnectorLaunchMetadata(metadata, normalized.preserveLaunchMetadata)
 	state := db.TenancyConnectorState{
 		TenantID:     scope.TenantID,
 		WorkspaceID:  project.WorkspaceID,
@@ -669,7 +916,7 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 	}
 	response := s.awsConnectionStatusFromStored(ctx, stored)
 
-	return response, nil
+	return publicAWSConnectionStatus(response), nil
 }
 
 func (s *Service) GetAWSConnection(ctx context.Context, workspaceID string, projectID string) (AWSConnectionStatus, error) {
@@ -703,7 +950,7 @@ func (s *Service) GetAWSConnection(ctx context.Context, workspaceID string, proj
 			Capabilities:           defaultAWSConnectorCapabilities(),
 		}, nil
 	}
-	return s.awsConnectionStatusFromStored(ctx, items[0]), nil
+	return publicAWSConnectionStatus(s.awsConnectionStatusFromStored(ctx, items[0])), nil
 }
 
 // UpsertAWSAccountRegionCoverage stores account/region coverage for future AWS fan-out.
@@ -1106,8 +1353,17 @@ func (s *Service) awsConnectionStatusFromStored(ctx context.Context, stored db.T
 }
 
 func (s *Service) awsExternalIDFromStored(ctx context.Context, stored db.TenancyConnectorWithState) string {
+	externalID, _, err := s.awsExternalIDFromStoredStrict(ctx, stored)
+	if err != nil {
+		return ""
+	}
+	return externalID
+}
+
+func (s *Service) awsExternalIDFromStoredStrict(ctx context.Context, stored db.TenancyConnectorWithState) (string, bool, error) {
 	if s == nil || s.Store == nil {
-		return awsMetadataString(stored.State.Metadata, "external_id")
+		externalID := awsMetadataString(stored.State.Metadata, "external_id")
+		return externalID, externalID != "", nil
 	}
 	secret, err := s.Store.GetTenancyConnectorSecretEnvelope(
 		db.WithScope(ctx, db.Scope{TenantID: stored.Connector.TenantID, WorkspaceID: stored.Connector.WorkspaceID}),
@@ -1117,24 +1373,53 @@ func (s *Service) awsExternalIDFromStored(ctx context.Context, stored db.Tenancy
 		awsExternalIDSecretName,
 	)
 	if err != nil {
-		return awsMetadataString(stored.State.Metadata, "external_id")
+		externalID := awsMetadataString(stored.State.Metadata, "external_id")
+		if errors.Is(err, db.ErrNotFound) {
+			return externalID, externalID != "", nil
+		}
+		if externalID != "" {
+			return externalID, true, nil
+		}
+		return "", false, fmt.Errorf("load aws connector external id envelope: %w", err)
 	}
-	plaintext, err := s.connectorSecretManager().Decrypt(secret.Envelope, awsExternalIDAAD(stored.Connector.TenantID, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID))
+	externalID, err := s.decryptAWSExternalIDEnvelope(stored.Connector, secret)
 	if err != nil {
-		return ""
+		return "", true, err
 	}
-	return strings.TrimSpace(string(plaintext))
+	return externalID, true, nil
+}
+
+func (s *Service) decryptAWSExternalIDEnvelope(connector db.TenancyConnector, secret db.TenancyConnectorSecretEnvelope) (string, error) {
+	plaintext, err := s.connectorSecretManager().Decrypt(secret.Envelope, awsExternalIDAAD(connector.TenantID, connector.WorkspaceID, connector.ProjectID, connector.ConnectorID))
+	if err != nil {
+		return "", fmt.Errorf("decrypt aws connector external id envelope: %w", err)
+	}
+	return strings.TrimSpace(string(plaintext)), nil
 }
 
 func (s *Service) persistAWSExternalID(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string, externalID string, rotatedAt time.Time) error {
+	if strings.TrimSpace(externalID) == "" {
+		return nil
+	}
+	secret, err := s.newAWSExternalIDSecretEnvelope(tenantID, workspaceID, projectID, connectorID, externalID, rotatedAt)
+	if err != nil {
+		return err
+	}
+	if err := s.Store.UpsertTenancyConnectorSecretEnvelope(db.WithScope(ctx, db.Scope{TenantID: tenantID, WorkspaceID: workspaceID}), secret); err != nil {
+		return fmt.Errorf("persist aws connector external id envelope: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) newAWSExternalIDSecretEnvelope(tenantID string, workspaceID string, projectID string, connectorID string, externalID string, rotatedAt time.Time) (db.TenancyConnectorSecretEnvelope, error) {
 	externalID = strings.TrimSpace(externalID)
 	if externalID == "" {
-		return nil
+		return db.TenancyConnectorSecretEnvelope{}, nil
 	}
 	manager := s.connectorSecretManager()
 	envelope, err := manager.Encrypt([]byte(externalID), awsExternalIDAAD(tenantID, workspaceID, projectID, connectorID))
 	if err != nil {
-		return fmt.Errorf("encrypt aws connector external id: %w", err)
+		return db.TenancyConnectorSecretEnvelope{}, fmt.Errorf("encrypt aws connector external id: %w", err)
 	}
 	secret := db.TenancyConnectorSecretEnvelope{
 		TenantID:        tenantID,
@@ -1149,10 +1434,7 @@ func (s *Service) persistAWSExternalID(ctx context.Context, tenantID string, wor
 		CreatedAt:       rotatedAt,
 		UpdatedAt:       rotatedAt,
 	}
-	if err := s.Store.UpsertTenancyConnectorSecretEnvelope(db.WithScope(ctx, db.Scope{TenantID: tenantID, WorkspaceID: workspaceID}), secret); err != nil {
-		return fmt.Errorf("persist aws connector external id envelope: %w", err)
-	}
-	return nil
+	return secret, nil
 }
 
 func (s *Service) clearAWSExternalID(ctx context.Context, tenantID string, workspaceID string, projectID string, connectorID string) error {

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -218,6 +220,67 @@ func TestGetAWSConnectionTreatsLegacyRoleMetadataAsManualScope(t *testing.T) {
 	}
 	if status.LaunchURL != "" || status.TemplateURL != "" {
 		t.Fatalf("expected legacy direct-role record without launch metadata, got launch=%q template=%q", status.LaunchURL, status.TemplateURL)
+	}
+}
+
+func TestAWSConnectorStartRejectsLegacyManualConnectorResume(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	now := time.Date(2026, 7, 12, 15, 0, 0, 0, time.UTC)
+	if err := store.UpsertTenancyConnector(ctx, db.TenancyConnector{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-legacy",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "Legacy AWS",
+		Status:      domain.ConnectorStatusActive,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}, db.TenancyConnectorState{
+		TenantID:     "tenant-a",
+		WorkspaceID:  "workspace-a",
+		ProjectID:    "project-1",
+		ConnectorID:  "aws-legacy",
+		HealthStatus: "healthy",
+		Metadata: map[string]any{
+			"role_arn":    "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+			"account_id":  "123456789012",
+			"region":      "us-west-2",
+			"external_id": "tenant-external-id",
+		},
+		ObservedAt: now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("seed legacy connector: %v", err)
+	}
+
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSAccountID = "999999999999"
+	if _, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-legacy",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	}); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+		t.Fatalf("expected legacy manual connector resume to be rejected, got %v", err)
+	}
+
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-legacy")
+	if err != nil {
+		t.Fatalf("load legacy connector: %v", err)
+	}
+	if stored.Connector.SecretProvider != "" || stored.Connector.SecretRefID != "" {
+		t.Fatalf("expected rejected resume not to add secret refs, got %+v", stored.Connector)
+	}
+	if stored.State.Metadata["launch_url"] != nil || stored.State.Metadata["template_url"] != nil {
+		t.Fatalf("expected rejected resume not to add launch metadata, got %+v", stored.State.Metadata)
+	}
+	if _, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-legacy", awsExternalIDSecretName); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("expected rejected resume not to persist external id envelope, got %v", err)
 	}
 }
 
@@ -453,8 +516,14 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	if startBody.ConnectorID == "" || startBody.ExternalID == "" || startBody.LaunchURL == "" || len(startBody.PermissionPreview) == 0 {
 		t.Fatalf("expected launch data and permission preview, got %+v", startBody)
 	}
+	if !strings.Contains(startResp.Body.String(), `"external_id"`) {
+		t.Fatalf("expected start response to include one-time external id, got %s", startResp.Body.String())
+	}
 	if startBody.Connection.Status != domain.ConnectorStatusPending || !startBody.Connection.ExternalIDConfigured {
 		t.Fatalf("expected pending connector with external id configured, got %+v", startBody.Connection)
+	}
+	if startBody.Connection.LaunchURL != "" {
+		t.Fatalf("expected nested start connection to redact launch URL, got %q", startBody.Connection.LaunchURL)
 	}
 	if startBody.ScopeType != AWSConnectorScopeSingleAccount || startBody.DeploymentMethod != AWSConnectorDeploymentCloudFormation ||
 		startBody.OnboardingStatus != AWSConnectorOnboardingLaunchReady {
@@ -470,6 +539,12 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	pollResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/aws/"+startBody.ConnectorID+"/poll?workspace_id=workspace-a&project_id=project-1", "")
 	if pollResp.Code != http.StatusOK {
 		t.Fatalf("expected connector poll 200, got %d body=%s", pollResp.Code, pollResp.Body.String())
+	}
+	if strings.Contains(pollResp.Body.String(), `"external_id"`) {
+		t.Fatalf("expected poll response to hide external id, got %s", pollResp.Body.String())
+	}
+	if strings.Contains(pollResp.Body.String(), startBody.ExternalID) || strings.Contains(pollResp.Body.String(), `"launch_url"`) {
+		t.Fatalf("expected poll response to redact launch URL and external id, got %s", pollResp.Body.String())
 	}
 	var pollBody struct {
 		Connection AWSConnectionStatus `json:"connection"`
@@ -533,6 +608,599 @@ func TestRouterAWSConnectorCloudFormationFlow(t *testing.T) {
 	if validateBody.Connection.ScopeType != AWSConnectorScopeSingleAccount || validateBody.Connection.DeploymentMethod != AWSConnectorDeploymentCloudFormation ||
 		validateBody.Connection.OnboardingStatus != AWSConnectorOnboardingConnected {
 		t.Fatalf("expected validation to preserve setup contract and mark connected, got %+v", validateBody.Connection)
+	}
+	if strings.Contains(validateResp.Body.String(), startBody.ExternalID) || strings.Contains(validateResp.Body.String(), `"launch_url"`) {
+		t.Fatalf("expected validate response to redact launch URL and external id, got %s", validateResp.Body.String())
+	}
+
+	validatedPollResp := doAWSConnectionAPI(t, r, http.MethodGet, "/v1/connectors/aws/"+startBody.ConnectorID+"/poll?workspace_id=workspace-a&project_id=project-1", "")
+	if validatedPollResp.Code != http.StatusOK {
+		t.Fatalf("expected validated connector poll 200, got %d body=%s", validatedPollResp.Code, validatedPollResp.Body.String())
+	}
+	if strings.Contains(validatedPollResp.Body.String(), startBody.ExternalID) || strings.Contains(validatedPollResp.Body.String(), `"launch_url"`) {
+		t.Fatalf("expected validated poll response to redact launch URL and external id, got %s", validatedPollResp.Body.String())
+	}
+}
+
+func TestAWSConnectorStartResumesExistingCloudFormationSetup(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSAccountID = "999999999999"
+
+	first, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+		RoleName:    "IdentrailReadOnly",
+		StackName:   "identrail-readonly-connector",
+	})
+	if err != nil {
+		t.Fatalf("start aws connector: %v", err)
+	}
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/new-template.yaml"
+	second, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Different AWS",
+		Region:      "us-west-2",
+		RoleName:    "DifferentRole",
+		StackName:   "different-stack",
+	})
+	if err != nil {
+		t.Fatalf("resume aws connector: %v", err)
+	}
+
+	if second.ExternalID != first.ExternalID {
+		t.Fatalf("expected resume to preserve external id, first=%q second=%q", first.ExternalID, second.ExternalID)
+	}
+	if second.LaunchURL != first.LaunchURL || second.RoleName != first.RoleName || second.StackName != first.StackName {
+		t.Fatalf("expected resume to preserve launch parameters\nfirst=%+v\nsecond=%+v", first, second)
+	}
+	if second.TemplateURL != first.TemplateURL || second.Connection.TemplateURL != first.TemplateURL {
+		t.Fatalf("expected resume to preserve persisted template URL, first=%q second=%q connection=%q", first.TemplateURL, second.TemplateURL, second.Connection.TemplateURL)
+	}
+	if second.Connection.DisplayName != "Production AWS" || second.Connection.Region != "us-east-1" {
+		t.Fatalf("expected resume to return persisted connector identity, got %+v", second.Connection)
+	}
+	if second.OnboardingStatus != AWSConnectorOnboardingLaunchReady || len(second.NextActions) == 0 || second.SetupSummary == "" {
+		t.Fatalf("expected resumed lifecycle fields, got %+v", second)
+	}
+
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
+	if err != nil {
+		t.Fatalf("load stored connector: %v", err)
+	}
+	if _, ok := stored.State.Metadata["external_id"]; ok {
+		t.Fatalf("external id must not be persisted in connector metadata: %+v", stored.State.Metadata)
+	}
+	secret, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
+	if err != nil {
+		t.Fatalf("load external id envelope: %v", err)
+	}
+	plaintext, err := manager.Decrypt(secret.Envelope, awsExternalIDAAD("tenant-a", "workspace-a", "project-1", "aws-prod"))
+	if err != nil {
+		t.Fatalf("decrypt external id envelope: %v", err)
+	}
+	if got := strings.TrimSpace(string(plaintext)); got != first.ExternalID {
+		t.Fatalf("expected encrypted external id %q, got %q", first.ExternalID, got)
+	}
+}
+
+func TestAWSConnectorValidatePreservesCloudFormationLaunchMetadata(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			AccountID:    "123456789012",
+			PrincipalARN: "arn:aws:sts::123456789012:assumed-role/IdentrailCustomRole/identrail-connector-validation",
+			UserID:       "AROATEST:identrail-connector-validation",
+			Region:       "us-east-1",
+			PermissionChecks: []AWSConnectionPermissionCheck{
+				{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+			},
+		},
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.AWSConnectorValidator = validator
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly-v1.yaml"
+	svc.AWSAccountID = "999999999999"
+
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+		RoleName:    "IdentrailCustomRole",
+		StackName:   "identrail-custom-stack",
+	})
+	if err != nil {
+		t.Fatalf("start aws connector: %v", err)
+	}
+	if _, err := svc.ValidateAWSConnector(ctx, "aws-prod", AWSConnectorValidateRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		RoleARN:     "arn:aws:iam::123456789012:role/IdentrailCustomRole",
+	}); err != nil {
+		t.Fatalf("validate aws connector: %v", err)
+	}
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
+	if err != nil {
+		t.Fatalf("load validated connector: %v", err)
+	}
+	if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != started.LaunchURL {
+		t.Fatalf("expected validation to preserve launch URL, got %q want %q", got, started.LaunchURL)
+	}
+	if got := awsMetadataString(stored.State.Metadata, "template_url"); got != started.TemplateURL {
+		t.Fatalf("expected validation to preserve template URL, got %q want %q", got, started.TemplateURL)
+	}
+	if got := awsMetadataString(stored.State.Metadata, "role_name"); got != started.RoleName {
+		t.Fatalf("expected validation to preserve role name, got %q want %q", got, started.RoleName)
+	}
+	if got := awsMetadataString(stored.State.Metadata, "stack_name"); got != started.StackName {
+		t.Fatalf("expected validation to preserve stack name, got %q want %q", got, started.StackName)
+	}
+
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly-v2.yaml"
+	resumed, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-west-2",
+	})
+	if err != nil {
+		t.Fatalf("resume validated aws connector: %v", err)
+	}
+	if resumed.LaunchURL != started.LaunchURL || resumed.TemplateURL != started.TemplateURL || resumed.RoleName != started.RoleName || resumed.StackName != started.StackName {
+		t.Fatalf("expected resume after validation to keep original launch plan\nstarted=%+v\nresumed=%+v", started, resumed)
+	}
+}
+
+func TestAWSConnectorValidateDropsLaunchMetadataWhenExternalIDChanges(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			AccountID:    "123456789012",
+			PrincipalARN: "arn:aws:sts::123456789012:assumed-role/IdentrailCustomRole/identrail-connector-validation",
+			UserID:       "AROATEST:identrail-connector-validation",
+			Region:       "us-east-1",
+			PermissionChecks: []AWSConnectionPermissionCheck{
+				{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+			},
+		},
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.AWSConnectorValidator = validator
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly-v1.yaml"
+	svc.AWSAccountID = "999999999999"
+
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+		RoleName:    "IdentrailCustomRole",
+		StackName:   "identrail-custom-stack",
+	})
+	if err != nil {
+		t.Fatalf("start aws connector: %v", err)
+	}
+	if len(started.ExternalID) < 12 {
+		t.Fatalf("test setup expected generated external id to be long enough, got %q", started.ExternalID)
+	}
+	newExternalID := started.ExternalID[:12]
+	if !strings.Contains(started.LaunchURL, newExternalID) {
+		t.Fatalf("test setup expected original launch URL to contain the new substring external id: %s", started.LaunchURL)
+	}
+	if awsCloudFormationLaunchURLExternalID(started.LaunchURL) != started.ExternalID {
+		t.Fatalf("test setup expected original launch URL external id %q, got %q", started.ExternalID, awsCloudFormationLaunchURLExternalID(started.LaunchURL))
+	}
+	if _, err := svc.ValidateAWSConnector(ctx, "aws-prod", AWSConnectorValidateRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		RoleARN:     "arn:aws:iam::123456789012:role/IdentrailCustomRole",
+		ExternalID:  newExternalID,
+	}); err != nil {
+		t.Fatalf("validate aws connector: %v", err)
+	}
+	if validator.seen.ExternalID != newExternalID {
+		t.Fatalf("expected validator to receive updated external id %q, got %q", newExternalID, validator.seen.ExternalID)
+	}
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
+	if err != nil {
+		t.Fatalf("load validated connector: %v", err)
+	}
+	for _, key := range []string{"launch_url", "template_url", "role_name", "stack_name"} {
+		if got := awsMetadataString(stored.State.Metadata, key); got != "" {
+			t.Fatalf("expected validation to drop stale %s, got %q", key, got)
+		}
+	}
+	secret, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
+	if err != nil {
+		t.Fatalf("load external id envelope: %v", err)
+	}
+	plaintext, err := manager.Decrypt(secret.Envelope, awsExternalIDAAD("tenant-a", "workspace-a", "project-1", "aws-prod"))
+	if err != nil {
+		t.Fatalf("decrypt external id envelope: %v", err)
+	}
+	if got := strings.TrimSpace(string(plaintext)); got != newExternalID {
+		t.Fatalf("expected encrypted external id %q, got %q", newExternalID, got)
+	}
+
+	resumed, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("resume validated aws connector: %v", err)
+	}
+	if !strings.Contains(resumed.LaunchURL, newExternalID) {
+		t.Fatalf("expected rebuilt launch URL to contain updated external id %q, got %q", newExternalID, resumed.LaunchURL)
+	}
+	if strings.Contains(resumed.LaunchURL, started.ExternalID) {
+		t.Fatalf("expected rebuilt launch URL to drop original external id %q, got %q", started.ExternalID, resumed.LaunchURL)
+	}
+}
+
+func TestAWSConnectorStartSerializesConcurrentExplicitConnectorStarts(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSAccountID = "999999999999"
+
+	const workers = 16
+	start := make(chan struct{})
+	responses := make(chan AWSConnectorStartResponse, workers)
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			response, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+				WorkspaceID: "workspace-a",
+				ProjectID:   "project-1",
+				ConnectorID: "aws-prod",
+				DisplayName: "Production AWS",
+				Region:      "us-east-1",
+			})
+			if err != nil {
+				errs <- err
+				return
+			}
+			responses <- response
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	close(responses)
+
+	for err := range errs {
+		t.Fatalf("concurrent start returned error: %v", err)
+	}
+	var first AWSConnectorStartResponse
+	for response := range responses {
+		if first.ConnectorID == "" {
+			first = response
+			continue
+		}
+		if response.ExternalID != first.ExternalID || response.LaunchURL != first.LaunchURL || response.TemplateURL != first.TemplateURL {
+			t.Fatalf("expected concurrent starts to return one launch plan\nfirst=%+v\nresponse=%+v", first, response)
+		}
+	}
+	if first.ConnectorID != "aws-prod" || first.ExternalID == "" || first.LaunchURL == "" {
+		t.Fatalf("expected complete first launch response, got %+v", first)
+	}
+}
+
+func TestAWSConnectorStartPersistsRecoveredExternalIDLaunchState(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSAccountID = "999999999999"
+
+	first, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("start aws connector: %v", err)
+	}
+	if err := store.DeleteTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName); err != nil {
+		t.Fatalf("delete external id envelope: %v", err)
+	}
+
+	const workers = 8
+	start := make(chan struct{})
+	responses := make(chan AWSConnectorStartResponse, workers)
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			response, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+				WorkspaceID: "workspace-a",
+				ProjectID:   "project-1",
+				ConnectorID: "aws-prod",
+				DisplayName: "Production AWS",
+				Region:      "us-east-1",
+			})
+			if err != nil {
+				errs <- err
+				return
+			}
+			responses <- response
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	close(responses)
+	for err := range errs {
+		t.Fatalf("recover aws connector external id: %v", err)
+	}
+
+	var recovered AWSConnectorStartResponse
+	for response := range responses {
+		if recovered.ConnectorID == "" {
+			recovered = response
+			continue
+		}
+		if response.ExternalID != recovered.ExternalID || response.LaunchURL != recovered.LaunchURL {
+			t.Fatalf("expected concurrent recovery to return one launch plan\nrecovered=%+v\nresponse=%+v", recovered, response)
+		}
+	}
+	if recovered.ExternalID == "" || recovered.ExternalID == first.ExternalID {
+		t.Fatalf("expected regenerated external id after envelope loss, first=%q recovered=%q", first.ExternalID, recovered.ExternalID)
+	}
+	if recovered.LaunchURL == first.LaunchURL {
+		t.Fatalf("expected regenerated launch URL to carry regenerated external id")
+	}
+
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
+	if err != nil {
+		t.Fatalf("load recovered connector: %v", err)
+	}
+	if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != recovered.LaunchURL {
+		t.Fatalf("expected recovered launch URL to be persisted, got %q want %q", got, recovered.LaunchURL)
+	}
+	if got := awsMetadataString(stored.State.Metadata, "template_url"); got != recovered.TemplateURL {
+		t.Fatalf("expected recovered template URL to be persisted, got %q want %q", got, recovered.TemplateURL)
+	}
+
+	again, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("resume recovered aws connector: %v", err)
+	}
+	if again.ExternalID != recovered.ExternalID || again.LaunchURL != recovered.LaunchURL {
+		t.Fatalf("expected later resume to keep recovered launch state\nrecovered=%+v\nagain=%+v", recovered, again)
+	}
+}
+
+func TestAWSConnectorStartFailsOnUnreadableExternalIDEnvelope(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSAccountID = "999999999999"
+
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("start aws connector: %v", err)
+	}
+	secret, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
+	if err != nil {
+		t.Fatalf("load external id envelope: %v", err)
+	}
+	secret.Envelope.Ciphertext[0] ^= 0xff
+	if err := store.UpsertTenancyConnectorSecretEnvelope(ctx, secret); err != nil {
+		t.Fatalf("corrupt external id envelope: %v", err)
+	}
+
+	if _, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	}); err == nil || !strings.Contains(err.Error(), "decrypt aws connector external id envelope") {
+		t.Fatalf("expected decrypt failure instead of external id rotation, got %v", err)
+	}
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			AccountID:    "123456789012",
+			PrincipalARN: "arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/identrail-connector-validation",
+			UserID:       "AROATEST:identrail-connector-validation",
+			Region:       "us-east-1",
+		},
+	}
+	svc.AWSConnectorValidator = validator
+	if _, err := svc.ValidateAWSConnector(ctx, "aws-prod", AWSConnectorValidateRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		RoleARN:     "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+	}); err == nil || !strings.Contains(err.Error(), "decrypt aws connector external id envelope") {
+		t.Fatalf("expected validate to surface decrypt failure instead of clearing external id, got %v", err)
+	}
+	if validator.seen.RoleARN != "" {
+		t.Fatalf("expected unreadable external id envelope to block validation, validator saw %+v", validator.seen)
+	}
+
+	corrupt, err := store.GetTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-prod", awsExternalIDSecretName)
+	if err != nil {
+		t.Fatalf("reload corrupt external id envelope: %v", err)
+	}
+	corrupt.Envelope.Ciphertext[0] ^= 0xff
+	plaintext, err := manager.Decrypt(corrupt.Envelope, awsExternalIDAAD("tenant-a", "workspace-a", "project-1", "aws-prod"))
+	if err != nil {
+		t.Fatalf("decrypt restored external id envelope: %v", err)
+	}
+	if got := strings.TrimSpace(string(plaintext)); got != started.ExternalID {
+		t.Fatalf("expected failed resume not to rotate external id, got %q want %q", got, started.ExternalID)
+	}
+}
+
+func TestAWSConnectorStartPersistsRebuiltLaunchMetadataWithExistingExternalID(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSAccountID = "999999999999"
+
+	first, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("start aws connector: %v", err)
+	}
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
+	if err != nil {
+		t.Fatalf("load stored connector: %v", err)
+	}
+	originalSecretVersion := stored.Connector.SecretRefVersion
+	if originalSecretVersion == "" {
+		t.Fatalf("expected initial connector secret version")
+	}
+	if stored.Connector.SecretLastRotatedAt == nil {
+		t.Fatalf("expected initial connector secret rotation time")
+	}
+	originalSecretRotatedAt := *stored.Connector.SecretLastRotatedAt
+	metadata := copyAWSMetadata(stored.State.Metadata)
+	delete(metadata, "launch_url")
+	delete(metadata, "template_url")
+	stored.State.Metadata = metadata
+	if err := store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
+		t.Fatalf("remove launch metadata: %v", err)
+	}
+	rotatedManager, err := secretstore.NewManager([]secretstore.KeyMaterial{
+		{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)},
+		{Version: "test-v2", Key: bytes.Repeat([]byte{8}, 32)},
+	})
+	if err != nil {
+		t.Fatalf("build rotated connector secret manager: %v", err)
+	}
+	svc.ConnectorSecretManager = rotatedManager
+
+	recovered, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("rebuild launch metadata: %v", err)
+	}
+	if recovered.ExternalID != first.ExternalID {
+		t.Fatalf("expected existing external id to be preserved, first=%q recovered=%q", first.ExternalID, recovered.ExternalID)
+	}
+	if recovered.LaunchURL == "" || recovered.TemplateURL == "" {
+		t.Fatalf("expected rebuilt launch metadata, got %+v", recovered)
+	}
+
+	persisted, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-prod")
+	if err != nil {
+		t.Fatalf("load rebuilt connector: %v", err)
+	}
+	if got := awsMetadataString(persisted.State.Metadata, "launch_url"); got != recovered.LaunchURL {
+		t.Fatalf("expected rebuilt launch URL to persist, got %q want %q", got, recovered.LaunchURL)
+	}
+	if persisted.Connector.SecretRefVersion != originalSecretVersion {
+		t.Fatalf("expected metadata-only launch repair to preserve secret version, got %q want %q", persisted.Connector.SecretRefVersion, originalSecretVersion)
+	}
+	if persisted.Connector.SecretLastRotatedAt == nil || !persisted.Connector.SecretLastRotatedAt.Equal(originalSecretRotatedAt) {
+		t.Fatalf("expected metadata-only launch repair to preserve secret rotation time, got %v want %v", persisted.Connector.SecretLastRotatedAt, originalSecretRotatedAt)
+	}
+	again, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: "aws-prod",
+		DisplayName: "Production AWS",
+		Region:      "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("resume rebuilt launch metadata: %v", err)
+	}
+	if again.ExternalID != recovered.ExternalID || again.LaunchURL != recovered.LaunchURL {
+		t.Fatalf("expected later resume to keep rebuilt launch metadata\nrecovered=%+v\nagain=%+v", recovered, again)
 	}
 }
 
