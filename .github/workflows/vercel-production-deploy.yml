@@ -311,6 +311,8 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           set -euo pipefail
+          # The linked Vercel project already sets web/ as its root directory.
+          # Running the CLI with --cwd web makes Vercel resolve web/web.
           vercel pull --yes --environment=production
 
       - name: Build Vercel production artifact
