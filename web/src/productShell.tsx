@@ -20652,9 +20652,9 @@ export function ProductAWSConnectPage() {
       setAWSForm((current) => ({
         ...current,
         externalID: response.external_id,
-        roleARN: response.connection.role_arn ?? current.roleARN,
-        region: response.connection.region ?? current.region,
-        displayName: response.connection.display_name ?? current.displayName
+        roleARN: current.roleARN || response.connection.role_arn || '',
+        region: current.region || response.connection.region || 'us-east-1',
+        displayName: current.displayName || response.connection.display_name || ''
       }));
       setConnection(response.connection);
       setSuccessMessage('AWS CloudFormation launch is ready. Open the stack, then refresh status or validate the role.');
@@ -20667,7 +20667,6 @@ export function ProductAWSConnectPage() {
       }
       const message = formatAWSConnectorSetupError(error);
       setAWSSetupMessage(message);
-      setErrorMessage(message);
     } finally {
       if (!isStale()) {
         setSubmitting(false);
@@ -20704,9 +20703,9 @@ export function ProductAWSConnectPage() {
       setConnection(response.connection);
       setAWSForm((current) => ({
         ...current,
-        roleARN: response.connection.role_arn ?? current.roleARN,
-        region: response.connection.region ?? current.region,
-        displayName: response.connection.display_name ?? current.displayName
+        roleARN: current.roleARN || response.connection.role_arn || '',
+        region: current.region || response.connection.region || 'us-east-1',
+        displayName: current.displayName || response.connection.display_name || ''
       }));
       setSuccessMessage(response.connection.connected ? 'AWS connector is active.' : 'AWS status refreshed.');
       if (response.connection.connected) {
@@ -20716,7 +20715,7 @@ export function ProductAWSConnectPage() {
       if (isStale()) {
         return;
       }
-      setErrorMessage(formatAPIError(error, 'Unable to poll AWS connector setup.'));
+      setErrorMessage(formatAWSConnectorSetupError(error));
     } finally {
       if (!isStale()) {
         setSubmitting(false);
@@ -20780,9 +20779,9 @@ export function ProductAWSConnectPage() {
       setConnection(response.connection);
       setAWSForm((current) => ({
         ...current,
-        roleARN: response.connection.role_arn ?? current.roleARN,
-        region: response.connection.region ?? current.region,
-        displayName: response.connection.display_name ?? current.displayName
+        roleARN: current.roleARN || response.connection.role_arn || '',
+        region: current.region || response.connection.region || 'us-east-1',
+        displayName: current.displayName || response.connection.display_name || ''
       }));
       setSuccessMessage(
         response.connection.connected ? 'AWS connector is active.' : 'AWS connector saved with diagnostics to resolve.'
@@ -20794,7 +20793,7 @@ export function ProductAWSConnectPage() {
       if (isStale()) {
         return;
       }
-      setErrorMessage(formatAPIError(error, 'Unable to validate AWS connection.'));
+      setErrorMessage(formatAWSConnectorSetupError(error));
     } finally {
       if (!isStale()) {
         setSubmitting(false);
@@ -20831,7 +20830,12 @@ export function ProductAWSConnectPage() {
   })();
   const launchURL = awsCloudFormationStart?.launch_url ?? connection?.launch_url ?? '';
   const hasConnectorSetup = Boolean(awsCloudFormationStart || connection?.connector_id || connection?.role_arn);
-  const showOperationalPanels = Boolean(connection?.connected || connection?.status === 'degraded' || connection?.health_status === 'error');
+  const showOperationalPanels = Boolean(
+    connection?.connected ||
+      connection?.status === 'degraded' ||
+      connection?.health_status === 'warning' ||
+      connection?.health_status === 'error'
+  );
   const onboardingStatus = connection?.onboarding_status ?? awsCloudFormationStart?.onboarding_status ?? (connectedNow ? 'connected' : 'draft');
   const setupSummaryTitle = (() => {
     if (connectedNow) {

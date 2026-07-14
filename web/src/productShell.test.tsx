@@ -8318,7 +8318,7 @@ describe('Domain-first app routes', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: /Connect AWS account/i })[0]);
 
-    expect(await screen.findAllByText(/AWS account connection is not enabled for this deployment/i)).toHaveLength(2);
+    expect(await screen.findAllByText(/AWS account connection is not enabled for this deployment/i)).toHaveLength(1);
     expect(upsertAWSProjectConnection).not.toHaveBeenCalled();
     expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
   });
@@ -8359,7 +8359,7 @@ describe('Domain-first app routes', () => {
 
     fireEvent.click((await screen.findAllByRole('button', { name: /Connect AWS account/i }))[0]);
 
-    expect(await screen.findAllByText('project not found')).toHaveLength(2);
+    expect(await screen.findAllByText('project not found')).toHaveLength(1);
     expect(screen.queryByText(/AWS account connection is not enabled for this deployment/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
   });
@@ -8400,9 +8400,96 @@ describe('Domain-first app routes', () => {
 
     fireEvent.click((await screen.findAllByRole('button', { name: /Connect AWS account/i }))[0]);
 
-    expect(await screen.findAllByText(/AWS CloudFormation setup is not configured for this deployment/i)).toHaveLength(2);
+    expect(await screen.findAllByText(/AWS CloudFormation setup is not configured for this deployment/i)).toHaveLength(1);
     expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
+  });
+
+  it('shows AWS operational panels when connector health is warning', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-connector-1',
+        health_status: 'warning',
+        diagnostics: [{ code: 'permission_warning', message: 'Permission checks need attention.' }]
+      }
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 3, name: /Permission health/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /Platform readiness/i })).toBeInTheDocument();
+  });
+
+  it('keeps edited AWS role drafts when polling status returns older connection data', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'pollAWSConnector').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        role_arn: 'arn:aws:iam::123456789012:role/OlderConnectorRole'
+      }
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const roleInput = await screen.findByLabelText('Stack role ARN');
+    fireEvent.change(roleInput, { target: { value: 'arn:aws:iam::123456789012:role/CorrectedConnectorRole' } });
+    fireEvent.click(within(screen.getByLabelText('AWS account setup')).getByRole('button', { name: /Refresh status/i }));
+
+    await waitFor(() => expect(api.apiClient.pollAWSConnector).toHaveBeenCalled());
+    expect(screen.getByLabelText('Stack role ARN')).toHaveValue('arn:aws:iam::123456789012:role/CorrectedConnectorRole');
   });
 
   it('renders the Kubernetes Control Center with connected cluster coverage', async () => {
