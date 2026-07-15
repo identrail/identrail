@@ -20672,14 +20672,19 @@ export function ProductAWSConnectPage() {
   const statusTone = awsDomainTone(connection, loadingConnection || refreshingConnection || environmentScope.loading);
   const baselineTone = awsBaselineTone(baseline, baselineLoading || environmentScope.loading);
   const canSubmit = !submitting && !loadingConnection && Boolean(selectedEnvironmentID);
-  const activeConnectorID = awsCloudFormationStart?.connector_id ?? connection?.connector_id ?? '';
+  const manualAWSStart = awsCloudFormationStart?.deployment_method === 'manual' ? awsCloudFormationStart : null;
+  const cloudFormationAWSStart =
+    awsCloudFormationStart && awsCloudFormationStart.deployment_method !== 'manual' ? awsCloudFormationStart : null;
   const isManualSetup =
     awsSetupMode === 'manual' ||
-    awsCloudFormationStart?.deployment_method === 'manual';
+    Boolean(manualAWSStart);
+  const activeConnectorID = isManualSetup
+    ? manualAWSStart?.connector_id ?? (connection?.deployment_method === 'manual' ? connection.connector_id : '') ?? ''
+    : cloudFormationAWSStart?.connector_id ?? (connection?.deployment_method !== 'manual' ? connection?.connector_id : '') ?? '';
   const canValidateRole = Boolean(normalizeValue(awsForm.roleARN)) && (!isManualSetup || Boolean(activeConnectorID));
   const selectedAWSRegion = normalizeValue(awsForm.region) || 'us-east-1';
   const manualExternalID = normalizeValue(awsForm.externalID);
-  const manualIdentrailAccountID = normalizeValue(awsCloudFormationStart?.identrail_account_id);
+  const manualIdentrailAccountID = normalizeValue(manualAWSStart?.identrail_account_id);
   const manualTrustPolicy = buildAWSManualTrustPolicy(
     manualIdentrailAccountID,
     manualExternalID,
@@ -20699,7 +20704,10 @@ export function ProductAWSConnectPage() {
     awsSetupModeTouchedRef.current = true;
     awsSetupModeRef.current = mode;
     setAWSSetupMode(mode);
-    if (mode === 'cloudformation' && awsCloudFormationStart?.deployment_method === 'manual') {
+    const switchingAcrossPreparedSetup =
+      (mode === 'cloudformation' && Boolean(manualAWSStart)) ||
+      (mode === 'manual' && Boolean(cloudFormationAWSStart));
+    if (switchingAcrossPreparedSetup) {
       setAWSCloudFormationStart(null);
       setAWSPermissionPreview([]);
       setAWSPermissionTiers([]);
@@ -21009,7 +21017,7 @@ export function ProductAWSConnectPage() {
     }
     return bits.join(' · ');
   })();
-  const launchURL = awsCloudFormationStart?.launch_url ?? connection?.launch_url ?? '';
+  const launchURL = cloudFormationAWSStart?.launch_url ?? connection?.launch_url ?? '';
   const hasConnectorSetup = Boolean(awsCloudFormationStart || connection?.connector_id);
   const hasRoleOnlyConnection = Boolean(connection?.role_arn && !connection?.connector_id && !awsCloudFormationStart);
   const showOperationalPanels = Boolean(
@@ -21191,7 +21199,7 @@ export function ProductAWSConnectPage() {
                         <h4>Connect with CloudFormation</h4>
                         <p>Identrail creates a read-only role with a trust guard for this environment.</p>
                       </div>
-                      {awsCloudFormationStart ? <span>Launch ready</span> : <span>Read-only</span>}
+                      {cloudFormationAWSStart ? <span>Launch ready</span> : <span>Read-only</span>}
                     </div>
                     <div className="idt-aws-permission-summary" aria-label="AWS permission summary">
                       <span>Read-only discovery across IAM, STS, CloudTrail, Access Analyzer, compute, storage, and secrets.</span>
