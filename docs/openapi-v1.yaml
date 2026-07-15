@@ -11490,28 +11490,6 @@ components:
           description: Optional requested capability tiers. Defaults to discovery (read-only).
           items:
             $ref: "#/components/schemas/ConnectorCapability"
-        scope_type:
-          $ref: "#/components/schemas/AWSConnectorScopeType"
-        deployment_method:
-          $ref: "#/components/schemas/AWSConnectorDeploymentMethod"
-        target_regions:
-          type: array
-          items:
-            type: string
-        target_account_ids:
-          type: array
-          items:
-            type: string
-        target_ou_ids:
-          type: array
-          items:
-            type: string
-        excluded_account_ids:
-          type: array
-          items:
-            type: string
-        auto_onboard_new_accounts:
-          type: boolean
     AWSConnectorPollRequest:
       type: object
       properties:

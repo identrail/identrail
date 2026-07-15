@@ -212,6 +212,74 @@ func TestAWSConnectorManualStartAndValidateUsesStoredExternalID(t *testing.T) {
 	}
 }
 
+func TestAWSConnectorManualStartRecoversMissingExternalIDEnvelope(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			AccountID:    "123456789012",
+			PrincipalARN: "arn:aws:sts::123456789012:assumed-role/CustomerManagedIdentrail/identrail-connector-validation",
+			UserID:       "AROATEST:identrail-connector-validation",
+			Region:       "us-west-2",
+		},
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSConnectorValidator = validator
+	svc.AWSAccountID = "999999999999"
+
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:      "workspace-a",
+		ProjectID:        "project-1",
+		ConnectorID:      "aws-manual-prod",
+		DisplayName:      "Customer-managed AWS",
+		Region:           "us-west-2",
+		ScopeType:        AWSConnectorScopeManualRole,
+		DeploymentMethod: AWSConnectorDeploymentManual,
+	})
+	if err != nil {
+		t.Fatalf("start manual aws connector: %v", err)
+	}
+	if err := store.DeleteTenancyConnectorSecretEnvelope(ctx, "workspace-a", "project-1", "aws-manual-prod", awsExternalIDSecretName); err != nil {
+		t.Fatalf("delete manual external id envelope: %v", err)
+	}
+
+	recovered, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:      "workspace-a",
+		ProjectID:        "project-1",
+		ConnectorID:      started.ConnectorID,
+		ScopeType:        AWSConnectorScopeManualRole,
+		DeploymentMethod: AWSConnectorDeploymentManual,
+	})
+	if err != nil {
+		t.Fatalf("recover manual aws connector external id: %v", err)
+	}
+	if recovered.ExternalID == "" || recovered.ExternalID == started.ExternalID || recovered.LaunchURL != "" {
+		t.Fatalf("expected regenerated manual external id without launch URL, started=%+v recovered=%+v", started, recovered)
+	}
+
+	validated, err := svc.ValidateAWSConnector(ctx, recovered.ConnectorID, AWSConnectorValidateRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		RoleARN:     "arn:aws:iam::123456789012:role/CustomerManagedIdentrail",
+		Region:      "us-west-2",
+	})
+	if err != nil {
+		t.Fatalf("validate recovered manual aws connector: %v", err)
+	}
+	if validated.ExternalID != "" {
+		t.Fatalf("public validate response must not expose recovered external id, got %q", validated.ExternalID)
+	}
+	if validator.seen.ExternalID != recovered.ExternalID {
+		t.Fatalf("expected validation to use recovered external id, got %q want %q", validator.seen.ExternalID, recovered.ExternalID)
+	}
+}
+
 func TestAWSConnectionPersistsAcrossServiceInstances(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

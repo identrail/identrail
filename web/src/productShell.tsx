@@ -20432,6 +20432,7 @@ export function ProductAWSConnectPage() {
   const awsPollRequestRef = useRef(0);
   const awsValidationRequestRef = useRef(0);
   const awsSetupModeTouchedRef = useRef(false);
+  const awsSetupModeRef = useRef<AWSSetupMode>('cloudformation');
   const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
   const scopeKey = scope ? `${scope.tenantID}::${scope.workspaceID}` : '';
   const scopeKeyRef = useRef(scopeKey);
@@ -20470,20 +20471,22 @@ export function ProductAWSConnectPage() {
           return;
         }
         setConnection(response.connection);
-        setAWSSetupMode((current) =>
-          awsSetupModeTouchedRef.current
-            ? current
-            : response.connection.deployment_method === 'manual'
-              ? 'manual'
-              : 'cloudformation'
-        );
+        const responseSetupMode = response.connection.deployment_method === 'manual' ? 'manual' : 'cloudformation';
+        const preserveManualDraft = awsSetupModeTouchedRef.current
+          ? awsSetupModeRef.current === 'manual'
+          : responseSetupMode === 'manual';
+        setAWSSetupMode((current) => {
+          const next = awsSetupModeTouchedRef.current ? current : responseSetupMode;
+          awsSetupModeRef.current = next;
+          return next;
+        });
         setAWSForm((current) => ({
           ...current,
-          roleARN: response.connection.role_arn ?? '',
-          externalID: '',
+          roleARN: response.connection.role_arn ?? (preserveManualDraft ? current.roleARN : ''),
+          externalID: preserveManualDraft ? current.externalID : '',
           region: response.connection.region ?? 'us-east-1',
           displayName: response.connection.display_name ?? '',
-          sessionName: 'identrail-connector-validation'
+          sessionName: preserveManualDraft ? current.sessionName : 'identrail-connector-validation'
         }));
       } catch (error) {
         if (isStale()) {
@@ -20590,6 +20593,7 @@ export function ProductAWSConnectPage() {
     setErrorMessage('');
     setAWSSetupMessage('');
     awsSetupModeTouchedRef.current = false;
+    awsSetupModeRef.current = 'cloudformation';
     setAWSSetupMode('cloudformation');
     setAWSCopiedField('');
     setBaseline(null);
@@ -20673,6 +20677,7 @@ export function ProductAWSConnectPage() {
 
   const chooseAWSSetupMode = (mode: AWSSetupMode) => {
     awsSetupModeTouchedRef.current = true;
+    awsSetupModeRef.current = mode;
     setAWSSetupMode(mode);
     setAWSSetupMessage('');
     setErrorMessage('');
@@ -20729,6 +20734,7 @@ export function ProductAWSConnectPage() {
       }));
       setConnection(response.connection);
       awsSetupModeTouchedRef.current = true;
+      awsSetupModeRef.current = 'cloudformation';
       setAWSSetupMode('cloudformation');
       setSuccessMessage('AWS CloudFormation launch is ready. Open the stack, then refresh status or validate the role.');
       if (typeof window !== 'undefined' && !/jsdom/i.test(window.navigator.userAgent)) {
@@ -20798,6 +20804,7 @@ export function ProductAWSConnectPage() {
       }));
       setConnection(response.connection);
       awsSetupModeTouchedRef.current = true;
+      awsSetupModeRef.current = 'manual';
       setAWSSetupMode('manual');
       setSuccessMessage('Manual setup is ready. Add the trust policy in AWS, then validate the role.');
     } catch (error) {

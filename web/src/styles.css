@@ -23976,7 +23976,12 @@ html[data-theme='light'] .idt-app-shell-screen select {
 }
 
 .idt-aws-scope-option-shell {
-  display: contents;
+  min-width: 0;
+}
+
+.idt-aws-scope-option-shell .idt-aws-scope-option {
+  width: 100%;
+  height: 100%;
 }
 
 .idt-aws-scope-option {

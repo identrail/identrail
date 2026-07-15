@@ -8241,6 +8241,17 @@ describe('Domain-first app routes', () => {
       ],
       permission_tiers: []
     });
+    const validateAWSConnector = vi.spyOn(api.apiClient, 'validateAWSConnector').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: 'aws-manual-1',
+        display_name: 'Production AWS',
+        scope_type: 'manual_role',
+        deployment_method: 'manual',
+        role_arn: 'arn:aws:iam::123456789012:role/CustomerManagedIdentrail',
+        onboarding_status: 'connected'
+      }
+    });
 
     const { ProductAWSConnectPage } = await import('./productShell');
 
@@ -8394,6 +8405,126 @@ describe('Domain-first app routes', () => {
         }),
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
+    );
+  });
+
+  it('keeps generated manual AWS setup details after refreshing permission health', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    const getAWSProjectConnection = vi
+      .spyOn(api.apiClient, 'getAWSProjectConnection')
+      .mockResolvedValue({ connection: disconnectedAWS });
+    vi.spyOn(api.apiClient, 'startAWSConnector').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-manual-1',
+        display_name: 'Production AWS',
+        scope_type: 'manual_role',
+        deployment_method: 'manual',
+        onboarding_status: 'draft',
+        setup_summary: 'Existing IAM role setup for one AWS account.',
+        next_actions: ['validate_role', 'refresh_status']
+      },
+      connector_id: 'aws-manual-1',
+      external_id: 'manual-external-id-to-keep',
+      launch_url: '',
+      template_url: '',
+      identrail_account_id: '999999999999',
+      role_name: '',
+      stack_name: '',
+      policy_hash: '',
+      scope_type: 'manual_role',
+      deployment_method: 'manual',
+      onboarding_status: 'draft',
+      target_regions: ['us-east-1'],
+      target_account_ids: [],
+      target_ou_ids: [],
+      excluded_account_ids: [],
+      auto_onboard_new_accounts: false,
+      setup_summary: 'Existing IAM role setup for one AWS account.',
+      next_actions: ['validate_role', 'refresh_status'],
+      permission_preview: [
+        { service: 'IAM', actions: ['iam:GetRole'], resources: ['*'], reason: 'Inspect role metadata.' }
+      ],
+      permission_tiers: []
+    });
+    const validateAWSConnector = vi.spyOn(api.apiClient, 'validateAWSConnector').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: 'aws-manual-1',
+        display_name: 'Production AWS',
+        scope_type: 'manual_role',
+        deployment_method: 'manual',
+        role_arn: 'arn:aws:iam::123456789012:role/CustomerManagedIdentrail',
+        onboarding_status: 'connected'
+      }
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /Existing IAM role/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Generate External ID/i }));
+    expect(await screen.findByLabelText('External ID')).toHaveValue('manual-external-id-to-keep');
+    fireEvent.change(screen.getByLabelText('Role ARN'), {
+      target: { value: 'arn:aws:iam::123456789012:role/CustomerManagedIdentrail' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Validate role/i }));
+    await waitFor(() =>
+      expect(validateAWSConnector).toHaveBeenCalledWith(
+        'aws-manual-1',
+        expect.objectContaining({
+          external_id: 'manual-external-id-to-keep',
+          role_arn: 'arn:aws:iam::123456789012:role/CustomerManagedIdentrail'
+        }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    getAWSProjectConnection.mockResolvedValueOnce({
+      connection: {
+        ...connectedAWS,
+        connector_id: 'aws-manual-1',
+        display_name: 'Production AWS',
+        scope_type: 'manual_role',
+        deployment_method: 'manual',
+        role_arn: 'arn:aws:iam::123456789012:role/CustomerManagedIdentrail',
+        onboarding_status: 'connected',
+        setup_summary: 'Existing IAM role setup for one AWS account.',
+        next_actions: ['validate_role', 'refresh_status']
+      }
+    });
+    const refreshButtons = screen.getAllByRole('button', { name: /Refresh status/i });
+    fireEvent.click(refreshButtons[refreshButtons.length - 1]);
+
+    await waitFor(() => expect(getAWSProjectConnection).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText('External ID')).toHaveValue('manual-external-id-to-keep');
+    expect(screen.getByLabelText('Role ARN')).toHaveValue('arn:aws:iam::123456789012:role/CustomerManagedIdentrail');
+    expect(String((screen.getByLabelText('Trust policy') as HTMLTextAreaElement).value)).toContain(
+      'manual-external-id-to-keep'
     );
   });
 
