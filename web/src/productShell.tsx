@@ -417,8 +417,24 @@ const AWS_ROLE_ARN_PATTERN = /^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role\/
 const AWS_REGION_PATTERN = /^[a-z]{2}(-gov)?-[a-z]+-[0-9]$/;
 
 type AWSSetupMode = 'cloudformation' | 'manual';
+type AWSPartition = 'aws' | 'aws-us-gov' | 'aws-cn';
 
-function buildAWSManualTrustPolicy(identrailAccountID: string, externalID: string): string {
+function awsPartitionForManualTrustPolicy(roleARN: string, region: string): AWSPartition {
+  const arnPartition = normalizeValue(roleARN).match(/^arn:(aws|aws-us-gov|aws-cn):iam::/)?.[1] as AWSPartition | undefined;
+  if (arnPartition) {
+    return arnPartition;
+  }
+  const normalizedRegion = normalizeValue(region).toLowerCase();
+  if (normalizedRegion.startsWith('us-gov-')) {
+    return 'aws-us-gov';
+  }
+  if (normalizedRegion.startsWith('cn-')) {
+    return 'aws-cn';
+  }
+  return 'aws';
+}
+
+function buildAWSManualTrustPolicy(identrailAccountID: string, externalID: string, partition: AWSPartition = 'aws'): string {
   const accountID = normalizeValue(identrailAccountID);
   const trustGuard = normalizeValue(externalID);
   if (!accountID || !trustGuard) {
@@ -431,7 +447,7 @@ function buildAWSManualTrustPolicy(identrailAccountID: string, externalID: strin
         {
           Effect: 'Allow',
           Principal: {
-            AWS: `arn:aws:iam::${accountID}:root`
+            AWS: `arn:${partition}:iam::${accountID}:root`
           },
           Action: 'sts:AssumeRole',
           Condition: {
@@ -20664,7 +20680,11 @@ export function ProductAWSConnectPage() {
   const selectedAWSRegion = normalizeValue(awsForm.region) || 'us-east-1';
   const manualExternalID = normalizeValue(awsForm.externalID);
   const manualIdentrailAccountID = normalizeValue(awsCloudFormationStart?.identrail_account_id);
-  const manualTrustPolicy = buildAWSManualTrustPolicy(manualIdentrailAccountID, manualExternalID);
+  const manualTrustPolicy = buildAWSManualTrustPolicy(
+    manualIdentrailAccountID,
+    manualExternalID,
+    awsPartitionForManualTrustPolicy(awsForm.roleARN, selectedAWSRegion)
+  );
 
   const copyAWSManualValue = async (field: 'external-id' | 'trust-policy', value: string) => {
     const text = normalizeValue(value);
@@ -20679,6 +20699,18 @@ export function ProductAWSConnectPage() {
     awsSetupModeTouchedRef.current = true;
     awsSetupModeRef.current = mode;
     setAWSSetupMode(mode);
+    if (mode === 'cloudformation' && awsCloudFormationStart?.deployment_method === 'manual') {
+      setAWSCloudFormationStart(null);
+      setAWSPermissionPreview([]);
+      setAWSPermissionTiers([]);
+      setAWSPreviewOpen(false);
+      setAWSForm((current) => ({
+        ...current,
+        roleARN: '',
+        externalID: '',
+        sessionName: 'identrail-connector-validation'
+      }));
+    }
     setAWSSetupMessage('');
     setErrorMessage('');
     setSuccessMessage('');
