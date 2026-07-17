@@ -3382,7 +3382,7 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 	}
 	if shouldCloseMissingPostureRepoFindings(strings.TrimSpace(status), truncated, normalizedContext) {
 		closeNonPosture := shouldCloseMissingRepoFindings(strings.TrimSpace(status), truncated, normalizedContext)
-		if err := p.markMissingRepoFindingsFixed(ctx, tx, scope, repoScanID, finishedAt.UTC(), sourceHealthDetails, closeNonPosture); err != nil {
+		if err := p.markMissingRepoFindingsFixed(ctx, tx, scope, repoScanID, finishedAt.UTC(), sourceHealthDetails, closeNonPosture, normalizedContext.InconclusiveLifecycleKeys); err != nil {
 			return err
 		}
 	}
@@ -3392,16 +3392,36 @@ func (p *PostgresStore) CompleteRepoScan(ctx context.Context, repoScanID string,
 	return nil
 }
 
-func (p *PostgresStore) markMissingRepoFindingsFixed(ctx context.Context, executor sqlExecutor, scope Scope, repoScanID string, fixedAt time.Time, sourceDetails []RepoScanSourceHealth, closeNonPostureFindings bool) error {
+func (p *PostgresStore) markMissingRepoFindingsFixed(ctx context.Context, executor sqlExecutor, scope Scope, repoScanID string, fixedAt time.Time, sourceDetails []RepoScanSourceHealth, closeNonPostureFindings bool, inconclusiveLifecycleKeys []string) error {
 	// Posture-origin findings only close when the completing scan collected the
 	// matching posture source; scans that never ran posture collection cannot
 	// re-observe the gap and must leave those findings open. Every other source
 	// keeps the scan-level closure gate.
 	repositoryPostureCollected := repoScanSourceCollectedComplete(sourceDetails, "github_repository_posture")
 	organizationPostureCollected := repoScanSourceCollectedComplete(sourceDetails, "github_organization_posture")
+	args := []any{
+		fixedAt.UTC(),
+		scope.TenantID,
+		scope.WorkspaceID,
+		repoScanID,
+		repositoryPostureCollected,
+		organizationPostureCollected,
+		closeNonPostureFindings,
+	}
+	// Controls this scan saw but could not evaluate are never evidence of a fix,
+	// so exclude their lifecycle keys from closure.
+	inconclusiveClause := ""
+	if len(inconclusiveLifecycleKeys) > 0 {
+		placeholders := make([]string, 0, len(inconclusiveLifecycleKeys))
+		for _, key := range inconclusiveLifecycleKeys {
+			args = append(args, key)
+			placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
+		}
+		inconclusiveClause = fmt.Sprintf("\n\t\t   AND COALESCE(rf.lifecycle_key, '') NOT IN (%s)", strings.Join(placeholders, ", "))
+	}
 	_, err := executor.ExecContext(
 		ctx,
-		`UPDATE repo_findings rf
+		fmt.Sprintf(`UPDATE repo_findings rf
 		 SET lifecycle_status = 'fixed',
 		     fixed_at = $1
 		 FROM repo_scans rs, repo_scans current_rs
@@ -3419,7 +3439,7 @@ func (p *PostgresStore) markMissingRepoFindingsFixed(ctx context.Context, execut
 		       WHEN 'github_posture' THEN $5
 		       WHEN 'github_org_posture' THEN $6
 		       ELSE $7
-		       END
+		       END%s
 		   AND NOT EXISTS (
 		       SELECT 1
 		       FROM repo_findings current_rf
@@ -3435,14 +3455,8 @@ func (p *PostgresStore) markMissingRepoFindingsFixed(ctx context.Context, execut
 		         AND LOWER(newer_rs.repository) = LOWER(rs.repository)
 		         AND COALESCE(newer_rf.lifecycle_key, '') = COALESCE(rf.lifecycle_key, '')
 		         AND COALESCE(newer_rf.last_seen_at, newer_rf.created_at) > COALESCE(rf.last_seen_at, rf.created_at)
-		   )`,
-		fixedAt.UTC(),
-		scope.TenantID,
-		scope.WorkspaceID,
-		repoScanID,
-		repositoryPostureCollected,
-		organizationPostureCollected,
-		closeNonPostureFindings,
+		   )`, inconclusiveClause),
+		args...,
 	)
 	if err != nil {
 		return fmt.Errorf("mark missing repo findings fixed: %w", err)

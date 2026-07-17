@@ -919,6 +919,53 @@ func TestPostgresStoreCompleteRepoScanPassesPostureCollectionToClosure(t *testin
 	}
 }
 
+func TestPostgresStoreCompleteRepoScanExcludesInconclusiveLifecycleKeysFromClosure(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+	repoScanID := "9a5f2c31-6a41-4a4e-9f22-1d0d0f7ab512"
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE repo_scans").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	// Keys the scan could not evaluate are excluded from the closure statement
+	// and normalized (trimmed, deduped, sorted).
+	mock.ExpectExec("COALESCE\\(rf.lifecycle_key, ''\\) NOT IN").
+		WithArgs(
+			sqlmock.AnyArg(), "default", "default", repoScanID, true, true, true,
+			"repo_finding\x1fowner/repo\x1frepo_misconfiguration\x1fgithub_org_posture\x1forganization\x1forg_secret_scanning_policy",
+			"repo_finding\x1fowner/repo\x1frepo_misconfiguration\x1fgithub_posture\x1frepository\x1fdefault_branch_protection",
+		).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	err = store.CompleteRepoScan(defaultScopeContext(), repoScanID, "succeeded", now, 1, 1, 0, false, RepoScanContext{
+		ScanMode: RepoScanModeDeep,
+		InconclusiveLifecycleKeys: []string{
+			"repo_finding\x1fowner/repo\x1frepo_misconfiguration\x1fgithub_posture\x1frepository\x1fdefault_branch_protection",
+			"  repo_finding\x1fowner/repo\x1frepo_misconfiguration\x1fgithub_org_posture\x1forganization\x1forg_secret_scanning_policy  ",
+			"repo_finding\x1fowner/repo\x1frepo_misconfiguration\x1fgithub_posture\x1frepository\x1fdefault_branch_protection",
+			"",
+		},
+		SourceDetails: []RepoScanSourceHealth{
+			{Source: "identrail_repo_scanner", Status: RepoScanSourceHealthComplete},
+			{Source: "github_repository_posture", Status: RepoScanSourceHealthComplete},
+			{Source: "github_organization_posture", Status: RepoScanSourceHealthComplete},
+		},
+	}, "")
+	if err != nil {
+		t.Fatalf("complete repo scan failed: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreUpsertRepoFindingsReopensExpiredSuppressionSnapshot(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

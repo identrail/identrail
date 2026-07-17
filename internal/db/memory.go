@@ -2330,7 +2330,13 @@ func (m *MemoryStore) CompleteRepoScan(ctx context.Context, repoScanID string, s
 	record.ErrorMessage = strings.TrimSpace(errorMessage)
 	m.repoScans[repoScanID] = record
 	if shouldCloseMissingPostureRepoFindings(record.Status, record.Truncated, normalizedContext) {
-		m.markMissingRepoFindingsFixedLocked(scope, record, finished, shouldCloseMissingRepoFindings(record.Status, record.Truncated, normalizedContext))
+		m.markMissingRepoFindingsFixedLocked(
+			scope,
+			record,
+			finished,
+			shouldCloseMissingRepoFindings(record.Status, record.Truncated, normalizedContext),
+			normalizedContext.InconclusiveLifecycleKeys,
+		)
 	}
 	return nil
 }
@@ -2787,7 +2793,11 @@ func (m *MemoryStore) latestRepoFindingLifecycleLocked(scope Scope, repository s
 	return latest, found
 }
 
-func (m *MemoryStore) markMissingRepoFindingsFixedLocked(scope Scope, repoScan RepoScanRecord, fixedAt time.Time, closeNonPostureFindings bool) {
+func (m *MemoryStore) markMissingRepoFindingsFixedLocked(scope Scope, repoScan RepoScanRecord, fixedAt time.Time, closeNonPostureFindings bool, inconclusiveLifecycleKeys []string) {
+	inconclusiveKeys := make(map[string]struct{}, len(inconclusiveLifecycleKeys))
+	for _, key := range inconclusiveLifecycleKeys {
+		inconclusiveKeys[key] = struct{}{}
+	}
 	currentKeys := map[string]struct{}{}
 	for _, key := range m.repoFindingIDs[repoScan.ID] {
 		finding, exists := m.repoFindings[key]
@@ -2818,6 +2828,11 @@ func (m *MemoryStore) markMissingRepoFindingsFixedLocked(scope Scope, repoScan R
 			continue
 		}
 		if _, stillObserved := currentKeys[finding.LifecycleKey]; stillObserved {
+			continue
+		}
+		// The scan saw this control but could not evaluate it, so its absence
+		// from the promoted findings is not evidence the gap was fixed.
+		if _, inconclusive := inconclusiveKeys[finding.LifecycleKey]; inconclusive {
 			continue
 		}
 		if finding.LifecycleStatus != domain.RepoFindingLifecycleOpen && finding.LifecycleStatus != domain.RepoFindingLifecycleReopened {

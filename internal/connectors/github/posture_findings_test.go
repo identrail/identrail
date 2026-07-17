@@ -198,6 +198,88 @@ func TestPostureFindingsKeepLifecycleWhenCheckStateDegrades(t *testing.T) {
 	}
 }
 
+func TestPostureInconclusiveLifecycleKeysCoverUnverifiedChecks(t *testing.T) {
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	posture := RepositoryPosture{
+		Repository:  "owner/repo",
+		CollectedAt: now,
+		Checks: []RepositoryPostureCheck{
+			{ID: "default_branch_protection", State: RepositoryPostureStateInsecure},
+			{ID: "repository_rulesets", State: RepositoryPostureStateSecure},
+			{ID: "secret_scanning", State: RepositoryPostureStatePermissionLimited},
+			{ID: "code_scanning", State: RepositoryPostureStateUnavailable},
+			{ID: "webhooks", State: RepositoryPostureStateUnknown},
+			{ID: "deploy_keys", State: RepositoryPostureStateUnsupported, Reason: "plan_unavailable"},
+		},
+	}
+
+	keys := RepositoryPostureInconclusiveLifecycleKeys(posture)
+	if len(keys) != 4 {
+		t.Fatalf("expected the four unverified checks to be inconclusive, got %d: %+v", len(keys), keys)
+	}
+	inconclusive := map[string]struct{}{}
+	for _, key := range keys {
+		inconclusive[key] = struct{}{}
+	}
+	keyFor := func(checkID string) string {
+		return postureFindingLifecycleKey("owner/repo", githubPostureAdapterSource, "repository", checkID)
+	}
+	for _, checkID := range []string{"secret_scanning", "code_scanning", "webhooks", "deploy_keys"} {
+		if _, ok := inconclusive[keyFor(checkID)]; !ok {
+			t.Errorf("expected %s to be inconclusive, got %+v", checkID, keys)
+		}
+	}
+	// Conclusively evaluated checks must stay closable, otherwise a plan that
+	// permanently lacks one control would strand every other posture finding.
+	for _, checkID := range []string{"default_branch_protection", "repository_rulesets"} {
+		if _, ok := inconclusive[keyFor(checkID)]; ok {
+			t.Errorf("expected %s to remain conclusive, got %+v", checkID, keys)
+		}
+	}
+
+	// A permission-limited check keeps the lifecycle key of the gap it replaced,
+	// so the inconclusive key matches the durable finding that must stay open.
+	insecure := RepositoryPostureFindings(RepositoryPosture{
+		Repository:  "owner/repo",
+		CollectedAt: now,
+		Checks:      []RepositoryPostureCheck{{ID: "secret_scanning", State: RepositoryPostureStateInsecure}},
+	}, now)
+	if len(insecure) != 1 || insecure[0].LifecycleKey != keyFor("secret_scanning") {
+		t.Fatalf("expected the insecure finding to share the inconclusive key, got %+v", insecure)
+	}
+}
+
+func TestOrganizationPostureInconclusiveLifecycleKeysDistinguishUnsupportedReasons(t *testing.T) {
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	// A user-owned repository genuinely has no organization policy, so those
+	// checks are conclusive and prior findings may close.
+	userOwned := OrganizationPosture{
+		Organization: "owner",
+		CollectedAt:  now,
+		Checks: []RepositoryPostureCheck{
+			{ID: "org_secret_scanning_policy", State: RepositoryPostureStateUnsupported, Reason: "not_an_organization"},
+		},
+	}
+	if keys := OrganizationPostureInconclusiveLifecycleKeys(userOwned, "owner/repo"); len(keys) != 0 {
+		t.Fatalf("expected not_an_organization checks to be conclusive, got %+v", keys)
+	}
+
+	// The organization exists but GitHub stopped exposing the control (a plan
+	// change), so the gap was never verified as fixed and must stay open.
+	planLimited := OrganizationPosture{
+		Organization: "owner",
+		CollectedAt:  now,
+		Checks: []RepositoryPostureCheck{
+			{ID: "org_secret_scanning_policy", State: RepositoryPostureStateUnsupported, Reason: "plan_unavailable"},
+		},
+	}
+	keys := OrganizationPostureInconclusiveLifecycleKeys(planLimited, "owner/repo")
+	want := postureFindingLifecycleKey("owner/repo", githubOrgPostureAdapterSource, "organization", "org_secret_scanning_policy")
+	if len(keys) != 1 || keys[0] != want {
+		t.Fatalf("expected plan-unavailable org checks to be inconclusive, got %+v", keys)
+	}
+}
+
 func findingByDetector(findings []domain.Finding, detector string) *domain.Finding {
 	for i := range findings {
 		if findings[i].Detector == detector {

@@ -1904,9 +1904,12 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	}
 	result = applyRepoScanContextToResult(result, target, scanContext)
 	sourceErrors := []providers.SourceError{}
+	inconclusiveLifecycleKeys := []string{}
 	if !result.Truncated {
-		externalFindings, externalSourceErrors, externalErr := s.repoScanExternalFindings(ctx, record, s.Now().UTC())
-		sourceErrors = append(sourceErrors, externalSourceErrors...)
+		externalEvidence, externalErr := s.repoScanExternalFindings(ctx, record, s.Now().UTC())
+		externalFindings := externalEvidence.Findings
+		sourceErrors = append(sourceErrors, externalEvidence.SourceErrors...)
+		inconclusiveLifecycleKeys = append(inconclusiveLifecycleKeys, externalEvidence.InconclusiveLifecycleKeys...)
 		if len(sourceErrors) > 0 {
 			s.appendScanEvent(ctx, record.ID, db.ScanEventLevelWarn, "repo scan completed with partial source errors", map[string]any{
 				"source_error_count": len(sourceErrors),
@@ -1948,13 +1951,14 @@ func (s *Service) runRepoScanWithRecord(ctx context.Context, record db.RepoScanR
 	}
 	cursorAfter := firstNonEmptyString(result.HeadRevision, record.HeadRevision)
 	completionContext := db.RepoScanContext{
-		ScanMode:         result.ScanMode,
-		BaseRevision:     result.BaseRevision,
-		HeadRevision:     result.HeadRevision,
-		ChangedPaths:     append([]string(nil), result.ChangedPaths...),
-		PartialSourceRun: partialSourceRun,
-		SourceHealth:     sourceHealth,
-		SourceDetails:    sourceHealthDetails,
+		ScanMode:                  result.ScanMode,
+		BaseRevision:              result.BaseRevision,
+		HeadRevision:              result.HeadRevision,
+		ChangedPaths:              append([]string(nil), result.ChangedPaths...),
+		InconclusiveLifecycleKeys: inconclusiveLifecycleKeys,
+		PartialSourceRun:          partialSourceRun,
+		SourceHealth:              sourceHealth,
+		SourceDetails:             sourceHealthDetails,
 	}
 	if !result.Truncated && !partialSourceRun {
 		completionContext.CursorAfter = cursorAfter
@@ -2122,11 +2126,23 @@ func repoScanLastDeepScannedAt(mode string, completedAt time.Time) *time.Time {
 	return &converted
 }
 
-func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoScanRecord, detectedAt time.Time) ([]domain.Finding, []providers.SourceError, error) {
+// repoScanExternalEvidence is the outcome of enriching one repo scan with
+// GitHub-native sources.
+type repoScanExternalEvidence struct {
+	Findings     []domain.Finding
+	SourceErrors []providers.SourceError
+	// InconclusiveLifecycleKeys are lifecycle keys whose control this scan could
+	// not evaluate. They must not be closed at completion even though they are
+	// absent from Findings.
+	InconclusiveLifecycleKeys []string
+}
+
+func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoScanRecord, detectedAt time.Time) (repoScanExternalEvidence, error) {
 	source := record.Source.Normalize()
 	if source.Provider != "github_app" || source.InstallationID <= 0 {
-		return nil, nil, nil
+		return repoScanExternalEvidence{}, nil
 	}
+	inconclusiveLifecycleKeys := []string{}
 	sourceErrors := make([]providers.SourceError, 0)
 	recordSourceError := func(collector, code, message string) {
 		sourceErrors = append(sourceErrors, providers.SourceError{
@@ -2150,14 +2166,14 @@ func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoSc
 		alerts, err := s.GitHubCodeScanningAlertCollector.ListCodeScanningAlerts(ctx, source.InstallationID, record.Repository)
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, nil, ctx.Err()
+				return repoScanExternalEvidence{}, ctx.Err()
 			}
 			recordSourceErr("github_code_scanning", "alert_list_error", err)
 		} else {
 			imported, normErr := repoexposure.NormalizeGitHubCodeScanningAlerts(ctx, record.Repository, "", githubCodeScanningAlertsToRepoExposure(alerts), detectedAt)
 			if normErr != nil {
 				if ctx.Err() != nil {
-					return nil, nil, ctx.Err()
+					return repoScanExternalEvidence{}, ctx.Err()
 				}
 				recordSourceErr("github_code_scanning", "normalize_error", normErr)
 			} else {
@@ -2169,14 +2185,14 @@ func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoSc
 		alerts, err := s.GitHubSecretScanningAlertCollector.ListSecretScanningAlerts(ctx, source.InstallationID, record.Repository)
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, nil, ctx.Err()
+				return repoScanExternalEvidence{}, ctx.Err()
 			}
 			recordSourceErr("github_secret_scanning", "alert_list_error", err)
 		} else {
 			imported, normErr := repoexposure.NormalizeGitHubSecretScanningAlerts(ctx, record.Repository, "", githubSecretScanningAlertsToRepoExposure(alerts), detectedAt)
 			if normErr != nil {
 				if ctx.Err() != nil {
-					return nil, nil, ctx.Err()
+					return repoScanExternalEvidence{}, ctx.Err()
 				}
 				recordSourceErr("github_secret_scanning", "normalize_error", normErr)
 			} else {
@@ -2188,14 +2204,14 @@ func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoSc
 		alerts, err := s.GitHubDependabotAlertCollector.ListDependabotAlerts(ctx, source.InstallationID, record.Repository)
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, nil, ctx.Err()
+				return repoScanExternalEvidence{}, ctx.Err()
 			}
 			recordSourceErr("github_dependabot", "alert_list_error", err)
 		} else {
 			imported, normErr := repoexposure.NormalizeGitHubDependabotAlerts(ctx, record.Repository, "", githubDependabotAlertsToRepoExposure(alerts), detectedAt)
 			if normErr != nil {
 				if ctx.Err() != nil {
-					return nil, nil, ctx.Err()
+					return repoScanExternalEvidence{}, ctx.Err()
 				}
 				recordSourceErr("github_dependabot", "normalize_error", normErr)
 			} else {
@@ -2207,25 +2223,36 @@ func (s *Service) repoScanExternalFindings(ctx context.Context, record db.RepoSc
 		posture, err := s.GitHubRepositoryPostureCollector.CollectRepositoryPosture(ctx, source.InstallationID, record.Repository)
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, nil, ctx.Err()
+				return repoScanExternalEvidence{}, ctx.Err()
 			}
 			recordSourceErr("github_repository_posture", "posture_collect_error", err)
 		} else {
 			findings = append(findings, githubconnector.RepositoryPostureFindings(posture, detectedAt)...)
+			inconclusiveLifecycleKeys = append(inconclusiveLifecycleKeys, githubconnector.RepositoryPostureInconclusiveLifecycleKeys(posture)...)
 		}
 		if owner, _, ok := strings.Cut(record.Repository, "/"); ok && strings.TrimSpace(owner) != "" {
 			orgPosture, orgErr := s.GitHubRepositoryPostureCollector.CollectOrganizationPosture(ctx, source.InstallationID, owner, record.Repository)
 			if orgErr != nil {
 				if ctx.Err() != nil {
-					return nil, nil, ctx.Err()
+					return repoScanExternalEvidence{}, ctx.Err()
 				}
 				recordSourceErr("github_organization_posture", "posture_collect_error", orgErr)
-			} else if githubOrganizationPostureAvailable(orgPosture) {
-				findings = append(findings, githubconnector.OrganizationPostureFindings(orgPosture, record.Repository, detectedAt)...)
+			} else {
+				// Checks GitHub could not evaluate are collected even when the
+				// organization posture is otherwise skipped, so an organization
+				// control that stops being exposed never reads as a fix.
+				inconclusiveLifecycleKeys = append(inconclusiveLifecycleKeys, githubconnector.OrganizationPostureInconclusiveLifecycleKeys(orgPosture, record.Repository)...)
+				if githubOrganizationPostureAvailable(orgPosture) {
+					findings = append(findings, githubconnector.OrganizationPostureFindings(orgPosture, record.Repository, detectedAt)...)
+				}
 			}
 		}
 	}
-	return findings, sourceErrors, nil
+	return repoScanExternalEvidence{
+		Findings:                  findings,
+		SourceErrors:              sourceErrors,
+		InconclusiveLifecycleKeys: inconclusiveLifecycleKeys,
+	}, nil
 }
 
 func repoScanUsesGitHubAppSource(record db.RepoScanRecord) bool {

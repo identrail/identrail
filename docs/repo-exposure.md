@@ -155,6 +155,27 @@ whole:
   branch-protection gap was fixed, and blocking on it would strand posture
   findings as permanently open.
 
+Closure is additionally decided per check, not only per source, because GitHub
+can answer some controls and not others in the same collection. A check only
+closes its finding when GitHub answered it definitively:
+
+| Check state | Closes a prior gap? | Why |
+|---|---|---|
+| `secure` | yes | The control was evaluated and is now configured safely. |
+| `insecure` | no (stays open) | The gap is still present and is re-promoted. |
+| `permission_limited` | no | The GitHub App cannot read the control, so the gap was never re-checked. |
+| `unavailable` / `unknown` | no | GitHub did not return a usable answer for the control. |
+| `unsupported` (`not_an_organization`) | yes | A user-owned repository has no organization policy, so the gap no longer applies. |
+| `unsupported` (plan or availability change) | no | GitHub stopped exposing the control, so the gap was never verified as fixed. Suppress it if the exposure is intentional. |
+
+This matters because a control that cannot be evaluated still promotes a finding
+under the same `lifecycle_key`, but at a confidence and severity the
+GitHub App reportable filter drops. Without per-check gating, that filtered
+finding would look absent from the scan and a real, unverified gap would be
+marked `fixed`. Per-check gating also avoids the opposite failure: a plan that
+permanently lacks one control (GitHub Advanced Security, for example) does not
+stop every other posture finding in that source from closing.
+
 Reappearing posture gaps reuse the same lifecycle key and transition to
 `reopened` while keeping their original `first_seen_at` age.
 

@@ -15,6 +15,11 @@
   code-scanning collector that was simply not configured — marked the whole run
   partial and blocked closure for every source, which could strand posture
   findings as permanently open even after the underlying control was fixed.
+  Closure is also decided per check: a gap closes only when GitHub answered that
+  control definitively (`secure`, or `unsupported` because the repository owner
+  is a user account and organization policy no longer applies). A control that
+  is permission-limited, unavailable, unknown, or no longer exposed by the
+  account plan is never treated as fixed, since it was never re-evaluated.
   Reappearing gaps reuse their stable lifecycle key and transition to
   `reopened` while keeping their original first-seen age.
 - Key repository finding clusters by promotion `source` in addition to detector,

@@ -382,15 +382,22 @@ type RepoScanSourceHealth struct {
 
 // RepoScanContext captures incremental execution metadata for one scan.
 type RepoScanContext struct {
-	ScanMode         string
-	BaseRevision     string
-	HeadRevision     string
-	CursorBefore     string
-	CursorAfter      string
-	ChangedPaths     []string
-	PartialSourceRun bool
-	SourceHealth     string
-	SourceDetails    []RepoScanSourceHealth
+	ScanMode     string
+	BaseRevision string
+	HeadRevision string
+	CursorBefore string
+	CursorAfter  string
+	ChangedPaths []string
+	// InconclusiveLifecycleKeys are lifecycle keys this scan observed but could
+	// not conclusively re-evaluate, so completion must not close them. A GitHub
+	// posture check that is permission-limited or unavailable still promotes a
+	// finding under the same lifecycle key, but at a confidence and severity the
+	// reportable filter drops. Without this list the key looks absent from the
+	// scan and a real, unverified gap would be marked fixed.
+	InconclusiveLifecycleKeys []string
+	PartialSourceRun          bool
+	SourceHealth              string
+	SourceDetails             []RepoScanSourceHealth
 }
 
 // NormalizeRepoScanContext returns stable scan-mode and revision metadata.
@@ -400,13 +407,14 @@ func NormalizeRepoScanContext(scanContext RepoScanContext) RepoScanContext {
 		mode = RepoScanModeDeep
 	}
 	normalized := RepoScanContext{
-		ScanMode:         mode,
-		BaseRevision:     strings.TrimSpace(scanContext.BaseRevision),
-		HeadRevision:     strings.TrimSpace(scanContext.HeadRevision),
-		CursorBefore:     strings.TrimSpace(scanContext.CursorBefore),
-		CursorAfter:      strings.TrimSpace(scanContext.CursorAfter),
-		ChangedPaths:     normalizeRepoScanChangedPaths(scanContext.ChangedPaths),
-		PartialSourceRun: scanContext.PartialSourceRun,
+		ScanMode:                  mode,
+		BaseRevision:              strings.TrimSpace(scanContext.BaseRevision),
+		HeadRevision:              strings.TrimSpace(scanContext.HeadRevision),
+		CursorBefore:              strings.TrimSpace(scanContext.CursorBefore),
+		CursorAfter:               strings.TrimSpace(scanContext.CursorAfter),
+		ChangedPaths:              normalizeRepoScanChangedPaths(scanContext.ChangedPaths),
+		InconclusiveLifecycleKeys: normalizeRepoScanLifecycleKeys(scanContext.InconclusiveLifecycleKeys),
+		PartialSourceRun:          scanContext.PartialSourceRun,
 	}
 	normalized.SourceHealth, normalized.SourceDetails = NormalizeRepoScanSourceHealth(scanContext.SourceHealth, scanContext.SourceDetails)
 	return normalized
@@ -604,6 +612,30 @@ func (s RepoScanSource) Empty() bool {
 		normalized.ProjectID == "" &&
 		normalized.ConnectorID == "" &&
 		normalized.InstallationID == 0
+}
+
+func normalizeRepoScanLifecycleKeys(keys []string) []string {
+	if len(keys) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	normalized := make([]string, 0, len(keys))
+	for _, key := range keys {
+		item := strings.TrimSpace(key)
+		if item == "" {
+			continue
+		}
+		if _, exists := seen[item]; exists {
+			continue
+		}
+		seen[item] = struct{}{}
+		normalized = append(normalized, item)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	sort.Strings(normalized)
+	return normalized
 }
 
 func normalizeRepoScanChangedPaths(paths []string) []string {
