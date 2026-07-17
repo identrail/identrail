@@ -57,6 +57,7 @@ var repoRiskPostureEvidenceKeys = []string{
 	"runner_labels",
 	"runner_os",
 	"self_hosted_runner_count",
+	"unprotected_environment_criticality",
 	"unprotected_environments",
 	"verified_allowed",
 	"webhook_count",
@@ -123,8 +124,19 @@ func repoRiskPostureControlForFinding(finding Finding) (repoRiskPostureControl, 
 		control.Kind = RepoRiskNodeRepositoryRuleset
 		control.Label = "repository rulesets"
 	case "actions_permissions":
-		control.Kind = RepoRiskNodeActionsPolicy
-		control.Label = "Actions policy: repository"
+		// The repository Actions check is a combined control: it flags both broad
+		// action sources and a write-by-default workflow token. When the action
+		// sources are restricted but the default token is write, the weak control
+		// is the workflow-permission default, not the Actions source policy, so it
+		// must resolve to its own node instead of being attributed to the policy.
+		if !strings.EqualFold(firstEvidenceString(finding.Evidence, "allowed_actions"), "all") &&
+			strings.EqualFold(firstEvidenceString(finding.Evidence, "default_workflow_permissions"), "write") {
+			control.Kind = RepoRiskNodeWorkflowPermissionDefault
+			control.Label = "default workflow permissions: repository"
+		} else {
+			control.Kind = RepoRiskNodeActionsPolicy
+			control.Label = "Actions policy: repository"
+		}
 	case "org_actions_policy":
 		control.Kind = RepoRiskNodeActionsPolicy
 		control.Label = "Actions policy: " + repoRiskPostureOrgLabel(control.Organization)
@@ -235,6 +247,12 @@ func (builder *repoRiskGraphBuilder) addPostureReachability(finding Finding, fin
 	if !control.Weak() {
 		return
 	}
+	// An alert source that returned open alerts is a functioning control that
+	// surfaced findings, not a weakened one. It still governs the repository, but
+	// the finding must not be recorded as weakening it.
+	if repoRiskPostureAlertSourceFunctioning(finding, control) {
+		return
+	}
 
 	findingEdgeKind := RepoRiskEdgeFindingWeakensControl
 	switch control.Kind {
@@ -330,6 +348,11 @@ func repoRiskPostureAmplifierFactor(finding Finding) int {
 	if !ok || !control.Weak() {
 		return 0
 	}
+	// A functioning alert source that returned open alerts is not a weakened
+	// control, so it does not widen blast radius through a posture amplifier.
+	if repoRiskPostureAlertSourceFunctioning(finding, control) {
+		return 0
+	}
 	score := 0
 	switch strings.ToLower(strings.TrimSpace(finding.Detector)) {
 	case "github_default_branch_unprotected":
@@ -366,7 +389,7 @@ func repoRiskPostureAmplifierFactor(finding Finding) int {
 		}
 	case "github_environment_unprotected":
 		score = 50
-		if repoRiskEnvironmentFactor(finding) == 100 {
+		if repoRiskUnprotectedEnvironmentCriticality(finding) == "production" {
 			score += 25
 		}
 	case "github_webhook_unhealthy":
@@ -386,6 +409,24 @@ func repoRiskPostureAmplifierFactor(finding Finding) int {
 		score = 20
 	}
 	return clampInt(score, 0, 100)
+}
+
+// repoRiskPostureAlertSourceFunctioning reports whether a posture finding names
+// an alert source (code scanning, secret scanning, Dependabot) that the scanner
+// found enabled and returning open alerts. Such a source is doing its job; the
+// finding is an open alert, not a control weakness.
+func repoRiskPostureAlertSourceFunctioning(finding Finding, control repoRiskPostureControl) bool {
+	if control.Kind != RepoRiskNodeAlertSource {
+		return false
+	}
+	return firstEvidenceString(finding.Evidence, "github_posture_reason") == "open_alerts_present"
+}
+
+// repoRiskUnprotectedEnvironmentCriticality returns the redacted criticality
+// tier the environment posture collector recorded for the most sensitive
+// unprotected environment, or an empty string when none was carried.
+func repoRiskUnprotectedEnvironmentCriticality(finding Finding) string {
+	return strings.ToLower(firstEvidenceString(finding.Evidence, "unprotected_environment_criticality"))
 }
 
 func evidenceBool(evidence map[string]any, key string) bool {

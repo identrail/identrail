@@ -350,13 +350,13 @@ func TestPostureFindingsBuildControlPlaneRiskGraph(t *testing.T) {
 				ID:       "code_scanning",
 				Category: "security",
 				State:    RepositoryPostureStateInsecure,
-				Reason:   "open_alerts_present",
+				Reason:   "not_configured",
 			},
 			{
 				ID:       "secret_scanning",
 				Category: "security",
 				State:    RepositoryPostureStateInsecure,
-				Reason:   "open_alerts_present",
+				Reason:   "not_configured",
 			},
 			{
 				ID:       "dependabot_security",

@@ -595,6 +595,111 @@ func TestBuildRepoRiskGraphSkipsPostureChecksWithoutControlConcept(t *testing.T)
 	}
 }
 
+func TestBuildRepoRiskGraphMapsRepositoryWriteDefaultToItsOwnControl(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	graph := BuildRepoRiskGraph([]Finding{
+		postureFinding("write-default", "github_actions_policy_broad", SeverityHigh, now, map[string]any{
+			"github_posture_check_id":      "actions_permissions",
+			"github_posture_category":      "actions",
+			"github_posture_scope":         "repository",
+			"github_posture_state":         "insecure",
+			"allowed_actions":              "selected",
+			"default_workflow_permissions": "write",
+		}),
+	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	assertGraphNode(t, graph, RepoRiskNodeWorkflowPermissionDefault, "default workflow permissions: repository")
+	if countNodes(graph, RepoRiskNodeActionsPolicy) != 0 {
+		t.Fatalf("expected a restricted-source write-default finding not to attribute to the Actions source policy, got %+v", graph.Nodes)
+	}
+	assertGraphEdge(t, graph, RepoRiskEdgeFindingWeakensControl, RepoRiskEvidenceKnown)
+}
+
+func TestBuildRepoRiskGraphKeepsBroadActionSourcesOnActionsPolicy(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	graph := BuildRepoRiskGraph([]Finding{
+		postureFinding("broad-actions", "github_actions_policy_broad", SeverityHigh, now, map[string]any{
+			"github_posture_check_id":      "actions_permissions",
+			"github_posture_scope":         "repository",
+			"github_posture_state":         "insecure",
+			"allowed_actions":              "all",
+			"default_workflow_permissions": "write",
+		}),
+	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	assertGraphNode(t, graph, RepoRiskNodeActionsPolicy, "Actions policy: repository")
+	if countNodes(graph, RepoRiskNodeWorkflowPermissionDefault) != 0 {
+		t.Fatalf("expected broad action sources to stay on the Actions policy node, got %+v", graph.Nodes)
+	}
+}
+
+func TestBuildRepoRiskGraphDoesNotWeakenFunctioningAlertSource(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	graph := BuildRepoRiskGraph([]Finding{
+		postureFinding("open-alerts", "github_code_scanning_disabled", SeverityHigh, now, map[string]any{
+			"github_posture_check_id": "code_scanning",
+			"github_posture_category": "security",
+			"github_posture_scope":    "repository",
+			"github_posture_state":    "insecure",
+			"github_posture_reason":   "open_alerts_present",
+			"open_alerts_sampled":     4,
+		}),
+	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	assertGraphNode(t, graph, RepoRiskNodeAlertSource, "alert source: code scanning")
+	assertGraphEdge(t, graph, RepoRiskEdgeRepositoryGovernedBy, RepoRiskEvidenceKnown)
+	if countEdges(graph, RepoRiskEdgeFindingWeakensControl) != 0 {
+		t.Fatalf("expected a functioning alert source with open alerts not to be recorded as weakened, got %+v", graph.Edges)
+	}
+	score := scoreForFinding(t, graph, "open-alerts")
+	if score.Factors.PostureAmplifier != 0 {
+		t.Fatalf("expected a functioning alert source not to amplify blast radius, got %+v", score.Factors)
+	}
+}
+
+func TestBuildRepoRiskGraphWeakensDisabledAlertSource(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	graph := BuildRepoRiskGraph([]Finding{
+		postureFinding("disabled-scanning", "github_secret_scanning_disabled", SeverityHigh, now, map[string]any{
+			"github_posture_check_id": "secret_scanning",
+			"github_posture_scope":    "repository",
+			"github_posture_state":    "insecure",
+			"github_posture_reason":   "not_configured",
+		}),
+	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	assertGraphEdge(t, graph, RepoRiskEdgeFindingWeakensControl, RepoRiskEvidenceKnown)
+	score := scoreForFinding(t, graph, "disabled-scanning")
+	if score.Factors.PostureAmplifier == 0 {
+		t.Fatalf("expected a disabled secret-scanning control to amplify blast radius, got %+v", score.Factors)
+	}
+}
+
+func TestBuildRepoRiskGraphAmplifiesUnprotectedProductionEnvironment(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	production := postureFinding("prod-env", "github_environment_unprotected", SeverityHigh, now, map[string]any{
+		"github_posture_check_id":             "deployment_environments",
+		"github_posture_scope":                "repository",
+		"github_posture_state":                "insecure",
+		"unprotected_environments":            1,
+		"unprotected_environment_criticality": "production",
+	})
+	development := postureFinding("dev-env", "github_environment_unprotected", SeverityHigh, now, map[string]any{
+		"github_posture_check_id":             "deployment_environments",
+		"github_posture_scope":                "repository",
+		"github_posture_state":                "insecure",
+		"unprotected_environments":            1,
+		"unprotected_environment_criticality": "development",
+	})
+	graph := BuildRepoRiskGraph([]Finding{production, development}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	prod := scoreForFinding(t, graph, "prod-env")
+	dev := scoreForFinding(t, graph, "dev-env")
+	if prod.Factors.PostureAmplifier <= dev.Factors.PostureAmplifier {
+		t.Fatalf("expected an unprotected production environment to amplify more than a development one, prod=%+v dev=%+v", prod.Factors, dev.Factors)
+	}
+}
+
 func postureFinding(id string, detector string, severity FindingSeverity, now time.Time, evidence map[string]any) Finding {
 	evidence["repository"] = "owner/repo"
 	evidence["adapter_source"] = "github_posture"
