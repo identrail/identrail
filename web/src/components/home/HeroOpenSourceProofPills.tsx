@@ -3,13 +3,12 @@ import { projectMetricsSource, siteLinks } from '../../siteConfig';
 import { SafeLink } from '../SafeLink';
 
 type HeroProofStats = {
-  stars: number | null;
   pulls: number | null;
 };
 
-const CACHE_KEY = 'identrail_hero_proof_stats_v2';
+const CACHE_KEY = 'identrail_hero_proof_stats_v3';
 const CACHE_TTL_MS = 30 * 60 * 1000;
-const EMPTY_STATS: HeroProofStats = { stars: null, pulls: null };
+const EMPTY_STATS: HeroProofStats = { pulls: null };
 
 function formatMetric(value: number | null): string {
   if (value === null) return 'Live';
@@ -49,18 +48,6 @@ function cacheStats(stats: HeroProofStats) {
   }
 }
 
-async function fetchGitHubStars(signal: AbortSignal): Promise<number | null> {
-  const { owner, name } = projectMetricsSource.github;
-  const response = await fetch(`https://api.github.com/repos/${owner}/${name}`, {
-    signal,
-    headers: { Accept: 'application/vnd.github+json' }
-  });
-  if (!response.ok) return null;
-
-  const payload = (await response.json()) as { stargazers_count?: number };
-  return typeof payload.stargazers_count === 'number' ? payload.stargazers_count : null;
-}
-
 async function fetchDockerPulls(repoPath: string, signal: AbortSignal): Promise<number | null> {
   try {
     const response = await fetch(`https://img.shields.io/docker/pulls/${repoPath}.json`, { signal });
@@ -75,14 +62,12 @@ async function fetchDockerPulls(repoPath: string, signal: AbortSignal): Promise<
 }
 
 async function fetchHeroProofStats(signal: AbortSignal): Promise<HeroProofStats> {
-  const [stars, pullResults] = await Promise.all([
-    fetchGitHubStars(signal),
-    Promise.all(projectMetricsSource.dockerHubRepos.map((repoPath) => fetchDockerPulls(repoPath, signal)))
-  ]);
-
+  const pullResults = await Promise.all(
+    projectMetricsSource.dockerHubRepos.map((repoPath) => fetchDockerPulls(repoPath, signal))
+  );
   const availablePulls = pullResults.filter((current): current is number => current !== null);
   const pulls = availablePulls.length > 0 ? availablePulls.reduce((total, current) => total + current, 0) : null;
-  return { stars, pulls };
+  return { pulls };
 }
 
 export function HeroOpenSourceProofPills() {
@@ -98,10 +83,7 @@ export function HeroOpenSourceProofPills() {
     void fetchHeroProofStats(controller.signal)
       .then((liveStats) => {
         setStats((current) => {
-          const next = {
-            stars: liveStats.stars ?? current.stars,
-            pulls: liveStats.pulls ?? current.pulls
-          };
+          const next = { pulls: liveStats.pulls ?? current.pulls };
           cacheStats(next);
           return next;
         });
@@ -114,19 +96,13 @@ export function HeroOpenSourceProofPills() {
   const proofItems = useMemo(
     () => [
       {
-        label: 'GitHub stars',
-        value: formatMetric(stats.stars),
-        href: siteLinks.starOnGithub,
-        icon: '/brand-logos/github.svg'
-      },
-      {
         label: 'Docker pulls',
         value: formatMetric(stats.pulls),
         href: siteLinks.quickstartDocker,
         icon: '/brand-logos/docker.svg'
       }
     ],
-    [stats.pulls, stats.stars]
+    [stats.pulls]
   );
 
   return (

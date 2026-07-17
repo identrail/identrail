@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Remove the GitHub stars pill from the marketing homepage hero. The remaining
+  Docker pulls pill now sits where the pair used to, so the hero no longer
+  advertises a low star count. Also drops the GitHub REST call the pill made on
+  every page load.
 - Extend the **repository risk graph with GitHub control-plane posture** (#1710).
   `GET /v1/repo-risk-graph` now represents branch protection, repository
   rulesets, Actions policy, default workflow permissions, reusable workflow
