@@ -222,17 +222,26 @@ func (builder *repoRiskGraphBuilder) addPostureReachability(finding Finding, fin
 
 	if repositoryNodeID != "" {
 		governanceKind := RepoRiskEdgeRepositoryGovernedBy
+		emitGovernance := true
 		if control.Scope == repoRiskPostureScopeOrganization {
 			governanceKind = RepoRiskEdgeInheritsOrgPolicy
+			// An inheritance edge asserts the repository is actually governed by
+			// the organization control. When the evidence says the repository is
+			// not attached (or no central configuration exists), claiming
+			// inheritance contradicts the finding and would let traversal treat an
+			// uncovered repository as protected, so no edge is emitted.
+			emitGovernance = repoRiskPostureRepositoryInheritsOrgControl(finding, control)
 		}
-		governanceEvidence := map[string]any{
-			"github_posture_check_id": control.CheckID,
-			"github_posture_scope":    control.Scope,
+		if emitGovernance {
+			governanceEvidence := map[string]any{
+				"github_posture_check_id": control.CheckID,
+				"github_posture_scope":    control.Scope,
+			}
+			if control.Organization != "" {
+				governanceEvidence["organization"] = control.Organization
+			}
+			builder.upsertEdge(governanceKind, repositoryNodeID, controlNodeID, controlState, governanceEvidence)
 		}
-		if control.Organization != "" {
-			governanceEvidence["organization"] = control.Organization
-		}
-		builder.upsertEdge(governanceKind, repositoryNodeID, controlNodeID, controlState, governanceEvidence)
 	}
 
 	if !control.Observed() {
@@ -409,6 +418,31 @@ func repoRiskPostureAmplifierFactor(finding Finding) int {
 		score = 20
 	}
 	return clampInt(score, 0, 100)
+}
+
+// repoRiskPostureRepositoryInheritsOrgControl reports whether an organization
+// posture finding describes a control the repository is actually attached to.
+// Organization-wide policies (Actions source policy, default workflow token,
+// reusable workflow allowlist) apply to every repository in the organization,
+// so inheritance holds. Code security configurations and secret-scanning
+// policies only apply when the repository is attached; a finding that reports it
+// is unattached, or that no central configuration exists, is not inheritance.
+func repoRiskPostureRepositoryInheritsOrgControl(finding Finding, control repoRiskPostureControl) bool {
+	if control.Scope != repoRiskPostureScopeOrganization {
+		return true
+	}
+	switch control.CheckID {
+	case "org_secret_scanning_policy":
+		// An insecure secret-scanning policy always means the repository does not
+		// inherit enforced secret scanning and push protection.
+		return false
+	case "org_code_security_configuration":
+		switch firstEvidenceString(finding.Evidence, "github_posture_reason") {
+		case "no_central_configuration", "configuration_not_applied":
+			return false
+		}
+	}
+	return true
 }
 
 // repoRiskPostureAlertSourceFunctioning reports whether a posture finding names

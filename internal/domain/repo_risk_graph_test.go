@@ -700,6 +700,48 @@ func TestBuildRepoRiskGraphAmplifiesUnprotectedProductionEnvironment(t *testing.
 	}
 }
 
+func TestBuildRepoRiskGraphDoesNotClaimInheritanceForUnattachedRepository(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	graph := BuildRepoRiskGraph([]Finding{
+		postureFinding("not-attached", "github_code_security_configuration_weak", SeverityMedium, now, map[string]any{
+			"github_posture_check_id": "org_code_security_configuration",
+			"github_posture_scope":    "organization",
+			"github_posture_state":    "insecure",
+			"github_posture_reason":   "configuration_not_applied",
+			"organization":            "owner",
+		}),
+		postureFinding("not-attached-secrets", "github_secret_scanning_disabled", SeverityHigh, now, map[string]any{
+			"github_posture_check_id": "org_secret_scanning_policy",
+			"github_posture_scope":    "organization",
+			"github_posture_state":    "insecure",
+			"github_posture_reason":   "secret_scanning_policy_weak",
+			"organization":            "owner",
+		}),
+	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	assertGraphNode(t, graph, RepoRiskNodeOrgSecurityConfiguration, "code security configuration: owner")
+	if countEdges(graph, RepoRiskEdgeInheritsOrgPolicy) != 0 {
+		t.Fatalf("expected an unattached repository not to inherit organization controls, got %+v", graph.Edges)
+	}
+	// The control is still reported as weak; only the inheritance claim is dropped.
+	assertGraphEdge(t, graph, RepoRiskEdgeFindingWeakensControl, RepoRiskEvidenceKnown)
+}
+
+func TestBuildRepoRiskGraphKeepsInheritanceForAttachedWeakConfiguration(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	graph := BuildRepoRiskGraph([]Finding{
+		postureFinding("attached-weak", "github_code_security_configuration_weak", SeverityMedium, now, map[string]any{
+			"github_posture_check_id": "org_code_security_configuration",
+			"github_posture_scope":    "organization",
+			"github_posture_state":    "insecure",
+			"github_posture_reason":   "configuration_not_enforced",
+			"organization":            "owner",
+		}),
+	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	assertGraphEdge(t, graph, RepoRiskEdgeInheritsOrgPolicy, RepoRiskEvidenceKnown)
+}
+
 func postureFinding(id string, detector string, severity FindingSeverity, now time.Time, evidence map[string]any) Finding {
 	evidence["repository"] = "owner/repo"
 	evidence["adapter_source"] = "github_posture"
