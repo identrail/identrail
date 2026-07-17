@@ -36,6 +36,7 @@ type RepoFindingCluster struct {
 	Type         FindingType                `json:"type"`
 	Severity     FindingSeverity            `json:"severity"`
 	Detector     string                     `json:"detector,omitempty"`
+	Source       string                     `json:"source,omitempty"`
 	Title        string                     `json:"title"`
 	HumanSummary string                     `json:"human_summary"`
 	Remediation  string                     `json:"remediation"`
@@ -73,6 +74,7 @@ func BuildRepoFindingClusters(findings []Finding) []RepoFindingCluster {
 					Type:         finding.Type,
 					Severity:     finding.Severity,
 					Detector:     strings.TrimSpace(finding.Detector),
+					Source:       strings.TrimSpace(finding.AdapterSource),
 					Title:        finding.Title,
 					HumanSummary: finding.HumanSummary,
 					Remediation:  finding.Remediation,
@@ -95,6 +97,9 @@ func BuildRepoFindingClusters(findings []Finding) []RepoFindingCluster {
 		}
 		if detector := strings.TrimSpace(finding.Detector); accumulator.cluster.Detector == "" && detector != "" {
 			accumulator.cluster.Detector = detector
+		}
+		if source := strings.TrimSpace(finding.AdapterSource); accumulator.cluster.Source == "" && source != "" {
+			accumulator.cluster.Source = source
 		}
 		if higherRepoFindingSeverity(finding.Severity, accumulator.cluster.Severity) {
 			accumulator.cluster.Severity = finding.Severity
@@ -201,7 +206,16 @@ func repoFindingClusterKey(finding Finding) string {
 	case finding.Type == FindingSecretExposure:
 		return strings.Join([]string{"finding", repository, string(finding.Type), strings.TrimSpace(finding.ScanID), strings.TrimSpace(finding.ID)}, "\x1f")
 	case detector != "":
-		return strings.Join([]string{"detector", repository, string(finding.Type), detector}, "\x1f")
+		parts := []string{"detector", repository, string(finding.Type), detector}
+		// Distinct promotion sources can share one detector (repository and
+		// organization posture both report `github_secret_scanning_disabled`, for
+		// example). Those are separate durable findings, so keep their clusters
+		// separate. The source is only appended when present, so clusters for
+		// findings without an adapter source keep their existing identity.
+		if source := strings.TrimSpace(finding.AdapterSource); source != "" {
+			parts = append(parts, "source", source)
+		}
+		return strings.Join(parts, "\x1f")
 	default:
 		return strings.Join([]string{"finding", repository, string(finding.Type), strings.TrimSpace(finding.ID)}, "\x1f")
 	}

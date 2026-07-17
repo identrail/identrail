@@ -66,6 +66,58 @@ func TestBuildRepoFindingClustersGroupsMisconfigMembersByRepositoryAndDetector(t
 	}
 }
 
+func TestBuildRepoFindingClustersSeparatesPostureScopesSharingOneDetector(t *testing.T) {
+	// Repository-scoped `secret_scanning` and organization-scoped
+	// `org_secret_scanning_policy` posture checks intentionally share the
+	// `github_secret_scanning_disabled` detector, but they are distinct durable
+	// findings with distinct lifecycle keys. Clustering must keep them apart so
+	// an org policy gap never hides behind a repository setting.
+	findings := []Finding{
+		{
+			ID:            "f-repo",
+			ScanID:        "scan-1",
+			Type:          FindingRepoMisconfig,
+			Severity:      SeverityHigh,
+			Title:         "GitHub posture gap: secret scanning",
+			Repository:    "owner/repo",
+			Detector:      "github_secret_scanning_disabled",
+			AdapterSource: "github_posture",
+			CreatedAt:     time.Date(2026, 4, 29, 9, 0, 0, 0, time.UTC),
+		},
+		{
+			ID:            "f-org",
+			ScanID:        "scan-1",
+			Type:          FindingRepoMisconfig,
+			Severity:      SeverityHigh,
+			Title:         "GitHub posture gap: org secret scanning policy",
+			Repository:    "owner/repo",
+			Detector:      "github_secret_scanning_disabled",
+			AdapterSource: "github_org_posture",
+			CreatedAt:     time.Date(2026, 4, 29, 9, 0, 0, 0, time.UTC),
+		},
+	}
+
+	clusters := BuildRepoFindingClusters(findings)
+	if len(clusters) != 2 {
+		t.Fatalf("expected posture scopes to cluster separately, got %+v", clusters)
+	}
+	bySource := map[string]RepoFindingCluster{}
+	for _, cluster := range clusters {
+		bySource[cluster.Source] = cluster
+	}
+	repoCluster, ok := bySource["github_posture"]
+	if !ok || repoCluster.Count != 1 || repoCluster.Detector != "github_secret_scanning_disabled" {
+		t.Fatalf("expected repository posture cluster, got %+v", clusters)
+	}
+	orgCluster, ok := bySource["github_org_posture"]
+	if !ok || orgCluster.Count != 1 || orgCluster.Detector != "github_secret_scanning_disabled" {
+		t.Fatalf("expected organization posture cluster, got %+v", clusters)
+	}
+	if repoCluster.ID == orgCluster.ID {
+		t.Fatalf("expected distinct cluster ids per posture source, got %s", repoCluster.ID)
+	}
+}
+
 func TestBuildRepoFindingClustersGroupsSecretsByFingerprint(t *testing.T) {
 	findings := []Finding{
 		{
