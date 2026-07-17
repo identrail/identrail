@@ -361,6 +361,82 @@ func TestBuildRepoRiskGraphLinksGitHubPostureControlPlane(t *testing.T) {
 	}
 }
 
+func TestBuildRepoRiskGraphConvergesOrgPolicyAcrossRepositories(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	orgPolicyFinding := func(id string, repository string) Finding {
+		return Finding{
+			ID:         id,
+			Type:       FindingRepoMisconfig,
+			Severity:   SeverityMedium,
+			Repository: repository,
+			Detector:   "github_actions_policy_broad",
+			CreatedAt:  now,
+			Evidence: map[string]any{
+				"repository":              repository,
+				"github_posture_check_id": "org_actions_policy",
+				"github_posture_scope":    "organization",
+				"github_posture_state":    "insecure",
+				"organization":            "owner",
+				"allowed_actions":         "all",
+			},
+		}
+	}
+	graph := BuildRepoRiskGraph([]Finding{
+		orgPolicyFinding("repo-a-policy", "owner/repo-a"),
+		orgPolicyFinding("repo-b-policy", "owner/repo-b"),
+	}, RepoRiskGraphOptions{Now: now})
+
+	if countNodes(graph, RepoRiskNodeActionsPolicy) != 1 {
+		t.Fatalf("expected one organization policy to stay one node across repositories, got %+v", graph.Nodes)
+	}
+	for _, node := range graph.Nodes {
+		if node.Kind == RepoRiskNodeActionsPolicy && node.Repository != "" {
+			t.Fatalf("expected a shared organization policy not to be pinned to one repository, got %+v", node)
+		}
+	}
+	if countEdges(graph, RepoRiskEdgeInheritsOrgPolicy) != 2 {
+		t.Fatalf("expected both repositories to inherit the shared organization policy, got %+v", graph.Edges)
+	}
+
+	inheritedNodeIDs := map[string]struct{}{}
+	for _, edge := range graph.Edges {
+		if edge.Kind == RepoRiskEdgeInheritsOrgPolicy {
+			inheritedNodeIDs[edge.ToNodeID] = struct{}{}
+		}
+	}
+	if len(inheritedNodeIDs) != 1 {
+		t.Fatalf("expected inheritance edges to converge on one policy node, got %+v", graph.Edges)
+	}
+}
+
+func TestBuildRepoRiskGraphKeepsOrgPolicyPerRepositoryWithoutOrganizationEvidence(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	unattributedFinding := func(id string, repository string) Finding {
+		return Finding{
+			ID:         id,
+			Type:       FindingRepoMisconfig,
+			Severity:   SeverityMedium,
+			Repository: repository,
+			Detector:   "github_actions_policy_broad",
+			CreatedAt:  now,
+			Evidence: map[string]any{
+				"repository":              repository,
+				"github_posture_check_id": "org_actions_policy",
+				"github_posture_scope":    "organization",
+				"github_posture_state":    "insecure",
+			},
+		}
+	}
+	graph := BuildRepoRiskGraph([]Finding{
+		unattributedFinding("repo-a-policy", "owner-a/repo"),
+		unattributedFinding("repo-b-policy", "owner-b/repo"),
+	}, RepoRiskGraphOptions{Now: now})
+
+	if countNodes(graph, RepoRiskNodeActionsPolicy) != 2 {
+		t.Fatalf("expected policies without organization evidence to stay separate rather than merge, got %+v", graph.Nodes)
+	}
+}
+
 func TestBuildRepoRiskGraphSurfacesPermissionLimitedPostureAsUncertainty(t *testing.T) {
 	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
 	graph := BuildRepoRiskGraph([]Finding{

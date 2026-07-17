@@ -189,8 +189,21 @@ func (builder *repoRiskGraphBuilder) addPostureReachability(finding Finding, fin
 	if !control.Observed() {
 		controlState = RepoRiskEvidenceUnknown
 	}
-	naturalKey := strings.Join([]string{repository, string(control.Kind), control.Scope, control.CheckID}, "\x1f")
-	controlNodeID := builder.upsertNode(control.Kind, naturalKey, control.Label, repository, controlState, repoRiskPostureNodeEvidence(finding, control))
+	// One organization policy is one control, however many repositories inherit
+	// it, so org-scoped controls are keyed by organization and left unpinned to
+	// any single repository. Keying them per repository would split one policy
+	// into a node per repository and stop inheritance edges from converging on
+	// the shared blast radius. An organization-scoped check that never reported
+	// its organization falls back to repository keying rather than merging
+	// unrelated policies together.
+	controlKeyScope := repository
+	controlRepository := repository
+	if control.Scope == repoRiskPostureScopeOrganization && control.Organization != "" {
+		controlKeyScope = "organization:" + control.Organization
+		controlRepository = ""
+	}
+	naturalKey := strings.Join([]string{controlKeyScope, string(control.Kind), control.Scope, control.CheckID}, "\x1f")
+	controlNodeID := builder.upsertNode(control.Kind, naturalKey, control.Label, controlRepository, controlState, repoRiskPostureNodeEvidence(finding, control))
 	if control.Kind == RepoRiskNodeRunnerGroup {
 		builder.rememberRunnerGroupNode(repository, controlNodeID)
 	}

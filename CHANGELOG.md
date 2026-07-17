@@ -13,9 +13,10 @@
   `posture_amplifier` factor so proven-weak controls such as an unprotected
   default branch, a broad Actions policy, self-hosted runners, writable deploy
   keys, or unprotected production environments widen blast radius. Posture
-  sources the scanner could not read stay visible as unknown nodes, unknown
-  edges, and a `posture_source` score unknown rather than being scored or
-  silently dropped.
+  sources the scanner could not read still return a normal numeric score, but
+  stay visible as unknown graph nodes, unknown graph edges, a `posture_source`
+  entry in the score's `unknowns` list, and a zero `posture_amplifier`, so an
+  unreadable control is never silently dropped or mistaken for a weak one.
 - Replace the first-run **Connect AWS** screen with a scope-first single-account
   setup wizard (#1750). Operators now choose the supported account scope, enter
   a display name and setup region, launch the CloudFormation stack through a
