@@ -124,13 +124,16 @@ func repoRiskPostureControlForFinding(finding Finding) (repoRiskPostureControl, 
 		control.Kind = RepoRiskNodeRepositoryRuleset
 		control.Label = "repository rulesets"
 	case "actions_permissions":
-		// The repository Actions check is a combined control: it flags both broad
-		// action sources and a write-by-default workflow token. When the action
-		// sources are restricted but the default token is write, the weak control
-		// is the workflow-permission default, not the Actions source policy, so it
-		// must resolve to its own node instead of being attributed to the policy.
+		// The repository Actions check is a combined control: it flags broad
+		// action sources, a write-by-default workflow token, and Actions being
+		// allowed to approve pull-request reviews. When action sources are
+		// restricted, the weak control is the workflow-permission default (either
+		// the write default or the PR-approval privilege it grants), not the
+		// Actions source policy, so it must resolve to its own node instead of
+		// being attributed to the policy.
 		if !strings.EqualFold(firstEvidenceString(finding.Evidence, "allowed_actions"), "all") &&
-			strings.EqualFold(firstEvidenceString(finding.Evidence, "default_workflow_permissions"), "write") {
+			(strings.EqualFold(firstEvidenceString(finding.Evidence, "default_workflow_permissions"), "write") ||
+				evidenceBool(finding.Evidence, "can_approve_pull_request_reviews")) {
 			control.Kind = RepoRiskNodeWorkflowPermissionDefault
 			control.Label = "default workflow permissions: repository"
 		} else {
@@ -429,6 +432,14 @@ func repoRiskPostureAmplifierFactor(finding Finding) int {
 // is unattached, or that no central configuration exists, is not inheritance.
 func repoRiskPostureRepositoryInheritsOrgControl(finding Finding, control repoRiskPostureControl) bool {
 	if control.Scope != repoRiskPostureScopeOrganization {
+		return true
+	}
+	// Only observed evidence can prove the repository is not attached. When the
+	// check is permission_limited, unavailable, or unknown, whether the repository
+	// inherits the control is itself unknown, so the caller must keep an
+	// unknown-state inheritance edge rather than dropping the governance link
+	// silently.
+	if !control.Observed() {
 		return true
 	}
 	switch control.CheckID {

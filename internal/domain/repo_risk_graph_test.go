@@ -615,6 +615,26 @@ func TestBuildRepoRiskGraphMapsRepositoryWriteDefaultToItsOwnControl(t *testing.
 	assertGraphEdge(t, graph, RepoRiskEdgeFindingWeakensControl, RepoRiskEvidenceKnown)
 }
 
+func TestBuildRepoRiskGraphMapsPRApprovalPrivilegeToWorkflowPermissionControl(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	graph := BuildRepoRiskGraph([]Finding{
+		postureFinding("pr-approval", "github_actions_policy_broad", SeverityHigh, now, map[string]any{
+			"github_posture_check_id":          "actions_permissions",
+			"github_posture_category":          "actions",
+			"github_posture_scope":             "repository",
+			"github_posture_state":             "insecure",
+			"allowed_actions":                  "selected",
+			"default_workflow_permissions":     "read",
+			"can_approve_pull_request_reviews": true,
+		}),
+	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	assertGraphNode(t, graph, RepoRiskNodeWorkflowPermissionDefault, "default workflow permissions: repository")
+	if countNodes(graph, RepoRiskNodeActionsPolicy) != 0 {
+		t.Fatalf("expected PR-approval privilege to attribute to the workflow permission control, not the Actions source policy, got %+v", graph.Nodes)
+	}
+}
+
 func TestBuildRepoRiskGraphKeepsBroadActionSourcesOnActionsPolicy(t *testing.T) {
 	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
 	graph := BuildRepoRiskGraph([]Finding{
@@ -725,6 +745,25 @@ func TestBuildRepoRiskGraphDoesNotClaimInheritanceForUnattachedRepository(t *tes
 	}
 	// The control is still reported as weak; only the inheritance claim is dropped.
 	assertGraphEdge(t, graph, RepoRiskEdgeFindingWeakensControl, RepoRiskEvidenceKnown)
+}
+
+func TestBuildRepoRiskGraphKeepsUnknownInheritanceForUnreadableSecretScanningPolicy(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	graph := BuildRepoRiskGraph([]Finding{
+		postureFinding("permission-limited-secrets", "github_posture_permission_limited", SeverityMedium, now, map[string]any{
+			"github_posture_check_id": "org_secret_scanning_policy",
+			"github_posture_scope":    "organization",
+			"github_posture_state":    "permission_limited",
+			"organization":            "owner",
+		}),
+	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	assertGraphNode(t, graph, RepoRiskNodeAlertSource, "alert source: secret scanning policy: owner")
+	// The scanner could not read the policy, so whether the repository inherits
+	// it is itself unknown; the graph must retain an unknown-state inheritance
+	// edge rather than drop it and disconnect the control from the repository.
+	assertGraphEdge(t, graph, RepoRiskEdgeInheritsOrgPolicy, RepoRiskEvidenceUnknown)
+	assertGraphEdge(t, graph, RepoRiskEdgeFindingDependsOnPostureSource, RepoRiskEvidenceUnknown)
 }
 
 func TestBuildRepoRiskGraphKeepsInheritanceForAttachedWeakConfiguration(t *testing.T) {
