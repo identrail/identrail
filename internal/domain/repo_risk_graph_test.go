@@ -723,6 +723,7 @@ func TestBuildRepoRiskGraphAmplifiesUnprotectedProductionEnvironment(t *testing.
 func TestBuildRepoRiskGraphDoesNotClaimInheritanceForUnattachedRepository(t *testing.T) {
 	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
 	graph := BuildRepoRiskGraph([]Finding{
+		// configuration_not_applied: collector never queried repo attachment.
 		postureFinding("not-attached", "github_code_security_configuration_weak", SeverityMedium, now, map[string]any{
 			"github_posture_check_id": "org_code_security_configuration",
 			"github_posture_scope":    "organization",
@@ -730,20 +731,71 @@ func TestBuildRepoRiskGraphDoesNotClaimInheritanceForUnattachedRepository(t *tes
 			"github_posture_reason":   "configuration_not_applied",
 			"organization":            "owner",
 		}),
+		// configuration_not_enforced: early return before attachment query.
+		postureFinding("not-enforced", "github_code_security_configuration_weak", SeverityMedium, now, map[string]any{
+			"github_posture_check_id": "org_code_security_configuration",
+			"github_posture_scope":    "organization",
+			"github_posture_state":    "insecure",
+			"github_posture_reason":   "configuration_not_enforced",
+			"organization":            "owner-b",
+		}),
+		// configuration_not_protective: same, and Codex specifically called out
+		// that this reason contains no attachment evidence.
+		postureFinding("not-protective", "github_code_security_configuration_weak", SeverityMedium, now, map[string]any{
+			"github_posture_check_id": "org_code_security_configuration",
+			"github_posture_scope":    "organization",
+			"github_posture_state":    "insecure",
+			"github_posture_reason":   "configuration_not_protective",
+			"organization":            "owner-c",
+		}),
+		// Reached the attachment query, repo is genuinely unattached.
+		postureFinding("no-repo-config", "github_code_security_configuration_weak", SeverityMedium, now, map[string]any{
+			"github_posture_check_id":          "org_code_security_configuration",
+			"github_posture_scope":             "organization",
+			"github_posture_state":             "insecure",
+			"github_posture_reason":            "configuration_not_protective",
+			"organization":                     "owner-d",
+			"repository_configuration_applied": false,
+		}),
+		// Secret-scanning weak with no attachment flag: unattached.
 		postureFinding("not-attached-secrets", "github_secret_scanning_disabled", SeverityHigh, now, map[string]any{
 			"github_posture_check_id": "org_secret_scanning_policy",
 			"github_posture_scope":    "organization",
 			"github_posture_state":    "insecure",
 			"github_posture_reason":   "secret_scanning_policy_weak",
-			"organization":            "owner",
+			"organization":            "owner-e",
 		}),
 	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
 
 	assertGraphNode(t, graph, RepoRiskNodeOrgSecurityConfiguration, "code security configuration: owner")
 	if countEdges(graph, RepoRiskEdgeInheritsOrgPolicy) != 0 {
-		t.Fatalf("expected an unattached repository not to inherit organization controls, got %+v", graph.Edges)
+		t.Fatalf("expected unattached repositories not to inherit organization controls, got %+v", graph.Edges)
 	}
-	// The control is still reported as weak; only the inheritance claim is dropped.
+	// The controls are still reported as weak; only the inheritance claim is dropped.
+	if countEdges(graph, RepoRiskEdgeFindingWeakensControl) != 5 {
+		t.Fatalf("expected every weak organization control to still weaken its node, got %+v", graph.Edges)
+	}
+}
+
+func TestBuildRepoRiskGraphRetainsInheritanceForAttachedWeakSecretScanningPolicy(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	// Repository is attached to an organization configuration that does not
+	// enable both secret scanning and push protection. Inheritance still holds:
+	// the config governs the repository, the config is weak, so the risk
+	// propagates through the inheritance edge.
+	graph := BuildRepoRiskGraph([]Finding{
+		postureFinding("attached-weak-secrets", "github_secret_scanning_disabled", SeverityHigh, now, map[string]any{
+			"github_posture_check_id":          "org_secret_scanning_policy",
+			"github_posture_scope":             "organization",
+			"github_posture_state":             "insecure",
+			"github_posture_reason":            "secret_scanning_policy_weak",
+			"organization":                     "owner",
+			"repository_configuration_applied": true,
+			"repository_configuration_status":  "attached",
+		}),
+	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	assertGraphEdge(t, graph, RepoRiskEdgeInheritsOrgPolicy, RepoRiskEvidenceKnown)
 	assertGraphEdge(t, graph, RepoRiskEdgeFindingWeakensControl, RepoRiskEvidenceKnown)
 }
 
@@ -768,17 +820,85 @@ func TestBuildRepoRiskGraphKeepsUnknownInheritanceForUnreadableSecretScanningPol
 
 func TestBuildRepoRiskGraphKeepsInheritanceForAttachedWeakConfiguration(t *testing.T) {
 	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	// A code security configuration finding that reached the repository
+	// attachment query and confirmed the repository is attached must still emit
+	// the inheritance edge even when the configuration itself is not protective.
 	graph := BuildRepoRiskGraph([]Finding{
 		postureFinding("attached-weak", "github_code_security_configuration_weak", SeverityMedium, now, map[string]any{
-			"github_posture_check_id": "org_code_security_configuration",
-			"github_posture_scope":    "organization",
-			"github_posture_state":    "insecure",
-			"github_posture_reason":   "configuration_not_enforced",
-			"organization":            "owner",
+			"github_posture_check_id":          "org_code_security_configuration",
+			"github_posture_scope":             "organization",
+			"github_posture_state":             "insecure",
+			"github_posture_reason":            "configuration_not_protective",
+			"organization":                     "owner",
+			"repository_configuration_applied": true,
+			"repository_configuration_status":  "attached",
 		}),
 	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
 
 	assertGraphEdge(t, graph, RepoRiskEdgeInheritsOrgPolicy, RepoRiskEvidenceKnown)
+}
+
+func TestBuildRepoRiskGraphPrefersObservedEvidenceWhenUpgradingSharedOrgControl(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	// Two repositories share one organization Actions policy. The first
+	// finding was permission_limited (unknown), the second observed it as
+	// insecure. The shared control node must upgrade to known and its evidence
+	// must describe the observed state, not the earlier unknown one.
+	graph := BuildRepoRiskGraph([]Finding{
+		{
+			ID:         "unknown-first",
+			Type:       FindingRepoMisconfig,
+			Severity:   SeverityMedium,
+			Repository: "owner/repo-a",
+			Detector:   "github_posture_permission_limited",
+			CreatedAt:  now,
+			Evidence: map[string]any{
+				"repository":                  "owner/repo-a",
+				"github_posture_check_id":     "org_actions_policy",
+				"github_posture_scope":        "organization",
+				"github_posture_state":        "permission_limited",
+				"github_posture_collected_at": "2026-05-20T10:00:00Z",
+				"organization":                "owner",
+			},
+		},
+		{
+			ID:         "observed-second",
+			Type:       FindingRepoMisconfig,
+			Severity:   SeverityHigh,
+			Repository: "owner/repo-b",
+			Detector:   "github_actions_policy_broad",
+			CreatedAt:  now,
+			Evidence: map[string]any{
+				"repository":                  "owner/repo-b",
+				"github_posture_check_id":     "org_actions_policy",
+				"github_posture_scope":        "organization",
+				"github_posture_state":        "insecure",
+				"github_posture_collected_at": "2026-05-20T12:00:00Z",
+				"organization":                "owner",
+				"allowed_actions":             "all",
+			},
+		},
+	}, RepoRiskGraphOptions{Now: now})
+
+	var policyNode *RepoRiskGraphNode
+	for i := range graph.Nodes {
+		if graph.Nodes[i].Kind == RepoRiskNodeActionsPolicy {
+			policyNode = &graph.Nodes[i]
+			break
+		}
+	}
+	if policyNode == nil {
+		t.Fatalf("expected one shared Actions policy node, got %+v", graph.Nodes)
+	}
+	if policyNode.EvidenceState != RepoRiskEvidenceKnown {
+		t.Fatalf("expected observed evidence to upgrade the node to known, got %+v", policyNode)
+	}
+	if state := policyNode.Evidence["github_posture_state"]; state != "insecure" {
+		t.Fatalf("expected upgraded node to reflect observed posture state, got %v", state)
+	}
+	if collectedAt := policyNode.Evidence["github_posture_collected_at"]; collectedAt != "2026-05-20T12:00:00Z" {
+		t.Fatalf("expected upgraded node to carry the observed collection timestamp, got %v", collectedAt)
+	}
 }
 
 func postureFinding(id string, detector string, severity FindingSeverity, now time.Time, evidence map[string]any) Finding {

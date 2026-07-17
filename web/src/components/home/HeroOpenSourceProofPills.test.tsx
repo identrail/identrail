@@ -62,9 +62,9 @@ describe('HeroOpenSourceProofPills', () => {
   });
 
   it('does not render a GitHub stars pill and does not call the GitHub API', async () => {
-    const fetchedURLs: string[] = [];
+    const fetchedHostnames: string[] = [];
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
-      fetchedURLs.push(fetchURL(input));
+      fetchedHostnames.push(new URL(fetchURL(input)).hostname);
       return okJSON({ message: '2.4k' });
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -73,6 +73,6 @@ describe('HeroOpenSourceProofPills', () => {
 
     await waitFor(() => expect(screen.getByText('2.4k+')).toBeInTheDocument());
     expect(screen.queryByText('GitHub stars')).not.toBeInTheDocument();
-    expect(fetchedURLs.some((url) => url.includes('api.github.com'))).toBe(false);
+    expect(fetchedHostnames).not.toContain('api.github.com');
   });
 });

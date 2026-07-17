@@ -50,6 +50,8 @@ var repoRiskPostureEvidenceKeys = []string{
 	"org_runner_groups",
 	"public_repository_runner_groups",
 	"readonly_deploy_keys",
+	"repository_configuration_applied",
+	"repository_configuration_status",
 	"required_reviews",
 	"required_status_checks",
 	"ruleset_count",
@@ -443,15 +445,16 @@ func repoRiskPostureRepositoryInheritsOrgControl(finding Finding, control repoRi
 		return true
 	}
 	switch control.CheckID {
-	case "org_secret_scanning_policy":
-		// An insecure secret-scanning policy always means the repository does not
-		// inherit enforced secret scanning and push protection.
-		return false
-	case "org_code_security_configuration":
-		switch firstEvidenceString(finding.Evidence, "github_posture_reason") {
-		case "no_central_configuration", "configuration_not_applied":
-			return false
-		}
+	case "org_secret_scanning_policy", "org_code_security_configuration":
+		// The collector records repository_configuration_applied on findings
+		// whose code path actually reached the repository-attachment query. When
+		// it reports true, the repository is attached to a weak configuration and
+		// still inherits the control; when it reports false or is absent
+		// (early-return reasons that never queried attachment), no inheritance
+		// has been proven, so the edge must be suppressed instead of asserting
+		// governance that contradicts the evidence.
+		applied, ok := boolFromAny(finding.Evidence["repository_configuration_applied"])
+		return ok && applied
 	}
 	return true
 }

@@ -510,10 +510,17 @@ func (builder *repoRiskGraphBuilder) upsertNode(kind RepoRiskGraphNodeKind, natu
 	if node.Label == "" && strings.TrimSpace(label) != "" {
 		node.Label = strings.TrimSpace(label)
 	}
+	// When a later finding observes what an earlier finding could only mark as
+	// unknown, upgrading only EvidenceState would leave the node claiming
+	// "known" while its evidence still describes the earlier unknown state
+	// (state, timestamps, and any other conflicting keys). Prefer the new
+	// observed evidence on conflict so the promoted node reads coherently.
 	if node.EvidenceState == RepoRiskEvidenceUnknown && state == RepoRiskEvidenceKnown {
 		node.EvidenceState = RepoRiskEvidenceKnown
+		node.Evidence = mergeEvidence(evidence, node.Evidence)
+	} else {
+		node.Evidence = mergeEvidence(node.Evidence, evidence)
 	}
-	node.Evidence = mergeEvidence(node.Evidence, evidence)
 	builder.nodes[id] = node
 	return id
 }
@@ -542,8 +549,10 @@ func (builder *repoRiskGraphBuilder) upsertEdge(kind RepoRiskGraphEdgeKind, from
 	}
 	if edge.EvidenceState == RepoRiskEvidenceUnknown && state == RepoRiskEvidenceKnown {
 		edge.EvidenceState = RepoRiskEvidenceKnown
+		edge.Evidence = mergeEvidence(evidence, edge.Evidence)
+	} else {
+		edge.Evidence = mergeEvidence(edge.Evidence, evidence)
 	}
-	edge.Evidence = mergeEvidence(edge.Evidence, evidence)
 	builder.edges[id] = edge
 	return id
 }
