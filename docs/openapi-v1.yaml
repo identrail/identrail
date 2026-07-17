@@ -11420,6 +11420,9 @@ components:
       enum:
         - launch_stack
         - open_stackset
+        - enable_trusted_access
+        - register_delegated_admin
+        - select_targets
         - validate_role
         - refresh_status
         - repair_permissions
@@ -11444,6 +11447,9 @@ components:
         stack_name:
           type: string
           default: identrail-readonly-connector
+        stack_set_name:
+          type: string
+          default: identrail-readonly-connector-stackset
         scope_type:
           $ref: "#/components/schemas/AWSConnectorScopeType"
         deployment_method:
@@ -11522,6 +11528,10 @@ components:
           type: string
         policy_hash:
           type: string
+        stack_set_name:
+          type: string
+        template_checksum:
+          type: string
         scope_type:
           $ref: "#/components/schemas/AWSConnectorScopeType"
         deployment_method:
@@ -11552,6 +11562,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AWSConnectorNextAction"
+        target_summary:
+          $ref: "#/components/schemas/AWSConnectorTargetSummary"
+        prerequisites:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSStackSetOnboardingPrerequisite"
+        stackset_onboarding:
+          $ref: "#/components/schemas/AWSStackSetOnboardingResult"
         permission_preview:
           type: array
           items:
@@ -11775,6 +11793,16 @@ components:
           format: uri
         policy_hash:
           type: string
+        stack_set_name:
+          type: string
+        template_checksum:
+          type: string
+        target_summary:
+          $ref: "#/components/schemas/AWSConnectorTargetSummary"
+        prerequisites:
+          type: array
+          items:
+            $ref: "#/components/schemas/AWSStackSetOnboardingPrerequisite"
         created_at:
           type: string
           format: date-time
@@ -11787,6 +11815,26 @@ components:
           type: string
           format: date-time
           nullable: true
+    AWSConnectorTargetSummary:
+      type: object
+      description: Operator-declared StackSet target intent. Account and instance counts are only marked known when the request included explicit account IDs; organization and OU scopes are resolved by AWS during StackSet deployment.
+      properties:
+        account_count:
+          type: integer
+        account_count_known:
+          type: boolean
+        ou_count:
+          type: integer
+        region_count:
+          type: integer
+        excluded_account_count:
+          type: integer
+        expected_stack_instances:
+          type: integer
+        expected_stack_instances_known:
+          type: boolean
+        all_accounts:
+          type: boolean
     AWSPlatformBaselineRequest:
       type: object
       properties:
@@ -23507,6 +23555,7 @@ components:
       type: object
       properties:
         organization_id: { type: string }
+        all_accounts: { type: boolean }
         organizational_units:
           type: array
           items:

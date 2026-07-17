@@ -1,9 +1,11 @@
 # AWS Organization StackSet onboarding
 
-Implements [#1504](https://github.com/identrail/identrail/issues/1504). This is
-the operator-facing app flow that previews, launches, and recovers the
-organization-wide CloudFormation StackSet that deploys Identrail's read-only
-AWS connector role into member accounts.
+Implements [#1504](https://github.com/identrail/identrail/issues/1504) and the
+connector-start backend contract from
+[#1752](https://github.com/identrail/identrail/issues/1752). This is the
+operator-facing setup flow that previews, launches, and recovers the
+organization-wide CloudFormation StackSet that deploys Identrail's read-only AWS
+connector role into member accounts.
 
 The implementation is **read-only**, **metadata-only**, and **non-mutating**.
 Identrail never executes the StackSet on the operator's behalf — it generates a
@@ -23,6 +25,11 @@ contents are never read.
   fixture states, a `deployment_mode` query parameter (`service_managed` or
   `self_managed`), and explicit failure reasons, recovery actions, and evidence
   links.
+- First-class connector setup through `POST /v1/connectors/aws` for
+  `scope_type=organization`, `scope_type=selected_ous`, and
+  `scope_type=selected_accounts`. The start response returns the StackSet launch
+  URL, StackSet name, template checksum, target summary, prerequisites, setup
+  lifecycle fields, and unified `stackset_onboarding` payload.
 - A CloudFormation StackSet console launch URL builder in
   `internal/connectors/aws/cfn.go` that pins the template URL, parameter set,
   permission model, organizational units, account ids, and target regions
@@ -60,6 +67,10 @@ The response includes:
 
 - `stack_set_name`, `template_url`, `template_checksum`, `launch_url`,
   `deployment_mode`, and `partition`.
+- `target_summary` on connector start/poll responses. For Organization and OU
+  scopes, account and expected-instance counts are marked unknown because AWS
+  resolves member accounts during StackSet deployment. For selected account
+  scopes, those counts are exact after exclusions are applied.
 - `validation` — `ready` / `degraded` / `blocked` / `permission_denied` with
   blocking/advisory prerequisite counts, failure reasons, and remediation hints.
 - `permission_preview` — the read-only discovery permission tier (and the
@@ -83,9 +94,33 @@ The response includes:
 - `diagnostics`, `coverage_gaps`, `evidence_links`, `failure_reasons`,
   `remediation_hints`.
 
-The console `launch_url` carries no secret values — only the pinned template
-URL, parameter names (`IdentrailAccountId`, `ExternalId`, `RoleName`), the
-permission model, the target OU IDs, and the target regions.
+The console `launch_url` carries no AWS access keys, secret access keys, session
+tokens, customer payloads, or object contents. It does include setup-safe
+CloudFormation parameters such as the generated external ID, pinned template URL,
+permission model, target OU IDs, account filters, and target regions.
+
+The start route is still setup-only. It persists declared Organization/OU/account
+target intent in connector metadata, but it does not create graph nodes or report
+confirmed coverage until a later validation pass observes deployed StackSet
+instances.
+
+## Service-managed vs self-managed
+
+- `stackset_service_managed` is the default for AWS Organizations and selected
+  OU onboarding. AWS CloudFormation StackSets uses Organizations trusted access
+  to deploy into member accounts. Identrail generates the console launch URL and
+  prerequisite plan; the operator enables trusted access or delegated admin in
+  AWS when required.
+- `stackset_self_managed` is allowed only for explicit selected account IDs in
+  this backend contract. The planner blocks until an administration role is
+  configured because self-managed StackSets need operator-managed admin and
+  execution roles.
+
+AWS references:
+
+- [CloudFormation StackSets with AWS Organizations](https://docs.aws.amazon.com/organizations/latest/userguide/services-that-can-integrate-cloudformation.html)
+- [Create service-managed StackSets](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/stacksets-orgs-associate-stackset-with-org.html)
+- [Enable trusted access for StackSets](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/stacksets-orgs-activate-trusted-access.html)
 
 ## Instance state lifecycle
 

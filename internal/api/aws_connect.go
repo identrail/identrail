@@ -3,7 +3,9 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,7 @@ import (
 	awsconnector "github.com/identrail/identrail/internal/connectors/aws"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers/awscontract"
 )
 
 var (
@@ -84,12 +87,15 @@ const (
 type AWSConnectorNextAction string
 
 const (
-	AWSConnectorNextActionLaunchStack       AWSConnectorNextAction = "launch_stack"
-	AWSConnectorNextActionOpenStackSet      AWSConnectorNextAction = "open_stackset"
-	AWSConnectorNextActionValidateRole      AWSConnectorNextAction = "validate_role"
-	AWSConnectorNextActionRefreshStatus     AWSConnectorNextAction = "refresh_status"
-	AWSConnectorNextActionRepairPermissions AWSConnectorNextAction = "repair_permissions"
-	AWSConnectorNextActionStartIntelligence AWSConnectorNextAction = "start_intelligence"
+	AWSConnectorNextActionLaunchStack            AWSConnectorNextAction = "launch_stack"
+	AWSConnectorNextActionOpenStackSet           AWSConnectorNextAction = "open_stackset"
+	AWSConnectorNextActionEnableTrustedAccess    AWSConnectorNextAction = "enable_trusted_access"
+	AWSConnectorNextActionRegisterDelegatedAdmin AWSConnectorNextAction = "register_delegated_admin"
+	AWSConnectorNextActionSelectTargets          AWSConnectorNextAction = "select_targets"
+	AWSConnectorNextActionValidateRole           AWSConnectorNextAction = "validate_role"
+	AWSConnectorNextActionRefreshStatus          AWSConnectorNextAction = "refresh_status"
+	AWSConnectorNextActionRepairPermissions      AWSConnectorNextAction = "repair_permissions"
+	AWSConnectorNextActionStartIntelligence      AWSConnectorNextAction = "start_intelligence"
 )
 
 // AWSConnectorValidator validates one AWS read-only connector setup.
@@ -126,6 +132,7 @@ type AWSConnectorStartRequest struct {
 	Region                 string                       `json:"region,omitempty"`
 	RoleName               string                       `json:"role_name,omitempty"`
 	StackName              string                       `json:"stack_name,omitempty"`
+	StackSetName           string                       `json:"stack_set_name,omitempty"`
 	ScopeType              AWSConnectorScopeType        `json:"scope_type,omitempty"`
 	DeploymentMethod       AWSConnectorDeploymentMethod `json:"deployment_method,omitempty"`
 	TargetRegions          []string                     `json:"target_regions,omitempty"`
@@ -159,6 +166,20 @@ type AWSConnectorPollRequest struct {
 	ProjectID   string `form:"project_id" json:"project_id,omitempty"`
 }
 
+// AWSConnectorTargetSummary summarizes operator-declared StackSet coverage
+// intent. Counts are only marked known when the request included account IDs;
+// organization and OU scopes are resolved by AWS during StackSet deployment.
+type AWSConnectorTargetSummary struct {
+	AccountCount                int  `json:"account_count"`
+	AccountCountKnown           bool `json:"account_count_known"`
+	OUCount                     int  `json:"ou_count"`
+	RegionCount                 int  `json:"region_count"`
+	ExcludedAccountCount        int  `json:"excluded_account_count"`
+	ExpectedStackInstances      int  `json:"expected_stack_instances"`
+	ExpectedStackInstancesKnown bool `json:"expected_stack_instances_known"`
+	AllAccounts                 bool `json:"all_accounts"`
+}
+
 // AWSConnectorStartResponse returns launch data for the one-click AWS setup flow.
 type AWSConnectorStartResponse struct {
 	Connection             AWSConnectionStatus                     `json:"connection"`
@@ -169,7 +190,9 @@ type AWSConnectorStartResponse struct {
 	IdentrailAccountID     string                                  `json:"identrail_account_id,omitempty"`
 	RoleName               string                                  `json:"role_name"`
 	StackName              string                                  `json:"stack_name"`
+	StackSetName           string                                  `json:"stack_set_name,omitempty"`
 	PolicyHash             string                                  `json:"policy_hash"`
+	TemplateChecksum       string                                  `json:"template_checksum,omitempty"`
 	ScopeType              AWSConnectorScopeType                   `json:"scope_type"`
 	DeploymentMethod       AWSConnectorDeploymentMethod            `json:"deployment_method"`
 	OnboardingStatus       AWSConnectorOnboardingStatus            `json:"onboarding_status"`
@@ -180,6 +203,9 @@ type AWSConnectorStartResponse struct {
 	AutoOnboardNewAccounts bool                                    `json:"auto_onboard_new_accounts"`
 	SetupSummary           string                                  `json:"setup_summary"`
 	NextActions            []AWSConnectorNextAction                `json:"next_actions"`
+	TargetSummary          *AWSConnectorTargetSummary              `json:"target_summary,omitempty"`
+	Prerequisites          []AWSStackSetOnboardingPrerequisite     `json:"prerequisites,omitempty"`
+	StackSetOnboarding     *AWSStackSetOnboardingResult            `json:"stackset_onboarding,omitempty"`
 	PermissionPreview      []awsconnector.PermissionPreviewItem    `json:"permission_preview"`
 	PermissionTiers        []awsconnector.CapabilityPermissionTier `json:"permission_tiers"`
 }
@@ -248,39 +274,43 @@ type AWSConnectionValidationResult struct {
 
 // AWSConnectionStatus describes current AWS connector state for one project.
 type AWSConnectionStatus struct {
-	Provider               string                         `json:"provider"`
-	Connected              bool                           `json:"connected"`
-	ConnectorID            string                         `json:"connector_id,omitempty"`
-	DisplayName            string                         `json:"display_name,omitempty"`
-	Status                 domain.ConnectorStatus         `json:"status"`
-	HealthStatus           string                         `json:"health_status"`
-	RoleARN                string                         `json:"role_arn,omitempty"`
-	ExternalIDConfigured   bool                           `json:"external_id_configured"`
-	AccountID              string                         `json:"account_id,omitempty"`
-	PrincipalARN           string                         `json:"principal_arn,omitempty"`
-	UserID                 string                         `json:"user_id,omitempty"`
-	Region                 string                         `json:"region,omitempty"`
-	ScopeType              AWSConnectorScopeType          `json:"scope_type"`
-	DeploymentMethod       AWSConnectorDeploymentMethod   `json:"deployment_method"`
-	OnboardingStatus       AWSConnectorOnboardingStatus   `json:"onboarding_status"`
-	TargetRegions          []string                       `json:"target_regions"`
-	TargetAccountIDs       []string                       `json:"target_account_ids"`
-	TargetOUIDs            []string                       `json:"target_ou_ids"`
-	ExcludedAccountIDs     []string                       `json:"excluded_account_ids"`
-	AutoOnboardNewAccounts bool                           `json:"auto_onboard_new_accounts"`
-	SetupSummary           string                         `json:"setup_summary"`
-	NextActions            []AWSConnectorNextAction       `json:"next_actions"`
-	ExternalID             string                         `json:"-"`
-	PermissionChecks       []AWSConnectionPermissionCheck `json:"permission_checks"`
-	Diagnostics            []AWSConnectionDiagnostic      `json:"diagnostics"`
-	Capabilities           AWSConnectorCapabilities       `json:"capabilities"`
-	RemediationMessage     string                         `json:"remediation_message,omitempty"`
-	LaunchURL              string                         `json:"launch_url,omitempty"`
-	TemplateURL            string                         `json:"template_url,omitempty"`
-	PolicyHash             string                         `json:"policy_hash,omitempty"`
-	CreatedAt              *time.Time                     `json:"created_at,omitempty"`
-	UpdatedAt              *time.Time                     `json:"updated_at,omitempty"`
-	LastValidatedAt        *time.Time                     `json:"last_validated_at,omitempty"`
+	Provider               string                              `json:"provider"`
+	Connected              bool                                `json:"connected"`
+	ConnectorID            string                              `json:"connector_id,omitempty"`
+	DisplayName            string                              `json:"display_name,omitempty"`
+	Status                 domain.ConnectorStatus              `json:"status"`
+	HealthStatus           string                              `json:"health_status"`
+	RoleARN                string                              `json:"role_arn,omitempty"`
+	ExternalIDConfigured   bool                                `json:"external_id_configured"`
+	AccountID              string                              `json:"account_id,omitempty"`
+	PrincipalARN           string                              `json:"principal_arn,omitempty"`
+	UserID                 string                              `json:"user_id,omitempty"`
+	Region                 string                              `json:"region,omitempty"`
+	ScopeType              AWSConnectorScopeType               `json:"scope_type"`
+	DeploymentMethod       AWSConnectorDeploymentMethod        `json:"deployment_method"`
+	OnboardingStatus       AWSConnectorOnboardingStatus        `json:"onboarding_status"`
+	TargetRegions          []string                            `json:"target_regions"`
+	TargetAccountIDs       []string                            `json:"target_account_ids"`
+	TargetOUIDs            []string                            `json:"target_ou_ids"`
+	ExcludedAccountIDs     []string                            `json:"excluded_account_ids"`
+	AutoOnboardNewAccounts bool                                `json:"auto_onboard_new_accounts"`
+	SetupSummary           string                              `json:"setup_summary"`
+	NextActions            []AWSConnectorNextAction            `json:"next_actions"`
+	ExternalID             string                              `json:"-"`
+	PermissionChecks       []AWSConnectionPermissionCheck      `json:"permission_checks"`
+	Diagnostics            []AWSConnectionDiagnostic           `json:"diagnostics"`
+	Capabilities           AWSConnectorCapabilities            `json:"capabilities"`
+	RemediationMessage     string                              `json:"remediation_message,omitempty"`
+	LaunchURL              string                              `json:"launch_url,omitempty"`
+	TemplateURL            string                              `json:"template_url,omitempty"`
+	PolicyHash             string                              `json:"policy_hash,omitempty"`
+	StackSetName           string                              `json:"stack_set_name,omitempty"`
+	TemplateChecksum       string                              `json:"template_checksum,omitempty"`
+	TargetSummary          *AWSConnectorTargetSummary          `json:"target_summary,omitempty"`
+	Prerequisites          []AWSStackSetOnboardingPrerequisite `json:"prerequisites,omitempty"`
+	CreatedAt              *time.Time                          `json:"created_at,omitempty"`
+	UpdatedAt              *time.Time                          `json:"updated_at,omitempty"`
+	LastValidatedAt        *time.Time                          `json:"last_validated_at,omitempty"`
 }
 
 type awsConnectorSetupContract struct {
@@ -331,6 +361,9 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	}
 	if setup.ScopeType == AWSConnectorScopeManualRole && setup.DeploymentMethod == AWSConnectorDeploymentManual {
 		return s.startAWSManualConnector(ctx, project, scope, request, setup)
+	}
+	if awsConnectorDeploymentIsStackSet(setup.DeploymentMethod) {
+		return s.startAWSStackSetConnector(ctx, project, scope, request, setup)
 	}
 	if setup.ScopeType != AWSConnectorScopeSingleAccount || setup.DeploymentMethod != AWSConnectorDeploymentCloudFormation {
 		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
@@ -441,6 +474,121 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	status := s.awsConnectionStatusFromStored(ctx, stored)
 	status.ExternalID = externalID
 	return awsConnectorStartResponse(status, externalID, launchURL, templateURL, accountID, roleName, stackName, policyHash), nil
+}
+
+func (s *Service) startAWSStackSetConnector(
+	ctx context.Context,
+	project db.TenancyProject,
+	scope db.Scope,
+	request AWSConnectorStartRequest,
+	setup awsConnectorSetupContract,
+) (AWSConnectorStartResponse, error) {
+	templateURL := strings.TrimSpace(s.AWSCloudFormationTemplateURL)
+	accountID := strings.TrimSpace(s.AWSAccountID)
+	if templateURL == "" || accountID == "" {
+		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
+	}
+	connectorID := strings.TrimSpace(request.ConnectorID)
+	if connectorID == "" {
+		connectorID = "aws-" + uuid.NewString()
+	} else {
+		stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
+		if err == nil {
+			return s.resumeAWSStackSetConnectorStart(ctx, stored, request, templateURL, accountID)
+		}
+		if !errors.Is(err, db.ErrNotFound) {
+			return AWSConnectorStartResponse{}, err
+		}
+	}
+	displayName := strings.TrimSpace(request.DisplayName)
+	if displayName == "" {
+		displayName = awsConnectorStackSetDisplayName(setup)
+	}
+	if err := validateAWSConnectorStartIdentity(connectorID, displayName); err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	externalID, err := generateAWSExternalID()
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	now := s.Now().UTC()
+	region := firstAWSRegion(setup.TargetRegions)
+	roleName := firstNonEmptyAWSValue(strings.TrimSpace(request.RoleName), "IdentrailReadOnly")
+	stackSetName := firstNonEmptyAWSValue(strings.TrimSpace(request.StackSetName), strings.TrimSpace(request.StackName), "identrail-readonly-connector-stackset")
+	policyHash, err := awsconnector.ReadOnlyPolicyHash()
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	templateChecksum := awsConnectorTemplateChecksum(templateURL, policyHash)
+	onboarding, err := s.buildAWSConnectorStackSetOnboarding(scope, project, connectorID, accountID, region, roleName, stackSetName, templateURL, templateChecksum, externalID, setup, now)
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	capabilities, _, err := s.resolveAWSConnectorCapabilities(domain.DefaultConnectorCapabilities())
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	onboardingStatus := awsConnectorStackSetOnboardingStatus(onboarding)
+	targetSummary := awsConnectorTargetSummary(setup)
+	nextActions := awsConnectorStackSetNextActions(setup, onboarding.Validation)
+	metadata := map[string]any{
+		"external_id_configured": true,
+		"region":                 region,
+		"role_name":              roleName,
+		"stack_set_name":         onboarding.StackSetName,
+		"template_url":           templateURL,
+		"template_checksum":      templateChecksum,
+		"launch_url":             onboarding.LaunchURL,
+		"policy_hash":            policyHash,
+		"target_summary":         targetSummary,
+		"prerequisites":          onboarding.Validation.Prerequisites,
+		"permission_checks":      []AWSConnectionPermissionCheck{},
+		"diagnostics":            []AWSConnectionDiagnostic{},
+		"capabilities":           capabilities,
+		"last_started_at":        now.Format(time.RFC3339Nano),
+	}
+	applyAWSConnectorSetupMetadata(metadata, setup, onboardingStatus)
+	metadata["next_actions"] = awsConnectorNextActionStrings(nextActions)
+	connector := db.TenancyConnector{
+		TenantID:            scope.TenantID,
+		WorkspaceID:         project.WorkspaceID,
+		ProjectID:           project.ProjectID,
+		ConnectorID:         connectorID,
+		Type:                domain.ConnectorTypeAWS,
+		DisplayName:         displayName,
+		Status:              domain.ConnectorStatusPending,
+		SecretProvider:      "secret-envelope",
+		SecretRefID:         awsExternalIDSecretRef(connectorID),
+		SecretRefVersion:    s.connectorSecretManager().ActiveKeyVersion(),
+		SecretLastRotatedAt: &now,
+		UpdatedAt:           now,
+	}
+	state := db.TenancyConnectorState{
+		TenantID:     scope.TenantID,
+		WorkspaceID:  project.WorkspaceID,
+		ProjectID:    project.ProjectID,
+		ConnectorID:  connectorID,
+		HealthStatus: "unknown",
+		Metadata:     metadata,
+		ObservedAt:   now,
+		UpdatedAt:    now,
+	}
+	envelope, err := s.newAWSExternalIDSecretEnvelope(scope.TenantID, project.WorkspaceID, project.ProjectID, connectorID, externalID, now)
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	stored, created, err := s.Store.CreateTenancyConnectorWithSecretEnvelopeIfAbsent(ctx, connector, state, envelope)
+	if err != nil {
+		return AWSConnectorStartResponse{}, fmt.Errorf("create aws stackset connector: %w", err)
+	}
+	if !created {
+		return s.resumeAWSStackSetConnectorStart(ctx, stored, request, templateURL, accountID)
+	}
+	status := s.awsConnectionStatusFromStored(ctx, stored)
+	status.ExternalID = externalID
+	response := awsConnectorStartResponse(status, externalID, onboarding.LaunchURL, templateURL, accountID, roleName, "", policyHash)
+	response.StackSetOnboarding = &onboarding
+	return response, nil
 }
 
 func (s *Service) startAWSManualConnector(
@@ -617,6 +765,103 @@ func (s *Service) recoverAWSManualConnectorExternalID(ctx context.Context, store
 	return stored, externalID, nil
 }
 
+func (s *Service) resumeAWSStackSetConnectorStart(
+	ctx context.Context,
+	stored db.TenancyConnectorWithState,
+	request AWSConnectorStartRequest,
+	templateURL string,
+	accountID string,
+) (AWSConnectorStartResponse, error) {
+	if stored.Connector.Type != domain.ConnectorTypeAWS {
+		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+	}
+	defaultScope, defaultDeployment := awsMetadataSetupFallback(stored.State.Metadata)
+	setup := awsMetadataSetupContract(stored.State.Metadata, defaultScope, defaultDeployment)
+	if !awsConnectorDeploymentIsStackSet(setup.DeploymentMethod) {
+		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+	}
+	externalID, externalIDConfigured, err := s.awsExternalIDFromStoredStrict(ctx, stored)
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	generatedExternalID := false
+	var rotatedAt time.Time
+	if !externalIDConfigured || externalID == "" {
+		externalID, err = generateAWSExternalID()
+		if err != nil {
+			return AWSConnectorStartResponse{}, err
+		}
+		generatedExternalID = true
+		rotatedAt = s.Now().UTC()
+		secret, err := s.newAWSExternalIDSecretEnvelope(stored.Connector.TenantID, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID, externalID, rotatedAt)
+		if err != nil {
+			return AWSConnectorStartResponse{}, err
+		}
+		secret, created, err := s.Store.CreateTenancyConnectorSecretEnvelopeIfAbsent(db.WithScope(ctx, db.Scope{TenantID: stored.Connector.TenantID, WorkspaceID: stored.Connector.WorkspaceID}), secret)
+		if err != nil {
+			return AWSConnectorStartResponse{}, fmt.Errorf("recover aws stackset connector external id envelope: %w", err)
+		}
+		if !created {
+			recoveredExternalID, err := s.decryptAWSExternalIDEnvelope(stored.Connector, secret)
+			if err != nil {
+				return AWSConnectorStartResponse{}, err
+			}
+			externalID = recoveredExternalID
+			generatedExternalID = false
+		}
+	}
+
+	region := firstNonEmptyAWSValue(firstAWSRegion(setup.TargetRegions), awsMetadataString(stored.State.Metadata, "region"), "us-east-1")
+	roleName := firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "role_name"), strings.TrimSpace(request.RoleName), "IdentrailReadOnly")
+	stackSetName := firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "stack_set_name"), strings.TrimSpace(request.StackSetName), strings.TrimSpace(request.StackName), "identrail-readonly-connector-stackset")
+	policyHash := awsMetadataString(stored.State.Metadata, "policy_hash")
+	if policyHash == "" {
+		hash, err := awsconnector.ReadOnlyPolicyHash()
+		if err != nil {
+			return AWSConnectorStartResponse{}, err
+		}
+		policyHash = hash
+	}
+	storedTemplateURL := firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "template_url"), templateURL)
+	templateChecksum := firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "template_checksum"), awsConnectorTemplateChecksum(storedTemplateURL, policyHash))
+	onboarding, err := s.buildAWSConnectorStackSetOnboarding(
+		db.Scope{TenantID: stored.Connector.TenantID, WorkspaceID: stored.Connector.WorkspaceID},
+		db.TenancyProject{TenantID: stored.Connector.TenantID, WorkspaceID: stored.Connector.WorkspaceID, ProjectID: stored.Connector.ProjectID},
+		stored.Connector.ConnectorID,
+		accountID,
+		region,
+		roleName,
+		stackSetName,
+		storedTemplateURL,
+		templateChecksum,
+		externalID,
+		setup,
+		s.Now().UTC(),
+	)
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	launchURL := awsMetadataString(stored.State.Metadata, "launch_url")
+	if generatedExternalID || launchURL == "" || !awsCloudFormationLaunchURLMatchesExternalID(launchURL, externalID) {
+		launchURL = onboarding.LaunchURL
+		if rotatedAt.IsZero() {
+			rotatedAt = s.Now().UTC()
+		}
+		stored = persistRecoveredAWSStackSetConnectorLaunchState(stored, setup, externalID, region, roleName, stackSetName, storedTemplateURL, launchURL, policyHash, templateChecksum, onboarding.Validation.Prerequisites, rotatedAt, generatedExternalID, s.connectorSecretManager().ActiveKeyVersion())
+		if err := s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
+			return AWSConnectorStartResponse{}, fmt.Errorf("persist recovered aws stackset connector launch state: %w", err)
+		}
+		onboarding.LaunchURL = launchURL
+	}
+
+	status := s.awsConnectionStatusFromStored(ctx, stored)
+	status.ExternalID = externalID
+	status.ExternalIDConfigured = true
+	response := awsConnectorStartResponse(status, externalID, launchURL, storedTemplateURL, accountID, roleName, "", policyHash)
+	response.StackSetOnboarding = &onboarding
+	return response, nil
+}
+
 func (s *Service) resumeAWSConnectorStart(
 	ctx context.Context,
 	stored db.TenancyConnectorWithState,
@@ -751,6 +996,49 @@ func persistRecoveredAWSConnectorLaunchState(
 	return stored
 }
 
+func persistRecoveredAWSStackSetConnectorLaunchState(
+	stored db.TenancyConnectorWithState,
+	setup awsConnectorSetupContract,
+	externalID string,
+	region string,
+	roleName string,
+	stackSetName string,
+	templateURL string,
+	launchURL string,
+	policyHash string,
+	templateChecksum string,
+	prerequisites []AWSStackSetOnboardingPrerequisite,
+	rotatedAt time.Time,
+	updateSecretRef bool,
+	secretRefVersion string,
+) db.TenancyConnectorWithState {
+	metadata := copyAWSMetadata(stored.State.Metadata)
+	metadata["external_id_configured"] = strings.TrimSpace(externalID) != ""
+	metadata["region"] = region
+	metadata["role_name"] = roleName
+	metadata["stack_set_name"] = stackSetName
+	metadata["template_url"] = templateURL
+	metadata["launch_url"] = launchURL
+	metadata["policy_hash"] = policyHash
+	metadata["template_checksum"] = templateChecksum
+	metadata["target_summary"] = awsConnectorTargetSummary(setup)
+	metadata["prerequisites"] = prerequisites
+	metadata["last_started_at"] = rotatedAt.Format(time.RFC3339Nano)
+	applyAWSConnectorSetupMetadata(metadata, setup, awsConnectorStackSetOnboardingStatusFromPrerequisites(prerequisites))
+	metadata["next_actions"] = awsConnectorNextActionStrings(awsConnectorStackSetNextActionsFromPrerequisites(setup, prerequisites))
+	stored.State.Metadata = metadata
+	stored.State.ObservedAt = rotatedAt
+	stored.State.UpdatedAt = rotatedAt
+	if updateSecretRef {
+		stored.Connector.SecretProvider = "secret-envelope"
+		stored.Connector.SecretRefID = awsExternalIDSecretRef(stored.Connector.ConnectorID)
+		stored.Connector.SecretRefVersion = secretRefVersion
+		stored.Connector.SecretLastRotatedAt = &rotatedAt
+	}
+	stored.Connector.UpdatedAt = rotatedAt
+	return stored
+}
+
 func copyAWSMetadata(metadata map[string]any) map[string]any {
 	out := make(map[string]any, len(metadata))
 	for key, value := range metadata {
@@ -760,7 +1048,17 @@ func copyAWSMetadata(metadata map[string]any) map[string]any {
 }
 
 func awsConnectorLaunchMetadata(metadata map[string]any) map[string]any {
-	keys := []string{"role_name", "stack_name", "template_url", "launch_url", "policy_hash"}
+	keys := []string{
+		"role_name",
+		"stack_name",
+		"stack_set_name",
+		"template_url",
+		"template_checksum",
+		"launch_url",
+		"policy_hash",
+		"target_summary",
+		"prerequisites",
+	}
 	out := map[string]any{}
 	for _, key := range keys {
 		if value, ok := metadata[key]; ok {
@@ -834,7 +1132,9 @@ func awsConnectorStartResponse(status AWSConnectionStatus, externalID string, la
 		IdentrailAccountID:     identrailAccountID,
 		RoleName:               roleName,
 		StackName:              stackName,
+		StackSetName:           status.StackSetName,
 		PolicyHash:             policyHash,
+		TemplateChecksum:       status.TemplateChecksum,
 		ScopeType:              status.ScopeType,
 		DeploymentMethod:       status.DeploymentMethod,
 		OnboardingStatus:       status.OnboardingStatus,
@@ -845,6 +1145,8 @@ func awsConnectorStartResponse(status AWSConnectionStatus, externalID string, la
 		AutoOnboardNewAccounts: status.AutoOnboardNewAccounts,
 		SetupSummary:           status.SetupSummary,
 		NextActions:            copyAWSConnectorNextActions(status.NextActions),
+		TargetSummary:          status.TargetSummary,
+		Prerequisites:          status.Prerequisites,
 		PermissionPreview:      awsconnector.PermissionPreview(),
 		PermissionTiers:        awsconnector.CapabilityPermissionTiers(),
 	}
@@ -1190,6 +1492,243 @@ func awsConnectionUpsertRequestHasUnsupportedSetupOverride(request AWSConnection
 		request.AutoOnboardNewAccounts
 }
 
+func awsConnectorStackSetDisplayName(setup awsConnectorSetupContract) string {
+	switch setup.ScopeType {
+	case AWSConnectorScopeOrganization:
+		return "AWS organization"
+	case AWSConnectorScopeSelectedOUs:
+		return "Selected AWS OUs"
+	case AWSConnectorScopeSelectedAccounts:
+		return "Selected AWS accounts"
+	default:
+		return "AWS StackSet"
+	}
+}
+
+func awsConnectorTemplateChecksum(templateURL string, policyHash string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(templateURL) + "\n" + strings.TrimSpace(policyHash)))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func awsConnectorTargetSummary(setup awsConnectorSetupContract) *AWSConnectorTargetSummary {
+	accountCount := len(setup.TargetAccountIDs)
+	knownAccounts := setup.ScopeType == AWSConnectorScopeSelectedAccounts
+	expectedInstances := 0
+	expectedKnown := knownAccounts
+	if expectedKnown {
+		excluded := map[string]struct{}{}
+		for _, accountID := range setup.ExcludedAccountIDs {
+			excluded[accountID] = struct{}{}
+		}
+		for _, accountID := range setup.TargetAccountIDs {
+			if _, ok := excluded[accountID]; !ok {
+				expectedInstances += len(setup.TargetRegions)
+			}
+		}
+	}
+	return &AWSConnectorTargetSummary{
+		AccountCount:                accountCount,
+		AccountCountKnown:           knownAccounts,
+		OUCount:                     len(setup.TargetOUIDs),
+		RegionCount:                 len(setup.TargetRegions),
+		ExcludedAccountCount:        len(setup.ExcludedAccountIDs),
+		ExpectedStackInstances:      expectedInstances,
+		ExpectedStackInstancesKnown: expectedKnown,
+		AllAccounts:                 setup.ScopeType == AWSConnectorScopeOrganization,
+	}
+}
+
+func (s *Service) buildAWSConnectorStackSetOnboarding(
+	scope db.Scope,
+	project db.TenancyProject,
+	connectorID string,
+	accountID string,
+	region string,
+	roleName string,
+	stackSetName string,
+	templateURL string,
+	templateChecksum string,
+	externalID string,
+	setup awsConnectorSetupContract,
+	checkedAt time.Time,
+) (AWSStackSetOnboardingResult, error) {
+	mode := awsConnectorStackSetDeploymentMode(setup.DeploymentMethod)
+	config := awscontract.StackSetOnboardingConfig{
+		ConnectorID:         connectorID,
+		ManagementAccountID: accountID,
+		StackSetName:        stackSetName,
+		TemplateURL:         templateURL,
+		TemplateChecksum:    templateChecksum,
+		DeploymentMode:      mode,
+		Partition:           awsStackSetPartition(region),
+		TrustedAccessReady:  mode == awscontract.StackSetDeploymentServiceManaged,
+		DelegatedAdminReady: false,
+		ExternalID:          externalID,
+		Targets:             awsConnectorStackSetTargets(setup),
+	}
+	plan, err := awscontract.PlanStackSetOnboarding(config, checkedAt)
+	if err != nil {
+		return AWSStackSetOnboardingResult{}, err
+	}
+	launchURL := awsconnector.BuildCloudFormationStackSetLaunchURL(awsconnector.CloudFormationStackSetLaunchInput{
+		TemplateURL:           plan.TemplateURL,
+		Region:                region,
+		StackSetName:          plan.StackSetName,
+		IdentrailAccountID:    accountID,
+		ExternalID:            externalID,
+		RoleName:              roleName,
+		PermissionModel:       awsStackSetPermissionModel(plan.DeploymentMode),
+		OrganizationalUnitIDs: collectStackSetOUIDs(plan.Targets.OrganizationalUnits),
+		TargetAccountIDs:      collectStackSetAccountIDs(plan.Targets.Accounts),
+		ExcludedAccountIDs:    setup.ExcludedAccountIDs,
+		TargetRegions:         collectStackSetRegionCodes(plan.Targets.Regions),
+	})
+	status, confidence, failures, remediations := summarizeAWSStackSetOnboarding("success", plan, nil)
+	return AWSStackSetOnboardingResult{
+		TenantID:            scope.TenantID,
+		WorkspaceID:         project.WorkspaceID,
+		ProjectID:           project.ProjectID,
+		ConnectorID:         connectorID,
+		AccountID:           accountID,
+		Region:              region,
+		OrganizationID:      plan.OrganizationID,
+		ManagementAccountID: plan.ManagementAccountID,
+		StackSetName:        plan.StackSetName,
+		TemplateURL:         plan.TemplateURL,
+		TemplateChecksum:    plan.TemplateChecksum,
+		LaunchURL:           launchURL,
+		DeploymentMode:      string(plan.DeploymentMode),
+		Partition:           plan.Partition,
+		ParentIssueNumber:   awsPlatformDependencyParentIssue,
+		ParentIssueRef:      awsIssueRef(awsPlatformDependencyParentIssue),
+		CurrentIssueNumber:  1752,
+		CurrentIssueRef:     awsIssueRef(1752),
+		Version:             plan.Version,
+		Status:              status,
+		FixtureState:        "success",
+		Confidence:          confidence,
+		Validation:          mapAWSStackSetValidation(plan.Validation),
+		PermissionPreview:   awsStackSetPermissionPreview(),
+		Targets:             mapAWSStackSetTargets(plan.Targets),
+		Instances:           mapAWSStackSetInstances(plan.Instances),
+		CoverageExpectation: mapAWSStackSetCoverageExpectation(plan.CoverageExpectation),
+		RecoveryActions:     mapAWSStackSetRecoveryActions(plan.RecoveryActions),
+		Summary:             mapAWSStackSetSummary(plan.Summary),
+		FailureReasons:      failures,
+		RemediationHints:    remediations,
+		EvidenceLinks: dedupeStrings([]string{
+			awsIssueURL(awsPlatformDependencyParentIssue),
+			awsIssueURL(1752),
+			"/docs/aws-stackset-onboarding",
+			"/docs/auth/aws-connector",
+			awsBaselineProjectEvidenceURL(scope, project),
+		}),
+		CoverageGaps: []AWSStackSetOnboardingCoverageGap{
+			{
+				Capability:  "confirmed_stackset_coverage",
+				Status:      "planned",
+				Reason:      "The connector start request records intended StackSet scope only; observed account and region coverage is confirmed after AWS deployment validation.",
+				Remediation: "Launch the StackSet in AWS, then refresh connector status to reconcile observed coverage.",
+			},
+		},
+		Diagnostics: []AWSStackSetOnboardingDiagnostic{},
+		GeneratedAt: checkedAt,
+		UpdatedAt:   checkedAt,
+	}, nil
+}
+
+func awsConnectorStackSetDeploymentMode(method AWSConnectorDeploymentMethod) awscontract.StackSetDeploymentMode {
+	if method == AWSConnectorDeploymentStackSetSelfManaged {
+		return awscontract.StackSetDeploymentSelfManaged
+	}
+	return awscontract.StackSetDeploymentServiceManaged
+}
+
+func awsConnectorStackSetTargets(setup awsConnectorSetupContract) awscontract.StackSetOnboardingTargets {
+	excluded := map[string]struct{}{}
+	for _, accountID := range setup.ExcludedAccountIDs {
+		excluded[accountID] = struct{}{}
+	}
+	targets := awscontract.StackSetOnboardingTargets{
+		AllAccounts:         setup.ScopeType == AWSConnectorScopeOrganization,
+		OrganizationalUnits: make([]awscontract.OrganizationUnit, 0, len(setup.TargetOUIDs)),
+		Accounts:            make([]awscontract.StackSetOnboardingTargetAccount, 0, len(setup.TargetAccountIDs)),
+		Regions:             make([]awscontract.StackSetOnboardingTargetRegion, 0, len(setup.TargetRegions)),
+	}
+	for _, ouID := range setup.TargetOUIDs {
+		targets.OrganizationalUnits = append(targets.OrganizationalUnits, awscontract.OrganizationUnit{
+			ID:      ouID,
+			Path:    "/" + ouID,
+			Enabled: true,
+		})
+	}
+	for _, accountID := range setup.TargetAccountIDs {
+		if _, skip := excluded[accountID]; skip {
+			continue
+		}
+		targets.Accounts = append(targets.Accounts, awscontract.StackSetOnboardingTargetAccount{AccountID: accountID})
+	}
+	for _, region := range setup.TargetRegions {
+		targets.Regions = append(targets.Regions, awscontract.StackSetOnboardingTargetRegion{Region: region})
+	}
+	return targets
+}
+
+func awsConnectorStackSetOnboardingStatus(onboarding AWSStackSetOnboardingResult) AWSConnectorOnboardingStatus {
+	if onboarding.Validation.BlockingCount > 0 {
+		return AWSConnectorOnboardingNeedsFix
+	}
+	return AWSConnectorOnboardingLaunchReady
+}
+
+func awsConnectorStackSetOnboardingStatusFromPrerequisites(prerequisites []AWSStackSetOnboardingPrerequisite) AWSConnectorOnboardingStatus {
+	for _, prerequisite := range prerequisites {
+		if !prerequisite.Satisfied && prerequisite.Severity == string(awscontract.StackSetPrerequisiteBlocking) {
+			return AWSConnectorOnboardingNeedsFix
+		}
+	}
+	return AWSConnectorOnboardingLaunchReady
+}
+
+func awsConnectorStackSetNextActions(setup awsConnectorSetupContract, validation AWSStackSetOnboardingValidation) []AWSConnectorNextAction {
+	return awsConnectorStackSetNextActionsFromPrerequisites(setup, validation.Prerequisites)
+}
+
+func awsConnectorStackSetNextActionsFromPrerequisites(setup awsConnectorSetupContract, prerequisites []AWSStackSetOnboardingPrerequisite) []AWSConnectorNextAction {
+	actions := []AWSConnectorNextAction{}
+	for _, prerequisite := range prerequisites {
+		if prerequisite.Satisfied {
+			continue
+		}
+		switch prerequisite.ID {
+		case "stackset.trusted_access_enabled":
+			actions = append(actions, AWSConnectorNextActionEnableTrustedAccess)
+		case "stackset.delegated_admin_registered":
+			actions = append(actions, AWSConnectorNextActionRegisterDelegatedAdmin)
+		case "stackset.targets_present":
+			actions = append(actions, AWSConnectorNextActionSelectTargets)
+		}
+	}
+	if len(setup.TargetRegions) == 0 {
+		actions = append(actions, AWSConnectorNextActionSelectTargets)
+	}
+	actions = append(actions, AWSConnectorNextActionOpenStackSet, AWSConnectorNextActionRefreshStatus)
+	return dedupeAWSConnectorNextActions(actions)
+}
+
+func dedupeAWSConnectorNextActions(actions []AWSConnectorNextAction) []AWSConnectorNextAction {
+	out := make([]AWSConnectorNextAction, 0, len(actions))
+	seen := map[AWSConnectorNextAction]struct{}{}
+	for _, action := range actions {
+		if _, ok := seen[action]; ok {
+			continue
+		}
+		seen[action] = struct{}{}
+		out = append(out, action)
+	}
+	return out
+}
+
 func normalizeAWSConnectorSetupContract(input awsConnectorSetupInput) (awsConnectorSetupContract, error) {
 	scopeType := AWSConnectorScopeType(strings.TrimSpace(string(input.ScopeType)))
 	if scopeType == "" {
@@ -1267,8 +1806,14 @@ func normalizeAWSConnectorSetupContract(input awsConnectorSetupInput) (awsConnec
 		if !awsConnectorDeploymentIsStackSet(deploymentMethod) {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
+		if deploymentMethod == AWSConnectorDeploymentStackSetSelfManaged {
+			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
+		}
 	case AWSConnectorScopeSelectedOUs:
 		if !awsConnectorDeploymentIsStackSet(deploymentMethod) || len(targetOUIDs) == 0 {
+			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
+		}
+		if deploymentMethod == AWSConnectorDeploymentStackSetSelfManaged {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
 	case AWSConnectorScopeSelectedAccounts:
@@ -1527,6 +2072,10 @@ func awsConnectionStatusFromStored(stored db.TenancyConnectorWithState) AWSConne
 		LaunchURL:              awsMetadataString(metadata, "launch_url"),
 		TemplateURL:            awsMetadataString(metadata, "template_url"),
 		PolicyHash:             awsMetadataString(metadata, "policy_hash"),
+		StackSetName:           awsMetadataString(metadata, "stack_set_name"),
+		TemplateChecksum:       awsMetadataString(metadata, "template_checksum"),
+		TargetSummary:          awsMetadataTargetSummary(metadata, "target_summary"),
+		Prerequisites:          awsMetadataStackSetPrerequisites(metadata, "prerequisites"),
 		CreatedAt:              &createdAt,
 		UpdatedAt:              &updatedAt,
 		LastValidatedAt:        validatedAt,
@@ -1856,7 +2405,15 @@ func awsMetadataNextActions(metadata map[string]any, key string, fallback []AWSC
 	for _, item := range raw {
 		action := AWSConnectorNextAction(strings.TrimSpace(item))
 		switch action {
-		case AWSConnectorNextActionLaunchStack, AWSConnectorNextActionOpenStackSet, AWSConnectorNextActionValidateRole, AWSConnectorNextActionRefreshStatus, AWSConnectorNextActionRepairPermissions, AWSConnectorNextActionStartIntelligence:
+		case AWSConnectorNextActionLaunchStack,
+			AWSConnectorNextActionOpenStackSet,
+			AWSConnectorNextActionEnableTrustedAccess,
+			AWSConnectorNextActionRegisterDelegatedAdmin,
+			AWSConnectorNextActionSelectTargets,
+			AWSConnectorNextActionValidateRole,
+			AWSConnectorNextActionRefreshStatus,
+			AWSConnectorNextActionRepairPermissions,
+			AWSConnectorNextActionStartIntelligence:
 			actions = append(actions, action)
 		}
 	}
@@ -1907,6 +2464,36 @@ func awsMetadataDiagnostics(metadata map[string]any, key string) []AWSConnection
 		return []AWSConnectionDiagnostic{}
 	}
 	return copyAWSDiagnostics(diagnostics)
+}
+
+func awsMetadataTargetSummary(metadata map[string]any, key string) *AWSConnectorTargetSummary {
+	if metadata == nil || metadata[key] == nil {
+		return nil
+	}
+	payload, err := json.Marshal(metadata[key])
+	if err != nil {
+		return nil
+	}
+	var summary AWSConnectorTargetSummary
+	if err := json.Unmarshal(payload, &summary); err != nil {
+		return nil
+	}
+	return &summary
+}
+
+func awsMetadataStackSetPrerequisites(metadata map[string]any, key string) []AWSStackSetOnboardingPrerequisite {
+	if metadata == nil || metadata[key] == nil {
+		return nil
+	}
+	payload, err := json.Marshal(metadata[key])
+	if err != nil {
+		return nil
+	}
+	var prerequisites []AWSStackSetOnboardingPrerequisite
+	if err := json.Unmarshal(payload, &prerequisites); err != nil {
+		return nil
+	}
+	return prerequisites
 }
 
 func accountIDFromRoleARN(roleARN string) string {

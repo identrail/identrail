@@ -853,6 +853,10 @@ export type AWSConnectionStatus = {
   launch_url?: string;
   template_url?: string;
   policy_hash?: string;
+  stack_set_name?: string;
+  template_checksum?: string;
+  target_summary?: AWSConnectorTargetSummary;
+  prerequisites?: AWSStackSetOnboardingPrerequisite[];
   created_at?: string;
   updated_at?: string;
   last_validated_at?: string;
@@ -8953,6 +8957,7 @@ export type AWSStackSetOnboardingOU = {
 
 export type AWSStackSetOnboardingTargets = {
   organization_id?: string;
+  all_accounts?: boolean;
   organizational_units: AWSStackSetOnboardingOU[];
   accounts: AWSStackSetOnboardingTargetAccount[];
   regions: AWSStackSetOnboardingTargetRegion[];
@@ -9613,6 +9618,7 @@ export type AWSConnectorStartRequest = {
   region?: string;
   role_name?: string;
   stack_name?: string;
+  stack_set_name?: string;
   scope_type?: AWSConnectorScopeType;
   deployment_method?: AWSConnectorDeploymentMethod;
   target_regions?: string[];
@@ -9641,10 +9647,24 @@ export type AWSConnectorOnboardingStatus =
 export type AWSConnectorNextAction =
   | 'launch_stack'
   | 'open_stackset'
+  | 'enable_trusted_access'
+  | 'register_delegated_admin'
+  | 'select_targets'
   | 'validate_role'
   | 'refresh_status'
   | 'repair_permissions'
   | 'start_intelligence';
+
+export type AWSConnectorTargetSummary = {
+  account_count: number;
+  account_count_known: boolean;
+  ou_count: number;
+  region_count: number;
+  excluded_account_count: number;
+  expected_stack_instances: number;
+  expected_stack_instances_known: boolean;
+  all_accounts: boolean;
+};
 
 export type AWSConnectorStartResponse = {
   connection: AWSConnectionStatus;
@@ -9655,7 +9675,9 @@ export type AWSConnectorStartResponse = {
   identrail_account_id?: string;
   role_name: string;
   stack_name: string;
+  stack_set_name?: string;
   policy_hash: string;
+  template_checksum?: string;
   scope_type: AWSConnectorScopeType;
   deployment_method: AWSConnectorDeploymentMethod;
   onboarding_status: AWSConnectorOnboardingStatus;
@@ -9666,6 +9688,9 @@ export type AWSConnectorStartResponse = {
   auto_onboard_new_accounts: boolean;
   setup_summary: string;
   next_actions: AWSConnectorNextAction[];
+  target_summary?: AWSConnectorTargetSummary;
+  prerequisites?: AWSStackSetOnboardingPrerequisite[];
+  stackset_onboarding?: AWSStackSetOnboardingResult;
   permission_preview: AWSPermissionPreviewItem[];
   permission_tiers: AWSCapabilityPermissionTier[];
 };

@@ -83,6 +83,7 @@ func TestBuildCloudFormationStackSetLaunchURL(t *testing.T) {
 		RoleName:              "IdentrailReadOnlyProd",
 		PermissionModel:       StackSetLaunchPermissionModelServiceManaged,
 		OrganizationalUnitIDs: []string{"ou-xxxx-1", "ou-yyyy-2"},
+		ExcludedAccountIDs:    []string{"999900001111"},
 		TargetRegions:         []string{"us-east-1", "eu-west-1"},
 	})
 	parsed, err := url.Parse(launchURL)
@@ -94,6 +95,9 @@ func TestBuildCloudFormationStackSetLaunchURL(t *testing.T) {
 	}
 	if !strings.Contains(parsed.Fragment, "organizationalUnitIds=ou-xxxx-1,ou-yyyy-2") {
 		t.Fatalf("expected OU ids in fragment, got %q", parsed.Fragment)
+	}
+	if !strings.Contains(parsed.Fragment, "excludedAccounts=999900001111") || !strings.Contains(parsed.Fragment, "accountFilterType=DIFFERENCE") {
+		t.Fatalf("expected excluded account filter in fragment, got %q", parsed.Fragment)
 	}
 	if !strings.Contains(parsed.Fragment, "regions=us-east-1,eu-west-1") {
 		t.Fatalf("expected target regions in fragment, got %q", parsed.Fragment)

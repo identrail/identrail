@@ -60,8 +60,9 @@ const (
 const defaultStackSetName = "identrail-readonly-connector-stackset"
 
 // CloudFormationStackSetLaunchInput contains the parameters for an AWS console
-// StackSet launch URL. The URL never carries secret values; only the pinned
-// template URL, parameter names, and target metadata.
+// StackSet launch URL. The URL never carries AWS credentials or customer secret
+// values; it carries only setup parameters such as the generated external ID,
+// pinned template URL, permission model, and target metadata.
 type CloudFormationStackSetLaunchInput struct {
 	TemplateURL           string
 	Region                string
@@ -72,6 +73,7 @@ type CloudFormationStackSetLaunchInput struct {
 	PermissionModel       StackSetLaunchPermissionModel
 	OrganizationalUnitIDs []string
 	TargetAccountIDs      []string
+	ExcludedAccountIDs    []string
 	TargetRegions         []string
 }
 
@@ -110,6 +112,10 @@ func BuildCloudFormationStackSetLaunchURL(input CloudFormationStackSetLaunchInpu
 	}
 	if len(input.TargetAccountIDs) > 0 {
 		values.Set("accounts", strings.Join(input.TargetAccountIDs, ","))
+	}
+	if len(input.ExcludedAccountIDs) > 0 {
+		values.Set("excludedAccounts", strings.Join(input.ExcludedAccountIDs, ","))
+		values.Set("accountFilterType", "DIFFERENCE")
 	}
 	if len(input.TargetRegions) > 0 {
 		values.Set("regions", strings.Join(input.TargetRegions, ","))

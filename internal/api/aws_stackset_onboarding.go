@@ -80,6 +80,7 @@ type AWSStackSetOnboardingTargetRegion struct {
 // AWSStackSetOnboardingTargets is the full operator-visible target set.
 type AWSStackSetOnboardingTargets struct {
 	OrganizationID      string                               `json:"organization_id,omitempty"`
+	AllAccounts         bool                                 `json:"all_accounts,omitempty"`
 	OrganizationalUnits []AWSStackSetOnboardingOU            `json:"organizational_units"`
 	Accounts            []AWSStackSetOnboardingTargetAccount `json:"accounts"`
 	Regions             []AWSStackSetOnboardingTargetRegion  `json:"regions"`
@@ -537,6 +538,7 @@ func mapAWSStackSetValidation(validation awscontract.StackSetOnboardingValidatio
 func mapAWSStackSetTargets(targets awscontract.StackSetOnboardingTargets) AWSStackSetOnboardingTargets {
 	out := AWSStackSetOnboardingTargets{
 		OrganizationID:      strings.TrimSpace(targets.OrganizationID),
+		AllAccounts:         targets.AllAccounts,
 		OrganizationalUnits: make([]AWSStackSetOnboardingOU, 0, len(targets.OrganizationalUnits)),
 		Accounts:            make([]AWSStackSetOnboardingTargetAccount, 0, len(targets.Accounts)),
 		Regions:             make([]AWSStackSetOnboardingTargetRegion, 0, len(targets.Regions)),
