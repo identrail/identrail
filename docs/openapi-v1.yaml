@@ -26027,6 +26027,13 @@ components:
         type: { $ref: "#/components/schemas/FindingType" }
         severity: { $ref: "#/components/schemas/FindingSeverity" }
         detector: { type: string }
+        source:
+          type: string
+          description: >-
+            Adapter source that promoted the findings in this cluster (for
+            example `github_posture` or `github_org_posture`). Clusters are keyed
+            by source in addition to detector, so distinct sources that share one
+            detector stay separate.
         title: { type: string }
         human_summary: { type: string }
         remediation: { type: string }

@@ -806,7 +806,7 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		WithArgs(record.ID, "completed", sqlmock.AnyArg(), 12, 8, 1, false, "", "", "", "[]", "complete", "[]", nil, "default", "default").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("UPDATE repo_findings rf").
-		WithArgs(sqlmock.AnyArg(), "default", "default", record.ID).
+		WithArgs(sqlmock.AnyArg(), "default", "default", record.ID, false, false, true).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 
@@ -874,6 +874,46 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("unexpected repo scan: %+v", gotRepoScan)
 	}
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreCompleteRepoScanPassesPostureCollectionToClosure(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+	repoScanID := "5e7b6f7a-52a3-4d76-8f43-24a1a92d0f11"
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE repo_scans").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	// An unrelated source (Dependabot) failed, so the run is partial and
+	// non-posture findings must not close. Repository posture was still
+	// collected completely, so its findings stay eligible; organization posture
+	// was not collected and must not close.
+	mock.ExpectExec("UPDATE repo_findings rf").
+		WithArgs(sqlmock.AnyArg(), "default", "default", repoScanID, true, false, false).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	err = store.CompleteRepoScan(defaultScopeContext(), repoScanID, "succeeded", now, 1, 1, 0, false, RepoScanContext{
+		ScanMode:         RepoScanModeDeep,
+		PartialSourceRun: true,
+		SourceDetails: []RepoScanSourceHealth{
+			{Source: "identrail_repo_scanner", Status: RepoScanSourceHealthComplete},
+			{Source: "github_repository_posture", Status: RepoScanSourceHealthComplete},
+			{Source: "github_dependabot", Status: RepoScanSourceHealthRateLimited},
+		},
+	}, "")
+	if err != nil {
+		t.Fatalf("complete repo scan failed: %v", err)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}
@@ -1153,6 +1193,7 @@ func TestPostgresStoreListRepoFindingClustersPagesInStore(t *testing.T) {
 		"type",
 		"severity",
 		"detector",
+		"source",
 		"title",
 		"human_summary",
 		"remediation",
@@ -1163,8 +1204,8 @@ func TestPostgresStoreListRepoFindingClustersPagesInStore(t *testing.T) {
 		"commit_count",
 		"repo_scan_count",
 	}).
-		AddRow("cluster-key-1", "owner/repo-a", "repo_misconfig", "medium", "workflow_pull_request_target", "title-a", "summary-a", "fix-a", 2, now.Add(-2*time.Hour), now.Add(-1*time.Hour), 2, 1, 2).
-		AddRow("cluster-key-2", "owner/repo-b", "repo_misconfig", "low", "workflow_pull_request_target", "title-b", "summary-b", "fix-b", 1, now.Add(-30*time.Minute), now, 1, 1, 1)
+		AddRow("cluster-key-1", "owner/repo-a", "repo_misconfig", "medium", "workflow_pull_request_target", "", "title-a", "summary-a", "fix-a", 2, now.Add(-2*time.Hour), now.Add(-1*time.Hour), 2, 1, 2).
+		AddRow("cluster-key-2", "owner/repo-b", "repo_misconfig", "low", "workflow_pull_request_target", "github_posture", "title-b", "summary-b", "fix-b", 1, now.Add(-30*time.Minute), now, 1, 1, 1)
 	mock.ExpectQuery("cluster_summaries AS").
 		WithArgs("default", "default", 1, 2).
 		WillReturnRows(summaryRows)
@@ -1205,6 +1246,9 @@ func TestPostgresStoreListRepoFindingClustersPagesInStore(t *testing.T) {
 	}
 	if clusters[0].Members[0].Commit != "abc123" || clusters[0].Members[1].FindingID != "rf-2" {
 		t.Fatalf("expected ordered cluster members, got %+v", clusters[0].Members)
+	}
+	if clusters[1].Source != "github_posture" {
+		t.Fatalf("expected cluster to carry its promotion source, got %+v", clusters[1])
 	}
 	if clusters[1].Repository != "owner/repo-b" || clusters[1].Count != 1 {
 		t.Fatalf("expected second cluster summary, got %+v", clusters[1])

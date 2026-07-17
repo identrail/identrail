@@ -107,7 +107,8 @@ Read APIs:
 - repo finding responses expose stable repository, lifecycle, and location fields when available: `repository`, `file_path`, `line_number`, `commit`, `detector`, `line_snippet`, `line_snippet_redacted`, `source_url`, `lifecycle_key`, `lifecycle_status`, `owner`, `first_seen_at`, `last_seen_at`, `fixed_at`, `reopened_at`, `dismissed_at`, and `suppression_expires_at`
 - `source_url` is a direct GitHub blob link pinned to the detected commit when Identrail can derive one
 - repo finding pages include a `summary` object with open, fixed, reopened, suppressed, SLA-aged, and MTTR-ready counts plus owner, detector, and severity rollups
-- grouped cluster responses roll duplicate repo findings into cluster counts with `first_seen_at`, `last_seen_at`, `spread`, and a per-occurrence `members` list
+- grouped cluster responses roll duplicate repo findings into cluster counts with `first_seen_at`, `last_seen_at`, `spread`, `source`, and a per-occurrence `members` list
+- clusters are keyed by promotion `source` in addition to detector, so sources that share one detector (repository and organization posture both report `github_secret_scanning_disabled`) stay in separate clusters
 
 ## Finding Lifecycle
 
@@ -129,6 +130,33 @@ Identrail preserves `first_seen_at` when a finding persists, updates
 no longer sees it, and sets `reopened_at` when a fixed finding returns. Delta,
 quick, changed-path, and truncated scans do not close missing findings because
 they did not inspect the whole repository.
+
+### GitHub Posture Findings
+
+Posture gaps promoted from GitHub posture collection (`adapter_source` of
+`github_posture` or `github_org_posture`) are durable repository findings and
+follow the same lifecycle model. Their `lifecycle_key` is derived from the
+repository, finding type, adapter source, posture scope, and posture check id,
+so it stays stable across scans and never depends on a scan row id.
+
+Posture closure is gated on the posture source rather than on the scan as a
+whole:
+
+- A posture finding closes only when a completed, non-truncated deep scan
+  reported its own posture source (`github_repository_posture` or
+  `github_organization_posture`) as `complete` and no longer observed the gap —
+  because the check became secure or no longer applies.
+- A scan that never ran posture collection (a plain repository scan, for
+  example) leaves posture findings open, since it could not re-observe them.
+- A scan whose posture collection was permission-limited, rate-limited, or
+  unavailable leaves posture findings open.
+- An unrelated source failing (Dependabot or code scanning, for example) no
+  longer blocks posture closure. That source says nothing about whether a
+  branch-protection gap was fixed, and blocking on it would strand posture
+  findings as permanently open.
+
+Reappearing posture gaps reuse the same lifecycle key and transition to
+`reopened` while keeping their original `first_seen_at` age.
 
 Operational guidance:
 

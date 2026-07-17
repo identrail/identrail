@@ -2911,7 +2911,10 @@ func NormalizeRepoFindingFilter(filter RepoFindingFilter) RepoFindingFilter {
 	return normalized
 }
 
-func shouldCloseMissingRepoFindings(status string, truncated bool, scanContext RepoScanContext) bool {
+// repoScanClosureEligible reports the scan-level gates that apply to closing a
+// missing finding from any source: the scan finished successfully, was not
+// truncated, and covered the whole repository rather than a changed-path slice.
+func repoScanClosureEligible(status string, truncated bool, scanContext RepoScanContext) bool {
 	normalizedStatus := strings.ToLower(strings.TrimSpace(status))
 	if normalizedStatus != "succeeded" && normalizedStatus != "completed" {
 		return false
@@ -2920,10 +2923,54 @@ func shouldCloseMissingRepoFindings(status string, truncated bool, scanContext R
 		return false
 	}
 	normalizedContext := NormalizeRepoScanContext(scanContext)
-	if normalizedContext.PartialSourceRun {
+	return normalizedContext.ScanMode == "deep" && len(normalizedContext.ChangedPaths) == 0
+}
+
+func shouldCloseMissingRepoFindings(status string, truncated bool, scanContext RepoScanContext) bool {
+	if !repoScanClosureEligible(status, truncated, scanContext) {
 		return false
 	}
-	return normalizedContext.ScanMode == "deep" && len(normalizedContext.ChangedPaths) == 0
+	return !NormalizeRepoScanContext(scanContext).PartialSourceRun
+}
+
+// shouldCloseMissingPostureRepoFindings reports whether a completed scan may
+// close missing posture-origin findings. Posture findings are promoted from the
+// GitHub posture collectors rather than from repository content, so their
+// closure is gated on their own posture source being collected completely
+// (checked per finding) instead of on every unrelated enrichment source
+// succeeding. A Dependabot or code-scanning outage says nothing about whether a
+// branch-protection gap was fixed, and blocking closure on it would strand
+// posture findings as permanently open.
+func shouldCloseMissingPostureRepoFindings(status string, truncated bool, scanContext RepoScanContext) bool {
+	return repoScanClosureEligible(status, truncated, scanContext)
+}
+
+// repoFindingPostureCollectionSource maps a posture-origin repo finding to the
+// scan source that must be completely collected before a missing finding may
+// close. A scan that never ran the posture collectors (for example a plain git
+// scan of the same repository) cannot re-observe the gap and must not close it.
+// Non-posture findings return "" and keep the scan-level closure semantics.
+func repoFindingPostureCollectionSource(adapterSource string) string {
+	switch strings.ToLower(strings.TrimSpace(adapterSource)) {
+	case "github_posture":
+		return "github_repository_posture"
+	case "github_org_posture":
+		return "github_organization_posture"
+	default:
+		return ""
+	}
+}
+
+// repoScanSourceCollectedComplete reports whether the scan explicitly recorded a
+// complete collection for one source. A source the scan never reported counts as
+// not collected, so absent telemetry never closes a posture finding.
+func repoScanSourceCollectedComplete(details []RepoScanSourceHealth, source string) bool {
+	for _, detail := range details {
+		if strings.EqualFold(strings.TrimSpace(detail.Source), source) {
+			return detail.Status == RepoScanSourceHealthComplete
+		}
+	}
+	return false
 }
 
 func repoScanCompletionSourceHealth(status string, scanContext RepoScanContext) (string, []RepoScanSourceHealth) {
