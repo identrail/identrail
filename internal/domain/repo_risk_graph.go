@@ -33,6 +33,22 @@ const (
 	RepoRiskNodeUnknown                  RepoRiskGraphNodeKind = "unknown"
 )
 
+// GitHub control-plane posture node kinds. Each one is created only from a
+// GitHub posture check that the collector actually ran; a control the scanner
+// could not observe is still represented, but with unknown evidence state.
+const (
+	RepoRiskNodeBranchProtection          RepoRiskGraphNodeKind = "branch_protection"
+	RepoRiskNodeRepositoryRuleset         RepoRiskGraphNodeKind = "repository_ruleset"
+	RepoRiskNodeActionsPolicy             RepoRiskGraphNodeKind = "actions_policy"
+	RepoRiskNodeWorkflowPermissionDefault RepoRiskGraphNodeKind = "workflow_permission_default"
+	RepoRiskNodeReusableWorkflowPolicy    RepoRiskGraphNodeKind = "reusable_workflow_policy"
+	RepoRiskNodeRunnerGroup               RepoRiskGraphNodeKind = "runner_group"
+	RepoRiskNodeEnvironmentProtection     RepoRiskGraphNodeKind = "environment_protection"
+	RepoRiskNodeWebhook                   RepoRiskGraphNodeKind = "webhook"
+	RepoRiskNodeAlertSource               RepoRiskGraphNodeKind = "alert_source"
+	RepoRiskNodeOrgSecurityConfiguration  RepoRiskGraphNodeKind = "org_security_configuration"
+)
+
 // RepoRiskGraphEdgeKind describes directional evidence between graph nodes.
 type RepoRiskGraphEdgeKind string
 
@@ -49,6 +65,16 @@ const (
 	RepoRiskEdgeRepoDeploysEnvironment RepoRiskGraphEdgeKind = "repo_deploys_to_environment"
 	RepoRiskEdgeFindingReferencesID    RepoRiskGraphEdgeKind = "finding_references_identity"
 	RepoRiskEdgeReachabilityUnknown    RepoRiskGraphEdgeKind = "reachability_unknown"
+)
+
+// GitHub control-plane posture edge kinds.
+const (
+	RepoRiskEdgeRepositoryGovernedBy          RepoRiskGraphEdgeKind = "repository_governed_by_control"
+	RepoRiskEdgeInheritsOrgPolicy             RepoRiskGraphEdgeKind = "repository_inherits_org_policy"
+	RepoRiskEdgeWorkflowRunsOnRunnerGroup     RepoRiskGraphEdgeKind = "workflow_runs_on_runner_group"
+	RepoRiskEdgeFindingWeakensControl         RepoRiskGraphEdgeKind = "finding_weakens_control"
+	RepoRiskEdgeFindingExposesControl         RepoRiskGraphEdgeKind = "finding_exposes_control_risk"
+	RepoRiskEdgeFindingDependsOnPostureSource RepoRiskGraphEdgeKind = "finding_depends_on_posture_source"
 )
 
 // RepoRiskGraphEvidenceState records whether a node or edge is backed by direct
@@ -129,6 +155,7 @@ type RepoRiskGraphScoreFactors struct {
 	Exposure               int `json:"exposure"`
 	EnvironmentCriticality int `json:"environment_criticality"`
 	Freshness              int `json:"freshness"`
+	PostureAmplifier       int `json:"posture_amplifier"`
 }
 
 type repoRiskGraphBuilder struct {
@@ -136,6 +163,12 @@ type repoRiskGraphBuilder struct {
 	nodes map[string]RepoRiskGraphNode
 	edges map[string]RepoRiskGraphEdge
 	now   time.Time
+
+	// runnerGroupNodes and workflowNodes are collected per repository so that
+	// workflow-to-runner-group reachability can be linked once every finding has
+	// contributed its nodes.
+	runnerGroupNodes map[string][]string
+	workflowNodes    map[string][]string
 }
 
 // BuildRepoRiskGraph builds a deterministic graph from repository findings and
@@ -156,9 +189,11 @@ func BuildRepoRiskGraph(findings []Finding, options RepoRiskGraphOptions) RepoRi
 		now = time.Now().UTC()
 	}
 	builder := repoRiskGraphBuilder{
-		nodes: map[string]RepoRiskGraphNode{},
-		edges: map[string]RepoRiskGraphEdge{},
-		now:   now.UTC(),
+		nodes:            map[string]RepoRiskGraphNode{},
+		edges:            map[string]RepoRiskGraphEdge{},
+		now:              now.UTC(),
+		runnerGroupNodes: map[string][]string{},
+		workflowNodes:    map[string][]string{},
 	}
 
 	repository := strings.TrimSpace(options.Repository)
@@ -222,11 +257,13 @@ func BuildRepoRiskGraph(findings []Finding, options RepoRiskGraphOptions) RepoRi
 		builder.addSecretAndTokenReachability(finding, findingPublicID, findingNodeID, jobID, findingRepository)
 		builder.addOIDCReachability(finding, findingPublicID, findingNodeID, workflowID, jobID, findingRepository)
 		builder.addIdentityReachability(finding, findingPublicID, findingNodeID, findingRepository)
+		builder.addPostureReachability(finding, findingPublicID, findingNodeID, repositoryNodeID, findingRepository)
 
 		score := scoreRepoRiskFinding(finding, builder.now, findingPublicID, findingNodeID)
 		builder.graph.Scores = append(builder.graph.Scores, score)
 	}
 
+	builder.linkWorkflowsToRunnerGroups()
 	builder.finish()
 	return builder.graph
 }
@@ -280,6 +317,7 @@ func (builder *repoRiskGraphBuilder) addWorkflowReachability(finding Finding, fi
 		"file_path":  workflowPath,
 		"repository": repository,
 	})
+	builder.rememberWorkflowNode(repository, workflowID)
 	if repositoryNodeID != "" {
 		builder.upsertEdge(RepoRiskEdgeContainsWorkflow, repositoryNodeID, workflowID, RepoRiskEvidenceKnown, map[string]any{
 			"file_path": workflowPath,
@@ -581,6 +619,7 @@ func scoreRepoRiskFinding(finding Finding, now time.Time, findingID string, find
 		Exposure:               repoRiskExposureFactor(finding),
 		EnvironmentCriticality: repoRiskEnvironmentFactor(finding),
 		Freshness:              repoRiskFreshnessFactor(finding, now),
+		PostureAmplifier:       repoRiskPostureAmplifierFactor(finding),
 	}
 	weighted := float64(factors.Severity)*0.60 +
 		float64(factors.Confidence)*0.10 +
@@ -589,6 +628,10 @@ func scoreRepoRiskFinding(finding Finding, now time.Time, findingID string, find
 		float64(factors.Exposure)*0.05 +
 		float64(factors.EnvironmentCriticality)*0.02 +
 		float64(factors.Freshness)*0.01
+	// The posture amplifier sits on top of the weighted base rather than inside
+	// it: a weak control raises the blast radius of a proven gap, but it must not
+	// dilute the severity, confidence, and reachability signals below.
+	weighted += float64(factors.PostureAmplifier) * 0.10
 	score := int(math.Round(weighted))
 	score = clampInt(score, 0, 100)
 	return RepoRiskGraphFindingScore{
@@ -755,6 +798,9 @@ func repoRiskUnknowns(finding Finding) []string {
 	if workflowPathForFinding(finding) != "" && strings.TrimSpace(stringFromAny(finding.Evidence["workflow_job"])) == "" {
 		unknowns = append(unknowns, "workflow_job")
 	}
+	if control, ok := repoRiskPostureControlForFinding(finding); ok && !control.Observed() {
+		unknowns = append(unknowns, "posture_source")
+	}
 	sort.Strings(unknowns)
 	return unknowns
 }
@@ -829,6 +875,12 @@ func findingReferencesSecrets(finding Finding) bool {
 	}
 	if references, ok := boolFromAny(finding.Evidence["references_secrets"]); ok && references {
 		return true
+	}
+	// A GitHub posture check reports on a control, not on a secret the workflow
+	// consumes. Detectors such as github_secret_scanning_disabled would otherwise
+	// match the detector-name heuristic below and invent a secret node.
+	if _, ok := repoRiskPostureControlForFinding(finding); ok {
+		return false
 	}
 	detector := strings.ToLower(strings.TrimSpace(finding.Detector))
 	return strings.Contains(detector, "secret")

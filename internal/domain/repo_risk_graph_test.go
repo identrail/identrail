@@ -319,6 +319,222 @@ func TestBuildRepoRiskGraphDoesNotScoreEmptyWriteScopes(t *testing.T) {
 	}
 }
 
+func TestBuildRepoRiskGraphLinksGitHubPostureControlPlane(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	graph := BuildRepoRiskGraph([]Finding{
+		postureFinding("branch-protection", "github_default_branch_unprotected", SeverityHigh, now, map[string]any{
+			"github_posture_check_id": "default_branch_protection",
+			"github_posture_category": "branch_protection",
+			"github_posture_scope":    "repository",
+			"github_posture_state":    "insecure",
+			"default_branch":          "main",
+			"required_reviews":        0,
+			"admins_enforced":         false,
+			"force_pushes_allowed":    true,
+		}),
+		postureFinding("org-actions", "github_actions_policy_broad", SeverityMedium, now, map[string]any{
+			"github_posture_check_id": "org_actions_policy",
+			"github_posture_category": "actions",
+			"github_posture_scope":    "organization",
+			"github_posture_state":    "insecure",
+			"organization":            "owner",
+			"allowed_actions":         "all",
+		}),
+	}, RepoRiskGraphOptions{Repository: "owner/repo", DefaultBranch: "main", Now: now})
+
+	assertGraphNode(t, graph, RepoRiskNodeBranchProtection, "branch protection: main")
+	assertGraphNode(t, graph, RepoRiskNodeActionsPolicy, "Actions policy: owner")
+	assertGraphEdge(t, graph, RepoRiskEdgeRepositoryGovernedBy, RepoRiskEvidenceKnown)
+	assertGraphEdge(t, graph, RepoRiskEdgeInheritsOrgPolicy, RepoRiskEvidenceKnown)
+	assertGraphEdge(t, graph, RepoRiskEdgeFindingWeakensControl, RepoRiskEvidenceKnown)
+
+	if countEdges(graph, RepoRiskEdgeFindingWeakensControl) != 2 {
+		t.Fatalf("expected each posture finding to weaken its own control, got %+v", graph.Edges)
+	}
+	for _, score := range graph.Scores {
+		if score.Factors.PostureAmplifier == 0 {
+			t.Fatalf("expected weak controls to amplify posture score, got %+v", score)
+		}
+		if len(score.Unknowns) != 0 {
+			t.Fatalf("expected observed posture sources to report no unknowns, got %+v", score)
+		}
+	}
+}
+
+func TestBuildRepoRiskGraphSurfacesPermissionLimitedPostureAsUncertainty(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	graph := BuildRepoRiskGraph([]Finding{
+		postureFinding("runner-permission", "github_posture_permission_limited", SeverityMedium, now, map[string]any{
+			"github_posture_check_id": "self_hosted_runners",
+			"github_posture_category": "runners",
+			"github_posture_scope":    "repository",
+			"github_posture_state":    "permission_limited",
+		}),
+	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	assertGraphNode(t, graph, RepoRiskNodeRunnerGroup, "self-hosted runner group")
+	assertGraphEdge(t, graph, RepoRiskEdgeFindingDependsOnPostureSource, RepoRiskEvidenceUnknown)
+	assertGraphEdge(t, graph, RepoRiskEdgeRepositoryGovernedBy, RepoRiskEvidenceUnknown)
+
+	if graph.Summary.UnknownNodeCount != 1 || graph.Summary.UnknownEdgeCount != 2 {
+		t.Fatalf("expected permission-limited posture to count as uncertainty, got %+v", graph.Summary)
+	}
+	if countEdges(graph, RepoRiskEdgeFindingWeakensControl) != 0 {
+		t.Fatalf("expected an unreadable control not to be reported as weak, got %+v", graph.Edges)
+	}
+
+	score := scoreForFinding(t, graph, "runner-permission")
+	if len(score.Unknowns) != 1 || score.Unknowns[0] != "posture_source" {
+		t.Fatalf("expected posture source to be listed as unknown, got %+v", score.Unknowns)
+	}
+	if score.Factors.PostureAmplifier != 0 {
+		t.Fatalf("expected an unreadable control not to amplify the score, got %+v", score.Factors)
+	}
+}
+
+func TestBuildRepoRiskGraphLinksWorkflowsToRunnerGroupsAsUnprovenReachability(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	graph := BuildRepoRiskGraph([]Finding{
+		postureFinding("runners", "github_self_hosted_runner_unrestricted", SeverityHigh, now, map[string]any{
+			"github_posture_check_id":         "self_hosted_runners",
+			"github_posture_category":         "runners",
+			"github_posture_scope":            "repository",
+			"github_posture_state":            "insecure",
+			"self_hosted_runner_count":        2,
+			"public_repository_runner_groups": 1,
+		}),
+		{
+			ID:         "workflow-finding",
+			Type:       FindingRepoMisconfig,
+			Severity:   SeverityMedium,
+			Repository: "owner/repo",
+			FilePath:   ".github/workflows/deploy.yml",
+			Detector:   "workflow_unpinned_third_party_action",
+			CreatedAt:  now,
+		},
+	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	assertGraphEdge(t, graph, RepoRiskEdgeWorkflowRunsOnRunnerGroup, RepoRiskEvidenceUnknown)
+	if countEdges(graph, RepoRiskEdgeWorkflowRunsOnRunnerGroup) != 1 {
+		t.Fatalf("expected one workflow-to-runner-group edge, got %+v", graph.Edges)
+	}
+	for _, edge := range graph.Edges {
+		if edge.Kind == RepoRiskEdgeWorkflowRunsOnRunnerGroup && edge.EvidenceState != RepoRiskEvidenceUnknown {
+			t.Fatalf("expected runner targeting to stay unproven, got %+v", edge)
+		}
+	}
+}
+
+func TestBuildRepoRiskGraphExposesDeployKeyAndWebhookControlRisk(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	graph := BuildRepoRiskGraph([]Finding{
+		postureFinding("deploy-keys", "github_write_deploy_key", SeverityHigh, now, map[string]any{
+			"github_posture_check_id": "deploy_keys",
+			"github_posture_scope":    "repository",
+			"github_posture_state":    "insecure",
+			"writable_deploy_keys":    2,
+		}),
+		postureFinding("webhooks", "github_webhook_unhealthy", SeverityLow, now, map[string]any{
+			"github_posture_check_id": "webhooks",
+			"github_posture_scope":    "repository",
+			"github_posture_state":    "insecure",
+			"insecure_ssl_hooks":      1,
+		}),
+	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	assertGraphNode(t, graph, RepoRiskNodeDeployKey, "repository deploy keys")
+	assertGraphNode(t, graph, RepoRiskNodeWebhook, "repository webhooks")
+	if countEdges(graph, RepoRiskEdgeFindingExposesControl) != 2 {
+		t.Fatalf("expected deploy key and webhook risk to use the exposure edge, got %+v", graph.Edges)
+	}
+	if countEdges(graph, RepoRiskEdgeFindingWeakensControl) != 0 {
+		t.Fatalf("expected deploy key and webhook risk not to double-report as weakening, got %+v", graph.Edges)
+	}
+}
+
+func TestBuildRepoRiskGraphPostureAmplifierRaisesScore(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	amplified := postureFinding("weak-branch", "github_default_branch_unprotected", SeverityHigh, now, map[string]any{
+		"github_posture_check_id": "default_branch_protection",
+		"github_posture_scope":    "repository",
+		"github_posture_state":    "insecure",
+		"default_branch":          "main",
+		"force_pushes_allowed":    true,
+	})
+	baseline := amplified
+	baseline.ID = "baseline"
+	baseline.Detector = "github_dependabot_disabled"
+	baseline.Evidence = map[string]any{
+		"github_posture_check_id": "dependabot_security",
+		"github_posture_scope":    "repository",
+		"github_posture_state":    "insecure",
+	}
+
+	graph := BuildRepoRiskGraph([]Finding{amplified, baseline}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	weak := scoreForFinding(t, graph, "weak-branch")
+	dependabot := scoreForFinding(t, graph, "baseline")
+	if weak.Factors.PostureAmplifier <= dependabot.Factors.PostureAmplifier {
+		t.Fatalf("expected an unprotected default branch to outweigh a disabled alert source, weak=%+v dependabot=%+v", weak.Factors, dependabot.Factors)
+	}
+	if weak.Score <= dependabot.Score {
+		t.Fatalf("expected the stronger posture amplifier to raise the score, weak=%+v dependabot=%+v", weak, dependabot)
+	}
+}
+
+func TestBuildRepoRiskGraphDoesNotInventSecretsFromPostureDetectors(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	graph := BuildRepoRiskGraph([]Finding{
+		postureFinding("secret-scanning", "github_secret_scanning_disabled", SeverityHigh, now, map[string]any{
+			"github_posture_check_id": "secret_scanning",
+			"github_posture_category": "security",
+			"github_posture_scope":    "repository",
+			"github_posture_state":    "insecure",
+			"open_alerts_sampled":     3,
+		}),
+	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	assertGraphNode(t, graph, RepoRiskNodeAlertSource, "alert source: secret scanning")
+	if countNodes(graph, RepoRiskNodeSecret) != 0 || countNodes(graph, RepoRiskNodeToken) != 0 {
+		t.Fatalf("expected a secret-scanning posture check not to invent a secret, got %+v", graph.Nodes)
+	}
+}
+
+func TestBuildRepoRiskGraphSkipsPostureChecksWithoutControlConcept(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	graph := BuildRepoRiskGraph([]Finding{
+		postureFinding("metadata", "github_repository_metadata_weak", SeverityLow, now, map[string]any{
+			"github_posture_check_id": "repository_metadata",
+			"github_posture_scope":    "repository",
+			"github_posture_state":    "insecure",
+		}),
+	}, RepoRiskGraphOptions{Repository: "owner/repo", Now: now})
+
+	if countEdges(graph, RepoRiskEdgeRepositoryGovernedBy) != 0 {
+		t.Fatalf("expected a posture check without a control concept not to create a control node, got %+v", graph.Edges)
+	}
+	score := scoreForFinding(t, graph, "metadata")
+	if score.Factors.PostureAmplifier != 0 {
+		t.Fatalf("expected no amplifier without a control concept, got %+v", score.Factors)
+	}
+}
+
+func postureFinding(id string, detector string, severity FindingSeverity, now time.Time, evidence map[string]any) Finding {
+	evidence["repository"] = "owner/repo"
+	evidence["adapter_source"] = "github_posture"
+	return Finding{
+		ID:              id,
+		Type:            FindingRepoMisconfig,
+		Severity:        severity,
+		ConfidenceScore: 0.92,
+		Title:           "GitHub posture gap: " + detector,
+		Repository:      "owner/repo",
+		Detector:        detector,
+		CreatedAt:       now,
+		Evidence:        evidence,
+	}
+}
+
 func assertGraphNode(t *testing.T, graph RepoRiskGraph, kind RepoRiskGraphNodeKind, label string) {
 	t.Helper()
 	for _, node := range graph.Nodes {

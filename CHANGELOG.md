@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- Extend the **repository risk graph with GitHub control-plane posture** (#1710).
+  `GET /v1/repo-risk-graph` now represents branch protection, repository
+  rulesets, Actions policy, default workflow permissions, reusable workflow
+  policy, self-hosted runner groups, deployment environment protection, deploy
+  keys, webhooks, native alert sources, and organization security configuration
+  as graph nodes, linked by `repository_governed_by_control`,
+  `repository_inherits_org_policy`, `workflow_runs_on_runner_group`,
+  `finding_weakens_control`, `finding_exposes_control_risk`, and
+  `finding_depends_on_posture_source` edges. Finding scores gain a
+  `posture_amplifier` factor so proven-weak controls such as an unprotected
+  default branch, a broad Actions policy, self-hosted runners, writable deploy
+  keys, or unprotected production environments widen blast radius. Posture
+  sources the scanner could not read stay visible as unknown nodes, unknown
+  edges, and a `posture_source` score unknown rather than being scored or
+  silently dropped.
 - Replace the first-run **Connect AWS** screen with a scope-first single-account
   setup wizard (#1750). Operators now choose the supported account scope, enter
   a display name and setup region, launch the CloudFormation stack through a
