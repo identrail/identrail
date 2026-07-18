@@ -1039,6 +1039,37 @@ func TestAWSConnectorValidateClearsStackSetLaunchPrerequisitesWhenConnected(t *t
 	if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != started.LaunchURL {
 		t.Fatalf("expected validation to keep durable launch URL, got %q want %q", got, started.LaunchURL)
 	}
+
+	resumed, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:      "workspace-a",
+		ProjectID:        "project-1",
+		ConnectorID:      "aws-org-prod",
+		DisplayName:      "Production organization",
+		ScopeType:        AWSConnectorScopeOrganization,
+		DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:    []string{"us-east-1", "eu-west-1"},
+		TargetOUIDs:      []string{"r-abcd"},
+		StackSetName:     "identrail-org-readonly",
+	})
+	if err != nil {
+		t.Fatalf("resume connected organization stackset connector: %v", err)
+	}
+	if resumed.OnboardingStatus != AWSConnectorOnboardingConnected ||
+		resumed.Connection.OnboardingStatus != AWSConnectorOnboardingConnected ||
+		len(resumed.Prerequisites) != 0 ||
+		len(resumed.Connection.Prerequisites) != 0 {
+		t.Fatalf("expected connected retry to keep connected state without launch blockers, got response=%+v connection=%+v", resumed, resumed.Connection)
+	}
+	if resumed.StackSetOnboarding != nil {
+		t.Fatalf("connected retry must not attach a fresh blocked StackSet onboarding plan: %+v", resumed.StackSetOnboarding)
+	}
+	if slices.Contains(resumed.NextActions, AWSConnectorNextActionEnableTrustedAccess) ||
+		!slices.Contains(resumed.NextActions, AWSConnectorNextActionStartIntelligence) {
+		t.Fatalf("expected connected retry actions without trusted-access blockers, got %+v", resumed.NextActions)
+	}
+	if resumed.LaunchURL != started.LaunchURL {
+		t.Fatalf("expected connected retry to keep durable launch URL, got %q want %q", resumed.LaunchURL, started.LaunchURL)
+	}
 }
 
 func TestAWSConnectorStartRejectsInvalidStackSetScopeContracts(t *testing.T) {

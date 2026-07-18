@@ -823,6 +823,14 @@ func (s *Service) resumeAWSStackSetConnectorStart(
 		policyHash = hash
 	}
 	storedTemplateURL := firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "template_url"), templateURL)
+	launchURL := awsMetadataString(stored.State.Metadata, "launch_url")
+	status := s.awsConnectionStatusFromStored(ctx, stored)
+	status.ExternalID = externalID
+	status.ExternalIDConfigured = true
+	if !generatedExternalID && status.Connected && status.OnboardingStatus == AWSConnectorOnboardingConnected {
+		return awsConnectorStartResponse(status, externalID, launchURL, storedTemplateURL, accountID, roleName, "", policyHash), nil
+	}
+
 	templateChecksum := firstNonEmptyAWSValue(normalizeAWSConnectorTemplateChecksum(awsMetadataString(stored.State.Metadata, "template_checksum")), configuredTemplateChecksum)
 	if templateChecksum == "" {
 		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
@@ -844,7 +852,6 @@ func (s *Service) resumeAWSStackSetConnectorStart(
 	if err != nil {
 		return AWSConnectorStartResponse{}, err
 	}
-	launchURL := awsMetadataString(stored.State.Metadata, "launch_url")
 	if generatedExternalID || launchURL == "" || !awsCloudFormationLaunchURLMatchesExternalID(launchURL, externalID) {
 		launchURL = onboarding.LaunchURL
 		if rotatedAt.IsZero() {
@@ -857,7 +864,7 @@ func (s *Service) resumeAWSStackSetConnectorStart(
 		onboarding.LaunchURL = launchURL
 	}
 
-	status := s.awsConnectionStatusFromStored(ctx, stored)
+	status = s.awsConnectionStatusFromStored(ctx, stored)
 	status.ExternalID = externalID
 	status.ExternalIDConfigured = true
 	response := awsConnectorStartResponse(status, externalID, launchURL, storedTemplateURL, accountID, roleName, "", policyHash)
