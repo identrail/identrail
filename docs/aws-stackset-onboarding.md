@@ -119,14 +119,20 @@ instances.
   to deploy into member accounts. Identrail generates the console launch URL and
   prerequisite plan; the operator enables trusted access or delegated admin in
   AWS when required.
+- `auto_onboard_new_accounts` is serialized into the service-managed StackSet
+  launch URL so the AWS console creates the StackSet with the requested
+  automatic-deployment setting instead of relying on console defaults. Identrail
+  sets retained-on-removal to false for this connector role so accounts removed
+  from targeted OUs do not keep stale read-only access.
 - `scope_type=organization` with `stackset_service_managed` must include the
   organization root ID or OU IDs in `target_ou_ids`; use the root ID for
   all-account rollout. Organization and selected-OU scopes reject
   `target_account_ids` so their operator-visible scope cannot drift into an
   account-filtered rollout. `scope_type=selected_accounts` also requires a root
   or OU target, and AWS applies the selected account IDs as an account filter
-  inside that root or OU target. If exclusions remove every selected account,
-  the request is rejected instead of launching against the full root or OU.
+  inside that root or OU target. If exclusions remove every selected account, or
+  if selected-account setup asks for future-account auto-onboarding, the request
+  is rejected instead of launching against a broader root or OU.
 - `stackset_self_managed` is allowed only for explicit selected account IDs in
   this backend contract. The planner blocks until an administration role is
   configured because self-managed StackSets need operator-managed admin and

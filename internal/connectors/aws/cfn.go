@@ -3,6 +3,7 @@ package aws
 import (
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -64,17 +65,19 @@ const defaultStackSetName = "identrail-readonly-connector-stackset"
 // values; it carries only setup parameters such as the generated external ID,
 // pinned template URL, permission model, and target metadata.
 type CloudFormationStackSetLaunchInput struct {
-	TemplateURL           string
-	Region                string
-	StackSetName          string
-	IdentrailAccountID    string
-	ExternalID            string
-	RoleName              string
-	PermissionModel       StackSetLaunchPermissionModel
-	OrganizationalUnitIDs []string
-	TargetAccountIDs      []string
-	ExcludedAccountIDs    []string
-	TargetRegions         []string
+	TemplateURL                  string
+	Region                       string
+	StackSetName                 string
+	IdentrailAccountID           string
+	ExternalID                   string
+	RoleName                     string
+	PermissionModel              StackSetLaunchPermissionModel
+	OrganizationalUnitIDs        []string
+	TargetAccountIDs             []string
+	ExcludedAccountIDs           []string
+	TargetRegions                []string
+	AutoDeploymentEnabled        *bool
+	RetainStacksOnAccountRemoval bool
 }
 
 // BuildCloudFormationStackSetLaunchURL creates an AWS console deep link for
@@ -121,6 +124,10 @@ func BuildCloudFormationStackSetLaunchURL(input CloudFormationStackSetLaunchInpu
 	}
 	if len(input.TargetRegions) > 0 {
 		values.Set("regions", strings.Join(input.TargetRegions, ","))
+	}
+	if input.AutoDeploymentEnabled != nil && permissionModel == string(StackSetLaunchPermissionModelServiceManaged) {
+		values.Set("autoDeploymentEnabled", strconv.FormatBool(*input.AutoDeploymentEnabled))
+		values.Set("retainStacksOnAccountRemoval", strconv.FormatBool(input.RetainStacksOnAccountRemoval))
 	}
 
 	return "https://" + consoleHostForRegion(region) + "/cloudformation/home?region=" + url.QueryEscape(region) + "#/stacksets/create?" + values.Encode()

@@ -134,8 +134,10 @@ The contract fields are:
   `target_regions` records scan-region intent; the read-only IAM role StackSet
   deploys in the first normalized home region only because the role is global
   within each AWS account.
-- `auto_onboard_new_accounts`: whether future organization accounts should be
-  included automatically once StackSet onboarding owns that path.
+- `auto_onboard_new_accounts`: whether service-managed Organization or OU
+  StackSets should automatically deploy the connector role to future accounts
+  added under the target. Selected-account StackSets reject this flag because
+  AWS automatic deployments are OU-scoped and do not honor account filters.
 - `setup_summary` and `next_actions`: short app-facing guidance for the next
   safe operator action.
 
@@ -147,8 +149,9 @@ organization and selected scopes must use a StackSet deployment method,
 organization and selected scopes must include root or OU targets,
 organization and selected-OU scopes reject `target_account_ids`,
 service-managed selected accounts must include account filters, selected-account
-exclusions must leave at least one effective account, and malformed AWS account
-IDs, OU IDs, and regions fail validation.
+exclusions must leave at least one effective account, selected-account
+auto-onboarding is rejected, and malformed AWS account IDs, OU IDs, and regions
+fail validation.
 
 The executable `POST /v1/connectors/aws` setup path supports
 `single_account`/`cloudformation`, `manual_role`/`manual`,

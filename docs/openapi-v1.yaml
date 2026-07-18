@@ -11476,6 +11476,7 @@ components:
             type: string
         auto_onboard_new_accounts:
           type: boolean
+          description: Enables service-managed StackSet automatic deployment to future accounts under targeted organization or OU scopes. Rejected for selected-account StackSets because AWS automatic deployments do not honor account filters.
     AWSConnectorValidateRequest:
       type: object
       required: [role_arn]
@@ -11564,6 +11565,7 @@ components:
             type: string
         auto_onboard_new_accounts:
           type: boolean
+          description: Enables service-managed StackSet automatic deployment to future accounts under targeted organization or OU scopes. Rejected for selected-account StackSets because AWS automatic deployments do not honor account filters.
         setup_summary:
           type: string
         next_actions:
@@ -11779,6 +11781,7 @@ components:
             type: string
         auto_onboard_new_accounts:
           type: boolean
+          description: Enables service-managed StackSet automatic deployment to future accounts under targeted organization or OU scopes. Rejected for selected-account StackSets because AWS automatic deployments do not honor account filters.
         setup_summary:
           type: string
         next_actions:

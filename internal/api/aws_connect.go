@@ -1617,6 +1617,7 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 		TargetAccountIDs:      collectStackSetAccountIDs(plan.Targets.Accounts),
 		ExcludedAccountIDs:    awsConnectorStackSetLaunchExcludedAccounts(setup),
 		TargetRegions:         collectStackSetRegionCodes(plan.Targets.Regions),
+		AutoDeploymentEnabled: awsConnectorStackSetAutoDeploymentEnabled(mode, setup),
 	})
 	status, confidence, failures, remediations := summarizeAWSStackSetOnboarding("success", plan, nil)
 	return AWSStackSetOnboardingResult{
@@ -1677,6 +1678,14 @@ func awsConnectorStackSetDeploymentMode(method AWSConnectorDeploymentMethod) aws
 		return awscontract.StackSetDeploymentSelfManaged
 	}
 	return awscontract.StackSetDeploymentServiceManaged
+}
+
+func awsConnectorStackSetAutoDeploymentEnabled(mode awscontract.StackSetDeploymentMode, setup awsConnectorSetupContract) *bool {
+	if mode != awscontract.StackSetDeploymentServiceManaged {
+		return nil
+	}
+	enabled := setup.AutoOnboardNewAccounts
+	return &enabled
 }
 
 func awsConnectorStackSetTargets(setup awsConnectorSetupContract) awscontract.StackSetOnboardingTargets {
@@ -1872,6 +1881,9 @@ func normalizeAWSConnectorSetupContract(input awsConnectorSetupInput) (awsConnec
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
 		if deploymentMethod == AWSConnectorDeploymentStackSetServiceManaged && len(targetOUIDs) == 0 {
+			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
+		}
+		if deploymentMethod == AWSConnectorDeploymentStackSetServiceManaged && input.AutoOnboardNewAccounts {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
 		if deploymentMethod == AWSConnectorDeploymentStackSetSelfManaged && len(targetOUIDs) > 0 {

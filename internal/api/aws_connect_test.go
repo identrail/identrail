@@ -847,6 +847,8 @@ func TestRouterAWSConnectorOrganizationStackSetFlow(t *testing.T) {
 		!strings.Contains(startBody.LaunchURL, "excludedAccounts=210987654321") ||
 		!strings.Contains(startBody.LaunchURL, "accountFilterType=DIFFERENCE") ||
 		!strings.Contains(startBody.LaunchURL, "regions=us-east-1") ||
+		!strings.Contains(startBody.LaunchURL, "autoDeploymentEnabled=true") ||
+		!strings.Contains(startBody.LaunchURL, "retainStacksOnAccountRemoval=false") ||
 		strings.Contains(startBody.LaunchURL, "eu-west-1") {
 		t.Fatalf("expected stackset launch URL with service-managed targets and exclusions, got %q", startBody.LaunchURL)
 	}
@@ -928,6 +930,7 @@ func TestAWSConnectorStartSelectedStackSetScopes(t *testing.T) {
 		!strings.Contains(accounts.LaunchURL, "accounts=111122223333") ||
 		!strings.Contains(accounts.LaunchURL, "accountFilterType=INTERSECTION") ||
 		!strings.Contains(accounts.LaunchURL, "regions=us-east-1") ||
+		!strings.Contains(accounts.LaunchURL, "autoDeploymentEnabled=false") ||
 		strings.Contains(accounts.LaunchURL, "eu-west-1") ||
 		strings.Contains(accounts.LaunchURL, "accounts=444455556666") ||
 		strings.Contains(accounts.LaunchURL, "excludedAccounts=") {
@@ -1982,6 +1985,20 @@ func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
 				TargetAccountIDs:        []string{"111122223333"},
 				TargetOUIDs:             []string{"r-abcd"},
 				ExcludedAccountIDs:      []string{"111122223333"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "service-managed selected accounts reject auto onboarding",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetAccountIDs:        []string{"111122223333"},
+				TargetOUIDs:             []string{"r-abcd"},
+				AutoOnboardNewAccounts:  true,
 				DefaultScopeType:        AWSConnectorScopeSingleAccount,
 				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
 			},
