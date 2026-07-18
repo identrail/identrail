@@ -1825,6 +1825,9 @@ func normalizeAWSConnectorSetupContract(input awsConnectorSetupInput) (awsConnec
 		if deploymentMethod == AWSConnectorDeploymentStackSetSelfManaged {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
+		if len(targetOUIDs) == 0 {
+			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
+		}
 	case AWSConnectorScopeSelectedOUs:
 		if !awsConnectorDeploymentIsStackSet(deploymentMethod) || len(targetOUIDs) == 0 {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest

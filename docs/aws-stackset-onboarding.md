@@ -112,10 +112,11 @@ instances.
   to deploy into member accounts. Identrail generates the console launch URL and
   prerequisite plan; the operator enables trusted access or delegated admin in
   AWS when required.
-- `scope_type=selected_accounts` with `stackset_service_managed` must include
-  a root ID or OU IDs in `target_ou_ids`. AWS applies the selected account IDs
-  as an account filter inside that root or OU target; they are not standalone
-  service-managed StackSet targets.
+- `scope_type=organization` with `stackset_service_managed` must include the
+  organization root ID or OU IDs in `target_ou_ids`; use the root ID for
+  all-account rollout. `scope_type=selected_accounts` also requires a root or
+  OU target, and AWS applies the selected account IDs as an account filter
+  inside that root or OU target.
 - `stackset_self_managed` is allowed only for explicit selected account IDs in
   this backend contract. The planner blocks until an administration role is
   configured because self-managed StackSets need operator-managed admin and

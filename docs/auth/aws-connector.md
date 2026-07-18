@@ -141,9 +141,9 @@ defaults to `single_account` with `cloudformation`. The legacy direct role
 validation path reports `manual_role` with `manual`. Invalid combinations are
 rejected before setup is persisted: manual role setup must use `manual`,
 organization and selected scopes must use a StackSet deployment method,
-selected OUs/accounts must include targets, service-managed selected accounts
-must include a root or OU target for AWS account filtering, and malformed AWS
-account IDs, OU IDs, and regions fail validation.
+organization and selected scopes must include root or OU targets,
+service-managed selected accounts must include account filters, and malformed
+AWS account IDs, OU IDs, and regions fail validation.
 
 The executable `POST /v1/connectors/aws` setup path supports
 `single_account`/`cloudformation`, `manual_role`/`manual`,

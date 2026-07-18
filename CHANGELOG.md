@@ -42,8 +42,9 @@
   than deriving one from URL metadata, keeps Identrail's trusted AWS account
   separate from the customer's management account, and blocks service-managed
   StackSet launch readiness until trusted access is verified. Selected-account
-  service-managed setup now requires a root or OU target and emits the selected
-  account IDs as AWS StackSet account filters.
+  and organization service-managed setup now requires a root or OU target; the
+  selected-account path emits selected account IDs as AWS StackSet account
+  filters.
 - Replace the first-run **Connect AWS** screen with a scope-first single-account
   setup wizard (#1750). Operators now choose the supported account scope, enter
   a display name and setup region, launch the CloudFormation stack through a

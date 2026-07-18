@@ -784,6 +784,7 @@ func TestRouterAWSConnectorOrganizationStackSetFlow(t *testing.T) {
 		"scope_type":"organization",
 		"deployment_method":"stackset_service_managed",
 		"target_regions":["us-east-1","eu-west-1"],
+		"target_ou_ids":["r-abcd"],
 		"excluded_account_ids":["210987654321"],
 		"auto_onboard_new_accounts":true,
 		"stack_set_name":"identrail-org-readonly"
@@ -805,7 +806,7 @@ func TestRouterAWSConnectorOrganizationStackSetFlow(t *testing.T) {
 		t.Fatalf("expected stackset name and checksum, got name=%q checksum=%q", startBody.StackSetName, startBody.TemplateChecksum)
 	}
 	if startBody.TargetSummary == nil || !startBody.TargetSummary.AllAccounts || startBody.TargetSummary.AccountCountKnown ||
-		startBody.TargetSummary.RegionCount != 2 || startBody.TargetSummary.ExcludedAccountCount != 1 ||
+		startBody.TargetSummary.OUCount != 1 || startBody.TargetSummary.RegionCount != 2 || startBody.TargetSummary.ExcludedAccountCount != 1 ||
 		startBody.TargetSummary.ExpectedStackInstancesKnown {
 		t.Fatalf("expected organization target-intent summary with unknown account count, got %+v", startBody.TargetSummary)
 	}
@@ -823,7 +824,9 @@ func TestRouterAWSConnectorOrganizationStackSetFlow(t *testing.T) {
 		startBody.StackSetOnboarding.ManagementAccountID != "" {
 		t.Fatalf("expected Identrail account to stay separate from customer management account, got identrail=%q onboarding=%+v", startBody.IdentrailAccountID, startBody.StackSetOnboarding)
 	}
-	if !startBody.StackSetOnboarding.Targets.AllAccounts || len(startBody.StackSetOnboarding.Targets.Regions) != 2 {
+	if !startBody.StackSetOnboarding.Targets.AllAccounts ||
+		len(startBody.StackSetOnboarding.Targets.OrganizationalUnits) != 1 ||
+		len(startBody.StackSetOnboarding.Targets.Regions) != 2 {
 		t.Fatalf("expected organization target intent in onboarding payload, got %+v", startBody.StackSetOnboarding.Targets)
 	}
 	trustedAccess := requireAWSStackSetPrerequisite(t, startBody.Prerequisites, "stackset.trusted_access_enabled")
@@ -836,6 +839,7 @@ func TestRouterAWSConnectorOrganizationStackSetFlow(t *testing.T) {
 	}
 	if !strings.Contains(startBody.LaunchURL, "stacksets/create") ||
 		!strings.Contains(startBody.LaunchURL, "permissionModel=SERVICE_MANAGED") ||
+		!strings.Contains(startBody.LaunchURL, "organizationalUnitIds=r-abcd") ||
 		!strings.Contains(startBody.LaunchURL, "excludedAccounts=210987654321") ||
 		!strings.Contains(startBody.LaunchURL, "accountFilterType=DIFFERENCE") {
 		t.Fatalf("expected stackset launch URL with service-managed targets and exclusions, got %q", startBody.LaunchURL)
@@ -963,7 +967,18 @@ func TestAWSConnectorStartRejectsInvalidStackSetScopeContracts(t *testing.T) {
 				"workspace_id":"workspace-a",
 				"project_id":"project-1",
 				"scope_type":"organization",
+				"target_ou_ids":["r-abcd"],
 				"deployment_method":"stackset_service_managed"
+			}`,
+		},
+		{
+			name: "organization service-managed requires root or OU target",
+			body: `{
+				"workspace_id":"workspace-a",
+				"project_id":"project-1",
+				"scope_type":"organization",
+				"deployment_method":"stackset_service_managed",
+				"target_regions":["us-east-1"]
 			}`,
 		},
 		{
@@ -1728,6 +1743,7 @@ func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
 				ScopeType:               AWSConnectorScopeOrganization,
 				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
 				TargetRegions:           []string{"us-east-1", "us-west-2", "us-east-1"},
+				TargetOUIDs:             []string{"r-abcd"},
 				ExcludedAccountIDs:      []string{"123456789012"},
 				AutoOnboardNewAccounts:  true,
 				DefaultScopeType:        AWSConnectorScopeSingleAccount,
@@ -1737,9 +1753,21 @@ func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
 				ScopeType:              AWSConnectorScopeOrganization,
 				DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
 				TargetRegions:          []string{"us-east-1", "us-west-2"},
+				TargetOUIDs:            []string{"r-abcd"},
 				ExcludedAccountIDs:     []string{"123456789012"},
 				AutoOnboardNewAccounts: true,
 			},
+		},
+		{
+			name: "organization service-managed requires root or OU target",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeOrganization,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
 		},
 		{
 			name: "selected OUs requires OU ids",
