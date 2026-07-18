@@ -428,7 +428,7 @@ func TestValidateSecurityRequiresAWSConnectorLaunchConfig(t *testing.T) {
 	}
 }
 
-func TestValidateSecurityRequiresAWSConnectorTemplateChecksum(t *testing.T) {
+func TestValidateSecurityAllowsMissingAWSConnectorTemplateChecksum(t *testing.T) {
 	cfg := Config{
 		APIKeys:                      []string{"reader", "writer"},
 		WriteAPIKeys:                 []string{"writer"},
@@ -436,8 +436,8 @@ func TestValidateSecurityRequiresAWSConnectorTemplateChecksum(t *testing.T) {
 		AWSCloudFormationTemplateURL: "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml",
 		AWSAccountID:                 "123456789012",
 	}
-	if err := ValidateSecurity(cfg); err == nil || !strings.Contains(err.Error(), "IDENTRAIL_AWS_CFN_TEMPLATE_SHA256") {
-		t.Fatalf("expected missing AWS template checksum error, got %v", err)
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected missing AWS template checksum to be migration-safe, got %v", err)
 	}
 }
 

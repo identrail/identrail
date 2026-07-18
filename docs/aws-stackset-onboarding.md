@@ -50,9 +50,9 @@ contents are never read.
   `AWSCloudFormationStackSetAdministrationRole` is reachable from the management
   account and `AWSCloudFormationStackSetExecutionRole` is bootstrapped in each
   target account.
-- The Identrail read-only connector template URL and checksum are configured on
-  the runtime (`IDENTRAIL_AWS_CFN_TEMPLATE_URL` and
-  `IDENTRAIL_AWS_CFN_TEMPLATE_SHA256`).
+- The Identrail read-only connector template URL is configured on the runtime,
+  and StackSet launches also have the release checksum configured
+  (`IDENTRAIL_AWS_CFN_TEMPLATE_URL` and `IDENTRAIL_AWS_CFN_TEMPLATE_SHA256`).
 - An external ID is generated for the connector trust policy.
 
 The planner reports each prerequisite (`stackset.template_pinned`,

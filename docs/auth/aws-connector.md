@@ -25,7 +25,9 @@ POST /v1/connectors/aws/{connector_id}/refresh-policy
 `IDENTRAIL_AWS_CFN_TEMPLATE_URL` points to the published CloudFormation template.
 
 `IDENTRAIL_AWS_CFN_TEMPLATE_SHA256` is the release-provided SHA-256 checksum for
-that exact template.
+that exact template. It is optional for existing single-account and manual-role
+setups, but StackSet onboarding requires it before Identrail returns a launch
+URL.
 
 `IDENTRAIL_AWS_ACCOUNT_ID` is the AWS account ID for the Identrail deployment that customer roles should trust.
 

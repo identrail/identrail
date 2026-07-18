@@ -288,8 +288,8 @@ func ValidateSecurity(cfg Config) error {
 		if parsedTemplateURL.Scheme != "https" && parsedTemplateURL.Hostname() != "localhost" {
 			return fmt.Errorf("IDENTRAIL_AWS_CFN_TEMPLATE_URL must use HTTPS unless it points at localhost")
 		}
-		if !awsTemplateSHA256Pattern.MatchString(strings.TrimSpace(cfg.AWSCloudFormationTemplateSHA)) {
-			return fmt.Errorf("IDENTRAIL_AWS_CFN_TEMPLATE_SHA256 must be a SHA-256 checksum when IDENTRAIL_FEATURE_CONNECTOR_AWS=true")
+		if strings.TrimSpace(cfg.AWSCloudFormationTemplateSHA) != "" && !awsTemplateSHA256Pattern.MatchString(strings.TrimSpace(cfg.AWSCloudFormationTemplateSHA)) {
+			return fmt.Errorf("IDENTRAIL_AWS_CFN_TEMPLATE_SHA256 must be a SHA-256 checksum when set")
 		}
 		if !regexp.MustCompile(`^[0-9]{12}$`).MatchString(strings.TrimSpace(cfg.AWSAccountID)) {
 			return fmt.Errorf("IDENTRAIL_AWS_ACCOUNT_ID must be a 12 digit AWS account ID when IDENTRAIL_FEATURE_CONNECTOR_AWS=true")
