@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -494,7 +495,7 @@ func (s *Service) startAWSStackSetConnector(
 	} else {
 		stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
 		if err == nil {
-			return s.resumeAWSStackSetConnectorStart(ctx, stored, request, templateURL, accountID, templateChecksum)
+			return s.resumeAWSStackSetConnectorStart(ctx, stored, setup, request, templateURL, accountID, templateChecksum)
 		}
 		if !errors.Is(err, db.ErrNotFound) {
 			return AWSConnectorStartResponse{}, err
@@ -581,7 +582,7 @@ func (s *Service) startAWSStackSetConnector(
 		return AWSConnectorStartResponse{}, fmt.Errorf("create aws stackset connector: %w", err)
 	}
 	if !created {
-		return s.resumeAWSStackSetConnectorStart(ctx, stored, request, templateURL, accountID, templateChecksum)
+		return s.resumeAWSStackSetConnectorStart(ctx, stored, setup, request, templateURL, accountID, templateChecksum)
 	}
 	status := s.awsConnectionStatusFromStored(ctx, stored)
 	status.ExternalID = externalID
@@ -767,6 +768,7 @@ func (s *Service) recoverAWSManualConnectorExternalID(ctx context.Context, store
 func (s *Service) resumeAWSStackSetConnectorStart(
 	ctx context.Context,
 	stored db.TenancyConnectorWithState,
+	requestedSetup awsConnectorSetupContract,
 	request AWSConnectorStartRequest,
 	templateURL string,
 	accountID string,
@@ -778,6 +780,9 @@ func (s *Service) resumeAWSStackSetConnectorStart(
 	defaultScope, defaultDeployment := awsMetadataSetupFallback(stored.State.Metadata)
 	setup := awsMetadataSetupContract(stored.State.Metadata, defaultScope, defaultDeployment)
 	if !awsConnectorDeploymentIsStackSet(setup.DeploymentMethod) {
+		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+	}
+	if !awsConnectorSetupContractsMatch(setup, requestedSetup) {
 		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
 	}
 	externalID, externalIDConfigured, err := s.awsExternalIDFromStoredStrict(ctx, stored)
@@ -1927,6 +1932,16 @@ func awsConnectorTargetIDsAreOUs(targetOUIDs []string) bool {
 		}
 	}
 	return true
+}
+
+func awsConnectorSetupContractsMatch(stored awsConnectorSetupContract, requested awsConnectorSetupContract) bool {
+	return stored.ScopeType == requested.ScopeType &&
+		stored.DeploymentMethod == requested.DeploymentMethod &&
+		slices.Equal(stored.TargetRegions, requested.TargetRegions) &&
+		slices.Equal(stored.TargetAccountIDs, requested.TargetAccountIDs) &&
+		slices.Equal(stored.TargetOUIDs, requested.TargetOUIDs) &&
+		slices.Equal(stored.ExcludedAccountIDs, requested.ExcludedAccountIDs) &&
+		stored.AutoOnboardNewAccounts == requested.AutoOnboardNewAccounts
 }
 
 func validAWSConnectorScopeType(scopeType AWSConnectorScopeType) bool {

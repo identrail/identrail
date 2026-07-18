@@ -971,6 +971,90 @@ func TestAWSConnectorStartSelectedStackSetScopes(t *testing.T) {
 	}
 }
 
+func TestAWSConnectorStartRejectsStackSetResumeSetupDrift(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{8}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ConnectorID:            "aws-stackset",
+		DisplayName:            "Production organization",
+		ScopeType:              AWSConnectorScopeOrganization,
+		DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:          []string{"us-east-1", "eu-west-1"},
+		TargetOUIDs:            []string{"r-abcd"},
+		AutoOnboardNewAccounts: true,
+		StackSetName:           "identrail-org-readonly",
+	})
+	if err != nil {
+		t.Fatalf("start organization stackset: %v", err)
+	}
+	if !strings.Contains(started.LaunchURL, "organizationalUnitIds=r-abcd") ||
+		!strings.Contains(started.LaunchURL, "autoDeploymentEnabled=true") {
+		t.Fatalf("expected organization launch URL, got %q", started.LaunchURL)
+	}
+
+	retries := []struct {
+		name    string
+		request AWSConnectorStartRequest
+	}{
+		{
+			name: "selected OU scope",
+			request: AWSConnectorStartRequest{
+				WorkspaceID:      "workspace-a",
+				ProjectID:        "project-1",
+				ConnectorID:      "aws-stackset",
+				DisplayName:      "Selected OUs",
+				ScopeType:        AWSConnectorScopeSelectedOUs,
+				DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:    []string{"us-east-1"},
+				TargetOUIDs:      []string{"ou-abcd-12345678"},
+				StackSetName:     "identrail-selected-ous",
+			},
+		},
+		{
+			name: "self-managed deployment",
+			request: AWSConnectorStartRequest{
+				WorkspaceID:      "workspace-a",
+				ProjectID:        "project-1",
+				ConnectorID:      "aws-stackset",
+				DisplayName:      "Selected accounts",
+				ScopeType:        AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod: AWSConnectorDeploymentStackSetSelfManaged,
+				TargetRegions:    []string{"us-east-1"},
+				TargetAccountIDs: []string{"111122223333"},
+				StackSetName:     "identrail-self-managed",
+			},
+		},
+	}
+	for _, retry := range retries {
+		t.Run(retry.name, func(t *testing.T) {
+			_, err := svc.StartAWSConnector(ctx, retry.request)
+			if !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+				t.Fatalf("expected setup drift to be rejected, got %v", err)
+			}
+			stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-stackset")
+			if err != nil {
+				t.Fatalf("load stored connector: %v", err)
+			}
+			if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != started.LaunchURL {
+				t.Fatalf("setup drift must not replace launch URL, got %q want %q", got, started.LaunchURL)
+			}
+		})
+	}
+}
+
 func TestAWSConnectorValidateClearsStackSetLaunchPrerequisitesWhenConnected(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
@@ -1044,15 +1128,16 @@ func TestAWSConnectorValidateClearsStackSetLaunchPrerequisitesWhenConnected(t *t
 	}
 
 	resumed, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
-		WorkspaceID:      "workspace-a",
-		ProjectID:        "project-1",
-		ConnectorID:      "aws-org-prod",
-		DisplayName:      "Production organization",
-		ScopeType:        AWSConnectorScopeOrganization,
-		DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
-		TargetRegions:    []string{"us-east-1", "eu-west-1"},
-		TargetOUIDs:      []string{"r-abcd"},
-		StackSetName:     "identrail-org-readonly",
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ConnectorID:            "aws-org-prod",
+		DisplayName:            "Production organization",
+		ScopeType:              AWSConnectorScopeOrganization,
+		DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:          []string{"us-east-1"},
+		TargetOUIDs:            []string{"r-abcd"},
+		AutoOnboardNewAccounts: true,
+		StackSetName:           "identrail-org-readonly",
 	})
 	if err != nil {
 		t.Fatalf("resume connected organization stackset connector: %v", err)
