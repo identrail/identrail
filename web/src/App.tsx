@@ -2652,7 +2652,6 @@ function ScanIntakeModal({ onClose }: { onClose: () => void }) {
       </button>
       <div className="idt-scan-modal-shell">
         <aside className="idt-scan-modal-guide" aria-label="Scan request guidance">
-          <p className="idt-eyebrow">Read-only trust review</p>
           <h2>Request a trust path review</h2>
           <p>
             A short, review-first request gives the team enough public context to prepare a useful trust-path report.
