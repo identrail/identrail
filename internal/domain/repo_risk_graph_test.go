@@ -901,6 +901,123 @@ func TestBuildRepoRiskGraphPrefersObservedEvidenceWhenUpgradingSharedOrgControl(
 	}
 }
 
+func TestBuildRepoRiskGraphKeepsDistinctOrgCodeSecurityConfigurationsSeparate(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	// Two repositories in the same organization are attached to two different
+	// GitHub code-security configurations. Each configuration is a distinct
+	// control with its own weakness, so they must stay as separate nodes with
+	// separate inheritance edges rather than converging on a single "org owner"
+	// node that would overstate blast radius and mix evidence.
+	repoA := postureFinding("cfg-a-weak", "github_code_security_configuration_weak", SeverityMedium, now, map[string]any{
+		"github_posture_check_id":          "org_code_security_configuration",
+		"github_posture_scope":             "organization",
+		"github_posture_state":             "insecure",
+		"github_posture_reason":            "configuration_not_protective",
+		"organization":                     "owner",
+		"repository":                       "owner/repo-a",
+		"repository_configuration_applied": true,
+		"repository_configuration_id":      float64(101),
+	})
+	repoA.Repository = "owner/repo-a"
+	repoB := postureFinding("cfg-b-weak", "github_code_security_configuration_weak", SeverityMedium, now, map[string]any{
+		"github_posture_check_id":          "org_code_security_configuration",
+		"github_posture_scope":             "organization",
+		"github_posture_state":             "insecure",
+		"github_posture_reason":            "configuration_not_protective",
+		"organization":                     "owner",
+		"repository":                       "owner/repo-b",
+		"repository_configuration_applied": true,
+		"repository_configuration_id":      float64(202),
+	})
+	repoB.Repository = "owner/repo-b"
+
+	graph := BuildRepoRiskGraph([]Finding{repoA, repoB}, RepoRiskGraphOptions{Now: now})
+
+	if countNodes(graph, RepoRiskNodeOrgSecurityConfiguration) != 2 {
+		t.Fatalf("expected two distinct code security configurations to stay two nodes, got %+v", graph.Nodes)
+	}
+	if countEdges(graph, RepoRiskEdgeInheritsOrgPolicy) != 2 {
+		t.Fatalf("expected each repository to inherit its own configuration, got %+v", graph.Edges)
+	}
+
+	inheritedNodeIDs := map[string]struct{}{}
+	for _, edge := range graph.Edges {
+		if edge.Kind == RepoRiskEdgeInheritsOrgPolicy {
+			inheritedNodeIDs[edge.ToNodeID] = struct{}{}
+		}
+	}
+	if len(inheritedNodeIDs) != 2 {
+		t.Fatalf("expected two distinct inheritance targets, got %+v", graph.Edges)
+	}
+
+	labels := map[string]struct{}{}
+	for _, node := range graph.Nodes {
+		if node.Kind == RepoRiskNodeOrgSecurityConfiguration {
+			labels[node.Label] = struct{}{}
+		}
+	}
+	if _, ok := labels["code security configuration: owner (id 101)"]; !ok {
+		t.Fatalf("expected configuration label to include its id, got %+v", labels)
+	}
+	if _, ok := labels["code security configuration: owner (id 202)"]; !ok {
+		t.Fatalf("expected configuration label to include its id, got %+v", labels)
+	}
+}
+
+func TestBuildRepoRiskGraphConvergesRepositoriesAttachedToSameConfiguration(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	// Both repositories are attached to the same configuration id, so the
+	// per-configuration keying must still let their inheritance edges converge
+	// on one shared node.
+	finding := func(id string, repository string) Finding {
+		result := postureFinding(id, "github_code_security_configuration_weak", SeverityMedium, now, map[string]any{
+			"github_posture_check_id":          "org_code_security_configuration",
+			"github_posture_scope":             "organization",
+			"github_posture_state":             "insecure",
+			"github_posture_reason":            "configuration_not_protective",
+			"organization":                     "owner",
+			"repository":                       repository,
+			"repository_configuration_applied": true,
+			"repository_configuration_id":      float64(101),
+		})
+		result.Repository = repository
+		return result
+	}
+	graph := BuildRepoRiskGraph([]Finding{finding("shared-a", "owner/repo-a"), finding("shared-b", "owner/repo-b")}, RepoRiskGraphOptions{Now: now})
+
+	if countNodes(graph, RepoRiskNodeOrgSecurityConfiguration) != 1 {
+		t.Fatalf("expected one shared configuration to stay one node, got %+v", graph.Nodes)
+	}
+	if countEdges(graph, RepoRiskEdgeInheritsOrgPolicy) != 2 {
+		t.Fatalf("expected both repositories to inherit the shared configuration, got %+v", graph.Edges)
+	}
+}
+
+func TestBuildRepoRiskGraphConvergesOrgWideActionsPolicyEvenWithConfigurationIDPresent(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	// org_actions_policy is organization-wide: even if evidence somehow carries
+	// a repository_configuration_id, the control kind is one per organization,
+	// so the node must still converge across repositories.
+	finding := func(id string, repository string) Finding {
+		result := postureFinding(id, "github_actions_policy_broad", SeverityMedium, now, map[string]any{
+			"github_posture_check_id":     "org_actions_policy",
+			"github_posture_scope":        "organization",
+			"github_posture_state":        "insecure",
+			"organization":                "owner",
+			"repository":                  repository,
+			"repository_configuration_id": float64(999),
+			"allowed_actions":             "all",
+		})
+		result.Repository = repository
+		return result
+	}
+	graph := BuildRepoRiskGraph([]Finding{finding("actions-a", "owner/repo-a"), finding("actions-b", "owner/repo-b")}, RepoRiskGraphOptions{Now: now})
+
+	if countNodes(graph, RepoRiskNodeActionsPolicy) != 1 {
+		t.Fatalf("expected an organization-wide policy to converge regardless of stray config id, got %+v", graph.Nodes)
+	}
+}
+
 func postureFinding(id string, detector string, severity FindingSeverity, now time.Time, evidence map[string]any) Finding {
 	evidence["repository"] = "owner/repo"
 	evidence["adapter_source"] = "github_posture"

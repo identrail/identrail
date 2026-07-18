@@ -1,7 +1,9 @@
 package domain
 
 import (
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -219,8 +221,21 @@ func (builder *repoRiskGraphBuilder) addPostureReachability(finding Finding, fin
 		controlKeyScope = "organization:" + control.Organization
 		controlRepository = ""
 	}
+	// Code-security and secret-scanning policies are per-configuration, not
+	// per-organization: one organization can host several configurations and
+	// different repositories can be attached to different ones. When the
+	// collector recorded the specific attached configuration, key the node by
+	// it so distinct configurations stay distinct nodes with distinct
+	// inheritance edges. When the ID is absent (permission-limited,
+	// unavailable, or an early-return reason that never observed attachment),
+	// fall back to one shared node per organization.
+	controlLabel := control.Label
+	if configurationID := repoRiskPostureConfigurationKeySuffix(control, finding); configurationID != "" {
+		controlKeyScope = controlKeyScope + "\x1fconfig:" + configurationID
+		controlLabel = control.Label + " (id " + configurationID + ")"
+	}
 	naturalKey := strings.Join([]string{controlKeyScope, string(control.Kind), control.Scope, control.CheckID}, "\x1f")
-	controlNodeID := builder.upsertNode(control.Kind, naturalKey, control.Label, controlRepository, controlState, repoRiskPostureNodeEvidence(finding, control))
+	controlNodeID := builder.upsertNode(control.Kind, naturalKey, controlLabel, controlRepository, controlState, repoRiskPostureNodeEvidence(finding, control))
 	if control.Kind == RepoRiskNodeRunnerGroup {
 		builder.rememberRunnerGroupNode(repository, controlNodeID)
 	}
@@ -457,6 +472,51 @@ func repoRiskPostureRepositoryInheritsOrgControl(finding Finding, control repoRi
 		return ok && applied
 	}
 	return true
+}
+
+// repoRiskPostureConfigurationKeySuffix returns the attached GitHub code-
+// security configuration identifier the collector recorded for a
+// per-configuration control, or the empty string when the finding does not
+// carry one. Only code-security and secret-scanning policies vary per
+// configuration; organization-wide policies (Actions source, workflow token,
+// reusable workflow allowlist) are one control per organization and never key
+// on this suffix even if a stray ID appeared in evidence.
+func repoRiskPostureConfigurationKeySuffix(control repoRiskPostureControl, finding Finding) string {
+	switch control.CheckID {
+	case "org_code_security_configuration", "org_secret_scanning_policy":
+	default:
+		return ""
+	}
+	return normalizeConfigurationID(finding.Evidence["repository_configuration_id"])
+}
+
+func normalizeConfigurationID(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case int:
+		if typed == 0 {
+			return ""
+		}
+		return strconv.Itoa(typed)
+	case int32:
+		if typed == 0 {
+			return ""
+		}
+		return strconv.FormatInt(int64(typed), 10)
+	case int64:
+		if typed == 0 {
+			return ""
+		}
+		return strconv.FormatInt(typed, 10)
+	case float64:
+		if typed == 0 || typed != typed || typed != math.Trunc(typed) {
+			return ""
+		}
+		return strconv.FormatInt(int64(typed), 10)
+	default:
+		return ""
+	}
 }
 
 // repoRiskPostureAlertSourceFunctioning reports whether a posture finding names
