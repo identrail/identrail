@@ -1,6 +1,26 @@
 # Changelog
 
 ## Unreleased
+- Remove the GitHub stars pill from the marketing homepage hero. The remaining
+  Docker pulls pill now sits where the pair used to, so the hero no longer
+  advertises a low star count. Also drops the GitHub REST call the pill made on
+  every page load.
+- Extend the **repository risk graph with GitHub control-plane posture** (#1710).
+  `GET /v1/repo-risk-graph` now represents branch protection, repository
+  rulesets, Actions policy, default workflow permissions, reusable workflow
+  policy, self-hosted runner groups, deployment environment protection, deploy
+  keys, webhooks, native alert sources, and organization security configuration
+  as graph nodes, linked by `repository_governed_by_control`,
+  `repository_inherits_org_policy`, `workflow_runs_on_runner_group`,
+  `finding_weakens_control`, `finding_exposes_control_risk`, and
+  `finding_depends_on_posture_source` edges. Finding scores gain a
+  `posture_amplifier` factor so proven-weak controls such as an unprotected
+  default branch, a broad Actions policy, self-hosted runners, writable deploy
+  keys, or unprotected production environments widen blast radius. Posture
+  sources the scanner could not read still return a normal numeric score, but
+  stay visible as unknown graph nodes, unknown graph edges, a `posture_source`
+  entry in the score's `unknowns` list, and a zero `posture_amplifier`, so an
+  unreadable control is never silently dropped or mistaken for a weak one.
 - Integrate **GitHub posture findings into the repository finding lifecycle,
   trends, and clusters** (#1709). Posture gaps promoted from GitHub posture
   collection now age, close, reopen, and roll up like every other durable

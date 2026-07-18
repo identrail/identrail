@@ -55,12 +55,6 @@ export const siteLinks = {
   x: 'https://x.com/identrail'
 } as const;
 
-export const githubRepo = {
-  owner: 'identrail',
-  name: 'identrail'
-} as const;
-
 export const projectMetricsSource = {
-  github: githubRepo,
   dockerHubRepos: ['identrail/identrail']
 } as const;

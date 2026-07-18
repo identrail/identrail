@@ -288,3 +288,179 @@ func findingByDetector(findings []domain.Finding, detector string) *domain.Findi
 	}
 	return nil
 }
+
+// TestPostureFindingsBuildControlPlaneRiskGraph pins the contract between the
+// posture collector and the repo risk graph: every control-plane check the
+// collector can report must resolve to a graph node. It fails if a check ID is
+// renamed here without updating the graph mapping in internal/domain.
+func TestPostureFindingsBuildControlPlaneRiskGraph(t *testing.T) {
+	collectedAt := time.Date(2026, 7, 4, 10, 0, 0, 0, time.UTC)
+	repositoryPosture := RepositoryPosture{
+		Repository:  "owner/repo",
+		CollectedAt: collectedAt,
+		Checks: []RepositoryPostureCheck{
+			{
+				ID:       "default_branch_protection",
+				Category: "branch_protection",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "weak_protection",
+				Evidence: map[string]any{"default_branch": "main", "force_pushes_allowed": true},
+			},
+			{
+				ID:       "repository_rulesets",
+				Category: "branch_protection",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "no_active_rulesets",
+			},
+			{
+				ID:       "actions_permissions",
+				Category: "actions",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "broad_actions_or_write_privileges",
+				Evidence: map[string]any{"allowed_actions": "all"},
+			},
+			{
+				ID:       "deploy_keys",
+				Category: "access",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "writable_deploy_keys_present",
+				Evidence: map[string]any{"writable_deploy_keys": 1},
+			},
+			{
+				ID:       "webhooks",
+				Category: "webhooks",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "risky_webhooks_present",
+				Evidence: map[string]any{"insecure_ssl_hooks": 1},
+			},
+			{
+				ID:       "deployment_environments",
+				Category: "deployments",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "unprotected_environments",
+				Evidence: map[string]any{"unprotected_environments": 1},
+			},
+			{
+				ID:       "self_hosted_runners",
+				Category: "runners",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "self_hosted_runners_present",
+			},
+			{
+				ID:       "code_scanning",
+				Category: "security",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "not_configured",
+			},
+			{
+				ID:       "secret_scanning",
+				Category: "security",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "not_configured",
+			},
+			{
+				ID:       "dependabot_security",
+				Category: "security",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "dependabot_security_disabled",
+			},
+		},
+	}
+	organizationPosture := OrganizationPosture{
+		Organization: "owner",
+		CollectedAt:  collectedAt,
+		Checks: []RepositoryPostureCheck{
+			{
+				ID:       "org_actions_policy",
+				Category: "actions",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "all_actions_allowed",
+			},
+			{
+				ID:       "org_workflow_permissions",
+				Category: "actions",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "write_default",
+			},
+			{
+				ID:       "org_reusable_workflow_policy",
+				Category: "actions",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "verified_creators_allowed",
+			},
+			{
+				ID:       "org_secret_scanning_policy",
+				Category: "secret_scanning",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "push_protection_disabled",
+			},
+			{
+				ID:       "org_code_security_configuration",
+				Category: "code_security",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "configuration_not_enforced",
+			},
+		},
+	}
+
+	findings := RepositoryPostureFindings(repositoryPosture, collectedAt)
+	findings = append(findings, OrganizationPostureFindings(organizationPosture, "owner/repo", collectedAt)...)
+	graph := domain.BuildRepoRiskGraph(findings, domain.RepoRiskGraphOptions{
+		Repository:    "owner/repo",
+		DefaultBranch: "main",
+		Now:           collectedAt,
+	})
+
+	for _, kind := range []domain.RepoRiskGraphNodeKind{
+		domain.RepoRiskNodeBranchProtection,
+		domain.RepoRiskNodeRepositoryRuleset,
+		domain.RepoRiskNodeActionsPolicy,
+		domain.RepoRiskNodeWorkflowPermissionDefault,
+		domain.RepoRiskNodeReusableWorkflowPolicy,
+		domain.RepoRiskNodeRunnerGroup,
+		domain.RepoRiskNodeEnvironmentProtection,
+		domain.RepoRiskNodeDeployKey,
+		domain.RepoRiskNodeWebhook,
+		domain.RepoRiskNodeAlertSource,
+		domain.RepoRiskNodeOrgSecurityConfiguration,
+	} {
+		if !graphHasNodeKind(graph, kind) {
+			t.Fatalf("expected posture findings to build a %q node, got %+v", kind, graph.Nodes)
+		}
+	}
+
+	for _, kind := range []domain.RepoRiskGraphEdgeKind{
+		domain.RepoRiskEdgeRepositoryGovernedBy,
+		domain.RepoRiskEdgeInheritsOrgPolicy,
+		domain.RepoRiskEdgeFindingWeakensControl,
+		domain.RepoRiskEdgeFindingExposesControl,
+	} {
+		if !graphHasEdgeKind(graph, kind) {
+			t.Fatalf("expected posture findings to build a %q edge, got %+v", kind, graph.Edges)
+		}
+	}
+
+	for _, score := range graph.Scores {
+		if score.Factors.PostureAmplifier == 0 {
+			t.Fatalf("expected every insecure posture finding to amplify its score, got %+v", score)
+		}
+	}
+}
+
+func graphHasNodeKind(graph domain.RepoRiskGraph, kind domain.RepoRiskGraphNodeKind) bool {
+	for _, node := range graph.Nodes {
+		if node.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func graphHasEdgeKind(graph domain.RepoRiskGraph, kind domain.RepoRiskGraphEdgeKind) bool {
+	for _, edge := range graph.Edges {
+		if edge.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
