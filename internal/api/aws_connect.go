@@ -1870,6 +1870,9 @@ func normalizeAWSConnectorSetupContract(input awsConnectorSetupInput) (awsConnec
 		if deploymentMethod == AWSConnectorDeploymentStackSetSelfManaged {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
+		if !awsConnectorTargetIDsAreOUs(targetOUIDs) {
+			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
+		}
 		if len(targetAccountIDs) > 0 {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
@@ -1915,6 +1918,15 @@ func awsConnectorSelectedAccountCountAfterExclusions(targetAccountIDs []string, 
 		count++
 	}
 	return count
+}
+
+func awsConnectorTargetIDsAreOUs(targetOUIDs []string) bool {
+	for _, ouID := range targetOUIDs {
+		if !strings.HasPrefix(strings.TrimSpace(ouID), "ou-") {
+			return false
+		}
+	}
+	return true
 }
 
 func validAWSConnectorScopeType(scopeType AWSConnectorScopeType) bool {

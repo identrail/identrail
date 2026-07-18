@@ -148,6 +148,7 @@ rejected before setup is persisted: manual role setup must use `manual`,
 organization and selected scopes must use a StackSet deployment method,
 organization and selected scopes must include root or OU targets,
 organization and selected-OU scopes reject `target_account_ids`,
+selected-OU scope accepts only `ou-...` IDs and rejects organization roots,
 service-managed selected accounts must include account filters, selected-account
 exclusions must leave at least one effective account, selected-account
 auto-onboarding is rejected, and malformed AWS account IDs, OU IDs, and regions

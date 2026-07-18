@@ -1965,6 +1965,18 @@ func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "selected OUs reject organization root target",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedOUs,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetOUIDs:             []string{"r-abcd"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
 			name: "service-managed selected accounts require root or OU context",
 			input: awsConnectorSetupInput{
 				ScopeType:               AWSConnectorScopeSelectedAccounts,
