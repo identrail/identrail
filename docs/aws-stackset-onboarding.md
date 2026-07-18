@@ -125,8 +125,8 @@ instances.
   sets retained-on-removal to false for this connector role so accounts removed
   from targeted OUs do not keep stale read-only access.
 - `scope_type=organization` with `stackset_service_managed` must include the
-  organization root ID or OU IDs in `target_ou_ids`; use the root ID for
-  all-account rollout. Organization and selected-OU scopes reject
+  organization root ID in `target_ou_ids`. Use `scope_type=selected_ous` for OU
+  rollout. Organization and selected-OU scopes reject
   `target_account_ids` so their operator-visible scope cannot drift into an
   account-filtered rollout. Selected-OU scope accepts only `ou-...` IDs; roots
   are reserved for organization-wide rollout or selected-account account-filter

@@ -1865,7 +1865,7 @@ func normalizeAWSConnectorSetupContract(input awsConnectorSetupInput) (awsConnec
 		if deploymentMethod == AWSConnectorDeploymentStackSetSelfManaged {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
-		if len(targetAccountIDs) > 0 || len(targetOUIDs) == 0 {
+		if len(targetAccountIDs) > 0 || len(targetOUIDs) == 0 || !awsConnectorTargetIDsAreRoots(targetOUIDs) {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
 	case AWSConnectorScopeSelectedOUs:
@@ -1928,6 +1928,15 @@ func awsConnectorSelectedAccountCountAfterExclusions(targetAccountIDs []string, 
 func awsConnectorTargetIDsAreOUs(targetOUIDs []string) bool {
 	for _, ouID := range targetOUIDs {
 		if !strings.HasPrefix(strings.TrimSpace(ouID), "ou-") {
+			return false
+		}
+	}
+	return true
+}
+
+func awsConnectorTargetIDsAreRoots(targetOUIDs []string) bool {
+	for _, ouID := range targetOUIDs {
+		if !strings.HasPrefix(strings.TrimSpace(ouID), "r-") {
 			return false
 		}
 	}
@@ -2015,6 +2024,7 @@ func normalizeAWSAccountIDs(accounts []string) ([]string, error) {
 		seen[accountID] = struct{}{}
 		out = append(out, accountID)
 	}
+	slices.Sort(out)
 	return out, nil
 }
 
@@ -2035,6 +2045,7 @@ func normalizeAWSOUIDs(units []string) ([]string, error) {
 		seen[ouID] = struct{}{}
 		out = append(out, ouID)
 	}
+	slices.Sort(out)
 	return out, nil
 }
 

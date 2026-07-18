@@ -148,7 +148,7 @@ defaults to `single_account` with `cloudformation`. The legacy direct role
 validation path reports `manual_role` with `manual`. Invalid combinations are
 rejected before setup is persisted: manual role setup must use `manual`,
 organization and selected scopes must use a StackSet deployment method,
-organization and selected scopes must include root or OU targets,
+organization scope must include an organization root target,
 organization and selected-OU scopes reject `target_account_ids`,
 selected-OU scope accepts only `ou-...` IDs and rejects organization roots,
 service-managed selected accounts must include account filters, selected-account

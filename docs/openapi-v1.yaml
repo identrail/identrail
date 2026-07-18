@@ -11466,7 +11466,7 @@ components:
             type: string
         target_ou_ids:
           type: array
-          description: AWS OU IDs or root IDs. Organization and selected-account StackSets may use a root or OU target; selected-OU StackSets accept only ou-... identifiers.
+          description: AWS OU IDs or root IDs. Organization StackSets require an r-... root target; selected-OU StackSets accept only ou-... identifiers; selected-account StackSets may use root or OU context for account filters.
           items:
             type: string
         excluded_account_ids:
@@ -11555,7 +11555,7 @@ components:
             type: string
         target_ou_ids:
           type: array
-          description: AWS OU IDs or root IDs. Organization and selected-account StackSets may use a root or OU target; selected-OU StackSets accept only ou-... identifiers.
+          description: AWS OU IDs or root IDs. Organization StackSets require an r-... root target; selected-OU StackSets accept only ou-... identifiers; selected-account StackSets may use root or OU context for account filters.
           items:
             type: string
         excluded_account_ids:
@@ -11771,7 +11771,7 @@ components:
             type: string
         target_ou_ids:
           type: array
-          description: AWS OU IDs or root IDs. Organization and selected-account StackSets may use a root or OU target; selected-OU StackSets accept only ou-... identifiers.
+          description: AWS OU IDs or root IDs. Organization StackSets require an r-... root target; selected-OU StackSets accept only ou-... identifiers; selected-account StackSets may use root or OU context for account filters.
           items:
             type: string
         excluded_account_ids:

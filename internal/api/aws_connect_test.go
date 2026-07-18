@@ -943,6 +943,26 @@ func TestAWSConnectorStartSelectedStackSetScopes(t *testing.T) {
 	if _, ok := stored.State.Metadata["external_id"]; ok {
 		t.Fatalf("external id must not be persisted in selected-account metadata: %+v", stored.State.Metadata)
 	}
+	accountsRetry, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ConnectorID:            "aws-selected-accounts",
+		DisplayName:            "Selected accounts",
+		ScopeType:              AWSConnectorScopeSelectedAccounts,
+		DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+		TargetAccountIDs:       []string{"444455556666", "111122223333"},
+		TargetOUIDs:            []string{"r-abcd"},
+		ExcludedAccountIDs:     []string{"444455556666"},
+		TargetRegions:          []string{"us-east-1", "eu-west-1"},
+		StackSetName:           "identrail-selected-accounts",
+		AutoOnboardNewAccounts: false,
+	})
+	if err != nil {
+		t.Fatalf("resume selected accounts stackset with reordered account set: %v", err)
+	}
+	if accountsRetry.LaunchURL != accounts.LaunchURL {
+		t.Fatalf("expected reordered account set retry to resume existing launch URL, got %q want %q", accountsRetry.LaunchURL, accounts.LaunchURL)
+	}
 
 	ous, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID:      "workspace-a",
@@ -2002,11 +2022,23 @@ func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
 			},
 		},
 		{
-			name: "organization service-managed requires root or OU target",
+			name: "organization service-managed requires root target",
 			input: awsConnectorSetupInput{
 				ScopeType:               AWSConnectorScopeOrganization,
 				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
 				TargetRegions:           []string{"us-east-1"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "organization rejects selected OU target",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeOrganization,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetOUIDs:             []string{"ou-abcd-12345678"},
 				DefaultScopeType:        AWSConnectorScopeSingleAccount,
 				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
 			},
@@ -2118,6 +2150,27 @@ func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
 				TargetRegions:    []string{"us-east-1"},
 				TargetAccountIDs: []string{"111122223333"},
 				TargetOUIDs:      []string{"r-abcd"},
+			},
+		},
+		{
+			name: "set-valued account and OU targets are canonicalized",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-west-2", "us-east-1"},
+				TargetAccountIDs:        []string{"444455556666", "111122223333", "444455556666"},
+				TargetOUIDs:             []string{"ou-abcd-87654321", "r-abcd", "ou-abcd-87654321"},
+				ExcludedAccountIDs:      []string{"444455556666", "444455556666"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			want: awsConnectorSetupContract{
+				ScopeType:          AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:   AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:      []string{"us-west-2", "us-east-1"},
+				TargetAccountIDs:   []string{"111122223333", "444455556666"},
+				TargetOUIDs:        []string{"ou-abcd-87654321", "r-abcd"},
+				ExcludedAccountIDs: []string{"444455556666"},
 			},
 		},
 		{
