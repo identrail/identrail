@@ -147,6 +147,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.AWSCloudFormationTemplateURL != "" {
 		t.Fatalf("expected empty aws cloudformation template url, got %q", cfg.AWSCloudFormationTemplateURL)
 	}
+	if cfg.AWSCloudFormationTemplateSHA != "" {
+		t.Fatalf("expected empty aws cloudformation template checksum, got %q", cfg.AWSCloudFormationTemplateSHA)
+	}
 	if cfg.AWSAccountID != "" {
 		t.Fatalf("expected empty aws account id, got %q", cfg.AWSAccountID)
 	}
@@ -406,6 +409,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_AWS_REGION", "eu-west-1")
 	t.Setenv("IDENTRAIL_AWS_PROFILE", "engineering")
 	t.Setenv("IDENTRAIL_AWS_CFN_TEMPLATE_URL", "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml")
+	t.Setenv("IDENTRAIL_AWS_CFN_TEMPLATE_SHA256", "sha256:458d7e9ae2b2b3e5513709b6dd3b63da4190918db335508fa5e9ae307a978fe2")
 	t.Setenv("IDENTRAIL_AWS_ACCOUNT_ID", "123456789012")
 	t.Setenv("IDENTRAIL_AWS_FIXTURES", "fixtures/a.json,fixtures/b.json")
 	t.Setenv("IDENTRAIL_K8S_FIXTURES", "fixtures/sa.json,fixtures/rb.json")
@@ -532,6 +536,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.AWSCloudFormationTemplateURL != "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml" {
 		t.Fatalf("unexpected aws cloudformation template url: %q", cfg.AWSCloudFormationTemplateURL)
+	}
+	if cfg.AWSCloudFormationTemplateSHA != "sha256:458d7e9ae2b2b3e5513709b6dd3b63da4190918db335508fa5e9ae307a978fe2" {
+		t.Fatalf("unexpected aws cloudformation template checksum: %q", cfg.AWSCloudFormationTemplateSHA)
 	}
 	if cfg.AWSAccountID != "123456789012" {
 		t.Fatalf("unexpected aws account id: %q", cfg.AWSAccountID)

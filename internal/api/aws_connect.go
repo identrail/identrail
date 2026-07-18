@@ -3,9 +3,7 @@ package api
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,7 +22,8 @@ import (
 var (
 	awsRoleARNPattern   = regexp.MustCompile(`^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]{1,512}$`)
 	awsAccountIDPattern = regexp.MustCompile(`^[0-9]{12}$`)
-	awsOUIDPattern      = regexp.MustCompile(`^ou-[a-z0-9]{4,32}-[a-z0-9]{8,32}$`)
+	awsOUIDPattern      = regexp.MustCompile(`^(ou-[a-z0-9]{4,32}-[a-z0-9]{8,32}|r-[a-z0-9]{4,32})$`)
+	awsSHA256Pattern    = regexp.MustCompile(`(?i)^(sha256:)?[a-f0-9]{64}$`)
 )
 
 const (
@@ -485,7 +484,8 @@ func (s *Service) startAWSStackSetConnector(
 ) (AWSConnectorStartResponse, error) {
 	templateURL := strings.TrimSpace(s.AWSCloudFormationTemplateURL)
 	accountID := strings.TrimSpace(s.AWSAccountID)
-	if templateURL == "" || accountID == "" {
+	templateChecksum := normalizeAWSConnectorTemplateChecksum(s.AWSCloudFormationTemplateSHA)
+	if templateURL == "" || accountID == "" || templateChecksum == "" {
 		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
 	}
 	connectorID := strings.TrimSpace(request.ConnectorID)
@@ -494,7 +494,7 @@ func (s *Service) startAWSStackSetConnector(
 	} else {
 		stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
 		if err == nil {
-			return s.resumeAWSStackSetConnectorStart(ctx, stored, request, templateURL, accountID)
+			return s.resumeAWSStackSetConnectorStart(ctx, stored, request, templateURL, accountID, templateChecksum)
 		}
 		if !errors.Is(err, db.ErrNotFound) {
 			return AWSConnectorStartResponse{}, err
@@ -519,7 +519,6 @@ func (s *Service) startAWSStackSetConnector(
 	if err != nil {
 		return AWSConnectorStartResponse{}, err
 	}
-	templateChecksum := awsConnectorTemplateChecksum(templateURL, policyHash)
 	onboarding, err := s.buildAWSConnectorStackSetOnboarding(scope, project, connectorID, accountID, region, roleName, stackSetName, templateURL, templateChecksum, externalID, setup, now)
 	if err != nil {
 		return AWSConnectorStartResponse{}, err
@@ -582,7 +581,7 @@ func (s *Service) startAWSStackSetConnector(
 		return AWSConnectorStartResponse{}, fmt.Errorf("create aws stackset connector: %w", err)
 	}
 	if !created {
-		return s.resumeAWSStackSetConnectorStart(ctx, stored, request, templateURL, accountID)
+		return s.resumeAWSStackSetConnectorStart(ctx, stored, request, templateURL, accountID, templateChecksum)
 	}
 	status := s.awsConnectionStatusFromStored(ctx, stored)
 	status.ExternalID = externalID
@@ -771,6 +770,7 @@ func (s *Service) resumeAWSStackSetConnectorStart(
 	request AWSConnectorStartRequest,
 	templateURL string,
 	accountID string,
+	configuredTemplateChecksum string,
 ) (AWSConnectorStartResponse, error) {
 	if stored.Connector.Type != domain.ConnectorTypeAWS {
 		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
@@ -823,7 +823,10 @@ func (s *Service) resumeAWSStackSetConnectorStart(
 		policyHash = hash
 	}
 	storedTemplateURL := firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "template_url"), templateURL)
-	templateChecksum := firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "template_checksum"), awsConnectorTemplateChecksum(storedTemplateURL, policyHash))
+	templateChecksum := firstNonEmptyAWSValue(normalizeAWSConnectorTemplateChecksum(awsMetadataString(stored.State.Metadata, "template_checksum")), configuredTemplateChecksum)
+	if templateChecksum == "" {
+		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
+	}
 	onboarding, err := s.buildAWSConnectorStackSetOnboarding(
 		db.Scope{TenantID: stored.Connector.TenantID, WorkspaceID: stored.Connector.WorkspaceID},
 		db.TenancyProject{TenantID: stored.Connector.TenantID, WorkspaceID: stored.Connector.WorkspaceID, ProjectID: stored.Connector.ProjectID},
@@ -1505,9 +1508,15 @@ func awsConnectorStackSetDisplayName(setup awsConnectorSetupContract) string {
 	}
 }
 
-func awsConnectorTemplateChecksum(templateURL string, policyHash string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(templateURL) + "\n" + strings.TrimSpace(policyHash)))
-	return "sha256:" + hex.EncodeToString(sum[:])
+func normalizeAWSConnectorTemplateChecksum(checksum string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(checksum))
+	if trimmed == "" || !awsSHA256Pattern.MatchString(trimmed) {
+		return ""
+	}
+	if !strings.HasPrefix(trimmed, "sha256:") {
+		return "sha256:" + trimmed
+	}
+	return trimmed
 }
 
 func awsConnectorTargetSummary(setup awsConnectorSetupContract) *AWSConnectorTargetSummary {
@@ -1542,7 +1551,7 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 	scope db.Scope,
 	project db.TenancyProject,
 	connectorID string,
-	accountID string,
+	identrailAccountID string,
 	region string,
 	roleName string,
 	stackSetName string,
@@ -1555,13 +1564,13 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 	mode := awsConnectorStackSetDeploymentMode(setup.DeploymentMethod)
 	config := awscontract.StackSetOnboardingConfig{
 		ConnectorID:         connectorID,
-		ManagementAccountID: accountID,
+		ManagementAccountID: "",
 		StackSetName:        stackSetName,
 		TemplateURL:         templateURL,
 		TemplateChecksum:    templateChecksum,
 		DeploymentMode:      mode,
 		Partition:           awsStackSetPartition(region),
-		TrustedAccessReady:  mode == awscontract.StackSetDeploymentServiceManaged,
+		TrustedAccessReady:  false,
 		DelegatedAdminReady: false,
 		ExternalID:          externalID,
 		Targets:             awsConnectorStackSetTargets(setup),
@@ -1574,13 +1583,13 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 		TemplateURL:           plan.TemplateURL,
 		Region:                region,
 		StackSetName:          plan.StackSetName,
-		IdentrailAccountID:    accountID,
+		IdentrailAccountID:    identrailAccountID,
 		ExternalID:            externalID,
 		RoleName:              roleName,
 		PermissionModel:       awsStackSetPermissionModel(plan.DeploymentMode),
 		OrganizationalUnitIDs: collectStackSetOUIDs(plan.Targets.OrganizationalUnits),
 		TargetAccountIDs:      collectStackSetAccountIDs(plan.Targets.Accounts),
-		ExcludedAccountIDs:    setup.ExcludedAccountIDs,
+		ExcludedAccountIDs:    awsConnectorStackSetLaunchExcludedAccounts(setup),
 		TargetRegions:         collectStackSetRegionCodes(plan.Targets.Regions),
 	})
 	status, confidence, failures, remediations := summarizeAWSStackSetOnboarding("success", plan, nil)
@@ -1589,7 +1598,7 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 		WorkspaceID:         project.WorkspaceID,
 		ProjectID:           project.ProjectID,
 		ConnectorID:         connectorID,
-		AccountID:           accountID,
+		AccountID:           "",
 		Region:              region,
 		OrganizationID:      plan.OrganizationID,
 		ManagementAccountID: plan.ManagementAccountID,
@@ -1672,6 +1681,13 @@ func awsConnectorStackSetTargets(setup awsConnectorSetupContract) awscontract.St
 		targets.Regions = append(targets.Regions, awscontract.StackSetOnboardingTargetRegion{Region: region})
 	}
 	return targets
+}
+
+func awsConnectorStackSetLaunchExcludedAccounts(setup awsConnectorSetupContract) []string {
+	if setup.ScopeType == AWSConnectorScopeSelectedAccounts {
+		return nil
+	}
+	return setup.ExcludedAccountIDs
 }
 
 func awsConnectorStackSetOnboardingStatus(onboarding AWSStackSetOnboardingResult) AWSConnectorOnboardingStatus {
@@ -1818,6 +1834,12 @@ func normalizeAWSConnectorSetupContract(input awsConnectorSetupInput) (awsConnec
 		}
 	case AWSConnectorScopeSelectedAccounts:
 		if !awsConnectorDeploymentIsStackSet(deploymentMethod) || len(targetAccountIDs) == 0 {
+			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
+		}
+		if deploymentMethod == AWSConnectorDeploymentStackSetServiceManaged && len(targetOUIDs) == 0 {
+			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
+		}
+		if deploymentMethod == AWSConnectorDeploymentStackSetSelfManaged && len(targetOUIDs) > 0 {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
 	}

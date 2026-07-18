@@ -116,6 +116,8 @@ func BuildCloudFormationStackSetLaunchURL(input CloudFormationStackSetLaunchInpu
 	if len(input.ExcludedAccountIDs) > 0 {
 		values.Set("excludedAccounts", strings.Join(input.ExcludedAccountIDs, ","))
 		values.Set("accountFilterType", "DIFFERENCE")
+	} else if len(input.OrganizationalUnitIDs) > 0 && len(input.TargetAccountIDs) > 0 {
+		values.Set("accountFilterType", "INTERSECTION")
 	}
 	if len(input.TargetRegions) > 0 {
 		values.Set("regions", strings.Join(input.TargetRegions, ","))

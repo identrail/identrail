@@ -106,6 +106,24 @@ func TestBuildCloudFormationStackSetLaunchURL(t *testing.T) {
 		t.Fatalf("expected stacksets/create fragment, got %q", parsed.Fragment)
 	}
 
+	filteredURL := BuildCloudFormationStackSetLaunchURL(CloudFormationStackSetLaunchInput{
+		TemplateURL:           "https://cdn.example.com/identrail-readonly.yaml",
+		Region:                "us-east-1",
+		PermissionModel:       StackSetLaunchPermissionModelServiceManaged,
+		OrganizationalUnitIDs: []string{"r-abcd"},
+		TargetAccountIDs:      []string{"111122223333"},
+		TargetRegions:         []string{"us-east-1"},
+	})
+	filteredParsed, err := url.Parse(filteredURL)
+	if err != nil {
+		t.Fatalf("parse filtered stackset launch URL: %v", err)
+	}
+	if !strings.Contains(filteredParsed.Fragment, "organizationalUnitIds=r-abcd") ||
+		!strings.Contains(filteredParsed.Fragment, "accounts=111122223333") ||
+		!strings.Contains(filteredParsed.Fragment, "accountFilterType=INTERSECTION") {
+		t.Fatalf("expected root plus selected-account intersection filter, got %q", filteredParsed.Fragment)
+	}
+
 	// Missing template URL yields empty so the surface can render a blocked state instead of a malformed URL.
 	if got := BuildCloudFormationStackSetLaunchURL(CloudFormationStackSetLaunchInput{Region: "us-east-1"}); got != "" {
 		t.Fatalf("expected empty URL without template, got %q", got)

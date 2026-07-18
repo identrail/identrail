@@ -51,7 +51,8 @@ contents are never read.
   account and `AWSCloudFormationStackSetExecutionRole` is bootstrapped in each
   target account.
 - The Identrail read-only connector template URL and checksum are configured on
-  the runtime (`AWSCloudFormationTemplateURL`).
+  the runtime (`IDENTRAIL_AWS_CFN_TEMPLATE_URL` and
+  `IDENTRAIL_AWS_CFN_TEMPLATE_SHA256`).
 - An external ID is generated for the connector trust policy.
 
 The planner reports each prerequisite (`stackset.template_pinned`,
@@ -111,6 +112,10 @@ instances.
   to deploy into member accounts. Identrail generates the console launch URL and
   prerequisite plan; the operator enables trusted access or delegated admin in
   AWS when required.
+- `scope_type=selected_accounts` with `stackset_service_managed` must include
+  a root ID or OU IDs in `target_ou_ids`. AWS applies the selected account IDs
+  as an account filter inside that root or OU target; they are not standalone
+  service-managed StackSet targets.
 - `stackset_self_managed` is allowed only for explicit selected account IDs in
   this backend contract. The planner blocks until an administration role is
   configured because self-managed StackSets need operator-managed admin and

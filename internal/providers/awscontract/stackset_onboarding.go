@@ -412,7 +412,7 @@ func evaluateStackSetPrerequisites(config StackSetOnboardingConfig, mode StackSe
 			}
 			return "Template URL or integrity checksum is missing; the StackSet cannot be launched without a pinned template."
 		}(),
-		Remediation: "Configure AWSCloudFormationTemplateURL and the template checksum on the runtime so the read-only connector template is reproducible.",
+		Remediation: "Configure IDENTRAIL_AWS_CFN_TEMPLATE_URL and IDENTRAIL_AWS_CFN_TEMPLATE_SHA256 so the read-only connector template is reproducible.",
 	})
 
 	externalIDOK := strings.TrimSpace(config.ExternalID) != ""

@@ -79,6 +79,7 @@ first session.
 | Variable | Default | Validation | Area |
 | --- | --- | --- | --- |
 | `IDENTRAIL_AWS_CFN_TEMPLATE_URL` | empty | Required for the CFN one-click flow. Points at the CDN-hosted template. | AWS connector |
+| `IDENTRAIL_AWS_CFN_TEMPLATE_SHA256` | empty | Required. Release-provided SHA-256 checksum for the published CloudFormation template. | AWS connector |
 | `IDENTRAIL_AWS_ACCOUNT_ID` | empty | Required. The Identrail-side AWS account that the customer's role trusts. | AWS connector |
 
 ### GitHub Connector

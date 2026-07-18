@@ -11460,10 +11460,12 @@ components:
             type: string
         target_account_ids:
           type: array
+          description: Explicit AWS account IDs. For service-managed selected-account StackSets, these are account filters inside the supplied root or OU targets.
           items:
             type: string
         target_ou_ids:
           type: array
+          description: AWS OU IDs or root IDs. Required for service-managed selected-account StackSets so AWS has an organization root or OU target for account filtering.
           items:
             type: string
         excluded_account_ids:
@@ -11544,10 +11546,12 @@ components:
             type: string
         target_account_ids:
           type: array
+          description: Explicit AWS account IDs. For service-managed selected-account StackSets, these are account filters inside the supplied root or OU targets.
           items:
             type: string
         target_ou_ids:
           type: array
+          description: AWS OU IDs or root IDs. Required for service-managed selected-account StackSets so AWS has an organization root or OU target for account filtering.
           items:
             type: string
         excluded_account_ids:
@@ -11755,10 +11759,12 @@ components:
             type: string
         target_account_ids:
           type: array
+          description: Explicit AWS account IDs. For service-managed selected-account StackSets, these are account filters inside the supplied root or OU targets.
           items:
             type: string
         target_ou_ids:
           type: array
+          description: AWS OU IDs or root IDs. Required for service-managed selected-account StackSets so AWS has an organization root or OU target for account filtering.
           items:
             type: string
         excluded_account_ids:

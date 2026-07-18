@@ -769,17 +769,17 @@ describe('apiClient', () => {
           onboarding_status: 'draft',
           target_regions: ['us-east-1'],
           target_account_ids: ['123456789012'],
-          target_ou_ids: [],
+          target_ou_ids: ['r-abcd'],
           excluded_account_ids: [],
           auto_onboard_new_accounts: false,
           setup_summary: 'Selected AWS accounts setup planned through CloudFormation StackSets.',
-          next_actions: ['register_delegated_admin', 'open_stackset', 'refresh_status'],
+          next_actions: ['enable_trusted_access', 'register_delegated_admin', 'open_stackset', 'refresh_status'],
           stack_set_name: 'identrail-selected-stackset',
           template_checksum: 'sha256:template',
           target_summary: {
             account_count: 1,
             account_count_known: true,
-            ou_count: 0,
+            ou_count: 1,
             region_count: 1,
             excluded_account_count: 0,
             expected_stack_instances: 1,
@@ -787,6 +787,13 @@ describe('apiClient', () => {
             all_accounts: false
           },
           prerequisites: [
+            {
+              id: 'stackset.trusted_access_enabled',
+              title: 'AWS Organizations trusted access is enabled',
+              severity: 'blocking',
+              satisfied: false,
+              reason: 'Identrail has not verified trusted access for CloudFormation StackSets yet.'
+            },
             {
               id: 'stackset.delegated_admin_registered',
               title: 'CloudFormation delegated administrator is registered',
@@ -813,15 +820,15 @@ describe('apiClient', () => {
         onboarding_status: 'draft',
         target_regions: ['us-east-1'],
         target_account_ids: ['123456789012'],
-        target_ou_ids: [],
+        target_ou_ids: ['r-abcd'],
         excluded_account_ids: [],
         auto_onboard_new_accounts: false,
         setup_summary: 'Selected AWS accounts setup planned through CloudFormation StackSets.',
-        next_actions: ['register_delegated_admin', 'open_stackset', 'refresh_status'],
+        next_actions: ['enable_trusted_access', 'register_delegated_admin', 'open_stackset', 'refresh_status'],
         target_summary: {
           account_count: 1,
           account_count_known: true,
-          ou_count: 0,
+          ou_count: 1,
           region_count: 1,
           excluded_account_count: 0,
           expected_stack_instances: 1,
@@ -829,6 +836,13 @@ describe('apiClient', () => {
           all_accounts: false
         },
         prerequisites: [
+          {
+            id: 'stackset.trusted_access_enabled',
+            title: 'AWS Organizations trusted access is enabled',
+            severity: 'blocking',
+            satisfied: false,
+            reason: 'Identrail has not verified trusted access for CloudFormation StackSets yet.'
+          },
           {
             id: 'stackset.delegated_admin_registered',
             title: 'CloudFormation delegated administrator is registered',
@@ -913,6 +927,7 @@ describe('apiClient', () => {
         stack_set_name: 'identrail-selected-stackset',
         target_regions: ['us-east-1'],
         target_account_ids: ['123456789012'],
+        target_ou_ids: ['r-abcd'],
         excluded_account_ids: ['210987654321'],
         auto_onboard_new_accounts: false
       },
@@ -935,6 +950,7 @@ describe('apiClient', () => {
         stack_set_name: 'identrail-selected-stackset',
         target_regions: ['us-east-1'],
         target_account_ids: ['123456789012'],
+        target_ou_ids: ['r-abcd'],
         excluded_account_ids: ['210987654321'],
         auto_onboard_new_accounts: false
       })

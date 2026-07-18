@@ -24,6 +24,9 @@ POST /v1/connectors/aws/{connector_id}/refresh-policy
 
 `IDENTRAIL_AWS_CFN_TEMPLATE_URL` points to the published CloudFormation template.
 
+`IDENTRAIL_AWS_CFN_TEMPLATE_SHA256` is the release-provided SHA-256 checksum for
+that exact template.
+
 `IDENTRAIL_AWS_ACCOUNT_ID` is the AWS account ID for the Identrail deployment that customer roles should trust.
 
 When a persistent database is configured and AWS connector setup is enabled, `IDENTRAIL_CONNECTOR_SECRET_KEYS` must also be configured. The generated External ID is stored as a connector secret envelope, not plaintext connector metadata.
@@ -138,13 +141,15 @@ defaults to `single_account` with `cloudformation`. The legacy direct role
 validation path reports `manual_role` with `manual`. Invalid combinations are
 rejected before setup is persisted: manual role setup must use `manual`,
 organization and selected scopes must use a StackSet deployment method,
-selected OUs/accounts must include targets, and malformed AWS account IDs, OU
-IDs, and regions fail validation.
+selected OUs/accounts must include targets, service-managed selected accounts
+must include a root or OU target for AWS account filtering, and malformed AWS
+account IDs, OU IDs, and regions fail validation.
 
-The executable `POST /v1/connectors/aws` setup path currently supports
-`single_account`/`cloudformation` and `manual_role`/`manual` read-only
-onboarding. Organization, selected-OU, selected-account, and Terraform flows
-remain reserved for follow-on implementation issues.
+The executable `POST /v1/connectors/aws` setup path supports
+`single_account`/`cloudformation`, `manual_role`/`manual`,
+`organization`/`stackset_service_managed`, `selected_ous`/
+`stackset_service_managed`, and selected-account StackSet setup. Terraform
+remains reserved for follow-on implementation issues.
 
 ## Account and Region Coverage Registry
 
