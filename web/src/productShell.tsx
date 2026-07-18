@@ -25222,13 +25222,22 @@ export function ProductGitHubRepositoryDetailPage() {
     setError('');
 
     const auth = buildProductAuthContext(scope);
-    const connectorID = domainData.connection?.connector_id ?? '';
+    const connection = domainData.connection;
+    const connectorID = connection?.connector_id ?? '';
+    // The posture endpoint only supports the GitHub App provider. Firing it
+    // for a PAT (or unconnected) connection returns an unsupported error that
+    // the drilldown would surface as a rate-limited-style inline banner
+    // instead of the "posture not collected" empty state — matching the
+    // gating ProductGitHubRepositoriesPage already applies to the same call.
+    const postureSupported = Boolean(
+      connectorID && connection?.connected && connection.provider === 'github_app'
+    );
     const isCurrent = () => requestID === requestRef.current;
 
     const scansPromise = findRepoIntelligenceLatestScan(requestedRepository, auth, isCurrent);
     const findingsPromise = fetchRepoIntelligenceFindings(requestedRepository, auth, isCurrent);
     const graphPromise = apiClient.getRepoRiskGraph({ repository: requestedRepository }, auth);
-    const posturePromise = connectorID
+    const posturePromise = postureSupported
       ? apiClient
           .getGitHubConnectorRepositoryPosture(connectorID, scope.workspaceID, selectedEnvironmentID, requestedRepository, auth)
           .then((response) => response.posture)
@@ -25274,13 +25283,20 @@ export function ProductGitHubRepositoryDetailPage() {
     availability.available,
     selectedEnvironmentID,
     requestedRepository,
+    domainData.connection?.connected,
     domainData.connection?.connector_id,
+    domainData.connection?.provider,
     resetRepositoryState
   ]);
 
   const queue = useMemo(() => buildRepoIntelligenceQueue(findings, riskGraph), [findings, riskGraph]);
+  // Sort by graph score before taking the top slice: the API is free to
+  // return scores in insertion order, so a naive slice(0, N) could show a
+  // low-risk path first when the highest-risk one lives further down the
+  // array. sortRepoRiskGraphScores mirrors the ordering used elsewhere in
+  // the app so the "top blast-radius" list always reflects actual rank.
   const topPaths = useMemo(
-    () => (riskGraph?.scores ?? []).slice(0, REPO_INTELLIGENCE_TOP_PATHS_LIMIT),
+    () => sortRepoRiskGraphScores(riskGraph?.scores ?? []).slice(0, REPO_INTELLIGENCE_TOP_PATHS_LIMIT),
     [riskGraph]
   );
   const insecurePostureChecks = useMemo(

@@ -15975,6 +15975,109 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     );
   });
 
+  it('does not fetch repository posture on a PAT connection where the endpoint is unsupported', async () => {
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    // PAT connection: connected with a connector_id, but provider is github_pat
+    // so the posture endpoint would return an unsupported error if we hit it.
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({
+      connection: {
+        ...connectedGitHub,
+        provider: 'github_pat',
+        connector_id: 'github-enterprise'
+      }
+    });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    const postureSpy = vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture');
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByText(/Default branch protection is unprotected/i);
+    // Posture panel shows the empty state, not an error banner.
+    expect(await screen.findByText(/No posture collected/i)).toBeInTheDocument();
+    // The posture endpoint was never called for a PAT connection.
+    expect(postureSpy).not.toHaveBeenCalled();
+  });
+
+  it('sorts risk graph scores before taking the top blast-radius slice', async () => {
+    // API returns scores in insertion order with the highest-scoring path
+    // buried in the middle. The "Top blast-radius paths" section must still
+    // rank it first — the drilldown sorts before slicing rather than relying
+    // on API-order equaling score-order.
+    const unsortedScoresGraph: RepoRiskGraph = {
+      repository: targetRepository,
+      nodes: [], edges: [],
+      summary: {
+        finding_count: 0, node_count: 0, edge_count: 0, unknown_node_count: 0,
+        unknown_edge_count: 0, high_risk_findings: 0, critical_findings: 0
+      },
+      scores: [
+        {
+          finding_id: 'lower-score', finding_node_id: 'node-a',
+          score: 40, severity: 'low', confidence: 0.6,
+          factors: {
+            severity: 40, confidence: 60, exploitability: 30, privilege: 20,
+            exposure: 15, environment_criticality: 0, freshness: 100, posture_amplifier: 0
+          },
+          unknowns: []
+        },
+        {
+          finding_id: 'highest-score', finding_node_id: 'node-b',
+          score: 95, severity: 'critical', confidence: 0.95,
+          factors: {
+            severity: 100, confidence: 95, exploitability: 90, privilege: 80,
+            exposure: 70, environment_criticality: 60, freshness: 100, posture_amplifier: 80
+          },
+          unknowns: []
+        },
+        {
+          finding_id: 'middle-score', finding_node_id: 'node-c',
+          score: 65, severity: 'medium', confidence: 0.75,
+          factors: {
+            severity: 55, confidence: 75, exploitability: 50, privilege: 40,
+            exposure: 30, environment_criticality: 10, freshness: 100, posture_amplifier: 0
+          },
+          unknowns: []
+        }
+      ]
+    };
+    await renderRepositoryDetail({ findings: [postureFinding], riskGraph: unsortedScoresGraph });
+    const pathsList = (await screen.findByLabelText('Top blast-radius paths')).querySelector('ol');
+    expect(pathsList).not.toBeNull();
+    const rows = (pathsList as HTMLElement).querySelectorAll('li');
+    expect(rows[0].textContent).toContain('highest-score');
+    expect(rows[0].textContent).toContain('score 95');
+    expect(rows[1].textContent).toContain('middle-score');
+    expect(rows[2].textContent).toContain('lower-score');
+  });
+
   it('does not render the previous repository\'s data when a reload rejects on error', async () => {
     // Start on repo A with data, then rerun the render pointing at repo B where
     // listRepoFindings rejects. The header must swap to repo B but the queue,
