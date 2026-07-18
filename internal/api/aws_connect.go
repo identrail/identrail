@@ -1891,7 +1891,7 @@ func normalizeAWSConnectorSetupContract(input awsConnectorSetupInput) (awsConnec
 		if deploymentMethod == AWSConnectorDeploymentStackSetServiceManaged && len(targetOUIDs) == 0 {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
-		if deploymentMethod == AWSConnectorDeploymentStackSetServiceManaged && input.AutoOnboardNewAccounts {
+		if input.AutoOnboardNewAccounts {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
 		if deploymentMethod == AWSConnectorDeploymentStackSetSelfManaged && len(targetOUIDs) > 0 {

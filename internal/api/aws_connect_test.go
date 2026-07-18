@@ -1278,6 +1278,18 @@ func TestAWSConnectorStartRejectsInvalidStackSetScopeContracts(t *testing.T) {
 			}`,
 		},
 		{
+			name: "self-managed selected accounts reject auto onboarding",
+			body: `{
+				"workspace_id":"workspace-a",
+				"project_id":"project-1",
+				"scope_type":"selected_accounts",
+				"deployment_method":"stackset_self_managed",
+				"target_account_ids":["123456789012"],
+				"target_regions":["us-east-1"],
+				"auto_onboard_new_accounts":true
+			}`,
+		},
+		{
 			name: "self-managed organization",
 			body: `{
 				"workspace_id":"workspace-a",
@@ -2127,6 +2139,19 @@ func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
 				TargetRegions:           []string{"us-east-1"},
 				TargetAccountIDs:        []string{"111122223333"},
 				TargetOUIDs:             []string{"r-abcd"},
+				AutoOnboardNewAccounts:  true,
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "self-managed selected accounts reject auto onboarding",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetSelfManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetAccountIDs:        []string{"111122223333"},
 				AutoOnboardNewAccounts:  true,
 				DefaultScopeType:        AWSConnectorScopeSingleAccount,
 				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
