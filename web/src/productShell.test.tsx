@@ -15816,4 +15816,187 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(await screen.findByText(/Require pull-request reviews on the default branch/i)).toBeInTheDocument();
     expect(screen.getByText(/Enable branch protection/i)).toBeInTheDocument();
   });
+
+  it('paginates listRepoScans until the target repository is found rather than reading only the first page', async () => {
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+
+    // First page holds a scan for another repository; the target repo's scan
+    // lives on the second page, keyed by the cursor. If pagination is not
+    // followed the drilldown falsely reports "No scan yet".
+    const otherRepoScan: RepoScanRecord = {
+      ...completedScan,
+      id: 'repo-scan-newer-other',
+      repository: 'identrail/other-repo'
+    };
+    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans');
+    listRepoScans.mockImplementation(async (filters) => {
+      if (!filters?.cursor) {
+        return { items: [otherRepoScan], next_cursor: 'cursor-page-2' };
+      }
+      if (filters.cursor === 'cursor-page-2') {
+        return { items: [completedScan] };
+      }
+      return { items: [] };
+    });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText(/Complete scan/i)).toBeInTheDocument();
+    // The connection-loading render triggers an initial no-connector effect run
+    // so listRepoScans is called more than twice; the meaningful assertion is
+    // that pagination followed the cursor to reach the target repository.
+    await waitFor(() =>
+      expect(listRepoScans.mock.calls.some(([filters]) => filters?.cursor === 'cursor-page-2')).toBe(true)
+    );
+  });
+
+  it('paginates listRepoFindings so an older higher-scoring finding is not dropped from the queue', async () => {
+    // Older finding is on page 2 but has the highest graph score. Queue must
+    // include it and rank it first.
+    const olderCriticalFinding: Finding = {
+      ...postureFinding,
+      id: 'finding-critical-older',
+      title: 'Critical historical finding',
+      severity: 'critical',
+      created_at: '2026-05-10T09:00:00Z'
+    };
+    const criticalScoredGraph: RepoRiskGraph = {
+      ...riskGraphWithScores,
+      scores: [
+        {
+          finding_id: olderCriticalFinding.id,
+          finding_node_id: 'node-critical',
+          score: 99,
+          severity: 'critical',
+          confidence: 0.99,
+          factors: {
+            severity: 100, confidence: 99, exploitability: 90, privilege: 80,
+            exposure: 70, environment_criticality: 60, freshness: 20, posture_amplifier: 80
+          },
+          unknowns: []
+        }
+      ]
+    };
+
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    const listRepoFindings = vi.spyOn(api.apiClient, 'listRepoFindings');
+    listRepoFindings.mockImplementation(async (filters) => {
+      if (!filters?.cursor) {
+        return { items: [postureFinding], next_cursor: 'findings-cursor-2' };
+      }
+      if (filters.cursor === 'findings-cursor-2') {
+        return { items: [olderCriticalFinding] };
+      }
+      return { items: [] };
+    });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(criticalScoredGraph);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // The older critical finding must appear at the top of the queue.
+    const queueList = (await screen.findByLabelText('Prioritized findings queue')).querySelector('ul');
+    expect(queueList).not.toBeNull();
+    const rows = (queueList as HTMLElement).querySelectorAll('li');
+    expect(rows[0].textContent).toContain('Critical historical finding');
+    expect(rows[0].textContent).toContain('score 99');
+    await waitFor(() =>
+      expect(listRepoFindings.mock.calls.some(([filters]) => filters?.cursor === 'findings-cursor-2')).toBe(true)
+    );
+  });
+
+  it('does not render the previous repository\'s data when a reload rejects on error', async () => {
+    // Start on repo A with data, then rerun the render pointing at repo B where
+    // listRepoFindings rejects. The header must swap to repo B but the queue,
+    // posture, and scan panels must not show repo A's leftover data — only the
+    // shared error banner.
+    await renderRepositoryDetail();
+    // Confirm repo A rendered fully.
+    await screen.findByRole('heading', { level: 2, name: targetRepository });
+    await screen.findByText(/Default branch protection is unprotected/i);
+    cleanup();
+    vi.restoreAllMocks();
+    vi.resetModules();
+
+    const otherRepository = 'identrail/other-repo';
+    await renderRepositoryDetail({
+      initialRepository: otherRepository,
+      listRepoFindingsError: { message: 'transient outage', status: 500 }
+    });
+    await screen.findByRole('heading', { level: 2, name: otherRepository });
+    expect(await screen.findByText(/Couldn't load repository intelligence/i)).toBeInTheDocument();
+    // Stale queue rows from repo A must not be present.
+    expect(screen.queryByText(/Default branch protection is unprotected/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Workflow OIDC trust is broad/i)).not.toBeInTheDocument();
+  });
 });

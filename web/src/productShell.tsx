@@ -24988,6 +24988,18 @@ export function ProductGitHubRepositoriesPage() {
 
 const REPO_INTELLIGENCE_FINDINGS_LIMIT = 100;
 const REPO_INTELLIGENCE_TOP_PATHS_LIMIT = 5;
+// listRepoScans returns workspace-wide scans ordered by started_at desc and
+// has no repository filter, so the drilldown paginates until it finds the
+// target repository or reaches this safety cap (per-page × pages) — enough to
+// cover realistic scan histories without unbounded fetches.
+const REPO_INTELLIGENCE_SCAN_PAGE_LIMIT = 50;
+const REPO_INTELLIGENCE_SCAN_MAX_PAGES = 20;
+// listRepoFindings returns per-page results sorted by created_at desc and
+// exposes next_cursor. Blast-radius sorting happens in the browser, so the
+// drilldown must not stop at the first page — a higher-scoring older finding
+// would otherwise be omitted from the "prioritized" queue. Cap the total for
+// safety and surface truncation to the operator when it hits.
+const REPO_INTELLIGENCE_FINDINGS_MAX_PAGES = 5;
 
 type RepoIntelligenceFindingCategory = 'posture' | 'ai_mcp' | 'workflow' | 'secret' | 'other';
 
@@ -25091,12 +25103,65 @@ function repoIntelligenceScanCompleteness(scan: RepoScanRecord | null): {
   }
 }
 
+async function findRepoIntelligenceLatestScan(
+  repository: string,
+  auth: RequestAuthContext | undefined,
+  isCurrent: () => boolean
+): Promise<RepoScanRecord | null> {
+  let cursor: string | undefined;
+  for (let page = 0; page < REPO_INTELLIGENCE_SCAN_MAX_PAGES; page += 1) {
+    if (!isCurrent()) return null;
+    const response = await apiClient.listRepoScans(
+      { limit: REPO_INTELLIGENCE_SCAN_PAGE_LIMIT, cursor },
+      auth
+    );
+    const match = response.items.find(
+      (item) => canonicalGitHubRepositoryDisplay(item.repository) === repository
+    );
+    if (match) return match;
+    if (!response.next_cursor) return null;
+    cursor = response.next_cursor;
+  }
+  return null;
+}
+
+type RepoIntelligenceFindingsResult = {
+  items: ApiFinding[];
+  summary: RepoFindingsSummary | null;
+  truncated: boolean;
+};
+
+async function fetchRepoIntelligenceFindings(
+  repository: string,
+  auth: RequestAuthContext | undefined,
+  isCurrent: () => boolean
+): Promise<RepoIntelligenceFindingsResult> {
+  const items: ApiFinding[] = [];
+  let summary: RepoFindingsSummary | null = null;
+  let cursor: string | undefined;
+  for (let page = 0; page < REPO_INTELLIGENCE_FINDINGS_MAX_PAGES; page += 1) {
+    if (!isCurrent()) return { items, summary, truncated: false };
+    const response = await apiClient.listRepoFindings(
+      { repository, limit: REPO_INTELLIGENCE_FINDINGS_LIMIT, cursor },
+      auth
+    );
+    items.push(...response.items);
+    if (page === 0 && response.summary) {
+      summary = response.summary;
+    }
+    if (!response.next_cursor) {
+      return { items, summary, truncated: false };
+    }
+    cursor = response.next_cursor;
+  }
+  return { items, summary, truncated: true };
+}
+
 export function ProductGitHubRepositoryDetailPage() {
   const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useGitHubDomainScope();
   const availability = useGitHubAvailability();
   const domainData = useGitHubDomainData(scope, selectedEnvironmentID, availability.available, 5);
   const location = useLocation();
-  const navigate = useNavigate();
 
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const requestedRepository = useMemo(
@@ -25107,6 +25172,7 @@ export function ProductGitHubRepositoryDetailPage() {
   const [scan, setScan] = useState<RepoScanRecord | null>(null);
   const [findings, setFindings] = useState<ApiFinding[]>([]);
   const [findingsSummary, setFindingsSummary] = useState<RepoFindingsSummary | null>(null);
+  const [findingsTruncated, setFindingsTruncated] = useState(false);
   const [riskGraph, setRiskGraph] = useState<RepoRiskGraph | null>(null);
   const [posture, setPosture] = useState<GitHubRepositoryPosture | null>(null);
   const [loading, setLoading] = useState(false);
@@ -25118,32 +25184,49 @@ export function ProductGitHubRepositoryDetailPage() {
   const [previewError, setPreviewError] = useState('');
 
   const requestRef = useRef(0);
+  const previewRequestRef = useRef(0);
+
+  const resetRepositoryState = useCallback(() => {
+    setScan(null);
+    setFindings([]);
+    setFindingsSummary(null);
+    setFindingsTruncated(false);
+    setRiskGraph(null);
+    setPosture(null);
+    setPostureError('');
+    // Any pending remediation preview belongs to the previous scope, so drop
+    // its display state and invalidate its request token so a late completion
+    // cannot overwrite the new scope's state.
+    previewRequestRef.current += 1;
+    setPreviewFindingID('');
+    setPreview(null);
+    setPreviewLoading(false);
+    setPreviewError('');
+  }, []);
 
   useEffect(() => {
     if (!scope || !availability.available || !selectedEnvironmentID || !requestedRepository) {
+      requestRef.current += 1;
+      resetRepositoryState();
       setLoading(false);
-      setScan(null);
-      setFindings([]);
-      setRiskGraph(null);
-      setPosture(null);
       setError('');
       return undefined;
     }
     const requestID = ++requestRef.current;
+    // Reset repository-bound state before the fetch runs. Without this a
+    // failing request would leave the previous repository's scan, findings,
+    // graph, and posture rendered under the new repository heading once
+    // loading flipped back to false.
+    resetRepositoryState();
     setLoading(true);
     setError('');
-    setPostureError('');
 
     const auth = buildProductAuthContext(scope);
     const connectorID = domainData.connection?.connector_id ?? '';
-    const scansPromise = apiClient.listRepoScans({ limit: 25 }, auth).then((response) => {
-      const match = response.items.find((item) => canonicalGitHubRepositoryDisplay(item.repository) === requestedRepository);
-      return match ?? null;
-    });
-    const findingsPromise = apiClient.listRepoFindings(
-      { repository: requestedRepository, limit: REPO_INTELLIGENCE_FINDINGS_LIMIT },
-      auth
-    );
+    const isCurrent = () => requestID === requestRef.current;
+
+    const scansPromise = findRepoIntelligenceLatestScan(requestedRepository, auth, isCurrent);
+    const findingsPromise = fetchRepoIntelligenceFindings(requestedRepository, auth, isCurrent);
     const graphPromise = apiClient.getRepoRiskGraph({ repository: requestedRepository }, auth);
     const posturePromise = connectorID
       ? apiClient
@@ -25158,16 +25241,20 @@ export function ProductGitHubRepositoryDetailPage() {
       : Promise.resolve(null);
 
     Promise.all([scansPromise, findingsPromise, graphPromise, posturePromise])
-      .then(([latestScan, findingsResponse, graph, latestPosture]) => {
+      .then(([latestScan, findingsResult, graph, latestPosture]) => {
         if (requestID !== requestRef.current) return;
         setScan(latestScan);
-        setFindings(findingsResponse.items);
-        setFindingsSummary(findingsResponse.summary ?? null);
+        setFindings(findingsResult.items);
+        setFindingsSummary(findingsResult.summary);
+        setFindingsTruncated(findingsResult.truncated);
         setRiskGraph(graph);
         setPosture(latestPosture);
       })
       .catch((fetchError: unknown) => {
         if (requestID !== requestRef.current) return;
+        // The reset above already cleared the previous scope's data, so the
+        // error state is the only signal the operator sees — the panels
+        // render as empty/loading rather than as stale data from another repo.
         setError(formatAPIError(fetchError, 'Unable to load repository intelligence.'));
       })
       .finally(() => {
@@ -25187,7 +25274,8 @@ export function ProductGitHubRepositoryDetailPage() {
     availability.available,
     selectedEnvironmentID,
     requestedRepository,
-    domainData.connection?.connector_id
+    domainData.connection?.connector_id,
+    resetRepositoryState
   ]);
 
   const queue = useMemo(() => buildRepoIntelligenceQueue(findings, riskGraph), [findings, riskGraph]);
@@ -25205,6 +25293,13 @@ export function ProductGitHubRepositoryDetailPage() {
   const openPreview = useCallback(
     async (finding: ApiFinding) => {
       if (!scope) return;
+      // Every openPreview invocation claims a new token: a repository or
+      // environment change bumps previewRequestRef in resetRepositoryState,
+      // and a second click before the first request resolves bumps it again
+      // here. Late completions whose token no longer matches never touch
+      // preview state, so they cannot render the previous scope's or a
+      // superseded finding's remediation under the current heading.
+      const previewID = ++previewRequestRef.current;
       setPreviewFindingID(finding.id);
       setPreview(null);
       setPreviewError('');
@@ -25216,11 +25311,15 @@ export function ProductGitHubRepositoryDetailPage() {
           { repo_scan_id: scan?.id ?? finding.scan_id ?? '' },
           auth
         );
+        if (previewID !== previewRequestRef.current) return;
         setPreview(response);
       } catch (previewFetchError: unknown) {
+        if (previewID !== previewRequestRef.current) return;
         setPreviewError(formatAPIError(previewFetchError, 'Unable to preview remediation for this finding.'));
       } finally {
-        setPreviewLoading(false);
+        if (previewID === previewRequestRef.current) {
+          setPreviewLoading(false);
+        }
       }
     },
     [scope, scan?.id]
@@ -25377,6 +25476,11 @@ export function ProductGitHubRepositoryDetailPage() {
                   {queue.length} finding{queue.length === 1 ? '' : 's'}
                   {findingsSummary?.total_open != null ? ` • ${findingsSummary.total_open} open` : ''}
                   {publishableCount > 0 ? ` • ${publishableCount} fix-ready` : ''}
+                </p>
+              ) : null}
+              {findingsTruncated ? (
+                <p role="alert" className="idt-app-alert idt-app-alert-warning">
+                  Showing the first {REPO_INTELLIGENCE_FINDINGS_LIMIT * REPO_INTELLIGENCE_FINDINGS_MAX_PAGES} findings ordered by creation time. Refine filters in the GitHub findings page to review the rest.
                 </p>
               ) : null}
             </header>
