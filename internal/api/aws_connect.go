@@ -1527,6 +1527,7 @@ func awsConnectorTargetSummary(setup awsConnectorSetupContract) *AWSConnectorTar
 	knownAccounts := setup.ScopeType == AWSConnectorScopeSelectedAccounts
 	expectedInstances := 0
 	expectedKnown := knownAccounts
+	deploymentRegionCount := len(awsConnectorStackSetDeploymentRegions(setup))
 	if expectedKnown {
 		excluded := map[string]struct{}{}
 		for _, accountID := range setup.ExcludedAccountIDs {
@@ -1534,7 +1535,7 @@ func awsConnectorTargetSummary(setup awsConnectorSetupContract) *AWSConnectorTar
 		}
 		for _, accountID := range setup.TargetAccountIDs {
 			if _, ok := excluded[accountID]; !ok {
-				expectedInstances += len(setup.TargetRegions)
+				expectedInstances += deploymentRegionCount
 			}
 		}
 	}
@@ -1548,6 +1549,20 @@ func awsConnectorTargetSummary(setup awsConnectorSetupContract) *AWSConnectorTar
 		ExpectedStackInstancesKnown: expectedKnown,
 		AllAccounts:                 setup.ScopeType == AWSConnectorScopeOrganization,
 	}
+}
+
+func awsConnectorStackSetDeploymentSetup(setup awsConnectorSetupContract) awsConnectorSetupContract {
+	deployment := setup
+	deployment.TargetRegions = awsConnectorStackSetDeploymentRegions(setup)
+	return deployment
+}
+
+func awsConnectorStackSetDeploymentRegions(setup awsConnectorSetupContract) []string {
+	region := firstAWSRegion(setup.TargetRegions)
+	if region == "" {
+		return nil
+	}
+	return []string{region}
 }
 
 func (s *Service) buildAWSConnectorStackSetOnboarding(
@@ -1565,6 +1580,7 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 	checkedAt time.Time,
 ) (AWSStackSetOnboardingResult, error) {
 	mode := awsConnectorStackSetDeploymentMode(setup.DeploymentMethod)
+	deploymentSetup := awsConnectorStackSetDeploymentSetup(setup)
 	config := awscontract.StackSetOnboardingConfig{
 		ConnectorID:         connectorID,
 		ManagementAccountID: "",
@@ -1576,7 +1592,7 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 		TrustedAccessReady:  false,
 		DelegatedAdminReady: false,
 		ExternalID:          externalID,
-		Targets:             awsConnectorStackSetTargets(setup),
+		Targets:             awsConnectorStackSetTargets(deploymentSetup),
 	}
 	plan, err := awscontract.PlanStackSetOnboarding(config, checkedAt)
 	if err != nil {

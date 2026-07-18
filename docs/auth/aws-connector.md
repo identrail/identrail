@@ -130,7 +130,10 @@ The contract fields are:
 - `onboarding_status`: `draft`, `launch_ready`, `waiting_for_aws`,
   `validating`, `connected`, `partial`, `needs_fix`, or `failed`.
 - `target_regions`, `target_account_ids`, `target_ou_ids`, and
-  `excluded_account_ids`: normalized setup target lists.
+  `excluded_account_ids`: normalized setup target lists. For StackSet setup,
+  `target_regions` records scan-region intent; the read-only IAM role StackSet
+  deploys in the first normalized home region only because the role is global
+  within each AWS account.
 - `auto_onboard_new_accounts`: whether future organization accounts should be
   included automatically once StackSet onboarding owns that path.
 - `setup_summary` and `next_actions`: short app-facing guidance for the next

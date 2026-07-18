@@ -11456,6 +11456,7 @@ components:
           $ref: "#/components/schemas/AWSConnectorDeploymentMethod"
         target_regions:
           type: array
+          description: AWS scan-region intent for the connector. StackSet setup sends only the first normalized region to CloudFormation because the read-only IAM role is global per account.
           items:
             type: string
         target_account_ids:
@@ -11543,6 +11544,7 @@ components:
           $ref: "#/components/schemas/AWSConnectorOnboardingStatus"
         target_regions:
           type: array
+          description: AWS scan-region intent for the connector. StackSet setup sends only the first normalized region to CloudFormation because the read-only IAM role is global per account.
           items:
             type: string
         target_account_ids:
@@ -11757,6 +11759,7 @@ components:
           $ref: "#/components/schemas/AWSConnectorOnboardingStatus"
         target_regions:
           type: array
+          description: AWS scan-region intent for the connector. StackSet setup sends only the first normalized region to CloudFormation because the read-only IAM role is global per account.
           items:
             type: string
         target_account_ids:
@@ -11826,7 +11829,7 @@ components:
           nullable: true
     AWSConnectorTargetSummary:
       type: object
-      description: Operator-declared StackSet target intent. Account and instance counts are only marked known when the request included explicit account IDs; organization and OU scopes are resolved by AWS during StackSet deployment.
+      description: Operator-declared StackSet target intent. Region count records scan-region intent, while expected stack instances use the single home deployment region for the read-only IAM role template. Account and instance counts are only marked known when the request included explicit account IDs; organization and OU scopes are resolved by AWS during StackSet deployment.
       properties:
         account_count:
           type: integer

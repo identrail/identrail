@@ -32,7 +32,7 @@ contents are never read.
   lifecycle fields, and unified `stackset_onboarding` payload.
 - A CloudFormation StackSet console launch URL builder in
   `internal/connectors/aws/cfn.go` that pins the template URL, parameter set,
-  permission model, organizational units, account ids, and target regions
+  permission model, organizational units, account ids, and home deployment region
   without ever embedding a secret value in the URL.
 - A web app surface (`AWS → Accounts`) that renders the validation verdict,
   prerequisites, permission preview, target accounts/OUs/regions, per-instance
@@ -72,6 +72,10 @@ The response includes:
   scopes, account and expected-instance counts are marked unknown because AWS
   resolves member accounts during StackSet deployment. For selected account
   scopes, those counts are exact after exclusions are applied.
+- `target_regions` on connector start/poll responses preserve the operator's
+  scan-region intent. The StackSet launch itself uses only the first normalized
+  region as the home deployment region because the connector template creates a
+  fixed-name IAM role, and IAM roles are global within an AWS account.
 - `validation` — `ready` / `degraded` / `blocked` / `permission_denied` with
   blocking/advisory prerequisite counts, failure reasons, and remediation hints.
 - `permission_preview` — the read-only discovery permission tier (and the
@@ -98,7 +102,10 @@ The response includes:
 The console `launch_url` carries no AWS access keys, secret access keys, session
 tokens, customer payloads, or object contents. It does include setup-safe
 CloudFormation parameters such as the generated external ID, pinned template URL,
-permission model, target OU IDs, account filters, and target regions.
+permission model, target OU IDs, account filters, and the home deployment
+region. Additional connector `target_regions` remain scan intent for later
+collector fan-out; they are not sent as extra StackSet regions for the read-only
+IAM role template.
 
 The start route is still setup-only. It persists declared Organization/OU/account
 target intent in connector metadata, but it does not create graph nodes or report

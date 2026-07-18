@@ -826,8 +826,9 @@ func TestRouterAWSConnectorOrganizationStackSetFlow(t *testing.T) {
 	}
 	if !startBody.StackSetOnboarding.Targets.AllAccounts ||
 		len(startBody.StackSetOnboarding.Targets.OrganizationalUnits) != 1 ||
-		len(startBody.StackSetOnboarding.Targets.Regions) != 2 {
-		t.Fatalf("expected organization target intent in onboarding payload, got %+v", startBody.StackSetOnboarding.Targets)
+		len(startBody.StackSetOnboarding.Targets.Regions) != 1 ||
+		startBody.StackSetOnboarding.Targets.Regions[0].Region != "us-east-1" {
+		t.Fatalf("expected organization StackSet deployment to use the home region only, got %+v", startBody.StackSetOnboarding.Targets)
 	}
 	if startBody.StackSetOnboarding.Status != awsPlatformDependencyStatusBlocked {
 		t.Fatalf("expected nested stackset onboarding to report blocked prerequisites, got %q", startBody.StackSetOnboarding.Status)
@@ -844,7 +845,9 @@ func TestRouterAWSConnectorOrganizationStackSetFlow(t *testing.T) {
 		!strings.Contains(startBody.LaunchURL, "permissionModel=SERVICE_MANAGED") ||
 		!strings.Contains(startBody.LaunchURL, "organizationalUnitIds=r-abcd") ||
 		!strings.Contains(startBody.LaunchURL, "excludedAccounts=210987654321") ||
-		!strings.Contains(startBody.LaunchURL, "accountFilterType=DIFFERENCE") {
+		!strings.Contains(startBody.LaunchURL, "accountFilterType=DIFFERENCE") ||
+		!strings.Contains(startBody.LaunchURL, "regions=us-east-1") ||
+		strings.Contains(startBody.LaunchURL, "eu-west-1") {
 		t.Fatalf("expected stackset launch URL with service-managed targets and exclusions, got %q", startBody.LaunchURL)
 	}
 	assertAWSConnectorStartPayloadNoSecretMaterial(t, startResp.Body.String())
@@ -908,19 +911,24 @@ func TestAWSConnectorStartSelectedStackSetScopes(t *testing.T) {
 	if accounts.TargetSummary == nil || !accounts.TargetSummary.AccountCountKnown ||
 		accounts.TargetSummary.AccountCount != 2 ||
 		accounts.TargetSummary.OUCount != 1 ||
-		accounts.TargetSummary.ExpectedStackInstances != 2 ||
+		accounts.TargetSummary.RegionCount != 2 ||
+		accounts.TargetSummary.ExpectedStackInstances != 1 ||
 		!accounts.TargetSummary.ExpectedStackInstancesKnown {
 		t.Fatalf("expected exact selected-account summary, got %+v", accounts.TargetSummary)
 	}
 	if accounts.StackSetOnboarding == nil ||
 		len(accounts.StackSetOnboarding.Targets.Accounts) != 1 ||
 		len(accounts.StackSetOnboarding.Targets.OrganizationalUnits) != 1 ||
-		len(accounts.StackSetOnboarding.Instances) != 2 {
+		len(accounts.StackSetOnboarding.Targets.Regions) != 1 ||
+		accounts.StackSetOnboarding.Targets.Regions[0].Region != "us-east-1" ||
+		len(accounts.StackSetOnboarding.Instances) != 1 {
 		t.Fatalf("expected excluded account to be subtracted from launch plan, got onboarding=%+v", accounts.StackSetOnboarding)
 	}
 	if !strings.Contains(accounts.LaunchURL, "organizationalUnitIds=r-abcd") ||
 		!strings.Contains(accounts.LaunchURL, "accounts=111122223333") ||
 		!strings.Contains(accounts.LaunchURL, "accountFilterType=INTERSECTION") ||
+		!strings.Contains(accounts.LaunchURL, "regions=us-east-1") ||
+		strings.Contains(accounts.LaunchURL, "eu-west-1") ||
 		strings.Contains(accounts.LaunchURL, "accounts=444455556666") ||
 		strings.Contains(accounts.LaunchURL, "excludedAccounts=") {
 		t.Fatalf("expected launch URL to include root plus non-excluded selected-account filter, got %q", accounts.LaunchURL)

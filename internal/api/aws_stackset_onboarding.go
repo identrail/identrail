@@ -412,8 +412,6 @@ func awsStackSetFixtureConfig(
 
 	siblingAccount := awsStackSetSiblingAccount(accountID)
 	tertiaryAccount := awsStackSetSiblingAccount(siblingAccount)
-	secondaryRegion := awsStackSetSecondaryRegion(region)
-
 	config := awscontract.StackSetOnboardingConfig{
 		ConnectorID:         connectorID,
 		OrganizationID:      "o-fixture",
@@ -439,7 +437,6 @@ func awsStackSetFixtureConfig(
 			},
 			Regions: []awscontract.StackSetOnboardingTargetRegion{
 				{Region: region},
-				{Region: secondaryRegion},
 			},
 		},
 	}
@@ -456,11 +453,13 @@ func awsStackSetFixtureConfig(
 			{AccountID: siblingAccount, Region: region, State: awscontract.StackSetStateActive, StackID: "stack-fixture-2"},
 		}
 	case "partial_failure":
+		deniedAccount := awsStackSetSiblingAccount(tertiaryAccount)
+		config.Targets.Accounts = append(config.Targets.Accounts, awscontract.StackSetOnboardingTargetAccount{AccountID: deniedAccount, Name: "security", OUPath: "/Root/Security"})
 		config.Checkpoints = []awscontract.StackSetOnboardingCheckpoint{
 			{AccountID: accountID, Region: region, State: awscontract.StackSetStateActive, StackID: "stack-fixture-1"},
 			{AccountID: siblingAccount, Region: region, State: awscontract.StackSetStateActive, StackID: "stack-fixture-2"},
 			{AccountID: tertiaryAccount, Region: region, State: awscontract.StackSetStateFailed, FailureReason: "Throttling: CreateStackInstances throttled after retries", Attempts: 3},
-			{AccountID: tertiaryAccount, Region: secondaryRegion, State: awscontract.StackSetStatePermissionDenied, FailureReason: "AccessDenied: assume into member account failed"},
+			{AccountID: deniedAccount, Region: region, State: awscontract.StackSetStatePermissionDenied, FailureReason: "AccessDenied: assume into member account failed"},
 		}
 	default:
 		// success
@@ -759,13 +758,6 @@ func awsStackSetSiblingAccount(accountID string) string {
 		return digits[:11] + "0"
 	}
 	return digits[:11] + string(last+1)
-}
-
-func awsStackSetSecondaryRegion(region string) string {
-	if strings.EqualFold(strings.TrimSpace(region), "eu-west-1") {
-		return "us-east-1"
-	}
-	return "eu-west-1"
 }
 
 // AWSStackSetOnboardingState is an exported coverage-state alias so the OpenAPI
