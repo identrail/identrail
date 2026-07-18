@@ -55,6 +55,7 @@ import {
   ProductGitHubCallbackPage,
   ProductGitHubControlCenterPage,
   ProductGitHubRepositoriesPage,
+  ProductGitHubRepositoryDetailPage,
   ProductKubernetesClustersPage,
   ProductKubernetesConnectPage,
   ProductKubernetesControlCenterPage,
@@ -4849,6 +4850,7 @@ export function RoutedSite() {
             <Route path="github" element={<ProductGitHubControlCenterPage />} />
             <Route path="github/connect" element={<ProductGitHubConnectPage />} />
             <Route path="github/repositories" element={<ProductGitHubRepositoriesPage />} />
+            <Route path="github/repositories/detail" element={<ProductGitHubRepositoryDetailPage />} />
             <Route path="github/actions" element={<ProductGitHubActionsPage />} />
             <Route path="github/findings" element={<ProductFindingsPage />} />
             <Route path="github/remediation" element={<ProductGitHubRemediationPage />} />

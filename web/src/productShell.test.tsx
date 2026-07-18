@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AuthConfigResponse,
   AWSAccountRegionCoverageResult,
@@ -3377,6 +3377,7 @@ describe('Domain-first app routes', () => {
       '/app/:tenantID/:workspaceID/github',
       '/app/:tenantID/:workspaceID/github/connect',
       '/app/:tenantID/:workspaceID/github/repositories',
+      '/app/:tenantID/:workspaceID/github/repositories/detail',
       '/app/:tenantID/:workspaceID/github/actions',
       '/app/:tenantID/:workspaceID/github/findings',
       '/app/:tenantID/:workspaceID/github/remediation',
@@ -15512,5 +15513,307 @@ describe('AWS copy redundancy guard (#1582)', () => {
         expect(match[1]).toBe('');
       }
     }
+  });
+});
+
+// Repository intelligence drilldown (#1712) — unified scan state, posture
+// gaps, prioritized findings queue, top blast-radius paths, and remediation
+// actions for one repository, addressed by a ?repository= query param.
+describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
+  const targetRepository = 'identrail/identrail';
+
+  const completedScan: RepoScanRecord = {
+    id: 'repo-scan-detail-complete',
+    repository: targetRepository,
+    status: 'succeeded',
+    started_at: '2026-05-17T10:50:00Z',
+    finished_at: '2026-05-17T10:55:00Z',
+    commits_scanned: 12,
+    files_scanned: 340,
+    finding_count: 3,
+    truncated: false,
+    scan_mode: 'quick',
+    source_health: 'complete',
+    source_health_details: [
+      { source: 'github_posture', status: 'complete' },
+      { source: 'repo_git_history', status: 'complete' }
+    ]
+  };
+
+  const partialScan: RepoScanRecord = {
+    ...completedScan,
+    id: 'repo-scan-detail-partial',
+    source_health: 'partial',
+    source_health_details: [
+      { source: 'github_posture', status: 'complete' },
+      { source: 'repo_git_history', status: 'partial', message: 'Git history truncated at 500 commits.' }
+    ]
+  };
+
+  const postureFinding: Finding = {
+    id: 'finding-posture-branch-protection',
+    scan_id: 'repo-scan-detail-complete',
+    type: 'repo_misconfiguration',
+    severity: 'high',
+    title: 'Default branch protection is unprotected',
+    human_summary: 'Repository default branch does not require pull request reviews.',
+    repository: targetRepository,
+    detector: 'github_default_branch_unprotected',
+    evidence: {
+      adapter_source: 'github_posture',
+      github_posture_check_id: 'default_branch_protection',
+      github_posture_scope: 'repository'
+    },
+    remediation: 'Enable branch protection with required reviews.',
+    created_at: '2026-05-17T11:00:00Z'
+  };
+
+  const workflowFinding: Finding = {
+    id: 'finding-workflow-oidc',
+    scan_id: 'repo-scan-detail-complete',
+    type: 'repo_misconfiguration',
+    severity: 'medium',
+    title: 'Workflow OIDC trust is broad',
+    human_summary: 'A workflow can mint OIDC tokens against a broad AWS role trust condition.',
+    repository: targetRepository,
+    detector: 'workflow_oidc_broad_trust',
+    evidence: { file_path: '.github/workflows/deploy.yml' },
+    remediation: 'Restrict OIDC trust to a specific ref/job.',
+    created_at: '2026-05-17T11:05:00Z'
+  };
+
+  const emptyRiskGraph: RepoRiskGraph = {
+    repository: targetRepository,
+    nodes: [],
+    edges: [],
+    scores: [],
+    summary: {
+      finding_count: 0,
+      node_count: 0,
+      edge_count: 0,
+      unknown_node_count: 0,
+      unknown_edge_count: 0,
+      high_risk_findings: 0,
+      critical_findings: 0
+    }
+  };
+
+  const riskGraphWithScores: RepoRiskGraph = {
+    ...emptyRiskGraph,
+    scores: [
+      {
+        finding_id: postureFinding.id,
+        finding_node_id: 'node-posture',
+        score: 88,
+        severity: 'high',
+        confidence: 0.9,
+        factors: {
+          severity: 80,
+          confidence: 90,
+          exploitability: 60,
+          privilege: 40,
+          exposure: 55,
+          environment_criticality: 30,
+          freshness: 100,
+          posture_amplifier: 70
+        },
+        unknowns: []
+      },
+      {
+        finding_id: workflowFinding.id,
+        finding_node_id: 'node-workflow',
+        score: 62,
+        severity: 'medium',
+        confidence: 0.7,
+        factors: {
+          severity: 55,
+          confidence: 70,
+          exploitability: 50,
+          privilege: 30,
+          exposure: 40,
+          environment_criticality: 0,
+          freshness: 100,
+          posture_amplifier: 0
+        },
+        unknowns: ['identity_target']
+      }
+    ]
+  };
+
+  async function renderRepositoryDetail(options: {
+    initialRepository?: string;
+    scans?: RepoScanRecord[];
+    findings?: Finding[];
+    riskGraph?: RepoRiskGraph;
+    posture?: GitHubRepositoryPosture;
+    postureError?: { message: string; status: number };
+    listRepoFindingsError?: { message: string; status: number };
+  } = {}) {
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: options.scans ?? [completedScan] });
+
+    const findingsSpy = vi.spyOn(api.apiClient, 'listRepoFindings');
+    if (options.listRepoFindingsError) {
+      findingsSpy.mockRejectedValue(new api.ApiError(options.listRepoFindingsError.message, options.listRepoFindingsError.status));
+    } else {
+      findingsSpy.mockResolvedValue({ items: options.findings ?? [postureFinding, workflowFinding] });
+    }
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(options.riskGraph ?? riskGraphWithScores);
+
+    const postureSpy = vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture');
+    if (options.postureError) {
+      postureSpy.mockRejectedValue(new api.ApiError(options.postureError.message, options.postureError.status));
+    } else {
+      postureSpy.mockResolvedValue({
+        connector_id: 'github-app',
+        provider: 'github_app',
+        posture: options.posture ?? {
+          repository: targetRepository,
+          installation_id: 12345,
+          collected_at: '2026-05-17T10:56:00Z',
+          checks: [
+            {
+              id: 'branch-protection', category: 'branch protection', state: 'insecure',
+              summary: 'Default branch is missing required pull request reviews.'
+            },
+            {
+              id: 'secret-scanning', category: 'security', state: 'secure',
+              summary: 'Secret scanning is enabled.'
+            }
+          ]
+        }
+      });
+    }
+    vi.spyOn(api.apiClient, 'previewRepoFindingRemediation').mockResolvedValue({
+      finding: postureFinding,
+      remediation: {
+        detector: 'github_default_branch_unprotected',
+        summary: 'Require pull-request reviews on the default branch',
+        risk_summary: 'Unrestricted merges bypass evidence review.',
+        steps: ['Enable branch protection', 'Require signed commits'],
+        safety_notes: [], validation: [],
+        secret_rotation: false, publishable: true,
+        evidence: { finding_id: postureFinding.id }
+      }
+    });
+
+    const repository = options.initialRepository ?? targetRepository;
+    const productShell = await import('./productShell');
+    const initialEntry = repository
+      ? `/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(repository)}`
+      : `/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform`;
+    render(
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    return { findingsSpy };
+  }
+
+  beforeEach(() => {
+    // Prior describe blocks in this file leave module-scoped mocks
+    // (mockConnectorFeatureFlags / mockBackendFeatures use vi.doMock) that can
+    // linger past their afterEach. Reset both the mock registry and the module
+    // cache so every drilldown test starts from a clean import graph.
+    vi.restoreAllMocks();
+    vi.doUnmock('./hooks/useBackendFeatures');
+    vi.doUnmock('./pages/onboarding/onboardingUtils');
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.doUnmock('./hooks/useBackendFeatures');
+    vi.doUnmock('./pages/onboarding/onboardingUtils');
+    vi.resetModules();
+  });
+
+  it('renders unified scan state, posture gaps, and prioritized findings queue for a repository', async () => {
+    await renderRepositoryDetail();
+
+    // Header names the repository.
+    await screen.findByRole('heading', { level: 2, name: targetRepository });
+
+    // Scan strip shows the complete pill.
+    await screen.findByText(/Complete scan/i);
+
+    // Posture gap section surfaces the insecure check and hides the secure one.
+    expect(await screen.findByText(/missing required pull request reviews/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Secret scanning is enabled/i)).not.toBeInTheDocument();
+
+    // Queue shows both findings, posture score 88 comes before workflow score 62.
+    const queueList = (await screen.findByLabelText('Prioritized findings queue')).querySelector('ul');
+    expect(queueList).not.toBeNull();
+    const rows = (queueList as HTMLElement).querySelectorAll('li');
+    expect(rows[0].textContent).toContain('Default branch protection is unprotected');
+    expect(rows[0].textContent).toContain('score 88');
+    expect(rows[1].textContent).toContain('Workflow OIDC trust is broad');
+    expect(rows[1].textContent).toContain('score 62');
+  });
+
+  it('surfaces a partial-scan pill and per-source health details when the scan is partial', async () => {
+    await renderRepositoryDetail({ scans: [partialScan] });
+    await screen.findByRole('heading', { level: 2, name: targetRepository });
+    expect(await screen.findByText(/Partial scan/i)).toBeInTheDocument();
+    expect(screen.getByText(/Git history truncated at 500 commits/i)).toBeInTheDocument();
+  });
+
+  it('renders the no-findings empty state when the queue is empty', async () => {
+    await renderRepositoryDetail({ findings: [], riskGraph: emptyRiskGraph });
+    expect(await screen.findByText(/No findings for this repository/i)).toBeInTheDocument();
+  });
+
+  it('shows an error banner when the repository query parameter is missing', async () => {
+    await renderRepositoryDetail({ initialRepository: '' });
+    expect(await screen.findByText(/Repository not selected/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Back to repositories/i })).toBeInTheDocument();
+  });
+
+  it('shows an error state when the findings request fails', async () => {
+    await renderRepositoryDetail({ listRepoFindingsError: { message: 'boom', status: 500 } });
+    expect(await screen.findByText(/Couldn't load repository intelligence/i)).toBeInTheDocument();
+  });
+
+  it('shows an inline posture error but keeps the rest of the drilldown usable', async () => {
+    await renderRepositoryDetail({ postureError: { message: 'posture rate limited', status: 429 } });
+    // Findings queue still rendered.
+    await screen.findByText(/Default branch protection is unprotected/i);
+    // Posture panel shows an inline alert without breaking the page. Wait for the
+    // async state update rather than reading synchronously: the posture request
+    // rejects on a separate promise from the scans/findings/graph fetch, and its
+    // catch handler runs after the queue's initial render.
+    expect(await screen.findByText(/posture rate limited/i)).toBeInTheDocument();
+  });
+
+  it('opens a remediation preview when the operator clicks Preview remediation on a fix-ready finding', async () => {
+    await renderRepositoryDetail();
+    const previewButtons = await screen.findAllByRole('button', { name: /Preview remediation/i });
+    fireEvent.click(previewButtons[0]);
+    expect(await screen.findByText(/Require pull-request reviews on the default branch/i)).toBeInTheDocument();
+    expect(screen.getByText(/Enable branch protection/i)).toBeInTheDocument();
   });
 });

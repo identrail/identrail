@@ -523,6 +523,7 @@ type ProductDomainRouteID =
   | 'outcomes'
   | 'governance'
   | 'repositories'
+  | 'repositories-detail'
   | 'actions'
   | 'agentic-risk'
   | 'agentic-risk-configs'
@@ -636,6 +637,7 @@ const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
       productDomainRoute('overview', 'Control center', '', 'GitHub Control Center', 'Repository identity', 'Operate repository, workflow, OIDC, code, and agentic risk coverage from the GitHub section.'),
       productDomainRoute('connect', 'Connect GitHub', 'connect', 'Connect GitHub', 'GitHub App onboarding', 'Prepare the GitHub-owned connection route while existing installation and selected-repository internals stay intact.'),
       productDomainRoute('repositories', 'Repositories', 'repositories', 'GitHub repositories', 'Repository inventory', 'Route repository posture, selected installation scope, exposure signals, and scan health into a domain-owned page.'),
+      productDomainRoute('repositories-detail', 'Repository intelligence', 'repositories/detail', 'GitHub repository intelligence', 'Unified repository review', 'Bring scan state, posture gaps, prioritized findings, top blast-radius paths, and remediation actions together for one repository.'),
       productDomainRoute('actions', 'Actions / OIDC', 'actions', 'GitHub Actions / OIDC', 'Workflow trust', 'Reserve the workflow identity page for OIDC roles, deploy trust paths, Actions permissions, and runner posture.'),
       productDomainRoute('findings', 'Findings', 'findings', 'GitHub findings', 'Domain-scoped findings', 'Keep repository findings in the GitHub section instead of a global queue.'),
       productDomainRoute('remediation', 'Remediation', 'remediation', 'GitHub remediation', 'Repository fixes', 'Stage remediation PR planning, review workflow, lifecycle state, and verification from the GitHub section.'),
@@ -3540,6 +3542,28 @@ function awsAgentIdentityDetailLink(
   }
   const search = params.toString();
   return `${buildScopedPath(scope, 'aws/agents/detail')}${search ? `?${search}` : ''}`;
+}
+
+// githubRepositoryDetailLink returns the drilldown URL for one repository. It
+// mirrors the AWS identity/agent detail-link convention: environment carried on
+// the environment query param, subject (here: repository slug) as its own param
+// so tests and browser deep-links can address a specific repository review.
+function githubRepositoryDetailLink(
+  scope: ProductSession,
+  environmentID: string,
+  repository: string
+): string {
+  const params = new URLSearchParams();
+  const normalizedEnvironmentID = normalizeValue(environmentID);
+  const normalizedRepository = canonicalGitHubRepositoryDisplay(repository);
+  if (normalizedEnvironmentID) {
+    params.set(ENVIRONMENT_QUERY_PARAM, normalizedEnvironmentID);
+  }
+  if (normalizedRepository) {
+    params.set('repository', normalizedRepository);
+  }
+  const search = params.toString();
+  return `${buildScopedPath(scope, 'github/repositories/detail')}${search ? `?${search}` : ''}`;
 }
 
 function AWSConnectionDiagnostics({
@@ -24732,6 +24756,13 @@ export function ProductGitHubRepositoriesPage() {
                     <span className="idt-github-repository-row-status">{statusText}</span>
                   </div>
                   <div className="idt-github-repository-row-actions">
+                    <Link
+                      className="idt-btn idt-btn-ghost"
+                      to={githubRepositoryDetailLink(scope, selectedEnvironmentID, row.repository)}
+                      aria-label={`Open repository intelligence for ${row.repository}`}
+                    >
+                      Open intelligence
+                    </Link>
                     {canCancel && row.activeScan ? (
                       <button
                         type="button"
@@ -24934,6 +24965,529 @@ export function ProductGitHubRepositoriesPage() {
           )}
         </section>
       ) : null}
+    </DomainPageShell>
+  );
+}
+
+// GitHub repository intelligence drilldown
+// ----------------------------------------
+//
+// One page that brings together every GitHub-scoped signal Identrail already
+// collects for a single repository so security reviewers do not have to walk
+// across five tabs. Data is composed from existing API methods only — the
+// drilldown never introduces new backend surface. Sections:
+//   1. Latest scan strip with a complete/partial pill from source_health
+//   2. Posture gaps from getGitHubConnectorRepositoryPosture
+//   3. Prioritized findings queue sorted by graph score + posture amplifier
+//   4. Top blast-radius paths from the risk graph
+//   5. Fix-ready findings with a remediation preview action
+//
+// Repository selection lives in the ?repository= query param so deep-links
+// (and tests) address one repository directly, matching the AWS identity /
+// agent detail-page convention.
+
+const REPO_INTELLIGENCE_FINDINGS_LIMIT = 100;
+const REPO_INTELLIGENCE_TOP_PATHS_LIMIT = 5;
+
+type RepoIntelligenceFindingCategory = 'posture' | 'ai_mcp' | 'workflow' | 'secret' | 'other';
+
+const REPO_INTELLIGENCE_CATEGORY_LABELS: Record<RepoIntelligenceFindingCategory, string> = {
+  posture: 'GitHub posture',
+  ai_mcp: 'AI / MCP',
+  workflow: 'Workflow attack paths',
+  secret: 'Secret exposure',
+  other: 'Other'
+};
+
+// Group findings into the queue buckets the issue calls for. Classification is
+// derived from evidence keys and detector names the collectors already write,
+// so no backend contract change is needed. The order of the branches matches
+// the collectors' authority: posture evidence wins over ai/mcp evidence over
+// workflow paths over secrets over "other".
+function classifyRepoIntelligenceFinding(finding: ApiFinding): RepoIntelligenceFindingCategory {
+  const evidence = finding.evidence ?? {};
+  const detector = (finding.detector ?? '').toLowerCase();
+  const adapterSource = String(evidence.adapter_source ?? evidence.adapter_source_type ?? '').toLowerCase();
+  if (
+    typeof evidence.github_posture_check_id === 'string' ||
+    detector.startsWith('github_posture_') ||
+    adapterSource.includes('github_posture') ||
+    adapterSource.includes('github_org_posture')
+  ) {
+    return 'posture';
+  }
+  if (
+    typeof evidence.mcp_server === 'string' ||
+    typeof evidence.mcp_tool === 'string' ||
+    typeof evidence.ai_agent_config === 'string' ||
+    detector.includes('mcp') ||
+    detector.includes('agent')
+  ) {
+    return 'ai_mcp';
+  }
+  if (finding.type === 'secret_exposure') {
+    return 'secret';
+  }
+  if (
+    detector.startsWith('workflow_') ||
+    detector.includes('oidc') ||
+    (typeof evidence.file_path === 'string' && evidence.file_path.toLowerCase().includes('.github/workflows/'))
+  ) {
+    return 'workflow';
+  }
+  return 'other';
+}
+
+// Merge graph.scores into findings by finding_id so the queue can sort by
+// graph-aware blast-radius score rather than just severity. Findings that
+// have no matching score (e.g. an older finding without a fresh risk graph)
+// fall back to severity rank so they still appear in a stable order.
+function buildRepoIntelligenceQueue(
+  findings: ApiFinding[],
+  graph: RepoRiskGraph | null
+): Array<{ finding: ApiFinding; score: RepoRiskGraphFindingScore | null; category: RepoIntelligenceFindingCategory }> {
+  const scoresByFindingID = new Map<string, RepoRiskGraphFindingScore>();
+  graph?.scores?.forEach((score) => {
+    if (score.finding_id) {
+      scoresByFindingID.set(score.finding_id, score);
+    }
+  });
+  const enriched = findings.map((finding) => ({
+    finding,
+    score: scoresByFindingID.get(finding.id) ?? null,
+    category: classifyRepoIntelligenceFinding(finding)
+  }));
+  return enriched.sort((left, right) => {
+    const leftScore = left.score?.score ?? -1;
+    const rightScore = right.score?.score ?? -1;
+    if (leftScore !== rightScore) {
+      return rightScore - leftScore;
+    }
+    return severityRank(right.finding.severity ?? '') - severityRank(left.finding.severity ?? '');
+  });
+}
+
+function repoIntelligenceScanCompleteness(scan: RepoScanRecord | null): {
+  label: string;
+  tone: 'success' | 'warning' | 'neutral' | 'danger';
+} {
+  if (!scan) {
+    return { label: 'No scan', tone: 'neutral' };
+  }
+  const status = scan.source_health ?? (scan.status === 'succeeded' ? 'complete' : 'unknown');
+  switch (status) {
+    case 'complete':
+      return { label: 'Complete scan', tone: 'success' };
+    case 'partial':
+      return { label: 'Partial scan', tone: 'warning' };
+    case 'permission_limited':
+      return { label: 'Permission limited', tone: 'warning' };
+    case 'rate_limited':
+      return { label: 'Rate limited', tone: 'warning' };
+    case 'unavailable':
+      return { label: 'Source unavailable', tone: 'warning' };
+    default:
+      return { label: 'Scan state unknown', tone: 'neutral' };
+  }
+}
+
+export function ProductGitHubRepositoryDetailPage() {
+  const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useGitHubDomainScope();
+  const availability = useGitHubAvailability();
+  const domainData = useGitHubDomainData(scope, selectedEnvironmentID, availability.available, 5);
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const requestedRepository = useMemo(
+    () => canonicalGitHubRepositoryDisplay(searchParams.get('repository') ?? ''),
+    [searchParams]
+  );
+
+  const [scan, setScan] = useState<RepoScanRecord | null>(null);
+  const [findings, setFindings] = useState<ApiFinding[]>([]);
+  const [findingsSummary, setFindingsSummary] = useState<RepoFindingsSummary | null>(null);
+  const [riskGraph, setRiskGraph] = useState<RepoRiskGraph | null>(null);
+  const [posture, setPosture] = useState<GitHubRepositoryPosture | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [postureError, setPostureError] = useState('');
+  const [previewFindingID, setPreviewFindingID] = useState('');
+  const [preview, setPreview] = useState<RepoFindingRemediationPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+
+  const requestRef = useRef(0);
+
+  useEffect(() => {
+    if (!scope || !availability.available || !selectedEnvironmentID || !requestedRepository) {
+      setLoading(false);
+      setScan(null);
+      setFindings([]);
+      setRiskGraph(null);
+      setPosture(null);
+      setError('');
+      return undefined;
+    }
+    const requestID = ++requestRef.current;
+    setLoading(true);
+    setError('');
+    setPostureError('');
+
+    const auth = buildProductAuthContext(scope);
+    const connectorID = domainData.connection?.connector_id ?? '';
+    const scansPromise = apiClient.listRepoScans({ limit: 25 }, auth).then((response) => {
+      const match = response.items.find((item) => canonicalGitHubRepositoryDisplay(item.repository) === requestedRepository);
+      return match ?? null;
+    });
+    const findingsPromise = apiClient.listRepoFindings(
+      { repository: requestedRepository, limit: REPO_INTELLIGENCE_FINDINGS_LIMIT },
+      auth
+    );
+    const graphPromise = apiClient.getRepoRiskGraph({ repository: requestedRepository }, auth);
+    const posturePromise = connectorID
+      ? apiClient
+          .getGitHubConnectorRepositoryPosture(connectorID, scope.workspaceID, selectedEnvironmentID, requestedRepository, auth)
+          .then((response) => response.posture)
+          .catch((postureFetchError: unknown) => {
+            if (requestID === requestRef.current) {
+              setPostureError(formatAPIError(postureFetchError, 'Unable to load repository posture.'));
+            }
+            return null;
+          })
+      : Promise.resolve(null);
+
+    Promise.all([scansPromise, findingsPromise, graphPromise, posturePromise])
+      .then(([latestScan, findingsResponse, graph, latestPosture]) => {
+        if (requestID !== requestRef.current) return;
+        setScan(latestScan);
+        setFindings(findingsResponse.items);
+        setFindingsSummary(findingsResponse.summary ?? null);
+        setRiskGraph(graph);
+        setPosture(latestPosture);
+      })
+      .catch((fetchError: unknown) => {
+        if (requestID !== requestRef.current) return;
+        setError(formatAPIError(fetchError, 'Unable to load repository intelligence.'));
+      })
+      .finally(() => {
+        if (requestID === requestRef.current) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      if (requestID === requestRef.current) {
+        requestRef.current += 1;
+      }
+    };
+  }, [
+    scope?.tenantID,
+    scope?.workspaceID,
+    availability.available,
+    selectedEnvironmentID,
+    requestedRepository,
+    domainData.connection?.connector_id
+  ]);
+
+  const queue = useMemo(() => buildRepoIntelligenceQueue(findings, riskGraph), [findings, riskGraph]);
+  const topPaths = useMemo(
+    () => (riskGraph?.scores ?? []).slice(0, REPO_INTELLIGENCE_TOP_PATHS_LIMIT),
+    [riskGraph]
+  );
+  const insecurePostureChecks = useMemo(
+    () => (posture?.checks ?? []).filter((check) => check.state !== 'secure' && check.state !== 'unsupported'),
+    [posture]
+  );
+  const completeness = repoIntelligenceScanCompleteness(scan);
+  const publishableCount = queue.filter(({ finding }) => Boolean(finding.evidence?.publishable) || Boolean(preview?.remediation?.publishable && preview.finding.id === finding.id)).length;
+
+  const openPreview = useCallback(
+    async (finding: ApiFinding) => {
+      if (!scope) return;
+      setPreviewFindingID(finding.id);
+      setPreview(null);
+      setPreviewError('');
+      setPreviewLoading(true);
+      try {
+        const auth = buildProductAuthContext(scope);
+        const response = await apiClient.previewRepoFindingRemediation(
+          finding.id,
+          { repo_scan_id: scan?.id ?? finding.scan_id ?? '' },
+          auth
+        );
+        setPreview(response);
+      } catch (previewFetchError: unknown) {
+        setPreviewError(formatAPIError(previewFetchError, 'Unable to preview remediation for this finding.'));
+      } finally {
+        setPreviewLoading(false);
+      }
+    },
+    [scope, scan?.id]
+  );
+
+  if (!scope) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">GitHub repository intelligence</p>
+        <h2>Workspace route context is missing</h2>
+        <p>Choose a tenant and workspace before opening a repository drilldown.</p>
+      </section>
+    );
+  }
+
+  const repositoriesPath = `${buildScopedPath(scope, 'github/repositories')}${
+    selectedEnvironmentID ? `?${ENVIRONMENT_QUERY_PARAM}=${encodeURIComponent(selectedEnvironmentID)}` : ''
+  }`;
+
+  if (!requestedRepository) {
+    return (
+      <section className="idt-app-panel idt-app-panel-error" role="alert">
+        <p className="idt-app-kicker">GitHub repository intelligence</p>
+        <h2>Repository not selected</h2>
+        <p>Add a <code>?repository=owner/name</code> query parameter or open a repository from the inventory.</p>
+        <Link className="idt-app-empty-state-action" to={repositoriesPath}>
+          Back to repositories
+        </Link>
+      </section>
+    );
+  }
+
+  const statusTone = loading ? 'neutral' : error ? 'danger' : completeness.tone;
+
+  return (
+    <DomainPageShell
+      domain="github"
+      eyebrow="Repository intelligence"
+      hideLogo
+      title={requestedRepository}
+      description="Unified scan state, posture gaps, findings queue, blast-radius paths, and remediation actions for one repository."
+      scope={
+        <ProductEnvironmentSelector
+          state={environmentScope}
+          onChange={onChangeEnvironment}
+        />
+      }
+      statusTone={statusTone}
+      primaryAction={{ label: 'Back to repositories', to: repositoriesPath, variant: 'secondary' }}
+    >
+      {error ? (
+        <DomainErrorState
+          title="Couldn't load repository intelligence"
+          body={error}
+        />
+      ) : null}
+
+      {loading ? (
+        <DomainLoadingState label="Loading repository intelligence" />
+      ) : (
+        <>
+          <section
+            className="idt-github-intelligence-panel idt-github-intelligence-scan"
+            aria-label="Latest scan"
+          >
+            <header className="idt-github-intelligence-panel-head">
+              <p className="idt-app-kicker">Latest scan</p>
+              <h3>{scan ? formatTokenLabel(scan.status) : 'No scan yet'}</h3>
+            </header>
+            <DomainStatusBadge
+              variant={
+                completeness.tone === 'success'
+                  ? 'connected'
+                  : completeness.tone === 'warning'
+                    ? 'degraded'
+                    : completeness.tone === 'danger'
+                      ? 'missing-permissions'
+                      : 'disconnected'
+              }
+              label={completeness.label}
+              detail={scan?.finished_at ? formatDateLabel(scan.finished_at) : scan?.started_at ? formatDateLabel(scan.started_at) : undefined}
+            />
+            {scan ? (
+              <dl className="idt-github-intelligence-stats">
+                <div><dt>Findings</dt><dd>{scan.finding_count}</dd></div>
+                <div><dt>Files scanned</dt><dd>{scan.files_scanned}</dd></div>
+                <div><dt>Commits scanned</dt><dd>{scan.commits_scanned}</dd></div>
+                {scan.scan_mode ? <div><dt>Scan mode</dt><dd>{formatTokenLabel(scan.scan_mode)}</dd></div> : null}
+              </dl>
+            ) : null}
+            {scan?.source_health_details && scan.source_health_details.length > 0 ? (
+              <ul className="idt-github-intelligence-source-health" aria-label="Source health details">
+                {scan.source_health_details.map((source) => (
+                  <li key={source.source}>
+                    <strong>{formatTokenLabel(source.source)}</strong>
+                    <span className={`idt-source-status-pill is-${source.status === 'complete' ? 'success' : source.status === 'partial' || source.status === 'permission_limited' || source.status === 'rate_limited' ? 'warning' : 'neutral'}`}>
+                      {formatTokenLabel(source.status)}
+                    </span>
+                    {source.message ? <span>{source.message}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+
+          <section
+            className="idt-github-intelligence-panel idt-github-intelligence-posture"
+            aria-label="Posture gaps"
+          >
+            <header className="idt-github-intelligence-panel-head">
+              <p className="idt-app-kicker">GitHub control-plane posture</p>
+              <h3>Posture gaps</h3>
+            </header>
+            {postureError ? (
+              <p role="alert" className="idt-app-alert idt-app-alert-error">{postureError}</p>
+            ) : posture ? (
+              insecurePostureChecks.length === 0 ? (
+                <DomainEmptyState
+                  title="No posture gaps"
+                  body="Every collected posture check for this repository reports a secure or unsupported state."
+                />
+              ) : (
+                <ul className="idt-github-intelligence-list">
+                  {insecurePostureChecks.map((check) => (
+                    <li key={check.id} className="idt-github-intelligence-row">
+                      <span className={`idt-source-status-pill is-${check.state === 'insecure' ? 'warning' : 'neutral'}`}>
+                        {formatTokenLabel(check.state)}
+                      </span>
+                      <div>
+                        <strong>{formatTokenLabel(check.category)}: {formatTokenLabel(check.id)}</strong>
+                        <p>{check.summary}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )
+            ) : (
+              <DomainEmptyState
+                title="No posture collected"
+                body={domainData.connection?.connected ? 'Posture is not available for this repository yet.' : 'Connect GitHub to collect repository posture.'}
+              />
+            )}
+          </section>
+
+          <section
+            className="idt-github-intelligence-panel idt-github-intelligence-queue"
+            aria-label="Prioritized findings queue"
+          >
+            <header className="idt-github-intelligence-panel-head">
+              <p className="idt-app-kicker">Prioritized queue</p>
+              <h3>Findings ordered by blast radius</h3>
+              {queue.length > 0 ? (
+                <p className="idt-app-kicker">
+                  {queue.length} finding{queue.length === 1 ? '' : 's'}
+                  {findingsSummary?.total_open != null ? ` • ${findingsSummary.total_open} open` : ''}
+                  {publishableCount > 0 ? ` • ${publishableCount} fix-ready` : ''}
+                </p>
+              ) : null}
+            </header>
+            {queue.length === 0 ? (
+              <DomainEmptyState
+                title="No findings for this repository"
+                body="Neither posture, AI/MCP, workflow, nor secret detectors reported an open finding for this repository."
+              />
+            ) : (
+              <ul className="idt-github-intelligence-list">
+                {queue.map(({ finding, score, category }) => (
+                  <li key={finding.id} className="idt-github-intelligence-row" data-category={category}>
+                    <span className={`idt-source-status-pill is-${finding.severity === 'critical' || finding.severity === 'high' ? 'warning' : 'neutral'}`}>
+                      {formatTokenLabel(finding.severity ?? 'unknown')}
+                    </span>
+                    <div>
+                      <strong>{finding.title || finding.detector || finding.type}</strong>
+                      <p className="idt-app-kicker">
+                        {REPO_INTELLIGENCE_CATEGORY_LABELS[category]}
+                        {score ? ` • score ${score.score}` : ''}
+                        {score?.unknowns?.length ? ` • unknown: ${score.unknowns.join(', ')}` : ''}
+                      </p>
+                      {finding.human_summary ? <p>{finding.human_summary}</p> : null}
+                    </div>
+                    <button
+                      type="button"
+                      className="idt-app-secondary-button"
+                      onClick={() => openPreview(finding)}
+                      disabled={previewLoading && previewFindingID === finding.id}
+                    >
+                      {previewLoading && previewFindingID === finding.id ? 'Loading…' : 'Preview remediation'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {topPaths.length > 0 ? (
+            <section
+              className="idt-github-intelligence-panel idt-github-intelligence-paths"
+              aria-label="Top blast-radius paths"
+            >
+              <header className="idt-github-intelligence-panel-head">
+                <p className="idt-app-kicker">Risk graph</p>
+                <h3>Top blast-radius paths</h3>
+              </header>
+              <ol className="idt-github-intelligence-list">
+                {topPaths.map((path) => (
+                  <li key={path.finding_node_id || path.finding_id} className="idt-github-intelligence-row">
+                    <span className="idt-source-status-pill is-warning">score {path.score}</span>
+                    <div>
+                      <strong>Finding {path.finding_id}</strong>
+                      <p className="idt-app-kicker">
+                        severity {path.severity} • confidence {(path.confidence * 100).toFixed(0)}%
+                        {path.factors.posture_amplifier ? ` • posture amplifier ${path.factors.posture_amplifier}` : ''}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ) : null}
+
+          {previewFindingID ? (
+            <section
+              className="idt-github-intelligence-panel idt-github-intelligence-preview"
+              aria-label="Remediation preview"
+              role="region"
+            >
+              <header className="idt-github-intelligence-panel-head">
+                <p className="idt-app-kicker">Remediation preview</p>
+                <h3>Finding {previewFindingID}</h3>
+                <button
+                  type="button"
+                  className="idt-app-tertiary-button"
+                  onClick={() => {
+                    setPreviewFindingID('');
+                    setPreview(null);
+                    setPreviewError('');
+                  }}
+                >
+                  Close
+                </button>
+              </header>
+              {previewLoading ? <DomainLoadingState label="Loading remediation preview" /> : null}
+              {previewError ? (
+                <p role="alert" className="idt-app-alert idt-app-alert-error">{previewError}</p>
+              ) : null}
+              {preview ? (
+                <div>
+                  <p><strong>{preview.remediation.summary}</strong></p>
+                  {preview.remediation.risk_summary ? <p>{preview.remediation.risk_summary}</p> : null}
+                  {preview.remediation.publish_blocked_reason ? (
+                    <p role="alert" className="idt-app-alert idt-app-alert-error">
+                      Publish blocked: {preview.remediation.publish_blocked_reason}
+                    </p>
+                  ) : null}
+                  {preview.remediation.steps.length > 0 ? (
+                    <ol>
+                      {preview.remediation.steps.map((step, index) => (
+                        <li key={index}>{step}</li>
+                      ))}
+                    </ol>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+        </>
+      )}
     </DomainPageShell>
   );
 }

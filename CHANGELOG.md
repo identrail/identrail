@@ -1,6 +1,19 @@
 # Changelog
 
 ## Unreleased
+- Add a **GitHub repository intelligence drilldown** at
+  `/github/repositories/detail?repository=<owner/name>` (#1712). The new page
+  brings together the latest scan state with an explicit complete / partial
+  pill, the per-source health details behind that state, GitHub control-plane
+  posture gaps, a prioritized cross-source findings queue that categorizes
+  posture, AI/MCP, workflow, and secret-exposure findings and orders them by
+  the risk graph's blast-radius score plus posture amplifier, the top
+  blast-radius paths from the graph, and an inline remediation preview for
+  fix-ready findings. The queue never depends on new backend surface — it
+  composes existing `listRepoScans`, `listRepoFindings`, `getRepoRiskGraph`,
+  `getGitHubConnectorRepositoryPosture`, and `previewRepoFindingRemediation`
+  calls. The GitHub repositories inventory page links to the drilldown for
+  each repository row.
 - Remove the GitHub stars pill from the marketing homepage hero. The remaining
   Docker pulls pill now sits where the pair used to, so the hero no longer
   advertises a low star count. Also drops the GitHub REST call the pill made on
