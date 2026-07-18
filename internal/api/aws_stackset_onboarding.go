@@ -694,16 +694,16 @@ func summarizeAWSStackSetOnboarding(fixtureState string, plan awscontract.StackS
 		return awsPlatformDependencyStatusDegraded, 0.72, dedupeStrings(failures),
 			dedupeStrings(append(remediations, "Re-run failed instances after the AWS error window resolves."))
 	default:
-		if plan.Summary.TotalInstances == 0 {
-			return awsPlatformDependencyStatusReady, 0.78, nil,
-				dedupeStrings(append(remediations, "Select at least one target account/OU and one region before launching the StackSet."))
-		}
 		switch plan.Validation.Status {
 		case awscontract.StackSetValidationBlocked:
 			return awsPlatformDependencyStatusBlocked, 0.4, dedupeStrings(failures), dedupeStrings(remediations)
 		case awscontract.StackSetValidationDegraded:
 			return awsPlatformDependencyStatusDegraded, 0.72, dedupeStrings(failures), dedupeStrings(remediations)
 		default:
+			if plan.Summary.TotalInstances == 0 {
+				return awsPlatformDependencyStatusReady, 0.78, nil,
+					dedupeStrings(append(remediations, "Select at least one target account/OU and one region before launching the StackSet."))
+			}
 			return awsPlatformDependencyStatusReady, 0.94, dedupeStrings(failures),
 				dedupeStrings(append(remediations, "Open the StackSet console launch URL to deploy the read-only connector across the target accounts."))
 		}

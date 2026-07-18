@@ -1105,11 +1105,14 @@ func awsCloudFormationLaunchURLExternalID(launchURL string) string {
 	return strings.TrimSpace(values.Get("param_ExternalId"))
 }
 
-func preserveAWSConnectorLaunchMetadata(metadata map[string]any, preserved map[string]any) {
+func preserveAWSConnectorLaunchMetadata(metadata map[string]any, preserved map[string]any, onboardingStatus AWSConnectorOnboardingStatus) {
 	if metadata == nil || len(preserved) == 0 {
 		return
 	}
 	for key, value := range preserved {
+		if key == "prerequisites" && onboardingStatus == AWSConnectorOnboardingConnected {
+			continue
+		}
 		metadata[key] = value
 	}
 }
@@ -1363,7 +1366,7 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 		"last_validated_at":      now.Format(time.RFC3339Nano),
 	}
 	applyAWSConnectorSetupMetadata(metadata, setup, onboardingStatus)
-	preserveAWSConnectorLaunchMetadata(metadata, normalized.preserveLaunchMetadata)
+	preserveAWSConnectorLaunchMetadata(metadata, normalized.preserveLaunchMetadata, onboardingStatus)
 	state := db.TenancyConnectorState{
 		TenantID:     scope.TenantID,
 		WorkspaceID:  project.WorkspaceID,

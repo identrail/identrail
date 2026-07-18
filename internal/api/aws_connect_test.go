@@ -829,6 +829,9 @@ func TestRouterAWSConnectorOrganizationStackSetFlow(t *testing.T) {
 		len(startBody.StackSetOnboarding.Targets.Regions) != 2 {
 		t.Fatalf("expected organization target intent in onboarding payload, got %+v", startBody.StackSetOnboarding.Targets)
 	}
+	if startBody.StackSetOnboarding.Status != awsPlatformDependencyStatusBlocked {
+		t.Fatalf("expected nested stackset onboarding to report blocked prerequisites, got %q", startBody.StackSetOnboarding.Status)
+	}
 	trustedAccess := requireAWSStackSetPrerequisite(t, startBody.Prerequisites, "stackset.trusted_access_enabled")
 	if trustedAccess.Satisfied || trustedAccess.Severity != "blocking" {
 		t.Fatalf("expected trusted access prerequisite to block until live AWS validation confirms it, got %+v", trustedAccess)
@@ -951,6 +954,82 @@ func TestAWSConnectorStartSelectedStackSetScopes(t *testing.T) {
 	if ous.StackSetOnboarding == nil || len(ous.StackSetOnboarding.Targets.OrganizationalUnits) != 2 ||
 		!strings.Contains(ous.LaunchURL, "organizationalUnitIds=") {
 		t.Fatalf("expected selected OUs in launch plan, got launch=%q onboarding=%+v", ous.LaunchURL, ous.StackSetOnboarding)
+	}
+	if ous.StackSetOnboarding.Status != awsPlatformDependencyStatusBlocked {
+		t.Fatalf("expected selected OU onboarding to report blocked prerequisites, got %q", ous.StackSetOnboarding.Status)
+	}
+}
+
+func TestAWSConnectorValidateClearsStackSetLaunchPrerequisitesWhenConnected(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			AccountID:    "123456789012",
+			PrincipalARN: "arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/identrail-connector-validation",
+			UserID:       "AROATEST:identrail-connector-validation",
+			Region:       "us-east-1",
+			PermissionChecks: []AWSConnectionPermissionCheck{
+				{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+			},
+		},
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.AWSConnectorValidator = validator
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ConnectorID:            "aws-org-prod",
+		DisplayName:            "Production organization",
+		ScopeType:              AWSConnectorScopeOrganization,
+		DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:          []string{"us-east-1"},
+		TargetOUIDs:            []string{"r-abcd"},
+		AutoOnboardNewAccounts: true,
+		StackSetName:           "identrail-org-readonly",
+	})
+	if err != nil {
+		t.Fatalf("start organization stackset connector: %v", err)
+	}
+	if started.OnboardingStatus != AWSConnectorOnboardingNeedsFix || len(started.Prerequisites) == 0 {
+		t.Fatalf("expected launch-time stackset prerequisites before validation, got status=%q prereqs=%+v", started.OnboardingStatus, started.Prerequisites)
+	}
+
+	connected, err := svc.ValidateAWSConnector(ctx, "aws-org-prod", AWSConnectorValidateRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		RoleARN:     "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+	})
+	if err != nil {
+		t.Fatalf("validate organization stackset connector: %v", err)
+	}
+	if connected.OnboardingStatus != AWSConnectorOnboardingConnected || len(connected.Prerequisites) != 0 {
+		t.Fatalf("expected connected validation to clear stale launch prerequisites, got status=%q prereqs=%+v", connected.OnboardingStatus, connected.Prerequisites)
+	}
+	if !slices.Contains(connected.NextActions, AWSConnectorNextActionStartIntelligence) ||
+		slices.Contains(connected.NextActions, AWSConnectorNextActionEnableTrustedAccess) {
+		t.Fatalf("expected connected next actions without stale StackSet blockers, got %+v", connected.NextActions)
+	}
+
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-org-prod")
+	if err != nil {
+		t.Fatalf("load validated stackset connector: %v", err)
+	}
+	if _, ok := stored.State.Metadata["prerequisites"]; ok {
+		t.Fatalf("connected stackset connector must not preserve launch-time prerequisites: %+v", stored.State.Metadata["prerequisites"])
+	}
+	if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != started.LaunchURL {
+		t.Fatalf("expected validation to keep durable launch URL, got %q want %q", got, started.LaunchURL)
 	}
 }
 
