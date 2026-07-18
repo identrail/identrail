@@ -1828,7 +1828,7 @@ func normalizeAWSConnectorSetupContract(input awsConnectorSetupInput) (awsConnec
 		if deploymentMethod == AWSConnectorDeploymentStackSetSelfManaged {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
-		if len(targetOUIDs) == 0 {
+		if len(targetAccountIDs) > 0 || len(targetOUIDs) == 0 {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
 	case AWSConnectorScopeSelectedOUs:
@@ -1838,8 +1838,14 @@ func normalizeAWSConnectorSetupContract(input awsConnectorSetupInput) (awsConnec
 		if deploymentMethod == AWSConnectorDeploymentStackSetSelfManaged {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
+		if len(targetAccountIDs) > 0 {
+			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
+		}
 	case AWSConnectorScopeSelectedAccounts:
 		if !awsConnectorDeploymentIsStackSet(deploymentMethod) || len(targetAccountIDs) == 0 {
+			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
+		}
+		if awsConnectorSelectedAccountCountAfterExclusions(targetAccountIDs, excludedAccountIDs) == 0 {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
 		if deploymentMethod == AWSConnectorDeploymentStackSetServiceManaged && len(targetOUIDs) == 0 {
@@ -1859,6 +1865,21 @@ func normalizeAWSConnectorSetupContract(input awsConnectorSetupInput) (awsConnec
 		ExcludedAccountIDs:     copyAWSStringSlice(excludedAccountIDs),
 		AutoOnboardNewAccounts: input.AutoOnboardNewAccounts,
 	}, nil
+}
+
+func awsConnectorSelectedAccountCountAfterExclusions(targetAccountIDs []string, excludedAccountIDs []string) int {
+	excluded := map[string]struct{}{}
+	for _, accountID := range excludedAccountIDs {
+		excluded[accountID] = struct{}{}
+	}
+	count := 0
+	for _, accountID := range targetAccountIDs {
+		if _, skip := excluded[accountID]; skip {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 func validAWSConnectorScopeType(scopeType AWSConnectorScopeType) bool {

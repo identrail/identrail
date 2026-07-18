@@ -142,8 +142,10 @@ validation path reports `manual_role` with `manual`. Invalid combinations are
 rejected before setup is persisted: manual role setup must use `manual`,
 organization and selected scopes must use a StackSet deployment method,
 organization and selected scopes must include root or OU targets,
-service-managed selected accounts must include account filters, and malformed
-AWS account IDs, OU IDs, and regions fail validation.
+organization and selected-OU scopes reject `target_account_ids`,
+service-managed selected accounts must include account filters, selected-account
+exclusions must leave at least one effective account, and malformed AWS account
+IDs, OU IDs, and regions fail validation.
 
 The executable `POST /v1/connectors/aws` setup path supports
 `single_account`/`cloudformation`, `manual_role`/`manual`,

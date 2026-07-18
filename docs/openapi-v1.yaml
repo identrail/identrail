@@ -11460,7 +11460,7 @@ components:
             type: string
         target_account_ids:
           type: array
-          description: Explicit AWS account IDs. For service-managed selected-account StackSets, these are account filters inside the supplied root or OU targets.
+          description: Explicit AWS account IDs for selected-account scope only. For service-managed selected-account StackSets, these are account filters inside the supplied root or OU targets; organization and selected-OU scopes reject this field.
           items:
             type: string
         target_ou_ids:
@@ -11470,6 +11470,7 @@ components:
             type: string
         excluded_account_ids:
           type: array
+          description: AWS account IDs excluded from StackSet rollout. For selected-account scope, exclusions must leave at least one effective selected account.
           items:
             type: string
         auto_onboard_new_accounts:
@@ -11546,7 +11547,7 @@ components:
             type: string
         target_account_ids:
           type: array
-          description: Explicit AWS account IDs. For service-managed selected-account StackSets, these are account filters inside the supplied root or OU targets.
+          description: Explicit AWS account IDs for selected-account scope only. For service-managed selected-account StackSets, these are account filters inside the supplied root or OU targets; organization and selected-OU scopes reject this field.
           items:
             type: string
         target_ou_ids:
@@ -11556,6 +11557,7 @@ components:
             type: string
         excluded_account_ids:
           type: array
+          description: AWS account IDs excluded from StackSet rollout. For selected-account scope, exclusions must leave at least one effective selected account.
           items:
             type: string
         auto_onboard_new_accounts:
@@ -11759,7 +11761,7 @@ components:
             type: string
         target_account_ids:
           type: array
-          description: Explicit AWS account IDs. For service-managed selected-account StackSets, these are account filters inside the supplied root or OU targets.
+          description: Explicit AWS account IDs for selected-account scope only. For service-managed selected-account StackSets, these are account filters inside the supplied root or OU targets; organization and selected-OU scopes reject this field.
           items:
             type: string
         target_ou_ids:
@@ -11769,6 +11771,7 @@ components:
             type: string
         excluded_account_ids:
           type: array
+          description: AWS account IDs excluded from StackSet rollout. For selected-account scope, exclusions must leave at least one effective selected account.
           items:
             type: string
         auto_onboard_new_accounts:

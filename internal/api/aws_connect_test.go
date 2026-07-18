@@ -1053,40 +1053,77 @@ func TestAWSConnectorStartRejectsInvalidStackSetScopeContracts(t *testing.T) {
 		{
 			name: "organization service-managed requires root or OU target",
 			body: `{
-				"workspace_id":"workspace-a",
-				"project_id":"project-1",
+					"workspace_id":"workspace-a",
+					"project_id":"project-1",
 				"scope_type":"organization",
 				"deployment_method":"stackset_service_managed",
-				"target_regions":["us-east-1"]
-			}`,
+					"target_regions":["us-east-1"]
+				}`,
+		},
+		{
+			name: "organization rejects account filters",
+			body: `{
+					"workspace_id":"workspace-a",
+					"project_id":"project-1",
+					"scope_type":"organization",
+					"deployment_method":"stackset_service_managed",
+					"target_ou_ids":["r-abcd"],
+					"target_account_ids":["123456789012"],
+					"target_regions":["us-east-1"]
+				}`,
 		},
 		{
 			name: "invalid selected OU id",
 			body: `{
-				"workspace_id":"workspace-a",
-				"project_id":"project-1",
+					"workspace_id":"workspace-a",
+					"project_id":"project-1",
 				"scope_type":"selected_ous",
 				"deployment_method":"stackset_service_managed",
 				"target_ou_ids":["not-an-ou"],
-				"target_regions":["us-east-1"]
-			}`,
+					"target_regions":["us-east-1"]
+				}`,
+		},
+		{
+			name: "selected OUs reject account filters",
+			body: `{
+					"workspace_id":"workspace-a",
+					"project_id":"project-1",
+					"scope_type":"selected_ous",
+					"deployment_method":"stackset_service_managed",
+					"target_ou_ids":["ou-abcd-12345678"],
+					"target_account_ids":["123456789012"],
+					"target_regions":["us-east-1"]
+				}`,
 		},
 		{
 			name: "invalid selected account id",
 			body: `{
-				"workspace_id":"workspace-a",
-				"project_id":"project-1",
+					"workspace_id":"workspace-a",
+					"project_id":"project-1",
 				"scope_type":"selected_accounts",
 				"deployment_method":"stackset_service_managed",
 				"target_account_ids":["12345"],
-				"target_regions":["us-east-1"]
-			}`,
+					"target_regions":["us-east-1"]
+				}`,
+		},
+		{
+			name: "selected accounts reject empty effective account filter",
+			body: `{
+					"workspace_id":"workspace-a",
+					"project_id":"project-1",
+					"scope_type":"selected_accounts",
+					"deployment_method":"stackset_service_managed",
+					"target_ou_ids":["r-abcd"],
+					"target_account_ids":["123456789012"],
+					"excluded_account_ids":["123456789012"],
+					"target_regions":["us-east-1"]
+				}`,
 		},
 		{
 			name: "service-managed selected accounts require root or OU target",
 			body: `{
-				"workspace_id":"workspace-a",
-				"project_id":"project-1",
+					"workspace_id":"workspace-a",
+					"project_id":"project-1",
 				"scope_type":"selected_accounts",
 				"deployment_method":"stackset_service_managed",
 				"target_account_ids":["123456789012"],
@@ -1849,11 +1886,37 @@ func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "organization rejects account filters",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeOrganization,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetOUIDs:             []string{"r-abcd"},
+				TargetAccountIDs:        []string{"111122223333"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
 			name: "selected OUs requires OU ids",
 			input: awsConnectorSetupInput{
 				ScopeType:               AWSConnectorScopeSelectedOUs,
 				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
 				TargetRegions:           []string{"us-east-1"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "selected OUs reject account filters",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedOUs,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetOUIDs:             []string{"ou-abcd-12345678"},
+				TargetAccountIDs:        []string{"111122223333"},
 				DefaultScopeType:        AWSConnectorScopeSingleAccount,
 				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
 			},
@@ -1866,6 +1929,20 @@ func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
 				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
 				TargetRegions:           []string{"us-east-1"},
 				TargetAccountIDs:        []string{"111122223333"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "selected accounts require effective account target after exclusions",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeSelectedAccounts,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetAccountIDs:        []string{"111122223333"},
+				TargetOUIDs:             []string{"r-abcd"},
+				ExcludedAccountIDs:      []string{"111122223333"},
 				DefaultScopeType:        AWSConnectorScopeSingleAccount,
 				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
 			},
