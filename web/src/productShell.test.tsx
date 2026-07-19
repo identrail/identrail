@@ -16244,6 +16244,70 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(screen.queryByText(/Loading remediation preview/i)).not.toBeInTheDocument();
   });
 
+  it('does not restart scan, findings, and graph fetches when connection status settles', async () => {
+    // The core fetches must wait for connection status before firing. Without
+    // the gate, the effect would run once with connection=null, start the
+    // three fetches, get invalidated when domainData.loading flips to false,
+    // and start them again — doubling the pagination cost on deep repos.
+    // Assert each of the three drilldown-owned endpoints is called at most
+    // once for a given repository once the drilldown has settled.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    const listRepoFindings = vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    const getRepoRiskGraph = vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Wait until the drilldown has finished settling (the queue rendered).
+    await screen.findByText(/Default branch protection is unprotected/i);
+
+    // Only one call per repository — listRepoScans/Findings/getRepoRiskGraph
+    // each fired for the target once, not twice. useGitHubDomainData's own
+    // scan fetch is workspace-wide (no cursor argument), so filter to the
+    // drilldown's paginated call by matching the presence of cursor OR a
+    // request that returned the target repository record.
+    const scanCallsForRepository = listRepoScans.mock.calls.filter(
+      ([filters]) => filters?.limit === 50 // REPO_INTELLIGENCE_SCAN_PAGE_LIMIT
+    ).length;
+    expect(scanCallsForRepository).toBe(1);
+    expect(listRepoFindings).toHaveBeenCalledTimes(1);
+    expect(getRepoRiskGraph).toHaveBeenCalledTimes(1);
+  });
+
   it('renders organization posture gaps alongside repository posture on the drilldown', async () => {
     // getGitHubConnectorRepositoryPosture returns both repository posture and
     // organization_posture. The drilldown must render inherited org control

@@ -25284,10 +25284,27 @@ export function ProductGitHubRepositoryDetailPage() {
     // shows the loading shell too: the JSX runs after this hook, so without
     // the guard the drilldown-specific listRepoFindings/getRepoRiskGraph
     // calls would fire before the operator ever sees the loading shell.
-    if (availability.loading || !scope || !availability.available || !selectedEnvironmentID || !requestedRepository) {
+    // domainData.loading gates the same fetches: without it, scan/findings/
+    // graph fire on the initial render with connection=null, then the effect
+    // cleanup invalidates them and refires them once connection settles.
+    // Paying double the pagination cost is especially wasteful on repos with
+    // deep scan histories. Posture already waits for connection because it
+    // needs the connector_id and provider, so gating the others here just
+    // aligns the three lanes to the same "connection ready" trigger.
+    if (
+      availability.loading ||
+      !scope ||
+      !availability.available ||
+      !selectedEnvironmentID ||
+      !requestedRepository ||
+      domainData.loading
+    ) {
       requestRef.current += 1;
       resetRepositoryState();
-      setLoading(false);
+      // Keep loading=true while the connection is still resolving so the
+      // outer DomainLoadingState renders instead of empty-state panels that
+      // would flash "No scan yet" / "No findings" in the intermediate frame.
+      setLoading(domainData.loading);
       setError('');
       return undefined;
     }
