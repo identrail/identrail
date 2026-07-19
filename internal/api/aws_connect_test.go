@@ -911,12 +911,13 @@ func TestAWSConnectorStartSelectedStackSetScopes(t *testing.T) {
 		t.Fatalf("start selected accounts stackset: %v", err)
 	}
 	if accounts.TargetSummary == nil || !accounts.TargetSummary.AccountCountKnown ||
-		accounts.TargetSummary.AccountCount != 2 ||
+		accounts.TargetSummary.AccountCount != 1 ||
 		accounts.TargetSummary.OUCount != 1 ||
 		accounts.TargetSummary.RegionCount != 2 ||
+		accounts.TargetSummary.ExcludedAccountCount != 1 ||
 		accounts.TargetSummary.ExpectedStackInstances != 1 ||
 		!accounts.TargetSummary.ExpectedStackInstancesKnown {
-		t.Fatalf("expected exact selected-account summary, got %+v", accounts.TargetSummary)
+		t.Fatalf("expected selected-account summary to count effective accounts after exclusions, got %+v", accounts.TargetSummary)
 	}
 	if accounts.StackSetOnboarding == nil ||
 		len(accounts.StackSetOnboarding.Targets.Accounts) != 1 ||

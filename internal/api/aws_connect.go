@@ -1538,8 +1538,8 @@ func normalizeAWSConnectorTemplateChecksum(checksum string) string {
 }
 
 func awsConnectorTargetSummary(setup awsConnectorSetupContract) *AWSConnectorTargetSummary {
-	accountCount := len(setup.TargetAccountIDs)
 	knownAccounts := setup.ScopeType == AWSConnectorScopeSelectedAccounts
+	accountCount := 0
 	expectedInstances := 0
 	expectedKnown := knownAccounts
 	deploymentRegionCount := len(awsConnectorStackSetDeploymentRegions(setup))
@@ -1550,6 +1550,7 @@ func awsConnectorTargetSummary(setup awsConnectorSetupContract) *AWSConnectorTar
 		}
 		for _, accountID := range setup.TargetAccountIDs {
 			if _, ok := excluded[accountID]; !ok {
+				accountCount++
 				expectedInstances += deploymentRegionCount
 			}
 		}
