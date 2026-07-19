@@ -16236,6 +16236,116 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(screen.queryByText(/Loading remediation preview/i)).not.toBeInTheDocument();
   });
 
+  it('excludes fixed, suppressed, risk-accepted, and false-positive findings from the queue and Preview count', async () => {
+    // Mix active and closed findings — the queue must show only open/reopened.
+    const closedFinding: Finding = {
+      ...postureFinding,
+      id: 'finding-closed-fixed',
+      title: 'Already fixed finding must not rank',
+      lifecycle_status: 'fixed'
+    };
+    const suppressedFinding: Finding = {
+      ...postureFinding,
+      id: 'finding-suppressed',
+      title: 'Suppressed finding must not rank',
+      lifecycle_status: 'suppressed'
+    };
+    const reopenedFinding: Finding = {
+      ...workflowFinding,
+      id: 'finding-reopened',
+      title: 'Reopened finding must appear',
+      lifecycle_status: 'reopened'
+    };
+    const activeOpen: Finding = { ...postureFinding, lifecycle_status: 'open' };
+    await renderRepositoryDetail({
+      findings: [activeOpen, closedFinding, reopenedFinding, suppressedFinding]
+    });
+
+    const queueList = (await screen.findByLabelText('Prioritized findings queue')).querySelector('ul');
+    expect(queueList).not.toBeNull();
+    const rows = (queueList as HTMLElement).querySelectorAll('li');
+    // 2 findings survived (open + reopened), 2 closed dropped.
+    expect(rows.length).toBe(2);
+    expect(queueList!.textContent).toContain('Default branch protection is unprotected');
+    expect(queueList!.textContent).toContain('Reopened finding must appear');
+    expect(queueList!.textContent).not.toContain('Already fixed finding must not rank');
+    expect(queueList!.textContent).not.toContain('Suppressed finding must not rank');
+    // Preview remediation button count matches the active count (2), never 4.
+    const previewButtons = screen.getAllByRole('button', { name: /Preview remediation/i });
+    expect(previewButtons.length).toBe(2);
+  });
+
+  it('sends the finding\'s own scan_id when previewing remediation for a retained older finding', async () => {
+    // The drilldown\'s latest scan is a newer partial scan; the finding was
+    // retained from an older scan. Preview must call with the finding\'s
+    // scan_id (older), not the drilldown\'s latest scan.id.
+    const olderScanID = 'repo-scan-older-detail';
+    const retainedFinding: Finding = {
+      ...postureFinding,
+      id: 'finding-retained-from-older-scan',
+      scan_id: olderScanID,
+      lifecycle_status: 'open'
+    };
+    const newerScan: RepoScanRecord = {
+      ...completedScan,
+      id: 'repo-scan-newest-detail'
+    };
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [newerScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [retainedFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+    const previewSpy = vi.spyOn(api.apiClient, 'previewRepoFindingRemediation').mockResolvedValue({
+      finding: retainedFinding,
+      remediation: {
+        detector: 'x', summary: 'ok', risk_summary: '', steps: [], safety_notes: [], validation: [],
+        secret_rotation: false, publishable: true, evidence: { finding_id: retainedFinding.id }
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const previewButton = await screen.findByRole('button', { name: /Preview remediation/i });
+    fireEvent.click(previewButton);
+    await waitFor(() => expect(previewSpy).toHaveBeenCalled());
+    // Preview endpoint received the finding\'s own scan id, not the latest scan.
+    expect(previewSpy.mock.calls[0]?.[0]).toBe(retainedFinding.id);
+    expect(previewSpy.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ repo_scan_id: olderScanID }));
+  });
+
   it('renders the loading shell when GitHub availability is still resolving', async () => {
     mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
     // loading: true — availability is still resolving.

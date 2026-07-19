@@ -25050,6 +25050,25 @@ function classifyRepoIntelligenceFinding(finding: ApiFinding): RepoIntelligenceF
   return 'other';
 }
 
+// Only open and reopened findings should reach the queue: fixed, suppressed,
+// risk-accepted, and false-positive findings are already resolved from an
+// operator's point of view, but /v1/repo-findings has no active-only default,
+// so an unfiltered fetch mixes them in. That mislabels the "open" summary
+// count, ranks closed findings in the queue, offers Preview remediation on
+// findings that no longer need one, and — worst — lets a paginated response
+// spend its cap on closed findings while dropping older active risks.
+// Filter defensively client-side.
+const REPO_INTELLIGENCE_ACTIVE_LIFECYCLE_STATUSES: readonly RepoFindingLifecycleStatus[] = ['open', 'reopened'];
+
+function isActiveRepoIntelligenceFinding(finding: ApiFinding): boolean {
+  const status = finding.lifecycle_status;
+  // Findings that never received a lifecycle status default to "active" in
+  // display terms: dropping them would silently hide legitimate open findings
+  // whose adapter has not yet started emitting lifecycle metadata.
+  if (!status) return true;
+  return (REPO_INTELLIGENCE_ACTIVE_LIFECYCLE_STATUSES as readonly string[]).includes(status);
+}
+
 // Merge graph.scores into findings by finding_id so the queue can sort by
 // graph-aware blast-radius score rather than just severity. Findings that
 // have no matching score (e.g. an older finding without a fresh risk graph)
@@ -25064,7 +25083,7 @@ function buildRepoIntelligenceQueue(
       scoresByFindingID.set(score.finding_id, score);
     }
   });
-  const enriched = findings.map((finding) => ({
+  const enriched = findings.filter(isActiveRepoIntelligenceFinding).map((finding) => ({
     finding,
     score: scoresByFindingID.get(finding.id) ?? null,
     category: classifyRepoIntelligenceFinding(finding)
@@ -25352,9 +25371,16 @@ export function ProductGitHubRepositoryDetailPage() {
       setPreviewLoading(true);
       try {
         const auth = buildProductAuthContext(scope);
+        // The remediation preview endpoint looks the finding up by both id
+        // AND scan id. A retained older finding whose newer scan is now the
+        // repository's latest still lives on its own scan, so passing the
+        // drilldown's `scan.id` would 404. Prefer the finding's own scan id
+        // and only fall back to the latest scan when the finding does not
+        // carry one (e.g. adapters that have not yet started emitting it).
+        const previewScanID = finding.scan_id || scan?.id || '';
         const response = await apiClient.previewRepoFindingRemediation(
           finding.id,
-          { repo_scan_id: scan?.id ?? finding.scan_id ?? '' },
+          { repo_scan_id: previewScanID },
           auth
         );
         if (previewID !== previewRequestRef.current) return;
