@@ -1075,6 +1075,81 @@ func TestAWSConnectorStartRejectsStackSetResumeSetupDrift(t *testing.T) {
 	}
 }
 
+func TestAWSConnectorValidateRejectsSelectedAccountOutsideScope(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			AccountID:    "333344445555",
+			PrincipalARN: "arn:aws:sts::333344445555:assumed-role/IdentrailReadOnly/identrail-connector-validation",
+			UserID:       "AROATEST:identrail-connector-validation",
+			Region:       "us-east-1",
+			PermissionChecks: []AWSConnectionPermissionCheck{
+				{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+			},
+		},
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.AWSConnectorValidator = validator
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	if _, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:        "workspace-a",
+		ProjectID:          "project-1",
+		ConnectorID:        "aws-selected-accounts",
+		DisplayName:        "Selected accounts",
+		ScopeType:          AWSConnectorScopeSelectedAccounts,
+		DeploymentMethod:   AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:      []string{"us-east-1"},
+		TargetAccountIDs:   []string{"111122223333", "333344445555"},
+		TargetOUIDs:        []string{"r-abcd"},
+		ExcludedAccountIDs: []string{"333344445555"},
+		StackSetName:       "identrail-selected-accounts",
+	}); err != nil {
+		t.Fatalf("start selected-account stackset connector: %v", err)
+	}
+
+	if _, err := svc.ValidateAWSConnector(ctx, "aws-selected-accounts", AWSConnectorValidateRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		RoleARN:     "arn:aws:iam::333344445555:role/IdentrailReadOnly",
+	}); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+		t.Fatalf("expected excluded validation account to be rejected, got %v", err)
+	}
+
+	validator.result.AccountID = "666677778888"
+	validator.result.PrincipalARN = "arn:aws:sts::666677778888:assumed-role/IdentrailReadOnly/identrail-connector-validation"
+	if _, err := svc.ValidateAWSConnector(ctx, "aws-selected-accounts", AWSConnectorValidateRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		RoleARN:     "arn:aws:iam::666677778888:role/IdentrailReadOnly",
+	}); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+		t.Fatalf("expected untargeted validation account to be rejected, got %v", err)
+	}
+
+	validator.result.AccountID = "111122223333"
+	validator.result.PrincipalARN = "arn:aws:sts::111122223333:assumed-role/IdentrailReadOnly/identrail-connector-validation"
+	connected, err := svc.ValidateAWSConnector(ctx, "aws-selected-accounts", AWSConnectorValidateRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		RoleARN:     "arn:aws:iam::111122223333:role/IdentrailReadOnly",
+	})
+	if err != nil {
+		t.Fatalf("expected targeted validation account to connect: %v", err)
+	}
+	if !connected.Connected || connected.AccountID != "111122223333" {
+		t.Fatalf("expected selected targeted account to connect, got %+v", connected)
+	}
+}
+
 func TestAWSConnectorValidateClearsStackSetLaunchPrerequisitesWhenConnected(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
@@ -2051,6 +2126,18 @@ func TestNormalizeAWSConnectorSetupContract(t *testing.T) {
 				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
 				TargetRegions:           []string{"us-east-1"},
 				TargetOUIDs:             []string{"ou-abcd-12345678"},
+				DefaultScopeType:        AWSConnectorScopeSingleAccount,
+				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
+			},
+			wantErr: true,
+		},
+		{
+			name: "organization rejects multiple roots",
+			input: awsConnectorSetupInput{
+				ScopeType:               AWSConnectorScopeOrganization,
+				DeploymentMethod:        AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:           []string{"us-east-1"},
+				TargetOUIDs:             []string{"r-abcd", "r-efgh"},
 				DefaultScopeType:        AWSConnectorScopeSingleAccount,
 				DefaultDeploymentMethod: AWSConnectorDeploymentCloudFormation,
 			},

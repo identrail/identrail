@@ -1334,6 +1334,9 @@ func (s *Service) UpsertAWSConnection(ctx context.Context, workspaceID string, p
 	if err != nil {
 		return AWSConnectionStatus{}, err
 	}
+	if !awsConnectorSelectedAccountIncludesValidationAccount(setup, normalized.RoleARN, validation.AccountID) {
+		return AWSConnectionStatus{}, ErrInvalidAWSConnectionRequest
+	}
 
 	now := s.Now().UTC()
 	status := domain.ConnectorStatusActive
@@ -1865,7 +1868,7 @@ func normalizeAWSConnectorSetupContract(input awsConnectorSetupInput) (awsConnec
 		if deploymentMethod == AWSConnectorDeploymentStackSetSelfManaged {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
-		if len(targetAccountIDs) > 0 || len(targetOUIDs) == 0 || !awsConnectorTargetIDsAreRoots(targetOUIDs) {
+		if len(targetAccountIDs) > 0 || len(targetOUIDs) != 1 || !awsConnectorTargetIDsAreRoots(targetOUIDs) {
 			return awsConnectorSetupContract{}, ErrInvalidAWSConnectionRequest
 		}
 	case AWSConnectorScopeSelectedOUs:
@@ -1923,6 +1926,23 @@ func awsConnectorSelectedAccountCountAfterExclusions(targetAccountIDs []string, 
 		count++
 	}
 	return count
+}
+
+func awsConnectorSelectedAccountIncludesValidationAccount(setup awsConnectorSetupContract, roleARN string, validationAccountID string) bool {
+	if setup.ScopeType != AWSConnectorScopeSelectedAccounts {
+		return true
+	}
+	accountID := strings.TrimSpace(validationAccountID)
+	if accountID == "" {
+		accountID = accountIDFromRoleARN(roleARN)
+	}
+	if !awsAccountIDPattern.MatchString(accountID) {
+		return false
+	}
+	if slices.Contains(setup.ExcludedAccountIDs, accountID) {
+		return false
+	}
+	return slices.Contains(setup.TargetAccountIDs, accountID)
 }
 
 func awsConnectorTargetIDsAreOUs(targetOUIDs []string) bool {
