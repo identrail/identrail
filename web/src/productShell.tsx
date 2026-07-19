@@ -25229,6 +25229,7 @@ export function ProductGitHubRepositoryDetailPage() {
   const [riskGraph, setRiskGraph] = useState<RepoRiskGraph | null>(null);
   const [posture, setPosture] = useState<GitHubRepositoryPosture | null>(null);
   const [loading, setLoading] = useState(false);
+  const [postureLoading, setPostureLoading] = useState(false);
   const [error, setError] = useState('');
   const [postureError, setPostureError] = useState('');
   const [previewFindingID, setPreviewFindingID] = useState('');
@@ -25247,6 +25248,7 @@ export function ProductGitHubRepositoryDetailPage() {
     setRiskGraph(null);
     setPosture(null);
     setPostureError('');
+    setPostureLoading(false);
     // Any pending remediation preview belongs to the previous scope, so drop
     // its display state and invalidate its request token so a late completion
     // cannot overwrite the new scope's state.
@@ -25304,27 +25306,42 @@ export function ProductGitHubRepositoryDetailPage() {
     const scansPromise = findRepoIntelligenceLatestScan(requestedRepository, auth, isCurrent);
     const findingsPromise = fetchRepoIntelligenceFindings(requestedRepository, auth, isCurrent);
     const graphPromise = apiClient.getRepoRiskGraph({ repository: requestedRepository }, auth);
-    const posturePromise = postureSupported
-      ? apiClient
-          .getGitHubConnectorRepositoryPosture(connectorID, scope.workspaceID, selectedEnvironmentID, requestedRepository, auth)
-          .then((response) => response.posture)
-          .catch((postureFetchError: unknown) => {
-            if (requestID === requestRef.current) {
-              setPostureError(formatAPIError(postureFetchError, 'Unable to load repository posture.'));
-            }
-            return null;
-          })
-      : Promise.resolve(null);
 
-    Promise.all([scansPromise, findingsPromise, graphPromise, posturePromise])
-      .then(([latestScan, findingsResult, graph, latestPosture]) => {
+    // Posture runs on its own lane, separate from the main Promise.all. The
+    // GitHub App posture endpoint performs live repository and organization
+    // collection against the GitHub API, so its latency is bounded by GitHub
+    // rather than by Identrail. Holding the entire drilldown behind it would
+    // withhold already-completed scan, findings, and risk-graph results
+    // while a rate-limited or slow posture call finished. The posture panel
+    // has its own loading and error state so operators still see progress
+    // for it without gating the rest of the page.
+    if (postureSupported) {
+      setPostureLoading(true);
+      apiClient
+        .getGitHubConnectorRepositoryPosture(connectorID, scope.workspaceID, selectedEnvironmentID, requestedRepository, auth)
+        .then((response) => {
+          if (requestID !== requestRef.current) return;
+          setPosture(response.posture);
+        })
+        .catch((postureFetchError: unknown) => {
+          if (requestID !== requestRef.current) return;
+          setPostureError(formatAPIError(postureFetchError, 'Unable to load repository posture.'));
+        })
+        .finally(() => {
+          if (requestID === requestRef.current) {
+            setPostureLoading(false);
+          }
+        });
+    }
+
+    Promise.all([scansPromise, findingsPromise, graphPromise])
+      .then(([latestScan, findingsResult, graph]) => {
         if (requestID !== requestRef.current) return;
         setScan(latestScan);
         setFindings(findingsResult.items);
         setFindingsSummary(findingsResult.summary);
         setFindingsTruncated(findingsResult.truncated);
         setRiskGraph(graph);
-        setPosture(latestPosture);
       })
       .catch((fetchError: unknown) => {
         if (requestID !== requestRef.current) return;
@@ -25591,6 +25608,12 @@ export function ProductGitHubRepositoryDetailPage() {
             </header>
             {postureError ? (
               <p role="alert" className="idt-app-alert idt-app-alert-error">{postureError}</p>
+            ) : postureLoading ? (
+              // The posture endpoint performs live GitHub collection so it can
+              // be slower than the rest of the drilldown; render its own
+              // loading indicator so operators see progress here without
+              // gating scan/findings/graph rendering.
+              <DomainLoadingState label="Loading repository posture" />
             ) : posture ? (
               insecurePostureChecks.length === 0 ? (
                 <DomainEmptyState

@@ -16243,6 +16243,78 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(screen.queryByText(/Loading remediation preview/i)).not.toBeInTheDocument();
   });
 
+  it('renders scan, findings, and blast-radius paths before slow posture resolves', async () => {
+    // Posture is a live GitHub call and can be slower than the rest of the
+    // drilldown. The scan/findings/graph must render as soon as their own
+    // promises settle; the posture panel gets its own loading indicator
+    // and does not gate anything else.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    const postureDeferred = deferred<{
+      connector_id: string;
+      provider: string;
+      posture: GitHubRepositoryPosture;
+    }>();
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockImplementation(() => postureDeferred.promise);
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Findings, scan, and blast-radius paths render before posture settles.
+    expect(await screen.findByText(/Default branch protection is unprotected/i)).toBeInTheDocument();
+    expect(screen.getByText(/Complete scan/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Top blast-radius paths')).toBeInTheDocument();
+    // Posture panel shows its own loading indicator, not the drilldown\'s route loader.
+    expect(screen.getByText(/Loading repository posture/i)).toBeInTheDocument();
+
+    // Now let posture settle and check it renders.
+    await act(async () => {
+      postureDeferred.resolve({
+        connector_id: 'github-app',
+        provider: 'github_app',
+        posture: {
+          repository: targetRepository,
+          collected_at: '2026-05-17T10:56:00Z',
+          checks: [{
+            id: 'branch-protection', category: 'branch protection', state: 'insecure',
+            reason: 'weak_protection', summary: 'Default branch is missing required reviews.'
+          }]
+        }
+      });
+      await postureDeferred.promise;
+    });
+    expect(await screen.findByText(/Default branch is missing required reviews/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Loading repository posture/i)).not.toBeInTheDocument();
+  });
+
   it('keeps paginating past closed-finding pages so older active risks reach the queue', async () => {
     // Page 1 is 100 closed (fixed) findings. Page 2 holds one active reopened
     // finding. Previously the drilldown stopped at page 1 because it counted

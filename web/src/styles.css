@@ -5718,8 +5718,13 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   letter-spacing: 0.06em;
 }
 
+/*
+ * The intelligence panel background follows the app theme, so scan-statistic
+ * values must use the theme text token instead of a hard-coded near-white
+ * (which was invisible on the light theme's white panel).
+ */
 .idt-github-intelligence-stats dd {
-  color: #f4f8ff;
+  color: var(--app-text);
   font-size: 1.1rem;
   font-weight: 800;
   margin: 0;
