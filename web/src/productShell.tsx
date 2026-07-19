@@ -600,7 +600,9 @@ function productDomainRoute(
   };
 }
 
-const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
+// Exported for tests that assert nav-configuration invariants (e.g. the
+// #1712 drilldown detail route intentionally not appearing in the flyout).
+export const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
   aws: {
     key: 'aws',
     label: 'AWS',
@@ -637,7 +639,12 @@ const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
       productDomainRoute('overview', 'Control center', '', 'GitHub Control Center', 'Repository identity', 'Operate repository, workflow, OIDC, code, and agentic risk coverage from the GitHub section.'),
       productDomainRoute('connect', 'Connect GitHub', 'connect', 'Connect GitHub', 'GitHub App onboarding', 'Prepare the GitHub-owned connection route while existing installation and selected-repository internals stay intact.'),
       productDomainRoute('repositories', 'Repositories', 'repositories', 'GitHub repositories', 'Repository inventory', 'Route repository posture, selected installation scope, exposure signals, and scan health into a domain-owned page.'),
-      productDomainRoute('repositories-detail', 'Repository intelligence', 'repositories/detail', 'GitHub repository intelligence', 'Unified repository review', 'Bring scan state, posture gaps, prioritized findings, top blast-radius paths, and remediation actions together for one repository.'),
+      // 'repositories-detail' is intentionally NOT registered in the domain
+      // config: ProductDomainFlyout classifies every entry here as inventory
+      // navigation and renders it with just its `domainRoutePath`, but the
+      // drilldown requires a ?repository= query param to render anything
+      // other than the "Repository not selected" error. Reach it by clicking
+      // a specific repository row on the Repositories page instead.
       productDomainRoute('actions', 'Actions / OIDC', 'actions', 'GitHub Actions / OIDC', 'Workflow trust', 'Reserve the workflow identity page for OIDC roles, deploy trust paths, Actions permissions, and runner posture.'),
       productDomainRoute('findings', 'Findings', 'findings', 'GitHub findings', 'Domain-scoped findings', 'Keep repository findings in the GitHub section instead of a global queue.'),
       productDomainRoute('remediation', 'Remediation', 'remediation', 'GitHub remediation', 'Repository fixes', 'Stage remediation PR planning, review workflow, lifecycle state, and verification from the GitHub section.'),
@@ -25452,9 +25459,9 @@ export function ProductGitHubRepositoryDetailPage() {
     );
   }
 
-  const repositoriesPath = `${buildScopedPath(scope, 'github/repositories')}${
-    selectedEnvironmentID ? `?${ENVIRONMENT_QUERY_PARAM}=${encodeURIComponent(selectedEnvironmentID)}` : ''
-  }`;
+  // Guards above already returned when selectedEnvironmentID is empty via
+  // GitHubMissingEnvironmentShell, so this always appends a real environment.
+  const repositoriesPath = `${buildScopedPath(scope, 'github/repositories')}?${ENVIRONMENT_QUERY_PARAM}=${encodeURIComponent(selectedEnvironmentID)}`;
 
   if (!requestedRepository) {
     return (
@@ -25568,6 +25575,11 @@ export function ProductGitHubRepositoryDetailPage() {
                       <div>
                         <strong>{formatTokenLabel(check.category)}: {formatTokenLabel(check.id)}</strong>
                         <p>{check.summary}</p>
+                        {check.reason ? (
+                          <p className="idt-app-kicker">
+                            Reason: {formatTokenLabel(check.reason)}
+                          </p>
+                        ) : null}
                       </div>
                     </li>
                   ))}

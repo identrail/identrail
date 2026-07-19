@@ -16236,6 +16236,45 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(screen.queryByText(/Loading remediation preview/i)).not.toBeInTheDocument();
   });
 
+  it('renders the API-provided posture check reason on permission-limited and unavailable checks', async () => {
+    // A permission_limited posture check carries a reason string that
+    // diagnoses the collection gap; the drilldown must render it so
+    // operators can act on it, matching the repositories inventory view.
+    await renderRepositoryDetail({
+      posture: {
+        repository: targetRepository,
+        collected_at: '2026-05-17T10:56:00Z',
+        checks: [
+          {
+            id: 'org-runner-groups',
+            category: 'runners',
+            state: 'permission_limited',
+            reason: 'missing_organization_permission',
+            summary: 'Self-hosted runner posture could not be collected.'
+          }
+        ]
+      }
+    });
+
+    // Both the summary and the reason must appear alongside the check.
+    expect(await screen.findByText(/Self-hosted runner posture could not be collected/i)).toBeInTheDocument();
+    expect(screen.getByText(/Missing Organization Permission/i)).toBeInTheDocument();
+  });
+
+  it('does not expose the drilldown detail route in the GitHub domain flyout', async () => {
+    // ProductDomainFlyout renders every entry in PRODUCT_DOMAIN_CONFIGS.github.routes
+    // as a plain link, so registering the parameterized detail route would
+    // open it with no ?repository= param and immediately show "Repository not
+    // selected." The drilldown must therefore stay out of PRODUCT_DOMAIN_CONFIGS.
+    const productShell = await import('./productShell');
+    const config = productShell.PRODUCT_DOMAIN_CONFIGS.github;
+    const routeIDs = config.routes.map((route) => route.id);
+    expect(routeIDs).not.toContain('repositories-detail');
+    // The Repositories entry is still there so operators reach the drilldown
+    // via a row click on the inventory page instead.
+    expect(routeIDs).toContain('repositories');
+  });
+
   it('excludes fixed, suppressed, risk-accepted, and false-positive findings from the queue and Preview count', async () => {
     // Mix active and closed findings — the queue must show only open/reopened.
     const closedFinding: Finding = {
