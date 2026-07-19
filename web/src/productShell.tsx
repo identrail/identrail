@@ -25201,9 +25201,11 @@ async function fetchRepoIntelligenceFindings(
     // Stop once we have enough ACTIVE findings to fill the queue: a repo
     // dominated by closed findings would otherwise waste its page budget and
     // report "No findings" while active risks paginated further back never
-    // reach the queue.
+    // reach the queue. Hitting this target while more pages remain still
+    // counts as truncation so the operator sees the warning banner rather
+    // than assuming the top of the queue is the highest-scoring finding.
     if (activeCount >= REPO_INTELLIGENCE_FINDINGS_ACTIVE_TARGET) {
-      return { items, summary, truncated: false };
+      return { items, summary, truncated: true };
     }
     cursor = response.next_cursor;
   }
@@ -25283,13 +25285,24 @@ export function ProductGitHubRepositoryDetailPage() {
     const auth = buildProductAuthContext(scope);
     const connection = domainData.connection;
     const connectorID = connection?.connector_id ?? '';
-    // The posture endpoint only supports the GitHub App provider. Firing it
-    // for a PAT (or unconnected) connection returns an unsupported error that
-    // the drilldown would surface as a rate-limited-style inline banner
-    // instead of the "posture not collected" empty state — matching the
-    // gating ProductGitHubRepositoriesPage already applies to the same call.
+    // Wait for the connection status fetch to settle before deciding whether
+    // posture is supported. Reading `provider` while `domainData.loading` is
+    // true would treat an in-flight github_app response as if it were an
+    // unsupported provider and quietly skip posture; a rejected connection
+    // fetch would leave the drilldown claiming "Connect GitHub" while the
+    // real error was hidden. Surface the fetched error explicitly and gate
+    // posture on both loading and connected state.
+    if (domainData.error) {
+      // Preserve the existing error if the drilldown's own fetch already
+      // failed; otherwise adopt the connection-status error so the operator
+      // sees the real cause instead of the "Connect GitHub" empty state.
+      setError((current) => current || domainData.error);
+    }
     const postureSupported = Boolean(
-      connectorID && connection?.connected && connection.provider === 'github_app'
+      !domainData.loading &&
+        connectorID &&
+        connection?.connected &&
+        connection.provider === 'github_app'
     );
     const isCurrent = () => requestID === requestRef.current;
 
@@ -25371,6 +25384,8 @@ export function ProductGitHubRepositoryDetailPage() {
     domainData.connection?.connected,
     domainData.connection?.connector_id,
     domainData.connection?.provider,
+    domainData.loading,
+    domainData.error,
     resetRepositoryState
   ]);
 

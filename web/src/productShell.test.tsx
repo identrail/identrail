@@ -16243,6 +16243,111 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(screen.queryByText(/Loading remediation preview/i)).not.toBeInTheDocument();
   });
 
+  it('reports truncation when it stopped because the active-findings target filled while pages remained', async () => {
+    // Backend keeps returning next_cursor. The fetcher must stop once the
+    // active target fills (500) AND report truncated:true so the operator
+    // sees the safety-ceiling warning banner rather than assuming the top
+    // of the queue is the highest-scoring finding.
+    const activePage: Finding[] = Array.from({ length: 100 }, (_, index) => ({
+      ...postureFinding,
+      id: `finding-active-${index}`,
+      lifecycle_status: 'open'
+    }));
+
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    // Every page returns 100 active findings + a next_cursor, so pagination
+    // reaches the 500-active target on page 5 with more pages still available.
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockImplementation(async () => ({
+      items: activePage,
+      next_cursor: 'always-another-page'
+    }));
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Truncation banner surfaces.
+    expect(await screen.findByText(/Findings pagination hit its safety ceiling/i)).toBeInTheDocument();
+  });
+
+  it('propagates a connection-status error instead of showing "Connect GitHub" when the status fetch fails', async () => {
+    // Connection fetch rejects. Without this fix, postureSupported would just
+    // evaluate to false and the drilldown would render as if the operator
+    // needed to connect GitHub, hiding the real error.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockRejectedValue(
+      new api.ApiError('github status unavailable', 503)
+    );
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // The connection-status error surfaces via the shared error banner.
+    expect(await screen.findByText(/github status unavailable/i)).toBeInTheDocument();
+  });
+
   it('renders scan, findings, and blast-radius paths before slow posture resolves', async () => {
     // Posture is a live GitHub call and can be slower than the rest of the
     // drilldown. The scan/findings/graph must render as soon as their own
@@ -16293,7 +16398,8 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(screen.getByText(/Complete scan/i)).toBeInTheDocument();
     expect(screen.getByLabelText('Top blast-radius paths')).toBeInTheDocument();
     // Posture panel shows its own loading indicator, not the drilldown\'s route loader.
-    expect(screen.getByText(/Loading repository posture/i)).toBeInTheDocument();
+    // Wait for connection status to settle so the second-pass effect fires posture.
+    expect(await screen.findByText(/Loading repository posture/i)).toBeInTheDocument();
 
     // Now let posture settle and check it renders.
     await act(async () => {
