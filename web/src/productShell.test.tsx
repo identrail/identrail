@@ -16102,4 +16102,187 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(screen.queryByText(/Default branch protection is unprotected/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Workflow OIDC trust is broad/i)).not.toBeInTheDocument();
   });
+
+  it('matches scan records case-insensitively so mixed-case deep links do not report No scan yet', async () => {
+    // Deep link uses "Identrail/Identrail"; stored scan uses "identrail/identrail".
+    const mixedCaseRepository = 'Identrail/Identrail';
+    const lowercaseScan: RepoScanRecord = {
+      ...completedScan,
+      repository: 'identrail/identrail'
+    };
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [lowercaseScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: 'identrail/identrail', collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(mixedCaseRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // The case-mismatched deep link must resolve to the stored lowercase scan.
+    expect(await screen.findByText(/Complete scan/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No scan yet/i)).not.toBeInTheDocument();
+  });
+
+  it('invalidates a pending remediation preview when the operator closes the panel', async () => {
+    // Set up a preview endpoint whose promise resolves only when we release it,
+    // so the click on Close happens while the request is still in flight. If
+    // the close handler does not invalidate the request token, the late
+    // response would write into preview state.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const previewDeferred = deferred<RepoFindingRemediationPreview>();
+    vi.spyOn(api.apiClient, 'previewRepoFindingRemediation').mockImplementation(() => previewDeferred.promise);
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Open the preview — request is now pending.
+    const previewButtons = await screen.findAllByRole('button', { name: /Preview remediation/i });
+    fireEvent.click(previewButtons[0]);
+    // Loading indicator confirms the request is in flight.
+    expect(await screen.findByText(/Loading remediation preview/i)).toBeInTheDocument();
+    // Close the panel before the request resolves.
+    fireEvent.click(screen.getByRole('button', { name: /Close/i }));
+
+    // Now release the late response.
+    await act(async () => {
+      previewDeferred.resolve({
+        finding: postureFinding,
+        remediation: {
+          detector: 'github_default_branch_unprotected',
+          summary: 'Late remediation should not commit',
+          risk_summary: '',
+          steps: ['Late step that should never render'],
+          safety_notes: [], validation: [],
+          secret_rotation: false, publishable: true,
+          evidence: { finding_id: postureFinding.id }
+        }
+      });
+      await previewDeferred.promise;
+    });
+
+    // The dismissed preview must not resurrect: no summary, no steps.
+    expect(screen.queryByText(/Late remediation should not commit/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Late step that should never render/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Loading remediation preview/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the loading shell when GitHub availability is still resolving', async () => {
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    // loading: true — availability is still resolving.
+    mockBackendFeatures({ github: true }, { loading: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    const listRepoFindings = vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    const getRepoRiskGraph = vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // The loading shell renders instead of the normal drilldown shell.
+    // Both the DomainPageShell description and the DomainLoadingState label
+    // carry the phrase, so allow multiple matches.
+    await waitFor(() =>
+      expect(screen.getAllByText(/Loading GitHub availability/i).length).toBeGreaterThan(0)
+    );
+    // The prioritized queue and the drilldown-specific fetches must never run
+    // while availability is still resolving. listRepoScans is orthogonally
+    // exercised by the shared useGitHubDomainData hook, so only assert on the
+    // drilldown-specific findings/graph fetches here.
+    expect(screen.queryByLabelText('Prioritized findings queue')).not.toBeInTheDocument();
+    expect(listRepoFindings).not.toHaveBeenCalled();
+    expect(getRepoRiskGraph).not.toHaveBeenCalled();
+  });
 });

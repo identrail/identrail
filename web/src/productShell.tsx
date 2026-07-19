@@ -25103,11 +25103,21 @@ function repoIntelligenceScanCompleteness(scan: RepoScanRecord | null): {
   }
 }
 
+// GitHub repository slugs are case-insensitive: the findings store compares
+// them with LOWER(...), so a deep link that writes "Identrail/Repo" must match
+// a scan record written as "identrail/repo". Normalize both sides before
+// comparing so a case-mismatched deep link does not falsely report
+// "No scan yet" while findings and posture populate correctly.
+function repoIntelligenceSlugKey(value: string): string {
+  return canonicalGitHubRepositoryDisplay(value).toLowerCase();
+}
+
 async function findRepoIntelligenceLatestScan(
   repository: string,
   auth: RequestAuthContext | undefined,
   isCurrent: () => boolean
 ): Promise<RepoScanRecord | null> {
+  const target = repoIntelligenceSlugKey(repository);
   let cursor: string | undefined;
   for (let page = 0; page < REPO_INTELLIGENCE_SCAN_MAX_PAGES; page += 1) {
     if (!isCurrent()) return null;
@@ -25116,7 +25126,7 @@ async function findRepoIntelligenceLatestScan(
       auth
     );
     const match = response.items.find(
-      (item) => canonicalGitHubRepositoryDisplay(item.repository) === repository
+      (item) => repoIntelligenceSlugKey(item.repository) === target
     );
     if (match) return match;
     if (!response.next_cursor) return null;
@@ -25205,7 +25215,11 @@ export function ProductGitHubRepositoryDetailPage() {
   }, []);
 
   useEffect(() => {
-    if (!scope || !availability.available || !selectedEnvironmentID || !requestedRepository) {
+    // availability.loading has to gate the fetch here even though the JSX
+    // shows the loading shell too: the JSX runs after this hook, so without
+    // the guard the drilldown-specific listRepoFindings/getRepoRiskGraph
+    // calls would fire before the operator ever sees the loading shell.
+    if (availability.loading || !scope || !availability.available || !selectedEnvironmentID || !requestedRepository) {
       requestRef.current += 1;
       resetRepositoryState();
       setLoading(false);
@@ -25281,6 +25295,7 @@ export function ProductGitHubRepositoryDetailPage() {
     scope?.tenantID,
     scope?.workspaceID,
     availability.available,
+    availability.loading,
     selectedEnvironmentID,
     requestedRepository,
     domainData.connection?.connected,
@@ -25305,6 +25320,21 @@ export function ProductGitHubRepositoryDetailPage() {
   );
   const completeness = repoIntelligenceScanCompleteness(scan);
   const publishableCount = queue.filter(({ finding }) => Boolean(finding.evidence?.publishable) || Boolean(preview?.remediation?.publishable && preview.finding.id === finding.id)).length;
+
+  const closePreview = useCallback(() => {
+    // Bumping the request token here matters even when no request is in flight
+    // — if the operator dismissed the panel while a preview was still loading,
+    // the late response would pass the previous token guard, write into
+    // `preview`, and change `publishableCount` for a finding the operator
+    // explicitly closed. Clearing every preview-related state (including
+    // previewLoading, which the earlier close handler left in the loading
+    // position) keeps the UI and the token in sync.
+    previewRequestRef.current += 1;
+    setPreviewFindingID('');
+    setPreview(null);
+    setPreviewError('');
+    setPreviewLoading(false);
+  }, []);
 
   const openPreview = useCallback(
     async (finding: ApiFinding) => {
@@ -25348,6 +25378,51 @@ export function ProductGitHubRepositoryDetailPage() {
         <h2>Workspace route context is missing</h2>
         <p>Choose a tenant and workspace before opening a repository drilldown.</p>
       </section>
+    );
+  }
+
+  // Feature discovery, GitHub availability, and environment selection must be
+  // resolved before the drilldown renders its normal shell. Without these
+  // guards a loading or unavailable build would fall through to the same
+  // panels and show "No scan yet" / "No findings" / "Connect GitHub" even
+  // though the backend never gave the drilldown a chance to fetch anything.
+  // Matches the pattern the repositories inventory page uses.
+  if (availability.loading) {
+    return (
+      <DomainPageShell
+        domain="github"
+        eyebrow="Repository intelligence"
+        title="GitHub repository intelligence"
+        description="Loading GitHub availability for this build."
+        scope={<ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} />}
+      >
+        <DomainLoadingState label="Loading GitHub availability" />
+      </DomainPageShell>
+    );
+  }
+
+  if (!availability.available) {
+    return (
+      <GitHubUnavailableShell
+        title="GitHub repository intelligence"
+        scope={scope}
+        environmentScope={environmentScope}
+        selectedEnvironmentID={selectedEnvironmentID}
+        onEnvironmentChange={onChangeEnvironment}
+        unavailableMessage={availability.unavailableMessage}
+      />
+    );
+  }
+
+  if (!selectedEnvironmentID) {
+    return (
+      <GitHubMissingEnvironmentShell
+        title="GitHub repository intelligence"
+        scope={scope}
+        environmentScope={environmentScope}
+        selectedEnvironmentID={selectedEnvironmentID}
+        onEnvironmentChange={onChangeEnvironment}
+      />
     );
   }
 
@@ -25573,11 +25648,7 @@ export function ProductGitHubRepositoryDetailPage() {
                 <button
                   type="button"
                   className="idt-app-tertiary-button"
-                  onClick={() => {
-                    setPreviewFindingID('');
-                    setPreview(null);
-                    setPreviewError('');
-                  }}
+                  onClick={closePreview}
                 >
                   Close
                 </button>
