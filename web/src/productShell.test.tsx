@@ -16243,6 +16243,83 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(screen.queryByText(/Loading remediation preview/i)).not.toBeInTheDocument();
   });
 
+  it('keeps paginating past closed-finding pages so older active risks reach the queue', async () => {
+    // Page 1 is 100 closed (fixed) findings. Page 2 holds one active reopened
+    // finding. Previously the drilldown stopped at page 1 because it counted
+    // total items toward the cap; now it counts only ACTIVE items so it must
+    // fetch page 2 and surface the active one.
+    const closedPageOne: Finding[] = Array.from({ length: 100 }, (_, index) => ({
+      ...postureFinding,
+      id: `finding-closed-${index}`,
+      lifecycle_status: 'fixed'
+    }));
+    const activeOlder: Finding = {
+      ...postureFinding,
+      id: 'older-active-finding',
+      title: 'Older active finding hiding behind closed page',
+      lifecycle_status: 'reopened'
+    };
+
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    const listRepoFindings = vi.spyOn(api.apiClient, 'listRepoFindings');
+    listRepoFindings.mockImplementation(async (filters) => {
+      if (!filters?.cursor) {
+        return { items: closedPageOne, next_cursor: 'closed-heavy-page-2' };
+      }
+      if (filters.cursor === 'closed-heavy-page-2') {
+        return { items: [activeOlder] };
+      }
+      return { items: [] };
+    });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // The older active finding must appear in the queue — the drilldown
+    // paginated past the closed-heavy page rather than stopping at page 1.
+    expect(await screen.findByText(/Older active finding hiding behind closed page/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(listRepoFindings.mock.calls.some(([filters]) => filters?.cursor === 'closed-heavy-page-2')).toBe(true)
+    );
+    // No fixed finding rendered in the queue.
+    expect(screen.queryByText(/finding-closed-0/i)).not.toBeInTheDocument();
+  });
+
   it('filters top blast-radius paths so a closed finding cannot displace active risks', async () => {
     // A high-scoring path belongs to a fixed finding — it must not appear in
     // the top-N list even though its raw score is the highest, because the

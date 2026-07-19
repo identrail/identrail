@@ -5741,14 +5741,20 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   font-size: 0.86rem;
 }
 
-.idt-github-intelligence-row {
+/*
+ * .idt-github-intelligence-row is shared with the existing Control Center
+ * priority list (see productShell.tsx), so a global three-column grid on
+ * it compressed those rows. The drilldown's rows opt in via an extra
+ * modifier class instead.
+ */
+.idt-github-intelligence-row-drilldown {
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: 0.7rem;
   align-items: start;
 }
 
-.idt-github-intelligence-row > div {
+.idt-github-intelligence-row-drilldown > div {
   display: grid;
   gap: 0.2rem;
 }

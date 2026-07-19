@@ -25002,11 +25002,16 @@ const REPO_INTELLIGENCE_TOP_PATHS_LIMIT = 5;
 const REPO_INTELLIGENCE_SCAN_PAGE_LIMIT = 50;
 const REPO_INTELLIGENCE_SCAN_MAX_PAGES = 20;
 // listRepoFindings returns per-page results sorted by created_at desc and
-// exposes next_cursor. Blast-radius sorting happens in the browser, so the
-// drilldown must not stop at the first page — a higher-scoring older finding
-// would otherwise be omitted from the "prioritized" queue. Cap the total for
-// safety and surface truncation to the operator when it hits.
-const REPO_INTELLIGENCE_FINDINGS_MAX_PAGES = 5;
+// exposes next_cursor. Blast-radius sorting happens in the browser, and the
+// active-only filter runs client-side, so the drilldown must not stop as soon
+// as it has fetched 500 total records: if a repo has 500 closed findings on
+// pages 1–5, the older active risks would never reach the queue. Track two
+// caps: an active-findings target (stop once we have enough active items to
+// present a full queue) and a total-pages hard ceiling (bound the fetch cost
+// even for pathological repositories dominated by closed findings). Surface
+// truncation to the operator when the hard ceiling ends the search early.
+const REPO_INTELLIGENCE_FINDINGS_ACTIVE_TARGET = 500;
+const REPO_INTELLIGENCE_FINDINGS_MAX_PAGES = 20;
 
 type RepoIntelligenceFindingCategory = 'posture' | 'ai_mcp' | 'workflow' | 'secret' | 'other';
 
@@ -25175,6 +25180,7 @@ async function fetchRepoIntelligenceFindings(
   const items: ApiFinding[] = [];
   let summary: RepoFindingsSummary | null = null;
   let cursor: string | undefined;
+  let activeCount = 0;
   for (let page = 0; page < REPO_INTELLIGENCE_FINDINGS_MAX_PAGES; page += 1) {
     if (!isCurrent()) return { items, summary, truncated: false };
     const response = await apiClient.listRepoFindings(
@@ -25182,10 +25188,21 @@ async function fetchRepoIntelligenceFindings(
       auth
     );
     items.push(...response.items);
+    activeCount += response.items.reduce(
+      (count, finding) => count + (isActiveRepoIntelligenceFinding(finding) ? 1 : 0),
+      0
+    );
     if (page === 0 && response.summary) {
       summary = response.summary;
     }
     if (!response.next_cursor) {
+      return { items, summary, truncated: false };
+    }
+    // Stop once we have enough ACTIVE findings to fill the queue: a repo
+    // dominated by closed findings would otherwise waste its page budget and
+    // report "No findings" while active risks paginated further back never
+    // reach the queue.
+    if (activeCount >= REPO_INTELLIGENCE_FINDINGS_ACTIVE_TARGET) {
       return { items, summary, truncated: false };
     }
     cursor = response.next_cursor;
@@ -25583,7 +25600,7 @@ export function ProductGitHubRepositoryDetailPage() {
               ) : (
                 <ul className="idt-github-intelligence-list">
                   {insecurePostureChecks.map((check) => (
-                    <li key={check.id} className="idt-github-intelligence-row">
+                    <li key={check.id} className="idt-github-intelligence-row idt-github-intelligence-row-drilldown">
                       <span className={`idt-source-status-pill is-${check.state === 'insecure' ? 'warning' : 'neutral'}`}>
                         {formatTokenLabel(check.state)}
                       </span>
@@ -25624,7 +25641,7 @@ export function ProductGitHubRepositoryDetailPage() {
               ) : null}
               {findingsTruncated ? (
                 <p role="alert" className="idt-app-alert idt-app-alert-warning">
-                  Showing the first {REPO_INTELLIGENCE_FINDINGS_LIMIT * REPO_INTELLIGENCE_FINDINGS_MAX_PAGES} findings ordered by creation time. Refine filters in the GitHub findings page to review the rest.
+                  Findings pagination hit its safety ceiling before all pages returned. Refine filters in the GitHub findings page to review the rest.
                 </p>
               ) : null}
             </header>
@@ -25636,7 +25653,7 @@ export function ProductGitHubRepositoryDetailPage() {
             ) : (
               <ul className="idt-github-intelligence-list">
                 {queue.map(({ finding, score, category }) => (
-                  <li key={finding.id} className="idt-github-intelligence-row" data-category={category}>
+                  <li key={finding.id} className="idt-github-intelligence-row idt-github-intelligence-row-drilldown" data-category={category}>
                     <span className={`idt-source-status-pill is-${finding.severity === 'critical' || finding.severity === 'high' ? 'warning' : 'neutral'}`}>
                       {formatTokenLabel(finding.severity ?? 'unknown')}
                     </span>
@@ -25674,7 +25691,7 @@ export function ProductGitHubRepositoryDetailPage() {
               </header>
               <ol className="idt-github-intelligence-list">
                 {topPaths.map((path) => (
-                  <li key={path.finding_node_id || path.finding_id} className="idt-github-intelligence-row">
+                  <li key={path.finding_node_id || path.finding_id} className="idt-github-intelligence-row idt-github-intelligence-row-drilldown">
                     <span className="idt-source-status-pill is-warning">score {path.score}</span>
                     <div>
                       <strong>Finding {path.finding_id}</strong>
