@@ -25274,6 +25274,16 @@ export function ProductGitHubRepositoryDetailPage() {
     );
     const isCurrent = () => requestID === requestRef.current;
 
+    // Known limitation: ListRepoScans, ListRepoFindings, and GetRepoRiskGraph
+    // all scope by workspace via the auth context but do not accept a
+    // project/environment filter, so a repository scanned through two
+    // environments in the same workspace can mix the other environment's
+    // records into this drilldown even though the environment selector
+    // suggests otherwise. This is not drilldown-specific — every existing
+    // GitHub-domain page that uses these endpoints inherits the same
+    // behavior — and fixing it requires backend filters (see follow-up
+    // task). Posture is already environment-scoped because it uses the
+    // connector endpoint that carries the project_id.
     const scansPromise = findRepoIntelligenceLatestScan(requestedRepository, auth, isCurrent);
     const findingsPromise = fetchRepoIntelligenceFindings(requestedRepository, auth, isCurrent);
     const graphPromise = apiClient.getRepoRiskGraph({ repository: requestedRepository }, auth);
@@ -25331,15 +25341,20 @@ export function ProductGitHubRepositoryDetailPage() {
   ]);
 
   const queue = useMemo(() => buildRepoIntelligenceQueue(findings, riskGraph), [findings, riskGraph]);
-  // Sort by graph score before taking the top slice: the API is free to
-  // return scores in insertion order, so a naive slice(0, N) could show a
-  // low-risk path first when the highest-risk one lives further down the
-  // array. sortRepoRiskGraphScores mirrors the ordering used elsewhere in
-  // the app so the "top blast-radius" list always reflects actual rank.
-  const topPaths = useMemo(
-    () => sortRepoRiskGraphScores(riskGraph?.scores ?? []).slice(0, REPO_INTELLIGENCE_TOP_PATHS_LIMIT),
-    [riskGraph]
-  );
+  // Top blast-radius paths must reflect only ACTIVE findings. The risk graph
+  // builds scores directly from ListRepoFindings without applying lifecycle
+  // filtering, so a fixed / suppressed / risk-accepted / false-positive
+  // finding can still carry a high score and displace an open one from the
+  // top-5. Intersect the sorted scores with the queue's active finding IDs
+  // before slicing so the list only shows risks the operator still needs to
+  // act on. Sort first so the API's insertion order can never determine
+  // final rank.
+  const topPaths = useMemo(() => {
+    const activeFindingIDs = new Set(queue.map(({ finding }) => finding.id));
+    return sortRepoRiskGraphScores(riskGraph?.scores ?? [])
+      .filter((score) => activeFindingIDs.has(score.finding_id))
+      .slice(0, REPO_INTELLIGENCE_TOP_PATHS_LIMIT);
+  }, [queue, riskGraph]);
   const insecurePostureChecks = useMemo(
     () => (posture?.checks ?? []).filter((check) => check.state !== 'secure' && check.state !== 'unsupported'),
     [posture]

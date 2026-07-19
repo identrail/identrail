@@ -16068,7 +16068,14 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
         }
       ]
     };
-    await renderRepositoryDetail({ findings: [postureFinding], riskGraph: unsortedScoresGraph });
+    // Provide open findings whose IDs match each score so the active-findings
+    // filter that the top-paths list applies does not remove them.
+    const activeFindings: Finding[] = ['lower-score', 'highest-score', 'middle-score'].map((id) => ({
+      ...postureFinding,
+      id,
+      lifecycle_status: 'open'
+    }));
+    await renderRepositoryDetail({ findings: activeFindings, riskGraph: unsortedScoresGraph });
     const pathsList = (await screen.findByLabelText('Top blast-radius paths')).querySelector('ol');
     expect(pathsList).not.toBeNull();
     const rows = (pathsList as HTMLElement).querySelectorAll('li');
@@ -16234,6 +16241,55 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(screen.queryByText(/Late remediation should not commit/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Late step that should never render/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Loading remediation preview/i)).not.toBeInTheDocument();
+  });
+
+  it('filters top blast-radius paths so a closed finding cannot displace active risks', async () => {
+    // A high-scoring path belongs to a fixed finding — it must not appear in
+    // the top-N list even though its raw score is the highest, because the
+    // finding itself is no longer active.
+    const activeOpen: Finding = { ...postureFinding, id: 'active-open', lifecycle_status: 'open' };
+    const closedFixed: Finding = { ...postureFinding, id: 'closed-fixed', lifecycle_status: 'fixed' };
+    const graphWithClosedTopScore: RepoRiskGraph = {
+      repository: targetRepository,
+      nodes: [], edges: [],
+      summary: {
+        finding_count: 0, node_count: 0, edge_count: 0, unknown_node_count: 0,
+        unknown_edge_count: 0, high_risk_findings: 0, critical_findings: 0
+      },
+      scores: [
+        {
+          finding_id: closedFixed.id, finding_node_id: 'node-closed',
+          score: 99, severity: 'critical', confidence: 0.99,
+          factors: {
+            severity: 100, confidence: 99, exploitability: 90, privilege: 80,
+            exposure: 70, environment_criticality: 60, freshness: 100, posture_amplifier: 80
+          },
+          unknowns: []
+        },
+        {
+          finding_id: activeOpen.id, finding_node_id: 'node-open',
+          score: 55, severity: 'medium', confidence: 0.7,
+          factors: {
+            severity: 55, confidence: 70, exploitability: 40, privilege: 30,
+            exposure: 20, environment_criticality: 0, freshness: 100, posture_amplifier: 0
+          },
+          unknowns: []
+        }
+      ]
+    };
+
+    await renderRepositoryDetail({
+      findings: [activeOpen, closedFixed],
+      riskGraph: graphWithClosedTopScore
+    });
+
+    const pathsList = (await screen.findByLabelText('Top blast-radius paths')).querySelector('ol');
+    expect(pathsList).not.toBeNull();
+    const rows = (pathsList as HTMLElement).querySelectorAll('li');
+    // Only the active finding appears — the closed-but-highest-scoring one is filtered.
+    expect(rows.length).toBe(1);
+    expect(rows[0].textContent).toContain('active-open');
+    expect(rows[0].textContent).not.toContain('closed-fixed');
   });
 
   it('renders the API-provided posture check reason on permission-limited and unavailable checks', async () => {
