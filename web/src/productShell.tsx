@@ -25072,6 +25072,22 @@ function classifyRepoIntelligenceFinding(finding: ApiFinding): RepoIntelligenceF
 // Filter defensively client-side.
 const REPO_INTELLIGENCE_ACTIVE_LIFECYCLE_STATUSES: readonly RepoFindingLifecycleStatus[] = ['open', 'reopened'];
 
+// Detectors whose findings the backend's SuggestRepoExposureRemediation
+// helper knows how to fix. Findings outside this set (notably GitHub posture
+// findings like github_default_branch_unprotected) are still worth showing in
+// the queue for triage, but requesting a preview would 422 back — the button
+// and the "fix-ready" count both need to reflect the actual set.
+// See internal/findings/standards/repo_remediation.go for the authoritative
+// list; keep this predicate in sync.
+const REPO_INTELLIGENCE_REMEDIATION_DETECTOR_PREFIXES = ['workflow_', 'terraform_', 'docker_', 'k8s_', 'ai_agent_'];
+
+function isRemediationSupportedFinding(finding: ApiFinding): boolean {
+  if (finding.type === 'secret_exposure') return true;
+  const detector = (finding.detector ?? '').toLowerCase();
+  if (!detector) return false;
+  return REPO_INTELLIGENCE_REMEDIATION_DETECTOR_PREFIXES.some((prefix) => detector.startsWith(prefix));
+}
+
 function isActiveRepoIntelligenceFinding(finding: ApiFinding): boolean {
   const status = finding.lifecycle_status;
   // Findings that never received a lifecycle status default to "active" in
@@ -25409,7 +25425,12 @@ export function ProductGitHubRepositoryDetailPage() {
     [posture]
   );
   const completeness = repoIntelligenceScanCompleteness(scan);
-  const publishableCount = queue.filter(({ finding }) => Boolean(finding.evidence?.publishable) || Boolean(preview?.remediation?.publishable && preview.finding.id === finding.id)).length;
+  // Derive fix-ready count from detector support (see
+  // isRemediationSupportedFinding) rather than from an evidence field the
+  // production finding collectors do not write. Reading finding.evidence.
+  // publishable would report zero on first render and grow only when the
+  // operator manually previewed each finding.
+  const publishableCount = queue.filter(({ finding }) => isRemediationSupportedFinding(finding)).length;
 
   const closePreview = useCallback(() => {
     // Bumping the request token here matters even when no request is in flight
@@ -25704,14 +25725,22 @@ export function ProductGitHubRepositoryDetailPage() {
                       </p>
                       {finding.human_summary ? <p>{finding.human_summary}</p> : null}
                     </div>
-                    <button
-                      type="button"
-                      className="idt-app-secondary-button"
-                      onClick={() => openPreview(finding)}
-                      disabled={previewLoading && previewFindingID === finding.id}
-                    >
-                      {previewLoading && previewFindingID === finding.id ? 'Loading…' : 'Preview remediation'}
-                    </button>
+                    {isRemediationSupportedFinding(finding) ? (
+                      <button
+                        type="button"
+                        className="idt-app-secondary-button"
+                        onClick={() => openPreview(finding)}
+                        disabled={previewLoading && previewFindingID === finding.id}
+                      >
+                        {previewLoading && previewFindingID === finding.id ? 'Loading…' : 'Preview remediation'}
+                      </button>
+                    ) : (
+                      // Findings whose detector is not in the SuggestRepoExposureRemediation
+                      // supported set (notably GitHub posture findings) would 422 on preview.
+                      // Show operator-actionable guidance instead of an action button that
+                      // would fail.
+                      <span className="idt-app-kicker">Review in GitHub</span>
+                    )}
                   </li>
                 ))}
               </ul>

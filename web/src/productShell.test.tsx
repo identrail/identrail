@@ -16187,7 +16187,8 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     });
     vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
     vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
-    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    // Use a supported (workflow_*) detector so the Preview button renders.
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [workflowFinding] });
     vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
     vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
       connector_id: 'github-app', provider: 'github_app',
@@ -16241,6 +16242,27 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(screen.queryByText(/Late remediation should not commit/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Late step that should never render/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Loading remediation preview/i)).not.toBeInTheDocument();
+  });
+
+  it('hides the Preview remediation button for detectors the backend cannot remediate', async () => {
+    // Mixed queue: workflow_ finding is supported, github_ posture finding is
+    // not. The queue must still render both (posture findings are worth
+    // triaging even if we cannot auto-remediate them), but only the workflow
+    // one carries a Preview button.
+    await renderRepositoryDetail({ findings: [postureFinding, workflowFinding] });
+
+    const queueList = await screen.findByLabelText('Prioritized findings queue');
+    // Both findings render.
+    expect(queueList.textContent).toContain('Default branch protection is unprotected');
+    expect(queueList.textContent).toContain('Workflow OIDC trust is broad');
+    // But only one Preview button — the posture finding shows the fallback.
+    const previewButtons = screen.getAllByRole('button', { name: /Preview remediation/i });
+    expect(previewButtons.length).toBe(1);
+    expect(within(queueList).getByText(/Review in GitHub/i)).toBeInTheDocument();
+
+    // Fix-ready count in the header matches the button count (1), not the
+    // full queue length (2).
+    expect(queueList.textContent).toContain('1 fix-ready');
   });
 
   it('reports truncation when it stopped because the active-findings target filled while pages remained', async () => {
@@ -16620,9 +16642,13 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(queueList!.textContent).toContain('Reopened finding must appear');
     expect(queueList!.textContent).not.toContain('Already fixed finding must not rank');
     expect(queueList!.textContent).not.toContain('Suppressed finding must not rank');
-    // Preview remediation button count matches the active count (2), never 4.
+    // Preview button only appears on findings the backend can actually
+    // remediate: the reopened finding uses a `workflow_` detector (supported),
+    // the active open uses a `github_` posture detector (not supported). So
+    // the button count should be 1, matching the fix-ready subset — not the
+    // full active count of 2.
     const previewButtons = screen.getAllByRole('button', { name: /Preview remediation/i });
-    expect(previewButtons.length).toBe(2);
+    expect(previewButtons.length).toBe(1);
   });
 
   it('sends the finding\'s own scan_id when previewing remediation for a retained older finding', async () => {
@@ -16630,8 +16656,11 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     // retained from an older scan. Preview must call with the finding\'s
     // scan_id (older), not the drilldown\'s latest scan.id.
     const olderScanID = 'repo-scan-older-detail';
+    // Use workflowFinding as the base so the detector (`workflow_oidc_broad_trust`)
+    // is in the SuggestRepoExposureRemediation supported set; posture-detector
+    // findings do not render a Preview button by design.
     const retainedFinding: Finding = {
-      ...postureFinding,
+      ...workflowFinding,
       id: 'finding-retained-from-older-scan',
       scan_id: olderScanID,
       lifecycle_status: 'open'
