@@ -5738,11 +5738,16 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   gap: 0.4rem;
 }
 
+/*
+ * Source-health diagnostic labels sit inside the theme-aware panel, so their
+ * text color must follow the theme too. A hard-coded muted-blue disappears on
+ * the light theme's white panel.
+ */
 .idt-github-intelligence-source-health li {
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  color: #aab8cd;
+  color: var(--app-dim);
   font-size: 0.86rem;
 }
 

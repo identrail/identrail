@@ -25246,6 +25246,7 @@ export function ProductGitHubRepositoryDetailPage() {
   const [findingsTruncated, setFindingsTruncated] = useState(false);
   const [riskGraph, setRiskGraph] = useState<RepoRiskGraph | null>(null);
   const [posture, setPosture] = useState<GitHubRepositoryPosture | null>(null);
+  const [organizationPosture, setOrganizationPosture] = useState<GitHubOrganizationPosture | null>(null);
   const [loading, setLoading] = useState(false);
   const [postureLoading, setPostureLoading] = useState(false);
   const [error, setError] = useState('');
@@ -25265,6 +25266,7 @@ export function ProductGitHubRepositoryDetailPage() {
     setFindingsTruncated(false);
     setRiskGraph(null);
     setPosture(null);
+    setOrganizationPosture(null);
     setPostureError('');
     setPostureLoading(false);
     // Any pending remediation preview belongs to the previous scope, so drop
@@ -25351,6 +25353,12 @@ export function ProductGitHubRepositoryDetailPage() {
         .then((response) => {
           if (requestID !== requestRef.current) return;
           setPosture(response.posture);
+          // Organization posture surfaces inherited control gaps (Actions
+          // policy, security configuration, runner policy) that would
+          // otherwise be invisible on the drilldown even though they govern
+          // the repository. Store it separately from repository posture so
+          // both sets render with their own scope label.
+          setOrganizationPosture(response.organization_posture ?? null);
         })
         .catch((postureFetchError: unknown) => {
           if (requestID !== requestRef.current) return;
@@ -25420,9 +25428,19 @@ export function ProductGitHubRepositoryDetailPage() {
       .filter((score) => activeFindingIDs.has(score.finding_id))
       .slice(0, REPO_INTELLIGENCE_TOP_PATHS_LIMIT);
   }, [queue, riskGraph]);
+  // Present repository and organization posture together, tagged by scope so
+  // operators can tell inherited org policy gaps from repository ones. Secure
+  // and unsupported checks are hidden at both scopes.
   const insecurePostureChecks = useMemo(
-    () => (posture?.checks ?? []).filter((check) => check.state !== 'secure' && check.state !== 'unsupported'),
-    [posture]
+    () => [
+      ...(posture?.checks ?? [])
+        .filter((check) => check.state !== 'secure' && check.state !== 'unsupported')
+        .map((check) => ({ scope: 'repository' as const, check })),
+      ...(organizationPosture?.checks ?? [])
+        .filter((check) => check.state !== 'secure' && check.state !== 'unsupported')
+        .map((check) => ({ scope: 'organization' as const, check }))
+    ],
+    [posture, organizationPosture]
   );
   const completeness = repoIntelligenceScanCompleteness(scan);
   // Derive fix-ready count from detector support (see
@@ -25650,21 +25668,24 @@ export function ProductGitHubRepositoryDetailPage() {
               // loading indicator so operators see progress here without
               // gating scan/findings/graph rendering.
               <DomainLoadingState label="Loading repository posture" />
-            ) : posture ? (
+            ) : posture || organizationPosture ? (
               insecurePostureChecks.length === 0 ? (
                 <DomainEmptyState
                   title="No posture gaps"
-                  body="Every collected posture check for this repository reports a secure or unsupported state."
+                  body="Every collected repository and organization posture check reports a secure or unsupported state."
                 />
               ) : (
                 <ul className="idt-github-intelligence-list">
-                  {insecurePostureChecks.map((check) => (
-                    <li key={check.id} className="idt-github-intelligence-row idt-github-intelligence-row-drilldown">
+                  {insecurePostureChecks.map(({ scope: postureScope, check }) => (
+                    <li key={`${postureScope}:${check.id}`} className="idt-github-intelligence-row idt-github-intelligence-row-drilldown">
                       <span className={`idt-source-status-pill is-${check.state === 'insecure' ? 'warning' : 'neutral'}`}>
                         {formatTokenLabel(check.state)}
                       </span>
                       <div>
-                        <strong>{formatTokenLabel(check.category)}: {formatTokenLabel(check.id)}</strong>
+                        <strong>
+                          {postureScope === 'organization' ? 'Organization • ' : ''}
+                          {formatTokenLabel(check.category)}: {formatTokenLabel(check.id)}
+                        </strong>
                         <p>{check.summary}</p>
                         {check.reason ? (
                           <p className="idt-app-kicker">

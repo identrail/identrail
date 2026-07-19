@@ -16244,6 +16244,72 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(screen.queryByText(/Loading remediation preview/i)).not.toBeInTheDocument();
   });
 
+  it('renders organization posture gaps alongside repository posture on the drilldown', async () => {
+    // getGitHubConnectorRepositoryPosture returns both repository posture and
+    // organization_posture. The drilldown must render inherited org control
+    // gaps too — hiding them would leave inherited Actions policy / security
+    // configuration / runner posture invisible to the operator.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app',
+      provider: 'github_app',
+      posture: {
+        repository: targetRepository,
+        collected_at: '2026-05-17T10:56:00Z',
+        checks: [{
+          id: 'branch-protection', category: 'branch protection', state: 'insecure',
+          summary: 'Repository default branch is missing required reviews.'
+        }]
+      },
+      organization_posture: {
+        organization: 'identrail',
+        collected_at: '2026-05-17T10:56:00Z',
+        checks: [{
+          id: 'actions-policy', category: 'actions', state: 'insecure',
+          summary: 'Organization Actions policy allows write-all workflow tokens.'
+        }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Both repository and organization posture gaps render, and the org row
+    // carries the scope prefix so the operator can tell them apart.
+    expect(await screen.findByText(/Repository default branch is missing required reviews/i)).toBeInTheDocument();
+    expect(screen.getByText(/Organization Actions policy allows write-all workflow tokens/i)).toBeInTheDocument();
+    expect(screen.getByText(/Organization • /i)).toBeInTheDocument();
+  });
+
   it('hides the Preview remediation button for detectors the backend cannot remediate', async () => {
     // Mixed queue: workflow_ finding is supported, github_ posture finding is
     // not. The queue must still render both (posture findings are worth
