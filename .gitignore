@@ -91,6 +91,7 @@ site/
 # Claude Code local agent state (transcripts, scheduled task locks, memory)
 .claude/
 CLAUDE.md
+AGENTS.md
 
 # CI build cache (buildkit-cache-dance round-trip dir)
 .ci-cache/
