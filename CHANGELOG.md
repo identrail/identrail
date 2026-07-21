@@ -1,6 +1,54 @@
 # Changelog
 
 ## Unreleased
+- Remove the GitHub stars pill from the marketing homepage hero. The remaining
+  Docker pulls pill now sits where the pair used to, so the hero no longer
+  advertises a low star count. Also drops the GitHub REST call the pill made on
+  every page load.
+- Extend the **repository risk graph with GitHub control-plane posture** (#1710).
+  `GET /v1/repo-risk-graph` now represents branch protection, repository
+  rulesets, Actions policy, default workflow permissions, reusable workflow
+  policy, self-hosted runner groups, deployment environment protection, deploy
+  keys, webhooks, native alert sources, and organization security configuration
+  as graph nodes, linked by `repository_governed_by_control`,
+  `repository_inherits_org_policy`, `workflow_runs_on_runner_group`,
+  `finding_weakens_control`, `finding_exposes_control_risk`, and
+  `finding_depends_on_posture_source` edges. Finding scores gain a
+  `posture_amplifier` factor so proven-weak controls such as an unprotected
+  default branch, a broad Actions policy, self-hosted runners, writable deploy
+  keys, or unprotected production environments widen blast radius. Posture
+  sources the scanner could not read still return a normal numeric score, but
+  stay visible as unknown graph nodes, unknown graph edges, a `posture_source`
+  entry in the score's `unknowns` list, and a zero `posture_amplifier`, so an
+  unreadable control is never silently dropped or mistaken for a weak one.
+- Integrate **GitHub posture findings into the repository finding lifecycle,
+  trends, and clusters** (#1709). Posture gaps promoted from GitHub posture
+  collection now age, close, reopen, and roll up like every other durable
+  repository finding instead of behaving like one-off scan output. Posture
+  closure is now gated on the posture source itself rather than on the scan as a
+  whole: a posture finding closes only when a completed, non-truncated deep scan
+  reported its own posture source (`github_repository_posture` or
+  `github_organization_posture`) as `complete` and no longer saw the gap. Scans
+  that never ran posture collection, or whose posture collection was
+  permission-limited, rate-limited, or unavailable, leave posture findings open.
+  Previously an unrelated source failing — a rate-limited Dependabot call, or a
+  code-scanning collector that was simply not configured — marked the whole run
+  partial and blocked closure for every source, which could strand posture
+  findings as permanently open even after the underlying control was fixed.
+  Closure is also decided per check: a gap closes only when GitHub answered that
+  control definitively (`secure`, or `unsupported` because the repository owner
+  is a user account and organization policy no longer applies). A control that
+  is permission-limited, unavailable, unknown, or no longer exposed by the
+  account plan is never treated as fixed, since it was never re-evaluated.
+  Reappearing gaps reuse their stable lifecycle key and transition to
+  `reopened` while keeping their original first-seen age.
+- Key repository finding clusters by promotion `source` in addition to detector,
+  and expose `source` on cluster responses. Repository-scoped and
+  organization-scoped posture checks intentionally share some detectors (both
+  report `github_secret_scanning_disabled`, for example) but are distinct
+  findings; they previously merged into a single cluster, hiding an
+  organization policy gap behind a repository setting. Clusters for findings
+  without an adapter source keep their existing identity.
 - Replace the first-run **Connect AWS** screen with a scope-first single-account
   setup wizard (#1750). Operators now choose the supported account scope, enter
   a display name and setup region, launch the CloudFormation stack through a

@@ -5095,6 +5095,514 @@ func TestServiceProcessQueuedGitHubAppRepoScanPreservesPostureFindingsWhenPostur
 	}
 }
 
+func TestServiceGitHubAppRepoScanClosesAndReopensPostureFindingsAcrossCompleteScans(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	seedGitHubAppConnection(t, svc, ctx, "project-1", 101, []string{"owner/private"})
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.GitHubInstallationTokenMinter = &fakeGitHubInstallationTokenMinter{
+		token: githubconnector.InstallationToken{Token: "ghs_installation_token", ExpiresAt: time.Now().Add(24 * time.Hour)},
+	}
+	svc.AuthenticatedRepoScannerFactory = func(historyLimit int, maxFindings int, credential repoexposure.HTTPSCloneCredential) RepoScanExecutor {
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/private",
+				CommitsScanned: 1,
+				FilesScanned:   1,
+			},
+		}
+	}
+	current := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return current }
+	insecureCheck := githubconnector.RepositoryPostureCheck{
+		ID:       "default_branch_protection",
+		Category: "branch_protection",
+		State:    githubconnector.RepositoryPostureStateInsecure,
+		Reason:   "weak_protection",
+		Summary:  "Default branch protection is weak.",
+	}
+	secureCheck := insecureCheck
+	secureCheck.State = githubconnector.RepositoryPostureStateSecure
+	secureCheck.Reason = "protected"
+	secureCheck.Summary = "Default branch protection is enforced."
+	postureWithCheck := func(check githubconnector.RepositoryPostureCheck) *fakeGitHubRepositoryPostureCollector {
+		return &fakeGitHubRepositoryPostureCollector{
+			posture: githubconnector.RepositoryPosture{
+				Repository:     "owner/private",
+				InstallationID: 101,
+				CollectedAt:    current,
+				Checks:         []githubconnector.RepositoryPostureCheck{check},
+			},
+			organizationPosture: githubconnector.OrganizationPosture{
+				Organization:   "owner",
+				InstallationID: 101,
+				CollectedAt:    current,
+				Checks: []githubconnector.RepositoryPostureCheck{{
+					ID:       "org_workflow_permissions",
+					Category: "actions",
+					State:    githubconnector.RepositoryPostureStateSecure,
+					Reason:   "read_only_default",
+					Summary:  "Organization defaults workflow tokens to read-only.",
+				}},
+			},
+		}
+	}
+	runScan := func(label string) {
+		t.Helper()
+		if _, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{Repository: "owner/private", ProjectID: "project-1"}); err != nil {
+			t.Fatalf("enqueue %s repo scan: %v", label, err)
+		}
+		processed, err := svc.ProcessNextQueuedRepoScan(ctx)
+		if err != nil {
+			t.Fatalf("process %s repo scan: %v", label, err)
+		}
+		if !processed {
+			t.Fatalf("expected %s repo scan to be processed", label)
+		}
+	}
+
+	// Scan 1: the posture gap is promoted into an open durable finding.
+	svc.GitHubRepositoryPostureCollector = postureWithCheck(insecureCheck)
+	runScan("first")
+	openFindings, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+		Repository: "owner/private",
+		Status:     string(domain.RepoFindingLifecycleOpen),
+	})
+	if err != nil {
+		t.Fatalf("list open findings after first scan: %v", err)
+	}
+	if len(openFindings) != 1 || openFindings[0].Detector != "github_default_branch_unprotected" {
+		t.Fatalf("expected one open posture finding, got %+v", openFindings)
+	}
+	lifecycleKey := openFindings[0].LifecycleKey
+	firstScanID := openFindings[0].ScanID
+	if lifecycleKey == "" {
+		t.Fatalf("expected stable posture lifecycle key, got %+v", openFindings[0])
+	}
+	firstSeenAt := openFindings[0].FirstSeenAt
+	if firstSeenAt == nil {
+		t.Fatalf("expected first seen timestamp, got %+v", openFindings[0])
+	}
+
+	// Scan 2: the check is secure again, posture collection is complete, so the
+	// missing posture finding closes.
+	current = current.Add(24 * time.Hour)
+	svc.GitHubRepositoryPostureCollector = postureWithCheck(secureCheck)
+	runScan("second")
+	fixedFindings, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+		Repository: "owner/private",
+		Status:     string(domain.RepoFindingLifecycleFixed),
+	})
+	if err != nil {
+		t.Fatalf("list fixed findings after second scan: %v", err)
+	}
+	if len(fixedFindings) != 1 || fixedFindings[0].LifecycleKey != lifecycleKey || fixedFindings[0].FixedAt == nil {
+		t.Fatalf("expected the posture finding to close after a complete secure scan, got %+v", fixedFindings)
+	}
+
+	// Scan 3: the gap reappears, so the same lifecycle key transitions to
+	// reopened on a new scan row while keeping its first-seen age.
+	current = current.Add(24 * time.Hour)
+	svc.GitHubRepositoryPostureCollector = postureWithCheck(insecureCheck)
+	runScan("third")
+	reopenedFindings, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+		Repository: "owner/private",
+		Status:     string(domain.RepoFindingLifecycleReopened),
+	})
+	if err != nil {
+		t.Fatalf("list reopened findings after third scan: %v", err)
+	}
+	if len(reopenedFindings) != 1 || reopenedFindings[0].LifecycleKey != lifecycleKey || reopenedFindings[0].ReopenedAt == nil {
+		t.Fatalf("expected the reappearing posture gap to reopen, got %+v", reopenedFindings)
+	}
+	if reopenedFindings[0].ScanID == firstScanID {
+		t.Fatalf("expected the reopened row to come from a new scan, got %+v", reopenedFindings[0])
+	}
+	if reopenedFindings[0].FirstSeenAt == nil || !reopenedFindings[0].FirstSeenAt.Equal(*firstSeenAt) {
+		t.Fatalf("expected reopened posture finding to keep first seen %v, got %+v", firstSeenAt, reopenedFindings[0].FirstSeenAt)
+	}
+
+	// The lifecycle summary, clusters, and trends all include the posture
+	// finding with its detector/source metadata.
+	summary, err := svc.GetRepoFindingsSummary(ctx, db.RepoFindingFilter{Repository: "owner/private"})
+	if err != nil {
+		t.Fatalf("summarize repo findings: %v", err)
+	}
+	if summary.ReopenedCount != 1 || summary.ByDetector["github_default_branch_unprotected"] == 0 {
+		t.Fatalf("expected reopened posture finding in summary, got %+v", summary)
+	}
+
+	// Operator drill-down filters resolve posture findings by their promotion
+	// source and detector.
+	bySource, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+		Repository: "owner/private",
+		Source:     "github_posture",
+	})
+	if err != nil {
+		t.Fatalf("filter repo findings by source: %v", err)
+	}
+	if len(bySource) != 1 || bySource[0].LifecycleKey != lifecycleKey {
+		t.Fatalf("expected source filter to select the posture finding, got %+v", bySource)
+	}
+	byDetector, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+		Repository: "owner/private",
+		Detector:   "github_default_branch_unprotected",
+	})
+	if err != nil {
+		t.Fatalf("filter repo findings by detector: %v", err)
+	}
+	if len(byDetector) != 1 || byDetector[0].LifecycleKey != lifecycleKey {
+		t.Fatalf("expected detector filter to select the posture finding, got %+v", byDetector)
+	}
+	clusters, err := svc.ListRepoFindingClusters(ctx, 10, RepoFindingClusterFilter{})
+	if err != nil {
+		t.Fatalf("list repo finding clusters: %v", err)
+	}
+	var postureCluster *domain.RepoFindingCluster
+	for i := range clusters {
+		if clusters[i].Detector == "github_default_branch_unprotected" {
+			postureCluster = &clusters[i]
+			break
+		}
+	}
+	if postureCluster == nil || postureCluster.Count != 2 || postureCluster.Spread.RepoScans != 2 {
+		t.Fatalf("expected posture findings to cluster across repeated scans, got %+v", clusters)
+	}
+	trend, err := svc.GetRepoFindingsTrendFiltered(ctx, 10, "", string(domain.FindingRepoMisconfig), 0)
+	if err != nil {
+		t.Fatalf("repo findings trend: %v", err)
+	}
+	trendTotal := 0
+	for _, point := range trend {
+		trendTotal += point.Total
+	}
+	if trendTotal != 2 {
+		t.Fatalf("expected posture findings in trend buckets across scans, got %+v", trend)
+	}
+}
+
+func TestServiceGitHubAppRepoScanKeepsPostureFindingsOpenWhenCheckIsNotConclusive(t *testing.T) {
+	// A posture check that GitHub could not evaluate still promotes a finding
+	// under the same lifecycle key, but at a confidence/severity the reportable
+	// filter drops. The durable gap must stay open rather than read as fixed,
+	// because the control was never re-checked.
+	states := []struct {
+		name   string
+		state  githubconnector.RepositoryPostureState
+		reason string
+	}{
+		{name: "permission_limited", state: githubconnector.RepositoryPostureStatePermissionLimited},
+		{name: "unavailable", state: githubconnector.RepositoryPostureStateUnavailable},
+		{name: "unknown", state: githubconnector.RepositoryPostureStateUnknown},
+		{name: "unsupported_plan_change", state: githubconnector.RepositoryPostureStateUnsupported, reason: "plan_unavailable"},
+	}
+	for _, tc := range states {
+		t.Run(tc.name, func(t *testing.T) {
+			store := db.NewMemoryStore()
+			svc := NewService(store, fakeScanner{}, "aws")
+			ctx := defaultScopeContext()
+			seedDefaultProject(t, store, ctx, "project-1")
+			seedGitHubAppConnection(t, svc, ctx, "project-1", 101, []string{"owner/private"})
+			svc.RepoScanAllowedTargets = []string{"owner/*"}
+			svc.GitHubInstallationTokenMinter = &fakeGitHubInstallationTokenMinter{
+				token: githubconnector.InstallationToken{Token: "ghs_installation_token", ExpiresAt: time.Now().Add(24 * time.Hour)},
+			}
+			svc.AuthenticatedRepoScannerFactory = func(historyLimit int, maxFindings int, credential repoexposure.HTTPSCloneCredential) RepoScanExecutor {
+				return &fakeRepoExecutor{result: repoexposure.ScanResult{Repository: "owner/private", CommitsScanned: 1, FilesScanned: 1}}
+			}
+			current := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+			svc.Now = func() time.Time { return current }
+			postureWith := func(check githubconnector.RepositoryPostureCheck) *fakeGitHubRepositoryPostureCollector {
+				return &fakeGitHubRepositoryPostureCollector{
+					posture: githubconnector.RepositoryPosture{
+						Repository:     "owner/private",
+						InstallationID: 101,
+						CollectedAt:    current,
+						Checks:         []githubconnector.RepositoryPostureCheck{check},
+					},
+					organizationPosture: githubconnector.OrganizationPosture{
+						Organization:   "owner",
+						InstallationID: 101,
+						CollectedAt:    current,
+						Checks: []githubconnector.RepositoryPostureCheck{{
+							ID:    "org_workflow_permissions",
+							State: githubconnector.RepositoryPostureStateSecure,
+						}},
+					},
+				}
+			}
+			runScan := func(label string) {
+				t.Helper()
+				if _, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{Repository: "owner/private", ProjectID: "project-1"}); err != nil {
+					t.Fatalf("enqueue %s repo scan: %v", label, err)
+				}
+				processed, err := svc.ProcessNextQueuedRepoScan(ctx)
+				if err != nil {
+					t.Fatalf("process %s repo scan: %v", label, err)
+				}
+				if !processed {
+					t.Fatalf("expected %s repo scan to be processed", label)
+				}
+			}
+
+			svc.GitHubRepositoryPostureCollector = postureWith(githubconnector.RepositoryPostureCheck{
+				ID:       "default_branch_protection",
+				Category: "branch_protection",
+				State:    githubconnector.RepositoryPostureStateInsecure,
+				Reason:   "weak_protection",
+			})
+			runScan("first")
+			openFindings, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+				Repository: "owner/private",
+				Status:     string(domain.RepoFindingLifecycleOpen),
+			})
+			if err != nil {
+				t.Fatalf("list open findings: %v", err)
+			}
+			if len(openFindings) != 1 {
+				t.Fatalf("expected the posture gap to be open, got %+v", openFindings)
+			}
+			lifecycleKey := openFindings[0].LifecycleKey
+
+			// The same control now reports an inconclusive state.
+			current = current.Add(24 * time.Hour)
+			svc.GitHubRepositoryPostureCollector = postureWith(githubconnector.RepositoryPostureCheck{
+				ID:       "default_branch_protection",
+				Category: "branch_protection",
+				State:    tc.state,
+				Reason:   tc.reason,
+			})
+			runScan("second")
+
+			fixedFindings, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+				Repository: "owner/private",
+				Status:     string(domain.RepoFindingLifecycleFixed),
+			})
+			if err != nil {
+				t.Fatalf("list fixed findings: %v", err)
+			}
+			if len(fixedFindings) != 0 {
+				t.Fatalf("expected an unverified posture check not to close the gap, got %+v", fixedFindings)
+			}
+			stillOpen, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+				Repository: "owner/private",
+				Status:     string(domain.RepoFindingLifecycleOpen),
+			})
+			if err != nil {
+				t.Fatalf("list open findings after inconclusive scan: %v", err)
+			}
+			if len(stillOpen) != 1 || stillOpen[0].LifecycleKey != lifecycleKey {
+				t.Fatalf("expected the posture gap to stay open, got %+v", stillOpen)
+			}
+		})
+	}
+}
+
+func TestServiceGitHubAppRepoScanClosesPostureFindingWhenOrganizationNoLongerApplies(t *testing.T) {
+	// A repository owned by a user account genuinely has no organization policy,
+	// so an organization posture gap no longer applies and must close rather than
+	// linger forever.
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := defaultScopeContext()
+	seedDefaultProject(t, store, ctx, "project-1")
+	seedGitHubAppConnection(t, svc, ctx, "project-1", 101, []string{"owner/private"})
+	svc.RepoScanAllowedTargets = []string{"owner/*"}
+	svc.GitHubInstallationTokenMinter = &fakeGitHubInstallationTokenMinter{
+		token: githubconnector.InstallationToken{Token: "ghs_installation_token", ExpiresAt: time.Now().Add(24 * time.Hour)},
+	}
+	svc.AuthenticatedRepoScannerFactory = func(historyLimit int, maxFindings int, credential repoexposure.HTTPSCloneCredential) RepoScanExecutor {
+		return &fakeRepoExecutor{result: repoexposure.ScanResult{Repository: "owner/private", CommitsScanned: 1, FilesScanned: 1}}
+	}
+	current := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	svc.Now = func() time.Time { return current }
+	collectorWith := func(orgChecks []githubconnector.RepositoryPostureCheck) *fakeGitHubRepositoryPostureCollector {
+		return &fakeGitHubRepositoryPostureCollector{
+			posture: githubconnector.RepositoryPosture{
+				Repository:     "owner/private",
+				InstallationID: 101,
+				CollectedAt:    current,
+				Checks: []githubconnector.RepositoryPostureCheck{{
+					ID:    "default_branch_protection",
+					State: githubconnector.RepositoryPostureStateSecure,
+				}},
+			},
+			organizationPosture: githubconnector.OrganizationPosture{
+				Organization:   "owner",
+				InstallationID: 101,
+				CollectedAt:    current,
+				Checks:         orgChecks,
+			},
+		}
+	}
+	runScan := func(label string) {
+		t.Helper()
+		if _, err := svc.EnqueueRepoScan(ctx, RepoScanRequest{Repository: "owner/private", ProjectID: "project-1"}); err != nil {
+			t.Fatalf("enqueue %s repo scan: %v", label, err)
+		}
+		processed, err := svc.ProcessNextQueuedRepoScan(ctx)
+		if err != nil {
+			t.Fatalf("process %s repo scan: %v", label, err)
+		}
+		if !processed {
+			t.Fatalf("expected %s repo scan to be processed", label)
+		}
+	}
+
+	svc.GitHubRepositoryPostureCollector = collectorWith([]githubconnector.RepositoryPostureCheck{{
+		ID:     "org_workflow_permissions",
+		State:  githubconnector.RepositoryPostureStateInsecure,
+		Reason: "write_token_or_pr_approval",
+	}})
+	runScan("first")
+	openFindings, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+		Repository: "owner/private",
+		Status:     string(domain.RepoFindingLifecycleOpen),
+	})
+	if err != nil {
+		t.Fatalf("list open findings: %v", err)
+	}
+	if len(openFindings) != 1 || openFindings[0].AdapterSource != "github_org_posture" {
+		t.Fatalf("expected an open org posture gap, got %+v", openFindings)
+	}
+
+	current = current.Add(24 * time.Hour)
+	svc.GitHubRepositoryPostureCollector = collectorWith([]githubconnector.RepositoryPostureCheck{{
+		ID:     "org_workflow_permissions",
+		State:  githubconnector.RepositoryPostureStateUnsupported,
+		Reason: "not_an_organization",
+	}})
+	runScan("second")
+	fixedFindings, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+		Repository: "owner/private",
+		Status:     string(domain.RepoFindingLifecycleFixed),
+	})
+	if err != nil {
+		t.Fatalf("list fixed findings: %v", err)
+	}
+	if len(fixedFindings) != 1 || fixedFindings[0].AdapterSource != "github_org_posture" {
+		t.Fatalf("expected the org posture gap to close once it no longer applies, got %+v", fixedFindings)
+	}
+}
+
+func TestServiceRepoScanWithoutPostureCollectionPreservesPostureFindings(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+
+	firstScan, err := store.CreateRepoScan(ctx, "owner/private", db.RepoScanSource{}, db.RepoScanContext{ScanMode: db.RepoScanModeDeep}, now)
+	if err != nil {
+		t.Fatalf("create first repo scan: %v", err)
+	}
+	postureFindings := githubconnector.RepositoryPostureFindings(githubconnector.RepositoryPosture{
+		Repository:     "owner/private",
+		InstallationID: 101,
+		CollectedAt:    now,
+		Checks: []githubconnector.RepositoryPostureCheck{{
+			ID:       "default_branch_protection",
+			Category: "branch_protection",
+			State:    githubconnector.RepositoryPostureStateInsecure,
+			Reason:   "weak_protection",
+			Summary:  "Default branch protection is weak.",
+		}},
+	}, now)
+	if len(postureFindings) != 1 {
+		t.Fatalf("expected one posture finding, got %+v", postureFindings)
+	}
+	nativeFinding := domain.Finding{
+		ID:              "finding:native-secret",
+		Type:            domain.FindingSecretExposure,
+		Severity:        domain.SeverityHigh,
+		ConfidenceScore: 0.95,
+		Title:           "GitHub token exposed",
+		HumanSummary:    "A token-like value was committed.",
+		Repository:      "owner/private",
+		Commit:          "abc123",
+		FilePath:        "config/app.env",
+		LineNumber:      7,
+		Detector:        "github_token",
+		Evidence: map[string]any{
+			"repository":         "owner/private",
+			"detector":           "github_token",
+			"file_path":          "config/app.env",
+			"line_number":        7,
+			"secret_fingerprint": "fp-token",
+		},
+		CreatedAt: now,
+	}
+	if err := store.UpsertRepoFindings(ctx, firstScan.ID, append(postureFindings, nativeFinding)); err != nil {
+		t.Fatalf("upsert first scan findings: %v", err)
+	}
+	if err := store.CompleteRepoScan(ctx, firstScan.ID, "succeeded", now.Add(time.Minute), 1, 1, 2, false, db.RepoScanContext{ScanMode: db.RepoScanModeDeep}, ""); err != nil {
+		t.Fatalf("complete first repo scan: %v", err)
+	}
+
+	// A complete plain scan never runs GitHub posture collection: it may close
+	// the missing native finding but must leave the posture finding open.
+	secondScan, err := store.CreateRepoScan(ctx, "owner/private", db.RepoScanSource{}, db.RepoScanContext{ScanMode: db.RepoScanModeDeep}, now.Add(24*time.Hour))
+	if err != nil {
+		t.Fatalf("create second repo scan: %v", err)
+	}
+	if err := store.CompleteRepoScan(ctx, secondScan.ID, "succeeded", now.Add(24*time.Hour+time.Minute), 1, 1, 0, false, db.RepoScanContext{
+		ScanMode: db.RepoScanModeDeep,
+		SourceDetails: []db.RepoScanSourceHealth{
+			{Source: "identrail_repo_scanner", Status: db.RepoScanSourceHealthComplete},
+		},
+	}, ""); err != nil {
+		t.Fatalf("complete second repo scan: %v", err)
+	}
+	openFindings, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+		Repository: "owner/private",
+		Status:     string(domain.RepoFindingLifecycleOpen),
+	})
+	if err != nil {
+		t.Fatalf("list open findings after plain scan: %v", err)
+	}
+	if len(openFindings) != 1 || openFindings[0].LifecycleKey != postureFindings[0].LifecycleKey {
+		t.Fatalf("expected the posture finding to stay open after a plain scan, got %+v", openFindings)
+	}
+	fixedFindings, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+		Repository: "owner/private",
+		Status:     string(domain.RepoFindingLifecycleFixed),
+	})
+	if err != nil {
+		t.Fatalf("list fixed findings after plain scan: %v", err)
+	}
+	if len(fixedFindings) != 1 || fixedFindings[0].Detector != "github_token" {
+		t.Fatalf("expected only the native finding to close after a plain scan, got %+v", fixedFindings)
+	}
+
+	// A complete scan that collected the repository posture source closes the
+	// still-missing posture finding.
+	thirdScan, err := store.CreateRepoScan(ctx, "owner/private", db.RepoScanSource{}, db.RepoScanContext{ScanMode: db.RepoScanModeDeep}, now.Add(48*time.Hour))
+	if err != nil {
+		t.Fatalf("create third repo scan: %v", err)
+	}
+	if err := store.CompleteRepoScan(ctx, thirdScan.ID, "succeeded", now.Add(48*time.Hour+time.Minute), 1, 1, 0, false, db.RepoScanContext{
+		ScanMode: db.RepoScanModeDeep,
+		SourceDetails: []db.RepoScanSourceHealth{
+			{Source: "identrail_repo_scanner", Status: db.RepoScanSourceHealthComplete},
+			{Source: "github_repository_posture", Status: db.RepoScanSourceHealthComplete},
+			{Source: "github_organization_posture", Status: db.RepoScanSourceHealthComplete},
+		},
+	}, ""); err != nil {
+		t.Fatalf("complete third repo scan: %v", err)
+	}
+	openAfterPosture, err := svc.ListRepoFindings(ctx, 10, db.RepoFindingFilter{
+		Repository: "owner/private",
+		Status:     string(domain.RepoFindingLifecycleOpen),
+	})
+	if err != nil {
+		t.Fatalf("list open findings after posture scan: %v", err)
+	}
+	if len(openAfterPosture) != 0 {
+		t.Fatalf("expected posture finding to close after posture collection, got %+v", openAfterPosture)
+	}
+}
+
 func TestRepoScanSourceHealthClassification(t *testing.T) {
 	tests := []struct {
 		name    string

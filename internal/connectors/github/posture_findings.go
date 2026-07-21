@@ -76,14 +76,7 @@ func postureCheckToFinding(repository string, organization string, installationI
 	}
 	severity := postureFindingSeverity(check, detector)
 	confidence := postureFindingConfidence(check.State)
-	lifecycleKey := strings.Join([]string{
-		"repo_finding",
-		repository,
-		string(domain.FindingRepoMisconfig),
-		adapterSource,
-		scope,
-		check.ID,
-	}, "\x1f")
+	lifecycleKey := postureFindingLifecycleKey(repository, adapterSource, scope, check.ID)
 	evidence := postureFindingEvidence(repository, organization, installationID, collectedAt, check, adapterSource, scope, detector, confidence)
 	finding := domain.Finding{
 		ID:                  postureFindingID(lifecycleKey),
@@ -109,6 +102,80 @@ func postureCheckToFinding(repository string, organization string, installationI
 	}
 	domain.NormalizeRepoFindingMetadata(&finding)
 	return finding, true
+}
+
+// postureFindingLifecycleKey builds the scanner-stable identity for one posture
+// check. It deliberately keys on the check id rather than the detector, so the
+// same control keeps one durable finding even when its state (and therefore its
+// detector, severity, and confidence) changes between scans.
+func postureFindingLifecycleKey(repository string, adapterSource string, scope string, checkID string) string {
+	return strings.Join([]string{
+		"repo_finding",
+		repository,
+		string(domain.FindingRepoMisconfig),
+		adapterSource,
+		scope,
+		checkID,
+	}, "\x1f")
+}
+
+// RepositoryPostureInconclusiveLifecycleKeys returns the lifecycle keys of
+// repository posture checks this collection could not conclusively evaluate.
+// Callers must not close a durable finding for these keys: the control was never
+// re-checked, so its absence from the promoted findings says nothing about
+// whether the gap was fixed.
+func RepositoryPostureInconclusiveLifecycleKeys(posture RepositoryPosture) []string {
+	return postureInconclusiveLifecycleKeys(posture.Repository, posture.Checks, githubPostureAdapterSource, "repository")
+}
+
+// OrganizationPostureInconclusiveLifecycleKeys returns the lifecycle keys of
+// organization posture checks this collection could not conclusively evaluate,
+// scoped to the repository that inherits the organization policy.
+func OrganizationPostureInconclusiveLifecycleKeys(posture OrganizationPosture, repository string) []string {
+	return postureInconclusiveLifecycleKeys(repository, posture.Checks, githubOrgPostureAdapterSource, "organization")
+}
+
+func postureInconclusiveLifecycleKeys(repository string, checks []RepositoryPostureCheck, adapterSource string, scope string) []string {
+	repository = strings.ToLower(strings.TrimSpace(repository))
+	if repository == "" || len(checks) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(checks))
+	seen := map[string]struct{}{}
+	for _, check := range checks {
+		checkID := strings.TrimSpace(check.ID)
+		if checkID == "" || postureCheckConclusive(check) {
+			continue
+		}
+		key := postureFindingLifecycleKey(repository, adapterSource, scope, checkID)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+// postureCheckConclusive reports whether GitHub gave a definitive answer for one
+// posture check, so a prior finding for it may be closed when the check no
+// longer reports a gap.
+//
+// `secure` and `insecure` are definitive. `unsupported` is definitive only when
+// the control genuinely does not apply to this owner (a user account has no
+// organization policy); an `unsupported` caused by the account plan no longer
+// exposing the control means the gap was never verified as fixed, so it stays
+// open for an operator to suppress or act on. `permission_limited`,
+// `unavailable`, and `unknown` are never definitive.
+func postureCheckConclusive(check RepositoryPostureCheck) bool {
+	switch check.State {
+	case RepositoryPostureStateSecure, RepositoryPostureStateInsecure:
+		return true
+	case RepositoryPostureStateUnsupported:
+		return strings.TrimSpace(check.Reason) == "not_an_organization"
+	default:
+		return false
+	}
 }
 
 func postureFindingDetector(check RepositoryPostureCheck) string {

@@ -198,6 +198,88 @@ func TestPostureFindingsKeepLifecycleWhenCheckStateDegrades(t *testing.T) {
 	}
 }
 
+func TestPostureInconclusiveLifecycleKeysCoverUnverifiedChecks(t *testing.T) {
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	posture := RepositoryPosture{
+		Repository:  "owner/repo",
+		CollectedAt: now,
+		Checks: []RepositoryPostureCheck{
+			{ID: "default_branch_protection", State: RepositoryPostureStateInsecure},
+			{ID: "repository_rulesets", State: RepositoryPostureStateSecure},
+			{ID: "secret_scanning", State: RepositoryPostureStatePermissionLimited},
+			{ID: "code_scanning", State: RepositoryPostureStateUnavailable},
+			{ID: "webhooks", State: RepositoryPostureStateUnknown},
+			{ID: "deploy_keys", State: RepositoryPostureStateUnsupported, Reason: "plan_unavailable"},
+		},
+	}
+
+	keys := RepositoryPostureInconclusiveLifecycleKeys(posture)
+	if len(keys) != 4 {
+		t.Fatalf("expected the four unverified checks to be inconclusive, got %d: %+v", len(keys), keys)
+	}
+	inconclusive := map[string]struct{}{}
+	for _, key := range keys {
+		inconclusive[key] = struct{}{}
+	}
+	keyFor := func(checkID string) string {
+		return postureFindingLifecycleKey("owner/repo", githubPostureAdapterSource, "repository", checkID)
+	}
+	for _, checkID := range []string{"secret_scanning", "code_scanning", "webhooks", "deploy_keys"} {
+		if _, ok := inconclusive[keyFor(checkID)]; !ok {
+			t.Errorf("expected %s to be inconclusive, got %+v", checkID, keys)
+		}
+	}
+	// Conclusively evaluated checks must stay closable, otherwise a plan that
+	// permanently lacks one control would strand every other posture finding.
+	for _, checkID := range []string{"default_branch_protection", "repository_rulesets"} {
+		if _, ok := inconclusive[keyFor(checkID)]; ok {
+			t.Errorf("expected %s to remain conclusive, got %+v", checkID, keys)
+		}
+	}
+
+	// A permission-limited check keeps the lifecycle key of the gap it replaced,
+	// so the inconclusive key matches the durable finding that must stay open.
+	insecure := RepositoryPostureFindings(RepositoryPosture{
+		Repository:  "owner/repo",
+		CollectedAt: now,
+		Checks:      []RepositoryPostureCheck{{ID: "secret_scanning", State: RepositoryPostureStateInsecure}},
+	}, now)
+	if len(insecure) != 1 || insecure[0].LifecycleKey != keyFor("secret_scanning") {
+		t.Fatalf("expected the insecure finding to share the inconclusive key, got %+v", insecure)
+	}
+}
+
+func TestOrganizationPostureInconclusiveLifecycleKeysDistinguishUnsupportedReasons(t *testing.T) {
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	// A user-owned repository genuinely has no organization policy, so those
+	// checks are conclusive and prior findings may close.
+	userOwned := OrganizationPosture{
+		Organization: "owner",
+		CollectedAt:  now,
+		Checks: []RepositoryPostureCheck{
+			{ID: "org_secret_scanning_policy", State: RepositoryPostureStateUnsupported, Reason: "not_an_organization"},
+		},
+	}
+	if keys := OrganizationPostureInconclusiveLifecycleKeys(userOwned, "owner/repo"); len(keys) != 0 {
+		t.Fatalf("expected not_an_organization checks to be conclusive, got %+v", keys)
+	}
+
+	// The organization exists but GitHub stopped exposing the control (a plan
+	// change), so the gap was never verified as fixed and must stay open.
+	planLimited := OrganizationPosture{
+		Organization: "owner",
+		CollectedAt:  now,
+		Checks: []RepositoryPostureCheck{
+			{ID: "org_secret_scanning_policy", State: RepositoryPostureStateUnsupported, Reason: "plan_unavailable"},
+		},
+	}
+	keys := OrganizationPostureInconclusiveLifecycleKeys(planLimited, "owner/repo")
+	want := postureFindingLifecycleKey("owner/repo", githubOrgPostureAdapterSource, "organization", "org_secret_scanning_policy")
+	if len(keys) != 1 || keys[0] != want {
+		t.Fatalf("expected plan-unavailable org checks to be inconclusive, got %+v", keys)
+	}
+}
+
 func findingByDetector(findings []domain.Finding, detector string) *domain.Finding {
 	for i := range findings {
 		if findings[i].Detector == detector {
@@ -205,4 +287,180 @@ func findingByDetector(findings []domain.Finding, detector string) *domain.Findi
 		}
 	}
 	return nil
+}
+
+// TestPostureFindingsBuildControlPlaneRiskGraph pins the contract between the
+// posture collector and the repo risk graph: every control-plane check the
+// collector can report must resolve to a graph node. It fails if a check ID is
+// renamed here without updating the graph mapping in internal/domain.
+func TestPostureFindingsBuildControlPlaneRiskGraph(t *testing.T) {
+	collectedAt := time.Date(2026, 7, 4, 10, 0, 0, 0, time.UTC)
+	repositoryPosture := RepositoryPosture{
+		Repository:  "owner/repo",
+		CollectedAt: collectedAt,
+		Checks: []RepositoryPostureCheck{
+			{
+				ID:       "default_branch_protection",
+				Category: "branch_protection",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "weak_protection",
+				Evidence: map[string]any{"default_branch": "main", "force_pushes_allowed": true},
+			},
+			{
+				ID:       "repository_rulesets",
+				Category: "branch_protection",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "no_active_rulesets",
+			},
+			{
+				ID:       "actions_permissions",
+				Category: "actions",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "broad_actions_or_write_privileges",
+				Evidence: map[string]any{"allowed_actions": "all"},
+			},
+			{
+				ID:       "deploy_keys",
+				Category: "access",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "writable_deploy_keys_present",
+				Evidence: map[string]any{"writable_deploy_keys": 1},
+			},
+			{
+				ID:       "webhooks",
+				Category: "webhooks",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "risky_webhooks_present",
+				Evidence: map[string]any{"insecure_ssl_hooks": 1},
+			},
+			{
+				ID:       "deployment_environments",
+				Category: "deployments",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "unprotected_environments",
+				Evidence: map[string]any{"unprotected_environments": 1},
+			},
+			{
+				ID:       "self_hosted_runners",
+				Category: "runners",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "self_hosted_runners_present",
+			},
+			{
+				ID:       "code_scanning",
+				Category: "security",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "not_configured",
+			},
+			{
+				ID:       "secret_scanning",
+				Category: "security",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "not_configured",
+			},
+			{
+				ID:       "dependabot_security",
+				Category: "security",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "dependabot_security_disabled",
+			},
+		},
+	}
+	organizationPosture := OrganizationPosture{
+		Organization: "owner",
+		CollectedAt:  collectedAt,
+		Checks: []RepositoryPostureCheck{
+			{
+				ID:       "org_actions_policy",
+				Category: "actions",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "all_actions_allowed",
+			},
+			{
+				ID:       "org_workflow_permissions",
+				Category: "actions",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "write_default",
+			},
+			{
+				ID:       "org_reusable_workflow_policy",
+				Category: "actions",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "verified_creators_allowed",
+			},
+			{
+				ID:       "org_secret_scanning_policy",
+				Category: "secret_scanning",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "push_protection_disabled",
+			},
+			{
+				ID:       "org_code_security_configuration",
+				Category: "code_security",
+				State:    RepositoryPostureStateInsecure,
+				Reason:   "configuration_not_enforced",
+			},
+		},
+	}
+
+	findings := RepositoryPostureFindings(repositoryPosture, collectedAt)
+	findings = append(findings, OrganizationPostureFindings(organizationPosture, "owner/repo", collectedAt)...)
+	graph := domain.BuildRepoRiskGraph(findings, domain.RepoRiskGraphOptions{
+		Repository:    "owner/repo",
+		DefaultBranch: "main",
+		Now:           collectedAt,
+	})
+
+	for _, kind := range []domain.RepoRiskGraphNodeKind{
+		domain.RepoRiskNodeBranchProtection,
+		domain.RepoRiskNodeRepositoryRuleset,
+		domain.RepoRiskNodeActionsPolicy,
+		domain.RepoRiskNodeWorkflowPermissionDefault,
+		domain.RepoRiskNodeReusableWorkflowPolicy,
+		domain.RepoRiskNodeRunnerGroup,
+		domain.RepoRiskNodeEnvironmentProtection,
+		domain.RepoRiskNodeDeployKey,
+		domain.RepoRiskNodeWebhook,
+		domain.RepoRiskNodeAlertSource,
+		domain.RepoRiskNodeOrgSecurityConfiguration,
+	} {
+		if !graphHasNodeKind(graph, kind) {
+			t.Fatalf("expected posture findings to build a %q node, got %+v", kind, graph.Nodes)
+		}
+	}
+
+	for _, kind := range []domain.RepoRiskGraphEdgeKind{
+		domain.RepoRiskEdgeRepositoryGovernedBy,
+		domain.RepoRiskEdgeInheritsOrgPolicy,
+		domain.RepoRiskEdgeFindingWeakensControl,
+		domain.RepoRiskEdgeFindingExposesControl,
+	} {
+		if !graphHasEdgeKind(graph, kind) {
+			t.Fatalf("expected posture findings to build a %q edge, got %+v", kind, graph.Edges)
+		}
+	}
+
+	for _, score := range graph.Scores {
+		if score.Factors.PostureAmplifier == 0 {
+			t.Fatalf("expected every insecure posture finding to amplify its score, got %+v", score)
+		}
+	}
+}
+
+func graphHasNodeKind(graph domain.RepoRiskGraph, kind domain.RepoRiskGraphNodeKind) bool {
+	for _, node := range graph.Nodes {
+		if node.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func graphHasEdgeKind(graph domain.RepoRiskGraph, kind domain.RepoRiskGraphEdgeKind) bool {
+	for _, edge := range graph.Edges {
+		if edge.Kind == kind {
+			return true
+		}
+	}
+	return false
 }

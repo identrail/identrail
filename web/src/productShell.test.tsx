@@ -11407,7 +11407,8 @@ describe('ProductFindingsPage states', () => {
               privilege: 70,
               exposure: 70,
               environment_criticality: 60,
-              freshness: 90
+              freshness: 90,
+              posture_amplifier: 0
             },
             unknowns: []
           }

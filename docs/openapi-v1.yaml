@@ -26027,6 +26027,13 @@ components:
         type: { $ref: "#/components/schemas/FindingType" }
         severity: { $ref: "#/components/schemas/FindingSeverity" }
         detector: { type: string }
+        source:
+          type: string
+          description: >-
+            Adapter source that promoted the findings in this cluster (for
+            example `github_posture` or `github_org_posture`). Clusters are keyed
+            by source in addition to detector, so distinct sources that share one
+            detector stay separate.
         title: { type: string }
         human_summary: { type: string }
         remediation: { type: string }
@@ -26079,7 +26086,7 @@ components:
         id: { type: string }
         kind:
           type: string
-          enum: [repository, default_branch, finding, workflow, workflow_job, environment, secret, deploy_key, github_app, token, oidc_subject, cloud_role, kubernetes_service_account, unknown]
+          enum: [repository, default_branch, finding, workflow, workflow_job, environment, secret, deploy_key, github_app, token, oidc_subject, cloud_role, kubernetes_service_account, branch_protection, repository_ruleset, actions_policy, workflow_permission_default, reusable_workflow_policy, runner_group, environment_protection, webhook, alert_source, org_security_configuration, unknown]
         label: { type: string }
         repository: { type: string }
         evidence_state:
@@ -26094,7 +26101,7 @@ components:
         id: { type: string }
         kind:
           type: string
-          enum: [repository_contains_workflow, repository_default_branch, finding_in_repository, finding_affects_workflow, workflow_runs_job, job_uses_secret, finding_exposes_token, workflow_can_mint_token, oidc_subject_can_assume_role, repo_deploys_to_environment, finding_references_identity, reachability_unknown]
+          enum: [repository_contains_workflow, repository_default_branch, finding_in_repository, finding_affects_workflow, workflow_runs_job, job_uses_secret, finding_exposes_token, workflow_can_mint_token, oidc_subject_can_assume_role, repo_deploys_to_environment, finding_references_identity, repository_governed_by_control, repository_inherits_org_policy, workflow_runs_on_runner_group, finding_weakens_control, finding_exposes_control_risk, finding_depends_on_posture_source, reachability_unknown]
         from_node_id: { type: string }
         to_node_id: { type: string }
         evidence_state:
@@ -26155,6 +26162,17 @@ components:
           type: integer
           minimum: 0
           maximum: 100
+        posture_amplifier:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: >-
+            How strongly a proven-weak GitHub control (branch protection, Actions
+            policy, self-hosted runners, write deploy keys, unprotected
+            environments) widens this finding's blast radius. Zero when the
+            finding is not posture-backed, or when the control could not be read;
+            unreadable posture sources appear as unknown nodes, unknown edges,
+            and a "posture_source" entry in unknowns instead.
     RepoRiskGraphSummary:
       type: object
       properties:

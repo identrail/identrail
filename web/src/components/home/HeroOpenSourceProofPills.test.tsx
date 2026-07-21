@@ -25,7 +25,6 @@ describe('HeroOpenSourceProofPills', () => {
   it('does not show zero Docker pulls when pull metrics are unavailable', async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = new URL(fetchURL(input));
-      if (url.hostname === 'api.github.com') return okJSON({ stargazers_count: 3 });
       if (url.hostname === 'img.shields.io' && url.pathname.includes('/docker/pulls')) {
         return okJSON({ message: 'repo not found' });
       }
@@ -35,11 +34,11 @@ describe('HeroOpenSourceProofPills', () => {
 
     render(<HeroOpenSourceProofPills />);
 
-    await waitFor(() => expect(screen.getByText('3')).toBeInTheDocument());
-
-    const dockerPill = screen.getByText('Docker pulls').closest('a');
+    const dockerPill = (await screen.findByText('Docker pulls')).closest('a');
     expect(dockerPill).not.toBeNull();
-    expect(within(dockerPill as HTMLElement).getByText('Live')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(dockerPill as HTMLElement).getByText('Live')).toBeInTheDocument()
+    );
     expect(within(dockerPill as HTMLElement).queryByText('0')).not.toBeInTheDocument();
   });
 
@@ -47,7 +46,6 @@ describe('HeroOpenSourceProofPills', () => {
     const dockerMetricPaths: string[] = [];
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = new URL(fetchURL(input));
-      if (url.hostname === 'api.github.com') return okJSON({ stargazers_count: 3 });
       if (url.hostname === 'img.shields.io' && url.pathname.includes('/docker/pulls')) {
         dockerMetricPaths.push(url.pathname);
         return okJSON({ message: '2.4k' });
@@ -61,5 +59,20 @@ describe('HeroOpenSourceProofPills', () => {
     await waitFor(() => expect(screen.getByText('2.4k+')).toBeInTheDocument());
 
     expect(dockerMetricPaths).toEqual(['/docker/pulls/identrail/identrail.json']);
+  });
+
+  it('does not render a GitHub stars pill and does not call the GitHub API', async () => {
+    const fetchedHostnames: string[] = [];
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      fetchedHostnames.push(new URL(fetchURL(input)).hostname);
+      return okJSON({ message: '2.4k' });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<HeroOpenSourceProofPills />);
+
+    await waitFor(() => expect(screen.getByText('2.4k+')).toBeInTheDocument());
+    expect(screen.queryByText('GitHub stars')).not.toBeInTheDocument();
+    expect(fetchedHostnames).not.toContain('api.github.com');
   });
 });

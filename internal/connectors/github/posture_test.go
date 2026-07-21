@@ -408,3 +408,35 @@ func postureCheckByID(posture RepositoryPosture, id string) RepositoryPostureChe
 	}
 	return RepositoryPostureCheck{}
 }
+
+func TestEnvironmentCriticalityTierClassifiesRedactedTiers(t *testing.T) {
+	cases := map[string]string{
+		"production":  "production",
+		"prod-us":     "production",
+		"go-live":     "production",
+		"staging":     "staging",
+		"preprod":     "staging",
+		"development": "development",
+		"qa-test":     "development",
+		"sandbox":     "development",
+		"ephemeral":   "unknown",
+		"":            "unknown",
+	}
+	for name, want := range cases {
+		if got := environmentCriticalityTier(name); got != want {
+			t.Errorf("environmentCriticalityTier(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestHigherEnvironmentCriticalityKeepsMostSevereTier(t *testing.T) {
+	if got := higherEnvironmentCriticality("development", "production"); got != "production" {
+		t.Fatalf("expected production to outrank development, got %q", got)
+	}
+	if got := higherEnvironmentCriticality("staging", "development"); got != "staging" {
+		t.Fatalf("expected staging to outrank development, got %q", got)
+	}
+	if got := higherEnvironmentCriticality("production", ""); got != "production" {
+		t.Fatalf("expected an existing production tier to survive an unknown, got %q", got)
+	}
+}

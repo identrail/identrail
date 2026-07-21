@@ -221,9 +221,55 @@ export type RepoFindingRemediationPublishResponse = {
   publish: RepoRemediationPublishResult;
 };
 
+export type RepoRiskGraphNodeKind =
+  | 'repository'
+  | 'default_branch'
+  | 'finding'
+  | 'workflow'
+  | 'workflow_job'
+  | 'environment'
+  | 'secret'
+  | 'deploy_key'
+  | 'github_app'
+  | 'token'
+  | 'oidc_subject'
+  | 'cloud_role'
+  | 'kubernetes_service_account'
+  | 'branch_protection'
+  | 'repository_ruleset'
+  | 'actions_policy'
+  | 'workflow_permission_default'
+  | 'reusable_workflow_policy'
+  | 'runner_group'
+  | 'environment_protection'
+  | 'webhook'
+  | 'alert_source'
+  | 'org_security_configuration'
+  | 'unknown';
+
+export type RepoRiskGraphEdgeKind =
+  | 'repository_contains_workflow'
+  | 'repository_default_branch'
+  | 'finding_in_repository'
+  | 'finding_affects_workflow'
+  | 'workflow_runs_job'
+  | 'job_uses_secret'
+  | 'finding_exposes_token'
+  | 'workflow_can_mint_token'
+  | 'oidc_subject_can_assume_role'
+  | 'repo_deploys_to_environment'
+  | 'finding_references_identity'
+  | 'repository_governed_by_control'
+  | 'repository_inherits_org_policy'
+  | 'workflow_runs_on_runner_group'
+  | 'finding_weakens_control'
+  | 'finding_exposes_control_risk'
+  | 'finding_depends_on_posture_source'
+  | 'reachability_unknown';
+
 export type RepoRiskGraphNode = {
   id: string;
-  kind: string;
+  kind: RepoRiskGraphNodeKind;
   label: string;
   repository?: string;
   evidence_state: 'known' | 'unknown';
@@ -232,7 +278,7 @@ export type RepoRiskGraphNode = {
 
 export type RepoRiskGraphEdge = {
   id: string;
-  kind: string;
+  kind: RepoRiskGraphEdgeKind;
   from_node_id: string;
   to_node_id: string;
   evidence_state: 'known' | 'unknown';
@@ -247,6 +293,7 @@ export type RepoRiskGraphScoreFactors = {
   exposure: number;
   environment_criticality: number;
   freshness: number;
+  posture_amplifier: number;
 };
 
 export type RepoRiskGraphFindingScore = {

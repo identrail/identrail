@@ -672,9 +672,11 @@ func (c RepositoryClient) collectEnvironments(ctx context.Context, token string,
 		return checkFromAPIError("deployment_environments", "deployments", err, RepositoryPostureStateUnavailable, "api_unavailable", "Deployment environments could not be collected.")
 	}
 	unprotected := 0
+	unprotectedCriticality := ""
 	for _, environment := range environments {
 		if len(environment.ProtectionRules) == 0 {
 			unprotected++
+			unprotectedCriticality = higherEnvironmentCriticality(unprotectedCriticality, environmentCriticalityTier(environment.Name))
 		}
 	}
 	if totalCount < len(environments) {
@@ -684,6 +686,12 @@ func (c RepositoryClient) collectEnvironments(ctx context.Context, token string,
 		"repository":               repository,
 		"environment_count":        totalCount,
 		"unprotected_environments": unprotected,
+	}
+	// Carry the highest unprotected-environment criticality tier, not the
+	// environment names, so downstream scoring can amplify unprotected
+	// production environments without leaking environment identifiers.
+	if unprotectedCriticality != "" {
+		evidence["unprotected_environment_criticality"] = unprotectedCriticality
 	}
 	if totalCount > 0 && unprotected > 0 {
 		return RepositoryPostureCheck{
@@ -703,6 +711,45 @@ func (c RepositoryClient) collectEnvironments(ctx context.Context, token string,
 		Summary:  "Deployment environments are protected or none were returned.",
 		Evidence: evidence,
 	}
+}
+
+// environmentCriticalityTier classifies a deployment environment name into a
+// coarse criticality tier. It intentionally returns only the tier, never the
+// name, so posture evidence stays summary-shaped.
+func environmentCriticalityTier(name string) string {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	switch {
+	case normalized == "":
+		return "unknown"
+	case strings.Contains(normalized, "stag") || strings.Contains(normalized, "preprod"):
+		return "staging"
+	case strings.Contains(normalized, "prod") || strings.Contains(normalized, "live"):
+		return "production"
+	case strings.Contains(normalized, "dev") || strings.Contains(normalized, "test") || strings.Contains(normalized, "sandbox"):
+		return "development"
+	default:
+		return "unknown"
+	}
+}
+
+// higherEnvironmentCriticality returns the more severe of two criticality tiers.
+func higherEnvironmentCriticality(left string, right string) string {
+	rank := func(tier string) int {
+		switch tier {
+		case "production":
+			return 3
+		case "staging":
+			return 2
+		case "development":
+			return 1
+		default:
+			return 0
+		}
+	}
+	if rank(right) > rank(left) {
+		return right
+	}
+	return left
 }
 
 // collectSelfHostedRunners reports whether the repository can run jobs on
