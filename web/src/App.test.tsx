@@ -399,8 +399,11 @@ describe('App', () => {
 
     const scanButtons = screen.getAllByRole('button', { name: 'Request Trust Path Review' });
     expect(scanButtons.length).toBeGreaterThan(0);
+    expect(document.querySelectorAll('.idt-logo-cloud-group')).toHaveLength(2);
+    expect(document.querySelectorAll('.idt-logo-cloud-group:first-child .idt-logo-cloud-item')).toHaveLength(8);
     fireEvent.click(scanButtons[0]);
     expect(screen.getByRole('dialog', { name: /Verify company identity/i })).toBeInTheDocument();
+    expect(screen.queryByText('Read-only trust review')).not.toBeInTheDocument();
     expect(screen.queryByText(/Need enterprise procurement/i)).not.toBeInTheDocument();
     expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
@@ -611,6 +614,16 @@ describe('App', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/company or work email/i);
     expect(screen.getByText(/Step 1 of 4/i)).toBeInTheDocument();
     expect(leadCaptureCalls(fetchMock)).toHaveLength(0);
+  });
+
+  it('opens the scan intake without the legacy demo eyebrow', () => {
+    setCurrentPath('/');
+    vi.stubGlobal('fetch', vi.fn(async () => okJSON({ status: 'accepted' })));
+    render(<App />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Request Trust Path Review' })[0]);
+
+    expect(screen.getByRole('heading', { name: 'Request a trust path review' })).toBeInTheDocument();
+    expect(screen.queryByText('Read-only trust review')).not.toBeInTheDocument();
   });
 
   it('rejects company domains that do not match the work email domain', () => {

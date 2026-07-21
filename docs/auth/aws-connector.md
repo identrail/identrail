@@ -22,7 +22,16 @@ POST /v1/connectors/aws/{connector_id}/refresh-policy
 
 ## Required Runtime Configuration
 
-`IDENTRAIL_AWS_CFN_TEMPLATE_URL` points to the published CloudFormation template.
+`IDENTRAIL_AWS_CFN_TEMPLATE_URL` points to the published CloudFormation
+template. StackSet onboarding requires this URL to be content-addressed with
+the same SHA-256 digest supplied in `IDENTRAIL_AWS_CFN_TEMPLATE_SHA256` as a
+`/sha256/<digest>/` path segment; mutable template URLs, query-string digests,
+and fragments are rejected before Identrail returns a launch URL.
+
+`IDENTRAIL_AWS_CFN_TEMPLATE_SHA256` is the release-provided SHA-256 checksum for
+that exact template. It is optional for existing single-account and manual-role
+setups, but StackSet onboarding requires it before Identrail returns a launch
+URL.
 
 `IDENTRAIL_AWS_ACCOUNT_ID` is the AWS account ID for the Identrail deployment that customer roles should trust.
 
@@ -127,9 +136,14 @@ The contract fields are:
 - `onboarding_status`: `draft`, `launch_ready`, `waiting_for_aws`,
   `validating`, `connected`, `partial`, `needs_fix`, or `failed`.
 - `target_regions`, `target_account_ids`, `target_ou_ids`, and
-  `excluded_account_ids`: normalized setup target lists.
-- `auto_onboard_new_accounts`: whether future organization accounts should be
-  included automatically once StackSet onboarding owns that path.
+  `excluded_account_ids`: normalized setup target lists. For StackSet setup,
+  `target_regions` records scan-region intent; the read-only IAM role StackSet
+  deploys in the first normalized home region only because the role is global
+  within each AWS account.
+- `auto_onboard_new_accounts`: whether service-managed Organization or OU
+  StackSets should automatically deploy the connector role to future accounts
+  added under the target. Selected-account StackSets reject this flag because
+  AWS automatic deployments are OU-scoped and do not honor account filters.
 - `setup_summary` and `next_actions`: short app-facing guidance for the next
   safe operator action.
 
@@ -138,13 +152,19 @@ defaults to `single_account` with `cloudformation`. The legacy direct role
 validation path reports `manual_role` with `manual`. Invalid combinations are
 rejected before setup is persisted: manual role setup must use `manual`,
 organization and selected scopes must use a StackSet deployment method,
-selected OUs/accounts must include targets, and malformed AWS account IDs, OU
-IDs, and regions fail validation.
+organization scope must include an organization root target,
+organization and selected-OU scopes reject `target_account_ids`,
+selected-OU scope accepts only `ou-...` IDs and rejects organization roots,
+service-managed selected accounts must include account filters, selected-account
+exclusions must leave at least one effective account, selected-account
+auto-onboarding is rejected, and malformed AWS account IDs, OU IDs, and regions
+fail validation.
 
-The executable `POST /v1/connectors/aws` setup path currently supports
-`single_account`/`cloudformation` and `manual_role`/`manual` read-only
-onboarding. Organization, selected-OU, selected-account, and Terraform flows
-remain reserved for follow-on implementation issues.
+The executable `POST /v1/connectors/aws` setup path supports
+`single_account`/`cloudformation`, `manual_role`/`manual`,
+`organization`/`stackset_service_managed`, `selected_ous`/
+`stackset_service_managed`, and selected-account StackSet setup. Terraform
+remains reserved for follow-on implementation issues.
 
 ## Account and Region Coverage Registry
 

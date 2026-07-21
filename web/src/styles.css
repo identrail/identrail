@@ -14964,11 +14964,26 @@ html[data-theme='light'] .idt-trust-strip,
 }
 
 .idt-logo-cloud-track {
-  gap: 0.7rem;
+  gap: 0;
   width: max-content;
-  margin-left: -4rem;
+  margin-left: 0;
   padding-inline: 0;
-  animation-duration: 44s;
+  animation: idtLogoCloudSlide 30s linear infinite;
+}
+
+.idt-logo-cloud-group {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.7rem;
+  padding-right: 0.7rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .idt-logo-cloud-track {
+    animation: none;
+    transform: none;
+  }
 }
 
 .idt-logo-cloud-track .idt-logo-cloud-item {
@@ -15622,9 +15637,13 @@ html[data-theme='light'] .idt-problem-map-core div span {
   }
 
   .idt-logo-cloud-track {
-    gap: 0.8rem;
-    margin-left: -3rem;
-    padding-inline: 0;
+    gap: 0;
+    margin-left: 0;
+  }
+
+  .idt-logo-cloud-group {
+    gap: 0.6rem;
+    padding-right: 0.6rem;
   }
 
   .idt-logo-cloud-track .idt-logo-cloud-item {

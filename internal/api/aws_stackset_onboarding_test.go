@@ -44,9 +44,11 @@ func TestGetAWSStackSetOnboardingSuccess(t *testing.T) {
 	if result.Validation.Status != "ready" || result.Validation.BlockingCount != 0 {
 		t.Fatalf("expected ready validation, got %+v", result.Validation)
 	}
-	// Default: 3 accounts × 2 regions = 6 instances.
-	if result.Summary.TotalInstances != 6 {
-		t.Fatalf("expected 6 instances, got %d", result.Summary.TotalInstances)
+	// Default: 3 accounts x 1 deployment region = 3 instances. The connector
+	// can still record multi-region scan intent separately from StackSet role
+	// deployment, because the IAM role template is global per account.
+	if result.Summary.TotalInstances != 3 {
+		t.Fatalf("expected 3 instances, got %d", result.Summary.TotalInstances)
 	}
 	if result.Summary.ActiveInstances < 2 {
 		t.Fatalf("expected at least 2 active instances from checkpoints, got %+v", result.Summary)
@@ -56,6 +58,9 @@ func TestGetAWSStackSetOnboardingSuccess(t *testing.T) {
 	}
 	if !strings.Contains(result.LaunchURL, "permissionModel=SERVICE_MANAGED") {
 		t.Fatalf("expected SERVICE_MANAGED permission model in launch URL, got %q", result.LaunchURL)
+	}
+	if !strings.Contains(result.LaunchURL, "regions=us-east-1") || strings.Contains(result.LaunchURL, "eu-west-1") {
+		t.Fatalf("expected stackset launch URL to use one deployment region, got %q", result.LaunchURL)
 	}
 	if len(result.PermissionPreview) == 0 {
 		t.Fatalf("expected permission preview tiers")

@@ -49,6 +49,22 @@
   findings; they previously merged into a single cluster, hiding an
   organization policy gap behind a repository setting. Clusters for findings
   without an adapter source keep their existing identity.
+- Add the **organization and selected-scope AWS StackSet backend** (#1752).
+  `POST /v1/connectors/aws` now starts service-managed StackSet setup for AWS
+  Organizations, selected OUs, and selected account scopes, plus constrained
+  self-managed setup for explicit selected accounts. Responses include the
+  StackSet launch URL, StackSet name, template checksum, target intent summary,
+  prerequisite output, typed next actions, and the unified StackSet onboarding
+  payload while keeping the existing `/aws/stackset-onboarding` planner route
+  compatible. Connector metadata records intended coverage only; confirmed
+  graph coverage still waits for later AWS validation and collector work. The
+  start flow uses the release-provided CloudFormation template checksum rather
+  than deriving one from URL metadata, keeps Identrail's trusted AWS account
+  separate from the customer's management account, and blocks service-managed
+  StackSet launch readiness until trusted access is verified. Selected-account
+  and organization service-managed setup now requires a root or OU target; the
+  selected-account path emits selected account IDs as AWS StackSet account
+  filters.
 - Replace the first-run **Connect AWS** screen with a scope-first single-account
   setup wizard (#1750). Operators now choose the supported account scope, enter
   a display name and setup region, launch the CloudFormation stack through a

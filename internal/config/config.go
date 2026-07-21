@@ -104,6 +104,7 @@ type Config struct {
 	AWSRegion                     string
 	AWSProfile                    string
 	AWSCloudFormationTemplateURL  string
+	AWSCloudFormationTemplateSHA  string
 	AWSAccountID                  string
 	AWSCloudTrailS3Bucket         string
 	AWSCloudTrailS3Prefix         string
@@ -291,6 +292,7 @@ func Load() Config {
 		AWSRegion:                     getEnv("IDENTRAIL_AWS_REGION", defaultAWSRegion),
 		AWSProfile:                    getEnv("IDENTRAIL_AWS_PROFILE", ""),
 		AWSCloudFormationTemplateURL:  getEnv("IDENTRAIL_AWS_CFN_TEMPLATE_URL", ""),
+		AWSCloudFormationTemplateSHA:  getEnv("IDENTRAIL_AWS_CFN_TEMPLATE_SHA256", ""),
 		AWSAccountID:                  getEnv("IDENTRAIL_AWS_ACCOUNT_ID", ""),
 		AWSCloudTrailS3Bucket:         strings.TrimSpace(getEnv("IDENTRAIL_AWS_CLOUDTRAIL_S3_BUCKET", "")),
 		AWSCloudTrailS3Prefix:         strings.TrimSpace(getEnv("IDENTRAIL_AWS_CLOUDTRAIL_S3_PREFIX", "")),

@@ -217,6 +217,7 @@ type Service struct {
 	AWSCloudTrailDeliveryFactory       AWSCloudTrailDeliveryIngesterFactory
 	AWSRuntimeSignalFactory            AWSRuntimeSignalFactory
 	AWSCloudFormationTemplateURL       string
+	AWSCloudFormationTemplateSHA       string
 	AWSAccountID                       string
 	AWSBaselineGitSHA                  string
 	AWSBaselineSourceMode              string

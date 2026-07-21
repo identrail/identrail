@@ -34,7 +34,7 @@ const TRUST_LOGOS = [
 ] as const;
 
 export function TrustProofStrip() {
-  const logos = [...TRUST_LOGOS, ...TRUST_LOGOS, ...TRUST_LOGOS, ...TRUST_LOGOS];
+  const logoGroups = [0, 1] as const;
 
   return (
     <section className="idt-trust-strip" aria-label="Identity ecosystem signals">
@@ -46,11 +46,15 @@ export function TrustProofStrip() {
       </ul>
       <div className="idt-logo-cloud" aria-hidden="true">
         <div className="idt-logo-cloud-track">
-          {logos.map((logo, index) => (
-            <span className="idt-logo-cloud-item" key={`${logo.name}-${index}`}>
-              <img src={logo.icon} alt="" aria-hidden="true" loading="lazy" />
-              <span>{logo.name}</span>
-            </span>
+          {logoGroups.map((group) => (
+            <div className="idt-logo-cloud-group" key={group}>
+              {TRUST_LOGOS.map((logo) => (
+                <span className="idt-logo-cloud-item" key={`${logo.name}-${group}`}>
+                  <img src={logo.icon} alt="" aria-hidden="true" loading="lazy" />
+                  <span>{logo.name}</span>
+                </span>
+              ))}
+            </div>
           ))}
         </div>
       </div>

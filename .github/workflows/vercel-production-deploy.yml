@@ -213,12 +213,10 @@ jobs:
             echo "has_api_url=true"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Upsert Vercel production web env
+      - name: Prepare Vercel production build env
+        id: build-env
         if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.normalize-token.outputs.has_token == 'true' && steps.check-api-url.outputs.has_api_url == 'true'
         env:
-          VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VITE_IDENTRAIL_API_URL: ${{ steps.check-api-url.outputs.api_url }}
           VITE_FEATURE_ONBOARDING_WIZARD: ${{ vars.VITE_FEATURE_ONBOARDING_WIZARD || 'true' }}
           VITE_FEATURE_CONNECTOR_AWS: ${{ vars.VITE_FEATURE_CONNECTOR_AWS || 'false' }}
@@ -249,52 +247,15 @@ jobs:
           connector_github_flag="$(normalize_bool_flag "VITE_FEATURE_CONNECTOR_GITHUB_V2" "${VITE_FEATURE_CONNECTOR_GITHUB_V2}")"
           connector_k8s_flag="$(normalize_bool_flag "VITE_FEATURE_CONNECTOR_K8S" "${VITE_FEATURE_CONNECTOR_K8S}")"
 
-          upsert_env() {
-            local key="$1"
-            local value="$2"
-            local comment="$3"
-
-            payload="$(jq -n \
-              --arg key "${key}" \
-              --arg value "${value}" \
-              --arg comment "${comment}" \
-              '{
-                key: $key,
-                value: $value,
-                type: "plain",
-                target: ["production", "preview"],
-                comment: $comment
-              }')"
-
-            curl -fsS -X POST \
-              "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?upsert=true&teamId=${VERCEL_ORG_ID}" \
-              -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -d "${payload}" \
-              > "/tmp/vercel-env-upsert-${key}.json"
-            jq -r '.created.key // "Vercel env upserted."' "/tmp/vercel-env-upsert-${key}.json"
-          }
-
-          upsert_env \
-            "VITE_IDENTRAIL_API_URL" \
-            "${VITE_IDENTRAIL_API_URL}" \
-            "Identrail web -> API base URL (required for production builds)"
-          upsert_env \
-            "VITE_FEATURE_ONBOARDING_WIZARD" \
-            "${onboarding_flag}" \
-            "Enable self-serve onboarding for Identrail Cloud production builds"
-          upsert_env \
-            "VITE_FEATURE_CONNECTOR_AWS" \
-            "${connector_aws_flag}" \
-            "Enable the AWS connector UI for Identrail Cloud production builds"
-          upsert_env \
-            "VITE_FEATURE_CONNECTOR_GITHUB_V2" \
-            "${connector_github_flag}" \
-            "Enable the GitHub connector UI for Identrail Cloud production builds"
-          upsert_env \
-            "VITE_FEATURE_CONNECTOR_K8S" \
-            "${connector_k8s_flag}" \
-            "Enable the Kubernetes connector UI for Identrail Cloud production builds"
+          {
+            echo "VITE_IDENTRAIL_API_URL=${VITE_IDENTRAIL_API_URL}"
+            echo "VITE_FEATURE_ONBOARDING_WIZARD=${onboarding_flag}"
+            echo "VITE_FEATURE_CONNECTOR_AWS=${connector_aws_flag}"
+            echo "VITE_FEATURE_CONNECTOR_GITHUB_V2=${connector_github_flag}"
+            echo "VITE_FEATURE_CONNECTOR_K8S=${connector_k8s_flag}"
+          } >> "$GITHUB_ENV"
+          echo "has_build_env=true" >> "$GITHUB_OUTPUT"
+          echo "Prepared Vercel production build env from GitHub Actions variables."
 
       - name: Install Vercel CLI
         if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.verify-token.outputs.token_verified == 'true'
@@ -304,7 +265,7 @@ jobs:
           vercel --version
 
       - name: Pull Vercel production settings
-        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.verify-token.outputs.token_verified == 'true'
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.verify-token.outputs.token_verified == 'true' && steps.build-env.outputs.has_build_env == 'true'
         env:
           VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -315,8 +276,35 @@ jobs:
           # Running the CLI with --cwd web makes Vercel resolve web/web.
           vercel pull --yes --environment=production
 
+      - name: Pin Vercel production build env
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.verify-token.outputs.token_verified == 'true' && steps.build-env.outputs.has_build_env == 'true'
+        run: |
+          set -euo pipefail
+          env_file=".vercel/.env.production.local"
+          mkdir -p "$(dirname "${env_file}")"
+          touch "${env_file}"
+
+          tmp_file="$(mktemp)"
+          grep -Ev '^(VITE_IDENTRAIL_API_URL|VITE_FEATURE_ONBOARDING_WIZARD|VITE_FEATURE_CONNECTOR_AWS|VITE_FEATURE_CONNECTOR_GITHUB_V2|VITE_FEATURE_CONNECTOR_K8S)=' "${env_file}" > "${tmp_file}" || true
+          mv "${tmp_file}" "${env_file}"
+
+          write_env() {
+            local key="$1"
+            local value="$2"
+            printf '%s=%s\n' "${key}" "$(jq -Rn --arg value "${value}" '$value')"
+          }
+
+          {
+            write_env "VITE_IDENTRAIL_API_URL" "${VITE_IDENTRAIL_API_URL}"
+            write_env "VITE_FEATURE_ONBOARDING_WIZARD" "${VITE_FEATURE_ONBOARDING_WIZARD}"
+            write_env "VITE_FEATURE_CONNECTOR_AWS" "${VITE_FEATURE_CONNECTOR_AWS}"
+            write_env "VITE_FEATURE_CONNECTOR_GITHUB_V2" "${VITE_FEATURE_CONNECTOR_GITHUB_V2}"
+            write_env "VITE_FEATURE_CONNECTOR_K8S" "${VITE_FEATURE_CONNECTOR_K8S}"
+          } >> "${env_file}"
+          echo "Pinned GitHub Actions VITE_* values into ${env_file} for vercel build."
+
       - name: Build Vercel production artifact
-        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.verify-token.outputs.token_verified == 'true'
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.verify-token.outputs.token_verified == 'true' && steps.build-env.outputs.has_build_env == 'true'
         env:
           VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -327,7 +315,7 @@ jobs:
 
       - name: Deploy prebuilt artifact to Vercel
         id: deploy
-        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.verify-token.outputs.token_verified == 'true'
+        if: steps.deploy-gate.outputs.can_deploy == 'true' && steps.verify-token.outputs.token_verified == 'true' && steps.build-env.outputs.has_build_env == 'true'
         env:
           VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}

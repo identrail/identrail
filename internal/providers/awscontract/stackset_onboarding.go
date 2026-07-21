@@ -104,6 +104,7 @@ type StackSetOnboardingTargetRegion struct {
 // StackSetOnboardingTargets is the deterministic target set for the StackSet.
 type StackSetOnboardingTargets struct {
 	OrganizationID      string                            `json:"organization_id,omitempty"`
+	AllAccounts         bool                              `json:"all_accounts,omitempty"`
 	OrganizationalUnits []OrganizationUnit                `json:"organizational_units,omitempty"`
 	Accounts            []StackSetOnboardingTargetAccount `json:"accounts"`
 	Regions             []StackSetOnboardingTargetRegion  `json:"regions"`
@@ -309,6 +310,7 @@ func PlanStackSetOnboarding(config StackSetOnboardingConfig, generatedAt time.Ti
 		Validation:          validation,
 		Targets: StackSetOnboardingTargets{
 			OrganizationID:      strings.TrimSpace(config.OrganizationID),
+			AllAccounts:         config.Targets.AllAccounts,
 			OrganizationalUnits: append([]OrganizationUnit(nil), config.Targets.OrganizationalUnits...),
 			Accounts:            accounts,
 			Regions:             regions,
@@ -410,7 +412,7 @@ func evaluateStackSetPrerequisites(config StackSetOnboardingConfig, mode StackSe
 			}
 			return "Template URL or integrity checksum is missing; the StackSet cannot be launched without a pinned template."
 		}(),
-		Remediation: "Configure AWSCloudFormationTemplateURL and the template checksum on the runtime so the read-only connector template is reproducible.",
+		Remediation: "Configure IDENTRAIL_AWS_CFN_TEMPLATE_URL and IDENTRAIL_AWS_CFN_TEMPLATE_SHA256 so the read-only connector template is reproducible.",
 	})
 
 	externalIDOK := strings.TrimSpace(config.ExternalID) != ""
@@ -472,16 +474,20 @@ func evaluateStackSetPrerequisites(config StackSetOnboardingConfig, mode StackSe
 		})
 	}
 
+	targetIntentPresent := len(accounts) > 0 || len(config.Targets.OrganizationalUnits) > 0 || config.Targets.AllAccounts
 	prereqs = append(prereqs, StackSetOnboardingPrerequisite{
 		ID:        "stackset.targets_present",
-		Title:     "At least one target account and region are configured",
+		Title:     "At least one target scope and region are configured",
 		Severity:  StackSetPrerequisiteBlocking,
-		Satisfied: len(accounts) > 0 && len(regions) > 0,
+		Satisfied: targetIntentPresent && len(regions) > 0,
 		Reason: func() string {
 			if len(accounts) > 0 && len(regions) > 0 {
 				return fmt.Sprintf("Onboarding will create %d instance(s) across %d account(s) and %d region(s).", len(accounts)*len(regions), len(accounts), len(regions))
 			}
-			return "Onboarding has no account or region targets; nothing would be deployed."
+			if targetIntentPresent && len(regions) > 0 {
+				return fmt.Sprintf("Onboarding target scope is configured; AWS resolves member accounts during StackSet deployment across %d region(s).", len(regions))
+			}
+			return "Onboarding has no target scope or region; nothing would be deployed."
 		}(),
 		Remediation: "Use Organizations topology and region availability discovery to select target OUs/accounts and regions.",
 	})

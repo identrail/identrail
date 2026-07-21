@@ -258,6 +258,7 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 	}
 	svc.AWSConnectorValidator = awsprovider.NewConnectionValidator(cfg.AWSRegion, cfg.AWSProfile)
 	svc.AWSCloudFormationTemplateURL = cfg.AWSCloudFormationTemplateURL
+	svc.AWSCloudFormationTemplateSHA = cfg.AWSCloudFormationTemplateSHA
 	svc.AWSAccountID = cfg.AWSAccountID
 	svc.AWSBaselineGitSHA = cfg.BaselineGitSHA
 	svc.AWSBaselineSourceMode = cfg.AWSSource

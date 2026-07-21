@@ -80,6 +80,33 @@ func TestPlanStackSetOnboardingValidationReadyByDefault(t *testing.T) {
 	}
 }
 
+func TestPlanStackSetOnboardingAllowsOrganizationIntentWithoutEnumeratedAccounts(t *testing.T) {
+	now := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
+	config := sampleStackSetConfig()
+	config.Targets.AllAccounts = true
+	config.Targets.Accounts = nil
+	config.Targets.OrganizationalUnits = []OrganizationUnit{{ID: "r-abcd", Path: "/", Enabled: true}}
+	config.Targets.Regions = []StackSetOnboardingTargetRegion{{Region: "us-east-1"}, {Region: "eu-west-1"}}
+
+	plan, err := PlanStackSetOnboarding(config, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if plan.Validation.BlockingCount != 0 || plan.Validation.Status != StackSetValidationReady {
+		t.Fatalf("expected organization intent to be launch-ready without account enumeration, got %+v", plan.Validation)
+	}
+	if !plan.Targets.AllAccounts || len(plan.Targets.Accounts) != 0 || len(plan.Targets.OrganizationalUnits) != 1 {
+		t.Fatalf("expected all-account organization target intent to survive planning, got %+v", plan.Targets)
+	}
+	if len(plan.Instances) != 0 || plan.Summary.TotalInstances != 0 {
+		t.Fatalf("expected no fake stack instances until AWS resolves member accounts, instances=%+v summary=%+v", plan.Instances, plan.Summary)
+	}
+	targetPrereq := requireStackSetPlannerPrerequisite(t, plan.Validation.Prerequisites, "stackset.targets_present")
+	if !targetPrereq.Satisfied {
+		t.Fatalf("expected organization target intent to satisfy target prerequisite, got %+v", targetPrereq)
+	}
+}
+
 func TestPlanStackSetOnboardingBlocksWhenPrerequisitesMissing(t *testing.T) {
 	now := time.Now().UTC()
 	config := sampleStackSetConfig()
@@ -104,6 +131,17 @@ func TestPlanStackSetOnboardingBlocksWhenPrerequisitesMissing(t *testing.T) {
 			t.Fatalf("blocked instances should be resumable so retry is exposed")
 		}
 	}
+}
+
+func requireStackSetPlannerPrerequisite(t *testing.T, prerequisites []StackSetOnboardingPrerequisite, id string) StackSetOnboardingPrerequisite {
+	t.Helper()
+	for _, prerequisite := range prerequisites {
+		if prerequisite.ID == id {
+			return prerequisite
+		}
+	}
+	t.Fatalf("missing prerequisite %q in %+v", id, prerequisites)
+	return StackSetOnboardingPrerequisite{}
 }
 
 func TestPlanStackSetOnboardingSelfManagedRequiresAdminRole(t *testing.T) {

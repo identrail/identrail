@@ -78,7 +78,8 @@ first session.
 
 | Variable | Default | Validation | Area |
 | --- | --- | --- | --- |
-| `IDENTRAIL_AWS_CFN_TEMPLATE_URL` | empty | Required for the CFN one-click flow. Points at the CDN-hosted template. | AWS connector |
+| `IDENTRAIL_AWS_CFN_TEMPLATE_URL` | empty | Required for the CFN one-click flow. StackSet launches require a content-addressed CDN URL with the same SHA-256 digest configured in `IDENTRAIL_AWS_CFN_TEMPLATE_SHA256` as a `/sha256/<digest>/` path segment. | AWS connector |
+| `IDENTRAIL_AWS_CFN_TEMPLATE_SHA256` | empty | Optional at startup. Required when launching StackSet onboarding; if set, it must be the release-provided SHA-256 checksum for the published CloudFormation template. | AWS connector |
 | `IDENTRAIL_AWS_ACCOUNT_ID` | empty | Required. The Identrail-side AWS account that the customer's role trusts. | AWS connector |
 
 ### GitHub Connector

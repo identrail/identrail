@@ -80,6 +80,7 @@ type AWSStackSetOnboardingTargetRegion struct {
 // AWSStackSetOnboardingTargets is the full operator-visible target set.
 type AWSStackSetOnboardingTargets struct {
 	OrganizationID      string                               `json:"organization_id,omitempty"`
+	AllAccounts         bool                                 `json:"all_accounts,omitempty"`
 	OrganizationalUnits []AWSStackSetOnboardingOU            `json:"organizational_units"`
 	Accounts            []AWSStackSetOnboardingTargetAccount `json:"accounts"`
 	Regions             []AWSStackSetOnboardingTargetRegion  `json:"regions"`
@@ -119,12 +120,17 @@ type AWSStackSetOnboardingInstance struct {
 
 // AWSStackSetOnboardingCoverageExpectation projects post-launch scan coverage.
 type AWSStackSetOnboardingCoverageExpectation struct {
-	ExpectedAccounts        int     `json:"expected_accounts"`
-	ExpectedRegions         int     `json:"expected_regions"`
-	ExpectedInstances       int     `json:"expected_instances"`
-	ExpectedCoverageTargets int     `json:"expected_coverage_targets"`
-	CoveragePercent         float64 `json:"coverage_percent"`
-	GlobalServiceNotes      string  `json:"global_service_notes"`
+	ExpectedAccounts             int     `json:"expected_accounts"`
+	ExpectedAccountsKnown        bool    `json:"expected_accounts_known"`
+	ExpectedRegions              int     `json:"expected_regions"`
+	ExpectedRegionsKnown         bool    `json:"expected_regions_known"`
+	ExpectedInstances            int     `json:"expected_instances"`
+	ExpectedInstancesKnown       bool    `json:"expected_instances_known"`
+	ExpectedCoverageTargets      int     `json:"expected_coverage_targets"`
+	ExpectedCoverageTargetsKnown bool    `json:"expected_coverage_targets_known"`
+	CoveragePercent              float64 `json:"coverage_percent"`
+	CoveragePercentKnown         bool    `json:"coverage_percent_known"`
+	GlobalServiceNotes           string  `json:"global_service_notes"`
 }
 
 // AWSStackSetOnboardingRecoveryAction is one operator recovery action.
@@ -138,8 +144,11 @@ type AWSStackSetOnboardingRecoveryAction struct {
 // AWSStackSetOnboardingSummary aggregates the onboarding plan for dashboards.
 type AWSStackSetOnboardingSummary struct {
 	TargetAccounts       int            `json:"target_accounts"`
+	TargetAccountsKnown  bool           `json:"target_accounts_known"`
 	TargetRegions        int            `json:"target_regions"`
+	TargetRegionsKnown   bool           `json:"target_regions_known"`
 	TotalInstances       int            `json:"total_instances"`
+	TotalInstancesKnown  bool           `json:"total_instances_known"`
 	PendingInstances     int            `json:"pending_instances"`
 	ActiveInstances      int            `json:"active_instances"`
 	BlockedInstances     int            `json:"blocked_instances"`
@@ -150,6 +159,7 @@ type AWSStackSetOnboardingSummary struct {
 	UnsupportedInstances int            `json:"unsupported_instances"`
 	ResumableInstances   int            `json:"resumable_instances"`
 	DeployedPercent      float64        `json:"deployed_percent"`
+	DeployedPercentKnown bool           `json:"deployed_percent_known"`
 	StateCounts          map[string]int `json:"state_counts"`
 }
 
@@ -411,8 +421,6 @@ func awsStackSetFixtureConfig(
 
 	siblingAccount := awsStackSetSiblingAccount(accountID)
 	tertiaryAccount := awsStackSetSiblingAccount(siblingAccount)
-	secondaryRegion := awsStackSetSecondaryRegion(region)
-
 	config := awscontract.StackSetOnboardingConfig{
 		ConnectorID:         connectorID,
 		OrganizationID:      "o-fixture",
@@ -438,7 +446,6 @@ func awsStackSetFixtureConfig(
 			},
 			Regions: []awscontract.StackSetOnboardingTargetRegion{
 				{Region: region},
-				{Region: secondaryRegion},
 			},
 		},
 	}
@@ -455,11 +462,13 @@ func awsStackSetFixtureConfig(
 			{AccountID: siblingAccount, Region: region, State: awscontract.StackSetStateActive, StackID: "stack-fixture-2"},
 		}
 	case "partial_failure":
+		deniedAccount := awsStackSetSiblingAccount(tertiaryAccount)
+		config.Targets.Accounts = append(config.Targets.Accounts, awscontract.StackSetOnboardingTargetAccount{AccountID: deniedAccount, Name: "security", OUPath: "/Root/Security"})
 		config.Checkpoints = []awscontract.StackSetOnboardingCheckpoint{
 			{AccountID: accountID, Region: region, State: awscontract.StackSetStateActive, StackID: "stack-fixture-1"},
 			{AccountID: siblingAccount, Region: region, State: awscontract.StackSetStateActive, StackID: "stack-fixture-2"},
 			{AccountID: tertiaryAccount, Region: region, State: awscontract.StackSetStateFailed, FailureReason: "Throttling: CreateStackInstances throttled after retries", Attempts: 3},
-			{AccountID: tertiaryAccount, Region: secondaryRegion, State: awscontract.StackSetStatePermissionDenied, FailureReason: "AccessDenied: assume into member account failed"},
+			{AccountID: deniedAccount, Region: region, State: awscontract.StackSetStatePermissionDenied, FailureReason: "AccessDenied: assume into member account failed"},
 		}
 	default:
 		// success
@@ -537,6 +546,7 @@ func mapAWSStackSetValidation(validation awscontract.StackSetOnboardingValidatio
 func mapAWSStackSetTargets(targets awscontract.StackSetOnboardingTargets) AWSStackSetOnboardingTargets {
 	out := AWSStackSetOnboardingTargets{
 		OrganizationID:      strings.TrimSpace(targets.OrganizationID),
+		AllAccounts:         targets.AllAccounts,
 		OrganizationalUnits: make([]AWSStackSetOnboardingOU, 0, len(targets.OrganizationalUnits)),
 		Accounts:            make([]AWSStackSetOnboardingTargetAccount, 0, len(targets.Accounts)),
 		Regions:             make([]AWSStackSetOnboardingTargetRegion, 0, len(targets.Regions)),
@@ -599,12 +609,29 @@ func mapAWSStackSetInstances(instances []awscontract.StackSetOnboardingInstance)
 
 func mapAWSStackSetCoverageExpectation(expectation awscontract.StackSetOnboardingCoverageExpectation) AWSStackSetOnboardingCoverageExpectation {
 	return AWSStackSetOnboardingCoverageExpectation{
-		ExpectedAccounts:        expectation.ExpectedAccounts,
-		ExpectedRegions:         expectation.ExpectedRegions,
-		ExpectedInstances:       expectation.ExpectedInstances,
-		ExpectedCoverageTargets: expectation.ExpectedCoverage,
-		CoveragePercent:         expectation.CoveragePercent,
-		GlobalServiceNotes:      expectation.GlobalServiceNotes,
+		ExpectedAccounts:             expectation.ExpectedAccounts,
+		ExpectedAccountsKnown:        true,
+		ExpectedRegions:              expectation.ExpectedRegions,
+		ExpectedRegionsKnown:         true,
+		ExpectedInstances:            expectation.ExpectedInstances,
+		ExpectedInstancesKnown:       true,
+		ExpectedCoverageTargets:      expectation.ExpectedCoverage,
+		ExpectedCoverageTargetsKnown: true,
+		CoveragePercent:              expectation.CoveragePercent,
+		CoveragePercentKnown:         true,
+		GlobalServiceNotes:           expectation.GlobalServiceNotes,
+	}
+}
+
+func unknownAWSStackSetCoverageExpectation(expectedRegions int, note string) AWSStackSetOnboardingCoverageExpectation {
+	return AWSStackSetOnboardingCoverageExpectation{
+		ExpectedRegions:              expectedRegions,
+		ExpectedAccountsKnown:        false,
+		ExpectedRegionsKnown:         true,
+		ExpectedInstancesKnown:       false,
+		ExpectedCoverageTargetsKnown: false,
+		CoveragePercentKnown:         false,
+		GlobalServiceNotes:           note,
 	}
 }
 
@@ -632,8 +659,11 @@ func mapAWSStackSetSummary(summary awscontract.StackSetOnboardingSummary) AWSSta
 	}
 	return AWSStackSetOnboardingSummary{
 		TargetAccounts:       summary.TargetAccounts,
+		TargetAccountsKnown:  true,
 		TargetRegions:        summary.TargetRegions,
+		TargetRegionsKnown:   true,
 		TotalInstances:       summary.TotalInstances,
+		TotalInstancesKnown:  true,
 		PendingInstances:     summary.PendingInstances,
 		ActiveInstances:      summary.ActiveInstances,
 		BlockedInstances:     summary.BlockedInstances,
@@ -644,7 +674,19 @@ func mapAWSStackSetSummary(summary awscontract.StackSetOnboardingSummary) AWSSta
 		UnsupportedInstances: summary.UnsupportedInstances,
 		ResumableInstances:   summary.ResumableInstances,
 		DeployedPercent:      summary.DeployedPercent,
+		DeployedPercentKnown: true,
 		StateCounts:          stateCounts,
+	}
+}
+
+func unknownAWSStackSetSummary(targetRegions int) AWSStackSetOnboardingSummary {
+	return AWSStackSetOnboardingSummary{
+		TargetRegions:        targetRegions,
+		TargetAccountsKnown:  false,
+		TargetRegionsKnown:   true,
+		TotalInstancesKnown:  false,
+		DeployedPercentKnown: false,
+		StateCounts:          map[string]int{},
 	}
 }
 
@@ -692,16 +734,16 @@ func summarizeAWSStackSetOnboarding(fixtureState string, plan awscontract.StackS
 		return awsPlatformDependencyStatusDegraded, 0.72, dedupeStrings(failures),
 			dedupeStrings(append(remediations, "Re-run failed instances after the AWS error window resolves."))
 	default:
-		if plan.Summary.TotalInstances == 0 {
-			return awsPlatformDependencyStatusReady, 0.78, nil,
-				dedupeStrings(append(remediations, "Select at least one target account/OU and one region before launching the StackSet."))
-		}
 		switch plan.Validation.Status {
 		case awscontract.StackSetValidationBlocked:
 			return awsPlatformDependencyStatusBlocked, 0.4, dedupeStrings(failures), dedupeStrings(remediations)
 		case awscontract.StackSetValidationDegraded:
 			return awsPlatformDependencyStatusDegraded, 0.72, dedupeStrings(failures), dedupeStrings(remediations)
 		default:
+			if plan.Summary.TotalInstances == 0 {
+				return awsPlatformDependencyStatusReady, 0.78, nil,
+					dedupeStrings(append(remediations, "Select at least one target account/OU and one region before launching the StackSet."))
+			}
 			return awsPlatformDependencyStatusReady, 0.94, dedupeStrings(failures),
 				dedupeStrings(append(remediations, "Open the StackSet console launch URL to deploy the read-only connector across the target accounts."))
 		}
@@ -757,13 +799,6 @@ func awsStackSetSiblingAccount(accountID string) string {
 		return digits[:11] + "0"
 	}
 	return digits[:11] + string(last+1)
-}
-
-func awsStackSetSecondaryRegion(region string) string {
-	if strings.EqualFold(strings.TrimSpace(region), "eu-west-1") {
-		return "us-east-1"
-	}
-	return "eu-west-1"
 }
 
 // AWSStackSetOnboardingState is an exported coverage-state alias so the OpenAPI
