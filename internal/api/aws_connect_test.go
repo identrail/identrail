@@ -1076,6 +1076,147 @@ func TestAWSConnectorStartRejectsStackSetResumeSetupDrift(t *testing.T) {
 	}
 }
 
+func TestAWSConnectorStartStackSetResumeAllowsUnsetChecksumForExisting(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{9}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	request := AWSConnectorStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ConnectorID:            "aws-stackset-resume",
+		DisplayName:            "Production organization",
+		ScopeType:              AWSConnectorScopeOrganization,
+		DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:          []string{"us-east-1"},
+		TargetOUIDs:            []string{"r-abcd"},
+		AutoOnboardNewAccounts: true,
+		StackSetName:           "identrail-org-readonly",
+	}
+	started, err := svc.StartAWSConnector(ctx, request)
+	if err != nil {
+		t.Fatalf("initial stackset start: %v", err)
+	}
+	if started.LaunchURL == "" {
+		t.Fatalf("expected launch URL on initial start")
+	}
+
+	svc.AWSCloudFormationTemplateSHA = ""
+	resumed, err := svc.StartAWSConnector(ctx, request)
+	if err != nil {
+		t.Fatalf("resume must succeed with unset configured checksum, got %v", err)
+	}
+	if resumed.LaunchURL != started.LaunchURL {
+		t.Fatalf("resume must return the stored launch URL, got %q want %q", resumed.LaunchURL, started.LaunchURL)
+	}
+	if resumed.StackSetOnboarding == nil || resumed.StackSetOnboarding.TemplateChecksum != testAWSCloudFormationTemplateChecksum {
+		t.Fatalf("resume must reuse the persisted template checksum, got %+v", resumed.StackSetOnboarding)
+	}
+
+	newRequest := request
+	newRequest.ConnectorID = "aws-stackset-new"
+	if _, err := svc.StartAWSConnector(ctx, newRequest); !errors.Is(err, ErrAWSConnectorConfigUnavailable) {
+		t.Fatalf("new stackset setup without configured checksum must be rejected, got %v", err)
+	}
+}
+
+func TestAWSConnectorStartRejectsStackSetLaunchIdentityDrift(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{10}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	base := AWSConnectorStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ConnectorID:            "aws-stackset-identity",
+		DisplayName:            "Production organization",
+		ScopeType:              AWSConnectorScopeOrganization,
+		DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:          []string{"us-east-1"},
+		TargetOUIDs:            []string{"r-abcd"},
+		AutoOnboardNewAccounts: true,
+		RoleName:               "IdentrailReadOnly",
+		StackSetName:           "identrail-org-readonly",
+	}
+	started, err := svc.StartAWSConnector(ctx, base)
+	if err != nil {
+		t.Fatalf("initial stackset start: %v", err)
+	}
+
+	retries := []struct {
+		name    string
+		mutate  func(AWSConnectorStartRequest) AWSConnectorStartRequest
+		wantErr error
+	}{
+		{
+			name: "role_name",
+			mutate: func(r AWSConnectorStartRequest) AWSConnectorStartRequest {
+				r.RoleName = "IdentrailReadOnlyRenamed"
+				return r
+			},
+			wantErr: ErrInvalidAWSConnectionRequest,
+		},
+		{
+			name: "stack_set_name",
+			mutate: func(r AWSConnectorStartRequest) AWSConnectorStartRequest {
+				r.StackSetName = "identrail-org-readonly-v2"
+				return r
+			},
+			wantErr: ErrInvalidAWSConnectionRequest,
+		},
+		{
+			name: "same identity is not drift",
+			mutate: func(r AWSConnectorStartRequest) AWSConnectorStartRequest {
+				return r
+			},
+			wantErr: nil,
+		},
+	}
+	for _, retry := range retries {
+		t.Run(retry.name, func(t *testing.T) {
+			_, err := svc.StartAWSConnector(ctx, retry.mutate(base))
+			if retry.wantErr == nil {
+				if err != nil {
+					t.Fatalf("expected identical retry to succeed, got %v", err)
+				}
+			} else if !errors.Is(err, retry.wantErr) {
+				t.Fatalf("expected %v, got %v", retry.wantErr, err)
+			}
+			stored, storeErr := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-stackset-identity")
+			if storeErr != nil {
+				t.Fatalf("load stored connector: %v", storeErr)
+			}
+			if got := awsMetadataString(stored.State.Metadata, "role_name"); got != base.RoleName {
+				t.Fatalf("role_name must be preserved, got %q want %q", got, base.RoleName)
+			}
+			if got := awsMetadataString(stored.State.Metadata, "stack_set_name"); got != base.StackSetName {
+				t.Fatalf("stack_set_name must be preserved, got %q want %q", got, base.StackSetName)
+			}
+			if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != started.LaunchURL {
+				t.Fatalf("launch URL must be preserved, got %q want %q", got, started.LaunchURL)
+			}
+		})
+	}
+}
+
 func TestAWSConnectorValidateRejectsSelectedAccountOutsideScope(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

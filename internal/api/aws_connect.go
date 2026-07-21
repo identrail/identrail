@@ -486,13 +486,13 @@ func (s *Service) startAWSStackSetConnector(
 	templateURL := strings.TrimSpace(s.AWSCloudFormationTemplateURL)
 	accountID := strings.TrimSpace(s.AWSAccountID)
 	templateChecksum := normalizeAWSConnectorTemplateChecksum(s.AWSCloudFormationTemplateSHA)
-	if templateURL == "" || accountID == "" || templateChecksum == "" {
-		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
-	}
 	connectorID := strings.TrimSpace(request.ConnectorID)
-	if connectorID == "" {
-		connectorID = "aws-" + uuid.NewString()
-	} else {
+	// Look up an existing connector before enforcing the configured
+	// checksum so a stored StackSet setup — including a connected retry
+	// or a draft with a persisted template_checksum — can resume after
+	// IDENTRAIL_AWS_CFN_TEMPLATE_SHA256 is unset. The resume path
+	// re-enforces the checksum only for rebuilt launch plans.
+	if connectorID != "" {
 		stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
 		if err == nil {
 			return s.resumeAWSStackSetConnectorStart(ctx, stored, setup, request, templateURL, accountID, templateChecksum)
@@ -500,6 +500,12 @@ func (s *Service) startAWSStackSetConnector(
 		if !errors.Is(err, db.ErrNotFound) {
 			return AWSConnectorStartResponse{}, err
 		}
+	}
+	if templateURL == "" || accountID == "" || templateChecksum == "" {
+		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
+	}
+	if connectorID == "" {
+		connectorID = "aws-" + uuid.NewString()
 	}
 	displayName := strings.TrimSpace(request.DisplayName)
 	if displayName == "" {
@@ -817,8 +823,18 @@ func (s *Service) resumeAWSStackSetConnectorStart(
 	}
 
 	region := firstNonEmptyAWSValue(firstAWSRegion(setup.TargetRegions), awsMetadataString(stored.State.Metadata, "region"), "us-east-1")
-	roleName := firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "role_name"), strings.TrimSpace(request.RoleName), "IdentrailReadOnly")
-	stackSetName := firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "stack_set_name"), strings.TrimSpace(request.StackSetName), strings.TrimSpace(request.StackName), "identrail-readonly-connector-stackset")
+	storedRoleName := awsMetadataString(stored.State.Metadata, "role_name")
+	requestedRoleName := strings.TrimSpace(request.RoleName)
+	if requestedRoleName != "" && storedRoleName != "" && !strings.EqualFold(requestedRoleName, storedRoleName) {
+		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+	}
+	roleName := firstNonEmptyAWSValue(storedRoleName, requestedRoleName, "IdentrailReadOnly")
+	storedStackSetName := awsMetadataString(stored.State.Metadata, "stack_set_name")
+	requestedStackSetName := firstNonEmptyAWSValue(strings.TrimSpace(request.StackSetName), strings.TrimSpace(request.StackName))
+	if requestedStackSetName != "" && storedStackSetName != "" && !strings.EqualFold(requestedStackSetName, storedStackSetName) {
+		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+	}
+	stackSetName := firstNonEmptyAWSValue(storedStackSetName, requestedStackSetName, "identrail-readonly-connector-stackset")
 	policyHash := awsMetadataString(stored.State.Metadata, "policy_hash")
 	if policyHash == "" {
 		hash, err := awsconnector.ReadOnlyPolicyHash()
