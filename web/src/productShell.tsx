@@ -31638,7 +31638,7 @@ function waitForExportPoll(signal: AbortSignal, delayMs: number): Promise<void> 
     return Promise.reject(exportAbortError());
   }
   return new Promise((resolve, reject) => {
-    let timeout: ReturnType<typeof window.setTimeout>;
+    let timeout = 0;
     const abort = () => {
       window.clearTimeout(timeout);
       reject(exportAbortError());

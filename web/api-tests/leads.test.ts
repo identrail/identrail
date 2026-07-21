@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resolve4, resolve6, resolveMx } from 'node:dns/promises';
-import handler, { __resetLeadRequestBucketsForTests } from './leads';
+import handler, { __resetLeadRequestBucketsForTests } from '../api/leads';
 
 const dnsMocks = vi.hoisted(() => ({
   resolve4: vi.fn(async () => ['203.0.113.10']),
