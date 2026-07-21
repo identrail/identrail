@@ -833,6 +833,23 @@ func TestRouterAWSConnectorOrganizationStackSetFlow(t *testing.T) {
 		startBody.StackSetOnboarding.Targets.Regions[0].Region != "us-east-1" {
 		t.Fatalf("expected organization StackSet deployment to use the home region only, got %+v", startBody.StackSetOnboarding.Targets)
 	}
+	if len(startBody.StackSetOnboarding.Instances) != 0 ||
+		startBody.StackSetOnboarding.Summary.TargetAccountsKnown ||
+		startBody.StackSetOnboarding.Summary.TotalInstancesKnown ||
+		startBody.StackSetOnboarding.Summary.DeployedPercentKnown ||
+		startBody.StackSetOnboarding.CoverageExpectation.ExpectedAccountsKnown ||
+		startBody.StackSetOnboarding.CoverageExpectation.ExpectedInstancesKnown ||
+		startBody.StackSetOnboarding.CoverageExpectation.ExpectedCoverageTargetsKnown ||
+		startBody.StackSetOnboarding.CoverageExpectation.CoveragePercentKnown ||
+		startBody.StackSetOnboarding.CoverageExpectation.ExpectedRegions != 1 ||
+		!startBody.StackSetOnboarding.CoverageExpectation.ExpectedRegionsKnown {
+		t.Fatalf("service-managed organization projections must stay unknown until AWS expands membership, got onboarding=%+v", startBody.StackSetOnboarding)
+	}
+	if !slices.ContainsFunc(startBody.StackSetOnboarding.CoverageGaps, func(gap AWSStackSetOnboardingCoverageGap) bool {
+		return gap.Capability == "service_managed_stackset_membership" && gap.Status == "unknown"
+	}) {
+		t.Fatalf("expected service-managed membership coverage gap, got %+v", startBody.StackSetOnboarding.CoverageGaps)
+	}
 	if startBody.StackSetOnboarding.Status != awsPlatformDependencyStatusBlocked {
 		t.Fatalf("expected nested stackset onboarding to report blocked prerequisites, got %q", startBody.StackSetOnboarding.Status)
 	}
@@ -943,9 +960,9 @@ func TestAWSConnectorStartSelectedStackSetScopes(t *testing.T) {
 		t.Fatalf("service-managed selected-account projections must stay unknown until AWS resolves INTERSECTION membership, got onboarding=%+v", accounts.StackSetOnboarding)
 	}
 	if !slices.ContainsFunc(accounts.StackSetOnboarding.CoverageGaps, func(gap AWSStackSetOnboardingCoverageGap) bool {
-		return gap.Capability == "selected_account_intersection_membership" && gap.Status == "unknown"
+		return gap.Capability == "service_managed_stackset_membership" && gap.Status == "unknown"
 	}) {
-		t.Fatalf("expected selected-account membership coverage gap, got %+v", accounts.StackSetOnboarding.CoverageGaps)
+		t.Fatalf("expected service-managed membership coverage gap, got %+v", accounts.StackSetOnboarding.CoverageGaps)
 	}
 	if !strings.Contains(accounts.LaunchURL, "organizationalUnitIds=r-abcd") ||
 		!strings.Contains(accounts.LaunchURL, "accounts=111122223333") ||
@@ -1006,6 +1023,14 @@ func TestAWSConnectorStartSelectedStackSetScopes(t *testing.T) {
 	if ous.StackSetOnboarding == nil || len(ous.StackSetOnboarding.Targets.OrganizationalUnits) != 2 ||
 		!strings.Contains(ous.LaunchURL, "organizationalUnitIds=") {
 		t.Fatalf("expected selected OUs in launch plan, got launch=%q onboarding=%+v", ous.LaunchURL, ous.StackSetOnboarding)
+	}
+	if len(ous.StackSetOnboarding.Instances) != 0 ||
+		ous.StackSetOnboarding.Summary.TargetAccountsKnown ||
+		ous.StackSetOnboarding.Summary.TotalInstancesKnown ||
+		ous.StackSetOnboarding.CoverageExpectation.ExpectedAccountsKnown ||
+		ous.StackSetOnboarding.CoverageExpectation.ExpectedInstancesKnown ||
+		ous.StackSetOnboarding.CoverageExpectation.ExpectedCoverageTargetsKnown {
+		t.Fatalf("service-managed selected-OU projections must stay unknown until AWS expands membership, got onboarding=%+v", ous.StackSetOnboarding)
 	}
 	if ous.StackSetOnboarding.Status != awsPlatformDependencyStatusBlocked {
 		t.Fatalf("expected selected OU onboarding to report blocked prerequisites, got %q", ous.StackSetOnboarding.Status)

@@ -1682,9 +1682,8 @@ func awsConnectorStackSetDeploymentRegions(setup awsConnectorSetupContract) []st
 	return []string{region}
 }
 
-func awsConnectorSelectedAccountProjectionKnown(setup awsConnectorSetupContract) bool {
-	return setup.ScopeType != AWSConnectorScopeSelectedAccounts ||
-		setup.DeploymentMethod != AWSConnectorDeploymentStackSetServiceManaged
+func awsConnectorStackSetProjectionKnown(setup awsConnectorSetupContract) bool {
+	return setup.DeploymentMethod == AWSConnectorDeploymentStackSetSelfManaged
 }
 
 func (s *Service) buildAWSConnectorStackSetOnboarding(
@@ -1723,7 +1722,7 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 	if err != nil {
 		return AWSStackSetOnboardingResult{}, err
 	}
-	projectionKnown := awsConnectorSelectedAccountProjectionKnown(setup)
+	projectionKnown := awsConnectorStackSetProjectionKnown(setup)
 	launchURL := awsconnector.BuildCloudFormationStackSetLaunchURL(awsconnector.CloudFormationStackSetLaunchInput{
 		TemplateURL:           plan.TemplateURL,
 		Region:                region,
@@ -1753,20 +1752,20 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 	diagnostics := []AWSStackSetOnboardingDiagnostic{}
 	if !projectionKnown {
 		instances = []AWSStackSetOnboardingInstance{}
-		coverageExpectation = unknownAWSStackSetCoverageExpectation(len(plan.Targets.Regions), "Service-managed selected_accounts uses AWS INTERSECTION filtering; expected accounts, instances, and coverage targets are unknown until AWS resolves OU membership.")
+		coverageExpectation = unknownAWSStackSetCoverageExpectation(len(plan.Targets.Regions), "Service-managed StackSet scopes are expanded by AWS during deployment; expected accounts, instances, and coverage targets are unknown until AWS resolves effective membership.")
 		summary = unknownAWSStackSetSummary(len(plan.Targets.Regions))
 		coverageGaps = append(coverageGaps, AWSStackSetOnboardingCoverageGap{
-			Capability:  "selected_account_intersection_membership",
+			Capability:  "service_managed_stackset_membership",
 			Status:      "unknown",
-			Reason:      "AWS filters selected account targets against the supplied root or OU at StackSet launch time, so Identrail cannot prove which requested accounts are in scope before AWS resolves membership.",
+			Reason:      "AWS expands organization, OU, and selected-account filters at StackSet launch time, so Identrail cannot prove effective account membership before AWS resolves the deployment target set.",
 			Remediation: "Launch the StackSet and refresh connector status to reconcile effective account coverage from AWS.",
 		})
 		diagnostics = append(diagnostics, AWSStackSetOnboardingDiagnostic{
 			Source:      "aws_stackset_targets",
-			Scope:       "selected_accounts",
-			Code:        "selected_account_membership_unresolved",
-			Message:     "Selected account StackSet projections are intentionally hidden until AWS resolves root or OU membership.",
-			Remediation: "Use the launch URL to let AWS apply the INTERSECTION filter, then refresh connector status.",
+			Scope:       string(setup.ScopeType),
+			Code:        "service_managed_membership_unresolved",
+			Message:     "Service-managed StackSet projections are intentionally hidden until AWS resolves effective account membership.",
+			Remediation: "Use the launch URL to let AWS resolve the service-managed target set, then refresh connector status.",
 			Retryable:   true,
 		})
 	}
