@@ -910,14 +910,15 @@ func TestAWSConnectorStartSelectedStackSetScopes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start selected accounts stackset: %v", err)
 	}
-	if accounts.TargetSummary == nil || !accounts.TargetSummary.AccountCountKnown ||
-		accounts.TargetSummary.AccountCount != 1 ||
+	if accounts.TargetSummary == nil ||
+		accounts.TargetSummary.AccountCountKnown ||
+		accounts.TargetSummary.AccountCount != 0 ||
 		accounts.TargetSummary.OUCount != 1 ||
 		accounts.TargetSummary.RegionCount != 2 ||
 		accounts.TargetSummary.ExcludedAccountCount != 1 ||
-		accounts.TargetSummary.ExpectedStackInstances != 1 ||
-		!accounts.TargetSummary.ExpectedStackInstancesKnown {
-		t.Fatalf("expected selected-account summary to count effective accounts after exclusions, got %+v", accounts.TargetSummary)
+		accounts.TargetSummary.ExpectedStackInstances != 0 ||
+		accounts.TargetSummary.ExpectedStackInstancesKnown {
+		t.Fatalf("service-managed selected-account summary must leave counts unknown until AWS INTERSECTION resolves OU membership, got %+v", accounts.TargetSummary)
 	}
 	if accounts.StackSetOnboarding == nil ||
 		len(accounts.StackSetOnboarding.Targets.Accounts) != 1 ||
@@ -1704,6 +1705,32 @@ func TestAWSConnectorStartSelectedAccountsSelfManagedBlocksOnAdministrationRole(
 	if !slices.Contains(started.NextActions, AWSConnectorNextActionOpenStackSet) ||
 		!slices.Contains(started.NextActions, AWSConnectorNextActionRefreshStatus) {
 		t.Fatalf("expected operator recovery actions for self-managed setup, got %+v", started.NextActions)
+	}
+}
+
+func TestAWSConnectorTargetSummaryCountsSelfManagedSelectedAccounts(t *testing.T) {
+	setup := awsConnectorSetupContract{
+		ScopeType:          AWSConnectorScopeSelectedAccounts,
+		DeploymentMethod:   AWSConnectorDeploymentStackSetSelfManaged,
+		TargetAccountIDs:   []string{"111122223333", "444455556666"},
+		ExcludedAccountIDs: []string{"444455556666"},
+		TargetRegions:      []string{"us-east-1"},
+	}
+	summary := awsConnectorTargetSummary(setup)
+	if summary == nil || !summary.AccountCountKnown || !summary.ExpectedStackInstancesKnown {
+		t.Fatalf("self-managed selected accounts must keep counts known, got %+v", summary)
+	}
+	if summary.AccountCount != 1 || summary.ExpectedStackInstances != 1 {
+		t.Fatalf("self-managed selected accounts must count effective accounts, got %+v", summary)
+	}
+
+	serviceManaged := setup
+	serviceManaged.DeploymentMethod = AWSConnectorDeploymentStackSetServiceManaged
+	serviceManaged.TargetOUIDs = []string{"r-abcd"}
+	serviceSummary := awsConnectorTargetSummary(serviceManaged)
+	if serviceSummary == nil || serviceSummary.AccountCountKnown || serviceSummary.ExpectedStackInstancesKnown ||
+		serviceSummary.AccountCount != 0 || serviceSummary.ExpectedStackInstances != 0 {
+		t.Fatalf("service-managed selected accounts must leave counts unknown because AWS INTERSECTION filters by OU membership, got %+v", serviceSummary)
 	}
 }
 

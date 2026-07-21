@@ -1585,7 +1585,16 @@ func normalizeAWSConnectorTemplateChecksum(checksum string) string {
 }
 
 func awsConnectorTargetSummary(setup awsConnectorSetupContract) *AWSConnectorTargetSummary {
-	knownAccounts := setup.ScopeType == AWSConnectorScopeSelectedAccounts
+	// Self-managed selected_accounts deploys directly to the supplied
+	// account IDs, so both counts are trustworthy. Service-managed
+	// selected_accounts hands the same list to AWS with
+	// accountFilterType=INTERSECTION over the OU/root scope, which
+	// silently drops accounts outside those OUs — and without an
+	// Organizations topology lookup Identrail cannot verify OU
+	// membership at setup time, so the counts must stay unknown until
+	// AWS resolves the effective targets.
+	knownAccounts := setup.ScopeType == AWSConnectorScopeSelectedAccounts &&
+		setup.DeploymentMethod == AWSConnectorDeploymentStackSetSelfManaged
 	accountCount := 0
 	expectedInstances := 0
 	expectedKnown := knownAccounts
