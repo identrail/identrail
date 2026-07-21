@@ -1267,6 +1267,52 @@ func TestAWSConnectorStartRejectsInvalidStackSetName(t *testing.T) {
 	}
 }
 
+func TestAWSConnectorStartRejectsInvalidStackSetRoleName(t *testing.T) {
+	tooLong := strings.Repeat("a", 65)
+	invalid := []struct {
+		name     string
+		roleName string
+	}{
+		{name: "path_separator", roleName: "team/IdentrailReadOnly"},
+		{name: "too_long", roleName: tooLong},
+	}
+	for _, tc := range invalid {
+		t.Run(tc.name, func(t *testing.T) {
+			store := db.NewMemoryStore()
+			ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+			seedDefaultProject(t, store, ctx, "project-1")
+			manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{11}, 32)}})
+			if err != nil {
+				t.Fatalf("build connector secret manager: %v", err)
+			}
+			svc := NewService(store, routerScanner{}, "aws")
+			svc.ConnectorSecretManager = manager
+			svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+			svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+			svc.AWSAccountID = "999999999999"
+
+			request := AWSConnectorStartRequest{
+				WorkspaceID:      "workspace-a",
+				ProjectID:        "project-1",
+				ConnectorID:      "aws-stackset-invalid-role-" + tc.name,
+				DisplayName:      "Production organization",
+				ScopeType:        AWSConnectorScopeOrganization,
+				DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:    []string{"us-east-1"},
+				TargetOUIDs:      []string{"r-abcd"},
+				RoleName:         tc.roleName,
+				StackSetName:     "identrail-org-readonly",
+			}
+			if _, err := svc.StartAWSConnector(ctx, request); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+				t.Fatalf("invalid role_name %q must be rejected before persistence, got %v", tc.roleName, err)
+			}
+			if _, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", request.ConnectorID); !errors.Is(err, db.ErrNotFound) {
+				t.Fatalf("invalid role_name must not persist a connector, got %v", err)
+			}
+		})
+	}
+}
+
 func TestAWSConnectorStartRejectsInvalidStackSetNameOnResume(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
@@ -1299,6 +1345,53 @@ func TestAWSConnectorStartRejectsInvalidStackSetNameOnResume(t *testing.T) {
 	invalidRetry.StackSetName = "123-invalid"
 	if _, err := svc.StartAWSConnector(ctx, invalidRetry); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
 		t.Fatalf("invalid stack_set_name on resume must be rejected, got %v", err)
+	}
+}
+
+func TestAWSConnectorStartRejectsInvalidStackSetRoleNameOnResume(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{12}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	request := AWSConnectorStartRequest{
+		WorkspaceID:      "workspace-a",
+		ProjectID:        "project-1",
+		ConnectorID:      "aws-stackset-resume-invalid-role",
+		DisplayName:      "Production organization",
+		ScopeType:        AWSConnectorScopeOrganization,
+		DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:    []string{"us-east-1"},
+		TargetOUIDs:      []string{"r-abcd"},
+		RoleName:         "IdentrailReadOnly",
+		StackSetName:     "identrail-org-readonly",
+	}
+	started, err := svc.StartAWSConnector(ctx, request)
+	if err != nil {
+		t.Fatalf("initial stackset start: %v", err)
+	}
+	invalidRetry := request
+	invalidRetry.RoleName = "team/IdentrailReadOnly"
+	if _, err := svc.StartAWSConnector(ctx, invalidRetry); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+		t.Fatalf("invalid role_name on resume must be rejected, got %v", err)
+	}
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", request.ConnectorID)
+	if err != nil {
+		t.Fatalf("load stored connector: %v", err)
+	}
+	if got := awsMetadataString(stored.State.Metadata, "role_name"); got != request.RoleName {
+		t.Fatalf("invalid role_name retry must not overwrite stored role, got %q", got)
+	}
+	if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != started.LaunchURL {
+		t.Fatalf("invalid role_name retry must not rebuild launch URL, got %q want %q", got, started.LaunchURL)
 	}
 }
 

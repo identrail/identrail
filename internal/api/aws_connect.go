@@ -31,6 +31,9 @@ var (
 	// contract fail CreateStackSet at the AWS console before Identrail
 	// can observe deployment, so we reject them at setup time.
 	awsStackSetNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]{0,127}$`)
+	// awsStackSetRoleNamePattern mirrors the RoleName parameter in the
+	// published read-only connector template.
+	awsStackSetRoleNamePattern = regexp.MustCompile(`^[A-Za-z0-9+=,.@_-]{1,64}$`)
 )
 
 const (
@@ -534,6 +537,9 @@ func (s *Service) startAWSStackSetConnector(
 	now := s.Now().UTC()
 	region := firstAWSRegion(setup.TargetRegions)
 	roleName := firstNonEmptyAWSValue(strings.TrimSpace(request.RoleName), "IdentrailReadOnly")
+	if err := validateAWSConnectorStackSetRoleName(roleName); err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
 	stackSetName := firstNonEmptyAWSValue(strings.TrimSpace(request.StackSetName), strings.TrimSpace(request.StackName), "identrail-readonly-connector-stackset")
 	if err := validateAWSConnectorStackSetName(stackSetName); err != nil {
 		return AWSConnectorStartResponse{}, err
@@ -841,10 +847,18 @@ func (s *Service) resumeAWSStackSetConnectorStart(
 	region := firstNonEmptyAWSValue(firstAWSRegion(setup.TargetRegions), awsMetadataString(stored.State.Metadata, "region"), "us-east-1")
 	storedRoleName := awsMetadataString(stored.State.Metadata, "role_name")
 	requestedRoleName := strings.TrimSpace(request.RoleName)
+	if requestedRoleName != "" {
+		if err := validateAWSConnectorStackSetRoleName(requestedRoleName); err != nil {
+			return AWSConnectorStartResponse{}, err
+		}
+	}
 	if requestedRoleName != "" && storedRoleName != "" && !strings.EqualFold(requestedRoleName, storedRoleName) {
 		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
 	}
 	roleName := firstNonEmptyAWSValue(storedRoleName, requestedRoleName, "IdentrailReadOnly")
+	if err := validateAWSConnectorStackSetRoleName(roleName); err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
 	storedStackSetName := awsMetadataString(stored.State.Metadata, "stack_set_name")
 	requestedStackSetName := firstNonEmptyAWSValue(strings.TrimSpace(request.StackSetName), strings.TrimSpace(request.StackName))
 	if requestedStackSetName != "" {
@@ -1212,6 +1226,13 @@ func awsConnectorStartResponse(status AWSConnectionStatus, externalID string, la
 
 func validateAWSConnectorStackSetName(stackSetName string) error {
 	if !awsStackSetNamePattern.MatchString(strings.TrimSpace(stackSetName)) {
+		return ErrInvalidAWSConnectionRequest
+	}
+	return nil
+}
+
+func validateAWSConnectorStackSetRoleName(roleName string) error {
+	if !awsStackSetRoleNamePattern.MatchString(strings.TrimSpace(roleName)) {
 		return ErrInvalidAWSConnectionRequest
 	}
 	return nil
