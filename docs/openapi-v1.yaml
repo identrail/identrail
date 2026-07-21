@@ -11524,6 +11524,7 @@ components:
         template_url:
           type: string
           format: uri
+          description: CloudFormation template URL. StackSet launch responses require this URL to be content-addressed with the same SHA-256 digest reported in template_checksum.
         identrail_account_id:
           type: string
           description: AWS account ID that should be trusted by manually managed IAM roles.
@@ -11537,6 +11538,7 @@ components:
           type: string
         template_checksum:
           type: string
+          description: Release-provided SHA-256 digest for the CloudFormation template. StackSet launch URLs are emitted only when the template URL is content-addressed with this digest.
         scope_type:
           $ref: "#/components/schemas/AWSConnectorScopeType"
         deployment_method:
@@ -11806,12 +11808,14 @@ components:
         template_url:
           type: string
           format: uri
+          description: CloudFormation template URL. StackSet launch responses require this URL to be content-addressed with the same SHA-256 digest reported in template_checksum.
         policy_hash:
           type: string
         stack_set_name:
           type: string
         template_checksum:
           type: string
+          description: Release-provided SHA-256 digest for the CloudFormation template. StackSet launch URLs are emitted only when the template URL is content-addressed with this digest.
         target_summary:
           $ref: "#/components/schemas/AWSConnectorTargetSummary"
         prerequisites:
@@ -11832,7 +11836,7 @@ components:
           nullable: true
     AWSConnectorTargetSummary:
       type: object
-      description: Operator-declared StackSet target intent. Region count records scan-region intent, while expected stack instances use the single home deployment region for the read-only IAM role template. Account and instance counts are only marked known when the request included explicit account IDs; organization and OU scopes are resolved by AWS during StackSet deployment.
+      description: Operator-declared StackSet target intent. Region count records scan-region intent, while expected stack instances use the single home deployment region for the read-only IAM role template. Account and instance counts are marked known only for self-managed selected-account StackSets, where Identrail deploys directly to the supplied account IDs after exclusions. Organization, OU, and service-managed selected-account scopes are resolved by AWS during StackSet deployment; service-managed selected accounts use accountFilterType=INTERSECTION, so accounts outside the supplied root or OU may be dropped and the counts remain unknown until AWS resolves the effective targets.
       properties:
         account_count:
           type: integer

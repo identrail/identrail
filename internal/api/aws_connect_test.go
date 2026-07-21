@@ -20,7 +20,10 @@ import (
 	"go.uber.org/zap"
 )
 
-const testAWSCloudFormationTemplateChecksum = "sha256:458d7e9ae2b2b3e5513709b6dd3b63da4190918db335508fa5e9ae307a978fe2"
+const (
+	testAWSCloudFormationTemplateChecksum = "sha256:458d7e9ae2b2b3e5513709b6dd3b63da4190918db335508fa5e9ae307a978fe2"
+	testAWSCloudFormationTemplateURL      = "https://cdn.identrail.example/connectors/aws/sha256/458d7e9ae2b2b3e5513709b6dd3b63da4190918db335508fa5e9ae307a978fe2/identrail-readonly.yaml"
+)
 
 type fakeAWSConnectorValidator struct {
 	result AWSConnectionValidationResult
@@ -408,7 +411,7 @@ func TestAWSConnectorStartRejectsLegacyManualConnectorResume(t *testing.T) {
 	}
 
 	svc := NewService(store, routerScanner{}, "aws")
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
 	if _, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
 		WorkspaceID: "workspace-a",
@@ -889,7 +892,7 @@ func TestAWSConnectorStartSelectedStackSetScopes(t *testing.T) {
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
 
@@ -1003,7 +1006,7 @@ func TestAWSConnectorStartRejectsStackSetResumeSetupDrift(t *testing.T) {
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
 
@@ -1087,7 +1090,7 @@ func TestAWSConnectorStartStackSetResumeAllowsUnsetChecksumForExisting(t *testin
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
 
@@ -1140,7 +1143,7 @@ func TestAWSConnectorStartRejectsStackSetLaunchIdentityDrift(t *testing.T) {
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
 
@@ -1239,7 +1242,7 @@ func TestAWSConnectorStartRejectsInvalidStackSetName(t *testing.T) {
 			}
 			svc := NewService(store, routerScanner{}, "aws")
 			svc.ConnectorSecretManager = manager
-			svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+			svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 			svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 			svc.AWSAccountID = "999999999999"
 
@@ -1274,7 +1277,7 @@ func TestAWSConnectorStartRejectsInvalidStackSetNameOnResume(t *testing.T) {
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
 
@@ -1309,7 +1312,7 @@ func TestAWSConnectorStartStackSetRequiresConfiguredAccountID(t *testing.T) {
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
 
@@ -1369,7 +1372,7 @@ func TestAWSConnectorValidateRejectsSelectedAccountOutsideScope(t *testing.T) {
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.AWSConnectorValidator = validator
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
 
@@ -1444,7 +1447,7 @@ func TestAWSConnectorValidateClearsStackSetLaunchPrerequisitesWhenConnected(t *t
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.AWSConnectorValidator = validator
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
 
@@ -1678,7 +1681,7 @@ func TestAWSConnectorStartSelectedAccountsSelfManagedBlocksOnAdministrationRole(
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
 
@@ -1734,6 +1737,52 @@ func TestAWSConnectorTargetSummaryCountsSelfManagedSelectedAccounts(t *testing.T
 	}
 }
 
+func TestAWSConnectorTemplateURLMustCarryChecksum(t *testing.T) {
+	if !awsConnectorTemplateURLPinnedToChecksum(testAWSCloudFormationTemplateURL, testAWSCloudFormationTemplateChecksum) {
+		t.Fatalf("expected content-addressed template URL to match checksum")
+	}
+	if awsConnectorTemplateURLPinnedToChecksum("https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml", testAWSCloudFormationTemplateChecksum) {
+		t.Fatalf("mutable template URL must not be treated as checksum-pinned")
+	}
+	if awsConnectorTemplateURLPinnedToChecksum(testAWSCloudFormationTemplateURL, "sha256:1111111111111111111111111111111111111111111111111111111111111111") {
+		t.Fatalf("template URL must not match a different checksum")
+	}
+}
+
+func TestAWSConnectorStartStackSetRejectsMutableTemplateURL(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{8}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	_, err = svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID:            "workspace-a",
+		ProjectID:              "project-1",
+		ConnectorID:            "aws-stackset-mutable-template",
+		DisplayName:            "Production organization",
+		ScopeType:              AWSConnectorScopeOrganization,
+		DeploymentMethod:       AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:          []string{"us-east-1"},
+		TargetOUIDs:            []string{"r-abcd"},
+		AutoOnboardNewAccounts: true,
+		StackSetName:           "identrail-org-readonly",
+	})
+	if !errors.Is(err, ErrAWSConnectorConfigUnavailable) {
+		t.Fatalf("mutable StackSet template URL must be rejected before launch URL generation, got %v", err)
+	}
+	if _, loadErr := store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-stackset-mutable-template"); !errors.Is(loadErr, db.ErrNotFound) {
+		t.Fatalf("mutable template URL must not persist a connector, got %v", loadErr)
+	}
+}
+
 func TestAWSConnectorStartResumesExistingCloudFormationSetup(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
@@ -1744,7 +1793,7 @@ func TestAWSConnectorStartResumesExistingCloudFormationSetup(t *testing.T) {
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
 
 	first, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
@@ -1993,7 +2042,7 @@ func TestAWSConnectorStartSerializesConcurrentExplicitConnectorStarts(t *testing
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
 
 	const workers = 16
@@ -2053,7 +2102,7 @@ func TestAWSConnectorStartPersistsRecoveredExternalIDLaunchState(t *testing.T) {
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
 
 	first, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
@@ -2155,7 +2204,7 @@ func TestAWSConnectorStartFailsOnUnreadableExternalIDEnvelope(t *testing.T) {
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
 
 	started, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
@@ -2230,7 +2279,7 @@ func TestAWSConnectorStartPersistsRebuiltLaunchMetadataWithExistingExternalID(t 
 	}
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.ConnectorSecretManager = manager
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSAccountID = "999999999999"
 
 	first, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
@@ -2736,7 +2785,7 @@ func TestAWSConnectorServiceErrorPaths(t *testing.T) {
 	if _, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{ProjectID: "project-1"}); !errors.Is(err, ErrAWSConnectorConfigUnavailable) {
 		t.Fatalf("expected missing template config error, got %v", err)
 	}
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	if _, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{ProjectID: "project-1"}); !errors.Is(err, ErrAWSConnectorConfigUnavailable) {
 		t.Fatalf("expected missing account config error, got %v", err)
 	}
@@ -2886,7 +2935,7 @@ func newAWSConnectorFlowTestRouter(t *testing.T, validator AWSConnectorValidator
 	store := db.NewMemoryStore()
 	svc := NewService(store, routerScanner{}, "aws")
 	svc.AWSConnectorValidator = validator
-	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateURL = testAWSCloudFormationTemplateURL
 	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
 	svc.AWSAccountID = "999999999999"
 	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{8}, 32)}})

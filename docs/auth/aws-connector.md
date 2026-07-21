@@ -22,7 +22,10 @@ POST /v1/connectors/aws/{connector_id}/refresh-policy
 
 ## Required Runtime Configuration
 
-`IDENTRAIL_AWS_CFN_TEMPLATE_URL` points to the published CloudFormation template.
+`IDENTRAIL_AWS_CFN_TEMPLATE_URL` points to the published CloudFormation
+template. StackSet onboarding requires this URL to be content-addressed with
+the same SHA-256 digest supplied in `IDENTRAIL_AWS_CFN_TEMPLATE_SHA256`; mutable
+template URLs are rejected before Identrail returns a launch URL.
 
 `IDENTRAIL_AWS_CFN_TEMPLATE_SHA256` is the release-provided SHA-256 checksum for
 that exact template. It is optional for existing single-account and manual-role

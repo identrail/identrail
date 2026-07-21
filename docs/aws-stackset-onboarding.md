@@ -50,8 +50,9 @@ contents are never read.
   `AWSCloudFormationStackSetAdministrationRole` is reachable from the management
   account and `AWSCloudFormationStackSetExecutionRole` is bootstrapped in each
   target account.
-- The Identrail read-only connector template URL is configured on the runtime,
-  and StackSet launches also have the release checksum configured
+- The Identrail read-only connector template URL is configured on the runtime
+  as a content-addressed URL that includes the release SHA-256 digest, and
+  StackSet launches also have the matching release checksum configured
   (`IDENTRAIL_AWS_CFN_TEMPLATE_URL` and `IDENTRAIL_AWS_CFN_TEMPLATE_SHA256`).
 - An external ID is generated for the connector trust policy.
 
@@ -70,8 +71,11 @@ The response includes:
   `deployment_mode`, and `partition`.
 - `target_summary` on connector start/poll responses. For Organization and OU
   scopes, account and expected-instance counts are marked unknown because AWS
-  resolves member accounts during StackSet deployment. For selected account
-  scopes, those counts are exact after exclusions are applied.
+  resolves member accounts during StackSet deployment. Self-managed selected
+  account scopes report exact counts after exclusions are applied. Service-
+  managed selected account scopes mark those counts unknown because AWS applies
+  the selected account IDs as an `INTERSECTION` filter inside the supplied root
+  or OU and may drop accounts outside that boundary.
 - `target_regions` on connector start/poll responses preserve the operator's
   scan-region intent. The StackSet launch itself uses only the first normalized
   region as the home deployment region because the connector template creates a

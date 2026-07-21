@@ -1584,6 +1584,22 @@ func normalizeAWSConnectorTemplateChecksum(checksum string) string {
 	return trimmed
 }
 
+func awsConnectorTemplateURLPinnedToChecksum(templateURL string, checksum string) bool {
+	normalizedChecksum := normalizeAWSConnectorTemplateChecksum(checksum)
+	if normalizedChecksum == "" {
+		return false
+	}
+	digest := strings.TrimPrefix(normalizedChecksum, "sha256:")
+	normalizedURL := strings.ToLower(strings.TrimSpace(templateURL))
+	if normalizedURL == "" {
+		return false
+	}
+	if unescaped, err := url.QueryUnescape(normalizedURL); err == nil {
+		normalizedURL = unescaped
+	}
+	return strings.Contains(normalizedURL, digest)
+}
+
 func awsConnectorTargetSummary(setup awsConnectorSetupContract) *AWSConnectorTargetSummary {
 	// Self-managed selected_accounts deploys directly to the supplied
 	// account IDs, so both counts are trustworthy. Service-managed
@@ -1651,6 +1667,9 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 	setup awsConnectorSetupContract,
 	checkedAt time.Time,
 ) (AWSStackSetOnboardingResult, error) {
+	if !awsConnectorTemplateURLPinnedToChecksum(templateURL, templateChecksum) {
+		return AWSStackSetOnboardingResult{}, ErrAWSConnectorConfigUnavailable
+	}
 	mode := awsConnectorStackSetDeploymentMode(setup.DeploymentMethod)
 	deploymentSetup := awsConnectorStackSetDeploymentSetup(setup)
 	config := awscontract.StackSetOnboardingConfig{
