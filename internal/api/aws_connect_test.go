@@ -1217,6 +1217,135 @@ func TestAWSConnectorStartRejectsStackSetLaunchIdentityDrift(t *testing.T) {
 	}
 }
 
+func TestAWSConnectorStartRejectsInvalidStackSetName(t *testing.T) {
+	tooLong := strings.Repeat("a", 129)
+	invalid := []struct {
+		name         string
+		stackSetName string
+	}{
+		{name: "digit_prefix", stackSetName: "123-invalid"},
+		{name: "underscore", stackSetName: "identrail_readonly"},
+		{name: "too_long", stackSetName: tooLong},
+	}
+	for _, tc := range invalid {
+		t.Run(tc.name, func(t *testing.T) {
+			store := db.NewMemoryStore()
+			ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+			seedDefaultProject(t, store, ctx, "project-1")
+			manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{11}, 32)}})
+			if err != nil {
+				t.Fatalf("build connector secret manager: %v", err)
+			}
+			svc := NewService(store, routerScanner{}, "aws")
+			svc.ConnectorSecretManager = manager
+			svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+			svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+			svc.AWSAccountID = "999999999999"
+
+			request := AWSConnectorStartRequest{
+				WorkspaceID:      "workspace-a",
+				ProjectID:        "project-1",
+				ConnectorID:      "aws-stackset-invalid-name-" + tc.name,
+				DisplayName:      "Production organization",
+				ScopeType:        AWSConnectorScopeOrganization,
+				DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
+				TargetRegions:    []string{"us-east-1"},
+				TargetOUIDs:      []string{"r-abcd"},
+				StackSetName:     tc.stackSetName,
+			}
+			if _, err := svc.StartAWSConnector(ctx, request); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+				t.Fatalf("invalid stack_set_name %q must be rejected before persistence, got %v", tc.stackSetName, err)
+			}
+			if _, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", request.ConnectorID); !errors.Is(err, db.ErrNotFound) {
+				t.Fatalf("invalid stack_set_name must not persist a connector, got %v", err)
+			}
+		})
+	}
+}
+
+func TestAWSConnectorStartRejectsInvalidStackSetNameOnResume(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{12}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	request := AWSConnectorStartRequest{
+		WorkspaceID:      "workspace-a",
+		ProjectID:        "project-1",
+		ConnectorID:      "aws-stackset-resume-invalid-name",
+		DisplayName:      "Production organization",
+		ScopeType:        AWSConnectorScopeOrganization,
+		DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:    []string{"us-east-1"},
+		TargetOUIDs:      []string{"r-abcd"},
+		StackSetName:     "identrail-org-readonly",
+	}
+	if _, err := svc.StartAWSConnector(ctx, request); err != nil {
+		t.Fatalf("initial stackset start: %v", err)
+	}
+	invalidRetry := request
+	invalidRetry.StackSetName = "123-invalid"
+	if _, err := svc.StartAWSConnector(ctx, invalidRetry); !errors.Is(err, ErrInvalidAWSConnectionRequest) {
+		t.Fatalf("invalid stack_set_name on resume must be rejected, got %v", err)
+	}
+}
+
+func TestAWSConnectorStartStackSetRequiresConfiguredAccountID(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	seedDefaultProject(t, store, ctx, "project-1")
+	manager, err := secretstore.NewManager([]secretstore.KeyMaterial{{Version: "test-v1", Key: bytes.Repeat([]byte{13}, 32)}})
+	if err != nil {
+		t.Fatalf("build connector secret manager: %v", err)
+	}
+	svc := NewService(store, routerScanner{}, "aws")
+	svc.ConnectorSecretManager = manager
+	svc.AWSCloudFormationTemplateURL = "https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml"
+	svc.AWSCloudFormationTemplateSHA = testAWSCloudFormationTemplateChecksum
+	svc.AWSAccountID = "999999999999"
+
+	request := AWSConnectorStartRequest{
+		WorkspaceID:      "workspace-a",
+		ProjectID:        "project-1",
+		ConnectorID:      "aws-stackset-missing-account",
+		DisplayName:      "Production organization",
+		ScopeType:        AWSConnectorScopeOrganization,
+		DeploymentMethod: AWSConnectorDeploymentStackSetServiceManaged,
+		TargetRegions:    []string{"us-east-1"},
+		TargetOUIDs:      []string{"r-abcd"},
+		StackSetName:     "identrail-org-readonly",
+	}
+	started, err := svc.StartAWSConnector(ctx, request)
+	if err != nil {
+		t.Fatalf("initial stackset start: %v", err)
+	}
+
+	svc.AWSAccountID = ""
+	if _, err := svc.StartAWSConnector(ctx, request); !errors.Is(err, ErrAWSConnectorConfigUnavailable) {
+		t.Fatalf("resume with unset AWSAccountID must be rejected, got %v", err)
+	}
+	stored, err := store.GetTenancyConnector(ctx, "workspace-a", "project-1", request.ConnectorID)
+	if err != nil {
+		t.Fatalf("load stored connector: %v", err)
+	}
+	if got := awsMetadataString(stored.State.Metadata, "launch_url"); got != started.LaunchURL {
+		t.Fatalf("rejected resume must not overwrite the stored launch URL, got %q want %q", got, started.LaunchURL)
+	}
+	newRequest := request
+	newRequest.ConnectorID = "aws-stackset-new-missing-account"
+	if _, err := svc.StartAWSConnector(ctx, newRequest); !errors.Is(err, ErrAWSConnectorConfigUnavailable) {
+		t.Fatalf("new stackset setup with unset AWSAccountID must be rejected, got %v", err)
+	}
+}
+
 func TestAWSConnectorValidateRejectsSelectedAccountOutsideScope(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})

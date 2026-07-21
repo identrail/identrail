@@ -25,6 +25,12 @@ var (
 	awsAccountIDPattern = regexp.MustCompile(`^[0-9]{12}$`)
 	awsOUIDPattern      = regexp.MustCompile(`^(ou-[a-z0-9]{4,32}-[a-z0-9]{8,32}|r-[a-z0-9]{4,32})$`)
 	awsSHA256Pattern    = regexp.MustCompile(`(?i)^(sha256:)?[a-f0-9]{64}$`)
+	// awsStackSetNamePattern mirrors the CloudFormation StackSet naming
+	// contract: 1–128 characters, must start with an alphabetic character,
+	// and only alphanumerics and hyphens after that. Names outside this
+	// contract fail CreateStackSet at the AWS console before Identrail
+	// can observe deployment, so we reject them at setup time.
+	awsStackSetNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]{0,127}$`)
 )
 
 const (
@@ -485,6 +491,10 @@ func (s *Service) startAWSStackSetConnector(
 ) (AWSConnectorStartResponse, error) {
 	templateURL := strings.TrimSpace(s.AWSCloudFormationTemplateURL)
 	accountID := strings.TrimSpace(s.AWSAccountID)
+	// AWSAccountID gates the launch URL's param_IdentrailAccountId, which
+	// the resume path can regenerate — so require it before entering
+	// either the new-setup or the resume path so a missing configuration
+	// can never persist a launch URL with an empty Identrail account id.
 	if accountID == "" {
 		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
 	}
@@ -504,7 +514,7 @@ func (s *Service) startAWSStackSetConnector(
 			return AWSConnectorStartResponse{}, err
 		}
 	}
-	if templateURL == "" || accountID == "" || templateChecksum == "" {
+	if templateURL == "" || templateChecksum == "" {
 		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
 	}
 	if connectorID == "" {
@@ -525,6 +535,9 @@ func (s *Service) startAWSStackSetConnector(
 	region := firstAWSRegion(setup.TargetRegions)
 	roleName := firstNonEmptyAWSValue(strings.TrimSpace(request.RoleName), "IdentrailReadOnly")
 	stackSetName := firstNonEmptyAWSValue(strings.TrimSpace(request.StackSetName), strings.TrimSpace(request.StackName), "identrail-readonly-connector-stackset")
+	if err := validateAWSConnectorStackSetName(stackSetName); err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
 	policyHash, err := awsconnector.ReadOnlyPolicyHash()
 	if err != nil {
 		return AWSConnectorStartResponse{}, err
@@ -834,10 +847,18 @@ func (s *Service) resumeAWSStackSetConnectorStart(
 	roleName := firstNonEmptyAWSValue(storedRoleName, requestedRoleName, "IdentrailReadOnly")
 	storedStackSetName := awsMetadataString(stored.State.Metadata, "stack_set_name")
 	requestedStackSetName := firstNonEmptyAWSValue(strings.TrimSpace(request.StackSetName), strings.TrimSpace(request.StackName))
+	if requestedStackSetName != "" {
+		if err := validateAWSConnectorStackSetName(requestedStackSetName); err != nil {
+			return AWSConnectorStartResponse{}, err
+		}
+	}
 	if requestedStackSetName != "" && storedStackSetName != "" && !strings.EqualFold(requestedStackSetName, storedStackSetName) {
 		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
 	}
 	stackSetName := firstNonEmptyAWSValue(storedStackSetName, requestedStackSetName, "identrail-readonly-connector-stackset")
+	if err := validateAWSConnectorStackSetName(stackSetName); err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
 	policyHash := awsMetadataString(stored.State.Metadata, "policy_hash")
 	if policyHash == "" {
 		hash, err := awsconnector.ReadOnlyPolicyHash()
@@ -1187,6 +1208,13 @@ func awsConnectorStartResponse(status AWSConnectionStatus, externalID string, la
 		PermissionPreview:      awsconnector.PermissionPreview(),
 		PermissionTiers:        awsconnector.CapabilityPermissionTiers(),
 	}
+}
+
+func validateAWSConnectorStackSetName(stackSetName string) error {
+	if !awsStackSetNamePattern.MatchString(strings.TrimSpace(stackSetName)) {
+		return ErrInvalidAWSConnectionRequest
+	}
+	return nil
 }
 
 func validateAWSConnectorStartIdentity(connectorID string, displayName string) error {
