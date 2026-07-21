@@ -485,6 +485,9 @@ func (s *Service) startAWSStackSetConnector(
 ) (AWSConnectorStartResponse, error) {
 	templateURL := strings.TrimSpace(s.AWSCloudFormationTemplateURL)
 	accountID := strings.TrimSpace(s.AWSAccountID)
+	if accountID == "" {
+		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
+	}
 	templateChecksum := normalizeAWSConnectorTemplateChecksum(s.AWSCloudFormationTemplateSHA)
 	connectorID := strings.TrimSpace(request.ConnectorID)
 	// Look up an existing connector before enforcing the configured
