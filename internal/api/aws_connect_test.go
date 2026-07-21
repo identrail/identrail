@@ -927,9 +927,25 @@ func TestAWSConnectorStartSelectedStackSetScopes(t *testing.T) {
 		len(accounts.StackSetOnboarding.Targets.Accounts) != 1 ||
 		len(accounts.StackSetOnboarding.Targets.OrganizationalUnits) != 1 ||
 		len(accounts.StackSetOnboarding.Targets.Regions) != 1 ||
-		accounts.StackSetOnboarding.Targets.Regions[0].Region != "us-east-1" ||
-		len(accounts.StackSetOnboarding.Instances) != 1 {
-		t.Fatalf("expected excluded account to be subtracted from launch plan, got onboarding=%+v", accounts.StackSetOnboarding)
+		accounts.StackSetOnboarding.Targets.Regions[0].Region != "us-east-1" {
+		t.Fatalf("expected excluded account to be subtracted from launch targets, got onboarding=%+v", accounts.StackSetOnboarding)
+	}
+	if len(accounts.StackSetOnboarding.Instances) != 0 ||
+		accounts.StackSetOnboarding.Summary.TargetAccountsKnown ||
+		accounts.StackSetOnboarding.Summary.TotalInstancesKnown ||
+		accounts.StackSetOnboarding.Summary.DeployedPercentKnown ||
+		accounts.StackSetOnboarding.CoverageExpectation.ExpectedAccountsKnown ||
+		accounts.StackSetOnboarding.CoverageExpectation.ExpectedInstancesKnown ||
+		accounts.StackSetOnboarding.CoverageExpectation.ExpectedCoverageTargetsKnown ||
+		accounts.StackSetOnboarding.CoverageExpectation.CoveragePercentKnown ||
+		accounts.StackSetOnboarding.CoverageExpectation.ExpectedRegions != 1 ||
+		!accounts.StackSetOnboarding.CoverageExpectation.ExpectedRegionsKnown {
+		t.Fatalf("service-managed selected-account projections must stay unknown until AWS resolves INTERSECTION membership, got onboarding=%+v", accounts.StackSetOnboarding)
+	}
+	if !slices.ContainsFunc(accounts.StackSetOnboarding.CoverageGaps, func(gap AWSStackSetOnboardingCoverageGap) bool {
+		return gap.Capability == "selected_account_intersection_membership" && gap.Status == "unknown"
+	}) {
+		t.Fatalf("expected selected-account membership coverage gap, got %+v", accounts.StackSetOnboarding.CoverageGaps)
 	}
 	if !strings.Contains(accounts.LaunchURL, "organizationalUnitIds=r-abcd") ||
 		!strings.Contains(accounts.LaunchURL, "accounts=111122223333") ||
@@ -1836,6 +1852,12 @@ func TestAWSConnectorTemplateURLMustCarryChecksum(t *testing.T) {
 	}
 	if awsConnectorTemplateURLPinnedToChecksum("https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml", testAWSCloudFormationTemplateChecksum) {
 		t.Fatalf("mutable template URL must not be treated as checksum-pinned")
+	}
+	if awsConnectorTemplateURLPinnedToChecksum("https://cdn.identrail.example/connectors/aws/identrail-readonly.yaml?sha256=458d7e9ae2b2b3e5513709b6dd3b63da4190918db335508fa5e9ae307a978fe2", testAWSCloudFormationTemplateChecksum) {
+		t.Fatalf("template URL query text must not satisfy checksum pinning")
+	}
+	if awsConnectorTemplateURLPinnedToChecksum("https://cdn.identrail.example/connectors/aws/sha256/1111111111111111111111111111111111111111111111111111111111111111/identrail-readonly.yaml?digest=458d7e9ae2b2b3e5513709b6dd3b63da4190918db335508fa5e9ae307a978fe2", testAWSCloudFormationTemplateChecksum) {
+		t.Fatalf("template URL must require the configured checksum in the content-addressed path")
 	}
 	if awsConnectorTemplateURLPinnedToChecksum(testAWSCloudFormationTemplateURL, "sha256:1111111111111111111111111111111111111111111111111111111111111111") {
 		t.Fatalf("template URL must not match a different checksum")

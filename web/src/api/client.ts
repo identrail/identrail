@@ -9033,10 +9033,15 @@ export type AWSStackSetOnboardingInstance = {
 
 export type AWSStackSetOnboardingCoverageExpectation = {
   expected_accounts: number;
+  expected_accounts_known?: boolean;
   expected_regions: number;
+  expected_regions_known?: boolean;
   expected_instances: number;
+  expected_instances_known?: boolean;
   expected_coverage_targets: number;
+  expected_coverage_targets_known?: boolean;
   coverage_percent: number;
+  coverage_percent_known?: boolean;
   global_service_notes: string;
 };
 
@@ -9049,8 +9054,11 @@ export type AWSStackSetOnboardingRecoveryAction = {
 
 export type AWSStackSetOnboardingSummary = {
   target_accounts: number;
+  target_accounts_known?: boolean;
   target_regions: number;
+  target_regions_known?: boolean;
   total_instances: number;
+  total_instances_known?: boolean;
   pending_instances: number;
   active_instances: number;
   blocked_instances: number;
@@ -9061,6 +9069,7 @@ export type AWSStackSetOnboardingSummary = {
   unsupported_instances: number;
   resumable_instances: number;
   deployed_percent: number;
+  deployed_percent_known?: boolean;
   state_counts: Record<string, number>;
 };
 

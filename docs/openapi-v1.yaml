@@ -23616,13 +23616,18 @@ components:
       type: object
       properties:
         expected_accounts: { type: integer }
+        expected_accounts_known: { type: boolean }
         expected_regions: { type: integer }
+        expected_regions_known: { type: boolean }
         expected_instances: { type: integer }
+        expected_instances_known: { type: boolean }
         expected_coverage_targets: { type: integer }
+        expected_coverage_targets_known: { type: boolean }
         coverage_percent:
           type: number
           minimum: 0
           maximum: 100
+        coverage_percent_known: { type: boolean }
         global_service_notes: { type: string }
     AWSStackSetOnboardingRecoveryAction:
       type: object
@@ -23637,8 +23642,11 @@ components:
       type: object
       properties:
         target_accounts: { type: integer }
+        target_accounts_known: { type: boolean }
         target_regions: { type: integer }
+        target_regions_known: { type: boolean }
         total_instances: { type: integer }
+        total_instances_known: { type: boolean }
         pending_instances: { type: integer }
         active_instances: { type: integer }
         blocked_instances: { type: integer }
@@ -23652,6 +23660,7 @@ components:
           type: number
           minimum: 0
           maximum: 100
+        deployed_percent_known: { type: boolean }
         state_counts:
           type: object
           additionalProperties: { type: integer }

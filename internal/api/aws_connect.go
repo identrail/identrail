@@ -1611,14 +1611,22 @@ func awsConnectorTemplateURLPinnedToChecksum(templateURL string, checksum string
 		return false
 	}
 	digest := strings.TrimPrefix(normalizedChecksum, "sha256:")
-	normalizedURL := strings.ToLower(strings.TrimSpace(templateURL))
-	if normalizedURL == "" {
+	parsed, err := url.Parse(strings.TrimSpace(templateURL))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return false
 	}
-	if unescaped, err := url.QueryUnescape(normalizedURL); err == nil {
-		normalizedURL = unescaped
+	segments := strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/")
+	for i := 0; i < len(segments)-1; i++ {
+		segment, err := url.PathUnescape(segments[i])
+		if err != nil || !strings.EqualFold(segment, "sha256") {
+			continue
+		}
+		next, err := url.PathUnescape(segments[i+1])
+		if err == nil && strings.EqualFold(next, digest) {
+			return true
+		}
 	}
-	return strings.Contains(normalizedURL, digest)
+	return false
 }
 
 func awsConnectorTargetSummary(setup awsConnectorSetupContract) *AWSConnectorTargetSummary {
@@ -1674,6 +1682,11 @@ func awsConnectorStackSetDeploymentRegions(setup awsConnectorSetupContract) []st
 	return []string{region}
 }
 
+func awsConnectorSelectedAccountProjectionKnown(setup awsConnectorSetupContract) bool {
+	return setup.ScopeType != AWSConnectorScopeSelectedAccounts ||
+		setup.DeploymentMethod != AWSConnectorDeploymentStackSetServiceManaged
+}
+
 func (s *Service) buildAWSConnectorStackSetOnboarding(
 	scope db.Scope,
 	project db.TenancyProject,
@@ -1710,6 +1723,7 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 	if err != nil {
 		return AWSStackSetOnboardingResult{}, err
 	}
+	projectionKnown := awsConnectorSelectedAccountProjectionKnown(setup)
 	launchURL := awsconnector.BuildCloudFormationStackSetLaunchURL(awsconnector.CloudFormationStackSetLaunchInput{
 		TemplateURL:           plan.TemplateURL,
 		Region:                region,
@@ -1725,6 +1739,37 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 		AutoDeploymentEnabled: awsConnectorStackSetAutoDeploymentEnabled(mode, setup),
 	})
 	status, confidence, failures, remediations := summarizeAWSStackSetOnboarding("success", plan, nil)
+	instances := mapAWSStackSetInstances(plan.Instances)
+	coverageExpectation := mapAWSStackSetCoverageExpectation(plan.CoverageExpectation)
+	summary := mapAWSStackSetSummary(plan.Summary)
+	coverageGaps := []AWSStackSetOnboardingCoverageGap{
+		{
+			Capability:  "confirmed_stackset_coverage",
+			Status:      "planned",
+			Reason:      "The connector start request records intended StackSet scope only; observed account and region coverage is confirmed after AWS deployment validation.",
+			Remediation: "Launch the StackSet in AWS, then refresh connector status to reconcile observed coverage.",
+		},
+	}
+	diagnostics := []AWSStackSetOnboardingDiagnostic{}
+	if !projectionKnown {
+		instances = []AWSStackSetOnboardingInstance{}
+		coverageExpectation = unknownAWSStackSetCoverageExpectation(len(plan.Targets.Regions), "Service-managed selected_accounts uses AWS INTERSECTION filtering; expected accounts, instances, and coverage targets are unknown until AWS resolves OU membership.")
+		summary = unknownAWSStackSetSummary(len(plan.Targets.Regions))
+		coverageGaps = append(coverageGaps, AWSStackSetOnboardingCoverageGap{
+			Capability:  "selected_account_intersection_membership",
+			Status:      "unknown",
+			Reason:      "AWS filters selected account targets against the supplied root or OU at StackSet launch time, so Identrail cannot prove which requested accounts are in scope before AWS resolves membership.",
+			Remediation: "Launch the StackSet and refresh connector status to reconcile effective account coverage from AWS.",
+		})
+		diagnostics = append(diagnostics, AWSStackSetOnboardingDiagnostic{
+			Source:      "aws_stackset_targets",
+			Scope:       "selected_accounts",
+			Code:        "selected_account_membership_unresolved",
+			Message:     "Selected account StackSet projections are intentionally hidden until AWS resolves root or OU membership.",
+			Remediation: "Use the launch URL to let AWS apply the INTERSECTION filter, then refresh connector status.",
+			Retryable:   true,
+		})
+	}
 	return AWSStackSetOnboardingResult{
 		TenantID:            scope.TenantID,
 		WorkspaceID:         project.WorkspaceID,
@@ -1751,10 +1796,10 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 		Validation:          mapAWSStackSetValidation(plan.Validation),
 		PermissionPreview:   awsStackSetPermissionPreview(),
 		Targets:             mapAWSStackSetTargets(plan.Targets),
-		Instances:           mapAWSStackSetInstances(plan.Instances),
-		CoverageExpectation: mapAWSStackSetCoverageExpectation(plan.CoverageExpectation),
+		Instances:           instances,
+		CoverageExpectation: coverageExpectation,
 		RecoveryActions:     mapAWSStackSetRecoveryActions(plan.RecoveryActions),
-		Summary:             mapAWSStackSetSummary(plan.Summary),
+		Summary:             summary,
 		FailureReasons:      failures,
 		RemediationHints:    remediations,
 		EvidenceLinks: dedupeStrings([]string{
@@ -1764,17 +1809,10 @@ func (s *Service) buildAWSConnectorStackSetOnboarding(
 			"/docs/auth/aws-connector",
 			awsBaselineProjectEvidenceURL(scope, project),
 		}),
-		CoverageGaps: []AWSStackSetOnboardingCoverageGap{
-			{
-				Capability:  "confirmed_stackset_coverage",
-				Status:      "planned",
-				Reason:      "The connector start request records intended StackSet scope only; observed account and region coverage is confirmed after AWS deployment validation.",
-				Remediation: "Launch the StackSet in AWS, then refresh connector status to reconcile observed coverage.",
-			},
-		},
-		Diagnostics: []AWSStackSetOnboardingDiagnostic{},
-		GeneratedAt: checkedAt,
-		UpdatedAt:   checkedAt,
+		CoverageGaps: coverageGaps,
+		Diagnostics:  diagnostics,
+		GeneratedAt:  checkedAt,
+		UpdatedAt:    checkedAt,
 	}, nil
 }
 

@@ -5650,27 +5650,27 @@ function AWSAccountsInventoryContent({
           <section className="idt-aws-inventory-coverage" aria-label="StackSet onboarding plan summary">
             <DomainCoverageCard
               label="Target accounts"
-              scanned={stackSetOnboarding.summary.target_accounts}
-              total={Math.max(stackSetOnboarding.summary.target_accounts, 1)}
-              detail={`${stackSetOnboarding.summary.target_regions} regions`}
+              scanned={stackSetOnboarding.summary.target_accounts_known === false ? 0 : stackSetOnboarding.summary.target_accounts}
+              total={Math.max(stackSetOnboarding.summary.target_accounts_known === false ? 1 : stackSetOnboarding.summary.target_accounts, 1)}
+              detail={stackSetOnboarding.summary.target_accounts_known === false ? 'Pending AWS resolution' : `${stackSetOnboarding.summary.target_regions} regions`}
             />
             <DomainCoverageCard
               label="Active instances"
               scanned={stackSetOnboarding.summary.active_instances}
-              total={Math.max(stackSetOnboarding.summary.total_instances, 1)}
-              detail={`${stackSetOnboarding.summary.deployed_percent}% deployed`}
+              total={Math.max(stackSetOnboarding.summary.total_instances_known === false ? 1 : stackSetOnboarding.summary.total_instances, 1)}
+              detail={stackSetOnboarding.summary.deployed_percent_known === false ? 'Pending AWS resolution' : `${stackSetOnboarding.summary.deployed_percent}% deployed`}
             />
             <DomainCoverageCard
               label="Failed or blocked"
               scanned={stackSetOnboarding.summary.failed_instances + stackSetOnboarding.summary.blocked_instances}
-              total={Math.max(stackSetOnboarding.summary.total_instances, 1)}
-              detail={`${stackSetOnboarding.summary.permission_denied_instances} permission denied`}
+              total={Math.max(stackSetOnboarding.summary.total_instances_known === false ? 1 : stackSetOnboarding.summary.total_instances, 1)}
+              detail={stackSetOnboarding.summary.total_instances_known === false ? 'Pending AWS resolution' : `${stackSetOnboarding.summary.permission_denied_instances} permission denied`}
             />
             <DomainCoverageCard
               label="Expected coverage"
-              scanned={stackSetOnboarding.coverage_expectation.expected_coverage_targets}
-              total={Math.max(stackSetOnboarding.coverage_expectation.expected_coverage_targets, 1)}
-              detail={`${stackSetOnboarding.coverage_expectation.coverage_percent}% projected`}
+              scanned={stackSetOnboarding.coverage_expectation.expected_coverage_targets_known === false ? 0 : stackSetOnboarding.coverage_expectation.expected_coverage_targets}
+              total={Math.max(stackSetOnboarding.coverage_expectation.expected_coverage_targets_known === false ? 1 : stackSetOnboarding.coverage_expectation.expected_coverage_targets, 1)}
+              detail={stackSetOnboarding.coverage_expectation.coverage_percent_known === false ? 'Pending AWS resolution' : `${stackSetOnboarding.coverage_expectation.coverage_percent}% projected`}
             />
           </section>
           {stackSetOnboarding.validation.prerequisites.length ? (

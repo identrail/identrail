@@ -120,12 +120,17 @@ type AWSStackSetOnboardingInstance struct {
 
 // AWSStackSetOnboardingCoverageExpectation projects post-launch scan coverage.
 type AWSStackSetOnboardingCoverageExpectation struct {
-	ExpectedAccounts        int     `json:"expected_accounts"`
-	ExpectedRegions         int     `json:"expected_regions"`
-	ExpectedInstances       int     `json:"expected_instances"`
-	ExpectedCoverageTargets int     `json:"expected_coverage_targets"`
-	CoveragePercent         float64 `json:"coverage_percent"`
-	GlobalServiceNotes      string  `json:"global_service_notes"`
+	ExpectedAccounts             int     `json:"expected_accounts"`
+	ExpectedAccountsKnown        bool    `json:"expected_accounts_known"`
+	ExpectedRegions              int     `json:"expected_regions"`
+	ExpectedRegionsKnown         bool    `json:"expected_regions_known"`
+	ExpectedInstances            int     `json:"expected_instances"`
+	ExpectedInstancesKnown       bool    `json:"expected_instances_known"`
+	ExpectedCoverageTargets      int     `json:"expected_coverage_targets"`
+	ExpectedCoverageTargetsKnown bool    `json:"expected_coverage_targets_known"`
+	CoveragePercent              float64 `json:"coverage_percent"`
+	CoveragePercentKnown         bool    `json:"coverage_percent_known"`
+	GlobalServiceNotes           string  `json:"global_service_notes"`
 }
 
 // AWSStackSetOnboardingRecoveryAction is one operator recovery action.
@@ -139,8 +144,11 @@ type AWSStackSetOnboardingRecoveryAction struct {
 // AWSStackSetOnboardingSummary aggregates the onboarding plan for dashboards.
 type AWSStackSetOnboardingSummary struct {
 	TargetAccounts       int            `json:"target_accounts"`
+	TargetAccountsKnown  bool           `json:"target_accounts_known"`
 	TargetRegions        int            `json:"target_regions"`
+	TargetRegionsKnown   bool           `json:"target_regions_known"`
 	TotalInstances       int            `json:"total_instances"`
+	TotalInstancesKnown  bool           `json:"total_instances_known"`
 	PendingInstances     int            `json:"pending_instances"`
 	ActiveInstances      int            `json:"active_instances"`
 	BlockedInstances     int            `json:"blocked_instances"`
@@ -151,6 +159,7 @@ type AWSStackSetOnboardingSummary struct {
 	UnsupportedInstances int            `json:"unsupported_instances"`
 	ResumableInstances   int            `json:"resumable_instances"`
 	DeployedPercent      float64        `json:"deployed_percent"`
+	DeployedPercentKnown bool           `json:"deployed_percent_known"`
 	StateCounts          map[string]int `json:"state_counts"`
 }
 
@@ -600,12 +609,29 @@ func mapAWSStackSetInstances(instances []awscontract.StackSetOnboardingInstance)
 
 func mapAWSStackSetCoverageExpectation(expectation awscontract.StackSetOnboardingCoverageExpectation) AWSStackSetOnboardingCoverageExpectation {
 	return AWSStackSetOnboardingCoverageExpectation{
-		ExpectedAccounts:        expectation.ExpectedAccounts,
-		ExpectedRegions:         expectation.ExpectedRegions,
-		ExpectedInstances:       expectation.ExpectedInstances,
-		ExpectedCoverageTargets: expectation.ExpectedCoverage,
-		CoveragePercent:         expectation.CoveragePercent,
-		GlobalServiceNotes:      expectation.GlobalServiceNotes,
+		ExpectedAccounts:             expectation.ExpectedAccounts,
+		ExpectedAccountsKnown:        true,
+		ExpectedRegions:              expectation.ExpectedRegions,
+		ExpectedRegionsKnown:         true,
+		ExpectedInstances:            expectation.ExpectedInstances,
+		ExpectedInstancesKnown:       true,
+		ExpectedCoverageTargets:      expectation.ExpectedCoverage,
+		ExpectedCoverageTargetsKnown: true,
+		CoveragePercent:              expectation.CoveragePercent,
+		CoveragePercentKnown:         true,
+		GlobalServiceNotes:           expectation.GlobalServiceNotes,
+	}
+}
+
+func unknownAWSStackSetCoverageExpectation(expectedRegions int, note string) AWSStackSetOnboardingCoverageExpectation {
+	return AWSStackSetOnboardingCoverageExpectation{
+		ExpectedRegions:              expectedRegions,
+		ExpectedAccountsKnown:        false,
+		ExpectedRegionsKnown:         true,
+		ExpectedInstancesKnown:       false,
+		ExpectedCoverageTargetsKnown: false,
+		CoveragePercentKnown:         false,
+		GlobalServiceNotes:           note,
 	}
 }
 
@@ -633,8 +659,11 @@ func mapAWSStackSetSummary(summary awscontract.StackSetOnboardingSummary) AWSSta
 	}
 	return AWSStackSetOnboardingSummary{
 		TargetAccounts:       summary.TargetAccounts,
+		TargetAccountsKnown:  true,
 		TargetRegions:        summary.TargetRegions,
+		TargetRegionsKnown:   true,
 		TotalInstances:       summary.TotalInstances,
+		TotalInstancesKnown:  true,
 		PendingInstances:     summary.PendingInstances,
 		ActiveInstances:      summary.ActiveInstances,
 		BlockedInstances:     summary.BlockedInstances,
@@ -645,7 +674,19 @@ func mapAWSStackSetSummary(summary awscontract.StackSetOnboardingSummary) AWSSta
 		UnsupportedInstances: summary.UnsupportedInstances,
 		ResumableInstances:   summary.ResumableInstances,
 		DeployedPercent:      summary.DeployedPercent,
+		DeployedPercentKnown: true,
 		StateCounts:          stateCounts,
+	}
+}
+
+func unknownAWSStackSetSummary(targetRegions int) AWSStackSetOnboardingSummary {
+	return AWSStackSetOnboardingSummary{
+		TargetRegions:        targetRegions,
+		TargetAccountsKnown:  false,
+		TargetRegionsKnown:   true,
+		TotalInstancesKnown:  false,
+		DeployedPercentKnown: false,
+		StateCounts:          map[string]int{},
 	}
 }
 
