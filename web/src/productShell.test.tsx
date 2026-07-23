@@ -15935,7 +15935,9 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
   it('shows an inline posture error but keeps the rest of the drilldown usable', async () => {
     await renderRepositoryDetail({ postureError: { message: 'posture rate limited', status: 429 } });
     // Findings queue still rendered.
-    await screen.findByText(/Default branch protection is unprotected/i);
+    // Finding title appears in both the queue panel and the paths panel now
+    // that paths render the actual finding chain, so scope to the queue.
+    await within(await screen.findByLabelText('Prioritized findings queue')).findByText(/Default branch protection is unprotected/i);
     // Posture panel shows an inline alert without breaking the page. Wait for the
     // async state update rather than reading synchronously: the posture request
     // rejects on a separate promise from the scans/findings/graph fetch, and its
@@ -16276,7 +16278,9 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
       </MemoryRouter>
     );
 
-    await screen.findByText(/Default branch protection is unprotected/i);
+    // Finding title appears in both the queue panel and the paths panel now
+    // that paths render the actual finding chain, so scope to the queue.
+    await within(await screen.findByLabelText('Prioritized findings queue')).findByText(/Default branch protection is unprotected/i);
     // Posture panel shows the empty state, not an error banner.
     expect(await screen.findByText(/No posture collected/i)).toBeInTheDocument();
     // The posture endpoint was never called for a PAT connection.
@@ -16326,20 +16330,23 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
       ]
     };
     // Provide open findings whose IDs match each score so the active-findings
-    // filter that the top-paths list applies does not remove them.
+    // filter that the top-paths list applies does not remove them. Titles
+    // are set from the score name so the ordering assertions can look at
+    // the row header (which uses the finding title, not id).
     const activeFindings: Finding[] = ['lower-score', 'highest-score', 'middle-score'].map((id) => ({
       ...postureFinding,
       id,
+      title: `Finding ranked ${id}`,
       lifecycle_status: 'open'
     }));
     await renderRepositoryDetail({ findings: activeFindings, riskGraph: unsortedScoresGraph });
     const pathsList = (await screen.findByLabelText('Top blast-radius paths')).querySelector('ol');
     expect(pathsList).not.toBeNull();
     const rows = (pathsList as HTMLElement).querySelectorAll('li');
-    expect(rows[0].textContent).toContain('highest-score');
+    expect(rows[0].textContent).toContain('Finding ranked highest-score');
     expect(rows[0].textContent).toContain('score 95');
-    expect(rows[1].textContent).toContain('middle-score');
-    expect(rows[2].textContent).toContain('lower-score');
+    expect(rows[1].textContent).toContain('Finding ranked middle-score');
+    expect(rows[2].textContent).toContain('Finding ranked lower-score');
   });
 
   it('does not render the previous repository\'s data when a reload rejects on error', async () => {
@@ -16350,7 +16357,9 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     await renderRepositoryDetail();
     // Confirm repo A rendered fully.
     await screen.findByRole('heading', { level: 2, name: targetRepository });
-    await screen.findByText(/Default branch protection is unprotected/i);
+    // Finding title appears in both the queue panel and the paths panel now
+    // that paths render the actual finding chain, so scope to the queue.
+    await within(await screen.findByLabelText('Prioritized findings queue')).findByText(/Default branch protection is unprotected/i);
     cleanup();
     vi.restoreAllMocks();
     vi.resetModules();
@@ -16552,7 +16561,9 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     );
 
     // Wait until the drilldown has finished settling (the queue rendered).
-    await screen.findByText(/Default branch protection is unprotected/i);
+    // Finding title appears in both the queue panel and the paths panel now
+    // that paths render the actual finding chain, so scope to the queue.
+    await within(await screen.findByLabelText('Prioritized findings queue')).findByText(/Default branch protection is unprotected/i);
 
     // Only one call per repository — listRepoScans/Findings/getRepoRiskGraph
     // each fired for the target once, not twice. useGitHubDomainData's own
@@ -16809,7 +16820,10 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     );
 
     // Findings, scan, and blast-radius paths render before posture settles.
-    expect(await screen.findByText(/Default branch protection is unprotected/i)).toBeInTheDocument();
+    // Scope to the queue panel because the finding title also appears in
+    // the paths panel's node chain.
+    await within(await screen.findByLabelText('Prioritized findings queue'))
+      .findByText(/Default branch protection is unprotected/i);
     expect(screen.getByText(/Complete scan/i)).toBeInTheDocument();
     expect(screen.getByLabelText('Top blast-radius paths')).toBeInTheDocument();
     // Posture panel shows its own loading indicator, not the drilldown\'s route loader.
@@ -16913,12 +16927,129 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(screen.queryByText(/finding-closed-0/i)).not.toBeInTheDocument();
   });
 
+  it('renders the actual blast-radius node chain from riskGraph.nodes and riskGraph.edges', async () => {
+    // Panel promises "Top blast-radius paths" — it must show the reachable
+    // workflow/identity/runner/environment/control chain the finding
+    // touches, not just the finding id and score. Walker starts at the
+    // finding's finding_node_id, follows outgoing edges, and prefers known
+    // edges over reachability_unknown.
+    const finding: Finding = {
+      ...postureFinding,
+      id: 'chain-finding',
+      title: 'Workflow reaches production cloud role',
+      lifecycle_status: 'open'
+    };
+    const chainGraph: RepoRiskGraph = {
+      repository: targetRepository,
+      nodes: [
+        { id: 'node-finding', kind: 'finding', label: 'chain-finding', evidence_state: 'known' },
+        { id: 'node-workflow', kind: 'workflow', label: 'deploy.yml', evidence_state: 'known' },
+        { id: 'node-secret', kind: 'secret', label: 'AWS_DEPLOY_KEY', evidence_state: 'known' },
+        { id: 'node-cloud-role', kind: 'cloud_role', label: 'prod-deploy-role', evidence_state: 'known' },
+        { id: 'node-speculative', kind: 'environment', label: 'speculative-env', evidence_state: 'unknown' }
+      ],
+      edges: [
+        {
+          id: 'e1', kind: 'finding_affects_workflow',
+          from_node_id: 'node-finding', to_node_id: 'node-workflow',
+          evidence_state: 'known'
+        },
+        {
+          id: 'e2', kind: 'job_uses_secret',
+          from_node_id: 'node-workflow', to_node_id: 'node-secret',
+          evidence_state: 'known'
+        },
+        {
+          id: 'e3', kind: 'oidc_subject_can_assume_role',
+          from_node_id: 'node-secret', to_node_id: 'node-cloud-role',
+          evidence_state: 'known'
+        },
+        // A reachability_unknown edge exists from the workflow, but the
+        // known-edge walk above should reach cloud_role first; the
+        // speculative node must not be preferred over the concrete chain.
+        {
+          id: 'e4-unknown', kind: 'reachability_unknown',
+          from_node_id: 'node-workflow', to_node_id: 'node-speculative',
+          evidence_state: 'unknown'
+        }
+      ],
+      scores: [
+        {
+          finding_id: finding.id, finding_node_id: 'node-finding',
+          score: 88, severity: 'high', confidence: 0.9,
+          factors: {
+            severity: 80, confidence: 90, exploitability: 60, privilege: 40,
+            exposure: 55, environment_criticality: 30, freshness: 100,
+            posture_amplifier: 70
+          },
+          unknowns: []
+        }
+      ],
+      summary: {
+        finding_count: 1, node_count: 5, edge_count: 4, unknown_node_count: 1,
+        unknown_edge_count: 1, high_risk_findings: 1, critical_findings: 0
+      }
+    };
+
+    await renderRepositoryDetail({ findings: [finding], riskGraph: chainGraph });
+
+    const pathsPanel = await screen.findByLabelText('Top blast-radius paths');
+    const pathsList = pathsPanel.querySelector('ol');
+    expect(pathsList).not.toBeNull();
+    const rows = (pathsList as HTMLElement).querySelectorAll('li');
+    expect(rows.length).toBe(1);
+
+    // The concrete workflow → secret → cloud_role chain renders in the row.
+    expect(rows[0].textContent).toContain('deploy.yml');
+    expect(rows[0].textContent).toContain('AWS_DEPLOY_KEY');
+    expect(rows[0].textContent).toContain('prod-deploy-role');
+    // Node kinds are labeled so the operator can tell workflow from role.
+    expect(rows[0].textContent).toContain('Workflow');
+    expect(rows[0].textContent).toContain('Cloud Role');
+  });
+
+  it('falls back to a "no reachability" hint when the graph has no nodes or edges', async () => {
+    // Some risk-graph responses carry only scores (older summaries or
+    // partial collection). The paths panel must still render with the
+    // finding title/score, but say explicitly no reachability chain
+    // is available — never claim a chain that isn't in the data.
+    const finding: Finding = {
+      ...postureFinding,
+      id: 'no-chain-finding',
+      title: 'Finding with no reachability data',
+      lifecycle_status: 'open'
+    };
+    const scoresOnlyGraph: RepoRiskGraph = {
+      repository: targetRepository,
+      nodes: [], edges: [],
+      scores: [
+        {
+          finding_id: finding.id, finding_node_id: 'node-x',
+          score: 72, severity: 'high', confidence: 0.8,
+          factors: {
+            severity: 70, confidence: 80, exploitability: 50, privilege: 30,
+            exposure: 40, environment_criticality: 10, freshness: 100, posture_amplifier: 0
+          },
+          unknowns: []
+        }
+      ],
+      summary: {
+        finding_count: 1, node_count: 0, edge_count: 0, unknown_node_count: 0,
+        unknown_edge_count: 0, high_risk_findings: 1, critical_findings: 0
+      }
+    };
+    await renderRepositoryDetail({ findings: [finding], riskGraph: scoresOnlyGraph });
+    const pathsPanel = await screen.findByLabelText('Top blast-radius paths');
+    expect(within(pathsPanel).getByText(/Finding with no reachability data/i)).toBeInTheDocument();
+    expect(within(pathsPanel).getByText(/No reachability graph collected/i)).toBeInTheDocument();
+  });
+
   it('filters top blast-radius paths so a closed finding cannot displace active risks', async () => {
     // A high-scoring path belongs to a fixed finding — it must not appear in
     // the top-N list even though its raw score is the highest, because the
     // finding itself is no longer active.
-    const activeOpen: Finding = { ...postureFinding, id: 'active-open', lifecycle_status: 'open' };
-    const closedFixed: Finding = { ...postureFinding, id: 'closed-fixed', lifecycle_status: 'fixed' };
+    const activeOpen: Finding = { ...postureFinding, id: 'active-open', title: 'Active open finding', lifecycle_status: 'open' };
+    const closedFixed: Finding = { ...postureFinding, id: 'closed-fixed', title: 'Closed fixed finding', lifecycle_status: 'fixed' };
     const graphWithClosedTopScore: RepoRiskGraph = {
       repository: targetRepository,
       nodes: [], edges: [],
@@ -16958,8 +17089,8 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     const rows = (pathsList as HTMLElement).querySelectorAll('li');
     // Only the active finding appears — the closed-but-highest-scoring one is filtered.
     expect(rows.length).toBe(1);
-    expect(rows[0].textContent).toContain('active-open');
-    expect(rows[0].textContent).not.toContain('closed-fixed');
+    expect(rows[0].textContent).toContain('Active open finding');
+    expect(rows[0].textContent).not.toContain('Closed fixed finding');
   });
 
   it('renders the API-provided posture check reason on permission-limited and unavailable checks', async () => {

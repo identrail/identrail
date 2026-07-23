@@ -5769,6 +5769,34 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   gap: 0.2rem;
 }
 
+/*
+ * Blast-radius chain rendered inside the paths panel. Each hop shows the
+ * node kind as a small pill followed by the node label; unknown-edge hops
+ * use a dashed arrow so a speculative reachability chain visually differs
+ * from a concrete one. Uses --app-dim so both light and dark themes stay
+ * readable against the panel background.
+ */
+.idt-github-intelligence-blast-radius {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  color: var(--app-dim);
+  font-size: 0.86rem;
+  margin: 0.3rem 0 0;
+}
+
+.idt-github-intelligence-blast-radius-hop {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.idt-github-intelligence-blast-radius-hop.is-unknown {
+  opacity: 0.75;
+  font-style: italic;
+}
+
 .idt-github-intelligence-trend article {
   border: 1px solid rgba(126, 157, 211, 0.18);
   border-radius: 8px;

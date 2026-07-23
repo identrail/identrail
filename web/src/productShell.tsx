@@ -193,7 +193,11 @@ import {
   type RepoFindingsSummary,
   type RepoFindingLifecycleStatus,
   type RepoRiskGraph,
+  type RepoRiskGraphEdge,
+  type RepoRiskGraphEdgeKind,
   type RepoRiskGraphFindingScore,
+  type RepoRiskGraphNode,
+  type RepoRiskGraphNodeKind,
   type RepoScanRequest,
   type RepoScanRecord,
   type TrendPoint,
@@ -25126,6 +25130,105 @@ function isActiveRepoIntelligenceFinding(finding: ApiFinding): boolean {
   return (REPO_INTELLIGENCE_ACTIVE_LIFECYCLE_STATUSES as readonly string[]).includes(status);
 }
 
+// Cap how many nodes a blast-radius chain shows. GitHub finding graphs can
+// reach ~10 hops (finding → workflow → job → secret → token → oidc_subject
+// → cloud_role → environment → …), but past 4 hops the chain stops helping
+// an operator scan the panel — they're better off opening the risk-graph
+// detail view for that finding.
+const REPO_INTELLIGENCE_PATH_MAX_HOPS = 4;
+
+// Node kinds the operator wants to see on a blast-radius chain. Repository/
+// default_branch and "finding" itself add no information to the path
+// summary (the operator already knows they're viewing a finding in this
+// repository), so they're skipped when the walker picks the next hop.
+const REPO_INTELLIGENCE_PATH_UNINFORMATIVE_KINDS = new Set<RepoRiskGraphNodeKind>([
+  'repository',
+  'default_branch',
+  'finding'
+]);
+
+type RepoIntelligencePathHop = {
+  node_id: string;
+  kind: RepoRiskGraphNodeKind;
+  label: string;
+  edge_kind: RepoRiskGraphEdgeKind | null;
+  evidence_state: 'known' | 'unknown';
+};
+
+// Derive the blast-radius chain from the risk graph by walking outgoing
+// edges from the finding's node until either (a) the walker reaches
+// REPO_INTELLIGENCE_PATH_MAX_HOPS informative hops or (b) the current node
+// has no outgoing edge to an unvisited informative node. The returned
+// chain excludes the finding node itself — that's already labeled in the
+// row header — so the panel shows the reachable surface.
+//
+// Prefers "known" edges over "unknown" ones so a concrete
+// finding → workflow → cloud_role chain wins over a reachability_unknown
+// projection, matching how the risk graph flags speculative edges.
+function deriveRepoIntelligenceBlastRadiusPath(
+  graph: RepoRiskGraph,
+  startNodeID: string
+): RepoIntelligencePathHop[] {
+  if (!startNodeID) return [];
+  const nodesByID = new Map<string, RepoRiskGraphNode>();
+  graph.nodes.forEach((node) => nodesByID.set(node.id, node));
+  const edgesByFrom = new Map<string, RepoRiskGraphEdge[]>();
+  graph.edges.forEach((edge) => {
+    const list = edgesByFrom.get(edge.from_node_id);
+    if (list) {
+      list.push(edge);
+    } else {
+      edgesByFrom.set(edge.from_node_id, [edge]);
+    }
+  });
+  const visited = new Set<string>([startNodeID]);
+  const chain: RepoIntelligencePathHop[] = [];
+  let currentID = startNodeID;
+  while (chain.length < REPO_INTELLIGENCE_PATH_MAX_HOPS) {
+    const outgoing = edgesByFrom.get(currentID) ?? [];
+    // Rank candidates so a "known" outgoing edge to an informative node
+    // wins over both unknown edges and edges leading back to a boring
+    // node (repository / default_branch / another finding).
+    const candidates = outgoing
+      .map((edge) => ({ edge, target: nodesByID.get(edge.to_node_id) ?? null }))
+      .filter(({ edge, target }) => target !== null && !visited.has(edge.to_node_id));
+    if (candidates.length === 0) break;
+    candidates.sort((left, right) => {
+      const leftKnown = left.edge.evidence_state === 'known' ? 0 : 1;
+      const rightKnown = right.edge.evidence_state === 'known' ? 0 : 1;
+      if (leftKnown !== rightKnown) return leftKnown - rightKnown;
+      const leftBoring = REPO_INTELLIGENCE_PATH_UNINFORMATIVE_KINDS.has(
+        (left.target as RepoRiskGraphNode).kind
+      )
+        ? 1
+        : 0;
+      const rightBoring = REPO_INTELLIGENCE_PATH_UNINFORMATIVE_KINDS.has(
+        (right.target as RepoRiskGraphNode).kind
+      )
+        ? 1
+        : 0;
+      return leftBoring - rightBoring;
+    });
+    const next = candidates[0];
+    const nextTarget = next.target as RepoRiskGraphNode;
+    visited.add(next.edge.to_node_id);
+    // Uninformative next hops still consume a slot for cycle-avoidance,
+    // but don't get pushed to the visible chain — the operator does not
+    // benefit from seeing "→ repository" in the summary.
+    if (!REPO_INTELLIGENCE_PATH_UNINFORMATIVE_KINDS.has(nextTarget.kind)) {
+      chain.push({
+        node_id: nextTarget.id,
+        kind: nextTarget.kind,
+        label: nextTarget.label || formatTokenLabel(nextTarget.kind),
+        edge_kind: next.edge.kind,
+        evidence_state: next.edge.evidence_state
+      });
+    }
+    currentID = next.edge.to_node_id;
+  }
+  return chain;
+}
+
 // Merge graph.scores into findings by finding_id so the queue can sort by
 // graph-aware blast-radius score rather than just severity. Findings that
 // have no matching score (e.g. an older finding without a fresh risk graph)
@@ -25543,9 +25646,24 @@ export function ProductGitHubRepositoryDetailPage() {
   // final rank.
   const topPaths = useMemo(() => {
     const activeFindingIDs = new Set(queue.map(({ finding }) => finding.id));
+    const findingTitleByID = new Map(queue.map(({ finding }) => [finding.id, finding.title || finding.detector || finding.type]));
     return sortRepoRiskGraphScores(riskGraph?.scores ?? [])
       .filter((score) => activeFindingIDs.has(score.finding_id))
-      .slice(0, REPO_INTELLIGENCE_TOP_PATHS_LIMIT);
+      .slice(0, REPO_INTELLIGENCE_TOP_PATHS_LIMIT)
+      // Enrich each score with the actual node chain it reaches through the
+      // graph's outgoing edges so the panel shows the workflow/identity/
+      // runner/environment/control relationships that constitute a blast
+      // radius, not just the finding score. Falls back to an empty chain
+      // when the graph has no nodes/edges (older summaries without
+      // reachability data) — the row still renders with the finding header
+      // and score in that case.
+      .map((score) => ({
+        score,
+        title: findingTitleByID.get(score.finding_id) ?? score.finding_id,
+        chain: riskGraph
+          ? deriveRepoIntelligenceBlastRadiusPath(riskGraph, score.finding_node_id)
+          : []
+      }));
   }, [queue, riskGraph]);
   // Present repository and organization posture together, tagged by scope so
   // operators can tell inherited org policy gaps from repository ones. Secure
@@ -25948,15 +26066,34 @@ export function ProductGitHubRepositoryDetailPage() {
                 </p>
               ) : (
                 <ol className="idt-github-intelligence-list">
-                  {topPaths.map((path) => (
-                    <li key={path.finding_node_id || path.finding_id} className="idt-github-intelligence-row idt-github-intelligence-row-drilldown">
-                      <span className="idt-source-status-pill is-warning">score {path.score}</span>
+                  {topPaths.map(({ score, title, chain }) => (
+                    <li key={score.finding_node_id || score.finding_id} className="idt-github-intelligence-row idt-github-intelligence-row-drilldown">
+                      <span className="idt-source-status-pill is-warning">score {score.score}</span>
                       <div>
-                        <strong>Finding {path.finding_id}</strong>
+                        <strong>{title}</strong>
                         <p className="idt-app-kicker">
-                          severity {path.severity} • confidence {(path.confidence * 100).toFixed(0)}%
-                          {path.factors.posture_amplifier ? ` • posture amplifier ${path.factors.posture_amplifier}` : ''}
+                          severity {score.severity} • confidence {(score.confidence * 100).toFixed(0)}%
+                          {score.factors.posture_amplifier ? ` • posture amplifier ${score.factors.posture_amplifier}` : ''}
                         </p>
+                        {chain.length > 0 ? (
+                          // Render the node chain the finding reaches through
+                          // the graph. "Unknown" edges are visually marked
+                          // (dashed arrow) so the operator can tell a concrete
+                          // reachability path from a speculative one.
+                          <p className="idt-github-intelligence-blast-radius" aria-label={`Blast radius: ${chain.map((hop) => hop.label).join(' -> ')}`}>
+                            {chain.map((hop, index) => (
+                              <span key={hop.node_id} className={`idt-github-intelligence-blast-radius-hop is-${hop.evidence_state}`}>
+                                <span aria-hidden="true">{index === 0 ? '→ ' : hop.evidence_state === 'unknown' ? ' ⇢ ' : ' → '}</span>
+                                <span className={`idt-source-status-pill is-neutral`}>{formatTokenLabel(hop.kind)}</span>
+                                <span> {hop.label}</span>
+                              </span>
+                            ))}
+                          </p>
+                        ) : (
+                          <p className="idt-app-kicker">
+                            No reachability graph collected for this finding.
+                          </p>
+                        )}
                       </div>
                     </li>
                   ))}
