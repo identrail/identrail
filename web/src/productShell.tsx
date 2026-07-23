@@ -25271,7 +25271,14 @@ async function fetchRepoIntelligenceFindings(
 export function ProductGitHubRepositoryDetailPage() {
   const { scope, environmentScope, selectedEnvironmentID, onChangeEnvironment } = useGitHubDomainScope();
   const availability = useGitHubAvailability();
-  const domainData = useGitHubDomainData(scope, selectedEnvironmentID, availability.available, 5);
+  // scanLimit=0 skips useGitHubDomainData's recent-scan preload: the drilldown
+  // reads scans through findRepoIntelligenceLatestScan (its own paginator)
+  // rather than domainData.scans. Passing 5 here would paginate
+  // listRepoScansForSelectedRepositories with 5-record pages for up to
+  // GITHUB_MAX_SCAN_PAGE_FETCHES sequential requests before the drilldown
+  // effect can even start, since the effect waits for domainData.loading to
+  // clear. The drilldown only needs connection status from useGitHubDomainData.
+  const domainData = useGitHubDomainData(scope, selectedEnvironmentID, availability.available, 0);
   const location = useLocation();
 
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
@@ -25290,8 +25297,10 @@ export function ProductGitHubRepositoryDetailPage() {
   const [organizationPosture, setOrganizationPosture] = useState<GitHubOrganizationPosture | null>(null);
   const [loading, setLoading] = useState(false);
   const [postureLoading, setPostureLoading] = useState(false);
+  const [riskGraphLoading, setRiskGraphLoading] = useState(false);
   const [error, setError] = useState('');
   const [postureError, setPostureError] = useState('');
+  const [riskGraphError, setRiskGraphError] = useState('');
   const [previewFindingID, setPreviewFindingID] = useState('');
   const [preview, setPreview] = useState<RepoFindingRemediationPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -25307,6 +25316,8 @@ export function ProductGitHubRepositoryDetailPage() {
     setFindingsSummary(null);
     setFindingsTruncated(false);
     setRiskGraph(null);
+    setRiskGraphError('');
+    setRiskGraphLoading(false);
     setPosture(null);
     setOrganizationPosture(null);
     setPostureError('');
@@ -25395,7 +25406,31 @@ export function ProductGitHubRepositoryDetailPage() {
     // connector endpoint that carries the project_id.
     const scansPromise = findRepoIntelligenceLatestScan(requestedRepository, auth, isCurrent);
     const findingsPromise = fetchRepoIntelligenceFindings(requestedRepository, auth, isCurrent);
-    const graphPromise = apiClient.getRepoRiskGraph({ repository: requestedRepository }, auth);
+
+    // Risk graph runs on its own lane, separate from the main Promise.all,
+    // for the same reason posture does: it's optional enrichment (the queue
+    // already falls back to severity ordering when riskGraph is null) and
+    // its endpoint can be slow or unavailable independent of scans and
+    // findings. Holding scan and findings display behind a rejected or slow
+    // getRepoRiskGraph would render the drilldown as an error banner over
+    // the previous reset's empty "No scan yet" / "No findings" state even
+    // though both of those requests completed successfully.
+    setRiskGraphLoading(true);
+    apiClient
+      .getRepoRiskGraph({ repository: requestedRepository }, auth)
+      .then((graph) => {
+        if (requestID !== requestRef.current) return;
+        setRiskGraph(graph);
+      })
+      .catch((graphFetchError: unknown) => {
+        if (requestID !== requestRef.current) return;
+        setRiskGraphError(formatAPIError(graphFetchError, 'Unable to load repository risk graph.'));
+      })
+      .finally(() => {
+        if (requestID === requestRef.current) {
+          setRiskGraphLoading(false);
+        }
+      });
 
     // Posture runs on its own lane, separate from the main Promise.all. The
     // GitHub App posture endpoint performs live repository and organization
@@ -25430,15 +25465,14 @@ export function ProductGitHubRepositoryDetailPage() {
         });
     }
 
-    Promise.all([scansPromise, findingsPromise, graphPromise])
-      .then(([scanResult, findingsResult, graph]) => {
+    Promise.all([scansPromise, findingsPromise])
+      .then(([scanResult, findingsResult]) => {
         if (requestID !== requestRef.current) return;
         setScan(scanResult.scan);
         setScanLookupTruncated(scanResult.truncated);
         setFindings(findingsResult.items);
         setFindingsSummary(findingsResult.summary);
         setFindingsTruncated(findingsResult.truncated);
-        setRiskGraph(graph);
       })
       .catch((fetchError: unknown) => {
         if (requestID !== requestRef.current) return;
@@ -25837,7 +25871,7 @@ export function ProductGitHubRepositoryDetailPage() {
             )}
           </section>
 
-          {topPaths.length > 0 ? (
+          {topPaths.length > 0 || riskGraphLoading || riskGraphError ? (
             <section
               className="idt-github-intelligence-panel idt-github-intelligence-paths"
               aria-label="Top blast-radius paths"
@@ -25846,20 +25880,32 @@ export function ProductGitHubRepositoryDetailPage() {
                 <p className="idt-app-kicker">Risk graph</p>
                 <h3>Top blast-radius paths</h3>
               </header>
-              <ol className="idt-github-intelligence-list">
-                {topPaths.map((path) => (
-                  <li key={path.finding_node_id || path.finding_id} className="idt-github-intelligence-row idt-github-intelligence-row-drilldown">
-                    <span className="idt-source-status-pill is-warning">score {path.score}</span>
-                    <div>
-                      <strong>Finding {path.finding_id}</strong>
-                      <p className="idt-app-kicker">
-                        severity {path.severity} • confidence {(path.confidence * 100).toFixed(0)}%
-                        {path.factors.posture_amplifier ? ` • posture amplifier ${path.factors.posture_amplifier}` : ''}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
+              {riskGraphLoading ? (
+                <DomainLoadingState label="Loading repository risk graph" />
+              ) : riskGraphError ? (
+                // Risk graph is optional enrichment: the queue above still
+                // renders sorted by severity when the graph is unavailable.
+                // Surface the graph error inline so operators know the top
+                // paths panel is degraded, not silently hiding data.
+                <p role="alert" className="idt-app-alert idt-app-alert-warning">
+                  {riskGraphError}
+                </p>
+              ) : (
+                <ol className="idt-github-intelligence-list">
+                  {topPaths.map((path) => (
+                    <li key={path.finding_node_id || path.finding_id} className="idt-github-intelligence-row idt-github-intelligence-row-drilldown">
+                      <span className="idt-source-status-pill is-warning">score {path.score}</span>
+                      <div>
+                        <strong>Finding {path.finding_id}</strong>
+                        <p className="idt-app-kicker">
+                          severity {path.severity} • confidence {(path.confidence * 100).toFixed(0)}%
+                          {path.factors.posture_amplifier ? ` • posture amplifier ${path.factors.posture_amplifier}` : ''}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
             </section>
           ) : null}
 

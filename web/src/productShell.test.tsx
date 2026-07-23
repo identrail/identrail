@@ -15915,6 +15915,129 @@ describe('ProductGitHubRepositoryDetailPage (#1712)', () => {
     expect(screen.getByText(/Enable branch protection/i)).toBeInTheDocument();
   });
 
+  it('commits scan and findings even when the risk graph request rejects', async () => {
+    // Risk graph runs on its own lane, so a graph failure must not block the
+    // scan and findings panels: the queue already falls back to severity
+    // ordering when riskGraph is null. Without the split, Promise.all would
+    // reject on the graph error and the operator would see the shared error
+    // banner over "No scan yet" / "No findings" even though the actual scan
+    // and findings requests completed successfully.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding, workflowFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockRejectedValue(
+      new api.ApiError('risk graph unavailable', 503)
+    );
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Scan strip and findings queue commit despite the graph failure.
+    expect(await screen.findByText(/Complete scan/i)).toBeInTheDocument();
+    const queueList = await screen.findByLabelText('Prioritized findings queue');
+    expect(within(queueList).getByText(/Default branch protection is unprotected/i)).toBeInTheDocument();
+    expect(within(queueList).getByText(/Workflow OIDC trust is broad/i)).toBeInTheDocument();
+
+    // Graph error surfaces inline in its own panel; shared error banner stays clear.
+    expect(await screen.findByText(/risk graph unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn't load repository intelligence/i)).not.toBeInTheDocument();
+  });
+
+  it('does not preload workspace-wide recent scans through useGitHubDomainData', async () => {
+    // The drilldown reads scans through its own paginated
+    // findRepoIntelligenceLatestScan, not domainData.scans. Passing a non-zero
+    // scanLimit to useGitHubDomainData would paginate
+    // listRepoScansForSelectedRepositories with narrow pages before the
+    // drilldown effect can even start, since the effect waits for
+    // domainData.loading to clear. Assert the preload never runs.
+    mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
+    mockBackendFeatures({ github: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getProject').mockResolvedValue({
+      project: {
+        tenant_id: 'tenant-a', workspace_id: 'workspace-a', project_id: 'production-platform',
+        name: 'Production Platform', slug: 'production-platform', description: '',
+        created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z'
+      }
+    });
+    vi.spyOn(api.apiClient, 'getGitHubConnectorStatus').mockResolvedValue({ connection: connectedGitHub });
+    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({ items: [completedScan] });
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [postureFinding] });
+    vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockResolvedValue(riskGraphWithScores);
+    vi.spyOn(api.apiClient, 'getGitHubConnectorRepositoryPosture').mockResolvedValue({
+      connector_id: 'github-app', provider: 'github_app',
+      posture: {
+        repository: targetRepository, collected_at: '2026-05-17T10:56:00Z',
+        checks: [{ id: 'branch-protection', category: 'branch protection', state: 'secure', summary: 'secure' }]
+      }
+    });
+
+    const productShell = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={[`/app/tenant-a/workspace-a/github/repositories/detail?environment=production-platform&repository=${encodeURIComponent(targetRepository)}`]}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/github/repositories/detail"
+            element={<productShell.ProductGitHubRepositoryDetailPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Wait for the drilldown to finish its own scan lookup so we know the
+    // effect has run.
+    expect(await screen.findByText(/Complete scan/i)).toBeInTheDocument();
+
+    // Every listRepoScans call must be the drilldown's own paginator (which
+    // uses REPO_INTELLIGENCE_SCAN_PAGE_LIMIT=50), not the preload's narrow
+    // 5-record page. If useGitHubDomainData had been given a non-zero
+    // scanLimit, it would call listRepoScans with limit=5.
+    for (const call of listRepoScans.mock.calls) {
+      const filters = call[0];
+      expect(filters?.limit).not.toBe(5);
+    }
+  });
+
   it('paginates listRepoScans until the target repository is found rather than reading only the first page', async () => {
     mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: false });
     mockBackendFeatures({ github: true });
